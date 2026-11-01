@@ -1,12 +1,12 @@
 # 320x240
 
-minspec's display floor, a 320x240 SPI panel: 320x240, 24-bit color, drawn in `unscii-8` at 8x8, 40x30 cells, the card on 5 screens, shown together in the collage.
+minspec's display floor, a 320x240 SPI panel: 320x240, 24-bit color, drawn in `unscii-8` at 8x8, 40x30 cells, the card on 5 screens and vtium's message bars on two more, shown together in the collage.
 
 ![320x240](collage.png)
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 320x240, 24-bit color | small color LCD | 8x8 | 40x30 | `unscii-8`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png), [screen-5.png](screen-5.png) |
+| 320x240, 24-bit color | small color LCD | 8x8 | 40x30 | `unscii-8`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png), [screen-5.png](screen-5.png), [screen-6.png](screen-6.png), [screen-7.png](screen-7.png) |
 
 ## Why this font
 

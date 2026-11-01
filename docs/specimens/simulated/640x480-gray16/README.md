@@ -2,13 +2,13 @@
 
 **A simulation of the panel's conversion, not vtium's output.** vtium draws this display as color; these screens are that drawing taken through the conversion the panel's Linux driver makes (v7.3): each pixel to gray8 by BT.601 luma, `(77r + 150g + 29b) / 256` (`drivers/gpu/drm/drm_format_internal.h:39-47`), then to the panel's levels as ssd130x's SSD132x path (`drivers/gpu/drm/solomon/ssd130x.c:968` and `:801-809`: gray8 >> 4, two 4-bit pixels a byte). Each level is drawn as the gray it is on a panel whose levels are evenly spaced. They judge nothing: `make specimens-check` reports a stale one apart from the specimens that judge vtium.
 
-A 640x480 panel of 16 gray levels, as the SSD132x panels take: 640x480, gray16, simulated, drawn in `unifont` at 8x16, 80x30 cells, the card on 3 screens, shown together in the collage.
+A 640x480 panel of 16 gray levels, as the SSD132x panels take: 640x480, gray16, simulated, drawn in `unifont` at 8x16, 80x30 cells, the card on 3 screens and vtium's message bars on one more, shown together in the collage.
 
 ![640x480-gray16](collage.png)
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 640x480, gray16, simulated | gray panel | 8x16 | 80x30 | `unifont`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
+| 640x480, gray16, simulated | gray panel | 8x16 | 80x30 | `unifont`, built in | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png) |
 
 ## Why this font
 

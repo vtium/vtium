@@ -3537,6 +3537,38 @@ fn osc50_after(args: &[&str], before: &str, script: &str, fonts: Sources) -> Har
     h
 }
 
+/// ADR-1401 D7: the start logs each error of its head file with the file
+/// and the line, and each warning with its line, while the console shows
+/// only the outcome's line.
+// covers: platform.heads.policy
+#[test]
+fn the_start_logs_each_head_file_error_with_its_line() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let dir = Scratch::new("vtium-boot-head-file-log");
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).expect("0700");
+    let path = dir.path().join("heads.conf");
+    let text = "version = 1\n[head desk]\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ndisplay * -> desk\ninput * -> desc\n";
+    std::fs::write(&path, text).expect("the head file");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
+    let uid = std::fs::metadata(dir.path()).expect("the directory").uid();
+    let trust = vtium_config::Trust::owner(uid).below(dir.path());
+    logged();
+    let start = vtium::head::rules(&path, &trust);
+    let lines = logged();
+    assert_eq!(
+        start.line(),
+        Some("config partly invalid, running what's valid")
+    );
+    let at = |n: usize| format!("{}:{n}: ", path.display());
+    for n in [4, 7, 8] {
+        assert!(
+            lines.iter().any(|l| l.starts_with(&at(n))),
+            "line {n} logged: {lines:#?}"
+        );
+    }
+    assert!(lines.iter().all(|l| !l.starts_with(&at(6))), "{lines:#?}");
+}
+
 /// The log lines this thread wrote since the last call.
 fn logged() -> Vec<String> {
     use std::cell::RefCell;

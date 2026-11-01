@@ -16,7 +16,7 @@ pub mod identity;
 pub(crate) mod route;
 pub(crate) mod session;
 
-use vtium_config::{By, OnLoss, Place};
+use vtium_config::{By, Place, WhenDisplayLost};
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -44,6 +44,9 @@ use crate::term::{Clock, Term, View};
 /// The grid before any display is known.
 pub const GRID: (usize, usize) = (80, 24);
 
+/// The base font's cell before any font is chosen.
+const CELL: (u32, u32) = (8, 16);
+
 /// How long a notice shows with no key reaching its head (ADR-1401 D7,
 /// probe 5).
 pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
@@ -51,6 +54,10 @@ pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
 /// The most notices a head shows at once, the newest: an invalid head
 /// file's, no keyboard found, the anti-lockout guard's and a rescue.
 pub const NOTICES_MAX: usize = 4;
+
+/// The most errors the panic screen lists, the file's first (ADR-1401
+/// D7); it counts the rest. `vtium check-config` lists them all.
+pub const PANIC_ERRORS_MAX: usize = 3;
 
 /// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
 const WHEEL_LINES: usize = 3;
@@ -113,14 +120,17 @@ pub struct Head {
     /// The configuration its consoles' command is read from: kmscon.conf's
     /// with the head's own `login` over it.
     pub(crate) login: Option<Config>,
-    /// Its last console's program ended under `oneshot`, so the head runs
-    /// no session any more.
-    pub(crate) ended: bool,
+    /// What the head shows while its shown console's session has ended,
+    /// from the catalog: the roaming chord's keys while no other console of
+    /// the head runs, else the console chord's.
+    ended_notice: String,
+    ended_notice_console: String,
     /// vtium's notices to the head (ADR-1401 D7), each once and at most
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
     /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
     notices: Vec<String>,
-    /// The notices as one text, a notice a line.
+    /// What the head shows of its own as one text, a line each: that the
+    /// shown console's session ended, above the notices.
     shown: String,
     /// When the notices end, armed at their first frame; an ended head's
     /// notice keeps no time.
@@ -137,8 +147,11 @@ pub struct Head {
     pub(crate) mark: Option<vtium_render::Mark>,
     /// The on-screen display's line, while it shows under `osd = full`.
     pub(crate) status: Option<String>,
+    /// The colors of the notices and the on-screen display, which
+    /// kmscon.conf sets for every head (ADR-1401 D5).
+    overlay_colors: crate::term::OverlayColors,
     /// What the head does when it loses its last display (ADR-1401 D8).
-    pub(crate) on_loss: OnLoss,
+    pub(crate) when_display_lost: WhenDisplayLost,
     /// When its sessions hang up, while it has no display.
     pub(crate) hangup_due: Option<Instant>,
     pub(crate) views: BTreeMap<(PathBuf, DisplayId), View>,
@@ -192,6 +205,11 @@ pub struct Head {
     pub(crate) painter: Option<Painter>,
     pub(crate) painter_refused: bool,
     pub(crate) figures: Figures,
+    /// The screen the display guard lights for a notice alone under the
+    /// closed policy ([`Head::notice_screen`]).
+    pub(crate) notice_only: bool,
+    /// The report the notice screen shows, the panic screen's.
+    report: Option<vtium_render::NoticeReport>,
 }
 
 /// A console's terminal for `config`, on [`GRID`] with the scrollback cap
@@ -218,10 +236,6 @@ pub(crate) fn terminal(
     Term::new(terminal, sync, Blink::configured(config), clock)
 }
 
-/// What a head whose session ended under `oneshot` shows in place of its
-/// session (the operator's answers on vtium/vtium#156).
-pub const ENDED: &str = "The session ended, and vtium does not start it again.";
-
 /// The scrollback memory each console takes (ADR-1401 D10): `sb-memory`,
 /// at most `cap`, the most `sb-memory` may be on the machine, shared
 /// among the most consoles every head may hold: `consoles`, or the
@@ -245,6 +259,16 @@ pub(crate) fn frit_store(store: u64, heads: usize) -> u64 {
     store
         .checked_div(u64::try_from(heads).unwrap_or(u64::MAX))
         .unwrap_or(store)
+}
+
+/// A pty's size for `grid` in cells of `cell` pixels.
+fn pty_size(grid: (usize, usize), cell: (u32, u32)) -> Size {
+    Size {
+        cols: u16::try_from(grid.0).unwrap_or(u16::MAX),
+        rows: u16::try_from(grid.1).unwrap_or(u16::MAX),
+        cell_width: cell.0,
+        cell_height: cell.1,
+    }
 }
 
 /// The text of `console`'s screen rows.
@@ -288,6 +312,7 @@ impl Head {
         let fit = Fit {
             grid: GRID,
             font_size: 0,
+            cell: CELL,
             points,
             auto_size,
         };
@@ -300,7 +325,8 @@ impl Head {
             configured: (points, auto_size),
             wanted: 1,
             login: None,
-            ended: false,
+            ended_notice: crate::notice::session_ended(),
+            ended_notice_console: crate::notice::session_ended_console(),
             notices: Vec::new(),
             shown: String::new(),
             notice_due: None,
@@ -309,7 +335,8 @@ impl Head {
             osd_seen: None,
             mark: None,
             status: None,
-            on_loss: OnLoss::Nohup,
+            overlay_colors: crate::term::OverlayColors::configured(config),
+            when_display_lost: WhenDisplayLost::Keep,
             hangup_due: None,
             views: BTreeMap::new(),
             attached: Attached::NotYet,
@@ -326,7 +353,7 @@ impl Head {
             sized: size.unwrap_or(0) != 0,
             has_font: false,
             step: 16,
-            cell: (8, 16),
+            cell: CELL,
             font: None,
             refont: false,
             font_refused: 0,
@@ -336,7 +363,37 @@ impl Head {
             painter: None,
             painter_refused: false,
             figures: Figures::default(),
+            notice_only: false,
+            report: None,
         }
+    }
+
+    /// The screen the display guard lights on the boot display for a
+    /// notice alone, under the closed policy (ADR-1401 D9): a head the file
+    /// does not declare, with no name and no session, which no input
+    /// reaches. Its notice stays for as long as it is lit (D7), on a
+    /// screen with no cursor.
+    pub(crate) fn notice_screen(config: &Config, term: Term) -> Head {
+        let mut head = Head::new("", config, &vtium_config::Font::default(), term);
+        head.notice_only = true;
+        head.console.term.terminal.input(b"\x1b[?25l");
+        head
+    }
+
+    /// Shows `text` alone as the notice screen's notice.
+    pub(crate) fn set_notice(&mut self, text: &str) {
+        self.report = None;
+        self.notices.clear();
+        self.notices.push(text.to_owned());
+        self.compose_notices();
+    }
+
+    /// Shows `report` alone as the notice screen's notice, the panic
+    /// screen's, which keeps its count and its next step on a display too
+    /// small for all of it.
+    pub(crate) fn set_report(&mut self, report: vtium_render::NoticeReport) {
+        self.set_notice(&report.text());
+        self.report = Some(report);
     }
 
     /// The head's name, as its `[head NAME]` gives it.
@@ -380,6 +437,12 @@ impl Head {
         self.consoles().any(Console::started)
     }
 
+    /// Whether every console's program ended under `oneshot`, so the head
+    /// runs no session any more (ADR-1401 D1).
+    pub(crate) fn ended(&self) -> bool {
+        self.consoles().all(|c| c.ended)
+    }
+
     /// The head's consoles, the shown one first.
     pub(crate) fn consoles(&self) -> impl Iterator<Item = &Console> {
         std::iter::once(&self.console).chain(&self.hidden)
@@ -413,12 +476,33 @@ impl Head {
             .then_some((self.pointer.x, self.pointer.y))
     }
 
-    /// What vtium shows on the head of its own: why its session ended
-    /// for good, else its notices.
+    /// What vtium shows on the head of its own: that the shown console's
+    /// session ended for good, above its notices, which always show too
+    /// (ADR-1401 D5).
     pub fn notice(&self) -> Option<&str> {
-        self.ended
-            .then_some(ENDED)
-            .or_else(|| (!self.shown.is_empty()).then_some(self.shown.as_str()))
+        (!self.shown.is_empty()).then_some(self.shown.as_str())
+    }
+
+    /// Writes what the head shows of its own again, after its notices,
+    /// its shown console or a console's session changed.
+    pub(crate) fn compose_notices(&mut self) {
+        let ended = self.console.ended.then(|| {
+            if self.hidden.iter().any(|c| !c.ended) {
+                &self.ended_notice_console
+            } else {
+                &self.ended_notice
+            }
+        });
+        let text = ended
+            .into_iter()
+            .chain(&self.notices)
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if text != self.shown {
+            self.shown = text;
+            self.draw_now = true;
+        }
     }
 
     /// The on-screen display's dot, while it shows.
@@ -457,9 +541,8 @@ impl Head {
             self.notices.remove(0);
         }
         self.notices.push(text.to_owned());
-        self.shown = self.notices.join("\n");
         self.notice_due = None;
-        self.draw_now = true;
+        self.compose_notices();
     }
 
     /// Whether the head has notices that end.
@@ -470,27 +553,30 @@ impl Head {
     /// The head's notices end: a key reached it, or their time ran out.
     pub(crate) fn end_notices(&mut self) {
         self.notice_due = None;
-        if !self.notices.is_empty() {
-            self.notices.clear();
-            self.shown.clear();
-            self.draw_now = true;
-        }
+        self.notices.clear();
+        self.compose_notices();
     }
 
     /// What vtium draws over the head's frames: one box at the top holding
     /// the on-screen display's line and the notices beneath it, a problem
-    /// while a notice is in it, and the on-screen display's dot.
+    /// while a notice is in it, and the on-screen display's dot, in the
+    /// colors kmscon.conf sets. The notice screen draws its notice alone,
+    /// its report as a report.
     pub(crate) fn overlay(&self) -> crate::term::Overlay {
-        let notice = self.notice();
-        let text = match (self.status.as_deref(), notice) {
-            (Some(line), Some(notice)) => Some(format!("{line}\n{notice}")),
-            (line, notice) => line.or(notice).map(str::to_owned),
-        };
-        crate::term::Overlay {
-            notice: text.map(vtium_render::Notice::new),
-            problem: notice.is_some(),
-            mark: self.mark,
+        if let Some(text) = self.notice().filter(|_| self.notice_only) {
+            let notice = match &self.report {
+                Some(report) => vtium_render::Notice::report(report.clone()),
+                None => vtium_render::Notice::new(text),
+            };
+            return crate::term::Overlay::alone(notice, self.overlay_colors);
         }
+        let notices: Vec<&str> = self.notice().into_iter().collect();
+        crate::term::Overlay::new(
+            self.status.as_deref(),
+            &notices,
+            self.mark,
+            self.overlay_colors,
+        )
     }
 
     /// How the shown console fits the displays.
@@ -498,6 +584,7 @@ impl Head {
         Fit {
             grid: self.grid,
             font_size: self.font_size,
+            cell: self.cell,
             points: self.points,
             auto_size: self.auto_size,
         }
@@ -533,6 +620,7 @@ impl Head {
         let fit = self.fit();
         self.grid = new.fit.grid;
         self.font_size = new.fit.font_size;
+        self.cell = new.fit.cell;
         self.points = new.fit.points;
         self.auto_size = new.fit.auto_size;
         let mut old = std::mem::replace(&mut self.console, new);
@@ -564,38 +652,7 @@ impl Head {
         let back = console::hidden_index(self.at, to).min(self.hidden.len());
         self.hidden.insert(back, old);
         self.at = to;
-    }
-
-    /// Opens `console` at the ring's end and shows it.
-    pub(crate) fn push(&mut self, console: Console, visible: bool) {
-        self.hidden.push(console);
-        self.show(self.hidden.len(), visible);
-    }
-
-    /// Takes the shown console out and shows the next, the ring's first
-    /// after the last; `None`, changing nothing, when it is the only one.
-    pub(crate) fn close_shown(&mut self, visible: bool) -> Option<Console> {
-        if self.hidden.is_empty() {
-            return None;
-        }
-        let next = if self.at < self.hidden.len() {
-            self.at
-        } else {
-            0
-        };
-        let new = self.hidden.remove(next);
-        let old = self.swap_shown(new, visible);
-        self.at = next;
-        Some(old)
-    }
-
-    /// Takes the hidden console `id` out.
-    pub(crate) fn remove_hidden(&mut self, id: u64) -> Option<Console> {
-        let k = self.hidden.iter().position(|c| c.id == id)?;
-        if k < self.at {
-            self.at = self.at.saturating_sub(1);
-        }
-        Some(self.hidden.remove(k))
+        self.compose_notices();
     }
 
     /// The text of the shown console's screen rows, for tests and logs.
@@ -669,14 +726,22 @@ impl Head {
         }
     }
 
+    /// The shown console's pty size: the head's grid and cell.
     pub(crate) fn pty_size(&self) -> Size {
-        let cell = self.cell;
-        Size {
-            cols: u16::try_from(self.grid.0).unwrap_or(u16::MAX),
-            rows: u16::try_from(self.grid.1).unwrap_or(u16::MAX),
-            cell_width: cell.0,
-            cell_height: cell.1,
+        pty_size(self.grid, self.cell)
+    }
+
+    /// The pty size of console `id`: the shown console's, or a hidden
+    /// one's own grid and cell, which its zoom may have set apart from the
+    /// shown console's.
+    pub(crate) fn console_pty_size(&self, id: u64) -> Option<Size> {
+        if self.console.id == id {
+            return Some(self.pty_size());
         }
+        self.hidden
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| pty_size(c.fit.grid, c.fit.cell))
     }
 
     /// The shown console's replies go to its program.
@@ -1026,83 +1091,133 @@ impl Head {
     }
 }
 
-/// The head file the start runs (ADR-1401 D3, D7): the file at `path`
-/// read under `trust`, each warning logged with its line; the compiled-in
-/// configuration when there is none; and the compiled-in configuration in
-/// place of a file that fails a check, each error logged with its line and
-/// shown on the console, the notice returned beside the rules. The file is
-/// never written.
-pub fn rules(
-    path: &std::path::Path,
-    trust: &vtium_config::Trust,
-) -> (vtium_config::Config, Option<String>) {
-    use vtium_config::at;
-    let parsed = vtium_config::read(path, trust)
-        .and_then(|text| text.map(|text| vtium_config::parse(&text)).transpose());
-    match parsed {
-        Ok(None) => (vtium_config::Config::builtin(), None),
-        Ok(Some(parsed)) => {
-            for w in &parsed.warnings {
-                log::warn!("{}", at(path, Some(w.line()), w));
-            }
-            (parsed.config, None)
+/// What the start runs for its head file (ADR-1401 D7): the outcome its
+/// three levels resolve to, and the rules that outcome runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Start {
+    pub outcome: vtium_config::Outcome,
+    /// The file's own rules, what survives of them, the compiled-in
+    /// configuration, or, for a run of nothing, no rule under the closed
+    /// policy, so no input is delivered and the display guard lights the
+    /// boot display for the notice alone.
+    pub rules: vtium_config::Config,
+    /// The panic screen's report, for a broken closed file (ADR-1401 D7).
+    pub(crate) report: Option<vtium_render::NoticeReport>,
+}
+
+impl Start {
+    /// The start of a trusted head file at `path` whose bytes are `bytes`:
+    /// each error, warning and note logged with its line.
+    pub fn trusted(path: &std::path::Path, bytes: &[u8]) -> Start {
+        use vtium_config::at;
+        let reading = vtium_config::reading(bytes);
+        for e in &reading.errors.errors {
+            log::error!("{}", at(path, e.line(), e));
         }
-        Err(rejected) => {
-            let mut lines: Vec<String> = rejected
-                .errors
+        if reading.errors.more > 0 {
+            let more = crate::notice::more_errors(reading.errors.more);
+            log::error!("{}", at(path, None, more));
+        }
+        for w in &reading.parsed.warnings {
+            log::warn!("{}", at(path, Some(w.line()), w));
+        }
+        for n in &reading.parsed.notes {
+            log::info!("{}", at(path, Some(n.line()), n));
+        }
+        let read = vtium_config::Read::Trusted(reading.trusted());
+        let mut start = Start::of(&read, reading.parsed.config);
+        if start.outcome.line == Some(vtium_config::Line::ClosedOff) {
+            let errors = &reading.errors.errors;
+            let first: Vec<String> = errors
                 .iter()
+                .take(PANIC_ERRORS_MAX)
                 .map(|e| at(path, e.line(), e).to_string())
                 .collect();
-            if rejected.more > 0 {
-                let more = format_args!("{} more errors", rejected.more);
-                lines.push(at(path, None, more).to_string());
-            }
-            let ignored = "This file has errors, so vtium ignores it and uses its built-in rules.";
-            lines.push(at(path, None, ignored).to_string());
-            for line in &lines {
-                log::error!("{line}");
-            }
-            (vtium_config::Config::builtin(), Some(lines.join("\n")))
+            let more = errors
+                .len()
+                .saturating_sub(first.len())
+                .saturating_add(reading.errors.more);
+            start.report = Some(crate::notice::panic(path, first, more));
         }
+        start
+    }
+
+    /// The start on the path `read`, `file` being what survives of a
+    /// trusted file.
+    fn of(read: &vtium_config::Read, file: vtium_config::Config) -> Start {
+        use vtium_config::Runs;
+        let outcome = vtium_config::resolve(read);
+        let rules = match outcome.runs {
+            Runs::File | Runs::NoHead | Runs::Survivors => file,
+            Runs::Builtin => vtium_config::Config::builtin(),
+            Runs::Off => vtium_config::Config {
+                policy: vtium_config::Policy::Closed,
+                survivors: true,
+                ..vtium_config::Config::default()
+            },
+        };
+        Start {
+            outcome,
+            rules,
+            report: None,
+        }
+    }
+
+    /// The console line the start shows, from the catalog: `None` for a
+    /// silent start.
+    pub fn line(&self) -> Option<&'static str> {
+        self.outcome.line.map(vtium_config::Line::text)
+    }
+
+    /// The notice the start shows: its console line and the next step,
+    /// or for a broken closed file the panic screen's report, `None` for a
+    /// silent start.
+    pub fn notice(&self) -> Option<String> {
+        self.report
+            .as_ref()
+            .map(vtium_render::NoticeReport::text)
+            .or_else(|| self.outcome.line.map(outcome_notice))
+    }
+
+    /// The panic screen's report, for a broken closed file (ADR-1401 D7).
+    pub fn report(&self) -> Option<&vtium_render::NoticeReport> {
+        self.report.as_ref()
     }
 }
 
-/// The head file the start runs, as [`rules`] reads it, unless `cmdline`,
-/// the kernel command line, carries `vtium.heads=builtin` (ADR-1401 D9):
-/// then the file is not read for this boot and the compiled-in
-/// configuration runs, every guard on.
-pub fn start_rules(
-    path: &std::path::Path,
-    trust: &vtium_config::Trust,
-    cmdline: &str,
-) -> (vtium_config::Config, Option<String>) {
-    match vtium_config::heads_word(cmdline) {
-        vtium_config::HeadsWord::Builtin => {
-            log::warn!(
-                "vtium.heads=builtin: the head file is not read for this boot; the compiled-in rules run, every guard on"
-            );
-            return (vtium_config::Config::builtin(), None);
-        }
-        vtium_config::HeadsWord::Unknown => {
-            log::warn!("vtium.heads= takes builtin alone: the head file is read");
-        }
-        vtium_config::HeadsWord::File => {}
-    }
-    rules(path, trust)
+/// The notice of an outcome's console line `line` (ADR-1401 D7): the line
+/// as the catalog words it, then what to do next about vtium's head file.
+pub fn outcome_notice(line: vtium_config::Line) -> String {
+    let next = line.next(std::path::Path::new(vtium_config::HEAD_FILE));
+    format!("{}\n{next}", line.text())
 }
 
-/// The start's log line for each guard the head file turns off
-/// (ADR-1401 D9).
-pub(crate) fn guards_off(guards: vtium_config::Guards) -> Vec<String> {
-    [
-        (guards.anti_lockout, "anti-lockout"),
-        (guards.rescue_key, "rescue-key"),
-        (guards.never_dark, "never-dark"),
-    ]
-    .into_iter()
-    .filter(|&(on, _)| !on)
-    .map(|(_, name)| format!("the head file turns the {name} guard off"))
-    .collect()
+/// The head file the start runs (ADR-1401 D3, D7): the file at `path` read
+/// under `trust` and resolved at its three levels. A missing file runs the
+/// compiled-in configuration, silently; a file that fails the ownership
+/// check, or that cannot be read as a file, is never read and runs the
+/// shipped rules; a trusted file runs what its policy and its errors leave
+/// ([`vtium_config::resolve`]). Each error is logged with its line, and
+/// the file is never written.
+pub fn rules(path: &std::path::Path, trust: &vtium_config::Trust) -> Start {
+    use vtium_config::{Problem, Read, at};
+    let builtin = vtium_config::Config::builtin;
+    match vtium_config::inspect(path, trust) {
+        Ok(None) => Start::of(&Read::Missing, builtin()),
+        Ok(Some(inspected)) => match inspected.trusted {
+            Ok(()) => Start::trusted(path, &inspected.bytes),
+            Err(why) => {
+                log::error!("{}", at(path, None, Problem::Untrusted(why)));
+                Start::of(&Read::Untrusted, builtin())
+            }
+        },
+        Err(rejected) => {
+            for e in &rejected.errors {
+                log::error!("{}", at(path, e.line(), e));
+            }
+            Start::of(&Read::Inaccessible, builtin())
+        }
+    }
 }
 
 /// The head a display joins: the one the first rule matching `display`
@@ -1177,6 +1292,17 @@ fn mouse_button(b: Button) -> MouseButton {
 mod tests {
     use super::*;
 
+    /// The panic screen of [`a_broken_closed_files_start_shows_the_panic_screens_report`]'s file.
+    const PANIC: &str = concat!(
+        "vtium: config invalid, policy closed: input off\n",
+        "The errors in /etc/vtium/heads.conf, listed below, leave no head that can run.\n",
+        "/etc/vtium/heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
+        "/etc/vtium/heads.conf:5: This section takes no key named \"font-weight\". Check the key's spelling, or remove the line.\n",
+        "/etc/vtium/heads.conf:7: This rule sends devices to the head \"k\\u{202e}x\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
+        "More errors: 2\n",
+        "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.",
+    );
+
     /// A head file in a fixture directory of its own, and the trust that
     /// reads it as the start reads root's files.
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
@@ -1196,33 +1322,42 @@ mod tests {
     }
 
     // ADR-1401 D7: the start runs a valid file, the compiled-in
-    // configuration without one, and the compiled-in configuration in place
-    // of an invalid one, whose bytes it leaves as they were.
+    // configuration without one, and what survives of a partly broken
+    // one, with its console line, and leaves the file's bytes as they were.
     #[test]
     fn the_start_runs_the_head_file_else_the_shipped_rules_and_writes_none() {
         let valid = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
-        let invalid = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n";
+        let partly = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\ndisplay * -> desk\n";
         let (file, trust) = fixture("valid", Some(valid));
-        let (ran, notice) = rules(&file, &trust);
-        assert_eq!(notice, None);
+        let ran = rules(&file, &trust);
+        assert_eq!(ran.line(), None);
         assert_eq!(
-            ran.heads
+            ran.rules
+                .heads
                 .iter()
                 .map(|h| h.name.as_str())
                 .collect::<Vec<_>>(),
             ["desk"]
         );
         let (absent, trust) = fixture("absent", None);
+        let ran = rules(&absent, &trust);
         assert_eq!(
-            rules(&absent, &trust),
+            (ran.rules, ran.outcome.line),
             (vtium_config::Config::builtin(), None)
         );
         assert!(!absent.exists(), "nothing written");
-        let (bad, trust) = fixture("invalid", Some(invalid));
-        let (ran, notice) = rules(&bad, &trust);
-        assert_eq!(ran, vtium_config::Config::builtin());
-        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("built-in rules.")));
-        assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(invalid));
+        let (bad, trust) = fixture("partly", Some(partly));
+        let ran = rules(&bad, &trust);
+        assert_eq!(ran.outcome.runs, vtium_config::Runs::Survivors);
+        assert_eq!(
+            ran.line(),
+            Some("config partly invalid, running what's valid")
+        );
+        assert_eq!(
+            ran.rules.rules.iter().map(|r| r.line).collect::<Vec<_>>(),
+            [5]
+        );
+        assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(partly));
         for f in [file, absent, bad] {
             if let Some(dir) = f.parent() {
                 std::fs::remove_dir_all(dir).ok();
@@ -1230,8 +1365,109 @@ mod tests {
         }
     }
 
+    // ADR-1401 D7: a broken closed file's start shows the panic screen:
+    // its console line, that no head is left, its first errors with their
+    // file and line, escaped, the count of the rest, and what to do next
+    // covers: platform.heads.policy
+    #[test]
+    fn a_broken_closed_files_start_shows_the_panic_screens_report() {
+        let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\nfont-weight = bold\n[rules]\ndisplay * -> k\u{202e}x\ninput * -> desc\ninput * -> nowhere\n";
+        let start = Start::trusted(
+            std::path::Path::new("/etc/vtium/heads.conf"),
+            text.as_bytes(),
+        );
+        assert_eq!(start.outcome.line, Some(vtium_config::Line::ClosedOff));
+        let shown = start.notice().unwrap_or_default();
+        assert_eq!(shown, PANIC);
+        assert!(
+            !shown
+                .chars()
+                .any(|c| c != '\n' && (c.is_control() || c == '\u{202e}')),
+            "escaped: {shown:?}"
+        );
+        // any other start shows its console line and next step alone
+        let partly = "version = 1\npolicy = closed\n[head desk]\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> desk\n";
+        let start = Start::trusted(
+            std::path::Path::new("/etc/vtium/heads.conf"),
+            partly.as_bytes(),
+        );
+        assert_eq!(
+            start.notice(),
+            Some(outcome_notice(vtium_config::Line::Partly))
+        );
+    }
+
+    // ADR-1401 D7, D9: the screen the display guard lights for a notice
+    // alone draws it as a report, which keeps its next step on a display
+    // too small for all of it; a head draws its notices as they come
+    // covers: platform.heads.guards
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn the_notice_screen_draws_its_notice_as_a_report() {
+        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let report = crate::notice::panic(
+            std::path::Path::new("heads.conf"),
+            vec!["heads.conf:4: an error".to_owned()],
+            0,
+        );
+        let mut screen = Head::notice_screen(&config, term());
+        assert_eq!(screen.overlay().notice, None, "nothing yet");
+        screen.set_report(report.clone());
+        assert_eq!(screen.notice(), Some(report.text().as_str()));
+        let overlay = screen.overlay();
+        assert_eq!(
+            overlay.notice,
+            Some(vtium_render::Notice::report(report.clone()))
+        );
+        assert!(overlay.problem);
+        // a notice that is no report draws as it is, and replaces the report
+        screen.set_notice("vtium: no display for any head");
+        assert_eq!(
+            screen.overlay().notice,
+            Some(vtium_render::Notice::new("vtium: no display for any head"))
+        );
+        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term());
+        head.add_notice(&report.text());
+        assert_eq!(
+            head.overlay().notice,
+            Some(vtium_render::Notice::new(report.text()))
+        );
+    }
+
+    // A console shown on a head with no display takes its own cell with
+    // its grid, since no relayout runs to set it until a display comes, so
+    // its pty's size is its own (ADR-1401 D8, `when-display-lost = keep`).
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_console_shown_on_an_unlit_head_brings_its_own_cell() {
+        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term());
+        let zoomed = Fit {
+            grid: (40, 10),
+            font_size: 32,
+            cell: (16, 32),
+            points: None,
+            auto_size: false,
+        };
+        head.hidden.push(Console::new(2, term(), zoomed));
+        assert!(head.views.is_empty(), "unlit");
+        head.show(1, false);
+        assert_eq!(head.console.id, 2);
+        let size = head.pty_size();
+        assert_eq!(
+            (size.cols, size.rows, size.cell_width, size.cell_height),
+            (40, 10, 16, 32)
+        );
+        head.show(0, false);
+        assert_eq!(head.pty_size().cell_width, CELL.0, "the first's own again");
+    }
+
     // A head shows each notice once and the newest NOTICES_MAX; an ended
-    // head's notice stays when they end.
+    // console's notice stands above them and stays when they end.
     #[test]
     #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
     fn a_head_keeps_each_notice_once_and_the_newest_few() {
@@ -1243,39 +1479,133 @@ mod tests {
             head.add_notice(&format!("n{n}"));
         }
         assert_eq!(head.notice(), Some("n2\nn3\nn4\nn5"));
-        head.ended = true;
+        head.console.ended = true;
+        head.compose_notices();
+        let ended = crate::notice::session_ended();
+        assert_eq!(
+            head.notice(),
+            Some(format!("{ended}\nn2\nn3\nn4\nn5").as_str()),
+            "the ended session's notice above the others"
+        );
         head.notice_due = Some(Instant::now());
         head.end_notices();
-        assert_eq!((head.notice(), head.notice_due), (Some(ENDED), None));
+        assert_eq!(
+            (head.notice(), head.notice_due),
+            (Some(crate::notice::session_ended().as_str()), None)
+        );
         assert!(!head.has_notices());
     }
 
-    // ADR-1401 D9 and D11's switch row: each guard the file turns off is a
-    // line in the start's log.
-    #[test]
-    fn each_guard_turned_off_is_a_line_in_the_starts_log() {
-        let off = |text: &str| {
-            let parsed = vtium_config::parse(&format!("version = 1\n[guards]\n{text}"));
-            guards_off(parsed.map(|p| p.config.guards).unwrap_or_default())
+    /// The colors a head built from the command line `args` draws its
+    /// overlay in, each read off a 320x96 display in unifont, 40 by 6
+    /// cells: a notice's text, box and edge; the full line's text, box and
+    /// edge; and the minimal dot's circle and the cell behind it.
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn overlay_colors(args: &[&str]) -> [[u8; 3]; 8] {
+        let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None));
+        assert_eq!(loaded.reports, [], "{args:?}");
+        let config = loaded.config;
+        let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
+        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term);
+        let draw = |head: &Head| {
+            let face: DisplayFace = Box::new(vtium_font::Unifont::new(16));
+            let renderer =
+                vtium_render::Renderer::new(Font::new(face), 320, 96, RenderConfig::default());
+            let mut canvas = vtium_render::Canvas::new(320, 96, 0);
+            head.overlay()
+                .draw(&renderer, (40, 6), Orientation::Normal, &mut canvas);
+            canvas
         };
-        assert_eq!(off(""), Vec::<String>::new());
+        let rgb = |p: Option<u32>| {
+            let [_, r, g, b] = p.unwrap_or_default().to_be_bytes();
+            [r, g, b]
+        };
+        // the edge at the box's corner, the box inside the edge and above
+        // the text, and the first pixel of the text's row that is neither
+        let boxed = |c: &vtium_render::Canvas| {
+            let (edge, paper) = (c.pixel(0, 0), c.pixel(3, 3));
+            let ink = (6..22)
+                .flat_map(|y| (6..300).map(move |x| (x, y)))
+                .map(|(x, y)| c.pixel(x, y))
+                .find(|&p| p != paper && p != edge);
+            [rgb(ink.flatten()), rgb(paper), rgb(edge)]
+        };
+        head.add_notice("No keyboard was found.");
+        let [n_ink, n_paper, n_edge] = boxed(&draw(&head));
+        head.end_notices();
+        head.status = Some("desk · console 1 of 1".to_owned());
+        let [o_ink, o_paper, o_edge] = boxed(&draw(&head));
+        head.status = None;
+        head.mark = Some(vtium_render::Mark::Focus);
+        let dot = draw(&head);
+        let paper = dot.pixel(312, 0);
+        let ink = (0..16)
+            .flat_map(|y| (312..320).map(move |x| (x, y)))
+            .map(|(x, y)| dot.pixel(x, y))
+            .find(|&p| p != paper);
+        [
+            n_ink,
+            n_paper,
+            n_edge,
+            o_ink,
+            o_paper,
+            o_edge,
+            rgb(ink.flatten()),
+            rgb(paper),
+        ]
+    }
+
+    // ADR-1401 D5: with no color key set, a head draws the colors vtium
+    // drew before the keys, but for the dot, which takes the on-screen
+    // display's colors where it took the notice's.
+    #[test]
+    fn unset_color_keys_draw_vtiums_own_colors() {
         assert_eq!(
-            off("never-dark = off\nanti-lockout = off\n"),
+            overlay_colors(&[]),
             [
-                "the head file turns the anti-lockout guard off",
-                "the head file turns the never-dark guard off"
+                [0x1f, 0x29, 0x33],
+                [0xfe, 0xe2, 0xe2],
+                [0xb9, 0x1c, 0x1c],
+                [0xe5, 0xe7, 0xeb],
+                [0x1f, 0x29, 0x33],
+                [0x61, 0x6e, 0x7c],
+                [0xe5, 0xe7, 0xeb],
+                [0x1f, 0x29, 0x33],
             ]
         );
-        assert_eq!(
-            off("rescue-key = off\n"),
-            ["the head file turns the rescue-key guard off"]
-        );
+    }
+
+    // ADR-1401 D5: each of the six color keys sets its own part of what a
+    // head draws and no other: the notice's three, the full line's three,
+    // and the dot in the on-screen display's text and box.
+    #[test]
+    fn each_color_key_sets_its_part_of_what_a_head_draws() {
+        let unset = overlay_colors(&[]);
+        let parts: [(&crate::config::keys::Key, &[usize]); 6] = [
+            (&keys::NOTICE_FOREGROUND, &[0]),
+            (&keys::NOTICE_BACKGROUND, &[1]),
+            (&keys::NOTICE_BORDER, &[2]),
+            (&keys::OSD_FOREGROUND, &[3, 6]),
+            (&keys::OSD_BACKGROUND, &[4, 7]),
+            (&keys::OSD_BORDER, &[5]),
+        ];
+        for (key, at) in parts {
+            let mut want = unset;
+            for (i, part) in want.iter_mut().enumerate() {
+                if at.contains(&i) {
+                    *part = [1, 2, 3];
+                }
+            }
+            let arg = format!("--{}=1,2,3", key.name);
+            assert_eq!(overlay_colors(&[&arg]), want, "{}", key.name);
+        }
     }
 
     #[test]
     fn a_display_left_dark_is_logged_and_one_no_rule_claims_with_the_rule_to_paste() {
         let rules = vtium_config::parse(
-            "version = 1\n[head desk]\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-1 -> dark\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n",
+            "version = 1\n[head desk]\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-1 -> off\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n",
         )
         .map(|p| p.config)
         .unwrap_or_default();

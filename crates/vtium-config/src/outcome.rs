@@ -28,7 +28,7 @@
 //! let trusted = Trusted::of(&[], &[Scope::Trust], Kept::Heads);
 //! ```
 
-use crate::error::Problem;
+use crate::error::{Problem, Renamed};
 
 /// A fieldless enum with every value in [`ALL`](Self::ALL) and its name in the outcome table, so the table's enumeration cannot miss a value.
 macro_rules! closed {
@@ -91,7 +91,7 @@ closed! {
         Unset = "unset",
         Open = "open",
         Closed = "closed",
-        /// No readable `policy = closed`, and a `policy` line vtium cannot read: an unknown value, a line misplaced inside a section, or a second `policy` line. It counts as no policy, and the file is at least partly broken.
+        /// No readable `policy = closed`, and a `policy` line vtium cannot read among the top-level keys: an unknown value, or a second `policy` line. It counts as no policy, and the file is at least partly broken. A `policy` line inside a section is no top-level key, so it states nothing here.
         Unreadable = "unreadable",
     }
 }
@@ -184,6 +184,13 @@ closed! {
         Open = "open",
         /// An input no rule places is ignored, every unset head is isolated, and the anti-lockout guard and the rescue key are off.
         Closed = "closed",
+    }
+}
+
+impl Default for Policy {
+    /// `open`, what a file that sets no `policy` means.
+    fn default() -> Policy {
+        Policy::Open
     }
 }
 
@@ -289,19 +296,6 @@ impl Switch {
             Switch::Off => "off",
             Switch::Written { unset: true } => "set|on",
             Switch::Written { unset: false } => "set|off",
-        }
-    }
-}
-
-impl Line {
-    /// The line as the console shows it.
-    pub fn text(self) -> &'static str {
-        match self {
-            Line::Skipped => "invalid config skipped, using builtin",
-            Line::Partly => "config partly invalid, running what's valid",
-            Line::ClosedOff => "vtium: config invalid, policy closed: input off",
-            // nothing about input: each head's own keyboards still deliver to it while it is unlit
-            Line::NoDisplay => "vtium: no display for any head",
         }
     }
 }
@@ -527,8 +521,18 @@ pub fn resolve(read: &Read) -> Outcome {
 }
 
 impl Trusted {
-    /// A trusted file's levels from what its parse found: every `policy` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads where a line sits, so no outcome depends on the order of the top-level keys, and a readable closed policy wins over every other line.
+    /// A trusted file's levels from what its parse found: every `policy` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads the order of the top-level keys, so no outcome depends on it, and a readable closed policy wins over every other line. A `policy` line inside a section states no policy, since the file's policy comes from the lines above the first section, and it leaves the file partly broken (ADR-1401 D7).
     pub fn of(policies: &[PolicyLine], scopes: &[Scope], kept: Kept) -> Trusted {
+        let top: Vec<PolicyLine> = policies
+            .iter()
+            .copied()
+            .filter(|p| match p {
+                PolicyLine::InSection => false,
+                PolicyLine::Open | PolicyLine::Closed | PolicyLine::Unknown => true,
+            })
+            .collect();
+        let misplaced = top.len() != policies.len();
+        let policies = top.as_slice();
         let whole = scopes.iter().any(|s| match s {
             Scope::File => true,
             Scope::Head | Scope::Section | Scope::Line => false,
@@ -557,7 +561,7 @@ impl Trusted {
             [] | [PolicyLine::Open | PolicyLine::Closed] => false,
             [PolicyLine::Unknown | PolicyLine::InSection] | [_, _, ..] => true,
         };
-        let clean = scopes.is_empty() && !(extra && stated == Stated::Closed);
+        let clean = scopes.is_empty() && !misplaced && !(extra && stated == Stated::Closed);
         let rest = match (clean, kept) {
             (true, Kept::Heads) => Rest::Valid,
             (true, Kept::Headless) => Rest::Headless,
@@ -580,15 +584,20 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         | Problem::LineTooLong
         | Problem::TooManyHeads
         | Problem::TooManyRules => Some(Scope::File),
-        Problem::UnknownSection(_) | Problem::DuplicateSection(_) => Some(Scope::Section),
-        Problem::BadName(_) | Problem::ReservedName(_) | Problem::DuplicateHead(_) => {
-            Some(Scope::Head)
+        // a second section of a head's name is dropped, and the first stays
+        Problem::UnknownSection(_) | Problem::DuplicateSection(_) | Problem::DuplicateHead(_) => {
+            Some(Scope::Section)
         }
+        Problem::BadName(_)
+        | Problem::ReservedName(_)
+        | Problem::Renamed(Renamed::FocusHead | Renamed::DarkHead) => Some(Scope::Head),
+        // a misplaced `policy` line counts through its `PolicyLine`, and drops only itself
         Problem::UnknownMatchKey(_)
         | Problem::BadToken(_)
         | Problem::UndefinedHead(_)
         | Problem::WrongKind { .. }
-        | Problem::TooManyTokens => Some(Scope::Line),
+        | Problem::TooManyTokens
+        | Problem::PolicyInSection => Some(Scope::Line),
         // a line that is not UTF-8 or holds a control character but a CRLF's carriage return is a bad line of its section
         Problem::NotUtf8
         | Problem::ControlCharacter(_)
@@ -596,7 +605,8 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         | Problem::UnknownKey(_)
         | Problem::DuplicateKey(_)
         | Problem::BadValue { .. }
-        | Problem::OutOfRange { .. } => None,
+        | Problem::OutOfRange { .. }
+        | Problem::Renamed(_) => None,
     };
     Ok(match fixed {
         Some(scope) => scope,

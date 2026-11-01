@@ -141,9 +141,15 @@ fn inspect_gives_the_text_and_the_ownership_verdict_together() {
     let dir = fixture("inspect");
     let file = dir.join("heads.conf");
     write(&file, "version = 1\n", 0o664);
-    let Some(Inspected { text, trusted }) = inspect(&file, &me(&dir)).expect("read") else {
+    let Some(Inspected {
+        bytes,
+        text,
+        trusted,
+    }) = inspect(&file, &me(&dir)).expect("read")
+    else {
         panic!("the file is present");
     };
+    assert_eq!(bytes, b"version = 1\n");
     assert_eq!(text, Ok("version = 1\n".to_owned()));
     assert!(
         matches!(trusted, Err(Untrusted::Writable { .. })),
@@ -225,7 +231,9 @@ fn a_file_past_its_byte_bound_is_refused() {
 #[test]
 fn a_file_with_a_control_character_or_no_utf8_is_refused_at_its_line() {
     assert!(text(b"version = 1\n\t# a tab\n").is_ok());
-    let r = text(b"version = 1\n[head a\x1b[2J]\n# \x00\nok\r\n").expect_err("controls");
+    // a carriage return ending a line is part of its newline
+    assert!(text(b"version = 1\r\n# crlf\r\n").is_ok());
+    let r = text(b"version = 1\n[head a\x1b[2J]\n# \x00\nok\rx\n\r").expect_err("controls");
     let found: Vec<_> = r
         .errors
         .iter()
@@ -237,6 +245,7 @@ fn a_file_with_a_control_character_or_no_utf8_is_refused_at_its_line() {
             (Some(2), Problem::ControlCharacter('\u{1b}')),
             (Some(3), Problem::ControlCharacter('\0')),
             (Some(4), Problem::ControlCharacter('\r')),
+            (Some(5), Problem::ControlCharacter('\r')),
         ]
     );
     let shown = r.errors[0].to_string();

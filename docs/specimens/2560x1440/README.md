@@ -1,12 +1,12 @@
 # 2560x1440
 
-A QHD monitor: 2560x1440, 24-bit color, drawn in `desktop` at 14x32, 182x45 cells, the card on 2 screens, shown together in the collage.
+A QHD monitor: 2560x1440, 24-bit color, drawn in `desktop` at 14x32, 182x45 cells, the card on 2 screens and vtium's message bars on one more, shown together in the collage.
 
 ![2560x1440](collage.png)
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 2560x1440, 24-bit color | order unknown | 14x32 | 182x45 | `desktop`, the frit [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png) |
+| 2560x1440, 24-bit color | order unknown | 14x32 | 182x45 | `desktop`, the frit [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
 
 ## Why this font
 

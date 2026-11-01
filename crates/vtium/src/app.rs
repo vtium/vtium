@@ -6,14 +6,16 @@
 //! Each step follows the C reference's flow (docs/c-reference.md, parts 1,
 //! 2 and 5) and vtium-platform's host list:
 //!
-//! - **Heads** (ADR-1401 D1). The head file's heads, or the compiled-in
-//!   configuration's one `console` head, each a [`Head`] with its own
-//!   session, grid, density, zoom and rotation. Each display walks the
-//!   rules alone when it comes, and joins the head the first match names;
-//!   a display the rules send `dark`, or none claims, is left off and
-//!   logged, with the rule line that would claim it ready to paste. Within
-//!   a head the displays mirror one grid by the scaled rule
-//!   ([`crate::layout`]).
+//! - **Heads** (ADR-1401 D1, D7). What the head file resolves to
+//!   ([`Start`]): its heads, or the compiled-in configuration's one
+//!   `console` head, each a [`Head`] with its own session, grid, density,
+//!   zoom and rotation, and its console line on every head. Each display
+//!   walks the rules alone when it comes, and joins the head the first
+//!   match names; a display the rules send `off`, or none claims, is left
+//!   off and logged, with the rule line that would claim it ready to
+//!   paste. Within a head the displays mirror one grid by the scaled rule
+//!   ([`crate::layout`]). Under the closed policy the display guard lights
+//!   the boot display for a notice alone on a screen no head holds.
 //! - **The VT.** `Acquired` wakes the input and every device, which draw
 //!   whole; `Release` deactivates the terminals, puts the input and every
 //!   device to sleep, and acknowledges once each reported `Asleep`;
@@ -22,20 +24,22 @@
 //!   `Hangup` exits.
 //! - **Inputs** (D3, D5). Each input device walks the rules alone when it
 //!   comes, by its identity: a device a rule sends to a head delivers to
-//!   that head alone, one sent to `focus` or claimed by no rule delivers
-//!   to the head holding the focus, and one sent to `ignore` is never
-//!   opened, or opened for the rescue key alone. The focus starts on the
+//!   that head alone, one sent to `roaming`, or claimed by no rule under
+//!   the open policy, delivers to the active head, and one sent to
+//!   `ignore` is never opened, or under open opened for the rescue key
+//!   alone. The focus starts on the
 //!   head of the boot display, else the first head in the file with a
 //!   display, starting again as each display lights until the first key
 //!   reaching a head or the first focus chord, over every display lit
 //!   since the start, one that left included; then only the focus chord
 //!   moves it. The terminal of each head a keyboard delivers to has mode
 //!   1004's focus.
-//! - **Keys**, in order: the VT's, then the seat's (the power keys, which
-//!   act on a press and never on its repeat), then the heads' chords
-//!   ([`chord`]), then the terminal's grabs, then DECARM's drop of a
-//!   repeat, then the encoder. A key draws at once and holds the cursor's
-//!   blink.
+//! - **Keys**, in order: the VT's, from a keyboard asking a head that is
+//!   not isolated (D5), then the seat's (the power keys, which act on a
+//!   press and never on its repeat), then the heads' chords ([`chord`]),
+//!   the roaming chord from a roaming keyboard alone, then the terminal's
+//!   grabs, then DECARM's drop of a repeat, then the encoder. A key draws
+//!   at once and holds the cursor's blink.
 //! - **The pointer.** It moves on the head it delivers to, within that
 //!   head's grid. While the program tracks it, its events are reported,
 //!   but a button pressed, a move without a button and the wheel with
@@ -54,14 +58,16 @@
 //!   `CSI 13 ]` does, at the turn's end.
 //! - **The consoles** (D1). A head's consoles start once one of its
 //!   displays is set up, on its grid ([`respawn::first_start_due`]); the
-//!   console chords open, show and close them. A console's program exiting
-//!   closes it while others stay open; the last's exit follows the respawn
-//!   policy, which starts it again or ends the head, and vtium ends once
-//!   every head has.
+//!   console chords show them. A console's program exiting follows the
+//!   respawn policy, which starts it again in its place or ends the
+//!   console, and vtium ends once every head has. A crash loop ends the
+//!   run: under open vtium exits, and under closed it holds its VT with a
+//!   notice and delivers nothing.
 //! - **No display.** From the first acquire, vtium waits `display-wait`
 //!   for a frame on a display's screen, and with none by then it ends
-//!   ([`crate::wait`]). Once one has come, a head's last going does what
-//!   its `on-loss` says (D8): under `nohup` its sessions run on at the
+//!   ([`crate::wait`]); under the closed policy it waits however long it
+//!   takes (D8). Once one has come, a head's last going does what
+//!   its `when-display-lost` says (D8): under `keep` its sessions run on at the
 //!   grid they had, with the keys of the devices reaching it and no
 //!   blank, until a display its rules match comes and is drawn whole;
 //!   under `hangup` their ptys close at once, and under `hangup
@@ -87,7 +93,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use vtium_config::OnLoss;
+use vtium_config::{Policy, WhenDisplayLost};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
@@ -111,7 +117,7 @@ use crate::head::console::Console;
 use crate::head::identity::{self, Card};
 use crate::head::route::{self, Routes};
 use crate::head::session::{self, AfterExit, Caps};
-use crate::head::{Attached, Frit, Head, place_display};
+use crate::head::{Attached, Frit, Head, Start, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
 use crate::osd::{self, Osd};
@@ -197,6 +203,18 @@ pub struct App {
     /// The head file in force: the file's, or the compiled-in
     /// configuration.
     rules: vtium_config::Config,
+    /// What the start's head file resolved to (ADR-1401 D7).
+    outcome: vtium_config::Outcome,
+    /// The panic screen's report, for a broken closed head file (D7).
+    report: Option<vtium_render::NoticeReport>,
+    /// The index in [`App::heads`] of the screen the display guard lights
+    /// for a notice alone, which a closed policy has, after every head the
+    /// file declares (D9).
+    screen: Option<usize>,
+    /// A crash loop ended every head's sessions under the closed policy:
+    /// no session starts again, no input is delivered, and the boot
+    /// display shows why for as long as vtium runs (D1).
+    stopped: bool,
     /// The head the inputs following the focus deliver to.
     focus: Option<usize>,
     /// Where each input device's events go.
@@ -277,7 +295,8 @@ pub struct App {
     exit: Option<Exit>,
     leaving: Option<Leaving>,
     inherited: Vec<(OsString, OsString)>,
-    /// `oneshot`: a head's last console's exit ends the head.
+    /// `oneshot`: a console's exit ends that console, and a head ends once
+    /// every one of its consoles has.
     oneshot: bool,
     /// The `mode` lines, for each DRM device opened.
     modes: Vec<ModeSpec>,
@@ -331,8 +350,14 @@ impl App {
         );
         let rules = route::in_force(vtium_config::Config::builtin(), &config);
         let caps = Caps {
-            head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(4, to_usize),
-            total: config.number(&keys::CONSOLES_MAX).map_or(8, to_usize),
+            head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(
+                to_usize(vtium_config::HEAD_CONSOLES_DEFAULT.into()),
+                to_usize,
+            ),
+            total: config.number(&keys::CONSOLES_MAX).map_or(
+                to_usize(vtium_config::CONSOLES_TOTAL_DEFAULT.into()),
+                to_usize,
+            ),
         };
         let bytes = session::scrollback_bytes(&config, caps, rules.heads.len());
         let heads = session::heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
@@ -378,6 +403,10 @@ impl App {
             blank: Blank::new(dpms, now),
             heads,
             rules,
+            outcome: vtium_config::resolve(&vtium_config::Read::Missing),
+            report: None,
+            screen: None,
+            stopped: false,
             focus: None,
             routes: Routes::default(),
             focus_move: None,
@@ -419,30 +448,54 @@ impl App {
         }
     }
 
-    /// Runs the head file `rules` in place of the compiled-in
-    /// configuration, before any display comes: its heads, each with no
-    /// session yet, and its rules for each display that comes.
-    pub fn set_heads(&mut self, rules: vtium_config::Config) {
+    /// Runs what the start's head file resolved to (ADR-1401 D7) in place
+    /// of the compiled-in configuration, before any display comes: its
+    /// heads, each with no session yet, its rules for each display that
+    /// comes, and its console line on every head. Under the closed policy
+    /// vtium waits for a display however long it takes (D8), and keeps a
+    /// screen for the display guard to light for a notice alone (D9).
+    pub fn set_heads(&mut self, start: Start) {
+        let notice = start.notice();
+        let Start {
+            outcome,
+            rules,
+            report,
+        } = start;
         let rules = route::in_force(rules, &self.config);
-        for line in crate::head::guards_off(rules.guards) {
-            log::warn!("{line}");
-        }
-        // The display guard's default head, where the file declares none
-        // (D9).
+        // The display guard's default head, where the file declares none,
+        // which it lights under open alone (D9).
         let mut declared = rules.clone();
-        if declared.heads.is_empty() {
+        if declared.heads.is_empty() && rules.policy == Policy::Open {
             declared.heads = vtium_config::Config::builtin().heads;
         }
         let caps = self.caps;
         self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, declared.heads.len());
         let scrollback = (self.scrollback, self.scrollback_bytes);
         self.heads = session::heads(&declared, &self.config, scrollback, caps, &self.clock);
+        self.screen = (rules.policy == Policy::Closed).then(|| {
+            let term = crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
+            self.heads.push(Head::notice_screen(&self.config, term));
+            self.heads.len().saturating_sub(1)
+        });
+        if outcome.display_wait() == vtium_config::DisplayWait::Forever {
+            self.wait = Wait::new(None);
+        }
         self.rules = rules;
+        self.outcome = outcome;
+        self.report = report;
         self.focus = None;
         self.lit.clear();
         self.start_lit.clear();
         self.dark.clear();
         self.frits.clear();
+        // a report's errors were logged as the file was read, each with
+        // its line, so the log gets its console line alone
+        if let Some(line) = self.report.as_ref().and(self.outcome.line) {
+            log::warn!("{}", line.text());
+        } else if let Some(notice) = notice {
+            log::warn!("{notice}");
+            self.notice(&notice);
+        }
     }
 
     /// The start's device scan is queued: once the turn has placed its
@@ -456,7 +509,7 @@ impl App {
     /// a key reaches the head or for [`crate::head::NOTICE_SHOWN`]
     /// (ADR-1401 D7).
     pub fn notice(&mut self, text: &str) {
-        for head in &mut self.heads {
+        for head in self.heads.iter_mut().filter(|h| !h.notice_only) {
             head.add_notice(text);
         }
     }
@@ -505,18 +558,25 @@ impl App {
 
     /// The heads, in the head file's order.
     pub fn heads(&self) -> &[Head] {
-        &self.heads
+        let declared = self.screen.unwrap_or(self.heads.len());
+        self.heads.get(..declared).unwrap_or_default()
     }
 
     /// The head named `name`.
     pub fn head(&self, name: &str) -> Option<&Head> {
-        self.heads.iter().find(|h| h.name() == name)
+        self.heads().iter().find(|h| h.name() == name)
+    }
+
+    /// The screen the display guard lights for a notice alone under the
+    /// closed policy (ADR-1401 D9), which a closed file has.
+    pub fn notice_screen(&self) -> Option<&Head> {
+        self.heads.get(self.screen?)
     }
 
     /// The head the keys type into, else the first: the one whose session
     /// [`App::grid`], [`App::screen_text`] and [`App::term`] read.
     fn shown(&self) -> Option<&Head> {
-        self.heads.get(self.focus.unwrap_or(0))
+        self.heads().get(self.focus.unwrap_or(0))
     }
 
     /// Starts each head's command at the end of the first turn
@@ -539,7 +599,9 @@ impl App {
         let since = now.saturating_duration_since(self.epoch);
         for h in 0..self.heads.len() {
             let due = self.heads.get(h).is_some_and(|head| {
-                !head.started() && respawn::first_start_due(self.awake, !head.views.is_empty())
+                !head.notice_only
+                    && !head.started()
+                    && respawn::first_start_due(self.awake, !head.views.is_empty())
             });
             let App {
                 heads,
@@ -558,33 +620,6 @@ impl App {
             for id in head.start_consoles(since) {
                 self.spawn(h, id);
             }
-        }
-    }
-
-    /// Opens a console in head `h` and shows it, within the caps
-    /// (ADR-1401 D10); its session starts at once once the head's has.
-    fn new_console(&mut self, h: usize, now: Instant) {
-        let total = session::console_total(&self.heads);
-        let caps = self.caps;
-        let term = crate::head::terminal(
-            &self.config,
-            self.scrollback,
-            self.scrollback_bytes,
-            Rc::clone(&self.clock),
-        );
-        let since = now.saturating_duration_since(self.epoch);
-        let Some(head) = self
-            .heads
-            .get_mut(h)
-            .filter(|head| head.may_open(caps, total))
-        else {
-            return;
-        };
-        let id = head.next_id();
-        let starts = head.open(id, term, since, self.awake);
-        self.relayout(h);
-        if starts {
-            self.spawn(h, id);
         }
     }
 
@@ -659,8 +694,12 @@ impl App {
         }
     }
 
-    /// Starts the session of head `h`'s console `id`.
+    /// Starts the session of head `h`'s console `id`, unless a crash loop
+    /// stopped every head under the closed policy (ADR-1401 D1).
     fn spawn(&mut self, h: usize, id: u64) {
+        if self.stopped {
+            return;
+        }
         let config = self
             .heads
             .get(h)
@@ -677,7 +716,7 @@ impl App {
         } else {
             Erase::Backspace
         };
-        let Some(size) = self.heads.get(h).map(Head::pty_size) else {
+        let Some(size) = self.heads.get(h).and_then(|head| head.console_pty_size(id)) else {
             return;
         };
         let mut pty = match Pty::spawn(command, size, erase) {
@@ -1717,12 +1756,10 @@ impl App {
         if self.start_lit.is_empty() || self.focus.is_some() && (self.focus_settled || !due) {
             return;
         }
-        // The display guard's display counts as lit; the anti-lockout
-        // guard moves the focus itself ([`App::guard`]).
-        let mut rules = self.rules.clone();
-        rules.guards.anti_lockout = false;
+        // The display guard's display counts as lit; given no keyboard, the
+        // anti-lockout guard moves nothing ([`App::guard`] runs it).
         let lit: Vec<vtium_config::Identity> = self.start_lit.values().cloned().collect();
-        self.focus = head_index(rules.place(&lit, None).focus);
+        self.focus = head_index(self.rules.place(&lit, None).focus);
         self.bound_pointers();
     }
 
@@ -1766,15 +1803,9 @@ impl App {
             .chain(self.routes.unrescued())
             .cloned()
             .collect();
-        let focus_lit = self
-            .focus
-            .and_then(|h| self.heads.get(h))
-            .is_some_and(|head| !head.views.is_empty());
-        let mut rules = self.rules.clone();
-        // With no keyboard there is none to strand, and D8's notice says
-        // so; a keyboard the rescue key moved reaches the focus's head.
-        rules.guards.anti_lockout &=
-            self.routes.any_keyboard() && !(focus_lit && self.routes.rescued_keyboard());
+        // A keyboard the rescue key moved roams, and reaches the focus's
+        // head while it is lit.
+        let rescued: Vec<vtium_config::Identity> = self.routes.rescued().cloned().collect();
         // The default head is the head of a file that declares none.
         let focus = self.focus.map(|h| {
             if self.rules.heads.is_empty() {
@@ -1783,26 +1814,55 @@ impl App {
                 vtium_config::Place::Head(h)
             }
         });
-        let placement = rules.place(&devices, focus);
+        let placement = self.rules.place_rescued(&devices, &rescued, focus);
         let (shown, rest) = placement
             .placed
             .split_at(displays.len().min(placement.placed.len()));
         let (unannounced, inputs) = rest.split_at(held.len().min(rest.len()));
+        // under closed the guard lights the boot display for a notice
+        // alone, on the screen no head holds
+        let screen = self.screen;
         let lighting = displays
             .iter()
             .zip(shown)
             .find(|(_, p)| p.by == vtium_config::By::NeverDark)
-            .and_then(|(key, p)| Some((key.clone(), head_index(Some(p.place))?)));
+            .and_then(|(key, p)| {
+                let h = match p.place {
+                    vtium_config::Place::Notice => screen,
+                    place => head_index(Some(place)),
+                };
+                Some((key.clone(), h?))
+            });
         if lighting != self.guard_lit {
             if let Some((key, _)) = self.guard_lit.take() {
                 self.unlight(key);
             }
             if let Some((key, h)) = lighting {
-                log::warn!(
-                    "the display guard lights display {} in head {}",
-                    key.0.display(),
-                    self.heads.get(h).map_or("?", Head::name)
-                );
+                if Some(h) == screen {
+                    let report = self.report.clone().filter(|_| !self.stopped);
+                    let text = self.screen_notice();
+                    // a report's console line, as the start logged it
+                    let logged = match (&report, self.outcome.line) {
+                        (Some(_), Some(line)) => line.text(),
+                        _ => text.as_str(),
+                    };
+                    log::warn!(
+                        "the display guard lights display {} for the notice alone: {logged}",
+                        key.0.display()
+                    );
+                    if let Some(head) = self.heads.get_mut(h) {
+                        match report {
+                            Some(report) => head.set_report(report),
+                            None => head.set_notice(&text),
+                        }
+                    }
+                } else {
+                    log::warn!(
+                        "the display guard lights display {} in head {}",
+                        key.0.display(),
+                        self.heads.get(h).map_or("?", Head::name)
+                    );
+                }
                 self.dark.remove(&key);
                 self.guard_lit = Some((key.clone(), h));
                 if let Some(video) = self.videos.get_mut(&key.0) {
@@ -1852,9 +1912,7 @@ impl App {
                     .focus
                     .and_then(|h| self.heads.get(h))
                     .map_or("", Head::name);
-                let line = format!(
-                    "No keyboard was reaching a screen that is on, so every keyboard now types into {to}."
-                );
+                let line = crate::notice::anti_lockout(to);
                 log::warn!("the anti-lockout guard: {line}");
                 if let Some(head) = self.focus.and_then(|h| self.heads.get_mut(h)) {
                     head.add_notice(&line);
@@ -1864,6 +1922,21 @@ impl App {
         self.locked_out = placement.anti_lockout;
         self.any_lit.set(!self.lit.is_empty());
         self.bound_pointers();
+    }
+
+    /// What the screen the display guard lights for a notice alone shows
+    /// (ADR-1401 D7, D9): that a crash loop stopped every head, else the
+    /// panic screen for a broken closed file, else the start's console
+    /// line, else that no head has a display, each with its next step.
+    fn screen_notice(&self) -> String {
+        if self.stopped {
+            return crate::notice::stopped();
+        }
+        self.report
+            .as_ref()
+            .map(vtium_render::NoticeReport::text)
+            .or_else(|| self.outcome.dark_notice().map(crate::head::outcome_notice))
+            .unwrap_or_default()
     }
 
     /// The display the display guard lit goes dark again: the rules light
@@ -1885,7 +1958,7 @@ impl App {
 
     /// A head's first display came, its last went, or its next came. With
     /// none the head's session runs on at the grid it had, which no
-    /// display resizes, until its `on-loss` hangs it up (ADR-1401 D8), and
+    /// display resizes, until its `when-display-lost` hangs it up (ADR-1401 D8), and
     /// the blank does not run: the blank in force ends, and the countdown
     /// starts afresh when a display comes, as at the user's input for now
     /// (vtium/vtium#87 tells the two apart). The next is drawn whole, and
@@ -1913,10 +1986,10 @@ impl App {
             match (head.attached, attached) {
                 (Attached::Yes, Attached::Gone) => {
                     head.drop_osd();
-                    let hangup = match head.on_loss {
-                        OnLoss::Nohup => None,
-                        OnLoss::Hangup => Some(0),
-                        OnLoss::HangupAfter(secs) => Some(secs),
+                    let hangup = match head.when_display_lost {
+                        WhenDisplayLost::Keep => None,
+                        WhenDisplayLost::Hangup => Some(0),
+                        WhenDisplayLost::HangupAfter(secs) => Some(secs),
                     };
                     head.hangup_due =
                         hangup.map(|secs| after(now, Duration::from_secs(secs.into())));
@@ -1961,32 +2034,19 @@ impl App {
     }
 
     /// Hangs up head `h`'s sessions, which lost their last display under
-    /// `on-loss = hangup` (ADR-1401 D8); the head then follows the respawn
-    /// policy, coming back with the consoles its file asks for, as at its
-    /// start.
+    /// `when-display-lost = hangup` (ADR-1401 D8); each console then
+    /// follows the respawn policy, its session starting again in the same
+    /// console.
     fn hang_up(&mut self, h: usize, now: Instant) {
         let since = now.saturating_duration_since(self.epoch);
-        let App {
-            heads,
-            config,
-            scrollback,
-            scrollback_bytes,
-            clock,
-            ..
-        } = self;
-        let Some(head) = heads.get_mut(h) else {
-            return;
-        };
-        if head.hang_up(since, self.oneshot) {
-            head.open_wanted(|| {
-                crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
-            });
-            let ids: Vec<u64> = std::iter::once(head.console.id)
-                .chain(head.start_consoles(since))
-                .collect();
-            for id in ids {
-                self.spawn(h, id);
-            }
+        let oneshot = self.oneshot;
+        let again = self
+            .heads
+            .get_mut(h)
+            .map(|head| head.hang_up(since, oneshot))
+            .unwrap_or_default();
+        for id in again {
+            self.spawn(h, id);
         }
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);
@@ -2079,11 +2139,34 @@ impl App {
         self.deliver(Some(node), event, now);
     }
 
+    /// An event as the input drains it, from the device with the handle
+    /// `e.device` or from none, which every turn delivers.
+    pub fn drained_input(&mut self, e: DeviceInput, now: Instant) {
+        // A device watched for the rescue key sends its presses alone.
+        let node = e
+            .device
+            .and_then(|id| self.routes.node(id))
+            .map(Path::to_owned);
+        // Under closed an event of a device the seat no longer routes,
+        // queued before it went, delivers nothing (D3, D5).
+        if e.device.is_some() && node.is_none() && self.rules.policy == Policy::Closed {
+            return;
+        }
+        self.deliver(node.as_deref(), e.event, now);
+    }
+
     /// An event from the device at `node`, or from none, for the head its
     /// rule names or the head holding the focus (ADR-1401 D5). A key press
     /// is the user's activity; a pointer event is when
     /// [`App::pointer_event`] says so.
     fn deliver(&mut self, node: Option<&Path>, event: InputEvent, now: Instant) {
+        // A seat a crash loop stopped delivers nothing (D1), and under
+        // closed neither does a device with no route, such as one whose
+        // event was queued before it went: no rule placed it (D3, D5).
+        let unknown = node.is_some_and(|n| !self.routes.knows(n));
+        if self.stopped || unknown && self.rules.policy == Policy::Closed {
+            return;
+        }
         // The shown VT's own key does nothing else (D9).
         if let (Some(node), InputEvent::Key(key)) = (node, &event) {
             if !key.repeat && self.vt.is_own_key(key) {
@@ -2092,8 +2175,15 @@ impl App {
                 return;
             }
         }
+        // The head the device asks: its rule's, or the active head's for a
+        // roaming device, which is never isolated (D5).
+        let asked = self.routes.head(node, self.focus);
+        let from = KeyFrom {
+            vt_keys: asked.is_some_and(|h| !self.rules.isolated(h)),
+            roaming: self.routes.roams(node),
+        };
         // A head whose display never lit receives nothing (D8).
-        let h = self.routes.head(node, self.focus).filter(|&h| {
+        let h = asked.filter(|&h| {
             self.heads
                 .get(h)
                 .is_some_and(|head| head.attached != Attached::NotYet)
@@ -2107,7 +2197,7 @@ impl App {
                     head.end_notices();
                 }
                 self.activity(now);
-                self.key(h, &key, now);
+                self.key(h, &key, from, now);
             }
             InputEvent::Pointer(p) => {
                 let mods = match (&self.input, h) {
@@ -2135,15 +2225,9 @@ impl App {
         // types into after them, which the anti-lockout guard may move.
         self.guard_due = true;
         self.guard();
-        let moved = format!("The rescue key moved the keyboard at {}.", node.display());
         let line = match self.focus.and_then(|h| self.heads.get(h)) {
-            Some(head) => format!(
-                "{moved} It now types into the active head, {} now, until the next boot.",
-                head.name()
-            ),
-            None => format!(
-                "{moved} It types into the active head until the next boot. No head is active now."
-            ),
+            Some(head) => crate::notice::rescue(node.display(), head.name()),
+            None => crate::notice::rescue_no_head(node.display()),
         };
         log::warn!("{line}");
         match self.focus {
@@ -2210,8 +2294,16 @@ impl App {
     /// the encoder. Each key that passes the seat's clears the selection,
     /// as the C reference's did (`src/terminal.c:1370` at kmscon
     /// b1f7a7c5).
-    fn key(&mut self, h: Option<usize>, key: &KeyEvent, now: Instant) {
-        if self.vt.key(key) || !self.awake {
+    ///
+    /// The VT's keys switch the VT only `from` a keyboard asking a head that
+    /// is not isolated; from any other, the press goes on down the key
+    /// order to the session as an ordinary key, as a serial terminal sends
+    /// it (ADR-1401 D5). The roaming chord is taken only from a roaming
+    /// keyboard; from a claimed one it reaches the head's session as a key.
+    /// The C reference took the VT's keys first from every keyboard
+    /// (`src/uterm/vt_real.c:484-520, 705` at kmscon b1f7a7c5).
+    fn key(&mut self, h: Option<usize>, key: &KeyEvent, from: KeyFrom, now: Instant) {
+        if from.vt_keys && self.vt.key(key) || !self.awake {
             return;
         }
         let bits = key.mods.bits();
@@ -2234,10 +2326,13 @@ impl App {
             }
             return;
         }
-        if let Some(chord) = chord::chord(bits, &key.keysyms) {
+        let chord = chord::chord(bits, &key.keysyms).filter(|&chord| {
+            from.roaming || matches!(chord, HeadChord::NextConsole | HeadChord::PreviousConsole)
+        });
+        if let Some(chord) = chord {
             // One action a press, as the power keys.
             if !key.repeat {
-                self.chord(h, chord, now);
+                self.chord(h, chord);
             }
             return;
         }
@@ -2309,22 +2404,16 @@ impl App {
         head.draw_now = true;
     }
 
-    /// A head's chord (ADR-1401 D5): a console chord acts on head `h`'s
-    /// consoles, the head the key's device delivers to; the focus chord
-    /// moves the focus to the next or the previous head with a lit
-    /// display.
-    fn chord(&mut self, h: Option<usize>, chord: HeadChord, now: Instant) {
+    /// A head's chord (ADR-1401 D5): a console chord shows another of
+    /// head `h`'s consoles, the head the key's device delivers to; the
+    /// focus chord moves the focus to the next or the previous head with a
+    /// lit display.
+    fn chord(&mut self, h: Option<usize>, chord: HeadChord) {
         let visible = self.awake;
         let back = match chord {
             HeadChord::NextHead => false,
             HeadChord::PreviousHead => true,
-            HeadChord::NewConsole => {
-                if let Some(h) = h {
-                    self.new_console(h, now);
-                }
-                return;
-            }
-            HeadChord::NextConsole | HeadChord::PreviousConsole | HeadChord::CloseConsole => {
+            HeadChord::NextConsole | HeadChord::PreviousConsole => {
                 let changed = h
                     .and_then(|h| self.heads.get_mut(h))
                     .is_some_and(|head| head.console_chord(chord, visible));
@@ -2334,9 +2423,12 @@ impl App {
                 return;
             }
         };
-        let heads = &self.heads;
-        let lit = |h: usize| heads.get(h).is_some_and(|head| !head.views.is_empty());
         self.focus_settled = true;
+        // only to a lit head that can be the active head (D5)
+        let (heads, rules) = (self.heads(), &self.rules);
+        let lit = |h: usize| {
+            heads.get(h).is_some_and(|head| !head.views.is_empty()) && !rules.isolated(h)
+        };
         if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
             self.move_focus(to);
         }
@@ -2349,7 +2441,11 @@ impl App {
         self.focus = Some(h);
         self.focus_move = Some(h);
         if self.osd.shows_on_change() {
-            for head in self.heads.iter_mut().filter(|head| !head.views.is_empty()) {
+            for head in self
+                .heads
+                .iter_mut()
+                .filter(|head| !head.views.is_empty() && !head.notice_only)
+            {
                 head.show_osd();
             }
         }
@@ -2392,7 +2488,7 @@ impl App {
     }
 
     /// The programs of head `h`'s consoles that exited
-    /// ([`session`]): each closes its console, starts again, ends the head
+    /// ([`session`]): each starts again in its console, ends its console
     /// under `oneshot`, or ends vtium after too many quick exits; under
     /// `oneshot` vtium ends once no head that started still runs.
     fn child_exited(&mut self, h: usize, now: Instant) {
@@ -2409,20 +2505,63 @@ impl App {
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
-            match head.exited(id, since, self.oneshot, self.awake) {
-                AfterExit::Closed { shown: true } => {
-                    self.relayout(h);
-                }
+            match head.exited(id, since, self.oneshot) {
                 // No login starts in the turn vtium exits, which hangs
                 // every session up.
-                AfterExit::Restart if self.exit.is_none() => self.spawn(h, id),
-                AfterExit::GaveUp => self.request_exit(Exit::TooQuick),
-                AfterExit::Restart | AfterExit::Closed { shown: false } | AfterExit::Ended => {}
+                Some(AfterExit::Restart) if self.exit.is_none() => self.spawn(h, id),
+                Some(AfterExit::GaveUp) => self.gave_up(),
+                Some(AfterExit::Restart | AfterExit::Ended) | None => {}
             }
         }
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);
         }
+    }
+
+    /// A session kept ending as soon as it started, which ends the run
+    /// (ADR-1401 D1): every head's sessions hang up as vtium leaves, and
+    /// under the open policy vtium exits with status 1 for the unit's
+    /// getty. Under the closed policy a getty's login would take any
+    /// keyboard (D9), so vtium hangs every session up and holds its VT: no
+    /// session starts again, no input is delivered, every display a head
+    /// held goes dark, and the display guard lights the boot display for a
+    /// notice alone, which stays as long as vtium runs. The C reference
+    /// ended its process on any session's crash loop
+    /// (`src/terminal.c:1856-1868` at kmscon b1f7a7c5).
+    fn gave_up(&mut self) {
+        if self.rules.policy == Policy::Open {
+            log::error!("a session kept ending as soon as it started, so vtium exits");
+            self.request_exit(Exit::TooQuick);
+            return;
+        }
+        log::error!(
+            "a session kept ending as soon as it started, so vtium stops every head and holds its VT under the closed policy"
+        );
+        self.stopped = true;
+        self.focus = None;
+        for head in &mut self.heads {
+            for console in head.consoles_mut() {
+                console.pty = None;
+            }
+            head.views.clear();
+            head.hangup_due = None;
+            head.attached = Attached::NotYet;
+        }
+        self.guard_lit = None;
+        let lit = std::mem::take(&mut self.lit);
+        self.dark.extend(lit);
+        self.darken();
+        // No rule, so no display joins a head again and the display guard
+        // lights the boot display for the notice alone. The heads stay, each
+        // isolated as the file wrote it, so a keyboard asking an isolated
+        // head still switches no VT, whatever else delivers.
+        self.rules = vtium_config::Config {
+            policy: Policy::Closed,
+            heads: std::mem::take(&mut self.rules.heads),
+            survivors: true,
+            ..vtium_config::Config::default()
+        };
+        self.guard_due = true;
     }
 
     /// One turn's end: every source drained, the timers due run, and the
@@ -2455,7 +2594,7 @@ impl App {
             }
         }
         if std::mem::take(&mut self.keyboard_check) && !self.routes.any_keyboard() {
-            let line = "No keyboard was found. Plug one in to type.";
+            let line = crate::notice::NO_KEYBOARD;
             log::warn!("{line}");
             self.notice(line);
         }
@@ -2479,12 +2618,7 @@ impl App {
             head.tracking_changed();
         }
         for e in inputs {
-            // A device watched for the rescue key sends its presses alone.
-            let node = e
-                .device
-                .and_then(|id| self.routes.node(id))
-                .map(Path::to_owned);
-            self.deliver(node.as_deref(), e.event, now);
+            self.drained_input(e, now);
         }
         self.report_focus();
         for h in 0..self.heads.len() {
@@ -2610,7 +2744,13 @@ impl App {
     fn osd(&mut self, now: Instant) {
         let Osd { mode, timeout } = self.osd;
         let changes = mode == osd::Mode::Full && self.osd.shows_on_change();
-        for (h, head) in self.heads.iter_mut().enumerate() {
+        // the notice screen is no head, and shows no status
+        for (h, head) in self
+            .heads
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, h)| !h.notice_only)
+        {
             // A head opens its other consoles as it starts, which is no
             // change to show.
             let seen = head
@@ -2634,7 +2774,7 @@ impl App {
             });
             let status = (shown && mode == osd::Mode::Full).then(|| {
                 let at = head.shown_console().saturating_add(1);
-                osd::line(active, head.name(), at, head.console_count())
+                crate::notice::osd_line(active, head.name(), at, head.console_count())
             });
             if head.mark != mark || head.status != status {
                 head.mark = mark;
@@ -2840,6 +2980,16 @@ impl App {
     }
 }
 
+/// What the device a key came from may do (ADR-1401 D5).
+#[derive(Clone, Copy, Debug)]
+struct KeyFrom {
+    /// It asks a head that is not isolated, so the VT's keys switch the
+    /// VT.
+    vt_keys: bool,
+    /// It roams, so it takes the roaming chord.
+    roaming: bool,
+}
+
 /// The index of the head at `place`: the default head is the first.
 fn head_index(place: Option<vtium_config::Place>) -> Option<usize> {
     match place? {
@@ -2876,7 +3026,12 @@ fn draw_head(
 ) {
     let state = head.draw_state();
     let overlay = head.overlay();
-    if head.has_notices() && head.notice_due.is_none() && !head.views.is_empty() {
+    // The notice screen's notice stays for as long as it is lit (D7).
+    if head.has_notices()
+        && head.notice_due.is_none()
+        && !head.views.is_empty()
+        && !head.notice_only
+    {
         head.notice_due = Some(after(now, crate::head::NOTICE_SHOWN));
     }
     let present = std::mem::take(&mut head.console.term.present);
@@ -3046,7 +3201,7 @@ pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> i
                 // While none is lit, it is announced for the display guard
                 // to light (D9), which leaves dark again the ones it lights
                 // not.
-                if rules.guards.never_dark && !lit.get() {
+                if !lit.get() {
                     return false;
                 }
                 let display = identity::display(named, &at, 0);
@@ -3237,9 +3392,14 @@ mod tests {
         );
         app.set_font_sources(fonts);
         if let Some(text) = heads {
-            app.set_heads(vtium_config::parse(text).unwrap().config);
+            app.set_heads(start(text));
         }
         (lp, app)
+    }
+
+    /// What the start runs for a trusted head file holding `text`.
+    fn start(text: &str) -> Start {
+        Start::trusted(Path::new("heads.conf"), text.as_bytes())
     }
 
     fn no_fonts() -> font::Sources {
@@ -3299,8 +3459,9 @@ mod tests {
     }
 
     // ADR-1401 D1: a frit's helper fills the cells of the heads drawing
-    // it. Once one of two heads drawing `t` switches away by OSC 50, `t`
-    // keeps the other head's cell alone.
+    // it, here `t` for both heads' profile, b zoomed to a cell of its own.
+    // Once one of the two switches away by OSC 50, `t` keeps the other
+    // head's cell alone.
     #[test]
     fn a_frit_a_head_left_keeps_the_cells_of_the_heads_still_drawing_it() {
         let dir = std::env::temp_dir().join(format!("vtium-app-left-{}", std::process::id()));
@@ -3316,13 +3477,14 @@ mod tests {
             }),
             ..no_fonts()
         };
-        let heads = "version = 1\n[head a]\nfont-name = t\n[head b]\nfont-name = t\nfont-size = 32\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+        let heads = "version = 1\n[head a]\nprofile = t\n[head b]\nprofile = t\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
         let (_lp, mut app) = seat(Some(heads), fonts);
         app.add_video(
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A"), (2, "B")])),
         );
         shown(&mut app);
+        app.zoom(1, Zoom::In);
         let asked = |app: &App| {
             let mut cells: Vec<(u32, u32)> = app
                 .frits
@@ -3378,6 +3540,42 @@ mod tests {
         );
     }
 
+    // ADR-1401 D3 and D7: kmscon.conf's `mouse` off reaches the shipped
+    // rules' tail, which a partly broken open file's inputs walk after its
+    // surviving rules: a pointer there is never opened, and a keyboard
+    // still roams.
+    #[test]
+    fn mouse_off_closes_a_pointer_the_shipped_rules_tail_would_deliver() {
+        let args: Vec<OsString> = ["--no-mouse"].iter().map(OsString::from).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        let partly = "version = 1\n[head a]\nbogus = 1\n[head b]\n[rules]\ndisplay * -> b\n";
+        app.set_heads(start(partly));
+        assert_eq!(app.outcome.runs, vtium_config::Runs::Survivors);
+        let input = vtium_config::Identity::input;
+        let mouse = app.routes.add(
+            &app.rules.clone(),
+            Path::new("/m"),
+            &input().with_class(vtium_config::Class::Mouse),
+        );
+        let keyboard = app.routes.add(
+            &app.rules.clone(),
+            Path::new("/k"),
+            &input().with_class(vtium_config::Class::Keyboard),
+        );
+        assert_eq!(mouse, vtium_platform::input::Disposition::Closed);
+        assert_eq!(keyboard, vtium_platform::input::Disposition::Deliver);
+        assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
+        assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
+    }
+
     // ADR-1401 D10: a head file's heads past `consoles-max` each keep a
     // console, and every console's scrollback together stays within the
     // most `sb-memory` may be: 9 heads take a ninth each.
@@ -3397,12 +3595,12 @@ mod tests {
         for n in 0..9 {
             text.push_str(&format!("[head h{n}]\n"));
         }
-        app.set_heads(vtium_config::parse(&text).unwrap().config);
+        app.set_heads(start(&text));
         let cap = usize::try_from(crate::config::budget::sb_memory_cap()).unwrap();
         assert_eq!(app.scrollback_bytes, cap / 9);
     }
 
-    // ADR-1401 D8: the loop wakes when a head's `on-loss` time runs out.
+    // ADR-1401 D8: the loop wakes when a head's `when-display-lost` time runs out.
     #[test]
     fn the_loop_wakes_when_a_heads_hangup_falls_due() {
         let (_lp, mut app) = seat(Some("version = 1\n[head a]\n"), no_fonts());

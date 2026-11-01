@@ -4,7 +4,8 @@ directory laid out as the guest's root.
 Every variant of a run installs the same tree from its disc (guest/setup), as
 tree.tar unpacked over the guest's root. Its size on disk is measured here, on
 the host: the bytes of the regular files it installs, and the binary's alone,
-which tier 3 holds to a fixed budget.
+which tier 3 holds to a fixed budget when the tree's console is the minspec
+build, built without features.
 """
 
 import hashlib
@@ -15,9 +16,11 @@ from t3_common import RUNDIR, rel
 
 # The operator's size budget for the minspec binary, 3.5 MiB, raised from
 # 3 MiB on 2026-10-31 by the operator's decision recorded in ADR-1200 D19,
-# so that new work need not be trimmed to fit. A run whose binary is
+# so that new work need not be trimmed to fit. A run whose minspec binary is
 # larger fails, and raising the budget is a decision recorded in an ADR,
-# this one ADR-1200 D19.
+# this one ADR-1200 D19. A tree whose console is built with features, such
+# as images or the GPU path, is no minspec tree, and the budget does not
+# judge it.
 BINARY = "usr/bin/vtium"
 BINARY_BUDGET = 3670016
 # What the guest needs of a tree (README, "What the harness needs of the
@@ -31,9 +34,10 @@ REQUIRED = (BINARY, VT_UNIT)
 UDEV_DIRS = ("usr/lib/udev", "lib/udev", "etc/udev")
 
 
-def tree(path, tar_path=None):
-    """vtium's install tree at `path`, measured and packed into `tar_path`
-    (default RUNDIR/vtium-tree.tar) for the disc, owned by root."""
+def tree(path, tar_path=None, features=()):
+    """vtium's install tree at `path`, its console built with the vtium
+    crate's `features`, measured and packed into `tar_path` (default
+    RUNDIR/vtium-tree.tar) for the disc, owned by root."""
     path = os.path.abspath(path)
     if not os.path.isdir(path):
         raise SystemExit("no install tree at %s; make install-tree builds one" % rel(path))
@@ -47,7 +51,7 @@ def tree(path, tar_path=None):
         raise SystemExit("the install tree at %s installs %s, where udev reads its rules; vtium "
                          "ships its udev material as examples alone (ADR-1401 D4)"
                          % (rel(path), ", ".join("/" + d for d in active)))
-    impl = {"path": path, "binary_bytes": files[BINARY],
+    impl = {"path": path, "tree_features": sorted(features), "binary_bytes": files[BINARY],
             "installed_bytes": sum(files.values())}
     impl.update(pack_tree(path, tar_path or os.path.join(RUNDIR, "vtium-tree.tar")))
     return impl
@@ -88,16 +92,27 @@ def pack_tree(tree, tar_path):
     return {"tar": tar_path, "tree_sha256": h.hexdigest()}
 
 
+def judged_by_budget(impl):
+    """The budget judges the minspec tree alone, one whose console was built
+    without features."""
+    return not impl["tree_features"]
+
+
 def within_budget(impl):
-    return impl["binary_bytes"] <= BINARY_BUDGET
+    """False only for a tree the budget judges whose binary is over it."""
+    return not judged_by_budget(impl) or impl["binary_bytes"] <= BINARY_BUDGET
 
 
 def describe(impl):
     """The report's account of the tree: where it was, its digest, the
-    binary's bytes against the budget, and the bytes it installs in all."""
+    features its console was built with, the binary's bytes against the
+    budget (None for a tree the budget does not judge), and the bytes it
+    installs in all."""
+    budget = ({"binary_bytes": BINARY_BUDGET, "met": within_budget(impl)}
+              if judged_by_budget(impl) else None)
     return {"tree": rel(impl["path"]), "tree_sha256": impl["tree_sha256"],
-            "binary_bytes": impl["binary_bytes"], "installed_bytes": impl["installed_bytes"],
-            "budget": {"binary_bytes": BINARY_BUDGET, "met": within_budget(impl)}}
+            "features": impl["tree_features"], "binary_bytes": impl["binary_bytes"],
+            "installed_bytes": impl["installed_bytes"], "budget": budget}
 
 
 def mib(nbytes):

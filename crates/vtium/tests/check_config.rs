@@ -7,7 +7,7 @@ use std::process::{Command, Output};
 
 /// A head file that checks clean, but for the notes outside the status.
 const CLEAN_HEADS: &str =
-    "version = 1\n[head console]\n[rules]\ndisplay * -> console\ninput * -> focus\n";
+    "version = 1\n[head console]\n[rules]\ndisplay * -> console\ninput * -> roaming\n";
 
 fn dir(name: &str, conf: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("vtium-check-{name}-{}", std::process::id()));
@@ -284,7 +284,7 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
          frob = 1\n\
          [head desk]\n\
          [rules]\n\
-         display * -> focus\n\
+         display * -> roaming\n\
          input path:pci-0000:15:00.0-usb-0:3.3 -> desc\n\
          [rules]\n",
     );
@@ -299,28 +299,123 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
             "no line {line} naming {what:?}: {err}"
         );
     };
-    at(4, "unknown key \"frob\"");
-    at(5, "a second head named \"desk\"");
-    at(7, "`focus` is no target for a display rule");
-    at(8, "rule names undefined head \"desc\"");
-    at(9, "a second [rules] section");
+    at(4, "This section takes no key named \"frob\".");
+    at(5, "The file already declares a head named \"desk\".");
+    at(7, "A display rule cannot have `roaming` as its target.");
+    at(
+        8,
+        "This rule sends devices to the head \"desc\", which the file does not declare.",
+    );
+    at(
+        9,
+        "The file already has a `[rules]` section, and may have only one.",
+    );
     assert!(!err.contains("is no option"), "{err}");
     std::fs::remove_dir_all(d).ok();
 }
 
-// ADR-1401 D7, D9: a guard turned off is a note on standard output,
-// outside the exit status
+// ADR-1401 D7: each error says what it drops, and standard output ends on
+// what a start does with the file and the policy it states
+// covers: platform.heads.rules
+#[test]
+fn each_error_says_what_it_drops_and_the_outcome_follows() {
+    let (d, file) = head_file(
+        "drops",
+        "version = 1
+         policy = closed
+         [head desk]
+         [head kiosk]
+         frob = 1
+         [rules]
+         display * -> desk
+         input * -> kiosk
+         input name:Foo -> nosuch
+",
+    );
+    let out = check(&d, &[]);
+    assert_eq!(out.status.code(), Some(1));
+    let f = file.display();
+    let err = String::from_utf8_lossy(&out.stderr);
+    let lines: Vec<&str> = err.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            format!(
+                "{f}:5: This section takes no key named \"frob\". Check the key's spelling, or remove the line."
+            ),
+            format!("{f}:5: For this error vtium drops this head, with every rule that names it."),
+            format!(
+                "{f}:9: This rule sends devices to the head \"nosuch\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+            ),
+            format!(
+                "{f}:9: For this error vtium drops this rule alone, and a device walks on to the next rule."
+            ),
+        ],
+        "{err}"
+    );
+    let notes = String::from_utf8_lossy(&out.stdout);
+    let tail: Vec<&str> = notes.lines().rev().take(2).collect();
+    assert_eq!(
+        tail,
+        [
+            format!(
+                "{f}: The policy is closed: an input no rule places is ignored, a head that leaves `isolated` unset is isolated, and the anti-lockout guard and the rescue key are off."
+            ),
+            format!(
+                "{f}: A start runs the heads and rules that survive, with the rescue key off; each head keeps the isolation it states, and a head that states none is isolated. It shows `config partly invalid, running what's valid`."
+            ),
+        ],
+        "{notes}"
+    );
+    std::fs::remove_dir_all(d).ok();
+}
+
+// ADR-1401 D9, D10: a head's `consoles` past kmscon.conf's
+// `head-consoles-max` counts against the file, so the check exits 1
+// covers: platform.heads.rules
+#[test]
+fn consoles_past_head_consoles_max_exit_1() {
+    let (d, file) = head_file(
+        "cap",
+        "version = 1
+[head desk]
+consoles = 5
+[rules]
+display * -> desk
+input * -> roaming
+",
+    );
+    let out = check(&d, &[]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        format!(
+            "{}:3: The head \"desk\" asks for more consoles than `head-consoles-max` allows, 4, so it gets 4. Lower its `consoles` to 4 or fewer, or raise `head-consoles-max` in kmscon.conf.\n",
+            file.display()
+        )
+    );
+    let out = check(&d, &["--head-consoles-max=5"]);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    std::fs::remove_dir_all(d).ok();
+}
+
+// ADR-1401 D4, D7: input sent to a head by `name` alone is a note on
+// standard output, outside the exit status
 #[test]
 fn a_candidate_with_only_notes_exits_0_and_prints_them_on_stdout() {
     let (d, file) = head_file(
         "notes",
-        "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n[guards]\nnever-dark = off\n",
+        "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput name:Foo* -> desk\n",
     );
     let out = check(&d, &[]);
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&out.stderr), "");
     let notes = String::from_utf8_lossy(&out.stdout);
-    let guard = format!("{}:6: the never-dark guard is off", file.display());
-    assert!(notes.lines().any(|l| l == guard), "{notes}");
+    let weak = format!(
+        "{}:5: input reaches a head by `id` or `name` alone, which any device can claim",
+        file.display()
+    );
+    assert!(notes.lines().any(|l| l == weak), "{notes}");
     std::fs::remove_dir_all(d).ok();
 }

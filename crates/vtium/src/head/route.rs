@@ -31,7 +31,7 @@ impl Route {
     /// guarded.
     fn place(&self) -> Place {
         if self.rescued || self.guarded {
-            Place::Focus
+            Place::Roaming
         } else {
             self.place
         }
@@ -88,12 +88,13 @@ impl Routes {
         self.devices.values().any(|r| r.keyboard)
     }
 
-    /// Whether a keyboard the rescue key moved counts toward the
-    /// anti-lockout guard (D9).
-    pub(crate) fn rescued_keyboard(&self) -> bool {
+    /// The identities of the devices the rescue key moved, which roam
+    /// and count toward the anti-lockout guard (D9).
+    pub(crate) fn rescued(&self) -> impl Iterator<Item = &Identity> {
         self.devices
             .values()
-            .any(|r| r.rescued && r.identity.counts_as_keyboard())
+            .filter(|r| r.rescued)
+            .map(|r| &r.identity)
     }
 
     /// Each device [`Routes::unrescued`] gave goes to the focus where
@@ -172,7 +173,19 @@ impl Routes {
     /// ignored one reaches none.
     pub(crate) fn head(&self, node: Option<&Path>, focus: Option<usize>) -> Option<usize> {
         let place = node.and_then(|n| self.devices.get(n)).map(Route::place);
-        head_of(place.unwrap_or(Place::Focus), focus)
+        head_of(place.unwrap_or(Place::Roaming), focus)
+    }
+
+    /// Whether a device at `node` was placed and has not gone.
+    pub(crate) fn knows(&self, node: &Path) -> bool {
+        self.devices.contains_key(node)
+    }
+
+    /// Whether the device at `node` roams, typing into the active head: one
+    /// no rule placed, as one a test types on, does.
+    pub(crate) fn roams(&self, node: Option<&Path>) -> bool {
+        node.and_then(|n| self.devices.get(n))
+            .is_none_or(|r| r.place() == Place::Roaming)
     }
 
     /// The handles of the devices whose events go to head `h`.
@@ -215,31 +228,45 @@ fn head_of(place: Place, focus: Option<usize>) -> Option<usize> {
     match place {
         Place::Head(h) => Some(h),
         Place::DefaultHead => Some(0),
-        Place::Focus => focus,
-        Place::Ignore | Place::Dark => None,
+        Place::Roaming => focus,
+        Place::Ignore | Place::Off | Place::Notice => None,
     }
 }
 
-/// The rules in force: `rules`, with the shipped rules' pointer rules
-/// sending pointers to `ignore` under kmscon.conf's `mouse` off, its
-/// shorthand (ADR-1401 D3), so a pointer is never opened, one with udev's
-/// key class on its node too.
+/// The rules in force: `rules`, with kmscon.conf's `mouse` off, its
+/// shorthand (ADR-1401 D3), sending the shipped rules' pointer rules to
+/// `ignore`, so a pointer is never opened, one with udev's key class on its
+/// node too. The shipped rules are the compiled-in configuration's own and
+/// their tail, which a partly broken open file's inputs walk after its
+/// surviving rules (D7).
 pub(crate) fn in_force(
     mut rules: vtium_config::Config,
     config: &crate::config::Config,
 ) -> vtium_config::Config {
-    use vtium_config::{Match, Target, Token};
-    if config.switch(&crate::config::keys::MOUSE) || rules != vtium_config::Config::builtin() {
+    if config.switch(&crate::config::keys::MOUSE) {
         return rules;
     }
-    for rule in &mut rules.rules {
+    let shipped = vtium_config::Config::builtin();
+    if rules == shipped {
+        ignore_pointers(&mut rules.rules);
+    } else {
+        let mut tail = shipped.rules;
+        ignore_pointers(&mut tail);
+        rules.tail = Some(tail);
+    }
+    rules
+}
+
+/// Sends each rule of `rules` that takes a pointer class alone to `ignore`.
+fn ignore_pointers(rules: &mut [vtium_config::Rule]) {
+    use vtium_config::{Match, Target, Token};
+    for rule in rules {
         if matches!(&rule.matcher, Match::All(tokens)
             if matches!(tokens.as_slice(), [Token::Class(c)] if c.is_pointer()))
         {
             rule.target = Target::Ignore;
         }
     }
-    rules
 }
 
 #[cfg(test)]
@@ -259,7 +286,7 @@ mod tests {
     #[test]
     fn a_device_delivers_to_its_rules_head_or_the_focus() {
         let rules = vtium_config::parse(
-            "version = 1\n[head a]\n[head b]\n[rules]\ninput path:p-a -> a\ninput path:p-x -> ignore\ninput class:keyboard -> focus\n",
+            "version = 1\n[head a]\n[head b]\n[rules]\ninput path:p-a -> a\ninput path:p-x -> ignore\ninput class:keyboard -> roaming\n",
         )
         .map(|p| p.config)
         .unwrap_or_default();
@@ -282,7 +309,7 @@ mod tests {
             None,
             "a keyboard following the focus stays"
         );
-        assert!(!routes.rescued_keyboard());
+        assert_eq!(routes.rescued().count(), 0);
         assert!(!routes.keyboard_reaches(1, Some(0), |_| true));
         assert!(!routes.keyboard_reaches(1, Some(1), |_| false), "none open");
     }
@@ -318,7 +345,7 @@ mod tests {
         assert_eq!(back, [(a, Disposition::Deliver), (x, Disposition::Rescue)]);
         assert_eq!(routes.head(Some(Path::new("/x")), Some(0)), None);
         assert_eq!(routes.rescue(&rules, Path::new("/x")), Some(Some(x)));
-        assert!(routes.rescued_keyboard());
+        assert_eq!(routes.rescued().count(), 1);
         assert_eq!(routes.unrescued().count(), 1);
         assert_eq!(routes.guard(&rules, [false]), []);
         assert_eq!(

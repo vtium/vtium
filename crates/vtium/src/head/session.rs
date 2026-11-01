@@ -3,23 +3,34 @@
 //! within the caps, the console chords, what a console's exit does, and
 //! when vtium ends.
 //!
-//! A console whose program exits while others stay open closes, and the
-//! head shows its next; the last console's exit follows the respawn
-//! policy, each console counting its own quick exits: its program starts
-//! again, the head ends under `oneshot`, showing why, or vtium ends after
-//! too many quick exits (ADR-1401 D1). Under `oneshot` vtium ends once no
-//! head that started still runs: a head whose display never lit has
-//! nothing left to run, so it holds up no exit (the team lead's steering
-//! of 2026-10-30).
+//! A head keeps the consoles its `consoles` gives it from its start to
+//! its end: no chord opens or closes one, and a console whose program
+//! exits keeps its place among them (ADR-1401 D1, D5). Each console
+//! counts its own quick exits and follows the respawn policy on its own.
+//! Under respawn its program starts again in the same console, which
+//! keeps its `VTIUM_CONSOLE` id. Under `oneshot` the console ends and
+//! shows why, and the head ends once every one of its consoles has. Too
+//! many quick exits of any console of any head end vtium. Under `oneshot`
+//! vtium ends once no head that started still runs: a head whose display
+//! never lit has nothing left to run, so it holds up no exit (the team
+//! lead's steering of 2026-10-30).
+//!
+//! The C reference started a session's child again in the same terminal,
+//! which closed its pty and hard-reset its parser first, and each pty
+//! counted its own quick exits (`src/misc/pty.c:737-768`,
+//! `src/terminal.c:1711-1748, 1856-1868` at kmscon b1f7a7c5). Under
+//! `oneshot` it ended the whole process at the first exit, where vtium
+//! ends that console alone, and its seat's chords opened and closed
+//! sessions (`src/seat.c:584-640`), which no chord of vtium's does.
 
 use std::rc::Rc;
 use std::time::Duration;
 
 use crate::app::Exit;
 use crate::config::Config;
+use crate::head::Head;
 use crate::head::chord::HeadChord;
 use crate::head::console::{self, Console};
-use crate::head::{ENDED, Head};
 use crate::respawn::{Next, QUICK, QUICK_RESTARTS, Respawn};
 use crate::term::{Clock, Term};
 
@@ -97,7 +108,7 @@ pub(crate) fn heads(
             let term = crate::head::terminal(config, lines, bytes, Rc::clone(clock));
             let mut head = Head::new(&h.name, config, &font, term);
             head.wanted = wanted;
-            head.on_loss = h.on_loss;
+            head.when_display_lost = h.when_display_lost;
             head.login = h.login.as_deref().and_then(|text| {
                 config
                     .with_login(text)
@@ -113,27 +124,16 @@ pub(crate) fn heads(
         .collect()
 }
 
-/// The consoles every head of `heads` holds, or will hold at its start,
-/// which `consoles-max` bounds.
-pub(crate) fn console_total(heads: &[Head]) -> usize {
-    heads
-        .iter()
-        .map(|head| head.console_count().max(head.wanted))
-        .sum()
-}
-
-/// What a console's exit did to its head.
+/// What a console's exit did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AfterExit {
-    /// The console closed; the head shows another when `shown`.
-    Closed { shown: bool },
-    /// The head's last console starts its program again, from a hard
-    /// reset.
+    /// The console's program starts again in it, from a hard reset.
     Restart,
-    /// The head's last console's program ended under `oneshot`.
+    /// The console's program ended under `oneshot`; the console keeps its
+    /// place, and shows that its session ended.
     Ended,
-    /// The head's last console's program exited quickly too many times
-    /// running, which ends vtium.
+    /// The console's program exited quickly too many times running, which
+    /// ends the run (ADR-1401 D1).
     GaveUp,
 }
 
@@ -141,8 +141,8 @@ pub(crate) enum AfterExit {
 /// ended under `oneshot` and no head that started still runs. Under the
 /// respawn policy no head ends.
 pub(crate) fn exit_due(heads: &[Head]) -> Option<Exit> {
-    let ended = heads.iter().any(|head| head.ended);
-    let running = heads.iter().any(|head| head.started() && !head.ended);
+    let ended = heads.iter().any(Head::ended);
+    let running = heads.iter().any(|head| head.started() && !head.ended());
     (ended && !running).then_some(Exit::Oneshot)
 }
 
@@ -169,146 +169,113 @@ impl Head {
             .collect()
     }
 
-    /// Whether a new console may open in the head, with `total` consoles
-    /// in every head, within `caps`; a line says why not.
-    pub(crate) fn may_open(&self, caps: Caps, total: usize) -> bool {
-        let refused = if self.ended {
-            Some(ENDED.to_owned())
-        } else if self.console_count() >= caps.head {
-            Some(format!("past head-consoles-max, {}", caps.head))
-        } else if total >= caps.total {
-            Some(format!("past consoles-max, {}", caps.total))
-        } else {
-            None
-        };
-        if let Some(why) = &refused {
-            log::warn!("head {}: no new console: {why}", self.name());
-        }
-        refused.is_none()
-    }
-
-    /// Opens the console `id` on `term`, shown, while `visible`; its count
-    /// starts at `since` when the head's sessions have. Returns whether its
-    /// session starts now.
-    pub(crate) fn open(&mut self, id: u64, term: Term, since: Duration, visible: bool) -> bool {
-        let mut console = Console::new(id, term, self.fresh_fit());
-        let started = self.started();
-        if started {
-            console.respawn = Some(Respawn::new(since));
-        }
-        self.push(console, visible);
-        started
-    }
-
-    /// A console chord but the new console's (ADR-1401 D5): the next or
-    /// the previous console shown, or the shown one closed and the next
-    /// shown, its pty closed so its programs get SIGHUP. A head of one
-    /// console keeps it, as the C reference's seat kept its last session
-    /// (`src/seat.c:610-620` at kmscon b1f7a7c5). Returns whether the
-    /// shown console changed.
+    /// A console chord (ADR-1401 D5): the next or the previous console
+    /// shown, wrapping. The chords never open or close a console, since a
+    /// head has the consoles its `consoles` gives it (D1). Returns whether
+    /// the shown console changed.
     pub(crate) fn console_chord(&mut self, chord: HeadChord, visible: bool) -> bool {
+        let back = match chord {
+            HeadChord::NextConsole => false,
+            HeadChord::PreviousConsole => true,
+            HeadChord::NextHead | HeadChord::PreviousHead => return false,
+        };
         if self.console_count() < 2 {
             return false;
         }
-        match chord {
-            HeadChord::CloseConsole => drop(self.close_shown(visible)),
-            HeadChord::NextConsole | HeadChord::PreviousConsole => {
-                let back = chord == HeadChord::PreviousConsole;
-                let to = console::step(self.at, self.console_count(), back);
-                self.show(to, visible);
-            }
-            HeadChord::NewConsole | HeadChord::NextHead | HeadChord::PreviousHead => {
-                return false;
-            }
-        }
+        let to = console::step(self.at, self.console_count(), back);
+        self.show(to, visible);
         true
     }
 
     /// Hangs up the head's sessions at `since`, as a line losing its
     /// carrier (ADR-1401 D8): every console's pty closes, so its programs
-    /// get SIGHUP, and the consoles but the shown one close. The respawn
-    /// policy follows, with no quick exit counted, since vtium ended the
-    /// session. Returns whether its session starts again. A head that
-    /// ended or never started has nothing to hang up.
-    pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool) -> bool {
+    /// get SIGHUP, and each console follows the respawn policy with no
+    /// quick exit counted, since vtium ended the session. Each console
+    /// keeps its place and its id (D5). Returns the consoles whose
+    /// sessions start again. A head that ended or never started has
+    /// nothing to hang up.
+    pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool) -> Vec<u64> {
         self.hangup_due = None;
-        if self.ended || !self.started() {
-            return false;
+        if self.ended() || !self.started() {
+            return Vec::new();
         }
         log::warn!(
-            "head {}: its last display is gone: on-loss hangs its sessions up",
+            "head {}: its last display is gone: when-display-lost hangs its sessions up",
             self.name()
         );
-        self.hidden.clear();
-        self.at = 0;
-        self.console.pty = None;
-        // An exit read before the hang-up is the hung-up session's.
-        self.console.term.exited = None;
-        let next = self
-            .console
-            .respawn
-            .as_mut()
-            .map_or(Next::Restart, |r| r.hung_up(since, oneshot));
-        self.last_ended(next) == AfterExit::Restart
+        let running: Vec<u64> = self.consoles().filter(|c| !c.ended).map(|c| c.id).collect();
+        let mut again = Vec::new();
+        for id in running {
+            let Some(console) = self.console_mut(id) else {
+                continue;
+            };
+            console.pty = None;
+            // An exit read before the hang-up is the hung-up session's.
+            console.term.exited = None;
+            let next = console
+                .respawn
+                .as_mut()
+                .map_or(Next::Restart, |r| r.hung_up(since, oneshot));
+            if self.session_ended(id, next) == AfterExit::Restart {
+                again.push(id);
+            }
+        }
+        again
     }
 
-    /// The program of console `id` exited at `since`, the console shown
-    /// next while `visible`.
-    pub(crate) fn exited(
-        &mut self,
-        id: u64,
-        since: Duration,
-        oneshot: bool,
-        visible: bool,
-    ) -> AfterExit {
-        if self.console_count() > 1 {
-            // The pty closes with what is queued for the child.
-            let shown = self.console.id == id;
-            if shown {
-                drop(self.close_shown(visible));
-            } else {
-                drop(self.remove_hidden(id));
-            }
-            return AfterExit::Closed { shown };
-        }
-        self.console.pty = None;
-        let next = self
-            .console
+    /// The program of console `id` exited at `since`; `None` when the head
+    /// has no such console.
+    pub(crate) fn exited(&mut self, id: u64, since: Duration, oneshot: bool) -> Option<AfterExit> {
+        let console = self.console_mut(id)?;
+        // The pty closes with what is queued for the child.
+        console.pty = None;
+        let next = console
             .respawn
             .as_mut()
             .map_or(Next::Restart, |r| r.exited(since, oneshot));
-        self.last_ended(next)
+        Some(self.session_ended(id, next))
     }
 
-    /// The last console's session ended, and `next` follows.
-    fn last_ended(&mut self, next: Next) -> AfterExit {
-        match next {
-            Next::Restart => {
-                // A new session starts from a hard reset (RIS), drawn at
-                // once, with nothing of the last session's output left
-                // (`terminal_close` at kmscon b1f7a7c5).
-                let term = &mut self.console.term;
-                term.terminal.input(b"\x1bc");
-                term.terminal.take_replies();
-                term.unparsed = false;
-                self.draw_now = true;
-                AfterExit::Restart
-            }
-            Next::Oneshot => {
-                log::warn!("head {}: {ENDED}", self.name());
-                self.ended = true;
-                self.draw_now = true;
-                AfterExit::Ended
-            }
-            // vtium leaves the VT in this turn, so the head draws no notice.
+    /// The session of console `id` ended, and `next` follows.
+    fn session_ended(&mut self, id: u64, next: Next) -> AfterExit {
+        let after = match next {
+            Next::Restart => AfterExit::Restart,
+            Next::Oneshot => AfterExit::Ended,
+            // The run ends in this turn, so the head draws no notice.
             Next::TooQuick => {
                 log::error!(
-                    "head {}: its session ended less than {} s after it started, more than {QUICK_RESTARTS} times running, so vtium exits",
+                    "head {}: the session of console {id} ended less than {} s after it started, more than {QUICK_RESTARTS} times running",
                     self.name(),
                     QUICK.as_secs()
                 );
-                AfterExit::GaveUp
+                return AfterExit::GaveUp;
             }
+        };
+        let Some(console) = self.console_mut(id) else {
+            return after;
+        };
+        if after == AfterExit::Restart {
+            // A new session starts from a hard reset (RIS), with nothing of
+            // the last session's output left (`terminal_close` at kmscon
+            // b1f7a7c5).
+            let term = &mut console.term;
+            term.terminal.input(b"\x1bc");
+            term.terminal.take_replies();
+            term.unparsed = false;
+        } else {
+            console.ended = true;
+            log::warn!(
+                "head {}: console {id}: its program ended under oneshot, and it does not start again",
+                self.name()
+            );
         }
+        // The shown console is drawn at once, a hidden one when it is shown.
+        if self.console.id == id {
+            self.draw_now = true;
+        }
+        // The shown console's notice names the console chord while another
+        // console runs.
+        self.compose_notices();
+        after
     }
 }

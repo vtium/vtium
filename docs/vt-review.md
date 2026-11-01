@@ -18,6 +18,7 @@ make vt-demo VT=4 DEMO_ARGS='--font-size=30 --mode=1366x768'
 make vt-login                           # a login prompt, for the demo or anything else by hand
 make vt-shell                           # your login shell, as you, with no login; exit it to end the run
 make vt-demo DRY_RUN=1                  # pick the VT and print every command; run none
+make vt-shell VT_DEBUG=1                # log debug messages and copy the kernel's DRM state at each display change
 make help                               # the targets
 ```
 
@@ -38,10 +39,11 @@ When it ends, it prints a health check of vtium's log (its `panicked at` lines),
 | `DEMO_ARGS='...'` | vtium's options, split into words as `xargs` splits them: quotes and backslashes honoured, nothing expanded or run. Each option is one word, `--name=value` or `--name` / `--no-name`. |
 | `GUIDE=NAME`, `GUIDE_STEPS='2 3'` | `make vt-check`'s guide, a name in `tools/vt/checks` or a path, and the steps to run. The guide and the steps are checked before sudo; without `GUIDE` the target fails before the build, naming the guides. |
 | `DRY_RUN=1` | picks the VT and prints the command, then runs `run-vt.sh --dry-run` without sudo: it asks what it would ask (the VT on screen, the sessions, the active units) and prints each command that would change anything. |
+| `VT_DEBUG=1` | runs vtium with `--debug`, so its log holds its debug messages too, and copies the kernel's DRM state into a directory beside the log, named like the log with `.drm` in place of `.log`. Each time vtium logs that a display came or went, `run-vt.sh` copies `/sys/kernel/debug/dri/<N>/state` of every card as `NNN-came-<N>.state` or `NNN-went-<N>.state`; each time a display's first flip after its modeset is done, which vtium logs at debug once the card scans the new mode out, as `NNN-modeset-<N>.state`; and once more as `end-<N>.state` after vtium stops and before the console unit starts again. A line in vtium's log names each copy, so the log shows which state followed which line. The copies are written as the invoking user. When something vtium started still holds its output 5 s after vtium stops, the log ends there, so the run never waits on it. |
 
 The variables reach `tools/vt/vt.sh` through the environment, never as recipe text. The allowlist is written for the command line #21 gives vtium, the C reference's; vtium parses no arguments yet. `DEMO_ARGS` takes the options the C reference's review took: display, font, palette, text and input options, `--render-timer`, `--image-storage-limit` (`auto` or up to 4G) and `--sync-timeout`, and vtium's on-screen display options, `--osd`, `--osd-timeout` and `--focus-mark`, each named in full in lower-case letters and dashes. `run-vt.sh` refuses the rest: the VT, seat and session options, `--login`, `--configdir`, `--oneshot`, the grabs, the options that name files, and any value in a word of its own, which vtium would take as the option's value or move into the login command that runs as root.
 
-By hand: `sudo tools/vt/run-vt.sh --bin=target/x86_64-unknown-linux-gnu/minspec/vtium [--login | --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]`, and `tools/vt/run-vt.sh --bin=... --dry-run 5` without root.
+By hand: `sudo tools/vt/run-vt.sh --bin=target/x86_64-unknown-linux-gnu/minspec/vtium [--debug=DIR] [--login | --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]`, and `tools/vt/run-vt.sh --bin=... --dry-run 5` without root.
 
 ## What a run does
 

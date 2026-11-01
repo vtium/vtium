@@ -33,8 +33,9 @@ pub trait Video: Any {
     fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError>;
     /// Whether a frame swapped is still on its way to the screen.
     fn is_flipping(&self, id: DisplayId) -> bool;
-    /// Whether the display takes a frame now: it lends a canvas and no
-    /// flip is in flight. A frame that finds no canvas waits until it does.
+    /// Whether the display takes a frame now. On the CPU path a frame is
+    /// the canvas the display lends. A frame the display does not take
+    /// waits until the display is ready.
     fn ready_for_frame(&self, id: DisplayId) -> bool;
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()>;
     fn sleep(&mut self);

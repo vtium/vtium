@@ -8,8 +8,8 @@ use vtium_font::{Cell, Font};
 use vtium_render::{Canvas, Config, DrawState, Renderer};
 use vtium_term::{Age, Terminal, WidthMethod};
 
-use crate::card;
 use crate::profiles::{Glyphs, Layout, Profile};
+use crate::{bars, card};
 
 /// An image, 8-bit RGB, rows top to bottom.
 #[derive(Clone, PartialEq, Eq)]
@@ -100,7 +100,8 @@ pub fn terminal(layout: &Layout, bytes: &[u8]) -> Result<Terminal, String> {
     Ok(term)
 }
 
-/// Each page of the card on `profile`'s display.
+/// Each page of the card on `profile`'s display, then the message bars'
+/// screens ([`bars`]).
 pub fn screens(profile: &Profile, sources: &Sources) -> Result<Vec<Image>, String> {
     let cell = font(profile, sources)?.cell();
     if (cell.width, cell.height) != profile.cell {
@@ -131,24 +132,34 @@ pub fn screens(profile: &Profile, sources: &Sources) -> Result<Vec<Image>, Strin
             };
             let frame = term.screen().frame(term.palette(), Age::NEVER);
             r.draw(&frame, &mut canvas, 0, &state);
-            let rgb = canvas
-                .pixels()
-                .iter()
-                .flat_map(|&p| {
-                    let rgb = [(p >> 16) as u8, (p >> 8) as u8, p as u8];
-                    match profile.panel {
-                        Some(panel) => [panel.show(rgb); 3],
-                        None => rgb,
-                    }
-                })
-                .collect();
-            Ok(Image {
-                width: profile.width,
-                height: profile.height,
-                rgb,
-            })
+            Ok(image(profile, canvas.pixels()))
         })
+        .chain(
+            bars::screens(profile, sources)
+                .map(|bars| bars.iter().map(|b| image(profile, b)).collect::<Vec<_>>())
+                .map_or_else(|e| vec![Err(e)], |v| v.into_iter().map(Ok).collect()),
+        )
         .collect()
+}
+
+/// `profile`'s display of XRGB `pixels` as an image, through its panel's
+/// conversion if it has one.
+fn image(profile: &Profile, pixels: &[u32]) -> Image {
+    let rgb = pixels
+        .iter()
+        .flat_map(|&p| {
+            let rgb = [(p >> 16) as u8, (p >> 8) as u8, p as u8];
+            match profile.panel {
+                Some(panel) => [panel.show(rgb); 3],
+                None => rgb,
+            }
+        })
+        .collect();
+    Image {
+        width: profile.width,
+        height: profile.height,
+        rgb,
+    }
 }
 
 /// The space between screens in a collage and round its edge, in pixels.

@@ -135,15 +135,16 @@ pub struct Colors {
 }
 
 impl Colors {
-    /// ADR-1401's figure of the notice: dark text in a pale red box with a
-    /// red edge.
+    /// A notice's colors with none of the console's color keys set
+    /// (ADR-1401 D5): dark text in a pale red box with a red edge.
     pub const NOTICE: Colors = Colors {
         ink: Rgb::new(0x1f, 0x29, 0x33),
         paper: Rgb::new(0xfe, 0xe2, 0xe2),
         edge: Rgb::new(0xb9, 0x1c, 0x1c),
     };
 
-    /// The on-screen display's line alone, which reports no problem
+    /// The on-screen display's colors with none of the console's color
+    /// keys set, for its line alone and its dot, which report no problem
     /// (ADR-1401 D5): light text in a dark box with a grey edge.
     pub const STATUS: Colors = Colors {
         ink: Rgb::new(0xe5, 0xe7, 0xeb),
@@ -181,11 +182,75 @@ pub fn quote(text: &str) -> String {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notice {
     text: String,
+    /// The report the text was made from, which keeps its count and its
+    /// next step on a display too small for all of it
+    /// ([`Notice::report`]).
+    report: Option<Box<NoticeReport>>,
+}
+
+/// A report vtium shows, such as the panic screen (ADR-1401 D7): what
+/// happened, a list of items such as a file's errors, how many more there
+/// were, and what to do next, each part starting a line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NoticeReport {
+    /// What happened, shown first, each a line of its own.
+    pub happened: Vec<String>,
+    pub items: Vec<String>,
+    /// How many items there were past those in `items`.
+    pub more: usize,
+    /// The words a count of the items not shown follows, such as
+    /// `More errors:`: a count is written as a label and a number, so a
+    /// translation needs no plural forms (ADR-1402).
+    pub label: String,
+    /// What to do next, shown last.
+    pub next: String,
+}
+
+impl NoticeReport {
+    /// The report with its first `shown` items, then the count of the
+    /// rest when any are left out.
+    fn lines(&self, shown: usize) -> String {
+        let shown = shown.min(self.items.len());
+        let left = self
+            .items
+            .len()
+            .saturating_sub(shown)
+            .saturating_add(self.more);
+        let count = (left > 0).then(|| format!("{} {left}", self.label));
+        self.happened
+            .iter()
+            .chain(self.items.iter().take(shown))
+            .chain(&count)
+            .chain([&self.next])
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The report with every item it holds.
+    pub fn text(&self) -> String {
+        self.lines(self.items.len())
+    }
 }
 
 impl Notice {
     pub fn new(text: impl Into<String>) -> Notice {
-        Notice { text: text.into() }
+        Notice {
+            text: text.into(),
+            report: None,
+        }
+    }
+
+    /// The notice of `report`, which shows every item while they fit. On a
+    /// display too small for all of it, the items go from the last, and the
+    /// count after them grows by each one that goes, so what happened, the
+    /// count and what to do next still show; only when those do not fit is
+    /// the rest cut, as any notice's is.
+    pub fn report(report: NoticeReport) -> Notice {
+        Notice {
+            text: report.text(),
+            report: Some(Box::new(report)),
+        }
     }
 
     pub fn text(&self) -> &str {
@@ -243,8 +308,19 @@ impl Notice {
                 _ => cols,
             }
         };
-        let glyphs = Glyphs::new(font, display.depth, &self.text);
-        let lines = wrap(&self.text, room, cols_at, |c| glyphs.width(c));
+        // a report's count, which shows only once an item goes, can take
+        // characters its full text lacks
+        let count = self
+            .report
+            .as_ref()
+            .map(|r| format!("{} 0123456789", r.label))
+            .unwrap_or_default();
+        let glyphs = Glyphs::new(font, display.depth, &format!("{}{count}", self.text));
+        let width = |c| glyphs.width(c);
+        let lines = match &self.report {
+            Some(report) => fitted(report, room, cols_at, width),
+            None => wrap(&self.text, room, cols_at, width),
+        };
         let shown = u32::try_from(lines.len().max(1)).unwrap_or(1);
         let colors = colors.at(display.depth);
         let mut picture = Picture::new(
@@ -446,6 +522,26 @@ fn wrap(
         }
     }
     out
+}
+
+/// A report's lines on a display of `room` lines (ADR-1401 D7): every item
+/// while they fit, else as many as fit from the first, with the count of
+/// the rest; only when no item fits beside what happened, the count and
+/// the next step is the rest cut, as [`wrap`] cuts.
+fn fitted(
+    report: &NoticeReport,
+    room: usize,
+    cols: impl Fn(usize) -> u32,
+    width: impl Fn(char) -> Width,
+) -> Vec<Vec<(char, Width)>> {
+    // one line past the room shows whether a choice fits
+    let over = room.saturating_add(1);
+    let kept = (0..=report.items.len())
+        .rev()
+        .map(|n| report.lines(n))
+        .find(|shown| wrap(shown, over, &cols, &width).len() <= room)
+        .unwrap_or_else(|| report.lines(0));
+    wrap(&kept, room, cols, width)
 }
 
 /// The view's pixels of what the console draws, row by row.
@@ -811,6 +907,95 @@ mod tests {
         );
         assert_eq!(none, None);
         assert!(small.pixels().iter().all(|&p| p == 7));
+    }
+
+    fn report(happened: &[&str], items: &[&str], more: usize) -> NoticeReport {
+        NoticeReport {
+            happened: happened.iter().map(|s| (*s).to_owned()).collect(),
+            items: items.iter().map(|s| (*s).to_owned()).collect(),
+            more,
+            label: "More:".to_owned(),
+            next: "next step".to_owned(),
+        }
+    }
+
+    // ADR-1401 D7: a report too tall for its display drops its items from
+    // the last and counts each one dropped, so what happened, the count and
+    // its next step still show
+    #[test]
+    fn a_report_too_tall_for_its_display_counts_the_items_it_drops() {
+        let three = report(&["happened"], &["error one", "error two", "error three"], 0);
+        let font = font("unscii-8", 8);
+        // 4 lines of 8 between the edges and the quarter-cell insets
+        let (w, h) = (320, 6 + 4 * 8);
+        let drawn = |notice: Notice| {
+            let mut canvas = Canvas::new(w, h, 0);
+            notice
+                .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
+                .expect("it fits");
+            canvas
+        };
+        // the count's digit is in no line of the report's own text
+        assert_eq!(
+            drawn(Notice::report(three.clone())),
+            drawn(Notice::new("happened\nerror one\nMore: 2\nnext step"))
+        );
+        assert_eq!(
+            drawn(Notice::new(three.text())),
+            drawn(Notice::new("happened\nerror one\nerror two\nerror three")),
+            "any other notice is cut"
+        );
+        let lines = |r: &NoticeReport, room| text(&fitted(r, room, |_| 38, narrow));
+        // with room for every item, nothing goes and nothing is counted
+        assert_eq!(
+            lines(&three, 9),
+            [
+                "happened",
+                "error one",
+                "error two",
+                "error three",
+                "next step"
+            ]
+        );
+        // a count the report already has grows by each item dropped
+        let more = report(&["happened", "why"], &["error one", "error two"], 2);
+        assert_eq!(
+            lines(&more, 9),
+            [
+                "happened",
+                "why",
+                "error one",
+                "error two",
+                "More: 2",
+                "next step"
+            ]
+        );
+        assert_eq!(
+            lines(&more, 5),
+            ["happened", "why", "error one", "More: 3", "next step"]
+        );
+        assert_eq!(lines(&more, 4), ["happened", "why", "More: 4", "next step"]);
+        // a next step that wraps keeps every line of its own
+        let long = NoticeReport {
+            next: ["word"; 10].join(" "),
+            ..three.clone()
+        };
+        assert_eq!(
+            lines(&long, 4),
+            [
+                "happened",
+                "More: 3",
+                "word word word word word word word",
+                "word word word"
+            ]
+        );
+        // with room for less than the parts that stay, the rest is cut
+        assert_eq!(lines(&three, 2), ["happened", "More: 3"]);
+        // a report with no items is its parts that stay
+        assert_eq!(
+            lines(&report(&["happened"], &[], 0), 3),
+            ["happened", "next step"]
+        );
     }
 
     // the notice and the mark turn with the display, as the grid does

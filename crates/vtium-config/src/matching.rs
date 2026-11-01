@@ -6,8 +6,9 @@ use crate::identity::{Class, Edid, Identity, UsbSerial};
 /// One `key:value` token of a rule's match.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
-    /// `path:ID_PATH`: that `ID_PATH`, or any below it by an interface
-    /// (`...:3.3` takes `...:3.3:1.0`).
+    /// `path:ID_PATH`: that `ID_PATH`, or any below it by an interface or
+    /// by a hub's port (`...:3.3` takes `...:3.3:1.0` and `...:3.3.2:1.0`,
+    /// and never `...:3.30:1.0`).
     Path(String),
     /// `serial:VENDOR:PRODUCT:SERIAL`.
     Serial(UsbSerial),
@@ -68,6 +69,22 @@ impl Token {
         "connector-path",
         "card",
         "udev",
+    ];
+
+    /// How each key's token is written, in [`Token::KEYS`]' order, which
+    /// an error naming a value its key cannot take shows.
+    pub const FORMS: [&'static str; 11] = [
+        "path:PATH",
+        "serial:VENDOR:PRODUCT:SERIAL",
+        "bluetooth:ADDRESS",
+        "id:VENDOR:PRODUCT",
+        "name:NAME",
+        "class:CLASS",
+        "edid:MAKER:PRODUCT:SERIAL",
+        "connector:CARD/CONNECTOR",
+        "connector-path:PATH",
+        "card:CARD",
+        "udev:NAME=GLOB",
     ];
 
     pub(crate) fn parse(token: &str) -> Result<Token, TokenError> {
@@ -174,7 +191,7 @@ impl Token {
         match self {
             Token::Path(want) => id.path.as_deref().is_some_and(|path| {
                 path.strip_prefix(want.as_str())
-                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with([':', '.']))
             }),
             Token::Serial(want) => id.serial.as_ref() == Some(want),
             Token::Bluetooth(want) => id.unique.as_deref() == Some(want.as_str()),
@@ -264,3 +281,6 @@ pub fn glob(pattern: &str, text: &str) -> bool {
     p.get(pi..)
         .is_some_and(|rest| rest.iter().all(|&c| c == '*'))
 }
+
+#[cfg(test)]
+mod tests;

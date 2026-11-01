@@ -28,6 +28,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -36,6 +37,7 @@ import t3  # noqa: E402
 import t3_bench  # noqa: E402
 import t3_devices  # noqa: E402
 import t3_evaluate  # noqa: E402
+import t3_heads  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
@@ -381,13 +383,13 @@ class ImplementationTest(unittest.TestCase):
         self.assertRegex(impl["tree_sha256"], r"^[0-9a-f]{64}$")
         self.assertEqual(t3_impl.describe(impl), {
             "tree": t3_common.rel(self.tree), "tree_sha256": impl["tree_sha256"],
-            "binary_bytes": 8, "installed_bytes": 21,
+            "features": [], "binary_bytes": 8, "installed_bytes": 21,
             "budget": {"binary_bytes": t3_impl.BINARY_BUDGET, "met": True}})
 
     def test_budget(self):
-        # The operator's budget is the binary's bytes, 3.5 MiB (ADR-1200 D19):
-        # at it the run passes, one byte past it fails. The rest of the tree
-        # does not count.
+        # The operator's budget is the minspec binary's bytes, 3.5 MiB
+        # (ADR-1200 D19): at it the run passes, one byte past it fails. The
+        # rest of the tree does not count.
         budget = t3_impl.BINARY_BUDGET
         self.assertEqual(budget, 3670016)
         impl = t3_impl.tree(self.tree, self.tar)
@@ -396,6 +398,57 @@ class ImplementationTest(unittest.TestCase):
             self.assertEqual(t3_impl.within_budget(impl), met, size)
             self.assertEqual(t3_impl.describe(impl)["budget"],
                              {"binary_bytes": budget, "met": met})
+        # A tree whose console is built with features is no minspec tree:
+        # the budget does not judge it, however large its binary.
+        impl = t3_impl.tree(self.tree, self.tar, features=["logind", "images"])
+        impl["binary_bytes"] = budget + 1
+        self.assertFalse(t3_impl.judged_by_budget(impl))
+        self.assertTrue(t3_impl.within_budget(impl))
+        self.assertEqual((t3_impl.describe(impl)["features"], t3_impl.describe(impl)["budget"]),
+                         (["images", "logind"], None))
+
+    def test_install_tree_features(self):
+        # make install-tree builds the console with the features its command
+        # line names, and with none from a FEATURES exported in the shell. An
+        # enclosing make's command line, which reaches these through
+        # MAKEFLAGS, is kept out.
+        bare = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS")}
+
+        def rustc(argv, env):
+            r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree",
+                                "DESTDIR=/D"] + argv, cwd=t3_common.ROOT, capture_output=True,
+                               text=True, check=True, env=dict(bare, **env))
+            return [l for l in r.stdout.splitlines() if "cargo rustc" in l]
+
+        for argv, env, want in ((["FEATURES=images logind"], {}, " --features 'images logind' "),
+                                (["FEATURES=images"], {}, " --features 'images' ")):
+            with self.subTest(argv):
+                lines = rustc(argv, env)
+                self.assertEqual(len(lines), 1)
+                self.assertIn(want, lines[0])
+        for argv, env in (([], {}), ([], {"FEATURES": "images"}), (["FEATURES="], {})):
+            with self.subTest(argv=argv, env=env):
+                lines = rustc(argv, env)
+                self.assertEqual(len(lines), 1)
+                self.assertNotIn("--features", lines[0])
+        # the tier 3 targets hand the same list to t3.py, which builds the
+        # tree with it and judges the budget by it, and hand none when make's
+        # command line names none, so tier3-run reads the last run's record
+        for goal in ("tier3-run", "tier3", "tier3-minimal", "tier3-nosystemd"):
+            for argv, env, want in ((["FEATURES=images"], {}, r" --features 'images'( |$)"),
+                                    (["FEATURES="], {}, r" --features ''( |$)"),
+                                    ([], {"FEATURES": "images"}, None), ([], {}, None)):
+                with self.subTest(goal=goal, argv=argv, env=env):
+                    r = subprocess.run(["make", "-n", "--no-print-directory", goal] + argv,
+                                       cwd=t3_common.ROOT, capture_output=True, text=True,
+                                       check=True, env=dict(bare, **env))
+                    lines = r.stdout.replace("\\\n", " ").splitlines()
+                    runs = [l for l in lines if "/t3.py run " in l]
+                    self.assertEqual(len(runs), 1)
+                    if want:
+                        self.assertRegex(runs[0], want)
+                    else:
+                        self.assertNotIn("--features", runs[0])
 
     def test_refused(self):
         # No tree, a file in its place, or a tree without the binary or the
@@ -661,6 +714,11 @@ class ImplementationTest(unittest.TestCase):
         self.assertTrue(t3.summary(impl, {}).startswith(
             "tree %s: binary 2368120 B, within the budget of %d B; "
             % (t3_common.rel(self.tree), budget)))
+        impl = t3_impl.tree(self.tree, self.tar, features=["images"])
+        impl["binary_bytes"] = budget + 1
+        self.assertTrue(t3.summary(impl, {}).startswith(
+            "tree %s: built with images: binary %d B, which the budget, the minspec tree's "
+            "alone, does not judge; " % (t3_common.rel(self.tree), budget + 1)))
 
     def test_vtium_process(self):
         # vtium's process logs as vtium[pid]; its render-timer and startup
@@ -705,9 +763,13 @@ class ImplementationTest(unittest.TestCase):
         # one, so the two are refused together, before run is called.
         with mock.patch.object(t3, "run", side_effect=lambda args, log: args) as run:
             args = t3.main(["run", "--tree", "a", "2d-potato-min"])
-        self.assertEqual((args.tree, args.tree_target, args.variants),
-                         ("a", None, ["2d-potato-min"]))
+        self.assertEqual((args.tree, args.tree_target, args.features, args.variants),
+                         ("a", None, None, ["2d-potato-min"]))
         self.assertTrue(run.called)
+        # --features names them as cargo takes them, by commas or spaces
+        for text, want in (("", []), ("images", ["images"]), ("logind,images", ["images", "logind"]),
+                           (" images  logind images ", ["images", "logind"])):
+            self.assertEqual(t3.feature_list(text), want, text)
         for argv, why in ((["--tree", "a", "--tree-target", "install-tree"],
                            "--tree names a tree built already"),
                           (["2d-potato-min", "2d-potato-min"], "a variant is named twice"),
@@ -732,13 +794,20 @@ class ImplementationTest(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0)
 
         with mock.patch.object(t3.subprocess, "run", side_effect=make):
-            t3.build_tree("install-tree", tree, lambda msg: None)
+            t3.build_tree("install-tree", tree, [], lambda msg: None)
+            write_tree(tree, {"stale": "from an earlier build"})
+            t3.build_tree("install-tree", tree, ["images", "logind"], lambda msg: None)
+        # FEATURES is always given, empty for the minspec tree, so make's
+        # own command line never adds features to it.
         self.assertEqual(seen, [(["make", "--no-print-directory", "install-tree",
-                                  "DESTDIR=" + tree], t3_common.ROOT, False)])
+                                  "DESTDIR=" + tree, "FEATURES="], t3_common.ROOT, False),
+                                (["make", "--no-print-directory", "install-tree",
+                                  "DESTDIR=" + tree, "FEATURES=images logind"], t3_common.ROOT,
+                                 False)])
         with mock.patch.object(t3.subprocess, "run",
                                return_value=subprocess.CompletedProcess([], 2)):
             with self.assertRaisesRegex(SystemExit, "make install-tree failed with exit code 2"):
-                t3.build_tree("install-tree", tree, lambda msg: None)
+                t3.build_tree("install-tree", tree, [], lambda msg: None)
 
 
 class ProvenanceTest(unittest.TestCase):
@@ -850,7 +919,7 @@ class ProvenanceTest(unittest.TestCase):
         # tree is built.
         rows = self.planted()
         write_tree(self.root, {"c/2d-potato-min/sgr.png": "moved"})
-        args = argparse.Namespace(variants=["2d-potato-min"], tree=None,
+        args = argparse.Namespace(variants=["2d-potato-min"], tree=None, features="",
                                   tree_target="install-tree", jobs=1, deadline=1)
         base = os.path.join(self.root, "base.qcow2")
         write_tree(self.root, {"base.qcow2": ""})
@@ -863,6 +932,109 @@ class ProvenanceTest(unittest.TestCase):
                 mock.patch.object(t3, "build_tree", side_effect=AssertionError("built")):
             with self.assertRaisesRegex(SystemExit, "c/2d-potato-min/sgr.png differs"):
                 t3.run(args, LOG)
+
+    class Stop(Exception):
+        """Raised where the run would start its variants."""
+
+    def run_tree(self, **given):
+        """t3.run on 2d-potato-min with `given` arguments, up to the point it
+        starts the variants, in a scratch target/tier3: the tree is TREE,
+        make writes it, and the variants are not run. Returns the impl the
+        variants would get, or raises what run raised."""
+        out = os.path.join(self.root, "tier3")
+        args = argparse.Namespace(variants=["2d-potato-min"], tree=None, features=None,
+                                  tree_target=None, jobs=1, deadline=1)
+        vars(args).update(given)
+        base = os.path.join(self.root, "base.qcow2")
+        write_tree(self.root, {"base.qcow2": ""})
+        tree = os.path.join(out, "install")
+        seen = {}
+
+        def make(argv, cwd):
+            destdir = [a for a in argv if a.startswith("DESTDIR=")][0][len("DESTDIR="):]
+            write_tree(destdir, ImplementationTest.TREE)
+            return subprocess.CompletedProcess(argv, 0)
+
+        def variants(names, jobs, impl, deadline, log):
+            seen["impl"] = impl
+            raise self.Stop
+
+        with mock.patch.dict(t3_scenario.GUESTS["arch"], base=base), \
+                mock.patch.object(t3_runner, "raise_on_sigterm", lambda log: None), \
+                mock.patch.object(t3_runner, "run_lock", contextlib.nullcontext), \
+                mock.patch.object(t3, "preflight", lambda log: []), \
+                mock.patch.object(t3, "TREE", tree), \
+                mock.patch.object(t3_common, "TREE_RECORD", os.path.join(out, "run", "tree.json")), \
+                mock.patch.object(t3_impl, "RUNDIR", os.path.join(out, "run")), \
+                mock.patch.object(t3.subprocess, "run", side_effect=make), \
+                mock.patch.object(t3, "build_tree", wraps=t3.build_tree) as build, \
+                mock.patch.object(t3, "build_features", lambda variants, log: {}), \
+                mock.patch.object(t3, "build_fonts", lambda variants, log: None), \
+                mock.patch.object(t3_runner, "run_variants", side_effect=variants):
+            try:
+                t3.run(args, LOG)
+            except self.Stop:
+                pass
+        self.built = [c.args[2] for c in build.call_args_list]
+        return seen["impl"]
+
+    def test_run_builds_the_tree_with_its_features(self):
+        # run() hands --features to the build, and the tree the variants get
+        # is described with them, so the budget does not judge it.
+        impl = self.run_tree(tree_target="install-tree", features="logind,images")
+        self.assertEqual(self.built, [["images", "logind"]])
+        self.assertEqual(t3_impl.describe(impl)["features"], ["images", "logind"])
+        self.assertIsNone(t3_impl.describe(impl)["budget"])
+        # without --features the tree is the minspec tree, which it judges
+        impl = self.run_tree(tree_target="install-tree")
+        self.assertEqual(self.built, [[]])
+        self.assertEqual(t3_impl.describe(impl)["features"], [])
+        self.assertIsNotNone(t3_impl.describe(impl)["budget"])
+
+    def test_run_on_the_last_tree_reads_its_features(self):
+        # tier3-run on the last run's tree takes the features that run
+        # recorded and builds nothing; a --features that differs is refused,
+        # either way, and one that agrees is accepted.
+        self.run_tree(tree_target="install-tree", features="images")
+        for given in ({}, {"features": "images"}):
+            with self.subTest(given):
+                impl = self.run_tree(**given)
+                self.assertEqual(self.built, [])
+                self.assertEqual(t3_impl.describe(impl)["features"], ["images"])
+                self.assertIsNone(t3_impl.describe(impl)["budget"])
+        with self.assertRaisesRegex(SystemExit, "built with images, and FEATURES names none"):
+            self.run_tree(features="")
+        self.run_tree(tree_target="install-tree")
+        self.assertEqual(t3_impl.describe(self.run_tree())["features"], [])
+        with self.assertRaisesRegex(SystemExit, "built with no features, and FEATURES names "
+                                                "images"):
+            self.run_tree(features="images")
+        # a tree changed since its run, or one with no record, is refused
+        write_tree(os.path.join(self.root, "tier3", "install"), {"usr/share/doc/y": "new"})
+        with self.assertRaisesRegex(SystemExit, "is not the one the run that built it recorded"):
+            self.run_tree()
+        os.unlink(os.path.join(self.root, "tier3", "run", "tree.json"))
+        with self.assertRaisesRegex(SystemExit, "no record of the features the tree at"):
+            self.run_tree()
+        # a build that fails leaves no record of the tree it replaced
+        self.run_tree(tree_target="install-tree", features="images")
+        with mock.patch.object(t3.subprocess, "run",
+                               return_value=subprocess.CompletedProcess([], 2)), \
+                mock.patch.object(t3_common, "TREE_RECORD",
+                                  os.path.join(self.root, "tier3", "run", "tree.json")):
+            with self.assertRaisesRegex(SystemExit, "failed with exit code 2"):
+                t3.build_tree("install-tree", os.path.join(self.root, "tier3", "install"), [],
+                              LOG)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "tier3", "run", "tree.json")))
+
+    def test_run_on_a_named_tree_takes_its_features_as_declared(self):
+        # TREE=DIR: a tree built elsewhere carries no record; its features
+        # are the ones --features declares, none by default.
+        named = os.path.join(self.root, "named")
+        write_tree(named, ImplementationTest.TREE)
+        self.assertEqual(t3_impl.describe(self.run_tree(tree=named))["features"], [])
+        impl = self.run_tree(tree=named, features="images")
+        self.assertEqual((self.built, t3_impl.describe(impl)["features"]), ([], ["images"]))
 
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t",
@@ -1061,8 +1233,8 @@ class VtiumGoldenTest(unittest.TestCase):
         # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
         # in the tree names only the guest without systemd's (vtium/vtium#104),
         # those vtium/vtium#126 recaptured from the sets' fills and the frit
-        # variants' (vtium/vtium#145), and the device variants'; every golden
-        # it names must be one a case draws.
+        # variants' (vtium/vtium#145), the device variants' and the head-file
+        # variants'; every golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
         moved = ["%s/%s" % (v, s) for v in ("2d-320x240-psf8", "2d-640x480-psf16")
                  for s in ("underline-styles", "strike", "wide-margin", "cjk")]
@@ -1072,9 +1244,13 @@ class VtiumGoldenTest(unittest.TestCase):
                    "two-outputs-mirror/cjk", "two-outputs-mirror/cjk@1",
                    "two-cards-mirror/sgr", "two-cards-mirror/sgr@card1",
                    "two-cards-mirror/cjk", "two-cards-mirror/cjk@card1", "usb-keyboards/cjk"]
+        heads = ["heads-two-heads/cjk", "heads-partly-open/partly-notice", "heads-partly-open/cjk",
+                 "heads-closed-broken/panic", "heads-closed-unmatched/no-display-notice",
+                 "heads-kiosk/cjk"]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
-                                               "sysvinit-two-vts/cjk"] + moved + frit + devices))
+                                               "sysvinit-two-vts/cjk"] + moved + frit + devices
+                                              + heads))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
@@ -2820,6 +2996,464 @@ class DevicesTest(unittest.TestCase):
                 got = self.hotplug(**change)
                 self.assertIsNotNone(got)
                 self.assertTrue(got.startswith(why), got)
+
+
+# Jobs the guest's boot leaves queued for good, and its timers
+# (guest/t3-agent).
+BOOT_JOBS = ["systemd-time-wait-sync.service", "multi-user.target"]
+BOOT_TIMERS = ["systemd-tmpfiles-clean.timer"]
+
+
+def agent_state(vtium=("active", "success"), fallback=("inactive", "success", "no", 0),
+                getty="inactive", queued=(), marker=True, tty2="", logins=0, fg=2, i8042=15,
+                pid=(410, 3.0), gettys=(), timers=(), sessions=(("1", "tty1"),)):
+    """The agent's answer to `state` (guest/t3-agent), as lines. `gettys`
+    gives a getty unit's (left inactive at, restarts) in place of (0, 0),
+    or None for no reading of it."""
+    readings = dict({u: (0, 0) for u in t3_heads.GETTY_UNITS}, **dict(gettys))
+    lines = ["unit kmsconvt@tty2.service %s %s yes 6418546" % vtium,
+             "unit kmsconvt-getty@tty2.service %s %s %s %d" % fallback,
+             "unit getty@tty2.service %s success no 0" % getty,
+             *("getty %s %d %d" % (u, *r) for u, r in readings.items() if r is not None),
+             *("job %s start waiting" % u for u in BOOT_JOBS + list(queued)),
+             *("timer %s waiting" % t for t in BOOT_TIMERS + list(timers)),
+             *("session %s %s" % s for s in sessions),
+             "marker %s" % ("yes" if marker else "no"), "tty2 %s" % tty2,
+             "logins %d" % logins, "fgconsole %d" % fg, "i8042 %d" % i8042]
+    return lines + (["vtium %d %.1f" % pid] if pid else [])
+
+
+class HeadsTest(unittest.TestCase):
+    """The head-file variants (t3_heads.py): their machines and cases, the
+    disc that carries the head file and the agent, the agent's answers and
+    each check's verdict on them, both ways."""
+
+    CASES = {
+        "heads-two-heads": ["cjk", "vt-switch", "vt-restore", "two-heads"],
+        "heads-partly-open": ["partly-notice", "cjk", "vt-switch", "vt-restore",
+                              "getty-fallback"],
+        "heads-closed-broken": ["panic", "no-login", "getty-fallback"],
+        "heads-closed-unmatched": ["no-display-notice", "no-login", "getty-fallback"],
+        "heads-off": ["no-login", "getty-fallback"],
+        "heads-kiosk": ["cjk", "kiosk"],
+        "heads-closed-nodisplay": ["display-held", "getty-fallback"],
+        "heads-open-nodisplay": ["display-exit"],
+    }
+
+    def test_variants(self):
+        self.assertEqual(t3_scenario.HEAD_VARIANTS, list(self.CASES))
+        for name, want in self.CASES.items():
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                self.assertEqual(t3_scenario.variant_cases(name), want)
+                self.assertEqual((v["cpus"], v["memory_mb"]), (1, 512))
+                self.assertEqual(v["goldens"], t3_evaluate.VTIUM_GOLDEN)
+                self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
+                self.assertTrue(os.path.isfile(t3_heads.head_file(v)), v["heads"])
+                with open(t3_heads.head_file(v)) as f:
+                    self.assertRegex(f.read(), r"(?m)^policy = %s\b" % v["policy"])
+                # every check that fails vtium names its failures, each known
+                if "getty-fallback" in want:
+                    self.assertTrue(set(v["failures"]) <= set(t3_heads.FAILURES))
+                # a console that gives no login is read through the agent
+                if not v.get("login", True) or "getty-fallback" in want:
+                    self.assertTrue(v["agent"])
+        # the no-display guests have no display device and wait 5 s
+        for name in ("heads-closed-nodisplay", "heads-open-nodisplay"):
+            v = t3_scenario.VARIANTS[name]
+            self.assertIsNone(v["device"])
+            self.assertIsNone(v["renderer"])
+            self.assertEqual(t3_heads.display_wait(v), 5)
+        self.assertEqual(t3_scenario.VARIANTS["heads-open-nodisplay"]["heads"],
+                         "docs/heads/default.conf")
+        self.assertEqual(t3_scenario.VARIANTS["heads-off"]["heads"], "docs/heads/off.conf")
+
+    def test_broken_closed_is_tier_2s_file(self):
+        # The guest's broken closed file is tier 2's BROKEN_CLOSED, so the
+        # panic screen tier 3 captures reports the errors tier 2 draws.
+        with open(os.path.join(t3_common.ROOT, "tools", "tier2", "src", "notices.rs")) as f:
+            m = re.search(r'const BROKEN_CLOSED: &str = "(.*)";', f.read())
+        with open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as f:
+            self.assertEqual(f.read(), m.group(1).replace("\\n", "\n"))
+
+    def test_first_screens_and_checks_are_described(self):
+        for name in t3_scenario.HEAD_VARIANTS:
+            for case in t3_scenario.variant_cases(name):
+                with self.subTest(case=case):
+                    caption, _ = t3_evaluate.describe(case)
+                    self.assertTrue(caption)
+        for case in t3_heads.CHECKS:
+            self.assertEqual(t3_evaluate.golden_for("heads-off", case), (None, None))
+        for case in t3_heads.FIRST:
+            self.assertIn(case, t3_heads.LINES)
+            self.assertEqual(t3_evaluate.golden_for("heads-closed-broken", case,
+                                                    t3_evaluate.VTIUM_GOLDEN)[0],
+                             os.path.join(t3_evaluate.VTIUM_GOLDEN, "heads-closed-broken",
+                                          case + ".png"))
+
+    def test_disc(self):
+        # The disc carries the head file as heads.conf, and the agent with
+        # its unit; guest/setup installs both.
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        tree = os.path.join(d.name, "tree")
+        write_tree(tree, ImplementationTest.TREE)
+        impl = t3_impl.tree(tree, os.path.join(d.name, "out", "tree.tar"))
+        impl["fonts"] = os.path.join(d.name, "fonts")
+        os.makedirs(impl["fonts"])
+        disc = os.path.join(d.name, "disc")
+        with mock.patch.object(t3_scenario, "make_iso"):
+            t3_scenario.build_disc("heads-closed-broken", d.name, impl)
+            self.assertTrue({"heads.conf", "t3-agent", "t3-agent.service"}
+                            <= set(os.listdir(disc)))
+            with open(os.path.join(disc, "heads.conf")) as f, \
+                    open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as g:
+                self.assertEqual(f.read(), g.read())
+            t3_scenario.build_disc("2d-640x480-psf16", d.name, impl)
+            self.assertFalse({"heads.conf", "t3-agent"} & set(os.listdir(disc)))
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        self.assertIn('install -Dm644 -o root -g root "$disc"/heads.conf /etc/vtium/heads.conf',
+                      setup)
+        self.assertIn("systemctl start --no-block t3-agent.service", setup)
+        # the units the agent reads are the ones the tree installs
+        with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
+            agent = f.read()
+        self.assertIn('units=("kmsconvt@$vt.service" "kmsconvt-getty@$vt.service" '
+                      '"getty@$vt.service")', agent)
+        self.assertIn('gettys=("%s" "%s")' % tuple(u.replace("tty2", "$vt")
+                                                   for u in t3_heads.GETTY_UNITS), agent)
+        # the keyboard `watch` reads is the one the kiosk check plugs in
+        self.assertIn("second=/dev/input/by-path/%s\n" % t3_heads.KIOSK_SECOND, agent)
+        self.assertEqual((t3_heads.VTIUM_UNIT, t3_heads.FALLBACK_UNIT, t3_heads.GETTY_UNIT),
+                         ("kmsconvt@tty2.service", "kmsconvt-getty@tty2.service",
+                          "getty@tty2.service"))
+        with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
+                               "kmsconvt-getty@.service")) as f:
+            self.assertIn("ConditionPathExists=!/run/vtium/%i.closed\n", f.read())
+
+    def test_qemu_gets_the_agents_port_and_no_display(self):
+        class Started(Exception):
+            pass
+
+        def popen(args, **kwargs):
+            raise Started(args)
+
+        with mock.patch.object(t3_qemu.subprocess, "Popen", popen), \
+                tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(Started) as cm:
+                t3_qemu.Qemu(d, [], None, lambda msg: None, agent=True)
+            args = cm.exception.args[0]
+            self.assertEqual(args[args.index("-vga") + 1], "none")
+            self.assertNotIn("-device", args)
+            serials = [args[i + 1] for i, a in enumerate(args) if a == "-serial"]
+            self.assertEqual(serials[2], "unix:%s,server=on,wait=off" % os.path.join(d, "ttyS2"))
+            with self.assertRaises(Started) as cm:
+                t3_qemu.Qemu(d, [], "virtio-vga", lambda msg: None)
+            args = cm.exception.args[0]
+            self.assertEqual(len([a for a in args if a == "-serial"]), 2)
+            self.assertNotIn("-vga", args)
+
+    def test_ask(self):
+        # A request goes out numbered on the agent's socket, and its answer
+        # is the lines of that number that come back on the socket, up to
+        # its end line; another request's lines, and lines written
+        # anywhere else, are not its answer.
+        vm = t3_qemu.Qemu.__new__(t3_qemu.Qemu)
+        vm.proc = mock.Mock(**{"poll.return_value": None})
+        vm.asked, vm.agent_buf = 0, b""
+        ours, theirs = socket.socketpair()
+        self.addCleanup(ours.close)
+        self.addCleanup(theirs.close)
+        vm.agent_sock = ours
+        theirs.sendall(b"T3-AGENT 9 marker no\nT3-AGENT-END 9\n")
+        theirs.sendall(b"T3-AGENT 1 marker yes\nT3-AGENT 1 job x.service start running\n"
+                       b"T3-AGENT-END 1\n")
+        self.assertEqual(vm.ask("state"), ["marker yes", "job x.service start running"])
+        self.assertEqual(theirs.recv(100), b"1 state\n")
+        with self.assertRaises(RuntimeError):
+            vm._ask("state", 1)
+
+    def test_the_agent_refuses_every_other_request(self):
+        # The agent on a pty in place of ttyS2: each request it does not
+        # know, spelled even one character differently, is refused and runs
+        # nothing.
+        import pty
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        # held open here too, so the pty stays up until the agent opens it
+        self.addCleanup(os.close, slave)
+        agent = subprocess.Popen(["bash", os.path.join(t3_common.GUEST, "t3-agent")],
+                                 cwd=d.name, stdin=subprocess.DEVNULL,
+                                 env=dict(os.environ, T3_AGENT_PORT=os.ttyname(slave)))
+        self.addCleanup(agent.wait)
+        self.addCleanup(agent.kill)
+        requests = ["kill TERM", "kill KILL; touch pwned", "$(touch %s/pwned-sub)" % d.name,
+                    "`touch %s/pwned-tick`" % d.name, "state ", "start now", "Start",
+                    "hangup && touch pwned-and", "watch /dev/input/event0", "Watch"]
+        for n, request in enumerate(requests, 1):
+            with self.subTest(request):
+                os.write(master, b"%d %s\n" % (n, request.encode()))
+                answer, buf = [], b""
+                deadline = time.time() + 10
+                while ("T3-AGENT-END %d" % n).encode() not in buf:
+                    self.assertLess(time.time(), deadline, buf)
+                    buf += os.read(master, 4096)
+                answer = [l.strip() for l in buf.decode().splitlines()
+                          if l.startswith("T3-AGENT %d " % n)]
+                self.assertEqual(answer, ["T3-AGENT %d refused %s" % (n, request.strip())])
+        self.assertEqual(os.listdir(d.name), [])
+
+    def test_parse_state(self):
+        st = t3_heads.parse_state(agent_state(tty2="agetty", fallback=("inactive", "success",
+                                                                       "yes", 99)))
+        self.assertEqual(st["units"]["kmsconvt-getty@tty2.service"],
+                         {"active": "inactive", "result": "success", "condition": "yes",
+                          "checked": 99})
+        self.assertEqual((len(st["queued"]), st["marker"], st["tty2"], st["logins"], st["fgconsole"],
+                          st["i8042"], st["vtium"]), (2, True, ["agetty"], 0, 2, 15, (410, 3.0)))
+        self.assertTrue(t3_heads.getty_on_tty2(st))
+        self.assertEqual(st["gettys"], {u: (0, 0) for u in t3_heads.GETTY_UNITS})
+        self.assertEqual((st["timers"], st["sessions"]),
+                         ({"systemd-tmpfiles-clean.timer": "waiting"}, {"1": "tty1"}))
+        st = t3_heads.parse_state(["xhci 7", "kbd a-event-kbd", "kbd b-event-kbd", "keys 7",
+                                   "session 3", "getty getty@tty2.service 4100200 1"])
+        self.assertEqual((st["xhci"], st["kbds"], st["keys"], st["sessions"], st["gettys"]),
+                         (7, ["a-event-kbd", "b-event-kbd"], 7, {"3": ""},
+                          {"getty@tty2.service": (4100200, 1)}))
+        empty = t3_heads.parse_state([])
+        self.assertEqual((empty["units"], empty["gettys"], empty["marker"], empty["keys"],
+                          empty["vtium"]), ({}, {}, None, None, None))
+
+    def test_no_login(self):
+        before = t3_heads.parse_state(agent_state())
+        after = t3_heads.parse_state(agent_state(i8042=29))
+        self.assertIsNone(t3_heads.judge_no_login(before, after, True, False))
+        wrong = {
+            "keys never came": (dict(after=agent_state(i8042=15)), "the PS/2 keyboard's"),
+            "vtium gone": (dict(after=agent_state(i8042=29, vtium=("failed", "signal"),
+                                                  pid=None)), "vtium does not run on tty2"),
+            "another VT": (dict(after=agent_state(i8042=29, fg=1)), "the VT shown is 1"),
+            "no marker": (dict(after=agent_state(i8042=29, marker=False)),
+                          "the closed policy's marker"),
+            "a getty": (dict(after=agent_state(i8042=29, tty2="agetty")), "a getty runs"),
+            "a login reported": (dict(logged_in=True), "a login reported itself"),
+            "the screen moved": (dict(same=False), "the screen changed"),
+            "a login program": (dict(after=agent_state(i8042=29, logins=1)), "1 login program"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                a = t3_heads.parse_state(change.get("after", agent_state(i8042=29)))
+                got = t3_heads.judge_no_login(before, a, change.get("same", True),
+                                              change.get("logged_in", False))
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+
+    def test_fallback_under_closed(self):
+        before = t3_heads.parse_state(agent_state(fallback=("inactive", "success", "no", 50)))
+        for failure, result in (("kill", "signal"), ("crash", "core-dump"), ("crash", "signal"),
+                                ("hangup", "exit-code")):
+            with self.subTest(failure, result=result):
+                after = t3_heads.parse_state(agent_state(
+                    vtium=("failed", result), fallback=("inactive", "success", "no", 90),
+                    pid=None))
+                self.assertIsNone(t3_heads.judge_fallback(True, failure, before, after))
+        failed = dict(vtium=("failed", "signal"), pid=None)
+        wrong = {
+            "still running": (dict(vtium=("active", "success")), "after the kill vtium's unit"),
+            "another result": (dict(failed, vtium=("failed", "exit-code")),
+                               "after the kill vtium's unit is failed with result exit-code"),
+            "never checked": (dict(failed, fallback=("inactive", "success", "no", 50)),
+                              "after the kill systemd never checked"),
+            # a getty's start still queued reads inactive until it runs
+            "a job queued": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                  queued=["t3-plant@tty2.service"]),
+                             "after the kill systemd still has jobs queued: "
+                             "t3-plant@tty2.service start waiting"),
+            "condition held": (dict(failed, fallback=("inactive", "success", "yes", 90)),
+                               "after the kill the fallback's condition held"),
+            "marker gone": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                 marker=False), "after the kill the closed policy's marker"),
+            "a getty": (dict(failed, fallback=("inactive", "success", "no", 90),
+                             getty="active", tty2="agetty"), "after the kill a getty runs"),
+            # a getty that failed, or started and ended between two reads
+            "a getty failed": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                    getty="failed"), "after the kill a getty runs"),
+            "a getty came and went": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                           gettys=[("getty@tty2.service", (9100000, 0))]),
+                                      "after the kill getty@tty2.service started under the "
+                                      "closed policy: it left its inactive state at 9.1 s"),
+            "a serial getty": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                    gettys=[("serial-getty@tty2.service", (0, 2))]),
+                               "after the kill serial-getty@tty2.service started"),
+            "no reading": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                gettys=[("getty@tty2.service", None)]),
+                           "after the kill the agent gave no reading of getty@tty2.service"),
+            "a session": (dict(failed, fallback=("inactive", "success", "no", 90),
+                               sessions=[("1", "tty1"), ("4", "tty2")]),
+                          "after the kill login session 4 is on tty2"),
+            # a getty's start delayed by a timer waits in no job
+            "a timer": (dict(failed, fallback=("inactive", "success", "no", 90),
+                             timers=["run-u12.timer"]),
+                        "after the kill a timer waits to start a unit: run-u12.timer"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_fallback(True, "kill", before,
+                                              t3_heads.parse_state(agent_state(**change)))
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+
+    def test_fallback_under_open(self):
+        before = t3_heads.parse_state(agent_state(marker=False))
+        ran = dict(vtium=("failed", "signal"), fallback=("inactive", "success", "yes", 90),
+                   getty="active", tty2="agetty", marker=False, pid=None)
+        self.assertIsNone(t3_heads.judge_fallback(False, "kill", before,
+                                                  t3_heads.parse_state(agent_state(**ran))))
+        wrong = {
+            "skipped": (dict(ran, fallback=("inactive", "success", "no", 90)),
+                        "after the kill the fallback skipped the getty"),
+            "a marker": (dict(ran, marker=True), "the closed policy's marker exists"),
+            "no getty": (dict(ran, getty="inactive", tty2=""), "after the kill no getty runs"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_fallback(False, "kill", before,
+                                              t3_heads.parse_state(agent_state(**change)))
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+
+    def test_held_and_exit(self):
+        first = t3_heads.parse_state(agent_state(pid=(400, 1.0)))
+        held = t3_heads.parse_state(agent_state(pid=(400, 7.5)))
+        self.assertIsNone(t3_heads.judge_held(first, held, "", 5))
+        wrong = {
+            "restarted": (agent_state(pid=(500, 7.5)), "", "vtium's PID changed"),
+            "too soon": (agent_state(pid=(400, 6.0)), "", "vtium was read 6.0 s"),
+            "gave up": (agent_state(pid=(400, 7.5)), "vtium[400]: no display appeared within 5 s",
+                        "vtium logged 'no display appeared within 5 s'"),
+            "exited": (agent_state(vtium=("failed", "exit-code"), pid=None), "",
+                       "vtium does not run"),
+            "fallback ran": (agent_state(pid=(400, 7.5), fallback=("inactive", "success", "no",
+                                                                  9)), "", "the getty fallback"),
+        }
+        for name, (lines, serial, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_held(first, t3_heads.parse_state(lines), serial, 5)
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+        ran = dict(vtium=("failed", "exit-code"), fallback=("inactive", "success", "yes", 90),
+                   getty="active", tty2="agetty", marker=False, pid=None)
+        boot = t3_heads.parse_state(agent_state())
+        self.assertIsNone(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(**ran)),
+                                              5, 5))
+        self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(**ran)), 5,
+                                            10).startswith("vtium gave up after 10 s"))
+        self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
+            **dict(ran, getty="inactive", tty2=""))), 5, 5).startswith("no getty runs"))
+        self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
+            **dict(ran, queued=["getty@tty2.service"]))), 5, 5)
+            .startswith("systemd still has jobs queued: getty@tty2.service"))
+        # the boot's jobs were read once vtium had already ended
+        self.assertTrue(t3_heads.judge_exit(t3_heads.parse_state(agent_state(pid=None)),
+                                            t3_heads.parse_state(agent_state(**ran)), 5, 5)
+                        .startswith("vtium was not running when the check read"))
+
+    def test_the_fallback_waits_end_on_a_skip_and_on_no_jobs(self):
+        # The wait after a failure ends once the fallback ran and systemd
+        # queues nothing; under open a fallback that skipped itself ends it
+        # too, so its verdict says why rather than a timeout.
+        skipped = t3_heads.parse_state(agent_state(
+            vtium=("failed", "signal"), fallback=("inactive", "success", "no", 90), pid=None))
+        before = t3_heads.parse_state(agent_state(fallback=("inactive", "success", "no", 50),
+                                                  marker=False))
+        # the boot's own jobs, queued throughout, are no reason to wait
+        self.assertTrue(t3_heads.fallback_ran(skipped, 50, before))
+        self.assertFalse(t3_heads.fallback_ran(skipped, 90, before))
+        queued = t3_heads.parse_state(agent_state(
+            vtium=("failed", "signal"), fallback=("inactive", "success", "no", 90),
+            queued=["getty@tty2.service"], pid=None))
+        self.assertFalse(t3_heads.fallback_ran(queued, 50, before))
+        self.assertTrue(t3_heads.judge_fallback(False, "kill", before, skipped)
+                        .startswith("after the kill the fallback skipped the getty"))
+
+    def test_kiosk(self):
+        def st(xhci, keys=None, **kw):
+            return t3_heads.parse_state(agent_state(**kw) + ["xhci %d" % xhci]
+                                        + (["keys %d" % keys] if keys is not None else []))
+        listed = t3_heads.parse_state(agent_state() + ["xhci 20",
+                                                       "kbd " + t3_heads.KIOSK_SECOND])
+        chord = (st(10), st(12))
+        plugged = (listed, st(25, keys=len(t3_heads.KIOSK_LINE)))
+        self.assertIsNone(t3_heads.judge_kiosk(chord, plugged, True))
+        # the chord is judged alone first, before the second keyboard types
+        self.assertIsNone(t3_heads.judge_kiosk(chord))
+        self.assertTrue(t3_heads.judge_kiosk((st(10), st(12, fg=3)))
+                        .startswith("after Ctrl+Alt+F3: the VT shown is 3"))
+        wrong = {
+            "chord never came": (dict(chord=(st(10), st(10))), "the USB controller's"),
+            "the VT switched": (dict(chord=(st(10), st(12, fg=3))),
+                                "after Ctrl+Alt+F3: the VT shown is 3"),
+            # the controller, shared with the claimed keyboard, is no proof
+            "keys never came": (dict(plugged=(listed, st(25, keys=0))),
+                                "the second keyboard's evdev node counted 0 key presses"),
+            "never watched": (dict(plugged=(listed, st(25))),
+                              "the second keyboard's evdev node counted None"),
+            "some keys lost": (dict(plugged=(listed, st(25, keys=5))),
+                               "the second keyboard's evdev node counted 5 key presses, "
+                               "not the 7"),
+            "vtium gone": (dict(plugged=(listed, st(25, keys=7, pid=None,
+                                                    vtium=("failed", "signal")))),
+                           "after the second keyboard's line: vtium does not run"),
+            "not listed": (dict(plugged=(st(20), st(25, keys=7))),
+                           "plugged in, the guest lists"),
+            "it typed": (dict(same=False), "the screen changed"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_kiosk(change.get("chord", chord),
+                                           change.get("plugged", plugged),
+                                           change.get("same", True))
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+
+    def test_two_heads(self):
+        lines = ["Display Virtual-1 with backend [drm2d] text renderer [bbulk], cell size 8x16",
+                 "Display Virtual-2 with backend [drm2d] text renderer [bbulk], cell size 8x8"]
+        panel, desk = t3img.Image(1, 1, b"\0\0\0"), t3img.Image(1, 1, b"\1\1\1")
+        self.assertIsNone(t3_heads.judge_two_heads(lines, panel, panel, desk))
+        mirrored = [l.replace("8x8", "8x16") for l in lines]
+        self.assertTrue(t3_heads.judge_two_heads(mirrored, panel, panel, desk)
+                        .startswith("the displays and their cells"))
+        self.assertTrue(t3_heads.judge_two_heads(lines[:1], panel, panel, desk)
+                        .startswith("the displays and their cells"))
+        self.assertTrue(t3_heads.judge_two_heads(lines, panel, desk, desk)
+                        .startswith("the second output's screen changed"))
+        self.assertTrue(t3_heads.judge_two_heads(lines, desk, desk, desk)
+                        .startswith("the second output shows the first head's"))
+
+    def test_a_check_with_no_display_passes_on_its_state(self):
+        meta = {"passed": ["display-held"], "errors": {"getty-fallback": "after the kill"}}
+        entries = {e["name"]: e for e in t3_scenario.evaluate_variant(
+            "heads-closed-nodisplay", {}, meta, LOG)}
+        self.assertEqual(entries["heads-closed-nodisplay/display-held"]["status"], "pass")
+        self.assertEqual(entries["heads-closed-nodisplay/getty-fallback"]["status"], "fail")
+        self.assertEqual(entries["heads-closed-nodisplay/getty-fallback"]["error"],
+                         "after the kill")
+
+    def test_no_display_variant_errors(self):
+        # A guest with no display device fails when the console set one up.
+        vtium = {"name": "vtium", "revision": "abc"}
+        self.assertEqual(t3_scenario.variant_errors(None, [], None, {}, {}, vtium, []),
+                         ([], False))
+        why, drop = t3_scenario.variant_errors(
+            None, ["Display Virtual-1 with backend [drm2d] text renderer [bbulk]"], None, {}, {},
+            vtium, [])
+        self.assertTrue(drop)
+        self.assertTrue(why[0].startswith("the console set up a display on a guest with none"))
+        self.assertEqual(t3_scenario.resident({}, [])["first_screen"], None)
 
 
 if __name__ == "__main__":

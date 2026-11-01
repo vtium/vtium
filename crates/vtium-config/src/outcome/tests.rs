@@ -667,7 +667,46 @@ fn the_policy_is_read_from_the_policy_lines() {
     ] {
         assert_eq!(of(&lines, &[]).stated, Stated::Unreadable, "{lines:?}");
     }
-    assert_eq!(of(&[PolicyLine::InSection], &[]).stated, Stated::Unreadable);
+    // a `policy` line inside a section states nothing, and leaves the file
+    // partly broken whatever the top-level line says, so what runs is as it
+    // was when it counted as an unreadable policy
+    for (lines, stated, runs, policy) in [
+        (
+            vec![PolicyLine::InSection],
+            Stated::Unset,
+            Runs::Survivors,
+            Policy::Open,
+        ),
+        (
+            vec![PolicyLine::Open, PolicyLine::InSection],
+            Stated::Open,
+            Runs::Survivors,
+            Policy::Open,
+        ),
+        (
+            vec![PolicyLine::InSection, PolicyLine::Closed],
+            Stated::Closed,
+            Runs::Survivors,
+            Policy::Closed,
+        ),
+    ] {
+        let t = of(&lines, &[Scope::Line]);
+        assert_eq!(
+            t,
+            Trusted {
+                stated,
+                rest: Rest::Partly
+            },
+            "{lines:?}"
+        );
+        let o = resolve(&Read::Trusted(t));
+        assert_eq!((o.runs, o.policy), (runs, policy), "{lines:?}");
+        assert_eq!(of(&lines, &[]).rest, Rest::Partly, "{lines:?}");
+    }
+    for kept in [Kept::Headless, Kept::Nothing] {
+        let t = Trusted::of(&[PolicyLine::InSection], &[Scope::Line], kept);
+        assert_eq!(resolve(&Read::Trusted(t)).runs, Runs::Builtin, "{kept:?}");
+    }
     // a structure vtium cannot trust drops the file, and a readable closed policy still stands
     assert_eq!(
         of(&[PolicyLine::Closed], &[Scope::File]),
@@ -702,31 +741,30 @@ fn every_problem_has_its_scope() {
         (Problem::TooManyHeads, Within::Header, Scope::File),
         (Problem::TooManyRules, Within::Rules, Scope::File),
         (
-            Problem::Syntax("a line outside a section"),
+            Problem::Syntax(crate::error::Syntax::OutsideSection),
             Within::Top,
             Scope::Line,
         ),
         (
-            Problem::Syntax("a section header with no closing `]`"),
+            Problem::Syntax(crate::error::Syntax::UnclosedHeading),
             Within::Header,
             Scope::Section,
         ),
         (
-            Problem::Syntax("`[head NAME]` takes one name"),
+            Problem::Syntax(crate::error::Syntax::HeadOneName),
             Within::Header,
             Scope::Section,
         ),
         (
-            Problem::Syntax("expected `key = value`"),
+            Problem::Syntax(crate::error::Syntax::NotKeyValue),
             Within::Head,
             Scope::Head,
         ),
         (
-            Problem::Syntax("a rule is `KIND MATCH -> TARGET`"),
+            Problem::Syntax(crate::error::Syntax::RuleArrow),
             Within::Rules,
             Scope::Line,
         ),
-        // a `[guards]` section is unknown, since the head file has none
         (Problem::UnknownSection(q()), Within::Header, Scope::Section),
         (
             Problem::DuplicateSection("rules"),
@@ -740,7 +778,24 @@ fn every_problem_has_its_scope() {
         (Problem::BadName(q()), Within::Header, Scope::Head),
         (Problem::BadName(q()), Within::Head, Scope::Head),
         (Problem::ReservedName(q()), Within::Header, Scope::Head),
-        (Problem::DuplicateHead(q()), Within::Header, Scope::Head),
+        // a second section of a head's name is dropped, and the first stays
+        (Problem::DuplicateHead(q()), Within::Header, Scope::Section),
+        (
+            Problem::Renamed(crate::error::Renamed::Guards),
+            Within::Header,
+            Scope::Section,
+        ),
+        (
+            Problem::Renamed(crate::error::Renamed::Focus),
+            Within::Rules,
+            Scope::Line,
+        ),
+        (
+            Problem::Renamed(crate::error::Renamed::OnLoss),
+            Within::Head,
+            Scope::Head,
+        ),
+        (Problem::PolicyInSection, Within::Head, Scope::Line),
         (
             Problem::BadValue {
                 key: "policy",
@@ -816,5 +871,5 @@ fn the_shipped_rules_close_inputs_an_open_file_gives_the_focus() {
     let joystick = Identity::input().with_class(Class::Joystick);
     assert_eq!(Config::builtin().walk(&joystick).place, Place::Ignore);
     let open = parse("version = 1\n").map(|p| p.config).unwrap_or_default();
-    assert_eq!(open.walk(&joystick).place, Place::Focus);
+    assert_eq!(open.walk(&joystick).place, Place::Roaming);
 }

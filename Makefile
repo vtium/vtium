@@ -59,15 +59,22 @@ ARM_WRAP := $(CURDIR)/tools/arm
 minspec install-tree: export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/$(X86_TARGET)-cc
 minspec install-tree: export PKG_CONFIG_x86_64_unknown_linux_gnu = $(ARM_WRAP)/$(X86_TARGET)-pkg-config
 
+# The vtium crate's features the console binary is built with, named on
+# make's command line (make install-tree FEATURES='images logind'). None, the
+# default, builds the minspec console, the only binary tier 3's budget judges
+# (ADR-1200 D19). The assignment here outranks the environment, so a
+# FEATURES exported in the shell builds nothing different.
+FEATURES :=
+
 .PHONY: minspec
-minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium (needs clang)
+minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) -- $(RELR_LINK)
+	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(VTIUM_MINSPEC))
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
-# vtium as a system installs it, staged under DESTDIR: the minspec binary,
-# vtium-vitrify, the VT unit, the compiled terminfo entry, the example
+# vtium as a system installs it, staged under DESTDIR: the console binary,
+# built with the minspec profile and FEATURES, vtium-vitrify, the VT unit and its getty fallback, the compiled terminfo entry, the example
 # configuration and the example udev rules and hwdb fragment, which are
 # documentation and never active (ADR-1401 D4). Tier 3 installs this tree in
 # its guest.
@@ -76,7 +83,7 @@ VTIUM_INSTALL := crates/vtium/install
 VTIUM_VITRIFY := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-vitrify
 
 .PHONY: install-tree
-install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree; needs tic)
+install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' when named (needs tic)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
 	$(call check-relr,$(DESTDIR)/usr/bin/vtium)
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium)
@@ -84,6 +91,7 @@ install-tree: minspec ## Stage vtium's install tree under DESTDIR (default targe
 	install -Dm755 $(VTIUM_VITRIFY) $(DESTDIR)/usr/bin/vtium-vitrify
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-vitrify)
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt@.service
+	install -Dm644 $(VTIUM_INSTALL)/kmsconvt-getty@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt-getty@.service
 	install -dm755 $(DESTDIR)/usr/share/terminfo
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/kmscon.conf.example $(DESTDIR)/etc/kmscon/kmscon.conf.example
@@ -160,23 +168,26 @@ conformance-issues: ## Check that every issue the conformance lists say owes a c
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sudo, logind or a VM (shellcheck when installed), the set writer without its deflate, and that the console leaves the deflate out
+test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sudo, logind or a VM (shellcheck when installed), the set writer without its deflate, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
 	cargo test -q -p vtium-font --test set
 	@if cargo tree -p vtium --target $(X86_TARGET) -e features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-vitrify takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@$(check-gate-line)
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The review targets block until the run ends, then print its answers. Their
 # variables reach tools/vt/vt.sh through the environment, unexpanded, never as
 # recipe text: VT=N picks the VT, DEMO_ARGS='...' passes vtium options (split
 # like shell words, quotes honoured, nothing expanded), DRY_RUN=1 prints the
-# commands without running them.
+# commands without running them, and VT_DEBUG=1 runs vtium with --debug and
+# copies the kernel's DRM state beside the log.
 $(VT_GOALS): export VTIUM_VT_BIN = $(value VTIUM_BIN)
 $(VT_GOALS): export VTIUM_VT_NR = $(value VT)
 $(VT_GOALS): export VTIUM_VT_ARGS = $(value DEMO_ARGS)
 $(VT_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
+$(VT_GOALS): export VTIUM_VT_DEBUG = $(value VT_DEBUG)
 # GUIDE and GUIDE_STEPS are make vt-check's; one exported in the shell does
 # not reach the others.
 $(VT_GOALS): export VTIUM_VT_GUIDE =
@@ -184,17 +195,17 @@ $(VT_GOALS): export VTIUM_VT_STEPS =
 
 .PHONY: vt-demo
 vt-demo: export VTIUM_VT_SESSION = demo
-vt-demo: $(vt_build) ## Run vtium with the demo on a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1)
+vt-demo: $(vt_build) ## Run vtium with the demo on a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-login
 vt-login: export VTIUM_VT_SESSION = login
-vt-login: $(vt_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...')
+vt-login: $(vt_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-shell
 vt-shell: export VTIUM_VT_SESSION = shell
-vt-shell: $(vt_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...')
+vt-shell: $(vt_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # Without GUIDE it fails before the build, naming the guides.
@@ -207,7 +218,7 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3')
+vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # Tier 2 against vtium's goldens and the C reference's, copied into
@@ -269,9 +280,15 @@ T3_ARCHIVE      := 2026/10/20
 # What a report records it measured and ran on: this checkout's commit, with
 # +dirty for uncommitted changes, and the guest's pins.
 T3_REV = $(shell git rev-parse --short HEAD 2>/dev/null)$(if $(shell git status --porcelain --untracked-files=no 2>/dev/null),+dirty)
+# FEATURES, when make's command line names it, even empty, names the
+# features the tree's console is built with, or was built with for
+# tier3-run; the budget judges a tree built without any. tier3-run on the
+# last run's tree takes them from that run's record and refuses a FEATURES
+# that differs.
+T3_FEATURES = $(if $(filter command line,$(origin FEATURES)),--features '$(strip $(FEATURES))')
 T3_RUN = T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3_IMAGE) T3_IMAGE_SHA256=$(T3_IMAGE_SHA256) \
 	T3_ARCHIVE=$(T3_ARCHIVE) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
-	--deadline $(T3_DEADLINE)
+	--deadline $(T3_DEADLINE) $(T3_FEATURES)
 
 .PHONY: tier3-image
 tier3-image: ## Fetch, verify and provision tier 3's guest image, unless the cache holds one built from the same inputs (T3_IMAGES=DIR)
@@ -283,7 +300,7 @@ tier3-image: ## Fetch, verify and provision tier 3's guest image, unless the cac
 # under the run lock, so a second run cannot rebuild the tree under a running
 # one. The recipes hold no $(MAKE), so `make -n` runs nothing.
 .PHONY: tier3
-tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or VARIANTS="..." (JOBS=N)
+tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or VARIANTS="..." (JOBS=N, FEATURES='...')
 	$(T3_RUN) --tree-target install-tree $(VARIANTS)
 
 .PHONY: tier3-minimal
@@ -297,7 +314,7 @@ tier3-provenance: ## Check tools/tier3's copies against their sources with git (
 	$(T3_PY) $(T3_DIR)/t3.py provenance --kmscon $(KMSCON)
 
 .PHONY: tier3-run
-tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3)
+tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3; FEATURES= the TREE was built with)
 	$(T3_RUN) $(if $(TREE),--tree $(TREE)) $(VARIANTS)
 
 # Tier 3 on the guest without systemd (tools/tier3/README.md, docs/systemd.md):
@@ -322,13 +339,15 @@ tier3-image-nosystemd: ## Fetch, verify and provision tier 3's guest without sys
 tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: vtium under sysvinit, without udev, and its power keys
 	T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3SV_IMAGE) T3_IMAGE_SHA256=$(T3SV_IMAGE_SHA256) \
 		T3_ARCHIVE=$(T3SV_SNAPSHOT) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
-		--deadline $(T3_DEADLINE) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
+		--deadline $(T3_DEADLINE) $(T3_FEATURES) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
 
-# AGENTS.md's gate line, one gate per line, in its order.
+# AGENTS.md's gate line, one gate per line, in its order; make test-tools
+# fails when the two differ (check-gate-line).
 define GATE_LINE
 cargo fmt --all --check
 cargo clippy --workspace --all-features --all-targets -- -D warnings
 cargo test --workspace --all-features
+cargo test --workspace
 cargo build --profile minspec
 docs/scripts/adr lint --check
 docs/scripts/adr cite --check
@@ -341,6 +360,13 @@ make tier2
 make arm
 endef
 export GATE_LINE
+
+# check-gate-line reads the fenced block after "Every change runs the full
+# gate line" in AGENTS.md, one gate per line without its `&&` and `\`, and
+# fails unless it is GATE_LINE, which reaches awk through the environment.
+define check-gate-line
+awk 'f && /^```/ { f = 0; done = 1 } f { sub(/^ *(&& )?/, ""); sub(/ \\$$/, ""); got = got $$0 "\n" } /^## The gates$$/ { g = 1 } g && !done && /^```sh$$/ { f = 1 } END { want = ENVIRON["GATE_LINE"] "\n"; if (got == "" || got != want) { printf "make gates runs another gate line than AGENTS.md lists.\nAGENTS.md:\n%sGATE_LINE:\n%s", got, want > "/dev/stderr"; exit 1 } print "make gates runs AGENTS.md'"'"'s gate line" }' AGENTS.md
+endef
 
 .PHONY: gates
 gates: ## Run every gate of the gate line, each to the end, report each exit code and fail if any failed

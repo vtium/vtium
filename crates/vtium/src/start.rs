@@ -1,7 +1,7 @@
 //! What start-up takes from the configuration before the seat runs: the
-//! VT, whether to switch to it, the keymap, and the key repeat and
-//! pointers (`src/config.c:329-361, 1352-1353, 1377-1385` at kmscon
-//! b1f7a7c5), with the pointer's hide timeout.
+//! log's level, the VT, whether to switch to it, the keymap, and the key
+//! repeat and pointers (`src/config.c:329-361, 1346, 1352-1353, 1377-1385,
+//! 1515-1539` at kmscon b1f7a7c5), with the pointer's hide timeout.
 
 use std::path::{Path, PathBuf};
 
@@ -11,13 +11,16 @@ use vtium_platform::input::{Direct, Input, InputConfig, Keymap, KeymapConfig};
 
 use crate::config::Config;
 use crate::config::keys::{
-    MOUSE, POINTER_HIDE_TIMEOUT, SWITCHVT, VT, XKB_COMPOSE_FILE, XKB_KEYMAP, XKB_LAYOUT, XKB_MODEL,
-    XKB_OPTIONS, XKB_REPEAT_DELAY, XKB_REPEAT_RATE, XKB_VARIANT,
+    DEBUG, MOUSE, POINTER_HIDE_TIMEOUT, SWITCHVT, VT, XKB_COMPOSE_FILE, XKB_KEYMAP, XKB_LAYOUT,
+    XKB_MODEL, XKB_OPTIONS, XKB_REPEAT_DELAY, XKB_REPEAT_RATE, XKB_VARIANT,
 };
 
 /// The start's settings.
 #[derive(Clone, Debug)]
 pub struct Start {
+    /// The log's level: debug messages too under `debug`, else information
+    /// messages and above.
+    pub log: log::Level,
     /// The VT's device the `vt` key names; `None` to find one.
     pub vt: Option<PathBuf>,
     /// Switch to the VT at start.
@@ -40,6 +43,11 @@ impl Start {
                 .map_or(0, |n| u32::try_from(n).unwrap_or(u32::MAX))
         };
         Start {
+            log: if config.switch(&DEBUG) {
+                log::Level::Debug
+            } else {
+                log::Level::Info
+            },
             vt: config.text(&VT).map(vt_path),
             switch: config.switch(&SWITCHVT),
             keymap: KeymapConfig {
@@ -114,6 +122,7 @@ mod tests {
     #[test]
     fn the_defaults_take_the_rules_defaults_and_pointers() {
         let s = start(&[]);
+        assert_eq!(s.log, log::Level::Info);
         assert_eq!(s.vt, None);
         assert!(s.switch);
         assert_eq!(s.keymap.layout, "");
@@ -167,6 +176,25 @@ mod tests {
         assert_eq!(layout, "de");
         assert_eq!(input, InputConfig::new(300, 50, false));
         assert!(s.input().is_some(), "a keymap, the built-in one at worst");
+    }
+
+    #[test]
+    fn debug_logs_debug_messages_set_in_a_file_or_on_the_command_line() {
+        assert_eq!(start(&["--debug"]).log, log::Level::Debug);
+        assert_eq!(start(&["--no-debug"]).log, log::Level::Info);
+        // `debug` in the file at `file`, the main one or seat0's.
+        let from = |file: &str, args: &[&str]| {
+            let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+            let loaded = load(&args, Some("seat0"), &mut |p: &Path| {
+                Ok((p == Path::new(file)).then(|| b"debug\n".to_vec()))
+            });
+            assert_eq!(loaded.reports, []);
+            Start::new(&loaded.config, "C".to_owned()).log
+        };
+        for file in ["/etc/kmscon/kmscon.conf", "/etc/kmscon/seat0.seat.conf"] {
+            assert_eq!(from(file, &[]), log::Level::Debug, "{file}");
+            assert_eq!(from(file, &["--no-debug"]), log::Level::Info, "{file}");
+        }
     }
 
     #[test]

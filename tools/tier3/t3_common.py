@@ -23,6 +23,10 @@ REPORT = os.path.join(OUT, "report.json")
 LOCK = os.path.join(OUT, "lock")
 # The install tree a run builds (make install-tree) and installs.
 TREE = os.path.join(OUT, "install")
+# What the run that built TREE recorded of it: the features its console was
+# built with and the tree's digest, which a later run on TREE alone
+# (tier3-run) reads in place of taking the features on trust.
+TREE_RECORD = os.path.join(RUNDIR, "tree.json")
 BASE = os.path.join(VM, "base.qcow2")
 BASE_SYSVINIT = os.path.join(VM, "base-sysvinit.qcow2")
 # The guest images: a cache every vtium checkout shares, which VM/images

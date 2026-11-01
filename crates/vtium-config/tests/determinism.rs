@@ -6,7 +6,7 @@
 //! orders exhaustive; the generator is seeded, and a failure prints its
 //! seed.
 
-use vtium_config::{Class, Config, Edid, Identity, Place, Placed, UsbSerial, parse};
+use vtium_config::{Class, Config, Edid, Identity, Place, Placed, Policy, UsbSerial, reading};
 
 /// A small seeded generator (xorshift64*).
 struct Rng(u64);
@@ -94,10 +94,25 @@ fn input(rng: &mut Rng) -> Identity {
 }
 
 /// A generated ruleset over the same facts the devices draw from, so its
-/// rules match some of them, with the guards on or off.
+/// rules match some of them: under either policy, each head's `isolated`
+/// written or left to the policy, and in some what survives of a file
+/// with one bad rule (ADR-1401 D3, D5, D7, D9).
 fn ruleset(rng: &mut Rng) -> Config {
-    let mut text = String::from("version = 1\n[head desk]\n[head panel]\n[rules]\n");
+    let closed = rng.chance();
+    let mut text = String::from("version = 1\n");
+    if closed {
+        text.push_str("policy = closed\n");
+    }
     let heads = ["desk", "panel"];
+    for head in heads {
+        text.push_str(&format!("[head {head}]\n"));
+        match rng.below(3) {
+            0 => text.push_str("isolated = yes\n"),
+            1 => text.push_str("isolated = no\n"),
+            _ => {}
+        }
+    }
+    text.push_str("[rules]\n");
     for _ in 0..rng.below(6) {
         let line = match rng.below(9) {
             0 => format!(
@@ -112,7 +127,7 @@ fn ruleset(rng: &mut Rng) -> Config {
                 ["DP-*", "HDMI-A-?", "*"][rng.below(3)],
                 heads[rng.below(2)]
             ),
-            2 => format!("display card:{} -> dark", CARDS[rng.below(2)]),
+            2 => format!("display card:{} -> off", CARDS[rng.below(2)]),
             3 => format!(
                 "input path:{} -> {}",
                 PATHS[rng.below(3)],
@@ -127,24 +142,31 @@ fn ruleset(rng: &mut Rng) -> Config {
             5 => format!(
                 "input class:{} -> {}",
                 CLASSES[rng.below(6)].name(),
-                ["focus", "ignore", "desk"][rng.below(3)]
+                ["roaming", "ignore", "desk"][rng.below(3)]
             ),
             6 => "input name:*pad -> panel".to_owned(),
             7 => "input * -> ignore".to_owned(),
-            _ => format!("display * -> {}", ["desk", "dark"][rng.below(2)]),
+            _ => format!("display * -> {}", ["desk", "off"][rng.below(2)]),
         };
         text.push_str(&line);
         text.push('\n');
     }
-    text.push_str("[guards]\n");
-    for guard in ["anti-lockout", "rescue-key", "never-dark"] {
-        let on = if rng.below(4) == 0 { "off" } else { "on" };
-        text.push_str(&format!("{guard} = {on}\n"));
+    // a rule naming no head is dropped alone, and what survives runs
+    let broken = rng.below(3) == 0;
+    if broken {
+        text.push_str("input class:keyboard -> nosuch\n");
     }
-    match parse(&text) {
-        Ok(p) => p.config,
-        Err(e) => panic!("the generated ruleset parses: {e:?}\n{text}"),
-    }
+    let r = reading(text.as_bytes());
+    assert_eq!(
+        r.errors.is_empty(),
+        !broken,
+        "the generated ruleset reads: {:?}\n{text}",
+        r.errors
+    );
+    let config = r.parsed.config;
+    assert_eq!(config.policy == Policy::Closed, closed, "{text}");
+    assert_eq!(config.survivors, broken, "{text}");
+    config
 }
 
 /// Every order of `0..n`, by Heap's algorithm.
@@ -186,6 +208,7 @@ fn landing(
     (out, placement.focus)
 }
 
+// covers: platform.heads.rules
 #[test]
 fn each_device_lands_the_same_in_every_report_order() {
     let mut cases = 0usize;

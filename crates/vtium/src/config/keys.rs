@@ -127,6 +127,17 @@ pub const VERSION: Key = Key {
     cite: "src/config.c:1343",
 };
 
+pub const DEBUG: Key = Key {
+    name: "debug",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Log debug messages as well, to find what went wrong. Off, vtium logs its information messages, warnings and errors.",
+    cite: "src/config.c:1346, 1515-1539",
+};
+
 pub const VT: Key = Key {
     name: "vt",
     short: None,
@@ -180,10 +191,10 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
         unit: "consoles",
         word: None,
     },
-    default: Default::Number(4),
+    default: Default::Number(vtium_config::HEAD_CONSOLES_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The most consoles one head holds: the head file's `consoles` and Ctrl-Super-Return open no more.",
+    what: "The most consoles one head holds: the head file's `consoles` opens no more.",
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
 };
 
@@ -225,6 +236,119 @@ pub const FOCUS_MARK: Key = Key {
     cite: "ADR-1401 D5; the operator on vtium/vtium#156, renamed on vtium/vtium#169",
 };
 
+pub const NOTICE_FOREGROUND: Key = Key {
+    name: "notice-foreground",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([31, 41, 51]),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The color of a notice's text. A notice tells of a problem, such as an invalid head file, and shows whatever `osd` says.",
+    cite: "ADR-1401 D5",
+};
+
+pub const NOTICE_BACKGROUND: Key = Key {
+    name: "notice-background",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([254, 226, 226]),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The color of a notice's box. While a notice shows, the on-screen display's full line shares its box and takes the notice's colors.",
+    cite: "ADR-1401 D5",
+};
+
+pub const NOTICE_BORDER: Key = Key {
+    name: "notice-border",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([185, 28, 28]),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The color of the edge around a notice's box.",
+    cite: "ADR-1401 D5",
+};
+
+pub const OSD_FOREGROUND: Key = Key {
+    name: "osd-foreground",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([229, 231, 235]),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The color of the on-screen display's text: the words of `osd = full`'s line, and the dot of `osd = minimal`.",
+    cite: "ADR-1401 D5",
+};
+
+pub const OSD_BACKGROUND: Key = Key {
+    name: "osd-background",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([31, 41, 51]),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The color of the on-screen display's box behind `osd = full`'s line, and of the cell behind `osd = minimal`'s dot.",
+    cite: "ADR-1401 D5",
+};
+
+pub const OSD_BORDER: Key = Key {
+    name: "osd-border",
+    short: None,
+    kind: Kind::Rgb,
+    default: Default::Rgb([97, 110, 124]),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The color of the edge around `osd = full`'s box. The dot of `osd = minimal` has no edge.",
+    cite: "ADR-1401 D5",
+};
+
+/// The six keys of the notices' and the on-screen display's colors, each
+/// row a text, a box and its edge (ADR-1401 D5).
+pub const OVERLAY_COLORS: [[&Key; 3]; 2] = [
+    [&NOTICE_FOREGROUND, &NOTICE_BACKGROUND, &NOTICE_BORDER],
+    [&OSD_FOREGROUND, &OSD_BACKGROUND, &OSD_BORDER],
+];
+
+/// Another set of values for [`OVERLAY_COLORS`], which the example
+/// configuration carries commented out (ADR-1401 D5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Scheme {
+    pub name: &'static str,
+    /// What it looks like and who it is for, one sentence.
+    pub what: &'static str,
+    /// The notice's text, box and edge.
+    pub notice: [[u8; 3]; 3],
+    /// The on-screen display's text, box and edge.
+    pub osd: [[u8; 3]; 3],
+}
+
+/// The example's scheme for a light terminal background.
+pub const LIGHT: Scheme = Scheme {
+    name: "light",
+    what: "For a light terminal background: the on-screen display is a pale grey box with dark text and a grey edge, and a notice a dark red box with white text and a darker edge, so a problem differs from a status in brightness as well as in hue.",
+    notice: [[255, 255, 255], [153, 27, 27], [69, 10, 10]],
+    osd: [[31, 41, 51], [243, 244, 246], [156, 163, 175]],
+};
+
+/// The example's scheme for a dark terminal background.
+pub const DARK: Scheme = Scheme {
+    name: "dark",
+    what: "Both boxes are dark, for a dark terminal background: a notice is deep red with pale text and a light red edge, and the on-screen display near black with light grey text and a grey edge.",
+    notice: [[254, 226, 226], [185, 28, 28], [248, 113, 113]],
+    osd: [[209, 213, 219], [17, 24, 39], [75, 85, 99]],
+};
+
+/// The example's scheme for color blindness.
+pub const COLOR_BLIND_SAFE: Scheme = Scheme {
+    name: "color-blind-safe",
+    what: "For color blindness, a problem differs from a status in brightness and in an orange and blue pair, never in red against green: a notice is a bright orange box with near-black text, and the on-screen display a dark blue box with near-white text.",
+    notice: [[28, 25, 23], [255, 176, 0], [254, 97, 0]],
+    osd: [[238, 242, 255], [11, 42, 91], [100, 143, 255]],
+};
+
+/// The other schemes, in the order the example lists them.
+pub const SCHEMES: [Scheme; 3] = [LIGHT, DARK, COLOR_BLIND_SAFE];
+
 pub const CONSOLES_MAX: Key = Key {
     name: "consoles-max",
     short: None,
@@ -234,7 +358,7 @@ pub const CONSOLES_MAX: Key = Key {
         unit: "consoles",
         word: None,
     },
-    default: Default::Number(8),
+    default: Default::Number(vtium_config::CONSOLES_TOTAL_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium",
     what: "The most consoles every head holds together. Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
@@ -410,7 +534,7 @@ pub const DISPLAY_WAIT: Key = Key {
     default: Default::Number(10),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. 0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.",
+    what: "At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a head file whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8). 0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.",
     cite: "the operator on vtium/vtium#21",
 };
 
@@ -1101,10 +1225,11 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 84] = [
+pub const KEYS: [Key; 91] = [
     CONFIGDIR,
     HELP,
     VERSION,
+    DEBUG,
     VT,
     SWITCHVT,
     LOGIN,
@@ -1114,6 +1239,12 @@ pub const KEYS: [Key; 84] = [
     OSD,
     OSD_TIMEOUT,
     FOCUS_MARK,
+    NOTICE_FOREGROUND,
+    NOTICE_BACKGROUND,
+    NOTICE_BORDER,
+    OSD_FOREGROUND,
+    OSD_BACKGROUND,
+    OSD_BORDER,
     TERM,
     RESET_ENV,
     BACKSPACE_DELETE,

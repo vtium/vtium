@@ -223,14 +223,21 @@ impl Kms for Card {
         Mapping::new(self.raw(), len(dumb.size)?, offset)
     }
 
-    fn add_fb(&self, dumb: &Dumb, width: u32, height: u32, format: u32) -> io::Result<u32> {
+    fn add_fb(
+        &self,
+        handle: u32,
+        pitch: u32,
+        width: u32,
+        height: u32,
+        format: u32,
+    ) -> io::Result<u32> {
         let info = drm_ffi::mode::add_fb2(
             self.raw(),
             width,
             height,
             format,
-            &[dumb.handle, 0, 0, 0],
-            &[dumb.pitch, 0, 0, 0],
+            &[handle, 0, 0, 0],
+            &[pitch, 0, 0, 0],
             &[0; 4],
             &[0; 4],
             0,

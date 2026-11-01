@@ -13,6 +13,7 @@
 - [ ] `cargo fmt --all --check`
 - [ ] `cargo clippy --workspace --all-features -- -D warnings`
 - [ ] `cargo test --workspace --all-features`
+- [ ] `cargo test --workspace`
 - [ ] `cargo build --profile minspec`
 - [ ] Harness tiers that cover what this touches: <!-- which tiers and cases, and their results -->
 

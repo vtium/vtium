@@ -1,7 +1,7 @@
-//! A head's virtual consoles (ADR-1401 D1): each a session with its own
-//! pty, screen, scrollback and grid, one shown at a time on every display
-//! of the head. The consoles keep the order they were opened in, a ring
-//! the console chords walk.
+//! A head's consoles (ADR-1401 D1): each a session with its own pty,
+//! screen, scrollback and grid, one shown at a time on every display of
+//! the head. The consoles keep the order they were opened in, a ring the
+//! console chords walk, and none opens or closes while the head runs.
 
 use vtium_platform::pty::Pty;
 
@@ -18,17 +18,25 @@ pub struct Console {
     /// Its command's starts and quick exits, once it has started: each
     /// console counts its own (the operator's answer on vtium/vtium#156).
     pub(crate) respawn: Option<Respawn>,
+    /// Its program ended under `oneshot`, so it runs no session any more
+    /// and keeps its place, showing that its session ended (ADR-1401 D1).
+    pub(crate) ended: bool,
     /// How the console fits the head's displays while it is hidden; the
     /// head holds the shown console's.
     pub(crate) fit: Fit,
 }
 
-/// How a console fits its head's displays: its grid and the base font
-/// height it draws at, which a zoom changes for the console shown alone.
+/// How a console fits its head's displays: its grid, the base font height
+/// it draws at and that font's cell, which a zoom changes for the console
+/// shown alone. A hidden console's program starts again at its own grid
+/// and cell (ADR-1401 D1), as the C reference opened a terminal's pty at
+/// that terminal's own size (`terminal_open` at kmscon b1f7a7c5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Fit {
     pub(crate) grid: (usize, usize),
     pub(crate) font_size: u32,
+    /// The base font's cell at `font_size`, in pixels.
+    pub(crate) cell: (u32, u32),
     /// `font-size` in points, until a zoom.
     pub(crate) points: Option<u32>,
     /// `font-size=0`, until a zoom.
@@ -42,6 +50,7 @@ impl Console {
             term,
             pty: None,
             respawn: None,
+            ended: false,
             fit,
         }
     }

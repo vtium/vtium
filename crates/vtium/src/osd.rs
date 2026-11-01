@@ -15,7 +15,7 @@ pub enum Mode {
     Off,
     /// A dot in each head's top-right cell, filled on the active head.
     Minimal,
-    /// A line across the top of each head ([`line`]).
+    /// A line across the top of each head ([`crate::notice::osd_line`]).
     Full,
 }
 
@@ -59,15 +59,6 @@ impl Osd {
     pub fn shows_on_change(self) -> bool {
         self.mode != Mode::Off && self.timeout.is_some()
     }
-}
-
-/// The full line of a head, such as `● desk · console 2 of 3`: a filled
-/// dot on the `active` head and a hollow one on the others, the head's
-/// name, and the shown console's place among the head's `of` consoles,
-/// counted from 1.
-pub fn line(active: bool, head: &str, console: usize, of: usize) -> String {
-    let dot = if active { '\u{25cf}' } else { '\u{25cb}' };
-    format!("{dot} {head} \u{b7} console {console} of {of}")
 }
 
 #[cfg(test)]
@@ -123,11 +114,5 @@ mod tests {
             at(Mode::Minimal, THREE),
             "a default written out is set"
         );
-    }
-
-    #[test]
-    fn the_full_line_names_the_head_and_the_shown_console() {
-        assert_eq!(line(true, "desk", 2, 3), "● desk · console 2 of 3");
-        assert_eq!(line(false, "panel", 1, 1), "○ panel · console 1 of 1");
     }
 }

@@ -1,0 +1,6 @@
+[Unit]
+Description=The head-file variants' agent on the third serial port (t3-agent)
+After=tier3-install.service
+
+[Service]
+ExecStart=/usr/local/sbin/t3-agent

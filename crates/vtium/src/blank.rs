@@ -28,6 +28,7 @@ use vtium_platform::calloop::LoopHandle;
 use vtium_platform::rt_signal::{Process, RtSignals};
 
 use crate::app::App;
+use crate::notice::blank as text;
 
 /// What a signal from outside asks of the blank.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,24 +114,22 @@ fn parse_options(order: Order, args: &[OsString]) -> Result<Parsed, String> {
     let mut vt = None;
     let mut words = args.iter();
     while let Some(word) = words.next() {
-        let word = word
-            .to_str()
-            .ok_or_else(|| format!("{:?} is not UTF-8", word))?;
+        let word = word.to_str().ok_or_else(|| text::not_utf8(word))?;
         let value = match word.split_once('=') {
             Some(("--vt", value)) => value,
             None if word == "--vt" => words
                 .next()
                 .and_then(|w| w.to_str())
-                .ok_or("--vt needs a VT's number")?,
+                .ok_or(text::VT_NEEDS_NUMBER)?,
             None if word == "--help" || word == "-h" => return Ok(Parsed::Help(order)),
-            _ => return Err(format!("unknown option {word}")),
+            _ => return Err(text::unknown_option(word)),
         };
         if vt.is_some() {
-            return Err("--vt is given twice".to_owned());
+            return Err(text::VT_TWICE.to_owned());
         }
-        vt = Some(vt_number(value).ok_or_else(|| format!("{value} is no VT 1 to {LAST_VT}"))?);
+        vt = Some(vt_number(value).ok_or_else(|| text::not_a_vt(value, LAST_VT))?);
     }
-    let vt = vt.ok_or("--vt N names the VT")?;
+    let vt = vt.ok_or(text::VT_MISSING)?;
     Ok(Parsed::Run(Command { order, vt }))
 }
 
@@ -145,13 +144,11 @@ fn vt_number(value: &str) -> Option<u16> {
 
 /// The usage line for `order`'s subcommand.
 pub fn usage(order: Order) -> String {
-    let (word, what) = match order {
-        Order::Blank => ("blank", "blanks its displays now (SIGRTMIN+1)"),
-        Order::Wake => ("wake", "wakes its displays (SIGRTMIN+2)"),
-    };
-    format!(
-        "Usage: vtium {word} --vt N\nFinds the vtium on VT N and {what}. Root or the user vtium runs as may send it.\n"
-    )
+    match order {
+        Order::Blank => text::USAGE_BLANK,
+        Order::Wake => text::USAGE_WAKE,
+    }
+    .to_owned()
 }
 
 /// The vtium instances a lookup found.
@@ -282,11 +279,9 @@ pub fn run(command: Command) -> i32 {
     let found = find(proc, vt, std::process::id());
     if found.pids.is_empty() {
         if found.unreadable > 0 {
-            eprintln!(
-                "vtium {word}: no vtium found on VT {vt}; another user's vtium cannot be read: run as root or as vtium's user"
-            );
+            eprintln!("{}", text::none_readable(word, vt));
         } else {
-            eprintln!("vtium {word}: no vtium runs on VT {vt}");
+            eprintln!("{}", text::none_on(word, vt));
         }
         return 1;
     }
@@ -302,11 +297,11 @@ pub fn run(command: Command) -> i32 {
         match sent {
             Ok(true) => {}
             Ok(false) => {
-                eprintln!("vtium {word}: vtium {pid} left VT {vt} before the signal");
+                eprintln!("{}", text::left_before(word, pid, vt));
                 status = 1;
             }
             Err(e) => {
-                eprintln!("vtium {word}: cannot signal vtium {pid} on VT {vt}: {e}");
+                eprintln!("{}", text::cannot_signal(word, pid, vt, e));
                 status = 1;
             }
         }
@@ -328,7 +323,7 @@ pub fn subcommand(args: &[OsString]) -> Option<i32> {
                 .first()
                 .map(|w| w.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            eprint!("vtium {word}: {e}\n{}", parse_usage(&word));
+            eprint!("{}", text::refused(&word, &e, &parse_usage(&word)));
             2
         }
     })

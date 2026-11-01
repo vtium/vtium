@@ -18,7 +18,7 @@ use rustix::io::Errno;
 use super::output::signed;
 use super::*;
 use crate::display::blank::Due;
-use crate::display::fake::{Commit, FakeCard, Plane, RemoveFb, logs};
+use crate::display::fake::{BufferCall, Commit, FakeCard, Plane, RemoveFb, logs};
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 
@@ -993,6 +993,86 @@ fn a_gone_display_frees_what_it_held() {
     v.poll().unwrap();
     let s = v.card().state();
     assert!(s.dumbs.is_empty() && s.fbs.is_empty() && s.blobs.is_empty());
+}
+
+/// The calls on buffers since the `from`th, as `v`'s card logged them.
+fn buffer_calls(v: &Drm2d<FakeCard>, from: usize) -> Vec<BufferCall> {
+    v.card().state().buffer_calls[from..].to_vec()
+}
+
+// A framebuffer the card refuses: the dumb buffer made for it is
+// destroyed, and the display holds nothing.
+#[test]
+fn a_framebuffer_refused_destroys_its_dumb_buffer() {
+    let mut v = one();
+    v.card().state().fb_errors.push_back(Errno::INVAL);
+    let _ = v.wake_up();
+    let calls = buffer_calls(&v, 0);
+    let h = match calls.first() {
+        Some(&BufferCall::CreateDumb(h)) => h,
+        _ => 0,
+    };
+    assert_eq!(
+        calls[..3],
+        [
+            BufferCall::CreateDumb(h),
+            BufferCall::AddFb(h),
+            BufferCall::DestroyDumb(h)
+        ],
+        "{calls:?}"
+    );
+    let s = v.card().state();
+    assert!(s.dumbs.is_empty() && s.fbs.is_empty(), "{calls:?}");
+}
+
+// A dumb buffer the card cannot map: its framebuffer is removed before the
+// buffer is destroyed, and the display holds nothing.
+#[test]
+fn a_dumb_buffer_that_cannot_be_mapped_frees_its_framebuffer_first() {
+    let mut v = one();
+    v.card().state().map_errors.push_back(Errno::NOMEM);
+    let _ = v.wake_up();
+    let calls = buffer_calls(&v, 0);
+    let h = match calls.first() {
+        Some(&BufferCall::CreateDumb(h)) => h,
+        _ => 0,
+    };
+    let fb = match calls.get(3) {
+        Some(&BufferCall::RmFb(fb)) => fb,
+        _ => 0,
+    };
+    assert_eq!(
+        calls[..5],
+        [
+            BufferCall::CreateDumb(h),
+            BufferCall::AddFb(h),
+            BufferCall::MapDumb(h),
+            BufferCall::RmFb(fb),
+            BufferCall::DestroyDumb(h)
+        ],
+        "{calls:?}"
+    );
+    let s = v.card().state();
+    assert!(s.dumbs.is_empty() && s.fbs.is_empty(), "{calls:?}");
+}
+
+// A display's buffers freed: each one's framebuffer is removed before
+// its dumb buffer is destroyed.
+#[test]
+fn freed_buffers_lose_their_framebuffers_first() {
+    let mut v = awake(one());
+    let o = v.outputs.iter().find(|o| o.id.0 == A).unwrap();
+    let want: Vec<BufferCall> = o
+        .buffers
+        .iter()
+        .flat_map(|b| [BufferCall::RmFb(b.fb), BufferCall::DestroyDumb(b.handle)])
+        .collect();
+    let from = v.card().state().buffer_calls.len();
+    v.card().state().connectors.remove(&A);
+    v.poll().unwrap();
+    assert_eq!(buffer_calls(&v, from), want);
+    let s = v.card().state();
+    assert!(s.dumbs.is_empty() && s.fbs.is_empty());
 }
 
 #[test]
@@ -2785,6 +2865,96 @@ fn a_display_plugged_back_in_on_a_crtc_left_on_shows_its_first_frame() {
     assert_eq!(off.get(A, "CRTC_ID"), Some(0));
     let fb = drawn(&mut v, A, 0x22);
     assert!(v.card().shows(100, fb), "{:?}", v.card().state());
+}
+
+/// The debug lines since [`logs::capture`] that say a display's modeset
+/// is on screen. `tools/vt/run-vt.sh` copies the card's state at each.
+fn modesets_shown() -> Vec<String> {
+    logs::at_least(Level::Debug)
+        .into_iter()
+        .filter(|l| l.ends_with(": the first flip after its modeset is done"))
+        .collect()
+}
+
+const A_SHOWN: &str = "display HDMI-A-1: the first flip after its modeset is done";
+const B_SHOWN: &str = "display HDMI-A-2: the first flip after its modeset is done";
+
+// The stall the VT debug capture looks into: a display plugged back in,
+// then its VT switched away and back. Each modeset logs its line once,
+// when its flip's event arrives, and the frames after it log none.
+#[test]
+fn each_modeset_of_a_display_says_once_that_it_is_shown() {
+    let mut v = awake(one());
+    drawn(&mut v, A, 0x11);
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    logs::capture();
+    v.card().state().connectors.get_mut(&A).unwrap().connected = true;
+    v.poll().unwrap();
+    assert!(
+        modesets_shown().is_empty(),
+        "the modeset's flip is in flight"
+    );
+    drawn(&mut v, A, 0x22);
+    drawn(&mut v, A, 0x33);
+    assert_eq!(modesets_shown(), [A_SHOWN], "the replug's modeset");
+    v.sleep();
+    assert_eq!(events(&mut v).last(), Some(&Event::Asleep));
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(
+        modesets_shown().is_empty(),
+        "the modeset's flip is in flight"
+    );
+    drawn(&mut v, A, 0x44);
+    drawn(&mut v, A, 0x55);
+    assert_eq!(modesets_shown(), [A_SHOWN], "the wake-up's modeset");
+}
+
+// A display plugged in sets every display again, and each says so once.
+#[test]
+fn a_hotplug_modeset_says_each_display_is_shown() {
+    let mut v = a_then_b(ModePolicy::default());
+    logs::capture();
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(modesets_shown(), [A_SHOWN, B_SHOWN]);
+}
+
+// A legacy modeset sends no flip event, so the first frame's flip after
+// it says the mode is shown.
+#[test]
+fn a_legacy_modeset_says_so_at_the_first_frames_flip() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().atomic = false;
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(modesets_shown().is_empty());
+    drawn(&mut v, A, 0x11);
+    drawn(&mut v, A, 0x22);
+    assert_eq!(modesets_shown(), [A_SHOWN]);
+}
+
+// A modeset's flip that the bound takes as done may not be on screen, so
+// it logs no line, and the event that comes late logs none either; the
+// next modeset logs its own.
+#[test]
+fn a_modeset_flip_taken_as_done_does_not_say_it_is_shown() {
+    let mut v = one();
+    logs::capture();
+    v.wake_up().unwrap();
+    v.flip_expired(100);
+    assert!(modesets_shown().is_empty(), "the flip's event was lost");
+    flip(&mut v);
+    drawn(&mut v, A, 0x11);
+    assert!(modesets_shown().is_empty(), "the late event");
+    v.sleep();
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert_eq!(modesets_shown(), [A_SHOWN]);
 }
 
 /// [`a_then_b`]'s card with B's connector on A's CRTC, 100, as another
