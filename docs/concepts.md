@@ -194,7 +194,7 @@ vtium-vitrify's set command switches the running console among the frits and the
 
 vtium reads one configuration file, then a file for its seat over it, then its command line over both, once at start. It reads the file the C reference read, with its settings, and adds its own. [config.md](config.md) lists every setting.
 
-In the proposed design of ADR-1401, a head file beside it places each display and input ([Heads](#heads-a-terminal-per-display)).
+A head file beside it, `/etc/vtium/heads.conf`, places each display and input (ADR-1401, [Heads](#heads-a-terminal-per-display)).
 
 ### Selection and the clipboard
 
