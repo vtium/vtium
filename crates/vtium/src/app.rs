@@ -2401,7 +2401,7 @@ impl App {
             head.send_user_bytes();
             head.console.term.terminal.screen_mut().reset_view();
             if self.hide_while_typing {
-                head.pointer.visible = false;
+                head.hide_pointer();
             }
         }
         let rate = head
@@ -2456,6 +2456,14 @@ impl App {
     /// guard, the only moves after its start (ADR-1401 D5): every head's
     /// on-screen display shows.
     fn move_focus(&mut self, h: usize) {
+        // Ctrl's overlay is the focus's: the head losing it keeps the
+        // hover its pointer shows, with Ctrl let go, since no release
+        // reaches vtium.
+        if let Some(old) = self.focus.filter(|&old| old != h) {
+            if let Some(head) = self.heads.get_mut(old) {
+                head.hover(false);
+            }
+        }
         self.focus = Some(h);
         self.focus_move = Some(h);
         if self.osd.shows_on_change() {
@@ -2639,8 +2647,14 @@ impl App {
             self.drained_input(e, now);
         }
         self.report_focus();
+        // One ring a turn, however many consoles of however many heads
+        // sent BEL: the heads share the one VT.
+        let mut bell = false;
         for h in 0..self.heads.len() {
-            self.session_turn(h, now);
+            bell |= self.session_turn(h, now);
+        }
+        if bell && self.bell {
+            self.vt.bell();
         }
         if let Some(order) = self.order.take() {
             self.outside_order(order, now);
@@ -2670,15 +2684,16 @@ impl App {
     /// What head `h`'s programs asked this turn: each console's OSC 52
     /// selection and BEL; the shown console's OSC 50 font and blank sequences,
     /// which a hidden console's wait for it to be shown, since the font
-    /// and the displays are the head's; and their exits.
-    fn session_turn(&mut self, h: usize, now: Instant) {
+    /// and the displays are the head's; and their exits. Returns whether
+    /// any of its consoles sent BEL, which [`App::turn`] rings.
+    fn session_turn(&mut self, h: usize, now: Instant) -> bool {
         let Some(head) = self.heads.get_mut(h) else {
-            return;
+            return false;
         };
         // The console has no system clipboard: a selection OSC 52 set is
         // held for a paste, or dropped under `no-clipboard-write`.
         // Any console's BEL rings the VT under `bell`, as each of the C
-        // reference's terminals rang it; several in a turn ring once.
+        // reference's terminals rang it.
         let mut bell = false;
         for console in head.consoles_mut() {
             if let Some(selection) = console.term.terminal.take_clipboard_write() {
@@ -2687,9 +2702,6 @@ impl App {
                 }
             }
             bell |= console.term.terminal.take_bell();
-        }
-        if bell && self.bell {
-            self.vt.bell();
         }
         // The terminal takes OSC 50 only under `allow-font-ops`.
         if let Some(name) = head.console.term.terminal.take_font_request() {
@@ -2707,6 +2719,7 @@ impl App {
                 self.blank_request(request, now);
             }
         }
+        bell
     }
 
     fn timers(&mut self, now: Instant) {
@@ -3624,6 +3637,75 @@ mod tests {
         app.set_heads(start(&text));
         let cap = usize::try_from(crate::config::budget::sb_memory_cap()).unwrap();
         assert_eq!(app.scrollback_bytes, cap / 9);
+    }
+
+    /// A shown VT that counts its bell's rings.
+    #[derive(Default)]
+    struct Bells {
+        events: Vec<VtEvent>,
+        rang: u32,
+    }
+
+    impl Vt for Bells {
+        fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+            self.events.drain(..)
+        }
+        fn acknowledge_release(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn refuse_release(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn activate(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn leave(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn wait(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn is_active(&self) -> bool {
+            true
+        }
+        fn key(&mut self, _: &KeyEvent) -> bool {
+            false
+        }
+        fn restore(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn bell(&mut self) {
+            self.rang = self.rang.saturating_add(1);
+        }
+        fn number(&self) -> Option<u16> {
+            None
+        }
+    }
+
+    // `bell`: the heads share the one VT, so BELs from two heads' sessions
+    // in one turn ring it once, and a turn with none rings nothing.
+    #[test]
+    fn two_heads_ringing_in_one_turn_ring_the_vt_once() {
+        let args: Vec<OsString> = ["--bell"].iter().map(OsString::from).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(Bells::default()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        app.set_heads(start("version = 1\n[head one]\n[head two]\n"));
+        assert_eq!(app.heads.len(), 2);
+        let rang = |app: &mut App| app.vt.get::<Bells>().map(|v| v.rang);
+        for head in &mut app.heads {
+            head.console.term.terminal.input(b"\x07");
+        }
+        app.turn(Instant::now());
+        assert_eq!(rang(&mut app), Some(1));
+        app.turn(Instant::now());
+        assert_eq!(rang(&mut app), Some(1), "no BEL, no ring");
     }
 
     // ADR-1401 D8: the loop wakes when a head's `when-display-lost` time runs out.

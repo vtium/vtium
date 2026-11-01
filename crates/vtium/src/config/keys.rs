@@ -453,7 +453,7 @@ pub const BELL: Key = Key {
     default: Default::Switch(false),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Ring the VT's bell at a BEL from a program, while mode 1042, set at start, lets BEL through; off, BEL rings nothing.",
+    what: "Rings the VT's bell when a program sends BEL. A program stops its own BELs ringing by resetting mode 1042, which starts set. Off, no BEL rings.",
     cite: "src/config.c:125-126, 1372; src/terminal.c:872-879",
 };
 

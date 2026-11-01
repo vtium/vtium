@@ -91,6 +91,9 @@ pub(crate) struct Pointer {
     /// The right button's press, with Ctrl, selected a command's output,
     /// which its release keeps (ADR-1002, "What the marks are for").
     output: bool,
+    /// Ctrl was held at the last pointer event or key, which the hover a
+    /// relayout finds again keeps.
+    ctrl: bool,
 }
 
 /// A drag that extends the selection from the cell it started in.
@@ -682,6 +685,15 @@ impl Head {
         all
     }
 
+    /// The URI the shown console's overlay row shows, for tests.
+    pub fn link_overlay(&self) -> Option<String> {
+        let terminal = &self.console.term.terminal;
+        let frame = terminal
+            .screen()
+            .frame(terminal.palette(), vtium_term::Age::NEVER);
+        frame.overlay().map(|o| o.uri.to_owned())
+    }
+
     /// The text of each console's screen rows, in the ring's order, for
     /// tests.
     pub fn consoles_text(&self) -> Vec<Vec<String>> {
@@ -803,6 +815,9 @@ impl Head {
         // font on the same grid included; the report goes out at once.
         self.console.term.terminal.resize(grid.0, grid.1);
         self.send_user_bytes();
+        // A new cell or grid puts another cell under the pointer: the
+        // overlay and a Ctrl+click name the same link.
+        self.hover(self.pointer.ctrl);
     }
 
     /// `grid` in the base cell's pixels.
@@ -1000,12 +1015,20 @@ impl Head {
     /// or that is in the strip a display leaves past the grid, is over no
     /// cell, so it hovers no link.
     pub(crate) fn hover(&mut self, ctrl: bool) {
+        self.pointer.ctrl = ctrl;
         let at = self.pointer_over();
         self.console
             .term
             .terminal
             .screen_mut()
             .set_pointer(at, ctrl);
+    }
+
+    /// Hides the pointer, as `pointer-hide-while-typing` does at a key:
+    /// it hovers nothing from then on.
+    pub(crate) fn hide_pointer(&mut self) {
+        self.pointer.visible = false;
+        self.hover(self.pointer.ctrl);
     }
 
     /// The cell under the pointer while it shows and is inside the grid.

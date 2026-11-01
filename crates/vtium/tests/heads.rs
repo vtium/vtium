@@ -1472,6 +1472,45 @@ input class:keyboard -> roaming
     assert_eq!(hovered(&s.app), Some(vec![uri(), None]));
 }
 
+/// ADR-1002, "What a link does", across the focus chord: Ctrl's overlay
+/// is the focus's. The head losing the focus shows no overlay, though the
+/// Ctrl the chord held was never let go as far as vtium knows.
+// covers: osc.8
+#[test]
+fn the_head_losing_the_focus_shows_no_overlay() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let script = "printf 'see \\033]8;;file://pixie/a.md\\007link\\033]8;;\\007\\n'; read x";
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, script);
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "see link")
+        && head_shows(a, "large", "see link")));
+    assert_eq!(s.app.focus_head(), Some("large"));
+    let (cw, ch) = *s
+        .app
+        .head("large")
+        .map(Head::cells)
+        .unwrap_or_default()
+        .first()
+        .expect("a cell");
+    let over = |col: u32| vtium_platform::input::PointerEvent::Moved {
+        x: i32::try_from(col * cw + 1).expect("a pixel"),
+        y: i32::try_from(ch / 2).expect("a pixel"),
+        held: None,
+    };
+    s.app.pointer_event(over(5), Mods::CTRL, now());
+    let overlay = |a: &App, name: &str| a.head(name).and_then(Head::link_overlay);
+    assert_eq!(
+        overlay(&s.app, "large").as_deref(),
+        Some("file://pixie/a.md")
+    );
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    assert_eq!(s.app.focus_head(), Some("small"));
+    s.app.pointer_event(over(0), Mods::empty(), now());
+    assert_eq!(overlay(&s.app, "large"), None);
+}
+
 /// The key events xkb makes of a chord pressed as a keyboard sends it:
 /// Left Ctrl, then Left Super, then the key `code` (evdev's), each press
 /// an event with the modifiers as they then stand; the releases make

@@ -2012,6 +2012,96 @@ fn bell_rings_the_vt_at_a_bel_while_mode_1042_lets_it_through() {
     }
 }
 
+/// ADR-1002, "What a link does": a zoom puts another cell under a still
+/// pointer, and the hover follows it, so the URI the overlay shows is the
+/// URI Ctrl+click copies. The pointer rests on the second of two links,
+/// 8 by 16 cells; Ctrl+wheel zooms to 16 by 32, which puts the first under
+/// it.
+// covers: osc.8
+#[test]
+fn a_zoom_moves_the_hover_to_the_link_now_under_the_pointer() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf '\\033]8;;https://a.example/\\007AAAAAAAA\\033]8;;https://b.example/\\007BBBBBBBB\\033]8;;\\007\\n'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "AAAAAAAABBBBBBBB")));
+    let still = PointerEvent::Moved {
+        x: 100,
+        y: 8,
+        held: None,
+    };
+    h.point([still], Mods::CTRL);
+    assert_eq!(links(&h.app).2, Some((9, "https://b.example/".into())));
+    h.point([PointerEvent::Wheel(1)], Mods::CTRL);
+    assert_eq!(h.app.cells(), [(16, 32)], "zoomed in");
+    assert_eq!(
+        links(&h.app).2,
+        Some((4, "https://a.example/".into())),
+        "column 6 of the zoomed grid"
+    );
+    h.point(
+        [press(Button::Left, false), release(Button::Left)],
+        Mods::CTRL,
+    );
+    assert_eq!(h.app.selection(), Some(&b"https://a.example/"[..]));
+}
+
+/// `pointer-hide-while-typing`: the key that hides the pointer ends its
+/// hover, since a hidden pointer is over no cell.
+// covers: osc.8
+#[test]
+fn typing_that_hides_the_pointer_ends_the_hover() {
+    let mut h = Harness::new(&[
+        "--pointer-hide-while-typing",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        &format!("{LINKED}; read x"),
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "see link here")));
+    h.point([over(5, 0, None)], Mods::empty());
+    assert_eq!(links(&h.app).0, Some("file://pixie/home/a.md".to_owned()));
+    h.type_str("a");
+    assert_eq!(links(&h.app), (None, vec![], None));
+}
+
+/// ADR-1002, "What the marks are for": while a program tracks the
+/// pointer, Ctrl+Shift+right-click copies a command's output and reports
+/// nothing; Ctrl+right-click alone is reported.
+// covers: osc.133, input.shift-override
+#[test]
+fn ctrl_shift_right_click_copies_a_commands_output_while_the_program_tracks() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf '\\033]133;A\\007$ \\033]133;B\\007ls\\n\\033]133;C\\007one\\ntwo\\n\\033]133;A\\007$ '; \
+         stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| shows(a, "$ ready")));
+    let click = [
+        over(1, 2, None),
+        press(Button::Right, false),
+        release(Button::Right),
+    ];
+    h.point(click, Mods::CTRL.union(Mods::SHIFT));
+    assert_eq!(h.app.selection(), Some(&b"one\ntwo\n"[..]));
+    h.point(click, Mods::CTRL);
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "[E[<18;2;3ME[<18;2;3m]")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
 /// ADR-1002, "What the marks are for": Ctrl+right-click on a line of a
 /// command's output selects that output as whole lines and copies it; the
 /// release keeps the selection, and a right click without Ctrl clears it.
@@ -2076,10 +2166,11 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
         "--",
         "/bin/sh",
         "-c",
-        "i=0; while [ $i -lt 3 ]; do printf '\\033]133;A\\007$ p%d\\n' $i; j=0; \
-         while [ $j -lt 12 ]; do echo out$i.$j; j=$((j+1)); done; i=$((i+1)); done; \
-         printf '\\033]133;A\\007$ last'; read x; echo \"got:$x\"; \
-         printf '\\033[?1049h'; stty raw -echo; printf 'alt'; \
+        "stty raw -echo; i=0; while [ $i -lt 3 ]; do printf '\\033]133;A\\007$ p%d\\r\\n' $i; j=0; \
+         while [ $j -lt 12 ]; do printf 'out%d.%d\\r\\n' $i $j; j=$((j+1)); done; i=$((i+1)); done; \
+         printf '\\033]133;A\\007$ last'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\nmain:[%s]\\r\\n\",$0;exit}'; \
+         head -c 1 >/dev/null; printf '\\033[?1049halt'; \
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read y",
     ]);
     assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "$ last")));
@@ -2105,10 +2196,21 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
         jump(&mut h, false);
         assert_eq!((back(&h), view_row(&h.app, 0)), (want, top.to_owned()));
     }
-    h.type_str("\r");
+    // The program on the main screen read nothing before the `q`.
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l.starts_with("main:"))),
+        "{:?}",
+        h.app.screen_text()
+    );
+    assert!(shows(&h.app, "main:[]"), "{:?}", h.app.screen_text());
+    h.type_str("x");
     assert!(
         h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "alt")),
-        "the keys reached the program on the main screen: {:?}",
+        "{:?}",
         h.app.screen_text()
     );
     jump(&mut h, true);
