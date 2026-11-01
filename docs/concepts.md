@@ -204,11 +204,11 @@ vtium-clipboard, proposed in vtium/vtium#113, gives scripts the same copy from t
 
 ### Links and prompts
 
-Programs can mark text as a link, and shells can mark their prompts. vtium shows a link's address and copies it for the user to paste, and moves the view from one prompt to the next ([ADR-1002](architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
+Programs can mark text as a link, and shells can mark their prompts. vtium's terminal keeps the links and the marks. Showing a link's address, copying it for the user to paste, and moving the view from one prompt to the next are decided and not yet wired into the console ([ADR-1002](architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
 
 ### Keys
 
-vtium reads the keyboard itself and passes keys to the session, apart from the keys it keeps for itself, such as those that switch VTs. The configuration can bind keys to reboot, power off or suspend the machine; each asks the system to act, so services stop cleanly ([systemd.md](systemd.md)).
+vtium reads the keyboard itself and passes keys to the session, apart from the keys it keeps for itself, such as those that switch VTs. The configuration can bind keys to reboot, power off or suspend the machine. The reboot and power-off keys ask PID 1 to act, which stops the services first, except that a reboot under a non-zero `kernel.ctrl-alt-del` restarts the machine at once. The suspend key asks logind, or the kernel directly, and stops no service ([systemd.md](systemd.md)).
 
 ### Blanking
 
