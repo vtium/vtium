@@ -7,11 +7,11 @@ basis:
   - operator: aaronsb
     level: guided
     said: "The record decides the link table and its bound, what opening a link means on a VT with no browser, how marks survive scrollback and reflow, and the key bindings that jump between prompts."
-    via: "vtium/vtium#40, the issue body, filed under the operator's account in a session where agents drafted issues, so possibly agent-written"
+    via: "the GitHub issue for OSC 8 hyperlinks and OSC 133 prompt marks, its body, filed under the operator's account in a session where agents drafted issues, so possibly agent-written"
   - operator: aaronsb
     level: guided
     said: "Done: the probes pass, and a prompt jump lands on each marked prompt in the scrollback."
-    via: "vtium/vtium#40, the issue body, as above"
+    via: "the same issue's body, as above"
   - precedent: ADR-1001
   - precedent: ADR-1000
   - precedent: ADR-1400
@@ -59,11 +59,11 @@ related: []
 
 ## Context
 
-OSC 8 attaches a URI to the cells printed while it is open; OSC 133 marks where a shell's prompt, the command typed and its output begin. ADR-1001 placed both in the cell model: each cell carries a 16-bit index into its line's link table of 4-byte `LinkId`s, which name entries in "the link store vtium/vtium#40 builds", and each line carries prompt, input and output flags. This record decides the store, what a link may hold and does, how both are drawn, and what the marks are for.
+OSC 8 attaches a URI to the cells printed while it is open; OSC 133 marks where a shell's prompt, the command typed and its output begin. ADR-1001 placed both in the cell model: each cell carries a 16-bit index into its line's link table of 4-byte `LinkId`s, which name entries in "the link store that the work on OSC 8 hyperlinks builds", and each line carries prompt, input and output flags. This record decides the store, what a link may hold and does, how both are drawn, and what the marks are for.
 
 The C reference dropped both sequences: libtsm kept 127 bytes of an OSC string and handed OSC 8 and OSC 133 to kmscon, which took only its own two strings. Its probes for both are placeholders. ADR-1000 lists `osc.8` and `osc.133` as supported, at the `top` layer.
 
-The console shapes the choices. vtium runs on a VT with no desktop, no browser and no opener such as `xdg-open`; its main process holds root for life (ADR-1400). It has a pointer, keyboard grabs, and a selection buffer that the user's copies and OSC 52 fill and the middle button and Shift+Insert paste (vtium/vtium#91, #39). At minspec, ADR-1001's worst default scrollback, held to `sb-memory`'s default (vtium/vtium#131), stays inside the 16 MiB peak.
+The console shapes the choices. vtium runs on a VT with no desktop, no browser and no opener such as `xdg-open`; its main process holds root for life (ADR-1400). It has a pointer, keyboard grabs, and a selection buffer that the user's copies and OSC 52 fill and the middle button and Shift+Insert paste. At minspec, ADR-1001's worst default scrollback, held to `sb-memory`'s default, stays inside the 16 MiB peak.
 
 What other terminals do, from their source at the commits the basis names:
 
@@ -170,7 +170,7 @@ A hover change, the pointer entering, leaving or crossing between links or a lin
 
 A fresh line is a carriage return and a line feed when the cursor is not in the left margin's column, and nothing when it is, as the proposal defines it and Ghostty and WezTerm do; kitty and foot set the mark where the cursor is. The `aid`, `k` and `cl` options are ignored. `cl` asks the terminal to move the cursor to a click by sending the shell arrow keys; vtium sends nothing on the stream's say.
 
-The marks are the three line flags ADR-1001 holds, and cost no byte. They travel with their line into the scrollback and leave with it; a resize that drops lines drops their marks. Reflow (vtium/vtium#41) gives a rejoined line the marks of all its rows, on its first row: A and N begin a line with their fresh line, and C comes after the command's line feed, so the marks that matter begin logical lines. ED 2, ED 3 for the scrollback, and RIS clear the marks of the lines they erase; EL and partial erases keep them, since shells redraw a prompt with them.
+The marks are the three line flags ADR-1001 holds, and cost no byte. They travel with their line into the scrollback and leave with it; a resize that drops lines drops their marks. Reflow gives a rejoined line the marks of all its rows, on its first row: A and N begin a line with their fresh line, and C comes after the command's line feed, so the marks that matter begin logical lines. ED 2, ED 3 for the scrollback, and RIS clear the marks of the lines they erase; EL and partial erases keep them, since shells redraw a prompt with them.
 
 | Option | Cost | Who does it | Verdict |
 |---|---|---|---|
@@ -226,7 +226,7 @@ The keys join the terminal's grabs (`crates/vtium/src/grab.rs`), where Shift+Up 
 
 - The replay interface's screen view shows neither links nor line flags, so tier 1 cannot observe them; vtium's own replay cases and unit tests judge them, and the probes `osc-8-hyperlink` and `osc-133-marks`, placeholders in the frozen fork, are written in vtium's tree.
 - The corpus case `osc-sequences` sends an OSC 8 link; its text and attributes stay the golden's.
-- Reflow (vtium/vtium#41) carries the marks rule of section 5.
+- Reflow carries the marks rule of section 5.
 - vtium-render draws the dashed underline it has already; the overlay is its first text drawn from outside the screen.
 
 ## Alternatives Considered
