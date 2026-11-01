@@ -11,12 +11,12 @@ use vtium::notice;
 /// The keyboard the rescue key moves.
 const KEYBOARD: &str = "/dev/input/event3";
 
-/// A head file with one error: a rule naming a head the file does not
-/// declare.
+/// A head file with one error, a rule naming a head the file does not
+/// declare, which drops that rule alone: partly broken.
 const ONE_ERROR: &str = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n";
 
 /// A head file with two errors: the same rule, and a `[head]` key vtium
-/// does not know.
+/// does not know, which drops the head: broken, under open.
 const TWO_ERRORS: &str =
     "version = 1\n[head desk]\nfont-weight = bold\n[rules]\ndisplay * -> desc\n";
 
@@ -60,10 +60,10 @@ pub fn head_file_two_errors() -> Result<String, String> {
     head_file(TWO_ERRORS)
 }
 
-/// The notice the start shows for the head file `text`, as
-/// [`vtium::head::rules`] reads it. The file is written to a scratch
-/// directory of this process's own, which the notice names; the notice
-/// names vtium's head file in its place, as the start shows it.
+/// The notice the start shows for the head file `text`, its console line
+/// and the next step, as
+/// [`vtium::head::rules`] reads it (ADR-1401 D7). The file is written to a
+/// scratch directory of this process's own.
 fn head_file(text: &str) -> Result<String, String> {
     use std::os::unix::fs::MetadataExt;
     static CALLS: AtomicU64 = AtomicU64::new(0);
@@ -80,10 +80,12 @@ fn head_file(text: &str) -> Result<String, String> {
             .map_err(|e| format!("{}: {e}", path.display()))?
             .uid();
         let trust = vtium_config::Trust::owner(uid).below(&dir);
-        let (_, shown) = vtium::head::rules(&path, &trust);
-        shown.ok_or_else(|| format!("the head file {text:?} shows no notice"))
+        let start = vtium::head::rules(&path, &trust);
+        start
+            .notice()
+            .ok_or_else(|| format!("the head file {text:?} shows no notice"))
     };
     let shown = read();
     let _ = std::fs::remove_dir_all(&dir);
-    Ok(shown?.replace(&*path.to_string_lossy(), vtium_config::HEAD_FILE))
+    shown
 }

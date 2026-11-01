@@ -219,8 +219,8 @@ impl Config {
                 by: By::NoMatch,
             },
             Kind::Input if self.tail() => {
-                let shipped = SHIPPED
-                    .rules
+                let tail = self.tail.as_deref().unwrap_or(&SHIPPED.rules);
+                let shipped = tail
                     .iter()
                     .find(|r| r.kind == Kind::Input && r.matcher.matches(id));
                 Placed {

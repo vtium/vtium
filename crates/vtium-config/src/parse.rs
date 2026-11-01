@@ -796,6 +796,7 @@ impl Parser {
                 heads,
                 rules,
                 survivors: !self.errors.is_empty(),
+                tail: None,
             };
             findings(config, self.warnings)
         };

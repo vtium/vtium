@@ -123,6 +123,10 @@ pub struct Config {
     /// isolated, and under closed the display guard lights the boot display
     /// for a notice when no head is left.
     pub survivors: bool,
+    /// The input rules a device of a partly broken open file walks when no
+    /// rule of [`Config::rules`] places it (D7): `None` for the shipped
+    /// rules' own, which kmscon.conf's `mouse` shorthand may change.
+    pub tail: Option<Vec<Rule>>,
 }
 
 impl Config {
