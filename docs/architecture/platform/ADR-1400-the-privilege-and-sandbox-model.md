@@ -39,16 +39,16 @@ basis:
   - operator: aaronsb
     level: guided
     said: "Each convenience is used when present and is never required."
-    via: vtium/vtium#75, comment of 2026-10-26, posted from the operator's account as the operator's direction; the wording is agent-written
+    via: the GitHub issue for building and judging vtium on ARM, comment of 2026-10-26, posted from the operator's account as the operator's direction; the wording is agent-written
   - upstream: "aaronsb/kmscon b1f7a7c5: kmscon ran as root for life, with setuid, setgroups, prctl and capset only in src/image_host.c:209-218; the login child was forked as root and ran `/bin/login -p` (src/misc/pty.c:261-269, 404-427); the units carried no hardening directive, and set `User=root` and `PAMName=kmscon` only in a libseat build (scripts/systemd/kmsconvt@.service.in, kmscon.service.in, meson.build:370-373)"
   - upstream: "kmscon ADR-103 (aaronsb/kmscon), the image helper: a separate process; its identity from logind or the pty's owner, never root by fallback; the pre-login account, then nobody; the child's setup; the file rules; and a login inside kmscon's greeter session treated as having no session of its own"
-  - upstream: "aaronsb/kmscon PR #162, the helper's progression in commit order: identity first (c8f02579, 2136ddfc, 6f9b0759), the host's distrust of the helper (79d765f1, a15d49ad, 935eec64), the path rules (58f21637, 76202204, 9ef29b7e, a7d475dc), the pre-login and root cases (735d12b7, f1a7f077, 2bd8013d, 75eaa582, fb991022); and the minimal build's refusal of an option turned on without its dependency (d30292fe)"
+  - upstream: "the C fork's pull request that built the image helper (kmscon ADR-103 step 4b), the helper's progression in commit order: identity first (c8f02579, 2136ddfc, 6f9b0759), the host's distrust of the helper (79d765f1, a15d49ad, 935eec64), the path rules (58f21637, 76202204, 9ef29b7e, a7d475dc), the pre-login and root cases (735d12b7, f1a7f077, 2bd8013d, 75eaa582, fb991022); and the minimal build's refusal of an option turned on without its dependency (d30292fe)"
   - standard: "systemd.exec(5), systemd.resource-control(5) and pam_systemd(8), systemd 262: what a unit's directives apply to the processes it starts (external, not re-verified here)"
   - precedent: ADR-1000
   - operator: aaronsb
     level: directed
     said: 'sd-bus behind the logind Cargo feature, plus a fallback: when logind is not running or the feature is off, vtium writes mem to /sys/power/state as root, so the minspec build suspend key works too'
-    via: operator decision on vtium/vtium#21 grab-suspend, 2026-10-27, relayed by the team lead; paraphrased in the relay
+    via: operator decision on grab-suspend in the work on vtium's configuration and terminal wiring, 2026-10-27, relayed by the team lead; paraphrased in the relay
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -80,19 +80,19 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium carries the C reference's security model forward as its logic flow, not its C. The main process holds root for life, launched by a plain unit, an init script or by hand, and forks the login child as root to run `/bin/login`; nothing else drops. Image media are read and decoded in a helper process following the C reference's flow, as the session's user and never as root by fallback (#31). The units keep getty's ordering and TTY settings, as the C reference's did, and set no hardening directive, since the login session would inherit it. They differ from the C reference's units in one place: under a closed head-file policy, the getty fallback skips the getty (ADR-1401 D9). logind and libseat are an optional layer, each a Cargo feature, and vtium runs without them as the C reference did. vtium departs only where the C reference had a listed defect or gap: a test of the login child's descriptors, the helper controls #31 does not yet list, and the shared-memory unlink consequence.
+- **Decided:** vtium carries the C reference's security model forward as its logic flow, not its C. The main process holds root for life, launched by a plain unit, an init script or by hand, and forks the login child as root to run `/bin/login`; nothing else drops. Image media are read and decoded in a helper process following the C reference's flow, as the session's user and never as root by fallback. The units keep getty's ordering and TTY settings, as the C reference's did, and set no hardening directive, since the login session would inherit it. They differ from the C reference's units in one place: under a closed head-file policy, the getty fallback skips the getty (ADR-1401 D9). logind and libseat are an optional layer, each a Cargo feature, and vtium runs without them as the C reference did. vtium departs only where the C reference had a listed defect or gap: a test of the login child's descriptors, the helper controls the image helper's issue does not yet list, and the shared-memory unlink consequence.
 - **Trades away:** A defect in the code that reads the pty stream runs as root, as it did in the C reference. The unit uses none of systemd's sandboxing.
 - **One-way?** No. A privilege split stays open (Alternatives), and nothing here forecloses it.
 - **Probes:**
   - *Confident (as the C reference):* vtium runs as root and installs the same kind of unit as the C reference, and changes only where the C reference had a known gap.
-  - *Not confident (root's images):* when root logs in on a vtium console on a system running logind, image files root's programs name are still read as root, as the C reference allowed, until #31 says otherwise.
+  - *Not confident (root's images):* when root logs in on a vtium console on a system running logind, image files root's programs name are still read as root, as the C reference allowed, until the image helper's issue says otherwise.
 - **Inversion:** Between "port the C reference's C" and "design a novel privilege model" (a root parent with an unprivileged terminal process, a sandboxed unit). The answer is neither: the C reference's logic flow, in idiomatic Rust, with fixes only where the C reference's own trackers listed a defect or gap.
 
 ## Context
 
 The C reference ran as root for life, and SECURITY.md states the same for vtium today. Only its image helper changed identity. The fork's commits built the helper's protections in an order: who the helper runs as, then the host's distrust of the helper, then the path rules, then the pre-login and root cases. Its units carried no hardening.
 
-vtium runs where there may be no systemd, logind, udev daemon or seat daemon, launched by a plain unit, an init script or by hand (#75). The C reference already ran that way: its minimal build linked none of them but libudev, and its default build linked sd-login only when images were built and the library was present.
+vtium runs where there may be no systemd, logind, udev daemon or seat daemon, launched by a plain unit, an init script or by hand. The C reference already ran that way: its minimal build linked none of them but libudev, and its default build linked sd-login only when images were built and the library was present.
 
 ## Decision
 
@@ -102,9 +102,9 @@ The C reference's layers, in its order, each optional above L0:
 
 | Layer | Adds | Builds on | Build layer, issue | Without its convenience |
 |---|---|---|---|---|
-| L0, the baseline | Root for life; the VT, DRM or fbdev, and evdev opened directly; the login child holding only fds 0-2; the reply rule and every bound | nothing | minspec; #12, #18, #19, #20, #21 | Uses none, as the C reference's minimal build used none but libudev. |
-| L1, the helper | Reading and decoding image media as the session's user, with the identity modes below (feature `images`) | L0 | images; #31 | No logind: the identity is the pty's owner, as in the C reference. No pre-login account: `nobody`, then refused, as in the C reference. |
-| L2, logind and libseat | The helper's identity from logind, through sd-login, and `grab-suspend` through logind's `Suspend`, through sd-bus (feature `logind`); devices and VT switching through libseat (feature `libseat`) | L0, L1 | seat; #31, #34, #21 | A build without the feature, or a system where logind or the seat daemon is not running, behaves as L0 and L1, as the C reference did with logind absent and libseat off by default; `grab-suspend` writes `mem` to `/sys/power/state` as root. |
+| L0, the baseline | Root for life; the VT, DRM or fbdev, and evdev opened directly; the login child holding only fds 0-2; the reply rule and every bound | nothing | minspec; the terminal's modes and replies, the displays, the VT and input, the pty and event loop, and the configuration and wiring | Uses none, as the C reference's minimal build used none but libudev. |
+| L1, the helper | Reading and decoding image media as the session's user, with the identity modes below (feature `images`) | L0 | images; the image helper and its sandbox | No logind: the identity is the pty's owner, as in the C reference. No pre-login account: `nobody`, then refused, as in the C reference. |
+| L2, logind and libseat | The helper's identity from logind, through sd-login, and `grab-suspend` through logind's `Suspend`, through sd-bus (feature `logind`); devices and VT switching through libseat (feature `libseat`) | L0, L1 | seat; the image helper, libseat seats, and the configuration and wiring | A build without the feature, or a system where logind or the seat daemon is not running, behaves as L0 and L1, as the C reference did with logind absent and libseat off by default; `grab-suspend` writes `mem` to `/sys/power/state` as root. |
 
 The units and the sysusers file are installed files, never a layer: a hand launch needs none of them (D3).
 
@@ -112,7 +112,7 @@ The units and the sysusers file are installed files, never a layer: a hand launc
 
 - `images` brings the helper. No build has images without it.
 - `logind` reads sessions through sd-login, from libsystemd or libelogind. It is on wherever `images` is in the default feature set, as the C reference's `sd_login=auto` linked sd-login whenever images were built and the library was present; it is used at run time only when logind is running. A build with `images` and without `logind` is an explicit choice for hosts without libsystemd or libelogind, and on a logind host it falls back to the pty's owner, which kmscon ADR-103 rejected as the first identity source because root can chown a pty; vtium lists that build as a departure. (Added 2026-10-26, from the advisor's review.)
-- `logind` also calls logind's `Suspend` for `grab-suspend` through sd-bus, from libsystemd 240 or later, else libelogind 241 or later, through pkg-config, with a 2 s bound on the answer. Where the bus has no logind and cannot start it, or the feature is off, vtium writes `mem` to `/sys/power/state` as root, from a shell it starts, so the loop still serves the VT's switch to the kernel's suspend console. That write passes logind's inhibitors and its `PrepareForSleep` signal by, so on a logind host a build without the feature suspends with no delay inhibitor held and no other session's lock-on-suspend run; a refusal from a running logind is never worked around. Every place vtium touches systemd, logind or PID 1, and what it does without them, is listed in [docs/systemd.md](../../systemd.md). (Added 2026-10-27, from the operator's decision on vtium/vtium#21. libelogind added 2026-10-28, vtium/vtium#100.)
+- `logind` also calls logind's `Suspend` for `grab-suspend` through sd-bus, from libsystemd 240 or later, else libelogind 241 or later, through pkg-config, with a 2 s bound on the answer. Where the bus has no logind and cannot start it, or the feature is off, vtium writes `mem` to `/sys/power/state` as root, from a shell it starts, so the loop still serves the VT's switch to the kernel's suspend console. That write passes logind's inhibitors and its `PrepareForSleep` signal by, so on a logind host a build without the feature suspends with no delay inhibitor held and no other session's lock-on-suspend run; a refusal from a running logind is never worked around. Every place vtium touches systemd, logind or PID 1, and what it does without them, is listed in [docs/systemd.md](../../systemd.md). (Added 2026-10-27, from the operator's decision in the work on vtium's configuration and terminal wiring. libelogind added 2026-10-28.)
 - `libseat` takes devices and VT switching through libseat.
 - A feature turned on without the C library it binds fails the build with a message naming the library, as the C reference's minimal build refused an option without its dependency. The minspec build links none of them.
 
@@ -132,7 +132,7 @@ The kernel conditions named in this table (the tty's owner or `CAP_SYS_TTY_CONFI
 
 ### D2: the helper and its sandbox
 
-The helper follows kmscon ADR-103's flow, carried into Rust by #31:
+The helper follows kmscon ADR-103's flow, carried into Rust by the image helper's issue:
 
 - **a separate process,** one per session, started on the first request and stopped after an idle interval (ADR-1301 D2), at the session's end, a user change, a larger `max_bytes` or a failure, with the next request starting a new one; *edited 2026-10-28:* the operator decided the idle exit, and this read "started on the first request and stopped at the session's end";
 - **the child's setup,** in the C reference's order: credentials resolved before the fork; `setsid`; the signal mask cleared; fds 0-2 on `/dev/null`, the socket on fd 3, every other descriptor closed; the memory limit; `setgroups`, `setresgid` and `setresuid`, read back; the ambient capabilities cleared, then `PR_SET_NO_NEW_PRIVS`; `chdir /`, and `execve` with `TMPDIR` as the only environment;
@@ -140,13 +140,13 @@ The helper follows kmscon ADR-103's flow, carried into Rust by #31:
 - **the timeout:** 2,000 ms with input paused, after which the helper is killed and the reply is `FAILED`;
 - **the file rules** of ADR-103.
 
-Whether the helper is a second executable or the same binary is a packaging detail #31 decides. Whether seccomp or landlock narrows the helper is #31's to weigh, as the C reference left its filter to aaronsb/kmscon#153.
+Whether the helper is a second executable or the same binary is a packaging detail the image helper's issue decides. Whether seccomp or landlock narrows the helper is that issue's to weigh, as the C reference left its filter to a C fork issue of its own.
 
 The identity, by the C reference's rules:
 
-- with `logind` built and logind running, the user of the login child's own logind session of a login class; a session inherited from vtium's own greeter session does not count. When that user is root, the C reference ran the helper as root; vtium does the same, and any change is #31's;
+- with `logind` built and logind running, the user of the login child's own logind session of a login class; a session inherited from vtium's own greeter session does not count. When that user is root, the C reference ran the helper as root; vtium does the same, and any change belongs to the image helper's issue;
 - otherwise the owner of the session's pty;
-- before login, file media are refused, and inline PNG and zlib are decoded as the pre-login account, then `nobody`, and are otherwise refused. The C reference's account was `kmscon-image`; its name in vtium is #31's.
+- before login, file media are refused, and inline PNG and zlib are decoded as the pre-login account, then `nobody`, and are otherwise refused. The C reference's account was `kmscon-image`; its name in vtium is for the image helper's issue to choose.
 
 ### Never silent
 
@@ -154,7 +154,7 @@ These are the C reference's own behaviour:
 
 - The helper never runs as root by fallback. Where the identity comes from the pty's owner and that owner is root, file media are refused and inline media take the pre-login path.
 - File media before login are refused, logged at debug level, as in the C reference.
-- A vtium not running as root whose ids or groups include gid 0 handles every request as before login. When vtium runs as root and the session is root's, the helper runs as uid 0 and gid 0, as the C reference's did (image_host.c:141-180); a change is #31's.
+- A vtium not running as root whose ids or groups include gid 0 handles every request as before login. When vtium runs as root and the session is root's, the helper runs as uid 0 and gid 0, as the C reference's did (image_host.c:141-180); a change belongs to the image helper's issue.
 - Pre-login decoding with no account to run as is refused, and logged.
 
 ### D3: what the unit may harden
@@ -170,29 +170,29 @@ The C reference recorded no reason for its units' lack of hardening. The likely 
 vtium's units match the C reference's, with getty parity and no hardening directive:
 
 - getty's `TTYPath`, `TTYReset`, `TTYVHangup`, `TTYVTDisallocate` and `UtmpIdentifier`, its ordering, `Conflicts=getty@%i`, and a getty fallback: `OnFailure=` starts `kmsconvt-getty@%i`, which starts `getty@%i` unless vtium's closed marker exists (ADR-1401 D9);
-- the names tier 3 needs, `kmsconvt@.service` among them (#21);
+- the names tier 3 needs, `kmsconvt@.service` among them;
 - in a `libseat` build, `User=root` and `PAMName` with the C reference's greeter PAM file. The login child inherits that greeter session, and the helper treats it as no session of the login's own, as the C reference's did;
 - an optional sysusers file creating the pre-login account, with no home, shell or files.
 
-> Edited 2026-10-31: slice S6 of vtium/vtium#186 sends the getty fallback through `kmsconvt-getty@%i`, which starts `getty@%i` unless the closed marker exists (ADR-1401 D9), a departure from the C reference's unit. The bullet read: "`Conflicts=getty@%i` and `OnFailure=getty@%i`;", and the Summary read: "The units match the C reference's: getty parity and no hardening directives".
+> Edited 2026-10-31: slice S6 of the head-file wiring work sends the getty fallback through `kmsconvt-getty@%i`, which starts `getty@%i` unless the closed marker exists (ADR-1401 D9), a departure from the C reference's unit. The bullet read: "`Conflicts=getty@%i` and `OnFailure=getty@%i`;", and the Summary read: "The units match the C reference's: getty parity and no hardening directives".
 
 ### What the stream reaches beyond the screen
 
 | Channel | What it reaches | Control | Issue |
 |---|---|---|---|
-| Replies | the program reading the pty | the reply rule (docs/architecture.md, "Determinism") and the reply queue's bound | #12, #20 |
-| Kitty file and shared-memory media | the user's files | the helper, as the session's user (D2) | #31 |
-| OSC 50 font paths | the user's files | the helper, with the same identity and path rules, as kmscon ADR-103 planned | #44 |
-| OSC 52 write | the clipboard | the OSC string bound; reads refused (ADR-1000) | #39 |
-| setBackground | the display | ADR-1000's row: behind a configuration key, on by default | #36 |
+| Replies | the program reading the pty | the reply rule (docs/architecture.md, "Determinism") and the reply queue's bound | the terminal's modes and replies; the pty and event loop |
+| Kitty file and shared-memory media | the user's files | the helper, as the session's user (D2) | the image helper and its sandbox |
+| OSC 50 font paths | the user's files | the helper, with the same identity and path rules, as kmscon ADR-103 planned | runtime font changes |
+| OSC 52 write | the clipboard | the OSC string bound; reads refused (ADR-1000) | the OSC string bound and OSC 52 copy-out |
+| setBackground | the display | ADR-1000's row: behind a configuration key, on by default | display hand-back |
 
 ### Where vtium departs, and where the gaps go
 
-- **The login child's descriptors:** the C reference relied on `O_CLOEXEC` and closed nothing explicitly. A runtime test checks that the child holds only fds 0-2 after exec while the spawner holds others open (#20).
-- **The helper controls #31 does not yet list** become its gates, each with a test: from D2, `setsid`, the ids read back, the ambient capabilities cleared, `TMPDIR` as the only environment, the credentials resolved before the fork, the restart rules, and the seals checked before the size.
-- **`t=s` unlinks:** any program writing to the pty can make the helper unlink any shared-memory object the session's user owns, once it is read (aaronsb/kmscon#153). #31 accepts this on the record or narrows which names are unlinked, and tests its choice.
-- **OSC 50 font paths** go through the helper (#44), as the C reference planned and never built.
-  - *Note (2026-10-28):* ADR-1200 changes what OSC 50 reaches: it switches only among vitrified sets already built into the root-owned store, behind `allow-font-ops`, and never names a font path, so no path goes through the helper for it. ADR-1200's D15 reuses this helper for another job: on any build, it generates glyphs no built set holds from the frit, as the session's user in this sandbox, and hands back glyph chunks the main process checks for bounds and dimensions only, as it does decoded images (vtium/vtium#123). The helper exits after an idle interval (ADR-1301 D2, D2 above). *Edited 2026-10-28:* the operator reversed ADR-1200's ban on generating at run time on minspec; this read "on a build that isn't minspec, it rasterises a size a set lacks".
+- **The login child's descriptors:** the C reference relied on `O_CLOEXEC` and closed nothing explicitly. A runtime test checks that the child holds only fds 0-2 after exec while the spawner holds others open.
+- **The helper controls the image helper's issue does not yet list** become its gates, each with a test: from D2, `setsid`, the ids read back, the ambient capabilities cleared, `TMPDIR` as the only environment, the credentials resolved before the fork, the restart rules, and the seals checked before the size.
+- **`t=s` unlinks:** any program writing to the pty can make the helper unlink any shared-memory object the session's user owns, once it is read (recorded in the C fork's issue on a seccomp or landlock filter for the image helper). The image helper's issue accepts this on the record or narrows which names are unlinked, and tests its choice.
+- **OSC 50 font paths** go through the helper, as the C reference planned and never built.
+  - *Note (2026-10-28):* ADR-1200 changes what OSC 50 reaches: it switches only among vitrified sets already built into the root-owned store, behind `allow-font-ops`, and never names a font path, so no path goes through the helper for it. ADR-1200's D15 reuses this helper for another job: on any build, it generates glyphs no built set holds from the frit, as the session's user in this sandbox, and hands back glyph chunks the main process checks for bounds and dimensions only, as it does decoded images. The helper exits after an idle interval (ADR-1301 D2, D2 above). *Edited 2026-10-28:* the operator reversed ADR-1200's ban on generating at run time on minspec; this read "on a build that isn't minspec, it rasterises a size a set lacks".
 
 > Added 2026-10-29: the configuration file's `login` key chooses the command each session's login child runs as root, and vtium reads that file with no ownership check today: `crates/vtium/src/config/mod.rs` refuses only a path that is not a regular file. ADR-1401 D10 reads the head file, the profiles and the frits only when root owns each and neither group nor others can write it, as `sshd`'s `StrictModes` does, so a head's own `login` key takes that check. The file that holds the configuration's `login` key needs the same check; whether it gets it, and what a file that fails it does, is an open question.
 
