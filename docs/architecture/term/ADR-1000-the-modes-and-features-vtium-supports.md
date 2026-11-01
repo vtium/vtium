@@ -7,15 +7,15 @@ basis:
   - operator: aaronsb
     level: directed
     said: "in general, vtium should cover what other terminals support"
-    via: vtium/vtium#12, comment of 2026-10-26 listing the features the operator would use
+    via: the GitHub issue for vtium-term's modes, SGR and replies, comment of 2026-10-26 listing the features the operator would use
   - operator: aaronsb
     level: directed
     said: "Title reporting answers with a fixed empty title, and an unknown DECRQSS gets the error form with no echo."
-    via: vtium/vtium#12, comment of 2026-10-26 adding the reply-rule gate
+    via: the same issue, comment of 2026-10-26 adding the reply-rule gate
   - operator: aaronsb
     level: directed
     paraphrase: true
-    said: "Refuse KAM, DECCOLM and DECNRCM as the C reference did; hold DECANM as a reserved row with an issue for VT52; refuse hilite tracking, DECUDK, OSC 46, kitty file transfer, kitty remote control and window manipulation; answer XTWINOPS reports only where vtium has the function, with real values; title reports empty, OSC 52 read off and write on; strip the paste end marker; ENQ answers empty; focus and visibility reports allowed; setBackground and setForeground behind a configuration key, on by default; bidi modes wait for #43; OSC 21 takes kitty's meaning; the new-mode rule stands; LNM is kept."
+    said: "Refuse KAM, DECCOLM and DECNRCM as the C reference did; hold DECANM as a reserved row with an issue for VT52; refuse hilite tracking, DECUDK, OSC 46, kitty file transfer, kitty remote control and window manipulation; answer XTWINOPS reports only where vtium has the function, with real values; title reports empty, OSC 52 read off and write on; strip the paste end marker; ENQ answers empty; focus and visibility reports allowed; setBackground and setForeground behind a configuration key, on by default; bidi modes wait for [the bidirectional text work]; OSC 21 takes kitty's meaning; the new-mode rule stands; LNM is kept."
     via: Claude Code session, the operator's review of the inventory draft, relayed by the team lead, 2026-10-26
   - standard: xterm control sequences (XTerm patch 411), https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
   - standard: ECMA-48 5th edition (1991), section 7.2 (modes), 8.3.117 (SGR), annex F
@@ -77,18 +77,18 @@ The tables are `ADR-1000-modes.tsv` (128 rows: 40 supported, 4 ignored, 4 refuse
 - **ignored**: accepted with no effect; the note says why or names the issue for the effect.
 - **refused**: deliberately not built, with the reason.
 - **no row** (modes): vtium does not recognise the number; DECRQM replies 0 and SM and RM change nothing.
-- **parked** (features): its own issue designs it before anything is built: input methods (#45) and Braille displays (#46).
-- **weighed** (features): another issue decides whether vtium builds it, and the row takes that decision: baked glyph atlases (#3), weighed in #23.
+- **parked** (features): its own issue designs it before anything is built: input methods and Braille displays.
+- **weighed** (features): another issue decides whether vtium builds it, and the row takes that decision: baked glyph atlases (vtium-vitrify's profile builder), weighed in the work on outline fonts.
 
 An ignored or refused mode answers DECRQM with its fixed default, as the C reference did: 3 (permanently set) for DECANM, and 4 (permanently reset) for the rest, KAM, DECCOLM, DECNRCM and 1001 among them.
 
-Each row names the layer it lands in, from the tracker (vtium/vtium#47): minspec, text, images, gpu, seat or top.
+Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top.
 
-vtium supports everything the C reference supported, apart from the departures vtium lists (#14), and goes beyond it.
+vtium supports everything the C reference supported, apart from the departures vtium lists, and goes beyond it.
 
 ### The rule for a new mode or feature
 
-A mode or feature the C reference had keeps its status unless this record changes it. Beyond those, the target set is the union of two parts: the capabilities terminals generally support, which this rule admits, and the operator's list, the features the operator named as ones they use (vtium/vtium#12, the comment of 2026-10-26). The rule admits a new one when xterm's control sequences and at least one of foot, Ghostty, WezTerm or kitty document it, or when the console has a use for it that its row names (mode 2028 for reflow, mode 2033 for VT switching, mode 2048 for a display hot-plugged or changing mode). vtium is not a superset of every reference terminal, and obscure DEC-era modes are not the aim: a new mode neither part brings in gets no row, and a new feature neither part brings in is ignored. A refusal carries a reason a reader can check.
+A mode or feature the C reference had keeps its status unless this record changes it. Beyond those, the target set is the union of two parts: the capabilities terminals generally support, which this rule admits, and the operator's list, the features the operator named as ones they use (the comment of 2026-10-26 on the issue for vtium-term's modes, SGR and replies). The rule admits a new one when xterm's control sequences and at least one of foot, Ghostty, WezTerm or kitty document it, or when the console has a use for it that its row names (mode 2028 for reflow, mode 2033 for VT switching, mode 2048 for a display hot-plugged or changing mode). vtium is not a superset of every reference terminal, and obscure DEC-era modes are not the aim: a new mode neither part brings in gets no row, and a new feature neither part brings in is ignored. A refusal carries a reason a reader can check.
 
 The support columns count only published documentation: for xterm and foot, whose documents list everything they do, absence reads "no"; elsewhere silence reads "unverified". kitty is read from its specification pages, never its source.
 
@@ -98,7 +98,7 @@ The support columns count only published documentation: for xterm and foot, whos
 - **DECCOLM (DEC 3):** the console's size comes from the display and the font.
 - **DECNRCM (DEC 42):** national replacement sets are obsolete next to UTF-8.
 - **Hilite mouse tracking (DEC 1001) and XTHIMOUSE:** the terminal waits on the program's answer before it can show a selection.
-- **XTWINOPS window manipulation (1-7, 9, 10 and 24 and above):** vtium has no window to move, raise, iconify or resize. A program resizing the grid in characters (CSI 8 t) is held apart, for #44.
+- **XTWINOPS window manipulation (1-7, 9, 10 and 24 and above):** vtium has no window to move, raise, iconify or resize. A program resizing the grid in characters (CSI 8 t) is held apart, for the work on runtime font changes.
 - **DECUDK:** program output would program a key that later types into the shell.
 - **OSC 46:** it writes a log file on the host.
 - **kitty file transfer (OSC 5113):** it reads and writes host files at the stream's request.
@@ -107,7 +107,7 @@ The support columns count only published documentation: for xterm and foot, whos
 
 ### Declined for now
 
-VT52 (DECANM, DEC 2) has a reserved row, ignored: DECRQM reports the ANSI state (DECANM set) as permanent and a reset does nothing. vtium/vtium#65 holds the space for full VT52 support in a later layer.
+VT52 (DECANM, DEC 2) has a reserved row, ignored: DECRQM reports the ANSI state (DECANM set) as permanent and a reset does nothing. Its own issue holds the space for full VT52 support in a later layer.
 
 ### Replies and policy
 
@@ -115,22 +115,22 @@ Every reply follows the reply rule (docs/architecture.md, "Determinism"): it is 
 
 - **A report answers only where vtium has the thing it reports, with its real value.** The text area in cells (XTWINOPS 18) and in pixels (14), the cell size (16), and the screen in cells (19) and pixels (15), the screen being the display the grid fills, get real numbers. Reports about a window or icon vtium does not have (11, 13, 14;2, 20) get no reply.
 - **Title reporting (XTWINOPS 21) answers a fixed empty title.** OSC 0, 1 and 2 are ignored, so no title is kept.
-- **OSC 52 write is on**, inside the OSC string bound (#39); the read is refused above.
+- **OSC 52 write is on**, inside the OSC string bound; the read is refused above.
 - **A paste never carries its own end marker:** vtium filters every paste, bracketed or not, as xterm's paste filtering does with `allowPasteControls` false: each C0 control but HT, LF and CR, DEL, and each C1 control, a code point in UTF-8, becomes a space.
 - **ENQ answers an empty answerback.** The C reference answered ACK (0x06); vtium lists this as a departure.
 - **Focus (1004) and visibility (2033) reports are allowed:** a program opts in, and what they reveal is that the user switched VTs.
-- **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display back and take it again. No DEC or ECMA specification defines them. vtium keeps them behind a configuration key, on by default, as the C reference behaved (#36).
+- **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display back and take it again. No DEC or ECMA specification defines them. vtium keeps them behind a configuration key, on by default, as the C reference behaved.
 - **OSC 21** takes kitty's color-protocol meaning, which Ghostty shares, not xterm's DECSWT title. A query for a key vtium does not know is left out of the reply. kitty answers it with `unknown=` and the key's name in base64, which carries request bytes, so vtium lists this as a departure from kitty.
-- **Bidirectional modes** (BDSM, DCSM, DECRLM, DECRLCM) have no row until #43 decides vtium's bidi model.
+- **Bidirectional modes** (BDSM, DCSM, DECRLM, DECRLCM) have no row until the work on bidirectional text decides vtium's bidi model.
 - **LNM (ANSI 20) stays supported**, as xterm and the C reference have it, though ECMA-48's 5th edition withdraws it.
 
 ### The tables as data
 
-The TSVs are the source for the target set until vtium-term's mode table (#12) and the capability list (#14) exist. From then those become the source: the TSVs are generated from them, and a test fails when the committed TSVs differ, as docs/architecture.md's "Tables, references and maps" requires of every fact stated twice. A row's status changes in its source, in the same change as the work that changes it.
+The TSVs are the source for the target set until vtium-term's mode table and the capability list exist. From then those become the source: the TSVs are generated from them, and a test fails when the committed TSVs differ, as docs/architecture.md's "Tables, references and maps" requires of every fact stated twice. A row's status changes in its source, in the same change as the work that changes it.
 
-The mode table's columns: id, kind, number, name, spec, c_reference, xterm, foot, ghostty, wezterm, kitty, status, note, layer, issue, tests. The feature table's: id, group, feature, spec, c_reference, the five terminals, status, note, layer, issue, tests. On 2026-10-26 vtium/vtium#67 added the `id` and `tests` columns; `docs/scripts/coverage` states how a feature's id is formed and is the only writer of `tests`. On 2026-10-27 the comparison with Ghostty 1.4.0's release notes (vtium/vtium#49) added two rows, kitty graphics relative placements and Unicode placeholders, which the C reference left to step 5 of its ADR-103 with animation, and the Ghostty column took those notes as its source for kitty animation, OSC 5522 and mode 5522, OSC 72 and OSC 99. vtium/vtium#94 added a row for the C reference's named palettes and its custom one, which the `palette` key chooses. On 2026-10-27 vtium/vtium#91 added two rows the pointer's selection brought, the paste and Shift's override of mouse tracking, each documented by xterm and at least one other terminal. On 2026-10-27 vtium/vtium#81 added two rows for the text blink's options, `blink-text` and `blink-decorations`, on the operator's list from vtium/vtium#16's review. On 2026-10-27 the operator decided that vtium reads X11 color names in OSC color strings in every build, and vtium/vtium#103 added the row for them. On 2026-10-27 vtium/vtium#79 added a row for each of the Linux console's blank sequences, whose console use is the DPMS blank. On 2026-10-28 the operator decided that vtium spells it color (vtium/vtium#114), and the feature ids that spelled colour were renamed, the one change ever made to a committed id: `sgr.underline-colour` to `sgr.underline-color`, `sgr.extended-colour` to `sgr.extended-color`, `sgr.draw-time-colour` to `sgr.draw-time-color`, `colour.palette.query` to `color.palette.query`, `colour.palette.set` to `color.palette.set`, `colour.names` to `color.names`, `colour.palette.named` to `color.palette.named`, `colour.dynamic.query` to `color.dynamic.query`, `colour.dynamic.set` to `color.dynamic.set`, `colour.pointer` to `color.pointer`, `colour.selection` to `color.selection`, `colour.tektronix` to `color.tektronix`, `colour.special` to `color.special`, `colour.kitty-protocol` to `color.kitty-protocol`, `colour.stack` to `color.stack`, `colour.wide-gamut` to `color.wide-gamut`, `colour.scheme-report` to `color.scheme-report` and `cursor.colour` to `cursor.color`. On 2026-10-29 ADR-1401 added six rows for heads, `platform.heads`, `platform.heads.rules`, `platform.heads.focus`, `platform.heads.guards`, `platform.heads.rescue-key` and `platform.heads.on-loss`, in the seat layer with `platform.multi-monitor`, their issue cell empty until the heads build has an issue. A `c_reference` cell opens with a tsm-modes.def status in capitals; works, missing or partial, naming the probes behind the verdict where there are any; parsed, for a sequence the C reference read and did nothing with; audited without a probe; unverified; or absent. What follows says what the C reference did.
+The mode table's columns: id, kind, number, name, spec, c_reference, xterm, foot, ghostty, wezterm, kitty, status, note, layer, issue, tests. The feature table's: id, group, feature, spec, c_reference, the five terminals, status, note, layer, issue, tests. On 2026-10-26 the work that traces each row to its tests added the `id` and `tests` columns; `docs/scripts/coverage` states how a feature's id is formed and is the only writer of `tests`. On 2026-10-27 the comparison with Ghostty 1.4.0's release notes added two rows, kitty graphics relative placements and Unicode placeholders, which the C reference left to step 5 of its ADR-103 with animation, and the Ghostty column took those notes as its source for kitty animation, OSC 5522 and mode 5522, OSC 72 and OSC 99. The work on named palettes added a row for the C reference's named palettes and its custom one, which the `palette` key chooses. On 2026-10-27 the work on pointer selection added two rows the pointer's selection brought, the paste and Shift's override of mouse tracking, each documented by xterm and at least one other terminal. On 2026-10-27 the work on blink options added two rows for the text blink's options, `blink-text` and `blink-decorations`, on the operator's list from the CPU compositor's review. On 2026-10-27 the operator decided that vtium reads X11 color names in OSC color strings in every build, and the work on X11 color names added the row for them. On 2026-10-27 the work on screen blanking added a row for each of the Linux console's blank sequences, whose console use is the DPMS blank. On 2026-10-28 the operator decided that vtium spells it color, and the feature ids that spelled colour were renamed, the one change ever made to a committed id: `sgr.underline-colour` to `sgr.underline-color`, `sgr.extended-colour` to `sgr.extended-color`, `sgr.draw-time-colour` to `sgr.draw-time-color`, `colour.palette.query` to `color.palette.query`, `colour.palette.set` to `color.palette.set`, `colour.names` to `color.names`, `colour.palette.named` to `color.palette.named`, `colour.dynamic.query` to `color.dynamic.query`, `colour.dynamic.set` to `color.dynamic.set`, `colour.pointer` to `color.pointer`, `colour.selection` to `color.selection`, `colour.tektronix` to `color.tektronix`, `colour.special` to `color.special`, `colour.kitty-protocol` to `color.kitty-protocol`, `colour.stack` to `color.stack`, `colour.wide-gamut` to `color.wide-gamut`, `colour.scheme-report` to `color.scheme-report` and `cursor.colour` to `cursor.color`. On 2026-10-29 ADR-1401 added six rows for heads, `platform.heads`, `platform.heads.rules`, `platform.heads.focus`, `platform.heads.guards`, `platform.heads.rescue-key` and `platform.heads.on-loss`, in the seat layer with `platform.multi-monitor`, their issue cell empty until the heads build has an issue. A `c_reference` cell opens with a tsm-modes.def status in capitals; works, missing or partial, naming the probes behind the verdict where there are any; parsed, for a sequence the C reference read and did nothing with; audited without a probe; unverified; or absent. What follows says what the C reference did.
 
-Each row proves its coverage by the contract of vtium/vtium#67, whose columns and lint land with that issue:
+Each row proves its coverage by the contract of the issue that traces each row to its tests, whose columns and lint land with that issue:
 
 - Every row has a stable `id`: `ANSI-4` and `DEC-2026` for modes, and a dotted name such as `sgr.dim` for features.
 - A test that covers a row carries `// covers: <id>`, and a replay file carries the same tag in a comment.
@@ -155,8 +155,8 @@ Each row proves its coverage by the contract of vtium/vtium#67, whose columns an
 
 ### Neutral
 
-- Eleven issues carry the new rows: vtium/vtium#54 (modes and controls beyond the C reference), #55 (left and right margins), #56 (rectangular areas and protection), #57 (in-band reports), #58 (SGR and colour stacks), #59 (pointer shapes), #60 (kitty text sizing), #61 (double-width and double-height lines), #62 (iTerm2 inline images), #63 (a static image at the login prompt) and #64 (font merging), with #65 for VT52. #37, #38 and #23 are widened for SGR 6 and 8, the pointer, selection and kitty colors, and ligatures as an option.
-- The departures list (#14) gains ENQ's empty answerback, DA1's conformance level (one of xterm's in place of the C reference's 60), and, as a departure from kitty, OSC 21's omission of unknown keys.
+- Eleven issues carry the new rows: modes and controls beyond the C reference, left and right margins, rectangular areas and protection, in-band reports, SGR and colour stacks, pointer shapes, kitty text sizing, double-width and double-height lines, iTerm2 inline images, a static image at the login prompt and font merging, with one more for VT52. The issues for SGR overline, superscript and subscript, for the OSC 4, 10, 11 and 12 colors, and for outline fonts are widened for SGR 6 and 8, the pointer, selection and kitty colors, and ligatures as an option.
+- The conformance work's departures list gains ENQ's empty answerback, DA1's conformance level (one of xterm's in place of the C reference's 60), and, as a departure from kitty, OSC 21's omission of unknown keys.
 
 ## Alternatives Considered
 
