@@ -443,3 +443,18 @@ fn a_policy_lines_error_escapes_what_it_quotes() {
         assert!(!shown.contains(hidden), "{shown}");
     }
 }
+
+// the quote starts just before the hidden character, so a long key never
+// cuts it off before the character the error says it shows
+// covers: platform.heads.policy
+#[test]
+fn a_hidden_character_past_the_quote_bound_is_still_shown() {
+    let key = format!("{}\u{a0}policy", "x".repeat(70));
+    let r = reading(format!("version = 1\n{key} = closed\n{BODY}").as_bytes());
+    let [error] = r.errors.errors.as_slice() else {
+        panic!("{:?}", r.errors);
+    };
+    let shown = error.to_string();
+    assert!(shown.contains("\\u{a0}"), "{shown}");
+    assert!(!shown.contains('\u{a0}'), "{shown}");
+}

@@ -354,7 +354,7 @@ impl fmt::Display for Problem {
             Problem::UnreadablePolicy(fault) => write!(f, "{fault}"),
             Problem::HiddenOutsideSection(start) => write!(
                 f,
-                "Above the first section the file takes only `{version}` and `{policy}`, and this line is neither. It begins {start}, which holds a character that does not show on screen, escaped here. Delete that character, or move the line under the heading it belongs to, such as `{head}` or `{rules}`.",
+                "Above the first section the file takes only `{version}` and `{policy}`, and this line is neither. From just before a character that does not show on screen, it reads {start}, with that character escaped. Delete that character, or move the line under the heading it belongs to, such as `{head}` or `{rules}`.",
                 version = VERSION,
                 policy = POLICY,
                 head = HEAD_HEADING,

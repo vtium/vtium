@@ -132,6 +132,19 @@ fn hidden(c: char) -> bool {
     !matches!(c, ' ' | '\t' | '"' | '\'' | '\\') && c.escape_debug().count() > 1
 }
 
+/// `line` from the character before the first one in its key that does
+/// not show on screen, or from that character when it starts the line;
+/// `None` when the key holds none.
+fn hidden_from(line: &str) -> Option<&str> {
+    let key = line.split('=').next().unwrap_or_default();
+    let at = key.char_indices().find(|&(_, c)| hidden(c))?.0;
+    let before = key
+        .get(..at)
+        .and_then(|k| k.char_indices().next_back())
+        .map_or(at, |(i, _)| i);
+    line.get(before..)
+}
+
 /// The UTF-8 byte-order mark.
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
@@ -541,24 +554,16 @@ impl Parser {
                     }
                 }
             }
-            // a key that holds a character that does not show is quoted, so
-            // its message shows the character the owner cannot see
-            _ if line
-                .split('=')
-                .next()
-                .is_some_and(|key| key.chars().any(hidden)) =>
-            {
-                self.error(
-                    Some(n),
-                    Problem::HiddenOutsideSection(Quoted::new(line)),
-                    Within::Top,
-                )
+            // a key that holds a character that does not show is quoted from
+            // just before that character, so its message shows the
+            // character the owner cannot see however long the key is
+            _ => {
+                let problem = match hidden_from(line) {
+                    Some(from) => Problem::HiddenOutsideSection(Quoted::new(from)),
+                    None => Problem::Syntax(Syntax::OutsideSection),
+                };
+                self.error(Some(n), problem, Within::Top);
             }
-            _ => self.error(
-                Some(n),
-                Problem::Syntax(Syntax::OutsideSection),
-                Within::Top,
-            ),
         }
     }
 

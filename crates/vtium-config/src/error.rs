@@ -190,8 +190,8 @@ pub enum Problem {
     UnreadablePolicy(PolicyFault),
     /// A line above the first section that is neither `version` nor
     /// `policy`, whose key holds a character that does not show on screen,
-    /// such as a no-break space: the line's start, quoted, so its message
-    /// shows that character escaped (D7).
+    /// such as a no-break space: the line from just before that character,
+    /// quoted, so its message shows the character escaped (D7).
     HiddenOutsideSection(Quoted),
 }
 
