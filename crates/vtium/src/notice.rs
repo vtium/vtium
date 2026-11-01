@@ -71,14 +71,47 @@ pub fn stopped() -> String {
     )
 }
 
+/// The panic screen's second line (ADR-1401 D7): what the errors of the
+/// broken closed head file at `path` left.
+pub fn no_head_left(path: &std::path::Path) -> String {
+    format!(
+        "The errors in {}, listed below, leave no head that can run.",
+        vtium_config::Shown(path)
+    )
+}
+
+/// The panic screen (ADR-1401 D7), which the broken closed head file at
+/// `path` shows on the boot display for as long as vtium runs: its console
+/// line, that no head is left, the file's first `errors`, each with its
+/// file and line, the count of the `more` past them and of any the display
+/// has no room for, and what to do next, each naming that file.
+pub fn panic(
+    path: &std::path::Path,
+    errors: Vec<String>,
+    more: usize,
+) -> vtium_render::NoticeReport {
+    let line = vtium_config::Line::ClosedOff;
+    vtium_render::NoticeReport {
+        happened: vec![line.text().to_owned(), no_head_left(path)],
+        items: errors,
+        more,
+        label: MORE_ERRORS.to_owned(),
+        next: line.next(path).to_string(),
+    }
+}
+
 /// The command that checks the configuration, as a notice names it: a
 /// placeholder's value, never words to translate.
 pub const CHECK_CONFIG: &str = "vtium check-config";
 
-/// The line of a head file's notice that counts the `n` errors past those
-/// it lists (ADR-1401 D7).
+/// The label of a count of a head file's errors past those listed
+/// (ADR-1401 D7), which the number follows.
+pub const MORE_ERRORS: &str = "More errors:";
+
+/// The line that counts the `n` errors of a head file past those listed
+/// (ADR-1401 D7).
 pub fn more_errors(n: usize) -> String {
-    format!("More errors: {n}")
+    format!("{MORE_ERRORS} {n}")
 }
 
 /// The on-screen display's full line on a head (ADR-1401 D5), such as

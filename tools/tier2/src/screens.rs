@@ -19,7 +19,7 @@ use vtium_term::WidthMethod;
 
 use vtium::config::keys::{self, Scheme};
 
-use crate::draw::{DecoSpec, Decorations, FontKind, Overlay, Screen, TestFont, Words};
+use crate::draw::{Alone, DecoSpec, Decorations, FontKind, Overlay, Screen, TestFont, Words};
 use crate::notices;
 
 /// Where a screen's golden lives.
@@ -453,6 +453,42 @@ const fn large(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
     }
 }
 
+/// The screen the display guard lights for a notice alone (ADR-1401 D7,
+/// D9): no session behind it and no cursor, so the terminal draws nothing
+/// beneath the notice.
+const BLANK: &[u8] = b"\x1b[?25l";
+
+/// The notice `words` alone on the blank screen of the small display,
+/// 800x480 as 100 by 30 cells.
+const fn alone_small(name: &'static str, desc: &'static str, alone: Alone) -> Case {
+    Case {
+        screen: Screen {
+            alone: Some(alone),
+            ..Screen::new(name, desc, BLANK, 100, 30)
+        },
+        source: Source::Vtium,
+        ported: None,
+    }
+}
+
+/// The notice `words` alone on the blank screen of the large display's
+/// top band, 3840x540 as 160 by 10 cells of 24x54.
+const fn alone_large(name: &'static str, desc: &'static str, alone: Alone) -> Case {
+    Case {
+        screen: Screen {
+            font: FontKind::Frit {
+                builtin: "unifont",
+                width: 24,
+                height: 54,
+            },
+            alone: Some(alone),
+            ..Screen::new(name, desc, BLANK, 160, 10)
+        },
+        source: Source::Vtium,
+        ported: None,
+    }
+}
+
 /// One of the example configuration's other color schemes (ADR-1401 D5)
 /// on `overlay`, over the shell session `bytes` in unifont, 100 by 8
 /// cells: the width of the operator's small panel and the top of it,
@@ -542,6 +578,16 @@ const ONESHOT_DESC: &str = "vtium's notice that the head's session ended under `
 const HEAD_FILE_DESC: &str = "vtium's notice of a partly broken head file (ADR-1401 D7): its rule on line 4 names the head `desc`, which the file does not declare, so that rule alone is dropped. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `config partly invalid, running what's valid`, naming no error, since the log keeps the errors, then its next step, `Run vtium check-config /etc/vtium/heads.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
 const HEAD_FILE_TWO_DESC: &str = "vtium's notice of a broken head file under the open policy (ADR-1401 D7): a key the head section does not take on line 3 drops the head, and with it every rule naming it, so nothing usable survives and the shipped rules run. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `invalid config skipped, using builtin`, naming no error, then its next step, `Run vtium check-config /etc/vtium/heads.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+
+const PANIC_DESC: &str = "vtium's panic screen (ADR-1401 D7): a closed head file has four errors and no head survives them, so vtium runs nothing and shows this on the boot display for as long as it runs, with no session behind it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding, each on a line of its own and wrapped at a space where it is wider than the box, `vtium: config invalid, policy closed: input off`; that the errors in /etc/vtium/heads.conf leave no head that can run; the file's first three errors, on lines 4, 5 and 7, each starting with the file and its line; `More errors: 1`; and last, that nothing on this console takes input and to run vtium check-config /etc/vtium/heads.conf over ssh or from other boot media for the full report; and below the box, the screen's background and nothing else.";
+
+const PANIC_SMALL_DESC: &str = "vtium's panic screen (ADR-1401 D7) on minspec's 320x240 display floor, in unifont as 40 by 15 cells, too small for the whole report. Correct: the box keeps the report's first two lines, `vtium: config invalid, policy closed: input off` and that the errors in /etc/vtium/heads.conf leave no head that can run, and its last, that nothing on this console takes input and to run vtium check-config /etc/vtium/heads.conf over ssh or from other boot media for the full report, each wrapped at a space; between them, the file's first error, on line 4, then `More errors: 3`, which counts the two errors the screen has no room for and the one past the three it lists, so no error goes uncounted and no line is cut; below the box, the screen's background and nothing else.";
+
+const ALONE_NO_DISPLAY_DESC: &str = "vtium's notice that no head has a display, alone on the boot display (ADR-1401 D9): a closed head file's heads have no display lit, so the display guard lights the boot display for this notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `vtium: no display for any head` and, on the next line, to connect a display that a rule in /etc/vtium/heads.conf sends to a head; below the box, the screen's background and nothing else.";
+
+const ALONE_PARTLY_DESC: &str = "vtium's notice of a partly broken head file, alone on the boot display (ADR-1401 D7, D9): under the closed policy the heads that survive have no display lit, so the display guard lights the boot display for the start's notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `config partly invalid, running what's valid` and, on the next line, `Run vtium check-config /etc/vtium/heads.conf to see why.`; below the box, the screen's background and nothing else.";
+
+const ALONE_STOPPED_DESC: &str = "vtium's notice that a crash loop stopped every head under the closed policy, alone on the boot display (ADR-1401 D1): a session kept ending as soon as it started, so vtium hung every session up and holds its VT with this notice for as long as it runs, with no session behind it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding the notice that a session kept ending as soon as it started, so vtium stopped every screen and nothing here takes input, then to fix the login command in /etc/vtium/heads.conf or kmscon.conf and restart vtium or reboot, wrapped at a space where it is wider than the box; below the box, the screen's background and nothing else.";
 
 const OSD_FULL_DESC: &str = "vtium's on-screen display under `osd = full` on the active head, alone (ADR-1401 D5, vtium/vtium#169). Correct: a dark box with a grey edge across the top, the width of the display, holding `● desk · console 2 of 3` in light text, its first letter half a cell in from the edge, the filled dot meaning desk is the active head; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
@@ -1088,6 +1134,22 @@ pub const CASES: &[Case] = &[
         OSD_MINIMAL_NOTICE,
     ),
     small("notices-four-800x480", NOTICES_FOUR_DESC, shown(FOUR)),
+    alone_small("panic-800x480", PANIC_DESC, notices::panic_screen),
+    alone_small(
+        "notice-alone-no-display-800x480",
+        ALONE_NO_DISPLAY_DESC,
+        notices::no_display,
+    ),
+    alone_small(
+        "notice-alone-partly-800x480",
+        ALONE_PARTLY_DESC,
+        notices::partly,
+    ),
+    alone_small(
+        "notice-alone-stopped-800x480",
+        ALONE_STOPPED_DESC,
+        notices::stopped,
+    ),
     large(
         "notice-no-keyboard-3840x540",
         NO_KEYBOARD_DESC,
@@ -1146,6 +1208,30 @@ pub const CASES: &[Case] = &[
         OSD_MINIMAL_NOTICE,
     ),
     large("notices-four-3840x540", NOTICES_FOUR_DESC, shown(FOUR)),
+    alone_large("panic-3840x540", PANIC_DESC, notices::panic_screen),
+    alone_large(
+        "notice-alone-no-display-3840x540",
+        ALONE_NO_DISPLAY_DESC,
+        notices::no_display,
+    ),
+    alone_large(
+        "notice-alone-partly-3840x540",
+        ALONE_PARTLY_DESC,
+        notices::partly,
+    ),
+    alone_large(
+        "notice-alone-stopped-3840x540",
+        ALONE_STOPPED_DESC,
+        notices::stopped,
+    ),
+    Case {
+        screen: Screen {
+            alone: Some(notices::panic_screen),
+            ..Screen::new("panic-320x240", PANIC_SMALL_DESC, BLANK, 40, 15)
+        },
+        source: Source::Vtium,
+        ported: None,
+    },
     scheme(
         "scheme-light-notice",
         "The example configuration's `light` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session on a light terminal, OSC 11's white behind OSC 10's dark grey. Correct: a dark red `#991b1b` box with a darker `#450a0a` edge across the top, the width of the display, holding the notice in white `#ffffff`; the filled circle in dark `#1f2933` on pale grey `#f3f4f6` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them, dark on white.",

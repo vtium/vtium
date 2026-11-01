@@ -205,6 +205,8 @@ pub struct App {
     rules: vtium_config::Config,
     /// What the start's head file resolved to (ADR-1401 D7).
     outcome: vtium_config::Outcome,
+    /// The panic screen's report, for a broken closed head file (D7).
+    report: Option<vtium_render::NoticeReport>,
     /// The index in [`App::heads`] of the screen the display guard lights
     /// for a notice alone, which a closed policy has, after every head the
     /// file declares (D9).
@@ -402,6 +404,7 @@ impl App {
             heads,
             rules,
             outcome: vtium_config::resolve(&vtium_config::Read::Missing),
+            report: None,
             screen: None,
             stopped: false,
             focus: None,
@@ -453,7 +456,11 @@ impl App {
     /// screen for the display guard to light for a notice alone (D9).
     pub fn set_heads(&mut self, start: Start) {
         let notice = start.notice();
-        let Start { outcome, rules } = start;
+        let Start {
+            outcome,
+            rules,
+            report,
+        } = start;
         let rules = route::in_force(rules, &self.config);
         // The display guard's default head, where the file declares none,
         // which it lights under open alone (D9).
@@ -475,12 +482,17 @@ impl App {
         }
         self.rules = rules;
         self.outcome = outcome;
+        self.report = report;
         self.focus = None;
         self.lit.clear();
         self.start_lit.clear();
         self.dark.clear();
         self.frits.clear();
-        if let Some(notice) = notice {
+        // a report's errors were logged as the file was read, each with
+        // its line, so the log gets its console line alone
+        if let Some(line) = self.report.as_ref().and(self.outcome.line) {
+            log::warn!("{}", line.text());
+        } else if let Some(notice) = notice {
             log::warn!("{notice}");
             self.notice(&notice);
         }
@@ -1827,13 +1839,22 @@ impl App {
             }
             if let Some((key, h)) = lighting {
                 if Some(h) == screen {
+                    let report = self.report.clone().filter(|_| !self.stopped);
                     let text = self.screen_notice();
+                    // a report's console line, as the start logged it
+                    let logged = match (&report, self.outcome.line) {
+                        (Some(_), Some(line)) => line.text(),
+                        _ => text.as_str(),
+                    };
                     log::warn!(
-                        "the display guard lights display {} for the notice alone: {text}",
+                        "the display guard lights display {} for the notice alone: {logged}",
                         key.0.display()
                     );
                     if let Some(head) = self.heads.get_mut(h) {
-                        head.set_notice(&text);
+                        match report {
+                            Some(report) => head.set_report(report),
+                            None => head.set_notice(&text),
+                        }
                     }
                 } else {
                     log::warn!(
@@ -1905,15 +1926,16 @@ impl App {
 
     /// What the screen the display guard lights for a notice alone shows
     /// (ADR-1401 D7, D9): that a crash loop stopped every head, else the
-    /// start's console line, else that no head has a display, each with
-    /// its next step.
+    /// panic screen for a broken closed file, else the start's console
+    /// line, else that no head has a display, each with its next step.
     fn screen_notice(&self) -> String {
         if self.stopped {
             return crate::notice::stopped();
         }
-        self.outcome
-            .dark_notice()
-            .map(crate::head::outcome_notice)
+        self.report
+            .as_ref()
+            .map(vtium_render::NoticeReport::text)
+            .or_else(|| self.outcome.dark_notice().map(crate::head::outcome_notice))
             .unwrap_or_default()
     }
 

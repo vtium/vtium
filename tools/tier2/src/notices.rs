@@ -7,6 +7,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use vtium::notice;
+use vtium_render::Notice;
 
 /// The keyboard the rescue key moves.
 const KEYBOARD: &str = "/dev/input/event3";
@@ -19,6 +20,13 @@ const ONE_ERROR: &str = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n"
 /// does not know, which drops the head: broken, under open.
 const TWO_ERRORS: &str =
     "version = 1\n[head desk]\nfont-weight = bold\n[rules]\ndisplay * -> desc\n";
+
+/// A closed kiosk's head file with four errors: a key its head section
+/// does not take, a head font key the format no longer has, which drops
+/// the head, a rule naming a head the file does not declare, and a second
+/// `[rules]`. No head survives, so the start shows the panic screen
+/// (ADR-1401 D7).
+const BROKEN_CLOSED: &str = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\nfont-size = 24\n[rules]\ndisplay * -> kisok\n[rules]\ninput * -> kiosk\n";
 
 /// `osd = full`'s line on the active head.
 pub fn osd_active() -> Result<String, String> {
@@ -58,6 +66,49 @@ pub fn head_file_one_error() -> Result<String, String> {
 
 pub fn head_file_two_errors() -> Result<String, String> {
     head_file(TWO_ERRORS)
+}
+
+/// The text of the panic screen of a broken closed head file, every error
+/// it holds, as the start at vtium's own path builds it from the file's
+/// bytes (ADR-1401 D7).
+pub fn panic() -> Result<String, String> {
+    panic_report().map(|r| r.text())
+}
+
+/// The panic screen as the screen the display guard lights draws it: a
+/// report, which counts the errors it has no room for.
+pub fn panic_screen() -> Result<Notice, String> {
+    panic_report().map(Notice::report)
+}
+
+fn panic_report() -> Result<vtium_render::NoticeReport, String> {
+    let path = std::path::Path::new(vtium_config::HEAD_FILE);
+    vtium::head::Start::trusted(path, BROKEN_CLOSED.as_bytes())
+        .report()
+        .cloned()
+        .ok_or_else(|| format!("the head file {BROKEN_CLOSED:?} shows no panic screen"))
+}
+
+/// The notice of a closed file whose heads have no display, alone on the
+/// boot display (ADR-1401 D9).
+pub fn no_display() -> Result<Notice, String> {
+    Ok(Notice::new(vtium::head::outcome_notice(
+        vtium_config::Line::NoDisplay,
+    )))
+}
+
+/// The console line of a partly broken closed file whose surviving heads
+/// have no display, alone on the boot display (ADR-1401 D7, D9).
+pub fn partly() -> Result<Notice, String> {
+    Ok(Notice::new(vtium::head::outcome_notice(
+        vtium_config::Line::Partly,
+    )))
+}
+
+/// The notice of a crash loop that stopped every head under the closed
+/// policy, alone on the boot display (ADR-1401 D1).
+pub fn stopped() -> Result<Notice, String> {
+    Ok(Notice::new(notice::stopped()))
 }
 
 /// The notice the start shows for the head file `text`, its console line

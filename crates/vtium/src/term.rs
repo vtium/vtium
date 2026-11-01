@@ -291,6 +291,19 @@ impl Overlay {
         }
     }
 
+    /// What the screen the display guard lights for a notice alone draws
+    /// (ADR-1401 D7, D9): `notice` alone, in the notice's colors from
+    /// `colors`, the panic screen's report among them. Tier 2 builds its
+    /// pictures of that screen with it too.
+    pub fn alone(notice: Notice, colors: OverlayColors) -> Overlay {
+        Overlay {
+            notice: Some(notice),
+            problem: true,
+            mark: None,
+            colors,
+        }
+    }
+
     /// Draws the overlay over the `grid` that `renderer` drew into
     /// `target`, turned as `orientation` says, and returns the areas it
     /// covers. Tier 2 draws its pictures of the overlay through it.
