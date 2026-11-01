@@ -2625,20 +2625,36 @@ fn a_hub_ports_identity_carries_its_connectors_path() {
     assert_eq!(v.identity(DisplayId(A)).unwrap().connector_path, None);
 }
 
-// A `PATH` naming no blob, as 0 or a blob the card no longer holds, leaves
-// the display bound and without a path; so does an empty one.
+// A `PATH` naming no blob (0) leaves the display bound and without a path,
+// with nothing logged; one naming a blob the card no longer holds does the
+// same with one warning naming its connector; an empty one gives no path.
 #[test]
 fn a_path_the_card_cannot_give_leaves_the_display_bound_without_one() {
     let card = dark_card();
     card.state().paths.insert(A, 0);
-    card.state().paths.insert(B, 999_999);
+    logs::capture();
     let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(logs::at_least(Level::Warn), [] as [String; 0]);
     assert_eq!(
         v.displays().collect::<Vec<_>>(),
         [DisplayId(A), DisplayId(B)]
     );
     assert_eq!(v.identity(DisplayId(A)).unwrap().connector_path, None);
+
+    let card = dark_card();
+    card.state().paths.insert(B, 999_999);
+    logs::capture();
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        ["cannot read the PATH of connector HDMI-A-2: No such file or directory (os error 2)"]
+    );
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
     assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
+
     let card = dark_card();
     card.set_path(B, b"\0");
     let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
