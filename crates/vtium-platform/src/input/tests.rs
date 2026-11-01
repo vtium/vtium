@@ -412,6 +412,7 @@ fn a_keyboard_reports_no_modifiers_while_closed() {
     input.sleep();
     assert_eq!(seen(&mut input), [Seen::Mods(Mods::empty())]);
     assert_eq!(input.mods(), Mods::empty());
+    assert_eq!(input.mods_of(&[id]), Mods::empty());
     input.wake_up();
     assert_eq!(seen(&mut input), [Seen::Mods(Mods::LOCK)]);
     assert_eq!(input.mods(), Mods::LOCK);
@@ -482,6 +483,33 @@ fn a_rescue_keyboard_reports_no_change_of_modifiers() {
     assert_eq!(mods, []);
 }
 
+// A keyboard moved between the rescue and delivery while it stays open
+// reports the modifiers its owner sees: none on the rescue, what it holds
+// on delivery.
+#[test]
+fn a_keyboard_moved_to_or_from_the_rescue_reports_its_modifiers() {
+    let (mut input, node, id) = with_keyboard();
+    feed(&mut input, &node, id, &[press(KEY_LEFTCTRL)]);
+    seen(&mut input);
+    input.set_disposition(id, Disposition::Rescue);
+    assert_eq!(seen(&mut input), [Seen::Mods(Mods::empty())]);
+    assert!(node.borrow().open);
+
+    let (mut input, devices) = with_devices(&[(
+        "/dev/input/event0",
+        fake::keyboard(),
+        Some(Disposition::Rescue),
+    )]);
+    let [(node, id)] = devices.as_slice() else {
+        panic!("one device");
+    };
+    feed(&mut input, node, *id, &[press(KEY_LEFTSHIFT)]);
+    assert_eq!(seen(&mut input), []);
+    input.set_disposition(*id, Disposition::Deliver);
+    assert_eq!(seen(&mut input), [Seen::Mods(Mods::SHIFT)]);
+    assert_eq!(input.mods(), Mods::SHIFT);
+}
+
 // A keyboard holding Ctrl that goes away reports no modifiers, whichever
 // way it goes: udev removes it, the rules close it, or it ends and a
 // wake-up cannot open it again.
@@ -500,6 +528,7 @@ fn a_keyboard_that_goes_away_reports_no_modifiers() {
     input.set_disposition(id, Disposition::Closed);
     assert_eq!(seen(&mut input), [Seen::Mods(Mods::empty())]);
     assert_eq!(input.mods(), Mods::empty());
+    assert_eq!(input.mods_of(&[id]), Mods::empty());
 
     let nodes = Nodes::default();
     let node = nodes.add("/dev/input/event0", fake::keyboard());
@@ -513,6 +542,8 @@ fn a_keyboard_that_goes_away_reports_no_modifiers() {
     node.borrow_mut().end = true;
     input.dispatch(id, Instant::now());
     assert_eq!(seen(&mut input), [Seen::Mods(Mods::empty())]);
+    assert_eq!(input.mods(), Mods::empty());
+    assert_eq!(input.mods_of(&[id]), Mods::empty());
     nodes.0.borrow_mut().clear();
     input.sleep();
     input.wake_up();

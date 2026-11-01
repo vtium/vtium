@@ -167,13 +167,20 @@ impl<E> Device<E> {
         }
     }
 
-    /// Queues [`InputEvent::Mods`] when the modifiers it holds differ from
-    /// those the owner was last told.
+    /// Queues [`InputEvent::Mods`] when the modifiers the owner sees it
+    /// hold differ from those the owner was last told. The owner sees none
+    /// on a device watched for the rescue key, as [`Input::mods`] counts
+    /// none there, so a keyboard moved to the rescue reports none, and one
+    /// moved back reports what it holds; neither event is a rescue's.
     fn tell_mods(&mut self, queue: &mut Queue) {
-        let mods = self.mods();
+        let mods = if self.rescue() {
+            Mods::empty()
+        } else {
+            self.mods()
+        };
         if mods != self.told {
             self.told = mods;
-            queue.push(Some(self.id), self.rescue(), InputEvent::Mods(mods));
+            queue.push(Some(self.id), false, InputEvent::Mods(mods));
         }
     }
 }
@@ -329,6 +336,11 @@ impl<O: Open + 'static> Input<O> {
             self.close(id);
         } else if self.awake > 0 {
             self.wake_device(id);
+        }
+        // A keyboard open before and after moves between the rescue and
+        // delivery, which changes the modifiers its owner sees.
+        if let Some(device) = self.devices.iter_mut().find(|d| d.id == id) {
+            device.tell_mods(&mut self.queue);
         }
     }
 
