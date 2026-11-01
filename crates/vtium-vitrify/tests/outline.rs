@@ -11,7 +11,9 @@ mod ttf;
 use std::path::Path;
 
 use parser::Parser;
-use vtium_vitrify::outline::{Outline, OutlineRequest, baseline, cell_width, rasterise};
+use vtium_vitrify::outline::{
+    Outline, OutlineRequest, baseline, cell_width, decorations, rasterise,
+};
 use vtium_vitrify::resample::{self, METHOD};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-vitrify");
@@ -415,6 +417,24 @@ fn the_baseline_rises_where_ascii_ink_passes_the_cell() {
         row_inked(0x61, 8) && !row_inked(0x61, 9),
         "a ends on the baseline"
     );
+}
+
+// ADR-1302 D3 and the C reference's kmscon_font_freetype_get_deco: the
+// underline's centre is FreeType's underline_position below the baseline,
+// post's underlinePosition less half its underlineThickness. Test Mono at
+// 20 pixels, 0.0195 of a pixel to the unit, baseline 16, with an underline
+// at -100 units and 50 thick: a row thick, round(0.975); its centre 16 +
+// (100 + 25) * 0.0195 = 18.44, its top row floor(18.44) = 18
+// covers: text.overhang
+#[test]
+fn the_underline_is_centred_below_the_baseline_as_freetype_gives_it() {
+    let font = ttf::Font {
+        underline: Some((-100, 50)),
+        ..ttf::test_mono()
+    }
+    .build();
+    let d = decorations(&font, "Test Mono", 20, 16).expect("the lines");
+    assert_eq!((d.underline, d.underline_thickness), (18, 1));
 }
 
 #[test]

@@ -935,7 +935,8 @@ pub(crate) mod raster {
     /// high whose baseline is row `baseline`, from the face `family` of
     /// `font` (ADR-1302 D3, ADR-1200 D2), as the C reference took them: the
     /// underline's thickness and centre from the `post` table, below the
-    /// baseline, else a fourteenth of the cell at its bottom; the
+    /// baseline, its centre the table's position less half its thickness as
+    /// FreeType's `underline_position` gives it, else a fourteenth of the cell at its bottom; the
     /// strike-through's top from the `OS/2` table above the baseline, else
     /// centred on half the x-height, and the strike as thick as the
     /// underline; each at least a row thick, at most a quarter of the cell,
@@ -957,8 +958,11 @@ pub(crate) mod raster {
         if thick <= 0.0 {
             thick = (h / 14.0).floor().max(1.0);
         }
+        // swash gives post's underlinePosition, the stroke's top; FreeType's
+        // underline_position, which the C reference took as the stroke's
+        // centre, is that less half the underlineThickness
         let centre = if m.underline_offset != 0.0 {
-            base - f64::from(m.underline_offset) * scale
+            base - f64::from(m.underline_offset - m.stroke_size / 2.0) * scale
         } else {
             h - thick / 2.0 - thick
         };

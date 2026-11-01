@@ -52,6 +52,12 @@ pub struct Font {
     /// GSUB's lookups, each under its feature, applied in this order, for
     /// the scripts `DFLT` and `arab`.
     pub gsub: Vec<([u8; 4], Lookup)>,
+    /// A `post` table's underline: its position, the top of the stroke
+    /// below the baseline when negative, and its thickness.
+    pub underline: Option<(i16, i16)>,
+    /// An `OS/2` table, version 2: its strikeout's size and position, the
+    /// stroke's top above the baseline, and its x-height.
+    pub os2: Option<(i16, i16, i16)>,
 }
 
 /// A GSUB lookup.
@@ -422,6 +428,36 @@ impl Font {
         name.extend(data);
         tables.push((*b"name", name));
 
+        if let Some((position, thickness)) = self.underline {
+            let mut post = Vec::new();
+            p32(&mut post, 0x0003_0000);
+            p32(&mut post, 0); // italic angle
+            pi16(&mut post, position);
+            pi16(&mut post, thickness);
+            post.extend([0u8; 20]); // fixed pitch and memory hints
+            tables.push((*b"post", post));
+        }
+        if let Some((size, position, x_height)) = self.os2 {
+            let mut os2 = Vec::new();
+            p16(&mut os2, 2); // version
+            os2.extend([0u8; 24]); // average width to superscript offsets
+            pi16(&mut os2, size);
+            pi16(&mut os2, position);
+            os2.extend([0u8; 34]); // family class to vendor and selection
+            p16(&mut os2, 0x20); // first character
+            p16(&mut os2, 0xffff); // last character
+            pi16(&mut os2, self.ascent);
+            pi16(&mut os2, self.descent);
+            pi16(&mut os2, 0); // line gap
+            p16(&mut os2, self.ascent as u16);
+            p16(&mut os2, (-self.descent) as u16);
+            os2.extend([0u8; 8]); // code page ranges
+            pi16(&mut os2, x_height);
+            os2.extend([0u8; 8]); // cap height to max context
+            debug_assert_eq!(os2.len(), 96);
+            tables.push((*b"OS/2", os2));
+        }
+
         if let Some((ppem, bitmaps)) = &self.cbdt {
             let first = bitmaps.iter().map(|b| b.glyph).min().unwrap_or(0);
             let last = bitmaps.iter().map(|b| b.glyph).max().unwrap_or(0);
@@ -580,6 +616,8 @@ pub fn test_mono() -> Font {
         palette: vec![[255, 0, 0, 255], [0, 0, 255, 128]],
         cbdt: None,
         gsub: Vec::new(),
+        underline: None,
+        os2: None,
     }
 }
 
@@ -620,6 +658,8 @@ pub fn test_emoji() -> Font {
             }],
         )),
         gsub: Vec::new(),
+        underline: None,
+        os2: None,
     }
 }
 
