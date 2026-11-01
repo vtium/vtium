@@ -68,7 +68,7 @@ pub fn mark(dir: &Path, vt: Option<u16>, policy: Policy) {
                 marker.display()
             ),
             Err(e) => log::error!(
-                "cannot write {}: {e}; under the closed policy a failure of vtium starts a getty on this VT",
+                "cannot write {}: {e}; if vtium fails, its unit starts a getty on this VT, though the policy is closed",
                 marker.display()
             ),
         },
