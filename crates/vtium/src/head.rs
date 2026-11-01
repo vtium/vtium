@@ -637,6 +637,10 @@ impl Head {
         old.send_replies();
         self.send_user_bytes();
         self.pointer.drag = None;
+        // The pointer is over the shown console alone: the hidden one
+        // hovers nothing, and the caller sets the shown one's hover once
+        // its grid is laid out ([`Head::hover`]).
+        old.term.terminal.screen_mut().set_pointer(None, false);
         for v in self.views.values_mut() {
             v.show_another();
         }
@@ -661,6 +665,21 @@ impl Head {
     /// The text of the shown console's screen rows, for tests and logs.
     pub fn screen_text(&self) -> Vec<String> {
         screen_text(&self.console)
+    }
+
+    /// The URI of the link each console's screen hovers, in the ring's
+    /// order, for tests.
+    pub fn consoles_hovered(&self) -> Vec<Option<String>> {
+        let hovered = |c: &Console| {
+            let screen = c.term.terminal.screen();
+            screen
+                .hovered_link()
+                .and_then(|l| screen.link_uri(l))
+                .map(str::to_owned)
+        };
+        let mut all: Vec<Option<String>> = self.hidden.iter().map(hovered).collect();
+        all.insert(self.at.min(all.len()), hovered(&self.console));
+        all
     }
 
     /// The text of each console's screen rows, in the ring's order, for

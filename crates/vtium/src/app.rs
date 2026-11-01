@@ -2332,7 +2332,7 @@ impl App {
         if let Some(chord) = chord {
             // One action a press, as the power keys.
             if !key.repeat {
-                self.chord(h, chord);
+                self.chord(h, chord, key.mods.contains(InputMods::CTRL));
             }
             return;
         }
@@ -2418,8 +2418,9 @@ impl App {
     /// A head's chord (ADR-1401 D5): a console chord shows another of
     /// head `h`'s consoles, the head the key's device delivers to; the
     /// focus chord moves the focus to the next or the previous head with a
-    /// lit display.
-    fn chord(&mut self, h: Option<usize>, chord: HeadChord) {
+    /// lit display. A console chord leaves the console it shows hovering
+    /// what the pointer is over, with `ctrl` as held now.
+    fn chord(&mut self, h: Option<usize>, chord: HeadChord, ctrl: bool) {
         let visible = self.awake;
         let back = match chord {
             HeadChord::NextHead => false,
@@ -2430,6 +2431,9 @@ impl App {
                     .is_some_and(|head| head.console_chord(chord, visible));
                 if let Some(h) = h.filter(|_| changed) {
                     self.relayout(h);
+                    if let Some(head) = self.heads.get_mut(h) {
+                        head.hover(ctrl);
+                    }
                 }
                 return;
             }

@@ -1407,6 +1407,71 @@ fn the_console_chords_switch_a_heads_consoles_and_open_or_close_none() {
     assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
 }
 
+/// ADR-1002, "What a link does", across ADR-1401 D5's console chords: the
+/// pointer is over the shown console alone. A console chord leaves the
+/// console it hides hovering nothing and the console it shows hovering the
+/// link under the pointer at once, with Ctrl, which the chord holds,
+/// showing its URI, with no pointer event in between.
+// covers: osc.8
+#[test]
+fn a_console_chord_moves_the_hover_to_the_console_it_shows() {
+    let heads = "version = 1
+[head main]
+consoles = 2
+[rules]
+display card:mem-small -> main
+input class:keyboard -> roaming
+";
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let script = "printf 'see \\033]8;;file://pixie/a.md\\007link\\033]8;;\\007\\n'; read x";
+    let mut s = Seat::with_heads(&[], Some(heads), displays, script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    let both = |a: &App| {
+        a.head("main").is_some_and(|h| {
+            h.consoles_text()
+                .iter()
+                .all(|t| t.iter().any(|l| l == "see link"))
+        })
+    };
+    assert!(
+        s.until(SECOND, both),
+        "both consoles printed the link: {:?}",
+        s.app.head("main").map(Head::consoles_text)
+    );
+    let (cw, ch) = *s.app.cells().first().expect("a cell");
+    let over = vtium_platform::input::PointerEvent::Moved {
+        x: i32::try_from(5 * cw + 1).expect("a pixel"),
+        y: i32::try_from(ch / 2).expect("a pixel"),
+        held: None,
+    };
+    s.app.pointer_event(over, Mods::empty(), now());
+    let uri = || Some("file://pixie/a.md".to_owned());
+    let hovered = |a: &App| a.head("main").map(Head::consoles_hovered);
+    assert_eq!(hovered(&s.app), Some(vec![uri(), None]));
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
+    assert_eq!(consoles(&s.app, "main"), Some((2, 1)));
+    assert_eq!(hovered(&s.app), Some(vec![None, uri()]));
+    let overlay = |a: &App| {
+        let terminal = &a.term().expect("a head").terminal;
+        let frame = terminal
+            .screen()
+            .frame(terminal.palette(), vtium_term::Age::NEVER);
+        frame.overlay().map(|o| o.uri.to_owned())
+    };
+    assert_eq!(
+        overlay(&s.app),
+        uri(),
+        "Ctrl, held for the chord, shows the URI"
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(LEFT), now());
+    assert_eq!(hovered(&s.app), Some(vec![uri(), None]));
+}
+
 /// The key events xkb makes of a chord pressed as a keyboard sends it:
 /// Left Ctrl, then Left Super, then the key `code` (evdev's), each press
 /// an event with the modifiers as they then stand; the releases make
