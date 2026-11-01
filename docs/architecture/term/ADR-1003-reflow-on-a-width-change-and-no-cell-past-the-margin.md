@@ -7,40 +7,40 @@ basis:
   - operator: aaronsb
     level: directed
     said: "**Reflow:** when the terminal's column count changes, text that wrapped because it reached the right margin is re-joined and wrapped again at the new width, in the visible screen and the scrollback, with the cursor kept at the same place in the text."
-    via: aaronsb/libtsm#28, the operator's definition, comment of 2026-10-26, carried to vtium/vtium#41
+    via: the C fork's issue asking for reflow on resize, the operator's definition, comment of 2026-10-26, carried to vtium's reflow issue
   - operator: aaronsb
     level: directed
     said: "A change in row count alone needs no reflow; lines scroll."
-    via: aaronsb/libtsm#28, the operator's definition, comment of 2026-10-26
+    via: the same C fork issue, the operator's definition, comment of 2026-10-26
   - operator: aaronsb
     level: directed
     said: "A newline the program sent is never joined to the next line. Only soft wraps move, so `struct line` needs a \"continues onto the next row\" flag first."
-    via: aaronsb/libtsm#28, the operator's definition, "Kept as they are", comment of 2026-10-26
+    via: the same C fork issue, the operator's definition, "Kept as they are", comment of 2026-10-26
   - operator: aaronsb
     level: directed
     said: "The alternate screen does not reflow. Full-screen programs redraw on SIGWINCH, as in xterm, VTE and foot."
-    via: aaronsb/libtsm#28, the operator's definition, "Kept as they are", comment of 2026-10-26
+    via: the same C fork issue, the operator's definition, "Kept as they are", comment of 2026-10-26
   - operator: aaronsb
     level: directed
     said: "Text placed by cursor movement does not move, since it was never soft-wrapped."
-    via: aaronsb/libtsm#28, the operator's definition, "Kept as they are", comment of 2026-10-26
+    via: the same C fork issue, the operator's definition, "Kept as they are", comment of 2026-10-26
   - operator: aaronsb
     level: directed
     said: "**Wide characters:** a double-width character that no longer fits at the end of a row moves whole to the next row."
-    via: aaronsb/libtsm#28, the operator's decision 2, comment of 2026-10-26
+    via: the same C fork issue, the operator's decision 2, comment of 2026-10-26
   - operator: aaronsb
     level: directed
     said: "**Scrollback cost:** reflow the visible rows plus a margin at once. Rewrapping can let more content fit on the screen, so the margin covers what could scroll into view. Reflow the rest of the scrollback on demand, as it is paged to."
-    via: aaronsb/libtsm#28, the operator's decision 3, comment of 2026-10-26
+    via: the same C fork issue, the operator's decision 3, comment of 2026-10-26
   - operator: aaronsb
     level: directed
     said: "**Images:** sixel and kitty placements move with their line's text when it rewraps (ADR-103 anchors them to lines)."
-    via: aaronsb/libtsm#28, the operator's decision 1, comment of 2026-10-26; ADR-103 is kmscon's record
+    via: the same C fork issue, the operator's decision 1, comment of 2026-10-26; ADR-103 is kmscon's record
   - operator: aaronsb
     level: directed
-    said: "**An image wider than the new width** is kept whole and overflows the edge away from its anchor: off the right edge normally, off the left edge for an image anchored to the right (as with right-to-left text, once bidi, #103, exists). It is not clipped or scaled."
-    via: aaronsb/libtsm#28, the operator's decision 4, comment of 2026-10-26; #103 is aaronsb/libtsm#103, carried as vtium/vtium#43
-  - upstream: "The C reference at libtsm eeaf293 (tools/conformance/provenance.tsv): `tsm_screen_resize` (src/tsm/tsm-screen.c:769-921) grew every line to a wider screen and never shrank one, with no flag for a wrapped line (src/tsm/libtsm-int.h:183-190); `line_resize` (:238-261) only grew; aaronsb/libtsm#19, cells past the visible area reappeared when the screen widened"
+    said: "**An image wider than the new width** is kept whole and overflows the edge away from its anchor: off the right edge normally, off the left edge for an image anchored to the right (as with right-to-left text, once bidi exists). It is not clipped or scaled."
+    via: the same C fork issue, the operator's decision 4, comment of 2026-10-26; the bidi it names was an issue in the C fork, carried into vtium as the work on bidirectional text
+  - upstream: "The C reference at libtsm eeaf293 (tools/conformance/provenance.tsv): `tsm_screen_resize` (src/tsm/tsm-screen.c:769-921) grew every line to a wider screen and never shrank one, with no flag for a wrapped line (src/tsm/libtsm-int.h:183-190); `line_resize` (:238-261) only grew; as the C fork's issue reported, cells past the visible area reappeared when the screen widened"
   - upstream: "Ghostty at 46e9dc9a92 (MIT): `Terminal.resize` (src/terminal/Terminal.zig) reflows the primary screen while wraparound is set and never the alternate; `Screen.resize` tracks the saved cursor by a pin; `PageList.resizeCols` (src/terminal/PageList.zig) reflows every page at once, keeps the rows below the cursor less the wraps the reflow added above it, and leaves a `spacer_head` cell where a wide character moved to the next row"
   - upstream: "foot at 152487e494 (MIT): `grid_resize_and_reflow` (grid.c:816) reflows the whole scrollback at once with tracking points for the cursor, the saved cursor and the selection, fills `CELL_SPACER` where a wide character moved, drops trailing cells that are empty with the default background, and replaces a wide character wider than the row with one empty cell; the alternate grid takes `grid_resize_without_reflow` (render.c)"
   - upstream: "WezTerm at e68a8ec277 (MIT): `Screen::resize` (term/src/screen.rs) rewraps every line of the primary screen at once (`rewrap_lines`) and prunes the alternate screen's lines to the new width"
@@ -78,7 +78,7 @@ related: []
 
 - **Decided:** When the column count changes, the main screen and its scrollback rewrap as one run of text. Rows joined by a wrap become one line again and wrap at the new width; a line the program ended with a newline, or a row it placed by moving the cursor, is never joined to the next; a line longer than the new width wraps onto extra rows, which rejoin when the screen widens. The cursor and the main screen's saved cursor stay at their place in the text. A wide character that no longer fits moves whole to the next row and leaves a pad cell. The alternate screen, rows written while mode 2028 is reset and rows of double size never rewrap. No cell is kept past the right margin: what the main screen does not rewrap, and every row the alternate screen holds, loses its cells past a narrower margin. A widening's new columns are blank, or on the main screen take the color the program erased the line's end with, which a line keeps as its fill. The screen, the rows a widening can pull onto it and the rows being viewed rewrap at once; the rest of the scrollback rewraps when something reaches it, with a result identical to rewrapping it all at once.
 - **Trades away:** A narrowing that adds rows past `sb-size` drops the oldest, and widening again does not bring them back. Text past the margin on the alternate screen is lost where the C reference kept it. Rewrapping on demand costs a second representation of the scrollback and a test holding it to the eager result.
-- **One-way?** No. Reversible now; expensive once tier 1's goldens and the image store (vtium/vtium#28) record reflowed screens.
+- **One-way?** No. Reversible now; expensive once tier 1's goldens and the image store record reflowed screens.
 - **Probes:**
   - *Confident (long lines):* a line 120 columns long that the program ended with a newline, on a screen narrowed to 80, wraps onto a second row and rejoins when the screen widens again; it never joins the line after it.
   - *Not confident (zooming in on a full scrollback):* zooming in on a scrollback already holding its `sb-size` lines drops its oldest lines, which zooming back out does not restore. Counting `sb-size` in lines of text instead would keep them, at the cost of no fixed bound on rows when the screen gets very narrow.
@@ -86,9 +86,9 @@ related: []
 
 ## Context
 
-vtium/vtium#41 builds reflow on the line model of ADR-1001: each line carries `LineFlags::WRAPPED`, set when printing wrapped at the right margin and cleared by the edits crates/vtium-term/README.md lists. Selection already follows wrapped lines. Until reflow lands, a row whose text runs past the margin after a narrowing does not continue, and lines keep their cells past the margin so a widening shows them again. The operator defined reflow and made four decisions on aaronsb/libtsm#28, which vtium/vtium#41 carries.
+The reflow work builds reflow on the line model of ADR-1001: each line carries `LineFlags::WRAPPED`, set when printing wrapped at the right margin and cleared by the edits crates/vtium-term/README.md lists. Selection already follows wrapped lines. Until reflow lands, a row whose text runs past the margin after a narrowing does not continue, and lines keep their cells past the margin so a widening shows them again. The operator defined reflow and made four decisions on the C fork's reflow issue, which vtium's reflow issue carries.
 
-The C reference did not reflow. A resize grew each line to the wider of the two widths and never shrank one, so a narrowing hid the cells past the margin and a widening showed them again with whatever they held, or the white-on-black cells the screen was created with (aaronsb/libtsm#19). It clamped the cursor's column, cleared the margins, reset the tab stops, pushed lines into the scrollback for a shorter screen and pulled them back for a taller one. Its lines had no flag for a wrap.
+The C reference did not reflow. A resize grew each line to the wider of the two widths and never shrank one, so a narrowing hid the cells past the margin and a widening showed them again with whatever they held, or the white-on-black cells the screen was created with. It clamped the cursor's column, cleared the margins, reset the tab stops, pushed lines into the scrollback for a shorter screen and pulled them back for a taller one. Its lines had no flag for a wrap.
 
 Other terminals:
 
@@ -116,7 +116,7 @@ Never rewrapped, and cut at the new width instead:
 
 - The alternate screen. Full-screen programs redraw on SIGWINCH.
 - A row written while mode 2028 is reset (below).
-- A row whose line size is double width or double height (vtium/vtium#61). It holds half the columns and is drawn by cursor movement.
+- A row whose line size is double width or double height. It holds half the columns and is drawn by cursor movement.
 
 ### Logical lines
 
@@ -130,7 +130,7 @@ So a rewrap keeps every cell of text and the fill, and drops only pad cells, and
 
 ### The margin
 
-No row keeps a cell past the right margin. The main screen keeps the text a narrowing would hide by wrapping it onto extra rows; the alternate screen, rows written while mode 2028 is reset and rows of double size drop their cells past the new width. A widening shows only text that a rewrap brings back and the line's fill, so nothing stale reappears (aaronsb/libtsm#19); the alternate screen's new columns are blank in the default style, and its program redraws them.
+No row keeps a cell past the right margin. The main screen keeps the text a narrowing would hide by wrapping it onto extra rows; the alternate screen, rows written while mode 2028 is reset and rows of double size drop their cells past the new width. A widening shows only text that a rewrap brings back and the line's fill, so nothing stale reappears; the alternate screen's new columns are blank in the default style, and its program redraws them.
 
 ### Wide characters and clusters
 
@@ -150,19 +150,19 @@ The view, while scrolled back, keeps the text of its top row at its top. The sel
 
 ### Line identity and marks
 
-A logical line's first row keeps its `LineId`. Each other row a rewrap makes takes a new id, and rows a join removes give theirs up. Ids are allocated in the order of the rows, when the resize happens, for the whole run, the rows rewrapped on demand included (Cost), so the ids do not depend on when a row was reached. Anything anchored to a row (a placement, the selection, the view) is carried by its offset in the logical line, never by its old id. OSC 133's marks (vtium/vtium#40) are kept on the row that holds the text they mark, the first row of the logical line when no finer place is known.
+A logical line's first row keeps its `LineId`. Each other row a rewrap makes takes a new id, and rows a join removes give theirs up. Ids are allocated in the order of the rows, when the resize happens, for the whole run, the rows rewrapped on demand included (Cost), so the ids do not depend on when a row was reached. Anything anchored to a row (a placement, the selection, the view) is carried by its offset in the logical line, never by its old id. OSC 133's marks are kept on the row that holds the text they mark, the first row of the logical line when no finer place is known.
 
-> Note 2026-10-28 (vtium/vtium#41): ids are unique, not ordered. They are allocated when the resize happens, the rows still waiting first, so the rows a resize takes of a long line whose head waits take ids above those of lines after it; nothing orders rows by `LineId`, and a row's place comes from where it is.
+> Note 2026-10-28 (the reflow build): ids are unique, not ordered. They are allocated when the resize happens, the rows still waiting first, so the rows a resize takes of a long line whose head waits take ids above those of lines after it; nothing orders rows by `LineId`, and a row's place comes from where it is.
 
-> Note 2026-10-28 (vtium/vtium#41): every mark of a logical line goes to its first row. A mark records no column, so a finer place depends on the widths the line passed through, and a scrollback rewrapped late would put it elsewhere than one rewrapped at each resize. A wrapped prompt's INPUT mark moves to the prompt's first row; vtium/vtium#40 can record a finer place.
+> Note 2026-10-28 (the reflow build): every mark of a logical line goes to its first row. A mark records no column, so a finer place depends on the widths the line passed through, and a scrollback rewrapped late would put it elsewhere than one rewrapped at each resize. A wrapped prompt's INPUT mark moves to the prompt's first row; the work on OSC 133 prompt marks can record a finer place.
 
 ### The scrollback's bound
 
 `sb-size` counts rows at the current width, as it counts them today. A narrowing that leaves more rows than `sb-size` drops the oldest, cutting a logical line where its dropped rows end, and a widening brings nothing back. A row's memory under ADR-1001's bound is unchanged by a rewrap, since a rewrapped row holds fewer cells than the rows it came from or the same cells joined, so the scrollback's worst case at a cap stands.
 
-> Note 2026-10-28 (vtium/vtium#41), corrected the same day: a rewrapped row may name more cluster bytes than its own cells' budget, by the pad columns a widening drops, an erased wide character's pad among them, and a last row's bytes on few cells. Across the scrollback and the screen the rows name at most twice the widest screen's budget a row and what a last row's few cells hold past 6 bytes each, `CLUSTER_MAX` bounding a cell: 3,012 bytes a row at 170 columns, 2.95 times the budget. ADR-1001's worst case grows to 7,560 bytes a row, 720.98 MiB at 100,000 rows from 531.01, and the default scrollback's worst case passes the minspec peak (ADR-1001's note). The rows of a logical line joined by a widening reach about 1.4 times the budget a row in the shapes `crates/vtium-term/tests/flood.rs` builds; the bound is what can be proved, and is not reached there.
+> Note 2026-10-28 (the reflow build), corrected the same day: a rewrapped row may name more cluster bytes than its own cells' budget, by the pad columns a widening drops, an erased wide character's pad among them, and a last row's bytes on few cells. Across the scrollback and the screen the rows name at most twice the widest screen's budget a row and what a last row's few cells hold past 6 bytes each, `CLUSTER_MAX` bounding a cell: 3,012 bytes a row at 170 columns, 2.95 times the budget. ADR-1001's worst case grows to 7,560 bytes a row, 720.98 MiB at 100,000 rows from 531.01, and the default scrollback's worst case passes the minspec peak (ADR-1001's note). The rows of a logical line joined by a widening reach about 1.4 times the budget a row in the shapes `crates/vtium-term/tests/flood.rs` builds; the bound is what can be proved, and is not reached there.
 
-> Note 2026-10-28 (vtium/vtium#131): the scrollback also holds at most `sb-memory` bytes, each row costing what it holds, waiting or rewrapped, so the default scrollback's worst case is back inside the 16 MiB minspec peak (ADR-1001's note). A rewrap that the view or a drop reaches drops the oldest rows past the budget, as a new line does. Past the budget the rows dropped follow what the rows cost as held, so a lazy rewrap and an eager one may keep a different number of the oldest rows; inside it they agree.
+> Note 2026-10-28: the scrollback also holds at most `sb-memory` bytes, each row costing what it holds, waiting or rewrapped, so the default scrollback's worst case is back inside the 16 MiB minspec peak (ADR-1001's note). A rewrap that the view or a drop reaches drops the oldest rows past the budget, as a new line does. Past the budget the rows dropped follow what the rows cost as held, so a lazy rewrap and an eager one may keep a different number of the oldest rows; inside it they agree.
 
 ### Cost: the screen at once, the rest on demand
 
@@ -175,7 +175,7 @@ At once, as the resize happens:
 
 The rest of the scrollback is held as its logical lines and rewraps when something reaches it: moving the view, a selection or a copy that spans it, the replay interface's views, or another resize, which rewraps it from its lines straight to the newest width. Rewrapping through several widths gives the rows rewrapping once gives (Logical lines), and the drops past `sb-size` are settled by the count at each resize, so a scrollback rewrapped late equals one rewrapped at each resize. Nothing rewraps by time, in the background or in slices: no timer reaches the screen (docs/architecture.md, "Determinism").
 
-The figures, measured on the development machine and to be measured again on the minspec machine (vtium/vtium#41's gate), for 100,000 rows of 170 cells, 17 million cells: copying the cells takes 12-45 ms, a fixed cost of 0.7-2.6 ns a cell; through `Line::write` it takes 130-156 ms for plain and shell lines and up to 2.4 s for a style a cell, which the table map avoids. A rewrap with the map is taken as at most twice the copy, about 4 ns a cell. A single-board computer of the minspec class (a Cortex-A53 at 1.2 GHz) is taken as ten times slower, about 40 ns a cell, an assumption the measurement replaces. Tier 3's minspec VM runs on a host core, so it measures memory, not a board's speed.
+The figures, measured on the development machine and to be measured again on the minspec machine (the reflow work's gate), for 100,000 rows of 170 cells, 17 million cells: copying the cells takes 12-45 ms, a fixed cost of 0.7-2.6 ns a cell; through `Line::write` it takes 130-156 ms for plain and shell lines and up to 2.4 s for a style a cell, which the table map avoids. A rewrap with the map is taken as at most twice the copy, about 4 ns a cell. A single-board computer of the minspec class (a Cortex-A53 at 1.2 GHz) is taken as ten times slower, about 40 ns a cell, an assumption the measurement replaces. Tier 3's minspec VM runs on a host core, so it measures memory, not a board's speed.
 
 | Rows rewrapped, 170 cells each | Development machine | A minspec board (estimate) |
 |---|---|---|
@@ -188,7 +188,7 @@ Those are the worst case, where every row is full and wrapped. A shell's scrollb
 
 A rewrap builds each logical line's new rows as it consumes its old ones, so its extra memory is a row or two, never a second scrollback, even for one logical line spanning the whole scrollback.
 
-> Note 2026-10-28 (vtium/vtium#41): as built, three parts differ from the plan above. The waiting rows are one stretch, the oldest, so the rows the view and the selection reach rewrap at once with every row below them to the screen; a view at the top of 100,000 rows of wrapped pairs 170 cells wide costs 55-85 ms on the development machine. The operator accepted that cost on 2026-10-28: a limited machine keeps a smaller scrollback through the existing keys, `sb-size` defaulting to 1,000 lines and `sb-size-cap` following memory (10,000 lines below 2 GiB), so a minspec board's worst case is about a tenth of that. A second stretch of waiting rows between the view and the margin, which would keep the cost to the view's rows, is deferred to vtium/vtium#122, to be investigated once reflow works on real hardware. A line with no wide character breaks at multiples of the width, so the margin takes only the rows it needs of a longer one and its head waits, and a drop past `sb-size` cuts its first rows by length: one logical line spanning 100,000 rows resizes in about 2 ms. A resize to one column rewraps the whole scrollback at once, since a wide character becomes an empty cell there and a row that waited would keep it. Each line keeps a mark that it may hold a wide character in its padding, so the count reads lengths alone: 100,000 rows of wrapped pairs count in 2-3 ms.
+> Note 2026-10-28 (the reflow build): as built, three parts differ from the plan above. The waiting rows are one stretch, the oldest, so the rows the view and the selection reach rewrap at once with every row below them to the screen; a view at the top of 100,000 rows of wrapped pairs 170 cells wide costs 55-85 ms on the development machine. The operator accepted that cost on 2026-10-28: a limited machine keeps a smaller scrollback through the existing keys, `sb-size` defaulting to 1,000 lines and `sb-size-cap` following memory (10,000 lines below 2 GiB), so a minspec board's worst case is about a tenth of that. A second stretch of waiting rows between the view and the margin, which would keep the cost to the view's rows, is deferred to its own issue, to be investigated once reflow works on real hardware. A line with no wide character breaks at multiples of the width, so the margin takes only the rows it needs of a longer one and its head waits, and a drop past `sb-size` cuts its first rows by length: one logical line spanning 100,000 rows resizes in about 2 ms. A resize to one column rewraps the whole scrollback at once, since a wide character becomes an empty cell there and a row that waited would keep it. Each line keeps a mark that it may hold a wide character in its padding, so the count reads lengths alone: 100,000 rows of wrapped pairs count in 2-3 ms.
 
 ### Determinism
 
@@ -196,24 +196,24 @@ The screen, the scrollback, the cursor, the image store and the replies after a 
 
 Readers that take the screen by shared reference see only rewrapped rows: the operations that reach further (moving the view, a selection or copy spanning the scrollback, the replay interface's views) rewrap what they reach first. A test build rewraps the whole scrollback at every resize, and the property test compares it with the lazy one, whole and chunked, across random streams and resizes.
 
-The host decides which resizes reach the terminal. A narrowing in between can drop scrollback rows, so a host that merged two quick resizes into one would make the state depend on time: vtium's host (vtium/vtium#21, #44) passes each resize it decides on and merges none by time.
+The host decides which resizes reach the terminal. A narrowing in between can drop scrollback rows, so a host that merged two quick resizes into one would make the state depend on time: vtium's host passes each resize it decides on and merges none by time.
 
 ### Images
 
-Images are not built yet (vtium/vtium#28); this fixes what the store receives. A placement is anchored by the `LineId` of the row holding its top and a column (ADR-1001). A rewrap returns, for each anchor in the rows it rewrapped, the row and column now holding that cell, and the store moves the placement there, so a picture moves with its line's text. A placement wider than the columns left from its new column is kept whole and overflows the edge away from its anchor, the right edge for text running left to right; it is neither clipped nor scaled, and a widening shows it whole again. A placement anchored in the scrollback not yet rewrapped keeps its old anchor until its rows are rewrapped, which the margin's rows for the tallest placement make happen before a frame draws it. How an erase or text cuts a placement does not change.
+Images are not built yet; this fixes what the store receives. A placement is anchored by the `LineId` of the row holding its top and a column (ADR-1001). A rewrap returns, for each anchor in the rows it rewrapped, the row and column now holding that cell, and the store moves the placement there, so a picture moves with its line's text. A placement wider than the columns left from its new column is kept whole and overflows the edge away from its anchor, the right edge for text running left to right; it is neither clipped nor scaled, and a widening shows it whole again. A placement anchored in the scrollback not yet rewrapped keeps its old anchor until its rows are rewrapped, which the margin's rows for the tallest placement make happen before a frame draws it. How an erase or text cuts a placement does not change.
 
 ### Mode 2028
 
-Mode 2028, contour's line reflow mode, is set by default and by RIS. SM and RM 2028 mark the cursor's row, and each print marks the row it writes to, as rewrapping or not, from the mode's state. A row marked by the reset mode joins nothing, is joined into nothing and is cut at a narrower margin. The mark is one of ADR-1001's ten spare line flag bits, leaving nine for bidirectional text (vtium/vtium#43). DECRQM reports the mode as the mode table reports every mode (ADR-1000, DEC-2028).
+Mode 2028, contour's line reflow mode, is set by default and by RIS. SM and RM 2028 mark the cursor's row, and each print marks the row it writes to, as rewrapping or not, from the mode's state. A row marked by the reset mode joins nothing, is joined into nothing and is cut at a narrower margin. The mark is one of ADR-1001's ten spare line flag bits, leaving nine for bidirectional text. DECRQM reports the mode as the mode table reports every mode (ADR-1000, DEC-2028).
 
-> Note 2026-10-28 (vtium/vtium#41): DECSTR keeps mode 2028, which RIS sets, the mode table's class for a mode only RIS resets (`docs/modes.md`).
+> Note 2026-10-28 (the reflow build): DECSTR keeps mode 2028, which RIS sets, the mode table's class for a mode only RIS resets (`docs/modes.md`).
 
 ## Consequences
 
 ### Positive
 
 - The shell's output reads whole at any width, in the screen and the scrollback, and the probe `reflow` passes.
-- No stale cell comes back on a widening (aaronsb/libtsm#19), and the alternate screen's lines give back their memory past the margin.
+- No stale cell comes back on a widening, and the alternate screen's lines give back their memory past the margin.
 - A resize costs the screen and its margin, under a millisecond at the minspec estimate, however large the scrollback.
 - Printing at a width and rewrapping to it give the same cells, which a property test can hold.
 
@@ -223,7 +223,7 @@ Mode 2028, contour's line reflow mode, is set by default and by RIS. SM and RM 2
 - Text past the margin on the alternate screen, or on a row written with mode 2028 reset, is lost; the C reference kept it.
 - The scrollback keeps rows of two kinds, rewrapped and waiting, and every reader that reaches past the screen must rewrap first. A test holds the lazy path to the eager one.
 - `LineId`s are reallocated for rows a rewrap makes, so everything anchored to rows needs the carried offset.
-- A shell that redraws its prompt on SIGWINCH may leave a copy of the old prompt where the rewrapped one now sits, until vtium/vtium#40 can erase the marked prompt for the shell to redraw, as kitty's shell integration does.
+- A shell that redraws its prompt on SIGWINCH may leave a copy of the old prompt where the rewrapped one now sits, until the work on OSC 133 prompt marks can erase the marked prompt for the shell to redraw, as kitty's shell integration does.
 
 ### Neutral
 
@@ -235,7 +235,7 @@ Mode 2028, contour's line reflow mode, is set by default and by RIS. SM and RM 2
 
 ## Alternatives Considered
 
-- **Keep cells past the margin, as the C reference and vtium today do.** Rejected: a line longer than a narrowed screen hides its end, which reflow exists to show, and stale cells come back on a widening (aaronsb/libtsm#19).
+- **Keep cells past the margin, as the C reference and vtium today do.** Rejected: a line longer than a narrowed screen hides its end, which reflow exists to show, and stale cells come back on a widening.
 - **Cut every line at the new width and rewrap nothing, as xterm does.** Rejected by the operator's definition.
 - **Cut a line the program ended with a newline instead of wrapping it.** Rejected: it hides text, and the line's end stays a newline when it wraps, so it still joins nothing after it.
 - **Count the empty cells a color erased as text, as foot does.** Rejected: a screen cleared in a color and then narrowed to half its width wraps every blank row into two, and pushes half the screen into the scrollback.
