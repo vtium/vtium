@@ -136,7 +136,8 @@ act() {
 # login command that runs as root. Left out on purpose: the VT, seat and
 # session options, --login, --configdir, --oneshot, the grabs but grab-paste
 # (one reboots), and options naming files (asciicast, issue-path, xkb-keymap,
-# xkb-compose-file).
+# xkb-compose-file). The on-screen display's osd, osd-timeout and focus-mark
+# are choices that name no file.
 valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette palette-black palette-red palette-green palette-yellow palette-blue
 	palette-magenta palette-cyan palette-light-grey palette-dark-grey
@@ -145,7 +146,7 @@ valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette-background underline-color strike-color grapheme-width xkb-model
 	xkb-layout xkb-variant xkb-options xkb-repeat-delay xkb-repeat-rate
 	dpms-timeout render-timer image-storage-limit sync-timeout blink-text
-	grab-paste pointer-hide-timeout pointer-char "
+	grab-paste pointer-hide-timeout pointer-char osd osd-timeout focus-mark "
 switches=" drm hwaccel use-original-mode blink bell soft-cursor mouse
 	natural-scrolling force-decoration-colors backspace-delete verbose debug silent
 	blink-decorations program-blank pointer-hide-while-typing "
@@ -169,7 +170,7 @@ for o in "${extra[@]}"; do
 	elif [[ $o == --* && $name =~ ^[a-z][a-z-]*$ ]]; then
 		[[ $switches == *" ${name#no-} "* ]] && continue
 	fi
-	die "vtium option '$o' is refused. Accepted: display, font, palette, text and input options, --render-timer, --image-storage-limit and --sync-timeout, one word each: --name=value (quoted as one word: --font-name=\"Monoid Nerd Font Mono\"), or --name / --no-name for a switch (see docs/vt-review.md)"
+	die "vtium option '$o' is refused. Accepted: display, font, palette, text, input and on-screen display options, --render-timer, --image-storage-limit and --sync-timeout, one word each: --name=value (quoted as one word: --font-name=\"Monoid Nerd Font Mono\"), or --name / --no-name for a switch (see docs/vt-review.md)"
 done
 # The label reaches the session as one word of env's; it names a build, so it
 # takes a build's characters only.
@@ -420,8 +421,17 @@ elif [ -n "$shell" ]; then
 		session=(/usr/bin/env -C "$home" "${locale[@]}" "${runtime[@]}"
 			"$script" -q -f -c "exec $login_shell -l" "$transcript")
 fi
+# setpriv's --reset-env clears the environment vtium gave the session, so
+# the head and console it names (ADR-1401 D5) are carried across as words:
+# vtium replaces a word that is $VTIUM_HEAD or $VTIUM_CONSOLE with its value,
+# and the shell, already the user's, puts each back in the environment. The
+# values are arguments, never code, and a head name holds only A-Z a-z 0-9
+# . _ + and -.
+# shellcheck disable=SC2016 # expanded by the shell after setpriv
+carry=(/bin/sh -c 'h=$1 c=$2; shift 2; exec /usr/bin/env VTIUM_HEAD="$h" VTIUM_CONSOLE="$c" "$@"'
+	sh '$VTIUM_HEAD' '$VTIUM_CONSOLE')
 once=(--oneshot)
-login_argv=("${drop[@]}" -- "${session[@]}")
+login_argv=("${drop[@]}" -- "${carry[@]}" "${session[@]}")
 if [ -n "$login" ]; then
 	once=()
 	login_argv=(/bin/login -p)

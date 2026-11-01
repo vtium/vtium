@@ -26,7 +26,7 @@ use drm_ffi::{
 use rustix::io::Errno;
 
 use super::edid::Edid;
-use super::kms::{Connector, Encoder, Kms, Object, Property, Request, Resources};
+use super::kms::{Connector, CrtcEvent, Encoder, Kms, Object, Property, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
 use super::{
     Ages, Canvas, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Rect, SwapError,
@@ -126,7 +126,8 @@ pub struct Drm2d<K: Kms> {
     /// displays, and that was logged as a warning.
     dark_refused: bool,
     waiting: Option<Waiting>,
-    /// A flip's event was lost, and that was logged as a warning.
+    /// A flip's or a vblank's event was lost, and that was logged as a
+    /// warning; the next event the card delivers clears it.
     lost_flip: bool,
     /// The blank powered every display down, and no input has come since:
     /// every display online was set to a DPMS state other than on, with
@@ -281,7 +282,8 @@ impl<K: Kms> Drm2d<K> {
                 .is_some_and(|p| p.damage)
     }
 
-    /// Whether a frame swapped is still waiting to reach the screen.
+    /// Whether a frame swapped is still waiting to reach the screen, or a
+    /// frame the card refused as busy waits for the display's next vblank.
     pub fn is_flipping(&self, id: DisplayId) -> bool {
         self.output(id).is_some_and(|o| o.flipping)
     }
@@ -322,16 +324,25 @@ impl<K: Kms> Drm2d<K> {
         self.output(id).and_then(|o| o.dpms).map(|(_, d)| d)
     }
 
+    /// Whether the display takes a frame now: the card is awake and waits
+    /// for no modeset or sleep, and the display is online, powered on and
+    /// waits for no flip or vblank. [`Drm2d::canvas`] lends the back buffer
+    /// only then.
+    pub fn ready_for_frame(&self, id: DisplayId) -> bool {
+        self.awake
+            && self.waiting.is_none()
+            && self
+                .output(id)
+                .is_some_and(|o| o.online && !o.flipping && o.dpms_on())
+    }
+
     /// Lends the back buffer for the next frame, while the display is
-    /// awake, online and no flip or modeset is pending.
+    /// ready for one ([`Drm2d::ready_for_frame`]).
     pub fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        if !self.awake || self.waiting.is_some() {
+        if !self.ready_for_frame(id) {
             return None;
         }
         let o = self.output_mut(id)?;
-        if !o.online || o.flipping || !o.dpms_on() {
-            return None;
-        }
         o.lent = true;
         let (width, height) = o.size();
         let age = o.ages.age(o.back);
@@ -456,7 +467,27 @@ impl<K: Kms> Drm2d<K> {
             sent
         };
         if let Err(e) = sent {
-            if errno(&e) != Some(Errno::BUSY) {
+            if errno(&e) == Some(Errno::BUSY) {
+                // Another commit holds the CRTC while vtium knows of no flip
+                // of its own in flight: a commit vtium does not track, or a
+                // flip of vtium's that the bound took as done while the
+                // kernel still had it. When the first lands, the kernel sends
+                // vtium no event. The display's next vblank stands in for
+                // that event: it is waited for as a flip in flight is, and
+                // the owner draws again after it.
+                match self.card.wait_vblank(o.pipe) {
+                    Ok(()) => {
+                        o.start_flip();
+                        o.vblank = true;
+                    }
+                    // A card with no vblank interrupt and no software vblank
+                    // timer refuses the wait with EOPNOTSUPP, and nothing
+                    // then asks for the frame again
+                    // until the next draw (vtium/vtium#176).
+                    Err(v) => log::debug!("cannot wait for the next vblank of {}: {v}", o.name),
+                }
+                self.settle();
+            } else {
                 log::warn!("cannot flip {}: {e}", o.name);
             }
             return Err(e.into());
@@ -849,31 +880,44 @@ impl<K: Kms> Drm2d<K> {
         scanned
     }
 
-    /// Reads the card's events: the page flips completed.
+    /// Reads the card's events: the page flips completed and the vblanks
+    /// passed.
     pub fn dispatch(&mut self) -> io::Result<()> {
-        let mut flipped = Vec::new();
-        let read = self.card.read_events(&mut flipped);
-        for crtc in flipped {
-            self.flipped(crtc);
+        let mut events = Vec::new();
+        let read = self.card.read_events(&mut events);
+        // The card delivers events again, so the next one lost warns.
+        if !events.is_empty() {
+            self.lost_flip = false;
+        }
+        for e in events {
+            match e {
+                CrtcEvent::Flipped(crtc) => self.flipped(crtc, true),
+                CrtcEvent::Vblank(crtc) => self.flipped(crtc, false),
+            }
         }
         self.resolve();
         self.settle();
         read
     }
 
-    /// A flip's event arrived. One that comes after its flip was taken as
-    /// done still tells the owner it may draw, as a swap tried meanwhile
-    /// was busy.
-    fn flipped(&mut self, crtc: u32) {
+    /// A flip's event arrived, with `frame`, or the vblank a refused
+    /// commit waits for passed. A flip's event that comes after its flip
+    /// was taken as done still tells the owner it may draw, as a swap tried
+    /// meanwhile was busy. A vblank ends only the wait for it, and shows
+    /// no frame, so the owner is told nothing; it draws again at the turn
+    /// the vblank's event wakes.
+    fn flipped(&mut self, crtc: u32, frame: bool) {
         let ready = self.awake && self.waiting.is_none();
         match self.outputs.iter_mut().find(|o| o.crtc == crtc) {
             Some(o) => {
-                o.flipping = false;
-                if o.announced && ready {
+                if std::mem::take(&mut o.vblank) || frame {
+                    o.flipping = false;
+                }
+                if frame && o.announced && ready {
                     self.events.push(Event::Flipped(o.id));
                 }
             }
-            None => log::debug!("a page flip on CRTC {crtc}, which drives no display"),
+            None => log::debug!("an event for CRTC {crtc}, which drives no display"),
         }
     }
 
@@ -887,16 +931,21 @@ impl<K: Kms> Drm2d<K> {
         if !o.flipping {
             return;
         }
+        let (frame, event) = if o.vblank {
+            (false, "vblank")
+        } else {
+            (true, "page flip")
+        };
         if std::mem::replace(&mut self.lost_flip, true) {
-            log::debug!("no page flip event for {}; taking the flip as done", o.name);
+            log::debug!("no {event} event for {}; taking the flip as done", o.name);
         } else {
             log::warn!(
-                "no page flip event for {} within {} ms; taking the flip as done",
+                "no {event} event for {} within {} ms; taking the flip as done",
                 o.name,
                 crate::FLIP_WAIT_MS
             );
         }
-        self.flipped(crtc);
+        self.flipped(crtc, frame);
         self.resolve();
         self.settle();
     }
@@ -956,6 +1005,9 @@ impl<K: Kms> Drm2d<K> {
         if !self.awake {
             return Ok(());
         }
+        // The card takes master as it wakes and lets it go only as it
+        // falls asleep, so a scan always runs under master.
+        debug_assert!(self.master, "an awake card holds DRM master");
         let res = self.card.resources()?;
         for o in &mut self.outputs {
             o.available = false;
@@ -1031,20 +1083,14 @@ impl<K: Kms> Drm2d<K> {
         let outputs = &self.outputs;
         self.identities
             .retain(|(id, _)| outputs.iter().any(|o| o.id == *id));
+        // With no display the card keeps master while its VT is shown, so
+        // the kernel's console, which lights a display at a hotplug while
+        // no process holds master, never takes one plugged in meanwhile.
         if self.outputs.is_empty() {
             if needs && !self.dark.is_empty() {
                 self.darken();
             }
-            if self.master {
-                self.release_master();
-            }
             return Ok(());
-        }
-        // The last display's going dropped master; a display back takes
-        // it again before its modeset (aaronsb/kmscon#237).
-        if !self.master {
-            self.card.set_master()?;
-            self.master = true;
         }
         if needs && self.blanked && scan != Scan::WakeUp {
             // Blanked, a hotplug commits nothing: the modeset waits for the
@@ -1163,6 +1209,7 @@ impl<K: Kms> Drm2d<K> {
             id: DisplayId(conn.id),
             name,
             crtc,
+            pipe: crtc_index,
             planes,
             mode: choice.current,
             mm,
@@ -1181,10 +1228,12 @@ impl<K: Kms> Drm2d<K> {
             online: false,
             redraw: false,
             flipping: false,
+            vblank: false,
             flips: 0,
             flip_timer: None,
             available: true,
             announced: false,
+            returning: self.scanned,
         })
     }
 
@@ -1286,6 +1335,12 @@ impl<K: Kms> Drm2d<K> {
     /// have left in the middle of the screen, and every plane on a CRTC in
     /// `off`, which the commit turns off.
     fn clear_planes(&self, req: &mut Request, off: &[u32]) {
+        self.hide_planes(req, off, true);
+    }
+
+    /// Hides every plane on a CRTC in `off`, and every cursor and overlay
+    /// plane too when `others`.
+    fn hide_planes(&self, req: &mut Request, off: &[u32], others: bool) {
         let all = self.card.planes().unwrap_or_else(|e| {
             log::warn!("cannot list the card's planes: {e}");
             Vec::new()
@@ -1301,7 +1356,8 @@ impl<K: Kms> Drm2d<K> {
             let on_off = value(&props, "CRTC_ID")
                 .and_then(|c| u32::try_from(c).ok())
                 .is_some_and(|c| off.contains(&c));
-            if on_off || matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY)) {
+            let other = matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY));
+            if on_off || others && other {
                 let props = Props::new(&props);
                 let cleared = props
                     .set(req, plane, "CRTC_ID", 0)
@@ -1537,9 +1593,88 @@ impl<K: Kms> Drm2d<K> {
         }
     }
 
+    /// Turns off what a returning display might still be shown on, in a
+    /// blocking commit of its own: the CRTC its connector is on, and the
+    /// CRTC it is about to take if that one shows a mode, with their
+    /// planes and every connector on them. The modeset after it then sets
+    /// the display's mode, CRTC and connector anew, a full modeset,
+    /// whatever mode another master or the kernel's console left there.
+    /// On this machine's amdgpu cards the small panel showed nothing under
+    /// frames committed on the mode the console set at its return, until a
+    /// VT switch set its mode again. A CRTC that a display online also
+    /// drives stays on, and only loses the returning connector. A display
+    /// on no CRTC, about to take one with no mode, starts from off already
+    /// and needs no such commit.
+    fn set_returning_off(&self) -> Result<(), Failure> {
+        let mut ids = Vec::new();
+        let mut off = Vec::new();
+        for o in self.outputs.iter().filter(|o| o.returning) {
+            let on = self.connector_crtc(o.id.0);
+            if on.is_some() {
+                ids.push(o.id.0);
+            }
+            for crtc in [on, Some(o.crtc)].into_iter().flatten() {
+                let driven = self.outputs.iter().any(|d| !d.returning && d.crtc == crtc);
+                if !driven && !off.contains(&crtc) && self.crtc_lit(crtc) {
+                    off.push(crtc);
+                }
+            }
+        }
+        if ids.is_empty() && off.is_empty() {
+            return Ok(());
+        }
+        let mut req = Request::default();
+        let prepared = (|| -> io::Result<()> {
+            for &id in &ids {
+                self.unbind(&mut req, id)?;
+            }
+            let all = self.card.resources()?.connectors;
+            for &crtc in &off {
+                let props = Props::new(&self.card.properties(crtc, Object::Crtc)?);
+                props.set(&mut req, crtc, "MODE_ID", 0)?;
+                props.set(&mut req, crtc, "ACTIVE", 0)?;
+                for &other in &all {
+                    if !ids.contains(&other) && self.connector_crtc(other) == Some(crtc) {
+                        self.unbind(&mut req, other)?;
+                    }
+                }
+            }
+            Ok(())
+        })();
+        prepared.map_err(|e| {
+            log::error!("cannot set the displays that return off: {e}");
+            Failure::Other(e)
+        })?;
+        self.hide_planes(&mut req, &off, false);
+        self.card
+            .commit(&req, DRM_MODE_ATOMIC_ALLOW_MODESET)
+            .map_err(|e| {
+                // EACCES while another process holds master is expected.
+                if errno(&e) == Some(Errno::ACCESS) {
+                    log::debug!("the commit setting the displays that return off was refused: {e}");
+                    Failure::Test(e)
+                } else {
+                    log::error!("cannot set the displays that return off: {e}");
+                    Failure::Other(e)
+                }
+            })
+    }
+
+    /// Whether `crtc` shows a mode or is active, as the card reports it; a
+    /// CRTC whose state cannot be read counts as lit.
+    fn crtc_lit(&self, crtc: u32) -> bool {
+        let mode = self.card.crtc_mode(crtc).map_or(true, |m| m.is_some());
+        let active = self
+            .card
+            .properties(crtc, Object::Crtc)
+            .map_or(true, |p| value(&p, "ACTIVE").is_some_and(|a| a != 0));
+        mode || active
+    }
+
     /// One atomic modeset of every display: tried first as a test-only
     /// commit, then committed without blocking, with a flip event.
     fn atomic_modeset(&mut self, dark: bool) -> Result<(), Failure> {
+        self.set_returning_off()?;
         let mut req = Request::default();
         let off = if dark {
             self.prepare_dark(&mut req)
@@ -1618,6 +1753,7 @@ impl<K: Kms> Drm2d<K> {
                 o.mode_blob = blob;
                 self.install(o, made);
                 o.online = true;
+                o.returning = false;
                 o.cursor_set = o.cursor_shown();
                 o.start_flip();
                 o.damage.set_whole();
@@ -1642,6 +1778,11 @@ impl<K: Kms> Drm2d<K> {
     fn legacy_modeset(&mut self) {
         self.legacy_dark();
         let mut outputs = std::mem::take(&mut self.outputs);
+        let driven: Vec<u32> = outputs
+            .iter()
+            .filter(|o| !o.returning)
+            .map(|o| o.crtc)
+            .collect();
         for o in &mut outputs {
             log::info!(
                 "preparing the modeset of {} at {}x{}",
@@ -1656,6 +1797,17 @@ impl<K: Kms> Drm2d<K> {
                     continue;
                 }
             };
+            // A display that returns is set from off, as the atomic
+            // modeset sets it, where the card can turn its CRTC off; a
+            // CRTC a display online drives stays on.
+            if o.returning {
+                let on = self.connector_crtc(o.id.0);
+                if let Some(crtc) = on.filter(|c| !driven.contains(c)) {
+                    if let Err(e) = self.card.disable_crtc(crtc) {
+                        log::debug!("cannot turn the CRTC of {} off first: {e}", o.name);
+                    }
+                }
+            }
             // Another program may have left its cursor on the CRTC.
             if let Err(e) = self.card.hide_cursor(o.crtc) {
                 log::warn!("cannot hide the hardware cursor: {e}");
@@ -1665,6 +1817,7 @@ impl<K: Kms> Drm2d<K> {
                 Ok(()) => {
                     self.install(o, made);
                     o.online = true;
+                    o.returning = false;
                     // The CRTC is on, whatever DPMS it was at.
                     if !o.dpms_on() {
                         o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));

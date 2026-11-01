@@ -23,8 +23,14 @@
 ## The most consoles every head holds together. Each head keeps its first console; the others open, in the head file's order, while the total is below this.
 #consoles-max=8
 
-## Each head's focus mark over its top-right cell, filled on the head holding the focus and hollow on the others: `auto` shows the marks for a few seconds after the focus chord or the anti-lockout guard moves the focus, `always` shows them always, `off` never.
-#focus-mark=auto
+## What vtium's on-screen display draws at the top of each head after a change. With `minimal`, it draws a dot in the top-right cell, filled on the active head and hollow on the others. With `full`, it draws a line across the top, such as `● desk · console 2 of 3`. With `off`, it draws nothing. A notice of a problem shows whatever this key says.
+#osd=minimal
+
+## How long the on-screen display stays after a change, counted from the first frame that draws it. `never` keeps it up from the start.
+#osd-timeout=3
+
+## The older name of `osd` and `osd-timeout`. vtium reads it only where `osd` or `osd-timeout` is not set: `auto` reads as `osd = minimal`, `always` as `osd = minimal` with `osd-timeout = never`, and `off` as `osd = off`. vtium logs a line naming the new keys when a file or the command line sets it.
+#focus-mark=
 
 ## `TERM` in the session's environment.
 #term=kmscon

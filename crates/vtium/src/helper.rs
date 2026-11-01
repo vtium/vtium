@@ -1428,7 +1428,7 @@ fn thread(name: &str, f: impl FnOnce() + Send + 'static) -> std::io::Result<()> 
 }
 
 /// Waits for the helper `child` to exit, ends each process it started in
-/// its process group, and reaps it, how it exited. Until it is reaped its
+/// its process group, and reaps it. It returns how the helper exited. Until it is reaped its
 /// pid, and with it the group's id, names no other process, so the
 /// group's end reaches only what the helper started.
 fn reap(mut child: Child) -> Option<ExitStatus> {

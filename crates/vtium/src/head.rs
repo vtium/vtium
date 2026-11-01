@@ -52,10 +52,6 @@ pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
 /// file's, no keyboard found, the anti-lockout guard's and a rescue.
 pub const NOTICES_MAX: usize = 4;
 
-/// How long `focus-mark = auto` shows the focus marks after the focus
-/// moves: a few seconds (the operator's answers on vtium/vtium#156).
-pub const MARK_SHOWN: Duration = Duration::from_secs(3);
-
 /// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
 const WHEEL_LINES: usize = 3;
 
@@ -106,7 +102,8 @@ pub struct Head {
     pub(crate) hidden: Vec<Console>,
     /// The shown console's place in the ring.
     pub(crate) at: usize,
-    /// The next console's id.
+    /// The next console's id: a head numbers its consoles from 1 as it
+    /// opens them and never reuses a number (ADR-1401 D5).
     next_id: u64,
     /// A new console's `font-size`, as configured: in points, or `0`.
     configured: (Option<u32>, bool),
@@ -116,8 +113,9 @@ pub struct Head {
     /// The configuration its consoles' command is read from: kmscon.conf's
     /// with the head's own `login` over it.
     pub(crate) login: Option<Config>,
-    /// Why the head runs no session any more.
-    pub(crate) ended: Option<Ended>,
+    /// Its last console's program ended under `oneshot`, so the head runs
+    /// no session any more.
+    pub(crate) ended: bool,
     /// vtium's notices to the head (ADR-1401 D7), each once and at most
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
     /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
@@ -127,8 +125,18 @@ pub struct Head {
     /// When the notices end, armed at their first frame; an ended head's
     /// notice keeps no time.
     pub(crate) notice_due: Option<Instant>,
-    /// Its focus mark, while the seat shows the marks.
+    /// The on-screen display shows (ADR-1401 D5): since a change, until
+    /// its time runs out.
+    pub(crate) osd_shown: bool,
+    /// When the on-screen display goes, armed at its first frame.
+    pub(crate) osd_due: Option<Instant>,
+    /// The shown console's id and the number of consoles at the last
+    /// frame: a difference is a change the on-screen display shows.
+    pub(crate) osd_seen: Option<(u64, usize)>,
+    /// The on-screen display's dot, while it shows under `osd = minimal`.
     pub(crate) mark: Option<vtium_render::Mark>,
+    /// The on-screen display's line, while it shows under `osd = full`.
+    pub(crate) status: Option<String>,
     /// What the head does when it loses its last display (ADR-1401 D8).
     pub(crate) on_loss: OnLoss,
     /// When its sessions hang up, while it has no display.
@@ -210,26 +218,9 @@ pub(crate) fn terminal(
     Term::new(terminal, sync, Blink::configured(config), clock)
 }
 
-/// Why a head runs no session any more (the operator's answers on
-/// vtium/vtium#156).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Ended {
-    /// Its last console's program ended under `oneshot`.
-    Oneshot,
-    /// Its last console's program exited too quickly too many times
-    /// running.
-    TooQuick,
-}
-
-impl Ended {
-    /// What the head shows in place of its session.
-    pub fn notice(self) -> &'static str {
-        match self {
-            Ended::Oneshot => "session ended",
-            Ended::TooQuick => "the session exited too quickly too many times running",
-        }
-    }
-}
+/// What a head whose session ended under `oneshot` shows in place of its
+/// session (the operator's answers on vtium/vtium#156).
+pub const ENDED: &str = "The session ended, and vtium does not start it again.";
 
 /// The scrollback memory each console takes (ADR-1401 D10): `sb-memory`,
 /// at most `cap`, the most `sb-memory` may be on the machine, shared
@@ -256,6 +247,28 @@ pub(crate) fn frit_store(store: u64, heads: usize) -> u64 {
         .unwrap_or(store)
 }
 
+/// The text of `console`'s screen rows.
+fn screen_text(console: &Console) -> Vec<String> {
+    console
+        .term
+        .terminal
+        .screen()
+        .lines()
+        .iter()
+        .map(|line| {
+            line.cells()
+                .iter()
+                .map(|c| match c.content() {
+                    Content::Char(ch) => ch,
+                    Content::Empty | Content::Cluster(_) => ' ',
+                })
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect()
+}
+
 /// What [`Head`]'s `draw_hook` runs.
 pub type DrawHook = std::sync::Arc<dyn Fn() + Send + std::marker::Sync>;
 
@@ -280,18 +293,22 @@ impl Head {
         };
         Head {
             name: name.to_owned(),
-            console: Console::new(0, term, fit),
+            console: Console::new(1, term, fit),
             hidden: Vec::new(),
             at: 0,
-            next_id: 1,
+            next_id: 2,
             configured: (points, auto_size),
             wanted: 1,
             login: None,
-            ended: None,
+            ended: false,
             notices: Vec::new(),
             shown: String::new(),
             notice_due: None,
+            osd_shown: false,
+            osd_due: None,
+            osd_seen: None,
             mark: None,
+            status: None,
             on_loss: OnLoss::Nohup,
             hangup_due: None,
             views: BTreeMap::new(),
@@ -400,13 +417,33 @@ impl Head {
     /// for good, else its notices.
     pub fn notice(&self) -> Option<&str> {
         self.ended
-            .map(Ended::notice)
+            .then_some(ENDED)
             .or_else(|| (!self.shown.is_empty()).then_some(self.shown.as_str()))
     }
 
-    /// The head's focus mark, while it shows.
+    /// The on-screen display's dot, while it shows.
     pub fn mark(&self) -> Option<vtium_render::Mark> {
         self.mark
+    }
+
+    /// The on-screen display's line, while it shows.
+    pub fn status(&self) -> Option<&str> {
+        self.status.as_deref()
+    }
+
+    /// The on-screen display shows from the head's next frame, its time
+    /// afresh (ADR-1401 D5).
+    pub(crate) fn show_osd(&mut self) {
+        self.osd_shown = true;
+        self.osd_due = None;
+        self.draw_now = true;
+    }
+
+    /// The on-screen display the head showed, or was to show, is dropped:
+    /// its last display went (ADR-1401 D5).
+    pub(crate) fn drop_osd(&mut self) {
+        self.osd_shown = false;
+        self.osd_due = None;
     }
 
     /// Adds `text` to the head's notices, which show from its next frame
@@ -440,10 +477,18 @@ impl Head {
         }
     }
 
-    /// What vtium draws over the head's frames.
+    /// What vtium draws over the head's frames: one box at the top holding
+    /// the on-screen display's line and the notices beneath it, a problem
+    /// while a notice is in it, and the on-screen display's dot.
     pub(crate) fn overlay(&self) -> crate::term::Overlay {
+        let notice = self.notice();
+        let text = match (self.status.as_deref(), notice) {
+            (Some(line), Some(notice)) => Some(format!("{line}\n{notice}")),
+            (line, notice) => line.or(notice).map(str::to_owned),
+        };
         crate::term::Overlay {
-            notice: self.notice().map(vtium_render::Notice::new),
+            notice: text.map(vtium_render::Notice::new),
+            problem: notice.is_some(),
             mark: self.mark,
         }
     }
@@ -480,7 +525,10 @@ impl Head {
     /// head takes `new`'s fit, and the old keeps the head's. While
     /// `visible`, the new one is potentially visible (mode 2033), and it
     /// takes mode 1004's focus from the old while a keyboard delivers to
-    /// the head. Every display draws whole.
+    /// the head. Every display draws the new one whole, as the C reference
+    /// redrew a session's displays at its activation
+    /// (`src/terminal.c:1750-1762` at kmscon b1f7a7c5), each drawing kept
+    /// per session there and per head here.
     fn swap_shown(&mut self, new: Console, visible: bool) -> Console {
         let fit = self.fit();
         self.grid = new.fit.grid;
@@ -499,7 +547,7 @@ impl Head {
         self.send_user_bytes();
         self.pointer.drag = None;
         for v in self.views.values_mut() {
-            v.lost = true;
+            v.show_another();
         }
         self.draw_now = true;
         old
@@ -552,24 +600,15 @@ impl Head {
 
     /// The text of the shown console's screen rows, for tests and logs.
     pub fn screen_text(&self) -> Vec<String> {
-        self.console
-            .term
-            .terminal
-            .screen()
-            .lines()
-            .iter()
-            .map(|line| {
-                line.cells()
-                    .iter()
-                    .map(|c| match c.content() {
-                        Content::Char(ch) => ch,
-                        Content::Empty | Content::Cluster(_) => ' ',
-                    })
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
-            })
-            .collect()
+        screen_text(&self.console)
+    }
+
+    /// The text of each console's screen rows, in the ring's order, for
+    /// tests.
+    pub fn consoles_text(&self) -> Vec<Vec<String>> {
+        let mut all: Vec<Vec<String>> = self.hidden.iter().map(screen_text).collect();
+        all.insert(self.at.min(all.len()), self.screen_text());
+        all
     }
 
     /// Whether the head's `font-size` is configured, kmscon.conf's or its
@@ -1018,7 +1057,8 @@ pub fn rules(
                 let more = format_args!("{} more errors", rejected.more);
                 lines.push(at(path, None, more).to_string());
             }
-            lines.push(at(path, None, "rejected whole: vtium runs the shipped rules").to_string());
+            let ignored = "This file has errors, so vtium ignores it and uses its built-in rules.";
+            lines.push(at(path, None, ignored).to_string());
             for line in &lines {
                 log::error!("{line}");
             }
@@ -1181,7 +1221,7 @@ mod tests {
         let (bad, trust) = fixture("invalid", Some(invalid));
         let (ran, notice) = rules(&bad, &trust);
         assert_eq!(ran, vtium_config::Config::builtin());
-        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("shipped rules")));
+        assert!(notice.is_some_and(|n| n.contains(":4: ") && n.ends_with("built-in rules.")));
         assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(invalid));
         for f in [file, absent, bad] {
             if let Some(dir) = f.parent() {
@@ -1203,13 +1243,10 @@ mod tests {
             head.add_notice(&format!("n{n}"));
         }
         assert_eq!(head.notice(), Some("n2\nn3\nn4\nn5"));
-        head.ended = Some(Ended::Oneshot);
+        head.ended = true;
         head.notice_due = Some(Instant::now());
         head.end_notices();
-        assert_eq!(
-            (head.notice(), head.notice_due),
-            (Some("session ended"), None)
-        );
+        assert_eq!((head.notice(), head.notice_due), (Some(ENDED), None));
         assert!(!head.has_notices());
     }
 

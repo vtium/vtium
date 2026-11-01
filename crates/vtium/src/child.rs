@@ -5,7 +5,9 @@
 //! `/bin/login` with it off. With `reset-env` on the environment starts
 //! empty, and off it starts as vtium's own. Over it vtium sets `TERM`,
 //! `COLORTERM=truecolor`, `XDG_SEAT` and `XDG_VTNR` when it knows them,
-//! and `TERM_SESSION_TYPE`: `kms` on a DRM display, or `fb` on fbdev. Then each word
+//! `TERM_SESSION_TYPE`: `kms` on a DRM display, or `fb` on fbdev, and
+//! `VTIUM_HEAD` and `VTIUM_CONSOLE`, the session's head and the console's
+//! id (ADR-1401 D5), when it runs in a head's console. Then each word
 //! of the command that is `$NAME` becomes that variable of the
 //! environment, empty when it is unset, and a word starting `$$` loses one
 //! `$` (`src/misc/pty.c:252-302` and `src/shl/misc.h:395-449` at kmscon
@@ -34,6 +36,9 @@ pub struct Place<'a> {
     pub seat: Option<&'a str>,
     pub vtnr: Option<u32>,
     pub display: Display,
+    /// The head's name and the console's id, which [`crate::head`] never
+    /// gives another console of the head.
+    pub console: Option<(&'a str, u64)>,
 }
 
 /// The command to run and its whole environment.
@@ -70,6 +75,10 @@ pub fn child(
         Display::Fbdev => "fb",
     };
     set("TERM_SESSION_TYPE", session_type);
+    if let Some((head, id)) = place.console {
+        set("VTIUM_HEAD", head);
+        set("VTIUM_CONSOLE", &id.to_string());
+    }
 
     let words: Vec<OsString> = match config.command(&LOGIN) {
         Some(words) => words.to_vec(),
@@ -129,6 +138,7 @@ mod tests {
         seat: Some("seat0"),
         vtnr: Some(2),
         display: Display::Kms,
+        console: None,
     };
 
     fn vtiums_own() -> Vec<(OsString, OsString)> {
@@ -181,6 +191,7 @@ mod tests {
             seat: None,
             vtnr: None,
             display: Display::Fbdev,
+            console: None,
         };
         let c = child(&config(&[]), &place, vtiums_own());
         assert_eq!(
@@ -217,6 +228,41 @@ mod tests {
             c.argv,
             argv(&["/bin/sh", "kmscon", "", "", "$HOME", "a$HOME"])
         );
+    }
+
+    // ADR-1401 D5: a head's console is told its head and its own id, which
+    // a command's `$NAME` words read too.
+    #[test]
+    fn a_heads_console_is_told_its_head_and_its_id() {
+        let place = Place {
+            console: Some(("desk", 3)),
+            ..TTY2
+        };
+        let args = ["--login", "--", "/bin/sh", "$VTIUM_HEAD", "$VTIUM_CONSOLE"];
+        let c = child(&config(&args), &place, vtiums_own());
+        assert_eq!(c.env.get(OsStr::new("VTIUM_HEAD")), Some(&"desk".into()));
+        assert_eq!(c.env.get(OsStr::new("VTIUM_CONSOLE")), Some(&"3".into()));
+        assert_eq!(c.argv, argv(&["/bin/sh", "desk", "3"]));
+    }
+
+    // ADR-1401 D5: the default command keeps the head's variables for the
+    // shell only with the environment reset, where it is `login -p`; with
+    // `reset-env` off it is `login`, which clears the environment it gets.
+    #[test]
+    fn the_default_login_keeps_the_heads_variables_with_the_environment_reset() {
+        let place = Place {
+            console: Some(("desk", 2)),
+            ..TTY2
+        };
+        for (args, words) in [
+            (&[][..], &["/bin/login", "-p"][..]),
+            (&["--no-reset-env"][..], &["/bin/login"][..]),
+        ] {
+            let c = child(&config(args), &place, vtiums_own());
+            assert_eq!(c.argv, argv(words), "{args:?}");
+            assert_eq!(c.env.get(OsStr::new("VTIUM_HEAD")), Some(&"desk".into()));
+            assert_eq!(c.env.get(OsStr::new("VTIUM_CONSOLE")), Some(&"2".into()));
+        }
     }
 
     #[test]

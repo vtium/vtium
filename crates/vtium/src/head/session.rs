@@ -6,9 +6,11 @@
 //! A console whose program exits while others stay open closes, and the
 //! head shows its next; the last console's exit follows the respawn
 //! policy, each console counting its own quick exits: its program starts
-//! again, or the head ends, showing why. vtium ends once no head that
-//! started still runs: a head whose display never lit has nothing left to
-//! run, so it holds up no exit (the team lead's steering of 2026-10-30).
+//! again, the head ends under `oneshot`, showing why, or vtium ends after
+//! too many quick exits (ADR-1401 D1). Under `oneshot` vtium ends once no
+//! head that started still runs: a head whose display never lit has
+//! nothing left to run, so it holds up no exit (the team lead's steering
+//! of 2026-10-30).
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -17,8 +19,8 @@ use crate::app::Exit;
 use crate::config::Config;
 use crate::head::chord::HeadChord;
 use crate::head::console::{self, Console};
-use crate::head::{Ended, Head};
-use crate::respawn::{Next, Respawn};
+use crate::head::{ENDED, Head};
+use crate::respawn::{Next, QUICK, QUICK_RESTARTS, Respawn};
 use crate::term::{Clock, Term};
 
 /// The console caps (ADR-1401 D10): `head-consoles-max` and
@@ -128,27 +130,20 @@ pub(crate) enum AfterExit {
     /// The head's last console starts its program again, from a hard
     /// reset.
     Restart,
-    /// The head's last console's program ended for good.
+    /// The head's last console's program ended under `oneshot`.
     Ended,
+    /// The head's last console's program exited quickly too many times
+    /// running, which ends vtium.
+    GaveUp,
 }
 
-/// Whether vtium ends once its heads stand as `heads` do, and how: once
-/// a head ended and no head that started still runs, with status 1 when
-/// a head gave up. Under `oneshot` no head gives up, and under the
-/// respawn policy none ends otherwise.
+/// Whether vtium ends once its heads stand as `heads` do: once a head
+/// ended under `oneshot` and no head that started still runs. Under the
+/// respawn policy no head ends.
 pub(crate) fn exit_due(heads: &[Head]) -> Option<Exit> {
-    let ended: Vec<Ended> = heads.iter().filter_map(|head| head.ended).collect();
-    let running = heads
-        .iter()
-        .any(|head| head.started() && head.ended.is_none());
-    if ended.is_empty() || running {
-        return None;
-    }
-    Some(if ended.contains(&Ended::TooQuick) {
-        Exit::TooQuick
-    } else {
-        Exit::Oneshot
-    })
+    let ended = heads.iter().any(|head| head.ended);
+    let running = heads.iter().any(|head| head.started() && !head.ended);
+    (ended && !running).then_some(Exit::Oneshot)
 }
 
 impl Head {
@@ -177,8 +172,8 @@ impl Head {
     /// Whether a new console may open in the head, with `total` consoles
     /// in every head, within `caps`; a line says why not.
     pub(crate) fn may_open(&self, caps: Caps, total: usize) -> bool {
-        let refused = if let Some(ended) = self.ended {
-            Some(ended.notice().to_owned())
+        let refused = if self.ended {
+            Some(ENDED.to_owned())
         } else if self.console_count() >= caps.head {
             Some(format!("past head-consoles-max, {}", caps.head))
         } else if total >= caps.total {
@@ -237,7 +232,7 @@ impl Head {
     /// ended or never started has nothing to hang up.
     pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool) -> bool {
         self.hangup_due = None;
-        if self.ended.is_some() || !self.started() {
+        if self.ended || !self.started() {
             return false;
         }
         log::warn!(
@@ -287,7 +282,7 @@ impl Head {
 
     /// The last console's session ended, and `next` follows.
     fn last_ended(&mut self, next: Next) -> AfterExit {
-        let ended = match next {
+        match next {
             Next::Restart => {
                 // A new session starts from a hard reset (RIS), drawn at
                 // once, with nothing of the last session's output left
@@ -297,14 +292,23 @@ impl Head {
                 term.terminal.take_replies();
                 term.unparsed = false;
                 self.draw_now = true;
-                return AfterExit::Restart;
+                AfterExit::Restart
             }
-            Next::Oneshot => Ended::Oneshot,
-            Next::TooQuick => Ended::TooQuick,
-        };
-        log::warn!("head {}: {}", self.name(), ended.notice());
-        self.ended = Some(ended);
-        self.draw_now = true;
-        AfterExit::Ended
+            Next::Oneshot => {
+                log::warn!("head {}: {ENDED}", self.name());
+                self.ended = true;
+                self.draw_now = true;
+                AfterExit::Ended
+            }
+            // vtium leaves the VT in this turn, so the head draws no notice.
+            Next::TooQuick => {
+                log::error!(
+                    "head {}: its session ended less than {} s after it started, more than {QUICK_RESTARTS} times running, so vtium exits",
+                    self.name(),
+                    QUICK.as_secs()
+                );
+                AfterExit::GaveUp
+            }
+        }
     }
 }

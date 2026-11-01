@@ -143,6 +143,14 @@ impl Colors {
         edge: Rgb::new(0xb9, 0x1c, 0x1c),
     };
 
+    /// The on-screen display's line alone, which reports no problem
+    /// (ADR-1401 D5): light text in a dark box with a grey edge.
+    pub const STATUS: Colors = Colors {
+        ink: Rgb::new(0xe5, 0xe7, 0xeb),
+        paper: Rgb::new(0x1f, 0x29, 0x33),
+        edge: Rgb::new(0x61, 0x6e, 0x7c),
+    };
+
     /// These colors at `depth`: at 1 bit the paper lit where it is light
     /// and the text and edge its opposite, as a cell's are.
     fn at(self, depth: Depth) -> Colors {

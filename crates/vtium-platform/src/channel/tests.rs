@@ -814,6 +814,22 @@ fn a_turn_reads_at_most_reads_per_turn_times() {
     assert!(!next.rearm);
 }
 
+// ADR-1401 D2: a flood in one head's pty takes a bounded share of each
+// turn. Reads of 5000 bytes come to 65536 only with a short last read.
+#[test]
+fn a_turn_reads_at_most_read_budget_bytes() {
+    let n = 3 * READ_BUDGET;
+    let mut d = Driver::new(Child::new(vec![b'x'; n], 5000, 4096, 6));
+    d.child.borrow_mut().whole_reads = true;
+    d.child_writes(n);
+    let mut out: Vec<u8> = Vec::new();
+    let next = d.ch.ready(true, false, &mut out);
+    assert_eq!(out.len(), 65536);
+    assert!(next.rearm, "the next turn reads on");
+    let _ = d.ch.ready(true, false, &mut out);
+    assert_eq!(out.len(), 2 * 65536);
+}
+
 #[test]
 fn user_bytes_reach_a_child_that_reads_in_order() {
     let mut d = flood(0);

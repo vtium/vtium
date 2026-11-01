@@ -50,6 +50,8 @@ pub struct Term {
     pub present: bool,
     /// The child exited and its output has been read.
     pub exited: Option<ExitStatus>,
+    /// Bytes of the child's output parsed since the start.
+    pub parsed: u64,
 }
 
 impl Term {
@@ -64,6 +66,7 @@ impl Term {
             changed: false,
             present: false,
             exited: None,
+            parsed: 0,
         }
     }
 
@@ -93,6 +96,9 @@ impl Consumer for Term {
         self.coalesce.input(start, end, taken);
         self.unparsed = taken < output.len();
         self.changed |= taken > 0;
+        self.parsed = self
+            .parsed
+            .saturating_add(u64::try_from(taken).unwrap_or(u64::MAX));
         let action = self.sync.input(&mut self.terminal, end, self.unparsed);
         self.act(action);
         taken
@@ -204,11 +210,15 @@ pub struct Drawing {
 }
 
 /// What vtium draws of its own over a display's frame, outside the
-/// terminal's cells (ADR-1401 D5, D7): a notice across the top and the
-/// focus mark over the top-right cell.
+/// terminal's cells (ADR-1401 D5, D7): a box across the top, of the
+/// on-screen display's line and the notices, and the on-screen display's
+/// dot over the top-right cell.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Overlay {
     pub notice: Option<Notice>,
+    /// The box holds a notice of a problem, and is drawn in the notice's
+    /// colors; else in the on-screen display's.
+    pub problem: bool,
     pub mark: Option<Mark>,
 }
 
@@ -234,10 +244,11 @@ impl Overlay {
             .mark
             .and_then(|_| top_right(surface, grid, font.cell()));
         let colors = Colors::NOTICE;
+        let boxed = if self.problem { colors } else { Colors::STATUS };
         let notice = self
             .notice
             .as_ref()
-            .and_then(|n| n.draw(font, surface, colors, cell, target));
+            .and_then(|n| n.draw(font, surface, boxed, cell, target));
         let mark = self
             .mark
             .zip(cell)
@@ -404,7 +415,8 @@ pub struct View {
     /// The terminal's checkpoint after this view's last frame was taken.
     since: Age,
     pub wait: Wait,
-    /// A draw waits for the flip in flight, or the frame composing.
+    /// A draw waits for the display to take a frame, as after its flip in
+    /// flight, or for the frame composing.
     pub pending: bool,
     /// A draw waits for the hold's end.
     pub owed: bool,
@@ -519,6 +531,14 @@ impl View {
         self.since = Age::NEVER;
         self.lost = true;
         self.pointer.reset();
+    }
+
+    /// Draws another screen from the next frame, as a console switch
+    /// shows: the checkpoint the view kept is the other screen's history,
+    /// so the next frame draws every cell and copies the whole picture.
+    pub fn show_another(&mut self) {
+        self.since = Age::NEVER;
+        self.lost = true;
     }
 
     /// The font's cell.
@@ -677,6 +697,9 @@ impl View {
         }
         let start = clock();
         let Some(canvas) = video.canvas(self.id) else {
+            // A display that takes no frame now, as while a modeset waits
+            // for another display's flip, gets this one once it does.
+            self.pending |= !video.ready_for_frame(self.id);
             return Presented::default();
         };
         let (width, height, stride, age) = (canvas.width, canvas.height, canvas.stride, canvas.age);
@@ -911,6 +934,9 @@ mod tests {
         fn is_flipping(&self, _: DisplayId) -> bool {
             false
         }
+        fn ready_for_frame(&self, id: DisplayId) -> bool {
+            !self.is_flipping(id)
+        }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())
         }
@@ -1117,6 +1143,9 @@ mod tests {
         }
         fn is_flipping(&self, _: DisplayId) -> bool {
             false
+        }
+        fn ready_for_frame(&self, id: DisplayId) -> bool {
+            !self.is_flipping(id)
         }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())

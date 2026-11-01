@@ -9,3 +9,5 @@ small-640x480-1bit	vtium/vtium#135: a 1-bit display, drawn by vtium, not yet rev
 palette-unifont-1bit	vtium/vtium#135: a 1-bit display, drawn by vtium, not yet reviewed
 underline-unifont-1bit	vtium/vtium#135: a 1-bit display, drawn by vtium, not yet reviewed
 light-theme-1bit	vtium/vtium#135: polarity at 1 bit, drawn by vtium, not yet reviewed
+osd-full	vtium/vtium#169: the on-screen display's full line, drawn by vtium, not yet reviewed
+osd-minimal	vtium/vtium#169: the on-screen display's minimal dot, drawn by vtium, not yet reviewed

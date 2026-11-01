@@ -18,7 +18,7 @@ use rustix::io::Errno;
 use super::output::signed;
 use super::*;
 use crate::display::blank::Due;
-use crate::display::fake::{Commit, FakeCard, Plane, logs};
+use crate::display::fake::{Commit, FakeCard, Plane, RemoveFb, logs};
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 
@@ -47,6 +47,12 @@ fn events(v: &mut Drm2d<FakeCard>) -> Vec<Event> {
 /// Completes every flip and reads the events.
 fn flip(v: &mut Drm2d<FakeCard>) {
     v.card().complete_flips();
+    v.dispatch().unwrap();
+}
+
+/// Passes the next vblank and reads its events.
+fn vblank(v: &mut Drm2d<FakeCard>) {
+    v.card().vblank();
     v.dispatch().unwrap();
 }
 
@@ -121,6 +127,11 @@ fn a_display_opens_in_its_preferred_mode() {
     let blob = c.blob(100, "MODE_ID").unwrap();
     assert_eq!(*blob, mode_bytes(&mode(640, 480, 60, true).0));
     assert_eq!(blob.len(), size_of::<drm_mode_modeinfo>());
+    // The card reports the mode vtium set, as a later scan reads it.
+    assert_eq!(
+        v.card().crtc_mode(100).unwrap(),
+        Some(mode(640, 480, 60, true))
+    );
     let plane = primary(&v, A);
     assert_eq!(c.get(plane, "SRC_W"), Some(640 << 16));
     assert_eq!(c.get(plane, "CRTC_H"), Some(480));
@@ -256,6 +267,7 @@ fn ebusy_is_busy() {
     logs::capture();
     assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
     assert!(logs::at_least(Level::Warn).is_empty());
+    vblank(&mut v);
     frame(&mut v, &[DOT]).unwrap();
     assert!(v.canvas(DisplayId(A)).is_none(), "the flip is pending");
     assert!(matches!(v.swap(DisplayId(A), &[]), Err(SwapError::Busy)));
@@ -491,7 +503,7 @@ fn a_commit_that_fails_either_way_keeps_the_cursor() {
 }
 
 // A commit refused as busy is no fault of the cursor's: it waits for the
-// next swap.
+// swap after the next vblank.
 #[test]
 fn a_busy_commit_keeps_the_cursor_waiting() {
     let mut v = awake(one());
@@ -500,6 +512,7 @@ fn a_busy_commit_keeps_the_cursor_waiting() {
     v.card().state().commit_errors.push_back(Errno::BUSY);
     assert!(v.swap(DisplayId(A), &[]).is_err());
     assert!(v.need_commit(DisplayId(A)));
+    vblank(&mut v);
     v.swap(DisplayId(A), &[]).unwrap();
     assert!(!v.need_commit(DisplayId(A)));
 }
@@ -598,6 +611,77 @@ fn a_modeset_waits_for_the_pending_flip() {
     assert!(c.mentions(A) && c.mentions(B));
     // A keeps what it shows, so it needs no redraw.
     assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+}
+
+/// Whether each of `ids` is ready for a frame, after checking that the
+/// display lends a canvas exactly when it says it is.
+fn ready(v: &mut Drm2d<FakeCard>, ids: &[u32]) -> Vec<bool> {
+    ids.iter()
+        .map(|&id| {
+            let ready = v.ready_for_frame(DisplayId(id));
+            assert_eq!(v.canvas(DisplayId(id)).is_some(), ready, "display {id}");
+            // A canvas asked for here draws nothing: the next swap sends
+            // no frame for it.
+            if let Some(o) = v.outputs.iter_mut().find(|o| o.id.0 == id) {
+                o.lent = false;
+            }
+            ready
+        })
+        .collect()
+}
+
+// vtium/vtium#174: a display says whether it takes a frame, and lends a
+// canvas exactly then. A display kept through a modeset that waits for
+// another display's flip takes none until that flip and the modeset's own
+// are done; a display powered down, one waiting for a vblank, and every
+// display of a card asleep take none either.
+#[test]
+fn a_display_lends_a_canvas_exactly_while_it_is_ready_for_a_frame() {
+    const C: u32 = 43;
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+        (C, vec![mode(1024, 768, 60, true)]),
+    ]);
+    card.state().listed.retain(|&c| c != C);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(ready(&mut v, &[A, B, C]), [true, true, false]);
+    frame(&mut v, &[DOT]).unwrap();
+    assert_eq!(ready(&mut v, &[A, B]), [false, true], "A's flip in flight");
+    v.card().state().listed.push(C);
+    v.poll().unwrap();
+    assert_eq!(v.waits(), (true, false));
+    assert_eq!(
+        ready(&mut v, &[A, B]),
+        [false, false],
+        "the modeset waits for A's flip"
+    );
+    flip(&mut v);
+    assert_eq!(v.waits(), (false, false));
+    assert_eq!(
+        ready(&mut v, &[A, B, C]),
+        [false, false, false],
+        "the modeset's flip"
+    );
+    flip(&mut v);
+    assert_eq!(ready(&mut v, &[A, B, C]), [true, true, true]);
+    v.set_dpms(DisplayId(B), Dpms::Off).unwrap();
+    assert_eq!(ready(&mut v, &[A, B]), [true, false], "B powered down");
+    v.set_dpms(DisplayId(B), Dpms::On).unwrap();
+    assert_eq!(ready(&mut v, &[B]), [true]);
+    v.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
+    assert_eq!(
+        ready(&mut v, &[A, B]),
+        [false, true],
+        "A waits for a vblank"
+    );
+    vblank(&mut v);
+    assert_eq!(ready(&mut v, &[A]), [true]);
+    v.sleep();
+    assert_eq!(events(&mut v).last(), Some(&Event::Asleep));
+    assert_eq!(ready(&mut v, &[A, B, C]), [false, false, false], "asleep");
+    assert!(!v.ready_for_frame(DisplayId(99)), "no such display");
 }
 
 #[test]
@@ -719,7 +803,8 @@ fn a_card_opened_without_master_sleeps_quietly() {
 }
 
 // A monitor's power cycle: the connector goes, and another comes, as an
-// MST connector is replaced (aaronsb/kmscon#237).
+// MST connector is replaced (aaronsb/kmscon#237). With no display left the
+// card keeps master, as its VT is still shown.
 #[test]
 fn a_power_cycle_skips_the_gone_connector() {
     let card = FakeCard::new(&[
@@ -733,7 +818,7 @@ fn a_power_cycle_skips_the_gone_connector() {
     v.card().state().connectors.remove(&A);
     v.poll().unwrap();
     assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
-    assert!(!v.card().state().master, "no display left: master dropped");
+    assert!(v.card().state().master, "no display left: master kept");
     let before = v.card().state().commits.len();
     {
         let mut s = v.card().state();
@@ -883,6 +968,8 @@ fn the_wake_up_retries_run_out() {
     assert_eq!(events(&mut v), [Event::WakeFailed]);
 }
 
+// A card with no display keeps DRM master while its VT is shown, so the
+// kernel's console never lights a display plugged in later.
 #[test]
 fn a_connector_without_modes_is_no_display() {
     let card = FakeCard::new(&[(A, vec![])]);
@@ -890,7 +977,11 @@ fn a_connector_without_modes_is_no_display() {
     v.wake_up().unwrap();
     assert_eq!(events(&mut v), [Event::Awake]);
     assert_eq!(v.displays().count(), 0);
-    assert!(!v.card().state().master);
+    let s = v.card().state();
+    assert!(
+        s.master && s.master_drops == 0,
+        "master kept with no display"
+    );
 }
 
 #[test]
@@ -1096,6 +1187,201 @@ fn a_late_flip_event_after_the_bound_is_a_flip() {
         app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
     });
     assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+}
+
+// vtium/vtium#171: the card refuses a frame's commit as busy while no flip
+// of vtium's is in flight, as while a commit vtium does not track holds the
+// CRTC, and sends no flip event, since that commit is not vtium's. The
+// display waits for its next vblank as for a flip in flight, the vblank's
+// event wakes the loop, and the swap the owner tries after it puts the
+// frame on the primary plane.
+// covers: platform.drm2d-fbdev
+#[test]
+fn a_frame_refused_as_busy_with_no_flip_in_flight_reaches_the_screen() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    let o = app.0.outputs.iter().find(|o| o.id.0 == A).unwrap();
+    let (back, fb) = (o.back, o.back_fb());
+    app.0.card().state().commit_errors.push_back(Errno::BUSY);
+    logs::capture();
+    assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+    assert!(logs::at_least(Level::Warn).is_empty());
+    assert!(
+        app.0.is_flipping(DisplayId(A)),
+        "the refused frame waits for the display's next vblank"
+    );
+    let sent = app.0.card().real_commits().len();
+    assert!(matches!(
+        app.0.swap(DisplayId(A), &[]),
+        Err(SwapError::Busy)
+    ));
+    assert_eq!(app.0.card().real_commits().len(), sent, "nothing is sent");
+    app.0.card().vblank();
+    turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "the vblank's event ended the wait, not the flip bound"
+    );
+    assert!(events(&mut app.0).is_empty(), "no frame of vtium's flipped");
+    // The owner draws again: the back buffer still holds the frame.
+    assert!(app.0.need_commit(DisplayId(A)));
+    assert_eq!(app.0.canvas(DisplayId(A)).unwrap().age, 1);
+    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    flip(&mut app.0);
+    assert!(app.0.card().shows(100, fb), "{:?}", app.0.card().state());
+    let o = app.0.outputs.iter().find(|o| o.id.0 == A).unwrap();
+    assert_eq!(o.front(), back);
+    assert_eq!(o.buffers[back].map[0], 1, "the frame drawn is shown");
+}
+
+// A card that refuses every commit as busy is sent one commit a vblank:
+// each refusal waits for the next vblank, the loop sleeps until it passes,
+// and nothing is sent meanwhile.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test measures that the loop sleeps"
+)]
+fn a_card_refusing_every_commit_is_sent_one_a_vblank() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    let before = app.0.card().real_commits().len();
+    logs::capture();
+    for n in 1..=3 {
+        app.0.card().state().commit_errors.push_back(Errno::BUSY);
+        assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+        assert!(app.0.canvas(DisplayId(A)).is_none());
+        assert!(matches!(
+            app.0.swap(DisplayId(A), &[]),
+            Err(SwapError::Busy)
+        ));
+        assert_eq!(app.0.card().real_commits().len(), before + n);
+        let start = std::time::Instant::now();
+        lp.dispatch(Some(std::time::Duration::from_millis(100)), &mut app)
+            .unwrap();
+        assert!(start.elapsed().as_millis() >= 90, "the loop slept");
+        assert!(app.0.is_flipping(DisplayId(A)), "still waiting");
+        app.0.card().vblank();
+        turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    }
+    assert!(events(&mut app.0).is_empty());
+    assert!(logs::at_least(Level::Warn).is_empty());
+}
+
+// A vblank waited for whose event is lost is taken as done after the flip
+// bound, with one warning and no `Flipped`, since no frame flipped.
+#[test]
+fn a_lost_vblank_event_is_taken_as_done_after_the_bound() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    logs::capture();
+    app.0.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+    let took = turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert!(took.as_millis() >= 900, "taken as done after {took:?}");
+    assert!(events(&mut app.0).is_empty(), "no frame flipped");
+    assert_eq!(logs::at_least(Level::Warn).len(), 1, "one warning");
+    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    // The vblank's event, arriving late, ends nothing: a flip is in flight.
+    app.0.card().state().vblanks.push(100);
+    app.0.card().vblank();
+    app.0.dispatch().unwrap();
+    assert!(app.0.is_flipping(DisplayId(A)));
+}
+
+// A card with no vblank interrupt and no software vblank timer, as simpledrm,
+// udl or gud, or virtio-gpu before Linux 6.19, refuses
+// the wait for a vblank with EOPNOTSUPP while its commits can still be
+// refused as busy. The display then has nothing to wait for: it lends its
+// canvas again, and the frame goes with the next swap the owner tries,
+// which nothing asks for until the next draw (vtium/vtium#176).
+#[test]
+fn a_frame_refused_on_a_card_without_vblank_events_goes_with_the_next_swap() {
+    let mut v = awake(one());
+    v.card().state().commit_errors.push_back(Errno::BUSY);
+    v.card().state().no_vblank = true;
+    logs::capture();
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
+    assert!(logs::at_least(Level::Warn).is_empty());
+    assert!(!v.is_flipping(DisplayId(A)));
+    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+}
+
+// The stand-in ends vblank waits as the kernel does: a wait on a CRTC that
+// is not active is refused (`drm_queue_vblank_event`), one on a card with no
+// vblank interrupt too (`drm_wait_vblank_ioctl`), and a CRTC that goes off
+// sends the events still waiting at once (`drm_crtc_vblank_off`).
+#[test]
+fn the_stand_in_ends_vblank_waits_as_the_kernel_does() {
+    let mut v = awake(one());
+    v.card().wait_vblank(0).unwrap();
+    v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    let mut read = Vec::new();
+    v.card().read_events(&mut read).unwrap();
+    assert_eq!(read, [CrtcEvent::Vblank(100)]);
+    let e = v.card().wait_vblank(0).unwrap_err();
+    assert_eq!(e.raw_os_error(), Some(Errno::INVAL.raw_os_error()));
+    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    v.card().state().no_vblank = true;
+    let e = v.card().wait_vblank(0).unwrap_err();
+    assert_eq!(e.raw_os_error(), Some(Errno::OPNOTSUPP.raw_os_error()));
+}
+
+// A display powered down while a refused frame waits for its vblank ends
+// the wait at once, as the kernel sends the vblank's event when the CRTC
+// goes off: no bound runs out, and nothing is warned.
+#[test]
+fn a_display_powered_down_during_a_vblank_wait_ends_it_at_once() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    logs::capture();
+    app.0.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+    app.0.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    let took = turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert!(took.as_millis() < 500, "the wait ended after {took:?}");
+    assert!(logs::at_least(Level::Warn).is_empty());
+    assert!(events(&mut app.0).is_empty(), "no frame flipped");
+    assert!(matches!(app.0.swap(DisplayId(A), &[]), Err(SwapError::Off)));
+}
+
+// A vblank wait that spans a VT leave ends before the sleep does, as a flip
+// in flight does. Its event, arriving during the wake-up's modeset flip,
+// must not end that flip early nor lend the canvas before it.
+#[test]
+fn a_vblank_event_left_from_before_a_sleep_ends_no_later_flip() {
+    let mut v = awake(one());
+    v.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
+    v.sleep();
+    assert!(events(&mut v).is_empty(), "the sleep waits for the vblank");
+    // The bound runs out on the wait, so the sleep goes ahead.
+    v.flip_expired(100);
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    v.wake_up().unwrap();
+    assert!(v.is_flipping(DisplayId(A)), "the modeset's flip");
+    vblank(&mut v);
+    assert!(v.is_flipping(DisplayId(A)), "the old vblank ends no flip");
+    assert!(v.canvas(DisplayId(A)).is_none());
+    flip(&mut v);
+    assert!(v.canvas(DisplayId(A)).is_some());
+}
+
+// The warning for a lost event goes once for a run of lost events, and
+// the next event the card delivers ends the run: a vblank's event lost,
+// then a flip's event that arrives, then a flip's event lost, warn twice.
+#[test]
+fn each_run_of_lost_events_warns_once() {
+    let (mut lp, mut app) = in_loop(awake(one()));
+    logs::capture();
+    app.0.card().state().commit_errors.push_back(Errno::BUSY);
+    assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
+    turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert_eq!(logs::at_least(Level::Warn).len(), 1, "the lost vblank");
+    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    app.0.card().complete_flips();
+    turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    app.0.card().state().lose_flips = true;
+    frame(&mut app.0, &[DOT]).unwrap();
+    app.0.card().complete_flips();
+    turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
+    assert_eq!(logs::at_least(Level::Warn).len(), 2, "the lost flip too");
 }
 
 /// A card with A online and B known to the card but not yet plugged in.
@@ -2117,10 +2403,10 @@ fn a_crtc_a_dark_connector_leaves_drives_a_lit_display() {
     assert_eq!((s.bound.get(&A), s.bound.get(&B)), (Some(&100), Some(&0)));
 }
 
-// With every display dark, vtium takes master to set them off and lets it
-// go, as with no display at all.
+// With every display dark, vtium sets them off and keeps master, as with
+// no display at all, while its VT is shown.
 #[test]
-fn every_display_dark_is_set_off_and_master_let_go() {
+fn every_display_dark_is_set_off_and_master_kept() {
     let card = FakeCard::new(&[(B, vec![mode(640, 480, 60, true)])]);
     left_lit(&card, B, 0);
     let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
@@ -2142,7 +2428,7 @@ fn every_display_dark_is_set_off_and_master_let_go() {
         (Some(0), Some(0))
     );
     let s = v.card().state();
-    assert!(!s.master);
+    assert!(s.master && s.master_drops == 0, "master kept");
     assert_eq!(s.active.get(&100), Some(&false));
 }
 
@@ -2243,17 +2529,17 @@ fn a_displays_identity_names_its_connector_card_and_monitor() {
     assert_eq!(v.dark().count(), 0);
 }
 
-// With every display dark, master was let go; a dark connector plugged in
-// then takes it again for the commit that sets it off, and lets it go.
+// With no display, the card keeps master; a dark connector plugged in then
+// is set off under it, and master is still kept after.
 #[test]
-fn a_dark_connector_plugged_in_with_master_let_go_takes_master_for_its_commit() {
+fn a_dark_connector_plugged_in_with_no_display_is_set_off_under_the_master_kept() {
     let card = dark_card();
     card.state().connectors.get_mut(&B).unwrap().connected = false;
     let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
     v.set_dark(Box::new(|_: &Identity| true));
     v.wake_up().unwrap();
     let commits = v.card().state().commits.len();
-    assert!(!v.card().state().master);
+    assert!(v.card().state().master);
     v.card().state().connectors.get_mut(&B).unwrap().connected = true;
     v.poll().unwrap();
     let s = v.card().state();
@@ -2264,8 +2550,8 @@ fn a_dark_connector_plugged_in_with_master_let_go_takes_master_for_its_commit() 
         (Some(0), Some(0))
     );
     assert_eq!(s.active.get(&101), Some(&false));
-    assert!(!s.master);
-    assert_eq!(s.master_drops, 2);
+    assert!(s.master);
+    assert_eq!(s.master_drops, 0, "master never let go");
 }
 
 // ADR-1401 D9: lit at start is visible at start. A CRTC another master
@@ -2377,4 +2663,216 @@ fn the_displays_keep_the_cards_connector_order_across_a_replug() {
     v.card().state().listed = vec![A, B];
     v.poll().unwrap();
     assert_eq!(v.displays().collect::<Vec<_>>(), both);
+}
+
+/// The kernel console's mode for a display whose preferred mode is
+/// `w`x`h`, the one drm2d picks too.
+fn console_mode(w: u16, h: u16) -> Vec<u8> {
+    mode_bytes(&mode(w, h, 60, true).0)
+}
+
+/// Draws a frame of `byte` on display `id` once its flip is in, swaps it
+/// and returns the framebuffer it went on, which holds the frame; the
+/// events it raised are dropped.
+fn drawn(v: &mut Drm2d<FakeCard>, id: u32, byte: u8) -> u32 {
+    flip(v);
+    v.canvas(DisplayId(id)).expect("a canvas").pixels.fill(byte);
+    let o = v.outputs.iter().find(|o| o.id.0 == id).unwrap();
+    let (back, fb) = (o.back, o.back_fb());
+    v.swap(DisplayId(id), &[rect(0, 0, 640, 480)]).unwrap();
+    flip(v);
+    let o = v.outputs.iter().find(|o| o.id.0 == id).unwrap();
+    assert_eq!(o.front(), back, "the frame is the front buffer");
+    assert!(o.buffers[back].map.iter().all(|&b| b == byte));
+    v.events().for_each(drop);
+    fb
+}
+
+// The small panel on the test seat (vtium/vtium#18's seat, the operator's
+// VT pass of 2026-10-30): unplugged, its CRTC went off with vtium's
+// framebuffers; plugged back while vtium held no master, the kernel's
+// console lit it first, and vtium's frames on the console's mode left it
+// dark until a VT switch. While its VT is shown vtium keeps master with no
+// display, so the console never takes the panel, and the panel's return
+// sets its CRTC from off: its first frame shows.
+#[test]
+fn a_display_plugged_back_in_shows_its_first_frame() {
+    let mut v = awake(one());
+    drawn(&mut v, A, 0x11);
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.card().hotplug(&console_mode(640, 480));
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    {
+        let s = v.card().state();
+        assert_eq!(s.active.get(&100), Some(&false), "the CRTC went off");
+        assert!(s.master, "no display, and still master: the VT is shown");
+        assert_eq!(s.master_drops, 0);
+    }
+    v.card().state().connectors.get_mut(&A).unwrap().connected = true;
+    v.card().hotplug(&console_mode(640, 480));
+    assert!(
+        v.card().state().console_fbs.is_empty(),
+        "the console stays off"
+    );
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A))]);
+    let fb = drawn(&mut v, A, 0x22);
+    assert!(v.card().shows(100, fb), "{:?}", v.card().state());
+}
+
+// A display that returns gets a full modeset whatever its CRTC shows: one
+// plugged in while the VT was away, which the kernel's console lit with
+// no process holding master, is set off and set again at the wake-up, so
+// its first frame shows rather than stay dark on the console's mode.
+#[test]
+fn a_display_a_console_lit_while_away_is_set_anew_and_shows() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.sleep();
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.card().state().listed.push(B);
+    v.card().hotplug(&console_mode(800, 600));
+    assert_eq!(v.card().state().console_lit, [101]);
+    v.wake_up().unwrap();
+    let off = v
+        .card()
+        .real_commits()
+        .into_iter()
+        .rev()
+        .find(|c| c.get(101, "ACTIVE") == Some(0))
+        .expect("a commit that sets B's CRTC off");
+    assert_eq!(off.get(B, "CRTC_ID"), Some(0));
+    let fb = drawn(&mut v, B, 0x33);
+    assert!(v.card().shows(101, fb), "{:?}", v.card().state());
+}
+
+/// Whether a commit `v`'s card took sets `crtc` off.
+fn sets_off(v: &Drm2d<FakeCard>, crtc: u32) -> bool {
+    v.card()
+        .real_commits()
+        .iter()
+        .any(|c| c.get(crtc, "ACTIVE") == Some(0))
+}
+
+// On a driver that allows a CRTC with no primary plane, i915 among them,
+// the unplug leaves the panel's CRTC on, with its mode and the unplugged
+// connector still on it. The return sets that CRTC off first, then sets
+// the display anew, and its first frame shows.
+#[test]
+fn a_display_plugged_back_in_on_a_crtc_left_on_shows_its_first_frame() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().remove_fb = RemoveFb::PlaneOff;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x11);
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    {
+        let s = v.card().state();
+        assert_eq!(s.active.get(&100), Some(&true), "the CRTC stayed on");
+        assert_eq!(s.bound.get(&A), Some(&100));
+    }
+    v.card().state().connectors.get_mut(&A).unwrap().connected = true;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A))]);
+    let off = v
+        .card()
+        .real_commits()
+        .into_iter()
+        .find(|c| c.get(100, "ACTIVE") == Some(0))
+        .expect("a commit that sets the CRTC off");
+    assert_eq!(off.get(A, "CRTC_ID"), Some(0));
+    let fb = drawn(&mut v, A, 0x22);
+    assert!(v.card().shows(100, fb), "{:?}", v.card().state());
+}
+
+/// [`a_then_b`]'s card with B's connector on A's CRTC, 100, as another
+/// master left the two cloned there, and the card's calls atomic or not.
+fn b_cloned_on_a(atomic: bool) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.atomic = atomic;
+        s.listed.retain(|&c| c == A);
+        s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b11;
+    }
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.card().state().bind(B, 100);
+    v
+}
+
+// A display that returns on a CRTC a display online drives only leaves
+// that CRTC: the display online stays on, and the one returning is set on
+// a CRTC of its own.
+#[test]
+fn a_display_returning_on_a_crtc_another_display_drives_leaves_it_on() {
+    let mut v = b_cloned_on_a(true);
+    let shown = drawn(&mut v, A, 0x44);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    assert!(!sets_off(&v, 100), "A's CRTC is never set off");
+    assert!(v.card().shows(100, shown), "{:?}", v.card().state());
+    assert_eq!(v.card().state().bound.get(&B), Some(&101));
+}
+
+// The legacy calls keep the same rule: a CRTC a display online drives is
+// never turned off for a display that returns, while one only the
+// returning display's connector is on is.
+#[test]
+fn a_legacy_display_returning_turns_off_only_a_crtc_no_display_drives() {
+    let mut v = b_cloned_on_a(false);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert!(
+        v.card().state().disabled_crtcs.is_empty(),
+        "A's CRTC stays on"
+    );
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    card.state().atomic = false;
+    card.state().listed.retain(|&c| c == A);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    left_lit(v.card(), B, 1);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert_eq!(v.card().state().disabled_crtcs, [101]);
+}
+
+// The first scan's displays are set without an off commit first: a boot
+// display keeps the frame the console left on it until vtium's first
+// modeset puts vtium's own there.
+#[test]
+fn the_first_scans_displays_are_set_without_an_off_commit() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    left_lit(&card, A, 0);
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let commits = v.card().real_commits();
+    assert_eq!(commits.len(), 1, "the modeset alone");
+    assert_eq!(commits[0].get(100, "ACTIVE"), Some(1));
+}
+
+// A display that returns is set from off once: its modeset clears the mark,
+// so the next wake-up sets it as any display online, with no off commit.
+#[test]
+fn a_returned_display_is_set_from_off_only_once() {
+    let mut v = awake(one());
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    v.card().state().connectors.get_mut(&A).unwrap().connected = true;
+    v.poll().unwrap();
+    flip(&mut v);
+    assert!(v.outputs.iter().all(|o| !o.returning));
+    v.sleep();
+    flip(&mut v);
+    let before = v.card().real_commits().len();
+    v.wake_up().unwrap();
+    let after = &v.card().real_commits()[before..];
+    assert_eq!(after.len(), 1, "the wake-up's modeset alone: {after:?}");
 }

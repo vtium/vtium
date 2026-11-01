@@ -13,13 +13,13 @@ import tarfile
 
 from t3_common import RUNDIR, rel
 
-# The operator's size budget for the minspec binary, 3 MiB, raised from
-# 2.50 MiB on 2026-10-29 by the operator's decision recorded in ADR-1200
-# D19, the 2.50 MiB figure being arbitrary, to be revisited after the
-# first cut of heads. A run whose binary is larger fails, and raising the
-# budget is a decision recorded in an ADR, this one ADR-1200 D19.
+# The operator's size budget for the minspec binary, 3.5 MiB, raised from
+# 3 MiB on 2026-10-31 by the operator's decision recorded in ADR-1200 D19,
+# so that new work need not be trimmed to fit. A run whose binary is
+# larger fails, and raising the budget is a decision recorded in an ADR,
+# this one ADR-1200 D19.
 BINARY = "usr/bin/vtium"
-BINARY_BUDGET = 3145728
+BINARY_BUDGET = 3670016
 # What the guest needs of a tree (README, "What the harness needs of the
 # build"): the VT unit the base image's autovt@.service links to, and the
 # binary it starts.
