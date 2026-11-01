@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""
+issue-refs - check that no decision record names a GitHub issue or PR by number
+
+Usage:
+    docs/scripts/issue-refs [--root DIR] [FILE...]
+
+A decision record never names a GitHub issue or pull request by its number.
+It says in a short phrase what the issue is about, so that the record carries
+its meaning on its own (AGENTS.md, "Writing"). This script reads every
+docs/architecture/*/ADR-*.md and every SVG under docs/architecture/*/figures/,
+prints `file:line: text` for each line that names an issue or PR by number,
+and exits 1 if it finds any. It exits 0 when it finds none, and 2 when it
+finds no file to read, so a wrong root never passes.
+
+--root DIR reads the records under DIR instead of this checkout, for example
+an exported copy of another commit. FILE arguments read only those files.
+
+What counts as a reference:
+    - a bare `#123`, as in "(#123)" or "#12's table";
+    - `owner/repo#123`, such as `vtium/vtium#47` or `aaronsb/libtsm#79`;
+    - `vtium#47`, `kmscon#254` or `libtsm#79`, a repository named without its
+      owner;
+    - "PR 193", "PR #193", "issue 157", "issues 12", "pull request 162";
+    - a link to github.com/OWNER/REPO/issues/N or /pull/N.
+
+What does not count:
+    - ADR numbers (ADR-1200), decision labels (D17), commit hashes and line
+      numbers, which carry no `#`;
+    - hex colors such as `#1a1a1a` or `fill:#475569`: a `#` after a letter, a
+      digit, a colon or `&` is never a bare reference, and a run of digits
+      followed by a hex letter is a color;
+    - a Unicode annex or standard named by its number, such as "UAX #29";
+    - `#1` inside a word, as in a login command `cmd --x#1`, since only the
+      three repository names above may stand right before a `#`.
+
+Where it looks in a record:
+    - The YAML frontmatter and the body are read as text, so a `said:` or
+      `via:` field is checked like any sentence.
+    - A fenced code block is skipped, except a `mermaid` block, whose labels
+      are drawn in the rendered figure.
+    - An inline code span is skipped when it holds code, and checked when it
+      holds a reference that names its repository, and nothing else, such as
+      `kmscon/kmscon#594`, `libtsm#79` or `kmscon/kmscon issue 594`, or a
+      link to an issue. A span that holds a bare `#123` reads as code, since
+      a color such as `#123` looks the same; so does a span with a `#` among
+      other code, such as `cmd --x#1`.
+
+Where it looks in a figure:
+    - The text between tags, which holds the drawn labels and the <title>, and
+      the value of an `aria-label` or `alt` attribute. Other attributes hold
+      colors, sizes and ids, and are skipped.
+
+The TSVs beside ADR-1000 are not read: their issue column names each row's
+GitHub issue on purpose.
+"""
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+REPOS = r"(?:vtium|kmscon|libtsm)"
+STANDARDS = re.compile(r"(?:UAX|UTS|UTR|TR)\s*$")
+
+# Each pattern finds one form of reference. BARE needs the extra test in
+# bare_refs, so it is kept apart.
+BARE = re.compile(r"(?<![\w&:/#])#(\d+)(?![0-9A-Fa-f\w])")
+FORMS = [
+    re.compile(r"\b[\w.-]+/[\w.-]+#\d+\b"),
+    re.compile(r"\b" + REPOS + r"#\d+\b"),
+    re.compile(r"\bPRs? #?\d+\b"),
+    re.compile(r"\b(?:issues?|pull requests?) #?\d+\b", re.IGNORECASE),
+    re.compile(r"github\.com/[\w.-]+/[\w.-]+/(?:issues|pull)/\d+"),
+]
+ONLY_A_REFERENCE = re.compile(
+    r"\s*(?:[\w.-]+/[\w.-]+#\d+|" + REPOS + r"#\d+"
+    r"|[\w.-]+/[\w.-]+ (?:issue|PR|pull request) #?\d+"
+    r"|\S*github\.com/[\w.-]+/[\w.-]+/(?:issues|pull)/\d+\S*)\s*"
+)
+CODE_SPAN = re.compile(r"(`+)(.+?)\1")
+FENCE = re.compile(r"^\s*(```+|~~~+)\s*([\w-]*)")
+SVG_TEXT = re.compile(r">([^<]+)<")
+SVG_LABEL = re.compile(r'\b(?:aria-label|alt)="([^"]*)"')
+
+
+def references(text):
+    """Return each reference the text holds, in order."""
+    found = []
+    for m in BARE.finditer(text):
+        if not STANDARDS.search(text[: m.start()]):
+            found.append((m.start(), m.group(0)))
+    for pattern in FORMS:
+        found.extend((m.start(), m.group(0)) for m in pattern.finditer(text))
+    return [ref for _, ref in sorted(set(found))]
+
+
+def without_code(line):
+    """Blank each inline code span that holds code, keep one that is a reference."""
+
+    def blank(m):
+        if ONLY_A_REFERENCE.fullmatch(m.group(2)):
+            return m.group(0)
+        return " " * len(m.group(0))
+
+    return CODE_SPAN.sub(blank, line)
+
+
+def record_hits(lines):
+    fence = None
+    for number, line in enumerate(lines, 1):
+        m = FENCE.match(line)
+        if m:
+            if fence is None:
+                fence = m.group(2) or "plain"
+            elif line.strip().startswith(m.group(1)[:3]):
+                fence = None
+            continue
+        if fence not in (None, "mermaid"):
+            continue
+        text = line if fence == "mermaid" else without_code(line)
+        if references(text):
+            yield number, line
+
+
+def figure_hits(lines):
+    for number, line in enumerate(lines, 1):
+        parts = SVG_TEXT.findall(line) + SVG_LABEL.findall(line)
+        if any(references(part) for part in parts):
+            yield number, line
+
+
+def check(path, shown):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    hits = figure_hits(lines) if path.suffix == ".svg" else record_hits(lines)
+    count = 0
+    for number, line in hits:
+        print(f"{shown}:{number}: {line.strip()}")
+        count += 1
+    return count
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1].split(" - ")[1])
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("files", nargs="*", type=Path)
+    args = parser.parse_args()
+
+    if args.files:
+        files = args.files
+    else:
+        arch = args.root / "docs" / "architecture"
+        files = sorted(arch.glob("*/ADR-*.md")) + sorted(arch.glob("*/figures/*.svg"))
+    if not files:
+        print(f"issue-refs: no record or figure found under {args.root}", file=sys.stderr)
+        return 2
+
+    hits = 0
+    for path in files:
+        try:
+            shown = path.relative_to(args.root)
+        except ValueError:
+            shown = path
+        hits += check(path, shown)
+
+    records = sum(1 for f in files if f.suffix == ".md")
+    figures = len(files) - records
+    if hits:
+        print(f"issue-refs: {hits} lines name an issue or PR by number, in {records} records and {figures} figures", file=sys.stderr)
+        return 1
+    print(f"issue-refs: {records} records and {figures} figures name no issue or PR by number")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
