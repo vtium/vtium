@@ -89,13 +89,25 @@ fn main() -> ExitCode {
             }
         },
     };
+    // Before the loop and the VT, so a failure opening either under a
+    // closed policy still leaves the marker that keeps the getty off.
+    let heads = vtium::head::rules(
+        Path::new(vtium_config::HEAD_FILE),
+        &vtium_config::Trust::ROOT,
+    );
+    vtium::getty::mark(
+        Path::new(vtium::getty::DIR),
+        path.as_deref().and_then(vtium::getty::vt_number),
+        heads.outcome.policy,
+    );
     let status = match path {
-        Some(path) => run_kernel(config, start, &path),
+        Some(path) => run_kernel(config, start, heads, &path),
         None => {
             log::info!(target: "vt", "no VTs: using a fake VT");
             run(
                 config,
                 start,
+                heads,
                 None,
                 Box::new(|_| Ok(Box::new(FakeVt::new()))),
             )
@@ -110,12 +122,18 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_kernel(config: config::Config, start: Start, path: &Path) -> io::Result<i32> {
+fn run_kernel(
+    config: config::Config,
+    start: Start,
+    heads: vtium::head::Start,
+    path: &Path,
+) -> io::Result<i32> {
     let console = kernel_font(path);
     let path = path.to_owned();
     run(
         config,
         start,
+        heads,
         console,
         // The VT opens once the loop blocks its signals: `vtium blank`
         // finds a vtium by its open VT, and its signal at the default
@@ -151,11 +169,12 @@ fn kernel_font(path: &Path) -> Option<ConsoleFont> {
 /// How the seat's VT is opened, in the loop it runs in.
 type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 
-/// Runs the seat on the VT `open` gives, until it ends; returns the exit
-/// status. It is compiled once, whichever VT it runs on.
+/// Runs the seat on the VT `open` gives, with the head file `heads`
+/// resolved to, until it ends; returns the exit status. It is compiled once, whichever VT it runs on.
 fn run(
     config: config::Config,
     start: Start,
+    heads: vtium::head::Start,
     console: Option<ConsoleFont>,
     open: Open,
 ) -> io::Result<i32> {
@@ -178,15 +197,6 @@ fn run(
     if let Some(font) = console {
         app.set_console_font(font);
     }
-    let heads = vtium::head::rules(
-        Path::new(vtium_config::HEAD_FILE),
-        &vtium_config::Trust::ROOT,
-    );
-    vtium::getty::mark(
-        Path::new(vtium::getty::DIR),
-        app.vt.number(),
-        heads.outcome.policy,
-    );
     app.set_heads(heads);
 
     match start.input() {

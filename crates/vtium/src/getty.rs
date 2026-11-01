@@ -8,16 +8,21 @@
 //! panic under closed leave the VT with no login. vtium never reads the
 //! file.
 //!
-//! The file sits beside the VT's run directory, `/run/vtium/ttyN/`, never
-//! in it: systemd removes the unit's `RuntimeDirectory=` when vtium stops,
-//! before the fallback unit checks its condition, and removes only the
-//! innermost directory, so `/run/vtium/` stays. `/run` is cleared at every
-//! boot, so a marker never outlives the boot that wrote it.
+//! vtium writes it before it opens its loop or its VT, so a failure at
+//! either still leaves it, and a failure before vtium has read the head
+//! file leaves an earlier closed run's marker of this boot where it is.
+//!
+//! The VT's run directory, `/run/vtium/ttyN/`, will be the unit's
+//! `RuntimeDirectory=vtium/%i` (ADR-1401 D10, not built yet). systemd
+//! removes only that innermost directory when vtium stops, before the
+//! fallback unit checks its condition, so the marker sits one level up, in
+//! `/run/vtium/`. `/run` is cleared at every boot, so a marker never
+//! outlives the boot that wrote it.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
-use rustix::fs::{Mode, OFlags};
+use rustix::fs::{Mode, OFlags, major, minor};
 use vtium_config::Policy;
 
 /// The directory the marker lives in, the parent of every VT's run
@@ -28,6 +33,23 @@ pub const DIR: &str = "/run/vtium";
 /// instance gives the VT and the fallback unit's condition names.
 pub fn path(dir: &Path, vt: u16) -> PathBuf {
     dir.join(format!("tty{vt}.closed"))
+}
+
+/// The kernel's major number of the VTs' devices, `/dev/ttyN`.
+const VT_MAJOR: u32 = 4;
+
+/// The highest VT number the kernel gives, `MAX_NR_CONSOLES`.
+const VT_LAST: u32 = 63;
+
+/// The number of the VT whose device is at `tty`, read from the device's
+/// numbers, so a path of any spelling names its VT; `None` for a path that
+/// is no VT, a pty or a serial line among them, or that cannot be read.
+pub fn vt_number(tty: &Path) -> Option<u16> {
+    let rdev = rustix::fs::stat(tty).ok()?.st_rdev;
+    let vt = minor(rdev);
+    (major(rdev) == VT_MAJOR && (1..=VT_LAST).contains(&vt))
+        .then(|| u16::try_from(vt).ok())
+        .flatten()
 }
 
 /// Writes the marker of VT `vt` in `dir` under the closed policy, and
@@ -137,6 +159,68 @@ mod tests {
         let dir = scratch("no-vt");
         mark(&dir, None, Policy::Closed);
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn a_path_that_is_no_vt_has_no_number() {
+        assert_eq!(vt_number(Path::new("/dev/null")), None);
+        assert_eq!(vt_number(Path::new("/nonexistent/tty3")), None);
+        assert_eq!(
+            vt_number(Path::new("/dev/tty0")),
+            None,
+            "the VT shown, no one VT"
+        );
+        // a stat reads the node's numbers and opens nothing
+        if Path::new("/dev/tty3").exists() {
+            assert_eq!(vt_number(Path::new("/dev/tty3")), Some(3));
+        }
+    }
+
+    /// The value of the first line of `unit` that sets `key`.
+    fn setting<'a>(unit: &'a str, key: &str) -> Option<&'a str> {
+        unit.lines()
+            .find_map(|l| l.strip_prefix(key)?.strip_prefix('='))
+    }
+
+    // The VT unit's failure starts the fallback, and the fallback's
+    // condition names the very file `mark` writes, with the unit's
+    // instance, `%i`, standing for `ttyN`.
+    // covers: platform.heads.policy
+    #[test]
+    fn the_units_skip_the_getty_on_the_file_mark_writes() {
+        let vt = include_str!("../install/kmsconvt@.service");
+        let fallback = include_str!("../install/kmsconvt-getty@.service");
+        assert_eq!(setting(vt, "OnFailure"), Some("kmsconvt-getty@%i.service"));
+        let marker = path(Path::new(DIR), 7);
+        let marker = marker.to_str().unwrap().replace("tty7", "%i");
+        assert_eq!(
+            setting(fallback, "ConditionPathExists"),
+            Some(format!("!{marker}").as_str())
+        );
+        assert_eq!(
+            setting(fallback, "ExecStart"),
+            Some("systemctl --no-block start getty@%i.service")
+        );
+    }
+
+    // The start writes the marker from `main`, ahead of the loop and the VT
+    // it opens in `run`, so a failure at either still leaves it. `main` is
+    // the binary's wiring, which no test drives, so this reads its text.
+    #[test]
+    fn main_marks_before_it_opens_the_loop_or_the_vt() {
+        let source = include_str!("main.rs");
+        let body = source
+            .split_once("fn main() -> ExitCode {")
+            .and_then(|(_, rest)| rest.split_once("\nfn "))
+            .map(|(body, _)| body)
+            .unwrap();
+        assert_eq!(source.matches("getty::mark(").count(), 1, "one call");
+        assert!(body.contains("vtium::getty::mark("), "the call is in main");
+        assert!(
+            body.contains("vtium::getty::vt_number"),
+            "its VT is the path's"
+        );
+        assert!(!body.contains("Loop::new"), "main opens no loop before it");
     }
 
     #[test]
