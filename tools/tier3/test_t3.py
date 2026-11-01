@@ -1245,7 +1245,8 @@ class VtiumGoldenTest(unittest.TestCase):
                    "two-cards-mirror/sgr", "two-cards-mirror/sgr@card1",
                    "two-cards-mirror/cjk", "two-cards-mirror/cjk@card1", "usb-keyboards/cjk"]
         heads = ["heads-two-heads/cjk", "heads-partly-open/partly-notice", "heads-partly-open/cjk",
-                 "heads-closed-broken/panic", "heads-closed-unmatched/no-display-notice"]
+                 "heads-closed-broken/panic", "heads-closed-unmatched/no-display-notice",
+                 "heads-kiosk/cjk"]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
                                                "sysvinit-two-vts/cjk"] + moved + frit + devices
