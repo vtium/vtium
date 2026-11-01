@@ -28,7 +28,7 @@
 <!-- the chord -->
 <line x1="480" y1="200" x2="480" y2="246" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <text x="494" y="222" font-size="12">the roaming chord, pressed on the keyboard</text>
-<text x="494" y="238" font-size="11">(a grab key; its default chord is vtium/vtium#82's)</text>
+<text x="494" y="238" font-size="11">(a grab key; the several-sessions work sets its default chord)</text>
 <text x="16" y="248" font-size="13" font-weight="bold">after the chord</text>
 <!-- row 2 -->
 <rect x="16" y="260" width="420" height="100" fill="#e6eef7" stroke="#2f6fb0" stroke-width="2"/>
