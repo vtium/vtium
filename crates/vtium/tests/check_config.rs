@@ -362,7 +362,7 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
                 "{f}: The policy is closed: an input no rule places is ignored, a head that leaves `isolated` unset is isolated, and the anti-lockout guard and the rescue key are off."
             ),
             format!(
-                "{f}: A start runs the heads and rules that survive, with the rescue key off and every head isolated as written, and shows `config partly invalid, running what's valid`."
+                "{f}: A start runs the heads and rules that survive, with the rescue key off; each head keeps the isolation it states, and a head that states none is isolated. It shows `config partly invalid, running what's valid`."
             ),
         ],
         "{notes}"

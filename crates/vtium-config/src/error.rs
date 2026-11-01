@@ -407,14 +407,15 @@ pub struct AtStart(pub Read);
 pub struct Stating(pub Trusted);
 
 /// A path as a message names it, with every control and format character
-/// escaped, so a newline in it never splits the line.
+/// escaped, so a newline in it never splits the line, and a backslash
+/// escaped too, so an escape never reads as a character the path holds.
 #[derive(Clone, Copy, Debug)]
 pub struct Shown<'a>(pub &'a std::path::Path);
 
 impl fmt::Display for Shown<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for c in self.0.to_string_lossy().chars() {
-            if matches!(c, '\\' | '"' | '\'') {
+            if matches!(c, '"' | '\'') {
                 f.write_char(c)?;
             } else {
                 for e in c.escape_debug() {

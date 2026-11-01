@@ -963,7 +963,7 @@ mod tests {
             ),
             (
                 format!("version = 1\npolicy = closed\n{head}display * -> b\n"),
-                "A start runs the heads and rules that survive, with the rescue key off and every head isolated as written, and shows `config partly invalid, running what's valid`.",
+                "A start runs the heads and rules that survive, with the rescue key off; each head keeps the isolation it states, and a head that states none is isolated. It shows `config partly invalid, running what's valid`.",
                 CLOSED,
             ),
             (
@@ -1367,6 +1367,7 @@ mod tests {
                 UNSET
             ]
         );
+        assert_eq!(out.notes.len(), 2, "{:?}", out.notes);
     }
 
     // ADR-1401 D4, probe 4 (the recommendation, WEAK_MATCH_COUNTS): input

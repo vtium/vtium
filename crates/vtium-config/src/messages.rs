@@ -558,7 +558,7 @@ impl fmt::Display for AtStart {
                 ),
                 (Runs::Survivors, Policy::Closed, _) => write!(
                     f,
-                    "A start runs the heads and rules that survive, with the rescue key off and every head isolated as written, and shows `{line}`."
+                    "A start runs the heads and rules that survive, with the rescue key off; each head keeps the isolation it states, and a head that states none is isolated. It shows `{line}`."
                 ),
                 (Runs::Builtin, Policy::Open | Policy::Closed, None) => f.write_str(
                     "This file declares nothing, so a start runs the shipped default and shows nothing.",
@@ -729,6 +729,17 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    // a backslash in a path is escaped too, so a path holding a backslash
+    // and an `n` never reads as one holding a newline
+    #[test]
+    fn a_backslash_in_a_path_is_escaped() {
+        let backslash = crate::error::Shown(Path::new("/tmp/a\\nb.conf")).to_string();
+        let newline = crate::error::Shown(Path::new("/tmp/a\nb.conf")).to_string();
+        assert_eq!(backslash, "/tmp/a\\\\nb.conf");
+        assert_eq!(newline, "/tmp/a\\nb.conf");
+        assert_ne!(backslash, newline);
     }
 
     // the path is the file's, escaped, so a control character in it never
