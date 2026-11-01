@@ -170,3 +170,31 @@ fn the_reader_refuses_a_box_past_the_reach() {
         }
     }
 }
+
+// a box whose record names a color strike is refused, as a color glyph
+// fits its cells (review finding A8): a set of an R8 strike holding A and
+// its box and an RGBA strike holding B at one cell, the box's record then
+// pointed at the RGBA strike, number 1 of the two
+#[test]
+fn the_reader_refuses_a_box_in_a_color_strike() {
+    let mut r8 = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default()).compress(false);
+    let a = r8.glyph(Width::Narrow, vec![9; 8]);
+    r8.map('A', a);
+    r8.ink(a, -1, 5, columns(5));
+    let mut rgba = StrikeBuilder::new(PixelFormat::Rgba, CELL, Style::default()).compress(false);
+    let b = rgba.glyph(Width::Narrow, vec![0; 32]);
+    rgba.map('B', b);
+    let bytes = SetBuilder::new("two")
+        .strike(r8)
+        .strike(rgba)
+        .write()
+        .expect("written");
+    assert!(Set::from_bytes(bytes.clone()).is_ok(), "the untampered set");
+    let tampered = with_section(&bytes, b"INKX", |inkx| {
+        inkx[16..18].copy_from_slice(&1u16.to_le_bytes());
+    });
+    match Set::from_bytes(tampered) {
+        Err(SetError::Malformed(why)) => assert!(why.contains("color"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+}

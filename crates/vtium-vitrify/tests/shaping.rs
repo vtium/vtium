@@ -443,3 +443,45 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
         assert!((first + last).abs_diff(10) <= 1, "row {y} centred: {c:?}");
     }
 }
+
+// ADR-1302 D2: a stretched cluster is stretched as one, its marks'
+// offsets included, so a mark stays over its letter (review finding B8).
+// At 20 pixels, a 12-pixel cell, a beh advancing 400 units, 7.8 pixels,
+// stretches by 12 / 7.8; HarfRust centres its fatha, 200 units wide, over
+// it with an offset. Stretched with its offset, the fatha covers columns 3
+// to 9 of row 7, centred over the stretched beh; with its offset left
+// unstretched, columns 2 to 8. A seen advancing 1,000 units, 19.5 pixels,
+// is two cells wide, and stretched to fill both
+#[test]
+fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
+    let mut f = ttf::test_mono();
+    f.glyphs.push(ttf::Glyph::rect(400, 0, 0, 400, 300));
+    f.glyphs.push(ttf::Glyph::rect(0, 0, 400, 200, 500));
+    f.glyphs.push(ttf::Glyph::rect(1000, 0, 0, 1000, 300));
+    f.cmap.extend([(0x628, 8), (0x64e, 9), (0x633, 10)]);
+    f.cmap.sort_unstable();
+    let key = ['\u{628}', '\u{64e}'];
+    let o = rasterise(&OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        cover: Vec::new(),
+        clusters: vec![ask(&key, Kind::Marks)],
+        baselines: Vec::new(),
+    })
+    .expect("rasterised");
+    assert_eq!(o.strikes[0].width, 12);
+    let g = cluster(&o, &key).expect("beh and fatha");
+    let row: Vec<usize> = (0..12).filter(|&x| g.pixels[7 * 12 + x] > 0).collect();
+    assert_eq!(
+        row,
+        (3..10).collect::<Vec<_>>(),
+        "the fatha centred over the beh"
+    );
+    let seen = codepoint(&o, '\u{633}');
+    assert!(seen.wide, "two cells");
+    assert!(
+        seen.pixels[12 * 24..13 * 24].iter().all(|&p| p == 255),
+        "the bar fills both cells"
+    );
+}

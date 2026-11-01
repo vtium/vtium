@@ -2048,6 +2048,41 @@ mod tests {
         assert!(inked(8) && !inked(9), "a stands on row 9 asked alone");
     }
 
+    // one helper keeps a source's baseline for each height apart (review
+    // finding A7): Test Mono's underscore leaves its baseline at 8 in a
+    // 10-pixel cell and raises it from 10 to 9 in a 12-pixel one
+    #[test]
+    fn the_baseline_is_kept_for_each_height() {
+        let mut font = super::ttf::test_mono();
+        font.glyphs
+            .push(super::ttf::Glyph::rect(600, 0, -200, 600, -100));
+        font.cmap.push((0x5f, 8));
+        font.cmap.sort_unstable();
+        let (frit, dir) = outline_frit("two-heights", "", &[Ok(font)]);
+        let at = |h| ServeRequest {
+            cell: Cell {
+                width: 7,
+                height: h,
+            },
+            ..request(ASK, frit.clone(), &['A'])
+        };
+        let frames = run(&[at(10), at(12), at(10)]);
+        let _ = std::fs::remove_dir_all(dir);
+        let bases: Vec<u32> = frames
+            .iter()
+            .filter(|f| f.0 == FRAME_GLYPHS)
+            .map(|f| {
+                Set::from_bytes(f.1.clone())
+                    .unwrap()
+                    .strikes()
+                    .next()
+                    .unwrap()
+                    .baseline
+            })
+            .collect();
+        assert_eq!(bases, [8, 9, 8]);
+    }
+
     // a strike reports its frit's first source's baseline even once that
     // source has failed as it drew, so the answers at one cell never change
     // mid-session (review finding A6): Test Mono with an underscore that
