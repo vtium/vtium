@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use super::Mode;
-use crate::bounds::BLOB_MAX;
+use crate::bounds::{BLOB_MAX, ENCODERS_MAX, MODES_MAX, OBJECT_PROPERTIES_MAX, PLANES_MAX};
 
 /// The card's CRTCs and connectors, in the kernel's order.
 #[derive(Clone, Debug, Default)]
@@ -32,6 +32,20 @@ pub(crate) struct Connector {
     /// The encoder it is bound to, 0 for none.
     pub(crate) encoder: u32,
     pub(crate) encoders: Vec<u32>,
+}
+
+/// What one read of a connector gives besides its lists: the counts of
+/// its modes and encoders, which can be larger than the buffers the read
+/// was given.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ConnectorRead {
+    pub(crate) kind: u32,
+    pub(crate) kind_id: u32,
+    pub(crate) connected: bool,
+    pub(crate) mm: (u32, u32),
+    pub(crate) encoder: u32,
+    pub(crate) modes: usize,
+    pub(crate) encoders: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -101,15 +115,120 @@ pub(crate) trait Kms {
     fn drop_master(&self) -> io::Result<()>;
 
     fn resources(&self) -> io::Result<Resources>;
-    fn connector(&self, id: u32) -> io::Result<Connector>;
+
+    /// One read of connector `id`, a GETCONNECTOR: its modes into `modes`
+    /// and its encoders into `encoders`, each list only where its buffer
+    /// holds the whole list, and the counts the connector has either way.
+    /// A read whose `modes` is empty probes the connector first while
+    /// vtium holds DRM master, so one plugged in since the last probe shows
+    /// its modes; without master the kernel reads what it knows.
+    fn read_connector(
+        &self,
+        id: u32,
+        modes: &mut [Mode],
+        encoders: &mut [u32],
+    ) -> io::Result<ConnectorRead>;
+
+    /// Connector `id`, read in two: a probe that gives its counts, then
+    /// its lists into buffers of those counts. A connector with more modes
+    /// than [`MODES_MAX`] or more encoders than [`ENCODERS_MAX`] is
+    /// refused unread, and so is one whose counts changed between the two
+    /// reads, as when the connector was torn down and its id given to
+    /// another. The caller reads it again the next time it needs it.
+    fn connector(&self, id: u32) -> io::Result<Connector> {
+        let first = self.read_connector(id, &mut [], &mut [])?;
+        let modes_len = within(first.modes, MODES_MAX, "modes")?;
+        let encoders_len = within(first.encoders, ENCODERS_MAX, "encoders")?;
+        // Room for one mode where it has none, so the second read does not
+        // probe again.
+        let mut modes = vec![Mode::default(); modes_len.max(1)];
+        let mut encoders = vec![0; encoders_len];
+        let info = self.read_connector(id, &mut modes, &mut encoders)?;
+        unchanged("modes", modes_len, info.modes)?;
+        unchanged("encoders", encoders_len, info.encoders)?;
+        modes.truncate(modes_len);
+        Ok(Connector {
+            id,
+            kind: info.kind,
+            kind_id: info.kind_id,
+            connected: info.connected,
+            modes,
+            mm: info.mm,
+            encoder: info.encoder,
+            encoders,
+        })
+    }
+
+    /// The encoder connector `id` is on, 0 for none, in one read with
+    /// room for one mode and no encoders, so the connector is not probed,
+    /// as libdrm's `drmModeGetConnectorCurrent` reads it. The read's lists
+    /// are not used, so no count of them is trusted.
+    fn connector_encoder(&self, id: u32) -> io::Result<u32> {
+        let mut one = [Mode::default()];
+        Ok(self.read_connector(id, &mut one, &mut [])?.encoder)
+    }
+
     fn encoder(&self, id: u32) -> io::Result<Encoder>;
     /// The mode a CRTC shows now, if any.
     fn crtc_mode(&self, id: u32) -> io::Result<Option<Mode>>;
-    fn planes(&self) -> io::Result<Vec<u32>>;
+
+    /// One read of the card's planes, a GETPLANERESOURCES: their ids into
+    /// `ids`, at most its length of them, and the count the card has,
+    /// which can be larger.
+    fn read_planes(&self, ids: &mut [u32]) -> io::Result<usize>;
+
+    /// The card's planes, read in two: their count, then their ids into a
+    /// buffer of that count. More planes than [`PLANES_MAX`] are refused
+    /// unread, and so is a count that changed between the two reads.
+    fn planes(&self) -> io::Result<Vec<u32>> {
+        let len = within(self.read_planes(&mut [])?, PLANES_MAX, "planes")?;
+        let mut ids = vec![0; len];
+        unchanged("planes", len, self.read_planes(&mut ids)?)?;
+        Ok(ids)
+    }
+
     /// A plane's possible CRTCs, a bit per index into
     /// [`Resources::crtcs`].
     fn plane_crtcs(&self, id: u32) -> io::Result<u32>;
-    fn properties(&self, id: u32, kind: Object) -> io::Result<Vec<Property>>;
+
+    /// One read of the properties of object `id`, an OBJ_GETPROPERTIES:
+    /// their ids into `ids` and their values into `values`, at most the
+    /// shorter buffer's length of them, and the count the object has,
+    /// which can be larger.
+    fn read_properties(
+        &self,
+        id: u32,
+        kind: Object,
+        ids: &mut [u32],
+        values: &mut [u64],
+    ) -> io::Result<usize>;
+
+    /// The name of property `id`, in one GETPROPERTY that asks for none of
+    /// the property's values or enumerators.
+    fn property_name(&self, id: u32) -> io::Result<String>;
+
+    /// The properties of object `id`, read in two: their count, then
+    /// their ids and values into buffers of that count, and then each
+    /// one's name. More properties than [`OBJECT_PROPERTIES_MAX`] are
+    /// refused unread, and so is a count that changed between the two
+    /// reads.
+    fn properties(&self, id: u32, kind: Object) -> io::Result<Vec<Property>> {
+        let first = self.read_properties(id, kind, &mut [], &mut [])?;
+        let len = within(first, OBJECT_PROPERTIES_MAX, "properties")?;
+        let (mut ids, mut values) = (vec![0; len], vec![0; len]);
+        let again = self.read_properties(id, kind, &mut ids, &mut values)?;
+        unchanged("properties", len, again)?;
+        ids.into_iter()
+            .zip(values)
+            .map(|(id, value)| {
+                Ok(Property {
+                    id,
+                    name: self.property_name(id)?,
+                    value,
+                })
+            })
+            .collect()
+    }
 
     /// A 32-bit dumb buffer.
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb>;
@@ -191,4 +310,25 @@ pub(crate) trait Kms {
     fn sysfs(&self) -> Option<PathBuf> {
         None
     }
+}
+
+/// `count` of a list, refused where it passes `max`, the most vtium reads.
+fn within(count: usize, max: usize, what: &str) -> io::Result<usize> {
+    if count > max {
+        return Err(io::Error::other(format!(
+            "it has {count} {what}, past the {max} vtium reads"
+        )));
+    }
+    Ok(count)
+}
+
+/// A list's count at the read that filled it, refused where it differs
+/// from `sized`, the count at the read that sized its buffer.
+fn unchanged(what: &str, sized: usize, filled: usize) -> io::Result<()> {
+    if filled != sized {
+        return Err(io::Error::other(format!(
+            "its {what} changed from {sized} to {filled} between two reads"
+        )));
+    }
+    Ok(())
 }

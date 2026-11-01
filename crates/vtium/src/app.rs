@@ -2206,6 +2206,7 @@ impl App {
                 };
                 self.pointer_to(h, p, mods, now);
             }
+            InputEvent::Mods(_) => {}
         }
     }
 
