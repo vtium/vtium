@@ -722,8 +722,9 @@ pub(crate) mod raster {
     /// C reference's `font_get_width` took it; a face with no `W` takes
     /// `M`'s, then `0`'s, and a face with none of them half the height
     /// `h`. The ink is measured on the outline as it is, not hinted: the
-    /// C reference loaded it with FreeType's light hinting, which moves
-    /// only rows, so its ink kept the outline's width across. DejaVu Sans
+    /// C reference loaded it with FreeType's light hinting, which in a
+    /// TrueType font moves only rows, so its ink kept the outline's width
+    /// across. DejaVu Sans
     /// Mono's `W` at 16 pixels spans 8.02 pixels, 9 columns, where full
     /// hinting snaps it to 8. A glyph with no outline, a color or bitmap
     /// one, is measured as it is drawn.
@@ -740,6 +741,13 @@ pub(crate) mod raster {
                     .render(&mut scaler, g)
                     .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
                     .map_or(0, |i| i.placement.width);
+                // vtium rounds the advance once, from a float; the C
+                // reference took FreeType's advance, already rounded in 26.6
+                // fixed point. They can differ when the fraction is near a
+                // half, as DejaVu Sans Mono's W at 15 pixels advances
+                // 7.4995, which vtium rounds to 7 and FreeType to 8. That
+                // changes the cell only for a font whose W ink is narrower
+                // than its advance; DejaVu's covers 8 columns either way
                 (advances.advance_width(g).round() as u32).max(ink)
             })
             .unwrap_or(h.div_ceil(2))

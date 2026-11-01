@@ -84,6 +84,44 @@ fn an_outline_cell_is_as_wide_as_the_widest_faces_w() {
     assert!(cell_width(&[r], 0).is_err());
 }
 
+// The W rule measures W's ink on the unhinted outline, as the C
+// reference's FreeType light hinting left a TrueType glyph's width: a
+// subset of DejaVu Sans Mono keeping its hinting instructions
+// (`tests/fixtures/README.md`), whose W full hinting snaps to 8 columns
+// at 16 pixels where its outline covers 9
+#[test]
+fn the_w_rule_measures_ink_unhinted_on_a_hinted_font() {
+    let font = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/DejaVuSansMono-W-M-0.ttf"),
+    )
+    .expect("the fixture");
+    let face = (&font[..], "DejaVu Sans Mono");
+    assert_eq!(cell_width(&[face], 16), Ok(9));
+    assert_eq!(cell_width(&[face], 22), Ok(12));
+}
+
+// A face with no W takes M's width, then 0's, then half the height. At 16
+// pixels, 15.5 to the em: an M advancing 700 units of 1000 covers 11
+// columns, a 0 advancing 400 covers 7 (6.2 pixels), and half of 16 is 8
+#[test]
+fn a_face_with_no_w_takes_m_then_0_then_half_the_height() {
+    let face = |cmap: &[(u32, u16)]| {
+        let mut f = ttf::test_mono();
+        f.glyphs.push(ttf::Glyph::rect(700, 0, 0, 700, 700));
+        f.glyphs.push(ttf::Glyph::rect(400, 0, 0, 400, 700));
+        f.cmap = cmap.to_vec();
+        f.build()
+    };
+    let (m, zero) = ((0x4d, 8), (0x30, 9));
+    let both = face(&[(0x20, 1), zero, m]);
+    let only_zero = face(&[(0x20, 1), zero]);
+    let neither = face(&[(0x20, 1), (0x41, 2)]);
+    let width = |font: &[u8]| cell_width(&[(font, "Test Mono")], 16);
+    assert_eq!(width(&both), Ok(11));
+    assert_eq!(width(&only_zero), Ok(7));
+    assert_eq!(width(&neither), Ok(8));
+}
+
 // The W rule on DejaVu Sans Mono as the machine installs it: 9 wide at 16
 // pixels and 12 at 22, the cells the C reference's FreeType backend gave
 // it. It reads a font outside vtium's tree, so it runs only when asked:

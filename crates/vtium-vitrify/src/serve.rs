@@ -148,8 +148,8 @@ pub const ASK: u32 = 1;
 pub const FILL: u32 = 2;
 /// The end of a cell's fill.
 pub const STOP: u32 = 3;
-/// A cell query: the frit's own cell, at no cell but the height an
-/// outline font is drawn at, and naming nothing.
+/// A cell query asks for the frit's own cell. It carries a width of 0, the
+/// height an outline font would be drawn at or 0, and no codepoints.
 pub const OWN_CELL: u32 = 4;
 /// What a fill draws after the screen's codepoints: printable Latin
 /// (Basic Latin, Latin-1 and Latin Extended-A), then box drawing, block
@@ -683,36 +683,54 @@ impl Engine {
         &self.coverage
     }
 
-    /// The frit's own cell (ADR-1200 D17), which its first source sets,
-    /// the first in the frit's order that this machine has, and later
-    /// sources draw into. A bitmap first source gives its own cell, once
-    /// every later bitmap source's cell fits in it, so each draws at a
-    /// whole factor (the operator, 2026-10-28). An outline first source
-    /// gives the cell `height` pixels high that the W rule gives it
-    /// (the maintainer, 2026-11-01), the console naming the height it is
-    /// drawn at; at a height of 0 it has none. Else why it has none: a
-    /// later bitmap source whose cell does not fit, or no height to draw
-    /// an outline font at.
+    /// The frit's own cell (ADR-1200 D17), which its first source sets and
+    /// later sources draw into. The first source is the first in the
+    /// frit's order that the helper can draw from: [`Engine::load`] leaves
+    /// out a source this machine does not have or cannot read, and a
+    /// source that has failed as it drew is left out for the engine's life,
+    /// as it is for glyphs, so the next one sets the cell. A bitmap first
+    /// source gives its own cell, once every later bitmap source's cell
+    /// fits in it, so each draws at a whole factor (the operator,
+    /// 2026-10-28). An outline first source gives the cell `height` pixels
+    /// high that the W rule gives it (the maintainer, 2026-11-01); the
+    /// console names the height, and at a height of 0 there is none. An outline
+    /// source whose W rule fails fails as a source that fails to draw does.
+    /// Else why the frit has none: a later bitmap source whose cell does not
+    /// fit, no height to draw an outline font at, or no source left.
     pub fn own_cell(&self, height: u32) -> Result<OwnCell, String> {
-        let mut sources = self.sources.iter();
-        let (first, loaded) = sources.next().ok_or("the frit names no source")?;
-        let cell = match loaded {
-            Loaded::Bitmap(font) => font.cell,
-            Loaded::Outline { font, family, .. } => {
-                if height == 0 {
+        let mut why = Vec::new();
+        let mut sources = self.sources.iter().enumerate();
+        let (first, cell) = loop {
+            let Some((i, (source, loaded))) = sources.next() else {
+                why.push("the frit has no source left to take a cell from".to_owned());
+                return Err(why.join("; "));
+            };
+            if let Some(failed) = self.failed.borrow().get(&i) {
+                why.push(format!("source={}: {failed}", source.spelling));
+                continue;
+            }
+            match loaded {
+                Loaded::Bitmap(font) => break (source, font.cell),
+                Loaded::Outline { .. } if height == 0 => {
                     return Err(format!(
                         "source={} is an outline font, whose cell needs the height it is drawn at",
-                        first.spelling
+                        source.spelling
                     ));
                 }
-                // the frit's bold face joins it once style= names one
-                // (ADR-1200 D21)
-                let width = crate::outline::cell_width(&[(font, family)], height)
-                    .map_err(|why| format!("source={}: {why}", first.spelling))?;
-                return Ok(OwnCell::Outline(Cell { width, height }));
+                Loaded::Outline { font, family, .. } => {
+                    // the frit's bold face joins it once style= names one
+                    // (ADR-1200 D17)
+                    match crate::outline::cell_width(&[(font, family)], height) {
+                        Ok(width) => return Ok(OwnCell::Outline(Cell { width, height })),
+                        Err(e) => {
+                            why.push(format!("source={}: {e}", source.spelling));
+                            self.failed.borrow_mut().insert(i, e);
+                        }
+                    }
+                }
             }
         };
-        for (source, loaded) in sources {
+        for (_, (source, loaded)) in sources {
             match loaded {
                 Loaded::Bitmap(font)
                     if font.cell.width > cell.width || font.cell.height > cell.height =>
@@ -1849,6 +1867,61 @@ mod tests {
                 // 8x16 does not fit and fills nothing
                 (FRAME_OUTLINE_CELL, cell_bytes(6, 10)),
             ]
+        );
+    }
+
+    // A source that has failed is left out of the cell as it is out of the
+    // glyphs, and the next source sets the cell: one whose W rule fails, a
+    // font giving no ascent or descent, and one that failed as it drew
+    #[test]
+    fn a_failed_first_source_leaves_the_cell_to_the_next() {
+        let flat = super::ttf::Font {
+            ascent: 0,
+            descent: 0,
+            ..super::ttf::test_mono()
+        };
+        let (broken, dir) = outline_frit("own-broken", "", &[Ok(flat)]);
+        let broken = frit(&format!("{}source=builtin:unscii-8\n", broken.text));
+        let frames = run(&[query_at(broken.clone(), 16), query_at(broken, 16)]);
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(
+            frames,
+            [
+                (FRAME_OWN_CELL, cell_bytes(8, 8)),
+                (FRAME_OWN_CELL, cell_bytes(8, 8)),
+            ]
+        );
+        let (good, dir) = outline_frit(
+            "own-failed",
+            "",
+            &[Ok(super::ttf::test_mono()), Err("builtin:unscii-8")],
+        );
+        let engine = Engine::load(&good, &Paths::default(), None).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(
+            engine.own_cell(16),
+            Ok(OwnCell::Outline(Cell {
+                width: 10,
+                height: 16
+            }))
+        );
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        assert_eq!(
+            engine.own_cell(16),
+            Ok(OwnCell::Bitmap(Cell {
+                width: 8,
+                height: 8
+            }))
+        );
+        // with no source left, the reason names each one's failure
+        engine.failed.borrow_mut().insert(1, "planted".to_owned());
+        let why = engine.own_cell(16).unwrap_err();
+        assert!(
+            why.contains("failed as it drew") && why.contains("no source left"),
+            "{why}"
         );
     }
 
