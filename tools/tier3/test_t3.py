@@ -2998,18 +2998,26 @@ class DevicesTest(unittest.TestCase):
                 self.assertTrue(got.startswith(why), got)
 
 
-# Jobs the guest's boot leaves queued for good (guest/t3-agent).
+# Jobs the guest's boot leaves queued for good, and its timers
+# (guest/t3-agent).
 BOOT_JOBS = ["systemd-time-wait-sync.service", "multi-user.target"]
+BOOT_TIMERS = ["systemd-tmpfiles-clean.timer"]
 
 
 def agent_state(vtium=("active", "success"), fallback=("inactive", "success", "no", 0),
                 getty="inactive", queued=(), marker=True, tty2="", logins=0, fg=2, i8042=15,
-                pid=(410, 3.0)):
-    """The agent's answer to `state` (guest/t3-agent), as lines."""
+                pid=(410, 3.0), gettys=(), timers=(), sessions=(("1", "tty1"),)):
+    """The agent's answer to `state` (guest/t3-agent), as lines. `gettys`
+    gives a getty unit's (left inactive at, restarts) in place of (0, 0),
+    or None for no reading of it."""
+    readings = dict({u: (0, 0) for u in t3_heads.GETTY_UNITS}, **dict(gettys))
     lines = ["unit kmsconvt@tty2.service %s %s yes 6418546" % vtium,
              "unit kmsconvt-getty@tty2.service %s %s %s %d" % fallback,
              "unit getty@tty2.service %s success no 0" % getty,
+             *("getty %s %d %d" % (u, *r) for u, r in readings.items() if r is not None),
              *("job %s start waiting" % u for u in BOOT_JOBS + list(queued)),
+             *("timer %s waiting" % t for t in BOOT_TIMERS + list(timers)),
+             *("session %s %s" % s for s in sessions),
              "marker %s" % ("yes" if marker else "no"), "tty2 %s" % tty2,
              "logins %d" % logins, "fgconsole %d" % fg, "i8042 %d" % i8042]
     return lines + (["vtium %d %.1f" % pid] if pid else [])
@@ -3113,6 +3121,10 @@ class HeadsTest(unittest.TestCase):
             agent = f.read()
         self.assertIn('units=("kmsconvt@$vt.service" "kmsconvt-getty@$vt.service" '
                       '"getty@$vt.service")', agent)
+        self.assertIn('gettys=("%s" "%s")' % tuple(u.replace("tty2", "$vt")
+                                                   for u in t3_heads.GETTY_UNITS), agent)
+        # the keyboard `watch` reads is the one the kiosk check plugs in
+        self.assertIn("second=/dev/input/by-path/%s\n" % t3_heads.KIOSK_SECOND, agent)
         self.assertEqual((t3_heads.VTIUM_UNIT, t3_heads.FALLBACK_UNIT, t3_heads.GETTY_UNIT),
                          ("kmsconvt@tty2.service", "kmsconvt-getty@tty2.service",
                           "getty@tty2.service"))
@@ -3180,7 +3192,7 @@ class HeadsTest(unittest.TestCase):
         self.addCleanup(agent.kill)
         requests = ["kill TERM", "kill KILL; touch pwned", "$(touch %s/pwned-sub)" % d.name,
                     "`touch %s/pwned-tick`" % d.name, "state ", "start now", "Start",
-                    "hangup && touch pwned-and"]
+                    "hangup && touch pwned-and", "watch /dev/input/event0", "Watch"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -3203,10 +3215,17 @@ class HeadsTest(unittest.TestCase):
         self.assertEqual((len(st["queued"]), st["marker"], st["tty2"], st["logins"], st["fgconsole"],
                           st["i8042"], st["vtium"]), (2, True, ["agetty"], 0, 2, 15, (410, 3.0)))
         self.assertTrue(t3_heads.getty_on_tty2(st))
-        st = t3_heads.parse_state(["xhci 7", "kbd a-event-kbd", "kbd b-event-kbd"])
-        self.assertEqual((st["xhci"], st["kbds"]), (7, ["a-event-kbd", "b-event-kbd"]))
+        self.assertEqual(st["gettys"], {u: (0, 0) for u in t3_heads.GETTY_UNITS})
+        self.assertEqual((st["timers"], st["sessions"]),
+                         ({"systemd-tmpfiles-clean.timer": "waiting"}, {"1": "tty1"}))
+        st = t3_heads.parse_state(["xhci 7", "kbd a-event-kbd", "kbd b-event-kbd", "keys 7",
+                                   "session 3", "getty getty@tty2.service 4100200 1"])
+        self.assertEqual((st["xhci"], st["kbds"], st["keys"], st["sessions"], st["gettys"]),
+                         (7, ["a-event-kbd", "b-event-kbd"], 7, {"3": ""},
+                          {"getty@tty2.service": (4100200, 1)}))
         empty = t3_heads.parse_state([])
-        self.assertEqual((empty["units"], empty["marker"], empty["vtium"]), ({}, None, None))
+        self.assertEqual((empty["units"], empty["gettys"], empty["marker"], empty["keys"],
+                          empty["vtium"]), ({}, {}, None, None, None))
 
     def test_no_login(self):
         before = t3_heads.parse_state(agent_state())
@@ -3259,6 +3278,26 @@ class HeadsTest(unittest.TestCase):
                                  marker=False), "after the kill the closed policy's marker"),
             "a getty": (dict(failed, fallback=("inactive", "success", "no", 90),
                              getty="active", tty2="agetty"), "after the kill a getty runs"),
+            # a getty that failed, or started and ended between two reads
+            "a getty failed": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                    getty="failed"), "after the kill a getty runs"),
+            "a getty came and went": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                           gettys=[("getty@tty2.service", (9100000, 0))]),
+                                      "after the kill getty@tty2.service started under the "
+                                      "closed policy: it left its inactive state at 9.1 s"),
+            "a serial getty": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                    gettys=[("serial-getty@tty2.service", (0, 2))]),
+                               "after the kill serial-getty@tty2.service started"),
+            "no reading": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                gettys=[("getty@tty2.service", None)]),
+                           "after the kill the agent gave no reading of getty@tty2.service"),
+            "a session": (dict(failed, fallback=("inactive", "success", "no", 90),
+                               sessions=[("1", "tty1"), ("4", "tty2")]),
+                          "after the kill login session 4 is on tty2"),
+            # a getty's start delayed by a timer waits in no job
+            "a timer": (dict(failed, fallback=("inactive", "success", "no", 90),
+                             timers=["run-u12.timer"]),
+                        "after the kill a timer waits to start a unit: run-u12.timer"),
         }
         for name, (change, why) in wrong.items():
             with self.subTest(name):
@@ -3317,6 +3356,10 @@ class HeadsTest(unittest.TestCase):
         self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
             **dict(ran, queued=["getty@tty2.service"]))), 5, 5)
             .startswith("systemd still has jobs queued: getty@tty2.service"))
+        # the boot's jobs were read once vtium had already ended
+        self.assertTrue(t3_heads.judge_exit(t3_heads.parse_state(agent_state(pid=None)),
+                                            t3_heads.parse_state(agent_state(**ran)), 5, 5)
+                        .startswith("vtium was not running when the check read"))
 
     def test_the_fallback_waits_end_on_a_skip_and_on_no_jobs(self):
         # The wait after a failure ends once the fallback ran and systemd
@@ -3337,12 +3380,13 @@ class HeadsTest(unittest.TestCase):
                         .startswith("after the kill the fallback skipped the getty"))
 
     def test_kiosk(self):
-        def st(xhci, **kw):
-            return t3_heads.parse_state(agent_state(**kw) + ["xhci %d" % xhci])
+        def st(xhci, keys=None, **kw):
+            return t3_heads.parse_state(agent_state(**kw) + ["xhci %d" % xhci]
+                                        + (["keys %d" % keys] if keys is not None else []))
         listed = t3_heads.parse_state(agent_state() + ["xhci 20",
                                                        "kbd " + t3_heads.KIOSK_SECOND])
         chord = (st(10), st(12))
-        plugged = (listed, st(25))
+        plugged = (listed, st(25, keys=len(t3_heads.KIOSK_LINE)))
         self.assertIsNone(t3_heads.judge_kiosk(chord, plugged, True))
         # the chord is judged alone first, before the second keyboard types
         self.assertIsNone(t3_heads.judge_kiosk(chord))
@@ -3352,8 +3396,19 @@ class HeadsTest(unittest.TestCase):
             "chord never came": (dict(chord=(st(10), st(10))), "the USB controller's"),
             "the VT switched": (dict(chord=(st(10), st(12, fg=3))),
                                 "after Ctrl+Alt+F3: the VT shown is 3"),
-            "keys never came": (dict(plugged=(listed, st(20))), "the USB controller's"),
-            "not listed": (dict(plugged=(st(20), st(25))), "plugged in, the guest lists"),
+            # the controller, shared with the claimed keyboard, is no proof
+            "keys never came": (dict(plugged=(listed, st(25, keys=0))),
+                                "the second keyboard's evdev node counted 0 key presses"),
+            "never watched": (dict(plugged=(listed, st(25))),
+                              "the second keyboard's evdev node counted None"),
+            "some keys lost": (dict(plugged=(listed, st(25, keys=5))),
+                               "the second keyboard's evdev node counted 5 key presses, "
+                               "not the 7"),
+            "vtium gone": (dict(plugged=(listed, st(25, keys=7, pid=None,
+                                                    vtium=("failed", "signal")))),
+                           "after the second keyboard's line: vtium does not run"),
+            "not listed": (dict(plugged=(st(20), st(25, keys=7))),
+                           "plugged in, the guest lists"),
             "it typed": (dict(same=False), "the screen changed"),
         }
         for name, (change, why) in wrong.items():
