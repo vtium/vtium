@@ -236,9 +236,11 @@ and the devices present from /sys and udev's database, /run/udev/data.\n";
         format!("no udev daemon runs, so `{key}:` matches nothing")
     }
 
+    /// A rule using `connector-path:`, which the start matches and
+    /// check-config cannot check against the displays present.
     pub fn no_connector_path() -> String {
         format!(
-            "this build reads no connector's PATH, so `{token}` matches nothing (vtium/vtium#157)",
+            "check-config opens no display, so it cannot read a connector's PATH and does not check `{token}` against the displays present; vtium matches it at start",
             token = "connector-path:",
         )
     }

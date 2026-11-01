@@ -485,7 +485,8 @@ fn findings(
         .map(|(line, r)| at(path, *line, r).to_string())
         .collect();
     out.notes.splice(0..0, lockout);
-    // each rule noted as matching nothing here takes no second note
+    // each rule noted here as matching nothing, or as unchecked, takes no
+    // second note
     let mut noted = Vec::new();
     if !machine.udev_daemon {
         for (line, key) in parsed.config.needs_udev() {
@@ -510,8 +511,10 @@ fn findings(
     );
 }
 
-/// The lines of the rules using `connector-path:`, which no display's
-/// identity carries on this build (vtium/vtium#157).
+/// The lines of the rules using `connector-path:`. The start reads each
+/// display's connector `PATH` from its card, but the listing opens no
+/// device and sysfs shows no `PATH`, so no listed display carries one and
+/// check-config cannot check these rules against the displays present.
 fn connector_path_rules(config: &Heads) -> Vec<usize> {
     config
         .rules
@@ -1539,11 +1542,11 @@ mod tests {
         );
     }
 
-    // ADR-1401 D4, vtium/vtium#157: no display carries a KMS connector's
-    // PATH on this build, so each `connector-path:` rule is noted, with or
-    // without a udev daemon
+    // ADR-1401 D4, vtium/vtium#157: check-config opens no display, so no
+    // listed display carries a KMS connector's PATH; each `connector-path:`
+    // rule is noted as unchecked, with or without a udev daemon
     #[test]
-    fn each_connector_path_rule_is_noted_as_matching_nothing_on_this_build() {
+    fn each_connector_path_rule_is_noted_as_unchecked_against_the_displays_present() {
         let text = "version = 1\n[head desk]\n[head hub]\n[rules]\n\
                     display connector-path:mst:63-1 -> hub\n\
                     display edid:AAA:0x0001:LARGE00001 -> desk\n\
@@ -1559,8 +1562,9 @@ mod tests {
                 .collect();
             let none = |line: usize| {
                 format!(
-                    "{f}:{line}: this build reads no connector's PATH, so `connector-path:` \
-                     matches nothing (vtium/vtium#157)"
+                    "{f}:{line}: check-config opens no display, so it cannot read a \
+                     connector's PATH and does not check `connector-path:` against the \
+                     displays present; vtium matches it at start"
                 )
             };
             assert_eq!(mst, [&none(5), &none(7)], "udev {udev}");
@@ -2062,8 +2066,9 @@ mod tests {
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
-    // a rule noted as matching nothing here, for want of a udev daemon or
-    // of a connector's PATH, takes no second note as idle
+    // a rule noted as matching nothing here for want of a udev daemon, or
+    // as unchecked for want of a connector's PATH, takes no second note as
+    // idle
     #[test]
     fn a_rule_noted_as_matching_nothing_is_noted_once() {
         let text = "version = 1\n[head desk]\n[rules]\n\
@@ -2083,7 +2088,7 @@ mod tests {
             [
                 format!("{f}:5: no udev daemon runs, so `path:` matches nothing"),
                 format!(
-                    "{f}:4: this build reads no connector's PATH, so `connector-path:` matches nothing (vtium/vtium#157)"
+                    "{f}:4: check-config opens no display, so it cannot read a connector's PATH and does not check `connector-path:` against the displays present; vtium matches it at start"
                 ),
                 format!("{f}:6: the rule matches no device present"),
                 format!(
