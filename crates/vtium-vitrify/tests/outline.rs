@@ -509,6 +509,31 @@ fn the_strike_through_takes_os2s_size_and_the_x_height() {
     assert_eq!(lines(x), (10, 1), "no sxHeight, the x glyph");
 }
 
+// The lowest ink is measured on the pixels, not the image's box (review
+// finding A10): a box can hold a row whose coverage rounds to 0. A font
+// of 16,384 units to the em, ascent 13,107 and descent 3,277, at 20
+// pixels has its baseline on row 16 and four rows under it; its
+// underscore reaches 3,361 units, 4.0005 pixels, below the baseline, so
+// its box ends a row past the cell where its ink does not
+#[test]
+fn the_lowest_ink_is_measured_on_the_pixels() {
+    let font = ttf::Font {
+        upem: 16384,
+        ascent: 13107,
+        descent: -3277,
+        glyphs: vec![
+            ttf::Glyph::empty(9830),
+            ttf::Glyph::rect(9830, 0, -3361, 9830, 0),
+        ],
+        cmap: vec![(0x5f, 1)],
+        colr: Vec::new(),
+        palette: Vec::new(),
+        ..ttf::test_mono()
+    }
+    .build();
+    assert_eq!(baseline(&font, "Test Mono", 20), Ok(16));
+}
+
 #[test]
 fn a_later_source_draws_at_the_cell_it_is_given_and_only_what_it_covers() {
     let o =
