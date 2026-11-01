@@ -2989,8 +2989,9 @@ fn a_flip_draws_only_its_own_display() {
 struct Withhold {
     memory: Memory,
     withholding: bool,
-    /// The canvases asked for while withheld.
-    refused: u32,
+    /// The canvases asked for while withheld, shared with the test so a
+    /// wait can read it.
+    refused: Rc<Cell<u32>>,
 }
 
 impl Video for Withhold {
@@ -3017,7 +3018,7 @@ impl Video for Withhold {
     }
     fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
         if self.withholding {
-            self.refused += 1;
+            self.refused.set(self.refused.get() + 1);
             return None;
         }
         self.memory.canvas(id)
@@ -3055,12 +3056,17 @@ impl Video for Withhold {
 }
 
 /// The seat on a device that withholds its canvas, once the session
-/// printed `got` while the device withheld its canvas.
+/// printed `got` while the device withheld its canvas and a frame of it
+/// found no canvas. Each wait is on the state it needs, the first frame
+/// shown and then a canvas refused, however long the render thread takes;
+/// the bound only fails a test that would otherwise hang.
 fn withheld() -> (Harness, u32, Vec<u8>) {
+    const BOUND: Duration = Duration::from_secs(10);
+    let refused = Rc::new(Cell::new(0));
     let device = Withhold {
         memory: Memory::default(),
         withholding: false,
-        refused: 0,
+        refused: Rc::clone(&refused),
     };
     let mut h = Harness::build(
         &[
@@ -3075,13 +3081,18 @@ fn withheld() -> (Harness, u32, Vec<u8>) {
         Box::new(device),
     );
     assert!(h.until(SECOND, |a| a.vt.is_active()));
-    h.until(Duration::from_millis(200), |_| false);
+    assert!(
+        h.until_memory(BOUND, |m| m.frames > 0),
+        "the first frame shown"
+    );
     let (frames, shown) = (h.memory().frames, h.memory().pixels.clone());
     withholding(&mut h).withholding = true;
     h.type_str("\r");
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "got")));
-    h.until(Duration::from_millis(200), |_| false);
-    assert!(withholding(&mut h).refused > 0, "a frame found no canvas");
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "got")));
+    assert!(
+        h.until(BOUND, |_| refused.get() > 0),
+        "a frame found no canvas"
+    );
     assert_eq!(h.memory().frames, frames, "nothing drawn while withheld");
     (h, frames, shown)
 }
@@ -3102,7 +3113,7 @@ fn a_frame_that_found_no_canvas_is_drawn_once_the_display_lends_again() {
     let (mut h, frames, shown) = withheld();
     withholding(&mut h).withholding = false;
     assert!(
-        h.until_memory(SECOND, |m| m.frames > frames),
+        h.until_memory(Duration::from_secs(10), |m| m.frames > frames),
         "the waiting frame drawn"
     );
     assert_ne!(h.memory().pixels, shown, "the screen shows the line");
@@ -3114,7 +3125,7 @@ fn a_frame_that_found_no_canvas_is_drawn_once_the_display_lends_again() {
 #[test]
 fn a_display_lending_no_canvas_does_not_spin_the_loop() {
     let (mut h, _, _) = withheld();
-    let refused = withholding(&mut h).refused;
+    let refused = withholding(&mut h).refused.get();
     let end = now() + Duration::from_secs(1);
     let mut turns = 0_u32;
     while now() < end {
@@ -3126,7 +3137,7 @@ fn a_display_lending_no_canvas_does_not_spin_the_loop() {
         h.app.turn(now());
         turns += 1;
     }
-    let asked = withholding(&mut h).refused - refused;
+    let asked = withholding(&mut h).refused.get() - refused;
     assert!(
         turns < 50 && asked < 5,
         "{turns} turns and {asked} canvases asked for in 1 s"
