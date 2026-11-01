@@ -55,6 +55,18 @@ fi
 if [ -f "$disc"/sysctl.conf ]; then
     sysctl -q -p "$disc"/sysctl.conf
 fi
+# A head-file variant installs its head file as an administrator would,
+# root's and written by no one else, which the start's ownership check
+# trusts (ADR-1401 D7).
+if [ -f "$disc"/heads.conf ]; then
+    install -Dm644 -o root -g root "$disc"/heads.conf /etc/vtium/heads.conf
+fi
+# A variant whose console may give no login runs the agent (t3-agent), which
+# answers the driver's requests on the event port as root.
+if [ -f "$disc"/t3-agent ]; then
+    install -m755 "$disc"/t3-agent /usr/local/sbin/t3-agent
+    install -m644 "$disc"/t3-agent.service /etc/systemd/system/t3-agent.service
+fi
 # The console's log also goes to the serial console, so the harness can read
 # which video backend and text renderer drew the screens.
 mkdir -p /etc/systemd/system/kmsconvt@.service.d
@@ -69,6 +81,9 @@ install -m755 "$disc"/t3 /usr/local/bin/t3
 stty -F /dev/ttyS1 clocal
 chmod 0666 /dev/ttyS1
 echo 'echo "T3-LOGIN $(tty)" > /dev/ttyS1' > /etc/profile.d/tier3.sh
+if [ -f /etc/systemd/system/t3-agent.service ]; then
+    systemctl start --no-block t3-agent.service
+fi
 # Any kmscon, libtsm or vtium package installed, which must be none, and the
 # tree unpacked, so the log shows which build drew the screens.
 echo "TIER3-INSTALL-OK packages: $(pacman -Q | grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \

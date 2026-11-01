@@ -1,0 +1,79 @@
+#!/bin/bash
+# The head-file variants' agent (t3_heads.py), run as root by t3-agent.service
+# in a guest whose console gives no login. It reads one request a line from
+# the third serial port, ttyS2, which the driver writes over a unix socket,
+# and answers on the event port, ttyS1: each line of the answer to request N
+# is "T3-AGENT N ...", and "T3-AGENT-END N" ends it. Its few requests:
+#   state            the units of VT 2, the getty marker, the programs on
+#                    tty2, the logins, the VT shown, the PS/2 keyboard's
+#                    interrupts and the PID and age of vtium on tty2, one
+#                    line each
+#   kill SIGNAL      sends SIGNAL to vtium on tty2, its unit's main process
+#                    (KILL, a kill; ABRT, a crash)
+#   hangup           hangs tty2 up, as the kernel's vhangup does
+#   start            starts vtium's unit on tty2 again
+# Any other request answers "T3-AGENT N refused REQUEST".
+set -u
+port=/dev/ttyS2
+events=/dev/ttyS1
+vt=tty2
+units=("kmsconvt@$vt.service" "kmsconvt-getty@$vt.service" "getty@$vt.service")
+
+# The PID of vtium on tty2, its unit's main process, and its age in seconds,
+# from its start time in clock ticks against the guest's uptime; none when
+# the unit runs nothing.
+vtium_age() {
+    local pid
+    pid=$(systemctl show -P MainPID "${units[0]}")
+    [ "${pid:-0}" != 0 ] || return 0
+    awk -v pid="$pid" -v hz="$(getconf CLK_TCK)" '
+        NR == FNR { up = $1; next }
+        { sub(/^.*\) /, ""); printf "vtium %s %.1f\n", pid, up - $20 / hz }
+    ' /proc/uptime "/proc/$pid/stat"
+}
+
+state() {
+    local u
+    for u in "${units[@]}"; do
+        echo "unit $u $(systemctl show -P ActiveState "$u") $(systemctl show -P Result "$u")" \
+            "$(systemctl show -P ConditionResult "$u") $(systemctl show -P ConditionTimestampMonotonic "$u")"
+    done
+    if [ -e "/run/vtium/$vt.closed" ]; then echo "marker yes"; else echo "marker no"; fi
+    echo "tty2 $(ps -t "$vt" -o comm= | tr '\n' ' ')"
+    echo "logins $(pgrep -c -x login)"
+    echo "fgconsole $(fgconsole)"
+    echo "i8042 $(awk '$1 == "1:" { n = 0; for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) n += $i; print n }' /proc/interrupts)"
+    vtium_age
+}
+
+answer() {
+    local n=$1 request=$2 pid
+    case "$request" in
+        state) state ;;
+        "kill KILL" | "kill ABRT")
+            pid=$(systemctl show -P MainPID "${units[0]}")
+            if [ "${pid:-0}" = 0 ]; then
+                echo "refused: ${units[0]} runs no process"
+            else
+                kill -s "${request#kill }" "$pid" && echo "sent ${request#kill } to $pid"
+            fi
+            ;;
+        # TIOCVHANGUP, 0x5437: the call systemd's TTYVHangup= makes.
+        hangup)
+            python3 -I -c 'import fcntl, os; fd = os.open("/dev/tty2", os.O_RDWR | os.O_NOCTTY); fcntl.ioctl(fd, 0x5437)' \
+                && echo "hung up /dev/$vt"
+            ;;
+        start) systemctl start --no-block "${units[0]}" && echo "started ${units[0]}" ;;
+        *) echo "refused $request" ;;
+    esac 2>&1 | while IFS= read -r line; do echo "T3-AGENT $n $line"; done
+    echo "T3-AGENT-END $n"
+}
+
+exec 3< "$port"
+stty raw -echo clocal 115200 <&3
+while IFS= read -r line <&3; do
+    line=${line%$'\r'}
+    n=${line%% *}
+    [ -n "$n" ] && [ "$n" != "$line" ] || continue
+    answer "$n" "${line#* }" > "$events"
+done

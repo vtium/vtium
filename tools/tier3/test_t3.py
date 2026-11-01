@@ -36,6 +36,7 @@ import t3  # noqa: E402
 import t3_bench  # noqa: E402
 import t3_devices  # noqa: E402
 import t3_evaluate  # noqa: E402
+import t3_heads  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
@@ -2990,6 +2991,318 @@ class DevicesTest(unittest.TestCase):
                 got = self.hotplug(**change)
                 self.assertIsNotNone(got)
                 self.assertTrue(got.startswith(why), got)
+
+
+def agent_state(vtium=("active", "success"), fallback=("inactive", "success", "no", 0),
+                getty="inactive", marker=True, tty2="", logins=0, fg=2, i8042=15,
+                pid=(410, 3.0)):
+    """The agent's answer to `state` (guest/t3-agent), as lines."""
+    lines = ["unit kmsconvt@tty2.service %s %s yes 6418546" % vtium,
+             "unit kmsconvt-getty@tty2.service %s %s %s %d" % fallback,
+             "unit getty@tty2.service %s success no 0" % getty,
+             "marker %s" % ("yes" if marker else "no"), "tty2 %s" % tty2,
+             "logins %d" % logins, "fgconsole %d" % fg, "i8042 %d" % i8042]
+    return lines + (["vtium %d %.1f" % pid] if pid else [])
+
+
+class HeadsTest(unittest.TestCase):
+    """The head-file variants (t3_heads.py): their machines and cases, the
+    disc that carries the head file and the agent, the agent's answers and
+    each check's verdict on them, both ways."""
+
+    CASES = {
+        "heads-two-heads": ["cjk", "vt-switch", "vt-restore", "two-heads"],
+        "heads-partly-open": ["partly-notice", "cjk", "vt-switch", "vt-restore",
+                              "getty-fallback"],
+        "heads-closed-broken": ["panic", "no-login", "getty-fallback"],
+        "heads-closed-unmatched": ["no-display-notice", "no-login", "getty-fallback"],
+        "heads-off": ["no-login", "getty-fallback"],
+        "heads-closed-nodisplay": ["display-held", "getty-fallback"],
+        "heads-open-nodisplay": ["display-exit"],
+    }
+
+    def test_variants(self):
+        self.assertEqual(t3_scenario.HEAD_VARIANTS, list(self.CASES))
+        for name, want in self.CASES.items():
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                self.assertEqual(t3_scenario.variant_cases(name), want)
+                self.assertEqual((v["cpus"], v["memory_mb"]), (1, 512))
+                self.assertEqual(v["goldens"], t3_evaluate.VTIUM_GOLDEN)
+                self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
+                self.assertTrue(os.path.isfile(t3_heads.head_file(v)), v["heads"])
+                with open(t3_heads.head_file(v)) as f:
+                    self.assertRegex(f.read(), r"(?m)^policy = %s\b" % v["policy"])
+                # every check that fails vtium names its failures, each known
+                if "getty-fallback" in want:
+                    self.assertTrue(set(v["failures"]) <= set(t3_heads.FAILURES))
+                # a console that gives no login is read through the agent
+                if not v.get("login", True) or "getty-fallback" in want:
+                    self.assertTrue(v["agent"])
+        # the no-display guests have no display device and wait 5 s
+        for name in ("heads-closed-nodisplay", "heads-open-nodisplay"):
+            v = t3_scenario.VARIANTS[name]
+            self.assertIsNone(v["device"])
+            self.assertIsNone(v["renderer"])
+            self.assertEqual(t3_heads.display_wait(v), 5)
+        self.assertEqual(t3_scenario.VARIANTS["heads-open-nodisplay"]["heads"],
+                         "docs/heads/default.conf")
+        self.assertEqual(t3_scenario.VARIANTS["heads-off"]["heads"], "docs/heads/off.conf")
+
+    def test_broken_closed_is_tier_2s_file(self):
+        # The guest's broken closed file is tier 2's BROKEN_CLOSED, so the
+        # panic screen tier 3 captures reports the errors tier 2 draws.
+        with open(os.path.join(t3_common.ROOT, "tools", "tier2", "src", "notices.rs")) as f:
+            m = re.search(r'const BROKEN_CLOSED: &str = "(.*)";', f.read())
+        with open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as f:
+            self.assertEqual(f.read(), m.group(1).replace("\\n", "\n"))
+
+    def test_first_screens_and_checks_are_described(self):
+        for name in t3_scenario.HEAD_VARIANTS:
+            for case in t3_scenario.variant_cases(name):
+                with self.subTest(case=case):
+                    caption, _ = t3_evaluate.describe(case)
+                    self.assertTrue(caption)
+        for case in t3_heads.CHECKS:
+            self.assertEqual(t3_evaluate.golden_for("heads-off", case), (None, None))
+        for case in t3_heads.FIRST:
+            self.assertIn(case, t3_heads.LINES)
+            self.assertEqual(t3_evaluate.golden_for("heads-closed-broken", case,
+                                                    t3_evaluate.VTIUM_GOLDEN)[0],
+                             os.path.join(t3_evaluate.VTIUM_GOLDEN, "heads-closed-broken",
+                                          case + ".png"))
+
+    def test_disc(self):
+        # The disc carries the head file as heads.conf, and the agent with
+        # its unit; guest/setup installs both.
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        tree = os.path.join(d.name, "tree")
+        write_tree(tree, ImplementationTest.TREE)
+        impl = t3_impl.tree(tree, os.path.join(d.name, "out", "tree.tar"))
+        impl["fonts"] = os.path.join(d.name, "fonts")
+        os.makedirs(impl["fonts"])
+        disc = os.path.join(d.name, "disc")
+        with mock.patch.object(t3_scenario, "make_iso"):
+            t3_scenario.build_disc("heads-closed-broken", d.name, impl)
+            self.assertTrue({"heads.conf", "t3-agent", "t3-agent.service"}
+                            <= set(os.listdir(disc)))
+            with open(os.path.join(disc, "heads.conf")) as f, \
+                    open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as g:
+                self.assertEqual(f.read(), g.read())
+            t3_scenario.build_disc("2d-640x480-psf16", d.name, impl)
+            self.assertFalse({"heads.conf", "t3-agent"} & set(os.listdir(disc)))
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        self.assertIn('install -Dm644 -o root -g root "$disc"/heads.conf /etc/vtium/heads.conf',
+                      setup)
+        self.assertIn("systemctl start --no-block t3-agent.service", setup)
+        # the units the agent reads are the ones the tree installs
+        with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
+            agent = f.read()
+        self.assertIn('units=("kmsconvt@$vt.service" "kmsconvt-getty@$vt.service" '
+                      '"getty@$vt.service")', agent)
+        self.assertEqual((t3_heads.VTIUM_UNIT, t3_heads.FALLBACK_UNIT, t3_heads.GETTY_UNIT),
+                         ("kmsconvt@tty2.service", "kmsconvt-getty@tty2.service",
+                          "getty@tty2.service"))
+        with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
+                               "kmsconvt-getty@.service")) as f:
+            self.assertIn("ConditionPathExists=!/run/vtium/%i.closed\n", f.read())
+
+    def test_qemu_gets_the_agents_port_and_no_display(self):
+        class Started(Exception):
+            pass
+
+        def popen(args, **kwargs):
+            raise Started(args)
+
+        with mock.patch.object(t3_qemu.subprocess, "Popen", popen), \
+                tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(Started) as cm:
+                t3_qemu.Qemu(d, [], None, lambda msg: None, agent=True)
+            args = cm.exception.args[0]
+            self.assertEqual(args[args.index("-vga") + 1], "none")
+            self.assertNotIn("-device", args)
+            serials = [args[i + 1] for i, a in enumerate(args) if a == "-serial"]
+            self.assertEqual(serials[2], "unix:%s,server=on,wait=off" % os.path.join(d, "ttyS2"))
+            with self.assertRaises(Started) as cm:
+                t3_qemu.Qemu(d, [], "virtio-vga", lambda msg: None)
+            args = cm.exception.args[0]
+            self.assertEqual(len([a for a in args if a == "-serial"]), 2)
+            self.assertNotIn("-vga", args)
+
+    def test_ask(self):
+        # A request goes out numbered on the agent's socket, and its answer
+        # is the event port's lines of that number up to its end line.
+        vm = t3_qemu.Qemu.__new__(t3_qemu.Qemu)
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        vm.events = os.path.join(d.name, "events.log")
+        vm.proc = mock.Mock(**{"poll.return_value": None})
+        vm.asked = 0
+        sent = []
+
+        class Sock:
+            def sendall(self, data):
+                sent.append(data)
+                n = data.split()[0].decode()
+                with open(vm.events, "a") as f:
+                    f.write("T3-AGENT 9 stale\nT3-AGENT %s marker yes\nT3-AGENT-END %s\n"
+                            % (n, n))
+
+        open(vm.events, "w").close()
+        vm.agent_sock = Sock()
+        self.assertEqual(vm.ask("state"), ["marker yes"])
+        self.assertEqual(sent, [b"1 state\n"])
+        self.assertEqual(t3_heads.parse_state(agent_state())["marker"], True)
+
+    def test_parse_state(self):
+        st = t3_heads.parse_state(agent_state(tty2="agetty", fallback=("inactive", "success",
+                                                                       "yes", 99)))
+        self.assertEqual(st["units"]["kmsconvt-getty@tty2.service"],
+                         {"active": "inactive", "result": "success", "condition": "yes",
+                          "checked": 99})
+        self.assertEqual((st["marker"], st["tty2"], st["logins"], st["fgconsole"], st["i8042"],
+                          st["vtium"]), (True, ["agetty"], 0, 2, 15, (410, 3.0)))
+        self.assertTrue(t3_heads.getty_on_tty2(st))
+        empty = t3_heads.parse_state([])
+        self.assertEqual((empty["units"], empty["marker"], empty["vtium"]), ({}, None, None))
+
+    def test_no_login(self):
+        before = t3_heads.parse_state(agent_state())
+        after = t3_heads.parse_state(agent_state(i8042=29))
+        self.assertIsNone(t3_heads.judge_no_login(before, after, True, False))
+        wrong = {
+            "keys never came": (dict(after=agent_state(i8042=15)), "the PS/2 keyboard's"),
+            "vtium gone": (dict(after=agent_state(i8042=29, vtium=("failed", "signal"),
+                                                  pid=None)), "vtium does not run on tty2"),
+            "another VT": (dict(after=agent_state(i8042=29, fg=1)), "the VT shown is 1"),
+            "no marker": (dict(after=agent_state(i8042=29, marker=False)),
+                          "the closed policy's marker"),
+            "a getty": (dict(after=agent_state(i8042=29, tty2="agetty")), "a getty runs"),
+            "a login reported": (dict(logged_in=True), "a login reported itself"),
+            "the screen moved": (dict(same=False), "the screen changed"),
+            "a login program": (dict(after=agent_state(i8042=29, logins=1)), "1 login program"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                a = t3_heads.parse_state(change.get("after", agent_state(i8042=29)))
+                got = t3_heads.judge_no_login(before, a, change.get("same", True),
+                                              change.get("logged_in", False))
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+
+    def test_fallback_under_closed(self):
+        before = t3_heads.parse_state(agent_state(fallback=("inactive", "success", "no", 50)))
+        for failure, result in (("kill", "signal"), ("crash", "core-dump"), ("crash", "signal"),
+                                ("hangup", "exit-code")):
+            with self.subTest(failure, result=result):
+                after = t3_heads.parse_state(agent_state(
+                    vtium=("failed", result), fallback=("inactive", "success", "no", 90),
+                    pid=None))
+                self.assertIsNone(t3_heads.judge_fallback(True, failure, before, after))
+        failed = dict(vtium=("failed", "signal"), pid=None)
+        wrong = {
+            "still running": (dict(vtium=("active", "success")), "after the kill vtium's unit"),
+            "another result": (dict(failed, vtium=("failed", "exit-code")),
+                               "after the kill vtium's unit is failed with result exit-code"),
+            "never checked": (dict(failed, fallback=("inactive", "success", "no", 50)),
+                              "after the kill systemd never checked"),
+            "condition held": (dict(failed, fallback=("inactive", "success", "yes", 90)),
+                               "after the kill the fallback's condition held"),
+            "marker gone": (dict(failed, fallback=("inactive", "success", "no", 90),
+                                 marker=False), "after the kill the closed policy's marker"),
+            "a getty": (dict(failed, fallback=("inactive", "success", "no", 90),
+                             getty="active", tty2="agetty"), "after the kill a getty runs"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_fallback(True, "kill", before,
+                                              t3_heads.parse_state(agent_state(**change)))
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+
+    def test_fallback_under_open(self):
+        before = t3_heads.parse_state(agent_state(marker=False))
+        ran = dict(vtium=("failed", "signal"), fallback=("inactive", "success", "yes", 90),
+                   getty="active", tty2="agetty", marker=False, pid=None)
+        self.assertIsNone(t3_heads.judge_fallback(False, "kill", before,
+                                                  t3_heads.parse_state(agent_state(**ran))))
+        wrong = {
+            "skipped": (dict(ran, fallback=("inactive", "success", "no", 90)),
+                        "after the kill the fallback skipped the getty"),
+            "a marker": (dict(ran, marker=True), "the closed policy's marker exists"),
+            "no getty": (dict(ran, getty="inactive", tty2=""), "after the kill no getty runs"),
+        }
+        for name, (change, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_fallback(False, "kill", before,
+                                              t3_heads.parse_state(agent_state(**change)))
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+
+    def test_held_and_exit(self):
+        first = t3_heads.parse_state(agent_state(pid=(400, 1.0)))
+        held = t3_heads.parse_state(agent_state(pid=(400, 7.5)))
+        self.assertIsNone(t3_heads.judge_held(first, held, "", 5))
+        wrong = {
+            "restarted": (agent_state(pid=(500, 7.5)), "", "vtium's PID changed"),
+            "too soon": (agent_state(pid=(400, 6.0)), "", "vtium was read 6.0 s"),
+            "gave up": (agent_state(pid=(400, 7.5)), "vtium[400]: no display appeared within 5 s",
+                        "vtium logged 'no display appeared within 5 s'"),
+            "exited": (agent_state(vtium=("failed", "exit-code"), pid=None), "",
+                       "vtium does not run"),
+            "fallback ran": (agent_state(pid=(400, 7.5), fallback=("inactive", "success", "no",
+                                                                  9)), "", "the getty fallback"),
+        }
+        for name, (lines, serial, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_held(first, t3_heads.parse_state(lines), serial, 5)
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+        ran = dict(vtium=("failed", "exit-code"), fallback=("inactive", "success", "yes", 90),
+                   getty="active", tty2="agetty", marker=False, pid=None)
+        self.assertIsNone(t3_heads.judge_exit(t3_heads.parse_state(agent_state(**ran)), 5, 5))
+        self.assertTrue(t3_heads.judge_exit(t3_heads.parse_state(agent_state(**ran)), 5, 10)
+                        .startswith("vtium gave up after 10 s"))
+        self.assertTrue(t3_heads.judge_exit(t3_heads.parse_state(agent_state(
+            **dict(ran, getty="inactive", tty2=""))), 5, 5).startswith("no getty runs"))
+
+    def test_two_heads(self):
+        lines = ["Display Virtual-1 with backend [drm2d] text renderer [bbulk], cell size 8x16",
+                 "Display Virtual-2 with backend [drm2d] text renderer [bbulk], cell size 8x8"]
+        panel, desk = t3img.Image(1, 1, b"\0\0\0"), t3img.Image(1, 1, b"\1\1\1")
+        self.assertIsNone(t3_heads.judge_two_heads(lines, panel, panel, desk))
+        mirrored = [l.replace("8x8", "8x16") for l in lines]
+        self.assertTrue(t3_heads.judge_two_heads(mirrored, panel, panel, desk)
+                        .startswith("the displays and their cells"))
+        self.assertTrue(t3_heads.judge_two_heads(lines[:1], panel, panel, desk)
+                        .startswith("the displays and their cells"))
+        self.assertTrue(t3_heads.judge_two_heads(lines, panel, desk, desk)
+                        .startswith("the second output's screen changed"))
+        self.assertTrue(t3_heads.judge_two_heads(lines, desk, desk, desk)
+                        .startswith("the second output shows the first head's"))
+
+    def test_a_check_with_no_display_passes_on_its_state(self):
+        meta = {"passed": ["display-held"], "errors": {"getty-fallback": "after the kill"}}
+        entries = {e["name"]: e for e in t3_scenario.evaluate_variant(
+            "heads-closed-nodisplay", {}, meta, LOG)}
+        self.assertEqual(entries["heads-closed-nodisplay/display-held"]["status"], "pass")
+        self.assertEqual(entries["heads-closed-nodisplay/getty-fallback"]["status"], "fail")
+        self.assertEqual(entries["heads-closed-nodisplay/getty-fallback"]["error"],
+                         "after the kill")
+
+    def test_no_display_variant_errors(self):
+        # A guest with no display device fails when the console set one up.
+        vtium = {"name": "vtium", "revision": "abc"}
+        self.assertEqual(t3_scenario.variant_errors(None, [], None, {}, {}, vtium, []),
+                         ([], False))
+        why, drop = t3_scenario.variant_errors(
+            None, ["Display Virtual-1 with backend [drm2d] text renderer [bbulk]"], None, {}, {},
+            vtium, [])
+        self.assertTrue(drop)
+        self.assertTrue(why[0].startswith("the console set up a display on a guest with none"))
+        self.assertEqual(t3_scenario.resident({}, [])["first_screen"], None)
 
 
 if __name__ == "__main__":

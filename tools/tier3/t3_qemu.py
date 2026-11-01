@@ -44,7 +44,8 @@ class Qemu:
     """One headless QEMU process and its QMP connection."""
 
     def __init__(self, workdir, disks, device, log, display="none", net=False,
-                 capture="screendump", cpus=CPUS, memory_mb=MEMORY_MB, extra=(), heads=()):
+                 capture="screendump", cpus=CPUS, memory_mb=MEMORY_MB, extra=(), heads=(),
+                 agent=False):
         os.makedirs(workdir, exist_ok=True)
         self.workdir = workdir
         self.log = log
@@ -60,20 +61,30 @@ class Qemu:
         # (guest/setup), so the driver can wait for a login or a drawn screen.
         self.serial = os.path.join(workdir, "serial.log")
         self.events = os.path.join(workdir, "events.log")
-        for p in (self.sock_path, self.vnc_path, *(h[3] for h in heads)):
+        # ttyS2, for a variant that runs the agent (guest/t3-agent), takes
+        # the driver's requests from a unix socket; the agent answers on
+        # the event port.
+        self.agent_path = os.path.join(workdir, "ttyS2") if agent else None
+        self.agent_sock = None
+        self.asked = 0
+        sockets = (self.sock_path, self.vnc_path, *(h[3] for h in heads),
+                   *((self.agent_path,) if agent else ()))
+        for p in sockets:
             if len(os.fsencode(p)) > SUN_PATH_MAX:
                 raise RuntimeError("socket path is %d bytes, over the %d a unix "
                                    "socket allows; use a checkout with a shorter "
                                    "path: %s" % (len(os.fsencode(p)), SUN_PATH_MAX, p))
-        for p in (self.sock_path, self.vnc_path, self.serial, self.events, *(h[3] for h in heads)):
+        for p in (*sockets, self.serial, self.events):
             if os.path.exists(p):
                 os.unlink(p)
         args = ["qemu-system-x86_64", "-machine", "q35,accel=kvm", "-cpu", "host",
                 "-smp", str(cpus), "-m", str(memory_mb), "-no-reboot",
-                "-display", display, "-device", device,
+                "-display", display, *(("-device", device) if device else ("-vga", "none")),
                 "-qmp", "unix:%s,server=on,wait=off" % self.sock_path,
                 "-serial", "file:%s" % self.serial,
                 "-serial", "file:%s" % self.events]
+        if agent:
+            args += ["-serial", "unix:%s,server=on,wait=off" % self.agent_path]
         for path, fmt, ro in disks:
             args += ["-drive", "file=%s,if=virtio,format=%s%s"
                      % (path, fmt, ",readonly=on" if ro else "")]
@@ -217,6 +228,47 @@ class Qemu:
         """Wait for the guest to report `marker` on its event port."""
         return self.wait_serial(marker, timeout, log_path=self.events)
 
+    def ask(self, request, timeout=30):
+        """The agent's answer to `request` (guest/t3-agent): the lines it
+        wrote on the event port for it, each without its "T3-AGENT N "
+        prefix. The first request also waits for the agent to start: a
+        request the guest reads before the agent opens its port is lost,
+        so until one is answered `state`, which changes nothing, is asked
+        again."""
+        if self.agent_sock is None:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.connect(self.agent_path)
+            self.agent_sock = s
+            deadline = time.time() + 120
+            while True:
+                try:
+                    self._ask("state", 5)
+                    break
+                except RuntimeError:
+                    if time.time() > deadline:
+                        raise RuntimeError("the agent did not answer within 120 s; see %s"
+                                           % rel(self.events)) from None
+        return self._ask(request, timeout)
+
+    def _ask(self, request, timeout):
+        self.asked += 1
+        n = self.asked
+        with open(self.events, "rb") as f:
+            since = len(f.read())
+        self.agent_sock.sendall(b"%d %s\n" % (n, request.encode()))
+        prefix, end = "T3-AGENT %d " % n, "T3-AGENT-END %d" % n
+        deadline = time.time() + timeout
+        while True:
+            with open(self.events, "rb") as f:
+                text = f.read()[since:].decode(errors="replace")
+            lines = [l.strip() for l in text[:text.rfind("\n") + 1].splitlines()]
+            if end in lines:
+                return [l[len(prefix):] for l in lines if l.startswith(prefix)]
+            if self.proc.poll() is not None or time.time() > deadline:
+                raise RuntimeError("the agent did not answer %r within %d s; see %s"
+                                   % (request, timeout, rel(self.events)))
+            time.sleep(0.2)
+
     def status(self):
         """The guest's run state, as QMP's query-status names it ("running",
         "suspended", ...)."""
@@ -288,6 +340,8 @@ class Qemu:
         self._stopped()
         if self.sock:
             self.sock.close()
+        if self.agent_sock:
+            self.agent_sock.close()
         self.qemu_log.close()
 
 

@@ -10,10 +10,11 @@ import time
 
 import t3_bench
 import t3_devices
+import t3_heads
 import t3_pointer
 import t3_power
 import t3img
-from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, RUNDIR, rel
+from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, ROOT, RUNDIR, rel
 from t3_evaluate import (BENCHMARKS, CASES, IMAGE_SCREENS, KEYED, KEYS_AFTER, NO_GOLDEN,
                          SCREENS, SMALL_SCREENS, VTIUM_GOLDEN, cases, evaluate)
 from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
@@ -290,6 +291,55 @@ VARIANTS.update({
 })
 DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
 
+# The head file (ADR-1401) on the guest's real KMS device and systemd
+# (t3_heads), on the device variants' machine, each run only when named.
+# A variant names its head file ("heads", from the repository's root), the
+# policy its checks expect ("policy"), and the case of the console's first
+# screen, judged by vtium's provisional golden ("first"). One whose console
+# gives no login ("login": False) draws no screen and switches no VT; its
+# checks follow the first screen. Each runs the agent (t3_heads), and the
+# getty-fallback check fails vtium in the ways "failures" names.
+# heads-partly-open is the open control of the closed variants' fallback:
+# there the getty does start. The two without a display device ("device":
+# None) wait for vtium on tty2 with no screen to capture, one under each
+# policy, at a display-wait of 5 s (guest/kmscon-nodisplay.conf).
+HEAD_VARIANT = dict(DEVICES, agent=True, screens=[])
+NO_DISPLAY = dict({k: v for k, v in HEAD_VARIANT.items() if k not in ("fonts", "frits")},
+                  device=None, conf="kmscon-nodisplay.conf", renderer=None, login=False)
+VARIANTS.update({
+    "heads-partly-open": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/partly-open.conf",
+                              policy="open", first="partly-notice", screens=["cjk"],
+                              checks=["getty-fallback"],
+                              failures=["kill", "crash", "hangup"]),
+    "heads-closed-broken": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/broken-closed.conf",
+                                policy="closed", first="panic", login=False,
+                                checks=["no-login", "getty-fallback"],
+                                failures=["kill", "crash", "hangup"]),
+    "heads-closed-unmatched": dict(HEAD_VARIANT,
+                                   heads="tools/tier3/guest/heads/closed-unmatched.conf",
+                                   policy="closed", first="no-display-notice", login=False,
+                                   checks=["no-login", "getty-fallback"],
+                                   failures=["kill"]),
+    "heads-two-heads": dict(HEAD_VARIANT, agent=False,
+                            device="virtio-vga,id=video0,max_outputs=2,xres=640,yres=480,"
+                                   "edid=on",
+                            second={"device": "video0", "head": 1, "size": (640, 480)},
+                            heads="tools/tier3/guest/heads/two-heads.conf", policy="open",
+                            frits=["desk.vtfrit", "panel.vtfrit"],
+                            screens=["cjk"], checks=["two-heads"]),
+    "heads-off": dict(HEAD_VARIANT, heads="docs/heads/off.conf", policy="closed",
+                      renderer=None, login=False, checks=["no-login", "getty-fallback"],
+                      failures=["kill"]),
+    "heads-closed-nodisplay": dict(NO_DISPLAY, heads="tools/tier3/guest/heads/closed-valid.conf",
+                                   policy="closed", checks=["display-held", "getty-fallback"],
+                                   failures=["kill"]),
+    "heads-open-nodisplay": dict(NO_DISPLAY, heads="docs/heads/default.conf", policy="open",
+                                 checks=["display-exit"]),
+})
+HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
+                 "heads-closed-unmatched", "heads-off", "heads-closed-nodisplay",
+                 "heads-open-nodisplay"]
+
 # Each guest's base image, the make target that provisions it, the console
 # lines its boot ends with before the driver presses Ctrl+Alt+F2, and the
 # line that shows the switch took, which no boot logs: under systemd, logind
@@ -330,7 +380,7 @@ def base_of(variant):
 
 
 def uses_virgl(variant):
-    return VARIANTS[variant]["device"].startswith("virtio-vga-gl")
+    return (VARIANTS[variant]["device"] or "").startswith("virtio-vga-gl")
 
 
 def screens_of(variant):
@@ -344,11 +394,16 @@ def variant_cases(variant):
     cases of the image screens, whose keys act on pictures, each case with
     a golden followed by the same case on each of its other outputs, then
     the mirror check for a variant that runs it, the pointer case for one
-    that runs it, and its other checks (t3_devices.CHECKS)."""
+    that runs it, and its other checks (t3_devices.CHECKS, t3_heads.CHECKS).
+    A head-file variant's first screen comes first, and one whose console
+    gives no login has no case but that and its checks."""
     v = VARIANTS[variant]
     if "power" in v:
         return list(v["power"])
-    out = CASES if "screens" not in v else cases(screens_of(variant))
+    first = [v["first"]] if "first" in v else []
+    if not v.get("login", True):
+        return first + list(v.get("checks", []))
+    out = first + (CASES if "screens" not in v else cases(screens_of(variant)))
     if not v.get("images", True):
         skipped = {case for screen, case, _ in KEYED if screen in IMAGE_SCREENS}
         out = [c for c in out if c not in skipped]
@@ -429,9 +484,10 @@ def build_disc(variant, work, impl):
     `helper-held` file if its helper never answers, a `pointer` file if it
     reads the cursor plane, a
     `no-udev` file if it runs without a udev daemon, a `two-vts` file
-    if it runs a second vtium on tty3 from the boot, and a `udev-examples`
+    if it runs a second vtium on tty3 from the boot, a `udev-examples`
     file if it runs that check, whose guest installs the example hwdb
-    fragment."""
+    fragment, its head file as `heads.conf` if it names one, and the agent
+    and its unit if it runs it."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -471,6 +527,11 @@ def build_disc(variant, work, impl):
         open(os.path.join(disc, "pointer"), "w").close()
     if "udev-examples" in VARIANTS[variant].get("checks", []):
         open(os.path.join(disc, "udev-examples"), "w").close()
+    if "heads" in VARIANTS[variant]:
+        shutil.copy(t3_heads.head_file(VARIANTS[variant]), os.path.join(disc, "heads.conf"))
+    if VARIANTS[variant].get("agent"):
+        for name in ("t3-agent", "t3-agent.service"):
+            shutil.copy(os.path.join(GUEST, name), disc)
     iso = os.path.join(work, "t3pkg.iso")
     make_iso(disc, "T3PKG", iso)
     return iso
@@ -563,8 +624,9 @@ def resident(rss_kb, screens=SCREENS):
     the first of `screens`, and the peak over `screens` with the screen it
     followed (s1-scroll, once its lines fill the scrollback, for the C
     reference's minimal build); the pointer case's readings are no screen.
-    VmRSS is in KiB; None where nothing was read."""
-    first = screens[0]
+    VmRSS is in KiB; None where nothing was read, as for a variant that
+    draws no screen."""
+    first = screens[0] if screens else None
     drawn = [s for s in screens if s in rss_kb]
     peak = max(drawn, key=rss_kb.get) if drawn else None
     return {"first_screen": first, "first_kib": rss_kb.get(first),
@@ -632,7 +694,10 @@ def run_variant(variant, timing, impl, log):
     vm = Qemu(work, [(disk, "qcow2", False), (iso, "raw", True)],
               v["device"], log, display=v["display"],
               capture=v.get("capture", "screendump"), cpus=v["cpus"], memory_mb=v["memory_mb"],
-              extra=v.get("qemu", ()), heads=t3_devices.heads(v.get("outputs", [])))
+              extra=v.get("qemu", ()),
+              heads=t3_devices.heads(v.get("outputs", []) + ([v["second"]] if "second" in v
+                                                              else [])),
+              agent=v.get("agent", False))
     caps, errors, notes, error, installed = {}, {}, {}, None, None
     try:
         line = vm.wait_serial("TIER3-INSTALL-OK", timeout=180)
@@ -650,10 +715,28 @@ def run_variant(variant, timing, impl, log):
         vm.keys("ctrl", "alt", "f2")
         vm.wait_serial(guest["shown"], timeout=60)
         tmp = os.path.join(work, "wait.ppm")
-        prompt = wait_stable(vm, tmp, settle=2.0, timeout=90, want=not_blank)
+        prompt = None
+        if v["device"] is not None and v["renderer"] is not None:
+            prompt = wait_stable(vm, tmp, settle=2.0, timeout=90, want=not_blank)
+        if "second" in v:
+            wait_stable(vm, os.path.join(work, "two-heads-start.ppm"), settle=2.0, timeout=90,
+                        want=not_blank, output=t3_heads.second_output(v))
+        if "first" in v:
+            # The first screen shows the outcome the console logged
+            # (t3_heads.LINES), else its capture is not the outcome's.
+            line = t3_heads.LINES[v["first"]]
+            try:
+                vm.wait_serial(line, timeout=10)
+                path = os.path.join(work, v["first"] + ".ppm")
+                shutil.copy(tmp, path)
+                caps[v["first"]] = path
+            except RuntimeError as e:
+                errors[v["first"]] = "the console did not log its outcome: %s" % e
         phase("console")
         if "power" in v:
             press_power_keys(vm, v["power"], work, caps, errors, notes, log, phase)
+        elif not v.get("login", True):
+            run_checks(variant, vm, work, caps, errors, log, phase)
         else:
             draw_screens(variant, vm, work, prompt, caps, errors, log, phase)
     except Exception as e:  # reported per case; the captures so far still count
@@ -666,14 +749,21 @@ def run_variant(variant, timing, impl, log):
     displays = console_displays(vm.serial)
     with open(os.path.join(GUEST, v["conf"])) as f:
         conf = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    # A check on a guest with no display passes with no capture.
+    passed = sorted(case for case, path in caps.items() if path is None)
+    caps = {case: path for case, path in caps.items() if path is not None}
     rss = resident_kb(vm)
-    meta = {"installed": installed,
+    meta = {"installed": installed, "passed": passed,
             "displays": displays, "errors": errors, "notes": notes, "device": v["device"],
             "qemu": list(v.get("qemu", ())), "config": conf,
             "cell": console_cell(vm.serial), "cpus": v["cpus"], "memory_mb": v["memory_mb"],
             "bench": bench_figures(vm, caps, conf, v.get("images", True)),
             "rss_kb": rss, "resident": resident(rss, screens_of(variant)),
             "startup_ms": console_startup_ms(vm.serial)}
+    if "heads" in v:
+        with open(t3_heads.head_file(v)) as f:
+            meta["head_file"] = {"path": v["heads"], "policy": v["policy"],
+                                 "lines": f.read().splitlines()}
     meta["console"] = console_revision(vm.serial)
     errors_all, drop = variant_errors(error, displays, v["renderer"], caps, rss,
                                       meta["console"], screens_of(variant),
@@ -779,8 +869,14 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
     if v.get("pointer"):
         check_pointer(variant, vm, work, caps, errors, log)
         phase(t3_pointer.CASE)
+    run_checks(variant, vm, work, caps, errors, log, phase)
+
+
+def run_checks(variant, vm, work, caps, errors, log, phase):
+    """Run each of `variant`'s checks (CHECK_RUNS) in order."""
+    v = VARIANTS[variant]
     for check in v.get("checks", []):
-        CHECK_RUNS[check](vm, work, caps, errors, log)
+        CHECK_RUNS[check](v, vm, work, caps, errors, log)
         phase(check)
 
 
@@ -820,7 +916,7 @@ def check_mirror(variant, caps, errors):
         caps["mirror"] = caps[screens_of(variant)[-1] + outputs[-1]["suffix"]]
 
 
-def check_udev_examples(vm, work, caps, errors, log):
+def check_udev_examples(_variant, vm, work, caps, errors, log):
     """The udev-examples check (t3_devices.CHECKS): the guest reads the
     example files with its udev (screens/udev-examples.sh), and the account
     it prints is judged. The capture is the screen the script left, kept
@@ -839,7 +935,7 @@ def check_udev_examples(vm, work, caps, errors, log):
         errors[case] = str(e)
 
 
-def check_keyboard_hotplug(vm, work, caps, errors, log):
+def check_keyboard_hotplug(_variant, vm, work, caps, errors, log):
     """The keyboard-hotplug check (t3_devices.CHECKS), after udev-examples,
     which reads the boot's USB keyboard. That keyboard is pulled out, so the
     console's keys reach the PS/2 keyboard, and screens/keyboard-hotplug.sh,
@@ -888,9 +984,12 @@ def check_keyboard_hotplug(vm, work, caps, errors, log):
         log("%s: %s" % (case, e))
 
 
-# The checks a variant names ("checks"), each run after the VT switch.
+# The checks a variant names ("checks"), each run after the VT switch, or
+# after the first screen when the console gives no login; each takes the
+# variant's entry in VARIANTS first.
 CHECK_RUNS = {"udev-examples": check_udev_examples,
-              "keyboard-hotplug": check_keyboard_hotplug}
+              "keyboard-hotplug": check_keyboard_hotplug,
+              **t3_heads.CHECK_RUNS}
 
 
 def check_login(line):
@@ -1011,7 +1110,8 @@ def variant_errors(error, displays, renderer, caps, rss, console, screens=SCREEN
     """Every reason a variant failed, the scenario's own `error` first, and
     whether its captures must be dropped so every case fails: when a console
     drew with another renderer than the variant tests, the captures show the
-    wrong path; when a variant with `outputs` beyond the first did not set up
+    wrong path, and on a guest with no display device (`renderer` None) when
+    it set one up; when a variant with `outputs` beyond the first did not set up
     a display for each, one Display line a display, a capture of an output
     may show QEMU's screen rather than vtium's; when a drawn screen has no
     resident-memory reading (`rss`), the run lacks a figure measured on
@@ -1019,7 +1119,11 @@ def variant_errors(error, displays, renderer, caps, rss, console, screens=SCREEN
     captures are another console's."""
     out, drop = [error] if error else [], False
     want = "text renderer [%s]" % renderer
-    if not displays or not all(want in d for d in displays):
+    if renderer is None:
+        if displays:
+            out.append("the console set up a display on a guest with none: %s" % displays)
+            drop = True
+    elif not displays or not all(want in d for d in displays):
         out.append("the console did not draw with %s: %s" % (renderer, displays))
         drop = True
     names = sorted({m.group(1) for m in (re.search(r"Display (\S+) with", d) for d in displays)
