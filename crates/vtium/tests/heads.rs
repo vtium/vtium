@@ -24,6 +24,11 @@ use vtium_platform::vt::FakeVt;
 const ID: DisplayId = DisplayId(1);
 const SECOND: Duration = Duration::from_secs(5);
 
+/// How long a wait on a frame, drawn by a head's render thread, may run
+/// before the test fails: long enough for a loaded machine, and only a
+/// bound, since each wait ends at the state it waits for.
+const BOUND: Duration = Duration::from_secs(10);
+
 /// A device with one display, its frame buffer in memory, named for the
 /// rules by its connector and its card.
 struct Memory {
@@ -532,13 +537,15 @@ display card:mem-large -> off
     ];
     let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
     assert!(s.until(SECOND, |a| a.cells().len() == 1));
-    s.until(Duration::from_millis(200), |_| false);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0),
+        "the small display draws"
+    );
     assert_eq!(s.app.cells(), [(8, 16)]);
     for node in ["/dev/mem1", "/dev/mem2"] {
         let m = s.memory(node);
         assert_eq!((m.dpms, m.frames), (Some(Dpms::Off), 0), "{node} is dark");
     }
-    assert!(s.memory("/dev/mem0").frames > 0, "the small display draws");
 }
 
 /// D5: every keyboard types into the head holding the focus, which starts
@@ -1407,6 +1414,110 @@ fn the_console_chords_switch_a_heads_consoles_and_open_or_close_none() {
     assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
 }
 
+/// ADR-1002, "What a link does", across ADR-1401 D5's console chords: the
+/// pointer is over the shown console alone. A console chord leaves the
+/// console it hides hovering nothing and the console it shows hovering the
+/// link under the pointer at once, with Ctrl, which the chord holds,
+/// showing its URI, with no pointer event in between.
+// covers: osc.8
+#[test]
+fn a_console_chord_moves_the_hover_to_the_console_it_shows() {
+    let heads = "version = 1
+[head main]
+consoles = 2
+[rules]
+display card:mem-small -> main
+input class:keyboard -> roaming
+";
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let script = "printf 'see \\033]8;;file://pixie/a.md\\007link\\033]8;;\\007\\n'; read x";
+    let mut s = Seat::with_heads(&[], Some(heads), displays, script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    let both = |a: &App| {
+        a.head("main").is_some_and(|h| {
+            h.consoles_text()
+                .iter()
+                .all(|t| t.iter().any(|l| l == "see link"))
+        })
+    };
+    assert!(
+        s.until(SECOND, both),
+        "both consoles printed the link: {:?}",
+        s.app.head("main").map(Head::consoles_text)
+    );
+    let (cw, ch) = *s.app.cells().first().expect("a cell");
+    let over = vtium_platform::input::PointerEvent::Moved {
+        x: i32::try_from(5 * cw + 1).expect("a pixel"),
+        y: i32::try_from(ch / 2).expect("a pixel"),
+        held: None,
+    };
+    s.app.pointer_event(over, Mods::empty(), now());
+    let uri = || Some("file://pixie/a.md".to_owned());
+    let hovered = |a: &App| a.head("main").map(Head::consoles_hovered);
+    assert_eq!(hovered(&s.app), Some(vec![uri(), None]));
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(RIGHT), now());
+    assert_eq!(consoles(&s.app, "main"), Some((2, 1)));
+    assert_eq!(hovered(&s.app), Some(vec![None, uri()]));
+    let overlay = |a: &App| {
+        let terminal = &a.term().expect("a head").terminal;
+        let frame = terminal
+            .screen()
+            .frame(terminal.palette(), vtium_term::Age::NEVER);
+        frame.overlay().map(|o| o.uri.to_owned())
+    };
+    assert_eq!(
+        overlay(&s.app),
+        uri(),
+        "Ctrl, held for the chord, shows the URI"
+    );
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_super(LEFT), now());
+    assert_eq!(hovered(&s.app), Some(vec![uri(), None]));
+}
+
+/// ADR-1002, "What a link does", across the focus chord: Ctrl's overlay
+/// is the focus's. The head losing the focus shows no overlay, though the
+/// Ctrl the chord held was never let go as far as vtium knows.
+// covers: osc.8
+#[test]
+fn the_head_losing_the_focus_shows_no_overlay() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let script = "printf 'see \\033]8;;file://pixie/a.md\\007link\\033]8;;\\007\\n'; read x";
+    let mut s = Seat::with_heads(&[], Some(CLAIMED), displays, script);
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "see link")
+        && head_shows(a, "large", "see link")));
+    assert_eq!(s.app.focus_head(), Some("large"));
+    let (cw, ch) = *s
+        .app
+        .head("large")
+        .map(Head::cells)
+        .unwrap_or_default()
+        .first()
+        .expect("a cell");
+    let over = |col: u32| vtium_platform::input::PointerEvent::Moved {
+        x: i32::try_from(col * cw + 1).expect("a pixel"),
+        y: i32::try_from(ch / 2).expect("a pixel"),
+        held: None,
+    };
+    s.app.pointer_event(over(5), Mods::CTRL, now());
+    let overlay = |a: &App, name: &str| a.head(name).and_then(Head::link_overlay);
+    assert_eq!(
+        overlay(&s.app, "large").as_deref(),
+        Some("file://pixie/a.md")
+    );
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    assert_eq!(s.app.focus_head(), Some("small"));
+    s.app.pointer_event(over(0), Mods::empty(), now());
+    assert_eq!(overlay(&s.app, "large"), None);
+}
+
 /// The key events xkb makes of a chord pressed as a keyboard sends it:
 /// Left Ctrl, then Left Super, then the key `code` (evdev's), each press
 /// an event with the modifiers as they then stand; the releases make
@@ -1446,15 +1557,21 @@ fn answered(app: &App, line: &str) -> bool {
 }
 
 /// The pixels of each display of `s` after the frames the turn just run
-/// asked for: each display's frame count is taken before the turn, and
-/// the loop runs until the head's render thread has handed each display
-/// its next frame, which [`SECOND`] bounds.
+/// asked for: the loop first runs until no display has a frame
+/// composing, so the next frame each display shows is the turn's; each
+/// display's frame count is taken before the turn, and the loop runs
+/// until the head's render thread has handed each display its next
+/// frame, which [`BOUND`] bounds.
 fn next_frames(s: &mut Seat, turn: impl FnOnce(&mut Seat)) -> [Vec<u8>; 2] {
+    assert!(
+        s.until(BOUND, |a| a.heads().iter().all(|h| h.frames_out() == 0)),
+        "no frame composing"
+    );
     let before = MIRRORED.map(|node| s.memory(node).frames);
     turn(s);
     for (node, before) in MIRRORED.into_iter().zip(before) {
         assert!(
-            s.until_memory(node, SECOND, |m| m.frames > before),
+            s.until_memory(node, BOUND, |m| m.frames > before),
             "{node} draws a frame"
         );
     }
@@ -1846,20 +1963,28 @@ fn under_respawn_a_session_ending_restarts_its_head_alone() {
 /// last head's program ends.
 #[test]
 fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
-    let mut s = logins(&["--oneshot"], "echo bye", "sleep 1");
-    assert!(
-        s.until(SECOND, |a| a.head("small").and_then(Head::notice)
-            == Some(ENDED)),
-        "small's program ended"
+    // Large's program ends once the test writes this file.
+    let go = std::env::temp_dir().join(format!("vtium-oneshot-go-{}", std::process::id()));
+    std::fs::remove_file(&go).ok();
+    let large = format!(
+        "echo large; while [ ! -e {} ]; do sleep 0.05; done",
+        go.display()
     );
-    s.until(Duration::from_millis(200), |_| false);
+    let mut s = logins(&["--oneshot"], "echo bye", &large);
+    assert!(
+        s.until(BOUND, |a| a.head("small").and_then(Head::notice)
+            == Some(ENDED)
+            && head_shows(a, "large", "large")),
+        "small's program ended, large's runs"
+    );
     assert_eq!(s.app.finished(), None, "large's runs on");
     assert_eq!(s.app.head("large").and_then(Head::notice), None);
+    std::fs::write(&go, b"").expect("the go file");
     assert!(
-        s.until(Duration::from_secs(3), |a| a.finished()
-            == Some(vtium::app::Exit::Oneshot)),
+        s.until(BOUND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
         "the last head's program ended"
     );
+    std::fs::remove_file(&go).ok();
 }
 
 /// A seat whose head `looping` has one console whose program keeps
@@ -2746,12 +2871,14 @@ fn an_exit_read_before_a_hang_up_is_the_hung_up_sessions() {
     let (mut s, _files) = losing("exit-and-hangup", &[], "when-display-lost = hangup", false);
     for n in 1..=7 {
         s.type_on(KBD_SMALL, "q\r");
-        // The loop reads the exit, and no turn takes it before the hang-up.
-        for _ in 0..15 {
+        // The loop reads the exit, and no turn takes it before the hang-up:
+        // it dispatches, with no turn, until the exit is read.
+        let read = |a: &App| a.head("small").is_some_and(|h| h.term().exited.is_some());
+        let end = now() + BOUND;
+        while !read(&s.app) && now() < end {
             s.lp.dispatch(Some(Duration::from_millis(20)), &mut s.app)
                 .expect("dispatch");
         }
-        let read = |a: &App| a.head("small").is_some_and(|h| h.term().exited.is_some());
         assert!(read(&s.app), "exit {n} is read, its turn not yet come");
         s.unplug("/dev/mem0", now());
         assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
@@ -2969,6 +3096,17 @@ fn the_rescue_key_moves_a_claimed_keyboard_and_an_ignored_one_to_the_focus_and_w
 const PAPER: [u8; 3] = [0xe2, 0xe2, 0xfe];
 
 impl Memory {
+    /// Whether any pixel of the 8 by 16 cells `cols` of text row `row`
+    /// is lit: the display shows something drawn there.
+    fn inked(&self, row: u32, cols: std::ops::Range<u32>) -> bool {
+        (row * 16..row * 16 + 16).any(|y| {
+            cols.clone().flat_map(|c| c * 8..c * 8 + 8).any(|x| {
+                let at = ((y * self.w + x) * 4) as usize;
+                self.pixels.get(at..at + 3).is_some_and(|p| p != [0, 0, 0])
+            })
+        })
+    }
+
     /// Whether a pixel of the frame is `bgr`.
     fn has(&self, bgr: [u8; 3]) -> bool {
         self.pixels.chunks_exact(4).any(|p| p[..3] == bgr)
@@ -3338,7 +3476,10 @@ fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() 
     );
     s.app.device_input(Path::new(KBD_A), ctrl_alt_f(1), now());
     s.type_on(KBD_A, "y\r");
-    s.until(Duration::from_millis(100), |_| false);
+    // A line typed after it, on the keyboard that types into desk: had y
+    // reached desk, its echo would come first.
+    s.type_on(KBD_B, "e\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "desk", "got:e")));
     assert!(
         !head_shows(&s.app, "desk", "got:y"),
         "and the rescue key is off"
@@ -3611,6 +3752,11 @@ fn the_osd_shows_on_a_head_whose_console_changes_or_whose_display_returns() {
             [Some(line.to_owned()), None],
             "{what}: on small alone"
         );
+        // Its time runs from the first frame that draws it.
+        assert!(
+            s.until_memory("/dev/mem0", BOUND, |m| m.has(STATUS_PAPER)),
+            "{what}: drawn"
+        );
         s.app.turn(t + Duration::from_secs(10));
         assert_eq!(statuses(&s.app), [None, None], "{what}: gone");
     };
@@ -3689,12 +3835,8 @@ fn osd_timeout_never_keeps_it_up_and_osd_off_draws_none() {
     use vtium_render::Mark;
     for args in [["--osd-timeout=never"], ["--focus-mark=always"]] {
         let mut s = claimed_with(&args);
-        s.until(Duration::from_millis(50), |_| false);
-        assert_eq!(
-            marks(&s.app),
-            [Some(Mark::NoFocus), Some(Mark::Focus)],
-            "{args:?}"
-        );
+        let both = [Some(Mark::NoFocus), Some(Mark::Focus)];
+        assert!(s.until(BOUND, |a| marks(a) == both), "{args:?}");
         s.app.turn(now() + Duration::from_secs(60));
         assert_eq!(
             marks(&s.app),
@@ -3903,7 +4045,12 @@ fn under_osd_off_a_move_composes_no_frame() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     for (osd, drawn) in [("--osd=off", false), ("--osd=minimal", true)] {
         let mut s = claimed_with(&[osd, "--no-blink"]);
-        s.until(Duration::from_millis(200), |_| false);
+        // The large display shows "ready", past the cursor's first cell:
+        // its last frame of the start is drawn and no other is on its way.
+        assert!(
+            s.until_memory("/dev/mem1", BOUND, |m| m.inked(0, 1..5)),
+            "the start drawn"
+        );
         let composed = Arc::new(AtomicUsize::new(0));
         let count = Arc::clone(&composed);
         let hook = move || {
@@ -3912,8 +4059,17 @@ fn under_osd_off_a_move_composes_no_frame() {
         s.app.set_draw_hook("large", Some(Arc::new(hook)));
         s.app
             .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
-        s.until(Duration::from_millis(200), |_| false);
-        assert_eq!(composed.load(Ordering::SeqCst) > 0, drawn, "{osd}");
+        if drawn {
+            assert!(
+                s.until(BOUND, |_| composed.load(Ordering::SeqCst) > 0),
+                "{osd}: a frame composed"
+            );
+        } else {
+            // No frame comes to wait for: the window only gives one the
+            // chance to.
+            s.until(Duration::from_millis(200), |_| false);
+            assert_eq!(composed.load(Ordering::SeqCst), 0, "{osd}");
+        }
     }
 }
 
@@ -4125,8 +4281,11 @@ fn a_keyboard_the_rescue_key_moved_lets_the_anti_lockout_guard_go() {
     s.app.turn(now());
     s.type_on(KBD_A, "a\r");
     s.type_on(KBD_B, "b\r");
-    assert!(s.until(SECOND, |a| head_shows(a, "large", "got:a")));
-    s.until(Duration::from_millis(200), |_| false);
+    // A line on large's keyboard after b: had b reached large, its echo
+    // would come before this one's.
+    s.type_on(KBD_A, "c\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "large", "got:a")
+        && head_shows(a, "large", "got:c")));
     assert!(!head_shows(&s.app, "large", "got:b"), "b is small's again");
 }
 
