@@ -7,6 +7,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use vtium::notice;
+use vtium_render::Notice;
 
 /// The keyboard the rescue key moves.
 const KEYBOARD: &str = "/dev/input/event3";
@@ -67,25 +68,47 @@ pub fn head_file_two_errors() -> Result<String, String> {
     head_file(TWO_ERRORS)
 }
 
-/// The panic screen of a broken closed head file, as the start at vtium's
-/// own path builds it from the file's bytes (ADR-1401 D7).
+/// The text of the panic screen of a broken closed head file, every error
+/// it holds, as the start at vtium's own path builds it from the file's
+/// bytes (ADR-1401 D7).
 pub fn panic() -> Result<String, String> {
+    panic_report().map(|r| r.text())
+}
+
+/// The panic screen as the screen the display guard lights draws it: a
+/// report, which counts the errors it has no room for.
+pub fn panic_screen() -> Result<Notice, String> {
+    panic_report().map(Notice::report)
+}
+
+fn panic_report() -> Result<vtium_render::NoticeReport, String> {
     let path = std::path::Path::new(vtium_config::HEAD_FILE);
     vtium::head::Start::trusted(path, BROKEN_CLOSED.as_bytes())
-        .notice()
-        .ok_or_else(|| format!("the head file {BROKEN_CLOSED:?} shows no notice"))
+        .report()
+        .cloned()
+        .ok_or_else(|| format!("the head file {BROKEN_CLOSED:?} shows no panic screen"))
 }
 
 /// The notice of a closed file whose heads have no display, alone on the
 /// boot display (ADR-1401 D9).
-pub fn no_display() -> Result<String, String> {
-    Ok(vtium::head::outcome_notice(vtium_config::Line::NoDisplay))
+pub fn no_display() -> Result<Notice, String> {
+    Ok(Notice::new(vtium::head::outcome_notice(
+        vtium_config::Line::NoDisplay,
+    )))
+}
+
+/// The console line of a partly broken closed file whose surviving heads
+/// have no display, alone on the boot display (ADR-1401 D7, D9).
+pub fn partly() -> Result<Notice, String> {
+    Ok(Notice::new(vtium::head::outcome_notice(
+        vtium_config::Line::Partly,
+    )))
 }
 
 /// The notice of a crash loop that stopped every head under the closed
 /// policy, alone on the boot display (ADR-1401 D1).
-pub fn stopped() -> Result<String, String> {
-    Ok(notice::stopped())
+pub fn stopped() -> Result<Notice, String> {
+    Ok(Notice::new(notice::stopped()))
 }
 
 /// The notice the start shows for the head file `text`, its console line

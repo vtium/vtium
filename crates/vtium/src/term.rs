@@ -292,13 +292,12 @@ impl Overlay {
     }
 
     /// What the screen the display guard lights for a notice alone draws
-    /// (ADR-1401 D7, D9): its notice `text` in the notice's colors from
-    /// `colors`, as a report, which keeps its last paragraph, the next
-    /// step, on a display too small for all of it. Tier 2 builds its
+    /// (ADR-1401 D7, D9): `notice` alone, in the notice's colors from
+    /// `colors`, the panic screen's report among them. Tier 2 builds its
     /// pictures of that screen with it too.
-    pub fn alone(text: &str, colors: OverlayColors) -> Overlay {
+    pub fn alone(notice: Notice, colors: OverlayColors) -> Overlay {
         Overlay {
-            notice: Some(Notice::report(text)),
+            notice: Some(notice),
             problem: true,
             mark: None,
             colors,

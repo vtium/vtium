@@ -191,6 +191,10 @@ impl Decorations {
 /// the console's that gives it, so a reworded notice moves its golden.
 pub type Words = fn() -> Result<String, String>;
 
+/// The notice of a screen the display guard lights for it alone, built as
+/// vtium builds it: the panic screen's report, or a line of text.
+pub type Alone = fn() -> Result<vtium_render::Notice, String>;
+
 /// What vtium draws of its own over a screen's last frame (ADR-1401 D5,
 /// D7), as a head puts it together: one box across the top holding the
 /// on-screen display's full line and the notices beneath it, in the
@@ -265,7 +269,7 @@ pub struct Screen {
     /// The notice of the screen the display guard lights for a notice
     /// alone (ADR-1401 D7, D9), drawn over the last frame as that screen
     /// draws it, the panic screen's report among them.
-    pub alone: Option<Words>,
+    pub alone: Option<Alone>,
 }
 
 impl Screen {
@@ -551,8 +555,8 @@ fn draw_config<F: Face>(
             return Err("a head's overlay and a notice alone on one screen".to_owned());
         }
         (Some(overlay), None) => Some(overlay.console()?),
-        (None, Some(words)) => Some(vtium::term::Overlay::alone(
-            &words()?,
+        (None, Some(notice)) => Some(vtium::term::Overlay::alone(
+            notice()?,
             OverlayColors::default(),
         )),
         (None, None) => None,
@@ -706,24 +710,29 @@ mod tests {
     }
 
     // A notice alone draws as the screen the display guard lights for it
-    // draws it, as a report: on 40 by 8 cells the panic screen keeps its
-    // console line and its next step and drops what lies between. A screen
-    // that also has a head's overlay is refused (ADR-1401 D7, D9).
+    // draws it: on minspec's 320x240 floor, 40 by 15 cells, the panic
+    // screen keeps what happened and its next step, lists the errors that
+    // fit and counts the rest, the errors it drops among them. A screen that
+    // also has a head's overlay is refused (ADR-1401 D7, D9).
     #[test]
     fn a_notice_alone_draws_as_the_notice_screen_does() {
-        fn ends() -> Result<String, String> {
-            let panic = crate::notices::panic()?;
-            let (first, last) = (panic.lines().next(), panic.lines().last());
-            Ok(format!("{}\n{}", first.unwrap_or(""), last.unwrap_or("")))
+        fn shown() -> Result<vtium_render::Notice, String> {
+            Ok(vtium_render::Notice::new(concat!(
+                "vtium: config invalid, policy closed: input off\n",
+                "The errors in /etc/vtium/heads.conf, listed below, leave no head that can run.\n",
+                "/etc/vtium/heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
+                "More errors: 3\n",
+                "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.",
+            )))
         }
-        let screen = |alone: Words| Screen {
+        let screen = |alone: Alone| Screen {
             alone: Some(alone),
-            ..Screen::new("p", "the panic screen", b"\x1b[?25l", 40, 8)
+            ..Screen::new("p", "the panic screen", b"\x1b[?25l", 40, 15)
         };
-        let alone = screen(crate::notices::panic);
+        let alone = screen(crate::notices::panic_screen);
         assert_eq!(
             draw(&alone).unwrap().rgb(),
-            draw(&screen(ends)).unwrap().rgb()
+            draw(&screen(shown)).unwrap().rgb()
         );
         let both = Screen {
             overlay: Some(Overlay {

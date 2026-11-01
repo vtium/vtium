@@ -2983,6 +2983,31 @@ const ENDED_CONSOLE: &str = "This session has ended and will not start again. To
 /// The start of the anti-lockout guard's notice.
 const LOCKED_OUT: &str = "No keyboard was reaching a screen that is on";
 
+/// The log lines this thread wrote since the last call.
+fn logged() -> Vec<String> {
+    use std::cell::RefCell;
+    use std::sync::Once;
+    thread_local! {
+        static LINES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+    struct Capture;
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record<'_>) {
+            LINES.with(|l| l.borrow_mut().push(record.args().to_string()));
+        }
+        fn flush(&self) {}
+    }
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        log::set_logger(&Capture).expect("the tests' logger");
+        log::set_max_level(log::LevelFilter::Info);
+    });
+    LINES.with(|l| std::mem::take(&mut *l.borrow_mut()))
+}
+
 /// The text of head `name`'s notice.
 fn notice(app: &App, name: &str) -> Option<String> {
     app.head(name).and_then(Head::notice).map(str::to_owned)
@@ -3084,8 +3109,25 @@ fn d7_row(row: &Row) {
                 }
                 let shown = screen.notice().map(ends);
                 assert_eq!(shown, row.line.map(ends), "{test}");
-                let between = screen.notice().map_or(0, |n| n.lines().count());
-                assert!(between > 3, "{test}: the errors shown");
+                // between the two lines of what happened and the next
+                // step, the file's errors, each after the file and its line
+                let lines: Vec<&str> = screen.notice().map_or(Vec::new(), |n| n.lines().collect());
+                let errors = lines
+                    .get(2..lines.len().saturating_sub(1))
+                    .unwrap_or_default();
+                let at =
+                    |line: &str, error: &str| format!("{}{line}: {error}", file.path.display());
+                let want = match test {
+                    "broken-closed" => vec![at(
+                        ":4",
+                        "This section takes no key named \"focs\". Check the key's spelling, or remove the line.",
+                    )],
+                    _ => vec![at(
+                        "",
+                        "The file needs `version = 1` above its first section. Add that line at the top.",
+                    )],
+                };
+                assert_eq!(errors, want, "{test}: the errors shown");
             } else {
                 assert_eq!(screen.notice(), row.line, "{test}");
             }
@@ -3309,11 +3351,24 @@ fn a_broken_closed_file_runs_nothing_and_shows_the_panic_screen_on_the_boot_disp
             Memory::new(640, 320, "MEM-2", "mem-large").lit(),
         ),
     ];
+    logged();
     let mut s = Seat::with_rules(&[], Some(start(text)), displays, ECHO, no_fonts());
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
     assert!(
         s.until_memory("/dev/mem1", SECOND, |m| m.has(PAPER)),
         "drawn on the boot display"
+    );
+    // the start logged each error with its line, so the seat logs the
+    // console line alone, never the report
+    let lines = logged();
+    let line = "vtium: config invalid, policy closed: input off";
+    assert!(lines.iter().all(|l| !l.contains('\n')), "{lines:#?}");
+    assert!(lines.iter().any(|l| l == line), "{lines:#?}");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("the display guard lights display") && l.ends_with(line)),
+        "{lines:#?}"
     );
     let screen = |a: &App| {
         a.notice_screen()

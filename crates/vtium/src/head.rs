@@ -208,6 +208,8 @@ pub struct Head {
     /// The screen the display guard lights for a notice alone under the
     /// closed policy ([`Head::notice_screen`]).
     pub(crate) notice_only: bool,
+    /// The report the notice screen shows, the panic screen's.
+    report: Option<vtium_render::NoticeReport>,
 }
 
 /// A console's terminal for `config`, on [`GRID`] with the scrollback cap
@@ -362,6 +364,7 @@ impl Head {
             painter_refused: false,
             figures: Figures::default(),
             notice_only: false,
+            report: None,
         }
     }
 
@@ -379,9 +382,18 @@ impl Head {
 
     /// Shows `text` alone as the notice screen's notice.
     pub(crate) fn set_notice(&mut self, text: &str) {
+        self.report = None;
         self.notices.clear();
         self.notices.push(text.to_owned());
         self.compose_notices();
+    }
+
+    /// Shows `report` alone as the notice screen's notice, the panic
+    /// screen's, which keeps its count and its next step on a display too
+    /// small for all of it.
+    pub(crate) fn set_report(&mut self, report: vtium_render::NoticeReport) {
+        self.set_notice(&report.text());
+        self.report = Some(report);
     }
 
     /// The head's name, as its `[head NAME]` gives it.
@@ -549,10 +561,14 @@ impl Head {
     /// the on-screen display's line and the notices beneath it, a problem
     /// while a notice is in it, and the on-screen display's dot, in the
     /// colors kmscon.conf sets. The notice screen draws its notice alone,
-    /// as a report.
+    /// its report as a report.
     pub(crate) fn overlay(&self) -> crate::term::Overlay {
         if let Some(text) = self.notice().filter(|_| self.notice_only) {
-            return crate::term::Overlay::alone(text, self.overlay_colors);
+            let notice = match &self.report {
+                Some(report) => vtium_render::Notice::report(report.clone()),
+                None => vtium_render::Notice::new(text),
+            };
+            return crate::term::Overlay::alone(notice, self.overlay_colors);
         }
         let notices: Vec<&str> = self.notice().into_iter().collect();
         crate::term::Overlay::new(
@@ -1086,7 +1102,7 @@ pub struct Start {
     /// boot display for the notice alone.
     pub rules: vtium_config::Config,
     /// The panic screen's report, for a broken closed file (ADR-1401 D7).
-    pub(crate) report: Option<String>,
+    pub(crate) report: Option<vtium_render::NoticeReport>,
 }
 
 impl Start {
@@ -1121,7 +1137,7 @@ impl Start {
                 .len()
                 .saturating_sub(first.len())
                 .saturating_add(reading.errors.more);
-            start.report = Some(crate::notice::panic(&first, more));
+            start.report = Some(crate::notice::panic(first, more));
         }
         start
     }
@@ -1158,8 +1174,14 @@ impl Start {
     /// silent start.
     pub fn notice(&self) -> Option<String> {
         self.report
-            .clone()
+            .as_ref()
+            .map(vtium_render::NoticeReport::text)
             .or_else(|| self.outcome.line.map(outcome_notice))
+    }
+
+    /// The panic screen's report, for a broken closed file (ADR-1401 D7).
+    pub fn report(&self) -> Option<&vtium_render::NoticeReport> {
+        self.report.as_ref()
     }
 }
 
@@ -1385,21 +1407,28 @@ mod tests {
         let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
         let clock: Clock = std::rc::Rc::new(Instant::now);
         let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
-        let text = crate::notice::panic(&["heads.conf:4: an error".to_owned()], 0);
+        let report = crate::notice::panic(vec!["heads.conf:4: an error".to_owned()], 0);
         let mut screen = Head::notice_screen(&config, term());
         assert_eq!(screen.overlay().notice, None, "nothing yet");
-        screen.set_notice(&text);
+        screen.set_report(report.clone());
+        assert_eq!(screen.notice(), Some(report.text().as_str()));
         let overlay = screen.overlay();
         assert_eq!(
             overlay.notice,
-            Some(vtium_render::Notice::report(text.as_str()))
+            Some(vtium_render::Notice::report(report.clone()))
         );
         assert!(overlay.problem);
+        // a notice that is no report draws as it is, and replaces the report
+        screen.set_notice("vtium: no display for any head");
+        assert_eq!(
+            screen.overlay().notice,
+            Some(vtium_render::Notice::new("vtium: no display for any head"))
+        );
         let mut head = Head::new("h", &config, &vtium_config::Font::default(), term());
-        head.add_notice(&text);
+        head.add_notice(&report.text());
         assert_eq!(
             head.overlay().notice,
-            Some(vtium_render::Notice::new(text.as_str()))
+            Some(vtium_render::Notice::new(report.text()))
         );
     }
 

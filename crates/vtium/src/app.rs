@@ -206,7 +206,7 @@ pub struct App {
     /// What the start's head file resolved to (ADR-1401 D7).
     outcome: vtium_config::Outcome,
     /// The panic screen's report, for a broken closed head file (D7).
-    report: Option<String>,
+    report: Option<vtium_render::NoticeReport>,
     /// The index in [`App::heads`] of the screen the display guard lights
     /// for a notice alone, which a closed policy has, after every head the
     /// file declares (D9).
@@ -488,7 +488,11 @@ impl App {
         self.start_lit.clear();
         self.dark.clear();
         self.frits.clear();
-        if let Some(notice) = notice {
+        // a report's errors were logged as the file was read, each with
+        // its line, so the log gets its console line alone
+        if let Some(line) = self.report.as_ref().and(self.outcome.line) {
+            log::warn!("{}", line.text());
+        } else if let Some(notice) = notice {
             log::warn!("{notice}");
             self.notice(&notice);
         }
@@ -1835,13 +1839,22 @@ impl App {
             }
             if let Some((key, h)) = lighting {
                 if Some(h) == screen {
+                    let report = self.report.clone().filter(|_| !self.stopped);
                     let text = self.screen_notice();
+                    // a report's console line, as the start logged it
+                    let logged = match (&report, self.outcome.line) {
+                        (Some(_), Some(line)) => line.text(),
+                        _ => text.as_str(),
+                    };
                     log::warn!(
-                        "the display guard lights display {} for the notice alone: {text}",
+                        "the display guard lights display {} for the notice alone: {logged}",
                         key.0.display()
                     );
                     if let Some(head) = self.heads.get_mut(h) {
-                        head.set_notice(&text);
+                        match report {
+                            Some(report) => head.set_report(report),
+                            None => head.set_notice(&text),
+                        }
                     }
                 } else {
                     log::warn!(
@@ -1920,7 +1933,8 @@ impl App {
             return crate::notice::stopped();
         }
         self.report
-            .clone()
+            .as_ref()
+            .map(vtium_render::NoticeReport::text)
             .or_else(|| self.outcome.dark_notice().map(crate::head::outcome_notice))
             .unwrap_or_default()
     }
