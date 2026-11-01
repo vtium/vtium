@@ -143,8 +143,8 @@ any, 0 when there is none. It notes on standard output what it does not\n\
 count: the density font sizes in points convert at, which the start\n\
 reads from each display, and of the head file a weak match, a rule that\n\
 needs a udev daemon where none runs, a rule using connector-path:, which\n\
-this build matches to nothing, a head no rule names, every head\n\
-isolated, and, of the devices present, each rule matching none, each\n\
+it cannot check without opening a display, a head no rule names, every\n\
+head isolated, and, of the devices present, each rule matching none, each\n\
 device no rule places and what the policy does with it, no head that\n\
 can be the active head, under closed no keyboard reaching any head, a\n\
 head claiming pointers while every keyboard is claimed elsewhere, every\n\
