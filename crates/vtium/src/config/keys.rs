@@ -446,6 +446,17 @@ pub const SB_MEMORY: Key = Key {
     cite: "vtium/vtium#131; ADR-1001, \"Memory\"",
 };
 
+pub const BELL: Key = Key {
+    name: "bell",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Rings the VT's bell when a program sends BEL. A program stops its own BELs ringing by resetting mode 1042, which starts set. Off, no BEL rings.",
+    cite: "src/config.c:125-126, 1372; src/terminal.c:872-879",
+};
+
 pub const BLINK: Key = Key {
     name: "blink",
     short: None,
@@ -1225,7 +1236,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 91] = [
+pub const KEYS: [Key; 92] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1251,6 +1262,7 @@ pub const KEYS: [Key; 91] = [
     SB_SIZE,
     SB_SIZE_CAP,
     SB_MEMORY,
+    BELL,
     BLINK,
     BLINK_TEXT,
     BLINK_DECORATIONS,

@@ -140,7 +140,9 @@ Damage tracks at most `COLUMNS_MAX` (8192) columns by `ROWS_MAX` (2048) rows, an
 
 A frame is the visible lines, the damage, the palette, the age the reading display last drew at, the cursor and DECSCNM. For each cell it gives the glyph (a codepoint or a cluster's codepoints), the width, the foreground and background resolved through the palette and inverse video, the underline color SGR 58 set (resolved, and kept through inverse video) or none to follow the configured one, the attributes, whether the background is the default one and not inverted, the link id, and whether the cell changed for this display. The cursor carries its position, visibility, DECSCUSR shape and blink, and OSC 12's color. Resolving at draw time is what lets a palette change recolor text already on the screen (ADR-1000's row "Colors resolved at draw time").
 
-Bold as bright and dim join the resolution with the work on resolving bold, the selection with the work on the screen and scrollback, and the placement list with the image pipeline. vtium-image anchors a placement by the `LineId` of the line holding its top row and marks its boxes through `Damage`; the line holds nothing for images.
+Bold as bright and dim join the resolution with the work on resolving bold, the selection with the work on the screen and scrollback, and the placement list with the image pipeline. vtium-image anchors a placement by the `LineId` of the line holding its top row, and vtium-term marks in `Damage` the boxes the image store reports changed, so vtium-image never depends on vtium-term (ADR-1100 D1); the line holds nothing for images.
+
+> Edited 2026-11-01: ADR-1100, accepted 2026-11-01, gives the marking of a placement's boxes to vtium-term. The sentence read: "vtium-image anchors a placement by the `LineId` of the line holding its top row and marks its boxes through `Damage`; the line holds nothing for images." The earlier text is in git at 1d51e46.
 
 ### Scrollback size
 

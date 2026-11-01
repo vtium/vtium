@@ -213,11 +213,13 @@ flowchart LR
 
 1. **Read:** the font is parsed in the helper (D2) or in the child `preview` and `new` hand it to (ADR-1200 D14), never in the console.
 2. **Shape:** HarfRust turns each cluster into glyph ids with their positions: marks placed, emoji ZWJ sequences and flags collapsed to one glyph, Arabic joining forms chosen. HarfRust is the HarfBuzz project's Rust port, under the MIT licence, parsing through `read-fonts`.
-3. **Rasterise:** each glyph id is rasterised, and a shaped cluster is composed into one bitmap fitted to its 1 or 2 cells.
+3. **Rasterise:** each glyph id is rasterised, and a shaped cluster is composed into one bitmap fitted to its 1 or 2 cells and its reach, one cell more on each side along its row (ADR-1302 D1).
 4. **The grid:** the engine places the target in its class (D5) and picks each glyph's form from the grid (D6): bitmap, crisp or antialiased outline, subpixel, color, dithered, or a fallback to another source's bitmap glyph.
 5. **Output:** strikes in the glyph chunk format, the helper's wire format (ADR-1200 D2), 1-bit, R8, a subpixel format or RGBA, keyed by codepoint or by cluster.
 
 vtium's own sprites are not the engine's: vtium-render draws them for the cell and the live display when a frame is drawn (D7).
+
+> Edited 2026-11-01: glyph ink reaches one cell past its own on each side (ADR-1302, accepted 2026-11-01). Step 3 read: "a shaped cluster is composed into one bitmap fitted to its 1 or 2 cells." The earlier text is in git at 1d51e46.
 
 > Edited 2026-10-28: the operator's decisions on the shaping issue put shaping in the engine; international text does not work without it. D1 read: "Inputs: a frit: its sources with their `cover=`, sizes and styles (ADR-1200 D1), and its options (D4); and the capabilities of the display the strike is for (D3). Output: strikes in the set's chunk format (ADR-1200 D2): 1-bit, R8, a subpixel format or RGBA glyphs, 1 or 2 cells wide, in a size's cell. The engine is `vtium-vitrify`'s reader and rasteriser (ADR-1200 D14) with this record's grid. [...]"
 
@@ -291,12 +293,15 @@ One reader in vtium-platform serves the console and `vtium-vitrify new`, and the
 |---|---|---|
 | Bitmap glyphs | 1-bit glyphs at the font's own size, scaled by whole factors (ADR-1200 D2, ADR-1300 D2) | the source |
 | Crisp outline glyphs | An outline glyph rasterised hinted to the pixel grid, every pixel 0 or 255 | the grid, or `antialias=no` |
+| Hinting | Every outline glyph is hinted lightly, fitted to the pixel grid up and down only, as the C reference's FreeType engine did; `full` fits it both ways. The cell's W measure stays unhinted (ADR-1200 D17). Not built yet. | `hinting=`, `light` or `full`, in the frit (ADR-1200 D1); `font-hinting=` in the configuration or a profile, over the frit's |
 | Whole-pixel grayscale antialiasing | One coverage value a pixel, R8 (ADR-1200 D13) | the grid |
 | `antialias=` | `auto`, the default, follows the grid; `no` makes every outline glyph crisp at any size | the frit |
 | `font-antialias=` | The same, `auto` or `no`, for the console, over the frit's | the configuration |
 | Subpixel strikes and subpixel antialiasing | Coverage computed for each color channel of a stripe; a subpixel strike holds it in ADR-1300's reserved per-channel format for one order, and subpixel antialiasing draws it, for glyphs and possibly vtium's sprites | the frit; never a default |
 | Dithering | Color glyphs taken to the target's gray levels, or to 1 bit, with a dither pattern; the pattern is the target-display work's to choose | the frit; never a default |
 | Color glyphs | Premultiplied RGBA strikes (ADR-1200 D13) | the source |
+
+> Edited 2026-11-01: the maintainer decided that glyphs are hinted lightly by default and fully on request (`considered` in ADR-1200, 2026-11-01). The table had no hinting row; the earlier text is in git at 292d0b5.
 
 ### D5: the display classes
 
@@ -401,6 +406,10 @@ These are agent calls the operator has not yet looked at: a combination never re
 
 - **One engine:** the same frit, cell and display give the same strike bytes from a minspec build and a full one, for each class and every option of D4.
 - **Shaping:** a ZWJ sequence, a flag, a keycap, an Arabic word and a base with marks, each shaped by the helper, give one glyph fitted to its 1 or 2 cells; the console's lookup takes each step of D1 in order, with a stand-in store lacking each earlier step; a fuzz target drives arbitrary clusters through the helper's shaping.
+- **Overhang:** ADR-1302's tier 2 screens, `overhang-italic`, `overhang-wm`, `overhang-underscore`, `overhang-wide`, `overhang-bitmap`, `overhang-marks` and `overhang-joins`, draw the engine's glyphs whose ink reaches past their cells, with the damage and placement tests its Verification lists.
+
+> Edited 2026-11-01: glyph ink reaches one cell past its own on each side (ADR-1302, accepted 2026-11-01), and the Verification gains that record's screens. It had no bullet on overhang. The earlier text is in git at 1d51e46.
+
 - **The reader:** each axis against stand-in replies to each ioctl and stand-in sysfs trees, the keys over each, and a failed read leaving the safe end. A depth table row with a planted wrong driver name fails its test.
 - **The grid:** a test per cell of D6 generates a strike for that class and checks the form chosen. A planted rule that offers subpixel on a gray display fails.
 - **Crisp strikes:** every pixel of a crisp strike is 0 or 255, below the boundary and at every size with `antialias=no`.

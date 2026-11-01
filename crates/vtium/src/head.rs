@@ -88,6 +88,12 @@ pub(crate) struct Pointer {
     /// Left presses in a row, each soon after the last: one selects
     /// characters, two a word, three a line, and a fourth starts again.
     clicks: u8,
+    /// The right button's press, with Ctrl, selected a command's output,
+    /// which its release keeps (ADR-1002, "What the marks are for").
+    output: bool,
+    /// Ctrl was held at the last pointer event or key, which the hover a
+    /// relayout finds again keeps.
+    ctrl: bool,
 }
 
 /// A drag that extends the selection from the cell it started in.
@@ -634,6 +640,10 @@ impl Head {
         old.send_replies();
         self.send_user_bytes();
         self.pointer.drag = None;
+        // The pointer is over the shown console alone: the hidden one
+        // hovers nothing, and the caller sets the shown one's hover once
+        // its grid is laid out ([`Head::hover`]).
+        old.term.terminal.screen_mut().set_pointer(None, false);
         for v in self.views.values_mut() {
             v.show_another();
         }
@@ -658,6 +668,37 @@ impl Head {
     /// The text of the shown console's screen rows, for tests and logs.
     pub fn screen_text(&self) -> Vec<String> {
         screen_text(&self.console)
+    }
+
+    /// The URI of the link each console's screen hovers, in the ring's
+    /// order, for tests.
+    pub fn consoles_hovered(&self) -> Vec<Option<String>> {
+        let hovered = |c: &Console| {
+            let screen = c.term.terminal.screen();
+            screen
+                .hovered_link()
+                .and_then(|l| screen.link_uri(l))
+                .map(str::to_owned)
+        };
+        let mut all: Vec<Option<String>> = self.hidden.iter().map(hovered).collect();
+        all.insert(self.at.min(all.len()), hovered(&self.console));
+        all
+    }
+
+    /// How many of the head's displays have a frame composing on its
+    /// render thread, for tests: none, and the next frame a display shows
+    /// is one composed after it.
+    pub fn frames_out(&self) -> usize {
+        self.views.values().filter(|v| v.away()).count()
+    }
+
+    /// The URI the shown console's overlay row shows, for tests.
+    pub fn link_overlay(&self) -> Option<String> {
+        let terminal = &self.console.term.terminal;
+        let frame = terminal
+            .screen()
+            .frame(terminal.palette(), vtium_term::Age::NEVER);
+        frame.overlay().map(|o| o.uri.to_owned())
     }
 
     /// The text of each console's screen rows, in the ring's order, for
@@ -781,6 +822,9 @@ impl Head {
         // font on the same grid included; the report goes out at once.
         self.console.term.terminal.resize(grid.0, grid.1);
         self.send_user_bytes();
+        // A new cell or grid puts another cell under the pointer: the
+        // overlay and a Ctrl+click name the same link.
+        self.hover(self.pointer.ctrl);
     }
 
     /// `grid` in the base cell's pixels.
@@ -839,7 +883,11 @@ impl Head {
     /// A pointer event: reported to a program that tracks the pointer,
     /// unless Shift is held, as xterm's `ShiftOverride` lets it select,
     /// paste and scroll (`button.c`); otherwise it selects, copies, pastes
-    /// and scrolls through the seat's `selection` buffer. A button keeps
+    /// and scrolls through the seat's `selection` buffer. A program that
+    /// asked with XTSHIFTESCAPE 1 that Shift reach it takes Shift as any
+    /// modifier, so then Shift selects nothing. A wheel step vtium does
+    /// not report goes to the program as cursor keys while mode 1007 asks
+    /// on the alternate screen, and scrolls the view otherwise. A button keeps
     /// to the side its press took until its release, whatever Shift does
     /// meanwhile. Returns the zoom a wheel with Ctrl asks for.
     pub(crate) fn pointer_event(
@@ -849,7 +897,8 @@ impl Head {
         selection: &mut Option<Vec<u8>>,
     ) -> Option<Zoom> {
         let tracking = self.console.term.terminal.mouse_tracking() != MouseTracking::Off;
-        let shift = mods.contains(Mods::SHIFT);
+        let terminal = &self.console.term.terminal;
+        let shift = mods.contains(Mods::SHIFT) && !terminal.mouse_captures_shift();
         let moved = matches!(event, PointerEvent::Moved { .. });
         let mut zoom = None;
         match event {
@@ -887,7 +936,8 @@ impl Head {
                     self.pointer.ours = !tracking || shift;
                 }
                 if self.pointer.ours {
-                    self.select_button(button, pressed, double_click, selection);
+                    let ctrl = mods.contains(Mods::CTRL);
+                    self.select_button(button, pressed, double_click, ctrl, selection);
                 } else {
                     self.pointer.clicks = 0;
                     let event = if pressed {
@@ -903,19 +953,16 @@ impl Head {
                 match wheel(steps, tracking && !shift, ctrl) {
                     Wheel::Report(button) => self.report_pointer(button, MouseEvent::Press, mods),
                     Wheel::Zoom(dir) => zoom = Some(dir),
-                    Wheel::Scroll { up: true } => {
-                        self.console
-                            .term
-                            .terminal
-                            .screen_mut()
-                            .scroll_view_up(WHEEL_LINES);
-                    }
-                    Wheel::Scroll { up: false } => {
-                        self.console
-                            .term
-                            .terminal
-                            .screen_mut()
-                            .scroll_view_down(WHEEL_LINES);
+                    Wheel::Scroll { up } => {
+                        let terminal = &mut self.console.term.terminal;
+                        if !terminal.alternate_scroll(up, WHEEL_LINES) {
+                            let screen = terminal.screen_mut();
+                            if up {
+                                screen.scroll_view_up(WHEEL_LINES);
+                            } else {
+                                screen.scroll_view_down(WHEEL_LINES);
+                            }
+                        }
                     }
                 }
             }
@@ -927,6 +974,7 @@ impl Head {
                 self.console.term.terminal.screen_mut().clear_selection();
             }
         }
+        self.hover(mods.contains(Mods::CTRL));
         // Only motion may be coalesced while the child does not read; a
         // press, a release, a wheel report or a paste is queued whole.
         let bytes = self.console.term.terminal.take_replies();
@@ -968,6 +1016,38 @@ impl Head {
         )
     }
 
+    /// Tells the shown console's screen which cell the pointer is over,
+    /// and whether `ctrl` is held, which shows the hovered link's URI on an
+    /// overlay row (ADR-1002, "What a link does"). A pointer that hides,
+    /// or that is in the strip a display leaves past the grid, is over no
+    /// cell, so it hovers no link.
+    pub(crate) fn hover(&mut self, ctrl: bool) {
+        self.pointer.ctrl = ctrl;
+        let at = self.pointer_over();
+        self.console
+            .term
+            .terminal
+            .screen_mut()
+            .set_pointer(at, ctrl);
+    }
+
+    /// Hides the pointer, as `pointer-hide-while-typing` does at a key:
+    /// it hovers nothing from then on.
+    pub(crate) fn hide_pointer(&mut self) {
+        self.pointer.visible = false;
+        self.hover(self.pointer.ctrl);
+    }
+
+    /// The cell under the pointer while it shows and is inside the grid.
+    fn pointer_over(&self) -> Option<(usize, usize)> {
+        if !self.pointer.visible {
+            return None;
+        }
+        let col = usize::try_from(self.pointer.x.checked_div(self.cell.0)?).ok()?;
+        let row = usize::try_from(self.pointer.y.checked_div(self.cell.1)?).ok()?;
+        (col < self.grid.0 && row < self.grid.1).then_some((col, row))
+    }
+
     /// Reports a pointer event at the pointer to the program.
     fn report_pointer(&mut self, button: MouseButton, event: MouseEvent, mods: Mods) {
         let (col, row) = self.pointer_cell();
@@ -986,15 +1066,39 @@ impl Head {
     /// xterm's does, and the right clears the selection. A release that
     /// ends no drag clears the selection and leaves the buffer as it was,
     /// as xterm takes no empty selection.
+    ///
+    /// With `ctrl` held (ADR-1002, "What a link does" and "What the marks
+    /// are for"), the left button on a link copies its URI into the
+    /// buffer, replacing what it held, and clears the selection; nothing
+    /// is opened and nothing is sent to the program. The right button on a
+    /// line of a command's output, as OSC 133 marked it, selects that
+    /// output as whole lines and copies it, and its release keeps the
+    /// selection. Anywhere else the buttons do what they do without Ctrl.
     fn select_button(
         &mut self,
         button: Button,
         pressed: bool,
         double_click: bool,
+        ctrl: bool,
         selection: &mut Option<Vec<u8>>,
     ) {
         let (col, row) = self.pointer_cell();
         match (button, pressed) {
+            (Button::Left, true) if ctrl && self.copy_link(selection) => {
+                self.pointer.clicks = 0;
+                self.pointer.drag = None;
+            }
+            (Button::Right, true) if ctrl => {
+                self.pointer.drag = None;
+                let screen = self.console.term.terminal.screen_mut();
+                self.pointer.output = screen.select_output(col, row);
+                if self.pointer.output {
+                    self.copy(selection);
+                } else {
+                    screen.clear_selection();
+                }
+            }
+            (Button::Right, false) if std::mem::take(&mut self.pointer.output) => {}
             (Button::Left, true) => {
                 self.pointer.clicks = match self.pointer.clicks {
                     1 if double_click => 2,
@@ -1038,6 +1142,23 @@ impl Head {
                 self.console.term.terminal.screen_mut().clear_selection();
             }
         }
+    }
+
+    /// Copies the URI of the link under the pointer into the selection
+    /// buffer and clears the selection. Returns false, changing nothing,
+    /// when the pointer is over no link.
+    fn copy_link(&mut self, selection: &mut Option<Vec<u8>>) -> bool {
+        let over = self.pointer_over();
+        let screen = self.console.term.terminal.screen_mut();
+        let Some(uri) = over
+            .and_then(|(x, y)| screen.link_at(x, y))
+            .and_then(|link| screen.link_uri(link))
+        else {
+            return false;
+        };
+        *selection = Some(uri.as_bytes().to_vec());
+        screen.clear_selection();
+        true
     }
 
     /// Copies the selected text into the selection buffer; with nothing
