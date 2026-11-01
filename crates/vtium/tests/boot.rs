@@ -403,6 +403,22 @@ impl Harness {
         any.downcast_mut::<Memory>().expect("the memory device")
     }
 
+    /// Moves the seat's clock ahead by `by` and runs one turn at the new
+    /// time, which acts on every timer then due.
+    fn skip_turn(&mut self, by: Duration) {
+        self.skip(by);
+        self.app.turn(self.at());
+    }
+
+    /// Turns the loop until a frame is shown and its flip read, so a skip
+    /// of the seat's clock past `display-wait` finds a display.
+    fn shown(&mut self) {
+        assert!(
+            self.until_memory(BOUND, |m| m.frames > 0 && m.events.is_empty()),
+            "a frame shown"
+        );
+    }
+
     /// Turns the loop until no display has a frame composing, so the
     /// next frame a display shows is composed from the screen as it is
     /// then.
@@ -812,11 +828,14 @@ fn a_retake_while_blanked_waits_dark_for_input() {
     assert_eq!(h.memory().wake_ups, wake_ups + 1);
 }
 
-/// A seat that blanks after 3 s with no input, on the scripted VT.
+/// A seat that blanks after a minute with no input, on the scripted VT.
+/// Its tests move the seat's clock with [`Harness::skip_turn`], so the
+/// seconds the machine takes to run them, however loaded, stay small
+/// beside the margins.
 fn blanking() -> Harness {
     Harness::with_vt(
         &[
-            "--dpms-timeout=3",
+            "--dpms-timeout=60",
             "--login",
             "--",
             "/bin/sh",
@@ -830,25 +849,30 @@ fn blanking() -> Harness {
 #[test]
 fn a_retake_keeps_the_blanks_countdown() {
     let mut h = blanking();
-    let start = now();
-    h.until(Duration::from_secs(2), |_| false);
+    h.shown();
+    h.skip_turn(Duration::from_secs(40));
     assert_eq!(h.memory().dpms, Some(Dpms::On), "lit before the timeout");
     let wake_ups = h.memory().wake_ups;
     h.scripted().events.push(VtEvent::Retaken);
-    // The re-take sets the display up again and is not activity: the
-    // blank comes 3 s after the start, not 3 s after the re-take.
     assert!(
-        h.until_memory(Duration::from_secs(2), |m| m.dpms == Some(Dpms::Off)),
-        "blanked at the start's timeout, {:?} after the start",
-        now() - start
+        h.until_memory(BOUND, |m| m.wake_ups == wake_ups + 1),
+        "set up again"
     );
-    assert_eq!(h.memory().wake_ups, wake_ups + 1, "set up again");
+    // The re-take is not activity: the blank comes a minute after the
+    // start, not a minute after the re-take.
+    h.skip_turn(Duration::from_secs(21));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
+        "blanked at the start's timeout"
+    );
 }
 
 #[test]
 fn an_acquire_restarts_the_blanks_countdown() {
     let mut h = blanking();
-    h.until(Duration::from_secs(2), |_| false);
+    h.shown();
+    h.skip_turn(Duration::from_secs(40));
     h.scripted().events.push(VtEvent::Release);
     assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
     let wake_ups = h.memory().wake_ups;
@@ -859,13 +883,17 @@ fn an_acquire_restarts_the_blanks_countdown() {
         "woken by the acquire"
     );
     // The switch back is the user's: the countdown starts again from it.
-    assert!(
-        !h.until_memory(Duration::from_secs(2), |m| m.dpms == Some(Dpms::Off)),
-        "lit 2 s after the acquire"
+    h.skip_turn(Duration::from_secs(40));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::On),
+        "lit 40 s after the acquire"
     );
-    assert!(
-        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
-        "blanked 3 s after the acquire"
+    h.skip_turn(Duration::from_secs(21));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
+        "blanked a minute after the acquire"
     );
 }
 
@@ -951,6 +979,25 @@ fn a_retakes_wake_up_landing_after_the_blank_leaves_it_dark() {
     assert_eq!(h.memory().dpms, Some(Dpms::On));
 }
 
+/// A file the test writes for its session to go on at, named `name`, and
+/// the shell that waits for it.
+fn gate(name: &str) -> (PathBuf, String) {
+    let path = std::env::temp_dir().join(format!("vtium-{name}-{}", std::process::id()));
+    std::fs::remove_file(&path).ok();
+    let wait = format!("while [ ! -e {} ]; do sleep 0.05; done", path.display());
+    (path, wait)
+}
+
+/// A seat that blanks after a minute with no input, on the scripted VT,
+/// whose session runs `script` with `options` before the command; its
+/// tests move the seat's clock, as [`blanking`]'s do.
+fn program_blank_in_a_minute(options: &[&str], script: &str) -> Harness {
+    let mut args = vec!["--dpms-timeout=60"];
+    args.extend(options);
+    args.extend(["--login", "--", "/bin/sh", "-c", script]);
+    Harness::with_vt(&args, ScriptedVt::default())
+}
+
 /// A seat that blanks after 1 s with no input, on the scripted VT, whose
 /// session runs `script` with `options` before the command.
 fn program_blank(options: &[&str], script: &str) -> Harness {
@@ -966,17 +1013,23 @@ const OFF: fn(&Memory) -> bool = |m| m.dpms == Some(Dpms::Off);
 // covers: ctl.linux-unblank
 #[test]
 fn a_programs_wake_ends_the_blank() {
-    let mut h = program_blank(&[], r"sleep 2; printf '\033[13]'; read x");
-    assert!(
-        h.until_memory(Duration::from_secs(2), OFF),
+    let (go, wait) = gate("wake-go");
+    let mut h = program_blank_in_a_minute(&[], &format!(r"{wait}; printf '\033[13]'; read x"));
+    h.shown();
+    h.skip_turn(Duration::from_secs(61));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
         "blanked after dpms-timeout"
     );
     let unblanks = h.memory().unblanks;
+    std::fs::write(&go, b"").expect("the go file");
     assert!(
-        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::On)),
+        h.until_memory(BOUND, |m| m.dpms == Some(Dpms::On)),
         "woken by the program"
     );
     assert_eq!(h.memory().unblanks, unblanks + 1);
+    std::fs::remove_file(&go).ok();
 }
 
 // `CSI 9 ; 0 ]` turns the blank off until the program changes it or RIS
@@ -985,15 +1038,39 @@ fn a_programs_wake_ends_the_blank() {
 // covers: ctl.linux-blank
 #[test]
 fn a_programs_timeout_holds_until_ris() {
-    let mut h = program_blank(&[], r"printf '\033[9;0]'; sleep 3; printf '\033c'; read x");
-    assert!(
-        !h.until_memory(Duration::from_millis(2500), OFF),
-        "lit under the program's 0"
+    let go = std::env::temp_dir().join(format!("vtium-ris-go-{}", std::process::id()));
+    std::fs::remove_file(&go).ok();
+    let script = format!(
+        r"printf '\033[9;0]ready'; while [ ! -e {} ]; do sleep 0.05; done; printf '\033creset'; read x",
+        go.display()
+    );
+    let mut h = Harness::with_vt(
+        &[
+            "--dpms-timeout=60",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            &script,
+        ],
+        ScriptedVt::default(),
     );
     assert!(
-        h.until_memory(Duration::from_secs(3), OFF),
+        h.until(BOUND, |a| shows(a, "ready")),
+        "the program's 0 taken"
+    );
+    h.shown();
+    h.skip_turn(Duration::from_secs(120));
+    assert_eq!(h.memory().dpms, Some(Dpms::On), "lit under the program's 0");
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(h.until(BOUND, |a| shows(a, "reset")), "the RIS taken");
+    h.skip_turn(Duration::from_secs(61));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
         "blanked by dpms-timeout after RIS"
     );
+    std::fs::remove_file(&go).ok();
 }
 
 // A session that turns the blank off and exits leaves the next session
@@ -1038,19 +1115,29 @@ fn a_respawned_session_blanks_after_dpms_timeout() {
 
 // While the VT is another's, a program's wake touches no device and its
 // timeout is still taken: the VT released while blanked, the program sends
-// `CSI 9 ; 1 ]` and `CSI 13 ]` 2 s after its start.
+// `CSI 9 ; 2 ]` and `CSI 13 ]`.
 #[test]
 fn a_program_wakes_nothing_while_the_vt_is_anothers() {
-    let mut h = program_blank(&[], r"sleep 2; printf '\033[9;1]\033[13]'; read x");
-    assert!(
-        h.until_memory(Duration::from_millis(1800), OFF),
+    let (go, wait) = gate("anothers-go");
+    let mut h = program_blank_in_a_minute(
+        &[],
+        &format!(r"{wait}; printf '\033[9;2]\033[13]sent'; read x"),
+    );
+    h.shown();
+    h.skip_turn(Duration::from_secs(61));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
         "blanked after dpms-timeout"
     );
     h.scripted().events.push(VtEvent::Release);
     assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
     let (unblanks, sets) = (h.memory().unblanks, h.memory().dpms_sets.len());
-    // Past the program's sequences at 2 s.
-    h.until(Duration::from_millis(1500), |_| false);
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until(BOUND, |a| shows(a, "sent")),
+        "the program's sequences taken"
+    );
     assert_eq!(h.memory().unblanks, unblanks, "no unblank");
     assert_eq!(h.memory().dpms_sets[sets..], [], "no DPMS set");
     let wake_ups = h.memory().wake_ups;
@@ -1061,38 +1148,95 @@ fn a_program_wakes_nothing_while_the_vt_is_anothers() {
             && m.dpms == Some(Dpms::On)),
         "lit by the acquire"
     );
-    // The program's minute was taken while the VT was another's.
-    assert!(
-        !h.until_memory(Duration::from_millis(1500), OFF),
-        "lit past dpms-timeout's second"
+    // The program's two minutes were taken while the VT was another's.
+    h.skip_turn(Duration::from_secs(90));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::On),
+        "lit past dpms-timeout's minute"
     );
+    h.skip_turn(Duration::from_secs(31));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
+        "blanked at the program's two"
+    );
+    std::fs::remove_file(&go).ok();
 }
 
 #[test]
 fn a_programs_timeout_is_in_minutes() {
-    let mut h = program_blank(&[], r"printf '\033[9;1]'; read x");
-    assert!(
-        !h.until_memory(Duration::from_millis(2500), OFF),
-        "a minute, not dpms-timeout's second"
+    let mut h = Harness::with_vt(
+        &[
+            "--dpms-timeout=60",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            r"printf '\033[9;2]ready'; read x",
+        ],
+        ScriptedVt::default(),
     );
+    assert!(
+        h.until(BOUND, |a| shows(a, "ready")),
+        "the program's 2 taken"
+    );
+    h.shown();
+    h.skip_turn(Duration::from_secs(90));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::On),
+        "two minutes, in place of dpms-timeout's one"
+    );
+    h.skip_turn(Duration::from_secs(31));
+    assert_eq!(h.memory().dpms, Some(Dpms::Off), "blanked at two minutes");
 }
 
 #[test]
 fn under_no_program_blank_a_program_neither_times_nor_wakes_the_blank() {
-    let mut h = program_blank(
+    let (go, wait) = gate("no-program-blank-go");
+    let mut h = program_blank_in_a_minute(
         &["--no-program-blank"],
-        r"printf '\033[9;0]'; sleep 2; printf '\033[13]'; read x",
+        &format!(r"printf '\033[9;0]ready'; {wait}; printf '\033[13]sent'; read x"),
     );
     assert!(
-        h.until_memory(Duration::from_secs(2), OFF),
+        h.until(BOUND, |a| shows(a, "ready")),
+        "the program's 0 read"
+    );
+    h.shown();
+    h.skip_turn(Duration::from_secs(61));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
         "blanked after dpms-timeout"
     );
-    // Past the program's wake at 2 s.
-    h.until(Duration::from_secs(2), |_| false);
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until(BOUND, |a| shows(a, "readysent")),
+        "the program's wake read"
+    );
+    std::fs::remove_file(&go).ok();
     assert_eq!(h.memory().dpms, Some(Dpms::Off), "still dark");
     assert_eq!(h.memory().unblanks, 0);
     h.type_str("a");
     assert_eq!(h.memory().dpms, Some(Dpms::On), "a key still wakes");
+}
+
+/// A seat that blanks after a minute with no input, on the scripted VT,
+/// whose session runs `script`; its tests move the seat's clock, as
+/// [`blanking`]'s do.
+fn blank_in_a_minute(script: &str) -> Harness {
+    Harness::with_vt(
+        &[
+            "--dpms-timeout=60",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            script,
+        ],
+        ScriptedVt::default(),
+    )
 }
 
 /// A seat that blanks after 2 s with no input, on the scripted VT, whose
@@ -1109,31 +1253,40 @@ fn blank_in_two(script: &str) -> Harness {
 // did not (`src/seat.c:578-590` at kmscon b1f7a7c5).
 #[test]
 fn the_pointers_frame_end_and_hide_are_not_activity() {
-    let mut h = blank_in_two("read x");
-    let start = now();
-    h.until(Duration::from_millis(1200), |_| false);
+    let mut h = blank_in_a_minute("read x");
+    h.shown();
+    h.skip_turn(Duration::from_secs(36));
     for event in [PointerEvent::Sync, PointerEvent::Hide] {
         h.app.input_event(pointer(event), h.at());
     }
-    // Due 2 s after the start; counted from the hide, 3.2 s.
-    let left = (start + Duration::from_millis(2700)).saturating_duration_since(now());
-    assert!(
-        h.until_memory(left, OFF),
-        "blanked 2 s after the start, not 2 s after the hide"
+    h.skip_turn(Duration::from_secs(18));
+    assert_eq!(h.memory().dpms, Some(Dpms::On), "lit before the minute");
+    // Due a minute after the start; counted from the hide, 96 s.
+    h.skip_turn(Duration::from_secs(12));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
+        "blanked a minute after the start, not a minute after the hide"
     );
 }
 
 #[test]
 fn a_pointer_move_restarts_the_blanks_countdown() {
-    let mut h = blank_in_two("read x");
-    let start = now();
-    h.until(Duration::from_millis(1200), |_| false);
+    let mut h = blank_in_a_minute("read x");
+    h.shown();
+    h.skip_turn(Duration::from_secs(36));
     h.app.input_event(pointer(over(1, 1, None)), h.at());
-    let left = (start + Duration::from_millis(2700)).saturating_duration_since(now());
-    assert!(!h.until_memory(left, OFF), "lit 2 s after the start");
-    assert!(
-        h.until_memory(Duration::from_secs(2), OFF),
-        "blanked 2 s after the move"
+    h.skip_turn(Duration::from_secs(30));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::On),
+        "lit a minute after the start"
+    );
+    h.skip_turn(Duration::from_secs(31));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
+        "blanked a minute after the move"
     );
 }
 
@@ -1144,25 +1297,44 @@ fn a_pointer_move_restarts_the_blanks_countdown() {
 // covers: ctl.linux-unblank
 #[test]
 fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
-    let mut h = blank_in_two(
-        r"printf '\033[9;0]'; sleep 0.3; printf '\033c'; sleep 4; printf '\033[13]'; read x",
+    // The program goes on at each file the test writes.
+    let go =
+        |n: u32| std::env::temp_dir().join(format!("vtium-past-hide-{n}-{}", std::process::id()));
+    for n in [1, 2] {
+        std::fs::remove_file(go(n)).ok();
+    }
+    let script = format!(
+        r"printf '\033[9;0]off'; while [ ! -e {} ]; do sleep 0.05; done; \
+          printf '\033creset'; while [ ! -e {} ]; do sleep 0.05; done; \
+          printf '\033[13]'; read x",
+        go(1).display(),
+        go(2).display()
     );
-    let start = now();
-    h.until(Duration::from_millis(1800), |_| false);
+    let mut h = blank_in_a_minute(&script);
+    assert!(h.until(BOUND, |a| shows(a, "off")), "the program's 0 taken");
+    h.shown();
+    std::fs::write(go(1), b"").expect("the go file");
+    assert!(h.until(BOUND, |a| shows(a, "reset")), "the RIS taken");
+    // The RIS restarts the countdown: due a minute after it; counted from
+    // the hide, 96 s after it.
+    h.skip_turn(Duration::from_secs(36));
     h.app.input_event(pointer(PointerEvent::Hide), h.at());
-    // The RIS at 0.3 s restarts the countdown: due at 2.3 s; counted from
-    // the hide, 3.8 s.
-    let left = (start + Duration::from_millis(3000)).saturating_duration_since(now());
-    assert!(
-        h.until_memory(left, OFF),
-        "blanked 2 s after the RIS, not 2 s after the hide"
+    h.skip_turn(Duration::from_secs(30));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
+        "blanked a minute after the RIS, not a minute after the hide"
     );
     let unblanks = h.memory().unblanks;
+    std::fs::write(go(2), b"").expect("the go file");
     assert!(
-        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::On)),
-        "woken by the program at 4.3 s"
+        h.until_memory(BOUND, |m| m.dpms == Some(Dpms::On)),
+        "woken by the program"
     );
     assert_eq!(h.memory().unblanks, unblanks + 1);
+    for n in [1, 2] {
+        std::fs::remove_file(go(n)).ok();
+    }
 }
 
 // The VT review's step on vtium/vtium#79 as it ran: `CSI 9 ; 1 ]`, the
@@ -1185,12 +1357,7 @@ fn a_programs_minute_blanks_past_the_pointers_hide() {
             .any(|l| l.starts_with("ready"))),
         "the program's minute taken"
     );
-    // A frame shown, its flip read, before the clock skips past
-    // `display-wait`.
-    assert!(
-        h.until_memory(BOUND, |m| m.frames > 0 && m.events.is_empty()),
-        "a frame shown"
-    );
+    h.shown();
     h.skip(Duration::from_secs(20));
     h.app.input_event(pointer(PointerEvent::Hide), h.at());
     h.skip(Duration::from_secs(39));
@@ -1388,7 +1555,9 @@ fn a_due_draw_held_by_a_flip_does_not_spin_the_loop() {
         h.app.turn(now());
         turns += 1;
     }
-    assert!(h.app.screen_text().iter().any(|l| l.contains("xxxx")));
+    assert!(h.until(BOUND, |a| {
+        a.screen_text().iter().any(|l| l.contains("xxxx"))
+    }));
     // A timer that falls due between a turn and the wait asks for none
     // now and then; a spin asks for none on every turn.
     assert!(
@@ -3325,12 +3494,13 @@ fn with_no_wait_and_no_display_vtium_exits_at_once() {
 #[test]
 fn a_display_coming_during_the_wait_ends_it() {
     let mut h = Harness::bare(&WAITING);
-    h.until(Duration::from_millis(300), |_| false);
-    assert_eq!(h.app.finished(), None);
+    h.app.turn(h.at());
+    assert_eq!(h.app.finished(), None, "waiting");
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
-    assert!(h.until_memory(SECOND, |m| m.frames > 0), "drawn");
-    h.until(Duration::from_millis(1500), |a| a.finished().is_some());
+    h.shown();
+    // The seat's clock past the second's wait.
+    h.skip_turn(Duration::from_secs(2));
     assert_eq!(h.app.finished(), None, "still running past the wait");
 }
 
@@ -3425,9 +3595,9 @@ impl Video for Unusable {
 #[test]
 fn the_default_wait_is_ten_seconds() {
     let mut h = Harness::bare(&["--login", "--", "/bin/sh", "-c", "read x"]);
-    // 8.5 s ahead, and what the real clock adds stays under 1.5 s.
-    h.skip(Duration::from_millis(8_500));
-    h.until(Duration::from_millis(200), |_| false);
+    // 8.5 s ahead; one turn there, so the real clock adds next to
+    // nothing.
+    h.skip_turn(Duration::from_millis(8_500));
     assert_eq!(h.app.finished(), None, "not yet");
     h.skip(Duration::from_millis(1_500));
     assert!(h.until(SECOND, |a| a.finished().is_some()));
@@ -3629,7 +3799,7 @@ fn a_display_coming_later_starts_the_blanks_countdown_afresh() {
     let mut h = Harness::build(
         &[
             "--display-wait=forever",
-            "--dpms-timeout=3",
+            "--dpms-timeout=60",
             "--login",
             "--",
             "/bin/sh",
@@ -3639,16 +3809,23 @@ fn a_display_coming_later_starts_the_blanks_countdown_afresh() {
         FakeVt::new(),
         Box::new(late),
     );
-    h.until(Duration::from_secs(2), |_| false);
+    h.skip_turn(Duration::from_secs(40));
     assert!(h.app.cells().is_empty(), "no display yet");
     h.late().held = None;
-    assert!(h.until(SECOND, |a| a.cells().len() == 1));
-    // 4 s from the start, 2 s from the display.
-    h.until(Duration::from_secs(2), |_| false);
-    assert_ne!(h.memory().dpms, Some(Dpms::Off), "not 3 s from the start");
-    assert!(
-        h.until_memory(Duration::from_secs(3), |m| m.dpms == Some(Dpms::Off)),
-        "3 s from the display"
+    assert!(h.until(BOUND, |a| a.cells().len() == 1));
+    h.shown();
+    // 80 s from the start, 40 s from the display.
+    h.skip_turn(Duration::from_secs(40));
+    assert_ne!(
+        h.memory().dpms,
+        Some(Dpms::Off),
+        "not a minute from the start"
+    );
+    h.skip_turn(Duration::from_secs(21));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
+        "a minute from the display"
     );
 }
 

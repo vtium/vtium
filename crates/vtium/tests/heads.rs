@@ -1963,20 +1963,28 @@ fn under_respawn_a_session_ending_restarts_its_head_alone() {
 /// last head's program ends.
 #[test]
 fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
-    let mut s = logins(&["--oneshot"], "echo bye", "sleep 1");
-    assert!(
-        s.until(SECOND, |a| a.head("small").and_then(Head::notice)
-            == Some(ENDED)),
-        "small's program ended"
+    // Large's program ends once the test writes this file.
+    let go = std::env::temp_dir().join(format!("vtium-oneshot-go-{}", std::process::id()));
+    std::fs::remove_file(&go).ok();
+    let large = format!(
+        "echo large; while [ ! -e {} ]; do sleep 0.05; done",
+        go.display()
     );
-    s.until(Duration::from_millis(200), |_| false);
+    let mut s = logins(&["--oneshot"], "echo bye", &large);
+    assert!(
+        s.until(BOUND, |a| a.head("small").and_then(Head::notice)
+            == Some(ENDED)
+            && head_shows(a, "large", "large")),
+        "small's program ended, large's runs"
+    );
     assert_eq!(s.app.finished(), None, "large's runs on");
     assert_eq!(s.app.head("large").and_then(Head::notice), None);
+    std::fs::write(&go, b"").expect("the go file");
     assert!(
-        s.until(Duration::from_secs(3), |a| a.finished()
-            == Some(vtium::app::Exit::Oneshot)),
+        s.until(BOUND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
         "the last head's program ended"
     );
+    std::fs::remove_file(&go).ok();
 }
 
 /// A seat whose head `looping` has one console whose program keeps
@@ -2863,12 +2871,14 @@ fn an_exit_read_before_a_hang_up_is_the_hung_up_sessions() {
     let (mut s, _files) = losing("exit-and-hangup", &[], "when-display-lost = hangup", false);
     for n in 1..=7 {
         s.type_on(KBD_SMALL, "q\r");
-        // The loop reads the exit, and no turn takes it before the hang-up.
-        for _ in 0..15 {
+        // The loop reads the exit, and no turn takes it before the hang-up:
+        // it dispatches, with no turn, until the exit is read.
+        let read = |a: &App| a.head("small").is_some_and(|h| h.term().exited.is_some());
+        let end = now() + BOUND;
+        while !read(&s.app) && now() < end {
             s.lp.dispatch(Some(Duration::from_millis(20)), &mut s.app)
                 .expect("dispatch");
         }
-        let read = |a: &App| a.head("small").is_some_and(|h| h.term().exited.is_some());
         assert!(read(&s.app), "exit {n} is read, its turn not yet come");
         s.unplug("/dev/mem0", now());
         assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
@@ -3466,7 +3476,10 @@ fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() 
     );
     s.app.device_input(Path::new(KBD_A), ctrl_alt_f(1), now());
     s.type_on(KBD_A, "y\r");
-    s.until(Duration::from_millis(100), |_| false);
+    // A line typed after it, on the keyboard that types into desk: had y
+    // reached desk, its echo would come first.
+    s.type_on(KBD_B, "e\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "desk", "got:e")));
     assert!(
         !head_shows(&s.app, "desk", "got:y"),
         "and the rescue key is off"
@@ -4268,8 +4281,11 @@ fn a_keyboard_the_rescue_key_moved_lets_the_anti_lockout_guard_go() {
     s.app.turn(now());
     s.type_on(KBD_A, "a\r");
     s.type_on(KBD_B, "b\r");
-    assert!(s.until(SECOND, |a| head_shows(a, "large", "got:a")));
-    s.until(Duration::from_millis(200), |_| false);
+    // A line on large's keyboard after b: had b reached large, its echo
+    // would come before this one's.
+    s.type_on(KBD_A, "c\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "large", "got:a")
+        && head_shows(a, "large", "got:c")));
     assert!(!head_shows(&s.app, "large", "got:b"), "b is small's again");
 }
 
