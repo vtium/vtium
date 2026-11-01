@@ -56,8 +56,8 @@
 <text x="312" y="268" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">an anchor line and column, box, crop, z, layer, sequence number, tag</text>
 <text x="312" y="286" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a budget for each console; auto from the head's displays</text>
 <text x="312" y="304" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">a use clock moved by transmissions, placements and references</text>
-<text x="312" y="322" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">placements handed out in draw order: layer, then z, then sequence</text>
-<text x="312" y="340" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">number, whatever the protocol</text>
+<text x="312" y="322" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">placements handed out in draw order: layer, then z, then the stack</text>
+<text x="312" y="340" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">at that z: a later picture on top, kitty pictures in id order</text>
 <rect x="1010" y="340" width="220" height="76" rx="6" fill="#d5f0ea" stroke="#2d8e7a" stroke-width="1.5"/>
 <text x="1022" y="362" font-size="14" text-anchor="start" fill="#1f2933" font-weight="bold">rules(tag)</text>
 <text x="1022" y="380" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the one place each</text>
