@@ -1124,6 +1124,19 @@ impl Start {
     pub fn line(&self) -> Option<&'static str> {
         self.outcome.line.map(vtium_config::Line::text)
     }
+
+    /// The notice the start shows: its console line and the next step,
+    /// `None` for a silent start.
+    pub fn notice(&self) -> Option<String> {
+        self.outcome.line.map(outcome_notice)
+    }
+}
+
+/// The notice of an outcome's console line `line` (ADR-1401 D7): the line
+/// as the catalog words it, then what to do next about vtium's head file.
+pub fn outcome_notice(line: vtium_config::Line) -> String {
+    let next = line.next(std::path::Path::new(vtium_config::HEAD_FILE));
+    format!("{}\n{next}", line.text())
 }
 
 /// The head file the start runs (ADR-1401 D3, D7): the file at `path` read

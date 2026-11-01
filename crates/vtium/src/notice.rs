@@ -103,15 +103,20 @@ Reads the configuration as vtium would start with these options:\n\
 kmscon.conf and the seat's file in the configuration directory, then the\n\
 options, and the head file, /etc/vtium/heads.conf, or FILE in its place\n\
 to check it before it is installed. It prints each warning, and each\n\
-of the head file's errors and warnings, and exits 1 when there is any,\n\
-0 when there is none. It notes on standard output what it does not\n\
+of the head file's errors, each followed by what it drops, and its\n\
+warnings: a shadowed rule, a head's consoles past its cap or past the\n\
+total, and a profile naming a missing frit. It exits 1 when there is\n\
+any, 0 when there is none. It notes on standard output what it does not\n\
 count: the density font sizes in points convert at, which the start\n\
-reads from each display, and of the head file a guard turned off, a\n\
-weak match, a rule that needs a udev daemon where none runs, a rule\n\
-using connector-path:, which this build matches to nothing, and, of\n\
-the devices present, each rule matching none, a head claiming pointers\n\
-while every keyboard is claimed elsewhere, every keyboard ignored, and\n\
-a head whose only keyboard is one device.\n\
+reads from each display, and of the head file a weak match, a rule that\n\
+needs a udev daemon where none runs, a rule using connector-path:, which\n\
+this build matches to nothing, a head no rule names, every head\n\
+isolated, and, of the devices present, each rule matching none, each\n\
+device no rule places and what the policy does with it, no head that\n\
+can be the active head, under closed no keyboard reaching any head, a\n\
+head claiming pointers while every keyboard is claimed elsewhere, every\n\
+keyboard ignored, and a head whose only keyboard is one device. Its\n\
+notes end with what a start does with the file, and the file's policy.\n\
 It only checks: it opens nothing under /dev, writes nothing and applies\n\
 nothing. It reads the configuration files, the frit font-name names,\n\
 and the devices present from /sys and udev's database, /run/udev/data.\n";
@@ -167,9 +172,6 @@ and the devices present from /sys and udev's database, /run/udev/data.\n";
     /// A candidate head file that is not there.
     pub const NO_SUCH_FILE: &str = "does not exist";
 
-    /// The installed head file is not there.
-    pub const ABSENT: &str = "absent, so the start runs the shipped rules";
-
     pub const ROOT_ONLY: &str = "permission denied: the head file can be checked only as root";
 
     /// A candidate head file owned by `uid`, not root: the start trusts it
@@ -187,8 +189,6 @@ and the devices present from /sys and udev's database, /run/udev/data.\n";
             "{path} can be changed by its group or by other users (mode {mode:o}). The start reads this file once it is installed, owned by root and writable only by root."
         )
     }
-
-    pub const REJECTED: &str = "rejected whole, so a start reading it runs the shipped rules";
 
     pub fn more_warnings(n: usize) -> String {
         format!("More warnings: {n}")

@@ -2874,11 +2874,12 @@ fn notice(app: &App, name: &str) -> Option<String> {
     app.head(name).and_then(Head::notice).map(str::to_owned)
 }
 
-/// The console lines of D7's outcomes, as the catalog words them.
-const SKIPPED: &str = "invalid config skipped, using builtin";
-const PARTLY: &str = "config partly invalid, running what's valid";
-const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off";
-const NO_DISPLAY: &str = "vtium: no display for any head";
+/// The notices of D7's outcomes: each console line as the catalog words
+/// it, then what to do next about vtium's head file.
+const SKIPPED: &str = "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/heads.conf to see why.";
+const PARTLY: &str = "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/heads.conf to see why.";
+const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off\nNothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.";
+const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that a rule in /etc/vtium/heads.conf sends to a head.";
 
 /// A head file's head and its rule for every display, which [`d7_row`]
 /// boots on two displays.

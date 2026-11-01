@@ -652,16 +652,21 @@ mod tests {
     }
 
     // The head file's notices are the console lines of their outcomes,
-    // from the catalog, naming no file and no error (ADR-1401 D7).
+    // from the catalog, each with its next step, naming vtium's head file
+    // and no error (ADR-1401 D7).
     #[test]
     fn the_head_file_notices_are_their_outcomes_console_lines() {
         assert_eq!(
             crate::notices::head_file_one_error().as_deref(),
-            Ok("config partly invalid, running what's valid")
+            Ok(
+                "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/heads.conf to see why."
+            )
         );
         assert_eq!(
             crate::notices::head_file_two_errors().as_deref(),
-            Ok("invalid config skipped, using builtin")
+            Ok(
+                "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/heads.conf to see why."
+            )
         );
     }
 

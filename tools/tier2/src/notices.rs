@@ -60,7 +60,8 @@ pub fn head_file_two_errors() -> Result<String, String> {
     head_file(TWO_ERRORS)
 }
 
-/// The console line the start shows for the head file `text`, as
+/// The notice the start shows for the head file `text`, its console line
+/// and the next step, as
 /// [`vtium::head::rules`] reads it (ADR-1401 D7). The file is written to a
 /// scratch directory of this process's own.
 fn head_file(text: &str) -> Result<String, String> {
@@ -81,8 +82,7 @@ fn head_file(text: &str) -> Result<String, String> {
         let trust = vtium_config::Trust::owner(uid).below(&dir);
         let start = vtium::head::rules(&path, &trust);
         start
-            .line()
-            .map(str::to_owned)
+            .notice()
             .ok_or_else(|| format!("the head file {text:?} shows no notice"))
     };
     let shown = read();

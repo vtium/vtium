@@ -348,8 +348,14 @@ impl App {
         );
         let rules = route::in_force(vtium_config::Config::builtin(), &config);
         let caps = Caps {
-            head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(4, to_usize),
-            total: config.number(&keys::CONSOLES_MAX).map_or(8, to_usize),
+            head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(
+                to_usize(vtium_config::HEAD_CONSOLES_DEFAULT.into()),
+                to_usize,
+            ),
+            total: config.number(&keys::CONSOLES_MAX).map_or(
+                to_usize(vtium_config::CONSOLES_TOTAL_DEFAULT.into()),
+                to_usize,
+            ),
         };
         let bytes = session::scrollback_bytes(&config, caps, rules.heads.len());
         let heads = session::heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
@@ -446,7 +452,7 @@ impl App {
     /// vtium waits for a display however long it takes (D8), and keeps a
     /// screen for the display guard to light for a notice alone (D9).
     pub fn set_heads(&mut self, start: Start) {
-        let line = start.line();
+        let notice = start.notice();
         let Start { outcome, rules } = start;
         let rules = route::in_force(rules, &self.config);
         // The display guard's default head, where the file declares none,
@@ -474,9 +480,9 @@ impl App {
         self.start_lit.clear();
         self.dark.clear();
         self.frits.clear();
-        if let Some(line) = line {
-            log::warn!("{line}");
-            self.notice(line);
+        if let Some(notice) = notice {
+            log::warn!("{notice}");
+            self.notice(&notice);
         }
     }
 
@@ -1899,16 +1905,16 @@ impl App {
 
     /// What the screen the display guard lights for a notice alone shows
     /// (ADR-1401 D7, D9): that a crash loop stopped every head, else the
-    /// start's console line, else that no head has a display.
+    /// start's console line, else that no head has a display, each with
+    /// its next step.
     fn screen_notice(&self) -> String {
         if self.stopped {
             return crate::notice::stopped();
         }
         self.outcome
             .dark_notice()
-            .map(vtium_config::Line::text)
+            .map(crate::head::outcome_notice)
             .unwrap_or_default()
-            .to_owned()
     }
 
     /// The display the display guard lit goes dark again: the rules light
