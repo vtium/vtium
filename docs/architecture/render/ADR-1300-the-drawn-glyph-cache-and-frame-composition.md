@@ -30,7 +30,7 @@ basis:
     said: "Need adr - how does this differ from reference?"
     via: operator, in session 2026-10-26, on the 1-bit and scale-1 storage and the row-scratch composition, relayed verbatim by the team lead
   - upstream: "aaronsb/kmscon b1f7a7c5: the glyph key (src/font/font.h:64-102), bbulk's one LRU, rotation on insert and per-cell drawing (src/render/bbulk.c:433, 529-572, 603-672, 1413-1475), gltex's four pools, bounds and blank draws (src/render/gltex.c:207-241, 860-930) and its float blend (src/render/gltex_atlas.frag:81-94), and the CPU blend arithmetic (src/video/drm2d_render.c:46-87)"
-  - evidence: "the glyph storage research on vtium/vtium#16 (2026-10-26): draw kernels, dumb-buffer reads and writes, GL memory, miss cost, lookup cost and LRU hit rates, measured on a Ryzen 9 9950X3D on one pinned core, with radeonsi (integrated and discrete) and llvmpipe; the scripts and outputs sit in the steering session's scratchpad, uncommitted"
+  - evidence: "the glyph storage research for the CPU compositor (2026-10-26): draw kernels, dumb-buffer reads and writes, GL memory, miss cost, lookup cost and LRU hit rates, measured on a Ryzen 9 9950X3D on one pinned core, with radeonsi (integrated and discrete) and llvmpipe; the scripts and outputs sit in the steering session's scratchpad, uncommitted"
   - standard: "OpenGL ES 3.0.6 §2.1.6.2: converting a float to an unsigned normalized value returns one of the two nearest integers, rounding to nearest preferred"
   - precedent: ADR-1001
 agent:
@@ -74,11 +74,11 @@ related: []
 
 ## Context
 
-vtium/vtium#16 builds vtium-render's CPU compositor, and vtium/vtium#33 its GPU path. The minspec machine (1366x768, 1 vCPU, 512 MB, docs/architecture.md) sets the budget: 8,160 cells of 8x16. The operator asked for glyphs that carry color and transparency, a balance of speed and memory set by profile, a minspec profile any build can pick, both paths considered, and the C reference understood before anything new is built.
+One piece of work builds vtium-render's CPU compositor, and another its GPU path. The minspec machine (1366x768, 1 vCPU, 512 MB, docs/architecture.md) sets the budget: 8,160 cells of 8x16. The operator asked for glyphs that carry color and transparency, a balance of speed and memory set by profile, a minspec profile any build can pick, both paths considered, and the C reference understood before anything new is built.
 
 ADR-1001 changes what a cache can key on: clusters live in each line's arena, at byte offsets that change when a line compacts, and a frame carries a cluster's codepoints, not a screen-wide number.
 
-The figures below are from the glyph storage research on vtium/vtium#16. Each is marked measured or estimate. Speed figures are from the x86-64 baseline build (SSE2), since `forbid(unsafe_code)` rules out choosing SIMD at run time; an x86-64-v3 build halves the 1-bit loop's time at 8x16 (0.158 ms against 0.334 ms a frame, measured).
+The figures below are from the glyph storage research for the CPU compositor. Each is marked measured or estimate. Speed figures are from the x86-64 baseline build (SSE2), since `forbid(unsafe_code)` rules out choosing SIMD at run time; an x86-64-v3 build halves the 1-bit loop's time at 8x16 (0.158 ms against 0.334 ms a frame, measured).
 
 ## The C reference's flow
 
@@ -116,7 +116,7 @@ Each difference says what the C reference did, what vtium does, why, the cost or
 
 ### D2: storage by format and width, at 1 bit when lossless, and at the font's own size
 
-A third format is reserved (added 2026-10-26, the operator's agreement): a per-channel subpixel mask, three coverage values a pixel, for outline fonts (#23, #24). It takes its own pools beside the mask and color pools, under the same budgets and the same lossless rule. Its order comes from the DRM connector's `subpixel` property, after rotation, with grayscale when the property reports none or unknown and a configuration key to override it. The GPU path blends it per channel in the shader. Bitmap fonts and color glyphs never use it.
+A third format is reserved (added 2026-10-26, the operator's agreement): a per-channel subpixel mask, three coverage values a pixel, for outline fonts. It takes its own pools beside the mask and color pools, under the same budgets and the same lossless rule. Its order comes from the DRM connector's `subpixel` property, after rotation, with grayscale when the property reports none or unknown and a configuration key to override it. The GPU path blends it per channel in the shader. Bitmap fonts and color glyphs never use it.
 
 
 - **The C reference:** bbulk held every glyph 8-bit at its drawn size, in one LRU of both formats. gltex had pools by format and width.
@@ -129,7 +129,7 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 
 - **The C reference:** bbulk drew a cell blank when its glyph could not be cached and tried again on the next frame (`kmscon/src/render/bbulk.c:1426-1432`). gltex drew blank past its hard stop.
 - **vtium:** a pool is full for a glyph when taking it would evict a glyph the frame draws, or when the glyph alone passes the pool's byte ceiling. The glyph is then drawn without being cached: on the CPU path from one reused glyph buffer; on the GPU path from a slot held for that frame and given back after it, which is gltex's growth past full with the frame's cells as its bound.
-- **Why:** a blank cell makes the cache change pixels, which the verification forbids. A glyph past the ceiling is real once vtium/vtium#60 lets a stream set the cell size: at 2048 pixels a side a wide mask is 8 MiB and a color glyph 32 MiB.
+- **Why:** a blank cell makes the cache change pixels, which the verification forbids. A glyph past the ceiling is real once vtium supports the kitty text sizing protocol, which lets a stream set the cell size: at 2048 pixels a side a wide mask is 8 MiB and a color glyph 32 MiB.
 - **Cost or saving:** a font call each frame for each uncached glyph: 212 ns at 8x16, 666 ns at 16x32, 2,435 ns at 32x64 (measured with unifont). A whole 8x16 screen of them is about 1.7 ms a frame (estimate).
 - **Pixels:** the C reference's blank cells are drawn with their glyphs. No other pixel changes.
 
@@ -144,7 +144,7 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 | Wide pools, glyphs | the cells | twice the cells |
 | Byte ceiling, each pool | two screens of the pool's format at the display's size | 64 MiB, gltex's |
 
-- The `glyph-cache` key in `kmscon.conf`, and `--glyph-cache`, pick `minspec` or `performance` on any build; vtium/vtium#21 wires them. The default build defaults to `minspec`, and a build with the Cargo feature `performance-cache` defaults to `performance`.
+- The `glyph-cache` key in `kmscon.conf`, and `--glyph-cache`, pick `minspec` or `performance` on any build; the work on vtium's configuration and command line wires them. The default build defaults to `minspec`, and a build with the Cargo feature `performance-cache` defaults to `performance`.
 - **Why:** the operator asked for a profile that spends memory on a larger machine and a way for any build to pick minspec. At minspec's counts a pool holds two screens of glyphs, so its byte ceiling only binds when the cell size grows past the font's.
 - **Cost or saving:** on five recorded workloads (bat, git log, grep, ls, markdown) an LRU of 128 glyphs hit 99.76-99.98% (measured), so ordinary screens never fill either profile. The performance profile pays off on screens of many distinct glyphs, CJK or emoji, and costs twice minspec's memory (Memory).
 - **Pixels:** none change; tier 2 draws both profiles.
@@ -152,11 +152,11 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 ### D5: cells are composed a row at a time
 
 - **The C reference:** every cell went to the dumb buffer as one write-only blend; a cell of several layers was composed in a two-cell scratch first.
-- **vtium:** each run of adjacent damaged cells is composed in a row scratch in cached memory and copied out, one copy per pixel line of the run, whether its cells hold one layer or several (a decoration, a picture, a cursor drawn over text, or a neighbour's overhang, vtium/vtium#26). The dumb buffer is only written, never read. The scratch holds one row of cells at the display's width, 87,424 bytes at 1366 pixels and 16-pixel rows, and at most 1 MiB; a taller row is composed in bands of pixel lines. On a rotated display the row is the strip of pixels its cells cover.
+- **vtium:** each run of adjacent damaged cells is composed in a row scratch in cached memory and copied out, one copy per pixel line of the run, whether its cells hold one layer or several (a decoration, a picture, a cursor drawn over text, or a neighbour's overhang). The dumb buffer is only written, never read. The scratch holds one row of cells at the display's width, 87,424 bytes at 1366 pixels and 16-pixel rows, and at most 1 MiB; a taller row is composed in bands of pixel lines. On a rotated display the row is the strip of pixels its cells cover.
 - **Why:** an overhanging glyph and a picture not aligned to cells draw across cell borders, and per-cell requests cannot give one cell's layers the pixels of its neighbour without reading the dumb buffer. Reading it is the slow path: 0.16 GB/s on an integrated GPU and 0.02 GB/s on a discrete one, against 87 GB/s from cache (measured).
 - **Cost or saving:** five changed rows composed in the scratch and copied out take 0.039-0.044 ms, against 0.029-0.030 ms written straight (measured). A full frame blended by reading the dumb buffer took 8.5 ms on the integrated GPU and 36.6 ms on the discrete one, against 0.32-0.33 ms in cached memory (measured). A full frame written straight takes 0.26-0.27 ms (measured).
 - **Pixels:** none change. The scratch runs the per-pixel arithmetic carried forward, cell by cell, and copies the result.
-- **Amended 2026-10-27**, the operator's decision on vtium/vtium#78: single-layer cells were written straight into the dumb buffer. Their 8-pixel writes took 0.48 ms of a 0.94 ms full frame, and composing every run in the scratch brought the frame to 0.535 ms in release and 0.96 ms in the minspec profile at 1366x768 on one core (`crates/vtium-render/tests/figures.rs`). The glyph loop and its writes, what this record's 0.33 ms measured, take 0.18 ms. A 1296-case differential showed every pixel unchanged. This said: "a cell drawn from its background and at most one glyph is written straight into the dumb buffer, as the C reference wrote it. Where a row's damaged cells include any with more layers (…), the span of those cells is composed in a row scratch in cached memory and copied out, one copy per pixel line."
+- **Amended 2026-10-27**, the operator's decision in the CPU renderer's performance pass: single-layer cells were written straight into the dumb buffer. Their 8-pixel writes took 0.48 ms of a 0.94 ms full frame, and composing every run in the scratch brought the frame to 0.535 ms in release and 0.96 ms in the minspec profile at 1366x768 on one core (`crates/vtium-render/tests/figures.rs`). The glyph loop and its writes, what this record's 0.33 ms measured, take 0.18 ms. A 1296-case differential showed every pixel unchanged. This said: "a cell drawn from its background and at most one glyph is written straight into the dumb buffer, as the C reference wrote it. Where a row's damaged cells include any with more layers (…), the span of those cells is composed in a row scratch in cached memory and copied out, one copy per pixel line."
 
 ### D6: the GPU path keeps gltex's pools and draws the CPU path's pixels
 
@@ -181,9 +181,9 @@ Each entry's key, links and slot add about 24 bytes (estimate). The row scratch 
 
 ## Verification
 
-- **The cache changes speed, never pixels.** Tier 2 (vtium/vtium#17) draws each screen with a cache of 0 glyphs and with the performance budgets, and compares them byte for byte, on the CPU path and on the GPU path under llvmpipe, which runs headless. It compares 1-bit storage with 8-bit, and scale-1 storage with storage at the drawn size, the same way. A flood of distinct glyphs past every budget draws every glyph, against the same screen drawn uncached. A key that drops bold, planted, fails on a screen holding a letter in bold and regular.
+- **The cache changes speed, never pixels.** Tier 2 draws each screen with a cache of 0 glyphs and with the performance budgets, and compares them byte for byte, on the CPU path and on the GPU path under llvmpipe, which runs headless. It compares 1-bit storage with 8-bit, and scale-1 storage with storage at the drawn size, the same way. A flood of distinct glyphs past every budget draws every glyph, against the same screen drawn uncached. A key that drops bold, planted, fails on a screen holding a letter in bold and regular.
 - **The GPU path draws the CPU path's pixels:** the same screens on both, byte for byte, pictures scaled with filtering excepted.
-- **The bitmap-font screens** match the C reference's goldens pixel for pixel (vtium/vtium#17).
+- **The bitmap-font screens** match the C reference's goldens pixel for pixel.
 - **No order from a hash.** The cache's table uses a fixed hash, and nothing iterates it to draw (docs/architecture.md, "Determinism").
 - **Eviction follows the bytes.** The glyph cache's recency follows drawn frames, which the invariance test keeps from reaching a pixel. The image store's use clock is the store's own and moves only on stream events, so drawing a picture never renews its use.
 
@@ -203,18 +203,18 @@ Each entry's key, links and slot add about 24 bytes (estimate). The row scratch 
 - A row that holds a decorated cell pays a copy, 0.002-0.003 ms a row more than drawing straight.
 - A bitmap font of 16x32 pixels at its own size draws 0.06 ms a full frame slower at 1 bit than at 8 bits on the baseline build.
 - A screen of glyphs past a full cache calls the font for each one, every frame.
-- The integer shader's cost on slow GPUs is unknown until #33 measures it.
+- The integer shader's cost on slow GPUs is unknown until the work on the GPU path measures it.
 
 ### Neutral
 
-- vtium-font hands the renderer a bitmap glyph at scale 1 with its scale (vtium/vtium#15's crate).
-- vtium/vtium#21 wires `glyph-cache`, and vtium/vtium#33 builds the GPU path on D6.
+- vtium-font hands the renderer a bitmap glyph at scale 1 with its scale.
+- The work on vtium's configuration and command line wires `glyph-cache`, and separate work builds the GPU path on D6.
 - Tier 2 runs every screen twice per path, at a cache of 0 and at the performance budgets.
 
 ## Alternatives Considered
 
 - **bbulk's one LRU of both formats, 8-bit at the drawn size.** Rejected: at scale 2 it holds 32 times the bytes of D2 for the same glyphs, and a freed entry need not fit the next glyph.
-- **Pre-composed cells in the performance profile,** decorated and rotated glyphs held ready to copy, as the operator's first direction on #16 listed. Not taken: copying a pre-composed 8x16 cell saves at most 0.14 ms a full frame against the 1-bit loop (0.196 ms against 0.334 ms, measured), for 32 times the memory a cell. The profiles differ in budgets only.
+- **Pre-composed cells in the performance profile,** decorated and rotated glyphs held ready to copy, as the operator's first direction for the CPU compositor listed. Not taken: copying a pre-composed 8x16 cell saves at most 0.14 ms a full frame against the 1-bit loop (0.196 ms against 0.334 ms, measured), for 32 times the memory a cell. The profiles differ in budgets only.
 - **Blending by reading the dumb buffer.** Rejected: 8.5-36.6 ms a frame (measured).
 - **A whole-frame shadow buffer in cached memory,** copied out where damaged. Rejected for minspec: 4.2 MB where the row scratch is 87 KB, and every damaged pixel copied, 0.14-0.19 ms for a full frame (measured), where write-only cells need no copy.
 - **gltex's blank draw past a hard stop.** Rejected: it makes the cache change pixels (D3).

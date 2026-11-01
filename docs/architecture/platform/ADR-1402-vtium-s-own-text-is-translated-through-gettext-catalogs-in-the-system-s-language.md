@@ -7,17 +7,17 @@ basis:
   - operator: aaronsb
     level: directed
     said: "vtium's own text is translated, so a person reads vtium in their own language: its notices, the on-screen display's line, and the head file's error lines."
-    via: "vtium/vtium#180, relayed in this record's brief; the wording is the team lead's"
+    via: "the GitHub issue for translating the text vtium shows people, relayed in this record's brief; the wording is the team lead's"
     paraphrase: true
   - operator: aaronsb
     level: directed
     said: "Every string vtium shows a person lives in its crate's catalog module, never inline in the code that uses it. The catalog is what a translation replaces."
-    via: "vtium/vtium#180, \"What is decided\", the maintainer's rule of 2026-10-31, relayed in this record's brief; the wording is the team lead's"
+    via: "the same issue, \"What is decided\", the maintainer's rule of 2026-10-31, relayed in this record's brief; the wording is the team lead's"
     paraphrase: true
   - operator: aaronsb
     level: directed
     said: "Each notice says what happened, then what the person can do next, in plain words, patient with the reader. A key the person must press is named from its real binding, never typed into the text."
-    via: "vtium/vtium#180, \"What is decided\", relayed in this record's brief; the wording is the team lead's"
+    via: "the same issue, \"What is decided\", relayed in this record's brief; the wording is the team lead's"
     paraphrase: true
   - operator: aaronsb
     level: directed
@@ -151,7 +151,7 @@ flowchart LR
 
 ### D5: key names
 
-- **From the chord's definition.** A notice that names a key builds its name from the definition of the chord in code at the moment the notice is drawn. The head chords are compile-time constants in `crates/vtium/src/head/chord.rs`, `CTRL_SUPER` and the `BINDINGS` table, which the key matcher and the notices both read: the roaming chord is Ctrl and Super with Up, and kmscon.conf has no key that binds them. A change to a chord's definition changes every notice that names it. Configurable chords (vtium/vtium#82) keep that true: the notice then builds the name from the binding in force.
+- **From the chord's definition.** A notice that names a key builds its name from the definition of the chord in code at the moment the notice is drawn. The head chords are compile-time constants in `crates/vtium/src/head/chord.rs`, `CTRL_SUPER` and the `BINDINGS` table, which the key matcher and the notices both read: the roaming chord is Ctrl and Super with Up, and kmscon.conf has no key that binds them. A change to a chord's definition changes every notice that names it. Configurable chords (the work on several sessions in one vtium process) keep that true: the notice then builds the name from the binding in force.
 - **Drawn as `Ctrl+Super+↑`.** The modifiers come first, in the order Ctrl, Alt, Shift, Super, then the key, joined by `+` with no spaces. GTK's key labels, GNOME's help, KDE and Windows all join keys with `+`, and a hyphen reads as part of a word in languages that join words with one. vtium's documents keep the console's `Ctrl-Super-Up`, and a document that quotes a notice quotes it as vtium draws it.
 - **Symbols where the keycap shows one.** The arrow keys draw as `↑`, `↓`, `←` and `→`, since their names are translated in nearly every language (measured in GTK's key labels: German Hoch, French Haut, Russian Вверх, Chinese 上). The function keys draw as `F1` to `F24`, and a letter or digit as the character its keycap prints.
 - **Names a translator may change.** Each modifier name and each named key, such as Enter, Backspace, Tab, Esc, Delete, Home and Page Up, is a message of its own under the context `key name`, written in English as a US keycap prints it. In the eleven languages of GTK's key labels measured on 2026-10-31, Alt and Super stay the same in all of them, and Ctrl in all but German, whose keyboards print Strg; Shift is translated in five of them, as Umschalt, Maj, Mayús, Maiusc and Skift; and the named keys print differently by country, as German keyboards print Entf, Pos1 and Bild↑. The translator chooses what their readers' keycaps print.
