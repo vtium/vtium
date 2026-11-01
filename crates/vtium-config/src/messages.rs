@@ -21,12 +21,12 @@
 use std::fmt;
 
 use crate::error::{
-    AtStart, Drops, Fate, Note, Problem, Remark, Renamed, Shown, Stating, Syntax, Untrusted,
-    Warning,
+    AtStart, Drops, Fate, Note, PolicyFault, Problem, Remark, Renamed, Shown, Stating, Syntax,
+    Untrusted, Warning,
 };
 use crate::identity::{Class, Kind};
 use crate::matching::Token;
-use crate::outcome::{Line, Policy, Read, Rescue, Runs, Stated, resolve};
+use crate::outcome::{Line, Policy, Read, Rescue, Runs, Stated, Trusted, resolve};
 use crate::parse::{Takes, range, takes};
 
 /// The file's own words `items`, each in backticks, separated by commas:
@@ -351,6 +351,70 @@ impl fmt::Display for Problem {
                 policy = POLICY,
                 version = VERSION,
             ),
+            Problem::UnreadablePolicy(fault) => write!(f, "{fault}"),
+            Problem::HiddenOutsideSection(start) => write!(
+                f,
+                "Above the first section the file takes only `{version}` and `{policy}`, and this line is neither. From just before a character that does not show on screen, it reads {start}, with that character escaped. Delete that character, or move the line under the heading it belongs to, such as `{head}` or `{rules}`.",
+                version = VERSION,
+                policy = POLICY,
+                head = HEAD_HEADING,
+                rules = RULES_HEADING,
+            ),
+        }
+    }
+}
+
+impl fmt::Display for PolicyFault {
+    /// Why vtium cannot read a `policy` line, which makes the file closed
+    /// and broken (D7), and what to do about it.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PolicyFault::NotUtf8 => write!(
+                f,
+                "This `{policy}` line is not UTF-8 text, so vtium cannot read it and counts the file as closed and broken. Save the file as UTF-8.",
+                policy = POLICY,
+            ),
+            PolicyFault::ControlCharacter(c) => write!(
+                f,
+                "This `{policy}` line holds the control character {character}, so vtium cannot read it and counts the file as closed and broken. Delete the character.",
+                policy = POLICY,
+                character = c.escape_unicode(),
+            ),
+            PolicyFault::LineTooLong => write!(
+                f,
+                "This `{policy}` line is longer than {max} bytes, the most a line may hold, so vtium cannot read it and counts the file as closed and broken. Write it as `{open}` or `{closed}`.",
+                policy = POLICY,
+                max = crate::LINE_MAX,
+                open = POLICY_OPEN,
+                closed = POLICY_CLOSED,
+            ),
+            PolicyFault::Cut => write!(
+                f,
+                "This `{policy}` line runs past the first {max} bytes, the most vtium reads of a file, so vtium cannot read it and counts the file as closed and broken. Remove what the file does not need.",
+                policy = POLICY,
+                max = crate::FILE_MAX,
+            ),
+            PolicyFault::NotKeyValue => write!(
+                f,
+                "vtium reads a line above the first section that begins with `{policy}`, in any case, as the file's `{policy}` line. This one has no `{equals}`, so vtium cannot read it and counts the file as closed and broken. Write it as `{open}` or `{closed}`.",
+                policy = POLICY,
+                equals = EQUALS,
+                open = POLICY_OPEN,
+                closed = POLICY_CLOSED,
+            ),
+            PolicyFault::Key(key) => write!(
+                f,
+                "vtium reads a line above the first section that begins with `{policy}`, in any case, as the file's `{policy}` line. This one's key is {key}, so vtium cannot read it and counts the file as closed and broken. Write it as `{open}` or `{closed}`.",
+                policy = POLICY,
+                open = POLICY_OPEN,
+                closed = POLICY_CLOSED,
+            ),
+            PolicyFault::Value(value) => write!(
+                f,
+                "`{policy}` cannot be {value}, so vtium cannot read this line and counts the file as closed and broken. Change it to one of {choices}.",
+                policy = POLICY,
+                choices = Listed(&crate::parse::POLICY),
+            ),
         }
     }
 }
@@ -521,6 +585,9 @@ impl fmt::Display for Drops {
                 "For this error vtium drops this rule alone, and a device walks on to the next rule.",
             ),
             Drops::Line => f.write_str("For this error vtium drops this line alone."),
+            Drops::Closed => f.write_str(
+                "For this error vtium counts the whole file as closed and broken: it runs nothing of the file, delivers no input, and shows the panic screen on the boot display.",
+            ),
         }
     }
 }
@@ -540,6 +607,14 @@ impl fmt::Display for AtStart {
             Read::Inaccessible => write!(
                 f,
                 "A start cannot read this file, so it runs the shipped default and shows `{line}`."
+            ),
+            Read::Trusted(Trusted {
+                stated: Stated::Unreadable,
+                ..
+            }) => write!(
+                f,
+                "vtium cannot read a `{policy}` line of this file, so a start counts the whole file as closed and broken: it delivers no input and shows the panic screen on the boot display, starting `{line}`.",
+                policy = POLICY,
             ),
             Read::Trusted(_) => match (outcome.runs, outcome.policy, outcome.line) {
                 (Runs::File, Policy::Open | Policy::Closed, _) => {
@@ -609,18 +684,10 @@ impl fmt::Display for Stating {
                 "The policy is closed: an input no rule places is ignored, a head that leaves `{isolated}` unset is isolated, and the anti-lockout guard and the rescue key are off.",
                 isolated = ISOLATED,
             ),
-            (Stated::Unreadable, Rescue::AsSet | Rescue::Sticky) => write!(
+            (Stated::Unreadable, Rescue::AsSet | Rescue::Sticky | Rescue::Forced) => write!(
                 f,
-                "vtium cannot read the file's `{policy}` line, so the file counts as open and as at least partly broken. Write one `{open}` or `{closed}` line above the first section.",
+                "vtium cannot read a `{policy}` line above the first section, so the file's policy is closed. Write that line as `{open}` or `{closed}`.",
                 policy = POLICY,
-                open = POLICY_OPEN,
-                closed = POLICY_CLOSED,
-            ),
-            (Stated::Unreadable, Rescue::Forced) => write!(
-                f,
-                "vtium cannot read the file's `{policy}` line, so the file counts as open and as partly broken, and every head acts as not isolated whatever its `{isolated}` says. Write one `{open}` or `{closed}` line above the first section.",
-                policy = POLICY,
-                isolated = ISOLATED,
                 open = POLICY_OPEN,
                 closed = POLICY_CLOSED,
             ),

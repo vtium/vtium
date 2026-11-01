@@ -23,6 +23,13 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1002](./term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md) | Links are copied, never opened, and prompt marks are line flags the view jumps between | accepted |
 | [ADR-1003](./term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md) | Reflow on a width change, and no cell past the margin | accepted |
 
+## Image
+_Inline images - sixel and the kitty graphics protocol, storage and placement_
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [ADR-1100](./image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md) | One image pipeline: protocol handlers feed a store of placements that travel with lines | accepted |
+
 ## Font
 _Font loading, glyph rasterisation, color glyphs and fallback_
 
@@ -37,6 +44,7 @@ _Cells and images to pixels - the renderer and its display interface_
 |-----|-------|--------|
 | [ADR-1300](./render/ADR-1300-the-drawn-glyph-cache-and-frame-composition.md) | The drawn-glyph cache and frame composition | accepted |
 | [ADR-1301](./render/ADR-1301-one-glyph-engine-draws-at-run-time-for-the-display-s-capabilities.md) | One glyph engine draws at run time for the display's capabilities | accepted |
+| [ADR-1302](./render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md) | Glyph ink reaches one cell past its own, side to side, and is cut at its row | accepted |
 
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_

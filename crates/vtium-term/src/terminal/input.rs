@@ -17,6 +17,8 @@ impl Mods {
     pub const CTRL: Self = Self(4);
     pub const ALT: Self = Self(8);
     pub const LOGO: Self = Self(16);
+    /// NumLock is on: a state, as Lock is, which mode 1035 reads.
+    pub const NUM: Self = Self(32);
 
     pub const fn empty() -> Self {
         Self(0)
@@ -24,7 +26,7 @@ impl Mods {
 
     /// From the bits above; others are dropped.
     pub const fn from_bits(bits: u8) -> Self {
-        Self(bits & 31)
+        Self(bits & 63)
     }
 
     pub const fn contains(self, other: Self) -> bool {
@@ -157,6 +159,16 @@ fn key_char(keysym: u32, unicode: Option<char>) -> Option<u32> {
     (c >= 0x20 && c != 0x7f).then_some(c)
 }
 
+/// A keypad key that makes a character with NumLock on: the space, Tab,
+/// Enter, the operators, the digits and `=`, which mode 1035 sends as
+/// characters whatever DECKPAM says, as xterm's numLock does.
+fn keypad_char_key(keysym: u32) -> bool {
+    matches!(
+        keysym,
+        sym::KP_SPACE | sym::KP_TAB | sym::KP_ENTER | sym::KP_EQUAL
+    ) || (sym::KP_MULTIPLY..=sym::KP_9).contains(&keysym)
+}
+
 /// The function keys' codes, `CSI code ~`, and Shift's code for F1 to
 /// F10 (xterm's F11 to F20 with no modifier, as the C reference sent
 /// them).
@@ -238,7 +250,7 @@ impl State {
         Some(format!("\x1b[27;{param};{code}~").into_bytes())
     }
 
-    /// A key's bytes, and whether Alt may put ESC before them; `None` for
+    /// A key's bytes, and whether Alt may act on them; `None` for
     /// a key that sends nothing.
     fn key_bytes(
         &self,
@@ -257,7 +269,8 @@ impl State {
                 return Some((vec![byte], true));
             }
         }
-        let app = self.keypad_application;
+        let app = self.modes.keypad_application()
+            && !(self.modes.num_lock() && mods.contains(Mods::NUM) && keypad_char_key(keysym));
         let keypad = |app_final: u8, plain: u8| {
             if app {
                 vec![0x1b, b'O', app_final]
@@ -313,9 +326,9 @@ impl State {
                     sym::RIGHT | sym::KP_RIGHT => b'C',
                     _ => b'D',
                 };
-                let (mut bytes, alt_esc, final_byte) = cursor(final_byte);
+                let (mut bytes, alt_acts, final_byte) = cursor(final_byte);
                 bytes.push(final_byte);
-                return Some((bytes, alt_esc));
+                return Some((bytes, alt_acts));
             }
             sym::KP_INSERT => keypad(b'p', b'0'),
             sym::KP_0..=sym::KP_9 => {
@@ -447,6 +460,18 @@ impl State {
                 pixel.1.saturating_add(1)
             )
             .into_bytes(),
+            // X10's byte in decimal, a release button 3, and the cell
+            // counted from 1 with no limit.
+            MouseEncoding::Urxvt => {
+                let cb = if released { 3 | mod_bits } else { cb };
+                format!(
+                    "\x1b[{};{};{}M",
+                    cb.saturating_add(0x20),
+                    col.saturating_add(1),
+                    row.saturating_add(1)
+                )
+                .into_bytes()
+            }
             // One byte each, plus 32: a release is button 3, and the cell
             // counts from 1 and stops at 223.
             MouseEncoding::X10 => {
@@ -491,24 +516,77 @@ impl State {
     }
 }
 
+impl State {
+    /// What Alt makes of a key's bytes where xterm lets it act: ESC before
+    /// them while mode 1036 is set; else, while mode 1034 is set, a key of
+    /// one byte below 0x80 with its eighth bit set, sent as the character
+    /// U+0080 to U+00FF in the input's encoding, except in 7-bit input,
+    /// which cannot carry it; else the bytes as they are.
+    fn meta_bytes(&self, bytes: Vec<u8>) -> Vec<u8> {
+        if self.modes.meta_escape() {
+            let mut out = Vec::with_capacity(bytes.len().saturating_add(1));
+            out.push(0x1b);
+            out.extend(bytes);
+            return out;
+        }
+        match bytes.as_slice() {
+            [b] if *b < 0x80
+                && self.modes.eight_bit_meta()
+                && self.input_mode != InputMode::SevenBit =>
+            {
+                let mut out = Vec::with_capacity(2);
+                self.push_char(char::from(*b | 0x80), &mut out);
+                out
+            }
+            _ => bytes,
+        }
+    }
+}
+
 impl Terminal {
     /// Sends what a key press makes, as the host reports it: `keysym` the
     /// X11 keysym after Shift, `ascii` the keysym an ASCII layout gives
-    /// the same key (0 for none), `unicode` the character it makes. Alt
-    /// puts ESC before the key's bytes where xterm does. Returns whether
-    /// anything was sent.
+    /// the same key (0 for none), `unicode` the character it makes, and
+    /// `mods` the modifiers held, with [`Mods::NUM`] while NumLock is on.
+    /// Alt acts where xterm lets it, as modes 1034 and 1036 say. Returns
+    /// whether anything was sent.
     pub fn key(&mut self, keysym: u32, ascii: u32, mods: Mods, unicode: Option<char>) -> bool {
         // Ctrl reads the ASCII layout's keysym, so Ctrl+C works whatever
         // layout is active.
         let sym = if ascii == 0 { keysym } else { ascii };
-        let Some((bytes, alt_esc)) = self.state.key_bytes(keysym, sym, mods, unicode) else {
+        let Some((bytes, alt_acts)) = self.state.key_bytes(keysym, sym, mods, unicode) else {
             return false;
         };
-        let mut out = Vec::with_capacity(bytes.len().saturating_add(1));
-        if alt_esc && mods.contains(Mods::ALT) {
-            out.push(0x1b);
+        let out = if alt_acts && mods.contains(Mods::ALT) {
+            self.state.meta_bytes(bytes)
+        } else {
+            bytes
+        };
+        self.send(&out);
+        true
+    }
+
+    /// A wheel scroll of `lines` the host does not report to the program:
+    /// while mode 1007 is set, the alternate screen is shown and the
+    /// program tracks no pointer events, it is sent as that many cursor-up
+    /// or cursor-down keys, at most the screen's rows, as DECCKM encodes
+    /// them, and true is returned, so the host scrolls nothing. Otherwise
+    /// nothing is sent and the host scrolls its view.
+    pub fn alternate_scroll(&mut self, up: bool, lines: usize) -> bool {
+        let s = &self.state;
+        if !s.modes.alternate_scroll()
+            || !s.screen.alternate()
+            || s.modes.tracking() != MouseTracking::Off
+        {
+            return false;
         }
-        out.extend_from_slice(&bytes);
+        let key: &[u8] = match (s.modes.cursor_keys(), up) {
+            (true, true) => b"\x1bOA",
+            (true, false) => b"\x1bOB",
+            (false, true) => b"\x1b[A",
+            (false, false) => b"\x1b[B",
+        };
+        let out = key.repeat(lines.min(s.screen.rows()));
         self.send(&out);
         true
     }

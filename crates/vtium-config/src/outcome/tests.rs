@@ -153,7 +153,7 @@ fn runs() -> Vec<Run> {
         .collect()
 }
 
-/// A trusted file with errors: partly broken while a usable head survives, broken once none does. The `policy` line vtium cannot read is one of the errors.
+/// A trusted file with errors: partly broken while a usable head survives, broken once none does. A policy line vtium cannot read breaks the file whole, whatever survives of the rest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Degraded {
     Partly,
@@ -163,10 +163,8 @@ enum Degraded {
 fn degraded(read: &Read) -> Option<Degraded> {
     let Read::Trusted(t) = read else { return None };
     match (t.stated, t.rest) {
-        (Stated::Unreadable, Rest::Valid) | (_, Rest::Partly) => Some(Degraded::Partly),
-        (Stated::Unreadable, Rest::Headless | Rest::Empty) | (_, Rest::Broken) => {
-            Some(Degraded::Broken)
-        }
+        (Stated::Unreadable, _) | (_, Rest::Broken) => Some(Degraded::Broken),
+        (Stated::Unset | Stated::Open | Stated::Closed, Rest::Partly) => Some(Degraded::Partly),
         (
             Stated::Unset | Stated::Open | Stated::Closed,
             Rest::Valid | Rest::Headless | Rest::Empty,
@@ -174,12 +172,12 @@ fn degraded(read: &Read) -> Option<Degraded> {
     }
 }
 
-/// The policy a trusted file gives: closed as written, else open.
+/// The policy a trusted file gives: closed as written, or where a policy line cannot be read, else open.
 fn disposition(read: &Read) -> Option<Policy> {
     let Read::Trusted(t) = read else { return None };
     Some(match t.stated {
-        Stated::Closed => Policy::Closed,
-        Stated::Unset | Stated::Open | Stated::Unreadable => Policy::Open,
+        Stated::Closed | Stated::Unreadable => Policy::Closed,
+        Stated::Unset | Stated::Open => Policy::Open,
     })
 }
 
@@ -418,7 +416,8 @@ fn no_open_outcome_locks_out() {
 }
 
 #[test]
-fn a_lockout_needs_a_trusted_file_that_wrote_closed() {
+fn a_lockout_needs_a_trusted_file_with_a_closed_policy() {
+    // a policy line vtium cannot read closes the file as `policy = closed` does
     for run in runs() {
         if run.reaches() {
             continue;
@@ -426,7 +425,7 @@ fn a_lockout_needs_a_trusted_file_that_wrote_closed() {
         let closed = matches!(
             run.read,
             Read::Trusted(Trusted {
-                stated: Stated::Closed,
+                stated: Stated::Closed | Stated::Unreadable,
                 ..
             })
         );
@@ -487,7 +486,7 @@ fn no_start_under_a_trusted_closed_file_exits_for_lack_of_a_display() {
         let closed = matches!(
             read,
             Read::Trusted(Trusted {
-                stated: Stated::Closed,
+                stated: Stated::Closed | Stated::Unreadable,
                 ..
             })
         );
@@ -529,16 +528,27 @@ fn every_partly_broken_run_leaves_a_rescued_keyboard_somewhere_to_land_or_names_
 
 #[test]
 fn a_readable_closed_policy_is_sticky_within_the_file() {
-    // no other `policy` line and no broken line moves a readable closed policy, and a second `policy` line beside it leaves the file partly broken at best; a trusted file always fails to its policy
+    // no other `policy` line and no broken line opens a readable closed policy: a policy line vtium cannot read beside it breaks the file under the closed policy, and a second `policy` line leaves it partly broken at best; a trusted file always fails to its policy
     for policies in sequences(PolicyLine::ALL, 3) {
         if !policies.contains(&PolicyLine::Closed) {
             continue;
         }
+        let unreadable = policies.contains(&PolicyLine::Unreadable);
         for scopes in sequences(Scope::ALL, 2) {
             for &kept in Kept::ALL {
                 let t = Trusted::of(&policies, &scopes, kept);
-                assert_eq!(t.stated, Stated::Closed, "{policies:?} {scopes:?} {kept:?}");
-                if policies.len() > 1 {
+                let want = if unreadable {
+                    Stated::Unreadable
+                } else {
+                    Stated::Closed
+                };
+                assert_eq!(t.stated, want, "{policies:?} {scopes:?} {kept:?}");
+                assert_eq!(
+                    resolve(&Read::Trusted(t)).policy,
+                    Policy::Closed,
+                    "{policies:?} {scopes:?} {kept:?}"
+                );
+                if !unreadable && policies.len() > 1 {
                     assert!(
                         matches!(t.rest, Rest::Partly | Rest::Broken),
                         "{policies:?} {scopes:?} {kept:?} reads as {:?}",
@@ -651,7 +661,6 @@ fn the_policy_is_read_from_the_policy_lines() {
     for lines in [
         [PolicyLine::Closed, PolicyLine::Closed],
         [PolicyLine::Open, PolicyLine::Closed],
-        [PolicyLine::Closed, PolicyLine::Unknown],
         [PolicyLine::InSection, PolicyLine::Closed],
     ] {
         let want = Trusted {
@@ -660,12 +669,31 @@ fn the_policy_is_read_from_the_policy_lines() {
         };
         assert_eq!(of(&lines, &[]), want, "{lines:?}");
     }
-    // with no readable closed policy, conflicting or unreadable lines state nothing
+    // a second readable open line is a duplicate, which leaves the policy open
+    assert_eq!(
+        of(&[PolicyLine::Open, PolicyLine::Open], &[]),
+        Trusted {
+            stated: Stated::Open,
+            rest: Rest::Partly
+        }
+    );
+    // a policy line vtium cannot read wins over every readable one, and closes and breaks the file whatever its rest is
     for lines in [
-        [PolicyLine::Open, PolicyLine::Open],
-        [PolicyLine::Open, PolicyLine::Unknown],
+        vec![PolicyLine::Unreadable],
+        vec![PolicyLine::Open, PolicyLine::Unreadable],
+        vec![PolicyLine::Unreadable, PolicyLine::Closed],
+        vec![PolicyLine::InSection, PolicyLine::Unreadable],
     ] {
-        assert_eq!(of(&lines, &[]).stated, Stated::Unreadable, "{lines:?}");
+        for scopes in [&[][..], &[Scope::Line], &[Scope::File]] {
+            let t = of(&lines, scopes);
+            assert_eq!(t.stated, Stated::Unreadable, "{lines:?} {scopes:?}");
+            let o = resolve(&Read::Trusted(t));
+            assert_eq!(
+                (o.runs, o.policy, o.line),
+                (Runs::Off, Policy::Closed, Some(Line::ClosedOff)),
+                "{lines:?} {scopes:?}"
+            );
+        }
     }
     // a `policy` line inside a section states nothing, and leaves the file
     // partly broken whatever the top-level line says, so what runs is as it
@@ -796,13 +824,11 @@ fn every_problem_has_its_scope() {
             Scope::Head,
         ),
         (Problem::PolicyInSection, Within::Head, Scope::Line),
+        // a policy line vtium cannot read takes the whole file
         (
-            Problem::BadValue {
-                key: "policy",
-                value: q(),
-            },
+            Problem::UnreadablePolicy(crate::error::PolicyFault::NotUtf8),
             Within::Top,
-            Scope::Line,
+            Scope::File,
         ),
         (
             Problem::BadValue {

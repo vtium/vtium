@@ -33,6 +33,7 @@ mod fake;
 mod fbdev;
 mod kms;
 mod mode;
+mod path;
 
 pub use blank::{Blank, DPMS_TIMEOUT};
 pub use card::Card;
@@ -59,6 +60,10 @@ pub struct Identity {
     pub card: Option<String>,
     /// The monitor its EDID names, where the connector has one to read.
     pub edid: Option<EdidId>,
+    /// Its connector's `PATH` property (`mst:213-1`), which only a
+    /// DisplayPort multi-stream hub's connectors carry, as text a head
+    /// file's token can hold.
+    pub connector_path: Option<String>,
     /// The connector was visible when its card was first scanned, as the
     /// console or the boot loader left it: its CRTC showed a mode and was
     /// on, by `ACTIVE` on an atomic card and by the connector's DPMS on a

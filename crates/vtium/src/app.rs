@@ -3324,6 +3324,7 @@ mod tests {
                 connector: self.name(id),
                 card: Some("mem".to_owned()),
                 edid: None,
+                connector_path: None,
                 lit_at_start: false,
             })
         }

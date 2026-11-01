@@ -119,6 +119,7 @@ impl Video for Memory {
             connector: self.connector.to_owned(),
             card: Some(self.card.to_owned()),
             edid: None,
+            connector_path: None,
             lit_at_start: self.lit,
         })
     }
@@ -3113,6 +3114,11 @@ fn d7_row(row: &Row) {
                         ":4",
                         "This section takes no key named \"focs\". Check the key's spelling, or remove the line.",
                     ),
+                    // the policy line vtium cannot read, at its line
+                    "unreadable-policy" | "unreadable-policy-no-head" => at(
+                        ":2",
+                        "`policy` cannot be \"maybe\", so vtium cannot read this line and counts the file as closed and broken. Change it to one of `open`, `closed`.",
+                    ),
                     _ => at(
                         "",
                         "The file needs `version = 1` above its first section. Add that line at the top.",
@@ -3140,7 +3146,9 @@ fn d7_row(row: &Row) {
             "{test}: drawn"
         );
     }
-    if row.text.contains("policy = closed") {
+    // a policy line vtium cannot read closes the file too, so no keyboard
+    // delivers anything
+    if row.text.contains("policy = closed") || row.line == Some(CLOSED_OFF) {
         d7_closed_input(&mut s, row);
     }
     assert_eq!(file.listing(), before, "{test}: the file as it was");
@@ -3233,11 +3241,11 @@ fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
             line: Some(PARTLY),
         },
         Row {
-            test: "partly-policy",
+            test: "unreadable-policy",
             text: format!("version = 1\npolicy = maybe\n{DESK}"),
             kind: Kind::File,
-            heads: &["desk"], lit: 2,
-            line: Some(PARTLY),
+            heads: &[], lit: 1,
+            line: Some(CLOSED_OFF),
         },
         Row {
             test: "partly-closed",
@@ -3255,11 +3263,11 @@ fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
         },
         Row { test: "no-version-open", text: DESK.into(), kind: Kind::File, heads: &["console"], lit: 2, line: Some(SKIPPED) },
         Row {
-            test: "broken-no-policy",
+            test: "unreadable-policy-no-head",
             text: "version = 1\npolicy = maybe\n".into(),
             kind: Kind::File,
-            heads: &["console"], lit: 2,
-            line: Some(SKIPPED),
+            heads: &[], lit: 1,
+            line: Some(CLOSED_OFF),
         },
         Row {
             test: "broken-closed",
