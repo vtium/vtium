@@ -105,6 +105,10 @@ considered:
     said: "Q4. iTerm2 pictures stay capped by the 1 MiB OSC bound (about 768 KB of file) for now; #62 and #39 decide whether to raise it: yes."
     via: the maintainer's answers in the steering session, 2026-11-01, second round on 15caffc's questions, relayed by the team lead in scratchpad/answers-2026-11-01.md; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "Pending item 1 confirmed as the record leaned: a newly arrived kitty picture slides in just beneath the first higher id, or goes on top when there is none, so nothing already shown moves."
+    via: the maintainer's answer in the steering session, 2026-11-01, third round on 0b0b9e9's pending item, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
   - "The flood test feeds a stream of transmissions and placements past a full store whole and cut at random points, with frames drawn at different points, and every run ends in the same store; with the input-work count removed from a scan, planted, it fails"
@@ -203,7 +207,7 @@ Within a layer, placements draw by z. The placements at one z in one layer form 
 
 - **A later picture goes on top.** A sixel, an iTerm2 picture, or a kitty picture that kitty's rule below does not place lower, goes on the top of its stack when it arrives, so a program can order its pictures on purpose by the order it sends them (the maintainer, 2026-11-01). The order of arrival is the sequence number: a per-store count, taken by each placement when it is made, in the order its string reached the pipeline.
 - **Two kitty pictures keep kitty's rule.** Between two kitty placements of different image ids, the lower id draws below, whatever their order of arrival, as the kitty spec says: "If two images with the same z-index overlap then the image with the lower id is considered to have the lower z-index" (the maintainer, 2026-11-01). Two placements of the same image keep their order of arrival, which the spec leaves undefined.
-- **A kitty picture slides in beneath the first higher id.** When a kitty placement arrives, the store looks up its stack from the bottom for the first kitty placement whose image id is higher than the new one's. When there is one, the new placement goes directly beneath it; when there is none, it goes on top. Kitty placements in a stack are therefore always in order of id, and every pair that involves a sixel or an iTerm2 picture is in order of arrival, with one exception: a sixel or iTerm2 picture lying above the kitty picture a newcomer slides beneath stays above the newcomer, although it arrived first. Nothing already in the stack moves, so the order is one fixed order, decided by the bytes alone, and never a loop. The rule is under For the operator's check (item 1).
+- **A kitty picture slides in beneath the first higher id.** When a kitty placement arrives, the store looks up its stack from the bottom for the first kitty placement whose image id is higher than the new one's. When there is one, the new placement goes directly beneath it; when there is none, it goes on top. Kitty placements in a stack are therefore always in order of id, and every pair that involves a sixel or an iTerm2 picture is in order of arrival, with one exception: a sixel or iTerm2 picture lying above the kitty picture a newcomer slides beneath stays above the newcomer, although it arrived first. Nothing already in the stack moves, so the order is one fixed order, decided by the bytes alone, and never a loop. The maintainer confirmed this rule on 2026-11-01.
 - **Cuts and replacements.** A piece cut from a placement takes its placement's place in the stack, so cutting never reorders a picture. A kitty placement that replaces one with the same image and placement id is a new arrival: it takes a new sequence number and goes on top, or beneath the first higher id under the rule above (the maintainer, 2026-11-01).
 
 An example. A program shows kitty picture 2, then a sixel chart over it, then kitty picture 1, all overlapping at z 0. Kitty picture 1 slides in just beneath picture 2, so from the back the screen shows picture 1, picture 2, then the chart on top. The chart stays on top although picture 1 arrived after it.
@@ -343,9 +347,9 @@ These passages say something this record decides otherwise. Each changes in its 
 
 ### For the operator's check
 
-Each item is an agent call written into this record as the decision. The maintainer confirms or overrules each, and an overruled item changes the places it names.
+No item is pending. Every agent call this record made has been answered by the maintainer and written into the decision it names (`considered`).
 
-1. **Where a newly arrived kitty picture goes in its stack** (D4). Lean: it slides in just beneath the first kitty picture above it in the stack that has a higher id, and goes on top when there is none, so nothing already on the screen moves. In plain words: a program shows kitty picture 2, then a sixel chart over it, then kitty picture 1, all overlapping at the same depth. Kitty's rule says picture 1 goes under picture 2. With the lean, picture 1 slips in just under picture 2, and you see, from the back, picture 1, picture 2, and the chart still on top. The other way to break the tie puts picture 1 on top and lifts picture 2 above it, which would make picture 2, already on the screen, jump in front of the chart. Both give one fixed order; the lean is the one where nothing already shown changes its place.
+> Edited 2026-11-01, third round: the maintainer confirmed the one item left after the second round, where a newly arrived kitty picture goes in its stack (D4), as the record leaned. It read: "1. **Where a newly arrived kitty picture goes in its stack** (D4). Lean: it slides in just beneath the first kitty picture above it in the stack that has a higher id, and goes on top when there is none, so nothing already on the screen moves." The earlier text is in git at 0b0b9e9.
 
 ## C notes: the C reference's flow
 
@@ -406,7 +410,7 @@ How the C reference handled images, as the logical reference for the decisions a
 - **Scaled copies inside the image budget,** as the C reference's bbulk kept them. Rejected: a frame drawn or not drawn would then change what the store keeps, which the determinism rules forbid.
 - **Sixel above kitty at equal z,** the C reference's order. Rejected (the maintainer, 2026-11-01): a program could not order a sixel and a kitty picture on purpose by sending them in that order.
 - **Arrival order for every pair, kitty included.** Rejected (the maintainer, 2026-11-01): it departs from the kitty spec's id rule.
-- **A new kitty picture on top, with the higher ids lifted above it.** Not taken, pending For the operator's check (item 1): it moves pictures already on the screen, so a picture could jump in front of a sixel drawn after it.
+- **A new kitty picture on top, with the higher ids lifted above it.** Rejected (the maintainer, 2026-11-01): it moves pictures already on the screen, so a picture could jump in front of a sixel drawn after it.
 - **A sort key of z, then id, then arrival.** Not taken: with a sixel between two kitty pictures whose ids run against their arrival, the three pairwise rules form a loop that no sort key satisfies; a stack the store keeps as placements arrive always has one answer.
 - **Branching on the protocol in the store and the compositor,** as the C reference's code did. Rejected: #28 asks for one function to hold every protocol rule, and a private tag lets the compiler hold the line.
 - **The image store inside vtium-term,** with vtium-image holding only the decoders. Not taken: the store, its rules and its budget are one unit that the handlers act on, and keeping them in vtium-image leaves vtium-term without image code in the minspec build and vtium-image free of vtium-term.
