@@ -270,6 +270,9 @@ pub struct Screen {
     /// alone (ADR-1401 D7, D9), drawn over the last frame as that screen
     /// draws it, the panic screen's report among them.
     pub alone: Option<Alone>,
+    /// The cell under the pointer, a column and a row, set after the
+    /// bytes: the link there draws hovered (ADR-1002, "Drawing").
+    pub pointer: Option<(usize, usize)>,
 }
 
 impl Screen {
@@ -301,6 +304,7 @@ impl Screen {
             depth: Depth::Color,
             overlay: None,
             alone: None,
+            pointer: None,
         }
     }
 }
@@ -518,6 +522,9 @@ fn draw_config<F: Face>(
     // the cursor's blink state is not part of what is compared
     feed(&mut term, b"\x1b[?25l")?;
     feed(&mut term, screen.bytes)?;
+    if let Some(at) = screen.pointer {
+        term.screen_mut().set_pointer(Some(at), false);
+    }
     if matches!(screen.font, FontKind::Sprites { .. }) {
         check_sprites(&font, &term)?;
     }
