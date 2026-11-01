@@ -34,7 +34,7 @@ use crate::Cell;
 use crate::bounds::{COLUMNS_MAX, ROWS_MAX};
 use crate::damage::{Age, Damage};
 use crate::frame::{Cursor, CursorShape, Frame};
-use crate::line::{Line, LineId, LinkId};
+use crate::line::{Line, LineFlags, LineId, LinkId};
 use crate::links::LinkStore;
 use crate::palette::Palette;
 use crate::scrollback::Scrollback;
@@ -710,6 +710,45 @@ impl Screen {
         }
         let x = self.cursor_x.min(self.cols.saturating_sub(1));
         self.move_cursor(x.saturating_sub(n), self.cursor_y);
+    }
+
+    /// CUB and BS with reverse wraparound (mode 45, with autowrap on), as
+    /// xterm's XTREVWRAP moves: `n` columns left, where a pending wrap
+    /// takes the first step without moving, and from the first column the
+    /// cursor goes on from the last column of the row above when printing
+    /// wrapped from that row into this one. It stops at the first column of
+    /// a row the row above did not wrap into, and of the screen's first
+    /// row.
+    pub fn move_left_reverse_wrap(&mut self, n: usize) {
+        if n == 0 {
+            return;
+        }
+        let last = self.cols.saturating_sub(1);
+        let (mut x, mut y) = (self.cursor_x, self.cursor_y);
+        let mut left = n;
+        if x > last {
+            x = last;
+            left = left.saturating_sub(1);
+        }
+        while left > 0 {
+            if x > 0 {
+                let step = left.min(x);
+                x = x.saturating_sub(step);
+                left = left.saturating_sub(step);
+                continue;
+            }
+            let wrapped = y
+                .checked_sub(1)
+                .and_then(|above| self.line(above))
+                .is_some_and(|line| line.flags().contains(LineFlags::WRAPPED));
+            if !wrapped {
+                break;
+            }
+            y = y.saturating_sub(1);
+            x = last;
+            left = left.saturating_sub(1);
+        }
+        self.move_cursor(x, y);
     }
 
     /// CUF and HPR: `n` columns right, stopping at the last.

@@ -125,6 +125,33 @@ impl Screen {
         self.end_rect_wraps(rect, true);
     }
 
+    /// DECALN's screen: the margins become the whole screen, every line of
+    /// the screen in use single size, and every cell an `E` in the default
+    /// style with no hyperlink, as xterm fills it. The cursor is the
+    /// terminal's to move.
+    pub(crate) fn align(&mut self) {
+        self.segment = None;
+        self.top = 0;
+        self.bottom = self.rows.saturating_sub(1);
+        let right = self.cols.saturating_sub(1);
+        for y in 0..self.rows {
+            if let Some(line) = self.line_mut(y) {
+                line.flags_mut().set_size(crate::LineSize::Single);
+                for x in 0..=right {
+                    line.write(x, Glyph::Char('E'), Width::Narrow, &Style::DEFAULT, None);
+                }
+            }
+        }
+        self.damage.mark_all();
+        let rect = Rect {
+            top: 0,
+            left: 0,
+            bottom: self.rows.saturating_sub(1),
+            right,
+        };
+        self.end_rect_wraps(rect, true);
+    }
+
     /// DECCRA: copies `source` with each cell's style and hyperlink to the
     /// rectangle of its size whose top left is row `top`, column `left`,
     /// counted as a rectangle's corners are and clipped to the screen, or
@@ -271,6 +298,36 @@ impl Screen {
         self.unwrap_rows(rect.top..=rect.bottom);
         if replaced && rect.top == 0 && rect.left == 0 {
             self.unwrap_scrollback();
+        }
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+mod tests {
+    use crate::{LineSize, Terminal, Width};
+
+    // ctlseqs, DECALN, as xterm's `CASE_DECALN` runs `xterm_ResetDouble`:
+    // a double-width line, and a wide character, become single cells of E.
+    // No byte stream makes a double-width line yet, so the test sets one.
+    // covers: ctl.decaln
+    #[test]
+    fn decaln_returns_a_double_width_line_to_single_size() {
+        let mut t = Terminal::new(5, 3, 10);
+        t.input("\r\n\u{4E2D}x".as_bytes());
+        t.screen_mut()
+            .line_mut(1)
+            .expect("row 1")
+            .flags_mut()
+            .set_size(LineSize::DoubleWidth);
+        t.input(b"\x1b#8");
+        for row in 0..3 {
+            let line = t.screen().line(row).expect("a row");
+            assert_eq!(line.flags().size(), LineSize::Single, "row {row}");
+            for col in 0..5 {
+                let cell = line.cell(col);
+                assert_eq!(cell.width(), Width::Narrow, "{row},{col}");
+            }
         }
     }
 }

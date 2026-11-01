@@ -58,3 +58,9 @@ Each capability the C reference's probes judge, the ADR-1000 rows its probe cove
 | `mode-80` | works | `DEC-80` |  | needs the build feature images; no test for `DEC-80` |
 | `mode-1070` | works | `DEC-1070` |  | needs the build feature images; no test for `DEC-1070` |
 | `mode-8452` | works | `DEC-8452` |  | needs the build feature images; no test for `DEC-8452` |
+| `decaln` | works | `ctl.decaln` | `crates/vtium-term/src/screen/rect.rs::decaln_returns_a_double_width_line_to_single_size`<br>`crates/vtium-term/tests/modes.rs::decaln_fills_the_screen_with_e_and_resets_the_margins_and_cursor` |  |
+| `reverse-wrap` | works | `DEC-45` | `crates/vtium-term/tests/modes.rs::mode_45_wraps_backwards_into_the_row_that_wrapped` |  |
+| `xtsave` | works | `ctl.xtsave` | `crates/vtium-term/tests/modes.rs::decstr_keeps_what_xtsave_saved_and_ris_clears_it`<br>`crates/vtium-term/tests/modes.rs::the_empty_list_leaves_the_cursor_and_the_screen_alone`<br>`crates/vtium-term/tests/modes.rs::the_empty_list_saves_and_restores_every_mode`<br>`crates/vtium-term/tests/modes.rs::xtrestore_restores_each_mode_xtsave_saved`<br>`crates/vtium-term/tests/modes.rs::xtsave_keeps_one_state_for_modes_that_share_one` |  |
+| `mouse-1015` | works | `DEC-1015` | `crates/vtium-term/tests/modes.rs::urxvt_mouse_encoding_reports_in_decimal` |  |
+| `decnkm` | works | `DEC-66` | `crates/vtium-term/tests/modes.rs::decnkm_switches_the_keypad_as_deckpam_and_deckpnm_do` |  |
+| `meta-keys` | works | `DEC-1034`<br>`DEC-1036` | `crates/vtium-term/tests/modes.rs::modes_1034_and_1036_choose_what_alt_sends` |  |

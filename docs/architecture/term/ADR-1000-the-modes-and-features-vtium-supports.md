@@ -41,6 +41,10 @@ considered:
     said: "all the generally supported capabilities, not esoteric 1970s terminal modes"
     via: operator, in session 2026-10-27, relayed by the team lead
     covers: [where the line falls]
+  - operator: aaronsb
+    said: "Modes 1007, 1034, 1035, 1036 and 1042 start set. DECSTR keeps the modes XTSAVE saved and the XTSHIFTESCAPE setting; RIS clears the saved modes and returns XTSHIFTESCAPE to 0, as Ghostty does, and vtium lists the RIS half as a departure from xterm, which keeps both. XTSAVE and XTRESTORE with an empty list follow kitty's documented rule, every mode free of side effects: they leave out DECOM (6), modes 47, 1047, 1048, 1049 and 2026, and the ANSI modes IRM, SRM and LNM."
+    via: the maintainer's answers in the steering session, 2026-11-01
+    paraphrase: true
 status: accepted
 date: 2026-10-26
 deciders:
