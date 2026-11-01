@@ -294,3 +294,50 @@ fn a_policy_line_inside_a_section_is_still_ignored() {
         assert_eq!(r.parsed.config.heads.len(), 1);
     }
 }
+
+// ADR-1401 D7: the policy line's error is always kept, so a check and the
+// panic screen name the line that closes the file, however many errors
+// come before it
+// covers: platform.heads.policy
+#[test]
+fn a_policy_lines_error_is_kept_past_the_error_bound() {
+    let mut text = String::from("version = 1\n");
+    for i in 0..70 {
+        text.push_str(&format!("junk{i}\n"));
+    }
+    let line = text.matches('\n').count() + 1;
+    let bad = format!("{text}policy = op\u{1b}en\n{BODY}");
+    closed_and_broken(bad.as_bytes(), line, |f| {
+        *f == PolicyFault::ControlCharacter('\u{1b}')
+    });
+    let r = reading(bad.as_bytes());
+    assert_eq!(r.errors.errors.len(), vtium_config::ERRORS_MAX);
+    // every error past the bound is counted, the one the policy line's
+    // error took the place of among them
+    assert_eq!(r.errors.errors.len() + r.errors.more, 71);
+    // the same for a policy line the file bound cuts
+    let mut cut = text.clone();
+    while cut.len() + 30 <= FILE_MAX - 10 {
+        cut.push_str("# padding past the bound ..\n");
+    }
+    while cut.len() < FILE_MAX - 10 {
+        cut.insert(cut.len() - 1, 'y');
+    }
+    let line = cut.matches('\n').count() + 1;
+    cut.push_str("policy = closed\n");
+    cut.push_str(BODY);
+    closed_and_broken(cut.as_bytes(), line, |f| *f == PolicyFault::Cut);
+    // and when an error found once every line is read, such as a missing
+    // `version`, sorts ahead of it
+    let mut late = String::new();
+    for i in 0..63 {
+        late.push_str(&format!("junk{i}\n"));
+    }
+    late.push_str("policy = opne\n");
+    late.push_str(BODY);
+    closed_and_broken(
+        late.as_bytes(),
+        64,
+        |f| matches!(f, PolicyFault::Value(v) if v.raw() == "opne"),
+    );
+}

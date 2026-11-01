@@ -270,8 +270,16 @@ impl fmt::Display for Error {
     }
 }
 
+/// Whether `error` is a policy line vtium cannot read, the error that
+/// makes the file closed and broken (D7), which a list of errors always
+/// keeps so that a check and the panic screen name that line.
+fn closes(error: &Error) -> bool {
+    matches!(error.problem, Problem::UnreadablePolicy(_))
+}
+
 /// A head file's errors in the file's order, at most [`ERRORS_MAX`], and
 /// how many more there were.
+/// The first policy line vtium cannot read is always among them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rejected {
     pub errors: Vec<Error>,
@@ -290,28 +298,42 @@ impl Rejected {
         problem: Problem,
         drops: Option<Drops>,
     ) {
+        let error = Error {
+            line,
+            problem,
+            drops,
+        };
         if self.errors.len() < ERRORS_MAX {
-            self.errors.push(Error {
-                line,
-                problem,
-                drops,
-            });
+            self.errors.push(error);
         } else {
+            // the first policy line vtium cannot read takes the last place
+            if closes(&error) && !self.errors.iter().any(closes) {
+                self.errors.pop();
+                self.errors.push(error);
+            }
             self.more = self.more.saturating_add(1);
         }
     }
 
     /// Adds errors found after the file was read, such as a rule's
-    /// undefined head, and keeps the first [`ERRORS_MAX`] by line. The
-    /// errors held were pushed in the file's order, so any dropped before
-    /// lies after every one kept and stays dropped.
+    /// undefined head, and keeps the first [`ERRORS_MAX`] by line, the
+    /// first policy line vtium cannot read among them. The errors held
+    /// were pushed in the file's order, so any dropped before lies after
+    /// every one kept and stays dropped.
     pub(crate) fn merge(&mut self, late: Vec<Error>) {
         self.errors.extend(late);
         self.errors.sort_by_key(|e| e.line);
         if self.errors.len() > ERRORS_MAX {
-            let past = self.errors.len().saturating_sub(ERRORS_MAX);
+            let shown = self.errors.iter().take(ERRORS_MAX).any(closes);
+            let held = match self.errors.iter().position(closes) {
+                Some(at) if !shown => Some(self.errors.remove(at)),
+                Some(_) | None => None,
+            };
+            let keep = ERRORS_MAX.saturating_sub(usize::from(held.is_some()));
+            let past = self.errors.len().saturating_sub(keep);
             self.more = self.more.saturating_add(past);
-            self.errors.truncate(ERRORS_MAX);
+            self.errors.truncate(keep);
+            self.errors.extend(held);
         }
     }
 

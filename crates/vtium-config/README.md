@@ -52,6 +52,6 @@ The head file of ADR-1401: its reader, its parser, and the evaluator that places
 | `RULES_MAX` | 256 | Rules a file holds, so a device's walk reads at most this many | The file is dropped whole but for its `policy` lines, the first rule past it named | vtium's own: a rule a device with room to spare |
 | `TOKENS_MAX` | 8 | `key:value` tokens one rule's match combines | The rule is dropped, the line named | vtium's own: the strongest binding takes two (`path` and `serial`, or `connector` and `edid`) |
 | `CONSOLES_MAX` | 50 | Consoles one head asks for with `consoles` | The head gets this many, with a warning | a starting value, the C reference's `session-max` (`kmscon/src/config.c:1357`); ADR-1401 D10 and its probe 6 set the caps |
-| `ERRORS_MAX` | 64 | Errors, warnings and notes a check keeps, each kind apart | Counted, not kept | kmscon.conf's `REPORTS_MAX` (`crates/vtium/src/config/mod.rs`) |
+| `ERRORS_MAX` | 64 | Errors, warnings and notes a check keeps, each kind apart | Counted, not kept, but for the first error of a `policy` line vtium cannot read, which takes the last place | kmscon.conf's `REPORTS_MAX` (`crates/vtium/src/config/mod.rs`) |
 | `QUOTE_MAX` | 64 | Characters of the file's text an error quotes, escaped when shown | The quote is cut, and shown ending `...` | vtium's own: a name, a value or a token |
 <!-- end of the bounds table -->

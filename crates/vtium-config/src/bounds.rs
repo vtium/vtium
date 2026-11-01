@@ -77,7 +77,7 @@ const ERRORS: Bound = Bound {
     name: "ERRORS_MAX",
     value: 64,
     what: "Errors, warnings and notes a check keeps, each kind apart",
-    past: "Counted, not kept",
+    past: "Counted, not kept, but for the first error of a `policy` line vtium cannot read, which takes the last place",
     cite: "kmscon.conf's `REPORTS_MAX` (`crates/vtium/src/config/mod.rs`)",
 };
 
