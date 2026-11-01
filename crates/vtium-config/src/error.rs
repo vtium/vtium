@@ -5,9 +5,8 @@
 use std::fmt::{self, Write as _};
 
 use crate::bounds::{ERRORS_MAX, QUOTE_MAX};
-use crate::config::Head;
 use crate::identity::Kind;
-use crate::outcome::{Read, Scope, Within};
+use crate::outcome::{Read, Scope, Trusted, Within};
 
 /// Text quoted from a file: at most [`QUOTE_MAX`] characters, escaped
 /// when shown, so a control character or an escape sequence in the file
@@ -309,9 +308,26 @@ pub enum Warning {
     /// No device can reach the rule: the earlier rule at `by` takes every
     /// device it matches.
     Shadowed { line: usize, by: usize },
-    /// The head declared at `line` asks for more consoles than `cap`,
-    /// kmscon.conf's `head-consoles-max`, and gets the cap (D10).
+    /// The head whose `consoles` is on `line` asks for more consoles than
+    /// `cap`, kmscon.conf's `head-consoles-max`, and gets the cap (D10).
     PastHeadCap { line: usize, head: Quoted, cap: u32 },
+    /// The heads together ask for more consoles than `total`, kmscon.conf's
+    /// `consoles-max`, so the head whose `consoles` is on `line` gets
+    /// `gets` (D10).
+    PastTotal {
+        line: usize,
+        head: Quoted,
+        gets: u32,
+        total: u32,
+    },
+    /// The head's `profile`, on `line`, names a frit that is not in `dir`,
+    /// so the head draws the default frit (D7).
+    MissingFrit {
+        line: usize,
+        head: Quoted,
+        profile: Quoted,
+        dir: Quoted,
+    },
 }
 
 /// A finding `vtium check-config` reports without counting it against the
@@ -328,19 +344,46 @@ impl Warning {
         match self {
             Warning::ConsolesCapped { line }
             | Warning::Shadowed { line, .. }
-            | Warning::PastHeadCap { line, .. } => *line,
+            | Warning::PastHeadCap { line, .. }
+            | Warning::PastTotal { line, .. }
+            | Warning::MissingFrit { line, .. } => *line,
         }
     }
+}
 
-    /// The warning for `head` when its `consoles` is past `cap`, the
-    /// head's cap kmscon.conf's `head-consoles-max` sets (D10).
-    pub fn past_head_cap(head: &Head, cap: u32) -> Option<Warning> {
-        (head.consoles > cap).then(|| Warning::PastHeadCap {
-            line: head.line,
-            head: Quoted::new(&head.name),
-            cap,
-        })
-    }
+/// What a device present that no rule places gets (D9, "What fell to the
+/// default").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fate {
+    /// A display: it stays dark.
+    Dark,
+    /// An input under open: it roams.
+    Roams,
+    /// An input under closed: it is ignored.
+    Ignored,
+    /// An input of a partly broken open file that walks the shipped rules'
+    /// tail and roams.
+    TailRoams,
+    /// An input of a partly broken open file that walks the shipped rules'
+    /// tail and is ignored.
+    TailIgnored,
+}
+
+/// A finding `vtium check-config` notes about what runs, outside the exit
+/// status (D3, D5, D9). [`findings::remarks`](crate::remarks) gives them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Remark {
+    /// No rule names the head declared on the line it names.
+    Unnamed { head: Quoted },
+    /// Every head is isolated, so no keyboard can switch the VT and no head
+    /// can be the active head.
+    EveryHeadIsolated,
+    /// No head that can be the active head has a display present.
+    NoActiveHead,
+    /// Under closed, no keyboard present reaches any head: a lockout.
+    ClosedLockout,
+    /// A device present no rule places, as it reports itself.
+    Fell { device: Quoted, fate: Fate },
 }
 
 impl Note {
@@ -357,6 +400,11 @@ impl Note {
 /// after the file's errors (D7's outcomes table).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AtStart(pub Read);
+
+/// The policy a trusted file states and what it sets, as `vtium
+/// check-config` reports it after [`AtStart`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stating(pub Trusted);
 
 /// A path as a message names it, with every control and format character
 /// escaped, so a newline in it never splits the line.

@@ -580,7 +580,10 @@ impl Parser {
         let mut capped = false;
         if let Some(head) = self.heads.get_mut(index).map(|d| &mut d.head) {
             match key {
-                "profile" if good_name(value) => head.profile = value.to_owned(),
+                "profile" if good_name(value) => {
+                    head.profile = value.to_owned();
+                    head.profile_line = n;
+                }
                 "profile" => problem = Some(Problem::BadName(Quoted::new(value))),
                 "consoles" => match decimal(value) {
                     Some(Some(0)) => {
@@ -589,9 +592,13 @@ impl Parser {
                             value: Quoted::new(value),
                         });
                     }
-                    Some(Some(count)) if count <= CONSOLES_MAX => head.consoles = count,
+                    Some(Some(count)) if count <= CONSOLES_MAX => {
+                        head.consoles = count;
+                        head.consoles_line = n;
+                    }
                     Some(_) => {
                         head.consoles = CONSOLES_MAX;
+                        head.consoles_line = n;
                         capped = true;
                     }
                     None => problem = Some(bad()),

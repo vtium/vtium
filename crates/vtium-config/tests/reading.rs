@@ -304,7 +304,7 @@ fn every_policy_line_is_read_wherever_it_sits() {
         assert_eq!(r.trusted(), trusted(stated, rest), "{top:?}");
         assert_eq!(heads(&r), ["a"], "{top:?}");
     }
-    // inside a section it counts as no policy, and drops only its line
+    // inside a section it states no policy, and drops only its line
     for text in [
         "version = 1\n[head a]\npolicy = closed\n[rules]\ndisplay * -> a\n",
         "version = 1\n[head a]\n[rules]\npolicy = closed\ndisplay * -> a\n",
@@ -319,10 +319,21 @@ fn every_policy_line_is_read_wherever_it_sits() {
         assert_eq!(r.parsed.config.policy, Policy::Open, "{text:?}");
         assert_eq!(
             r.trusted(),
-            trusted(Stated::Unreadable, Rest::Partly),
+            trusted(Stated::Unset, Rest::Partly),
             "{text:?}"
         );
     }
+    // beside a readable top-level line it leaves that line's policy standing
+    let r = read(
+        "version = 1
+policy = open
+[head a]
+policy = closed
+[rules]
+display * -> a
+",
+    );
+    assert_eq!(r.trusted(), trusted(Stated::Open, Rest::Partly));
     let closed = read(&format!("version = 1\npolicy = closed\n{body}"));
     assert_eq!(closed.parsed.config.policy, Policy::Closed);
 }

@@ -91,7 +91,7 @@ closed! {
         Unset = "unset",
         Open = "open",
         Closed = "closed",
-        /// No readable `policy = closed`, and a `policy` line vtium cannot read: an unknown value, a line misplaced inside a section, or a second `policy` line. It counts as no policy, and the file is at least partly broken.
+        /// No readable `policy = closed`, and a `policy` line vtium cannot read among the top-level keys: an unknown value, or a second `policy` line. It counts as no policy, and the file is at least partly broken. A `policy` line inside a section is no top-level key, so it states nothing here.
         Unreadable = "unreadable",
     }
 }
@@ -521,8 +521,18 @@ pub fn resolve(read: &Read) -> Outcome {
 }
 
 impl Trusted {
-    /// A trusted file's levels from what its parse found: every `policy` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads where a line sits, so no outcome depends on the order of the top-level keys, and a readable closed policy wins over every other line.
+    /// A trusted file's levels from what its parse found: every `policy` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads the order of the top-level keys, so no outcome depends on it, and a readable closed policy wins over every other line. A `policy` line inside a section states no policy, since the file's policy comes from the lines above the first section, and it leaves the file partly broken (ADR-1401 D7).
     pub fn of(policies: &[PolicyLine], scopes: &[Scope], kept: Kept) -> Trusted {
+        let top: Vec<PolicyLine> = policies
+            .iter()
+            .copied()
+            .filter(|p| match p {
+                PolicyLine::InSection => false,
+                PolicyLine::Open | PolicyLine::Closed | PolicyLine::Unknown => true,
+            })
+            .collect();
+        let misplaced = top.len() != policies.len();
+        let policies = top.as_slice();
         let whole = scopes.iter().any(|s| match s {
             Scope::File => true,
             Scope::Head | Scope::Section | Scope::Line => false,
@@ -551,7 +561,7 @@ impl Trusted {
             [] | [PolicyLine::Open | PolicyLine::Closed] => false,
             [PolicyLine::Unknown | PolicyLine::InSection] | [_, _, ..] => true,
         };
-        let clean = scopes.is_empty() && !(extra && stated == Stated::Closed);
+        let clean = scopes.is_empty() && !misplaced && !(extra && stated == Stated::Closed);
         let rest = match (clean, kept) {
             (true, Kept::Heads) => Rest::Valid,
             (true, Kept::Headless) => Rest::Headless,

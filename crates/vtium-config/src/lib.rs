@@ -44,6 +44,7 @@ mod bounds;
 mod config;
 mod error;
 mod file;
+mod findings;
 mod identity;
 mod matching;
 mod messages;
@@ -52,14 +53,16 @@ mod parse;
 mod place;
 
 pub use bounds::{
-    CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX,
-    TOKENS_MAX,
+    CONSOLES_MAX, CONSOLES_TOTAL_DEFAULT, ERRORS_MAX, FILE_MAX, HEAD_CONSOLES_DEFAULT, HEADS_MAX,
+    LINE_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX,
 };
 pub use config::{Config, Font, Head, Rule, TEMPLATE, Target, WhenDisplayLost};
 pub use error::{
-    At, AtStart, Drops, Error, Note, Problem, Quoted, Rejected, Renamed, Shown, Syntax, Warning, at,
+    At, AtStart, Drops, Error, Fate, Note, Problem, Quoted, Rejected, Remark, Renamed, Shown,
+    Stating, Syntax, Warning, at,
 };
 pub use file::{HEAD_FILE, Inspected, Trust, Untrusted, inspect, read, text};
+pub use findings::{Against, remarks, warnings};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};
 pub use outcome::{

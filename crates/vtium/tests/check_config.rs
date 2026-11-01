@@ -390,7 +390,7 @@ input * -> roaming
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
         format!(
-            "{}:2: The head \"desk\" asks for more consoles than `head-consoles-max` allows, 4, so it gets 4. Lower its `consoles` to 4 or fewer, or raise `head-consoles-max` in kmscon.conf.\n",
+            "{}:3: The head \"desk\" asks for more consoles than `head-consoles-max` allows, 4, so it gets 4. Lower its `consoles` to 4 or fewer, or raise `head-consoles-max` in kmscon.conf.\n",
             file.display()
         )
     );

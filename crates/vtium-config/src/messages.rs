@@ -20,10 +20,13 @@
 
 use std::fmt;
 
-use crate::error::{AtStart, Drops, Note, Problem, Renamed, Shown, Syntax, Untrusted, Warning};
+use crate::error::{
+    AtStart, Drops, Fate, Note, Problem, Remark, Renamed, Shown, Stating, Syntax, Untrusted,
+    Warning,
+};
 use crate::identity::{Class, Kind};
 use crate::matching::Token;
-use crate::outcome::{Line, Policy, Read, Runs, Stated, resolve};
+use crate::outcome::{Line, Policy, Read, Rescue, Runs, Stated, resolve};
 use crate::parse::{Takes, range, takes};
 
 /// The file's own words `items`, each in backticks, separated by commas:
@@ -75,9 +78,12 @@ pub mod syntax {
     pub const RESCUE: &str = "rescue";
     pub const ISOLATED_YES: &str = "isolated = yes";
     pub const ISOLATED: &str = "isolated";
+    pub const ISOLATED_NO: &str = "isolated = no";
     pub const CONSOLES: &str = "consoles";
     /// kmscon.conf's key for a head's console cap.
     pub const HEAD_CONSOLES_MAX: &str = "head-consoles-max";
+    /// kmscon.conf's key for the consoles every head holds together.
+    pub const CONSOLES_TOTAL_MAX: &str = "consoles-max";
     /// The command that checks the head file, as a next step names it.
     pub const CHECK_CONFIG: &str = "vtium check-config";
     pub const PROFILE: &str = "profile";
@@ -364,6 +370,21 @@ impl fmt::Display for Warning {
                 key = HEAD_CONSOLES_MAX,
                 consoles = CONSOLES,
             ),
+            Warning::PastTotal {
+                head, gets, total, ..
+            } => write!(
+                f,
+                "The heads together ask for more consoles than `{key}` allows, {total}, so the head {head} gets {gets}. Lower the heads' `{consoles}`, or raise `{key}` in kmscon.conf.",
+                key = CONSOLES_TOTAL_MAX,
+                consoles = CONSOLES,
+            ),
+            Warning::MissingFrit {
+                head, profile, dir, ..
+            } => write!(
+                f,
+                "The head {head}'s profile names the frit {profile}, which is not in {dir}, so the head draws the default frit. Put that frit in {dir}, or change the head's `{key}`.",
+                key = PROFILE,
+            ),
             Warning::Shadowed { by, .. } => write!(
                 f,
                 "the rule on line {by} takes every device this one matches"
@@ -532,7 +553,8 @@ impl fmt::Display for AtStart {
                 ),
                 (Runs::Survivors, Policy::Open, _) => write!(
                     f,
-                    "A start runs the heads and rules that survive, then the shipped rules' tail, and shows `{line}`."
+                    "A start runs the heads and rules that survive, then the shipped rules' tail, with every head acting as not isolated whatever its `{isolated}` says, and shows `{line}`.",
+                    isolated = ISOLATED,
                 ),
                 (Runs::Survivors, Policy::Closed, _) => write!(
                     f,
@@ -554,30 +576,51 @@ impl fmt::Display for AtStart {
     }
 }
 
-impl fmt::Display for Stated {
-    /// The policy a trusted file states, and what it sets.
+impl fmt::Display for Stating {
+    /// The policy a trusted file states, and what it sets: under a partly
+    /// broken open file every head acts as not isolated (D7).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Stated::Unset => write!(
+        let rescue = resolve(&Read::Trusted(self.0)).rescue;
+        match (self.0.stated, rescue) {
+            (Stated::Unset, Rescue::AsSet | Rescue::Sticky) => write!(
                 f,
                 "The file sets no `{policy}`, so its policy is open: an input no rule places roams, a head is isolated only where it says `{isolated}`, and the anti-lockout guard and the rescue key are on.",
                 policy = POLICY,
                 isolated = ISOLATED_YES,
             ),
-            Stated::Open => write!(
+            (Stated::Unset, Rescue::Forced) => write!(
+                f,
+                "The file sets no `{policy}`, so its policy is open, and since the file is partly broken every head acts as not isolated whatever its `{isolated}` says: an input no surviving rule places walks the shipped rules' tail, and the anti-lockout guard and the rescue key are on.",
+                policy = POLICY,
+                isolated = ISOLATED,
+            ),
+            (Stated::Open, Rescue::AsSet | Rescue::Sticky) => write!(
                 f,
                 "The policy is open: an input no rule places roams, a head is isolated only where it says `{isolated}`, and the anti-lockout guard and the rescue key are on.",
                 isolated = ISOLATED_YES,
             ),
-            Stated::Closed => write!(
+            (Stated::Open, Rescue::Forced) => write!(
+                f,
+                "The policy is open, and since the file is partly broken every head acts as not isolated whatever its `{isolated}` says: an input no surviving rule places walks the shipped rules' tail, and the anti-lockout guard and the rescue key are on.",
+                isolated = ISOLATED,
+            ),
+            (Stated::Closed, Rescue::AsSet | Rescue::Sticky | Rescue::Forced) => write!(
                 f,
                 "The policy is closed: an input no rule places is ignored, a head that leaves `{isolated}` unset is isolated, and the anti-lockout guard and the rescue key are off.",
                 isolated = ISOLATED,
             ),
-            Stated::Unreadable => write!(
+            (Stated::Unreadable, Rescue::AsSet | Rescue::Sticky) => write!(
                 f,
                 "vtium cannot read the file's `{policy}` line, so the file counts as open and as at least partly broken. Write one `{open}` or `{closed}` line above the first section.",
                 policy = POLICY,
+                open = POLICY_OPEN,
+                closed = POLICY_CLOSED,
+            ),
+            (Stated::Unreadable, Rescue::Forced) => write!(
+                f,
+                "vtium cannot read the file's `{policy}` line, so the file counts as open and as partly broken, and every head acts as not isolated whatever its `{isolated}` says. Write one `{open}` or `{closed}` line above the first section.",
+                policy = POLICY,
+                isolated = ISOLATED,
                 open = POLICY_OPEN,
                 closed = POLICY_CLOSED,
             ),
@@ -594,6 +637,55 @@ impl fmt::Display for Note {
                 id = ID,
                 name = NAME,
             ),
+        }
+    }
+}
+
+impl fmt::Display for Remark {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Remark::Unnamed { head } => write!(
+                f,
+                "No rule names the head {head}, so no display or input reaches it. Add a rule that sends a display to it, or remove the head."
+            ),
+            Remark::EveryHeadIsolated => write!(
+                f,
+                "Every head is isolated, so no keyboard can switch the VT and no head can be the active head: only a keyboard a head's own rule claims reaches it. Write `{isolated}` on a head if a keyboard should roam to it.",
+                isolated = ISOLATED_NO,
+            ),
+            Remark::NoActiveHead => f.write_str(
+                "No head that can be the active head has a display present, so a keyboard that roams reaches no head until one lights. Connect a display for a head that is not isolated.",
+            ),
+            Remark::ClosedLockout => write!(
+                f,
+                "No keyboard present reaches any head, so under the closed policy nobody can type at this machine. Send a keyboard to a head, or to `{roaming}` with a head that is not isolated, before you install the file.",
+                roaming = ROAMING,
+            ),
+            Remark::Fell { device, fate } => match fate {
+                Fate::Dark => write!(
+                    f,
+                    "No rule matches the display {device}, so it stays dark. Add a `{display}` rule for it if a head should use it.",
+                    display = DISPLAY,
+                ),
+                Fate::Roams => write!(
+                    f,
+                    "No rule matches the input {device}, so the open policy lets it roam into the active head. Add an `{input}` rule for it to place it anywhere else.",
+                    input = INPUT,
+                ),
+                Fate::Ignored => write!(
+                    f,
+                    "No rule matches the input {device}, so the closed policy ignores it. Add an `{input}` rule for it if it should reach a head.",
+                    input = INPUT,
+                ),
+                Fate::TailRoams => write!(
+                    f,
+                    "No surviving rule matches the input {device}, so it walks the shipped rules' tail and roams into the active head."
+                ),
+                Fate::TailIgnored => write!(
+                    f,
+                    "No surviving rule matches the input {device}, so it walks the shipped rules' tail and is ignored."
+                ),
+            },
         }
     }
 }

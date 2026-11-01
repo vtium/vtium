@@ -667,7 +667,46 @@ fn the_policy_is_read_from_the_policy_lines() {
     ] {
         assert_eq!(of(&lines, &[]).stated, Stated::Unreadable, "{lines:?}");
     }
-    assert_eq!(of(&[PolicyLine::InSection], &[]).stated, Stated::Unreadable);
+    // a `policy` line inside a section states nothing, and leaves the file
+    // partly broken whatever the top-level line says, so what runs is as it
+    // was when it counted as an unreadable policy
+    for (lines, stated, runs, policy) in [
+        (
+            vec![PolicyLine::InSection],
+            Stated::Unset,
+            Runs::Survivors,
+            Policy::Open,
+        ),
+        (
+            vec![PolicyLine::Open, PolicyLine::InSection],
+            Stated::Open,
+            Runs::Survivors,
+            Policy::Open,
+        ),
+        (
+            vec![PolicyLine::InSection, PolicyLine::Closed],
+            Stated::Closed,
+            Runs::Survivors,
+            Policy::Closed,
+        ),
+    ] {
+        let t = of(&lines, &[Scope::Line]);
+        assert_eq!(
+            t,
+            Trusted {
+                stated,
+                rest: Rest::Partly
+            },
+            "{lines:?}"
+        );
+        let o = resolve(&Read::Trusted(t));
+        assert_eq!((o.runs, o.policy), (runs, policy), "{lines:?}");
+        assert_eq!(of(&lines, &[]).rest, Rest::Partly, "{lines:?}");
+    }
+    for kept in [Kept::Headless, Kept::Nothing] {
+        let t = Trusted::of(&[PolicyLine::InSection], &[Scope::Line], kept);
+        assert_eq!(resolve(&Read::Trusted(t)).runs, Runs::Builtin, "{kept:?}");
+    }
     // a structure vtium cannot trust drops the file, and a readable closed policy still stands
     assert_eq!(
         of(&[PolicyLine::Closed], &[Scope::File]),
