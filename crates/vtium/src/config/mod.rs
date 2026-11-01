@@ -455,6 +455,14 @@ impl Config {
         }
     }
 
+    /// `display-buffers`: how many buffers each DRM display keeps, 1 to
+    /// 3, or `None` when no source sets it and the build decides
+    /// (ADR-1401 D2).
+    pub fn display_buffers(&self) -> Option<u8> {
+        self.text(&keys::DISPLAY_BUFFERS)
+            .and_then(|t| t.parse().ok())
+    }
+
     /// Where the key's value came from.
     pub fn origin(&self, key: &Key) -> Option<&Origin> {
         self.values.get(key.name).map(|(_, o)| o)

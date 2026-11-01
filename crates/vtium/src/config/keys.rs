@@ -549,6 +549,17 @@ pub const DISPLAY_WAIT: Key = Key {
     cite: "the operator on vtium/vtium#21",
 };
 
+pub const DISPLAY_BUFFERS: Key = Key {
+    name: "display-buffers",
+    short: None,
+    kind: Kind::Choice(&["1", "2", "3"]),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "How many buffers each DRM display keeps, the same for every display: `3`, triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p); `2`, double buffering; `1`, single buffering. Unset, the build decides: 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec.",
+    cite: "ADR-1401 D2; the C reference's drm2d kept 2 (`src/video/drm2d_internal.h:49`)",
+};
+
 pub const HWACCEL: Key = Key {
     name: "hwaccel",
     short: None,
@@ -1236,7 +1247,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 92] = [
+pub const KEYS: [Key; 93] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1270,6 +1281,7 @@ pub const KEYS: [Key; 92] = [
     DPMS_TIMEOUT,
     PROGRAM_BLANK,
     DISPLAY_WAIT,
+    DISPLAY_BUFFERS,
     HWACCEL,
     USE_ORIGINAL_MODE,
     MODE,

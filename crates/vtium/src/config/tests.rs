@@ -1321,3 +1321,54 @@ fn sb_memory_past_the_machines_quarter_is_reported_once() {
     );
     assert_eq!(crate::check::warnings(&l).len(), 2);
 }
+
+/// `display-buffers` takes `1`, `2` or `3` and nothing else: a value
+/// outside them is reported and ignored, keeping the value the sources
+/// before it gave, never clamped into range. Unset, the build decides, so
+/// the accessor gives none (ADR-1401 D2).
+#[test]
+fn display_buffers_takes_one_two_or_three() {
+    assert_eq!(Config::default().display_buffers(), None);
+    for (text, n) in [("1", 1), ("2", 2), ("3", 3)] {
+        let l = main_file(&format!("display-buffers={text}\n"));
+        assert_eq!(l.config.display_buffers(), Some(n), "{text}");
+        assert_eq!(l.reports, [], "{text}");
+    }
+    for bad in ["0", "4", "02", "two", "", "-1"] {
+        let l = main_file(&format!("display-buffers=2\ndisplay-buffers={bad}\n"));
+        assert_eq!(l.config.display_buffers(), Some(2), "{bad:?}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::NotAChoice {
+                key: "display-buffers",
+                value: bad.into()
+            }],
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        main_file("display-buffers=4\n")
+            .reports
+            .first()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("/etc/kmscon/kmscon.conf:1: display-buffers=\"4\" is none of 1, 2, 3, ignored")
+    );
+    // The command line wins over the file, in either form of the option.
+    for args in [&["--display-buffers=1"][..], &["--display-buffers", "1"]] {
+        let l = load_with(
+            args,
+            None,
+            &[("/etc/kmscon/kmscon.conf", b"display-buffers=3\n")],
+        );
+        assert_eq!(l.config.display_buffers(), Some(1), "{args:?}");
+        assert_eq!(l.reports, [], "{args:?}");
+    }
+    let l = load_with(
+        &["--display-buffers=5"],
+        None,
+        &[("/etc/kmscon/kmscon.conf", b"display-buffers=3\n")],
+    );
+    assert_eq!(l.config.display_buffers(), Some(3), "the file's value kept");
+    assert_eq!(l.reports.len(), 1);
+}
