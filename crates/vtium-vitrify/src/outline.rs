@@ -9,11 +9,12 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT2\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT3\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
-//!          u8, length u8 and scalar values u32
+//!          u8, length u8 and scalar values u32, baseline count u32 (0, or
+//!          the cell count), each baseline u32
 //! answer   magic "VTVOUTL3", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
@@ -31,7 +32,9 @@
 //! Each cell's font size follows the C reference's flow (`font_freetype.c`,
 //! a cell request for half a pixel under the height): the font's ascent
 //! and descent span the cell's height less half a pixel, the baseline sits
-//! the ascent below the top, and the font that sets the cell sets its width
+//! the ascent below the top, rounded up, and rises by what the lowest ink
+//! of the font's printable ASCII passes the cell's bottom (ADR-1302 D3),
+//! and the font that sets the cell sets its width
 //! from `W`'s advance or ink, whichever is wider. A glyph is placed by its
 //! font (ADR-1302 D2): its pen at the cell's left edge, moved by half of
 //! what its cells exceed its advance rounded, rounded down, and its ink at
@@ -76,7 +79,7 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT2\0";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT3\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL3";
 
 const GLYPH_WIDE: u8 = 1;
@@ -102,6 +105,10 @@ pub struct OutlineRequest {
     pub cover: Vec<Cover>,
     /// The clusters to shape and draw whole.
     pub clusters: Vec<Ask>,
+    /// The baseline to draw each cell's glyphs on, one for each cell, as
+    /// [`baseline`] gives it and the helper keeps it for the source and the
+    /// cell's height; empty, the rasteriser finds each itself.
+    pub baselines: Vec<u32>,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
@@ -275,6 +282,10 @@ impl OutlineRequest {
             out.push(ask.kind.code());
             put_key(&mut out, &ask.key);
         }
+        put32(&mut out, len32(self.baselines.len()));
+        for &b in &self.baselines {
+            put32(&mut out, b);
+        }
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -306,6 +317,16 @@ impl OutlineRequest {
                 kind,
             });
         }
+        let mut baselines = Vec::new();
+        for _ in 0..r.count(OUTLINE_CELLS_MAX)? {
+            baselines.push(r.u32()?);
+        }
+        if !baselines.is_empty()
+            && (baselines.len() != cells.len()
+                || baselines.iter().zip(&cells).any(|(&b, &(_, h))| b > h))
+        {
+            return Err("a baseline for no cell, or below its cell");
+        }
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -315,6 +336,7 @@ impl OutlineRequest {
             cells,
             cover,
             clusters,
+            baselines,
         })
     }
 
@@ -541,7 +563,7 @@ pub fn family_key(name: &str) -> String {
         .collect()
 }
 
-pub use raster::{cell_width, rasterise};
+pub use raster::{baseline, cell_width, decorations, rasterise};
 
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
@@ -845,6 +867,106 @@ pub(crate) mod raster {
         widest.ok_or_else(|| "no face to take the cell from".to_owned())
     }
 
+    /// The baseline of a face in a cell `h` pixels high, drawn at `ppem`
+    /// (ADR-1302 D3): its ascent below the cell's top, rounded up, raised by
+    /// the whole pixels that the lowest ink of the face's printable ASCII,
+    /// U+0021 to U+007E, hinted as it is drawn, passes the cell's bottom
+    /// edge, so the underscore and the descenders end in the cell's bottom
+    /// rows. Every glyph of the face is drawn on it, whatever a request
+    /// holds. A face with no printable ASCII, or only color glyphs there,
+    /// keeps its ascent.
+    fn baseline_at(drawer: &mut Drawer<'_>, metrics: &swash::Metrics, ppem: f32, h: u32) -> u32 {
+        let scale = ppem / f32::from(metrics.units_per_em);
+        let base = ((metrics.ascent * scale).ceil() as u32).min(h);
+        let charmap = drawer.font.charmap();
+        let lowest = (0x21u32..=0x7e)
+            .filter_map(char::from_u32)
+            .map(|c| charmap.map(c))
+            .filter(|&g| g != 0)
+            .filter_map(|g| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
+            .filter(|i| i.content != Content::Color && i.placement.height > 0)
+            .map(|i| i64::from(base) - i64::from(i.placement.top) + i64::from(i.placement.height))
+            .max();
+        match lowest {
+            Some(bottom) if bottom > i64::from(h) => {
+                base.saturating_sub(u32::try_from(bottom - i64::from(h)).unwrap_or(u32::MAX))
+            }
+            _ => base,
+        }
+    }
+
+    /// The baseline of the face `family` of `font` in a cell `height`
+    /// pixels high, as [`rasterise`] draws it (ADR-1302 D3).
+    pub fn baseline(font: &[u8], family: &str, height: u32) -> Result<u32, String> {
+        if !(1..=vtium_font::CELL_SIDE_MAX).contains(&height) {
+            return Err(format!("a cell {height} pixels high, past CELL_SIDE_MAX"));
+        }
+        let (font, _, _) = face(font, family)?;
+        let metrics = metrics(font)?;
+        let mut drawer = Drawer {
+            font,
+            context: ScaleContext::new(),
+        };
+        Ok(baseline_at(
+            &mut drawer,
+            &metrics,
+            ppem(&metrics, height),
+            height,
+        ))
+    }
+
+    /// Where the underline and strike-through go in a cell `height` pixels
+    /// high whose baseline is row `baseline`, from the face `family` of
+    /// `font` (ADR-1302 D3, ADR-1200 D2), as the C reference took them: the
+    /// underline's thickness and centre from the `post` table, below the
+    /// baseline, else a fourteenth of the cell at its bottom; the
+    /// strike-through's top from the `OS/2` table above the baseline, else
+    /// centred on half the x-height, and the strike as thick as the
+    /// underline; each at least a row thick, at most a quarter of the cell,
+    /// and inside it (`kmscon_font_freetype_get_deco`,
+    /// `kmscon_font_get_deco`).
+    pub fn decorations(
+        font: &[u8],
+        family: &str,
+        height: u32,
+        baseline: u32,
+    ) -> Result<vtium_font::Decorations, String> {
+        let (font, _, _) = face(font, family)?;
+        let m = metrics(font)?;
+        let h = f64::from(height.max(1));
+        let scale = f64::from(ppem(&m, height)) / f64::from(m.units_per_em);
+        let base = f64::from(baseline);
+        let max_thick = (height / 4).max(1);
+        let mut thick = (f64::from(m.stroke_size) * scale).round();
+        if thick <= 0.0 {
+            thick = (h / 14.0).floor().max(1.0);
+        }
+        let centre = if m.underline_offset != 0.0 {
+            base - f64::from(m.underline_offset) * scale
+        } else {
+            h - thick / 2.0 - thick
+        };
+        let ul_thick = (thick as u32).clamp(1, max_thick);
+        let ul_pos = ((centre - thick / 2.0).round().max(0.0) as u32).min(height - ul_thick);
+        let strike_top = if m.strikeout_offset != 0.0 {
+            base - f64::from(m.strikeout_offset) * scale
+        } else {
+            let xh = if m.x_height > 0.0 {
+                f64::from(m.x_height) * scale
+            } else {
+                base / 2.0
+            };
+            base - xh / 2.0 - f64::from(ul_thick) / 2.0
+        };
+        let strike_pos = (strike_top.round().max(0.0) as u32).min(height - ul_thick);
+        Ok(vtium_font::Decorations {
+            underline: ul_pos,
+            underline_thickness: ul_thick,
+            strike: strike_pos,
+            strike_thickness: ul_thick,
+        })
+    }
+
     pub fn rasterise(request: &OutlineRequest) -> Result<Outline, String> {
         let (font, family, index) = face(&request.font, &request.family)?;
         let metrics = metrics(font)?;
@@ -865,10 +987,12 @@ pub(crate) mod raster {
             context: ScaleContext::new(),
         };
         let mut strikes = Vec::new();
-        for &(want_w, h) in &request.cells {
+        for (i, &(want_w, h)) in request.cells.iter().enumerate() {
             let ppem = ppem(&metrics, h);
-            let scale = ppem / f32::from(metrics.units_per_em);
-            let baseline = ((metrics.ascent * scale).ceil() as u32).min(h);
+            let baseline = match request.baselines.get(i) {
+                Some(&b) => b,
+                None => baseline_at(&mut drawer, &metrics, ppem, h),
+            };
             let advances = font.glyph_metrics(&[]).scale(ppem);
             let width = if want_w != 0 {
                 want_w

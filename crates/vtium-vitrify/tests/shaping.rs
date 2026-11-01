@@ -34,6 +34,7 @@ fn request(asks: Vec<Ask>) -> OutlineRequest {
         cells: vec![(0, 20)],
         cover: Vec::new(),
         clusters: asks,
+        baselines: Vec::new(),
     }
 }
 

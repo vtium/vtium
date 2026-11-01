@@ -11,7 +11,7 @@ mod ttf;
 use std::path::Path;
 
 use parser::Parser;
-use vtium_vitrify::outline::{Outline, OutlineRequest, cell_width, rasterise};
+use vtium_vitrify::outline::{Outline, OutlineRequest, baseline, cell_width, rasterise};
 use vtium_vitrify::resample::{self, METHOD};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-vitrify");
@@ -23,6 +23,7 @@ fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
         cells: cells.to_vec(),
         cover: cover.to_vec(),
         clusters: Vec::new(),
+        baselines: Vec::new(),
     }
 }
 
@@ -361,6 +362,61 @@ fn an_answer_with_a_box_past_the_reach_is_refused() {
     );
 }
 
+/// Test Mono with an underscore from 200 to 100 units below the baseline
+/// and `a` from it to 500 above.
+fn underscored() -> Vec<u8> {
+    let mut font = ttf::test_mono();
+    font.glyphs.push(ttf::Glyph::rect(600, 0, -200, 600, -100));
+    font.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 500));
+    font.cmap.push((0x5f, 8));
+    font.cmap.push((0x61, 9));
+    font.cmap.sort_unstable();
+    font.build()
+}
+
+// ADR-1302 D3: the baseline is the ascent below the cell's top, rounded
+// up, raised by the whole pixels the lowest ink of printable ASCII passes
+// the cell's bottom. At 9.5, 11.5 and 19.5 pixels to the em the ascent is
+// 7.6, 9.2 and 15.6, rounded 8, 10 and 16, and the underscore's ink ends
+// 1.9, 2.3 and 3.9 pixels below it, in 2, 3 and 4 rows: at 12 pixels that
+// is row 13 of 12, so the baseline rises a row there and nowhere else
+// covers: text.overhang
+#[test]
+fn the_baseline_rises_where_ascii_ink_passes_the_cell() {
+    let font = underscored();
+    let at = |h| baseline(&font, "Test Mono", h).expect("a baseline");
+    assert_eq!([at(10), at(12), at(20)], [8, 9, 16]);
+    let o = rasterise(&OutlineRequest {
+        font: font.clone().into(),
+        cells: vec![(0, 10), (0, 12), (0, 20)],
+        cover: vec![(0x61, 0x61)],
+        ..request(&[], &[])
+    })
+    .expect("rasterised");
+    let bases: Vec<u32> = o.strikes.iter().map(|s| s.baseline).collect();
+    assert_eq!(bases, [8, 9, 16], "whatever the request covers");
+    // the underscore ends in the cell's bottom row, and a's ink stands on
+    // the baseline
+    let o = rasterise(&OutlineRequest {
+        font: font.into(),
+        cells: vec![(0, 12)],
+        ..request(&[], &[])
+    })
+    .expect("rasterised");
+    let s = &o.strikes[0];
+    let row_inked = |c: u32, y: usize| {
+        let g = glyph(&o, 0, c);
+        g.pixels[y * s.width as usize..(y + 1) * s.width as usize]
+            .iter()
+            .any(|&p| p > 0)
+    };
+    assert!(row_inked(0x5f, 11), "the underscore's last row in the cell");
+    assert!(
+        row_inked(0x61, 8) && !row_inked(0x61, 9),
+        "a ends on the baseline"
+    );
+}
+
 #[test]
 fn a_later_source_draws_at_the_cell_it_is_given_and_only_what_it_covers() {
     let o =
@@ -463,6 +519,7 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
         cells: vec![(0, 10)],
         cover: Vec::new(),
         clusters: Vec::new(),
+        baselines: Vec::new(),
     };
     let o = rasterise(&req).expect("rasterised");
     let s = &o.strikes[0];
