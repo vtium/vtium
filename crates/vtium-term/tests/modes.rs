@@ -903,11 +903,25 @@ fn decstr_keeps_what_xtsave_saved_and_ris_clears_it() {
 }
 
 // kitty's misc-protocol: XTSAVE and XTRESTORE with an empty list save and
-// restore every mode, here every supported row of the table, the ANSI
-// modes among them, but 1048, which holds no state.
+// restore every mode free of side effects, the maintainer's ruling: every
+// supported DEC private mode but DECOM (6), which moves the cursor, 47,
+// 1047 and 1049, which switch screens, 1048, which holds no state, and
+// 2026, which holds frames. The ANSI modes are not in it. A mode left out
+// keeps what it is when the list is restored.
 // covers: ctl.xtsave
 #[test]
 fn the_empty_list_saves_and_restores_every_mode() {
+    const LEFT_OUT: [(bool, u32); 9] = [
+        (false, 4),
+        (false, 12),
+        (false, 20),
+        (true, 6),
+        (true, 47),
+        (true, 1047),
+        (true, 1048),
+        (true, 1049),
+        (true, 2026),
+    ];
     let modes = supported_modes();
     let mut t = every_mode_can_change();
     let report =
@@ -928,8 +942,35 @@ fn the_empty_list_saves_and_restores_every_mode() {
     assert_eq!(unchanged, [9, 1000, 1002, 1006, 1015, 1048]);
     t.input(b"\x1b[?r");
     t.take_replies();
-    assert_eq!(report(&mut t), saved);
-    assert!(!t.screen().alternate());
+    let restored = report(&mut t);
+    for (i, mode) in modes.iter().enumerate() {
+        let want = if LEFT_OUT.contains(mode) {
+            flipped[i]
+        } else {
+            saved[i]
+        };
+        assert_eq!(
+            restored[i], want,
+            "mode {mode:?} after the empty list's restore"
+        );
+    }
+}
+
+// The empty list leaves the cursor and the screen alone: its restore does
+// not move the cursor home as DECOM does, does not switch back to a screen
+// it was saved on, and does not save or restore the cursor as 1048 does.
+// covers: ctl.xtsave
+#[test]
+fn the_empty_list_leaves_the_cursor_and_the_screen_alone() {
+    let mut t = term(8, 4, b"\x1b[?s\x1b[?6h\x1b[3;4H\x1b[?r");
+    assert_eq!(t.screen().cursor(), (3, 2), "DECOM's restore would go home");
+    assert_eq!(rqm(&mut t, true, 6), 1);
+    let t = term(8, 4, b"\x1b[?1049h\x1b[?s\x1b[?1049l\x1b[?r");
+    assert!(!t.screen().alternate(), "saved on the alternate screen");
+    let mut t = term(8, 4, b"\x1b[2;2H\x1b7\x1b[3;3H\x1b[?s\x1b[4;4H\x1b[?r");
+    assert_eq!(t.screen().cursor(), (3, 3), "the restore leaves the cursor");
+    t.input(b"\x1b8");
+    assert_eq!(t.screen().cursor(), (1, 1), "the save left DECSC's cursor");
 }
 
 // ctlseqs, XTSHIFTESCAPE, as Ghostty's page reads it: `CSI > 1 s` asks

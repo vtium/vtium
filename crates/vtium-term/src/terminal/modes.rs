@@ -702,48 +702,79 @@ fn dec_mode(number: u32) -> Option<Mode> {
     }
 }
 
-/// XTSAVE, `CSI ? Pm s`, of one DEC private mode, or with `None`, kitty's
-/// empty list, of every supported mode in the table, the ANSI modes among
-/// them, apart from 1048. XTSAVE of 1048 saves the cursor as DECSC does,
-/// as xterm takes it. A number with no supported row saves nothing.
-pub(super) fn save(state: &mut State, number: Option<u32>) {
-    let modes: Vec<Mode> = match number {
-        Some(n) => dec_mode(n).into_iter().collect(),
-        None => MODES
-            .iter()
-            .filter(|r| r.status == Status::Supported && r.mode != Some(Mode::SaveCursor))
-            .filter_map(|r| r.mode)
-            .collect(),
-    };
-    for mode in modes {
-        match mode.slot() {
-            Some(slot) => {
-                let value = state.saved_value(slot);
-                state.xtsave.0.insert(slot, value);
-            }
-            None => state.save_cursor(),
+impl Row {
+    /// Whether XTSAVE's empty list holds the row: kitty's rule, every mode
+    /// free of side effects, as the maintainer ruled. That is every
+    /// supported DEC private mode but DECOM, which moves the cursor home,
+    /// 47, 1047 and 1049, which switch screens, 1048, which holds no state,
+    /// and 2026, which holds frames. No ANSI mode is in it.
+    fn in_empty_list(&self) -> bool {
+        self.dec
+            && self.status == Status::Supported
+            && !matches!(
+                self.mode,
+                None | Some(
+                    Mode::Decom
+                        | Mode::AltScreen
+                        | Mode::AltScreenClear
+                        | Mode::SaveCursor
+                        | Mode::AltScreenSaveCursor
+                        | Mode::Sync
+                )
+            )
+    }
+}
+
+/// The slots XTSAVE's empty list saves and restores, in the table's order,
+/// each once.
+fn empty_list_slots() -> Vec<Slot> {
+    let mut slots: Vec<Slot> = Vec::new();
+    for slot in MODES
+        .iter()
+        .filter(|r| r.in_empty_list())
+        .filter_map(|r| r.mode.and_then(Mode::slot))
+    {
+        if !slots.contains(&slot) {
+            slots.push(slot);
         }
+    }
+    slots
+}
+
+/// XTSAVE, `CSI ? Pm s`, of one DEC private mode, or with `None`, kitty's
+/// empty list, of every mode [`Row::in_empty_list`] names. XTSAVE of 1048
+/// saves the cursor as DECSC does, as xterm takes it. A number with no
+/// supported row saves nothing.
+pub(super) fn save(state: &mut State, number: Option<u32>) {
+    let slots = match number {
+        Some(n) => match dec_mode(n) {
+            Some(Mode::SaveCursor) => return state.save_cursor(),
+            mode => mode.and_then(Mode::slot).into_iter().collect(),
+        },
+        None => empty_list_slots(),
+    };
+    for slot in slots {
+        let value = state.saved_value(slot);
+        state.xtsave.0.insert(slot, value);
     }
 }
 
 /// XTRESTORE, `CSI ? Pm r`, of one DEC private mode, or with `None` of
-/// every slot XTSAVE filled, the alternate screen last. A slot nothing was saved in stays as it is; XTRESTORE of
-/// 1048 restores the cursor as DECRC does, as xterm takes it.
+/// every slot of the empty list that XTSAVE filled, in the table's order. A
+/// slot nothing was saved in stays as it is; XTRESTORE of 1048 restores the
+/// cursor as DECRC does, as xterm takes it.
 pub(super) fn restore(state: &mut State, number: Option<u32>) {
-    let slots: Vec<(Slot, Value)> = match number {
+    let slots = match number {
         Some(n) => match dec_mode(n) {
             Some(Mode::SaveCursor) => return state.restore_cursor(),
-            Some(mode) => mode
-                .slot()
-                .and_then(|slot| Some((slot, *state.xtsave.0.get(&slot)?)))
-                .into_iter()
-                .collect(),
-            None => Vec::new(),
+            mode => mode.and_then(Mode::slot).into_iter().collect(),
         },
-        None => state.xtsave.0.iter().map(|(s, v)| (*s, *v)).collect(),
+        None => empty_list_slots(),
     };
-    for (slot, value) in slots {
-        state.restore_value(slot, value);
+    for slot in slots {
+        if let Some(&value) = state.xtsave.0.get(&slot) {
+            state.restore_value(slot, value);
+        }
     }
 }
 
@@ -873,14 +904,15 @@ mod tests {
              permanent, 3 when set and 4 when reset.\n\n\
              XTSAVE (`CSI ? Pm s`) saves the state of each DEC private mode it lists, and \
              XTRESTORE (`CSI ? Pm r`) sets each mode it lists back to the state saved, through \
-             SM or RM; a mode nothing was saved for stays as it is. With an empty list, as \
-             kitty takes it, they save and restore every supported row, the ANSI modes among \
-             them. Modes that share one state share one saved state, as xterm keeps them: the \
+             SM or RM; a mode nothing was saved for stays as it is. With an empty list they \
+             save and restore every mode free of side effects, as kitty's misc-protocol has \
+             it: every supported DEC private mode but DECOM (6), which moves the cursor home, \
+             47, 1047 and 1049, which switch screens, 1048 and 2026; no ANSI mode is in it. \
+             Modes that share one state share one saved state, as xterm keeps them: the \
              tracking modes 9, 1000, 1002 and 1003, the encodings 1006, 1015 and 1016, and the \
-             alternate screen modes 47, 1047 and 1049, which XTRESTORE switches as 47 does, \
-             neither cleared nor the cursor moved. Mode 1048 holds no state: XTSAVE of it saves \
-             the cursor as DECSC does and XTRESTORE restores it as DECRC does, and the empty \
-             list leaves it out. DECSTR keeps what XTSAVE saved, and RIS clears it.\n\n",
+             alternate screen modes 47, 1047 and 1049, which XTRESTORE of one of them switches \
+             as 47 does, neither cleared nor the cursor moved. Mode 1048 holds no state: XTSAVE \
+             of it saves the cursor as DECSC does and XTRESTORE restores it as DECRC does. DECSTR keeps what XTSAVE saved, and RIS clears it.\n\n",
         );
         out += &format!("| {} |\n", COLUMNS.join(" | "));
         out += &format!("|{}\n", "---|".repeat(COLUMNS.len()));
