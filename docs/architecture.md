@@ -17,19 +17,19 @@ vtium-vitrify (binary)   the glyph helper: every font decoder, the outline raste
 └── vtium-platform
 ```
 
-vtium-vitrify is a binary of its own, outside the minspec build. The console starts it as its glyph helper, which reads a frit's fonts and sends their glyphs to the console (ADR-1200), so the font decoders and the rasterizer stay out of the console.
+vtium-vitrify is a binary of its own. The install tree carries it beside the console, outside the console's binary and outside the minspec size budget, which judges the console alone. The console starts it as its glyph helper, which reads a frit's fonts and sends their glyphs to the console (ADR-1200), so the font decoders and the rasterizer stay out of the console.
 
 Only `vtium-platform` may use `unsafe`. Every other crate carries `#![forbid(unsafe_code)]`.
 
 `vtium-config` parses and evaluates the head file of [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md): its heads, its rules and the guards. `vtium` links it, and `vtium check-config` runs the same parser and evaluator, so a file checked before it is installed gets the verdict it gets at boot. `vtiumctl` will link it too once it is built. Profiles have no file of their own yet.
 
-`vtium-platform` makes its syscalls through rustix, with no `libc` call and no `extern "C"` declaration for one (vtium/vtium#6). Its `unsafe` is of four kinds: an ioctl rustix does not wrap, defined once in the crate's ioctl module with a test that its request number equals the kernel header's; an mmap of a framebuffer; the pre-exec hooks of the pty child and the suspend shell, which make only raw syscalls (both reset every signal's disposition and clear the signal mask, and the pty child's makes it a session leader with the pty as its controlling terminal); and FFI to a C library where vtium must call one, such as libseat (vtium/vtium#34). C stays at that boundary. The crate denies `unsafe_code`, so each site carries an `#[expect]` with its reason.
+`vtium-platform` makes its syscalls through rustix (vtium/vtium#6), with two exceptions: `src/rt_signal.rs` and `src/power.rs` call libc, because rustix exposes no signalfd and no safe signal-mask, kill or pidfd signal call for real-time signals. DRM's ioctls go through `drm-ffi`, keys through libxkbcommon and the device monitor through libudev, the C libraries at the crate's boundary. Its `unsafe` sites are the ioctls rustix does not wrap, in `src/ioctl.rs` with a test that each request number equals the kernel header's, and the console font's in `src/vt/font.rs`; the mmap of a framebuffer in `src/mmap.rs`; the close-on-exec marking in `src/fds.rs`; the real-time signals' set, mask, signalfd and `pidfd_send_signal` in `src/rt_signal.rs`; power-off's kill in `src/power.rs`; and the pre-exec hooks of the pty child and the suspend shell, which make only raw syscalls (both reset every signal's disposition and clear the signal mask, and the pty child's makes it a session leader with the pty as its controlling terminal). The crate's README lists them. C stays at that boundary, and libseat (vtium/vtium#34) will join it there. The crate denies `unsafe_code`, so each site carries an `#[expect]` with its reason.
 
 The console starts its children, the session on the pty and the power keys' suspend shell, only from its one thread, marking every inherited descriptor close-on-exec just before the fork (vtium/vtium#133); a new thread that opens descriptors must revisit that call, which a descriptor opened between the marking and the fork would pass.
 
 ## The minspec build
 
-The default build is minspec: the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised, and `make minspec` links the binary with packed relative relocations (DT_RELR), which needs glibc 2.36 at run time (vtium/vtium#143) and binutils 2.38 at build. Its size and memory are measured from the first working build.
+The default build is minspec: the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised, and `make minspec` links the binary with packed relative relocations (DT_RELR), which needs glibc 2.36 at run time (vtium/vtium#143) and binutils 2.38 at build. Tier 3 measures its size and memory on every run, and fails a run whose binary is over its budget, 3,670,016 bytes ([tools/tier3/README.md](../tools/tier3/README.md)).
 
 The machine minspec is judged against is a single-board computer that presents a DRM buffer (vtium/vtium#75):
 
@@ -38,7 +38,7 @@ The machine minspec is judged against is a single-board computer that presents a
 - a DRM dumb buffer to draw into, with no GPU vtium uses;
 - displays that may be small, down to SPI panels through tinydrm.
 
-The display floor is a 320x240 panel with an 8x8 font, a 40 by 30 grid. There vtium starts, draws and stays correct, and a shell, line editing and vim are usable; a program that needs 80 columns is not promised to fit. At 640x480 with an 8x16 font, 80 by 30, everything vtium supports is usable. The 8x8 font comes from a console font on the system for now (vtium/vtium#75).
+The display floor is a 320x240 panel with an 8x8 font, a 40 by 30 grid. There vtium starts, draws and stays correct, and a shell, line editing and vim are usable; a program that needs 80 columns is not promised to fit. At 640x480 with an 8x16 font, 80 by 30, everything vtium supports is usable. The 8x8 font is the built-in Unscii-8, which draws every cell under 16 pixels high (ADR-1200 D7).
 
 Tier 3's x86 variant keeps the small-machine standard: 1366x768, 1 vCPU, 512 MB.
 

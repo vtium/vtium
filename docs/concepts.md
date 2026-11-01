@@ -43,7 +43,7 @@ vtium is one console and a few programs and files around it. The table lists eac
 | The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](systemd.md) |
 | The terminfo entry | Tells programs in the session what vtium can do | read by the session's programs | built | [crates/vtium](../crates/vtium/README.md), vtium/vtium#21 |
 
-vtium is the only piece needed to use the console. vtium-vitrify, vtiumctl and vtium-clipboard are separate binaries, so the font decoders, the rasteriser and the configuration tool stay out of the console's binary, and neither counts against the minspec build's budget.
+vtium is the only piece needed to use the console. vtium-vitrify, vtiumctl and vtium-clipboard are separate binaries, so the font decoders, the rasteriser and the configuration tool stay out of the console's binary, and none counts against the minspec build's budget.
 
 ### From install to use
 
