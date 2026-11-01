@@ -1,6 +1,6 @@
 //! A policy line vtium cannot read makes the head file closed and broken
-//! (ADR-1401 D7, level 2, the maintainer's ruling of 2026-11-01 and his
-//! answer of the same day on its five cases).
+//! (ADR-1401 D7, level 2, the maintainer's ruling of 2026-11-01 and the
+//! maintainer's answer of the same day on its five cases).
 //!
 //! A policy line is a line above the first section whose bytes, after its
 //! leading spaces and tabs, begin with `policy` in any case. vtium reads
