@@ -259,6 +259,10 @@ impl Kms for Card {
         Ok(())
     }
 
+    fn read_blob(&self, id: u32, data: &mut [u8]) -> io::Result<usize> {
+        crate::ioctl::drm_get_blob(self.raw(), id, data)
+    }
+
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()> {
         // The kernel takes the properties grouped by object.
         let mut objects: Vec<u32> = Vec::new();

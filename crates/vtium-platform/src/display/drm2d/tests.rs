@@ -2396,6 +2396,7 @@ fn identity(name: &str, lit_at_start: bool) -> Identity {
         connector: String::from(name),
         card: Some(String::from("pci-0000:03:00.0")),
         edid: None,
+        connector_path: None,
         lit_at_start,
     }
 }
@@ -2607,6 +2608,103 @@ fn a_displays_identity_names_its_connector_card_and_monitor() {
         Some(27.0)
     );
     assert_eq!(v.dark().count(), 0);
+}
+
+// ADR-1401 D4: a DisplayPort multi-stream hub's port carries its connector's
+// `PATH` in its identity, the text before the blob's NUL, read through the
+// card as any other connector property is; a connector with no `PATH`
+// carries none.
+#[test]
+fn a_hub_ports_identity_carries_its_connectors_path() {
+    let card = dark_card();
+    card.set_path(B, b"mst:213-1\0");
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let b = v.identity(DisplayId(B)).unwrap();
+    assert_eq!(b.connector_path.as_deref(), Some("mst:213-1"));
+    assert_eq!(b.connector, "HDMI-A-2");
+    assert_eq!(v.identity(DisplayId(A)).unwrap().connector_path, None);
+}
+
+// A `PATH` naming no blob (0) leaves the display bound and without a path,
+// with nothing logged; one naming a blob the card no longer holds does the
+// same with one warning naming its connector; an empty one gives no path.
+#[test]
+fn a_path_the_card_cannot_give_leaves_the_display_bound_without_one() {
+    let card = dark_card();
+    card.state().paths.insert(A, 0);
+    logs::capture();
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(logs::at_least(Level::Warn), [] as [String; 0]);
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    assert_eq!(v.identity(DisplayId(A)).unwrap().connector_path, None);
+
+    let card = dark_card();
+    card.state().paths.insert(B, 999_999);
+    logs::capture();
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        ["cannot read the PATH of connector HDMI-A-2: No such file or directory (os error 2)"]
+    );
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
+
+    let card = dark_card();
+    card.set_path(B, b"\0");
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
+}
+
+// A `PATH` blob freed between its two reads and its id given to a longer
+// blob is refused, never read past the buffer its first length sized: the
+// display is bound without a path and one warning names its connector.
+#[test]
+fn a_path_blob_that_changes_length_between_its_reads_gives_no_path() {
+    let card = dark_card();
+    card.set_path(B, b"mst:213-1\0");
+    let blob = *card.state().paths.get(&B).unwrap();
+    card.state()
+        .replaced
+        .insert(blob, b"mst:213-2-1-1-1\0".to_vec());
+    logs::capture();
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        [
+            "cannot read the PATH of connector HDMI-A-2: the blob changed from 10 to 16 bytes between two reads"
+        ]
+    );
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
+}
+
+// A `PATH` blob of `BLOB_MAX` bytes is read, and a longer one is refused
+// unread with one warning naming its connector.
+#[test]
+fn a_path_blob_past_blob_max_is_refused_unread() {
+    let card = dark_card();
+    card.set_path(A, &vec![b'1'; crate::bounds::BLOB_MAX]);
+    card.set_path(B, &vec![b'1'; crate::bounds::BLOB_MAX + 1]);
+    logs::capture();
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        [
+            "cannot read the PATH of connector HDMI-A-2: the blob is 4097 bytes, past the 4096 vtium reads"
+        ]
+    );
+    let a = v.identity(DisplayId(A)).unwrap();
+    assert_eq!(a.connector_path.as_deref().map(str::len), Some(4096));
+    assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
 }
 
 // With no display, the card keeps master; a dark connector plugged in then

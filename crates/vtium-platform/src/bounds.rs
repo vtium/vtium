@@ -138,6 +138,14 @@ const RESOURCE_READS: Bound = Bound {
     cite: "vtium/vtium#89; drm-ffi's `get_resources` read twice and set each list's length to the count read, past its buffer",
 };
 
+const BLOB: Bound = Bound {
+    name: "BLOB_MAX",
+    value: 4096,
+    what: "Bytes of a KMS property blob vtium reads, as a connector's `PATH`",
+    past: "The blob is not read: a warning names the connector, whose display is bound without a path and keeps none while the connector stays connected",
+    cite: "the kernel builds a DisplayPort multi-stream connector's `PATH` in a 255-byte buffer; drm-ffi's `get_property_blob` read a blob of any length the kernel gave",
+};
+
 const PROPERTIES: Bound = Bound {
     name: "UDEV_PROPERTIES_MAX",
     value: 128,
@@ -156,7 +164,7 @@ const PROPERTY: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 17] = [
+pub(crate) const BOUNDS: [Bound; 18] = [
     READ,
     READS,
     BUDGET,
@@ -172,6 +180,7 @@ pub(crate) const BOUNDS: [Bound; 17] = [
     INPUT_READS,
     RETAKE_QUIET,
     RESOURCE_READS,
+    BLOB,
     PROPERTIES,
     PROPERTY,
 ];
@@ -237,6 +246,9 @@ pub const RETAKE_QUIET_MS: usize = RETAKE_QUIET.value;
 
 /// Reads of a DRM card's CRTC and connector lists before one fails.
 pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;
+
+/// Bytes of a KMS property blob vtium reads.
+pub(crate) const BLOB_MAX: usize = BLOB.value;
 
 /// udev properties an input device's identity keeps.
 pub(crate) const UDEV_PROPERTIES_MAX: usize = PROPERTIES.value;
