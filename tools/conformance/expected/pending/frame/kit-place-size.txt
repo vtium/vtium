@@ -1,1 +1,13 @@
-exit 2: test command cell needs feature images, which vtium lacks
+size 24x6
+cursor 7,3
+flags AUTO_WRAP
+reply 1b5b343b3852
+palette legacy fg=#e5e5e5 bg=#000000
+changed 144
+frame-cursor 7,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||

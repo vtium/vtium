@@ -13,6 +13,8 @@
 pub mod command;
 pub mod coverage;
 pub mod generate;
+#[cfg(feature = "images")]
+pub mod host;
 pub mod interface;
 pub mod probes;
 #[cfg(feature = "record")]
@@ -52,20 +54,26 @@ pub(crate) fn internal(message: impl Into<String>) -> Failure {
 
 /// What `--describe` prints: the interface, the views, the features and
 /// the commands vtium offers, in the order of the interface's describe
-/// blocks. vtium is built without images and without the draw2 view, and
-/// declines `damage-exact`.
+/// blocks. vtium has no draw2 view, offers the image features in a build
+/// with images, and declines `damage-exact`.
 pub fn describe() -> String {
-    let features = [
-        "attrs-extended",
-        "view-frame",
-        "sync",
-        "identify",
-        "input",
-        "focus",
-        "palette",
-        "query",
-        "clipboard",
-    ];
+    let images: &[&str] = if command::IMAGES {
+        &["images", "sixel", "kitty-graphics", "image-host"]
+    } else {
+        &[]
+    };
+    let features = ["attrs-extended", "view-frame"]
+        .iter()
+        .chain(images)
+        .chain(&[
+            "sync",
+            "identify",
+            "input",
+            "focus",
+            "palette",
+            "query",
+            "clipboard",
+        ]);
     let mut out = String::from("interface 1.1\nview screen\nview frame\n");
     for f in features {
         out.push_str("feature ");

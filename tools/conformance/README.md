@@ -24,7 +24,9 @@ target/release/conformance interface      # the interface check alone
 | `src/lib.rs` | The command line's parsing, the exit codes and `--describe`. |
 | `src/replay.rs` | The replay: the reference host's settings, the feed between cuts, the test commands and the head of each block. |
 | `src/command.rs` | The test commands of interface 1, each value checked against its form and range. |
-| `src/view.rs` | The screen and frame views, from vtium-term's lines and frame. |
+| `src/view.rs` | The screen and frame views, from vtium-term's lines and frame, and with images the `placement` and `image` lines. |
+| `src/replay/images.rs` | With images: the reference host's image settings, the image commands, and the fixture host answering each request. |
+| `src/host.rs` | With images: the fixture host, its `host:` line and its answer from the case's fixture files. |
 | `src/spec.rs` | The interface's `describe` and `grammar` blocks, over 1.0 and vtium's additions, and the check of a line against the grammar. |
 | `src/runner.rs` | The corpus, the masking and the verdict on each case. |
 | `src/runner/lists.rs` | Reading `expected.tsv`, and its checks. |
@@ -78,7 +80,9 @@ A new synthetic case is a recipe in `src/generate/` and a line in `cases.list`; 
 
 ## The replay
 
-`vtium-replay` offers the screen and frame views, and the commands and features interface 1.1 makes mandatory: `attrs-extended`, `view-frame`, `sync`, `identify`, `input`, `focus`, `palette`, `query` and vtium's `clipboard`. vtium is built without images, so it lacks `images`, `sixel`, `kitty-graphics` and `image-host`, and the commands that need them exit 2 as the interface asks; the draw2 view is optional (the operator's decision of 2026-10-26) and absent; and it declines `damage-exact`, so the runner masks the changed counts on both sides.
+`vtium-replay` offers the screen and frame views, and the commands and features interface 1.1 makes mandatory: `attrs-extended`, `view-frame`, `sync`, `identify`, `input`, `focus`, `palette`, `query` and vtium's `clipboard`. Built with the crate's `images` feature, as `make conformance` and `make conformance-probes` build it, it is built with the image pipeline (ADR-1100) and offers `images`, `sixel`, `kitty-graphics` and `image-host` with their commands; built without it, as `cargo test --workspace` builds the crate, those commands exit 2 as the interface asks, and `conformance run` refuses to run, since `expected.tsv` lists what the build with images prints. The feature is opt-in so that a workspace build without features keeps vtium-term without images. The draw2 view is optional (the operator's decision of 2026-10-26) and absent, and vtium-replay declines `damage-exact`, so the runner masks the changed counts on both sides.
+
+With images, the reference host gives the store a budget of 320,000,000 bytes and a cell of 8 by 16 pixels, turns sixel and kitty graphics on, and installs the fixture host (`src/host.rs`), which answers each request a handler makes from the case's fixture files at once and prints its `host:` line among the replies at the point the request was made. The store and the router run before the protocol handlers exist: the `image` and `place` commands make and place pictures as a handler would, and a sixel or kitty string is ignored until its handler lands (sixel #48, kitty graphics #49). A placement's `changed` flag in the frame view says whether the placement or its image changed after the view's previous block, and is masked as the counts are. `tests/stand_in.rs` judges the store against the image goldens before the sixel handler exists: it replaces each sixel string of one solid color in an `img-` case with the `image` and `place` commands that make the same picture, and requires the case's goldens, the placements compared as a set where D4's draw order departs.
 
 The reference host is a scrollback of 0 lines (`sb-max` raises it, up to `SB_SIZE_MAX`), the cell size 8 by 16, the cursor blinking, mode 2026 presented, BackSpace sending 0x08, XTVERSION's text `tsm-replay`, an empty XTGETTCAP table, and the `legacy` palette, which is vtium-term's default. Each `termcap` fixture is checked against the interface's bounds before vtium-term's `Termcap` takes it.
 
@@ -113,7 +117,7 @@ Before any case runs, the runner checks `--describe` against INTERFACE.md's `des
 `conformance probes` reads `probes/probes.replay` and vtium's own `probes/vtium.replay`, replays each probe through vtium-replay's code and judges it against the list:
 
 - a probe listed `works` fails the run when it fails, and one listed `missing` when it passes, so the change that adds a feature also sets its line to `works` and closes its issue;
-- a probe listed with a build feature passes in a build with it and fails, as absent, in one without; vtium is built without images until vtium-image lands (#48, #49), so the image probes must fail, and a feature the build does not name fails the run;
+- a probe listed with a build feature passes in a build with it and fails, as absent, in one without; the list's `-Dimages` is the C reference's build option, which built the sixel and kitty handlers with the image pipeline, so until those handlers land (#48, #49) the runner reports the build without it and the image probes must fail, and a feature the build does not name fails the run;
 - a probe the list does not name, or a name in the list no probe defines, fails the run;
 - a probe that names a fixture reads it from `fixtures/`, and one whose fixture is missing is not judged, which fails the run: `xtgettcap` names `kmscon.termcap`, vtium's XTGETTCAP table (`tests/termcap.rs`), as the C reference's build wrote its own from its terminfo entry with `tic`.
 

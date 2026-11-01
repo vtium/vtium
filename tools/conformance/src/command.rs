@@ -68,7 +68,62 @@ pub enum Command {
     Palette(&'static str),
     FrameSince(u8),
     Clipboard,
+    Cell {
+        width: u32,
+        height: u32,
+    },
+    Limit(u64),
+    Image(Image),
+    Place(Place),
+    Sixel(bool),
+    GraphicMax {
+        width: u32,
+        height: u32,
+    },
+    Registers {
+        count: u32,
+        private: bool,
+    },
+    KittyGraphics(bool),
+    Host(bool),
 }
+
+/// The `image` command's keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Image {
+    /// The number later commands call it by, 0 to 63.
+    pub n: u8,
+    pub width: u32,
+    pub height: u32,
+    pub kitty: bool,
+    pub id: u32,
+    pub transient: bool,
+    /// The premultiplied color of every pixel, AARRGGBB.
+    pub fill: u32,
+}
+
+/// The `place` command's keys; `col` and `row` are the cursor's when
+/// absent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Place {
+    pub img: u8,
+    pub col: Option<u32>,
+    pub row: Option<u32>,
+    pub x: u32,
+    pub y: u32,
+    pub cols: u32,
+    pub rows: u32,
+    pub src_x: u32,
+    pub src_y: u32,
+    pub src_width: u32,
+    pub src_height: u32,
+    pub z: i32,
+    pub id: u32,
+}
+
+/// Whether vtium-replay is built with the image pipeline, which offers the
+/// image commands and their features.
+pub const IMAGES: bool = cfg!(feature = "images");
 
 /// A command of interface 1: its name, the feature it needs (none for the
 /// commands every implementation has), its keys, and whether vtium runs it.
@@ -80,22 +135,21 @@ pub struct Spec {
 }
 
 /// Every command of interface 1.1, in the order of its describe blocks:
-/// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). vtium is
-/// built without images, so it lacks the image commands and their
-/// features.
+/// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
+/// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
     spec("resize", None, &["c", "r"], true),
     spec("sb-max", None, &["n"], true),
     spec("sb-up", None, &["n"], true),
     spec("sb-down", None, &["n"], true),
     spec("sb-reset", None, &[], true),
-    spec("cell", Some("images"), &["w", "h"], false),
-    spec("limit", Some("images"), &["b"], false),
+    spec("cell", Some("images"), &["w", "h"], IMAGES),
+    spec("limit", Some("images"), &["b"], IMAGES),
     spec(
         "image",
         Some("images"),
         &["n", "w", "h", "kitty", "id", "tr", "fill"],
-        false,
+        IMAGES,
     ),
     spec(
         "place",
@@ -103,13 +157,13 @@ pub const SPECS: &[Spec] = &[
         &[
             "img", "col", "row", "x", "y", "c", "r", "sx", "sy", "sw", "sh", "z", "p",
         ],
-        false,
+        IMAGES,
     ),
-    spec("sixel", Some("sixel"), &["on"], false),
-    spec("graphic-max", Some("sixel"), &["w", "h"], false),
-    spec("registers", Some("sixel"), &["n", "private"], false),
-    spec("kitty-graphics", Some("kitty-graphics"), &["on"], false),
-    spec("host", Some("image-host"), &["on"], false),
+    spec("sixel", Some("sixel"), &["on"], IMAGES),
+    spec("graphic-max", Some("sixel"), &["w", "h"], IMAGES),
+    spec("registers", Some("sixel"), &["n", "private"], IMAGES),
+    spec("kitty-graphics", Some("kitty-graphics"), &["on"], IMAGES),
+    spec("host", Some("image-host"), &["on"], IMAGES),
     spec("sync", Some("sync"), &["on"], true),
     spec("sync-frames", Some("sync"), &[], true),
     spec("version", Some("identify"), &["text"], true),
@@ -187,6 +241,29 @@ impl<'a> Fields<'a> {
 
     fn hex(&self, key: &str, max: u64, default: Option<u64>) -> Result<u64, Failure> {
         self.number(key, 16, max, default)
+    }
+
+    /// KEY as a signed decimal: an optional `-`, then digits with no
+    /// leading zero, from -2147483648 to 2147483647, `-0` refused.
+    fn signed(&self, key: &str, default: i32) -> Result<i32, Failure> {
+        let Some(v) = self.get(key) else {
+            return Ok(default);
+        };
+        let bad = || self.fail(key, "not a signed number in range");
+        let (negative, digits) = match v.strip_prefix('-') {
+            Some(d) => (true, d),
+            None => (false, v),
+        };
+        let magnitude = number(digits, 10, 2_147_483_648).ok_or_else(bad)?;
+        if negative && magnitude == 0 {
+            return Err(bad());
+        }
+        let n = if negative {
+            0i64.checked_sub(i64::try_from(magnitude).map_err(|_| bad())?)
+        } else {
+            i64::try_from(magnitude).ok()
+        };
+        n.and_then(|n| i32::try_from(n).ok()).ok_or_else(bad)
     }
 
     fn flag(&self, key: &str, default: Option<bool>) -> Result<bool, Failure> {
@@ -359,6 +436,63 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "focus" => Command::Focus(f.flag("in", None)?),
         "palette" => Command::Palette(f.name_of("name", &PALETTE_NAMES.map(|n| (n, n)))?),
         "frame-since" => Command::FrameSince(to_u8(f.decimal("caller", 7, None)?)),
+        "cell" => Command::Cell {
+            width: to_u32(f.decimal("w", U32, None)?),
+            height: to_u32(f.decimal("h", U32, None)?),
+        },
+        "limit" => Command::Limit(f.decimal("b", u64::MAX, None)?),
+        "image" => {
+            let n = f.decimal("n", 63, Some(0))?;
+            let width = f.decimal("w", 65535, Some(0))?;
+            let height = f.decimal("h", 65535, Some(0))?;
+            if width.saturating_mul(height) > 16_777_216 {
+                return Err(f.fail("w", "times h is over 16777216"));
+            }
+            Command::Image(Image {
+                n: to_u8(n),
+                width: to_u32(width),
+                height: to_u32(height),
+                kitty: f.flag("kitty", Some(false))?,
+                id: to_u32(f.decimal("id", U32, Some(n))?),
+                transient: f.flag("tr", Some(false))?,
+                fill: to_u32(f.hex("fill", U32, Some(0xff80_8080))?),
+            })
+        }
+        "place" => {
+            let at = |key: &str| -> Result<Option<u32>, Failure> {
+                match f.get(key) {
+                    Some(_) => Ok(Some(to_u32(f.decimal(key, U32, None)?))),
+                    None => Ok(None),
+                }
+            };
+            let n = |key: &str| f.decimal(key, U32, Some(0)).map(to_u32);
+            Command::Place(Place {
+                img: to_u8(f.decimal("img", 63, Some(0))?),
+                col: at("col")?,
+                row: at("row")?,
+                x: n("x")?,
+                y: n("y")?,
+                cols: n("c")?,
+                rows: n("r")?,
+                src_x: n("sx")?,
+                src_y: n("sy")?,
+                src_width: n("sw")?,
+                src_height: n("sh")?,
+                z: f.signed("z", 0)?,
+                id: n("p")?,
+            })
+        }
+        "sixel" => Command::Sixel(f.flag("on", Some(true))?),
+        "graphic-max" => Command::GraphicMax {
+            width: to_u32(f.decimal("w", U32, None)?),
+            height: to_u32(f.decimal("h", U32, None)?),
+        },
+        "registers" => Command::Registers {
+            count: to_u32(f.decimal("n", U32, None)?),
+            private: f.flag("private", Some(true))?,
+        },
+        "kitty-graphics" => Command::KittyGraphics(f.flag("on", Some(true))?),
+        "host" => Command::Host(f.flag("on", Some(true))?),
         _ => return Err(usage(format!("unknown test command {}", f.name))),
     })
 }
@@ -422,6 +556,34 @@ mod tests {
         assert_eq!(parse(b"palette;name=nord"), Ok(Command::Palette("nord")));
     }
 
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_image_commands_parse_with_their_defaults() {
+        assert_eq!(
+            parse(b"image;n=2;w=24;h=32;kitty=1;fill=ff00ff00"),
+            Ok(Command::Image(Image {
+                n: 2,
+                width: 24,
+                height: 32,
+                kitty: true,
+                id: 2,
+                transient: false,
+                fill: 0xff00_ff00,
+            }))
+        );
+        let Ok(Command::Place(p)) = parse(b"place;img=1;col=3;z=-1073741825") else {
+            panic!("place parses");
+        };
+        assert_eq!(
+            (p.img, p.col, p.row, p.z),
+            (1, Some(3), None, -1_073_741_825)
+        );
+        assert_eq!(
+            parse(b"place;z=-2147483648").map(|c| matches!(c, Command::Place(_))),
+            Ok(true)
+        );
+    }
+
     #[test]
     fn each_broken_rule_is_a_usage_failure() {
         for text in [
@@ -447,10 +609,17 @@ mod tests {
             "termcap;file=a/b",
             "frame-since;caller=8",
             "palette;name=nope",
-            "image;w=1;h=1",
-            "cell;w=8;h=16",
+            "image;w=65535;h=65535",
+            "place;z=-0",
+            "place;z=2147483648",
+            "place;z=01",
+            "image;n=64",
         ] {
             assert_eq!(code(text), Some(2), "{text:?}");
+        }
+        // without images the image commands are absent
+        for text in ["image;w=1;h=1", "cell;w=8;h=16"] {
+            assert_eq!(code(text), (!IMAGES).then_some(2), "{text:?}");
         }
         assert_eq!(code("sb-up;n=1\u{1}"), Some(2));
         assert_eq!(code(&"x".repeat(TEXT_MAX + 1)), Some(2));

@@ -12,34 +12,34 @@
 *	host-palette	departure	INTERFACE.md	The C reference erased the screen and reset the current attributes when a palette was chosen; `host-palette` records it, and an implementation may list it as a departure.
 *	host-identify	pending	#48	the sixel test command; the case also differs by DA1 and by XTGETTCAP's uppercase names, crates/vtium-term/README.md
 *	apc-kitty-graphics	pending	#49	kitty graphics
-*	img-alt-1049	pending	#28	images
-*	img-alt-47	pending	#28	images
-*	img-dch	pending	#28	images
-*	img-decsed	pending	#28	images
-*	img-decsel	pending	#28	images
-*	img-decstr	pending	#28	images
-*	img-discard-alt	pending	#28	images
-*	img-discard-sb	pending	#28	images
-*	img-dl	pending	#28	images
-*	img-ech	pending	#28	images
-*	img-ed0	pending	#28	images
-*	img-ed1	pending	#28	images
-*	img-ed2	pending	#28	images
-*	img-ed3	pending	#28	images
-*	img-el0	pending	#28	images
-*	img-el1	pending	#28	images
-*	img-el2	pending	#28	images
-*	img-ich	pending	#28	images
-*	img-il	pending	#28	images
-*	img-print	pending	#28	images
-*	img-region	pending	#28	images
-*	img-resize	pending	#28	images
-*	img-resize-shrink	pending	#28	images
-*	img-ris	pending	#28	images
-*	img-scroll-down	pending	#28	images
-*	img-scroll-down-sb	pending	#28	images
-*	img-scroll-up	pending	#28	images
-*	img-sixel-over	pending	#28	images
+*	img-alt-1049	pending	#48	sixel
+*	img-alt-47	pending	#48	sixel
+*	img-dch	pending	#48	sixel
+*	img-decsed	pending	#48	sixel
+*	img-decsel	pending	#48	sixel
+*	img-decstr	pending	#48	sixel
+*	img-discard-alt	pending	#48	sixel
+*	img-discard-sb	pending	#48	sixel
+*	img-dl	pending	#48	sixel
+*	img-ech	pending	#48	sixel
+*	img-ed0	pending	#48	sixel
+*	img-ed1	pending	#48	sixel
+*	img-ed2	pending	#48	sixel
+*	img-ed3	pending	#48	sixel
+*	img-el0	pending	#48	sixel
+*	img-el1	pending	#48	sixel
+*	img-el2	pending	#48	sixel
+*	img-ich	pending	#48	sixel
+*	img-il	pending	#48	sixel
+*	img-print	pending	#48	sixel
+*	img-region	pending	#48	sixel
+*	img-resize	pending	#48	sixel
+*	img-resize-shrink	pending	#48	sixel
+*	img-ris	pending	#48	sixel
+*	img-scroll-down	pending	#48	sixel
+*	img-scroll-down-sb	pending	#48	sixel
+*	img-scroll-up	pending	#48	sixel
+*	img-sixel-over	pending	#48	sixel
 *	kit-bands	pending	#49	kitty graphics
 *	kit-cancel	pending	#49	kitty graphics
 *	kit-chunk-abort	pending	#49	kitty graphics
@@ -107,10 +107,5 @@
 *	six-scroll-bottom	pending	#48	sixel
 *	six-scroll-region	pending	#48	sixel
 *	six-text	pending	#48	sixel
-*	img-scroll-up-bottom	pending	#28	images
-*	img-alt-1047	pending	#28	images
-*	img-alt-shown	pending	#28	images
-*	six-clear	pending	#48	sixel
 *	six-off	pending	#48	sixel
-*	kit-host-mpv-nohook	pending	#49	kitty graphics
 frame	query-frames	departure	crates/vtium-term/README.md	`query-frames`: columns a widening resize adds are blank in the default style.
