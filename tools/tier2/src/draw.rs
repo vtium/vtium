@@ -651,20 +651,18 @@ mod tests {
         assert_eq!(refused, "5 notices, where a head shows at most 4");
     }
 
-    // The head file's notice names the head file vtium reads, as the start
-    // shows it, and never the scratch file tier 2 writes.
+    // The head file's notices are the console lines of their outcomes,
+    // from the catalog, naming no file and no error (ADR-1401 D7).
     #[test]
-    fn the_head_file_notice_names_vtiums_head_file() {
-        let shown = crate::notices::head_file_two_errors().unwrap();
-        let lines: Vec<&str> = shown.lines().collect();
-        assert_eq!(lines.len(), 3, "{shown}");
-        for (line, at) in lines.iter().zip([
-            "/etc/vtium/heads.conf:3: ",
-            "/etc/vtium/heads.conf:5: ",
-            "/etc/vtium/heads.conf: ",
-        ]) {
-            assert!(line.starts_with(at), "{line}");
-        }
+    fn the_head_file_notices_are_their_outcomes_console_lines() {
+        assert_eq!(
+            crate::notices::head_file_one_error().as_deref(),
+            Ok("config partly invalid, running what's valid")
+        );
+        assert_eq!(
+            crate::notices::head_file_two_errors().as_deref(),
+            Ok("invalid config skipped, using builtin")
+        );
     }
 
     // A decoration color that names an index follows the palette, as the
