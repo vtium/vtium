@@ -62,7 +62,7 @@ fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
     let odd = Path::new("/tmp/a\nb\u{1b}[2J\u{202e}c\\d\"e.conf");
     assert_eq!(
         at(odd, Some(2), "x").to_string(),
-        "/tmp/a\\nb\\u{1b}[2J\\u{202e}c\\d\"e.conf:2: x"
+        "/tmp/a\\nb\\u{1b}[2J\\u{202e}c\\\\d\"e.conf:2: x"
     );
 }
 

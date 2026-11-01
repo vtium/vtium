@@ -6,6 +6,7 @@ use std::fmt::{self, Write as _};
 
 use crate::bounds::{ERRORS_MAX, QUOTE_MAX};
 use crate::identity::Kind;
+use crate::outcome::{Read, Scope, Trusted, Within};
 
 /// Text quoted from a file: at most [`QUOTE_MAX`] characters, escaped
 /// when shown, so a control character or an escape sequence in the file
@@ -186,11 +187,44 @@ pub enum Problem {
     PolicyInSection,
 }
 
+/// What one error of a read file drops, as `vtium check-config` reports
+/// it (D7, "The rest"): its [`Scope`], with a line told apart as a rule
+/// or another line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Drops {
+    /// Everything but the file's `policy` lines.
+    File,
+    /// One head, with every rule naming it.
+    Head,
+    /// One section, with its lines.
+    Section,
+    /// One rule; a device walks on to the next rule.
+    Rule,
+    /// One line that is not a rule, such as a top-level key.
+    Line,
+}
+
+impl Drops {
+    /// What an error of `scope` drops on a line `within` the file.
+    pub fn of(scope: Scope, within: Within) -> Drops {
+        match (scope, within) {
+            (Scope::File, _) => Drops::File,
+            (Scope::Head, _) => Drops::Head,
+            (Scope::Section, _) => Drops::Section,
+            (Scope::Line, Within::Rules) => Drops::Rule,
+            (Scope::Line, Within::Top | Within::Header | Within::Head) => Drops::Line,
+        }
+    }
+}
+
 /// One error, with its line, or `None` for the file as a whole.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
     pub line: Option<usize>,
     pub problem: Problem,
+    /// What the error drops of a file that is read; `None` for one that
+    /// leaves the file unread, such as the ownership check's.
+    pub drops: Option<Drops>,
 }
 
 impl Error {
@@ -218,8 +252,22 @@ pub struct Rejected {
 
 impl Rejected {
     pub(crate) fn push(&mut self, line: Option<usize>, problem: Problem) {
+        self.push_dropping(line, problem, None);
+    }
+
+    /// Pushes an error of a read file, which drops `drops`.
+    pub(crate) fn push_dropping(
+        &mut self,
+        line: Option<usize>,
+        problem: Problem,
+        drops: Option<Drops>,
+    ) {
         if self.errors.len() < ERRORS_MAX {
-            self.errors.push(Error { line, problem });
+            self.errors.push(Error {
+                line,
+                problem,
+                drops,
+            });
         } else {
             self.more = self.more.saturating_add(1);
         }
@@ -260,6 +308,26 @@ pub enum Warning {
     /// No device can reach the rule: the earlier rule at `by` takes every
     /// device it matches.
     Shadowed { line: usize, by: usize },
+    /// The head whose `consoles` is on `line` asks for more consoles than
+    /// `cap`, kmscon.conf's `head-consoles-max`, and gets the cap (D10).
+    PastHeadCap { line: usize, head: Quoted, cap: u32 },
+    /// The heads together ask for more consoles than `total`, kmscon.conf's
+    /// `consoles-max`, so the head whose `consoles` is on `line` gets
+    /// `gets` (D10).
+    PastTotal {
+        line: usize,
+        head: Quoted,
+        gets: u32,
+        total: u32,
+    },
+    /// The head's `profile`, on `line`, names a frit that is not in `dir`,
+    /// so the head draws the default frit (D7).
+    MissingFrit {
+        line: usize,
+        head: Quoted,
+        profile: Quoted,
+        dir: Quoted,
+    },
 }
 
 /// A finding `vtium check-config` reports without counting it against the
@@ -274,9 +342,58 @@ impl Warning {
     /// The line the warning names.
     pub fn line(&self) -> usize {
         match self {
-            Warning::ConsolesCapped { line } | Warning::Shadowed { line, .. } => *line,
+            Warning::ConsolesCapped { line }
+            | Warning::Shadowed { line, .. }
+            | Warning::PastHeadCap { line, .. }
+            | Warning::PastTotal { line, .. }
+            | Warning::MissingFrit { line, .. } => *line,
         }
     }
+}
+
+/// What a device present that no rule places gets (D9, "What fell to the
+/// default").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fate {
+    /// A display: it stays dark.
+    Dark,
+    /// An input under open: it roams into the active head.
+    Roams,
+    /// An input under open that roams while no head can be the active
+    /// head: it reaches none.
+    RoamsNowhere,
+    /// An input under closed: it is ignored.
+    Ignored,
+    /// An input of a partly broken open file that walks the shipped rules'
+    /// tail and roams into the active head.
+    TailRoams,
+    /// An input of a partly broken open file that walks the shipped rules'
+    /// tail and roams while no head can be the active head: it reaches
+    /// none.
+    TailRoamsNowhere,
+    /// An input of a partly broken open file that walks the shipped rules'
+    /// tail and is ignored.
+    TailIgnored,
+}
+
+/// A finding `vtium check-config` notes about what runs, outside the exit
+/// status (D3, D5, D9). [`findings::remarks`](crate::remarks) gives them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Remark {
+    /// No rule names the head declared on the line it names.
+    Unnamed { head: Quoted },
+    /// No rule names the first head of an open file, which the display
+    /// guard gives the boot display while no head has a display.
+    UnnamedLitByGuard { head: Quoted },
+    /// Every head is isolated, so no keyboard can switch the VT and no head
+    /// can be the active head.
+    EveryHeadIsolated,
+    /// No head that can be the active head has a display present.
+    NoActiveHead,
+    /// Under closed, no keyboard present reaches any head: a lockout.
+    ClosedLockout,
+    /// A device present no rule places, as it reports itself.
+    Fell { device: Quoted, fate: Fate },
 }
 
 impl Note {
@@ -285,6 +402,38 @@ impl Note {
         match self {
             Note::WeakMatch { line } => *line,
         }
+    }
+}
+
+/// What a start does with a head file it found as `read`, the outcome
+/// [`resolve`](crate::resolve) gives, as `vtium check-config` reports it
+/// after the file's errors (D7's outcomes table).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AtStart(pub Read);
+
+/// The policy a trusted file states and what it sets, as `vtium
+/// check-config` reports it after [`AtStart`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stating(pub Trusted);
+
+/// A path as a message names it, with every control and format character
+/// escaped, so a newline in it never splits the line, and a backslash
+/// escaped too, so an escape never reads as a character the path holds.
+#[derive(Clone, Copy, Debug)]
+pub struct Shown<'a>(pub &'a std::path::Path);
+
+impl fmt::Display for Shown<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for c in self.0.to_string_lossy().chars() {
+            if matches!(c, '"' | '\'') {
+                f.write_char(c)?;
+            } else {
+                for e in c.escape_debug() {
+                    f.write_char(e)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -307,15 +456,7 @@ pub fn at<T: fmt::Display>(path: &std::path::Path, line: Option<usize>, what: T)
 
 impl<T: fmt::Display> fmt::Display for At<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for c in self.path.to_string_lossy().chars() {
-            if matches!(c, '\\' | '"' | '\'') {
-                f.write_char(c)?;
-            } else {
-                for e in c.escape_debug() {
-                    f.write_char(e)?;
-                }
-            }
-        }
+        write!(f, "{}", Shown(self.path))?;
         if let Some(line) = self.line {
             write!(f, ":{line}")?;
         }

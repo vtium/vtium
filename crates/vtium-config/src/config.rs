@@ -42,8 +42,12 @@ pub struct Head {
     pub line: usize,
     /// The profile's name; unset, `default`.
     pub profile: String,
+    /// The line of its `profile`, 0 for none.
+    pub profile_line: usize,
     /// The number of consoles, 1 to [`CONSOLES_MAX`](crate::CONSOLES_MAX).
     pub consoles: u32,
+    /// The line of its `consoles`, 0 for none.
+    pub consoles_line: usize,
     /// The consoles' command as the file gives it, for vtium to read as
     /// kmscon.conf's `login`; unset, kmscon.conf's.
     pub login: Option<String>,
@@ -59,7 +63,9 @@ impl Head {
             name: name.to_owned(),
             line,
             profile: "default".to_owned(),
+            profile_line: 0,
             consoles: 1,
+            consoles_line: 0,
             login: None,
             when_display_lost: WhenDisplayLost::Keep,
             isolated: None,
