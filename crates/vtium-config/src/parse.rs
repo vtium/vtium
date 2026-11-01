@@ -125,6 +125,13 @@ pub fn reading(bytes: &[u8]) -> Reading {
     p.finish()
 }
 
+/// Whether `c` does not show on screen as itself: a space or a format
+/// character other than a blank or a tab, such as a no-break space, a
+/// zero-width space or a byte-order mark, which a quote escapes.
+fn hidden(c: char) -> bool {
+    !matches!(c, ' ' | '\t' | '"' | '\'' | '\\') && c.escape_debug().count() > 1
+}
+
 /// The UTF-8 byte-order mark.
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
@@ -533,6 +540,19 @@ impl Parser {
                         );
                     }
                 }
+            }
+            // a key that holds a character that does not show is quoted, so
+            // its message shows the character the owner cannot see
+            _ if line
+                .split('=')
+                .next()
+                .is_some_and(|key| key.chars().any(hidden)) =>
+            {
+                self.error(
+                    Some(n),
+                    Problem::HiddenOutsideSection(Quoted::new(line)),
+                    Within::Top,
+                )
             }
             _ => self.error(
                 Some(n),

@@ -188,6 +188,11 @@ pub enum Problem {
     /// A line above the first section that begins with `policy` and that
     /// vtium cannot read, which makes the file closed and broken (D7).
     UnreadablePolicy(PolicyFault),
+    /// A line above the first section that is neither `version` nor
+    /// `policy`, whose key holds a character that does not show on screen,
+    /// such as a no-break space: the line's start, quoted, so its message
+    /// shows that character escaped (D7).
+    HiddenOutsideSection(Quoted),
 }
 
 /// Why vtium cannot read a policy line, a line above the first section

@@ -357,3 +357,38 @@ fn a_heading_past_the_line_bound_still_ends_the_top_level() {
         (Runs::Builtin, Policy::Open, Some(Line::Skipped))
     );
 }
+
+// ADR-1401 D7: a line that shows as `policy = closed` but begins with a
+// character that does not show is no policy line, since vtium does not
+// guess what an invalid file meant; its error shows that character,
+// escaped, so the owner can see why
+// covers: platform.heads.policy
+#[test]
+fn a_hidden_character_before_policy_is_shown_in_its_error() {
+    for (hidden, escaped) in [
+        ('\u{a0}', "\\u{a0}"),
+        ('\u{200b}', "\\u{200b}"),
+        ('\u{feff}', "\\u{feff}"),
+        ('\u{3000}', "\\u{3000}"),
+    ] {
+        let text = format!("version = 1\n{hidden}policy = closed\n{BODY}");
+        let r = reading(text.as_bytes());
+        let o = outcome(&r);
+        assert_eq!(
+            (o.runs, o.policy),
+            (Runs::Survivors, Policy::Open),
+            "{escaped}"
+        );
+        let [error] = r.errors.errors.as_slice() else {
+            panic!("{escaped}: {:?}", r.errors);
+        };
+        assert_eq!(error.line, Some(2));
+        let shown = error.to_string();
+        assert!(shown.contains(escaped), "{shown}");
+        assert!(!shown.contains(hidden), "{shown}");
+        assert!(
+            shown.contains("`version`") && shown.contains("`policy`"),
+            "{shown}"
+        );
+    }
+}

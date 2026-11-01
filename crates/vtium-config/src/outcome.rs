@@ -589,6 +589,7 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         Problem::NotUtf8
         | Problem::ControlCharacter(_)
         | Problem::Syntax(_)
+        | Problem::HiddenOutsideSection(_)
         | Problem::UnknownKey(_)
         | Problem::DuplicateKey(_)
         | Problem::BadValue { .. }
