@@ -342,3 +342,39 @@ fn a_joining_letter_is_stretched_to_its_cell() {
         "{row:?}"
     );
 }
+
+/// Test Mono with an Arabic alef (U+0627), a bar 760 units tall, and a
+/// damma (U+064F), a mark of no advance 300 units tall, which HarfRust
+/// places just above the alef, past the row's top.
+fn alef_damma() -> OutlineRequest {
+    let mut f = ttf::test_mono();
+    f.glyphs.push(ttf::Glyph::rect(600, 250, 0, 350, 760));
+    f.glyphs.push(ttf::Glyph::rect(0, -400, 0, -200, 300));
+    f.cmap.push((0x627, 8));
+    f.cmap.push((0x64f, 9));
+    f.cmap.sort_unstable();
+    OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        cover: Vec::new(),
+        clusters: vec![ask(&['\u{627}', '\u{64f}'], Kind::Marks)],
+        baselines: Vec::new(),
+    }
+}
+
+// ADR-1302 D3 for right-to-left text: HarfRust gives the cluster in
+// visual order, the damma before its alef, and the damma is a mark by its
+// character. At 20 pixels the alef's ink reaches 14.8 pixels above the
+// baseline, row 1, and the damma lies wholly above the row's top, so the
+// row's top row is clear unless the mark rule brings the damma in
+// covers: text.overhang
+#[test]
+fn a_right_to_left_mark_is_fitted_to_the_row() {
+    let o = rasterise(&alef_damma()).expect("rasterised");
+    let alef = codepoint(&o, '\u{627}');
+    let g = cluster(&o, &['\u{627}', '\u{64f}']).expect("alef and damma");
+    let inked = |p: &Placed, y: usize| p.pixels[y * 12..(y + 1) * 12].iter().any(|&v| v > 0);
+    assert!(!inked(alef, 0), "the alef alone leaves the top row clear");
+    assert!(inked(g, 0), "the damma brought into the top row");
+}

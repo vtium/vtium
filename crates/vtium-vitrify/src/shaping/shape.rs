@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use harfrust::{BufferFlags, ShapeOptions, ShaperData, UnicodeBuffer};
+use harfrust::{BufferClusterLevel, BufferFlags, ShapeOptions, ShaperData, UnicodeBuffer};
 use swash::FontRef;
 use swash::scale::Source;
 use swash::scale::image::{Content, Image};
@@ -17,15 +17,27 @@ use super::{Ask, Kind};
 use crate::outline::Placed;
 use crate::outline::raster::{Cell, Drawer, FOREGROUND, div255, pixel, place_drawn};
 
-/// A cluster as the font shapes it: each glyph, its position from the
-/// cluster's origin and whether it is a mark, and the cluster's advance,
-/// in font units. A mark is a glyph after the cluster's first that the
-/// shaper gives no advance, as HarfRust gives each mark it places on its
-/// base.
+/// One glyph of a shaped cluster: its glyph, its position from the
+/// cluster's origin in font units, whether its character is a mark and on
+/// which side of its base the mark's combining class puts it
+/// ([`super::mark_side`]: 1 above, 2 below, else 0).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct At {
+    g: u16,
+    x: i32,
+    y: i32,
+    mark: Option<u8>,
+}
+
+/// A cluster as the font shapes it: each glyph and the cluster's advance,
+/// in font units. A glyph is a mark by its own character, which its
+/// cluster index names, as the C reference read a glyph's combining class
+/// through it (`render_cluster`): HarfRust gives a right-to-left cluster
+/// in visual order, its marks before their letter.
 pub(crate) struct Shaped {
     key: Vec<u32>,
     kind: Kind,
-    glyphs: Vec<(u16, i32, i32, bool)>,
+    glyphs: Vec<At>,
     advance: i32,
 }
 
@@ -44,11 +56,13 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
     let mut out = Vec::new();
     for ask in asks {
         let mut buffer = UnicodeBuffer::new();
-        for &c in &ask.key {
+        // each glyph's cluster is the index of its character in the key
+        buffer.set_cluster_level(BufferClusterLevel::Characters);
+        for (i, &c) in ask.key.iter().enumerate() {
             let Some(ch) = char::from_u32(c) else {
                 continue;
             };
-            buffer.add(ch, 0);
+            buffer.add(ch, u32::try_from(i).unwrap_or(u32::MAX));
         }
         buffer.set_flags(BufferFlags::REMOVE_DEFAULT_IGNORABLES);
         buffer.guess_segment_properties();
@@ -59,17 +73,25 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
             let Ok(g) = u16::try_from(info.glyph_id) else {
                 continue;
             };
-            let mark = !glyphs.is_empty() && pos.x_advance == 0;
-            glyphs.push((g, pen.saturating_add(pos.x_offset), pos.y_offset, mark));
+            let mark = usize::try_from(info.cluster)
+                .ok()
+                .and_then(|i| ask.key.get(i))
+                .and_then(|&c| super::mark_side(c));
+            glyphs.push(At {
+                g,
+                x: pen.saturating_add(pos.x_offset),
+                y: pos.y_offset,
+                mark,
+            });
             pen = pen.saturating_add(pos.x_advance);
         }
         let kept = !glyphs.is_empty()
-            && glyphs.iter().all(|&(g, ..)| g != 0)
+            && glyphs.iter().all(|a| a.g != 0)
             && match ask.kind {
                 // one glyph, a ligature or a form: none of the cluster's own
                 // scalar values draws it alone
                 Kind::Emoji | Kind::Joining => match glyphs.as_slice() {
-                    [(g, ..)] => ask.key.iter().all(|&c| charmap.map(c) != *g),
+                    [a] => ask.key.iter().all(|&c| charmap.map(c) != a.g),
                     _ => false,
                 },
                 Kind::Marks => true,
@@ -172,7 +194,7 @@ pub(crate) fn draw_all(
 /// offset, so a mark stays over its base.
 fn compose(
     drawer: &mut Drawer<'_>,
-    glyphs: &[(u16, i32, i32, bool)],
+    glyphs: &[At],
     scale: f32,
     ppem: f32,
     fit: (u32, u32),
@@ -181,14 +203,14 @@ fn compose(
 ) -> Option<Image> {
     let mut parts = Vec::new();
     let mut marks = Vec::new();
-    for &(g, x, y, mark) in glyphs {
+    for &At { g, x, y, mark, .. } in glyphs {
         let image = drawer.draw_stretched(g, ppem, fit, sx)?;
         let (dx, dy) = (
             (x as f32 * scale * sx).round() as i32,
             (y as f32 * scale).round() as i32,
         );
         parts.push((image, dx, dy));
-        marks.push(mark);
+        marks.push(mark.is_some());
     }
     if let [(image, 0, 0)] = parts.as_slice() {
         return Some(image.clone());

@@ -97,6 +97,19 @@ pub fn joins(c: u32) -> bool {
         .is_some_and(|&(_, b)| c <= b)
 }
 
+/// Where `c` goes on its base when it is a mark (ADR-1302 D3): a character
+/// of General_Category Mn or Me, or of a combining class other than 0; 1
+/// above, 2 below, by its class, else 0. `None` for a character that is no
+/// mark.
+pub fn mark_side(c: u32) -> Option<u8> {
+    let after = data::MARKS.partition_point(|&(a, _, _)| a <= c);
+    after
+        .checked_sub(1)
+        .and_then(|i| data::MARKS.get(i))
+        .filter(|&&(_, b, _)| c <= b)
+        .map(|&(_, _, side)| side)
+}
+
 /// `key` as the engine asks a source for it.
 pub fn ask(key: &[u32]) -> Ask {
     Ask {
