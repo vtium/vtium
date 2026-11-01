@@ -475,7 +475,7 @@ pub fn family_key(name: &str) -> String {
         .collect()
 }
 
-pub use raster::rasterise;
+pub use raster::{cell_width, rasterise};
 
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
@@ -698,13 +698,90 @@ pub(crate) mod raster {
         }
     }
 
-    pub fn rasterise(request: &OutlineRequest) -> Result<Outline, String> {
-        let (font, family, index) = face(&request.font, &request.family)?;
+    /// The font's metrics, refused when they give no size to draw at.
+    fn metrics(font: FontRef<'_>) -> Result<swash::Metrics, String> {
         let metrics = font.metrics(&[]);
         let span = metrics.ascent + metrics.descent.abs();
         if metrics.units_per_em == 0 || span <= 0.0 {
             return Err("the font gives no ascent, descent or units per em".to_owned());
         }
+        Ok(metrics)
+    }
+
+    /// The size a face is drawn at in a cell `h` pixels high, in pixels to
+    /// the em: its ascent and descent span the height less half a pixel,
+    /// as the C reference asked FreeType for a cell half a pixel under the
+    /// height (`request_size`).
+    fn ppem(metrics: &swash::Metrics, h: u32) -> f32 {
+        let span = metrics.ascent + metrics.descent.abs();
+        (h as f32 - 0.5) * f32::from(metrics.units_per_em) / span
+    }
+
+    /// The W rule (ADR-1200 D17): the cell's width is the wider of `W`'s
+    /// advance, rounded, and the columns its ink covers at `ppem`, as the
+    /// C reference's `font_get_width` took it; a face with no `W` takes
+    /// `M`'s, then `0`'s, and a face with none of them half the height
+    /// `h`. The ink is measured on the outline as it is, not hinted: the
+    /// C reference loaded it with FreeType's light hinting, which in a
+    /// TrueType font moves only rows, so its ink kept the outline's width
+    /// across. DejaVu Sans
+    /// Mono's `W` at 16 pixels spans 8.02 pixels, 9 columns, where full
+    /// hinting snaps it to 8. A glyph with no outline, a color or bitmap
+    /// one, is measured as it is drawn.
+    fn w_width(drawer: &mut Drawer<'_>, ppem: f32, h: u32) -> u32 {
+        let font = drawer.font;
+        let (charmap, advances) = (font.charmap(), font.glyph_metrics(&[]).scale(ppem));
+        ['W', 'M', '0']
+            .into_iter()
+            .map(|c| charmap.map(c))
+            .find(|&g| g != 0)
+            .map(|g| {
+                let mut scaler = drawer.context.builder(font).size(ppem).build();
+                let ink = Render::new(&[Source::Outline])
+                    .render(&mut scaler, g)
+                    .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
+                    .map_or(0, |i| i.placement.width);
+                // vtium rounds the advance once, from a float; the C
+                // reference took FreeType's advance, already rounded in 26.6
+                // fixed point. They can differ when the fraction is near a
+                // half, as DejaVu Sans Mono's W at 15 pixels advances
+                // 7.4995, which vtium rounds to 7 and FreeType to 8. That
+                // changes the cell only for a font whose W ink is narrower
+                // than its advance; DejaVu's covers 8 columns either way
+                (advances.advance_width(g).round() as u32).max(ink)
+            })
+            .unwrap_or(h.div_ceil(2))
+            .clamp(1, vtium_font::CELL_SIDE_MAX)
+    }
+
+    /// The width of an outline font's own cell `height` pixels high
+    /// (ADR-1200 D17): the W rule's over each of `faces`, each a font's
+    /// bytes and the family to take from it, the widest of them, as the C
+    /// reference took the larger of its regular and bold faces' cells
+    /// (`kmscon_font_freetype_init`). A face that cannot be read fails the
+    /// whole answer, as the C reference failed its font when its bold face
+    /// did not load.
+    pub fn cell_width(faces: &[(&[u8], &str)], height: u32) -> Result<u32, String> {
+        if !(1..=vtium_font::CELL_SIDE_MAX).contains(&height) {
+            return Err(format!("a cell {height} pixels high, past CELL_SIDE_MAX"));
+        }
+        let mut widest = None;
+        for &(data, family) in faces {
+            let (font, _, _) = face(data, family)?;
+            let ppem = ppem(&metrics(font)?, height);
+            let mut drawer = Drawer {
+                font,
+                context: ScaleContext::new(),
+            };
+            let width = w_width(&mut drawer, ppem, height);
+            widest = Some(widest.map_or(width, |w: u32| w.max(width)));
+        }
+        widest.ok_or_else(|| "no face to take the cell from".to_owned())
+    }
+
+    pub fn rasterise(request: &OutlineRequest) -> Result<Outline, String> {
+        let (font, family, index) = face(&request.font, &request.family)?;
+        let metrics = metrics(font)?;
         let charmap = font.charmap();
         let mut wanted: Vec<(u32, u16)> = Vec::new();
         charmap.enumerate(|c, g| {
@@ -723,26 +800,14 @@ pub(crate) mod raster {
         };
         let mut strikes = Vec::new();
         for &(want_w, h) in &request.cells {
-            // the C reference asked for a cell half a pixel under the height
-            let ppem = (h as f32 - 0.5) * f32::from(metrics.units_per_em) / span;
+            let ppem = ppem(&metrics, h);
             let scale = ppem / f32::from(metrics.units_per_em);
             let baseline = ((metrics.ascent * scale).ceil() as u32).min(h);
             let advances = font.glyph_metrics(&[]).scale(ppem);
             let width = if want_w != 0 {
                 want_w
             } else {
-                ['W', 'M', '0']
-                    .into_iter()
-                    .map(|c| charmap.map(c))
-                    .find(|&g| g != 0)
-                    .map(|g| {
-                        let ink = drawer
-                            .draw(g, ppem, (u32::MAX, u32::MAX))
-                            .map_or(0, |i| i.placement.width);
-                        (advances.advance_width(g).round() as u32).max(ink)
-                    })
-                    .unwrap_or(h.div_ceil(2))
-                    .clamp(1, vtium_font::CELL_SIDE_MAX)
+                w_width(&mut drawer, ppem, h)
             };
             let cell = Cell {
                 width,

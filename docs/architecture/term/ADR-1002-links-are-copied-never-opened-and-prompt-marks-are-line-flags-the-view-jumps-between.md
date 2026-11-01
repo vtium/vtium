@@ -32,6 +32,10 @@ considered:
     via: the session's ADR questions, 2026-10-27
     paraphrase: true
     covers: [nothing opens, no mouse]
+  - operator: aaronsb
+    said: "The overlay row covers only the address's own cells; the rest of the row shows what the program drew."
+    via: the maintainer's answers in the steering session's interview, 2026-11-01
+    paraphrase: true
 observable:
   - "A replay case opens a link, prints across a wrap, scrolls it into the scrollback and resizes; each cell keeps its link, and a sweep frees only links no line names"
   - "A flood of distinct links past `LINKS_BYTES_MAX` strips the oldest scrollback lines' links first and keeps every link on the screen; fed whole and chunked, it ends in the same store"
@@ -136,7 +140,9 @@ The open link is part of the pen: printed cells take it, erased cells take none,
 
 A link draws nothing until the pointer is over it, so a program's output looks as the program drew it. While hovered, every visible cell of the link takes a dashed underline in place of its own underline style, in the cell's underline color: SGR 58's color when set, otherwise the foreground, as the frame resolves it already. OSC 8 carries no color, so the hover adds none and no configuration key.
 
-While Ctrl is held over a link, the renderer draws an overlay over the bottom row, or over the top row when the pointer is on the bottom one: the URI from its first byte in the default colors inverted, cut at the row's end with `…` when longer. The overlay is no part of the screen: no cell, selection, copy or reply sees it.
+While Ctrl is held over a link, the renderer draws an overlay on the bottom row, or on the top row when the pointer is on the bottom one: the URI from its first byte in the default colors inverted, cut at the row's end with `…` when longer. The overlay covers only the cells the address takes, from the row's first column; the rest of the row shows what the program drew there (the maintainer, 2026-11-01). Under the cells the overlay covers, the text cursor and the selection are not drawn, and the pointer is drawn above the overlay. The overlay is no part of the screen: no cell, selection, copy or reply sees it.
+
+> Edited 2026-11-01: the maintainer's answer in the steering session's interview (`considered`, 2026-11-01): the overlay covers only the address's own cells. The paragraph said the overlay was drawn "over the bottom row" and did not say how much of the row it covers, nor what the cursor, the selection and the pointer do under it; the earlier text is in git at 292d0b5.
 
 ```text
  drwxr-xr-x  2 aaron aaron 4096 Oct 27 09:12 docs

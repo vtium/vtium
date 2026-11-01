@@ -32,5 +32,6 @@ heads-two-heads/cjk	vtium's capture of the head desk on the first of two outputs
 heads-partly-open/partly-notice	vtium's capture of a partly broken open head file's notice over the head's first screen (ADR-1401 D7); not yet reviewed
 heads-partly-open/cjk	vtium's capture under a partly broken open head file, pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed
 heads-closed-broken/panic	vtium's capture of a broken closed head file's panic screen on the boot display (ADR-1401 D7); not yet reviewed
+heads-policy-typo/policy-panic	vtium's capture at 60750aa of the panic screen of a head file whose policy line vtium cannot read, its error listed first (ADR-1401 D7); not yet reviewed
 heads-closed-unmatched/no-display-notice	vtium's capture of a closed head file whose head has no display: the boot display lit for the notice alone (ADR-1401 D9); not yet reviewed
 heads-kiosk/cjk	vtium's capture of the closed kiosk, typed through the keyboard that claims its head (t3_heads.py), pixel for pixel the reviewed 2d-640x480-psf16 golden of the same screen; not yet reviewed

@@ -6,7 +6,9 @@
 //! (`src/misc/conf.c:1103-1131`): the held modifiers exactly, and the
 //! key's keysyms. The C reference had no key to paste; `grab-paste`
 //! binds one, Shift+Insert by default, as xterm's `insert-selection`
-//! translation does.
+//! translation does. The prompt jumps, Ctrl+Shift+Up and Down, are
+//! ADR-1002's, beside the scroll keys as Ghostty places its own; the C
+//! reference had no prompt marks to jump between.
 
 /// What a grab does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,6 +21,19 @@ pub enum Grab {
     ZoomOut,
     RotateCw,
     RotateCcw,
+    /// The view to the nearest prompt above its top row (ADR-1002, "What
+    /// the marks are for").
+    PromptUp,
+    /// The view to the nearest prompt below its top row, or to the screen.
+    PromptDown,
+}
+
+impl Grab {
+    /// A prompt jump, which the main screen takes and the alternate
+    /// screen leaves to the program.
+    pub fn is_prompt_jump(self) -> bool {
+        matches!(self, Grab::PromptUp | Grab::PromptDown)
+    }
 }
 
 pub(crate) const SHIFT: u8 = 1;
@@ -36,11 +51,13 @@ const EQUAL: u32 = 0x3d;
 const MINUS: u32 = 0x2d;
 
 /// Each grab: its modifiers and the one keysym it takes.
-const GRABS: [(Grab, u8, u32); 10] = [
+const GRABS: [(Grab, u8, u32); 12] = [
     (Grab::ScrollUp, SHIFT, UP),
     (Grab::ScrollDown, SHIFT, DOWN),
     (Grab::PageUp, SHIFT, PRIOR),
     (Grab::PageDown, SHIFT, NEXT),
+    (Grab::PromptUp, CTRL | SHIFT, UP),
+    (Grab::PromptDown, CTRL | SHIFT, DOWN),
     (Grab::ZoomIn, CTRL, PLUS),
     (Grab::ZoomIn, CTRL, EQUAL),
     (Grab::ZoomOut, CTRL, MINUS),
@@ -152,9 +169,17 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_shift_up_and_down_jump_between_prompts() {
+        assert_eq!(grab(CTRL | SHIFT, &[UP]), Some(Grab::PromptUp));
+        assert_eq!(grab(CTRL | SHIFT, &[DOWN]), Some(Grab::PromptDown));
+        assert_eq!(grab(CTRL, &[UP]), None);
+        assert_eq!(grab(CTRL | SHIFT | ALT, &[UP]), None);
+    }
+
+    #[test]
     fn the_modifiers_match_exactly() {
         assert_eq!(grab(0, &[UP]), None);
-        assert_eq!(grab(SHIFT | CTRL, &[UP]), None);
+        assert_eq!(grab(SHIFT | ALT, &[UP]), None);
         // Shift held for '+' is not Ctrl alone: Ctrl+= is the zoom.
         assert_eq!(grab(CTRL | SHIFT, &[PLUS]), None);
         assert_eq!(grab(SHIFT, &[UP, DOWN]), None);

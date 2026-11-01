@@ -12,13 +12,13 @@ use drm_ffi::mode::dumbbuffer;
 use drm_ffi::{
     _DRM_VBLANK_HIGH_CRTC_SHIFT, DRM_EVENT_FLIP_COMPLETE, DRM_EVENT_VBLANK,
     DRM_MODE_OBJECT_CONNECTOR, DRM_MODE_OBJECT_CRTC, DRM_MODE_OBJECT_PLANE,
-    DRM_MODE_PAGE_FLIP_EVENT,
+    DRM_MODE_PAGE_FLIP_EVENT, drm_mode_modeinfo,
 };
 use rustix::fs::{Mode as FileMode, OFlags, open};
 use rustix::io::Errno;
 
 use super::Mode;
-use super::kms::{Connector, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources};
+use super::kms::{ConnectorRead, CrtcEvent, Dumb, Encoder, Kms, Object, Request, Resources};
 use crate::bounds::RESOURCE_READS_MAX;
 use crate::mmap::Mapping;
 
@@ -123,29 +123,25 @@ impl Kms for Card {
         })
     }
 
-    fn connector(&self, id: u32) -> io::Result<Connector> {
-        let mut modes = Vec::new();
-        let mut encoders = Vec::new();
-        // A probe, so a connector plugged in since the last one shows its
-        // modes.
-        let info = drm_ffi::mode::get_connector(
-            self.raw(),
-            id,
-            None,
-            None,
-            Some(&mut modes),
-            Some(&mut encoders),
-            true,
-        )?;
-        Ok(Connector {
-            id,
+    fn read_connector(
+        &self,
+        id: u32,
+        modes: &mut [Mode],
+        encoders: &mut [u32],
+    ) -> io::Result<ConnectorRead> {
+        let mut infos: Vec<drm_mode_modeinfo> = modes.iter().map(|m| m.0).collect();
+        let info = crate::ioctl::drm_get_connector(self.raw(), id, &mut infos, encoders)?;
+        for (to, from) in modes.iter_mut().zip(infos) {
+            *to = Mode(from);
+        }
+        Ok(ConnectorRead {
             kind: info.connector_type,
             kind_id: info.connector_type_id,
             connected: info.connection == CONNECTED,
-            modes: modes.into_iter().map(Mode).collect(),
             mm: (info.mm_width, info.mm_height),
             encoder: info.encoder_id,
-            encoders,
+            modes: len(info.count_modes.into())?,
+            encoders: len(info.count_encoders.into())?,
         })
     }
 
@@ -162,46 +158,31 @@ impl Kms for Card {
         Ok((info.mode_valid != 0).then_some(Mode(info.mode)))
     }
 
-    fn planes(&self) -> io::Result<Vec<u32>> {
-        let mut planes = Vec::new();
-        drm_ffi::mode::get_plane_resources(self.raw(), Some(&mut planes))?;
-        Ok(planes)
+    fn read_planes(&self, ids: &mut [u32]) -> io::Result<usize> {
+        crate::ioctl::drm_get_planes(self.raw(), ids)
     }
 
     fn plane_crtcs(&self, id: u32) -> io::Result<u32> {
         Ok(drm_ffi::mode::get_plane(self.raw(), id, None)?.possible_crtcs)
     }
 
-    fn properties(&self, id: u32, kind: Object) -> io::Result<Vec<Property>> {
+    fn read_properties(
+        &self,
+        id: u32,
+        kind: Object,
+        ids: &mut [u32],
+        values: &mut [u64],
+    ) -> io::Result<usize> {
         let kind = match kind {
             Object::Connector => DRM_MODE_OBJECT_CONNECTOR,
             Object::Crtc => DRM_MODE_OBJECT_CRTC,
             Object::Plane => DRM_MODE_OBJECT_PLANE,
         };
-        let mut ids = Vec::new();
-        let mut values = Vec::new();
-        drm_ffi::mode::get_properties(self.raw(), id, kind, Some(&mut ids), Some(&mut values))?;
-        ids.into_iter()
-            .zip(values)
-            .map(|(id, value)| {
-                // Only the name is wanted, but the buffers are given: for a
-                // property with values or enumerators, drm-ffi 0.9 asks
-                // again with their counts and null buffers, which the
-                // kernel refuses with EFAULT.
-                let (mut values, mut enums) = (Vec::new(), Vec::new());
-                let info = drm_ffi::mode::get_property(
-                    self.raw(),
-                    id,
-                    Some(&mut values),
-                    Some(&mut enums),
-                )?;
-                Ok(Property {
-                    id,
-                    name: name(&info.name),
-                    value,
-                })
-            })
-            .collect()
+        crate::ioctl::drm_get_properties(self.raw(), id, kind, ids, values)
+    }
+
+    fn property_name(&self, id: u32) -> io::Result<String> {
+        Ok(name(&crate::ioctl::drm_get_property(self.raw(), id)?.name))
     }
 
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb> {
@@ -535,12 +516,14 @@ mod tests {
     }
 
     /// The real ioctls on a render node, which needs no DRM master and
-    /// changes nothing on the screen: a capability read, the resources and
-    /// a dumb buffer, which the kernel keeps to primary nodes and refuses
-    /// here with EACCES, and an empty event read. The buffer's path runs on a primary
-    /// node in tier 3. A host with no render node says so and proves
-    /// nothing here. qemu-user (tools/arm) answers DRM ioctls with ENOTTY:
-    /// under it, that answer says so and skips the rest.
+    /// changes nothing on the screen: a capability read, an empty event
+    /// read, and the reads and the dumb buffer that the kernel keeps to
+    /// primary nodes and refuses here with EACCES. Those reads are the
+    /// resources, the other lists, a property's name and a vblank wait.
+    /// The buffer's path runs on a primary node in tier 3. A host with no
+    /// render node says so and proves nothing here. qemu-user (tools/arm)
+    /// answers DRM ioctls with ENOTTY: under it, that answer says so and
+    /// skips the rest.
     #[test]
     fn a_render_node_through_the_real_ioctls() {
         let Some(path) = (128..136)
@@ -570,6 +553,25 @@ mod tests {
         // to primary nodes.
         let e = card.resources().expect_err("GETRESOURCES on a render node");
         assert_eq!(e.raw_os_error(), Some(Errno::ACCESS.raw_os_error()));
+        // So do the list reads vtium makes itself, which answer EACCES and
+        // not ENOTTY or EINVAL: each request number names an ioctl in the
+        // table.
+        for (read, e) in [
+            ("GETCONNECTOR", card.connector(1).map(drop)),
+            (
+                "OBJ_GETPROPERTIES",
+                card.properties(1, Object::Crtc).map(drop),
+            ),
+            ("GETPROPERTY", card.property_name(1).map(drop)),
+            ("GETPLANERESOURCES", card.planes().map(drop)),
+        ] {
+            let e = e.expect_err(read);
+            assert_eq!(
+                e.raw_os_error(),
+                Some(Errno::ACCESS.raw_os_error()),
+                "{read}: {e}"
+            );
+        }
         // a render node's driver is a GPU's, never a 1-bit or gray panel's
         assert_eq!(card.levels(), None);
         let mut events = Vec::new();

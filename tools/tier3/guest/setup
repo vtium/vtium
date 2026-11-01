@@ -84,7 +84,9 @@ echo 'echo "T3-LOGIN $(tty)" > /dev/ttyS1' > /etc/profile.d/tier3.sh
 if [ -f /etc/systemd/system/t3-agent.service ]; then
     systemctl start --no-block t3-agent.service
 fi
-# Any kmscon, libtsm or vtium package installed, which must be none, and the
-# tree unpacked, so the log shows which build drew the screens.
+# Any kmscon, libtsm or vtium package installed, which must be none; the
+# kernel the guest runs, which the report records; and the tree unpacked, so
+# the log shows which build drew the screens.
 echo "TIER3-INSTALL-OK packages: $(pacman -Q | grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
+    "kernel: $(uname -r);" \
     "tree: $tree" > /dev/ttyS0
