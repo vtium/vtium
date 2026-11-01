@@ -293,12 +293,15 @@ One reader in vtium-platform serves the console and `vtium-vitrify new`, and the
 |---|---|---|
 | Bitmap glyphs | 1-bit glyphs at the font's own size, scaled by whole factors (ADR-1200 D2, ADR-1300 D2) | the source |
 | Crisp outline glyphs | An outline glyph rasterised hinted to the pixel grid, every pixel 0 or 255 | the grid, or `antialias=no` |
+| Hinting | Every outline glyph is hinted lightly, fitted to the pixel grid up and down only, as the C reference's FreeType engine did; `full` fits it both ways. The cell's W measure stays unhinted (ADR-1200 D17). Not built yet. | `hinting=`, `light` or `full`, in the frit (ADR-1200 D1); `font-hinting=` in the configuration or a profile, over the frit's |
 | Whole-pixel grayscale antialiasing | One coverage value a pixel, R8 (ADR-1200 D13) | the grid |
 | `antialias=` | `auto`, the default, follows the grid; `no` makes every outline glyph crisp at any size | the frit |
 | `font-antialias=` | The same, `auto` or `no`, for the console, over the frit's | the configuration |
 | Subpixel strikes and subpixel antialiasing | Coverage computed for each color channel of a stripe; a subpixel strike holds it in ADR-1300's reserved per-channel format for one order, and subpixel antialiasing draws it, for glyphs and possibly vtium's sprites | the frit; never a default |
 | Dithering | Color glyphs taken to the target's gray levels, or to 1 bit, with a dither pattern; the pattern is the target-display work's to choose | the frit; never a default |
 | Color glyphs | Premultiplied RGBA strikes (ADR-1200 D13) | the source |
+
+> Edited 2026-11-01: the maintainer decided that glyphs are hinted lightly by default and fully on request (`considered` in ADR-1200, 2026-11-01). The table had no hinting row; the earlier text is in git at 292d0b5.
 
 ### D5: the display classes
 
