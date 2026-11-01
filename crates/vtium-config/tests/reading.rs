@@ -250,7 +250,7 @@ fn a_crlf_policy_line_ending_at_the_bound_is_read_and_nothing_past_it() {
     assert_eq!(r.trusted(), trusted(Stated::Closed, Rest::Broken));
     // a line whose newline is the first byte past the bound is cut, and
     // so not read; a policy line cut so makes the file closed and broken
-    // (ADR-1401 D7, item 12)
+    // (ADR-1401 D7, the maintainer's answer of 2026-11-01)
     let cut = format!("{} \r\n", text.get(..FILE_MAX - 2).unwrap_or_default());
     assert_eq!(cut.as_bytes().get(FILE_MAX), Some(&b'\n'));
     let r = read(&format!("{cut}policy = open\r\n"));

@@ -1,7 +1,6 @@
 //! A policy line vtium cannot read makes the head file closed and broken
-//! (ADR-1401 D7, level 2, the maintainer's ruling of 2026-11-01, and the
-//! steering session's calls for vtium/vtium#190 in "Pending the
-//! operator's read", items 11 to 15).
+//! (ADR-1401 D7, level 2, the maintainer's ruling of 2026-11-01 and his
+//! answer of the same day on its five cases).
 //!
 //! A policy line is a line above the first section whose bytes, after its
 //! leading spaces and tabs, begin with `policy` in any case. vtium reads
@@ -152,7 +151,8 @@ fn a_policy_line_the_file_bound_cuts_makes_the_file_closed_and_broken() {
         closed_and_broken(text.as_bytes(), line, |f| *f == PolicyFault::Cut);
     }
     // vtium judges a cut line by the bytes it read within the bound
-    // (item 12), so a line cut before its sixth letter is no policy line
+    // (ADR-1401 D7, the maintainer's answer of 2026-11-01), so a line cut
+    // before its sixth letter is no policy line
     let (text, _) = straddling(4, "policy = closed\n");
     let r = reading(text.as_bytes());
     assert_eq!(r.trusted().stated, Stated::Unset);
@@ -222,8 +222,8 @@ fn a_policy_line_vtium_cannot_read_beside_a_readable_one_still_closes_and_breaks
     }
 }
 
-// The steering session's call for vtium/vtium#190 (item 13): a second
-// readable line is a key given twice, which drops that line alone
+// ADR-1401 D7, the maintainer's answer of 2026-11-01: a second readable
+// line is a key given twice, which drops that line alone
 // covers: platform.heads.policy
 #[test]
 fn a_second_readable_policy_line_is_a_duplicate_that_drops_only_itself() {
@@ -263,8 +263,8 @@ fn a_second_readable_policy_line_is_a_duplicate_that_drops_only_itself() {
     }
 }
 
-// The steering session's call for vtium/vtium#190 (item 14): the rule
-// names the lines above the first section, so a `policy` line inside one
+// ADR-1401 D7, the maintainer's answer of 2026-11-01: the rule names the
+// lines above the first section, so a `policy` line inside one
 // still drops only its own line, and a bad line there drops what any bad
 // line in its place drops
 // covers: platform.heads.policy
