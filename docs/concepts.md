@@ -43,7 +43,7 @@ vtium is one console and a few programs and files around it. The table lists eac
 | The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](systemd.md) |
 | The terminfo entry | Tells programs in the session what vtium can do | read by the session's programs | built | [crates/vtium](../crates/vtium/README.md), vtium/vtium#21 |
 
-vtium is the only piece needed to use the console. vtium-vitrify, vtiumctl and vtium-clipboard are separate binaries, so the font decoders, the rasteriser and the configuration tool stay out of the console's binary, and neither counts against the minspec build's budget.
+vtium is the only piece needed to use the console. vtium-vitrify, vtiumctl and vtium-clipboard are separate binaries, so the font decoders, the rasteriser and the configuration tool stay out of the console's binary, and none counts against the minspec build's budget.
 
 ### From install to use
 
@@ -194,7 +194,7 @@ vtium-vitrify's set command switches the running console among the frits and the
 
 vtium reads one configuration file, then a file for its seat over it, then its command line over both, once at start. It reads the file the C reference read, with its settings, and adds its own. [config.md](config.md) lists every setting.
 
-In the proposed design of ADR-1401, a head file beside it places each display and input ([Heads](#heads-a-terminal-per-display)).
+A head file beside it, `/etc/vtium/heads.conf`, places each display and input (ADR-1401, [Heads](#heads-a-terminal-per-display)).
 
 ### Selection and the clipboard
 
@@ -204,11 +204,11 @@ vtium-clipboard, proposed in vtium/vtium#113, gives scripts the same copy from t
 
 ### Links and prompts
 
-Programs can mark text as a link, and shells can mark their prompts. vtium shows a link's address and copies it for the user to paste, and moves the view from one prompt to the next ([ADR-1002](architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
+Programs can mark text as a link, and shells can mark their prompts. vtium's terminal keeps the links and the marks. Showing a link's address, copying it for the user to paste, and moving the view from one prompt to the next are decided and not yet wired into the console ([ADR-1002](architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
 
 ### Keys
 
-vtium reads the keyboard itself and passes keys to the session, apart from the keys it keeps for itself, such as those that switch VTs. The configuration can bind keys to reboot, power off or suspend the machine; each asks the system to act, so services stop cleanly ([systemd.md](systemd.md)).
+vtium reads the keyboard itself and passes keys to the session, apart from the keys it keeps for itself, such as those that switch VTs. The configuration can bind keys to reboot, power off or suspend the machine. The reboot and power-off keys ask PID 1 to act, which stops the services first, except that a reboot under a non-zero `kernel.ctrl-alt-del` restarts the machine at once. The suspend key asks logind, or the kernel directly, and stops no service ([systemd.md](systemd.md)).
 
 ### Blanking
 
