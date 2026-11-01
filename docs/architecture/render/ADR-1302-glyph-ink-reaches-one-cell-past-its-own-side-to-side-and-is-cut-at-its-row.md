@@ -131,6 +131,13 @@ considered:
   - operator: aaronsb
     said: "Stretch as decided"
     via: the maintainer's answers in the steering session's interview, 2026-11-01
+  - operator: aaronsb
+    said: "Additional line spacing, the user's choice: vtium adds none by default; the extra height is split evenly above and below the text; letters keep their size on their baseline, a bitmap glyph its pixel grid; line and block characters stretch to fill the taller cell, not letters; the stack shrink still applies inside the taller row."
+    via: the maintainer's answers in the steering session's interview, 2026-11-01
+    paraphrase: true
+  - operator: aaronsb
+    said: "not stretch emojis, but allow arabic extra room, leave roman chars normal, keep numbering normal … and let text character drawings stretch"
+    via: the maintainer's answers in the steering session's interview, 2026-11-01
 observable:
   - "Tier 2's `overhang-italic` screen shows an italic run whose letters lean into the next cell, unbroken across cell edges, over cells of alternating background colors"
   - "Tier 2's `overhang-underscore` screen shows a whole underscore in the bottom rows of every cell height from 12 to 32 pixels"
@@ -332,6 +339,31 @@ vtium shapes text with HarfRust, the HarfBuzz project's Rust port, only where it
 
 - **Outline fonts.** HarfRust places each mark against its base through the font's GPOS anchors, and picks the joining forms and lam-alef from the font's own tables. The mark rule (D3: move in, then squeeze, or shrink a letter's whole stack) and the joining-script stretch (D2) act on HarfRust's output, in the helper, before the glyphs are rasterised, so the console receives glyphs already fitted and never shapes or measures a font.
 - **Bitmap fonts.** No shaper runs. An upright bitmap glyph is exactly its cell, and a sheared one carries an ink box that reaches sideways only (D4, D6), so a bitmap glyph's ink never leaves the row. The mark rule and the stretch act on outline glyphs only and not on bitmap glyphs, the steering session's reading of the maintainer's rules. How bitmap text joins is shaping's to decide.
+
+### D13: added line spacing, the user's choice
+
+*Not built yet.* A decision of its own, not a bullet of D3, because it changes the row's height, which every other decision here takes as given: D3 still decides where ink sits and where it is cut, now inside a taller row, and this decision says how each kind of glyph uses the height added.
+
+- **The user may make each row taller; vtium adds nothing by default** (the maintainer, 2026-11-01). A frit's `line-spacing=`, and kmscon.conf's `font-line-spacing` or a profile's over it (ADR-1200 D1, D16), add a whole percentage of the text's height, the height the cell has without spacing, from `0`, the default, to `100`, rounded to whole pixels. With `0` the minspec look and the C reference's look stay as they are. The added height joins the cell, so the grid has fewer rows. A frit's stated `cell=` is exact and takes no spacing, the record's call: a `cell=` already names the height its writer wants. kitty (`modify_font cell_height`), WezTerm (`line_height`), foot (`line-height`), Ghostty (`adjust-cell-height`), Alacritty (its offsets) and VTE all let the user make rows taller.
+- **The added height is split evenly above and below the text** (the maintainer, 2026-11-01), so marks above and descenders below both get room; an odd pixel goes above, the record's call, since marks above are what D3's stack shrink most often meets. The middle of the row, the text's own height, is the text band.
+- **How a glyph uses the taller row** is set per set of characters in the frit, by `fit=` (ADR-1200 D1), as a frit already gives sets of characters to fonts, so one frit can leave emoji unstretched, give Arabic extra room, keep Latin letters and digits as they are, and let line drawings stretch (the maintainer, 2026-11-01). A frit that says nothing gets these defaults:
+  - *`fill`, for line and block characters:* box drawing, blocks and shades, Powerline, sextants, octants, Braille and Legacy Computing stretch to the whole taller cell, so they still join from row to row, as terminals that draw box drawing themselves fill the cell. vtium already draws these as sprites at the cell's size. Where a frit's sprite policy has the font draw them (`glyph-source=`), a bitmap glyph is stretched by repeating its top and bottom pixel rows outward and an outline glyph is scaled vertically to the cell (the maintainer, 2026-11-01).
+  - *`natural`, for everything else:* the glyph keeps the font's size and sits on its baseline in the text band, with the added height blank above and below it, and its ink is cut at the text band as D3 cuts it at the row. A bitmap glyph keeps its pixel grid, scaled by whole factors only, with blank rows above and below. Color glyphs and emoji are always `natural`, whatever `fit=` says: fitted inside the text band and never stretched, as D5 keeps them pictures.
+  - *`room`, for Arabic, Hebrew, Syriac, Thaana, N'Ko and the combining marks of every script:* the letter keeps its size and its baseline, as under `natural`, and its marks may use the added height above and below the text band before D3 moves, squeezes or shrinks anything.
+- **D3's rules hold inside the taller row.** A mark moves in, a stack squeezes, and a letter's whole stack shrinks (D3) only when it still does not fit the space its `fit=` gives it: the text band, or the whole cell under `room`.
+
+One row with spacing added, from the top: the added band, the text band, the added band. A Latin letter sits in the text band; an Arabic letter's marks reach into the added bands; a box-drawing line runs the whole height; an emoji stays inside the text band.
+
+```text
+ +---------+---------+---------+---------+
+ |         |  mark   |    |    |         |   <- added band: blank, or room for marks
+ |    A    |   beh   |    |    | (emoji) |   <- text band: the font's size, on its baseline
+ |         |  mark   |    |    |         |   <- added band
+ +---------+---------+---------+---------+
+   natural    room      fill    color glyph
+```
+
+> Edited 2026-11-01: the maintainer added line spacing, the user's choice, and per-set fitting of the row's height (`considered`, 2026-11-01). The record had no D13 and took the row's height as the cell's; the earlier text is in git at 38ee007.
 
 ### Records this amends
 
