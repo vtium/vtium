@@ -259,10 +259,8 @@ impl Kms for Card {
         Ok(())
     }
 
-    fn blob(&self, id: u32) -> io::Result<Vec<u8>> {
-        let mut data = Vec::new();
-        drm_ffi::mode::get_property_blob(self.raw(), id, Some(&mut data))?;
-        Ok(data)
+    fn read_blob(&self, id: u32, data: &mut [u8]) -> io::Result<usize> {
+        crate::ioctl::drm_get_blob(self.raw(), id, data)
     }
 
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()> {

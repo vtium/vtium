@@ -2661,6 +2661,52 @@ fn a_path_the_card_cannot_give_leaves_the_display_bound_without_one() {
     assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
 }
 
+// A `PATH` blob freed between its two reads and its id given to a longer
+// blob is refused, never read past the buffer its first length sized: the
+// display is bound without a path and one warning names its connector.
+#[test]
+fn a_path_blob_that_changes_length_between_its_reads_gives_no_path() {
+    let card = dark_card();
+    card.set_path(B, b"mst:213-1\0");
+    let blob = *card.state().paths.get(&B).unwrap();
+    card.state()
+        .replaced
+        .insert(blob, b"mst:213-2-1-1-1\0".to_vec());
+    logs::capture();
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        [
+            "cannot read the PATH of connector HDMI-A-2: the blob changed from 10 to 16 bytes between two reads"
+        ]
+    );
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
+}
+
+// A `PATH` blob of `BLOB_MAX` bytes is read, and a longer one is refused
+// unread with one warning naming its connector.
+#[test]
+fn a_path_blob_past_blob_max_is_refused_unread() {
+    let card = dark_card();
+    card.set_path(A, &vec![b'1'; crate::bounds::BLOB_MAX]);
+    card.set_path(B, &vec![b'1'; crate::bounds::BLOB_MAX + 1]);
+    logs::capture();
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(
+        logs::at_least(Level::Warn),
+        [
+            "cannot read the PATH of connector HDMI-A-2: the blob is 4097 bytes, past the 4096 vtium reads"
+        ]
+    );
+    let a = v.identity(DisplayId(A)).unwrap();
+    assert_eq!(a.connector_path.as_deref().map(str::len), Some(4096));
+    assert_eq!(v.identity(DisplayId(B)).unwrap().connector_path, None);
+}
+
 // With no display, the card keeps master; a dark connector plugged in then
 // is set off under it, and master is still kept after.
 #[test]

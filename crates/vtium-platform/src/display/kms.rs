@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use super::Mode;
+use crate::bounds::BLOB_MAX;
 
 /// The card's CRTCs and connectors, in the kernel's order.
 #[derive(Clone, Debug, Default)]
@@ -128,9 +129,33 @@ pub(crate) trait Kms {
     fn rm_fb(&self, id: u32) -> io::Result<()>;
     fn create_blob(&self, data: &[u8]) -> io::Result<u32>;
     fn destroy_blob(&self, id: u32) -> io::Result<()>;
-    /// The bytes of the property blob `id`, as a blob property's value
-    /// names it. A blob the card does not hold is `ENOENT`, 0 included.
-    fn blob(&self, id: u32) -> io::Result<Vec<u8>>;
+    /// One read of the property blob `id`, as a blob property's value
+    /// names it, into `data`: the card copies the blob only when `data` is
+    /// exactly the blob's length, and gives back the blob's length either
+    /// way. A blob the card does not hold is `ENOENT`, 0 included.
+    fn read_blob(&self, id: u32, data: &mut [u8]) -> io::Result<usize>;
+
+    /// The bytes of the property blob `id`, read in two: its length, then
+    /// its bytes into a buffer of that length. A blob longer than
+    /// [`BLOB_MAX`] is refused unread, and so is one whose length changed
+    /// between the two reads, as when the blob was freed and its id given
+    /// to another.
+    fn blob(&self, id: u32) -> io::Result<Vec<u8>> {
+        let len = self.read_blob(id, &mut [])?;
+        if len > BLOB_MAX {
+            return Err(io::Error::other(format!(
+                "the blob is {len} bytes, past the {BLOB_MAX} vtium reads"
+            )));
+        }
+        let mut data = vec![0; len];
+        let again = self.read_blob(id, &mut data)?;
+        if again != len {
+            return Err(io::Error::other(format!(
+                "the blob changed from {len} to {again} bytes between two reads"
+            )));
+        }
+        Ok(data)
+    }
 
     /// An atomic commit with `DRM_MODE_*` flags.
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()>;

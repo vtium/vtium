@@ -134,6 +134,10 @@ pub(crate) struct State {
     /// as a driver gives a DisplayPort multi-stream connector its own; one
     /// absent here has no `PATH` property, as every other connector.
     pub(crate) paths: BTreeMap<u32, u32>,
+    /// Blobs replaced once read: the next read of the id finds these
+    /// bytes, as when the blob is freed between two reads and its id given
+    /// to another.
+    pub(crate) replaced: BTreeMap<u32, Vec<u8>>,
     /// Objects whose properties cannot be read: the read fails with
     /// EFAULT.
     pub(crate) unreadable: Vec<u32>,
@@ -943,13 +947,17 @@ impl Kms for FakeCard {
             .ok_or_else(|| err(Errno::NOENT))
     }
 
-    fn blob(&self, id: u32) -> io::Result<Vec<u8>> {
-        self.state
-            .borrow()
-            .blobs
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| err(Errno::NOENT))
+    fn read_blob(&self, id: u32, data: &mut [u8]) -> io::Result<usize> {
+        let mut s = self.state.borrow_mut();
+        let blob = s.blobs.get(&id).ok_or_else(|| err(Errno::NOENT))?;
+        let len = blob.len();
+        if let Some(to) = data.get_mut(..).filter(|d| d.len() == len) {
+            to.copy_from_slice(blob);
+        }
+        if let Some(next) = s.replaced.remove(&id) {
+            s.blobs.insert(id, next);
+        }
+        Ok(len)
     }
 
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()> {

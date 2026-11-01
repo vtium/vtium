@@ -5,17 +5,20 @@
 //! `request_numbers_match_the_headers` reads the headers and fails when one
 //! differs. The fbdev, VT and keyboard numbers predate size encoding, so
 //! nothing else would catch a wrong one. DRM's ioctls come wrapped from
-//! `drm-ffi`, all but GETRESOURCES, which it wraps unsoundly.
+//! `drm-ffi`, all but GETRESOURCES and GETPROPBLOB, which it wraps
+//! unsoundly.
 
 use std::ffi::{c_int, c_short};
 use std::io;
 use std::os::fd::BorrowedFd;
 
-use drm_ffi::drm_mode_card_res;
+use drm_ffi::{drm_mode_card_res, drm_mode_get_blob};
 use rustix::ioctl::{Getter, IntegerSetter, Opcode, Setter, Updater, ioctl, opcode};
 
 /// `DRM_IOCTL_MODE_GETRESOURCES`, `drm/drm.h`.
 const DRM_IOCTL_MODE_GETRESOURCES: Opcode = opcode::read_write::<drm_mode_card_res>(b'd', 0xA0);
+/// `DRM_IOCTL_MODE_GETPROPBLOB`, `drm/drm.h`.
+const DRM_IOCTL_MODE_GETPROPBLOB: Opcode = opcode::read_write::<drm_mode_get_blob>(b'd', 0xAC);
 
 /// `FBIOGET_VSCREENINFO`, `linux/fb.h`.
 const FBIOGET_VSCREENINFO: Opcode = 0x4600;
@@ -162,6 +165,40 @@ pub(crate) fn drm_get_resources(
     }
     let len = |n: u32| usize::try_from(n).map_err(|_| io::Error::from(io::ErrorKind::InvalidData));
     Ok((len(res.count_crtcs)?, len(res.count_connectors)?))
+}
+
+/// One `DRM_IOCTL_MODE_GETPROPBLOB`: the kernel copies the property blob
+/// `id` into `data` only when `data` is exactly the blob's length, and
+/// gives back the blob's length either way, which this returns. drm-ffi's
+/// `get_property_blob` asks twice and sets its buffer's length to the
+/// length the second answer gives, past its buffer when the blob is freed
+/// and its id given to a longer one between the two.
+pub(crate) fn drm_get_blob(fd: BorrowedFd<'_>, id: u32, data: &mut [u8]) -> io::Result<usize> {
+    let mut blob = get_blob(id, data)?;
+    #[expect(unsafe_code, reason = "an ioctl drm-ffi wraps unsoundly")]
+    // SAFETY: GETPROPBLOB reads and writes one `struct drm_mode_get_blob`,
+    // which drm-sys lays out from the header. The kernel writes the blob at
+    // `data` only when `length` equals the blob's length, and `get_blob`
+    // sets `data` and `length` to the start and length of the slice, so it
+    // writes at most the slice.
+    unsafe {
+        ioctl(
+            fd,
+            Updater::<DRM_IOCTL_MODE_GETPROPBLOB, drm_mode_get_blob>::new(&mut blob),
+        )?;
+    }
+    usize::try_from(blob.length).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+}
+
+/// GETPROPBLOB's argument for blob `id` into `data`: its pointer at the
+/// slice and its length the slice's.
+fn get_blob(id: u32, data: &mut [u8]) -> io::Result<drm_mode_get_blob> {
+    Ok(drm_mode_get_blob {
+        blob_id: id,
+        length: u32::try_from(data.len())
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?,
+        data: data.as_mut_ptr().expose_provenance() as u64,
+    })
 }
 
 /// GETRESOURCES' argument for `crtcs` and `connectors`: each list's
@@ -697,6 +734,31 @@ mod tests {
         );
         assert_eq!(size_of::<drm_mode_card_res>(), 64);
         assert_eq!(DRM_IOCTL_MODE_GETRESOURCES, 0xC040_64A0);
+        // DRM_IOWR(0xAC, struct drm_mode_get_blob): the structure's 16 bytes.
+        assert!(
+            header("drm/drm.h")
+                .lines()
+                .any(|l| l.split_whitespace().collect::<Vec<_>>()
+                    == [
+                        "#define",
+                        "DRM_IOCTL_MODE_GETPROPBLOB",
+                        "DRM_IOWR(0xAC,",
+                        "struct",
+                        "drm_mode_get_blob)"
+                    ])
+        );
+        assert_eq!(size_of::<drm_mode_get_blob>(), 16);
+        assert_eq!(DRM_IOCTL_MODE_GETPROPBLOB, 0xC010_64AC);
+    }
+
+    #[test]
+    fn a_blob_is_asked_for_at_its_buffer_with_its_buffers_length() {
+        let mut data = [0u8; 7];
+        let blob = get_blob(42, &mut data).expect("a short buffer");
+        assert_eq!((blob.blob_id, blob.length), (42, 7));
+        assert_eq!(blob.data, data.as_ptr().addr() as u64);
+        let blob = get_blob(42, &mut []).expect("an empty buffer");
+        assert_eq!(blob.length, 0);
     }
 
     #[test]
