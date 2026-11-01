@@ -6,7 +6,7 @@
 //! names an immutable blob that holds `mst:`, the object id of the card's
 //! connector the hub is plugged into, and the port number at each hub on
 //! the way, joined by `-`, as `mst:213-1` or `mst:213-2-1`, followed by a
-//! NUL. A connector that is no hub port has no `PATH` property. The name
+//! NUL. A connector that is not a hub port has no `PATH` property. The name
 //! the driver gives such a connector (`DP-8`) can change after a replug or
 //! a resume, while its `PATH` stays the same.
 
