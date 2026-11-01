@@ -105,6 +105,14 @@ considered:
     said: "Adopted without a question: a cell whose glyph changes because a neighbour changed its joining form counts as an ink change, and the three-cell keystroke figure holds for left-to-right text; the bar cursor's side is #43's to choose; no glyph or picture is ever drawn flipped, and a mirrored character draws its counterpart's glyph with its own ink box."
     via: the maintainer's answers in the steering session, 2026-11-01, third round, relayed by the team lead; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "Join stretch: the letter's slot (its advance) is scaled to fill its cells, not its ink, so a designed overlap such as Cascadia Mono's stays and draws into the neighbour under the one-cell reach: yes."
+    via: the maintainer's answers in the steering session, 2026-11-01, fourth round, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Tall letters: a base letter whose own ink passes the row is cut at the row, as decided (letters never change shape); a frit naming an Arabic font that fits the row, such as Kawkab Mono, avoids it: yes."
+    via: the maintainer's answers in the steering session, 2026-11-01, fourth round, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
 observable:
   - "Tier 2's `overhang-italic` screen shows an italic run whose letters lean into the next cell, unbroken across cell edges, over cells of alternating background colors"
   - "Tier 2's `overhang-underscore` screen shows a whole underscore in the bottom rows of every cell height from 12 to 32 pixels"
@@ -194,7 +202,7 @@ The bound of one cell holds every letter measured in Context, the most being 4 p
 - A narrow glyph in two cells, such as a text-style symbol widened by VS16, is centred across the two cells by the same rule, as the C reference centred it.
 - Nothing moves a glyph sideways to keep its ink inside its cell. The C reference moved a gray glyph that passed its right edge left by half of the overflow, and a 1-bit glyph that passed its left edge right; vtium draws the overflow instead, within the reach.
 - A bitmap glyph keeps its place in its cell, as its font draws it.
-- **Letters of joining scripts in an outline font are fitted sideways to their cells** (the maintainer, 2026-11-01), in the helper, on HarfRust's output (D12). A glyph whose character has the Joining_Type D, R, L or C in the Unicode Character Database's `ArabicShaping.txt` (Arabic and its tatweel, Syriac, N'Ko, Mongolian, Mandaic, Adlam and the other joining scripts) is scaled sideways, before it is rasterised, by its cells' width over its advance, and its pen sits on its cell's left edge, so its advance fills its cells exactly and its joining strokes meet the next letter's with no seam. Its ink keeps the overlap its font designed past the advance, which D1's reach draws. Unscaled, a medial beh's joins leave a gap of 0.13 to 0.72 pixels in DejaVu Sans Mono and Kawkab Mono, and overlap by 0.38 to 1.03 pixels on purpose in Cascadia Mono (rtl-study, `basis`).
+- **Letters of joining scripts in an outline font are fitted sideways to their cells** (the maintainer, 2026-11-01), in the helper, on HarfRust's output (D12). A glyph whose character has the Joining_Type D, R, L or C in the Unicode Character Database's `ArabicShaping.txt` (Arabic and its tatweel, Syriac, N'Ko, Mongolian, Mandaic, Adlam and the other joining scripts) is scaled sideways, before it is rasterised, by its cells' width over its advance, and its pen sits on its cell's left edge, so its advance fills its cells exactly and its joining strokes meet the next letter's with no seam. The advance is what is scaled, not the ink, so the overlap a font designed past the advance stays and D1's reach draws it into the neighbour (the maintainer, 2026-11-01). Unscaled, a medial beh's joins leave a gap of 0.13 to 0.72 pixels in DejaVu Sans Mono and Kawkab Mono, and overlap by 0.38 to 1.03 pixels on purpose in Cascadia Mono (rtl-study, `basis`).
 - **A ligature that draws two cells' letters in one cell's advance,** as lam-alef does in every monospace font measured, is not placed by this decision: centring its advance across its two cells is the wrong default for it, and vtium/vtium#144 places it with shaping.
 - **Devanagari and other scripts whose letters join through a headline** (a stroke along the top) need a rule of their own for the headline to meet, which a later record decides; this decision does not stretch them.
 
@@ -206,7 +214,7 @@ The bound of one cell holds every letter measured in Context, the most being 4 p
 - **Where the baseline rises, the whole line sits a pixel higher** than the C reference drew it. With DejaVu Sans Mono's outline geometry that happens at 12, 16, 22, 26 and 32 pixels; the hinted glyphs vtium draws decide the heights, which vtium/vtium#24's tests record. The C reference's DejaVu goldens at 16 pixels list it when they are re-baselined.
 - **Ink above the cell's top or below its bottom is cut,** for every glyph. A row is composed on its own (ADR-1300 D5), and ink reaching into the rows above and below would make each row's pixels depend on three rows of glyphs and damage.
 - **A combining mark is moved, never cut** (the maintainer, 2026-11-01). In an outline font, where HarfRust has placed it (D12), a mark glyph whose ink passes the row's top or bottom moves toward the baseline until it fits. A stack of marks that still cannot fit after that move is squeezed vertically, about the row's edge nearest its base letter, until it fits. Base letters and joining strokes never move. The rule holds for the combining marks of every script; sideways, a mark reaches as any ink does. For example, in DejaVu Sans Mono at 28 pixels the damma over an alef with hamza (أُ) lies 11 pixels above the row and is cut away whole today; it moves down until it fits, and where the hamza and the damma together still pass the top, the pair is squeezed toward the letter. In DejaVu Sans Mono every vowel mark measured on Arabic letters loses part or all of its ink at every height from 16 to 32 pixels, the kasratan under jeem 7 pixels below the row at 28; the Hebrew monospace fonts measured fit their rows but for a pixel of a few cantillation marks, and are unchanged (rtl-study, `basis`). The C reference pushed a mark that did not fit back inside the cell and did not squeeze a stack.
-- **A base letter's own ink past the row is cut,** as every glyph's is. The hamza that is part of the precomposed letter alef with hamza (أ) in DejaVu Sans Mono loses 2 to 3 pixels at the top at every height measured, unvocalized text included.
+- **A base letter's own ink past the row is cut,** as every glyph's is, so letters never change shape (the maintainer, 2026-11-01); a frit that names an Arabic font whose letters fit the row, such as Kawkab Mono, avoids the cut. The hamza that is part of the precomposed letter alef with hamza (أ) in DejaVu Sans Mono loses 2 to 3 pixels at the top at every height measured, unvocalized text included.
 - The C reference cut gray ink at both edges and moved each 1-bit glyph that passed the bottom up on its own, so a single glyph could stand off the baseline. vtium moves the whole font's baseline, and only for ASCII's lowest ink, so a font whose ascent is tight loses a pixel at the top of its tallest marks rather than the underscore.
 
 ### D4: italic and bold
@@ -305,11 +313,9 @@ This record is proposed, and these passages take dated notes pointing here once 
 
 ### For the operator's check
 
-The maintainer answered this section's questions on 2026-11-01 in three rounds (`considered`), and each answer is written into the decision above. These remain, each written as the decision until the operator confirms or overrules it:
+The maintainer answered this section's questions on 2026-11-01 in four rounds (`considered`), and each answer is written into the decision above. One remains, written as the decision until the operator confirms or overrules it:
 
-1. **A joining letter is scaled by its advance, so the overlap its font designed stays** (D2). The maintainer decided that joining letters fill their cells' width exactly; vtium reads that as the letter's advance filling the cells, not its ink. For example, Cascadia Mono draws each Arabic letter's joining stroke a little past its advance so that it overlaps the next one; scaling the advance keeps that overlap and draws it into the neighbour, where squeezing the ink itself into the cell would open the seam the stretch is meant to close.
-2. **A base letter's own ink past the row stays cut** (D3). The maintainer decided that base letters never move. For example, the hamza on the precomposed alef with hamza (أ) in DejaVu Sans Mono loses its top 2 to 3 pixels at every size, even without vowel marks; a frit that names an Arabic font whose letters fit the row avoids it.
-3. **The `observable` lines.**
+1. **The `observable` lines.**
 
 ## Departures from the C reference
 
