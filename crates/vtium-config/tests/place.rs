@@ -587,11 +587,14 @@ fn a_dark_displays_log_line_carries_a_rule_ready_to_paste() {
     );
     // a PATH holding `*` or `?` would paste as a glob, so the rule names
     // the connector instead
-    d.connector_path = Some("mst:213-*".into());
-    assert_eq!(
-        rule_for(&d, "desk").as_deref(),
-        Some("display connector:pci-0000:03:00.0/DP-8 -> desk")
-    );
+    for glob in ["mst:213-*", "mst:213-?"] {
+        d.connector_path = Some(glob.into());
+        assert_eq!(
+            rule_for(&d, "desk").as_deref(),
+            Some("display connector:pci-0000:03:00.0/DP-8 -> desk"),
+            "{glob}"
+        );
+    }
     d.connector_path = Some("mst:213-1".into());
     assert_eq!(
         rule_for(&d, "desk").as_deref(),
