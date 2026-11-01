@@ -22,12 +22,17 @@
 //! request waits at most one batch. A stop ends a cell's fill, as when the
 //! console's store is full or no display draws at the cell, and is answered
 //! as it is taken, so the console knows each fill frame before the answer
-//! is the stopped fill's, even when the cell is filled again at once. A cell query
-//! asks for the frit's own cell before the console's first frame, for a
-//! frit of bitmap sources that states no cell (the operator, 2026-10-28):
-//! the helper answers its first source's cell when every other source's
-//! fits in it, and otherwise, an outline source among them, says why it
-//! has none ([`Engine::own_cell`]). The helper
+//! is the stopped fill's, even when the cell is filled again at once. A
+//! cell query asks for the cell of a frit that states none, which the
+//! frit's first source sets (ADR-1200 D17), before the console's first
+//! frame and, for an outline frit, at each zoom; it names the height an
+//! outline font would be drawn at, or 0. A bitmap first source answers
+//! its own cell, which the console takes at whole multiples, once every
+//! later bitmap source's cell fits in it (the operator, 2026-10-28). An
+//! outline first source answers the cell the W rule gives it at the height
+//! named, which the console takes as it is (the maintainer, 2026-11-01);
+//! with no height it has none. Otherwise the helper says why the frit has
+//! no cell of its own ([`Engine::own_cell`]). The helper
 //! keeps what it sent only for the request that sent it, so it sends a
 //! glyph once within one ask or one fill; the console's store is the one
 //! record of what the console holds (ADR-1200 D18). The helper exits once
@@ -35,10 +40,12 @@
 //! console closes its end and its work is done.
 //!
 //! ```text
-//! request  magic "VTVSREQ2", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//! request  magic "VTVSREQ3", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
-//!          u32, cell height u32 (both 0 for a cell query), capabilities length u32, the capabilities (reserved for the
+//!          u32 (0 for a cell query), cell height u32 (for a cell query,
+//!          the height an outline font is drawn at, or 0), capabilities
+//!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
 //!          wanted, a fill's first; none for a cell query), cluster count
@@ -52,12 +59,14 @@
 //! answer   frames: kind u32, length u32, then the payload; kind 1 an
 //!          ask's glyphs and 4 a fill's, each a vitrified set of one cell's
 //!          glyphs, an ask's clusters in its cluster map; kind 2 the oldest ask answered (no payload); kind 5 a
-//!          cell's fill done (its width u32 and height u32); kind 6 the
-//!          frit's own cell (its width u32 and height u32); kind 7 no own
-//!          cell (UTF-8 reason); kind 8 a stop taken (its cell's width u32
-//!          and height u32), one for each stop; kind 9 a warning the
-//!          frit's text gave as it was read, once for each frit read
-//!          (UTF-8); kind 3 a failure (UTF-8 reason)
+//!          cell's fill done (its width u32 and height u32); kind 6 a
+//!          bitmap frit's own cell (its width u32 and height u32); kind 10
+//!          an outline frit's cell at the height asked (its width u32 and
+//!          height u32); kind 7 no own cell (UTF-8 reason); kind 8 a stop
+//!          taken (its cell's width u32 and height u32), one for each
+//!          stop; kind 9 a warning the frit's text gave as it was read,
+//!          once for each frit read (UTF-8); kind 3 a failure (UTF-8
+//!          reason)
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
@@ -118,7 +127,8 @@ pub const FRAME_FAILED: u32 = 3;
 pub const FRAME_FILL: u32 = 4;
 /// A cell's fill is done: its width and height.
 pub const FRAME_FILLED: u32 = 5;
-/// The frit's own cell, a cell query's answer: its width and height.
+/// A bitmap frit's own cell, a cell query's answer when the frit's first
+/// source is a bitmap font: its width and height.
 pub const FRAME_OWN_CELL: u32 = 6;
 /// The frit has no own cell, a cell query's answer: the reason, as UTF-8.
 pub const FRAME_NO_OWN_CELL: u32 = 7;
@@ -128,13 +138,18 @@ pub const FRAME_STOPPED: u32 = 8;
 /// A warning the frit's text gave as it was read, such as a key that does
 /// nothing (ADR-1200 D1): UTF-8, naming the frit and the line.
 pub const FRAME_WARNING: u32 = 9;
+/// The cell an outline frit takes at the height a cell query names, its
+/// answer when the frit's first source is an outline font: its width and
+/// height, the height the one asked for.
+pub const FRAME_OUTLINE_CELL: u32 = 10;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// A fill: the cell's coverage, in order, around the asks.
 pub const FILL: u32 = 2;
 /// The end of a cell's fill.
 pub const STOP: u32 = 3;
-/// A cell query: the frit's own cell, at no cell and naming nothing.
+/// A cell query: the frit's own cell, at no cell but the height an
+/// outline font is drawn at, and naming nothing.
 pub const OWN_CELL: u32 = 4;
 /// What a fill draws after the screen's codepoints: printable Latin
 /// (Basic Latin, Latin-1 and Latin Extended-A), then box drawing, block
@@ -285,8 +300,8 @@ impl ServeRequest {
     /// requests. Every field is checked: the kind one of four, the frit's
     /// name a frit name (ADR-1200 D1), checked before it is allocated, and
     /// its text UTF-8, each inside its bound, the cell inside
-    /// [`CELL_SIDE_MAX`], a cell query's at no cell and naming no
-    /// codepoint and no range, the reserved capabilities empty, each codepoint a
+    /// [`CELL_SIDE_MAX`], a cell query's at a width of 0, a height inside
+    /// [`CELL_SIDE_MAX`] or 0, and naming no codepoint and no range, the reserved capabilities empty, each codepoint a
     /// scalar value, clusters in an ask alone, each 1 to
     /// [`CLUSTER_SCALARS_MAX`] scalar values, each held range in order and inside Unicode, the
     /// kernel's font inside the kernel's own bounds with its data exactly
@@ -325,8 +340,8 @@ impl ServeRequest {
             height: f.u32()?,
         };
         let query = kind == OWN_CELL;
-        if query && (cell.width, cell.height) != (0, 0) {
-            return Err("a cell query at a cell".to_owned());
+        if query && (cell.width != 0 || cell.height > CELL_SIDE_MAX) {
+            return Err("a cell query at a cell, or at a height past CELL_SIDE_MAX".to_owned());
         }
         if !query
             && (!(1..=CELL_SIDE_MAX).contains(&cell.width)
@@ -475,6 +490,18 @@ enum Loaded {
         family: String,
         mapped: Vec<u32>,
     },
+}
+
+/// A frit's own cell, as its first source sets it (ADR-1200 D17).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnCell {
+    /// A bitmap font's own cell, which the console takes at the largest
+    /// whole multiple not over the height it would draw at, and a zoom
+    /// steps by its height.
+    Bitmap(Cell),
+    /// An outline font's cell at the height asked, taken as it is; a zoom
+    /// asks again at the new height.
+    Outline(Cell),
 }
 
 /// A frit's sources, ready to draw at any cell.
@@ -656,22 +683,38 @@ impl Engine {
         &self.coverage
     }
 
-    /// The frit's own cell (the operator, 2026-10-28): its first source's,
-    /// when every source is a bitmap font whose cell fits in it, so each
-    /// draws at a whole factor; else why it has none, an outline source
-    /// among its sources or a bitmap one whose cell does not fit.
-    pub fn own_cell(&self) -> Result<Cell, String> {
-        let mut own: Option<(&Source, Cell)> = None;
-        for (source, loaded) in &self.sources {
-            let Loaded::Bitmap(font) = loaded else {
-                return Err(format!(
-                    "source={} is an outline font, which has no cell of its own",
-                    source.spelling
-                ));
-            };
-            match own {
-                None => own = Some((source, font.cell)),
-                Some((first, cell))
+    /// The frit's own cell (ADR-1200 D17), which its first source sets,
+    /// the first in the frit's order that this machine has, and later
+    /// sources draw into. A bitmap first source gives its own cell, once
+    /// every later bitmap source's cell fits in it, so each draws at a
+    /// whole factor (the operator, 2026-10-28). An outline first source
+    /// gives the cell `height` pixels high that the W rule gives it
+    /// (the maintainer, 2026-11-01), the console naming the height it is
+    /// drawn at; at a height of 0 it has none. Else why it has none: a
+    /// later bitmap source whose cell does not fit, or no height to draw
+    /// an outline font at.
+    pub fn own_cell(&self, height: u32) -> Result<OwnCell, String> {
+        let mut sources = self.sources.iter();
+        let (first, loaded) = sources.next().ok_or("the frit names no source")?;
+        let cell = match loaded {
+            Loaded::Bitmap(font) => font.cell,
+            Loaded::Outline { font, family, .. } => {
+                if height == 0 {
+                    return Err(format!(
+                        "source={} is an outline font, whose cell needs the height it is drawn at",
+                        first.spelling
+                    ));
+                }
+                // the frit's bold face joins it once style= names one
+                // (ADR-1200 D21)
+                let width = crate::outline::cell_width(&[(font, family)], height)
+                    .map_err(|why| format!("source={}: {why}", first.spelling))?;
+                return Ok(OwnCell::Outline(Cell { width, height }));
+            }
+        };
+        for (source, loaded) in sources {
+            match loaded {
+                Loaded::Bitmap(font)
                     if font.cell.width > cell.width || font.cell.height > cell.height =>
                 {
                     return Err(format!(
@@ -684,11 +727,10 @@ impl Engine {
                         cell.height
                     ));
                 }
-                Some(_) => {}
+                Loaded::Bitmap(_) | Loaded::Outline { .. } => {}
             }
         }
-        own.map(|(_, cell)| cell)
-            .ok_or_else(|| "the frit names no source".to_owned())
+        Ok(OwnCell::Bitmap(cell))
     }
 
     /// Why no source gives a glyph at `cell`: each bitmap source whose own
@@ -1113,11 +1155,16 @@ impl Work<'_> {
             }
             OWN_CELL => {
                 let own = match self.engine(&request.frit) {
-                    Ok(engine) => engine.own_cell(),
+                    Ok(engine) => engine.own_cell(request.cell.height),
                     Err(why) => Err(why.clone()),
                 };
                 return match own {
-                    Ok(cell) => write_frame(out, FRAME_OWN_CELL, &cell_payload(cell)),
+                    Ok(OwnCell::Bitmap(cell)) => {
+                        write_frame(out, FRAME_OWN_CELL, &cell_payload(cell))
+                    }
+                    Ok(OwnCell::Outline(cell)) => {
+                        write_frame(out, FRAME_OUTLINE_CELL, &cell_payload(cell))
+                    }
                     Err(why) => reason(out, FRAME_NO_OWN_CELL, &why),
                 };
             }
@@ -1701,16 +1748,158 @@ mod tests {
         assert!(String::from_utf8_lossy(&frames[1].1).contains("not on this machine"));
     }
 
+    /// A cell query for `frit` at a cell `height` pixels high, the height
+    /// an outline first source is drawn at.
+    fn query_at(frit: FritText, height: u32) -> ServeRequest {
+        ServeRequest {
+            cell: Cell { width: 0, height },
+            ..query(frit)
+        }
+    }
+
+    /// The frit of `text` and then a `source=outline:` line for each of
+    /// `fonts`, each written to a file of its own in a directory named
+    /// for `name`, or a source's spelling.
+    fn outline_frit(
+        name: &str,
+        text: &str,
+        fonts: &[Result<super::ttf::Font, &str>],
+    ) -> (FritText, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("vtium-serve-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut text = text.to_owned();
+        for (i, font) in fonts.iter().enumerate() {
+            match font {
+                Ok(font) => {
+                    let path = dir.join(format!("{i}.ttf"));
+                    std::fs::write(&path, font.build()).unwrap();
+                    text.push_str(&format!("source=outline:{}\n", path.display()));
+                }
+                Err(spelling) => text.push_str(&format!("source={spelling}\n")),
+            }
+        }
+        (frit(&text), dir)
+    }
+
+    // ADR-1200 D17 (the maintainer, 2026-11-01): an outline frit that
+    // states no cell takes its fonts' own, the W rule's width at the
+    // height the console asks at. Test Mono's W advances 600 units of
+    // 1000 and its ink fills the advance: 15.5 pixels to the em at 16
+    // give 9.3, inked over 10 pixels, and 19.5 at 20 give 11.7, over 12
+    #[test]
+    fn an_outline_frits_cell_query_answers_the_w_rule_at_the_height_asked() {
+        let (frit, dir) = outline_frit("own-outline", "", &[Ok(super::ttf::test_mono())]);
+        let frames = run(&[
+            query_at(frit.clone(), 16),
+            query_at(frit.clone(), 20),
+            query(frit),
+        ]);
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(
+            frames[..2],
+            [
+                (FRAME_OUTLINE_CELL, cell_bytes(10, 16)),
+                (FRAME_OUTLINE_CELL, cell_bytes(12, 20)),
+            ]
+        );
+        // with no height there is no outline cell to give
+        assert_eq!(frames[2].0, FRAME_NO_OWN_CELL);
+        let why = String::from_utf8_lossy(&frames[2].1);
+        assert!(why.contains("needs the height"), "{why}");
+        assert_eq!(frames.len(), 3);
+    }
+
+    // ADR-1200 D17: the first source sets the cell, and later sources draw
+    // into it. A bitmap first source gives its own cell whatever outline
+    // source follows, and an outline first source the W rule's, a later
+    // bitmap source refusing nothing
+    #[test]
+    fn the_first_source_sets_the_cell_whatever_kind_follows() {
+        let (psf, psf_dir) = psf_frit("own-first-psf", &[Ok((8, 16))]);
+        let font = |dir: &Path| {
+            let path = dir.join("later.ttf");
+            std::fs::write(&path, super::ttf::test_mono().build()).unwrap();
+            path
+        };
+        let bitmap_first = frit(&format!(
+            "{}source=outline:{}\n",
+            psf.text,
+            font(&psf_dir).display()
+        ));
+        let (outline_first, dir) = outline_frit(
+            "own-first-outline",
+            "",
+            &[Ok(super::ttf::test_mono()), Err("builtin:unifont")],
+        );
+        let frames = run(&[
+            query_at(bitmap_first.clone(), 20),
+            query(bitmap_first),
+            query_at(outline_first, 10),
+        ]);
+        let _ = (
+            std::fs::remove_dir_all(psf_dir),
+            std::fs::remove_dir_all(dir),
+        );
+        assert_eq!(
+            frames,
+            [
+                (FRAME_OWN_CELL, cell_bytes(8, 16)),
+                (FRAME_OWN_CELL, cell_bytes(8, 16)),
+                // 9.5 pixels to the em: W advances 5.7, inked over 6; unifont's
+                // 8x16 does not fit and fills nothing
+                (FRAME_OUTLINE_CELL, cell_bytes(6, 10)),
+            ]
+        );
+    }
+
+    // ADR-1200 D17: a frit that states its cell is drawn at it, the W
+    // rule never widening it; the console reads cell= itself and asks the
+    // helper only where D17 has it ask, so a cell query answers the fonts'
+    // own cell whatever cell= says
+    #[test]
+    fn a_frit_that_states_its_cell_is_drawn_at_it() {
+        let (frit, dir) =
+            outline_frit("own-stated", "cell=10x20\n", &[Ok(super::ttf::test_mono())]);
+        let stated = Cell {
+            width: 10,
+            height: 20,
+        };
+        let asked = run(&[ServeRequest {
+            cell: stated,
+            ..request(ASK, frit.clone(), &['W'])
+        }]);
+        let queried = run(&[query_at(frit, 20)]);
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(
+            asked.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_GLYPHS, FRAME_DONE]
+        );
+        let set = Set::from_bytes(asked[0].1.clone()).unwrap();
+        assert_eq!(set.cells(), vec![stated]);
+        assert_eq!(queried, [(FRAME_OUTLINE_CELL, cell_bytes(12, 20))]);
+    }
+
     // a cell query names no cell, no codepoint and no range
     #[test]
     fn a_cell_query_at_a_cell_or_naming_codepoints_is_refused() {
         let good = query(frit("")).encode();
         assert!(ServeRequest::read(&mut &good[..]).unwrap().is_some());
+        let high = query_at(frit(""), CELL_SIDE_MAX).encode();
+        let read = ServeRequest::read(&mut &high[..]).unwrap().unwrap();
+        assert_eq!((read.cell.width, read.cell.height), (0, CELL_SIDE_MAX));
         for bad in [
             ServeRequest {
                 cell: CELL,
                 ..query(frit(""))
             },
+            ServeRequest {
+                cell: Cell {
+                    width: 8,
+                    height: 0,
+                },
+                ..query(frit(""))
+            },
+            query_at(frit(""), CELL_SIDE_MAX + 1),
             ServeRequest {
                 codepoints: vec![0x41],
                 clusters: Vec::new(),

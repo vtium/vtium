@@ -11,7 +11,7 @@ mod ttf;
 use std::path::Path;
 
 use parser::Parser;
-use vtium_vitrify::outline::{Outline, OutlineRequest, rasterise};
+use vtium_vitrify::outline::{Outline, OutlineRequest, cell_width, rasterise};
 use vtium_vitrify::resample::{self, METHOD};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-vitrify");
@@ -55,6 +55,58 @@ fn the_first_outline_font_sets_the_cell() {
     let s = &o.strikes[0];
     let at = |c| s.map.iter().find(|m| m.0 == c).map(|m| m.1);
     assert_eq!(at(0x41), at(0xe0a0));
+}
+
+// ADR-1200 D17: an outline font's own cell is as wide as the W rule gives
+// at the height asked, the widest of the faces given, as the C reference
+// took the larger of its regular and bold faces' cells. Test Mono's W
+// advances 600 of 1000 units and the bold one's 700: at 16 pixels, 15.5
+// to the em, 9.3 inked over 10 pixels and 10.85 over 11
+#[test]
+fn an_outline_cell_is_as_wide_as_the_widest_faces_w() {
+    let regular = ttf::test_mono().build();
+    let mut bold = ttf::test_mono();
+    bold.glyphs[3] = ttf::Glyph::rect(700, 0, 0, 700, 700);
+    let bold = bold.build();
+    let (r, b) = ((&regular[..], "Test Mono"), (&bold[..], "Test Mono"));
+    assert_eq!(cell_width(&[r], 16), Ok(10));
+    assert_eq!(cell_width(&[b], 16), Ok(11));
+    assert_eq!(cell_width(&[r, b], 16), Ok(11));
+    assert_eq!(cell_width(&[b, r], 16), Ok(11));
+    // the strike rasterise draws at a width of 0 takes the same width
+    let o = rasterise(&request(&[(0, 16)], &[])).expect("rasterised");
+    assert_eq!(o.strikes[0].width, 10);
+    // a face that cannot be read fails the answer, and so does no face or
+    // a height of 0
+    let other = cell_width(&[r, (&regular[..], "Other Sans")], 16).expect_err("another family");
+    assert!(other.contains("Other Sans"), "{other}");
+    assert!(cell_width(&[], 16).is_err());
+    assert!(cell_width(&[r], 0).is_err());
+}
+
+// The W rule on DejaVu Sans Mono as the machine installs it: 9 wide at 16
+// pixels and 12 at 22, the cells the C reference's FreeType backend gave
+// it. It reads a font outside vtium's tree, so it runs only when asked:
+// `cargo test -p vtium-vitrify --test outline -- --ignored`
+#[test]
+#[ignore = "reads DejaVu Sans Mono from the machine's fonts"]
+fn dejavu_sans_mono_takes_the_w_rules_cell() {
+    let read = |file: &str| {
+        ["/usr/share/fonts/TTF", "/usr/share/fonts/truetype/dejavu"]
+            .into_iter()
+            .map(|dir| Path::new(dir).join(file))
+            .find(|p| p.is_file())
+            .map(|p| std::fs::read(p).expect("read"))
+            .expect("DejaVu Sans Mono installed")
+    };
+    let (regular, bold) = (read("DejaVuSansMono.ttf"), read("DejaVuSansMono-Bold.ttf"));
+    let face = (&regular[..], "DejaVu Sans Mono");
+    assert_eq!(cell_width(&[face], 16), Ok(9));
+    assert_eq!(cell_width(&[face], 22), Ok(12));
+    // the bold face's W is the regular one's, so it takes the same cell
+    let both = [face, (&bold[..], "DejaVu Sans Mono")];
+    assert_eq!(cell_width(&both, 16), Ok(9));
+    assert_eq!(cell_width(&both, 22), Ok(12));
 }
 
 #[test]
