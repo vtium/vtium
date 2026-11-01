@@ -63,7 +63,9 @@ use drm_ffi::{
 use rustix::io::Errno;
 
 use super::Mode;
-use super::kms::{Connector, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources};
+use super::kms::{
+    Connector, ConnectorRead, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources,
+};
 
 pub(crate) const PRIMARY: u64 = 1;
 pub(crate) const CURSOR: u64 = 2;
@@ -141,6 +143,12 @@ pub(crate) struct State {
     /// Objects whose properties cannot be read: the read fails with
     /// EFAULT.
     pub(crate) unreadable: Vec<u32>,
+    /// Objects given this many more properties than their own, named
+    /// `EXTRA0` on.
+    pub(crate) extra_props: BTreeMap<u32, usize>,
+    /// The connectors probed, one entry a probe, as a read of a connector
+    /// with no room for modes probes it.
+    pub(crate) probes: Vec<u32>,
     /// Planes whose possible CRTCs cannot be read, and the reads that
     /// fail for every object: `planes`, `crtc_mode` and `cap`. Each fails
     /// with EIO.
@@ -330,6 +338,31 @@ pub(crate) enum BufferCall {
     DestroyDumb(u32),
 }
 
+/// A read of a list, after which a test can change the card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ListRead {
+    /// A read of a connector's modes and encoders.
+    Connector(u32),
+    /// A read of an object's properties.
+    Properties(u32),
+    /// A read of the card's planes.
+    Planes,
+}
+
+/// A change a test makes to the card.
+type Change = Box<dyn FnOnce(&mut State)>;
+
+/// Changes to make to the card, each once, right after a read.
+#[derive(Default)]
+struct Between(RefCell<Vec<(ListRead, Change)>>);
+
+impl std::fmt::Debug for Between {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let reads: Vec<ListRead> = self.0.borrow().iter().map(|(r, _)| *r).collect();
+        f.debug_tuple("Between").field(&reads).finish()
+    }
+}
+
 /// The bytes of each dumb buffer, by handle: what its mappings wrote.
 type Memory = Rc<RefCell<BTreeMap<u32, Vec<u8>>>>;
 
@@ -372,6 +405,7 @@ pub(crate) struct FakeCard {
     next: Cell<u32>,
     /// Property names by id; ids are given per name.
     names: RefCell<Vec<String>>,
+    between: Between,
     /// A socket pair: a byte written to the one makes the other, which
     /// the loop watches, readable while flip events wait.
     events: (Rc<OwnedFd>, UnixStream),
@@ -391,6 +425,7 @@ impl Default for FakeCard {
             memory: Memory::default(),
             next: Cell::new(1000),
             names: RefCell::default(),
+            between: Between::default(),
             events: (Rc::new(OwnedFd::from(watched)), writer),
         }
     }
@@ -546,6 +581,25 @@ impl FakeCard {
         self.memory.borrow().get(&handle).cloned()
     }
 
+    /// Makes `change` to the card right after the next `read`, as an
+    /// object can change between the read that sizes a list and the read
+    /// that fills it: a connector torn down and its id given to another,
+    /// or a plane added.
+    pub(crate) fn after_read(&self, read: ListRead, change: impl FnOnce(&mut State) + 'static) {
+        self.between.0.borrow_mut().push((read, Box::new(change)));
+    }
+
+    /// Makes the first change waiting for `read`.
+    fn changes_after(&self, read: ListRead) {
+        let mut between = self.between.0.borrow_mut();
+        let Some(at) = between.iter().position(|(r, _)| *r == read) else {
+            return;
+        };
+        let (_, change) = between.remove(at);
+        drop(between);
+        change(&mut self.state.borrow_mut());
+    }
+
     pub(crate) fn state(&self) -> std::cell::RefMut<'_, State> {
         self.state.borrow_mut()
     }
@@ -621,6 +675,64 @@ impl FakeCard {
     fn prop_name(&self, id: u32) -> String {
         let at = usize::try_from(id - 10_000).unwrap_or(usize::MAX);
         self.names.borrow().get(at).cloned().unwrap_or_default()
+    }
+
+    /// Every property of object `id`, its own and those
+    /// [`State::extra_props`] gives it.
+    fn object_props(&self, id: u32, kind: Object) -> io::Result<Vec<Property>> {
+        let mut props = self.own_props(id, kind)?;
+        let extra = self.state.borrow().extra_props.get(&id).copied();
+        for n in 0..extra.unwrap_or(0) {
+            props.extend(self.props(&[(format!("EXTRA{n}").as_str(), 0)]));
+        }
+        Ok(props)
+    }
+
+    /// The properties object `id` has of its own.
+    fn own_props(&self, id: u32, kind: Object) -> io::Result<Vec<Property>> {
+        let s = self.state.borrow();
+        if s.unreadable.contains(&id) {
+            return Err(err(Errno::FAULT));
+        }
+        match kind {
+            Object::Connector => {
+                let dpms = *s.dpms.get(&id).ok_or_else(|| err(Errno::NOENT))?;
+                let with = !s.no_dpms.contains(&id);
+                let path = s.paths.get(&id).copied();
+                drop(s);
+                let names: Vec<(&str, u64)> = std::iter::once(("CRTC_ID", 0))
+                    .chain(with.then_some(("DPMS", dpms)))
+                    .chain(path.map(|b| ("PATH", u64::from(b))))
+                    .collect();
+                Ok(self.props(&names))
+            }
+            Object::Crtc => {
+                let active = u64::from(s.active.get(&id).copied().unwrap_or(false));
+                drop(s);
+                Ok(self.props(&[("MODE_ID", 0), ("ACTIVE", active)]))
+            }
+            Object::Plane => {
+                let plane = s
+                    .planes
+                    .get(&id)
+                    .cloned()
+                    .ok_or_else(|| err(Errno::NOENT))?;
+                let crtc = u64::from(s.plane_crtc.get(&id).copied().unwrap_or(0));
+                drop(s);
+                let mut names: Vec<(&str, u64)> = PLANE_PROPS
+                    .iter()
+                    .map(|&n| (n, if n == "CRTC_ID" { crtc } else { 0 }))
+                    .collect();
+                names.push(("type", plane.kind));
+                if plane.damage {
+                    names.push(("FB_DAMAGE_CLIPS", 0));
+                }
+                if plane.kind == CURSOR {
+                    names.extend([("HOTSPOT_X", 0), ("HOTSPOT_Y", 0)]);
+                }
+                Ok(self.props(&names))
+            }
+        }
     }
 
     fn props(&self, names: &[(&str, u64)]) -> Vec<Property> {
@@ -732,12 +844,40 @@ impl Kms for FakeCard {
         })
     }
 
-    fn connector(&self, id: u32) -> io::Result<Connector> {
-        let s = self.state.borrow();
-        s.connectors
+    fn read_connector(
+        &self,
+        id: u32,
+        modes: &mut [Mode],
+        encoders: &mut [u32],
+    ) -> io::Result<ConnectorRead> {
+        let mut s = self.state.borrow_mut();
+        let c = s
+            .connectors
             .get(&id)
             .cloned()
-            .ok_or_else(|| err(Errno::NOENT))
+            .ok_or_else(|| err(Errno::NOENT))?;
+        if modes.is_empty() {
+            s.probes.push(id);
+        }
+        drop(s);
+        // The kernel copies each list only into a buffer that holds all
+        // of it (`drm_mode_getconnector`).
+        if let Some(to) = modes.get_mut(..c.modes.len()) {
+            to.copy_from_slice(&c.modes);
+        }
+        if let Some(to) = encoders.get_mut(..c.encoders.len()) {
+            to.copy_from_slice(&c.encoders);
+        }
+        self.changes_after(ListRead::Connector(id));
+        Ok(ConnectorRead {
+            kind: c.kind,
+            kind_id: c.kind_id,
+            connected: c.connected,
+            mm: c.mm,
+            encoder: c.encoder,
+            modes: c.modes.len(),
+            encoders: c.encoders.len(),
+        })
     }
 
     fn encoder(&self, id: u32) -> io::Result<Encoder> {
@@ -755,12 +895,18 @@ impl Kms for FakeCard {
         Ok(self.state.borrow().crtc_modes.get(&id).copied())
     }
 
-    fn planes(&self) -> io::Result<Vec<u32>> {
+    fn read_planes(&self, ids: &mut [u32]) -> io::Result<usize> {
         let s = self.state.borrow();
         if s.failing.contains(&"planes") {
             return Err(err(Errno::IO));
         }
-        Ok(s.planes.keys().copied().collect())
+        let planes: Vec<u32> = s.planes.keys().copied().collect();
+        drop(s);
+        for (to, &plane) in ids.iter_mut().zip(&planes) {
+            *to = plane;
+        }
+        self.changes_after(ListRead::Planes);
+        Ok(planes.len())
     }
 
     fn plane_crtcs(&self, id: u32) -> io::Result<u32> {
@@ -774,50 +920,30 @@ impl Kms for FakeCard {
             .ok_or_else(|| err(Errno::NOENT))
     }
 
-    fn properties(&self, id: u32, kind: Object) -> io::Result<Vec<Property>> {
-        let s = self.state.borrow();
-        if s.unreadable.contains(&id) {
-            return Err(err(Errno::FAULT));
+    fn read_properties(
+        &self,
+        id: u32,
+        kind: Object,
+        ids: &mut [u32],
+        values: &mut [u64],
+    ) -> io::Result<usize> {
+        let props = self.object_props(id, kind)?;
+        for ((to, value), p) in ids.iter_mut().zip(values.iter_mut()).zip(&props) {
+            *to = p.id;
+            *value = p.value;
         }
-        match kind {
-            Object::Connector => {
-                let dpms = *s.dpms.get(&id).ok_or_else(|| err(Errno::NOENT))?;
-                let with = !s.no_dpms.contains(&id);
-                let path = s.paths.get(&id).copied();
-                drop(s);
-                let names: Vec<(&str, u64)> = std::iter::once(("CRTC_ID", 0))
-                    .chain(with.then_some(("DPMS", dpms)))
-                    .chain(path.map(|b| ("PATH", u64::from(b))))
-                    .collect();
-                Ok(self.props(&names))
-            }
-            Object::Crtc => {
-                let active = u64::from(s.active.get(&id).copied().unwrap_or(false));
-                drop(s);
-                Ok(self.props(&[("MODE_ID", 0), ("ACTIVE", active)]))
-            }
-            Object::Plane => {
-                let plane = s
-                    .planes
-                    .get(&id)
-                    .cloned()
-                    .ok_or_else(|| err(Errno::NOENT))?;
-                let crtc = u64::from(s.plane_crtc.get(&id).copied().unwrap_or(0));
-                drop(s);
-                let mut names: Vec<(&str, u64)> = PLANE_PROPS
-                    .iter()
-                    .map(|&n| (n, if n == "CRTC_ID" { crtc } else { 0 }))
-                    .collect();
-                names.push(("type", plane.kind));
-                if plane.damage {
-                    names.push(("FB_DAMAGE_CLIPS", 0));
-                }
-                if plane.kind == CURSOR {
-                    names.extend([("HOTSPOT_X", 0), ("HOTSPOT_Y", 0)]);
-                }
-                Ok(self.props(&names))
-            }
-        }
+        self.changes_after(ListRead::Properties(id));
+        Ok(props.len())
+    }
+
+    fn property_name(&self, id: u32) -> io::Result<String> {
+        let at = id.checked_sub(10_000).ok_or_else(|| err(Errno::NOENT))?;
+        let at = usize::try_from(at).map_err(|_| err(Errno::NOENT))?;
+        self.names
+            .borrow()
+            .get(at)
+            .cloned()
+            .ok_or_else(|| err(Errno::NOENT))
     }
 
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb> {

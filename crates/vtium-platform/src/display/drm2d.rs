@@ -1045,14 +1045,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
         let mut needs = scan != Scan::Hotplug;
         for &id in &res.connectors {
-            // A connector the kernel lists can be gone by the time it is
-            // read, as during a monitor's power cycle.
-            let conn = match self.card.connector(id) {
-                Ok(conn) => conn,
-                Err(e) => {
-                    log::debug!("connector {id} is gone: {e}");
-                    continue;
-                }
+            let Some(conn) = self.connector(id) else {
+                continue;
             };
             if !conn.connected || conn.modes.is_empty() {
                 continue;
@@ -1066,7 +1060,19 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 d.available = true;
                 continue;
             }
-            let found = self.find(&conn);
+            // A connector whose properties cannot be read is left unbound
+            // and read again at the next scan: its `PATH` belongs to its
+            // identity, and an atomic commit needs its `CRTC_ID`.
+            let found = match self.find(&conn) {
+                Ok(found) => found,
+                Err(e) => {
+                    log::warn!(
+                        "cannot read the properties of connector {}: {e}",
+                        connector_name(conn.kind, conn.kind_id)
+                    );
+                    continue;
+                }
+            };
             let identity = self.identify(&found);
             if self
                 .dark_policy
@@ -1135,8 +1141,27 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
     }
 
-    /// What a scan finds of connector `conn`.
-    fn find(&self, conn: &Connector) -> Found {
+    /// Connector `id`, or `None` where the card cannot give it. One gone
+    /// since the card listed it, as during a monitor's power cycle, is
+    /// logged at debug level; any other failure, a read refused because
+    /// the connector changed between its two reads among them, is a
+    /// warning.
+    fn connector(&self, id: u32) -> Option<Connector> {
+        self.card
+            .connector(id)
+            .inspect_err(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    log::debug!("connector {id} is gone: {e}");
+                } else {
+                    log::warn!("cannot read connector {id}: {e}");
+                }
+            })
+            .ok()
+    }
+
+    /// What a scan finds of connector `conn`, or the failure to read its
+    /// properties.
+    fn find(&self, conn: &Connector) -> io::Result<Found> {
         let name = connector_name(conn.kind, conn.kind_id);
         let current = (conn.encoder != 0)
             .then(|| self.encoder(conn.encoder))
@@ -1150,19 +1175,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 .ok()
                 .flatten()
         });
-        let props = self
-            .card
-            .properties(conn.id, Object::Connector)
-            .inspect_err(|e| {
-                log::warn!("cannot read the properties of connector {name}: {e}");
-            })
-            .unwrap_or_default();
+        let props = self.card.properties(conn.id, Object::Connector)?;
         let on = match current.map(|e| e.crtc) {
             _ if self.legacy => value(&props, "DPMS").is_none_or(|d| d == 0),
             Some(crtc) => self
                 .card
                 .properties(crtc, Object::Crtc)
-                .inspect_err(|e| log::debug!("cannot read the properties of CRTC {crtc}: {e}"))
+                .inspect_err(|e| log::warn!("cannot read the properties of CRTC {crtc}: {e}"))
                 .ok()
                 .and_then(|p| value(&p, "ACTIVE"))
                 .is_none_or(|a| a != 0),
@@ -1170,7 +1189,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         };
         let edid = self.card.sysfs().and_then(|dir| Edid::sysfs(&dir, &name));
         let path = self.path(&name, &props);
-        Found {
+        Ok(Found {
             name,
             current,
             visible: on && shown.is_some(),
@@ -1178,7 +1197,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             props,
             edid,
             path,
-        }
+        })
     }
 
     /// The text of connector `name`'s `PATH` property, read from the blob

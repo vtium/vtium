@@ -5,20 +5,35 @@
 //! `request_numbers_match_the_headers` reads the headers and fails when one
 //! differs. The fbdev, VT and keyboard numbers predate size encoding, so
 //! nothing else would catch a wrong one. DRM's ioctls come wrapped from
-//! `drm-ffi`, all but GETRESOURCES and GETPROPBLOB, which it wraps
-//! unsoundly.
+//! `drm-ffi`, all but the reads of lists, which it wraps unsoundly:
+//! GETRESOURCES, GETPROPBLOB, GETCONNECTOR, OBJ_GETPROPERTIES,
+//! GETPROPERTY and GETPLANERESOURCES.
 
 use std::ffi::{c_int, c_short};
 use std::io;
 use std::os::fd::BorrowedFd;
 
-use drm_ffi::{drm_mode_card_res, drm_mode_get_blob};
+use drm_ffi::{
+    drm_mode_card_res, drm_mode_get_blob, drm_mode_get_connector, drm_mode_get_plane_res,
+    drm_mode_get_property, drm_mode_modeinfo, drm_mode_obj_get_properties,
+};
 use rustix::ioctl::{Getter, IntegerSetter, Opcode, Setter, Updater, ioctl, opcode};
 
 /// `DRM_IOCTL_MODE_GETRESOURCES`, `drm/drm.h`.
 const DRM_IOCTL_MODE_GETRESOURCES: Opcode = opcode::read_write::<drm_mode_card_res>(b'd', 0xA0);
 /// `DRM_IOCTL_MODE_GETPROPBLOB`, `drm/drm.h`.
 const DRM_IOCTL_MODE_GETPROPBLOB: Opcode = opcode::read_write::<drm_mode_get_blob>(b'd', 0xAC);
+/// `DRM_IOCTL_MODE_GETCONNECTOR`, `drm/drm.h`.
+const DRM_IOCTL_MODE_GETCONNECTOR: Opcode =
+    opcode::read_write::<drm_mode_get_connector>(b'd', 0xA7);
+/// `DRM_IOCTL_MODE_GETPROPERTY`, `drm/drm.h`.
+const DRM_IOCTL_MODE_GETPROPERTY: Opcode = opcode::read_write::<drm_mode_get_property>(b'd', 0xAA);
+/// `DRM_IOCTL_MODE_GETPLANERESOURCES`, `drm/drm.h`.
+const DRM_IOCTL_MODE_GETPLANERESOURCES: Opcode =
+    opcode::read_write::<drm_mode_get_plane_res>(b'd', 0xB5);
+/// `DRM_IOCTL_MODE_OBJ_GETPROPERTIES`, `drm/drm.h`.
+const DRM_IOCTL_MODE_OBJ_GETPROPERTIES: Opcode =
+    opcode::read_write::<drm_mode_obj_get_properties>(b'd', 0xB9);
 
 /// `FBIOGET_VSCREENINFO`, `linux/fb.h`.
 const FBIOGET_VSCREENINFO: Opcode = 0x4600;
@@ -188,6 +203,170 @@ pub(crate) fn drm_get_blob(fd: BorrowedFd<'_>, id: u32, data: &mut [u8]) -> io::
         )?;
     }
     usize::try_from(blob.length).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+}
+
+/// One `DRM_IOCTL_MODE_GETCONNECTOR` of connector `id`: its modes into
+/// `modes` and its encoders into `encoders`, each list only where its
+/// buffer holds the whole of it, and the connector's counts, which can be
+/// larger. An empty `modes` makes the kernel probe the connector first.
+/// None of the connector's properties is asked for. drm-ffi's
+/// `get_connector` sets its lists' lengths to the counts the kernel
+/// reports, past their buffers when the connector changes between its
+/// calls (vtium/vtium#192).
+pub(crate) fn drm_get_connector(
+    fd: BorrowedFd<'_>,
+    id: u32,
+    modes: &mut [drm_mode_modeinfo],
+    encoders: &mut [u32],
+) -> io::Result<drm_mode_get_connector> {
+    let mut conn = get_connector(id, modes, encoders)?;
+    #[expect(unsafe_code, reason = "an ioctl drm-ffi wraps unsoundly")]
+    // SAFETY: GETCONNECTOR reads and writes one `struct
+    // drm_mode_get_connector`, which drm-sys lays out from the header. The
+    // kernel writes `count_modes` modes at `modes_ptr` and
+    // `count_encoders` ids at `encoders_ptr` only where each count is at
+    // least the list's length, and `get_connector` sets each pointer and
+    // count to the start and length of its slice, so it writes at most
+    // each slice. It writes nothing at the property pointers, whose count
+    // is 0.
+    unsafe {
+        ioctl(
+            fd,
+            Updater::<DRM_IOCTL_MODE_GETCONNECTOR, drm_mode_get_connector>::new(&mut conn),
+        )?;
+    }
+    Ok(conn)
+}
+
+/// One `DRM_IOCTL_MODE_OBJ_GETPROPERTIES` of object `id` of type `kind`,
+/// a `DRM_MODE_OBJECT_*`: its property ids into `ids` and their values
+/// into `values`, at most the shorter slice's length of them, and the
+/// count the object has, which can be larger. drm-ffi's `get_properties`
+/// sets its lists' lengths to that count, past their buffers when the
+/// object gains a property between its calls (vtium/vtium#192).
+pub(crate) fn drm_get_properties(
+    fd: BorrowedFd<'_>,
+    id: u32,
+    kind: u32,
+    ids: &mut [u32],
+    values: &mut [u64],
+) -> io::Result<usize> {
+    let mut props = get_properties(id, kind, ids, values)?;
+    #[expect(unsafe_code, reason = "an ioctl drm-ffi wraps unsoundly")]
+    // SAFETY: OBJ_GETPROPERTIES reads and writes one `struct
+    // drm_mode_obj_get_properties`, which drm-sys lays out from the header.
+    // The kernel writes at most `count_props` ids at `props_ptr` and as
+    // many values at `prop_values_ptr`, and `get_properties` sets the
+    // count to the shorter slice's length and each pointer to the start
+    // of its slice.
+    unsafe {
+        ioctl(
+            fd,
+            Updater::<DRM_IOCTL_MODE_OBJ_GETPROPERTIES, drm_mode_obj_get_properties>::new(
+                &mut props,
+            ),
+        )?;
+    }
+    usize::try_from(props.count_props).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+}
+
+/// One `DRM_IOCTL_MODE_GETPROPERTY` of property `id`, asking for none of
+/// its values or enumerators: its name and flags. drm-ffi's
+/// `get_property` asks a second time for the lists and sets their lengths
+/// to the counts the kernel reports (vtium/vtium#192).
+pub(crate) fn drm_get_property(fd: BorrowedFd<'_>, id: u32) -> io::Result<drm_mode_get_property> {
+    let mut prop = get_property(id);
+    #[expect(unsafe_code, reason = "an ioctl drm-ffi wraps unsoundly")]
+    // SAFETY: GETPROPERTY reads and writes one `struct
+    // drm_mode_get_property`, which drm-sys lays out from the header. The
+    // kernel writes values only below `count_values` and enumerators only
+    // below `count_enum_blobs`, both of which `get_property` sets to 0, so
+    // it writes nothing through the null pointers.
+    unsafe {
+        ioctl(
+            fd,
+            Updater::<DRM_IOCTL_MODE_GETPROPERTY, drm_mode_get_property>::new(&mut prop),
+        )?;
+    }
+    Ok(prop)
+}
+
+/// One `DRM_IOCTL_MODE_GETPLANERESOURCES`: the card's plane ids into
+/// `ids`, at most its length of them, and the count the card has, which
+/// can be larger. drm-ffi's `get_plane_resources` sets its list's length
+/// to that count, past its buffer when a plane is added between its calls
+/// (vtium/vtium#192).
+pub(crate) fn drm_get_planes(fd: BorrowedFd<'_>, ids: &mut [u32]) -> io::Result<usize> {
+    let mut res = get_plane_res(ids)?;
+    #[expect(unsafe_code, reason = "an ioctl drm-ffi wraps unsoundly")]
+    // SAFETY: GETPLANERESOURCES reads and writes one `struct
+    // drm_mode_get_plane_res`, which drm-sys lays out from the header. The
+    // kernel writes at most `count_planes` ids at `plane_id_ptr`, which
+    // `get_plane_res` sets to the length and start of the slice.
+    unsafe {
+        ioctl(
+            fd,
+            Updater::<DRM_IOCTL_MODE_GETPLANERESOURCES, drm_mode_get_plane_res>::new(&mut res),
+        )?;
+    }
+    usize::try_from(res.count_planes).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+}
+
+/// A slice's length as the count a DRM ioctl's argument gives it.
+fn count<T>(list: &[T]) -> io::Result<u32> {
+    u32::try_from(list.len()).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
+}
+
+/// GETCONNECTOR's argument for connector `id`: each list's pointer at its
+/// slice and its count the slice's length, and no room for properties.
+fn get_connector(
+    id: u32,
+    modes: &mut [drm_mode_modeinfo],
+    encoders: &mut [u32],
+) -> io::Result<drm_mode_get_connector> {
+    Ok(drm_mode_get_connector {
+        connector_id: id,
+        modes_ptr: modes.as_mut_ptr().expose_provenance() as u64,
+        count_modes: count(modes)?,
+        encoders_ptr: encoders.as_mut_ptr().expose_provenance() as u64,
+        count_encoders: count(encoders)?,
+        ..drm_mode_get_connector::default()
+    })
+}
+
+/// OBJ_GETPROPERTIES' argument for object `id` of type `kind`: the
+/// pointers at the slices and the count the shorter one's length.
+fn get_properties(
+    id: u32,
+    kind: u32,
+    ids: &mut [u32],
+    values: &mut [u64],
+) -> io::Result<drm_mode_obj_get_properties> {
+    Ok(drm_mode_obj_get_properties {
+        props_ptr: ids.as_mut_ptr().expose_provenance() as u64,
+        prop_values_ptr: values.as_mut_ptr().expose_provenance() as u64,
+        count_props: count(ids)?.min(count(values)?),
+        obj_id: id,
+        obj_type: kind,
+    })
+}
+
+/// GETPROPERTY's argument for property `id`, with no room for its values
+/// or enumerators.
+fn get_property(id: u32) -> drm_mode_get_property {
+    drm_mode_get_property {
+        prop_id: id,
+        ..drm_mode_get_property::default()
+    }
+}
+
+/// GETPLANERESOURCES' argument: the pointer at `ids` and the count its
+/// length.
+fn get_plane_res(ids: &mut [u32]) -> io::Result<drm_mode_get_plane_res> {
+    Ok(drm_mode_get_plane_res {
+        plane_id_ptr: ids.as_mut_ptr().expose_provenance() as u64,
+        count_planes: count(ids)?,
+    })
 }
 
 /// GETPROPBLOB's argument for blob `id` into `data`: its pointer at the
@@ -749,6 +928,112 @@ mod tests {
         );
         assert_eq!(size_of::<drm_mode_get_blob>(), 16);
         assert_eq!(DRM_IOCTL_MODE_GETPROPBLOB, 0xC010_64AC);
+        // The list reads: DRM_IOWR of each structure, whose size the
+        // number carries.
+        for (name, number, structure, size, ours) in [
+            (
+                "DRM_IOCTL_MODE_GETCONNECTOR",
+                "0xA7",
+                "drm_mode_get_connector",
+                size_of::<drm_mode_get_connector>(),
+                DRM_IOCTL_MODE_GETCONNECTOR,
+            ),
+            (
+                "DRM_IOCTL_MODE_GETPROPERTY",
+                "0xAA",
+                "drm_mode_get_property",
+                size_of::<drm_mode_get_property>(),
+                DRM_IOCTL_MODE_GETPROPERTY,
+            ),
+            (
+                "DRM_IOCTL_MODE_GETPLANERESOURCES",
+                "0xB5",
+                "drm_mode_get_plane_res",
+                size_of::<drm_mode_get_plane_res>(),
+                DRM_IOCTL_MODE_GETPLANERESOURCES,
+            ),
+            (
+                "DRM_IOCTL_MODE_OBJ_GETPROPERTIES",
+                "0xB9",
+                "drm_mode_obj_get_properties",
+                size_of::<drm_mode_obj_get_properties>(),
+                DRM_IOCTL_MODE_OBJ_GETPROPERTIES,
+            ),
+        ] {
+            let want = [
+                "#define".to_owned(),
+                name.to_owned(),
+                format!("DRM_IOWR({number},"),
+                "struct".to_owned(),
+                format!("{structure})"),
+            ];
+            assert!(
+                header("drm/drm.h")
+                    .lines()
+                    .any(|l| l.split_whitespace().collect::<Vec<_>>() == want),
+                "{name}"
+            );
+            let number = u8::from_str_radix(number.trim_start_matches("0x"), 16)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let size = Opcode::try_from(size).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(
+                ours,
+                (3 << 30) | (size << 16) | (Opcode::from(b'd') << 8) | Opcode::from(number),
+                "{name}"
+            );
+        }
+        // The kernel's structures, as the header lays them out.
+        assert_eq!(size_of::<drm_mode_get_connector>(), 80);
+        assert_eq!(size_of::<drm_mode_get_property>(), 64);
+        assert_eq!(size_of::<drm_mode_get_plane_res>(), 16);
+        assert_eq!(size_of::<drm_mode_obj_get_properties>(), 32);
+    }
+
+    // Each list read asks for each list at its slice, with the slice's
+    // length as its count, and for nothing it gives no slice for.
+    #[test]
+    fn each_list_read_asks_at_its_buffers_with_their_lengths() {
+        let mut modes = [drm_mode_modeinfo::default(); 3];
+        let mut encoders = [0u32; 2];
+        let conn = get_connector(41, &mut modes, &mut encoders).expect("small slices");
+        assert_eq!(conn.connector_id, 41);
+        assert_eq!(
+            (conn.modes_ptr, conn.count_modes),
+            (modes.as_ptr().addr() as u64, 3)
+        );
+        assert_eq!(
+            (conn.encoders_ptr, conn.count_encoders),
+            (encoders.as_ptr().addr() as u64, 2)
+        );
+        // No properties are asked for.
+        assert_eq!(
+            (conn.props_ptr, conn.prop_values_ptr, conn.count_props),
+            (0, 0, 0)
+        );
+        let conn = get_connector(41, &mut [], &mut []).expect("empty slices");
+        assert_eq!((conn.count_modes, conn.count_encoders), (0, 0));
+
+        let (mut ids, mut values) = ([0u32; 4], [0u64; 3]);
+        let props = get_properties(300, 0xeeee_eeee, &mut ids, &mut values).expect("small slices");
+        assert_eq!((props.obj_id, props.obj_type), (300, 0xeeee_eeee));
+        assert_eq!(props.props_ptr, ids.as_ptr().addr() as u64);
+        assert_eq!(props.prop_values_ptr, values.as_ptr().addr() as u64);
+        // The shorter slice's length, so neither list is written past.
+        assert_eq!(props.count_props, 3);
+
+        // A property's name is read with no room for its values or
+        // enumerators, so the kernel writes neither.
+        let prop = get_property(10_001);
+        assert_eq!(prop.prop_id, 10_001);
+        assert_eq!((prop.values_ptr, prop.count_values), (0, 0));
+        assert_eq!((prop.enum_blob_ptr, prop.count_enum_blobs), (0, 0));
+
+        let mut planes = [0u32; 5];
+        let res = get_plane_res(&mut planes).expect("a small slice");
+        assert_eq!(
+            (res.plane_id_ptr, res.count_planes),
+            (planes.as_ptr().addr() as u64, 5)
+        );
     }
 
     #[test]
