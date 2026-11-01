@@ -314,6 +314,34 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
     std::fs::remove_dir_all(d).ok();
 }
 
+// ADR-1401 D7: a policy line vtium cannot read makes the file closed and
+// broken; `vtium check-config` names the line, says the whole file drops
+// under the closed policy, and exits 1
+// covers: platform.heads.policy
+#[test]
+fn check_config_names_a_policy_line_it_cannot_read_and_exits_1() {
+    let (d, file) = head_file(
+        "unreadable-policy",
+        "version = 1\npolicy = opne\n[head desk]\n[rules]\ndisplay * -> desk\n",
+    );
+    let out = check(&d, &[]);
+    assert_eq!(out.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&out.stderr);
+    let prefix = format!("{}:2: ", file.display());
+    let named: Vec<&str> = err.lines().filter(|l| l.starts_with(&prefix)).collect();
+    assert!(
+        named
+            .iter()
+            .any(|l| l.contains("`policy` cannot be \"opne\"")),
+        "{err}"
+    );
+    assert!(
+        named.iter().any(|l| l.contains("closed and broken")),
+        "{err}"
+    );
+    std::fs::remove_dir_all(d).ok();
+}
+
 // ADR-1401 D7: each error says what it drops, and standard output ends on
 // what a start does with the file and the policy it states
 // covers: platform.heads.rules

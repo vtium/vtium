@@ -392,3 +392,54 @@ fn a_hidden_character_before_policy_is_shown_in_its_error() {
         );
     }
 }
+
+// the file bound cutting a `policy` line inside a section closes nothing:
+// the rule names the lines above the first section, so the file is
+// dropped whole under its own policy, open here, and the shipped default
+// runs (ADR-1401 D7)
+// covers: platform.heads.policy
+#[test]
+fn a_policy_line_the_bound_cuts_inside_a_section_closes_nothing() {
+    let mut text = String::from("version = 1\n[head a]\n");
+    while text.len() + 30 <= FILE_MAX - 10 {
+        text.push_str("# padding past the bound ..\n");
+    }
+    while text.len() < FILE_MAX - 10 {
+        text.insert(text.len() - 1, 'y');
+    }
+    text.push_str("policy = closed\n");
+    let r = reading(text.as_bytes());
+    assert!(
+        !r.policies.contains(&PolicyLine::Unreadable),
+        "{:?}",
+        r.policies
+    );
+    let o = outcome(&r);
+    assert_eq!(
+        (o.runs, o.policy, o.line),
+        (Runs::Builtin, Policy::Open, Some(Line::Skipped))
+    );
+}
+
+// the text a policy line's error quotes is escaped, so a format character
+// in the key or the value never reaches the screen (ADR-1401 D7)
+// covers: platform.heads.policy
+#[test]
+fn a_policy_lines_error_escapes_what_it_quotes() {
+    for (line, hidden, escaped) in [
+        ("policy\u{202e}x = open", '\u{202e}', "\\u{202e}"),
+        ("policy = op\u{200b}en", '\u{200b}', "\\u{200b}"),
+    ] {
+        let r = reading(format!("version = 1\n{line}\n{BODY}").as_bytes());
+        assert_eq!(outcome(&r).runs, Runs::Off, "{escaped}");
+        let shown = r
+            .errors
+            .errors
+            .iter()
+            .find(|e| matches!(e.problem, Problem::UnreadablePolicy(_)))
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        assert!(shown.contains(escaped), "{shown}");
+        assert!(!shown.contains(hidden), "{shown}");
+    }
+}

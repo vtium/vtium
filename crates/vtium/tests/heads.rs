@@ -3145,7 +3145,9 @@ fn d7_row(row: &Row) {
             "{test}: drawn"
         );
     }
-    if row.text.contains("policy = closed") {
+    // a policy line vtium cannot read closes the file too, so no keyboard
+    // delivers anything
+    if row.text.contains("policy = closed") || row.line == Some(CLOSED_OFF) {
         d7_closed_input(&mut s, row);
     }
     assert_eq!(file.listing(), before, "{test}: the file as it was");
