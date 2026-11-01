@@ -358,19 +358,20 @@ vtium's performance targets are its own, set and measured on vtium (the maintain
 
 ### Passages this record changes
 
-These passages said something this record decides otherwise. Each changes in its owner's change, and this record edits none of them. The first three changed on 2026-11-01, after the maintainer accepted this record:
+These passages said something this record decides otherwise. Each changes in its owner's change, and this record edits none of them. These changed on 2026-11-01, after the maintainer accepted this record:
 
-- **`docs/architecture.md`, the crate tree,** drew vtium-image under the binary alone. It now draws vtium-image under vtium-term, which takes it as an optional dependency (D1, D10), and says that vtium-render reaches its types through vtium-term's frame.
 - **`docs/architecture.md`, "Eviction follows the bytes",** named "a transmission or a placement" as the events that advance the use clock. It now names the command that names an existing image too (D5), as the maintainer's determinism comment does.
 - **ADR-1001, "The frame",** said vtium-image "marks its boxes through `Damage`". It now says that vtium-term marks the boxes the store reports changed (D1), with a dated note.
 
 These wait for their owners:
 
+- **`docs/architecture.md`, the crate tree,** draws vtium-image under the binary alone, as the workspace is built today, and says that this record moves it under vtium-term when the image build lands. The tree changes when that build merges (D1, D10).
+
 - **`docs/c-reference.md` §9** says the C reference bounded "a box of 10,000 cells"; the bound was 10,000 cells a side (`libtsm/src/tsm/tsm-image.c:1899`). Its "Check" and "Not planned" are answered by D5.
 - **`tools/conformance/README.md`** says vtium-replay is built without images. D12 gives it a build with `images` and the features that go with it.
 - **The conformance runner's departures list** gains the draw-order cases D4 names.
 
-> Edited 2026-11-01: the first three passages changed after the maintainer accepted this record. The section was headed "Passages this record changes once accepted" and said each would change "after ADR-1100 is accepted". The earlier text is in git at 1d51e46.
+> Edited 2026-11-01: two of the passages changed after the maintainer accepted this record, and the crate tree waits for the image build, since vtium-term has no vtium-image dependency yet. The section was headed "Passages this record changes once accepted" and said each would change "after ADR-1100 is accepted". The earlier text is in git at 1d51e46.
 
 ### For the operator's check
 

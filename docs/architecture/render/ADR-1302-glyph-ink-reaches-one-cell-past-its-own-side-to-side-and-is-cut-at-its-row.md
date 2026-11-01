@@ -325,6 +325,8 @@ The maintainer accepted this record on 2026-11-01, and each of these passages no
 - ADR-1300 D2: a stored glyph is its ink box (D6); D5 names this record where it names glyph overhang.
 - ADR-1000's `text.overhang` row: its foot and ghostty columns, now answered by this record's evidence.
 
+> Edited 2026-11-01: each passage above took its dated note once the maintainer accepted this record. The sentence before the list read: "This record is proposed, and these passages take dated notes pointing here once the maintainer accepts it:". The earlier text is in git at 1d51e46.
+
 ### For the operator's check
 
 The maintainer answered this section's questions on 2026-11-01 in four rounds (`considered`), and each answer is written into the decision above. One remains, written as the decision until the maintainer confirms or overrules it:
