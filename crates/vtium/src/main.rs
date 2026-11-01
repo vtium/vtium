@@ -1,11 +1,17 @@
 //! vtium: a terminal for the Linux virtual console.
 //!
-//! Start-up runs in the C reference's order (`src/main.c:161-222` at
-//! kmscon b1f7a7c5): the configuration, the loop and its signals, the VT,
-//! the head file (ADR-1401 D3), the seat's devices, the sessions, then the
-//! loop until something asks it to end; at the end the VT switches back,
-//! the loop is served while that is pending, and the VT is put back before
-//! the loop goes.
+//! Start-up reads the configuration and then the head file (ADR-1401 D3),
+//! writes or removes the closed policy's getty marker (`getty.rs`), and
+//! then opens the loop and its signals, the VT, the seat's devices and the
+//! sessions, and runs the loop until something asks it to end; at the end
+//! the VT switches back, the loop is served while that is pending, and the
+//! VT is put back before the loop goes.
+//!
+//! This departs from the C reference's order, which opened the loop, its
+//! signals and the VT right after the configuration (`src/main.c:161-222`
+//! at kmscon b1f7a7c5). vtium reads the head file first because the marker
+//! needs the file's policy before the VT opens, so that a failure opening
+//! the loop or the VT under a closed policy still leaves the marker.
 
 use std::ffi::OsString;
 use std::io;
@@ -97,7 +103,7 @@ fn main() -> ExitCode {
     );
     vtium::getty::mark(
         Path::new(vtium::getty::DIR),
-        path.as_deref().and_then(vtium::getty::vt_number),
+        path.as_deref(),
         heads.outcome.policy,
     );
     let status = match path {
@@ -170,7 +176,8 @@ fn kernel_font(path: &Path) -> Option<ConsoleFont> {
 type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 
 /// Runs the seat on the VT `open` gives, with the head file `heads`
-/// resolved to, until it ends; returns the exit status. It is compiled once, whichever VT it runs on.
+/// resolved to, until it ends; returns the exit status. It is compiled
+/// once, whichever VT it runs on.
 fn run(
     config: config::Config,
     start: Start,

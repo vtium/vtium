@@ -44,7 +44,7 @@ const VT_LAST: u32 = 63;
 /// The number of the VT whose device is at `tty`, read from the device's
 /// numbers, so a path of any spelling names its VT; `None` for a path that
 /// is no VT, a pty or a serial line among them, or that cannot be read.
-pub fn vt_number(tty: &Path) -> Option<u16> {
+fn vt_number(tty: &Path) -> Option<u16> {
     let rdev = rustix::fs::stat(tty).ok()?.st_rdev;
     let vt = minor(rdev);
     (major(rdev) == VT_MAJOR && (1..=VT_LAST).contains(&vt))
@@ -52,14 +52,28 @@ pub fn vt_number(tty: &Path) -> Option<u16> {
         .flatten()
 }
 
-/// Writes the marker of VT `vt` in `dir` under the closed policy, and
-/// removes it under the open one, each logged; a failure is logged and
-/// never stops the start. Without a kernel VT, `vt` is `None` and no
-/// getty can take one, so it does nothing.
-pub fn mark(dir: &Path, vt: Option<u16>, policy: Policy) {
-    let Some(vt) = vt else {
+/// Marks the VT at `tty` in `dir` for `policy`, as `mark_vt` does. Without
+/// a kernel VT, `tty` is `None` and no getty can take one, so it does
+/// nothing. A `tty` that is no VT has no marker, and under the closed
+/// policy vtium logs a warning that it wrote none.
+pub fn mark(dir: &Path, tty: Option<&Path>, policy: Policy) {
+    let Some(tty) = tty else {
         return;
     };
+    match vt_number(tty) {
+        Some(vt) => mark_vt(dir, vt, policy),
+        None if matches!(policy, Policy::Closed) => log::warn!(
+            "{} is no VT, so vtium writes no getty marker for it under the closed policy",
+            tty.display()
+        ),
+        None => {}
+    }
+}
+
+/// Writes the marker of VT `vt` in `dir` under the closed policy, and
+/// removes it under the open one, each logged; a failure is logged and
+/// never stops the start.
+fn mark_vt(dir: &Path, vt: u16, policy: Policy) {
     let marker = path(dir, vt);
     match policy {
         Policy::Closed => match write(dir, &marker) {
@@ -120,7 +134,7 @@ mod tests {
     #[test]
     fn a_closed_file_writes_the_marker_of_its_vt() {
         let dir = scratch("closed");
-        mark(&dir, Some(2), Policy::Closed);
+        mark_vt(&dir, 2, Policy::Closed);
         assert!(path(&dir, 2).is_file(), "the marker of tty2");
         assert_eq!(path(&dir, 2), dir.join("tty2.closed"));
         assert!(!path(&dir, 3).exists(), "another VT's is not written");
@@ -130,7 +144,7 @@ mod tests {
     #[test]
     fn an_open_file_writes_no_marker() {
         let dir = scratch("open");
-        mark(&dir, Some(2), Policy::Open);
+        mark_vt(&dir, 2, Policy::Open);
         assert!(!path(&dir, 2).exists());
     }
 
@@ -138,10 +152,10 @@ mod tests {
     #[test]
     fn a_later_open_run_removes_an_earlier_closed_runs_marker() {
         let dir = scratch("stale");
-        mark(&dir, Some(2), Policy::Closed);
-        mark(&dir, Some(3), Policy::Closed);
+        mark_vt(&dir, 2, Policy::Closed);
+        mark_vt(&dir, 3, Policy::Closed);
         assert!(path(&dir, 2).is_file());
-        mark(&dir, Some(2), Policy::Open);
+        mark_vt(&dir, 2, Policy::Open);
         assert!(!path(&dir, 2).exists(), "the stale marker is removed");
         assert!(path(&dir, 3).is_file(), "another VT's stays");
     }
@@ -149,8 +163,8 @@ mod tests {
     #[test]
     fn a_closed_run_again_keeps_its_marker() {
         let dir = scratch("again");
-        mark(&dir, Some(2), Policy::Closed);
-        mark(&dir, Some(2), Policy::Closed);
+        mark_vt(&dir, 2, Policy::Closed);
+        mark_vt(&dir, 2, Policy::Closed);
         assert!(path(&dir, 2).is_file());
     }
 
@@ -159,6 +173,45 @@ mod tests {
         let dir = scratch("no-vt");
         mark(&dir, None, Policy::Closed);
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn a_path_that_is_no_vt_is_warned_of_under_closed() {
+        let dir = scratch("no-vt-path");
+        logged();
+        mark(&dir, Some(Path::new("/dev/null")), Policy::Closed);
+        assert!(!dir.exists(), "no marker is written");
+        assert_eq!(
+            logged(),
+            ["/dev/null is no VT, so vtium writes no getty marker for it under the closed policy"]
+        );
+        mark(&dir, Some(Path::new("/dev/null")), Policy::Open);
+        assert_eq!(logged(), Vec::<String>::new(), "nothing to keep off");
+    }
+
+    /// The log lines this thread wrote since the last call.
+    fn logged() -> Vec<String> {
+        use std::cell::RefCell;
+        use std::sync::Once;
+        thread_local! {
+            static LINES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+        }
+        struct Capture;
+        impl log::Log for Capture {
+            fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+                true
+            }
+            fn log(&self, record: &log::Record<'_>) {
+                LINES.with(|l| l.borrow_mut().push(record.args().to_string()));
+            }
+            fn flush(&self) {}
+        }
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            log::set_logger(&Capture).unwrap();
+            log::set_max_level(log::LevelFilter::Info);
+        });
+        LINES.with(|l| std::mem::take(&mut *l.borrow_mut()))
     }
 
     #[test]
@@ -215,12 +268,31 @@ mod tests {
             .map(|(body, _)| body)
             .unwrap();
         assert_eq!(source.matches("getty::mark(").count(), 1, "one call");
-        assert!(body.contains("vtium::getty::mark("), "the call is in main");
+        let mark = body.find("vtium::getty::mark(").unwrap();
+        let call = &body[mark..];
+        let call = &call[..call.find(");").unwrap()];
         assert!(
-            body.contains("vtium::getty::vt_number"),
-            "its VT is the path's"
+            call.contains("path.as_deref()"),
+            "it marks the VT at the path vtium opens"
         );
         assert!(!body.contains("Loop::new"), "main opens no loop before it");
+        // Each call of `run_kernel` or `run`, a name that ends in either
+        // and is not part of a longer name.
+        let calls: Vec<usize> = ["run_kernel(", "run("]
+            .iter()
+            .flat_map(|name| body.match_indices(name).map(|(at, _)| at))
+            .filter(|&at| {
+                !body[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == ':')
+            })
+            .collect();
+        assert!(calls.len() >= 2, "main calls run_kernel and run");
+        assert!(
+            calls.iter().all(|&at| mark < at),
+            "main marks before it calls run_kernel or run"
+        );
     }
 
     #[test]
@@ -229,7 +301,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.with_file_name("target");
         std::os::unix::fs::symlink(&target, path(&dir, 2)).unwrap();
-        mark(&dir, Some(2), Policy::Closed);
+        mark_vt(&dir, 2, Policy::Closed);
         assert!(!target.exists(), "nothing is written through the link");
     }
 }
