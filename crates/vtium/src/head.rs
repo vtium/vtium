@@ -55,6 +55,10 @@ pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
 /// file's, no keyboard found, the anti-lockout guard's and a rescue.
 pub const NOTICES_MAX: usize = 4;
 
+/// The most errors the panic screen lists, the file's first (ADR-1401
+/// D7); it counts the rest. `vtium check-config` lists them all.
+pub const PANIC_ERRORS_MAX: usize = 3;
+
 /// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
 const WHEEL_LINES: usize = 3;
 
@@ -544,8 +548,12 @@ impl Head {
     /// What vtium draws over the head's frames: one box at the top holding
     /// the on-screen display's line and the notices beneath it, a problem
     /// while a notice is in it, and the on-screen display's dot, in the
-    /// colors kmscon.conf sets.
+    /// colors kmscon.conf sets. The notice screen draws its notice alone,
+    /// as a report.
     pub(crate) fn overlay(&self) -> crate::term::Overlay {
+        if let Some(text) = self.notice().filter(|_| self.notice_only) {
+            return crate::term::Overlay::alone(text, self.overlay_colors);
+        }
         let notices: Vec<&str> = self.notice().into_iter().collect();
         crate::term::Overlay::new(
             self.status.as_deref(),
@@ -1077,6 +1085,8 @@ pub struct Start {
     /// policy, so no input is delivered and the display guard lights the
     /// boot display for the notice alone.
     pub rules: vtium_config::Config,
+    /// The panic screen's report, for a broken closed file (ADR-1401 D7).
+    pub(crate) report: Option<String>,
 }
 
 impl Start {
@@ -1099,7 +1109,21 @@ impl Start {
             log::info!("{}", at(path, Some(n.line()), n));
         }
         let read = vtium_config::Read::Trusted(reading.trusted());
-        Start::of(&read, reading.parsed.config)
+        let mut start = Start::of(&read, reading.parsed.config);
+        if start.outcome.line == Some(vtium_config::Line::ClosedOff) {
+            let errors = &reading.errors.errors;
+            let first: Vec<String> = errors
+                .iter()
+                .take(PANIC_ERRORS_MAX)
+                .map(|e| at(path, e.line(), e).to_string())
+                .collect();
+            let more = errors
+                .len()
+                .saturating_sub(first.len())
+                .saturating_add(reading.errors.more);
+            start.report = Some(crate::notice::panic(&first, more));
+        }
+        start
     }
 
     /// The start on the path `read`, `file` being what survives of a
@@ -1116,7 +1140,11 @@ impl Start {
                 ..vtium_config::Config::default()
             },
         };
-        Start { outcome, rules }
+        Start {
+            outcome,
+            rules,
+            report: None,
+        }
     }
 
     /// The console line the start shows, from the catalog: `None` for a
@@ -1126,9 +1154,12 @@ impl Start {
     }
 
     /// The notice the start shows: its console line and the next step,
-    /// `None` for a silent start.
+    /// or for a broken closed file the panic screen's report, `None` for a
+    /// silent start.
     pub fn notice(&self) -> Option<String> {
-        self.outcome.line.map(outcome_notice)
+        self.report
+            .clone()
+            .or_else(|| self.outcome.line.map(outcome_notice))
     }
 }
 
@@ -1239,6 +1270,17 @@ fn mouse_button(b: Button) -> MouseButton {
 mod tests {
     use super::*;
 
+    /// The panic screen of [`a_broken_closed_files_start_shows_the_panic_screens_report`]'s file.
+    const PANIC: &str = concat!(
+        "vtium: config invalid, policy closed: input off\n",
+        "The errors in /etc/vtium/heads.conf, listed below, leave no head that can run.\n",
+        "/etc/vtium/heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
+        "/etc/vtium/heads.conf:5: This section takes no key named \"font-weight\". Check the key's spelling, or remove the line.\n",
+        "/etc/vtium/heads.conf:7: This rule sends devices to the head \"k\\u{202e}x\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
+        "More errors: 2\n",
+        "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.",
+    );
+
     /// A head file in a fixture directory of its own, and the trust that
     /// reads it as the start reads root's files.
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
@@ -1299,6 +1341,66 @@ mod tests {
                 std::fs::remove_dir_all(dir).ok();
             }
         }
+    }
+
+    // ADR-1401 D7: a broken closed file's start shows the panic screen:
+    // its console line, that no head is left, its first errors with their
+    // file and line, escaped, the count of the rest, and what to do next
+    // covers: platform.heads.policy
+    #[test]
+    fn a_broken_closed_files_start_shows_the_panic_screens_report() {
+        let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\nfont-weight = bold\n[rules]\ndisplay * -> k\u{202e}x\ninput * -> desc\ninput * -> nowhere\n";
+        let start = Start::trusted(
+            std::path::Path::new("/etc/vtium/heads.conf"),
+            text.as_bytes(),
+        );
+        assert_eq!(start.outcome.line, Some(vtium_config::Line::ClosedOff));
+        let shown = start.notice().unwrap_or_default();
+        assert_eq!(shown, PANIC);
+        assert!(
+            !shown
+                .chars()
+                .any(|c| c != '\n' && (c.is_control() || c == '\u{202e}')),
+            "escaped: {shown:?}"
+        );
+        // any other start shows its console line and next step alone
+        let partly = "version = 1\npolicy = closed\n[head desk]\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> desk\n";
+        let start = Start::trusted(
+            std::path::Path::new("/etc/vtium/heads.conf"),
+            partly.as_bytes(),
+        );
+        assert_eq!(
+            start.notice(),
+            Some(outcome_notice(vtium_config::Line::Partly))
+        );
+    }
+
+    // ADR-1401 D7, D9: the screen the display guard lights for a notice
+    // alone draws it as a report, which keeps its next step on a display
+    // too small for all of it; a head draws its notices as they come
+    // covers: platform.heads.guards
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn the_notice_screen_draws_its_notice_as_a_report() {
+        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let text = crate::notice::panic(&["heads.conf:4: an error".to_owned()], 0);
+        let mut screen = Head::notice_screen(&config, term());
+        assert_eq!(screen.overlay().notice, None, "nothing yet");
+        screen.set_notice(&text);
+        let overlay = screen.overlay();
+        assert_eq!(
+            overlay.notice,
+            Some(vtium_render::Notice::report(text.as_str()))
+        );
+        assert!(overlay.problem);
+        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term());
+        head.add_notice(&text);
+        assert_eq!(
+            head.overlay().notice,
+            Some(vtium_render::Notice::new(text.as_str()))
+        );
     }
 
     // A console shown on a head with no display takes its own cell with

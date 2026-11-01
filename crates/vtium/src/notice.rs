@@ -71,6 +71,33 @@ pub fn stopped() -> String {
     )
 }
 
+/// The panic screen's second line (ADR-1401 D7): what the errors of a
+/// broken closed head file left.
+pub fn no_head_left() -> String {
+    format!(
+        "The errors in {}, listed below, leave no head that can run.",
+        vtium_config::HEAD_FILE
+    )
+}
+
+/// The panic screen (ADR-1401 D7), which a broken closed head file shows
+/// on the boot display for as long as vtium runs: its console line, that
+/// no head is left, the file's first `errors`, each with its file and line,
+/// the count of the `more` past them, and what to do next.
+pub fn panic(errors: &[String], more: usize) -> String {
+    let line = vtium_config::Line::ClosedOff;
+    let mut shown = vec![line.text().to_owned(), no_head_left()];
+    shown.extend(errors.iter().cloned());
+    if more > 0 {
+        shown.push(more_errors(more));
+    }
+    shown.push(
+        line.next(std::path::Path::new(vtium_config::HEAD_FILE))
+            .to_string(),
+    );
+    shown.join("\n")
+}
+
 /// The command that checks the configuration, as a notice names it: a
 /// placeholder's value, never words to translate.
 pub const CHECK_CONFIG: &str = "vtium check-config";

@@ -291,6 +291,20 @@ impl Overlay {
         }
     }
 
+    /// What the screen the display guard lights for a notice alone draws
+    /// (ADR-1401 D7, D9): its notice `text` in the notice's colors from
+    /// `colors`, as a report, which keeps its last paragraph, the next
+    /// step, on a display too small for all of it. Tier 2 builds its
+    /// pictures of that screen with it too.
+    pub fn alone(text: &str, colors: OverlayColors) -> Overlay {
+        Overlay {
+            notice: Some(Notice::report(text)),
+            problem: true,
+            mark: None,
+            colors,
+        }
+    }
+
     /// Draws the overlay over the `grid` that `renderer` drew into
     /// `target`, turned as `orientation` says, and returns the areas it
     /// covers. Tier 2 draws its pictures of the overlay through it.

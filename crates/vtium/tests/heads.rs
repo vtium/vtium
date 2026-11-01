@@ -2995,6 +2995,16 @@ const PARTLY: &str = "config partly invalid, running what's valid\nRun vtium che
 const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off\nNothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.";
 const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that a rule in /etc/vtium/heads.conf sends to a head.";
 
+/// The panic screen of a broken closed file whose one error, on line 4,
+/// is the key `focs`, read as `heads.conf` (D7): the console line, that
+/// no head is left, the error with its file and line, and the next step.
+const PANIC: &str = concat!(
+    "vtium: config invalid, policy closed: input off\n",
+    "The errors in /etc/vtium/heads.conf, listed below, leave no head that can run.\n",
+    "heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
+    "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.",
+);
+
 /// A head file's head and its rule for every display, which [`d7_row`]
 /// boots on two displays.
 const DESK: &str = "[head desk]\n[rules]\ndisplay * -> desk\ninput path:kbd-desk -> desk\n";
@@ -3066,7 +3076,19 @@ fn d7_row(row: &Row) {
                 .app
                 .notice_screen()
                 .expect("a closed file's notice screen");
-            assert_eq!(screen.notice(), row.line, "{test}");
+            if row.line == Some(CLOSED_OFF) {
+                // the panic screen opens with the console line and ends
+                // with its next step, the file's errors between
+                fn ends(n: &str) -> (Option<&str>, Option<&str>) {
+                    (n.lines().next(), n.lines().last())
+                }
+                let shown = screen.notice().map(ends);
+                assert_eq!(shown, row.line.map(ends), "{test}");
+                let between = screen.notice().map_or(0, |n| n.lines().count());
+                assert!(between > 3, "{test}: the errors shown");
+            } else {
+                assert_eq!(screen.notice(), row.line, "{test}");
+            }
             assert_eq!(screen.cells().len(), row.lit, "{test}: lit for it alone");
         }
     }
@@ -3274,12 +3296,11 @@ fn a_partly_broken_closed_file_delivers_nothing_from_a_dropped_rules_keyboard() 
 }
 
 /// D7 and D9: a broken closed file runs nothing. The boot display shows
-/// its console line alone, on the notice screen, with no session behind
-/// it, still up past 30 s, and no keyboard delivers anything. S5 draws the
-/// panic screen in place of this notice.
+/// the panic screen alone, on the notice screen, with no session behind
+/// it, still up past 30 s, and no keyboard delivers anything.
 // covers: platform.heads.policy
 #[test]
-fn a_broken_closed_file_runs_nothing_and_shows_its_line_on_the_boot_display_for_good() {
+fn a_broken_closed_file_runs_nothing_and_shows_the_panic_screen_on_the_boot_display_for_good() {
     let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
     let displays = [
         ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
@@ -3298,7 +3319,7 @@ fn a_broken_closed_file_runs_nothing_and_shows_its_line_on_the_boot_display_for_
         a.notice_screen()
             .map(|n| (n.notice().map(str::to_owned), n.cells().len()))
     };
-    assert_eq!(screen(&s.app), Some((Some(CLOSED_OFF.to_owned()), 1)));
+    assert_eq!(screen(&s.app), Some((Some(PANIC.to_owned()), 1)));
     assert_eq!(
         s.memory("/dev/mem0").dpms,
         Some(Dpms::Off),
@@ -3310,7 +3331,7 @@ fn a_broken_closed_file_runs_nothing_and_shows_its_line_on_the_boot_display_for_
     s.app.turn(now() + Duration::from_secs(31));
     assert_eq!(
         screen(&s.app),
-        Some((Some(CLOSED_OFF.to_owned()), 1)),
+        Some((Some(PANIC.to_owned()), 1)),
         "no timeout, no key ends it"
     );
     assert!(
