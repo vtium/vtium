@@ -567,14 +567,17 @@ impl Terminal {
     }
 
     /// A wheel scroll of `lines` the host does not report to the program:
-    /// while mode 1007 is set and the alternate screen is shown, it is
-    /// sent as that many cursor-up or cursor-down keys, at most the
-    /// screen's rows, as DECCKM encodes them, and true is returned, so
-    /// the host scrolls nothing. Otherwise nothing is sent and the host
-    /// scrolls its view.
+    /// while mode 1007 is set, the alternate screen is shown and the
+    /// program tracks no pointer events, it is sent as that many cursor-up
+    /// or cursor-down keys, at most the screen's rows, as DECCKM encodes
+    /// them, and true is returned, so the host scrolls nothing. Otherwise
+    /// nothing is sent and the host scrolls its view.
     pub fn alternate_scroll(&mut self, up: bool, lines: usize) -> bool {
         let s = &self.state;
-        if !s.modes.alternate_scroll() || !s.screen.alternate() {
+        if !s.modes.alternate_scroll()
+            || !s.screen.alternate()
+            || s.modes.tracking() != MouseTracking::Off
+        {
             return false;
         }
         let key: &[u8] = match (s.modes.cursor_keys(), up) {

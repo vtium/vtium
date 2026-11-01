@@ -647,8 +647,8 @@ fn decnkm_switches_the_keypad_as_deckpam_and_deckpnm_do() {
 
 // ctlseqs, alternate scroll (1007), xterm's `alternateScroll`: on the
 // alternate screen a wheel scroll the host does not report is sent as
-// cursor keys, one a line, as DECCKM encodes them; on the main screen, or
-// reset, the host scrolls its view.
+// cursor keys, one a line, as DECCKM encodes them; on the main screen,
+// while the program tracks the pointer, or reset, nothing is sent.
 // covers: DEC-1007
 #[test]
 fn mode_1007_sends_wheel_steps_as_cursor_keys_on_the_alternate_screen() {
@@ -666,6 +666,11 @@ fn mode_1007_sends_wheel_steps_as_cursor_keys_on_the_alternate_screen() {
     // At most the screen's rows.
     assert!(t.alternate_scroll(false, 1000));
     assert_eq!(sent(&mut t), b"\x1bOB\x1bOB\x1bOB");
+    // While the program tracks the pointer, the wheel is its to report.
+    t.input(b"\x1b[?1000h");
+    assert!(!t.alternate_scroll(true, 1), "tracking on");
+    assert_eq!(sent(&mut t), b"");
+    t.input(b"\x1b[?1000l");
     toggles(&mut t, true, 1007);
     assert!(!t.alternate_scroll(true, 2), "reset, the host scrolls");
     assert_eq!(sent(&mut t), b"");
