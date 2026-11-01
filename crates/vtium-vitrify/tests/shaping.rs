@@ -299,3 +299,46 @@ fn a_mark_that_passes_the_row_moves_in_and_squeezes() {
         assert_eq!(rows(below, y), rows(a, y), "A's row {y} over the dot");
     }
 }
+
+// ADR-1302 D2: a joining letter of an outline font is stretched sideways
+// to its cells before it is rasterised, its pen on the cell's left edge,
+// so its joining strokes meet the next letter's. Test Shaping's medial beh
+// is a bar across its whole advance, 600 units, 11.7 pixels in a 12-pixel
+// cell: stretched, it covers the cell's last column whole, where unstretched
+// it covered 0.7 of it. Lam-alef, a ligature shaping places, keeps its
+// pen on the left edge, unstretched and uncentred, its bar from 1.95
+// pixels
+// covers: text.overhang
+#[test]
+fn a_joining_letter_is_stretched_to_its_cell() {
+    let medial = [ZWJ, BEH, ZWJ];
+    let lam_alef = [LAM, ALEF];
+    let o = rasterise(&request(vec![
+        ask(&medial, Kind::Joining),
+        ask(&lam_alef, Kind::Joining),
+    ]))
+    .expect("rasterised");
+    let s = &o.strikes[0];
+    assert_eq!((s.width, s.height), (12, 20));
+    let medi = cluster(&o, &medial).expect("the medial beh");
+    let bar_row = 10;
+    let row = &medi.pixels[bar_row * 12..(bar_row + 1) * 12];
+    assert_eq!(row, &[255; 12], "the bar fills its cell");
+    assert!(medi.ink.is_none(), "its ink lies inside its cell");
+    let la = cluster(&o, &lam_alef).expect("lam-alef");
+    let row = &la.pixels[bar_row * 24..(bar_row + 1) * 24];
+    assert_eq!(row[0], 0, "left of the ligature's bar");
+    assert!(
+        row[1] > 0 && row[2] == 255,
+        "its bar from 1.95 pixels: {row:?}"
+    );
+    // the isolated beh, a codepoint, stretches too: 100 to 500 units of an
+    // advance of 600 become 2 to 10 pixels of 12
+    let iso = codepoint(&o, BEH);
+    let row = &iso.pixels[bar_row * 12..(bar_row + 1) * 12];
+    assert_eq!(
+        (row[1], row[2], row[9], row[10]),
+        (0, 255, 255, 0),
+        "{row:?}"
+    );
+}

@@ -668,6 +668,19 @@ pub(crate) mod raster {
         /// strike to `ppem`, and further to fit `fit`, by this build's
         /// [`METHOD`].
         pub(crate) fn draw(&mut self, g: u16, ppem: f32, fit: (u32, u32)) -> Option<Image> {
+            self.draw_stretched(g, ppem, fit, 1.0)
+        }
+
+        /// [`Drawer::draw`], an outline scaled sideways by `sx` about its
+        /// origin before it is rasterised (ADR-1302 D2's joining stretch);
+        /// a color glyph is drawn as it is.
+        pub(crate) fn draw_stretched(
+            &mut self,
+            g: u16,
+            ppem: f32,
+            fit: (u32, u32),
+            sx: f32,
+        ) -> Option<Image> {
             let mut scaler = self.context.builder(self.font).size(ppem).build();
             if scaler.has_color_outlines() {
                 if let Some(layers) = scaler.scale_color_outline(g) {
@@ -685,7 +698,10 @@ pub(crate) mod raster {
                 .size(ppem)
                 .hint(true)
                 .build();
-            Render::new(&[Source::Outline]).render(&mut scaler, g)
+            let stretch = (sx != 1.0).then(|| swash::zeno::Transform::scale(sx, 1.0));
+            Render::new(&[Source::Outline])
+                .transform(stretch)
+                .render(&mut scaler, g)
         }
 
         /// A color bitmap from the font's largest strike holding `g`, its
@@ -1015,7 +1031,8 @@ pub(crate) mod raster {
                         let advance = advances.advance_width(g);
                         // a glyph larger than a set's chunk cannot be stored:
                         // a color glyph two cells wide past about 64 pixels
-                        let Some(placed) = place(&mut drawer, g, advance, &cell)
+                        let joins = crate::shaping::joins(c);
+                        let Some(placed) = place(&mut drawer, g, advance, joins, &cell)
                             .filter(|p| p.pixels.len() <= SET_CHUNK_BYTES as usize)
                         else {
                             continue;
@@ -1071,9 +1088,29 @@ pub(crate) mod raster {
 
     /// Glyph `g`, advancing `advance` pixels, placed in `cell`, one or two
     /// cells wide by its advance; `None` when the font draws nothing for
-    /// it.
-    fn place(drawer: &mut Drawer<'_>, g: u16, advance: f32, cell: &Cell) -> Option<Placed> {
+    /// it. A glyph of a character that joins (ADR-1302 D2, `joins`) is
+    /// stretched sideways before it is rasterised, by its cells' width over
+    /// its advance, unrounded, its pen on its cell's left edge, so its
+    /// advance fills its cells and its joining strokes meet the next
+    /// letter's.
+    fn place(
+        drawer: &mut Drawer<'_>,
+        g: u16,
+        advance: f32,
+        joins: bool,
+        cell: &Cell,
+    ) -> Option<Placed> {
         let wide = advance > cell.width as f32 * 1.5;
+        let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
+        if joins && advance > 0.0 {
+            let sx = span / advance;
+            return place_drawn(
+                &mut |ppem, fit| drawer.draw_stretched(g, ppem, fit, sx),
+                wide,
+                None,
+                cell,
+            );
+        }
         place_drawn(
             &mut |ppem, fit| drawer.draw(g, ppem, fit),
             wide,

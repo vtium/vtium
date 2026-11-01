@@ -111,10 +111,22 @@ pub(crate) fn draw_all(
             // a cell for each letter: lam-alef takes the two its letters do
             Kind::Joining => s.key.iter().filter(|&&c| c != super::ZWJ).count() > 1,
         };
-        // ADR-1302 D2: a cluster is placed by its advance, but a joining
-        // letter or ligature, which shaping places, keeps its pen on the
-        // cell's left edge
-        let advance = (s.kind != Kind::Joining).then_some(s.advance as f32 * scale);
+        // ADR-1302 D2: a cluster is placed by its advance; a joining letter,
+        // with the marks on it, is stretched as one to its cells, its pen on
+        // the cell's left edge; and a ligature of joining letters, such as
+        // lam-alef, which shaping places, keeps its pen there unstretched
+        let letters = s
+            .key
+            .iter()
+            .filter(|&&c| c != super::ZWJ && super::joins(c))
+            .count();
+        let advance_px = s.advance as f32 * scale;
+        let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
+        let (advance, sx) = match (s.kind, letters) {
+            (Kind::Emoji, _) | (_, 0) => (Some(advance_px), 1.0),
+            (_, 1) if advance_px > 0.0 => (None, span / advance_px),
+            _ => (None, 1.0),
+        };
         let Some(placed) = place_drawn(
             &mut |ppem, fit| {
                 compose(
@@ -124,6 +136,7 @@ pub(crate) fn draw_all(
                     ppem,
                     fit,
                     Some(row),
+                    sx,
                 )
             },
             wide,
@@ -155,6 +168,8 @@ pub(crate) fn draw_all(
 /// a color cluster takes the text's stand-in color, [`FOREGROUND`]. With
 /// `row`, its top and bottom edges in pixels up from the baseline, the
 /// marks of a mask cluster are fitted to the row first ([`fit_marks`]).
+/// The whole cluster is stretched sideways by `sx`, each outline and each
+/// offset, so a mark stays over its base.
 fn compose(
     drawer: &mut Drawer<'_>,
     glyphs: &[(u16, i32, i32, bool)],
@@ -162,13 +177,14 @@ fn compose(
     ppem: f32,
     fit: (u32, u32),
     row: Option<(i32, i32)>,
+    sx: f32,
 ) -> Option<Image> {
     let mut parts = Vec::new();
     let mut marks = Vec::new();
     for &(g, x, y, mark) in glyphs {
-        let image = drawer.draw(g, ppem, fit)?;
+        let image = drawer.draw_stretched(g, ppem, fit, sx)?;
         let (dx, dy) = (
-            (x as f32 * scale).round() as i32,
+            (x as f32 * scale * sx).round() as i32,
             (y as f32 * scale).round() as i32,
         );
         parts.push((image, dx, dy));
