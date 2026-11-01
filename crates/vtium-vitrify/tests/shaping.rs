@@ -229,3 +229,73 @@ fn a_form_the_font_does_not_join_is_left_out() {
     .expect("rasterised");
     assert!(o.strikes[0].clusters.is_empty());
 }
+
+/// Test Mono with a circumflex (U+0302), a bar across the whole cell on
+/// top of a narrow stem at its right end, beside `A`'s ink, 250 units tall from 900 above the baseline, and a
+/// dot below (U+0323) 150 tall, 350 under it, each of no advance: marks
+/// HarfRust places on `A`, whose ink is 0 to 700 units.
+fn marked() -> OutlineRequest {
+    let mut f = ttf::test_mono();
+    let rect = |x0, y0, x1, y1| vec![(x0, y0), (x0, y1), (x1, y1), (x1, y0)];
+    f.glyphs.push(ttf::Glyph {
+        advance: 0,
+        contours: vec![rect(-600, 1050, 0, 1150), rect(-100, 900, 0, 1050)],
+    });
+    f.glyphs.push(ttf::Glyph::rect(0, -400, -500, -200, -350));
+    f.cmap.push((0x302, 8));
+    f.cmap.push((0x323, 9));
+    f.cmap.sort_unstable();
+    OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        cover: vec![(0x41, 0x41)],
+        clusters: vec![
+            ask(&['A', '\u{302}'], Kind::Marks),
+            ask(&['A', '\u{323}'], Kind::Marks),
+        ],
+        baselines: Vec::new(),
+    }
+}
+
+// ADR-1302 D3 (the maintainer, 2026-11-01): a mark whose ink passes the
+// row moves toward the baseline, no closer to its letter than the
+// letter's ink, and squeezes toward it where it still cannot fit; the base
+// letter never moves. In the 12x20 cell, baseline 16, A's ink fills rows
+// 2 to 15: the circumflex, placed above A by HarfRust and cut away whole
+// at the row's top without the rule, is squeezed into rows 0 to 2, and
+// the dot below ends in the cell's bottom rows
+// covers: text.overhang
+#[test]
+fn a_mark_that_passes_the_row_moves_in_and_squeezes() {
+    let o = rasterise(&marked()).expect("rasterised");
+    let s = &o.strikes[0];
+    let a = codepoint(&o, 'A');
+    let rows = |p: &Placed, y: usize| p.pixels[y * 12..(y + 1) * 12].to_vec();
+    let inked = |p: &Placed, y: usize| rows(p, y).iter().any(|&v| v > 0);
+    let above = cluster(&o, &['A', '\u{302}']).expect("A and the circumflex");
+    let below = cluster(&o, &['A', '\u{323}']).expect("A and the dot below");
+    assert_eq!(s.baseline, 16);
+    assert!(
+        inked(above, 0) && inked(above, 1),
+        "the circumflex in the top rows"
+    );
+    // squeezed whole, its bar is on top; cut, only its stem would show; and
+    // moved past A's top, its stem would ink A's rows beside A
+    let wide = rows(above, 0).iter().filter(|&&v| v > 0).count();
+    assert!(
+        wide >= 10,
+        "the bar across the top row: {:?}",
+        rows(above, 0)
+    );
+    assert!(!inked(a, 0) && !inked(a, 1), "A alone leaves them clear");
+    assert!(inked(below, 19), "the dot below ends in the bottom row");
+    for y in 3..16 {
+        assert_eq!(
+            rows(above, y),
+            rows(a, y),
+            "A's row {y} under the circumflex"
+        );
+        assert_eq!(rows(below, y), rows(a, y), "A's row {y} over the dot");
+    }
+}

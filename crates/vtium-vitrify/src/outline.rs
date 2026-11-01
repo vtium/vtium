@@ -1065,7 +1065,7 @@ pub(crate) mod raster {
     pub(crate) struct Cell {
         pub(crate) width: u32,
         pub(crate) height: u32,
-        baseline: u32,
+        pub(crate) baseline: u32,
         pub(crate) ppem: f32,
     }
 

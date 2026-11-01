@@ -17,12 +17,15 @@ use super::{Ask, Kind};
 use crate::outline::Placed;
 use crate::outline::raster::{Cell, Drawer, FOREGROUND, div255, pixel, place_drawn};
 
-/// A cluster as the font shapes it: each glyph and its position from the
-/// cluster's origin, and the cluster's advance, in font units.
+/// A cluster as the font shapes it: each glyph, its position from the
+/// cluster's origin and whether it is a mark, and the cluster's advance,
+/// in font units. A mark is a glyph after the cluster's first that the
+/// shaper gives no advance, as HarfRust gives each mark it places on its
+/// base.
 pub(crate) struct Shaped {
     key: Vec<u32>,
     kind: Kind,
-    glyphs: Vec<(u16, i32, i32)>,
+    glyphs: Vec<(u16, i32, i32, bool)>,
     advance: i32,
 }
 
@@ -56,16 +59,17 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
             let Ok(g) = u16::try_from(info.glyph_id) else {
                 continue;
             };
-            glyphs.push((g, pen.saturating_add(pos.x_offset), pos.y_offset));
+            let mark = !glyphs.is_empty() && pos.x_advance == 0;
+            glyphs.push((g, pen.saturating_add(pos.x_offset), pos.y_offset, mark));
             pen = pen.saturating_add(pos.x_advance);
         }
         let kept = !glyphs.is_empty()
-            && glyphs.iter().all(|&(g, _, _)| g != 0)
+            && glyphs.iter().all(|&(g, ..)| g != 0)
             && match ask.kind {
                 // one glyph, a ligature or a form: none of the cluster's own
                 // scalar values draws it alone
                 Kind::Emoji | Kind::Joining => match glyphs.as_slice() {
-                    [(g, _, _)] => ask.key.iter().all(|&c| charmap.map(c) != *g),
+                    [(g, ..)] => ask.key.iter().all(|&c| charmap.map(c) != *g),
                     _ => false,
                 },
                 Kind::Marks => true,
@@ -93,6 +97,11 @@ pub(crate) fn draw_all(
 ) -> Result<Vec<(Vec<u32>, u32)>, String> {
     let upem = f32::from(drawer.font.metrics(&[]).units_per_em);
     let scale = cell.ppem / upem.max(1.0);
+    // the row's top and bottom edges, in pixels up from the baseline
+    let row = (
+        i32::try_from(cell.baseline).unwrap_or(0),
+        i32::try_from(cell.baseline).unwrap_or(0) - i32::try_from(cell.height).unwrap_or(0),
+    );
     let mut seen: BTreeMap<Placed, u32> = BTreeMap::new();
     let mut out = Vec::new();
     for s in shaped {
@@ -107,7 +116,16 @@ pub(crate) fn draw_all(
         // cell's left edge
         let advance = (s.kind != Kind::Joining).then_some(s.advance as f32 * scale);
         let Some(placed) = place_drawn(
-            &mut |ppem, fit| compose(drawer, &s.glyphs, ppem / upem.max(1.0), ppem, fit),
+            &mut |ppem, fit| {
+                compose(
+                    drawer,
+                    &s.glyphs,
+                    ppem / upem.max(1.0),
+                    ppem,
+                    fit,
+                    Some(row),
+                )
+            },
             wide,
             advance,
             cell,
@@ -134,25 +152,35 @@ pub(crate) fn draw_all(
 /// The glyphs of a shaped cluster drawn at `ppem` and laid over each other
 /// at their positions, `scale` pixels to a font unit: one image, color when
 /// any glyph is, its placement from the cluster's origin. A mask glyph in
-/// a color cluster takes the text's stand-in color, [`FOREGROUND`].
+/// a color cluster takes the text's stand-in color, [`FOREGROUND`]. With
+/// `row`, its top and bottom edges in pixels up from the baseline, the
+/// marks of a mask cluster are fitted to the row first ([`fit_marks`]).
 fn compose(
     drawer: &mut Drawer<'_>,
-    glyphs: &[(u16, i32, i32)],
+    glyphs: &[(u16, i32, i32, bool)],
     scale: f32,
     ppem: f32,
     fit: (u32, u32),
+    row: Option<(i32, i32)>,
 ) -> Option<Image> {
     let mut parts = Vec::new();
-    for &(g, x, y) in glyphs {
+    let mut marks = Vec::new();
+    for &(g, x, y, mark) in glyphs {
         let image = drawer.draw(g, ppem, fit)?;
         let (dx, dy) = (
             (x as f32 * scale).round() as i32,
             (y as f32 * scale).round() as i32,
         );
         parts.push((image, dx, dy));
+        marks.push(mark);
     }
     if let [(image, 0, 0)] = parts.as_slice() {
         return Some(image.clone());
+    }
+    if let Some(row) = row
+        && parts.iter().all(|(i, ..)| i.content != Content::Color)
+    {
+        fit_marks(&mut parts, &marks, row);
     }
     let color = parts.iter().any(|(i, _, _)| i.content == Content::Color);
     let edges = |(i, dx, dy): &(Image, i32, i32)| {
@@ -215,4 +243,125 @@ fn compose(
         },
         data,
     })
+}
+
+/// A glyph's ink as placed in a cluster: its top and bottom edges, in
+/// pixels up from the baseline.
+fn span((image, _, dy): &(Image, i32, i32)) -> (i32, i32) {
+    let top = dy + image.placement.top;
+    (top, top - image.placement.height as i32)
+}
+
+/// The mark rule (ADR-1302 D3, the maintainer, 2026-11-01): the marks of a
+/// cluster whose ink passes the row's top or bottom edge, `row` in pixels
+/// up from the baseline, move toward the baseline until they fit, and a
+/// mark or a stack of marks that still cannot fit is squeezed vertically
+/// toward its base letter until it does. Marks over the base's middle are
+/// one stack and those under it another; a stack moves as one, no closer
+/// to its base letter than the letter's ink, and squeezes about its edge
+/// nearest the letter. Base letters never move, and a mark's sideways
+/// place stays where the shaper put it.
+fn fit_marks(parts: &mut [(Image, i32, i32)], marks: &[bool], row: (i32, i32)) {
+    let (row_top, row_bottom) = row;
+    let base: Vec<(i32, i32)> = parts
+        .iter()
+        .zip(marks)
+        .filter(|&(p, &m)| !m && p.0.placement.height > 0)
+        .map(|(p, _)| span(p))
+        .collect();
+    let base_top = base.iter().map(|s| s.0).max().unwrap_or(0);
+    let base_bottom = base.iter().map(|s| s.1).min().unwrap_or(0);
+    let middle = (base_top + base_bottom) / 2;
+    for above in [true, false] {
+        let stack: Vec<usize> = (0..parts.len())
+            .filter(|&i| marks.get(i) == Some(&true))
+            .filter(|&i| parts.get(i).is_some_and(|p| p.0.placement.height > 0))
+            .filter(|&i| {
+                let (t, b) = parts.get(i).map(span).unwrap_or_default();
+                (t + b >= 2 * middle) == above
+            })
+            .collect();
+        let edges = |parts: &[(Image, i32, i32)]| {
+            stack
+                .iter()
+                .filter_map(|&i| parts.get(i).map(span))
+                .fold((i32::MIN, i32::MAX), |(t, b), (t2, b2)| {
+                    (t.max(t2), b.min(b2))
+                })
+        };
+        let (top, bottom) = edges(parts);
+        if stack.is_empty() {
+            continue;
+        }
+        // the move toward the baseline, no further than the base's ink
+        let shift = if above {
+            (top - row_top).min(bottom - base_top).max(0)
+        } else {
+            (row_bottom - bottom).min(base_bottom - top).max(0)
+        };
+        for &i in &stack {
+            if let Some(p) = parts.get_mut(i) {
+                p.2 += if above { -shift } else { shift };
+            }
+        }
+        let (top, bottom) = edges(parts);
+        let (anchor, far, limit) = if above {
+            (bottom.min(row_top - 1), top, row_top)
+        } else {
+            (top.max(row_bottom + 1), bottom, row_bottom)
+        };
+        if (above && far <= limit) || (!above && far >= limit) {
+            continue;
+        }
+        let f = (limit - anchor) as f32 / (far - anchor) as f32;
+        for &i in &stack {
+            if let Some(p) = parts.get_mut(i) {
+                squeeze(p, anchor, f);
+            }
+        }
+    }
+}
+
+/// `part`'s mask squeezed vertically by `f` about the row `anchor`, in
+/// pixels up from the baseline: each row of the result the average of the
+/// rows it covers.
+fn squeeze(part: &mut (Image, i32, i32), anchor: i32, f: f32) {
+    let (image, _, dy) = part;
+    let (w, h) = (
+        image.placement.width as usize,
+        image.placement.height as i32,
+    );
+    let top = *dy + image.placement.top;
+    let map = |y: i32| anchor as f32 + (y - anchor) as f32 * f;
+    let (new_top, new_bottom) = (map(top), map(top - h));
+    let (hi, lo) = (
+        new_top.max(new_bottom).ceil() as i32,
+        new_top.min(new_bottom).floor() as i32,
+    );
+    let rows = (hi - lo).max(0) as usize;
+    let mut data = vec![0u8; rows * w];
+    for r in 0..rows {
+        // the destination row's span, then the source's, in y up
+        let (d_hi, d_lo) = ((hi - r as i32) as f32, (hi - r as i32 - 1) as f32);
+        let back = |y: f32| anchor as f32 + (y - anchor as f32) / f;
+        let (s_hi, s_lo) = (back(d_hi).max(back(d_lo)), back(d_hi).min(back(d_lo)));
+        let span = (s_hi - s_lo).max(f32::EPSILON);
+        for x in 0..w {
+            let mut sum = 0.0f32;
+            for sy in 0..h {
+                let (row_hi, row_lo) = ((top - sy) as f32, (top - sy - 1) as f32);
+                let overlap = s_hi.min(row_hi) - s_lo.max(row_lo);
+                if overlap > 0.0 {
+                    let p = image.data.get(sy as usize * w + x).copied().unwrap_or(0);
+                    sum += f32::from(p) * overlap;
+                }
+            }
+            if let Some(d) = data.get_mut(r * w + x) {
+                *d = (sum / span).round().min(255.0) as u8;
+            }
+        }
+    }
+    image.data = data;
+    image.placement.top = hi - *dy;
+    image.placement.height = rows as u32;
 }
