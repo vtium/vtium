@@ -173,8 +173,6 @@ fn has_event(fd: &rustix::fd::OwnedFd) -> bool {
     rustix::io::read(fd, &mut buf).is_ok_and(|n| n > 0)
 }
 
-// Opening a FIFO, a watchdog or a serial port acts on it, so anything but
-// a regular file is refused before it is opened
 // The first level stands before the policy: a file vtium does not trust
 // is never read, so a policy line it cannot read leaves it failing open to
 // the shipped default, while the same file trusted is closed and broken
@@ -209,6 +207,8 @@ fn an_untrusted_file_with_a_policy_line_vtium_cannot_read_still_runs_the_shipped
     );
 }
 
+// Opening a FIFO, a watchdog or a serial port acts on it, so anything but
+// a regular file is refused before it is opened
 #[test]
 fn a_fifo_is_refused_without_being_opened() {
     use rustix::fs::inotify;
