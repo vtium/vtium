@@ -146,11 +146,35 @@ struct Device<E> {
     disposition: Option<Disposition>,
     /// The screen its pointer moves within, where it is not the seat's.
     pointer_max: Option<(i32, i32)>,
+    /// The modifiers the owner was last told this keyboard holds.
+    told: Mods,
 }
 
 impl<E> Device<E> {
     fn rescue(&self) -> bool {
         self.disposition == Some(Disposition::Rescue)
+    }
+
+    /// The modifiers this keyboard holds: its own while it is open, none
+    /// while it is closed.
+    fn mods(&self) -> Mods {
+        match (
+            &self.open,
+            self.probed.as_ref().and_then(|p| p.keyboard.as_ref()),
+        ) {
+            (Some(_), Some(keyboard)) => keyboard.mods(),
+            _ => Mods::empty(),
+        }
+    }
+
+    /// Queues [`InputEvent::Mods`] when the modifiers it holds differ from
+    /// those the owner was last told.
+    fn tell_mods(&mut self, queue: &mut Queue) {
+        let mods = self.mods();
+        if mods != self.told {
+            self.told = mods;
+            queue.push(Some(self.id), self.rescue(), InputEvent::Mods(mods));
+        }
     }
 }
 
@@ -320,6 +344,7 @@ impl<O: Open + 'static> Input<O> {
             repeat_serial: 0,
             disposition,
             pointer_max: None,
+            told: Mods::empty(),
         });
         if self.awake > 0 && !self.wake_device(id) {
             return None;
@@ -405,8 +430,7 @@ impl<O: Open + 'static> Input<O> {
         self.devices
             .iter()
             .filter(|d| wanted(d))
-            .filter_map(|d| d.probed.as_ref()?.keyboard.as_ref())
-            .fold(Mods::empty(), |mods, k| mods.union(k.mods()))
+            .fold(Mods::empty(), |mods, d| mods.union(d.mods()))
     }
 
     /// Opens a device, probing it the first time. Returns whether it is
@@ -467,14 +491,9 @@ impl<O: Open + 'static> Input<O> {
         }
         if !first {
             if let Some(keyboard) = probed.keyboard.as_mut() {
-                let (leds, mods) = keyboard.wake_up(&self.keymap);
+                let leds = keyboard.wake_up(&self.keymap);
                 if probed.caps.leds {
                     write_leds(&mut dev, &device.node, leds);
-                }
-                if let Some(mods) = mods {
-                    let rescue = device.disposition == Some(Disposition::Rescue);
-                    self.queue
-                        .push(Some(device.id), rescue, InputEvent::Mods(mods));
                 }
             }
         }
@@ -487,6 +506,7 @@ impl<O: Open + 'static> Input<O> {
             _ => None,
         };
         device.open = Some(dev);
+        device.tell_mods(&mut self.queue);
         true
     }
 
@@ -508,6 +528,7 @@ impl<O: Open + 'static> Input<O> {
         if let Some(dev) = device.open.take() {
             self.opener.close(dev);
         }
+        device.tell_mods(&mut self.queue);
     }
 
     /// Reads a device's events at `now` until none are waiting, at most
@@ -596,9 +617,6 @@ impl<O: Open + 'static> Input<O> {
                     if let Some(key) = processed.key {
                         self.queue.push(from, rescue, InputEvent::Key(key));
                     }
-                    if let Some(mods) = processed.mods {
-                        self.queue.push(from, rescue, InputEvent::Mods(mods));
-                    }
                 }
                 if let (Some(p), true) = (probed.pointer.button(ev.code, ev.value, now), pointer) {
                     self.queue.push(from, false, InputEvent::Pointer(p));
@@ -628,6 +646,8 @@ impl<O: Open + 'static> Input<O> {
             }
             _ => {}
         }
+        // A key's change of the modifiers follows the key.
+        device.tell_mods(&mut self.queue);
     }
 
     /// The repeat timer of a device fired: sends its held key again.

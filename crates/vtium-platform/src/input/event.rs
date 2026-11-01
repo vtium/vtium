@@ -83,10 +83,11 @@ pub enum InputEvent {
     Key(KeyEvent),
     Pointer(PointerEvent),
     /// A keyboard's effective modifiers changed: a modifier key was
-    /// pressed or let go, a lock toggled, or the keyboard woke with the
-    /// keys held before its sleep let go. It carries that keyboard's
-    /// modifiers after the change. A key press still comes as its own
-    /// `Key`, before this.
+    /// pressed or let go, Caps Lock toggled, or the keyboard closed or
+    /// opened, a closed keyboard holding none. It carries the modifiers
+    /// that one keyboard holds after the change, not the seat's; an owner
+    /// combines a head's through [`super::Input::mods_of`]. A key press
+    /// still comes as its own `Key`, before this.
     Mods(Mods),
 }
 

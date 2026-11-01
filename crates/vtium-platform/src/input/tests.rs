@@ -393,11 +393,10 @@ fn a_change_of_modifiers_names_its_own_keyboard() {
     assert_eq!(changes, [(Some(*a), Mods::CTRL), (Some(*b), Mods::ALT)]);
 }
 
-// A keyboard that wakes with a modifier let go, as Ctrl held through a VT
-// switch, reports its modifiers once it is open again; a lock it keeps is
-// no change.
+// A closed keyboard holds no modifiers: its sleep reports none, and its
+// wake-up the lock it keeps, the Ctrl held through a VT switch let go.
 #[test]
-fn a_wake_up_that_lets_a_modifier_go_reports_it() {
+fn a_keyboard_reports_no_modifiers_while_closed() {
     let (mut input, node, id) = with_keyboard();
     feed(
         &mut input,
@@ -411,11 +410,114 @@ fn a_wake_up_that_lets_a_modifier_go_reports_it() {
     );
     seen(&mut input);
     input.sleep();
+    assert_eq!(seen(&mut input), [Seen::Mods(Mods::empty())]);
+    assert_eq!(input.mods(), Mods::empty());
     input.wake_up();
     assert_eq!(seen(&mut input), [Seen::Mods(Mods::LOCK)]);
+    assert_eq!(input.mods(), Mods::LOCK);
+}
+
+// Neither the kernel's repeat nor vtium's own repeats a change of the
+// modifiers: Ctrl held reports itself once, and A held repeats its key
+// alone.
+#[test]
+fn a_repeat_reports_no_change_of_modifiers() {
+    let (mut input, node, id) = with_keyboard();
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_LEFTCTRL),
+            ev(EV_KEY, KEY_LEFTCTRL, 2),
+            ev(EV_KEY, KEY_LEFTCTRL, 2),
+            press(KEY_A),
+            ev(EV_KEY, KEY_A, 2),
+        ],
+    );
+    let serial = input.repeat_serial(id).unwrap_or_default();
+    assert!(input.repeat(id, serial));
+    assert!(input.repeat(id, serial));
+    assert_eq!(
+        seen(&mut input),
+        [
+            Seen::Key(keysyms::KEY_Control_L),
+            Seen::Mods(Mods::CTRL),
+            Seen::Key(keysyms::KEY_a),
+            Seen::Key(keysyms::KEY_a),
+            Seen::Key(keysyms::KEY_a),
+        ]
+    );
+}
+
+// A keyboard watched for the rescue key reports no change of its
+// modifiers through either drain.
+#[test]
+fn a_rescue_keyboard_reports_no_change_of_modifiers() {
+    let (mut input, devices) = with_devices(&[(
+        "/dev/input/event0",
+        fake::keyboard(),
+        Some(Disposition::Rescue),
+    )]);
+    let [(node, id)] = devices.as_slice() else {
+        panic!("one device");
+    };
+    feed(
+        &mut input,
+        node,
+        *id,
+        &[press(KEY_LEFTCTRL), release(KEY_LEFTCTRL)],
+    );
+    assert_eq!(seen(&mut input), []);
+    feed(
+        &mut input,
+        node,
+        *id,
+        &[press(KEY_LEFTCTRL), release(KEY_LEFTCTRL)],
+    );
+    let mods: Vec<_> = input
+        .device_events(&vt_2())
+        .filter(|d| matches!(d.event, InputEvent::Mods(_)))
+        .collect();
+    assert_eq!(mods, []);
+}
+
+// A keyboard holding Ctrl that goes away reports no modifiers, whichever
+// way it goes: udev removes it, the rules close it, or it ends and a
+// wake-up cannot open it again.
+#[test]
+fn a_keyboard_that_goes_away_reports_no_modifiers() {
+    let (mut input, node, id) = with_keyboard();
+    feed(&mut input, &node, id, &[press(KEY_LEFTCTRL)]);
+    seen(&mut input);
+    input.remove(id);
+    assert_eq!(seen(&mut input), [Seen::Mods(Mods::empty())]);
+    assert_eq!(input.mods(), Mods::empty());
+
+    let (mut input, node, id) = with_keyboard();
+    feed(&mut input, &node, id, &[press(KEY_LEFTCTRL)]);
+    seen(&mut input);
+    input.set_disposition(id, Disposition::Closed);
+    assert_eq!(seen(&mut input), [Seen::Mods(Mods::empty())]);
+    assert_eq!(input.mods(), Mods::empty());
+
+    let nodes = Nodes::default();
+    let node = nodes.add("/dev/input/event0", fake::keyboard());
+    let mut input = Input::new(nodes.clone(), keymap(), InputConfig::default());
+    input.wake_up();
+    let id = input
+        .add(Path::new("/dev/input/event0"))
+        .unwrap_or_else(|| panic!("the keyboard is taken"));
+    feed(&mut input, &node, id, &[press(KEY_LEFTCTRL)]);
+    seen(&mut input);
+    node.borrow_mut().end = true;
+    input.dispatch(id, Instant::now());
+    assert_eq!(seen(&mut input), [Seen::Mods(Mods::empty())]);
+    nodes.0.borrow_mut().clear();
     input.sleep();
     input.wake_up();
     assert_eq!(seen(&mut input), []);
+    assert_eq!(input.mods(), Mods::empty());
 }
 
 #[test]
