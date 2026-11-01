@@ -467,6 +467,48 @@ fn the_lines_follow_the_font_as_the_c_reference_placed_them() {
     assert_eq!(lines(ttf::test_mono()), (18, 1, 12, 1), "neither");
 }
 
+// The strike-through as the C reference drew it (review finding A3): as
+// thick as OS/2's yStrikeoutSize, when it is above 0; else as thick as the
+// underline, centred on half the x-height, which OS/2's sxHeight gives,
+// else the x glyph's height. Test Mono at 20 pixels, baseline 16: a
+// strikeout 100 units thick at 300 is 2 rows, its top floor(16 - 5.85 +
+// 0.5) = 10; no strikeout but an sxHeight of 500 puts it at floor(16 -
+// 4.875) = 11; neither, but an x glyph 600 units tall, 12 pixels hinted,
+// at 16 - 6 = 10. The first font's post underline is 50 units, a row, so
+// a strike-through as thick as the underline would be 1
+#[test]
+fn the_strike_through_takes_os2s_size_and_the_x_height() {
+    let lines = |font: ttf::Font| {
+        let d = decorations(&font.build(), "Test Mono", 20, 16).expect("the lines");
+        (d.strike, d.strike_thickness)
+    };
+    assert_eq!(
+        lines(ttf::Font {
+            underline: Some((-100, 50)),
+            os2: Some((100, 300, 0)),
+            ..ttf::test_mono()
+        }),
+        (10, 2),
+        "OS/2's strikeout"
+    );
+    assert_eq!(
+        lines(ttf::Font {
+            os2: Some((0, 300, 500)),
+            ..ttf::test_mono()
+        }),
+        (11, 1),
+        "no strikeout, the sxHeight"
+    );
+    let mut x = ttf::Font {
+        os2: Some((0, 0, 0)),
+        ..ttf::test_mono()
+    };
+    x.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 600));
+    x.cmap.push((0x78, 8));
+    x.cmap.sort_unstable();
+    assert_eq!(lines(x), (10, 1), "no sxHeight, the x glyph");
+}
+
 #[test]
 fn a_later_source_draws_at_the_cell_it_is_given_and_only_what_it_covers() {
     let o =

@@ -937,9 +937,10 @@ pub(crate) mod raster {
     /// underline's thickness and centre from the `post` table, below the
     /// baseline, its centre the table's position less half its thickness as
     /// FreeType's `underline_position` gives it, else a fourteenth of the cell at its bottom; the
-    /// strike-through's top from the `OS/2` table above the baseline, else
-    /// centred on half the x-height, and the strike as thick as the
-    /// underline; each at least a row thick, at most a quarter of the cell,
+    /// strike-through's top and thickness from the `OS/2` table's
+    /// strikeout, above the baseline, when its size is above 0, else as
+    /// thick as the underline and centred on half the x-height, `OS/2`'s
+    /// `sxHeight` or else the `x` glyph's height, or half the baseline; each at least a row thick, at most a quarter of the cell,
     /// and inside it (`kmscon_font_freetype_get_deco`,
     /// `kmscon_font_get_deco`).
     pub fn decorations(
@@ -968,22 +969,47 @@ pub(crate) mod raster {
         };
         let ul_thick = (thick as u32).clamp(1, max_thick);
         let ul_pos = ((centre - thick / 2.0).round().max(0.0) as u32).min(height - ul_thick);
-        let strike_top = if m.strikeout_offset != 0.0 {
-            base - f64::from(m.strikeout_offset) * scale
-        } else {
-            let xh = if m.x_height > 0.0 {
-                f64::from(m.x_height) * scale
-            } else {
-                base / 2.0
-            };
-            base - xh / 2.0 - f64::from(ul_thick) / 2.0
+        // OS/2: yStrikeoutSize at byte 26, yStrikeoutPosition at 28, and
+        // from version 2 sxHeight at 86
+        let os2 = font.table(swash::tag_from_bytes(b"OS/2"));
+        let field = |at: usize| {
+            os2.and_then(|t| t.get(at..at + 2))
+                .and_then(|b| b.first_chunk::<2>())
+                .map(|&b| f64::from(i16::from_be_bytes(b)))
         };
-        let strike_pos = (strike_top.round().max(0.0) as u32).min(height - ul_thick);
+        let version = field(0).unwrap_or(0.0);
+        let (strike_top, strike_thick) = match (field(26), field(28)) {
+            (Some(size), Some(position)) if size > 0.0 => {
+                let t = ((size * scale).round() as u32).clamp(1, max_thick);
+                (base - position * scale, t)
+            }
+            _ => {
+                let mut xh = field(86)
+                    .filter(|&x| version >= 2.0 && x > 0.0)
+                    .map(|x| x * scale);
+                if xh.is_none() {
+                    // the x glyph's top above the baseline, hinted
+                    let mut drawer = Drawer {
+                        font,
+                        context: ScaleContext::new(),
+                    };
+                    let g = font.charmap().map('x');
+                    xh = (g != 0)
+                        .then(|| drawer.draw(g, ppem(&m, height), (u32::MAX, u32::MAX)))
+                        .flatten()
+                        .map(|i| f64::from(i.placement.top))
+                        .filter(|&t| t > 0.0);
+                }
+                let xh = xh.unwrap_or(base / 2.0);
+                (base - xh / 2.0 - f64::from(ul_thick) / 2.0, ul_thick)
+            }
+        };
+        let strike_pos = (strike_top.round().max(0.0) as u32).min(height - strike_thick);
         Ok(vtium_font::Decorations {
             underline: ul_pos,
             underline_thickness: ul_thick,
             strike: strike_pos,
-            strike_thickness: ul_thick,
+            strike_thickness: strike_thick,
         })
     }
 
