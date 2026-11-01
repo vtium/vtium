@@ -2,7 +2,7 @@
 //!
 //! Failure is resolved at three levels, each asked only once the one before it has passed: whether the file can be trusted ([`Read`]), whether it states a policy ([`Stated`]), and how much of the rest is good ([`Rest`]). A trusted file's policy and content exist only inside [`Read::Trusted`], so nothing can consult an untrusted file's content. [`resolve`] maps every path to one [`Outcome`], by exhaustive matches with no wildcard arm, so a new variant fails to compile until it has an answer. The module reads no file and holds no state: the loader classifies what it found with [`scope`] and [`Trusted::of`] and asks [`resolve`], and a reload asks [`Outcome::reload`].
 //!
-//! A readable closed policy is sticky. Once a trusted file states a readable `policy = closed`, nothing opens anything up: no other line of the file, no broken line in it, and no event while vtium runs. A reload under it applies only a valid closed file, the owner's change, which keeps the policy closed; going from closed to open takes a vtium restart.
+//! A policy line vtium cannot read closes the file and breaks it whole (ADR-1401 D7, level 2): whatever the rest of the file holds, nothing of it runs, and the boot display shows the panic screen. A readable closed policy is sticky. Once a trusted file states a readable `policy = closed`, nothing opens anything up: no other line of the file, no broken line in it, and no event while vtium runs. A reload under it applies only a valid closed file, the owner's change, which keeps the policy closed; going from closed to open takes a vtium restart.
 //!
 //! `outcomes.tsv`, beside the crate's manifest, lists every path with its outcome; `outcome_table_matches_resolve` fails when it differs from [`resolve`], and `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config outcome_table` rewrites it.
 //!
@@ -85,13 +85,15 @@ pub struct Trusted {
 }
 
 closed! {
-    /// The second level: the policy the file states with its `policy` line, anywhere among the top-level keys. A readable `policy = closed` wins over every other `policy` line.
+    /// The second level: the policy the file states with its policy lines, the lines above the first section that begin with `policy` in any case. A readable `policy = closed` wins over every other readable line, and a line vtium cannot read wins over every readable one. A `policy` line inside a section is no top-level key, so it states nothing here.
     pub enum Stated {
-        /// No `policy` line: open.
+        /// No policy line: open.
         Unset = "unset",
+        /// Every policy line readable, and none of them `closed`.
         Open = "open",
+        /// Every policy line readable, and one of them `closed`.
         Closed = "closed",
-        /// No readable `policy = closed`, and a `policy` line vtium cannot read among the top-level keys: an unknown value, or a second `policy` line. It counts as no policy, and the file is at least partly broken. A `policy` line inside a section is no top-level key, so it states nothing here.
+        /// A policy line vtium cannot read: the file is closed and broken, whatever its rest is, so nothing of it runs (ADR-1401 D7).
         Unreadable = "unreadable",
     }
 }
@@ -117,8 +119,8 @@ closed! {
     pub enum PolicyLine {
         Open = "open",
         Closed = "closed",
-        /// A value but `open` or `closed`.
-        Unknown = "unknown",
+        /// A line above the first section that begins with `policy` in any case, and that is not `policy = open` or `policy = closed`: bytes that are not UTF-8, a control character, a line past a bound, another key or another value.
+        Unreadable = "unreadable",
         /// A `policy` line inside a section.
         InSection = "in-section",
     }
@@ -418,7 +420,7 @@ impl Outcome {
     }
 }
 
-/// The content level once the `policy` line's own error is counted.
+/// The content level once the policy lines are counted.
 #[derive(Clone, Copy)]
 enum Class {
     Valid,
@@ -426,6 +428,18 @@ enum Class {
     Empty,
     Partly,
     Broken,
+}
+
+impl Class {
+    fn of(rest: Rest) -> Class {
+        match rest {
+            Rest::Valid => Class::Valid,
+            Rest::Headless => Class::Headless,
+            Rest::Empty => Class::Empty,
+            Rest::Partly => Class::Partly,
+            Rest::Broken => Class::Broken,
+        }
+    }
 }
 
 fn builtin(line: Option<Line>) -> Outcome {
@@ -477,18 +491,11 @@ pub fn resolve(read: &Read) -> Outcome {
         Read::Untrusted | Read::Inaccessible => return builtin(Some(Line::Skipped)),
         Read::Trusted(trusted) => trusted,
     };
-    let (policy, readable) = match trusted.stated {
-        Stated::Unset | Stated::Open => (Policy::Open, true),
-        Stated::Unreadable => (Policy::Open, false),
-        Stated::Closed => (Policy::Closed, true),
-    };
-    // the `policy` line vtium cannot read is an error of its own
-    let class = match (trusted.rest, readable) {
-        (Rest::Valid, true) => Class::Valid,
-        (Rest::Headless, true) => Class::Headless,
-        (Rest::Empty, true) => Class::Empty,
-        (Rest::Valid, false) | (Rest::Partly, true | false) => Class::Partly,
-        (Rest::Headless | Rest::Empty, false) | (Rest::Broken, true | false) => Class::Broken,
+    // a policy line vtium cannot read closes the file and breaks it whole
+    let (policy, class) = match (trusted.stated, trusted.rest) {
+        (Stated::Unreadable, _) => (Policy::Closed, Class::Broken),
+        (Stated::Unset | Stated::Open, rest) => (Policy::Open, Class::of(rest)),
+        (Stated::Closed, rest) => (Policy::Closed, Class::of(rest)),
     };
     match (class, policy) {
         (Class::Valid, Policy::Open) => file(Policy::Open),
@@ -521,47 +528,25 @@ pub fn resolve(read: &Read) -> Outcome {
 }
 
 impl Trusted {
-    /// A trusted file's levels from what its parse found: every `policy` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads the order of the top-level keys, so no outcome depends on it, and a readable closed policy wins over every other line. A `policy` line inside a section states no policy, since the file's policy comes from the lines above the first section, and it leaves the file partly broken (ADR-1401 D7).
+    /// A trusted file's levels from what its parse found: every `policy` line, wherever it sits; the scope of every other error; and what survives the errors. Nothing here reads the order of the top-level keys, so no outcome depends on it. A policy line vtium cannot read makes the file closed and broken, whatever else it holds; else a readable closed policy wins over every other line. A second readable policy line is a key given twice, an error of the rest. A `policy` line inside a section states no policy, since the file's policy comes from the lines above the first section, and it leaves the file partly broken (ADR-1401 D7).
     pub fn of(policies: &[PolicyLine], scopes: &[Scope], kept: Kept) -> Trusted {
-        let top: Vec<PolicyLine> = policies
-            .iter()
-            .copied()
-            .filter(|p| match p {
-                PolicyLine::InSection => false,
-                PolicyLine::Open | PolicyLine::Closed | PolicyLine::Unknown => true,
-            })
-            .collect();
-        let misplaced = top.len() != policies.len();
-        let policies = top.as_slice();
+        let count = |want: PolicyLine| policies.iter().filter(|&&p| p == want).count();
+        let (open, closed) = (count(PolicyLine::Open), count(PolicyLine::Closed));
+        let stated = match (count(PolicyLine::Unreadable), closed, open) {
+            (1.., _, _) => Stated::Unreadable,
+            (0, 1.., _) => Stated::Closed,
+            (0, 0, 1..) => Stated::Open,
+            (0, 0, 0) => Stated::Unset,
+        };
         let whole = scopes.iter().any(|s| match s {
             Scope::File => true,
             Scope::Head | Scope::Section | Scope::Line => false,
         });
-        let closed = policies.iter().any(|d| match d {
-            PolicyLine::Closed => true,
-            PolicyLine::Open | PolicyLine::Unknown | PolicyLine::InSection => false,
-        });
-        let stated = if closed {
-            Stated::Closed
-        } else {
-            match policies {
-                [] => Stated::Unset,
-                [only] => match only {
-                    PolicyLine::Open => Stated::Open,
-                    PolicyLine::Closed | PolicyLine::Unknown | PolicyLine::InSection => {
-                        Stated::Unreadable
-                    }
-                },
-                [_, _, ..] => Stated::Unreadable,
-            }
-        };
         let kept = if whole { Kept::Nothing } else { kept };
-        // a second or unreadable `policy` line beside a readable closed one is an error of the rest; an unreadable policy is one of its own, which `resolve` counts
-        let extra = match policies {
-            [] | [PolicyLine::Open | PolicyLine::Closed] => false,
-            [PolicyLine::Unknown | PolicyLine::InSection] | [_, _, ..] => true,
-        };
-        let clean = scopes.is_empty() && !misplaced && !(extra && stated == Stated::Closed);
+        // a second readable policy line and a misplaced one are errors of the rest
+        let clean = scopes.is_empty()
+            && open.saturating_add(closed) <= 1
+            && count(PolicyLine::InSection) == 0;
         let rest = match (clean, kept) {
             (true, Kept::Heads) => Rest::Valid,
             (true, Kept::Headless) => Rest::Headless,
@@ -578,7 +563,9 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
     let fixed = match problem {
         Problem::NotAFile | Problem::Unreadable(_) => return Err(Read::Inaccessible),
         Problem::Untrusted(_) => return Err(Read::Untrusted),
-        Problem::TooLarge
+        // a policy line vtium cannot read counts through its `PolicyLine`, and takes the whole file with it
+        Problem::UnreadablePolicy(_)
+        | Problem::TooLarge
         | Problem::MissingVersion
         | Problem::UnknownVersion(_)
         | Problem::LineTooLong

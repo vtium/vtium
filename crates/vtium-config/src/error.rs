@@ -185,6 +185,31 @@ pub enum Problem {
     /// A `policy` line inside a section, which counts as no policy
     /// (D3).
     PolicyInSection,
+    /// A line above the first section that begins with `policy` and that
+    /// vtium cannot read, which makes the file closed and broken (D7).
+    UnreadablePolicy(PolicyFault),
+}
+
+/// Why vtium cannot read a policy line, a line above the first section
+/// that begins with `policy` in any case (D7).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PolicyFault {
+    /// A byte that is not UTF-8.
+    NotUtf8,
+    /// A control character other than tab, and other than a carriage
+    /// return ending the line.
+    ControlCharacter(char),
+    /// More than [`LINE_MAX`](crate::LINE_MAX) bytes.
+    LineTooLong,
+    /// The line runs past [`FILE_MAX`](crate::FILE_MAX), where vtium stops
+    /// reading the file.
+    Cut,
+    /// No `=` between a key and a value, as in `policy` alone.
+    NotKeyValue,
+    /// A key other than `policy` exactly, as in `Policy` or `policies`.
+    Key(Quoted),
+    /// A value other than `open` or `closed`.
+    Value(Quoted),
 }
 
 /// What one error of a read file drops, as `vtium check-config` reports
@@ -202,6 +227,9 @@ pub enum Drops {
     Rule,
     /// One line that is not a rule, such as a top-level key.
     Line,
+    /// The whole file, `policy` lines included, under the closed policy:
+    /// a policy line vtium cannot read makes the file closed and broken.
+    Closed,
 }
 
 impl Drops {

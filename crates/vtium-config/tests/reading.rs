@@ -249,12 +249,28 @@ fn a_crlf_policy_line_ending_at_the_bound_is_read_and_nothing_past_it() {
     assert_eq!(r.policies, [PolicyLine::Closed]);
     assert_eq!(r.trusted(), trusted(Stated::Closed, Rest::Broken));
     // a line whose newline is the first byte past the bound is cut, and
-    // so not read
+    // so not read; a policy line cut so makes the file closed and broken
+    // (ADR-1401 D7, item 12)
     let cut = format!("{} \r\n", text.get(..FILE_MAX - 2).unwrap_or_default());
     assert_eq!(cut.as_bytes().get(FILE_MAX), Some(&b'\n'));
     let r = read(&format!("{cut}policy = open\r\n"));
-    assert_eq!(problems(&r), [(None, Problem::TooLarge)]);
-    assert_eq!(r.policies, [], "the cut line is not read");
+    let line = cut.matches('\n').count();
+    assert_eq!(
+        problems(&r),
+        [
+            (None, Problem::TooLarge),
+            (
+                Some(line),
+                Problem::UnreadablePolicy(vtium_config::PolicyFault::Cut)
+            )
+        ]
+    );
+    assert_eq!(
+        r.policies,
+        [PolicyLine::Unreadable],
+        "the cut line is the policy line"
+    );
+    assert_eq!(r.trusted().stated, Stated::Unreadable);
 }
 
 // a byte-order mark counts toward the bound: a file past it is dropped
@@ -272,8 +288,9 @@ fn a_file_past_the_bound_with_a_byte_order_mark_is_dropped_whole() {
     assert!(heads(&r).is_empty());
 }
 
-// ADR-1401 D3: a readable `policy = closed` wins over every other line,
-// and a line vtium cannot read counts as no policy and is an error
+// ADR-1401 D3: a readable `policy = closed` wins over every other
+// readable line, a second readable line is a duplicate, and a policy line
+// vtium cannot read makes the file closed and broken
 // covers: platform.heads.policy
 #[test]
 fn every_policy_line_is_read_wherever_it_sits() {
@@ -289,12 +306,9 @@ fn every_policy_line_is_read_wherever_it_sits() {
             Stated::Closed,
             Rest::Partly,
         ),
-        (
-            "policy = open\npolicy = open\n",
-            Stated::Unreadable,
-            Rest::Partly,
-        ),
-        ("policy = maybe\n", Stated::Unreadable, Rest::Partly),
+        ("policy = open\npolicy = open\n", Stated::Open, Rest::Partly),
+        // the rest apart from the policy lines is valid
+        ("policy = maybe\n", Stated::Unreadable, Rest::Valid),
         ("policy = open\n", Stated::Open, Rest::Valid),
         ("policy = closed\n", Stated::Closed, Rest::Valid),
         ("", Stated::Unset, Rest::Valid),

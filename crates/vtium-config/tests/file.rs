@@ -10,7 +10,10 @@ use std::fs;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
-use vtium_config::{FILE_MAX, Inspected, Problem, Trust, Untrusted, inspect, read, text};
+use vtium_config::{
+    FILE_MAX, Inspected, Line, Policy, Problem, Read, Runs, Trust, Untrusted, Within, inspect,
+    read, reading, resolve, scope, text,
+};
 
 /// A fresh fixture directory of its own for one test, mode 0755.
 fn fixture(name: &str) -> PathBuf {
@@ -172,6 +175,40 @@ fn has_event(fd: &rustix::fd::OwnedFd) -> bool {
 
 // Opening a FIFO, a watchdog or a serial port acts on it, so anything but
 // a regular file is refused before it is opened
+// The first level stands before the policy: a file vtium does not trust
+// is never read, so a policy line it cannot read leaves it failing open to
+// the shipped default, while the same file trusted is closed and broken
+// (ADR-1401 D7)
+// covers: platform.heads.policy
+#[test]
+fn an_untrusted_file_with_a_policy_line_vtium_cannot_read_still_runs_the_shipped_default() {
+    let dir = fixture("untrusted-policy");
+    let file = dir.join("heads.conf");
+    let text = "version = 1\npolicy = opne\n[head a]\n[rules]\ndisplay * -> a\n";
+    // the verdict a start reaches: untrusted, or the trusted file's levels
+    let start = |file: &Path| -> Read {
+        let inspected = inspect(file, &me(&dir)).expect("read").expect("present");
+        match inspected.trusted {
+            Err(why) => scope(&Problem::Untrusted(why), Within::Top).expect_err("a verdict"),
+            Ok(()) => Read::Trusted(reading(&inspected.bytes).trusted()),
+        }
+    };
+    write(&file, text, 0o664);
+    let read = start(&file);
+    assert_eq!(read, Read::Untrusted);
+    let o = resolve(&read);
+    assert_eq!(
+        (o.runs, o.policy, o.line),
+        (Runs::Builtin, Policy::Open, Some(Line::Skipped))
+    );
+    write(&file, text, 0o644);
+    let o = resolve(&start(&file));
+    assert_eq!(
+        (o.runs, o.policy, o.line),
+        (Runs::Off, Policy::Closed, Some(Line::ClosedOff))
+    );
+}
+
 #[test]
 fn a_fifo_is_refused_without_being_opened() {
     use rustix::fs::inotify;

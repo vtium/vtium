@@ -21,7 +21,7 @@ const FILE: Bound = Bound {
     name: "FILE_MAX",
     value: 64 * 1024,
     what: "Bytes of a head file",
-    past: "The file is dropped whole but for the `policy` lines within the bound",
+    past: "The file is dropped whole but for the `policy` lines within the bound; a `policy` line the bound cuts makes the file closed and broken",
     cite: "ADR-1401 D3, kmscon.conf's bound (`crates/vtium/src/config/mod.rs`, `FILE_MAX`)",
 };
 
@@ -29,7 +29,7 @@ const LINE: Bound = Bound {
     name: "LINE_MAX",
     value: 8 * 1024,
     what: "Bytes of one line, its newline apart",
-    past: "The file is dropped whole but for its `policy` lines, the line named",
+    past: "The file is dropped whole but for its `policy` lines, the line named; a `policy` line past it makes the file closed and broken",
     cite: "ADR-1401 D3, kmscon.conf's bound (`crates/vtium/src/config/mod.rs`, `LINE_MAX`)",
 };
 
@@ -96,11 +96,13 @@ pub(crate) const BOUNDS: [Bound; 9] = [
 ];
 
 /// Bytes of a head file; a larger file is dropped whole but for its
-/// `policy` lines.
+/// `policy` lines, and a `policy` line the bound cuts closes and breaks
+/// it.
 pub const FILE_MAX: usize = FILE.value as usize;
 
 /// Bytes of one line, its newline apart; a longer line drops the file
-/// whole but for its `policy` lines.
+/// whole but for its `policy` lines, and a longer `policy` line closes and
+/// breaks it.
 pub const LINE_MAX: usize = LINE.value as usize;
 
 /// Characters of a head's or a profile's name.

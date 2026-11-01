@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use vtium_config::{Problem, at, parse};
+use vtium_config::{PolicyFault, Problem, at, parse};
 
 /// The invalid file of ADR-1401's figure: line 6 names `desc`, a head no
 /// section declares.
@@ -82,7 +82,7 @@ fn each_kind_of_error_is_named_at_its_line() {
             matches!(p, Problem::DuplicateKey("version"))
         }),
         ("version = 1\npolicy = x\n", Some(2), |p| {
-            matches!(p, Problem::BadValue { key: "policy", .. })
+            matches!(p, Problem::UnreadablePolicy(PolicyFault::Value(_)))
         }),
         (
             "version = 1\npolicy = open\npolicy = open\n",
