@@ -181,6 +181,8 @@ How the C reference's flow drew, as the logical reference for vtium's damage pat
 
 Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the render timer's on-screen display, and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs but `grab-reboot`, and the rest.
 
+vtium takes `display-buffers`, `font-hinting` and `font-line-spacing` and checks their values, but nothing acts on them yet. The number of buffers each display keeps will come from the first, and the font helper's hinting and line spacing from the other two.
+
 Two parts of ADR-1002 wait outside this crate. vtium-render draws neither the hovered link's dashed underline nor the overlay row, though the frame vtium hands it carries both. vtium-platform sends no event when a key is let go, so releasing Ctrl with the pointer still leaves the overlay until the next pointer event or key press.
 
 ## Left to tier 3
