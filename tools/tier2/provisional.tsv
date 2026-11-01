@@ -54,3 +54,5 @@ notice-alone-partly-800x480	ADR-1401 D7, D9: a notice alone on the boot display,
 notice-alone-partly-3840x540	ADR-1401 D7, D9: a notice alone on the boot display, drawn by vtium, not yet reviewed
 notice-alone-stopped-800x480	ADR-1401 D7, D9: a notice alone on the boot display, drawn by vtium, not yet reviewed
 notice-alone-stopped-3840x540	ADR-1401 D7, D9: a notice alone on the boot display, drawn by vtium, not yet reviewed
+link-hover-unifont	ADR-1002: the hovered link's dashed underline, drawn by vtium, not yet reviewed
+link-hover-unifont-1bit	ADR-1002: the hovered link's dashed underline on a 1-bit display, drawn by vtium, not yet reviewed
