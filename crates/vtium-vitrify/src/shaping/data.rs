@@ -3067,7 +3067,8 @@ pub const EMOJI: &[&[u32]] = &[
 /// The joining letters of the scripts the Arabic shaper takes, Arabic
 /// and Syriac (ArabicShaping.txt): each letter, its joining type, `D`
 /// for dual-joining or `R` for right-joining, and its joining group, 1
-/// for LAM, 2 for ALEF, else 0.
+/// for LAM, 2 for ALEF, else 0. No code reads it today: joined forms
+/// wait on shaping across cells.
 pub const JOINING: &[(u32, char, u8)] = &[
     (0x620, 'D', 0),
     (0x622, 'R', 2),

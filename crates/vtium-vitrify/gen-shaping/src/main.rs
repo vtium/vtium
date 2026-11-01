@@ -41,8 +41,10 @@ const FILES: [(&str, &str, &str); 5] = [
 /// The licence of the UCD files, copied into the output.
 const LICENSE: &str = include_str!("unicode-license.txt");
 
-/// The scripts whose letters join, and so take joining forms built ahead
-/// of time: those HarfRust 0.12 shapes with its Arabic shaper.
+/// The scripts HarfRust 0.12 shapes with its Arabic shaper, whose joining
+/// letters `JOINING` lists. No code reads `JOINING` today: the fill that
+/// built their joined forms ahead of time was dropped, and a letter's
+/// joined form waits on shaping across cells.
 const JOINING_SCRIPTS: [&str; 2] = ["Arabic", "Syriac"];
 
 /// The scripts shaped on demand: those HarfRust 0.12 shapes with its Indic,
@@ -456,7 +458,8 @@ fn data_rs(
         "];\n\n/// The joining letters of the scripts the Arabic shaper takes, Arabic\n\
          /// and Syriac (ArabicShaping.txt): each letter, its joining type, `D`\n\
          /// for dual-joining or `R` for right-joining, and its joining group, 1\n\
-         /// for LAM, 2 for ALEF, else 0.\n\
+         /// for LAM, 2 for ALEF, else 0. No code reads it today: joined forms\n\
+         /// wait on shaping across cells.\n\
          pub const JOINING: &[(u32, char, u8)] = &[\n",
     );
     for (c, kind, group) in joining {
