@@ -43,7 +43,7 @@ A match is `*`, every display or every input, or one or more `key:value` tokens,
 | `class:` | a kind of input: `keyboard`, `key`, `mouse`, `touchpad`, `touchscreen`, `trackball`, `pointingstick`, `tablet`, `tablet-pad`, `joystick`, `accelerometer`, `switch` | no: vtium derives the class itself where no udev daemon runs |
 | `edid:` | one monitor, `MAKER:PRODUCT:SERIAL` from its EDID | no |
 | `connector:` | a port of a graphics card, `CARD/CONNECTOR` (`pci-0000:03:00.0/DP-1`), globs allowed | yes |
-| `connector-path:` | one port of a DisplayPort multi-stream hub, by the connector's `PATH` (`mst:...`), a glob; the `PATH` survives a replug or a resume, but its first number can change across a kernel or firmware update | no |
+| `connector-path:` | one port of a DisplayPort multi-stream hub, by the connector's `PATH` (`mst:...`), globs allowed; the `PATH` survives a replug or a resume, but its first number can change across a kernel or firmware update | no |
 | `card:` | every output of a graphics card, by its `ID_PATH`, a glob | yes |
 | `udev:` | any udev property of an input, `NAME=VALUE`, a glob on the value | yes |
 
