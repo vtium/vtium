@@ -36,6 +36,7 @@ Upstream means the original projects the forks came from, `kmscon/kmscon` and `k
 
 - Write about vtium in the present tense everywhere you write: docs, comments, commits, PR bodies and issues. Call the C code "the C reference" and write about it in the past tense ("the C reference replied 4"). History can be told in the past tense.
 - A spec describes behaviour that vtium implements. Put C function names in a section marked as C notes, not in the behaviour spec.
+- A decision record (an ADR, under `docs/architecture/`) never names a GitHub issue or PR by its number. It says in a short phrase what the issue is about: what the work builds, what was found, or what was decided, as in "the work that ports the C reference's test machinery". The record then carries its meaning on its own, the way a statically linked program carries its libraries, where a number only points somewhere else. The issue column of ADR-1000's TSVs is the one exception, because it exists to name each row's issue. Issues, PRs, commits, code and the other docs keep using numbers.
 - Never scope vtium work as "what the C reference does". vtium does that and more. Where the C reference departed from the specification, vtium follows the specification and lists each such case as a departure.
 - Say each fact once. Don't hard-wrap prose: one paragraph is one line in the file.
 - Write the way a person explains something to a colleague out loud: in whole sentences with a subject and a verb, in plain words. Don't be clever. Write so that someone who has never seen this code understands it the first time they read it. If that takes more words, use more words.
@@ -134,7 +135,7 @@ Work happens on this machine first. GitHub's runners are slow, so the steering s
 4. **The author commits locally and runs the gates.** The author does not push or open a PR. The author's report gives the branch, the head commit, the gate results and the departures, the way a PR body would.
 5. **A fresh reviewer reads the diff** (`git diff integration...<branch>`), runs the gates, and plants the defects that the change claims to catch. The author fixes the findings on the same branch, in up to two fix rounds, and a third round goes to a newly briefed agent.
 6. **The reviewed branch merges into `integration`** with `git merge --no-ff`, and the steering session runs the full gates again on the merged tree.
-7. **At a merge point,** the steering session pushes `integration`, opens one PR to main, and waits for that PR's CI. A PR merges with a regular merge commit, never a squash or a rebase.
+7. **At a merge point,** the steering session pushes `integration`, opens one PR to main, and waits for that PR's CI. The PR merges only once every CI job has passed. The `arm-native` job is never skipped, because it is the only check that runs on real ARM hardware. A PR merges with a regular merge commit, never a squash or a rebase.
 
 ### Testing rules
 
