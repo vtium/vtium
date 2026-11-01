@@ -77,7 +77,7 @@ Only root writes frits, so the configuration and OSC 50 name only fonts root cho
 
 A distribution package installs vtium's programs, the service unit, the terminfo entry and the example configuration, and frits where it ships them. Nothing is built at install: the console generates a frit's glyphs at run time (ADR-1200).
 
-On a systemd machine, vtium's unit takes the place of getty, the program that prints the login prompt on a VT: enabled, it makes logind start vtium on each VT it would have given a getty. When vtium cannot start, for example because no display appears, it exits with a failure, and the unit starts getty on that VT instead, so a user is never left at a dead screen.
+On a systemd machine, vtium's unit takes the place of getty, the program that prints the login prompt on a VT: enabled, it makes logind start vtium on each VT it would have given a getty. When vtium cannot start, for example because no display appears, it exits with a failure, and the unit starts getty on that VT instead, so a user is never left at a dead screen. Under a head file whose policy is closed (below) the unit starts no getty, since a getty's login on vtium's VT would take any keyboard.
 
 vtium runs without systemd and without logind as well: an inittab line, an init script or a supervisor starts it where it started a getty, and a person can start it by hand. Each place vtium touches systemd, logind or init, and what it does without them, is listed in [systemd.md](systemd.md).
 
@@ -101,15 +101,15 @@ The other VT's owner can be a desktop, a getty or another vtium.
 
 ## Heads: a terminal per display
 
-This section describes the design [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) decides. Built so far: heads placed by the head file's rules, each with a grid of its own, the head file read at start, inputs routed to their own heads, the roaming chord, several consoles a head, what a head does when it loses its display, and the notice and the active-head mark drawn on the console. [heads.md](heads.md) marks what was decided since and is not built yet, among it `policy`, `isolated` and the head file's new names; also still to be built are the state under `/run/vtium/` and `vtiumctl`.
+This section describes the design [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) decides. Proposed still: the panic screen of a closed file with nothing left (vtium/vtium#186), `connector-path:` (vtium/vtium#157), a reload of the head file (vtium/vtium#86), the state under `/run/vtium/<tty>/` (ADR-1401 D10), and `vtiumctl` (ADR-1401 D12).
 
-The kernel shows one VT on every display, so vtium keeps its one VT and drives every display from one process as a set of heads. A head is a terminal for one or more displays, with its own inputs, its own look and a stack of virtual consoles, each a session of its own, so a small panel and a large monitor each get a grid sized for them, with a keyboard typing into each.
+The kernel shows one VT on every display, so vtium keeps its one VT and drives every display from one process as a set of heads. A head is a terminal for one or more displays, with its own inputs, its own look and a fixed number of consoles, each a session of its own, so a small panel and a large monitor each get a grid sized for them, with a keyboard typing into each.
 
 A head file in `/etc/vtium` declares the heads and an ordered list of rules, read as a firewall reads its rules: each display and each keyboard or pointer walks them from the top, and the first that matches places it in a head, roaming, which types into the active head a chord moves between heads, or out of use. A rule names a device by its port, its serial number or its monitor's identity, or more weakly by its name. The rules vtium ships put every display in one head and every keyboard, pointer and other key device, media keys included, roaming, by the input classes udev gives each device, and leave joysticks, tablets and the like closed; that is the console as it is today, and a user adds rules above them. Like a firewall, the file has a default policy for what its rules don't mention: under `policy = open`, the shipped rules' policy, a keyboard no rule names roams, and under `policy = closed` it is ignored and every head is isolated unless the file says otherwise, as a kiosk needs. [heads.md](heads.md) shows the head file in its scenarios, from the default to a kiosk and several people working at once on one machine, each with a complete file under [heads/](heads/).
 
 With no file, vtium runs its compiled-in configuration and writes nothing. A broken file is reported on the screen and in the log and left as it is; vtium runs what survives of it, else the shipped rules, unless it declares `policy = closed`, when nothing surviving means no keyboard types until the file is fixed from outside vtium. Under the open policy, whatever the rules say, a keyboard that reaches no lit head roams, and `Ctrl-Alt-F<n>` for the VT already shown makes the keyboard that pressed it roam until the next boot.
 
-Each head is a terminal of its own. Ctrl-Super-Up and Ctrl-Super-Down make the next or the previous lit head the active head, and each head shows a mark in its top-right corner for a few seconds, filled on the active head; a keyboard a rule gives a head keeps typing into it. Ctrl-Super-Right and Ctrl-Super-Left show the next and the previous console of the head the keyboard types into. A head has the number of consoles its `consoles` sets, at most 4 a head and 8 in all unless the configuration raises them, and no key opens or closes one. Under `oneshot`, vtium ends only when no head has anything left to run; a head whose display never lit has nothing to run, so it never holds the exit up. A login that keeps ending as soon as it starts, more than 5 times running on any head, makes vtium exit at once with status 1, every head with it, so a getty takes the VT. A head losing its last display does what its `when-display-lost` says (today's build reads it as `on-loss`): under `keep`, the default, its sessions run on unseen, the keys reaching the head still type into them, as the kernel console's do through an unplugged monitor, and a display its rules match brings them back; `hangup` hangs them up at once, as a serial line losing its carrier, and `hangup 30s` only when no such display returns within the time. A mirrored head keeps its sessions while one of its displays remains, and the active head never moves because a display left or came back. The figure follows one head's consoles.
+Each head is a terminal of its own. Ctrl-Super-Up and Ctrl-Super-Down make the next or the previous lit head the active head, and each head shows a mark in its top-right corner for a few seconds, filled on the active head; a keyboard a rule gives a head keeps typing into it. Ctrl-Super-Right and Ctrl-Super-Left show the next and the previous console of the head the keyboard types into. A head has the number of consoles its `consoles` sets, at most 4 a head and 8 in all unless the configuration raises them, and no key opens or closes one. Under `oneshot`, vtium ends only when no head has anything left to run; a head whose display never lit has nothing to run, so it never holds the exit up. A console whose program exits starts it again in the same console. A login that keeps ending as soon as it starts, more than 5 times running on any console of any head, hangs up every head's sessions: under the open policy vtium exits with status 1, so a getty takes the VT, and under the closed policy vtium holds its VT and shows a notice. A head losing its last display does what its `when-display-lost` says: under `keep`, the default, its sessions run on unseen, the keys reaching the head still type into them, as the kernel console's do through an unplugged monitor, and a display its rules match brings them back; `hangup` hangs them up at once, as a serial line losing its carrier, and `hangup 30s` only when no such display returns within the time. A mirrored head keeps its sessions while one of its displays remains, and the active head never moves because a display left or came back. The figure follows one head's consoles.
 
 ```mermaid
 stateDiagram-v2
@@ -119,21 +119,19 @@ stateDiagram-v2
     state Running {
         [*] --> Shown
         Shown --> Shown: Ctrl-Super-Right or Left<br>shows the next or the previous
-        Shown --> Shown: a console's program exits,<br>and the next shows
+        Shown --> Shown: a console's program exits,<br>and starts again in that console
     }
     Running --> Dark: its last display goes
     Dark --> Running: a display its rules match comes,<br>under keep or within hangup's time
-    Dark --> LastExit: hangup, at once or when its time runs out:<br>every pty closes and its programs get SIGHUP
-    Running --> LastExit: the last console's program exits
-    LastExit --> Running: the head's login comes back
-    LastExit --> GaveUp: it exited within 2 s<br>more than 5 times running
-    LastExit --> Ended: oneshot
-    GaveUp --> [*]: vtium exits at once with status 1,<br>every head with it, so a getty takes the VT
+    Dark --> Dark: hangup, at once or when its time runs out:<br>every pty closes, its programs get SIGHUP,<br>and each console starts again at its login
+    Running --> GaveUp: a console's program exited within 2 s<br>more than 5 times running
+    Running --> Ended: oneshot, once every console's program has exited
+    GaveUp --> [*]: every head's sessions hang up; under open vtium exits<br>with status 1 and a getty takes the VT,<br>and under closed it holds the VT with a notice
     Ended --> [*]: only oneshot ends a head: "session ended";<br>once every head has ended, vtium exits
     classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
     classDef done fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
     classDef inert fill:#475569,color:#ffffff,stroke:#94a3b8
-    class Waiting,LastExit,Dark step
+    class Waiting,Dark step
     class Shown done
     class GaveUp,Ended inert
 ```
