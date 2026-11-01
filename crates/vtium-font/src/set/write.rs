@@ -278,7 +278,7 @@ fn put_chunks(out: &mut Vec<u8>, all: &[Chunk]) -> Result<(), WriteError> {
 
 /// `CLUS`, or `None` when no strike maps a cluster: each strike's clusters
 /// sorted by key, their glyphs stored once each, strike after strike.
-fn clusters(order: &[&RawStrike]) -> Result<Option<Vec<u8>>, WriteError> {
+fn clusters(order: &[&RawStrike]) -> Result<Option<(Vec<u8>, usize)>, WriteError> {
     let mut records = Vec::new();
     let mut pool: Vec<u32> = Vec::new();
     let mut all: Vec<Chunk> = Vec::new();
@@ -371,7 +371,7 @@ fn clusters(order: &[&RawStrike]) -> Result<Option<Vec<u8>>, WriteError> {
         put32(&mut out, c);
     }
     put_chunks(&mut out, &all)?;
-    Ok(Some(out))
+    Ok(Some((out, all.len())))
 }
 
 /// Checks `ink` as the box of a glyph of strike `s`, `wide` or not: in
@@ -402,7 +402,7 @@ fn check_ink(s: &RawStrike, wide: bool, ink: &RawInk) -> Result<(), WriteError> 
 /// stored once each, with a record for each glyph `GLYF` numbers and each
 /// cluster `CLUS` holds that draws a glyph with a box, sorted by strike,
 /// kind and number.
-fn inks(order: &[&RawStrike], laid: &[Laid]) -> Result<Option<Vec<u8>>, WriteError> {
+fn inks(order: &[&RawStrike], laid: &[Laid]) -> Result<Option<(Vec<u8>, usize)>, WriteError> {
     let mut records: Vec<(u16, u16, u32, i32, u32, u32, u32)> = Vec::new();
     let mut all: Vec<Chunk> = Vec::new();
     // the number of the strike's first cluster in `CLUS`
@@ -485,7 +485,17 @@ fn inks(order: &[&RawStrike], laid: &[Laid]) -> Result<Option<Vec<u8>>, WriteErr
         put32(&mut out, offset);
     }
     put_chunks(&mut out, &all)?;
-    Ok(Some(out))
+    Ok(Some((out, all.len())))
+}
+
+/// Refuses a set whose `GLYF`, `CLUS` and `INKX` chunks, `counts`,
+/// together pass `SET_CHUNKS_MAX`, which the reader holds the whole set to.
+fn chunks_within(counts: &[usize]) -> Result<(), WriteError> {
+    let total = counts.iter().try_fold(0usize, |n, &c| n.checked_add(c));
+    match total {
+        Some(n) if u32_of(n)? <= SET_CHUNKS_MAX => Ok(()),
+        _ => Err("more chunks over GLYF, CLUS and INKX than SET_CHUNKS_MAX"),
+    }
 }
 
 fn put16(out: &mut Vec<u8>, v: u16) {
@@ -627,6 +637,11 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
     put_chunks(&mut glyf, &all)?;
     let clus = clusters(&order)?;
     let inkx = inks(&order, &laid)?;
+    chunks_within(&[
+        all.len(),
+        clus.as_ref().map_or(0, |c| c.1),
+        inkx.as_ref().map_or(0, |c| c.1),
+    ])?;
 
     let mut sections: Vec<([u8; 4], &[u8])> = vec![
         (META, meta.as_bytes()),
@@ -635,10 +650,10 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
         (POLY, &poly),
         (GLYF, &glyf),
     ];
-    if let Some(clus) = &clus {
+    if let Some((clus, _)) = &clus {
         sections.push((CLUS, clus));
     }
-    if let Some(inkx) = &inkx {
+    if let Some((inkx, _)) = &inkx {
         sections.push((INKX, inkx));
     }
     let mut out = Vec::new();
@@ -663,4 +678,27 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
         return Err("a set larger than SET_BYTES_MAX");
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::chunks_within;
+    use crate::bounds::SET_CHUNKS_MAX;
+
+    // the writer holds the set's chunks over its three chunked sections to
+    // SET_CHUNKS_MAX, as the reader does (review finding A11)
+    #[test]
+    fn the_chunks_of_all_sections_together_are_bounded() {
+        let max = SET_CHUNKS_MAX as usize;
+        assert!(chunks_within(&[max - 2, 1, 1]).is_ok());
+        assert!(
+            chunks_within(&[max - 2, 1, 2]).is_err(),
+            "INKX past the bound"
+        );
+        assert!(chunks_within(&[max, 0, 0]).is_ok());
+        assert!(
+            chunks_within(&[usize::MAX, 1, 0]).is_err(),
+            "a count past usize"
+        );
+    }
 }
