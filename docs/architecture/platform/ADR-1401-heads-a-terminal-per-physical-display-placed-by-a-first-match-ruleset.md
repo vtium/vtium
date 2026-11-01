@@ -238,7 +238,7 @@ related: []
 - **Probes:**
   - *Not confident (losing a display):* when a head you set up for one monitor loses it, its sessions stay for 10 seconds and then hang up, as a line losing its carrier; the monitor coming back within the 10 seconds resumes them. The shipped one-head console keeps today's behaviour, running on with no display. Is a hang-up after a short wait what you want for a head whose monitor goes away? (Answered 2026-10-29: `on-loss`, `nohup` by default, renamed 2026-10-30 `when-display-lost` and `keep`; see `considered` and D8.)
   - *Confident (the rescue):* pressing `Ctrl-Alt-F<n>` for the VT you are already looking at makes that keyboard roam until the next boot, whatever the head file says, and never edits the file.
-- **Pending the operator's read:** ten decisions that the amendment for the head-file wiring work and its slice S1 wrote while the operator was away: five leans and five calls. [For the operator's check](#for-the-operators-check) lists them, each with the place it changed, so the operator can confirm or overrule each one.
+- **Pending the operator's read:** ten decisions that the amendment for the head-file wiring work and its slice S1 wrote while the operator was away: five leans and five calls. [For the operator's check](#for-the-operators-check) lists them, each with the place it changed, so the operator can confirm or overrule each one. The amendments of 2026-11-01 add the questions they leave open, each with its options and a lean: the number of buffers a display keeps for its render thread (D2).
 - **Inversion:** Between "one grid for every display", the C reference's `multi-monitor` and today's vtium, and "a console process per display", which the kernel forbids (one DRM master per card, one VT shown on every display). vtium keeps one process and one VT and puts the terminals inside it, placed by rules a user writes or a tool writes for them.
 
 ## Context
@@ -333,6 +333,36 @@ flowchart TB
 - vtium serves seat0. Other seats, one vtium a seat with console switching of its own where the seat has no kernel VT, are a later extension this record names and does not build; the head file then gains a file per seat.
 - **One render thread per head,** so one head's redraw cannot delay another head's frames or any input. Each head's frames depend only on that head's state, so determinism holds. Each render thread's stack is small and fixed. Threads do not contain a crash: under `panic=abort` a panic in any thread ends the process (D10).
 - A DRM lease from a compositor is not a head source, unless a later decision makes it a display-only head: it would put a root login inside a user's graphical session and need raw input read beside the compositor.
+
+#### The display's buffer, lent to the render thread
+
+A head's render thread draws each frame straight into the buffer the display will show. The loop keeps the display itself: its device, its buffers, its modesets, its flips and its cursor plane. Only the right to draw into one buffer travels to the thread and back.
+
+- **The buffer token.** When the loop takes a frame for a display, the prepare step, the display lends the loop a buffer token. The token is an owned value that names one of the display's buffers by its index and carries that buffer's age: how many frames ago the buffer was last drawn, 1 for the frame before this one, 2 for the frame before that, and 0 when its contents are unknown. The loop sends the token to the head's render thread with the frame. The thread draws the frame into the buffer the token names and sends the token back with the composed frame. At the swap the loop gives the token back to the display, which presents that buffer with the frame's damage.
+- **Ready for a frame.** A display is ready for a frame when it can take one, whatever form the frame takes. On the CPU path a frame takes the form of a canvas: the display's buffer, mapped into memory, which the renderer draws into. On the GPU path it takes the form of a framebuffer that the head's GL context draws into. A display lends a token only while it is ready: a DRM display while its card is awake, it is on, a buffer is free to draw into, and no flip or modeset is waiting. While its token is out it lends no other, so a display has one frame on its way at a time.
+- **A token that comes back too late.** When the token comes back to a display that has gone, that has been set up again with new buffers, as after a modeset, or whose VT was released or whose displays were blanked while the frame was drawn, the display drops the token and the frame is not shown. The display draws its next frame whole.
+- **The CPU path keeps no shadow.** The token's buffer is a dumb buffer on a DRM card, and the framebuffer's mapped memory, or the copy fbdev converts from for a format other than XRGB8888, on a framebuffer. The render thread maps that buffer and composes into it directly, writing only, through ADR-1300 D5's row scratch, so device memory is still never read. No display keeps a copy of its whole frame in cached memory, and nothing copies a frame from one buffer into another at the swap. A display at 1920x1080 saves the 8,294,400 bytes the shadow took, and each frame saves the shadow's copy.
+- **The GPU path keeps no shadow either.** The token's buffer is a GBM buffer object, which the display allocated with its framebuffer. The render thread imports it as an EGL image, binds it as the framebuffer of the head's GL context and draws into it with ADR-1300 D6's shader. A buffer the head's context cannot import, such as one on a card the context was not made for, is drawn on the CPU path.
+- **The buffer's age decides what is drawn.** The renderer draws every cell that changed in the last `age` frames, which it knows from its own record of when each cell last changed, and draws the whole frame when the age is 0. The rectangles it drew are the frame's damage, which the loop hands to the display at the swap. A DRM display has two buffers, so the buffer the thread draws into is usually two frames old, and each frame also draws what changed in the frame before it. The GPU path takes the same age, and it may draw the whole frame at any age, as the C reference's gltex did, since drawing more than the damage changes no pixel.
+- **Two buffers a display, on both paths,** as the C reference's drm2d had. The thread starts a frame only once the display has a free buffer, so a frame is composed after the flip of the frame before it has completed. Composing a whole frame takes about 0.5 ms at minspec's 1366x768 (ADR-1300 D5), inside a 60 Hz display's 16.7 ms refresh. For the operator's check, item 11, asks whether a third buffer should let the thread compose while a flip is still pending.
+
+The steps of one frame, from the loop to the render thread and back:
+
+```mermaid
+sequenceDiagram
+    participant L as the loop
+    participant D as the display
+    participant T as the head's render thread
+    L->>D: is the display ready for a frame?
+    D-->>L: yes: a buffer token (index, age)
+    L->>T: the frame and the token
+    Note over T: CPU path: map the buffer, compose the cells changed in the last age frames<br>GPU path: import the buffer as an EGL image and draw into it
+    T-->>L: the token and the frame's damage
+    L->>D: swap: the token back, with the damage
+    Note over D: flip to that buffer; Flipped follows
+```
+
+> Edited 2026-11-01: the maintainer's answer on the review of the GPU and image paths (`considered`, 2026-11-01): a display lends its buffer to the render thread as a token. D2 said nothing of how a frame reaches the display's buffer. The code had each display's drawing keep a whole-frame shadow in cached memory, which the render thread composed into and the loop copied into the display's buffer at present, a shadow ADR-1300's alternatives had rejected for minspec; the earlier text of D2 is in git at 1d51e46.
 
 > Edited 2026-10-29: the operator accepted an independent advisor's review (`considered`): each head renders on a thread of its own. D2 said nothing of threads.
 
@@ -1011,6 +1041,15 @@ The gap-check of the head-file wiring work asked the operator five questions, ea
 
 > Edited 2026-11-01: the maintainer accepted item 3 as built and ruled that a policy line that cannot be read makes the file closed and broken (`considered`, 2026-11-01). Item 3 named no exception for a policy line.
 
+#### Pending the operator's read, from the amendments of 2026-11-01
+
+The amendments of 2026-11-01 left these questions open. Each says what a user would see, gives the options, and names the lean the record is written to; the operator confirms the lean or picks another option, and the places each item names change with the answer.
+
+11. **Two buffers a display, or three (D2).** Today a display's frame is composed into a shadow while the previous frame is still flipping onto the screen, and copied out once the flip completes. With the buffer token, the render thread draws straight into a display's free buffer, and with two buffers the free one is free only once the flip of the frame before has completed. A user typing sees each key's echo one compose later than with a third buffer: about 0.5 ms at minspec's size and about 1 ms at minspec's speed, inside the 16.7 ms between two refreshes at 60 Hz, so the echo reaches the same refresh in nearly every case.
+    - *Two buffers.* No memory beyond today's buffers, and each display saves the shadow's whole frame. A compose starts only after the flip, which delays a frame by one compose.
+    - *Three buffers.* The thread composes while a flip is pending, as the shadow allowed. Each display holds one more whole frame, 8,294,400 bytes at 1920x1080, the same memory the shadow takes today.
+    - *Lean: two buffers,* as the C reference's drm2d had. The delay is a small fraction of a refresh, and minspec's memory is the tighter bound. A third buffer is worth adding if tier 3 or the VT review shows frames missing a refresh.
+
 #### The probes and the agent calls
 
 The probes, in the order the record raises them:
@@ -1074,6 +1113,8 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - `scripts/etc/kmscon.conf.example` wrote every option as a commented line.
 - A session's child that exited less than 2 s (`MAX_RETRY_TIME`) after its last recorded start, in whole seconds of the wall clock, counted a quick exit; at 5 (`MAX_RETRY_COUNT`) the next exit logged an error and called the terminal's exit callback with no restart, as `oneshot` did (`kmscon/src/misc/pty.c:52-53, 737-768`). That callback, `pty_exit`, called `ev_eloop_exit` on the one loop every session shared, so one session's crash loop ended the process and every session in it (`kmscon/src/terminal.c:1856-1868`), and `main` then returned the seat's start error, 0 after a start that had succeeded (`kmscon/src/main.c:201-227`).
 
+- The C reference drew every display on its one thread. Its GPU backend, drm3d, made a GBM surface for each display with an EGL window surface on it. Each swap called `eglSwapBuffers`, took the surface's front buffer object, made a framebuffer of it the first time it saw it, kept that framebuffer as the buffer object's user data, and presented it through the shared DRM code's `drm_display_swap`. drm3d held three buffer objects, the one on screen, the one flipping next and the one a modeset used, and gave each back to the surface when the next replaced it; a swap with no free buffer in the surface returned `-EBUSY` (`kmscon/src/video/drm3d_video.c:141-148, 382-424`). The display logic itself, the modesets, the flips and their waits, DPMS and the cursor plane, lived in `drm_shared.c`, and drm3d supplied only its buffers, through the `prepare_modeset` and `done_modeset` hooks (`kmscon/src/video/drm3d_video.c:267-342`, `kmscon/src/video/drm_shared.c:861-937, 1062-1087`). gltex cleared and redrew the whole frame every time (`kmscon/src/render/gltex.c:1372-1373`), so the GPU path used no buffer age. drm2d had two dumb buffers that it swapped in turn, and bbulk drew each frame's changes together with the frame before's, since its back buffer was two frames old (`kmscon/src/video/drm2d_video.c:212-224`, `kmscon/src/render/text.c:735-738`).
+
 ## Where vtium departs from the C reference
 
 - **Several terminals on one kernel VT.** The C reference refused session control on a real VT (`kmscon/src/seat.c:841-845`); vtium's heads and their consoles live on its one VT, since the kernel shows one VT on every display.
@@ -1081,6 +1122,8 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - **Focus reporting, one a head.** The C reference never let two terminals hold mode 1004's focus at once (`kmscon/src/seat.c:125-177`); vtium gives it to the shown console of each head that has a lit display and a keyboard.
 - **A display the rules leave dark is set off,** where the C reference lit every display of its seat.
 - **The configuration's files must be root's and writable by no one else;** the C reference read any file at its path.
+- **The display owns its GPU buffers.** The C reference's drm3d drew into a GBM surface through an EGL window surface, whose buffers EGL rotated at each swap on the thread that drew. vtium's DRM backend allocates each display's GBM buffer objects itself, and the render thread imports the one a buffer token names as an EGL image (D2), so the loop keeps the flips and one copy of the display logic serves dumb buffers and GBM buffers alike.
+- **Each head draws on a thread of its own,** into the display's buffer, where the C reference drew every display on its one thread (D2).
 
 ## Consequences
 
