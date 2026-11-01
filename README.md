@@ -1,23 +1,48 @@
 # VTium
 
-vtium is a terminal for the Linux virtual console. It runs on a VT, one of the full-screen text consoles the kernel provides, takes the display through KMS/DRM (or through the older fbdev framebuffer where that is all a machine has), and draws the terminal itself in software, with no display server.
+vtium is a terminal for the Linux virtual console. It runs on a VT, one of the full-screen text consoles the kernel provides, takes the display through KMS/DRM (or through the older fbdev framebuffer where that is all a machine has), and draws the terminal itself, with text, color and pictures, on the CPU or on the GPU. It needs no display server and does not rely on systemd.
 
-It is written in Rust. Its behaviour is judged against the C reference, the maintainer's forks of the C terminal `kmscon` and its library `libtsm`, which vtium learned from: tests compare vtium's screens and replies with the C reference's saved results, as text and pixel for pixel.
+It is written in Rust. Its behaviour is judged against the C reference, the maintainer's forks of the C terminal `kmscon` and its library `libtsm`: tests compare vtium's screens and replies with the C reference's saved results, as text and pixel for pixel.
 
 ![vtium on a 640x480 display: a row of foreground colors fg31 to fg97, a row of background colors bg41 to bg107, the words bold, underline, reverse, bold-underline-red, faint and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green to red, and a shell prompt with a block cursor](tools/tier3/goldens/2d-640x480-psf16/sgr.png)
 
-*vtium's own output: the minspec build running on a VT of a QEMU/KVM guest with 1 vCPU and 512 MB, on a virtio-vga display at 640x480, in vtium's 8x16 PSF test font, made from Unifont's glyphs (80 by 30 cells). Tier 3 captured it from the guest's screen. The maintainer reviewed and accepted it as a golden on 2026-10-28, and the run at this README's commit matched it to the pixel. The font has no italic face, so `italic` draws upright.*
+*vtium's own output: the minspec build running on a VT of a QEMU/KVM guest with 1 vCPU and 512 MB, on a virtio-vga display at 640x480, in vtium's 8x16 PSF test font, made from Unifont's glyphs (80 by 30 cells). Tier 3 captured it from the guest's screen. The maintainer reviewed and accepted it as a golden on 2026-10-28, and the run at commit `cfeca3a` matched it to the pixel. The font has no italic face, so `italic` draws upright.*
 
 ![vtium on a 320x240 display: a ruler of 40 columns, a colored directory listing, the 16 background colors, six color names, bold, faint, underlined, reversed and struck words, a box of sprite lines around cpu, mem and load figures, a line of Latin-1, four underline styles, a progress bar at 50%, and a prompt](tools/tier3/goldens/2d-320x240-psf8/small-console.png)
 
-*vtium's own output: the same build and guest on a 320x240 display, the smallest vtium supports, in vtium's 8x8 PSF test font, Unifont's glyphs folded to half height (40 by 30 cells). It is also a golden the maintainer accepted on 2026-10-28, matched to the pixel at this README's commit.*
+*vtium's own output: the same build and guest on a 320x240 display, the smallest vtium supports, in vtium's 8x8 PSF test font, Unifont's glyphs folded to half height (40 by 30 cells). It is also a golden the maintainer accepted on 2026-10-28, matched to the pixel at `cfeca3a`.*
 
-## What it does today
+## Status
+
+vtium has no release yet. A checkout builds and runs everything on this page except these, which are designed and landing:
+
+- **Pictures:** sixel, kitty graphics and iTerm2 inline images, decided in [ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md). The `vtium-image` crate holds no code yet.
+- **The GPU renderer,** on glow over EGL and GBM ([the GPU path's issue](https://github.com/vtium/vtium/issues/33)). Today every build draws on the CPU.
+- **libseat,** for seat access through seatd or logind ([the libseat issue](https://github.com/vtium/vtium/issues/34)). Today vtium opens the VT, the cards and the input devices itself, as root.
+- **Handing the display back without a VT switch,** through the `setBackground` sequence ([the hand-back issue](https://github.com/vtium/vtium/issues/36)).
+
+Also not built yet: glyph ink reaching into the next cell ([ADR-1302](docs/architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md), decided), ligatures and shaping across cells, the bold and italic faces of outline fonts, the kitty keyboard protocol, bidirectional text, input methods, `vtiumctl`, the font builder and preview (`vtium-vitrify new` and `preview`), `vtium-clipboard`, and reloading the head file without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
+
+## What it does
 
 ### Displays
 
 - vtium draws into DRM dumb buffers, plain memory buffers the display scans out, with atomic modesetting where the card offers it and the legacy calls where it does not. On fbdev it draws at 32, 24 or 16 bits, or at 1 bit for monochrome panels.
-- It follows displays as they are plugged in and out, powers them down after an idle time, gives the display back at a VT switch and takes it again on return, and draws in four orientations.
+- It follows displays as they are plugged in and out, powers them down after an idle time, and draws in four orientations.
+- The CPU renderer is the default build's renderer and draws everywhere. The GPU renderer, behind a build feature, draws the same pixels as the CPU renderer ([ADR-1301](docs/architecture/render/ADR-1301-one-glyph-engine-draws-at-run-time-for-the-display-s-capabilities.md)), and tier 2 holds the two to the same bytes ([ADR-1300](docs/architecture/render/ADR-1300-the-drawn-glyph-cache-and-frame-composition.md)). Landing; see [Status](#status).
+
+### Sharing the display
+
+vtium shares the graphics card with whatever else draws on the machine. vtium runs on one VT, and the program on another VT may be a Wayland compositor, an X server, a getty or another vtium ([docs/concepts.md](docs/concepts.md)). Only one program at a time is the card's DRM master, the one allowed to set modes, and master can be dropped and taken again ([kernel DRM documentation](https://docs.kernel.org/gpu/drm-uapi.html)). vtium hands the card over the same way whatever is on the other VT:
+
+- vtium takes its VT's switching from the kernel (`VT_PROCESS`). When the kernel asks for a switch away, vtium finishes the frame in flight, blanks its buffers, hides its cursor and overlay planes and drops DRM master, and only then lets the kernel switch.
+- When its VT comes back, vtium takes DRM master again and sets every display. While the other program still holds master, vtium tries again every 50 ms, 40 times, and then on the next key press, pointer action or hotplug.
+- It presents a frame with an atomic commit that carries the frame's damage as `FB_DAMAGE_CLIPS` (the kernel's "optional plane property to mark damaged regions", [KMS documentation](https://docs.kernel.org/gpu/drm-kms.html)) where the card offers it, with the legacy calls and whole frames where it does not, and through fbdev where there is no DRM.
+- A display the head file leaves dark is turned off at each modeset, so a frame another master left on it goes dark. On a card with only the legacy calls, such a display still shows that frame.
+
+vtium does not rely on systemd. With systemd, its unit, `kmsconvt@.service`, is aliased `autovt@.service`, so logind starts vtium on each VT it would give a getty, `pam_systemd` registers the login with logind, and a fallback unit starts a getty if vtium fails. Without systemd, an inittab line, an init script or a supervisor runs `vtium --vt=ttyN --no-switchvt` where it ran a getty, or a person starts it by hand. Tier 3 boots vtium under sysvinit on Debian 13, with no logind, from an inittab line, with the udev daemon running and with it stopped, and its reboot and power-off keys go through sysvinit. The screens it draws there match vtium's own goldens to the pixel, and those goldens still wait for the maintainer's review. [docs/systemd.md](docs/systemd.md) lists each place vtium touches systemd, logind or PID 1, and what it does without them.
+
+With libseat, vtium takes the VT, the cards and the input devices from the seat manager, seatd or logind, whichever is running, as Wayland compositors such as sway do through the same library ([seatd's README](https://git.sr.ht/~kennylevinsen/seatd/blob/master/README.md)). The process still runs as root to start `/bin/login` ([ADR-1400](docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md)). Landing; see [Status](#status).
 
 ### Heads: a terminal per display
 
@@ -44,6 +69,10 @@ The console parses no font file. A frit (a font set file, `/etc/vtium/fonts/NAME
 - The helper reads PSF and raw console fonts, kbd font names, BDF fonts, the kernel's own VT font, and outline fonts by family or file, color emoji included (COLR version 0, CBDT and sbix). It rasterizes outlines with swash and shapes each grapheme cluster with HarfRust.
 - Unifont and Unscii-8 are built into the console. They draw the first frame and every character a frit lacks.
 - `vtium-vitrify set` switches the running console's font through OSC 50, and Ctrl+= and Ctrl+- zoom it.
+
+### Pictures
+
+vtium shows pictures that programs send with sixel and the kitty graphics protocol, and iTerm2's inline images through a thin front end over the same pipeline ([ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md)). Each console keeps one store of pictures and their placements, bounded in memory. A placement is anchored to the line holding its top row, so it moves with the text, and each protocol's own rules decide what erases it and how it scrolls. Image files are decoded in a sandboxed helper process that runs as the session's user and never as root ([ADR-1400](docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md)). Pictures are a build feature outside minspec. Landing; see [Status](#status).
 
 ### The terminal
 
@@ -74,21 +103,15 @@ Tier 3 measures it in a guest with 1 vCPU and 512 MB. At commit `cfeca3a`:
 | Peak resident memory at 640x480, 8x16 cells | 7.71 MiB |
 | Peak resident memory at 1366x768, 8x16 cells | 12.11 MiB |
 
-## What it does not do yet
+## How vtium is built against other work
 
-- Pictures: sixel, kitty graphics and iTerm2 inline images. [ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md) decides the pipeline, and none of it is built.
-- Glyph ink reaching into the next cell ([ADR-1302](docs/architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md), decided and not built), ligatures and shaping across cells, and the bold and italic faces of outline fonts.
-- A GPU renderer.
-- libseat. vtium runs as root for its whole life ([ADR-1400](docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md)).
-- The kitty keyboard protocol, bidirectional text, and input methods.
-- `vtiumctl`, the font builder and preview (`vtium-vitrify new` and `preview`), `vtium-clipboard`, and reloading the head file without a restart.
-- A release or a distribution package.
+**The C reference.** vtium is measured against the maintainer's forks of `kmscon/kmscon` and `kmscon/libtsm`, [aaronsb/kmscon](https://github.com/aaronsb/kmscon) and [aaronsb/libtsm](https://github.com/aaronsb/libtsm), which are MIT-licensed. vtium took their logic flow and none of their code structure: each answer about behaviour starts from how the C reference handled the case, and vtium's types, ownership and modules follow Rust ([AGENTS.md](AGENTS.md)). Where the C reference departed from a protocol's specification, vtium follows the specification and lists the case as a departure. vtium copied the C reference's expected outputs, its goldens, into its own tree, and records where each file came from, with its repository, commit, source path and SHA-256 (`tools/conformance/provenance.tsv`, `tools/tier2/provenance.tsv`, `tools/tier3/provenance.tsv`). No build, test or CI job runs the C reference's code.
 
-The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
+**Other terminals.** ADR-1000's tables compare every mode and feature, row by row, with the C reference, xterm, foot, Ghostty, WezTerm and kitty. vtium reads the code of permissively licensed implementations and names the source of anything it adapts. For a GPL-licensed terminal it reads only documentation and specifications, and may run the program to compare its screens. [CONTRIBUTING.md](CONTRIBUTING.md) states the rule for kitty: "Implement from published protocol specifications and from permissively licensed implementations such as Ghostty, WezTerm, foot and libsixel. kitty is GPL-3.0, and its source is not read while working on vtium, by a person or by an agent. kitty as a running program may be used for black-box comparison." The rule comes from the C reference's own record, [ADR-300 in the kmscon fork](https://github.com/aaronsb/kmscon/blob/main/docs/architecture/fork/ADR-300-write-from-protocol-specs-and-permissive-sources-never-from-kitty-s-code.md), which says "No source from a GPL-licensed terminal, kitty above all, is read while writing it, by a person or by an agent", so that the work stays MIT and anyone can use it. <!-- adr-cite-ignore: the kmscon fork's record, not one of vtium's -->
 
 ## vtium beside the alternatives
 
-These are the other ways to get a terminal on a Linux console without a display server. Each line below is taken from the project's own documentation, repository or release notes, at the version named.
+These are the other ways to get a terminal on a Linux console without a display server. Each line below is taken from the project's own documentation, repository or release notes, at the version named. vtium's row includes what is landing ([Status](#status)).
 
 | | Draws through | Colors | Fonts | Pictures | Latest release |
 |---|---|---|---|---|---|
@@ -97,13 +120,14 @@ These are the other ways to get a terminal on a Linux console without a display 
 | fbterm 1.7 | fbdev, or a VESA video card | 256, through its own private sequences under `TERM=fbterm` | fontconfig and FreeType | none listed | 1.7, 2010-10-06 |
 | yaft 0.2.9 | fbdev at 8 to 32 bits per pixel, on Linux and FreeBSD, and on NetBSD and OpenBSD as experimental | 256 | BDF fonts converted into its source when it is built | sixel and DRCS, marked experimental | tag v0.2.9; last commit 2018-11-14 |
 | fbpad | Linux fbdev | 256 | its own tinyfont format and PSF2 | none listed | last commit 2026-10-23 |
-| vtium | KMS/DRM dumb buffers, or fbdev | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | decided, not built | none yet |
+| vtium | KMS/DRM dumb buffers on the CPU or through the GPU, or fbdev | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | sixel, kitty graphics and iTerm2 inline images | none yet |
 
-Besides what the table shows, such as `kmscon`'s OpenGL ES 2 renderer and yaft's sixel, the others do these things vtium does not:
+Besides what the table shows, the others do these things vtium does not:
 
 - The kernel console needs no program in user space: fbcon takes over the console by itself.
-- `kmscon` supports libseat when built with it, sets each monitor's mode and rotation separately, and follows the keyboard layout set through `localectl`.
+- `kmscon` sets each monitor's mode and rotation separately, and follows the keyboard layout set through `localectl`.
 - fbterm has an input method framework for Chinese, Japanese and Korean input, and up to 10 windows.
+- yaft runs on the BSD consoles.
 - fbpad keeps two terminals to a tag and splits the screen between them.
 
 On vtium's side are the heads, with their first-match rules and the closed policy for kiosks; fonts parsed and rasterized in a helper process apart from the console; scrollback bounded in bytes and rewrapped on a width change, where the kernel console's soft scrollback (Shift+PageUp) was removed in Linux 5.9; OSC 8 links and OSC 133 prompt marks; monochrome panels; and the tests below.
@@ -111,13 +135,13 @@ On vtium's side are the heads, with their first-match rules and the closed polic
 ## How it is judged
 
 - **Unit tests** in each crate.
-- **Tier 1, conformance:** byte streams replayed through vtium's terminal, the screen and the replies compared as text with goldens, the saved results the C reference produced. The goldens were copied into vtium's tree, each with the file and commit it came from.
+- **Tier 1, conformance:** byte streams replayed through vtium's terminal, the screen and the replies compared as text with the C reference's goldens.
 - **Capability probes:** each capability vtium claims has a replay that fails without it.
 - **Tier 2, pixels:** the renderer draws known screens in memory, compared pixel for pixel with goldens.
-- **Tier 3, a virtual machine:** vtium's install tree boots on a VT of a QEMU/KVM guest with a real KMS device, keys are typed into it, and its screens are compared pixel for pixel with goldens. The run also records the size and memory figures above. At `cfeca3a` the minspec run gave 47 passes, 28 listed departures and 16 provisional goldens, with no failure.
+- **Tier 3, a virtual machine:** vtium's install tree boots on a VT of a QEMU/KVM guest with a real KMS device, keys are typed into it, and its screens are compared pixel for pixel with goldens. The run also records the size and memory figures above. At `cfeca3a` the minspec run gave 47 passes, 28 listed departures and 16 provisional goldens, with no failure. Tier 3 boots two pinned guests: Arch Linux from the archive snapshot of 2026-10-20, with systemd, and Debian 13 with sysvinit ([tools/tier3/README.md](tools/tier3/README.md)).
 - **The VT review:** the maintainer checks a build by eye on a real VT, guided step by step ([docs/vt-review.md](docs/vt-review.md)).
 
-Where vtium differs from a golden, the difference is a listed departure or the test fails. Where the C reference departed from a protocol's specification, vtium follows the specification and lists the case. Goldens vtium made for screens the C reference never drew stay provisional, and judge nothing, until the maintainer reviews them.
+Where vtium differs from a golden, the difference is a listed departure or the test fails. Goldens vtium made for screens the C reference never drew stay provisional, and judge nothing, until the maintainer reviews them.
 
 The state vtium shows follows only from the bytes a program sends: the same stream gives the same screen and the same replies however it is split, which a property test checks. The parser, terminal and renderer deny every panic a program's input could reach, and only the platform crate may use `unsafe`. [docs/architecture.md](docs/architecture.md) lists each of these rules with the check that fails when it breaks.
 
@@ -125,13 +149,13 @@ The state vtium shows follows only from the bytes a program sends: the same stre
 
 Building needs Rust and clang, and the first build fetches a Debian sysroot with glibc 2.36 to link against ([tools/arm/README.md](tools/arm/README.md)); `make install-tree` also needs `tic`. On a machine with systemd and logind, `make vt-shell` builds the minspec binary, picks a free VT, asks for sudo, and runs your own shell in vtium there. Exit the shell to end the run, and the VT's own service starts again. [docs/vt-review.md](docs/vt-review.md) describes this and the other VT runs.
 
-`make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-vitrify`, the VT unit `kmsconvt@.service` that takes getty's place, its getty fallback, the terminfo entry and the example configuration. vtium reads the C reference's configuration file, `/etc/kmscon/kmscon.conf`, with its keys, and adds its own ([docs/config.md](docs/config.md)).
+`make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-vitrify`, the VT unit and its getty fallback, the terminfo entry and the example configuration. vtium reads the C reference's configuration file, `/etc/kmscon/kmscon.conf`, with its keys, and adds its own ([docs/config.md](docs/config.md)).
 
 [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together, and [AGENTS.md](AGENTS.md) gives every gate and test command.
 
 ## Provenance
 
-vtium carries forward the work of the [aaronsb/kmscon](https://github.com/aaronsb/kmscon) and [aaronsb/libtsm](https://github.com/aaronsb/libtsm) forks of `kmscon/kmscon` and `kmscon/libtsm`, by David Herrmann and their contributors ([COPYING](COPYING)). The forks are the C reference. vtium is a separate project, and its code is new Rust code.
+vtium carries forward the work of the C reference and of `kmscon` and `libtsm`, by David Herrmann and their contributors ([COPYING](COPYING)). vtium is a separate project, and its code is new Rust code.
 
 The maintainer's code in vtium is written by large language models, under the maintainer's review, and judged by the tests above. Each decision is recorded with the maintainer's words in the decision records under [docs/architecture/](docs/architecture/).
 
