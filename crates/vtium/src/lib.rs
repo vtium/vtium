@@ -32,6 +32,7 @@ pub mod child;
 pub mod config;
 pub mod deferred;
 pub mod font;
+pub mod getty;
 pub mod grab;
 pub mod head;
 pub mod helper;

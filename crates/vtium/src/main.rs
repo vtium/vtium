@@ -178,10 +178,16 @@ fn run(
     if let Some(font) = console {
         app.set_console_font(font);
     }
-    app.set_heads(vtium::head::rules(
+    let heads = vtium::head::rules(
         Path::new(vtium_config::HEAD_FILE),
         &vtium_config::Trust::ROOT,
-    ));
+    );
+    vtium::getty::mark(
+        Path::new(vtium::getty::DIR),
+        app.vt.number(),
+        heads.outcome.policy,
+    );
+    app.set_heads(heads);
 
     match start.input() {
         Some(mut input) => {
