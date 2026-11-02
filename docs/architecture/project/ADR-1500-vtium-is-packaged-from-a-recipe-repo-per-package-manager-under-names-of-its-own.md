@@ -90,10 +90,6 @@ basis:
     via: the steering session, 2026-11-02, relayed by the team lead
   - operator: aaronsb
     level: directed
-    said: we do not want to be forever coupled to it, it was just the starting point/scaffolding to start
-    via: the steering session, 2026-11-02, relayed by the team lead
-  - operator: aaronsb
-    level: directed
     said: vtium reads its configuration only from /etc/vtium, /etc/vtium/vtium.conf and its seat files beside it, and never reads /etc/kmscon; anyone moving from kmscon copies their file by hand; vtium ships the example as /etc/vtium/vtium.conf.example
     via: the maintainer's decision of 2026-11-02, recorded on the issue that makes vtium stand on its own and relayed by the team lead
     paraphrase: true
@@ -206,7 +202,7 @@ The packaged vtium owns the unit name `vtium@` and `/usr/bin/vtium`. `make vt-in
 | `/var/lib/vtium-dev-install` | Never read or written | `make vt-install`'s record and manifests | `make vt-install`'s alone, named like the development install's other files |
 | The process name | `vtium` | `vtium-dev` | Separate. `vtium blank --vt N` and `vtium wake --vt N` find a process named `vtium` or `vtium-dev` |
 
-vtium reads its configuration from `/etc/vtium` alone, unless `--configdir` names another directory. The maintainer decided it (`basis`, 2026-11-02): kmscon is a separate program, so a machine that runs both must not share one configuration file between them. The keys stay the C reference's, so someone moving from kmscon copies their `kmscon.conf` to `/etc/vtium/vtium.conf` by hand.
+vtium reads its configuration from `/etc/vtium` alone, unless `--configdir` names another directory, as the maintainer decided (`basis`, 2026-11-02). vtium and `kmscon` are separate programs, so each reads a file of its own, and on a machine that runs both, a change to one program's configuration never changes the other's. The keys stay the C reference's, so someone moving from `kmscon` copies their `kmscon.conf` to `/etc/vtium/vtium.conf` by hand.
 
 > Edited 2026-11-02: the maintainer moved vtium's configuration to `/etc/vtium` (`basis`, 2026-11-02). The table's row read: "| `/etc/kmscon/kmscon.conf` | Read | Read | Shared, with the C reference's console too. It is the user's configuration, and a key that only the newer build knows is logged and ignored by the older one |", and the paragraph after the table is new.
 
