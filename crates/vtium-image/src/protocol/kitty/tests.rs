@@ -18,11 +18,11 @@
 use vtium_parse::Chunk;
 
 use super::Kitty;
+use crate::IMAGE_OVERHEAD;
 use crate::decode::{Medium, Payload, Reply, Request};
 use crate::handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
 use crate::image::LineKey;
 use crate::store::{Edit, Rows, Screens, Store};
-use crate::IMAGE_OVERHEAD;
 
 struct Host {
     store: Store,
@@ -125,7 +125,10 @@ impl Context for Host {
     fn index(&mut self, n: usize) {
         let (col, row) = self.cursor;
         let to = row + n;
-        assert!(to <= self.margins.bottom, "the stand-in screen does not scroll");
+        assert!(
+            to <= self.margins.bottom,
+            "the stand-in screen does not scroll"
+        );
         self.cursor = (col, to);
     }
 
@@ -183,7 +186,11 @@ fn b64(bytes: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let v = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
         for i in 0..4 {
             if i <= chunk.len() {
@@ -219,7 +226,11 @@ fn a_transmission_stores_premultiplied_pixels_and_places_at_the_cursor() {
     assert_eq!(frame.len(), 1);
     assert_eq!(frame[0].pixels.as_slice(), &[0xffff_0000, 0x8080_8080]);
     // rgb, one pixel, placed after the first
-    send(&mut k, &mut h, &format!("a=T,f=24,s=1,v=1,i=8;{}", b64(&[1, 2, 3])));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=24,s=1,v=1,i=8;{}", b64(&[1, 2, 3])),
+    );
     assert_eq!(h.take(), "\x1b_Gi=8;OK\x1b\\");
     assert_eq!(h.boxes(), vec![(0, 0, 1, 1), (1, 0, 1, 1)]);
 }
@@ -227,7 +238,10 @@ fn a_transmission_stores_premultiplied_pixels_and_places_at_the_cursor() {
 // covers: image.kitty
 #[test]
 fn a_payload_cut_anywhere_stores_the_same_image() {
-    let data = format!("a=T,f=24,s=5,v=3,i=1,c=2;{}", b64(&(0..45u8).collect::<Vec<_>>()));
+    let data = format!(
+        "a=T,f=24,s=5,v=3,i=1,c=2;{}",
+        b64(&(0..45u8).collect::<Vec<_>>())
+    );
     let whole = {
         let (mut k, mut h) = (Kitty::default(), Host::new());
         send(&mut k, &mut h, &data);
@@ -417,7 +431,11 @@ fn the_cursor_goes_after_the_box_and_wraps_at_the_right_edge() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     // 3 columns by 2 rows at 1,0: down one row, to column 4
     h.cursor = (1, 0);
-    send(&mut k, &mut h, &format!("a=T,s=24,v=32,i=1;{}", red(24 * 32)));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,s=24,v=32,i=1;{}", red(24 * 32)),
+    );
     assert_eq!(h.cursor, (4, 1));
     // reaching the right edge: down once more, to column 0
     h.cursor = (9, 1);
@@ -471,7 +489,11 @@ fn a_delete_answers_only_an_error() {
     send(&mut k, &mut h, "a=d,d=i,i=1");
     send(&mut k, &mut h, "a=d,d=I,i=9");
     assert_eq!(h.take(), "");
-    assert_eq!(h.store.image_count(), 1, "a lowercase delete keeps the data");
+    assert_eq!(
+        h.store.image_count(),
+        1,
+        "a lowercase delete keeps the data"
+    );
     send(&mut k, &mut h, "a=d,d=I,i=1,I=1");
     send(&mut k, &mut h, "a=d,d=w,i=1");
     assert_eq!(
@@ -487,9 +509,20 @@ fn the_later_parts_of_the_protocol_are_refused_for_now() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     send(&mut k, &mut h, &format!("a=t,s=1,v=1,i=1;{}", red(1)));
     let _ = h.take();
-    for keys in ["a=p,i=1,U=1", "a=p,i=1,P=1", "a=p,i=1,Q=0", "a=p,i=1,H=1", "a=a,i=1", "a=c,i=1"] {
+    for keys in [
+        "a=p,i=1,U=1",
+        "a=p,i=1,P=1",
+        "a=p,i=1,Q=0",
+        "a=p,i=1,H=1",
+        "a=a,i=1",
+        "a=c,i=1",
+    ] {
         send(&mut k, &mut h, keys);
-        assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\", "{keys}");
+        assert_eq!(
+            h.take(),
+            "\x1b_Gi=1;EINVAL:invalid argument\x1b\\",
+            "{keys}"
+        );
     }
     send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1;{}", red(1)));
     assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
@@ -503,15 +536,33 @@ fn the_later_parts_of_the_protocol_are_refused_for_now() {
 #[test]
 fn without_a_helper_named_media_are_ebadf_and_png_and_zlib_einval() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
-    send(&mut k, &mut h, &format!("a=t,t=f,f=100,i=1;{}", b64(b"/tmp/a")));
-    send(&mut k, &mut h, &format!("a=t,t=t,f=100,i=2;{}", b64(b"/tmp/a")));
-    send(&mut k, &mut h, &format!("a=t,f=100,i=3;{}", b64(b"\x89PNG")));
-    send(&mut k, &mut h, &format!("a=t,o=z,s=1,v=1,i=4;{}", b64(b"xx")));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=f,f=100,i=1;{}", b64(b"/tmp/a")),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=t,f=100,i=2;{}", b64(b"/tmp/a")),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=100,i=3;{}", b64(b"\x89PNG")),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,o=z,s=1,v=1,i=4;{}", b64(b"xx")),
+    );
     let bad = "EBADF:Failed to read image file";
     let inv = "EINVAL:invalid argument";
     assert_eq!(
         h.take(),
-        format!("\x1b_Gi=1;{bad}\x1b\\\x1b_Gi=2;{bad}\x1b\\\x1b_Gi=3;{inv}\x1b\\\x1b_Gi=4;{inv}\x1b\\")
+        format!(
+            "\x1b_Gi=1;{bad}\x1b\\\x1b_Gi=2;{bad}\x1b\\\x1b_Gi=3;{inv}\x1b\\\x1b_Gi=4;{inv}\x1b\\"
+        )
     );
     assert!(h.requests.is_empty());
     assert_eq!(h.store.bytes(), 0);
@@ -522,20 +573,39 @@ fn without_a_helper_named_media_are_ebadf_and_png_and_zlib_einval() {
 fn a_named_medium_goes_to_the_helper_and_its_answer_is_stored() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     h.helper = true;
-    send(&mut k, &mut h, &format!("a=T,t=f,f=24,s=1,v=1,O=2,S=9,i=1,C=1;{}", b64(b"/x/p")));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,t=f,f=24,s=1,v=1,O=2,S=9,i=1,C=1;{}", b64(b"/x/p")),
+    );
     assert_eq!(h.requests.len(), 1);
     let r = h.requests.pop().unwrap();
     assert_eq!(r.medium, Medium::File(b"/x/p".to_vec()));
-    assert_eq!((r.offset, r.max, r.min, r.png, r.inflate), (2, 9, 3, false, false));
+    assert_eq!(
+        (r.offset, r.max, r.min, r.png, r.inflate),
+        (2, 9, 3, false, false)
+    );
     k.decoded(&mut h, Reply::Ok(Payload::Bytes(vec![9, 8, 7])));
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     assert_eq!(h.boxes(), vec![(0, 0, 1, 1)]);
     // a read too short is EBADF; an inflate too short is EINVAL
-    send(&mut k, &mut h, &format!("a=t,t=s,s=1,v=1,i=2;{}", b64(b"shm")));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=s,s=1,v=1,i=2;{}", b64(b"shm")),
+    );
     k.decoded(&mut h, Reply::TooShort);
-    send(&mut k, &mut h, &format!("a=t,t=f,o=z,s=1,v=1,i=3;{}", b64(b"/z")));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=f,o=z,s=1,v=1,i=3;{}", b64(b"/z")),
+    );
     k.decoded(&mut h, Reply::TooShort);
-    send(&mut k, &mut h, &format!("a=t,t=f,f=100,i=4;{}", b64(b"/big")));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=f,f=100,i=4;{}", b64(b"/big")),
+    );
     k.decoded(&mut h, Reply::OverBudget);
     assert_eq!(
         h.take(),
@@ -551,7 +621,11 @@ fn a_direct_png_is_kept_under_the_budget_and_given_back_at_its_answer() {
     h.helper = true;
     let png = b64(&[7u8; 5000]);
     let (a, b) = png.split_at(4000);
-    send(&mut k, &mut h, &format!("a=T,f=100,o=z,S=40,i=5,m=1,C=1;{a}"));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=100,o=z,S=40,i=5,m=1,C=1;{a}"),
+    );
     // the buffer doubled from 4 KiB to hold 3000 bytes, then 5000
     assert_eq!(h.store.bytes(), 4096);
     send(&mut k, &mut h, &format!("m=0;{b}"));
@@ -574,7 +648,11 @@ fn a_direct_png_is_kept_under_the_budget_and_given_back_at_its_answer() {
 fn a_refused_temporary_file_still_goes_to_the_helper_to_be_removed() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     h.helper = true;
-    send(&mut k, &mut h, &format!("a=t,t=t,f=24,i=1;{}", b64(b"/tmp/tty-graphics-protocol-1")));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=t,f=24,i=1;{}", b64(b"/tmp/tty-graphics-protocol-1")),
+    );
     let r = h.requests.pop().unwrap();
     assert!(r.discard);
     assert_eq!((r.min, r.png, r.inflate), (0, false, false));
@@ -590,8 +668,16 @@ fn a_refused_temporary_file_still_goes_to_the_helper_to_be_removed() {
 fn a_name_that_holds_nul_or_runs_long_is_ebadf_with_no_request() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     h.helper = true;
-    send(&mut k, &mut h, &format!("a=t,t=f,f=100,i=1;{}", b64(b"/a\0b")));
-    send(&mut k, &mut h, &format!("a=t,t=f,f=100,i=2;{}", b64(&[b'a'; 4096])));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=f,f=100,i=1;{}", b64(b"/a\0b")),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=f,f=100,i=2;{}", b64(&[b'a'; 4096])),
+    );
     send(&mut k, &mut h, "a=t,t=f,f=100,i=3;");
     send(&mut k, &mut h, "a=t,t=f,f=100,i=4;L*E=");
     assert!(h.requests.is_empty());
@@ -604,7 +690,11 @@ fn a_name_that_holds_nul_or_runs_long_is_ebadf_with_no_request() {
         )
     );
     // 4095 bytes is the longest name
-    send(&mut k, &mut h, &format!("a=t,t=f,f=100,i=5;{}", b64(&[b'a'; 4095])));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=f,f=100,i=5;{}", b64(&[b'a'; 4095])),
+    );
     assert_eq!(h.requests.len(), 1);
 }
 

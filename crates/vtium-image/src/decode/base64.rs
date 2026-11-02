@@ -18,7 +18,7 @@
 //!   The decoder stops feeding a sink that no longer takes data.
 //!
 //! The C reference decoded kitty payloads the same way, as they streamed
-//! (its ADR-103, "Parsing").
+//! (kmscon's ADR 103, "Parsing").
 
 /// A byte outside the alphabet; no sextet has its top bits.
 const BAD: u8 = 0xff;

@@ -6,7 +6,7 @@
 //! each whole pixel into one `u32` as soon as its bytes are in, holding at
 //! most one partial pixel between pieces. It wants exactly the pixels its
 //! width and height call for: bytes past them are ignored, as
-//! kitty ignores them (the C reference's ADR-107).
+//! kitty ignores them (the C reference's black-box survey of kitty 0.49.2, kmscon's ADR 107).
 //!
 //! Premultiplying uses integers only: each channel becomes
 //! `(channel × alpha + 127) / 255`, so every machine stores the same

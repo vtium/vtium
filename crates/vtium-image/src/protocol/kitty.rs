@@ -29,7 +29,7 @@
 //! - **Replies.** Only a command that carries `i` or `I` is answered; `q=1`
 //!   leaves out OK and `q=2` every reply. An `a=q` without `i` reads nothing
 //!   and is answered under no `q`, as kitty 0.49.2 behaved when the C
-//!   reference ran it as a black box (its ADR-107). A delete answers only
+//!   reference ran it as a black box (kmscon's ADR 107). A delete answers only
 //!   an error.
 //! - **The cursor.** After a placement the cursor goes down one row fewer
 //!   than the box has rows, then to the column after the box; when that
@@ -38,7 +38,7 @@
 //!
 //! Relative placements (`P`, `Q`, `H`, `V`), Unicode placeholders (`U`) and
 //! animation (`a=f`, `a=a`, `a=c`) are answered EINVAL until their own work
-//! builds them (D13, ADR-1102); `Command::later` is the one place that
+//! builds them (D13, and kitty animation's record); `Command::later` is the one place that
 //! refuses them. A delete of animation frames (`d=f`, `d=F`) deletes
 //! nothing.
 

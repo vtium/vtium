@@ -272,8 +272,8 @@ impl Command {
     }
 
     /// The parts of the protocol whose own work answers them later:
-    /// animation, Unicode placeholders and relative placements (D13,
-    /// ADR-1102). Until then each is refused with EINVAL, as the C
+    /// animation, Unicode placeholders and relative placements (D13, and
+    /// kitty animation's record). Until then each is refused with EINVAL, as the C
     /// reference refused them.
     pub(super) fn later(&self) -> bool {
         let relative = bit(b'P') | bit(b'Q') | bit(b'H') | bit(b'V');
