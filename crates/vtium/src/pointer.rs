@@ -220,7 +220,21 @@ impl Pointer {
 fn say(level: log::Level, line: std::fmt::Arguments<'_>) {
     log::log!(target: "pointer", level, "{line}");
     #[cfg(test)]
-    tests::SAID.with(|s| s.borrow_mut().push((level, line.to_string())));
+    SAID.with(|s| s.borrow_mut().push((level, line.to_string())));
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The lines the pointer logged on this thread, with their level.
+    static SAID: std::cell::RefCell<Vec<(log::Level, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The lines the pointer logged on this thread since the last call, with
+/// their level, for the tests to read.
+#[cfg(test)]
+pub(crate) fn said() -> Vec<(log::Level, String)> {
+    SAID.with(|s| std::mem::take(&mut *s.borrow_mut()))
 }
 
 #[cfg(test)]
@@ -230,17 +244,6 @@ mod tests {
     use vtium_font::{Font, Unifont};
     use vtium_render::{Canvas, Config, DrawState, Orientation, Renderer};
     use vtium_term::{Age, Cursor, Damage, Frame, Line, LineId, Palette, Rgb};
-
-    thread_local! {
-        /// The lines the pointer logged on this thread, with their level.
-        pub(super) static SAID: std::cell::RefCell<Vec<(log::Level, String)>> =
-            const { std::cell::RefCell::new(Vec::new()) };
-    }
-
-    /// The lines the pointer logged on this thread since the last call.
-    fn said() -> Vec<(log::Level, String)> {
-        SAID.with(|s| std::mem::take(&mut *s.borrow_mut()))
-    }
 
     /// A stand-in plane: what was set up and where it shows.
     #[derive(Default)]
