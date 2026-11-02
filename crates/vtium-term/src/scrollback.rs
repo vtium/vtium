@@ -265,7 +265,8 @@ pub(crate) enum Change {
     /// rows at the width: a waiting line dropped whole as it was held
     /// stands for the rows it takes at the width, and every other row for
     /// one. The placements anchored on it lose that many of their rows and
-    /// go on from `next`, the oldest row left after it.
+    /// go on from `next`, the oldest row left after it, or the line a push
+    /// appends after it; with neither, from the screen's first row.
     Dropped {
         line: LineId,
         rows: usize,
@@ -540,11 +541,23 @@ impl Scrollback {
         if c > self.bytes_max {
             return Some(line);
         }
+        #[cfg(feature = "images")]
+        let logged = self.log.len();
         if self.total() >= self.max {
             self.drop_oldest(1);
         }
         while self.bytes.saturating_add(c) > self.bytes_max && self.total() > 0 {
             self.drop_oldest(1);
+        }
+        // A row dropped with no row after it is followed by this line.
+        #[cfg(feature = "images")]
+        for change in self.log.iter_mut().skip(logged) {
+            if let Change::Dropped {
+                next: next @ None, ..
+            } = change
+            {
+                *next = Some(line.id());
+            }
         }
         self.bytes = self.bytes.saturating_add(c);
         self.lines.push_back(line);

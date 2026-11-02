@@ -288,6 +288,46 @@ fn the_charges_of_cut_pieces_settle_per_event_however_the_input_is_cut() {
     assert_eq!(shown(&whole), [(0, 2, 2, 1, "sixel")]);
 }
 
+/// A kitty placement 1 by 4 cells at the screen's top left, with a
+/// scrollback of `max` rows.
+fn tall_at_the_top(max: usize) -> Terminal {
+    let mut t = term();
+    t.screen_mut().set_scrollback_max(max);
+    let k = image(&mut t, Protocol::KITTY, 8, 64, 1);
+    place(&mut t, k, 0, 0);
+    t
+}
+
+#[test]
+fn a_drop_that_empties_the_scrollback_moves_a_placement_onto_the_line_pushed() {
+    let mut t = tall_at_the_top(1);
+    // the second scroll drops the placement's top line from a scrollback
+    // of 1 to make room for the line after it
+    t.input(b"\x1b[4;1H\n\n");
+    t.screen_mut().scroll_view_up(1);
+    assert_eq!(shown(&t), [(0, 0, 1, 3, "kitty")], "it lost its top row");
+}
+
+#[test]
+fn su_into_a_scrollback_of_1_clips_one_row_for_each_line_dropped() {
+    let mut t = tall_at_the_top(1);
+    t.input(b"\x1b[2S");
+    t.screen_mut().scroll_view_up(1);
+    assert_eq!(shown(&t), [(0, 0, 1, 3, "kitty")], "SU 2 drops one line");
+    let mut t = tall_at_the_top(1);
+    t.input(b"\x1b[3S");
+    t.screen_mut().scroll_view_up(1);
+    assert_eq!(shown(&t), [(0, 0, 1, 2, "kitty")], "SU 3 drops two lines");
+}
+
+#[test]
+fn an_sb_size_of_0_moves_a_placement_onto_the_screens_first_line() {
+    let mut t = tall_at_the_top(10);
+    t.input(b"\x1b[4;1H\n");
+    t.screen_mut().set_scrollback_max(0);
+    assert_eq!(shown(&t), [(0, 0, 1, 3, "kitty")], "it lost its top row");
+}
+
 #[test]
 fn a_line_dropped_from_the_scrollback_clips_the_placements_on_it() {
     let mut t = term();

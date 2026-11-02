@@ -201,6 +201,9 @@ mod with {
             for change in changes {
                 match change {
                     Change::Dropped { line, rows, next } => {
+                        // nothing followed it in the scrollback: the
+                        // screen's first line did
+                        let next = next.or_else(|| self.main.first().map(Line::id));
                         let to = next.map(|n| LineKey::new(n.get()));
                         let rows = u32::try_from(rows).unwrap_or(u32::MAX);
                         self.images.discard_rows(LineKey::new(line.get()), rows, to);
