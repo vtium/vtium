@@ -9,7 +9,8 @@
 //! with no gamma or color-profile correction, as the C reference did, and
 //! premultiplies the result through vtium-image's one conversion, so the
 //! picture comes back in the store's format. A file that does not decode
-//! is `CORRUPT`.
+//! is `CORRUPT`. Each takes the worker's proof that it has locked itself
+//! in ([`Locked`]).
 
 use std::io::{Cursor, Seek};
 
@@ -18,6 +19,7 @@ use vtium_image::decode::wire::Status;
 
 use crate::bounds::PNG_WORK_MAX;
 use crate::job::Failure;
+use crate::sandbox::Locked;
 
 /// A decoded picture: premultiplied R, G, B, A bytes, exactly width ×
 /// height × 4 of them, and how many bytes of the file went unused.
@@ -76,13 +78,13 @@ const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
 /// Which decoder a file's first bytes call for, for a request with the
 /// any-image flag: PNG, JPEG's start-of-image marker, or a GIF.
-pub fn any(data: &[u8], bounds: Bounds) -> Result<Picture, Failure> {
+pub fn any(data: &[u8], bounds: Bounds, locked: &Locked) -> Result<Picture, Failure> {
     if data.starts_with(PNG_SIGNATURE) {
-        png(data, bounds)
+        png(data, bounds, locked)
     } else if data.starts_with(b"\xff\xd8\xff") {
-        jpeg(data, bounds)
+        jpeg(data, bounds, locked)
     } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
-        gif(data, bounds)
+        gif(data, bounds, locked)
     } else {
         Err(Failure::new(Status::Corrupt, "not a PNG, JPEG or GIF file"))
     }
@@ -102,7 +104,7 @@ fn png_failure(e: &png::DecodingError) -> Failure {
 /// to 8-bit RGBA. Bytes after the end chunk are counted as unused; a
 /// stream whose end chunk is missing after a whole picture decodes and
 /// counts none, as the C reference accepted.
-pub fn png(data: &[u8], bounds: Bounds) -> Result<Picture, Failure> {
+pub fn png(data: &[u8], bounds: Bounds, _: &Locked) -> Result<Picture, Failure> {
     let mut cursor = Cursor::new(data);
     let work = usize::try_from(bounds.max_bytes.min(PNG_WORK_MAX)).unwrap_or(usize::MAX);
     let mut decoder = png::Decoder::new_with_limits(&mut cursor, png::Limits { bytes: work });
@@ -172,7 +174,7 @@ fn expand(rgba: &mut [u8], channels: usize) {
 }
 
 /// A JPEG decoded to 8-bit RGB, opaque, its orientation tag not read.
-pub fn jpeg(data: &[u8], bounds: Bounds) -> Result<Picture, Failure> {
+pub fn jpeg(data: &[u8], bounds: Bounds, _: &Locked) -> Result<Picture, Failure> {
     use zune_jpeg::zune_core::bytestream::ZCursor;
     use zune_jpeg::zune_core::colorspace::ColorSpace;
     use zune_jpeg::zune_core::options::DecoderOptions;
@@ -208,7 +210,7 @@ pub fn jpeg(data: &[u8], bounds: Bounds) -> Result<Picture, Failure> {
 
 /// A GIF's first frame, laid on a transparent canvas of the GIF's own
 /// size, its transparent pixels kept.
-pub fn gif(data: &[u8], bounds: Bounds) -> Result<Picture, Failure> {
+pub fn gif(data: &[u8], bounds: Bounds, _: &Locked) -> Result<Picture, Failure> {
     let mut options = gif::DecodeOptions::new();
     options.set_color_output(gif::ColorOutput::RGBA);
     let limit = bounds.max_bytes.saturating_add(1 << 20);
@@ -290,20 +292,23 @@ pub(crate) mod tests {
             png::ColorType::Rgba,
             &[0xff, 0x80, 0, 0xff, 0xff, 0xff, 0xff, 0x80],
         );
-        let pic = png(&file, WIDE).unwrap();
+        let pic = png(&file, WIDE, &Locked::unsandboxed()).unwrap();
         assert_eq!((pic.width, pic.height, pic.rest), (2, 1, 0));
         assert_eq!(pic.rgba, [0xff, 0x80, 0, 0xff, 0x80, 0x80, 0x80, 0x80]);
         let mut junk = file.clone();
         junk.extend_from_slice(b"12345");
-        assert_eq!(png(&junk, WIDE).unwrap().rest, 5);
+        assert_eq!(png(&junk, WIDE, &Locked::unsandboxed()).unwrap().rest, 5);
         // a grey picture spreads to all three colors, opaque
         let grey = png_file(2, 1, png::ColorType::Grayscale, &[0x10, 0x20]);
         assert_eq!(
-            png(&grey, WIDE).unwrap().rgba,
+            png(&grey, WIDE, &Locked::unsandboxed()).unwrap().rgba,
             [0x10, 0x10, 0x10, 0xff, 0x20, 0x20, 0x20, 0xff]
         );
         let rgb = png_file(1, 1, png::ColorType::Rgb, &[1, 2, 3]);
-        assert_eq!(png(&rgb, WIDE).unwrap().rgba, [1, 2, 3, 0xff]);
+        assert_eq!(
+            png(&rgb, WIDE, &Locked::unsandboxed()).unwrap().rgba,
+            [1, 2, 3, 0xff]
+        );
     }
 
     #[test]
@@ -312,7 +317,7 @@ pub(crate) mod tests {
         // IEND is the last 12 bytes
         let mut cut = file[..file.len() - 12].to_vec();
         cut.extend_from_slice(b"junkjunk");
-        let pic = png(&cut, WIDE).unwrap();
+        let pic = png(&cut, WIDE, &Locked::unsandboxed()).unwrap();
         assert_eq!((pic.rgba.as_slice(), pic.rest), (&[1u8, 2, 3, 0xff][..], 0));
     }
 
@@ -323,31 +328,56 @@ pub(crate) mod tests {
             largest: (2, 100),
             max_bytes: 1 << 20,
         };
-        assert_eq!(png(&file, narrow).unwrap_err().status, Status::TooLarge);
+        assert_eq!(
+            png(&file, narrow, &Locked::unsandboxed())
+                .unwrap_err()
+                .status,
+            Status::TooLarge
+        );
         let poor = Bounds {
             largest: (100, 100),
             max_bytes: 23,
         };
-        assert_eq!(png(&file, poor).unwrap_err().status, Status::OverBudget);
+        assert_eq!(
+            png(&file, poor, &Locked::unsandboxed()).unwrap_err().status,
+            Status::OverBudget
+        );
         let enough = Bounds {
             largest: (3, 2),
             max_bytes: 24,
         };
-        assert!(png(&file, enough).is_ok());
-        assert_eq!(png(&file[..30], WIDE).unwrap_err().status, Status::Corrupt);
+        assert!(png(&file, enough, &Locked::unsandboxed()).is_ok());
+        assert_eq!(
+            png(&file[..30], WIDE, &Locked::unsandboxed())
+                .unwrap_err()
+                .status,
+            Status::Corrupt
+        );
     }
 
     #[test]
     fn any_image_takes_png_by_its_signature_and_refuses_what_it_does_not_know() {
         let file = png_file(1, 1, png::ColorType::Rgb, &[1, 2, 3]);
-        assert_eq!(any(&file, WIDE).unwrap().rgba, [1, 2, 3, 0xff]);
-        assert_eq!(any(b"BM...", WIDE).unwrap_err().status, Status::Corrupt);
         assert_eq!(
-            any(b"\xff\xd8\xffjunk", WIDE).unwrap_err().status,
+            any(&file, WIDE, &Locked::unsandboxed()).unwrap().rgba,
+            [1, 2, 3, 0xff]
+        );
+        assert_eq!(
+            any(b"BM...", WIDE, &Locked::unsandboxed())
+                .unwrap_err()
+                .status,
             Status::Corrupt
         );
         assert_eq!(
-            any(b"GIF89ajunk", WIDE).unwrap_err().status,
+            any(b"\xff\xd8\xffjunk", WIDE, &Locked::unsandboxed())
+                .unwrap_err()
+                .status,
+            Status::Corrupt
+        );
+        assert_eq!(
+            any(b"GIF89ajunk", WIDE, &Locked::unsandboxed())
+                .unwrap_err()
+                .status,
             Status::Corrupt
         );
     }
@@ -370,10 +400,46 @@ pub(crate) mod tests {
             frame.palette = None;
             enc.write_frame(&frame).unwrap();
         }
-        let pic = gif(&out, WIDE).unwrap();
+        let pic = gif(&out, WIDE, &Locked::unsandboxed()).unwrap();
         assert_eq!((pic.width, pic.height), (3, 2));
         let mut want = vec![0u8; 24];
         want[16..20].copy_from_slice(&[0xff, 0, 0, 0xff]);
         assert_eq!(pic.rgba, want);
+    }
+
+    /// Bounds as wide as the jpeg fuzz target decodes under.
+    const FUZZ: Bounds = Bounds {
+        largest: (512, 512),
+        max_bytes: 1 << 20,
+    };
+
+    /// A hostile JPEG gives a picture or a refusal, never a panic: the
+    /// helper's release build aborts on a panic, which kills the worker
+    /// and counts a crash against the console (ADR-1101 D8).
+    fn decodes_or_refuses(data: &[u8]) {
+        if let Ok(p) = jpeg(data, FUZZ, &Locked::unsandboxed()) {
+            assert_eq!(
+                p.rgba.len() as u64,
+                u64::from(p.width) * u64::from(p.height) * 4
+            );
+        }
+    }
+
+    /// `zune-jpeg` 0.4.21's scalar IDCT added two coefficients without
+    /// wrapping, so a progressive JPEG with large coefficients overflowed
+    /// (`src/idct/scalar.rs` line 128), a panic wherever overflow is
+    /// checked, as in tests. The fixture is the fuzz target's crash input,
+    /// minimized; `tests/fixtures/jpeg/README.md` gives its origin.
+    #[test]
+    fn a_progressive_jpeg_whose_coefficients_overflow_does_not_panic() {
+        decodes_or_refuses(include_bytes!("../tests/fixtures/jpeg/idct-overflow.jpg"));
+    }
+
+    /// 0.4.21 asserted that a horizontally subsampled component's buffers
+    /// had sizes the file can contradict (`src/worker.rs` line 412), a
+    /// panic in every build, the helper's release build included.
+    #[test]
+    fn a_jpeg_whose_subsampling_contradicts_its_buffers_does_not_panic() {
+        decodes_or_refuses(include_bytes!("../tests/fixtures/jpeg/upsample-assert.jpg"));
     }
 }

@@ -1,6 +1,6 @@
 # JPEGs that panicked `zune-jpeg` 0.4.21
 
-`tests/jpeg.rs` decodes each of these and requires a picture or a refusal. Each is a crash input the `jpeg` fuzz target (`fuzz/fuzz_targets/jpeg.rs`) found on 2026-11-02 against `zune-jpeg` 0.4.21, starting from the seeds in `fuzz/seeds/jpeg/`, and minimized with `cargo +nightly fuzz tmin`. vtium wrote them; nothing here comes from another project.
+The JPEG tests in `src/decode.rs` decode each of these and require a picture or a refusal. Each is a crash input the `jpeg` fuzz target (`fuzz/fuzz_targets/jpeg.rs`) found on 2026-11-02 against `zune-jpeg` 0.4.21, starting from the seeds in `fuzz/seeds/jpeg/`, and minimized with `cargo +nightly fuzz tmin`. vtium wrote them; nothing here comes from another project.
 
 | File | Bytes | The crash it caused | Found from |
 |---|---|---|---|

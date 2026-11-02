@@ -13,6 +13,7 @@ use miniz_oxide::{DataFormat, MZError, MZFlush, MZStatus};
 use vtium_image::decode::wire::Status;
 
 use crate::job::Failure;
+use crate::sandbox::Locked;
 
 /// Where inflating stops.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,7 +51,7 @@ fn grow(buf: &mut Vec<u8>, size: usize) -> Result<(), Failure> {
 }
 
 /// `input` inflated toward `goal`.
-pub fn inflate_bounded(input: &[u8], goal: Goal) -> Result<Inflated, Failure> {
+pub fn inflate_bounded(input: &[u8], goal: Goal, _: &Locked) -> Result<Inflated, Failure> {
     let (min, limit) = match goal {
         Goal::Stop(n) | Goal::Exact(n) => (n, n),
         Goal::Budget { min, max } => (min, max),
@@ -166,14 +167,19 @@ mod tests {
     fn raw_pixels_stop_at_what_they_need_and_ignore_the_rest() {
         let data: Vec<u8> = (0..100u8).collect();
         let z = zlib(&data);
-        let got = inflate_bounded(&z, Goal::Stop(40)).unwrap();
+        let got = inflate_bounded(&z, Goal::Stop(40), &Locked::unsandboxed()).unwrap();
         assert_eq!(got.bytes, &data[..40]);
-        let got = inflate_bounded(&z, Goal::Stop(100)).unwrap();
+        let got = inflate_bounded(&z, Goal::Stop(100), &Locked::unsandboxed()).unwrap();
         assert_eq!((got.bytes.as_slice(), got.rest), (&data[..], 0));
         let mut junk = z.clone();
         junk.extend_from_slice(b"junk");
-        assert_eq!(inflate_bounded(&junk, Goal::Stop(100)).unwrap().rest, 4);
-        let short = inflate_bounded(&z, Goal::Stop(101)).unwrap_err();
+        assert_eq!(
+            inflate_bounded(&junk, Goal::Stop(100), &Locked::unsandboxed())
+                .unwrap()
+                .rest,
+            4
+        );
+        let short = inflate_bounded(&z, Goal::Stop(101), &Locked::unsandboxed()).unwrap_err();
         assert_eq!(short.status, Status::TooShort);
     }
 
@@ -181,28 +187,46 @@ mod tests {
     fn exact_and_budget_fail_one_byte_past_and_a_broken_stream_is_corrupt() {
         let data = vec![7u8; 5000];
         let z = zlib(&data);
-        assert_eq!(inflate_bounded(&z, Goal::Exact(5000)).unwrap().bytes, data);
         assert_eq!(
-            inflate_bounded(&z, Goal::Exact(4999)).unwrap_err().status,
+            inflate_bounded(&z, Goal::Exact(5000), &Locked::unsandboxed())
+                .unwrap()
+                .bytes,
+            data
+        );
+        assert_eq!(
+            inflate_bounded(&z, Goal::Exact(4999), &Locked::unsandboxed())
+                .unwrap_err()
+                .status,
             Status::Corrupt
         );
         assert_eq!(
-            inflate_bounded(&z, Goal::Exact(5001)).unwrap_err().status,
+            inflate_bounded(&z, Goal::Exact(5001), &Locked::unsandboxed())
+                .unwrap_err()
+                .status,
             Status::TooShort
         );
         let budget = |max| Goal::Budget { min: 0, max };
-        assert_eq!(inflate_bounded(&z, budget(5000)).unwrap().bytes, data);
         assert_eq!(
-            inflate_bounded(&z, budget(4999)).unwrap_err().status,
+            inflate_bounded(&z, budget(5000), &Locked::unsandboxed())
+                .unwrap()
+                .bytes,
+            data
+        );
+        assert_eq!(
+            inflate_bounded(&z, budget(4999), &Locked::unsandboxed())
+                .unwrap_err()
+                .status,
             Status::OverBudget
         );
         let cut = &z[..z.len() / 2];
         assert_eq!(
-            inflate_bounded(cut, budget(1 << 20)).unwrap_err().status,
+            inflate_bounded(cut, budget(1 << 20), &Locked::unsandboxed())
+                .unwrap_err()
+                .status,
             Status::Corrupt
         );
         assert_eq!(
-            inflate_bounded(b"not zlib at all", budget(1 << 20))
+            inflate_bounded(b"not zlib at all", budget(1 << 20), &Locked::unsandboxed())
                 .unwrap_err()
                 .status,
             Status::Corrupt

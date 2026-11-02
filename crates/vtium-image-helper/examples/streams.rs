@@ -126,9 +126,15 @@ fn worker(channel: &OwnedFd, way: Way, filter: &sandbox::WorkerFilter) -> i32 {
     if filter.install().is_err() {
         return 1;
     }
-    if way == Way::Stream && sandbox::lock_in().is_err() {
-        return 1;
-    }
+    let landlock = sandbox::landlock_version();
+    let mut held = if way == Way::Stream {
+        match sandbox::lock(filter, landlock) {
+            Some(locked) => Some(locked),
+            None => return 1,
+        }
+    } else {
+        None
+    };
     loop {
         let packet = match channel::receive(channel, PACKET_MAX) {
             Ok(p) => p,
@@ -143,11 +149,14 @@ fn worker(channel: &OwnedFd, way: Way, filter: &sandbox::WorkerFilter) -> i32 {
             ReplyFile::Pooled(reply)
         };
         let source = job::open(&request, fds.next(), None);
-        if way != Way::Stream && sandbox::lock_in().is_err() {
-            return 1;
+        if held.is_none() {
+            held = sandbox::lock(filter, landlock);
         }
+        let Some(locked) = &held else {
+            return 1;
+        };
         let outcome = match source {
-            Ok(s) => job::finish(&request, s, Some(&reply)),
+            Ok(s) => job::finish(&request, s, Some(&reply), locked),
             Err(f) => Outcome::failed(f.status, f.reason),
         };
         channel::send(channel, &channel::encode_outcome(&outcome), &[]).unwrap();

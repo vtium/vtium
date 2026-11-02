@@ -5,6 +5,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use vtium_image_helper::sandbox::Locked;
 use vtium_image::decode::convert;
 use vtium_image::decode::{Alpha, Layout};
 use vtium_image_helper::inflate::{Goal, inflate_bounded};
@@ -25,7 +26,7 @@ fuzz_target!(|data: &[u8]| {
         Goal::Exact(need),
         Goal::Budget { min: need, max: need * 2 },
     ] {
-        if let Ok(inflated) = inflate_bounded(rest, goal) {
+        if let Ok(inflated) = inflate_bounded(rest, goal, &Locked::unsandboxed()) {
             let n = inflated.bytes.len() as u64;
             match goal {
                 Goal::Stop(m) | Goal::Exact(m) => assert_eq!(n, m),

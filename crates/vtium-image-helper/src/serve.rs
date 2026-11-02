@@ -553,28 +553,6 @@ fn sandboxed(outcome: &Outcome, settings: &Settings) -> bool {
     filters && locked
 }
 
-/// The worker locks itself in: its landlock domain, or on a kernel
-/// without landlock its third filter. `false` when the kernel offers
-/// landlock and the worker is in no domain, or when a domain or the third
-/// filter is in force and the worker can still open a directory.
-fn locked(settings: &Settings) -> bool {
-    let Ok(landlocked) = sandbox::lock_in() else {
-        return false;
-    };
-    let no_open = if landlocked {
-        false
-    } else {
-        match settings.filter.install_no_open() {
-            Ok(installed) => installed,
-            Err(_) => return false,
-        }
-    };
-    if settings.landlock > 0 && !landlocked {
-        return false;
-    }
-    !((landlocked || no_open) && sandbox::can_open_root())
-}
-
 /// A one-off worker's life on `channel`: its sandbox checked, then the one
 /// request it is sent carried out and answered. The exit status: 0 once
 /// the request is answered, 1 on a failure.
@@ -603,11 +581,11 @@ pub fn worker(channel: &OwnedFd, settings: &Settings) -> i32 {
     };
     let inline = fds.next();
     let source = job::open(&request, inline, settings.tmpdir.as_deref());
-    if !locked(settings) {
+    let Some(locked) = sandbox::lock(&settings.filter, settings.landlock) else {
         return 1;
-    }
+    };
     let outcome = match source {
-        Ok(source) => job::finish(&request, source, reply.as_ref()),
+        Ok(source) => job::finish(&request, source, reply.as_ref(), &locked),
         Err(f) => Outcome::failed(f.status, f.reason),
     };
     let outcome = attested(outcome, filters);
@@ -626,9 +604,9 @@ pub fn stream_worker(channel: &OwnedFd, settings: &Settings) -> i32 {
     let Some(filters) = confined(settings) else {
         return 1;
     };
-    if !locked(settings) {
+    let Some(locked) = sandbox::lock(&settings.filter, settings.landlock) else {
         return 1;
-    }
+    };
     loop {
         let packet = match channel::receive(channel, PACKET_MAX.saturating_add(1)) {
             Ok(p) => p,
@@ -649,7 +627,7 @@ pub fn stream_worker(channel: &OwnedFd, settings: &Settings) -> i32 {
             return 1;
         };
         let reply = ReplyFile::Pooled(reply);
-        let outcome = job::finish(&request, Source::Inline(inline), Some(&reply));
+        let outcome = job::finish(&request, Source::Inline(inline), Some(&reply), &locked);
         let outcome = attested(outcome, filters);
         if channel::send(channel, &channel::encode_outcome(&outcome), &[]).is_err() {
             return 1;

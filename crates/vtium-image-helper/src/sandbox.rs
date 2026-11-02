@@ -68,6 +68,42 @@ pub fn lock_in() -> Result<bool, String> {
     Ok(status.ruleset != RulesetStatus::NotEnforced)
 }
 
+/// Proof that the calling worker has locked itself in, which only [`lock`]
+/// makes. Every function that reads a program's bytes, [`job::finish`],
+/// the inflater and each decoder, takes `&Locked`, so a worker that
+/// inflates or decodes before its lock does not compile. Tests and fuzz
+/// targets, which decode in-process with no sandbox, make one with
+/// `Locked::unsandboxed`, which only their builds have.
+///
+/// [`job::finish`]: crate::job::finish
+#[derive(Debug)]
+pub struct Locked(());
+
+impl Locked {
+    /// A proof of nothing, for a test or a fuzz target.
+    #[cfg(any(test, fuzzing))]
+    pub fn unsandboxed() -> Self {
+        Self(())
+    }
+}
+
+/// Locks the calling worker in: its landlock domain, or on a kernel
+/// without landlock the third filter of `filter`. `None` when the kernel
+/// offers landlock, `landlock` above 0, and the worker is in no domain, or
+/// when a domain or the third filter is in force and the worker can still
+/// open a directory.
+pub fn lock(filter: &WorkerFilter, landlock: u32) -> Option<Locked> {
+    let landlocked = lock_in().ok()?;
+    let no_open = !landlocked && filter.install_no_open().ok()?;
+    if landlock > 0 && !landlocked {
+        return None;
+    }
+    if (landlocked || no_open) && can_open_root() {
+        return None;
+    }
+    Some(Locked(()))
+}
+
 /// The seccomp filters the calling process runs under, from the
 /// `Seccomp_filters` line of `/proc/self/status`; `None` on a kernel that
 /// does not count them, before 5.9.

@@ -5,6 +5,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use vtium_image_helper::sandbox::Locked;
 use vtium_image_helper::decode::{self, Bounds};
 use vtium_image_helper::inflate::{Goal, inflate_bounded};
 
@@ -24,13 +25,13 @@ fn check(picture: Result<decode::Picture, vtium_image_helper::job::Failure>) {
 }
 
 fuzz_target!(|data: &[u8]| {
-    check(decode::png(data, BOUNDS));
-    check(decode::any(data, BOUNDS));
+    check(decode::png(data, BOUNDS, &Locked::unsandboxed()));
+    check(decode::any(data, BOUNDS, &Locked::unsandboxed()));
     let goal = Goal::Budget {
         min: 0,
         max: BOUNDS.max_bytes,
     };
-    if let Ok(inflated) = inflate_bounded(data, goal) {
-        check(decode::png(&inflated.bytes, BOUNDS));
+    if let Ok(inflated) = inflate_bounded(data, goal, &Locked::unsandboxed()) {
+        check(decode::png(&inflated.bytes, BOUNDS, &Locked::unsandboxed()));
     }
 });

@@ -6,7 +6,8 @@
 //!
 //! The steps are split at the lock: [`open`] runs before the worker enters
 //! its landlock domain and [`finish`] after it, so that a decoder runs only
-//! once the worker can open nothing more. Neither knows a protocol's keys;
+//! once the worker can open nothing more. [`finish`] takes the worker's
+//! proof of its lock, [`Locked`], which only the lock makes. Neither knows a protocol's keys;
 //! each follows the request's mechanical fields.
 
 use std::os::fd::{AsFd, OwnedFd};
@@ -20,6 +21,7 @@ use crate::channel::Outcome;
 use crate::decode::{self, Bounds};
 use crate::files::{self, Opened};
 use crate::inflate::{Goal, inflate_bounded};
+use crate::sandbox::Locked;
 
 /// An outcome other than OK and its reason, for vtium's debug log.
 #[derive(Debug, PartialEq, Eq)]
@@ -115,10 +117,15 @@ pub enum ReplyFile {
     Pooled(OwnedFd),
 }
 
-/// The request carried out from its opened source: read, inflated,
-/// decoded or converted, and written into `reply`, which only a discard
-/// lacks.
-pub fn finish(request: &Request, source: Source, reply: Option<&ReplyFile>) -> Outcome {
+/// The request carried out from its opened source, once the worker has
+/// locked itself in: read, inflated, decoded or converted, and written
+/// into `reply`, which only a discard lacks.
+pub fn finish(
+    request: &Request,
+    source: Source,
+    reply: Option<&ReplyFile>,
+    locked: &Locked,
+) -> Outcome {
     let (file, size, shm) = match source {
         Source::Discarded(why) => return Outcome::failed(Status::Ok, why),
         Source::Inline(fd) => {
@@ -138,7 +145,7 @@ pub fn finish(request: &Request, source: Source, reply: Option<&ReplyFile>) -> O
     let Some(reply) = reply else {
         return Outcome::failed(Status::Unreadable, "no reply file");
     };
-    match picture(request, &file, size) {
+    match picture(request, &file, size, locked) {
         Ok((width, height, rgba, ignored)) => match write_reply(reply, &rgba) {
             Ok(true) => Outcome {
                 status: Status::Ok,
@@ -170,6 +177,7 @@ fn picture(
     request: &Request,
     file: impl AsFd,
     size: u64,
+    locked: &Locked,
 ) -> Result<(u32, u32, Vec<u8>, u64), Failure> {
     let (data, mut ignored) = read_bounded(request, &file, size)?;
     let bounds = Bounds {
@@ -187,7 +195,7 @@ fn picture(
                 max: request.largest_bytes,
             }
         };
-        let inflated = inflate_bounded(&data, goal)?;
+        let inflated = inflate_bounded(&data, goal, locked)?;
         drop(data);
         ignored = inflated.rest;
         inflated.bytes
@@ -201,9 +209,9 @@ fn picture(
         return Ok((d.width, d.height, rgba, ignored));
     }
     let pic = if request.png {
-        decode::png(&data, bounds)?
+        decode::png(&data, bounds, locked)?
     } else {
-        decode::any(&data, bounds)?
+        decode::any(&data, bounds, locked)?
     };
     if !request.inflate {
         ignored = pic.rest;
@@ -385,7 +393,7 @@ mod tests {
         );
         let reply = ReplyFile::Fresh(memory_file("r").unwrap());
         let source = open(&r, Some(inline(&z)), None).unwrap();
-        let o = finish(&r, source, Some(&reply));
+        let o = finish(&r, source, Some(&reply), &Locked::unsandboxed());
         assert_eq!(
             (o.status, o.width, o.height),
             (Status::Ok, 2, 1),
@@ -466,6 +474,7 @@ mod tests {
             &r,
             source,
             Some(&ReplyFile::Fresh(memory_file("r").unwrap())),
+            &Locked::unsandboxed(),
         );
         assert_eq!(o.status, Status::Ok, "{}", o.reason);
         assert!(o.shm.is_some());
@@ -476,6 +485,7 @@ mod tests {
             &r,
             source,
             Some(&ReplyFile::Fresh(memory_file("r").unwrap())),
+            &Locked::unsandboxed(),
         );
         assert_eq!((o.status, o.shm), (Status::TooShort, None));
     }
