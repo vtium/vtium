@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="872" height="560" viewBox="0 0 872 560" font-family="DejaVu Sans Mono, monospace">
+<title>The family of names: VT, glass TTY, vitrum, vitrify, frit and vtium</title>
+<rect width="872" height="560" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<text x="24" y="40" font-size="15" fill="#1f2933">terminal history</text>
+<text x="848" y="40" font-size="15" text-anchor="end" fill="#1f2933">glassmaking</text>
+<rect x="24" y="56" width="240" height="84" fill="#fbecd0" stroke="#9aa5b1" stroke-width="1"/>
+<text x="144" y="82" font-size="17" text-anchor="middle" fill="#1f2933">TTY</text>
+<text x="144" y="104" font-size="13" text-anchor="middle" fill="#1f2933">a teletype: a terminal</text>
+<text x="144" y="122" font-size="13" text-anchor="middle" fill="#1f2933">that prints on paper</text>
+<rect x="24" y="196" width="240" height="84" fill="#fbecd0" stroke="#9aa5b1" stroke-width="1"/>
+<text x="144" y="222" font-size="17" text-anchor="middle" fill="#1f2933">glass TTY</text>
+<text x="144" y="244" font-size="13" text-anchor="middle" fill="#1f2933">a terminal with a</text>
+<text x="144" y="262" font-size="13" text-anchor="middle" fill="#1f2933">screen in place of paper</text>
+<rect x="24" y="336" width="240" height="84" fill="#fbecd0" stroke="#9aa5b1" stroke-width="1"/>
+<text x="144" y="362" font-size="17" text-anchor="middle" fill="#1f2933">VT</text>
+<text x="144" y="384" font-size="13" text-anchor="middle" fill="#1f2933">DEC's video terminals;</text>
+<text x="144" y="402" font-size="13" text-anchor="middle" fill="#1f2933">Linux's virtual consoles</text>
+<line x1="144" y1="142" x2="144" y2="192" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="154" y="172" font-size="13" fill="#1f2933">a screen replaces paper</text>
+<line x1="144" y1="282" x2="144" y2="332" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="154" y="306" font-size="13" fill="#1f2933">early ones include</text>
+<text x="154" y="322" font-size="13" fill="#1f2933">DEC's VT05</text>
+<rect x="608" y="56" width="240" height="84" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="728" y="82" font-size="17" text-anchor="middle" fill="#1f2933">vitrum</text>
+<text x="728" y="104" font-size="13" text-anchor="middle" fill="#1f2933">Latin for glass</text>
+<rect x="608" y="196" width="240" height="84" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="728" y="222" font-size="17" text-anchor="middle" fill="#1f2933">vitrify</text>
+<text x="728" y="244" font-size="13" text-anchor="middle" fill="#1f2933">to turn into glass</text>
+<text x="728" y="262" font-size="13" text-anchor="middle" fill="#1f2933">by heat</text>
+<rect x="608" y="336" width="240" height="84" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="728" y="362" font-size="17" text-anchor="middle" fill="#1f2933">frit</text>
+<text x="728" y="384" font-size="13" text-anchor="middle" fill="#1f2933">glass's mix, fused and</text>
+<text x="728" y="402" font-size="13" text-anchor="middle" fill="#1f2933">ground, to be melted</text>
+<line x1="728" y1="142" x2="728" y2="192" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="718" y="172" font-size="13" text-anchor="end" fill="#1f2933">its root</text>
+<line x1="728" y1="334" x2="728" y2="284" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="718" y="314" font-size="13" text-anchor="end" fill="#1f2933">is vitrified</text>
+<rect x="344" y="196" width="184" height="84" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="436" y="224" font-size="20" text-anchor="middle" fill="#1f2933">vtium</text>
+<text x="436" y="246" font-size="13" text-anchor="middle" fill="#1f2933">a glass terminal</text>
+<text x="436" y="264" font-size="13" text-anchor="middle" fill="#1f2933">on the VT</text>
+<line x1="266" y1="238" x2="340" y2="238" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="266" y1="370" x2="360" y2="284" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="16" y="448" width="840" height="96" fill="#e8f3ec" stroke="#9aa5b1" stroke-width="1"/>
+<text x="32" y="470" font-size="15" fill="#1f2933">names in vtium's tree</text>
+<rect x="32" y="482" width="184" height="50" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="124" y="503" font-size="14" text-anchor="middle" fill="#1f2933">the glass banner</text>
+<text x="124" y="522" font-size="12" text-anchor="middle" fill="#1f2933">vtium-vitrify's title</text>
+<rect x="240" y="482" width="184" height="50" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="332" y="503" font-size="14" text-anchor="middle" fill="#1f2933">VTGLASS</text>
+<text x="332" y="522" font-size="12" text-anchor="middle" fill="#1f2933">a set's first bytes</text>
+<rect x="448" y="482" width="184" height="50" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="540" y="503" font-size="14" text-anchor="middle" fill="#1f2933">vtium-vitrify</text>
+<text x="540" y="522" font-size="12" text-anchor="middle" fill="#1f2933">the font tool</text>
+<rect x="656" y="482" width="184" height="50" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="748" y="503" font-size="14" text-anchor="middle" fill="#1f2933">NAME.vtfrit</text>
+<text x="748" y="522" font-size="12" text-anchor="middle" fill="#1f2933">a frit's file</text>
+<line x1="436" y1="282" x2="436" y2="444" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="446" y="372" font-size="13" fill="#1f2933">vt, or vtium,</text>
+<text x="446" y="390" font-size="13" fill="#1f2933">in each name</text>
+<line x1="606" y1="270" x2="560" y2="478" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="748" y1="422" x2="748" y2="478" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+</svg>

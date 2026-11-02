@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="872" height="580" viewBox="0 0 872 580" font-family="DejaVu Sans Mono, monospace">
+<title>The journey of a character, from font files to cells on the screen</title>
+<rect width="872" height="580" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+<marker id="arrow-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#2f6fb0"/></marker>
+</defs>
+<text x="24" y="40" font-size="15" fill="#1f2933">a character's glyph, from the font files to the screen</text>
+<rect x="24" y="64" width="200" height="76" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="124" y="88" font-size="15" text-anchor="middle" fill="#1f2933">font files</text>
+<text x="124" y="108" font-size="13" text-anchor="middle" fill="#1f2933">PSF, kbd, BDF,</text>
+<text x="124" y="126" font-size="13" text-anchor="middle" fill="#1f2933">outline, color emoji</text>
+<rect x="24" y="200" width="200" height="76" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="124" y="224" font-size="15" text-anchor="middle" fill="#1f2933">a frit</text>
+<text x="124" y="244" font-size="13" text-anchor="middle" fill="#1f2933">NAME.vtfrit</text>
+<text x="124" y="262" font-size="13" text-anchor="middle" fill="#1f2933">sources, covers, cell</text>
+<line x1="124" y1="198" x2="124" y2="144" stroke="#1f2933" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<text x="134" y="176" font-size="13" fill="#1f2933">names</text>
+<rect x="300" y="120" width="220" height="84" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="410" y="146" font-size="15" text-anchor="middle" fill="#1f2933">vtium-vitrify serve</text>
+<text x="410" y="168" font-size="13" text-anchor="middle" fill="#1f2933">the helper, in a</text>
+<text x="410" y="186" font-size="13" text-anchor="middle" fill="#1f2933">sandbox, never root</text>
+<line x1="226" y1="102" x2="296" y2="146" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="226" y1="238" x2="296" y2="180" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="250" y="174" font-size="13" text-anchor="middle" fill="#1f2933">reads</text>
+<rect x="612" y="120" width="236" height="84" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="730" y="146" font-size="15" text-anchor="middle" fill="#1f2933">a vitrified set</text>
+<text x="730" y="168" font-size="13" text-anchor="middle" fill="#1f2933">glyphs at the cell,</text>
+<text x="730" y="186" font-size="13" text-anchor="middle" fill="#1f2933">sent on a pipe</text>
+<line x1="522" y1="162" x2="608" y2="162" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="566" y="152" font-size="13" text-anchor="middle" fill="#1f2933">draws</text>
+<rect x="612" y="280" width="236" height="84" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="730" y="306" font-size="15" text-anchor="middle" fill="#1f2933">vtium, the console</text>
+<text x="730" y="328" font-size="13" text-anchor="middle" fill="#1f2933">checks each glyph and</text>
+<text x="730" y="346" font-size="13" text-anchor="middle" fill="#1f2933">keeps it for the boot</text>
+<line x1="730" y1="206" x2="730" y2="276" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="740" y="246" font-size="13" fill="#1f2933">checked</text>
+<rect x="300" y="280" width="220" height="84" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="410" y="300" font-size="13" text-anchor="middle" fill="#1f2933">the screen, in cells</text>
+<g stroke="#c3ccd5" stroke-width="1" fill="#ffffff">
+<rect x="314" y="310" width="16" height="22"/><rect x="330" y="310" width="16" height="22"/><rect x="346" y="310" width="16" height="22"/><rect x="362" y="310" width="16" height="22"/><rect x="378" y="310" width="16" height="22"/><rect x="394" y="310" width="16" height="22"/><rect x="410" y="310" width="16" height="22"/><rect x="426" y="310" width="16" height="22"/><rect x="442" y="310" width="16" height="22"/><rect x="458" y="310" width="16" height="22"/><rect x="474" y="310" width="16" height="22"/><rect x="490" y="310" width="16" height="22"/>
+<rect x="314" y="332" width="16" height="22"/><rect x="330" y="332" width="16" height="22"/><rect x="346" y="332" width="16" height="22"/><rect x="362" y="332" width="16" height="22"/><rect x="378" y="332" width="16" height="22"/><rect x="394" y="332" width="16" height="22"/><rect x="410" y="332" width="16" height="22"/><rect x="426" y="332" width="16" height="22"/><rect x="442" y="332" width="16" height="22"/><rect x="458" y="332" width="16" height="22"/><rect x="474" y="332" width="16" height="22"/><rect x="490" y="332" width="16" height="22"/>
+</g>
+<g font-size="15" text-anchor="middle" fill="#1f2933">
+<text x="322" y="326">$</text><text x="354" y="326">v</text><text x="370" y="326">t</text><text x="386" y="326">i</text><text x="402" y="326">u</text><text x="418" y="326">m</text>
+<text x="322" y="348">┌</text><text x="338" y="348">─</text><text x="354" y="348">─</text><text x="370" y="348">┐</text><text x="402" y="348">▒</text><text x="418" y="348">▓</text><text x="434" y="348">█</text>
+</g>
+<line x1="610" y1="322" x2="524" y2="322" stroke="#2f6fb0" stroke-width="2" marker-end="url(#arrow-blue)"/>
+<text x="566" y="312" font-size="13" text-anchor="middle" fill="#2f6fb0">draws</text>
+<rect x="16" y="400" width="840" height="124" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="32" y="424" font-size="15" fill="#1f2933">inside vtium itself</text>
+<text x="32" y="452" font-size="13" fill="#1f2933">These need no helper</text>
+<text x="32" y="470" font-size="13" fill="#1f2933">and no font file.</text>
+<rect x="300" y="436" width="220" height="76" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="410" y="460" font-size="15" text-anchor="middle" fill="#1f2933">sprites</text>
+<text x="410" y="480" font-size="13" text-anchor="middle" fill="#1f2933">box drawing, blocks,</text>
+<text x="410" y="498" font-size="13" text-anchor="middle" fill="#1f2933">drawn to fill the cell</text>
+<rect x="612" y="436" width="236" height="76" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="730" y="460" font-size="15" text-anchor="middle" fill="#1f2933">the built-in sets</text>
+<text x="730" y="480" font-size="13" text-anchor="middle" fill="#1f2933">unifont, unscii-8: the</text>
+<text x="730" y="498" font-size="13" text-anchor="middle" fill="#1f2933">first frame, the gaps</text>
+<line x1="520" y1="446" x2="650" y2="368" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="730" y1="434" x2="730" y2="368" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="24" y1="548" x2="64" y2="548" stroke="#1f2933" stroke-width="1.5"/>
+<text x="76" y="553" font-size="13" fill="#1f2933">glyphs and text, passed along</text>
+<line x1="380" y1="548" x2="420" y2="548" stroke="#1f2933" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="432" y="553" font-size="13" fill="#1f2933">names, by reference only</text>
+</svg>

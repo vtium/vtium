@@ -163,6 +163,8 @@ Building needs Rust and clang, and the first build fetches a Debian sysroot with
 
 [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together, and [AGENTS.md](AGENTS.md) gives every gate and test command.
 
+[docs/terminology.md](docs/terminology.md) defines vtium's terms, from a VT to a frit, and tells why its font tools are named for glass.
+
 ## Provenance
 
 vtium is derived from `kmscon` and `libtsm`, as [COPYING](COPYING) says. `kmscon` was written by David Herrmann and the contributors COPYING lists, and `libtsm` by Aetf, David Herrmann and Ran Benita. vtium's console and libraries are Rust written for vtium; its tier 3 harness is the C fork's, carried into vtium's tree as described above.
