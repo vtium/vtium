@@ -1,7 +1,8 @@
 //! The second test of ADR-1101 D9: the helper's filter installed in a
 //! child, which then makes calls outside the list and sees each answered
-//! ENOSYS, while a call on the list still works; and the worker's second
-//! filter refusing a fork.
+//! ENOSYS, while a call on the list still works; the worker's second
+//! filter refusing a fork; and the worker's landlock domain, after which
+//! it opens nothing but still reads what it holds.
 //!
 //! It has its own `main`, so the child, this binary run again with
 //! `--child`, has one thread when it installs the filter.
@@ -72,34 +73,70 @@ fn child(worker: bool) -> u8 {
     0
 }
 
+/// A worker locked in: the descriptor it opened before still reads, and
+/// no file opens after. On a kernel without landlock it reports so, and
+/// passes.
+fn locked() -> u8 {
+    let Ok(held) =
+        std::fs::File::open("/etc/hostname").or_else(|_| std::fs::File::open("/etc/passwd"))
+    else {
+        return 50;
+    };
+    match vtium_image_helper::sandbox::lock_in() {
+        Ok(true) => {}
+        Ok(false) => {
+            println!("the kernel offers no landlock");
+            return 0;
+        }
+        Err(_) => return 51,
+    }
+    let mut byte = [0u8; 1];
+    if rustix::io::pread(&held, &mut byte, 0).is_err() {
+        return 52;
+    }
+    if std::fs::File::open("/etc/passwd").is_ok() {
+        return 53;
+    }
+    let dir = std::env::temp_dir().join(format!("vtium-image-locked-{}", std::process::id()));
+    if std::fs::write(&dir, b"x").is_ok() {
+        let _ = std::fs::remove_file(&dir);
+        return 54;
+    }
+    0
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--child") => return ExitCode::from(child(false)),
         Some("--worker") => return ExitCode::from(child(true)),
+        Some("--locked") => return ExitCode::from(locked()),
         _ => {}
     }
     let me = std::env::current_exe().expect("the test's own path");
     let mut failed = false;
-    for role in ["--child", "--worker"] {
+    for (role, name) in [
+        ("--child", "a_call_outside_the_list_answers_enosys"),
+        (
+            "--worker",
+            "a_worker_under_its_second_filter_starts_no_process",
+        ),
+        (
+            "--locked",
+            "a_locked_in_worker_reads_what_it_holds_and_opens_nothing",
+        ),
+    ] {
         let status = Command::new(&me)
             .arg(role)
             .status()
             .expect("the child starts");
         let ok = status.success();
-        println!(
-            "test {} ... {}",
-            if role == "--child" {
-                "a_call_outside_the_list_answers_enosys"
-            } else {
-                "a_worker_under_its_second_filter_starts_no_process"
-            },
-            if ok {
-                "ok".to_owned()
-            } else {
-                format!("FAILED ({status})")
-            }
-        );
+        let result = if ok {
+            "ok".to_owned()
+        } else {
+            format!("FAILED ({status})")
+        };
+        println!("test {name} ... {result}");
         failed |= !ok;
     }
     if failed {

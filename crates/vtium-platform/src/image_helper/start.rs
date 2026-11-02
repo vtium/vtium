@@ -70,7 +70,8 @@ impl Program {
 }
 
 /// Opens the program at `path` to start it from, close-on-exec and above
-/// stdio, and checks the opened file. It refuses a path that is not
+/// descriptor 3, where the child puts its socket, and checks the opened
+/// file. It refuses a path that is not
 /// absolute, a file that is not a regular file, one an account other than
 /// root or `me` owns, one its group or others may write, and one that is
 /// setuid or setgid: the font helper's rules.
@@ -83,8 +84,10 @@ pub fn open_program(path: &Path, me: u32) -> Result<OwnedFd, String> {
     }
     let opened = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())
         .map_err(|e| format!("cannot open the image helper {name}: {e}"))?;
-    let file = rustix::io::fcntl_dupfd_cloexec(&opened, 3).map_err(|e| {
-        format!("cannot move the image helper {name}'s descriptor above stdio: {e}")
+    // above 3 as well as stdio: the child puts its socket on 3, which
+    // would replace the program it is about to start from
+    let file = rustix::io::fcntl_dupfd_cloexec(&opened, 4).map_err(|e| {
+        format!("cannot move the image helper {name}'s descriptor above descriptor 3: {e}")
     })?;
     drop(opened);
     let st = rustix::fs::fstat(&file)

@@ -328,8 +328,9 @@ impl ImageHost {
         self.expired_at(Instant::now())
     }
 
-    /// [`ImageHost::expired`] at `now`.
-    pub(crate) fn expired_at(&mut self, now: Instant) -> Option<Reply> {
+    /// [`ImageHost::expired`] at `now`, for a caller that holds the
+    /// loop's clock, such as a calloop timer's deadline.
+    pub fn expired_at(&mut self, now: Instant) -> Option<Reply> {
         let out = self.out.as_ref()?;
         if now < out.deadline {
             return None;

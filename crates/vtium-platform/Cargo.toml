@@ -44,3 +44,10 @@ pkg-config = { version = "=0.3.34", optional = true }
 [[test]]
 name = "pty"
 harness = false
+
+# The image helper's host against stand-in helpers, which are this test
+# binary run again in a role: see the file's header.
+[[test]]
+name = "image_helper"
+harness = false
+required-features = ["images"]
