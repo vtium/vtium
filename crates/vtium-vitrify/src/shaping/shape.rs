@@ -574,12 +574,18 @@ fn remap(part: &mut (Image, i32, i32), from: i32, to: i32, f: f32) {
 )]
 mod tests {
     use super::{Ask, Drawer, Kind, draw_parts, shape_all, span};
+    use crate::frit::Hinting;
 
     /// Each glyph of lam, shadda and fatha (U+0644 U+0651 U+064E) in the
     /// subset of DejaVu Sans Mono in `tests/fixtures/`, as its glyph id
     /// and its ink's top and bottom edges in pixels up from the baseline,
     /// drawn in a 16-pixel cell as `rasterise` draws it: 13.3 pixels to the
-    /// em, the baseline 13 rows down. With `row`, the marks are fitted to it.
+    /// em, the baseline 13 rows down, hinted fully. With `row`, the marks
+    /// are fitted to it. The test pins the fitting on full hinting, where
+    /// its numbers were measured: light hinting, the default, fits each
+    /// mark to the rows on its own and leaves the fatha's bottom a row
+    /// under the shadda's, at 11 and 12 above the baseline as shaped
+    /// (`tests/shaping.rs` drives the stack at the default).
     fn lam_shadda_fatha(row: Option<(i32, i32)>) -> Vec<(u16, (i32, i32))> {
         let data = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -598,8 +604,16 @@ mod tests {
         let glyphs = &shaped[0].glyphs;
         let scale = ppem / f32::from(m.units_per_em);
         let fit = (u32::MAX, u32::MAX);
-        let parts =
-            draw_parts(&mut Drawer::new(font), glyphs, scale, ppem, fit, row, 1.0).expect("drawn");
+        let parts = draw_parts(
+            &mut Drawer::new(font, 0, Hinting::Full),
+            glyphs,
+            scale,
+            ppem,
+            fit,
+            row,
+            1.0,
+        )
+        .expect("drawn");
         glyphs
             .iter()
             .zip(&parts)

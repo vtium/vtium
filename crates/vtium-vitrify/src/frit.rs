@@ -123,6 +123,22 @@ pub enum Antialias {
     No,
 }
 
+/// `hinting=` (ADR-1200 D1): how the helper fits the frit's outline
+/// glyphs to the pixel grid. Bitmap sources take no hinting.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+pub enum Hinting {
+    /// Up and down only, as the C reference hinted every glyph
+    /// (`FT_LOAD_TARGET_LIGHT`, `kmscon/src/font/font_freetype.c:119`):
+    /// stems and the tops and bottoms of letters land on whole rows, and
+    /// each glyph keeps the width and side bearings its outline gives it.
+    #[default]
+    Light,
+    /// Both ways: the font's own instructions, or the automatic hinter for
+    /// a font that has none, may also move a glyph's stems sideways onto
+    /// whole columns.
+    Full,
+}
+
 /// The ranges `glyph-source-<range>=` names, by the configuration's
 /// keys' names.
 pub const GLYPH_SOURCE_RANGES: [(&str, Range); 6] = [
@@ -146,6 +162,7 @@ pub struct Frit {
     /// for (#145), which the console reads before its first frame.
     pub cell: Option<Cell>,
     pub antialias: Antialias,
+    pub hinting: Hinting,
     /// `glyph-source=`, for every range (`None`), and each
     /// `glyph-source-<range>=`, in the frit's order: the #85 sprite policy,
     /// the configuration's keys over it.
@@ -205,6 +222,7 @@ impl Frit {
         let mut size = None;
         let mut cell = None;
         let mut antialias = None;
+        let mut hinting = None;
         let mut glyph_source = Vec::new();
         let mut license = None;
         let mut warnings = Vec::new();
@@ -368,6 +386,14 @@ impl Frit {
                         _ => return Err(err(n, "antialias= is auto or no")),
                     });
                 }
+                "hinting" => {
+                    once(hinting.is_some())?;
+                    hinting = Some(match value {
+                        "light" => Hinting::Light,
+                        "full" => Hinting::Full,
+                        _ => return Err(err(n, "hinting= is light or full")),
+                    });
+                }
                 k if k == "glyph-source" || k.starts_with("glyph-source-") => {
                     let range = match k.strip_prefix("glyph-source-") {
                         None => None,
@@ -421,6 +447,7 @@ impl Frit {
             size,
             cell,
             antialias: antialias.unwrap_or_default(),
+            hinting: hinting.unwrap_or_default(),
             glyph_source,
             license,
             text: text.to_owned(),
@@ -585,6 +612,7 @@ mod tests {
              size=12\n\
              cell=10x20\n\
              antialias=no\n\
+             hinting=full\n\
              glyph-source=font\n\
              glyph-source-braille = sprites\n\
              glyph-source-legacy=auto\n",
@@ -619,6 +647,7 @@ mod tests {
             })
         );
         assert_eq!(r.antialias, Antialias::No);
+        assert_eq!(r.hinting, Hinting::Full);
         assert_eq!(
             r.glyph_source,
             [
@@ -639,6 +668,9 @@ mod tests {
         let r = parse("source=kbd:x\n").expect("parses");
         assert_eq!(r.name, "t");
         assert_eq!((r.size, r.cell, r.antialias), (None, None, Antialias::Auto));
+        // ADR-1200 D1: light hinting where the frit states none, as the C
+        // reference hinted every glyph
+        assert_eq!(r.hinting, Hinting::Light);
         assert_eq!(r.glyph_source, []);
         assert_eq!(r.text, "source=kbd:x\n");
     }
@@ -686,6 +718,13 @@ mod tests {
             ("source=console:1\ncp-size=8\n", 2, "for a CPI font"),
             ("source=outline:/x.ttf\ncp-size=8\n", 2, "for a CPI font"),
             ("source=kbd:x\nantialias=yes\n", 2, "auto or no"),
+            ("source=kbd:x\nhinting=none\n", 2, "light or full"),
+            ("source=kbd:x\nhinting=Light\n", 2, "light or full"),
+            (
+                "source=kbd:x\nhinting=light\nhinting=full\n",
+                3,
+                "given twice",
+            ),
             (
                 "source=kbd:x\nantialias=no\nantialias=no\n",
                 3,

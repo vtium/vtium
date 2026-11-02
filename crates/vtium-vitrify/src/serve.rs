@@ -101,7 +101,7 @@ use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, Un
 
 use crate::child::PARSER_MEMORY;
 use crate::font::Font;
-use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Source, valid_name};
+use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Hinting, Source, valid_name};
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, resolve};
@@ -520,6 +520,9 @@ pub struct Engine {
     /// source's printable ASCII, so every request draws it on one
     /// baseline whatever the request holds.
     baselines: RefCell<BTreeMap<(usize, u32), u32>>,
+    /// How the outline sources' glyphs are hinted: the frit's `hinting=`
+    /// (ADR-1200 D1).
+    hinting: Hinting,
 }
 
 /// The codepoints `font` maps in the face of `family` (its first face for
@@ -676,6 +679,7 @@ impl Engine {
             failed: RefCell::default(),
             warnings,
             baselines: RefCell::default(),
+            hinting: frit.hinting,
         })
     }
 
@@ -767,7 +771,7 @@ impl Engine {
         let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
             return None;
         };
-        let b = crate::outline::baseline(font, family, height).ok()?;
+        let b = crate::outline::baseline(font, family, height, self.hinting).ok()?;
         self.baselines.borrow_mut().insert((i, height), b);
         Some(b)
     }
@@ -787,7 +791,8 @@ impl Engine {
         let Some(base) = self.baseline(0, cell.height) else {
             return plain;
         };
-        let lines = crate::outline::decorations(font, family, cell.height, base).unwrap_or(plain.1);
+        let lines = crate::outline::decorations(font, family, cell.height, base, self.hinting)
+            .unwrap_or(plain.1);
         (base, lines)
     }
 
@@ -926,6 +931,7 @@ impl Engine {
                         cover: ranges(&cover),
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
                         baselines: self.baseline(i, cell.height).into_iter().collect(),
+                        hinting: self.hinting,
                     };
                     let outline = match rasterise(&request) {
                         Ok(outline) => outline,
@@ -2046,6 +2052,50 @@ mod tests {
         let a = face.draw(&['a'], Style::default()).unwrap();
         let inked = |y: usize| a.pixels()[y * 7..(y + 1) * 7].iter().any(|&p| p > 0);
         assert!(inked(8) && !inked(9), "a stands on row 9 asked alone");
+    }
+
+    // ADR-1200 D1: a frit's `hinting=` reaches the glyphs the helper draws
+    // and the baseline it finds, light where the frit says nothing. In
+    // DejaVu Sans Mono at 16 pixels, light hinting puts the underscore a
+    // row past the cell at the ascent's baseline, so the baseline rises
+    // from 13 to 12, and full hinting keeps it at 13
+    #[test]
+    fn a_frits_hinting_reaches_its_outline_glyphs() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/DejaVuSansMono-ascii.ttf"
+        );
+        let cell = Cell {
+            width: 9,
+            height: 16,
+        };
+        for (key, hinting, base) in [
+            ("", Hinting::Light, 12),
+            ("hinting=light\n", Hinting::Light, 12),
+            ("hinting=full\n", Hinting::Full, 13),
+        ] {
+            let text = format!("{key}source=outline:{font}\n");
+            let frames = run(&[ServeRequest {
+                cell,
+                ..request(ASK, frit(&text), &['H'])
+            }]);
+            assert_eq!(frames[0].0, FRAME_GLYPHS, "{key:?}");
+            let set = Set::from_bytes(frames[0].1.clone()).unwrap();
+            assert_eq!(set.strikes().next().unwrap().baseline, base, "{key:?}");
+            let face = SetFace::new(Arc::new(set), 16).unwrap();
+            let drawn = face.draw(&['H'], Style::default()).unwrap();
+            let want = rasterise(&OutlineRequest {
+                font: std::fs::read(font).unwrap().into(),
+                cells: vec![(9, 16)],
+                cover: vec![(0x48, 0x48)],
+                hinting,
+                ..OutlineRequest::default()
+            })
+            .unwrap();
+            let s = &want.strikes[0];
+            assert_eq!(s.baseline, base, "{key:?}");
+            assert_eq!(drawn.pixels(), &s.glyphs[0].pixels[..], "{key:?}");
+        }
     }
 
     // one helper keeps a source's baseline for each height apart (review

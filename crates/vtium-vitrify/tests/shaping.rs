@@ -13,6 +13,7 @@ use std::path::Path;
 
 use parser::Parser;
 use ttf::{FAMILY, FLAG};
+use vtium_vitrify::frit::Hinting;
 use vtium_vitrify::outline::{Outline, OutlineRequest, Placed, rasterise};
 use vtium_vitrify::shaping::{Ask, Kind};
 
@@ -35,6 +36,7 @@ fn request(asks: Vec<Ask>) -> OutlineRequest {
         cover: Vec::new(),
         clusters: asks,
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     }
 }
 
@@ -230,6 +232,53 @@ fn a_form_the_font_does_not_join_is_left_out() {
     assert!(o.strikes[0].clusters.is_empty());
 }
 
+// ADR-1302 D3 (the maintainer, 2026-11-01): lam with shadda and fatha in
+// DejaVu Sans Mono (`tests/fixtures/`), drawn through the rasteriser at the
+// 9x16 cell the console gives the font, hinted lightly by default. The
+// subset has no printable ASCII, so the baseline is the ascent rounded up,
+// row 13. The lam alone has blank rows above it and its stem starts at row
+// 3; its marks would pass the row's top, so the whole stack is scaled to
+// fit: the marks reach the top row, the lam's stem starts lower than it
+// does alone, a blank row parts the marks from the stem, and the lam keeps
+// its bottom row. `src/shaping/shape.rs` pins the same stack's edges at
+// full hinting
+// covers: text.overhang
+#[test]
+fn lam_shadda_fatha_is_scaled_to_fit_the_row_it_is_drawn_in() {
+    let font = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/DejaVuSansMono-lam-shadda-fatha.ttf"),
+    )
+    .expect("the fixture");
+    let stack = ['\u{644}', '\u{651}', '\u{64e}'];
+    let o = rasterise(&OutlineRequest {
+        font: font.into(),
+        cells: vec![(9, 16)],
+        clusters: vec![ask(&stack, Kind::Marks)],
+        ..OutlineRequest::default()
+    })
+    .expect("rasterised");
+    assert_eq!(o.strikes[0].baseline, 13);
+    let inked = |p: &Placed, y: usize, cols: std::ops::Range<usize>| {
+        p.pixels[y * 9..(y + 1) * 9][cols].iter().any(|&v| v > 0)
+    };
+    let lam = codepoint(&o, '\u{644}');
+    let g = cluster(&o, &stack).expect("lam, shadda and fatha");
+    let rows = |p: &Placed, cols: std::ops::Range<usize>| -> Vec<usize> {
+        (0..16).filter(|&y| inked(p, y, cols.clone())).collect()
+    };
+    // the lam's stem lies in columns 6 to 8
+    let (alone, drawn) = (rows(lam, 0..9), rows(g, 0..9));
+    assert_eq!(alone.first(), Some(&3), "blank rows above the lam");
+    assert_eq!(drawn.first(), Some(&0), "the marks reach the top row");
+    assert_eq!(drawn.last(), alone.last(), "the lam keeps its bottom row");
+    let stem = rows(g, 6..9);
+    let gap = (1..16).find(|y| !stem.contains(y)).expect("a blank row");
+    assert!(stem.contains(&(gap - 1)), "the marks above the gap");
+    let top = (gap..16).find(|y| stem.contains(y)).expect("the stem");
+    assert!(top > 3, "the lam's stem starts lower than alone, at {top}");
+}
+
 /// Test Mono with letters and marks of no advance, each a bar, which
 /// HarfRust places on their letters: `x` (0 to 400 units) and a dot above
 /// (U+0307) 380 units tall; `A` (0 to 700) and a dot below (U+0323)
@@ -258,6 +307,7 @@ fn marked(keys: &[&[char]], height: u32) -> OutlineRequest {
         cover: Vec::new(),
         clusters: keys.iter().map(|k| ask(k, Kind::Marks)).collect(),
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     }
 }
 
@@ -388,6 +438,7 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
             cover: Vec::new(),
             clusters: vec![ask(&key, Kind::Marks)],
             baselines: Vec::new(),
+            hinting: Hinting::Light,
         })
         .expect("rasterised");
         let g = cluster(&o, &key).expect("x and its dot").clone();
@@ -421,6 +472,7 @@ fn alef_damma() -> OutlineRequest {
         cover: Vec::new(),
         clusters: vec![ask(&['\u{627}', '\u{64f}'], Kind::Marks)],
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     }
 }
 
@@ -453,6 +505,24 @@ fn a_letter_with_a_joiner_draws_one_cell_wide_and_stretched() {
     assert!(!init.wide, "one cell");
     let row = &init.pixels[10 * 12..11 * 12];
     assert!(row[5] == 0 && row[6] > 200 && row[11] == 255, "{row:?}");
+}
+
+// A beh with U+FE0F before its joiner, as a program may write after a
+// letter, is still a joining form: U+FE0F is a mark, of General_Category
+// Mn, so the cluster's one letter is the beh, which joins, and the
+// variation selector does not make it an emoji sequence two cells wide.
+// It draws one cell wide, as the beh's initial form keyed alone does
+#[test]
+fn a_letter_with_vs16_and_a_joiner_is_a_joining_form_one_cell_wide() {
+    let key = [BEH, '\u{fe0f}', ZWJ];
+    let asked = vtium_vitrify::shaping::ask(&key.map(u32::from));
+    assert_eq!(asked.kind, Kind::Joining);
+    let bare = vtium_vitrify::shaping::ask(&[BEH, ZWJ].map(u32::from));
+    let o = rasterise(&request(vec![asked, bare])).expect("rasterised");
+    let g = cluster(&o, &key).expect("the beh with U+FE0F and a joiner");
+    assert!(!g.wide && !g.color, "one cell, a mask");
+    let init = cluster(&o, &[BEH, ZWJ]).expect("the initial beh");
+    assert_eq!(g.pixels, init.pixels, "drawn as the initial beh");
 }
 
 // A beh with a fatha (U+064E), keyed with U+200D on either side, is a
@@ -526,6 +596,7 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
         cover: Vec::new(),
         clusters: vec![ask(&key, Kind::Marks)],
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     })
     .expect("rasterised");
     let g = cluster(&o, &key).expect("x and its marks");
@@ -566,6 +637,7 @@ fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
         cover: Vec::new(),
         clusters: vec![ask(&key, Kind::Marks)],
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     })
     .expect("rasterised");
     assert_eq!(o.strikes[0].width, 12);
