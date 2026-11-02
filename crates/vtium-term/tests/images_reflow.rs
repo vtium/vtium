@@ -319,3 +319,52 @@ fn recheck_crafted() {
     eprintln!("found {found}");
     assert_eq!(found, 0);
 }
+
+/// A placement on a line printed at 5 columns, past the first row's width
+/// once the scrollback widens to 20, goes on to the next line as the rows
+/// above it drop, while that line still waits at 5 columns; then the
+/// scrollback narrows to `last` columns.
+fn dropped_onto_waiting(mode: Mode, sbm: usize, last: usize) -> Snap {
+    let mut t = Terminal::new(5, 4, 100);
+    t.screen_mut().set_scrollback_max(100);
+    t.screen_mut().set_image_limit(1 << 30);
+    // twelve cells: the cursor ends at column 2 of the line's third row,
+    // which is column 12 of one row 20 wide
+    t.input(b"pppppppppppp");
+    apply(&mut t, Ev::Place(true, 1, 3), mode);
+    t.input(b"\r\nbbbbbbbbbbbb\r\n");
+    for i in 0..10 {
+        t.input(format!("f{i}\r\n").as_bytes());
+    }
+    apply(&mut t, Ev::Resize(20, 4), mode);
+    t.screen_mut().set_scrollback_max(sbm);
+    apply(&mut t, Ev::Resize(last, 4), mode);
+    snap(&mut t)
+}
+
+#[test]
+fn a_placement_dropped_onto_a_waiting_line_lands_as_each_width_puts_it() {
+    let mut found = 0;
+    let mut shown = 0;
+    for sbm in 1..16 {
+        for last in [6, 8, 10, 13] {
+            let (l, e, w) = (
+                dropped_onto_waiting(Mode::Lazy, sbm, last),
+                dropped_onto_waiting(Mode::Eager, sbm, last),
+                dropped_onto_waiting(Mode::Whole, sbm, last),
+            );
+            shown += usize::from(!e.0.is_empty());
+            if l != e || l != w {
+                found += 1;
+                if found < 4 {
+                    eprintln!(
+                        "sbm={sbm} last={last}\n lazy  {:?}\n eager {:?}\n whole {:?}",
+                        l.0, e.0, w.0
+                    );
+                }
+            }
+        }
+    }
+    assert!(shown > 0, "some combination keeps the placement in view");
+    assert_eq!(found, 0, "combinations where lazy and eager differ");
+}
