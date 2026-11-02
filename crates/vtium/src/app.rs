@@ -898,10 +898,10 @@ impl App {
                 own
             }
         };
-        if let (Ok(answer), Some(head)) = (own, self.heads.get_mut(h)) {
-            if let Some(font) = &mut head.font {
-                font.set_own_cell(answer, sized);
-            }
+        if let (Ok(answer), Some(head)) = (own, self.heads.get_mut(h))
+            && let Some(font) = &mut head.font
+        {
+            font.set_own_cell(answer, sized);
         }
     }
 
@@ -1097,10 +1097,10 @@ impl App {
     /// announces one ([`open_video`]), a framebuffer does.
     fn darken(&mut self) {
         for (node, id) in self.dark.keys() {
-            if let Some(video) = self.videos.get_mut(node) {
-                if let Err(e) = video.set_dpms(*id, Dpms::Off) {
-                    log::warn!("cannot set display {} off: {e}", video.name(*id));
-                }
+            if let Some(video) = self.videos.get_mut(node)
+                && let Err(e) = video.set_dpms(*id, Dpms::Off)
+            {
+                log::warn!("cannot set display {} off: {e}", video.name(*id));
             }
         }
     }
@@ -1648,10 +1648,8 @@ impl App {
                 if let Err(e) = unblanked {
                     log::warn!("cannot unblank: {e}");
                 }
-                if retake {
-                    if let Err(e) = video.wake_up() {
-                        log::warn!("cannot set up {} again: {e}", node.display());
-                    }
+                if retake && let Err(e) = video.wake_up() {
+                    log::warn!("cannot set up {} again: {e}", node.display());
                 }
             }
             self.darken();
@@ -1829,10 +1827,10 @@ impl App {
             // A re-take's set-up keeps the blank and its timer: a retry
             // that lands after the blank powers the displays down again.
             Event::Awake if self.retaking.remove(node) => {
-                if self.blank.blanked() {
-                    if let Some(video) = self.videos.get_mut(node) {
-                        power_down(video.as_mut());
-                    }
+                if self.blank.blanked()
+                    && let Some(video) = self.videos.get_mut(node)
+                {
+                    power_down(video.as_mut());
                 }
             }
             Event::Awake => self.user_input(now),
@@ -1976,10 +1974,10 @@ impl App {
                 }
                 self.dark.remove(&key);
                 self.guard_lit = Some((key.clone(), h));
-                if let Some(video) = self.videos.get_mut(&key.0) {
-                    if let Err(e) = video.set_dpms(key.1, Dpms::On) {
-                        log::warn!("cannot set display {} on: {e}", video.name(key.1));
-                    }
+                if let Some(video) = self.videos.get_mut(&key.0)
+                    && let Err(e) = video.set_dpms(key.1, Dpms::On)
+                {
+                    log::warn!("cannot set display {} on: {e}", video.name(key.1));
                 }
                 self.add_display(&key.0, key.1);
             }
@@ -1996,15 +1994,15 @@ impl App {
                 self.unlight(key);
             }
             self.any_lit.set(!self.lit.is_empty());
-            if let Some(video) = self.videos.get_mut(node) {
-                if video.release_dark(connector) {
-                    log::warn!(
-                        "the display guard asks {} for display {connector} again",
-                        node.display()
-                    );
-                    if let Err(e) = video.hotplug() {
-                        log::warn!("{}: hotplug: {e}", node.display());
-                    }
+            if let Some(video) = self.videos.get_mut(node)
+                && video.release_dark(connector)
+            {
+                log::warn!(
+                    "the display guard asks {} for display {connector} again",
+                    node.display()
+                );
+                if let Err(e) = video.hotplug() {
+                    log::warn!("{}: hotplug: {e}", node.display());
                 }
             }
         }
@@ -2193,10 +2191,10 @@ impl App {
                 DeviceKind::Drm | DeviceKind::Fbdev => self.remove_video(&node),
             },
             DeviceEvent::Hotplug { node, .. } => {
-                if let Some(video) = self.videos.get_mut(&node) {
-                    if let Err(e) = video.hotplug() {
-                        log::warn!("{}: hotplug: {e}", node.display());
-                    }
+                if let Some(video) = self.videos.get_mut(&node)
+                    && let Err(e) = video.hotplug()
+                {
+                    log::warn!("{}: hotplug: {e}", node.display());
                 }
             }
         }
@@ -2222,10 +2220,10 @@ impl App {
     pub fn remove_input(&mut self, node: &Path) {
         self.routes.remove(node);
         self.guard_due = true;
-        if let Some(input) = &mut self.input {
-            if let Some(id) = input.find(node) {
-                input.remove(id);
-            }
+        if let Some(input) = &mut self.input
+            && let Some(id) = input.find(node)
+        {
+            input.remove(id);
         }
         // The keyboard's route is gone before the end of its modifiers is
         // drained, and that event finds no head, so the Ctrl it held is let
@@ -2312,12 +2310,13 @@ impl App {
             return;
         }
         // The shown VT's own key does nothing else (D9).
-        if let (Some(node), InputEvent::Key(key)) = (node, &event) {
-            if !key.repeat && self.vt.is_own_key(key) {
-                self.activity(now);
-                self.rescue(node);
-                return;
-            }
+        if let (Some(node), InputEvent::Key(key)) = (node, &event)
+            && !key.repeat
+            && self.vt.is_own_key(key)
+        {
+            self.activity(now);
+            self.rescue(node);
+            return;
         }
         // The head the device asks: its rule's, or the active head's for a
         // roaming device, which is never isolated (D5).
@@ -2758,12 +2757,12 @@ impl App {
         {
             frit.own.retain(|_, answer| answer.is_ok());
         }
-        if !self.relayout(h) {
-            if let Some(head) = self.heads.get_mut(h) {
-                head.font_size = old;
-                head.auto_size = auto;
-                head.points = points;
-            }
+        if !self.relayout(h)
+            && let Some(head) = self.heads.get_mut(h)
+        {
+            head.font_size = old;
+            head.auto_size = auto;
+            head.points = points;
         }
     }
 
@@ -2882,12 +2881,12 @@ impl App {
         self.guard();
         self.attachment(now);
         self.first_start(now);
-        if let Some(r) = &self.releasing {
-            if r.is_empty() {
-                self.releasing = None;
-                if let Err(e) = self.vt.acknowledge_release() {
-                    log::warn!("cannot let the VT go: {e}");
-                }
+        if let Some(r) = &self.releasing
+            && r.is_empty()
+        {
+            self.releasing = None;
+            if let Err(e) = self.vt.acknowledge_release() {
+                log::warn!("cannot let the VT go: {e}");
             }
         }
         let inputs: Vec<DeviceInput> = match &mut self.input {
@@ -2956,10 +2955,10 @@ impl App {
         // reference's terminals rang it.
         let mut bell = false;
         for console in head.consoles_mut() {
-            if let Some(selection) = console.term.terminal.take_clipboard_write() {
-                if self.clipboard_write {
-                    self.selection = Some(selection);
-                }
+            if let Some(selection) = console.term.terminal.take_clipboard_write()
+                && self.clipboard_write
+            {
+                self.selection = Some(selection);
             }
             bell |= console.term.terminal.take_bell();
         }
@@ -2974,10 +2973,10 @@ impl App {
             .heads
             .get_mut(h)
             .and_then(|head| head.console.term.terminal.take_blank_request());
-        if let Some(request) = request {
-            if self.program_blank {
-                self.blank_request(request, now);
-            }
+        if let Some(request) = request
+            && self.program_blank
+        {
+            self.blank_request(request, now);
         }
         bell
     }
@@ -3063,10 +3062,10 @@ impl App {
                 head.show_osd();
             }
             let shown = mode != osd::Mode::Off && (timeout.is_none() || head.osd_shown);
-            if let Some(time) = timeout.filter(|_| shown && head.osd_due.is_none()) {
-                if !head.views.is_empty() {
-                    head.osd_due = Some(after(now, time));
-                }
+            if let Some(time) = timeout.filter(|_| shown && head.osd_due.is_none())
+                && !head.views.is_empty()
+            {
+                head.osd_due = Some(after(now, time));
             }
             let active = self.focus == Some(h);
             let mark = (shown && mode == osd::Mode::Minimal).then_some(if active {
@@ -3399,10 +3398,10 @@ fn draw_head(
             }
         }
         if holding && !view.lost {
-            if !view.owed {
-                if let Some(t) = &mut view.timer {
-                    t.held();
-                }
+            if !view.owed
+                && let Some(t) = &mut view.timer
+            {
+                t.held();
             }
             view.owed = true;
             continue;

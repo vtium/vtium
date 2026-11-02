@@ -109,10 +109,10 @@ fn unzstd(mut input: &[u8], limit: usize) -> Result<Vec<u8>, String> {
         if !frame_decoder.is_finished() {
             return Err("a frame cut short".to_owned());
         }
-        if let Some(want) = frame_decoder.get_checksum_from_data() {
-            if frame_decoder.get_calculated_checksum() != Some(want) {
-                return Err("a frame's checksum does not match its data".to_owned());
-            }
+        if let Some(want) = frame_decoder.get_checksum_from_data()
+            && frame_decoder.get_calculated_checksum() != Some(want)
+        {
+            return Err("a frame's checksum does not match its data".to_owned());
         }
         out.extend_from_slice(&frame);
     }
@@ -457,10 +457,9 @@ pub fn font(bytes: &[u8], unimap: Option<&[u8]>, def_uni: Option<&[u8]>) -> Resu
                     .pixel(x, y)
                     .and_then(|p| p.first())
                     .is_some_and(|&a| a >= 0x80)
+                    && let Some(byte) = packed.get_mut((x / 8) as usize)
                 {
-                    if let Some(byte) = packed.get_mut((x / 8) as usize) {
-                        *byte |= 0x80 >> (x % 8);
-                    }
+                    *byte |= 0x80 >> (x % 8);
                 }
             }
             bits.extend_from_slice(&packed);

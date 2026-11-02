@@ -81,10 +81,10 @@ fn run(opts: &[(String, String)]) -> ExitCode {
     let out = opt(opts, "--out").unwrap_or_else(|| here.join("out"));
     let report = out.join("report.json");
     // a stale report never stands in for this run's
-    if report.exists() {
-        if let Err(e) = std::fs::remove_file(&report) {
-            return refuse(format!("{}: {e}", report.display()));
-        }
+    if report.exists()
+        && let Err(e) = std::fs::remove_file(&report)
+    {
+        return refuse(format!("{}: {e}", report.display()));
     }
     let lists = match runner::load(&root, CASES) {
         Ok(x) => x,
@@ -186,11 +186,12 @@ fn compare_cmd(opts: &[(String, String)], files: &[String]) -> ExitCode {
         };
         let (g, a) = (load(golden)?, load(actual)?);
         let c = compare::compare(&g, &a, &tol)?;
-        if let Some(d) = opt(opts, "--diff") {
-            if c.pixels > 0 && c.size_mismatch.is_none() {
-                std::fs::write(&d, compare::diff_image(&a, &tol, &c.points).to_ppm())
-                    .map_err(|e| format!("{}: {e}", d.display()))?;
-            }
+        if let Some(d) = opt(opts, "--diff")
+            && c.pixels > 0
+            && c.size_mismatch.is_none()
+        {
+            std::fs::write(&d, compare::diff_image(&a, &tol, &c.points).to_ppm())
+                .map_err(|e| format!("{}: {e}", d.display()))?;
         }
         Ok(c)
     };

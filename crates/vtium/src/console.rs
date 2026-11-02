@@ -536,10 +536,11 @@ impl Run<'_, '_, '_> {
                 // VT, so vtium enabled there would end a login there at
                 // the next switch, unless vtium runs there already and the
                 // login is inside it.
-                if n == RESERVED_VT && !state.runs(n, VTIUM) {
-                    if let Some(logins) = state.logins.get(&n) {
-                        return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
-                    }
+                if n == RESERVED_VT
+                    && !state.runs(n, VTIUM)
+                    && let Some(logins) = state.logins.get(&n)
+                {
+                    return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
                 }
                 self.enable_vt(&mut state, n)?;
                 self.say(&text::given(n, state.runs(n, VTIUM)));
@@ -1090,10 +1091,10 @@ impl Run<'_, '_, '_> {
                 });
                 continue;
             }
-            if n != 1 {
-                if let Some(unit) = state.own(n).unit().filter(|u| *u != VTIUM) {
-                    kept.push(text::kept_own_link(n, unit));
-                }
+            if n != 1
+                && let Some(unit) = state.own(n).unit().filter(|u| *u != VTIUM)
+            {
+                kept.push(text::kept_own_link(n, unit));
             }
             if n != 1 && state.wanted(n, GETTY) {
                 if n <= LOGIND_VTS {

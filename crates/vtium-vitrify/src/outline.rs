@@ -474,10 +474,11 @@ impl Outline {
                 }
                 let pixels = r.take(n)?.to_vec();
                 if color
-                    && pixels.chunks_exact(4).any(|p| match p {
-                        &[cr, cg, cb, a] => cr > a || cg > a || cb > a,
-                        _ => true,
-                    })
+                    && pixels
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .any(|&[cr, cg, cb, a]| cr > a || cg > a || cb > a)
                 {
                     return Err("an RGBA glyph that is not premultiplied");
                 }
@@ -777,15 +778,15 @@ pub(crate) mod raster {
             sx: f32,
         ) -> Option<Image> {
             let mut scaler = self.context.builder(self.font).size(ppem).build();
-            if scaler.has_color_outlines() {
-                if let Some(layers) = scaler.scale_color_outline(g) {
-                    return Some(self.compose(&layers));
-                }
+            if scaler.has_color_outlines()
+                && let Some(layers) = scaler.scale_color_outline(g)
+            {
+                return Some(self.compose(&layers));
             }
-            if scaler.has_color_bitmaps() {
-                if let Some(image) = self.bitmap(g, ppem, fit) {
-                    return Some(image);
-                }
+            if scaler.has_color_bitmaps()
+                && let Some(image) = self.bitmap(g, ppem, fit)
+            {
+                return Some(image);
             }
             let stretch = (sx != 1.0).then(|| Transform::scale(sx, 1.0));
             self.outline(g, ppem, stretch)
@@ -885,13 +886,12 @@ pub(crate) mod raster {
             }
             let premultiplied = image
                 .data
-                .chunks_exact(4)
-                .flat_map(|p| match p {
-                    &[r, g, b, a] => {
-                        let m = |c: u8| ((u32::from(c) * u32::from(a) + 127) / 255) as u8;
-                        [m(r), m(g), m(b), a]
-                    }
-                    _ => [0; 4],
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|&[r, g, b, a]| {
+                    let m = |c: u8| ((u32::from(c) * u32::from(a) + 127) / 255) as u8;
+                    [m(r), m(g), m(b), a]
                 })
                 .collect();
             let src = resample::Image {

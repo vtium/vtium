@@ -86,12 +86,11 @@ pub fn readme_departures(readme: &str) -> Vec<String> {
     for line in readme.lines() {
         if let Some(h) = line.strip_prefix("## ") {
             inside = h.trim() == "Departures";
-        } else if inside {
-            if let Some(rest) = line.strip_prefix("- **") {
-                if let Some((title, _)) = rest.split_once("**") {
-                    out.push(title.to_owned());
-                }
-            }
+        } else if inside
+            && let Some(rest) = line.strip_prefix("- **")
+            && let Some((title, _)) = rest.split_once("**")
+        {
+            out.push(title.to_owned());
         }
     }
     out
@@ -262,10 +261,10 @@ fn goldens_in(dir: &Path) -> Result<BTreeSet<String>, String> {
     let mut out = BTreeSet::new();
     for e in entries {
         let path = e.map_err(|e| format!("{}: {e}", dir.display()))?.path();
-        if path.extension().is_some_and(|x| x == "ppm") {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                out.insert(stem.to_owned());
-            }
+        if path.extension().is_some_and(|x| x == "ppm")
+            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+        {
+            out.insert(stem.to_owned());
         }
     }
     Ok(out)

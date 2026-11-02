@@ -399,14 +399,11 @@ fn psf1_table(raw: &[u8], count: u32) -> Result<Vec<Entry>, PsfError> {
     let mut entries = Vec::new();
     let mut glyph = 0u32;
     let mut in_sequence = false;
-    for unit in raw.chunks_exact(2) {
+    for &unit in raw.as_chunks::<2>().0 {
         if glyph >= count {
             break;
         }
-        let v = match unit {
-            &[lo, hi] => u16::from_le_bytes([lo, hi]),
-            _ => break,
-        };
+        let v = u16::from_le_bytes(unit);
         match v {
             PSF1_END => {
                 glyph = glyph.saturating_add(1);

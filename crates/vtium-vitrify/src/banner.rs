@@ -481,10 +481,12 @@ fn word(scene: &Scene) -> Vec<Option<f32>> {
         for (dy, bits) in letter.iter().enumerate() {
             for (dx, bit) in bits.bytes().enumerate() {
                 let (x, y) = (left + dx, scene.origin.1 + dy);
-                if bit == b'#' && x < w && y < h {
-                    if let Some(p) = glass.get_mut(y * w + x) {
-                        *p = Some(dy as f32 / (rows - 1).max(1) as f32);
-                    }
+                if bit == b'#'
+                    && x < w
+                    && y < h
+                    && let Some(p) = glass.get_mut(y * w + x)
+                {
+                    *p = Some(dy as f32 / (rows - 1).max(1) as f32);
                 }
             }
         }

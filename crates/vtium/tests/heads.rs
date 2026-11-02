@@ -4246,7 +4246,7 @@ impl Memory {
 
     /// Whether a pixel of the frame is `bgr`.
     fn has(&self, bgr: [u8; 3]) -> bool {
-        self.pixels.chunks_exact(4).any(|p| p[..3] == bgr)
+        self.pixels.as_chunks::<4>().0.iter().any(|p| p[..3] == bgr)
     }
 }
 

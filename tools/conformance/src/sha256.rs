@@ -21,22 +21,23 @@ pub fn hex(data: &[u8]) -> String {
     let bits = u64::try_from(data.len())
         .unwrap_or(u64::MAX)
         .wrapping_mul(8);
-    let mut tail = data.chunks_exact(64).remainder().to_vec();
+    let (blocks, rest) = data.as_chunks::<64>();
+    let mut tail = rest.to_vec();
     tail.push(0x80);
     while tail.len() % 64 != 56 {
         tail.push(0);
     }
     tail.extend_from_slice(&bits.to_be_bytes());
-    for block in data.chunks_exact(64).chain(tail.chunks_exact(64)) {
+    for block in blocks.iter().chain(tail.as_chunks::<64>().0) {
         compress(&mut h, block);
     }
     h.iter().map(|w| format!("{w:08x}")).collect()
 }
 
-fn compress(h: &mut [u32; 8], block: &[u8]) {
+fn compress(h: &mut [u32; 8], block: &[u8; 64]) {
     let mut w = [0u32; 64];
-    for (i, word) in block.chunks_exact(4).enumerate() {
-        w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+    for (i, &word) in block.as_chunks::<4>().0.iter().enumerate() {
+        w[i] = u32::from_be_bytes(word);
     }
     for i in 16..64 {
         let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);

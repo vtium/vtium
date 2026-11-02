@@ -77,7 +77,9 @@ impl Memory {
     /// The pixels the display shows of `rgb`.
     fn count(&self, rgb: u32) -> usize {
         self.pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]) & 0x00ff_ffff == rgb)
             .count()
     }

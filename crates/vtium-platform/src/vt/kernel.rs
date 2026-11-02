@@ -706,25 +706,25 @@ fn put_back<C: Console>(
             log::warn!(target: "vt", "cannot reset VT {num}'s {what}: {e}");
         }
     };
-    if let Some(termios) = saved.termios {
-        if let Err(e) = console.set_termios(termios) {
-            report("line settings", e);
-        }
+    if let Some(termios) = saved.termios
+        && let Err(e) = console.set_termios(termios)
+    {
+        report("line settings", e);
     }
-    if set.keyboard {
-        if let Err(e) = console.set_keyboard_mode(saved.kb_mode) {
-            report("keyboard mode", e);
-        }
+    if set.keyboard
+        && let Err(e) = console.set_keyboard_mode(saved.kb_mode)
+    {
+        report("keyboard mode", e);
     }
-    if set.process {
-        if let Err(e) = console.set_switching(Switching::Auto) {
-            report("switching to VT_AUTO", e);
-        }
+    if set.process
+        && let Err(e) = console.set_switching(Switching::Auto)
+    {
+        report("switching to VT_AUTO", e);
     }
-    if set.graphics {
-        if let Err(e) = console.set_display_mode(DisplayMode::Text) {
-            report("display to text mode", e);
-        }
+    if set.graphics
+        && let Err(e) = console.set_display_mode(DisplayMode::Text)
+    {
+        report("display to text mode", e);
     }
 }
 

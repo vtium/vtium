@@ -66,10 +66,10 @@ impl Console {
     /// Its terminal's replies go to its program.
     pub(crate) fn send_replies(&mut self) {
         let bytes = self.term.terminal.take_replies();
-        if let Some(pty) = &mut self.pty {
-            if !bytes.is_empty() {
-                pty.write(&bytes);
-            }
+        if let Some(pty) = &mut self.pty
+            && !bytes.is_empty()
+        {
+            pty.write(&bytes);
         }
     }
 

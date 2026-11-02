@@ -355,12 +355,14 @@ impl<F: Framebuffer> Fbdev<F> {
     /// [`crate::WAKE_RETRY_MS`], at most [`crate::WAKE_RETRIES`] times,
     /// since no later input comes to `unblank`.
     pub fn unblank(&mut self) -> io::Result<()> {
-        if self.online && self.awake && self.dpms.is_some_and(|d| d != Dpms::On) {
-            if let Err(e) = self.set_dpms(DISPLAY, Dpms::On) {
-                self.retries = Some(0);
-                self.settle();
-                return Err(e);
-            }
+        if self.online
+            && self.awake
+            && self.dpms.is_some_and(|d| d != Dpms::On)
+            && let Err(e) = self.set_dpms(DISPLAY, Dpms::On)
+        {
+            self.retries = Some(0);
+            self.settle();
+            return Err(e);
         }
         Ok(())
     }
@@ -782,13 +784,18 @@ impl<M: AsMut<[u8]>> Screen<M> {
             let to = y
                 .saturating_mul(self.stride)
                 .saturating_add(x.saturating_mul(bytes));
-            let src = copy.get(from..).unwrap_or_default().chunks_exact(4);
+            let src = copy
+                .get(from..)
+                .unwrap_or_default()
+                .as_chunks::<4>()
+                .0
+                .iter();
             let dst = map
                 .get_mut(to..)
                 .unwrap_or_default()
                 .chunks_exact_mut(bytes);
             for (px, out) in src.zip(dst).take(w) {
-                let xrgb = <[u8; 4]>::try_from(px).map_or(0, u32::from_ne_bytes);
+                let xrgb = u32::from_ne_bytes(*px);
                 let encoded = layout.encode(xrgb).to_le_bytes();
                 out.copy_from_slice(encoded.get(..bytes).unwrap_or_default());
             }

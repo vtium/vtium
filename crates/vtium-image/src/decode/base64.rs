@@ -162,15 +162,17 @@ fn groups(input: &[u8], sink: &mut impl Sink) -> usize {
         }
         let mut made = 0usize;
         let mut whole = true;
-        for (chars, out) in chunk.chunks_exact(4).zip(block.chunks_exact_mut(3)) {
-            let Ok(chars) = <[u8; 4]>::try_from(chars) else {
-                break;
-            };
+        for (&chars, out) in chunk
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(block.as_chunks_mut::<3>().0)
+        {
             let Some(bytes) = group(chars) else {
                 whole = false;
                 break;
             };
-            out.copy_from_slice(&bytes);
+            *out = bytes;
             made = made.saturating_add(1);
         }
         if made > 0 {

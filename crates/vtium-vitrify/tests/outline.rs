@@ -285,7 +285,7 @@ fn a_color_glyph_is_premultiplied_rgba_two_cells_wide() {
         let at = (y * 24 + x) * 4;
         <[u8; 4]>::try_from(&e.pixels[at..at + 4]).expect("a pixel")
     };
-    for p in e.pixels.chunks_exact(4) {
+    for p in e.pixels.as_chunks::<4>().0 {
         assert!(p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3], "{p:?}");
     }
     // the red square's corner, then the blue square over it at half alpha

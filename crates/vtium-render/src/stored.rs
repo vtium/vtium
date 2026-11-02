@@ -350,12 +350,12 @@ impl Stored {
                     .and_then(|s| self.data.get(s..s.saturating_add(self.stride)))
                     .unwrap_or_default();
                 let mut bytes = row.iter().copied().chain(core::iter::repeat(0));
-                let mut eights = line.chunks_exact_mut(8);
-                for (chunk, byte) in eights.by_ref().zip(bytes.by_ref()) {
+                let (eights, rest) = line.as_chunks_mut::<8>();
+                for (chunk, byte) in eights.iter_mut().zip(bytes.by_ref()) {
                     pens.paint(byte, chunk);
                 }
                 if let Some(byte) = bytes.next() {
-                    pens.paint(byte, eights.into_remainder());
+                    pens.paint(byte, rest);
                 }
                 continue;
             }

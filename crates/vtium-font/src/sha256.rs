@@ -152,7 +152,7 @@ impl Sha256 {
         }
         self.update(&bits.to_be_bytes());
         let mut out = [0u8; 32];
-        for (dst, word) in out.chunks_exact_mut(4).zip(self.state) {
+        for (dst, word) in out.as_chunks_mut::<4>().0.iter_mut().zip(self.state) {
             dst.copy_from_slice(&word.to_be_bytes());
         }
         out
@@ -162,10 +162,8 @@ impl Sha256 {
 /// One 512-bit block into the state (section 6.2.2).
 fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
     let mut w = [0u32; 64];
-    for (word, bytes) in w.iter_mut().zip(block.chunks_exact(4)) {
-        if let &[a, b, c, d] = bytes {
-            *word = u32::from_be_bytes([a, b, c, d]);
-        }
+    for (word, &bytes) in w.iter_mut().zip(block.as_chunks::<4>().0) {
+        *word = u32::from_be_bytes(bytes);
     }
     for t in 16..64usize {
         let at = |back: usize| w.get(t.wrapping_sub(back)).copied().unwrap_or(0);

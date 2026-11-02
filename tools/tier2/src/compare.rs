@@ -85,7 +85,7 @@ pub fn compare(golden: &Image, actual: &Image, tol: &Tolerance) -> Result<Compar
         if rg == ra {
             continue;
         }
-        for (x, (pg, pa)) in (0..gw).zip(rg.chunks_exact(3).zip(ra.chunks_exact(3))) {
+        for (x, (pg, pa)) in (0..gw).zip(rg.as_chunks::<3>().0.iter().zip(ra.as_chunks::<3>().0)) {
             if pg == pa {
                 continue;
             }
