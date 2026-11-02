@@ -1,9 +1,11 @@
 //! drm2d: a DRM card's displays, drawn on the CPU into dumb buffers.
 //!
-//! Each display has two dumb buffers in XRGB8888, which its buffer source
-//! makes ([`buffers`]). The compositor draws into the back one and
-//! [`Drm2d::swap`] flips to it with a non-blocking commit that asks for a
-//! completion event; the display is busy until that event arrives. A
+//! Each display has one, two or three dumb buffers in XRGB8888, which its
+//! buffer source makes ([`buffers`]), as many as [`Buffers`] says. The
+//! display lends the back one in a [`Token`], the head's render thread
+//! draws into it, and [`Drm2d::swap`] takes the token back and flips to the
+//! buffer with a non-blocking commit that asks for a completion event; the
+//! display is busy until that event arrives. A
 //! device with atomic modesetting commits through atomic requests,
 //! carrying the frame's damage as `FB_DAMAGE_CLIPS` where the primary plane
 //! takes them and the hardware cursor on the cursor plane; any other
@@ -17,7 +19,9 @@ mod output;
 pub use output::CURSOR_MAX;
 mod source;
 
+use std::cell::RefCell;
 use std::io;
+use std::sync::Arc;
 
 use drm_ffi::{
     DRM_CAP_CURSOR_HEIGHT, DRM_CAP_CURSOR_WIDTH, DRM_CAP_DUMB_BUFFER, DRM_CLIENT_CAP_ATOMIC,
@@ -32,8 +36,8 @@ use super::kms::{Connector, CrtcEvent, Encoder, Kms, Object, Property, Request, 
 use super::mode::{self, Mode, ModePolicy};
 use super::path;
 use super::{
-    Ages, Canvas, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Rect, SwapError,
-    Swapped,
+    Ages, Buffers, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Loan, Memory,
+    Rect, SwapError, Swapped, Token, lock,
 };
 use buffers::{Buffer, Dumbs, Source};
 use dark::Dark;
@@ -107,6 +111,12 @@ enum Scan {
 pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     card: K,
     source: S,
+    /// The buffers each display keeps.
+    buffers: Buffers,
+    /// Buffers a display let go of while a token for them was out, as at a
+    /// modeset that gave it new ones: each stays allocated and mapped until
+    /// its token comes back, and is freed then.
+    retired: RefCell<Vec<Buffer<S::Memory>>>,
     /// The levels of the 1-bit or gray panel the card drives.
     levels: Option<u8>,
     /// No universal planes or no atomic commits: the legacy calls.
@@ -184,6 +194,8 @@ impl<K: Kms> Drm2d<K> {
         Ok(Drm2d {
             card,
             source: Dumbs,
+            buffers: Buffers::default(),
+            retired: RefCell::new(Vec::new()),
             levels,
             legacy,
             hotspot,
@@ -305,7 +317,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     pub fn need_commit(&self, id: DisplayId) -> bool {
         self.awake
             && self.output(id).is_some_and(|o| {
-                o.online && o.dpms_on() && (o.fresh || (!self.legacy && o.cursor_changed()))
+                o.online
+                    && o.dpms_on()
+                    && ((o.fresh && !o.lent()) || (!self.legacy && o.cursor_changed()))
             })
     }
 
@@ -337,68 +351,134 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// Whether the display takes a frame now: the card is awake and waits
-    /// for no modeset or sleep, and the display is online, powered on and
-    /// waits for no flip or vblank. [`Drm2d::canvas`] lends the back buffer
-    /// only then.
+    /// for no modeset or sleep, and the display is online, powered on, has
+    /// no token out and has a buffer free to draw into, which with two
+    /// buffers means it waits for no flip or vblank. [`Drm2d::lend`] lends
+    /// a token only then.
     pub fn ready_for_frame(&self, id: DisplayId) -> bool {
         self.awake
             && self.waiting.is_none()
             && self
                 .output(id)
-                .is_some_and(|o| o.online && !o.flipping && o.dpms_on())
+                .is_some_and(|o| o.online && o.dpms_on() && o.buffer_free())
     }
 
-    /// Lends the back buffer for the next frame, while the display is
-    /// ready for one ([`Drm2d::ready_for_frame`]).
-    pub fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+    /// The prepare step: lends the buffer the next frame is drawn into, as
+    /// a token with its age, while the display is ready for a frame
+    /// ([`Drm2d::ready_for_frame`]). While the token is out the display
+    /// lends no other. Give it back with [`Drm2d::swap`], or unused with
+    /// [`Drm2d::give_back`]; a token dropped instead leaves every buffer of
+    /// the display at age 0.
+    pub fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        self.reap();
+        if let Some(o) = self.output_mut(id) {
+            if o.loan.as_ref().is_some_and(|l| !l.out()) {
+                o.loan = None;
+                o.forget();
+            }
+        }
         if !self.ready_for_frame(id) {
             return None;
         }
         let o = self.output_mut(id)?;
-        o.lent = true;
-        let (width, height) = o.size();
-        let age = o.ages.age(o.back);
-        let buffer = o.buffers.get_mut(o.back)?;
-        let stride = buffer.pitch;
-        let len = usize::try_from(u64::from(stride).saturating_mul(u64::from(height))).ok()?;
-        let pixels = buffer.map.as_mut().get_mut(..len)?;
-        Some(Canvas {
-            pixels,
-            width,
-            height,
-            stride,
-            age,
-        })
+        let buffer = o.buffers.get(o.back)?;
+        let memory: Arc<Memory> = buffer.map.clone();
+        let (token, loan) = Loan::lend(
+            id,
+            o.back,
+            o.ages.age(o.back),
+            o.lease,
+            o.size(),
+            buffer.pitch,
+            memory,
+        );
+        o.loan = Some(loan);
+        Some(token)
     }
 
-    /// Presents what changed: the frame drawn into the canvas lent since
-    /// the last swap, with its `damage`, or else the cursor plane's state
-    /// alone, keeping the front buffer on screen, or else nothing. A
-    /// rectangle covering the screen is the whole screen. Without a canvas
-    /// lent, `damage` is ignored. A failed swap does not count as
-    /// presented: its error reaches the caller, and the frame, its damage
-    /// and the cursor's state go with the next swap (aaronsb/kmscon#93).
-    pub fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        let (awake, waiting) = (self.awake, self.waiting.is_some());
-        let (legacy, hotspot) = (self.legacy, self.hotspot);
+    /// Takes back a token with nothing drawn into its buffer, as one the
+    /// owner could not send to the render thread: the buffer holds what it
+    /// held, and nothing is presented.
+    pub fn give_back(&mut self, token: Token) {
+        if let Some(o) = self.outputs.iter_mut().find(|o| o.id == token.id()) {
+            if o.loan.as_ref().is_some_and(|l| l.lent(&token)) {
+                o.loan = None;
+                if o.clear_owed {
+                    o.clear_owed = false;
+                    lock(token.memory()).as_mut().fill(0);
+                }
+            }
+        }
+        drop(token);
+        self.reap();
+    }
+
+    /// The swap: takes back the token lent for this frame and presents what
+    /// changed, the frame drawn into its buffer with its `damage`, or else
+    /// the cursor plane's state alone, keeping the front buffer on screen,
+    /// or else nothing. A rectangle covering the screen is the whole
+    /// screen. A failed swap does not count as presented: its error
+    /// reaches the caller, and the frame, its damage and the cursor's state
+    /// go with the next swap (aaronsb/kmscon#93).
+    ///
+    /// A token that comes back too late, to a display that has gone, has
+    /// been given new buffers, or was let go for a VT release or powered
+    /// down meanwhile, is dropped with [`SwapError::Dropped`]: its frame is
+    /// not shown, and every buffer of the display is age 0, so its next
+    /// frame is drawn whole.
+    pub fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let id = token.id();
         let Some(o) = self.outputs.iter_mut().find(|o| o.id == id && o.announced) else {
-            return Err(SwapError::Off);
+            drop(token);
+            self.reap();
+            return Err(SwapError::Dropped);
         };
-        // The frame drawn into the canvas is kept whatever the swap's
-        // outcome: the back buffer holds it, so it counts as a frame.
-        if std::mem::take(&mut o.lent) && !damage.is_empty() {
+        let Some(loan) = o.loan.take_if(|l| l.lent(&token)) else {
+            return Err(SwapError::Dropped);
+        };
+        if !loan.current(&token, o.lease) {
+            o.forget();
+            if std::mem::take(&mut o.clear_owed) {
+                lock(token.memory()).as_mut().fill(0);
+            }
+            drop(token);
+            self.reap();
+            return Err(SwapError::Dropped);
+        }
+        drop(token);
+        // The frame drawn into the token's buffer is kept whatever the
+        // swap's outcome: the back buffer holds it, so it counts as a frame.
+        if !damage.is_empty() {
             let (w, h) = o.size();
             o.damage.add(damage, w, h);
             o.ages.drawn(o.back);
             o.fresh = true;
         }
+        self.reap();
+        self.send(id)
+    }
+
+    /// Presents what changed with no new frame: a frame kept from a failed
+    /// swap, or else the cursor plane's state alone, keeping the front
+    /// buffer on screen, or else nothing. While a token is out, its frame
+    /// carries the frame kept, and this sends the cursor plane alone.
+    pub fn commit(&mut self, id: DisplayId) -> Result<Swapped, SwapError> {
+        self.send(id)
+    }
+
+    fn send(&mut self, id: DisplayId) -> Result<Swapped, SwapError> {
+        let (awake, waiting) = (self.awake, self.waiting.is_some());
+        let (legacy, hotspot) = (self.legacy, self.hotspot);
+        let Some(o) = self.outputs.iter_mut().find(|o| o.id == id && o.announced) else {
+            return Err(SwapError::Off);
+        };
         if !awake || !o.online || !o.dpms_on() {
             return Err(SwapError::Off);
         }
         if waiting || o.flipping {
             return Err(SwapError::Busy);
         }
-        let swapped = if o.fresh {
+        let swapped = if o.fresh && !o.lent() {
             Swapped::Frame
         } else if !legacy && o.cursor_changed() {
             Swapped::Cursor
@@ -506,7 +586,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
         o.start_flip();
         if swapped == Swapped::Frame {
-            o.back = o.front();
+            o.back = o.after_back();
             o.damage.clear();
             o.fresh = false;
         }
@@ -538,6 +618,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.redraw = false;
                 self.events.push(Event::Redraw(id));
             }
+        }
+        // A frame drawn while the display powers down is not shown.
+        if !on && !o.down {
+            o.lease = o.lease.wrapping_add(1);
         }
         o.down = !on;
         self.blanked = self.outputs.iter().filter(|o| o.online).all(|o| o.down);
@@ -773,6 +857,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         // as unknown, and each display is drawn whole.
         for o in &mut self.outputs {
             o.ages = Ages::default();
+            o.clear_owed = false;
             o.redraw = true;
         }
         if let Err(e) = self.scan(scan) {
@@ -840,6 +925,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             return;
         }
         for o in self.outputs.iter_mut().filter(|o| o.online) {
+            // A frame drawn while the VT is let go is not shown.
+            o.lease = o.lease.wrapping_add(1);
             if o.dpms_on() {
                 o.clear_front();
             }
@@ -1288,7 +1375,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             back: 0,
             ages: Ages::default(),
             damage: Damage::default(),
-            lent: false,
+            loan: None,
+            lease: 0,
+            clear_owed: false,
             fresh: false,
             cursor: None,
             cursor_set: None,
@@ -1561,19 +1650,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
     }
 
-    /// New buffers for `o` where its mode needs them: two, cleared, the
-    /// size of its mode. `None` where its buffers already fit, so a display
-    /// online keeps what it shows.
+    /// New buffers for `o` where its mode needs them: as many as
+    /// [`Buffers`] says, cleared, the size of its mode. `None` where its
+    /// buffers already fit, so a display online keeps what it shows.
     fn stage(&self, o: &Output<S::Memory>) -> io::Result<Option<Vec<Buffer<S::Memory>>>> {
-        if o.buffers.len() == 2 && self.buffer_size_matches(o) {
+        let count = self.buffers.count();
+        if o.buffers.len() == count && self.buffer_size_matches(o) {
             return Ok(None);
         }
         let (w, h) = o.size();
-        let mut made = Vec::with_capacity(2);
-        for _ in 0..2 {
+        let mut made = Vec::with_capacity(count);
+        for _ in 0..count {
             match self.source.create(&self.card, w, h) {
-                Ok(mut b) => {
-                    b.map.as_mut().fill(0);
+                Ok(b) => {
+                    lock(&b.map).as_mut().fill(0);
                     made.push(b);
                 }
                 Err(e) => {
@@ -1595,13 +1685,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// Gives `o` the new buffers of a modeset that took: the first is on
-    /// screen, and both hold nothing drawn.
+    /// screen, and none holds anything drawn. A token out for an old buffer
+    /// comes back too late, and the old buffer stays until it does.
     fn install(&self, o: &mut Output<S::Memory>, made: Option<Vec<Buffer<S::Memory>>>) {
         if let Some(made) = made {
             let old = std::mem::replace(&mut o.buffers, made);
             self.release(old);
-            o.back = 1;
+            o.back = 1usize.checked_rem(o.buffers.len()).unwrap_or(0);
             o.ages = Ages::default();
+            o.lease = o.lease.wrapping_add(1);
+            o.clear_owed = false;
             o.fresh = false;
             o.redraw = true;
         }
@@ -1615,8 +1708,29 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.release(std::mem::take(&mut o.buffers));
     }
 
+    /// Frees `buffers`, keeping each whose memory a token holds until the
+    /// token comes back, so the display never waits for the render thread.
     fn release(&self, buffers: Vec<Buffer<S::Memory>>) {
         for b in buffers {
+            if Arc::strong_count(&b.map) > 1 {
+                self.retired.borrow_mut().push(b);
+            } else {
+                self.source.destroy(&self.card, b);
+            }
+        }
+    }
+
+    /// Frees the buffers let go of whose tokens have come back.
+    fn reap(&self) {
+        let back: Vec<Buffer<S::Memory>> = {
+            let mut retired = self.retired.borrow_mut();
+            let (free, kept) = std::mem::take(&mut *retired)
+                .into_iter()
+                .partition(|b| Arc::strong_count(&b.map) == 1);
+            *retired = kept;
+            free
+        };
+        for b in back {
             self.source.destroy(&self.card, b);
         }
     }

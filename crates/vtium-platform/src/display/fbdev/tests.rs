@@ -9,8 +9,10 @@
 )]
 
 use std::cell::{Cell, RefCell};
+use std::sync::MutexGuard;
 
 use super::*;
+use crate::display::Canvas;
 use crate::ioctl::{FB_NONSTD_REV_PIX_IN_B, FB_VISUAL_MONO01, FB_VISUAL_MONO10, FbBitfield};
 
 /// A framebuffer in memory, 4x3. `put_var` takes the depths in `depths`
@@ -115,8 +117,32 @@ fn awake(fb: FakeFb) -> Fbdev<FakeFb> {
     v
 }
 
-fn map(v: &mut Fbdev<FakeFb>) -> &mut Vec<u8> {
-    &mut v.screen.as_mut().unwrap().map
+fn map(v: &mut Fbdev<FakeFb>) -> MutexGuard<'_, Vec<u8>> {
+    lock(&v.screen.as_ref().unwrap().map)
+}
+
+/// Lends the token, has `draw` draw into it, and swaps it with `damage`.
+fn draw(
+    v: &mut Fbdev<FakeFb>,
+    damage: &[Rect],
+    draw: impl FnOnce(Canvas<'_>),
+) -> Result<Swapped, SwapError> {
+    let mut token = v.lend(DISPLAY).unwrap();
+    token.draw(draw).unwrap();
+    v.swap(token, damage)
+}
+
+/// The age of the token the display lends now, given back unused.
+fn age(v: &mut Fbdev<FakeFb>) -> u32 {
+    let token = v.lend(DISPLAY).unwrap();
+    let age = token.age();
+    v.give_back(token);
+    age
+}
+
+/// Whether the display lends a token now, given back unused.
+fn lends(v: &mut Fbdev<FakeFb>) -> bool {
+    v.lend(DISPLAY).map(|t| v.give_back(t)).is_some()
 }
 
 // covers: platform.drm2d-fbdev
@@ -132,15 +158,16 @@ fn the_display_keeps_its_mode_in_one_buffer() {
     assert_eq!(v.size(DISPLAY), Some((4, 3)));
     assert_eq!(v.refresh_mhz(DISPLAY), Some(60_000));
     assert_eq!(v.interval, Duration::from_millis(16));
-    let canvas = v.canvas(DISPLAY).unwrap();
-    assert_eq!((canvas.width, canvas.height, canvas.stride), (4, 3, 24));
-    assert_eq!(canvas.age, 0);
-    assert!(canvas.pixels.iter().all(|&b| b == 0), "cleared");
-    canvas.pixels[0] = 0x12;
-    v.swap(DISPLAY, &[WHOLE]).unwrap();
+    assert_eq!(age(&mut v), 0);
+    draw(&mut v, &[WHOLE], |canvas| {
+        assert_eq!((canvas.width, canvas.height, canvas.stride), (4, 3, 24));
+        assert!(canvas.pixels.iter().all(|&b| b == 0), "cleared");
+        canvas.pixels[0] = 0x12;
+    })
+    .unwrap();
     assert_eq!(map(&mut v)[0], 0x12, "drawn straight into the framebuffer");
     assert!(v.is_flipping(DISPLAY));
-    assert_eq!(v.canvas(DISPLAY).unwrap().age, 1);
+    assert_eq!(age(&mut v), 1);
     v.vblank();
     assert!(!v.is_flipping(DISPLAY));
     assert_eq!(v.events().collect::<Vec<_>>(), [Event::Flipped(DISPLAY)]);
@@ -151,25 +178,27 @@ fn rgb565_is_converted_where_damaged() {
     let mut fb = FakeFb::new(16);
     fb.depths = vec![16];
     let mut v = awake(fb);
-    let canvas = v.canvas(DISPLAY).unwrap();
-    assert_eq!(canvas.stride, 16, "an XRGB8888 copy");
-    canvas.pixels.fill(0xff);
-    v.swap(DISPLAY, &[WHOLE]).unwrap();
+    draw(&mut v, &[WHOLE], |canvas| {
+        assert_eq!(canvas.stride, 16, "an XRGB8888 copy");
+        canvas.pixels.fill(0xff);
+    })
+    .unwrap();
     // Each line holds 4 pixels of 2 bytes, then 8 bytes of padding.
     assert_eq!(&map(&mut v)[0..8], &[0xff; 8]);
     assert_eq!(&map(&mut v)[8..16], &[0; 8]);
-    let canvas = v.canvas(DISPLAY).unwrap();
-    for (i, px) in [0x00ff_0000u32, 0x0000_ff00].iter().enumerate() {
-        let at = 16 + 4 * (i + 1);
-        canvas.pixels[at..at + 4].copy_from_slice(&px.to_ne_bytes());
-    }
     let damage = Rect {
         x: 1,
         y: 1,
         width: 2,
         height: 1,
     };
-    v.swap(DISPLAY, &[damage]).unwrap();
+    draw(&mut v, &[damage], |canvas| {
+        for (i, px) in [0x00ff_0000u32, 0x0000_ff00].iter().enumerate() {
+            let at = 16 + 4 * (i + 1);
+            canvas.pixels[at..at + 4].copy_from_slice(&px.to_ne_bytes());
+        }
+    })
+    .unwrap();
     let line = map(&mut v)[16..24].to_vec();
     assert_eq!(&line[0..2], &[0xff, 0xff]);
     assert_eq!(&line[2..4], &0xf800u16.to_le_bytes(), "red");
@@ -182,9 +211,10 @@ fn rgb888_is_packed_in_three_bytes() {
     let mut fb = FakeFb::new(24);
     fb.depths = vec![24];
     let mut v = awake(fb);
-    let canvas = v.canvas(DISPLAY).unwrap();
-    canvas.pixels[0..4].copy_from_slice(&0x0012_3456u32.to_ne_bytes());
-    v.swap(DISPLAY, &[WHOLE]).unwrap();
+    draw(&mut v, &[WHOLE], |canvas| {
+        canvas.pixels[0..4].copy_from_slice(&0x0012_3456u32.to_ne_bytes());
+    })
+    .unwrap();
     assert_eq!(&map(&mut v)[0..4], &[0x56, 0x34, 0x12, 0]);
 }
 
@@ -202,7 +232,7 @@ fn a_device_without_true_color_is_refused() {
     fb.visual = 3;
     let mut v = Fbdev::with(fb);
     assert!(v.wake_up().is_err());
-    assert!(v.canvas(DISPLAY).is_none());
+    assert!(!lends(&mut v));
     assert!(v.events().next().is_none());
 }
 
@@ -216,16 +246,17 @@ fn mono(visual: u32, nonstd: u32) -> Fbdev<FakeFb> {
     awake(fb)
 }
 
-/// Writes `pixels` to line `y` of the canvas, swaps `damage` and returns
-/// the first byte of each line of the framebuffer.
+/// Writes `pixels` to line `y` of the token's buffer, swaps `damage` and
+/// returns the first byte of each line of the framebuffer.
 fn packed(v: &mut Fbdev<FakeFb>, y: usize, pixels: [u32; 4], damage: Rect) -> [u8; 3] {
-    let canvas = v.canvas(DISPLAY).unwrap();
-    assert_eq!(canvas.stride, 16, "an XRGB8888 copy");
-    for (x, px) in pixels.iter().enumerate() {
-        let at = y * 16 + x * 4;
-        canvas.pixels[at..at + 4].copy_from_slice(&px.to_ne_bytes());
-    }
-    v.swap(DISPLAY, &[damage]).unwrap();
+    draw(v, &[damage], |canvas| {
+        assert_eq!(canvas.stride, 16, "an XRGB8888 copy");
+        for (x, px) in pixels.iter().enumerate() {
+            let at = y * 16 + x * 4;
+            canvas.pixels[at..at + 4].copy_from_slice(&px.to_ne_bytes());
+        }
+    })
+    .unwrap();
     // Each line holds 4 bits of a byte, then 8 bytes of padding.
     let m = map(v);
     [m[0], m[8], m[16]]
@@ -249,9 +280,10 @@ fn a_1_bit_framebuffer_is_packed_where_damaged() {
     };
     assert_eq!(packed(&mut v, 1, [W, W, 0, W], one), [0x05, 0x0b, 0]);
     // undamaged lines stay as they were
-    let canvas = v.canvas(DISPLAY).unwrap();
-    canvas.pixels[32..36].copy_from_slice(&W.to_ne_bytes());
-    v.swap(DISPLAY, &[one]).unwrap();
+    draw(&mut v, &[one], |canvas| {
+        canvas.pixels[32..36].copy_from_slice(&W.to_ne_bytes());
+    })
+    .unwrap();
     assert_eq!(map(&mut v)[16], 0);
 }
 
@@ -343,10 +375,8 @@ fn packing_at_odd_widths_under_partial_damage_matches_the_reference() {
             let mut px = vec![0u32; w * 3];
             let mut before: Option<Vec<u8>> = None;
             for round in 0..40 {
-                let canvas = v.canvas(DISPLAY).unwrap();
-                for (i, p) in px.iter_mut().enumerate() {
+                for p in &mut px {
                     *p = if rnd() & 1 == 1 { W } else { 0 };
-                    canvas.pixels[i * 4..i * 4 + 4].copy_from_slice(&p.to_ne_bytes());
                 }
                 let damage = if round == 0 {
                     Rect {
@@ -364,7 +394,12 @@ fn packing_at_odd_widths_under_partial_damage_matches_the_reference() {
                         height: 1 + rnd() % (3 - y),
                     }
                 };
-                v.swap(DISPLAY, &[damage]).unwrap();
+                draw(&mut v, &[damage], |canvas| {
+                    for (i, p) in px.iter().enumerate() {
+                        canvas.pixels[i * 4..i * 4 + 4].copy_from_slice(&p.to_ne_bytes());
+                    }
+                })
+                .unwrap();
                 let got = map(&mut v)[..stride * 3].to_vec();
                 let want = reference(&px, w, stride, visual, nonstd);
                 let bytes = damage.x / 8..(damage.x + damage.width).div_ceil(8);
@@ -392,12 +427,10 @@ fn packing_at_odd_widths_under_partial_damage_matches_the_reference() {
 fn sleep_clears_and_unmaps_and_waking_asks_for_a_redraw() {
     let mut v = awake(FakeFb::new(32));
     v.events().for_each(drop);
-    v.canvas(DISPLAY).unwrap().pixels.fill(1);
-    v.swap(DISPLAY, &[WHOLE]).unwrap();
+    draw(&mut v, &[WHOLE], |canvas| canvas.pixels.fill(1)).unwrap();
     v.sleep();
     assert_eq!(v.events().collect::<Vec<_>>(), [Event::Asleep]);
-    assert!(v.canvas(DISPLAY).is_none());
-    assert!(matches!(v.swap(DISPLAY, &[]), Err(SwapError::Off)));
+    assert!(!lends(&mut v));
     v.vblank();
     assert!(v.events().next().is_none(), "no flip while asleep");
     v.wake_up().unwrap();
@@ -405,7 +438,7 @@ fn sleep_clears_and_unmaps_and_waking_asks_for_a_redraw() {
         v.events().collect::<Vec<_>>(),
         [Event::Redraw(DISPLAY), Event::Awake]
     );
-    assert_eq!(v.canvas(DISPLAY).unwrap().age, 0);
+    assert_eq!(age(&mut v), 0);
 }
 
 // A wake-up counts as user activity (the operator's decision on
@@ -432,7 +465,7 @@ fn dpms_blanks_through_the_device_and_a_wake_up_unblanks() {
         v.events().collect::<Vec<_>>(),
         [Event::Redraw(DISPLAY), Event::Awake]
     );
-    assert_eq!(v.canvas(DISPLAY).unwrap().age, 0);
+    assert_eq!(age(&mut v), 0);
 }
 
 #[test]
@@ -461,8 +494,7 @@ fn the_loop_fires_the_stand_in_flip() {
     app.0.insert(&lp.handle(), |app: &mut App| Some(&mut app.0));
     app.0.wake_up().unwrap();
     app.0.events().for_each(drop);
-    app.0.canvas(DISPLAY).unwrap();
-    app.0.swap(DISPLAY, &[WHOLE]).unwrap();
+    draw(&mut app.0, &[WHOLE], |_| ()).unwrap();
     for _ in 0..50 {
         lp.dispatch(Some(Duration::from_millis(100)), &mut app)
             .unwrap();
@@ -507,7 +539,7 @@ fn a_failed_unblank_is_tried_again() {
         assert_eq!(app.0.dpms(DISPLAY), Some(Dpms::On), "woken: {wake}");
         assert_eq!(app.0.dev().blanks.borrow().last(), Some(&FB_BLANK_UNBLANK));
         assert!(app.0.events().any(|e| e == Event::Redraw(DISPLAY)));
-        assert_eq!(app.0.canvas(DISPLAY).unwrap().age, 0);
+        assert_eq!(age(&mut app.0), 0);
     }
 }
 
@@ -545,44 +577,49 @@ fn a_swap_with_no_damage_does_nothing() {
     fb.depths = vec![16];
     let mut v = awake(fb);
     v.events().for_each(drop);
-    v.canvas(DISPLAY).unwrap().pixels.fill(0xff);
-    assert_eq!(v.swap(DISPLAY, &[]).unwrap(), Swapped::Nothing);
+    assert_eq!(
+        draw(&mut v, &[], |canvas| canvas.pixels.fill(0xff)).unwrap(),
+        Swapped::Nothing
+    );
     assert!(!v.is_flipping(DISPLAY));
     assert!(map(&mut v).iter().all(|&b| b == 0), "nothing converted");
     assert!(!v.hardware_cursor(DISPLAY));
 }
 
-// Re-review finding 6 and the frame contract, rule 3: damage passed
-// without a canvas lent is ignored.
+// Re-review finding 6 and the frame contract, rule 3: a token given back
+// unused presents nothing, and a token that is not the display's is
+// dropped.
 #[test]
-fn damage_without_a_canvas_is_ignored() {
+fn a_token_given_back_unused_presents_nothing() {
     let mut fb = FakeFb::new(16);
     fb.depths = vec![16];
     let mut v = awake(fb);
     v.events().for_each(drop);
-    assert_eq!(v.swap(DISPLAY, &[WHOLE]).unwrap(), Swapped::Nothing);
+    let token = v.lend(DISPLAY).unwrap();
+    v.give_back(token);
     assert!(!v.is_flipping(DISPLAY));
     assert!(map(&mut v).iter().all(|&b| b == 0), "nothing converted");
-    v.canvas(DISPLAY).unwrap().pixels.fill(0xff);
-    assert_eq!(v.swap(DISPLAY, &[WHOLE]).unwrap(), Swapped::Frame);
-    assert_eq!(v.swap(DISPLAY, &[WHOLE]).unwrap(), Swapped::Nothing);
+    let foreign = Token::new(DISPLAY, (4, 3), 16, 1, Arc::new(Mutex::new(vec![0u8; 48])));
+    assert!(matches!(v.swap(foreign, &[WHOLE]), Err(SwapError::Dropped)));
+    assert_eq!(
+        draw(&mut v, &[WHOLE], |canvas| canvas.pixels.fill(0xff)).unwrap(),
+        Swapped::Frame
+    );
 }
 
-// The frame contract, rule 6: no canvas while blanked; unblanked, the
+// The frame contract, rule 6: no token while blanked; unblanked, the
 // buffer is age 0 and the owner is told to redraw.
 #[test]
-fn a_blanked_display_lends_no_canvas() {
+fn a_blanked_display_lends_no_token() {
     let mut v = awake(FakeFb::new(32));
-    v.canvas(DISPLAY).unwrap();
-    v.swap(DISPLAY, &[WHOLE]).unwrap();
+    draw(&mut v, &[WHOLE], |_| ()).unwrap();
     v.events().for_each(drop);
     v.set_dpms(DISPLAY, Dpms::Off).unwrap();
-    assert!(v.canvas(DISPLAY).is_none());
-    assert!(matches!(v.swap(DISPLAY, &[WHOLE]), Err(SwapError::Off)));
+    assert!(!lends(&mut v));
     v.unblank().unwrap();
     assert_eq!(v.dev().blanks.borrow().last(), Some(&FB_BLANK_UNBLANK));
     assert_eq!(v.events().collect::<Vec<_>>(), [Event::Redraw(DISPLAY)]);
-    assert_eq!(v.canvas(DISPLAY).unwrap().age, 0);
+    assert_eq!(age(&mut v), 0);
     v.unblank().unwrap();
     assert!(v.events().next().is_none(), "on already");
 }
@@ -598,18 +635,17 @@ fn the_display_is_ready_for_a_frame_while_awake_on_and_not_flipping() {
         !v.ready_for_frame(DisplayId(DISPLAY.0 + 1)),
         "no such display"
     );
-    v.canvas(DISPLAY).unwrap();
-    v.swap(DISPLAY, &[WHOLE]).unwrap();
+    draw(&mut v, &[WHOLE], |_| ()).unwrap();
     assert!(v.is_flipping(DISPLAY) && !v.ready_for_frame(DISPLAY));
-    assert!(v.canvas(DISPLAY).is_some());
+    assert!(lends(&mut v));
     v.vblank();
     assert!(v.ready_for_frame(DISPLAY));
     v.set_dpms(DISPLAY, Dpms::Off).unwrap();
-    assert!(!v.ready_for_frame(DISPLAY) && v.canvas(DISPLAY).is_none());
+    assert!(!v.ready_for_frame(DISPLAY) && !lends(&mut v));
     v.unblank().unwrap();
     assert!(v.ready_for_frame(DISPLAY));
     v.sleep();
-    assert!(!v.ready_for_frame(DISPLAY) && v.canvas(DISPLAY).is_none());
+    assert!(!v.ready_for_frame(DISPLAY) && !lends(&mut v));
 }
 
 /// A 320x240 device that reports `mm`.
@@ -640,4 +676,52 @@ fn a_device_with_no_physical_size_assumes_the_density() {
         assert_eq!(v.density(DISPLAY), Some(Density::ASSUMED), "{mm:?}");
     }
     assert_eq!(Fbdev::with(FakeFb::new(32)).density(DISPLAY), None);
+}
+
+// ADR-1401 D2: a framebuffer has one buffer, which it lends as a token
+// even during its stand-in flip, at age 1, or 0 just after it was cleared.
+// A token back after a VT release, a new set-up or a blank is dropped, and
+// the next frame is drawn whole.
+#[test]
+fn a_framebuffer_token_back_too_late_is_dropped() {
+    for blank in [false, true] {
+        let mut v = awake(FakeFb::new(32));
+        draw(&mut v, &[WHOLE], |_| ()).unwrap();
+        v.vblank();
+        let mut token = v.lend(DISPLAY).unwrap();
+        assert_eq!(token.age(), 1);
+        assert!(v.lend(DISPLAY).is_none(), "one token at a time");
+        let map = Arc::clone(&v.screen.as_ref().unwrap().map);
+        if blank {
+            v.set_dpms(DISPLAY, Dpms::Off).unwrap();
+            v.set_dpms(DISPLAY, Dpms::On).unwrap();
+            assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
+        } else {
+            v.sleep();
+            // The framebuffer stays mapped for the token, and is cleared
+            // when the token comes back.
+            token.draw(|c| c.pixels.fill(9)).unwrap();
+            assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
+            assert!(lock(&map).iter().all(|&b| b == 0), "cleared on its return");
+            v.wake_up().unwrap();
+        }
+        assert!(!v.is_flipping(DISPLAY), "nothing shown, blank: {blank}");
+        assert_eq!(age(&mut v), 0, "blank: {blank}");
+    }
+}
+
+// The conversion copy is the token's buffer where the layout is not
+// XRGB8888, and the swap converts it where the frame is damaged.
+#[test]
+fn the_conversion_copy_is_lent_where_the_layout_needs_it() {
+    let mut fb = FakeFb::new(16);
+    fb.depths = vec![16];
+    let mut v = awake(fb);
+    let mut token = v.lend(DISPLAY).unwrap();
+    let copy = Arc::clone(v.screen.as_ref().unwrap().copy.as_ref().unwrap());
+    token.draw(|c| c.pixels.fill(0xff)).unwrap();
+    assert!(lock(&copy).iter().all(|&b| b == 0xff));
+    assert!(map(&mut v).iter().all(|&b| b == 0), "not converted yet");
+    v.swap(token, &[WHOLE]).unwrap();
+    assert_eq!(&map(&mut v)[0..8], &[0xff; 8]);
 }

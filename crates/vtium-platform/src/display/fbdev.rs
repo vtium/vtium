@@ -1,10 +1,13 @@
 //! fbdev: a framebuffer device's one display.
 //!
 //! The display keeps the mode it is given, in one buffer: the
-//! framebuffer, mapped. A device whose pixels are XRGB8888 is drawn into
-//! directly; any other true-color layout of 16, 24 or 32 bits, and a
-//! 1-bit device (vtium/vtium#135), is drawn into an XRGB8888 copy in
-//! memory, converted into the device's layout where a swap's damage says.
+//! framebuffer, mapped. It lends that buffer in a [`Token`] whatever the
+//! number of buffers a DRM display keeps (ADR-1401 D2). A device whose
+//! pixels are XRGB8888 is drawn into directly; any other true-color layout
+//! of 16, 24 or 32 bits, and a 1-bit device (vtium/vtium#135), is drawn
+//! into an XRGB8888 copy in memory, which the token lends instead and
+//! which the swap converts into the device's layout where its damage
+//! says.
 //! fbdev has no flip event, so a timer at the mode's refresh interval
 //! stands in for it.
 
@@ -12,13 +15,16 @@ use std::io;
 use std::marker::PhantomData;
 use std::os::fd::{AsFd, OwnedFd};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
 use rustix::fs::{Mode as FileMode, OFlags, open};
 
-use super::{Canvas, Density, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
+use super::{
+    Density, DisplayId, Dpms, Event, Loan, Memory, Rect, SwapError, Swapped, Token, lock, try_lock,
+};
 use crate::ioctl::{
     FB_ACTIVATE_FORCE, FB_ACTIVATE_NOW, FB_BLANK_NORMAL, FB_BLANK_POWERDOWN, FB_BLANK_UNBLANK,
     FB_NONSTD_REV_PIX_IN_B, FB_VISUAL_MONO01, FB_VISUAL_MONO10, FB_VISUAL_TRUECOLOR,
@@ -32,7 +38,9 @@ const DISPLAY: DisplayId = DisplayId(0);
 /// What fbdev asks of a framebuffer device, as a trait: [`Fb`] implements
 /// it through the kernel's ioctls, and the tests' stand-in in memory.
 pub(crate) trait Framebuffer {
-    type Map: AsMut<[u8]>;
+    /// The framebuffer mapped, which a token carries to the head's render
+    /// thread.
+    type Map: AsMut<[u8]> + Send + 'static;
 
     fn var(&self) -> io::Result<FbVarScreeninfo>;
     fn put_var(&self, var: &mut FbVarScreeninfo) -> io::Result<()>;
@@ -176,14 +184,16 @@ fn lit(xrgb: u32) -> bool {
 
 /// The framebuffer, mapped while the device is awake.
 struct Screen<M> {
-    map: M,
+    /// The mapping, which a token lent shares, so it stays mapped until
+    /// the token comes back.
+    map: Arc<Mutex<M>>,
     width: u32,
     height: u32,
     /// Bytes a line in the framebuffer.
     stride: usize,
     packing: Packing,
     /// The XRGB8888 copy drawn into, where the layout is another.
-    shadow: Option<Vec<u8>>,
+    copy: Option<Arc<Mutex<Vec<u8>>>>,
     /// Nothing drawn since the framebuffer was cleared.
     fresh: bool,
 }
@@ -205,8 +215,14 @@ pub struct Fbdev<F: Framebuffer> {
     interval: Duration,
     /// `None` until set: the device's state is not read back.
     dpms: Option<Dpms>,
-    /// The canvas was lent since the last swap.
-    lent: bool,
+    /// The token lent, until it comes back.
+    loan: Option<Loan>,
+    /// Taken anew at each set-up, VT release and blank: a token of an
+    /// older lease comes back too late.
+    lease: u64,
+    /// The sleep found the framebuffer lent, so the token's memory is
+    /// cleared to this byte when it comes back.
+    clear_owed: Option<u8>,
     /// A swap's stand-in flip event is pending.
     vblank: bool,
     /// Unblanks tried again so far, while retrying.
@@ -238,7 +254,9 @@ impl<F: Framebuffer> Fbdev<F> {
             rate_mhz: 0,
             interval: Duration::from_millis(15),
             dpms: None,
-            lent: false,
+            loan: None,
+            lease: 0,
+            clear_owed: None,
             vblank: false,
             retries: None,
             wake_failed: false,
@@ -316,6 +334,10 @@ impl<F: Framebuffer> Fbdev<F> {
             Dpms::Off => FB_BLANK_POWERDOWN,
         })?;
         let was = self.dpms.replace(dpms);
+        // A frame drawn while the display powers down is not shown.
+        if dpms != Dpms::On && was.is_none_or(|d| d == Dpms::On) {
+            self.lease = self.lease.wrapping_add(1);
+        }
         if dpms == Dpms::On {
             self.wake_failed = false;
             if was.is_some_and(|d| d != Dpms::On) {
@@ -374,13 +396,15 @@ impl<F: Framebuffer> Fbdev<F> {
     }
 
     /// Whether the display takes a frame now: it is awake and powered on,
-    /// and the last swap's stand-in flip event is not pending.
+    /// has no token out, and the last swap's stand-in flip event is not
+    /// pending.
     pub fn ready_for_frame(&self, id: DisplayId) -> bool {
-        self.lends(id) && !self.vblank
+        self.lends(id) && !self.lent() && !self.vblank
     }
 
-    /// Whether [`Fbdev::canvas`] lends the buffer: the display is awake, set
-    /// up and powered on.
+    /// Whether [`Fbdev::lend`] lends the buffer while no token is out: the
+    /// display is awake, set up and powered on. Its one buffer is the one
+    /// shown, so it lends during the stand-in flip too.
     fn lends(&self, id: DisplayId) -> bool {
         id == DISPLAY
             && self.awake
@@ -388,48 +412,76 @@ impl<F: Framebuffer> Fbdev<F> {
             && self.dpms.is_none_or(|d| d == Dpms::On)
     }
 
-    /// Lends the buffer for the next frame. It is the framebuffer itself,
-    /// or its copy, and holds the frame before this one.
-    pub fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        if !self.lends(id) {
-            return None;
-        }
-        let s = self.screen.as_mut()?;
-        self.lent = true;
-        let age = u32::from(!s.fresh);
-        let (pixels, stride) = match &mut s.shadow {
-            Some(shadow) => (shadow.as_mut_slice(), s.width.saturating_mul(4)),
-            None => {
-                let len = s.stride.saturating_mul(usize::try_from(s.height).ok()?);
-                (
-                    s.map.as_mut().get_mut(..len)?,
-                    u32::try_from(s.stride).ok()?,
-                )
-            }
-        };
-        Some(Canvas {
-            pixels,
-            width: s.width,
-            height: s.height,
-            stride,
-            age,
-        })
+    /// Whether a token lent is still out.
+    fn lent(&self) -> bool {
+        self.loan.as_ref().is_some_and(Loan::out)
     }
 
-    /// Presents the frame drawn into the canvas lent since the last swap:
-    /// converts its `damage` into the device's layout where it is drawn
-    /// into a copy, and starts the stand-in for the flip event. With no
-    /// damage, or without a canvas lent, it does nothing.
-    pub fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        let lent = id == DISPLAY && std::mem::take(&mut self.lent);
-        if id != DISPLAY || !self.awake || self.dpms.is_some_and(|d| d != Dpms::On) {
+    /// The prepare step: lends the buffer for the next frame, the
+    /// framebuffer itself or its copy, as a token. Its age is 1, the frame
+    /// before this one, or 0 just after the framebuffer was cleared or a
+    /// token came back too late. While the token is out the display lends
+    /// no other.
+    pub fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        if self.loan.as_ref().is_some_and(|l| !l.out()) {
+            self.loan = None;
+            if let Some(s) = self.screen.as_mut() {
+                s.fresh = true;
+            }
+        }
+        if !self.lends(id) || self.lent() {
+            return None;
+        }
+        let s = self.screen.as_ref()?;
+        let (memory, stride): (Arc<Memory>, u32) = match &s.copy {
+            Some(copy) => (copy.clone(), s.width.saturating_mul(4)),
+            None => (s.map.clone(), u32::try_from(s.stride).ok()?),
+        };
+        let age = u32::from(!s.fresh);
+        let size = (s.width, s.height);
+        let (token, loan) = Loan::lend(DISPLAY, 0, age, self.lease, size, stride, memory);
+        self.loan = Some(loan);
+        Some(token)
+    }
+
+    /// Takes back a token with nothing drawn into its buffer.
+    pub fn give_back(&mut self, token: Token) {
+        if self.loan.as_ref().is_some_and(|l| l.lent(&token)) {
+            self.loan = None;
+            if let Some(clear) = self.clear_owed.take() {
+                lock(token.memory()).as_mut().fill(clear);
+            }
+        }
+    }
+
+    /// The swap: takes back the token lent for this frame, converts its
+    /// `damage` into the device's layout where it is drawn into a copy,
+    /// and starts the stand-in for the flip event. With no damage it does
+    /// nothing. A token that comes back after a VT release, a new set-up
+    /// or a blank is dropped with [`SwapError::Dropped`], and the next
+    /// frame is drawn whole.
+    pub fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let Some(loan) = self.loan.take_if(|l| l.lent(&token)) else {
+            return Err(SwapError::Dropped);
+        };
+        if !loan.current(&token, self.lease) {
+            if let Some(clear) = self.clear_owed.take() {
+                lock(token.memory()).as_mut().fill(clear);
+            }
+            if let Some(s) = self.screen.as_mut() {
+                s.fresh = true;
+            }
+            return Err(SwapError::Dropped);
+        }
+        drop(token);
+        if !self.awake || self.dpms.is_some_and(|d| d != Dpms::On) {
             return Err(SwapError::Off);
         }
         let s = self.screen.as_mut().ok_or(SwapError::Off)?;
-        if !lent || damage.is_empty() {
+        if damage.is_empty() {
             return Ok(Swapped::Nothing);
         }
-        if s.shadow.is_some() {
+        if s.copy.is_some() {
             let whole = [Rect {
                 x: 0,
                 y: 0,
@@ -482,12 +534,19 @@ impl<F: Framebuffer> Fbdev<F> {
     /// Clears and unmaps the framebuffer. fbdev has no flips to wait for,
     /// so [`Event::Asleep`] follows at once.
     pub fn sleep(&mut self) {
-        if let Some(mut s) = self.screen.take() {
+        // A frame drawn while the VT is let go is not shown.
+        self.lease = self.lease.wrapping_add(1);
+        if let Some(s) = self.screen.take() {
             let clear = s.packing.clear();
-            s.map.as_mut().fill(clear);
+            // A token for the framebuffer may be drawing into it: its
+            // memory is cleared when it comes back.
+            let lent = self.lent() && s.copy.is_none();
+            match try_lock(&s.map).filter(|_| !lent) {
+                Some(mut map) => map.as_mut().fill(clear),
+                None => self.clear_owed = Some(clear),
+            }
         }
         self.awake = false;
-        self.lent = false;
         self.vblank = false;
         self.retries = None;
         self.wake_failed = false;
@@ -596,11 +655,11 @@ impl<F: Framebuffer> Fbdev<F> {
         let len = stride.saturating_mul(height);
         let mut map = self.dev.map(len)?;
         map.as_mut().fill(packing.clear());
-        let shadow = (!packing.xrgb8888()).then(|| {
+        let copy = (!packing.xrgb8888()).then(|| {
             let px = usize::try_from(var.xres)
                 .unwrap_or(0)
                 .saturating_mul(height);
-            vec![0u8; px.saturating_mul(4)]
+            Arc::new(Mutex::new(vec![0u8; px.saturating_mul(4)]))
         });
         let visual = match packing {
             Packing::Mono { set_lit: true, .. } => ", FB_VISUAL_MONO10: a 1-bit display",
@@ -618,14 +677,18 @@ impl<F: Framebuffer> Fbdev<F> {
         // a density under DPI_MIN, so both read as no size.
         self.mm = (var.width, var.height);
         self.screen = Some(Screen {
-            map,
+            map: Arc::new(Mutex::new(map)),
             width: var.xres,
             height: var.yres,
             stride,
             packing,
-            shadow,
+            copy,
             fresh: true,
         });
+        // A token of the set-up before comes back too late, and the
+        // framebuffer it maps is this one's, so it is not cleared then.
+        self.lease = self.lease.wrapping_add(1);
+        self.clear_owed = None;
         self.online = true;
         Ok(())
     }
@@ -646,16 +709,18 @@ impl<M: AsMut<[u8]>> Screen<M> {
     }
 
     fn convert_true(&mut self, r: Rect, layout: Layout) {
-        let Some(shadow) = &self.shadow else {
+        let Some(copy) = &self.copy else {
             return;
         };
+        let shadow = lock(copy);
+        let mut map = lock(&self.map);
         let bytes = layout.bytes;
         let width = usize::try_from(self.width).unwrap_or(0);
         let (x, w) = (
             usize::try_from(r.x).unwrap_or(0),
             usize::try_from(r.width).unwrap_or(0),
         );
-        let map = self.map.as_mut();
+        let map = (*map).as_mut();
         for y in r.y..r.y.saturating_add(r.height) {
             let y = usize::try_from(y).unwrap_or(0);
             let from = y.saturating_mul(width).saturating_add(x).saturating_mul(4);
@@ -680,16 +745,18 @@ impl<M: AsMut<[u8]>> Screen<M> {
     /// come from the copy too, so the framebuffer is never read. Bits past
     /// the line's last pixel are left clear.
     fn pack(&mut self, r: Rect, set_lit: bool, msb_first: bool) {
-        let Some(shadow) = &self.shadow else {
+        let Some(copy) = &self.copy else {
             return;
         };
+        let shadow = lock(copy);
+        let mut map = lock(&self.map);
         let width = usize::try_from(self.width).unwrap_or(0);
         let first = usize::try_from(r.x).unwrap_or(0) / 8;
         let end = usize::try_from(r.x.saturating_add(r.width))
             .unwrap_or(0)
             .min(width)
             .div_ceil(8);
-        let map = self.map.as_mut();
+        let map = (*map).as_mut();
         for y in r.y..r.y.saturating_add(r.height) {
             let y = usize::try_from(y).unwrap_or(0);
             let line = y.saturating_mul(width).saturating_mul(4);
