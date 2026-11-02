@@ -1,6 +1,6 @@
 # vtium-image-helper fuzz targets
 
-cargo-fuzz targets in their own workspace, so the main workspace and CI never build them or pull `libfuzzer-sys`. ADR-1101 D6 gives each decoding path a fuzz target that covers every crate on that path, run in-process and outside the helper's memory cap. Run them on nightly from this directory, with a corpus directory of your own first and the seeds after it, for example `cargo +nightly fuzz run png corpus/png seeds/png`. A fuzzer rarely writes a PNG whose checksums hold, so the seeds give it whole files to mutate from.
+cargo-fuzz targets in their own workspace, so the main workspace and CI never build them or pull `libfuzzer-sys`. ADR-1101 D6 gives each decoding path a fuzz target that covers every crate on that path, run in-process and outside the helper's memory cap. Run them on nightly from this directory, with a corpus directory of your own first and the seeds after it, for example `cargo +nightly fuzz run png corpus/png seeds/png`. A fuzzer rarely writes a PNG whose checksums hold, or a JPEG or zlib stream whose structure holds, so the seeds give it whole files to mutate from.
 
 | Path | What it is |
 |---|---|
@@ -9,6 +9,6 @@ cargo-fuzz targets in their own workspace, so the main workspace and CI never bu
 | `fuzz_targets/jpeg.rs` | Any input as a JPEG file (`zune-jpeg`): no panic, and a picture is exactly its size's opaque pixels. |
 | `fuzz_targets/gif.rs` | Any input as a GIF file, its first frame on a transparent canvas (`gif`, `weezl`): no panic, and a picture is exactly its size's premultiplied pixels. |
 | `fuzz_targets/request.rs` | Any input as a request packet, a reply packet and a hello (the wire both ends link): no panic, and every packet accepted encodes back to itself. |
-| `seeds/png/`, `seeds/gif/` | Small valid files to start from: RGBA with partial alpha, grey, a palette with transparency, 16-bit RGB, and a two-pixel GIF with a transparent pixel. |
+| `seeds/png/`, `seeds/gif/`, `seeds/jpeg/`, `seeds/zlib/` | Small valid files to start from: PNGs of RGBA with partial alpha, grey, a palette with transparency and 16-bit RGB; a two-pixel GIF with a transparent pixel; JPEGs that are baseline, progressive, grey with an odd size, and subsampled 4:2:0; and zlib inputs, each a first byte choosing the pixels and then zlib data, for one RGB pixel, 38 RGBA pixels, one premultiplied pixel, stored blocks with junk after them, and more bytes than the pixels need. |
 | `Cargo.toml`, `Cargo.lock` | The fuzz crate and its pinned dependencies. |
 | `.gitignore` | Leaves out `target`, `corpus`, `artifacts` and `coverage`. |
