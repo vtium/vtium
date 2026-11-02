@@ -585,7 +585,7 @@ fn sweep_styles_and_links(t: &mut Terminal, mut n: u32) {
 // A widening by a factor that is not a whole number can gather onto one
 // row the end of one source row, the whole of the next and the start of
 // the one after. When each of those source rows holds its whole budget in
-// a few cells, the new row names about 16.5 bytes a cell, past its arena's
+// a few cells, the new row names up to about 16.5 bytes a cell, past its arena's
 // limit of 12. On the screen, such a row keeps the clusters that fit its
 // arena's limit, from its first cell on, so with its own style and link in
 // every other cell it costs no more than `Line::bytes_max`: as the screen
