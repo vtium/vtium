@@ -3590,13 +3590,19 @@ class HeadsTest(unittest.TestCase):
         with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
                                "kmsconvt@.service")) as f:
             text = f.read()
-        settings = [l.split("=", 1)[0] for l in text.splitlines()
-                    if l and not l.startswith("#") and "=" in l]
-        self.assertIn("Restart=on-failure\n", text)
-        for key in ("RestartSec", "RestartMode", "StartLimitIntervalSec", "StartLimitBurst",
-                    "StartLimitAction", "RestartSteps", "RestartMaxDelaySec"):
-            self.assertNotIn(key, settings)
-        self.assertEqual(settings.count("Restart"), 1)
+        # systemd strips the space around each key and value, and reads a
+        # line that starts with # or ; as a comment (systemd.syntax(7))
+        settings = [tuple(part.strip() for part in line.split("=", 1))
+                    for line in map(str.strip, text.splitlines())
+                    if line and line[0] not in "#;" and "=" in line]
+        self.assertEqual([v for k, v in settings if k == "Restart"], ["on-failure"])
+        # StartLimitInterval= is the older spelling of StartLimitIntervalSec=,
+        # which systemd still reads in [Unit] and [Service]
+        for key in ("RestartSec", "RestartMode", "RestartSteps", "RestartMaxDelaySec",
+                    "StartLimitIntervalSec", "StartLimitInterval", "StartLimitBurst",
+                    "StartLimitAction"):
+            with self.subTest(key):
+                self.assertNotIn(key, [k for k, _ in settings])
 
     def test_held_and_exit(self):
         first = t3_heads.parse_state(agent_state(pid=(400, 1.0)))
