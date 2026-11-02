@@ -1,10 +1,16 @@
 //! The fixture host (INTERFACE.md, "The fixture host"): it answers each
 //! request a handler makes from the case's fixture files at once, so no
 //! case depends on time or on a helper (ADR-1100, D7).
+//!
+//! It answers as the image helper does, with every picture premultiplied
+//! (ADR-1101 D7): a `.rgba` fixture's straight pixels, and the raw pixels
+//! a request describes, go through vtium-image's one conversion, so tier 1
+//! reads each reply through the console's path for the helper's replies.
 
 use core::fmt::Write;
 use std::path::{Path, PathBuf};
 
+use vtium_term::images::decode::convert::{self, Alpha, Layout};
 use vtium_term::images::decode::{Medium, Payload, Reply, Request};
 
 /// The fixture host of one replay.
@@ -91,7 +97,7 @@ impl Host {
 
     fn outcome(&self, r: &Request, name: &str) -> Reply {
         if r.discard {
-            return Reply::Ok(Payload::Bytes(Vec::new()));
+            return Reply::Ok(Payload::Discarded);
         }
         if let Some(text) = self.read(&format!("{name}.error")) {
             let word = text
@@ -130,11 +136,15 @@ impl Host {
                 if bytes > r.largest_bytes {
                     return Reply::OverBudget;
                 }
-                let data = data.get(8..).unwrap_or_default().to_vec();
+                let mut pixels = Vec::new();
+                let straight = data.get(8..).unwrap_or_default();
+                // a fixture of another length than its picture is a
+                // helper's lie, which the console's check fails
+                convert::to_reply(Layout::Rgba, Alpha::Straight, straight, &mut pixels);
                 return Reply::Ok(Payload::Rgba {
                     width,
                     height,
-                    data,
+                    data: pixels,
                 });
             }
         } else if r.inflate {
@@ -144,9 +154,7 @@ impl Host {
                 } else if r.exact && bytes.len() > min {
                     Reply::Corrupt
                 } else {
-                    Reply::Ok(Payload::Bytes(
-                        bytes.get(..min).unwrap_or_default().to_vec(),
-                    ))
+                    described(r, bytes.get(..min).unwrap_or_default())
                 };
             }
         } else if let Some(data) = self.read(name) {
@@ -164,7 +172,7 @@ impl Host {
             return if read.len() < min {
                 Reply::TooShort
             } else {
-                Reply::Ok(Payload::Bytes(read.get(..min).unwrap_or_default().to_vec()))
+                described(r, read.get(..min).unwrap_or_default())
             };
         }
         match r.medium {
@@ -174,9 +182,25 @@ impl Host {
     }
 }
 
+/// The reply to `r` for its raw pixels `bytes`, converted as its
+/// description says, as the helper converts them.
+fn described(r: &Request, bytes: &[u8]) -> Reply {
+    let Some(d) = r.pixels else {
+        return Reply::Failed;
+    };
+    let mut data = Vec::new();
+    convert::to_reply(d.layout, d.alpha, bytes, &mut data);
+    Reply::Ok(Payload::Rgba {
+        width: d.width,
+        height: d.height,
+        data,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vtium_term::images::decode::Description;
 
     fn request(medium: Medium) -> Request {
         Request {
@@ -188,6 +212,8 @@ mod tests {
             png: false,
             exact: false,
             discard: false,
+            any_image: false,
+            pixels: None,
             largest: (10_000, 10_000),
             largest_bytes: 1 << 30,
         }
@@ -217,10 +243,18 @@ mod tests {
             ],
         );
         let mut host = Host::new(&dir);
+        let rgb = Description {
+            layout: Layout::Rgb,
+            alpha: Alpha::Straight,
+            width: 1,
+            height: 1,
+            compressed: false,
+        };
         let file = Request {
             offset: 5,
             max: 9,
             min: 3,
+            pixels: Some(rgb),
             ..request(Medium::File(b"/tmp/r1".to_vec()))
         };
         let (line, reply) = host.answer(&file);
@@ -228,12 +262,24 @@ mod tests {
             line,
             "host: 1 t=f flags=- O=5 max=9 min=3 name=/tmp/r1 len=0"
         );
-        assert_eq!(reply, Reply::Ok(Payload::Bytes(b"567".to_vec())));
+        let picture = |data: &[u8]| {
+            Reply::Ok(Payload::Rgba {
+                width: 1,
+                height: 1,
+                data: data.to_vec(),
+            })
+        };
+        assert_eq!(reply, picture(b"567\xff"));
         let (_, reply) = host.answer(&request(Medium::SharedMemory(b"r2".to_vec())));
         assert_eq!(reply, Reply::TooLarge);
         let inflate = Request {
             inflate: true,
             min: 4,
+            pixels: Some(Description {
+                layout: Layout::Rgba,
+                compressed: true,
+                ..rgb
+            }),
             ..request(Medium::Direct(vec![1, 2]))
         };
         let (line, reply) = host.answer(&inflate);
@@ -241,7 +287,8 @@ mod tests {
             line,
             "host: 3 t=d flags=inflate O=0 max=0 min=4 name= len=2"
         );
-        assert_eq!(reply, Reply::Ok(Payload::Bytes(b"abcd".to_vec())));
+        // a, b, c at alpha d, 100: (97 × 100 + 127) / 255 is 38
+        assert_eq!(reply, picture(&[38, 38, 39, 100]));
         let exact = Request {
             exact: true,
             ..inflate
@@ -319,7 +366,7 @@ mod tests {
         let mut rgba = Vec::new();
         rgba.extend_from_slice(&1u32.to_le_bytes());
         rgba.extend_from_slice(&2u32.to_le_bytes());
-        rgba.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        rgba.extend_from_slice(&[0x80, 0x40, 0x20, 0xff, 0xff, 0xff, 0xff, 0x80]);
         let dir = fixtures("png", &[("p.rgba", &rgba)]);
         let mut host = Host::new(&dir);
         let png = Request {
@@ -329,8 +376,10 @@ mod tests {
         let want = Reply::Ok(Payload::Rgba {
             width: 1,
             height: 2,
-            data: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            data: vec![0x80, 0x40, 0x20, 0xff, 0x80, 0x80, 0x80, 0x80],
         });
+        // the straight fixture comes back premultiplied, as the helper's
+        // pictures do
         assert_eq!(host.answer(&png).1, want);
         let discard = Request {
             discard: true,
@@ -338,7 +387,7 @@ mod tests {
         };
         let (line, reply) = host.answer(&discard);
         assert!(line.contains("flags=discard"), "{line}");
-        assert_eq!(reply, Reply::Ok(Payload::Bytes(Vec::new())));
+        assert_eq!(reply, Reply::Ok(Payload::Discarded));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

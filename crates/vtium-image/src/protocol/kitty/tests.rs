@@ -19,7 +19,7 @@ use vtium_parse::Chunk;
 
 use super::Kitty;
 use crate::IMAGE_OVERHEAD;
-use crate::decode::{Medium, Payload, Reply, Request};
+use crate::decode::{Alpha, Description, Layout, Medium, Payload, Reply, Request};
 use crate::handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
 use crate::image::LineKey;
 use crate::store::{Edit, Rows, Screens, Store};
@@ -599,7 +599,25 @@ fn a_named_medium_goes_to_the_helper_and_its_answer_is_stored() {
         (r.offset, r.max, r.min, r.png, r.inflate),
         (2, 9, 3, false, false)
     );
-    k.decoded(&mut h, Reply::Ok(Payload::Bytes(vec![9, 8, 7])));
+    // the helper converts the pixels the request describes
+    assert_eq!(
+        r.pixels,
+        Some(Description {
+            layout: Layout::Rgb,
+            alpha: Alpha::Straight,
+            width: 1,
+            height: 1,
+            compressed: false,
+        })
+    );
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 1,
+            height: 1,
+            data: vec![9, 8, 7, 0xff],
+        }),
+    );
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     assert_eq!(h.boxes(), vec![(0, 0, 1, 1)]);
     // a read too short is EBADF; an inflate too short is EINVAL
@@ -670,7 +688,7 @@ fn a_refused_temporary_file_still_goes_to_the_helper_to_be_removed() {
     let r = h.requests.pop().unwrap();
     assert!(r.discard);
     assert_eq!((r.min, r.png, r.inflate), (0, false, false));
-    k.decoded(&mut h, Reply::Ok(Payload::Bytes(Vec::new())));
+    k.decoded(&mut h, Reply::Ok(Payload::Discarded));
     assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
     // a refused file is not removable and makes no request
     send(&mut k, &mut h, &format!("a=t,t=f,f=24,i=2;{}", b64(b"/a")));

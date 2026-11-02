@@ -8,34 +8,20 @@
 //! width and height call for: bytes past them are ignored, as
 //! kitty ignores them (the C reference's black-box survey of kitty 0.49.2, kmscon's ADR 107).
 //!
-//! Premultiplying uses integers only: each channel becomes
-//! `(channel × alpha + 127) / 255`, so every machine stores the same
-//! pixels.
+//! Each pixel goes through [`super::convert`], the one conversion the
+//! image helper and the fixture host use too.
 
-/// The premultiplied ARGB pixel of straight-alpha `r`, `g`, `b`, `a`.
-pub(crate) fn premultiply(r: u8, g: u8, b: u8, a: u8) -> u32 {
-    let a32 = u32::from(a);
-    let scale = |c: u8| -> u32 {
-        if a == 0xff {
-            u32::from(c)
-        } else {
-            u32::from(c)
-                .saturating_mul(a32)
-                .saturating_add(127)
-                .checked_div(255)
-                .unwrap_or(0)
-        }
-    };
-    a32.wrapping_shl(24) | scale(r).wrapping_shl(16) | scale(g).wrapping_shl(8) | scale(b)
-}
+use super::convert::{Alpha, Layout, pixel as convert_pixel};
 
-/// The pixel of one group of `bpp` bytes: R, G, B, and A when `bpp` is 4.
+/// The pixel of one group of `bpp` bytes: R, G, B, and A when `bpp` is 4,
+/// through the one conversion every image path shares.
 fn pixel(bytes: &[u8]) -> u32 {
-    match *bytes {
-        [r, g, b, a] => premultiply(r, g, b, a),
-        [r, g, b] => premultiply(r, g, b, 0xff),
-        _ => 0,
-    }
+    let layout = if bytes.len() == 4 {
+        Layout::Rgba
+    } else {
+        Layout::Rgb
+    };
+    convert_pixel(layout, Alpha::Straight, bytes)
 }
 
 /// Whole pixels of `bpp` bytes each from `data` onto `out`, in one pass
@@ -48,16 +34,6 @@ fn convert_into(out: &mut Vec<u32>, data: &[u8], bpp: usize) -> bool {
         px
     }));
     opaque
-}
-
-/// The pixels of `data`, `bpp` bytes each, as one conversion into `out`,
-/// emptied first, and whether every pixel is opaque: for bytes the image
-/// helper read or inflated, and for a picture it decoded as R, G, B, A.
-pub(crate) fn convert(data: &[u8], bpp: usize, mut out: Vec<u32>) -> (Vec<u32>, bool) {
-    out.clear();
-    out.reserve_exact(data.len().checked_div(bpp.max(1)).unwrap_or(0));
-    let opaque = convert_into(&mut out, data, bpp);
-    (out, opaque)
 }
 
 /// The pixels of one raw transmission, as they arrive.
@@ -152,15 +128,13 @@ impl Raw {
 mod tests {
     use super::*;
 
-    #[test]
-    fn straight_alpha_becomes_premultiplied_with_integer_rounding() {
-        assert_eq!(premultiply(0xff, 0x80, 0x00, 0xff), 0xffff_8000);
-        assert_eq!(premultiply(0xff, 0xff, 0xff, 0x80), 0x8080_8080);
-        // (0x80 × 0x80 + 127) / 255 = 64.75, down to 0x40
-        assert_eq!(premultiply(0x80, 0x80, 0x80, 0x80), 0x8040_4040);
-        // 3 x 0x80 / 255 is 1.5: 2 rounded, where truncation gives 1
-        assert_eq!(premultiply(3, 3, 3, 0x80), 0x8002_0202);
-        assert_eq!(premultiply(0xff, 0xff, 0xff, 0), 0);
+    use crate::decode::convert::premultiply;
+
+    /// The pixels of `data` converted whole, and whether all are opaque.
+    fn convert(data: &[u8], bpp: usize, mut out: Vec<u32>) -> (Vec<u32>, bool) {
+        out.clear();
+        let opaque = convert_into(&mut out, data, bpp);
+        (out, opaque)
     }
 
     #[test]
@@ -217,11 +191,5 @@ mod tests {
         }
         rgba[3] = 0xff;
         assert!(convert(&rgba, 4, Vec::new()).1);
-        // a buffer handed in is emptied and filled, its memory kept
-        let spare = vec![7u32; 4];
-        let ptr = spare.as_ptr();
-        let (out, _) = convert(&rgba, 4, spare);
-        assert_eq!((out.as_ptr(), out.len()), (ptr, 4));
-        assert!(out.iter().all(|&px| px == 0xffff_ffff));
     }
 }
