@@ -143,7 +143,7 @@ fn inked_columns(rows: &[Vec<u8>]) -> Vec<usize> {
 // own instructions at a whole 13 pixels to the em, as TrueType hinting
 // does: T's bar is fitted 9 rows high, the underscore lies in the cell at
 // the ascent's baseline, and H covers 7 columns. Light hinting keeps every
-// glyph in the columns its unhinted outline covers: `!` and `.` in columns
+// glyph in the columns its unhinted outline inks, `!` and `.` in columns
 // 3 and 4, `*` in 1 to 6, `1` in 1 to 7 and `+` in 0 to 7. A light hinter
 // that also fitted stems sideways, as the automatic hinter does at full
 // strength, moves each of them by a column
