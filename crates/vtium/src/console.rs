@@ -1023,19 +1023,17 @@ impl Run<'_, '_, '_> {
         }
         // logind starts autovt@tty6 on every switch to its reserved VT,
         // even while something holds it, so graphics there would meet
-        // vtium through the template link, and so would a login, a getty,
-        // kmscon or the development install there that VT 6's own link
-        // does not keep from the template: vtium's Conflicts= stops the
-        // console when logind starts vtium there.
+        // vtium through the template link, and so would a login, kmscon or
+        // the development install there that VT 6's own link does not keep
+        // from the template: vtium's Conflicts= stops the console when
+        // logind starts vtium there. A getty waiting at its login prompt
+        // holds no session, so stopping it ends nothing.
         if let Some(holders) = state.graphics.get(&RESERVED_VT) {
             return Err(Stop(text::graphics_on_reserved_vt(RESERVED_VT, holders)));
         }
         if state.templated(RESERVED_VT) {
             if let Some(logins) = state.logins.get(&RESERVED_VT) {
                 return Err(Stop(text::login_on_reserved_vt(RESERVED_VT, logins, true)));
-            }
-            if state.runs(RESERVED_VT, GETTY) {
-                return Err(Stop(text::getty_on_reserved_vt(RESERVED_VT)));
             }
             if state.holds(RESERVED_VT, KMSCON) {
                 return Err(Stop(text::kmscon_on_reserved_vt(RESERVED_VT)));
@@ -1132,7 +1130,7 @@ impl Run<'_, '_, '_> {
             self.disable_getty(state, n)?;
         }
         self.reload()?;
-        self.say(&text::given_all(!vt1_kept));
+        self.say(&text::given_all(!vt1_kept, state.templated(RESERVED_VT)));
         for line in &kept {
             self.say(line);
         }

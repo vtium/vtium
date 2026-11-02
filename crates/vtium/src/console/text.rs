@@ -143,7 +143,7 @@ pub fn given(n: u16) -> String {
         // logind never starts a console on VT 1.
         1 => String::new(),
         super::RESERVED_VT => format!(
-            ", and logind starts it there at the next switch to VT {n}, logind's reserved VT, which stops a getty that runs there"
+            ", and logind starts it there at the next switch to VT {n}, logind's reserved VT, which stops a getty waiting at its login prompt there; that ends no session, since no one is logged in there"
         ),
         _ => format!(
             ", and logind starts it there when you switch to VT {n} while nothing runs on it"
@@ -177,7 +177,7 @@ pub fn template_still_vtium(n: u16) -> String {
 
 pub const ALREADY_ALL: &str = "Every VT is vtium's already: nothing changed.";
 
-pub fn given_all(vt1: bool) -> String {
+pub fn given_all(vt1: bool, vt6: bool) -> String {
     let boot = if vt1 {
         "systemd starts vtium@tty1 at the next boot, and logind starts vtium on each other VT"
     } else {
@@ -188,8 +188,16 @@ pub fn given_all(vt1: bool) -> String {
     } else {
         ""
     };
+    let six = if vt6 {
+        format!(
+            " On VT {0}, logind's reserved VT, logind starts vtium at the next switch to it, which stops a getty waiting at its login prompt there; that ends no session, since no one is logged in there.",
+            super::RESERVED_VT
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "Every VT is vtium's from its next start: {boot} when you switch to it while nothing runs there. A getty running now on VTs 2 to 5 keeps its VT until it stops.{now}"
+        "Every VT is vtium's from its next start: {boot} when you switch to it while nothing runs there. A getty running now on VTs 2 to 5 keeps its VT until it stops.{six}{now}"
     )
 }
 
@@ -279,18 +287,6 @@ pub fn login_on_reserved_vt(n: u16, list: &[super::Holder], all: bool) -> String
         "stops the getty and ends every session on the VT",
         &format!(
             "Log out of VT {n} first: the getty there then waits at its login prompt, and nothing ends when it stops."
-        ),
-    )
-}
-
-pub fn getty_on_reserved_vt(n: u16) -> String {
-    reserved_vt(
-        n,
-        &format!("getty@tty{n}.service runs"),
-        &reserved_by(n, true),
-        "stops the getty through vtium's Conflicts= and ends every session on the VT",
-        &format!(
-            "Stop it first, from another VT or over ssh: systemctl stop getty@tty{n}.service, which ends every session on VT {n}."
         ),
     )
 }

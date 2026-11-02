@@ -1650,30 +1650,28 @@ fn a_login_on_loginds_reserved_vt_is_refused() {
     }
     assert!(m.changes().is_empty(), "{:?}", m.changes());
     assert_eq!(m.snapshot(), before);
-    // With no one logged in, the getty running on VT 6 is still refused:
-    // the switch would stop it through vtium's Conflicts=.
+    // A getty waiting at its login prompt on VT 6 holds no session, so both
+    // verbs go ahead beside it, and say that the next switch stops it and
+    // ends no session. A login on another VT is safe too: logind starts
+    // nothing on a busy VT.
     m.fake.sessions = vec![["carol", "3", "login", "tty", "user"]];
-    let (status, _, err) = m.console(&["enable", "--all"]);
-    assert_eq!(status, 1);
+    let (status, out, err) = m.console(&["enable", "6"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
-        err.contains("getty@tty6.service runs on VT 6, logind's reserved VT"),
-        "{err}"
+        out.contains("which stops a getty waiting at its login prompt there; that ends no session"),
+        "{out}"
     );
-    assert!(err.contains("systemctl stop getty@tty6.service"), "{err}");
-    assert!(m.changes().is_empty(), "{:?}", m.changes());
-    assert_eq!(m.snapshot(), before);
-    // enable 6 goes ahead, and says that the next switch stops the getty.
-    let (status, out, _) = m.console(&["enable", "6"]);
-    assert_eq!(status, 0, "{out}");
-    assert!(out.contains("which stops a getty that runs there"), "{out}");
     assert_eq!(m.console(&["disable", "6"]).0, 0);
-    // Once the getty has stopped, enable --all goes ahead. A login on
-    // another VT is safe: logind starts nothing on a busy VT.
-    m.fake.running.clear();
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
         out.contains("A getty running now on VTs 2 to 5 keeps its VT"),
+        "{out}"
+    );
+    assert!(
+        out.contains(
+            "On VT 6, logind's reserved VT, logind starts vtium at the next switch to it, which stops a getty waiting at its login prompt there; that ends no session"
+        ),
         "{out}"
     );
 }
