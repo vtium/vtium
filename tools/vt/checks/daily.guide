@@ -23,11 +23,14 @@ run: f=$(mktemp --suffix=.sh) && { printf '%s\n' '#!/bin/sh' '# A shell script f
 do: the editor opens a shell script of about 300 lines. Move with the
 do: arrows, Page Down and Page Up, type some text, then leave without
 do: saving: in vim Esc, then :q! and Enter; in nano Ctrl-X, then n.
-expect: the script drawn in color, as your editor colors a shell script:
-expect: the comment lines in one color, the quoted text in another, and
-expect: the words greet, echo and $name each picked out. Each page is
-expect: drawn whole as you move, the cursor is where you type, and this
-expect: screen comes back as it was after you leave.
+expect: the script drawn in color: the comment lines in one color, the
+expect: quoted text in another, and the function name greet where it is
+expect: defined, the word echo, and the variables $name and $HOME each
+expect: picked out. Each page is drawn whole as you move, the cursor is
+expect: where you type, and this screen comes back as it was after you
+expect: leave. nano shows no color unless its syntax files are turned on
+expect: in your nanorc, so a plain screen in nano is not vtium's fault:
+expect: say so in the note.
 
 step: A pager
 run: less /etc/services
