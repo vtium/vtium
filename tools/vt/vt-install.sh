@@ -117,6 +117,41 @@ as_root() {
 	[ -n "$dry" ] || "$sudo" "$@"
 }
 
+# The temporary name vt-install writes file $1 under before it renames it
+# into place: .NAME.vt-install-new in the same directory, a name only
+# vt-install uses. systemd passes over a name that starts with a dot when it
+# reads a unit directory.
+staged() {
+	printf '%s/.%s.vt-install-new' "${1%/*}" "${1##*/}"
+}
+
+# put SOURCE PATH MODE: copies SOURCE to PATH as root, with MODE. The copy
+# goes to PATH's temporary name and is renamed into place, so PATH holds the
+# old file or the whole new one, never part of a file: a copy cut short, as
+# on a full disk, leaves only a part at the temporary name, which put then
+# removes.
+put() {
+	local t
+	t=$(staged "$2")
+	if ! as_root install -D -m "$3" "${own[@]}" -- "$1" "$root$t"; then
+		as_root rm -f -- "$root$t" || true
+		return 1
+	fi
+	as_root mv -fT -- "$root$t" "$root$2"
+}
+
+# Removes each file at the temporary name of a path in "$@", which a run cut
+# short in the middle of a copy left.
+leftovers() {
+	local f t
+	for f in "$@"; do
+		t=$(staged "$f")
+		if [ -e "$root$t" ] || [ -L "$root$t" ]; then
+			as_root rm -f -- "$root$t"
+		fi
+	done
+}
+
 # Refuses the VT on screen (the desktop's, since this runs from it) and a VT
 # a logind session is on, as run-vt.sh does: stopping its unit would end
 # that session.
@@ -186,6 +221,7 @@ if [ "$action" = uninstall ]; then
 	# install's disable removed.
 	[ "$was_enabled" = no ] || as_root "$systemctl" add-wants getty.target "$getty"
 	[ "$was_active" = no ] || as_root "$systemctl" start "$getty"
+	leftovers "$manifest" "${files[@]}" "$record"
 	as_root rm -f -- "$root$manifest"
 	if [ -n "$others" ]; then
 		echo "vt-uninstall: kept ${files[*]}: vt-install holds $(paste -sd' ' <<<"$others") as well"
@@ -333,24 +369,27 @@ failed() {
 }
 # The manifest goes first, so a run cut short can still be undone.
 [ -d "$root$state_dir" ] || as_root install -d -m 0755 "${own[@]}" -- "$root$state_dir"
-[ -z "$write_manifest" ] || as_root install -m 0644 "${own[@]}" -- "$tmp/manifest" "$root$manifest"
+if [ -n "$write_manifest" ]; then
+	put "$tmp/manifest" "$manifest" 0644
+fi
 manifest_written=1
-# The record goes before the copies, holding each file's checksum from before
-# and after, so a copy that fails leaves every file in a state the record
-# knows: uninstall removes it, and a second run replaces it.
+# Each file is written through put, so it holds its content from before the
+# run or after it. The record goes before the copies, holding each file's
+# checksum from before and after, so a copy that fails leaves every file in a
+# state the record knows: uninstall removes it, and a second run replaces it.
 {
 	cat "$tmp/files"
 	for f in "${files[@]}"; do
 		! written "$f" || printf '%s  %s\n' "$(checksum "$f")" "$f"
 	done
 } >"$tmp/files.both"
-as_root install -m 0644 "${own[@]}" -- "$tmp/files.both" "$root$record"
-as_root install -D -m 0755 "${own[@]}" -- "$bin" "$root$bin_path"
+put "$tmp/files.both" "$record" 0644
+put "$bin" "$bin_path" 0755
 for f in vtium@.service vtium-getty@.service; do
-	as_root install -D -m 0644 "${own[@]}" -- "$tmp/$f" "$root$unit_dir/$f"
+	put "$tmp/$f" "$unit_dir/$f" 0644
 done
 # The copies are done, so the record holds only what is there now.
-as_root install -m 0644 "${own[@]}" -- "$tmp/files" "$root$record"
+put "$tmp/files" "$record" 0644
 as_root "$systemctl" daemon-reload
 # vtium starts first. Its Conflicts=getty@%i stops the getty, and its
 # After=getty@%i makes that stop finish before vtium starts, so the getty's

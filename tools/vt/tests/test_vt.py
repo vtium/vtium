@@ -12,6 +12,7 @@ stand-ins also lead PATH, so a command the tools reach by name finds one.
 
 import fcntl
 import hashlib
+import itertools
 import os
 import pty
 import select
@@ -1305,51 +1306,115 @@ class Install(Case):
         for f in (self.BIN, self.FALLBACK, self.STATE):
             self.assertFalse(os.path.exists(self.at(f)), f)
 
-    def test_a_failed_copy_can_be_undone_and_installed_again(self):
-        # A stand-in sudo fails the copy whose target is $FAIL_COPY, as a full
-        # disk would: the binary's, with the old build still in place, or
-        # vtium@.service's, after the binary is replaced.
-        write(os.path.join(self.s.standins, "sudo"), "#!/bin/bash\n" + RECORD +
-              '[ "$1" != -v ] || exit 0\n'
-              'if [ -n "${FAIL_COPY-}" ] && [ "$1" = install ] && [ "${*: -1}" = "$FAIL_COPY" ]; then\n'
-              '\techo "install: No space left on device" >&2; exit 1\nfi\nexec "$@"\n')
-        seeded = self.links()
-        for target in (self.BIN, self.UNIT):
-            for case in ("first install", "a second VT with a newer build"):
-                with self.subTest(target=target, case=case):
-                    fail = {"FAIL_COPY": self.at(target)}
-                    if case != "first install":
-                        p = self.vt_install("install", "3")
-                        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-                        write(self.s.bin, read(self.s.bin) + "# a newer build\n")
-                    before = self.links()
-                    p = self.vt_install("install", "4", **fail)
-                    self.assertNotEqual(p.returncode, 0)
-                    # Uninstall undoes the failed run whole: every link as it was.
+    # A stand-in sudo whose install fails the $FAIL_NTH copy (the first when
+    # it is unset) to $FAIL_COPY as GNU install does on a full disk: it writes
+    # half the file at the path it was given, then fails. The copy may go to
+    # $FAIL_COPY itself or to the temporary name vt-install writes it under,
+    # .NAME.vt-install-new in the same directory. $FAIL_COUNT counts the
+    # copies to $FAIL_COPY.
+    HALF_WRITING_SUDO = "#!/bin/bash\n" + RECORD + r"""
+[ "$1" != -v ] || exit 0
+if [ -n "${FAIL_COPY-}" ] && [ "$1" = install ]; then
+	dst=${*: -1}
+	if [ "$dst" = "$FAIL_COPY" ] || [ "$dst" = "${FAIL_COPY%/*}/.${FAIL_COPY##*/}.vt-install-new" ]; then
+		n=$(( $(cat "$FAIL_COUNT" 2>/dev/null || echo 0) + 1 ))
+		echo "$n" >"$FAIL_COUNT"
+		if [ "$n" = "${FAIL_NTH:-1}" ]; then
+			src=${*: -2:1}
+			mkdir -p "${dst%/*}"
+			rm -f "$dst"
+			head -c $(( $(stat -c %s "$src") / 2 )) "$src" >"$dst"
+			echo "install: error writing '$dst': No space left on device" >&2
+			exit 1
+		fi
+	fi
+fi
+exec "$@"
+"""
+
+    def reseed(self):
+        """The root as seed() makes it, the stand-in binary as Stage wrote it,
+        and no calls recorded."""
+        shutil.rmtree(self.root)
+        self.seed()
+        write(self.s.bin, BIN)
+        open(self.s.calls, "w").close()
+
+    def left(self):
+        """What vt-install writes that is under the root: its files, its
+        state directory, and any file at one of its temporary names."""
+        out = [f for f in (self.BIN, self.UNIT, self.FALLBACK, self.STATE) if os.path.lexists(self.at(f))]
+        for d, _, names in os.walk(self.root):
+            out += [os.path.relpath(os.path.join(d, n), self.root) for n in names if n.endswith(".vt-install-new")]
+        return out
+
+    def fail_copy(self, vt, target, nth=1):
+        """Runs install on VT vt with the copy to target failing halfway."""
+        count = os.path.join(self.s.tmp, "fail-count")
+        if os.path.exists(count):
+            os.unlink(count)
+        p = self.vt_install("install", vt, FAIL_COPY=self.at(target), FAIL_NTH=str(nth), FAIL_COUNT=count)
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        # The stand-in failed it, and no step before it did.
+        self.assertIn("No space left on device", p.stderr)
+        return p
+
+    def test_a_copy_that_fails_halfway_can_be_undone_or_tried_again(self):
+        write(os.path.join(self.s.standins, "sudo"), self.HALF_WRITING_SUDO)
+        record = self.STATE + "/files"
+        # Each copy, by its target and which copy to that target it is: the
+        # record is written before the other copies and again after them.
+        copies = ((record, 1), (self.BIN, 1), (self.UNIT, 1), (self.FALLBACK, 1), (record, 2))
+        for (target, nth), case, way in itertools.product(
+                copies, ("first install", "reinstall", "a second VT"), ("uninstall", "install again")):
+            with self.subTest(target=target, nth=nth, case=case, way=way):
+                self.reseed()
+                seeded = self.links()
+                if case != "first install":
+                    p = self.vt_install("install", "3" if case == "a second VT" else "4")
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    write(self.s.bin, read(self.s.bin) + "# a newer build\n")
+                self.fail_copy("4", target, nth)
+                if way == "uninstall":
+                    # Uninstall undoes the failed run whole, and keeps no
+                    # half-written file as changed.
                     p = self.vt_install("uninstall", "4")
                     self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                     self.assertNotIn("changed since", p.stdout)
-                    self.assertEqual(self.links(), before)
-                    # And a run after it installs.
-                    p = self.vt_install("install", "4")
+                    if case != "a second VT":
+                        self.assertEqual(self.links(), seeded)
+                        self.assertEqual(self.left(), [])
+                # A run after it installs: after uninstall, or straight
+                # after the failed run, as the failure message says.
+                p = self.vt_install("install", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(read(self.at(self.BIN)), read(self.s.bin))
+                for vt in ("4", "3") if case == "a second VT" else ("4",):
+                    p = self.vt_install("uninstall", vt)
                     self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-                    self.assertEqual(read(self.at(self.BIN)), read(self.s.bin))
-                    # A failed run is also undone by installing again.
-                    p = self.vt_install("uninstall", "4")
-                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-                    if case != "first install":
-                        write(self.s.bin, read(self.s.bin) + "# a newer build still\n")
-                    p = self.vt_install("install", "4", **fail)
-                    self.assertNotEqual(p.returncode, 0)
-                    p = self.vt_install("install", "4")
-                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-                    for vt in ("4", "3") if case != "first install" else ("4",):
-                        p = self.vt_install("uninstall", vt)
-                        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-                        self.assertNotIn("changed since", p.stdout)
-                    self.assertEqual(self.links(), seeded)
-                    for f in (self.BIN, self.UNIT, self.FALLBACK, self.STATE):
-                        self.assertFalse(os.path.exists(self.at(f)), f)
+                    self.assertNotIn("changed since", p.stdout)
+                self.assertEqual(self.links(), seeded)
+                self.assertEqual(self.left(), [])
+
+    def test_uninstall_clears_the_temporary_files_a_run_cut_short_left(self):
+        # A run killed in the middle of its copies leaves a file at each
+        # temporary name it was writing.
+        for vt in ("3", "4"):
+            p = self.vt_install("install", vt)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        temps = []
+        for f in (self.BIN, self.UNIT, self.FALLBACK, self.STATE + "/files", self.STATE + "/tty4"):
+            d, name = os.path.split(f)
+            temps.append(os.path.join(d, f".{name}.vt-install-new"))
+            write(self.at(temps[-1]), "half a file", 0o600)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual([t for t in temps if os.path.lexists(self.at(t))], [])
+        for f in (self.BIN, self.UNIT, self.FALLBACK, self.STATE + "/tty3"):
+            self.assertTrue(os.path.exists(self.at(f)), f)
+        p = self.vt_install("uninstall", "3")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
 
     def test_a_failed_step_names_the_way_back(self):
         for verb in ("daemon-reload", "enable", "restart", "disable"):
@@ -1365,15 +1430,13 @@ class Install(Case):
         self.assertNotIn("make vt-uninstall", p.stderr)
 
     def test_the_way_back_fits_what_the_failed_run_changed(self):
-        write(os.path.join(self.s.standins, "sudo"), "#!/bin/bash\n" + RECORD +
-              '[ "$1" != -v ] || exit 0\n'
-              'if [ -n "${FAIL_COPY-}" ] && [ "$1" = install ] && [ "${*: -1}" = "$FAIL_COPY" ]; then exit 1; fi\n'
-              'exec "$@"\n')
-        # Before the manifest is written, nothing was installed.
-        p = self.vt_install("install", "4", FAIL_COPY=self.at(self.STATE + "/tty4"))
-        self.assertNotEqual(p.returncode, 0)
+        write(os.path.join(self.s.standins, "sudo"), self.HALF_WRITING_SUDO)
+        # Before the manifest is written, nothing was installed: a manifest
+        # written halfway leaves no manifest, and no part of one.
+        p = self.fail_copy("4", self.STATE + "/tty4")
         self.assertIn("vt-install: a step failed before anything was installed", p.stderr)
         self.assertNotIn("make vt-uninstall", p.stderr)
+        self.assertEqual(self.left(), [self.STATE])
         # On a reinstall, uninstall removes the earlier install too.
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
