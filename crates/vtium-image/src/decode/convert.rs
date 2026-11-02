@@ -123,7 +123,8 @@ pub fn into_reply(
         Layout::Rgba => {
             data.truncate(len);
             for group in data.as_chunks_mut::<4>().0 {
-                *group = reply_bytes(pixel(layout, alpha, group.as_slice()));
+                let px = reply_bytes(pixel(layout, alpha, group.as_slice()));
+                group.copy_from_slice(&px);
             }
         }
         Layout::Rgb => {
@@ -151,9 +152,9 @@ pub fn into_reply(
 /// `rgba` is premultiplied where it lies, so a decoder's buffer becomes the
 /// reply with no second buffer.
 pub fn premultiply_in_place(rgba: &mut [u8]) {
-    for group in rgba.as_chunks_mut::<4>().0 {
-        let [r, g, b, a] = *group;
-        *group = reply_bytes(premultiply(r, g, b, a));
+    for [r, g, b, a] in rgba.as_chunks_mut::<4>().0 {
+        let [pr, pg, pb, pa] = reply_bytes(premultiply(*r, *g, *b, *a));
+        (*r, *g, *b, *a) = (pr, pg, pb, pa);
     }
 }
 
