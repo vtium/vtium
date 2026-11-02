@@ -13,6 +13,7 @@ use std::path::Path;
 
 use parser::Parser;
 use ttf::{FAMILY, FLAG};
+use vtium_vitrify::frit::Hinting;
 use vtium_vitrify::outline::{Outline, OutlineRequest, Placed, rasterise};
 use vtium_vitrify::shaping::{Ask, Kind};
 
@@ -35,6 +36,7 @@ fn request(asks: Vec<Ask>) -> OutlineRequest {
         cover: Vec::new(),
         clusters: asks,
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     }
 }
 
@@ -258,6 +260,7 @@ fn marked(keys: &[&[char]], height: u32) -> OutlineRequest {
         cover: Vec::new(),
         clusters: keys.iter().map(|k| ask(k, Kind::Marks)).collect(),
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     }
 }
 
@@ -388,6 +391,7 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
             cover: Vec::new(),
             clusters: vec![ask(&key, Kind::Marks)],
             baselines: Vec::new(),
+            hinting: Hinting::Light,
         })
         .expect("rasterised");
         let g = cluster(&o, &key).expect("x and its dot").clone();
@@ -421,6 +425,7 @@ fn alef_damma() -> OutlineRequest {
         cover: Vec::new(),
         clusters: vec![ask(&['\u{627}', '\u{64f}'], Kind::Marks)],
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     }
 }
 
@@ -526,6 +531,7 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
         cover: Vec::new(),
         clusters: vec![ask(&key, Kind::Marks)],
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     })
     .expect("rasterised");
     let g = cluster(&o, &key).expect("x and its marks");
@@ -566,6 +572,7 @@ fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
         cover: Vec::new(),
         clusters: vec![ask(&key, Kind::Marks)],
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     })
     .expect("rasterised");
     assert_eq!(o.strikes[0].width, 12);

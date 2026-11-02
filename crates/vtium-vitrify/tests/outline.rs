@@ -11,6 +11,7 @@ mod ttf;
 use std::path::Path;
 
 use parser::Parser;
+use vtium_vitrify::frit::Hinting;
 use vtium_vitrify::outline::{
     Outline, OutlineRequest, baseline, cell_width, decorations, rasterise,
 };
@@ -26,6 +27,7 @@ fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
         cover: cover.to_vec(),
         clusters: Vec::new(),
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     }
 }
 
@@ -101,6 +103,84 @@ fn the_w_rule_measures_ink_unhinted_on_a_hinted_font() {
     let face = (&font[..], "DejaVu Sans Mono");
     assert_eq!(cell_width(&[face], 16), Ok(9));
     assert_eq!(cell_width(&[face], 22), Ok(12));
+}
+
+/// A subset of DejaVu Sans Mono holding printable ASCII with its hinting
+/// instructions kept (`tests/fixtures/README.md`).
+fn dejavu_ascii() -> Vec<u8> {
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/DejaVuSansMono-ascii.ttf"),
+    )
+    .expect("the fixture")
+}
+
+/// The rows of `c`'s glyph in the first strike of `o`, `width` wide.
+fn rows(o: &Outline, c: char) -> Vec<Vec<u8>> {
+    let w = o.strikes[0].width as usize;
+    glyph(o, 0, u32::from(c))
+        .pixels
+        .chunks(w)
+        .map(<[u8]>::to_vec)
+        .collect()
+}
+
+/// The columns of a glyph's rows that hold any ink.
+fn inked_columns(rows: &[Vec<u8>]) -> Vec<usize> {
+    let w = rows.first().map_or(0, Vec::len);
+    (0..w).filter(|&x| rows.iter().any(|r| r[x] > 0)).collect()
+}
+
+// ADR-1200 D1 (the maintainer, 2026-11-01): outline glyphs are hinted
+// lightly where the frit says nothing, as the C reference loaded every
+// glyph with FreeType's light hinting, which fits a glyph to the pixel
+// grid up and down only. DejaVu Sans Mono at 16 pixels, 13.3 to the em:
+// light hinting puts the top of T's bar on a whole row, 10 rows above the
+// baseline, so the bar's first row is solid where the outline alone
+// covers 0.7 of it, and leaves H across the 8 columns its outline covers.
+// Its underscore and bar end a row below the cell at the ascent's
+// baseline, row 13, so the baseline rises to row 12 (ADR-1302 D3) and the
+// underscore lies in the cell's bottom row. Full hinting runs the font's
+// own instructions at a whole 13 pixels to the em, as TrueType hinting
+// does: T's bar is fitted 9 rows high, the underscore lies in the cell at
+// the ascent's baseline, and H covers 7 columns
+#[test]
+fn light_hinting_fits_rows_only_and_full_hinting_both_ways() {
+    let font = dejavu_ascii();
+    let at = |hinting| {
+        rasterise(&OutlineRequest {
+            font: font.clone().into(),
+            family: "DejaVu Sans Mono".to_owned(),
+            cells: vec![(0, 16)],
+            hinting,
+            ..OutlineRequest::default()
+        })
+        .expect("rasterised")
+    };
+    let (light, full) = (at(Hinting::default()), at(Hinting::Full));
+    assert_eq!(Hinting::default(), Hinting::Light);
+    let cell = |o: &Outline| {
+        (
+            o.strikes[0].width,
+            o.strikes[0].height,
+            o.strikes[0].baseline,
+        )
+    };
+    assert_eq!(cell(&light), (9, 16, 12));
+    assert_eq!(cell(&full), (9, 16, 13));
+    for (o, top, name) in [(&light, 2, "light"), (&full, 4, "full")] {
+        let t = rows(o, 'T');
+        let first = t.iter().position(|r| r.iter().any(|&p| p > 0));
+        assert_eq!(first, Some(top), "{name}: T's first row");
+        assert_eq!(t[top][2..6], [255; 4], "{name}: T's bar is solid in it");
+        let under = rows(o, '_');
+        let last = under.iter().rposition(|r| r.iter().any(|&p| p > 0));
+        assert_eq!(last, Some(15), "{name}: the underscore's last row");
+    }
+    assert_eq!(
+        inked_columns(&rows(&light, 'H')),
+        (0..8).collect::<Vec<_>>()
+    );
+    assert_eq!(inked_columns(&rows(&full, 'H')), (0..7).collect::<Vec<_>>());
 }
 
 // A face with no W takes M's width, then 0's, then half the height. At 16
@@ -386,7 +466,7 @@ fn underscored() -> Vec<u8> {
 #[test]
 fn the_baseline_rises_where_ascii_ink_passes_the_cell() {
     let font = underscored();
-    let at = |h| baseline(&font, "Test Mono", h).expect("a baseline");
+    let at = |h| baseline(&font, "Test Mono", h, Hinting::Light).expect("a baseline");
     assert_eq!([at(10), at(12), at(20)], [8, 9, 16]);
     let o = rasterise(&OutlineRequest {
         font: font.clone().into(),
@@ -433,7 +513,7 @@ fn the_underline_is_centred_below_the_baseline_as_freetype_gives_it() {
         ..ttf::test_mono()
     }
     .build();
-    let d = decorations(&font, "Test Mono", 20, 16).expect("the lines");
+    let d = decorations(&font, "Test Mono", 20, 16, Hinting::Light).expect("the lines");
     assert_eq!((d.underline, d.underline_thickness), (18, 1));
 }
 
@@ -450,7 +530,7 @@ fn the_underline_is_centred_below_the_baseline_as_freetype_gives_it() {
 #[test]
 fn the_lines_follow_the_font_as_the_c_reference_placed_them() {
     let lines = |font: ttf::Font| {
-        let d = decorations(&font.build(), "Test Mono", 20, 16).expect("the lines");
+        let d = decorations(&font.build(), "Test Mono", 20, 16, Hinting::Light).expect("the lines");
         (
             d.underline,
             d.underline_thickness,
@@ -482,7 +562,7 @@ fn a_font_with_no_post_table_takes_the_underline_from_the_cell() {
         ..ttf::test_mono()
     }
     .build();
-    let d = decorations(&font, "Test Mono", 20, 16).expect("the lines");
+    let d = decorations(&font, "Test Mono", 20, 16, Hinting::Light).expect("the lines");
     assert_eq!(
         (d.underline, d.underline_thickness),
         (18, 1),
@@ -503,7 +583,7 @@ fn a_font_with_no_post_table_takes_the_underline_from_the_cell() {
 #[test]
 fn the_strike_through_takes_os2s_size_and_the_x_height() {
     let lines = |font: ttf::Font| {
-        let d = decorations(&font.build(), "Test Mono", 20, 16).expect("the lines");
+        let d = decorations(&font.build(), "Test Mono", 20, 16, Hinting::Light).expect("the lines");
         (d.strike, d.strike_thickness)
     };
     assert_eq!(
@@ -557,7 +637,7 @@ fn the_lowest_ink_is_measured_on_the_pixels() {
         ..ttf::test_mono()
     }
     .build();
-    assert_eq!(baseline(&font, "Test Mono", 20), Ok(16));
+    assert_eq!(baseline(&font, "Test Mono", 20, Hinting::Light), Ok(16));
 }
 
 #[test]
@@ -632,6 +712,20 @@ fn an_answer_reads_back_and_each_malformed_one_is_refused() {
 fn the_request_reads_back() {
     let r = request(&[(0, 10), (8, 16)], &[(0x41, 0x5a)]);
     assert_eq!(OutlineRequest::decode(&r.encode()), Ok(r.clone()));
+    let full = OutlineRequest {
+        hinting: Hinting::Full,
+        ..r.clone()
+    };
+    assert_eq!(OutlineRequest::decode(&full.encode()), Ok(full.clone()));
+    assert_ne!(full.encode(), r.encode());
+    // the hinting is the request's last byte, 0 light and 1 full
+    let mut other = full.encode();
+    *other.last_mut().expect("a byte") = 2;
+    assert_eq!(
+        OutlineRequest::decode(&other),
+        Err("an unknown hinting"),
+        "a hinting the parser does not know"
+    );
     let mut long = r.encode();
     long.push(0);
     assert!(OutlineRequest::decode(&long).is_err());
@@ -663,6 +757,7 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
         cover: Vec::new(),
         clusters: Vec::new(),
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     };
     let o = rasterise(&req).expect("rasterised");
     let s = &o.strikes[0];

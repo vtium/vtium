@@ -13,6 +13,7 @@ mod ttf;
 use std::sync::Arc;
 
 use libfuzzer_sys::fuzz_target;
+use vtium_vitrify::frit::Hinting;
 use vtium_vitrify::outline::{OutlineRequest, rasterise};
 use vtium_vitrify::shaping::ask;
 
@@ -64,6 +65,7 @@ fuzz_target!(|data: &[u8]| {
         cover,
         clusters: keys.iter().map(|k| ask(k)).collect(),
         baselines: Vec::new(),
+        hinting: Hinting::Light,
     };
     let _ = rasterise(&request);
 });
