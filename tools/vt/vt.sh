@@ -112,6 +112,7 @@ if [ -n "$standins" ]; then
 	[ -x "$sudo" ] || die "VTIUM_VT_STANDINS has no stand-in sudo"
 fi
 loginctl=${standins:+$standins/}loginctl
+systemctl=${standins:+$standins/}systemctl
 feedback=$vt_dir/feedback.tsv
 checklog=$vt_dir/vt-check.log
 
@@ -135,8 +136,8 @@ done <<<"$list"
 why_busy() {
 	local e
 	[ "$1" != "$active" ] || { echo "it is on screen"; return; }
-	! vt_installed "${standins:+$standins/root}" "$1" ||
-		{ echo "make vt-install installed vtium there; make vt-uninstall VT=$1 frees it"; return; }
+	e=$(vt_held "$systemctl" "${standins:+$standins/root}" "$1")
+	[ -z "$e" ] || { echo "$e"; return; }
 	for e in "${sessions[@]}"; do
 		[ "${e%% *}" != "$1" ] || { echo "logind session ${e#* } is on it"; return; }
 	done
