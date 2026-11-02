@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use vtium_font::set::{PixelFormat, Set, SetFace};
 use vtium_font::{Cell, Face, Format, Psf, Style, Width};
-use vtium_vitrify::serve::{Engine, FritText, Paths};
+use vtium_vitrify::serve::{Engine, FritText, OwnCell, Paths};
 
 /// A PSF2 font, `width` by `height`, glyph `g` drawn as its number's bits
 /// in every row, its table mapping `table`'s codepoints.
@@ -507,7 +507,7 @@ fn vtiums_own_frits_name_no_built_in_font() {
             );
         }
     }
-    assert_eq!(seen, 3, "minspec-8, minspec-16 and proof");
+    assert_eq!(seen, 4, "minspec-8, minspec-16, proof and tiny5");
 }
 
 /// Each shipped minspec frit, drawn here from stand-ins of the fonts it
@@ -590,4 +590,103 @@ fn the_proof_frit_leaves_font_logos_out() {
         let c = char::from_u32(c).expect("a char");
         assert_eq!(face.has_glyph(c), held, "{c:?}");
     }
+}
+
+/// A BDF font in the shape the published Tiny5Mono.bdf has: a 6x9 cell, 7
+/// rows above the baseline, its character set only in its XLFD name, and
+/// a CHARS line that leaves out its small capital of ENCODING -1.
+const TINY5_LIKE: &str = "STARTFONT 2.1
+FONT -Stefan Schmidt Art-Tiny5 Mono-Regular-R-Regular--9-9-75-75-c-80-iso10646-1
+SIZE 9 75 75
+FONTBOUNDINGBOX 12 14 -6 -3
+STARTPROPERTIES 3
+FAMILY_NAME \"Tiny5 Mono\"
+FONT_ASCENT 7
+FONT_DESCENT 2
+ENDPROPERTIES
+CHARS 2
+STARTCHAR U+0041
+ENCODING 65
+SWIDTH 500 0
+DWIDTH 6 0
+BBX 5 5 0 0
+BITMAP
+70
+88
+F8
+88
+88
+ENDCHAR
+STARTCHAR a.sc
+ENCODING -1
+SWIDTH 500 0
+DWIDTH 6 0
+BBX 5 4 0 0
+BITMAP
+70
+88
+F8
+88
+ENDCHAR
+STARTCHAR U+0067
+ENCODING 103
+SWIDTH 500 0
+DWIDTH 6 0
+BBX 4 5 0 -2
+BITMAP
+70
+90
+70
+10
+60
+ENDCHAR
+ENDFONT
+";
+
+// The shipped tiny5 frit states its cell, its licence and one bdf:
+// source pinned to a commit and a SHA-256, and reads a BDF file shaped as
+// the published Tiny5Mono.bdf is: its own 6x9 cell, A on the baseline
+// and g's tail below it, the small capital left out, and no warning.
+#[test]
+fn the_tiny5_frit_reads_its_bdf_as_published() {
+    let w = World::new("shipped-tiny5");
+    let text = shipped("tiny5");
+    for line in ["name=tiny5", "cell=6x9", "license=OFL-1.1"] {
+        assert!(text.lines().any(|l| l == line), "tiny5 has {line}");
+    }
+    let sources: Vec<&str> = text.lines().filter(|l| l.starts_with("source=")).collect();
+    let published = "source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf";
+    assert_eq!(sources, [published]);
+    assert!(text.contains("7d30f9e887fdb29e0b951e92493822afba5f70a7"));
+    assert!(text.contains("33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3"));
+    assert!(!text.lines().any(|l| l.starts_with("cover=")));
+    let bdf = w.path("fonts/Tiny5Mono.bdf");
+    fs::write(&bdf, TINY5_LIKE).expect("the font");
+    let here = text.replace(published, &format!("source=bdf:{}", bdf.display()));
+    let engine = w.engine(&here).expect("the frit loads");
+    assert_eq!(engine.warnings(), [] as [String; 0]);
+    assert_eq!(engine.coverage(), [0x41, 0x67]);
+    assert!(matches!(engine.own_cell(0), Ok(OwnCell::Bitmap(c)) if c == cell(6, 9)));
+    let face = SetFace::new(w.drawn(&here, cell(6, 9)), 9).expect("a face");
+    let rows = |c| -> Vec<String> {
+        let g = face.draw_unscaled(&[c], Style::default()).expect("drawn");
+        assert_eq!((g.width(), g.height()), (6, 9));
+        g.rows()
+            .map(|r| r.iter().map(|&p| if p > 0 { '#' } else { '.' }).collect())
+            .collect()
+    };
+    assert_eq!(
+        rows('A'),
+        [
+            "......", "......", ".###..", "#...#.", "#####.", "#...#.", "#...#.", "......",
+            "......"
+        ]
+    );
+    assert_eq!(
+        rows('g'),
+        [
+            "......", "......", "......", "......", ".###..", "#..#..", ".###..", "...#..",
+            ".##..."
+        ]
+    );
 }
