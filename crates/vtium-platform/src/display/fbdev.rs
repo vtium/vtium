@@ -531,13 +531,16 @@ impl<F: Framebuffer> Fbdev<F> {
         Ok(())
     }
 
-    /// Clears and unmaps the framebuffer, then reports [`Event::Asleep`].
-    /// A token lent for the framebuffer is revoked first, so nothing it
-    /// draws reaches the next VT's screen. Where the render thread is
-    /// drawing into it, the sleep waits, with the loop running, until the
-    /// token comes back or for at most [`crate::FLIP_WAIT_MS`], as a DRM
-    /// display's sleep waits for a flip, and then takes the memory from
-    /// the draw in progress.
+    /// Lets the framebuffer go, then reports [`Event::Asleep`]. A token
+    /// lent is revoked first, so nothing it draws reaches the next VT's
+    /// screen, and then the framebuffer is cleared. The display drops its
+    /// own mapping; the kernel unmaps the framebuffer once a revoked token
+    /// that still holds the mapping is dropped too. Revoking needs the
+    /// memory's lock, which a draw in progress holds: the sleep then waits,
+    /// with the loop running, until the token comes back or for
+    /// [`crate::FLIP_WAIT_MS`], as a DRM display's sleep waits for a flip.
+    /// Past that bound the loop waits for the draw to end, and revokes the
+    /// token then.
     pub fn sleep(&mut self) {
         // A frame drawn while the VT is let go is not shown.
         self.lease = self.lease.wrapping_add(1);
@@ -556,9 +559,9 @@ impl<F: Framebuffer> Fbdev<F> {
         self.settle();
     }
 
-    /// Ends a sleep the token holds, where it can: revokes a token lent for
-    /// the framebuffer, waiting for its draw when `wait`, clears the
-    /// framebuffer, unmaps it and reports [`Event::Asleep`].
+    /// Ends a sleep the token holds, where it can: revokes a token lent,
+    /// waiting for its draw to end when `wait`, clears the framebuffer,
+    /// drops the display's mapping of it and reports [`Event::Asleep`].
     fn close(&mut self, wait: bool) {
         let Some((screen, clear)) = self.closing.take() else {
             return;
