@@ -4,9 +4,11 @@
 //! but the sequenced-packet one, a fork that makes a sibling or a new
 //! namespace, and setting the descriptor limit are outside it; the
 //! worker's second filter refusing a fork, a memory file and a socket
-//! pair, and its third refusing an open; the worker's landlock domain,
-//! after which it opens nothing but still reads what it holds; and two
-//! attacks on a `sleep` process this
+//! pair, and its third refusing an open; the worker's last filter, its
+//! second on a kernel with landlock and its third on one without,
+//! refusing `seccomp`, so it can add no filter; the worker's landlock
+//! domain, after which it opens nothing but still reads what it holds;
+//! and two attacks on a `sleep` process this
 //! test starts, which the filter's conditions and the domain's scope
 //! each stop: pointing a descriptor's signals at it, and changing its
 //! limits.
@@ -145,6 +147,10 @@ fn child(worker: bool) -> u8 {
         if pair.err() != Some(Errno::PERM) {
             return 12;
         }
+        // its second filter is not its last, so it may still add one
+        if seccomp_null() != libc::EFAULT {
+            return 13;
+        }
         // and once it has opened its source on a kernel without landlock,
         // its third filter refuses every open
         if second.install_no_open().is_err() {
@@ -153,8 +159,53 @@ fn child(worker: bool) -> u8 {
         if std::fs::File::open("/etc/passwd").is_ok() {
             return 10;
         }
+        // and every further filter, so the count stays
+        if seccomp_null() != libc::EPERM {
+            return 14;
+        }
     }
     0
+}
+
+/// A worker on a kernel with landlock, whose second filter is its last:
+/// before it the call that adds a filter reaches the kernel, and once it
+/// is in, the call answers EPERM, so the worker can add no third filter
+/// and the count of its filters the helper reads stays where it is.
+fn last_filter() -> u8 {
+    if !vtium_image_helper::fork::one_thread() {
+        return 90;
+    }
+    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(1) else {
+        return 92;
+    };
+    match vtium_image_helper::sandbox::install_helper_filter() {
+        Ok(true) => {}
+        Ok(false) => return 0,
+        Err(_) => return 91,
+    }
+    if seccomp_null() != libc::EFAULT {
+        return 100;
+    }
+    if second.install().is_err() {
+        return 101;
+    }
+    if seccomp_null() != libc::EPERM {
+        return 102;
+    }
+    if second.install_no_open().is_ok() {
+        return 103;
+    }
+    0
+}
+
+/// `seccomp(SECCOMP_SET_MODE_FILTER)` with no program: the kernel answers
+/// EFAULT on the null pointer, so any other errno is a filter's answer.
+fn seccomp_null() -> i32 {
+    let op = libc::c_long::from(libc::SECCOMP_SET_MODE_FILTER);
+    // SAFETY: the kernel reads the program through the pointer, which is
+    // null, and so faults before it reads anything of this process.
+    let got = unsafe { libc::syscall(libc::SYS_seccomp, op, 0, std::ptr::null::<u8>()) };
+    if got == -1 { errno() } else { 0 }
 }
 
 /// `clone(2)` as a fork with `flag` added: `Ok` in the parent once the
@@ -421,6 +472,7 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("--child") => return ExitCode::from(child(false)),
         Some("--worker") => return ExitCode::from(child(true)),
+        Some("--last") => return ExitCode::from(last_filter()),
         Some("--locked") => return ExitCode::from(locked()),
         Some(role @ ("--attack" | "--scoped")) => {
             let victim = args.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
@@ -440,6 +492,10 @@ fn main() -> ExitCode {
         (
             "--worker",
             "a_worker_under_its_second_filter_starts_no_process",
+        ),
+        (
+            "--last",
+            "a_worker_past_its_last_filter_adds_no_filter",
         ),
         (
             "--locked",

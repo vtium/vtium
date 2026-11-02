@@ -4,7 +4,10 @@
 //! memory file and making a socket pair; a third, which refuses opening
 //! and removing a file, for a worker on a kernel without landlock; and
 //! the landlock domain each worker enters once it holds the descriptor it
-//! reads.
+//! reads. A worker's last filter, its second where the kernel offers
+//! landlock and its third where it does not, also refuses `seccomp`, so
+//! once it is in, the worker can add no filter and the count of its
+//! filters that the helper reads can neither fall nor rise.
 //!
 //! The allow-list answers every call outside it with ENOSYS rather than
 //! killing the helper, so a C library update that tries a newer call falls
@@ -450,10 +453,11 @@ mod filter {
 
     /// The worker's second filter: forking, starting a program, making a
     /// memory file and making a socket pair answer EPERM, and every other
-    /// call is left to the first filter.
-    pub fn worker() -> Result<BpfProgram, String> {
+    /// call is left to the first filter. When it is the worker's `last`,
+    /// on a kernel with landlock, `seccomp` answers EPERM too.
+    pub fn worker(last: bool) -> Result<BpfProgram, String> {
         #[cfg(target_arch = "x86_64")]
-        let refused = [
+        let mut refused = vec![
             libc::SYS_clone,
             libc::SYS_clone3,
             libc::SYS_fork,
@@ -464,7 +468,7 @@ mod filter {
             libc::SYS_socketpair,
         ];
         #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-        let refused = [
+        let mut refused = vec![
             libc::SYS_clone,
             libc::SYS_clone3,
             libc::SYS_execve,
@@ -472,6 +476,9 @@ mod filter {
             libc::SYS_memfd_create,
             libc::SYS_socketpair,
         ];
+        if last {
+            refused.push(libc::SYS_seccomp);
+        }
         refuse(&refused)
     }
 
@@ -483,8 +490,8 @@ mod filter {
         compile(rules, SeccompAction::Allow, SeccompAction::Errno(eperm))
     }
 
-    /// The worker's third filter, for a kernel without landlock: opening
-    /// and removing a file answer EPERM.
+    /// The worker's third filter, for a kernel without landlock, and so
+    /// its last: opening and removing a file and `seccomp` answer EPERM.
     pub fn no_open() -> Result<BpfProgram, String> {
         #[cfg(target_arch = "x86_64")]
         let refused = [
@@ -492,9 +499,15 @@ mod filter {
             libc::SYS_openat,
             libc::SYS_openat2,
             libc::SYS_unlinkat,
+            libc::SYS_seccomp,
         ];
         #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-        let refused = [libc::SYS_openat, libc::SYS_openat2, libc::SYS_unlinkat];
+        let refused = [
+            libc::SYS_openat,
+            libc::SYS_openat2,
+            libc::SYS_unlinkat,
+            libc::SYS_seccomp,
+        ];
         refuse(&refused)
     }
 
@@ -530,8 +543,8 @@ pub fn install_helper_filter() -> Result<bool, String> {
 #[derive(Clone, Debug)]
 pub struct WorkerFilter {
     /// The landlock version the kernel offers, 0 for none: above 0, every
-    /// worker enters a landlock domain; at 0, it adds the third filter
-    /// instead.
+    /// worker enters a landlock domain and its second filter is its last;
+    /// at 0, it adds the third filter instead, which is then its last.
     landlock: u32,
     #[cfg(any(
         target_arch = "x86_64",
@@ -558,7 +571,7 @@ impl WorkerFilter {
                 target_arch = "aarch64",
                 target_arch = "riscv64"
             ))]
-            program: filter::worker()?,
+            program: filter::worker(landlock > 0)?,
             #[cfg(any(
                 target_arch = "x86_64",
                 target_arch = "aarch64",
@@ -646,7 +659,8 @@ mod tests {
         ))]
         {
             assert!(!filter::helper().unwrap().is_empty());
-            assert!(!filter::worker().unwrap().is_empty());
+            assert!(!filter::worker(true).unwrap().is_empty());
+            assert!(!filter::worker(false).unwrap().is_empty());
             assert!(!filter::no_open().unwrap().is_empty());
         }
         // the build machine's kernel has landlock; a kernel without it reads 0
