@@ -695,10 +695,13 @@ fn a_turned_screen_scrolling_twelve_pictures_evicts_only_what_its_first_turn_evi
     assert_eq!((cols, rows), (10, 10));
     let s = Screen::new(cols, rows, rgb("c0c0c0"), rgb("000000"));
     let limit = PICTURE_CACHE_SCREENS as u64 * 160 * 80 * 4;
-    // the frame before shows an earlier picture of 24,000 pixels, whose
-    // copy the twelve need the room of
+    // every picture is made in 4x8 cells and drawn at twice its size, so
+    // each needs a copy, scaled and turned. The frame before shows an
+    // earlier picture drawn 160x150, 24,000 pixels, whose copy the twelve
+    // need the room of
     let mut first = Console::new(cols, rows, 0);
-    let big = first.image(Protocol::SIXEL, 0, (160, 150), ramp);
+    first.store.set_cell(4, 8).unwrap();
+    let big = first.image(Protocol::SIXEL, 0, (80, 75), ramp);
     first.place(
         big,
         Place {
@@ -718,8 +721,9 @@ fn a_turned_screen_scrolling_twelve_pictures_evicts_only_what_its_first_turn_evi
     assert!(160 * 150 * 4 + 12 * 16 * 32 * 4 > limit);
     // twelve pictures of 2x2 cells, three to a row of the grid
     let mut con = Console::new(cols, rows, 10);
+    con.store.set_cell(4, 8).unwrap();
     for i in 0..12u32 {
-        let img = con.image(Protocol::SIXEL, 0, (16, 32), move |x, y| {
+        let img = con.image(Protocol::SIXEL, 0, (8, 16), move |x, y| {
             ramp(x + i, y + 3 * i)
         });
         con.place(

@@ -92,8 +92,8 @@ impl Drawn {
 /// How a picture's pixels are had.
 #[derive(Debug)]
 enum How {
-    /// Read from the image's pixels as they are: drawn at its own size on
-    /// an unturned display.
+    /// Read from the image's pixels as they are, drawn at its own size,
+    /// with turned indexes on a turned display.
     Direct,
     /// From the kept copy of its key, once a cell under it is drawn.
     Pending,
@@ -391,7 +391,7 @@ impl Pictures {
                 size,
                 turn,
             };
-            let how = if g.own_size && self.orientation == Orientation::Normal {
+            let how = if g.own_size {
                 How::Direct
             } else if self.copies.place(&key) {
                 How::Copy
@@ -550,7 +550,7 @@ impl Pictures {
         let n = dst.len();
         let row = |stride: i64| at(dy.saturating_mul(stride).saturating_add(dx));
         let src: &[u32] = match &pic.how {
-            How::Direct => {
+            How::Direct if self.orientation == Orientation::Normal => {
                 // the crop's pixel under the display's, in the image's rows
                 let (cx, cy) = (i64::from(pic.key.src.0), i64::from(pic.key.src.1));
                 let start = at(dy
@@ -562,6 +562,28 @@ impl Pictures {
                     .as_slice()
                     .get(start..start.saturating_add(n))
                     .unwrap_or_default()
+            }
+            How::Direct => {
+                // turned: each display pixel's crop pixel, read where the
+                // turn puts it, with no copy made
+                let px = pic.pixels.as_slice();
+                let iw = usize::try_from(pic.key.image_size.0).unwrap_or(0);
+                let (cx, cy) = (pic.key.src.0, pic.key.src.1);
+                let oy = u32::try_from(dy).unwrap_or(0);
+                let ox = u32::try_from(dx).unwrap_or(0);
+                self.line.clear();
+                for k in (0u32..).take(n) {
+                    let (u, v) =
+                        scale::uv(self.orientation, pic.key.size, (ox.saturating_add(k), oy));
+                    let i = usize::try_from(cy.saturating_add(v))
+                        .unwrap_or(usize::MAX)
+                        .saturating_mul(iw)
+                        .saturating_add(
+                            usize::try_from(cx.saturating_add(u)).unwrap_or(usize::MAX),
+                        );
+                    self.line.push(px.get(i).copied().unwrap_or(0));
+                }
+                &self.line
             }
             How::Copy => {
                 let start = row(pic.rect.w);
@@ -735,7 +757,8 @@ mod tests {
                 let (a, b) = (lines(&mut kept), lines(&mut alone));
                 assert!(!a.is_empty());
                 assert_eq!(a, b, "{o:?} at {cell:?}");
-                let own = o == Orientation::Normal && cell == (8, 16);
+                // at its own size a picture is read from the image, turned or not
+                let own = cell == (8, 16);
                 let (k, n) = (kept.counts(), alone.counts());
                 assert_eq!((k.kept, k.uncached), (u64::from(!own), 0), "{o:?} {cell:?}");
                 assert_eq!((n.kept, n.uncached), (0, u64::from(!own)), "{o:?} {cell:?}");
