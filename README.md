@@ -4,7 +4,7 @@ vtium is a terminal for the Linux virtual console. It runs on a VT, one of the f
 
 It is written in Rust. Its behaviour is judged against the C reference, the maintainer's forks of the C terminal `kmscon` and its library `libtsm`: tests compare vtium's screens and replies with the C reference's saved results, as text and pixel for pixel.
 
-If you are new to vtium, [docs/why-vtium.md](docs/why-vtium.md) says why you might choose it over the kernel's console, `kmscon` or a desktop terminal, and why its font tools take their names from glass; [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together.
+If you are new to vtium, [docs/why-vtium.md](docs/why-vtium.md) says why you might choose it over the kernel's console, `kmscon` or a desktop terminal, and why its font tools take their names from glass; [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together. [docs/managing-vtium.md](docs/managing-vtium.md) gives the steps of running vtium day to day, from installing it and giving it VTs to choosing its font and finding out what went wrong.
 
 ![vtium on a 640x480 display: the labels fg30 to fg97 in their own colors and bg40 to bg107 on their own backgrounds, each set wrapped over two rows, with fg30 and bg40 drawn black on black; the words bold, underline, reverse, bold-underline-red, faint and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green to red, and a shell prompt with a block cursor](tools/tier3/goldens/2d-640x480-psf16/sgr.png)
 
