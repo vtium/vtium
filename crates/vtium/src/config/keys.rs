@@ -557,7 +557,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     scope: Scope::Anywhere,
     reader: "vtium-platform",
     what: "How many buffers each DRM display keeps, the same for every display: `3`, triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p); `2`, double buffering; `1`, single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn. A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec.",
-    cite: "ADR-1401 D2; the C reference's drm2d kept 2 (`src/video/drm2d_internal.h:49`)",
+    cite: "ADR-1401 D2; the C reference's drm2d kept 2, src/video/drm2d_internal.h:49",
 };
 
 pub const HWACCEL: Key = Key {
@@ -1061,7 +1061,7 @@ pub const FONT_HINTING: Key = Key {
     scope: Scope::Anywhere,
     reader: "vtium-font",
     what: "How the font helper hints outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits it both ways. Bitmap fonts take no hinting. Unset, the frit's `hinting=` decides, `light` where it states none.",
-    cite: "ADR-1200 D1; the C reference hinted every glyph lightly (`src/font/font_freetype.c:119`)",
+    cite: "ADR-1200 D1; the C reference hinted every glyph lightly, src/font/font_freetype.c:119",
 };
 
 pub const FONT_LINE_SPACING: Key = Key {
