@@ -2,13 +2,13 @@
 
 vtium is a terminal for the Linux virtual console. It runs on a VT, one of the full-screen text consoles the kernel provides, in the place of the getty, the program that prints the login prompt there. It takes the display through KMS/DRM, reads the keyboards and pointers itself, and draws text, color and pictures without a display server. This page holds the steps you take to run vtium day to day: installing it, giving it VTs, configuring it, choosing its font, and finding out what went wrong. [why-vtium.md](why-vtium.md) says why you might choose vtium, and [concepts.md](concepts.md) explains its pieces.
 
-In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user.
+In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user. A line that starts `$ sudo` runs as root, but your own shell reads the line first, which matters where the line names your home directory.
 
 ## Installation
 
 ### Arch Linux
 
-The AUR (the Arch User Repository) holds two recipes for vtium. Install one of them, since they conflict:
+The AUR (the Arch User Repository) holds two recipes for vtium. A recipe is a `PKGBUILD`, the build script that makepkg reads to build a package. Install from one of them, since their packages conflict:
 
 - `vtium` builds a release from the tag the maintainer signs, today the pre-release `v0.1.0-alpha.1`. It builds the packages `vtium` and `vtium-terminfo`.
 - `vtium-git` builds the tip of vtium's `main` branch. It builds the packages `vtium-git` and `vtium-terminfo-git`, which provide `vtium` and `vtium-terminfo`.
@@ -26,7 +26,7 @@ $ makepkg -si
 
 `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A` fetches the same key from a keyserver instead. `vtium-git` checks no signature, because GitHub signs the merge commits on `main` with its own key.
 
-The recipes build the minspec console, vtium's default and smallest build. `VTIUM_FEATURES` in makepkg's environment builds it with other features, for example `VTIUM_FEATURES='images logind' makepkg -si`. The `images` feature draws sixel and kitty graphics pictures, and the `logind` feature lets the suspend key ask logind to suspend.
+The recipes build the minspec console, vtium's default and smallest build. `VTIUM_FEATURES` in makepkg's environment builds it with other features, for example `VTIUM_FEATURES='images logind' makepkg -si`. The `images` feature draws sixel and kitty graphics pictures, and the `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine.
 
 The packages install these files:
 
@@ -39,6 +39,7 @@ The packages install these files:
 | `/etc/vtium/vtium.conf.example` | the example configuration, which lists every key at its default, commented out |
 | `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active |
 | `/usr/share/terminfo/x/xterm-vtium` | the terminfo entry, from the terminfo package |
+| `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
 
 Installing the packages gives vtium no VT and starts nothing. [Giving vtium a VT](#giving-vtium-a-vt) does that.
 
@@ -62,7 +63,7 @@ On another distribution, `make install DESTDIR=DIR PREFIX=/usr` stages under DIR
 
 ### Giving vtium a VT
 
-`vtium console` gives a VT to vtium, or every VT, and takes them back. It changes which console systemd starts at boot and which console logind starts when you switch to a VT. logind is systemd's login manager, and it starts a console on a VT where nothing runs when you switch to it. `enable` and `disable` need root, and `status` runs as any user.
+`vtium console` gives a VT to vtium, or every VT, and takes them back. It changes which console systemd starts on a VT at boot, and which console logind starts when you switch to a VT where nothing runs. Each call of `enable` or `disable` takes one VT by its number, or `--all`. `enable` and `disable` need root, and `status` runs as any user.
 
 See first what each VT runs now:
 
@@ -101,7 +102,7 @@ To give vtium every VT:
 
 VT 6 is logind's reserved VT, where logind starts a console at every switch, even while the VT is in use. `enable 6` and `enable --all` refuse while someone is logged in on VT 6, unless that login is inside a vtium running there. A getty that waits at its login prompt on VT 6 holds no session, so both go ahead, and the next switch to VT 6 stops that getty. Where VT 6 has no link of its own, `enable --all` also refuses, rather than passing VT 6 by, while `kmscon` or the development install is enabled or running there.
 
-`enable --all` refuses while the template link names `kmscon`'s unit, `kmsconvt@.service`. [Moving from kmscon](#moving-from-kmscon) frees it.
+On a machine where `kmscon` holds the template link, read [Moving from kmscon](#moving-from-kmscon) before you run `enable --all`.
 
 Before `enable` changes anything, it records what each VT had in `/var/lib/vtium/console/`, and `disable` puts back exactly that:
 
@@ -110,13 +111,13 @@ Before `enable` changes anything, it records what each VT had in `/var/lib/vtium
 # vtium console disable --all
 ```
 
-`disable 3` gives VT 3 its getty back at boot. After `enable --all`, though, logind still starts vtium on VT 3 through the template link whenever you switch to VT 3 while nothing runs there, and `disable 3` says so. Only `disable --all` points the template link back where it pointed before. A vtium that runs keeps running until you stop it with the command `disable` prints.
+`disable 3` takes vtium off VT 3's boot list, removes VT 3's own link to vtium, and gives VT 3 back the getty it had. After `enable --all`, though, logind still starts vtium on VT 3 through the template link whenever you switch to VT 3 while nothing runs there, and `disable 3` says so. Only `disable --all` points the template link back where it pointed before.
 
 [crates/vtium/README.md](../crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing and says so; there an inittab line, an init script or a supervisor runs `vtium --vt=ttyN --no-switchvt` where it ran a getty ([systemd.md](systemd.md)).
 
 ### Moving from kmscon
 
-`vtium console enable --all` refuses while `kmscon` holds the template link, and passes by every VT where `kmscon` still runs. Disable and stop `kmscon` first, from a desktop terminal or over ssh, after logging out of each VT where it runs:
+`vtium console enable --all` refuses while the template link names `kmscon`'s unit, `kmsconvt@.service`, and it passes by every VT where `kmscon` still runs. Disable and stop `kmscon` first, from a desktop terminal or over ssh, after logging out of each VT where it runs:
 
 ```
 # systemctl disable kmsconvt@.service
@@ -125,7 +126,7 @@ $ systemctl list-units 'kmsconvt@*'
 # vtium console enable --all
 ```
 
-Run the `stop` line for each VT that `list-units` shows. Removing `kmscon` afterwards is up to you, with `pacman -R kmscon`; vtium needs nothing from it. vtium never reads `/etc/kmscon/kmscon.conf`. It reads the same keys, so you can copy that file to `/etc/vtium/vtium.conf` by hand. [crates/vtium/README.md](../crates/vtium/README.md#sharing-vts-with-kmscon) says when to keep `kmscon-terminfo`.
+Run the `stop` line for each VT that `list-units` shows. Removing `kmscon` afterwards is up to you, with `pacman -R kmscon`; vtium needs nothing from it. vtium never reads `/etc/kmscon/kmscon.conf`. vtium reads the keys `kmscon` used, with the departures that [crates/vtium/README.md](../crates/vtium/README.md#departures) lists, so you can copy that file to `/etc/vtium/vtium.conf` by hand and check it with `vtium check-config`. [crates/vtium/README.md](../crates/vtium/README.md#sharing-vts-with-kmscon) says when to keep `kmscon-terminfo`.
 
 ### Upgrading and removing
 
@@ -135,7 +136,7 @@ An upgrade restarts no running vtium, since a restart ends every session on its 
 # systemctl restart vtium@tty3.service
 ```
 
-Before you remove the package, give every VT back and stop vtium where it runs, since `disable` stops nothing:
+Before you remove the package, give every VT back, and stop vtium where it runs ([the note above](#giving-vtium-a-vt) says why `disable` does not stop it):
 
 ```
 # vtium console disable --all
@@ -166,7 +167,7 @@ no-mouse
 
 Each key is also an option on the command line, such as `--font-name=monoid` or `--no-mouse`. vtium reads `vtium.conf`, then the seat's file, `seat0.seat.conf`, in the same directory, then its command line, and each wins over the ones before it. `--configdir=DIR` names another directory than `/etc/vtium`, for a vtium you run by hand. [config.md](config.md) lists every key, its default and its bounds.
 
-vtium reads its files once, when it starts, so a change reaches a VT at that VT's next start. Log out of the VT and restart its vtium, as in [Upgrading and removing](#upgrading-and-removing).
+vtium reads its files once, when it starts: `vtium.conf`, the head file and the frits. A change reaches a VT at that VT's next start, so log out of the VT and restart its vtium, as in [Upgrading and removing](#upgrading-and-removing).
 
 The head file, `/etc/vtium/heads.conf`, decides which displays and keyboards make up each head, a terminal of its own for one or more displays ([heads.md](heads.md)). With no head file, vtium runs one head on every display. `vtium check-config` reads the configuration and the head file as a start would, applies nothing, and prints each problem it finds. Given a file, it checks that file in the head file's place, so you can check a new head file before you install it:
 
@@ -207,13 +208,11 @@ The helper tries the sources in order, and each later source draws only the char
 When vtium runs as root, as its unit runs it, it starts the helper as the user `nobody`. The helper looks for outline fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. A font installed in your home directory, for example under `~/.local/share/fonts`, never reaches it, so copy that font into `/usr/local/share/fonts`:
 
 ```
-# install -Dm644 -t /usr/local/share/fonts/monoid-nerd-font-mono ~/.local/share/fonts/monoid-nerd-font-mono/*.ttf
+$ sudo install -Dm644 -t /usr/local/share/fonts/monoid-nerd-font-mono ~/.local/share/fonts/monoid-nerd-font-mono/*.ttf
 # fc-cache -f
 ```
 
-The helper reads the font directories itself and uses no fontconfig cache. `fc-cache -f` updates that cache for the other programs on the machine.
-
-**Tip:** Run through sudo, as `sudo install ...`, your own shell expands `~` and `*.ttf` to your home directory before sudo runs. In a root shell, `~` is root's home, so write the path out in full.
+The first line runs through sudo from your own shell on purpose: your shell turns `~` and `*.ttf` into your home directory's files before sudo runs. In a root shell, `~` is root's home directory. The helper reads the font directories itself and uses no fontconfig cache, and `fc-cache -f` updates that cache for the other programs on the machine.
 
 ### A console font
 
@@ -239,7 +238,7 @@ It writes xterm's font sequence, OSC 50, to its own terminal, and vtium takes it
 
 **Note:** Run `vtium-vitrify set` inside a vtium console. Run in another terminal, such as a desktop terminal, it sends the sequence to that terminal, and prints `failed` when no answer comes.
 
-Ctrl+= and Ctrl+- zoom the console on screen in and out, and so does Ctrl with the mouse wheel. vtium saves neither a zoom nor a switch: `font-name` and `font-size` decide the font and its size each time vtium starts. Set them in `vtium.conf` for a lasting choice.
+Ctrl+= and Ctrl+- zoom the console on screen in and out, and so does Ctrl with the mouse wheel. A zoom survives logging out and in again: the new login starts in the same console, and vtium resets only the terminal there and keeps the console's grid and zoom. A zoom is lost when vtium itself starts again, at a restart of its unit or a reboot. vtium saves no zoom and no font switch, so `font-name` and `font-size` decide the font and its size each time vtium starts. Set `font-size` ([Size](#size)) for a size that lasts.
 
 ## Usage
 
@@ -282,7 +281,17 @@ Run `make vt-install VT=5` again after a change to replace the build and restart
 
 ### Sharing VTs with kmscon
 
-`kmscon` and vtium can each keep VTs of their own on one machine, through a VT's own `autovt@ttyN.service` link. [crates/vtium/README.md](../crates/vtium/README.md#sharing-vts-with-kmscon) gives the commands for each direction.
+`kmscon` and vtium can each keep VTs of their own on one machine, through a VT's own `autovt@ttyN.service` link, which wins over the template link. To give `kmscon` a VT that vtium holds, VT 3 here, take VT 3 back from vtium first, then link VT 3 to `kmscon`:
+
+```
+# vtium console disable 3
+$ vtium console status
+# systemctl disable getty@tty3.service
+# ln -s /usr/lib/systemd/system/kmsconvt@.service /etc/systemd/system/autovt@tty3.service
+# systemctl daemon-reload
+```
+
+`disable 3` gives VT 3 back the getty it had ([Giving vtium a VT](#giving-vtium-a-vt)). Run the `systemctl disable getty@tty3.service` line only where `status` then shows a getty at boot on VT 3, since a getty that systemd starts at boot holds the VT, and logind then starts nothing there. The link keeps logind from starting vtium on VT 3 through the template link after `enable --all`, and it gives VT 3 to `kmscon` whatever the template link names. logind starts `kmscon` the next time you switch to VT 3 while nothing runs there, and a vtium that still runs on VT 3 keeps the VT until you stop it. [crates/vtium/README.md](../crates/vtium/README.md#sharing-vts-with-kmscon) gives the way back, and the other direction.
 
 ### Blanking from a script
 
@@ -298,8 +307,8 @@ Run `make vt-install VT=5` again after a change to replace the build and restart
 
 `vtium console status` first says which console logind starts on a VT with no link of its own, and which display manager the machine has. Then it prints a line for each VT:
 
-- **at boot** names what systemd starts on the VT at boot, such as `getty@tty1`, `vtium@tty1` or `display manager (sddm.service)`. `getty recorded` means that `vtium console` disabled the VT's getty and keeps a record of it, which `disable` puts back. `vtium@ttyN masked` means someone masked vtium's unit there.
-- **when switched to** names what logind starts when you switch to the VT while nothing runs there. It shows `-` on VT 1 and on VTs 7 and above, where logind starts nothing by itself.
+- **at boot** names what systemd starts on the VT at boot, such as `getty@tty1`, `vtium@tty1` or `display manager (sddm.service)`. `getty recorded` means that `vtium console` disabled the VT's getty and keeps a record of it, which `disable` puts back. `no getty recorded` means that `vtium console` recorded that no getty was enabled on the VT, so `disable` enables none there. `vtium@ttyN masked` means someone masked vtium's unit there.
+- **when switched to** names what logind starts when you switch to the VT while nothing runs there. It shows `-` on VT 1 and on VTs 7 and above, where logind starts no console ([Giving vtium a VT](#giving-vtium-a-vt)).
 - **running** names what runs on the VT now, a graphical session included.
 
 A VT whose **at boot** column names a getty keeps that getty when you switch to it, whatever the **when switched to** column says, because the getty already runs there.
@@ -316,8 +325,9 @@ A line such as `the font monoid is not drawn (...)`, or `the font's glyphs are n
 
 - vtium finds a frit by its file's name: `font-name=monoid` reads `/etc/vtium/fonts/monoid.vtfrit`. A file named otherwise, such as `Monoid.vtfrit`, is not found, and vtium then looks for a kbd font named `monoid`.
 - A source the helper cannot find is skipped without a warning, and the next source draws in its place. When everything draws in the emoji font or the built-in font, the helper did not find your font: it searches only `/usr/share/fonts` and `/usr/local/share/fonts`, as user `nobody` ([An outline font](#an-outline-font)).
+- The font file's own name table must give the family the frit names, as its typographic or its legacy family name. A file whose file name matches the family but whose name table names another family is not taken. `fc-scan --format '%{family}\n' FILE` prints the families a file gives.
 - An unknown key or a malformed line refuses the whole frit, and the log names the file and the line.
-- vtium reads the frit and `vtium.conf` when it starts, so restart vtium on that VT after a change ([Upgrading and removing](#upgrading-and-removing)).
+- A change to the frit or to `vtium.conf` waits for vtium's next start on that VT ([Configuration](#configuration)).
 
 `vtium check-config` also reports a frit whose `cell=` line vtium cannot read.
 
