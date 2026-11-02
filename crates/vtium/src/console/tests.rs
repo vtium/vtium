@@ -1723,3 +1723,62 @@ fn the_development_install_on_loginds_reserved_vt_keeps_it_only_by_its_own_link(
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(out.contains("VT 6 keeps the development install"), "{out}");
 }
+
+#[test]
+fn a_login_inside_vtium_on_loginds_reserved_vt_is_no_refusal() {
+    // vtium sets XDG_VTNR for its login, so logind lists that login on VT
+    // 6; the switch's start of vtium@tty6 finds vtium active and stops
+    // nothing.
+    let mut m = Machine::gettys("reserved-vtium-login");
+    assert_eq!(m.console(&["enable", "--all"]).0, 0);
+    m.fake.running.push("vtium@tty6.service".into());
+    m.fake.sessions = vec![["carol", "6", "login", "tty", "user"]];
+    let snapshot = m.snapshot();
+    // A rerun, as after a failed reload, finds every VT done.
+    let (status, out, err) = m.console(&["enable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(out.contains("already"), "{out}");
+    assert_eq!(m.snapshot(), snapshot);
+    let (status, out, err) = m.console(&["enable", "6"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    // A second enable 6 says that VT 6 is vtium's already, a login on VT 6
+    // or not, and vtium running there or not.
+    for running in [true, false] {
+        if !running {
+            m.fake.running.clear();
+        }
+        let (status, out, err) = m.console(&["enable", "6"]);
+        assert_eq!((status, err.as_str()), (0, ""), "{running}: {out}");
+        assert!(out.contains("VT 6 is vtium's already"), "{out}");
+    }
+}
+
+#[test]
+fn a_masked_vt_whose_own_link_names_vtium_still_has_vtium() {
+    // enable 3 left VT 3's own link to vtium and no getty; a mask then does
+    // not reach autovt@tty3.service, which loads vtium through the link
+    // (measured).
+    let mut m = Machine::gettys("masked-own-link");
+    assert_eq!(m.console(&["enable", "3"]).0, 0);
+    symlink(MASK, m.root().join(ETC).join("vtium@tty3.service")).unwrap();
+    let (status, out, err) = m.console(&["enable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(
+        out.contains("VT 3 is left as it is: vtium@tty3.service is masked, but VT 3's own link"),
+        "{out}"
+    );
+    assert!(out.contains("vtium console disable 3"), "{out}");
+    assert!(
+        !out.contains("VT 3 is left as it is, its getty included"),
+        "{out}"
+    );
+    // A masked VT above 6 with no getty keeps nothing it does not have.
+    let mut m = Machine::new("masked-high");
+    symlink(MASK, m.root().join(ETC).join("vtium@tty9.service")).unwrap();
+    let (status, out, _) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 0, "{out}");
+    assert!(
+        out.contains("VT 9 is left as it is: vtium@tty9.service is masked"),
+        "{out}"
+    );
+}

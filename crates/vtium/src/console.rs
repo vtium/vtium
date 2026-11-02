@@ -528,17 +528,18 @@ impl Run<'_, '_, '_> {
                 self.refuse_kmscon(&state, n)?;
                 self.refuse_graphics(&state, n)?;
                 self.refuse_vt(&state, n)?;
-                // logind starts autovt@tty6 on every switch to its reserved
-                // VT, so vtium enabled there would end a login there at
-                // the next switch.
-                if n == RESERVED_VT {
-                    if let Some(logins) = state.logins.get(&n) {
-                        return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
-                    }
-                }
                 if state.given(n) {
                     self.say(&text::already_given(n));
                     return Ok(0);
+                }
+                // logind starts autovt@tty6 on every switch to its reserved
+                // VT, so vtium enabled there would end a login there at
+                // the next switch, unless vtium runs there already and the
+                // login is inside it.
+                if n == RESERVED_VT && !state.runs(n, VTIUM) {
+                    if let Some(logins) = state.logins.get(&n) {
+                        return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
+                    }
                 }
                 self.enable_vt(&mut state, n)?;
                 self.say(&text::given(n));
@@ -1032,7 +1033,13 @@ impl Run<'_, '_, '_> {
             return Err(Stop(text::graphics_on_reserved_vt(RESERVED_VT, holders)));
         }
         if state.templated(RESERVED_VT) {
-            if let Some(logins) = state.logins.get(&RESERVED_VT) {
+            // A login inside a vtium that runs on VT 6 already is safe: the
+            // switch's start of vtium@tty6 finds it active.
+            if let Some(logins) = state
+                .logins
+                .get(&RESERVED_VT)
+                .filter(|_| !state.runs(RESERVED_VT, VTIUM))
+            {
                 return Err(Stop(text::login_on_reserved_vt(RESERVED_VT, logins, true)));
             }
             if state.holds(RESERVED_VT, KMSCON) {
@@ -1074,7 +1081,13 @@ impl Run<'_, '_, '_> {
                 if through_template {
                     return Err(Stop(text::masked_under_template(n, n == RESERVED_VT)));
                 }
-                kept.push(text::kept_masked(n));
+                // The mask does not reach autovt@ttyN.service, which the
+                // VT's own link still loads as vtium (measured).
+                kept.push(if state.own(n).names(VTIUM) {
+                    text::kept_masked_own_link(n)
+                } else {
+                    text::kept_masked(n, state.wanted(n, GETTY))
+                });
                 continue;
             }
             if n != 1 {

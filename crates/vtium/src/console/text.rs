@@ -328,9 +328,16 @@ pub fn masked_under_template(n: u16, reserved: bool) -> String {
     )
 }
 
-pub fn kept_masked(n: u16) -> String {
+pub fn kept_masked(n: u16, getty: bool) -> String {
+    let getty = if getty { ", its getty included" } else { "" };
     format!(
-        "VT {n} is left as it is, its getty included: vtium@tty{n}.service is masked, and systemctl unmask vtium@tty{n}.service lifts the mask."
+        "VT {n} is left as it is{getty}: vtium@tty{n}.service is masked, and systemctl unmask vtium@tty{n}.service lifts the mask."
+    )
+}
+
+pub fn kept_masked_own_link(n: u16) -> String {
+    format!(
+        "VT {n} is left as it is: vtium@tty{n}.service is masked, but VT {n}'s own link, /etc/systemd/system/autovt@tty{n}.service, names vtium@.service, and a mask does not reach a unit loaded through a link, so that link still gives VT {n} vtium. vtium console disable {n} takes VT {n} back."
     )
 }
 
