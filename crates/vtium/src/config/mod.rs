@@ -66,6 +66,15 @@ pub enum Value {
     DecoColor(DecoColor),
 }
 
+/// How the font helper hints outline glyphs, `font-hinting`'s value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hinting {
+    /// `light`: each glyph fits the pixel grid up and down only.
+    Light,
+    /// `full`: each glyph fits the pixel grid both ways.
+    Full,
+}
+
 /// One `mode` line: the mode, and the card and connector it is for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModeSpec {
@@ -453,6 +462,33 @@ impl Config {
             Some(Value::DecoColor(c)) => *c,
             _ => DecoColor::Foreground,
         }
+    }
+
+    /// `display-buffers`: how many buffers each DRM display keeps, 1 to
+    /// 3, or `None` when no source sets it and the build decides
+    /// (ADR-1401 D2).
+    pub fn display_buffers(&self) -> Option<u8> {
+        self.text(&keys::DISPLAY_BUFFERS)
+            .and_then(|t| t.parse().ok())
+    }
+
+    /// `font-hinting`: how the font helper hints outline glyphs, or
+    /// `None` when no source sets it and the frit's `hinting=` decides
+    /// (ADR-1200 D1).
+    pub fn font_hinting(&self) -> Option<Hinting> {
+        match self.text(&keys::FONT_HINTING) {
+            Some("light") => Some(Hinting::Light),
+            Some("full") => Some(Hinting::Full),
+            _ => None,
+        }
+    }
+
+    /// `font-line-spacing`: the height added to each row, a percentage
+    /// of the text's height from 0 to 100, or `None` when no source sets
+    /// it and the frit's `line-spacing=` decides (ADR-1302 D13).
+    pub fn font_line_spacing(&self) -> Option<u8> {
+        self.number(&keys::FONT_LINE_SPACING)
+            .and_then(|n| u8::try_from(n).ok())
     }
 
     /// Where the key's value came from.
