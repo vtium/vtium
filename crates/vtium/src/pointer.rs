@@ -15,8 +15,12 @@
 //! the renderer draw the same arrow over the cells. The arrow goes to the
 //! plane at a draw, when the display is lent for one and so awake and
 //! online: a display that is not yet tries again at the next draw, and
-//! draws the pointer in software until then. Each decision is logged, as
-//! the C reference named the cursor, `HW` or `SW`, in its display's line.
+//! draws the pointer in software until then. Each decision is logged
+//! with the display's connector name, as the C reference named the
+//! cursor, `HW` or `SW`, in its display's line. A zoom or a rotation
+//! makes a new renderer, and so a new decision, which is most often the
+//! one before: vtium logs a decision at info level only when it differs
+//! from the last one logged for the display, and a repeat at debug level.
 //!
 //! `soft-cursor` has the renderer draw the pointer on every display and
 //! sets no cursor plane up, as the C reference's key did
@@ -49,6 +53,8 @@ pub trait Plane {
     /// Whether the plane still holds the arrow set up: a display gives it
     /// up when a commit with it fails and one without it takes.
     fn holds(&self, id: DisplayId) -> bool;
+    /// The display's name in the log, its connector's, such as `DP-8`.
+    fn display_name(&self, id: DisplayId) -> String;
 }
 
 /// Who draws the pointer on a display.
@@ -70,6 +76,10 @@ pub struct Pointer {
     route: Route,
     /// `soft-cursor`: the renderer draws it, whatever the display has.
     soft: bool,
+    /// The route last logged at info level. A new renderer resets
+    /// `route` and keeps this, so that the same decision made again is
+    /// logged at debug level.
+    logged: Option<Route>,
 }
 
 impl Pointer {
@@ -79,6 +89,7 @@ impl Pointer {
         Pointer {
             route: Route::Unset,
             soft: true,
+            logged: None,
         }
     }
 
@@ -104,20 +115,32 @@ impl Pointer {
         tip: Option<(u32, u32)>,
     ) -> Option<(u32, u32)> {
         if self.route == Route::Unset && tip.is_some() && self.soft {
-            log::info!(target: "pointer", "display {} draws it in software: soft-cursor", id.0);
-            self.route = Route::Software;
+            self.take(
+                &*plane,
+                id,
+                Route::Software,
+                format_args!("draws it in software: soft-cursor"),
+            );
         }
         if self.route == Route::Unset && tip.is_some() {
             match plane.set_up(id, arrow) {
                 Ok(()) => {
-                    log::info!(target: "pointer", "display {} shows it on its cursor plane", id.0);
-                    self.route = Route::Hardware;
+                    self.take(
+                        &*plane,
+                        id,
+                        Route::Hardware,
+                        format_args!("shows it on its cursor plane"),
+                    );
                 }
                 Err(e) if e.kind() == io::ErrorKind::NotConnected && e.raw_os_error().is_none() => {
                 }
                 Err(e) => {
-                    log::info!(target: "pointer", "display {} draws it in software: {e}", id.0);
-                    self.route = Route::Software;
+                    self.take(
+                        &*plane,
+                        id,
+                        Route::Software,
+                        format_args!("draws it in software: {e}"),
+                    );
                 }
             }
         }
@@ -130,9 +153,37 @@ impl Pointer {
         if self.route != Route::Hardware || plane.holds(id) {
             return false;
         }
-        log::info!(target: "pointer", "display {} draws it in software from now on", id.0);
-        self.route = Route::Software;
+        self.take(
+            plane,
+            id,
+            Route::Software,
+            format_args!("draws it in software from now on"),
+        );
         true
+    }
+
+    /// Sends the pointer by `route` and logs `why`, which says how: at
+    /// info level when the route differs from the one last logged for the
+    /// display, and at debug level when it repeats it, as a zoom or a
+    /// rotation that makes the same decision again does.
+    fn take(
+        &mut self,
+        plane: &(impl Plane + ?Sized),
+        id: DisplayId,
+        route: Route,
+        why: std::fmt::Arguments<'_>,
+    ) {
+        self.route = route;
+        let level = if self.logged == Some(route) {
+            log::Level::Debug
+        } else {
+            self.logged = Some(route);
+            log::Level::Info
+        };
+        say(
+            level,
+            format_args!("display {} {why}", plane.display_name(id)),
+        );
     }
 
     /// After a draw, which placed the grid: shows the plane's arrow at
@@ -153,12 +204,37 @@ impl Pointer {
         match at {
             Some(at) => {
                 if let Err(e) = plane.show(id, at) {
-                    log::warn!("display {}: cannot show the pointer: {e}", id.0);
+                    log::warn!(
+                        "display {}: cannot show the pointer: {e}",
+                        plane.display_name(id)
+                    );
                 }
             }
             None => plane.hide(id),
         }
     }
+}
+
+/// Writes a line of the pointer's log at `level`. Under test it also
+/// keeps the line, for the tests to read back.
+fn say(level: log::Level, line: std::fmt::Arguments<'_>) {
+    log::log!(target: "pointer", level, "{line}");
+    #[cfg(test)]
+    SAID.with(|s| s.borrow_mut().push((level, line.to_string())));
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The lines the pointer logged on this thread, with their level.
+    static SAID: std::cell::RefCell<Vec<(log::Level, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The lines the pointer logged on this thread since the last call, with
+/// their level, for the tests to read.
+#[cfg(test)]
+pub(crate) fn said() -> Vec<(log::Level, String)> {
+    SAID.with(|s| std::mem::take(&mut *s.borrow_mut()))
 }
 
 #[cfg(test)]
@@ -198,6 +274,10 @@ mod tests {
         }
         fn hide(&mut self, _: DisplayId) {
             self.shown = None;
+        }
+        fn display_name(&self, id: DisplayId) -> String {
+            assert_eq!(id, ID, "the pointer names the display it was given");
+            "DP-8".to_owned()
         }
     }
 
@@ -398,6 +478,94 @@ mod tests {
         assert_eq!(
             p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))),
             Some((5, 6))
+        );
+    }
+
+    // A zoom or a rotation makes a new renderer, and View::rebuild resets
+    // the pointer, which offers the new arrow to the plane again. The
+    // same decision made again is logged once at info level, by the
+    // display's connector name, and after that at debug level.
+    #[test]
+    fn a_zoom_that_makes_the_same_decision_logs_it_at_info_once() {
+        let r = renderer(Orientation::Normal);
+        let (mut p, mut plane) = (Pointer::default(), Fake::default());
+        said();
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
+        for _ in 0..2 {
+            p.reset();
+            p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
+        }
+        let line = "display DP-8 shows it on its cursor plane".to_owned();
+        assert_eq!(
+            said(),
+            [
+                (log::Level::Info, line.clone()),
+                (log::Level::Debug, line.clone()),
+                (log::Level::Debug, line),
+            ]
+        );
+        assert_eq!(plane.set_ups, 3);
+    }
+
+    // A decision that differs from the last one logged is logged at info
+    // level, across new renderers too; one that repeats it, though for
+    // another reason, at debug level.
+    #[test]
+    fn a_decision_that_changes_the_route_logs_it_at_info() {
+        let r = renderer(Orientation::Normal);
+        let (mut p, mut plane) = (Pointer::default(), Fake::default());
+        said();
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
+        plane.arrow = None;
+        assert!(p.after_swap(&plane, ID));
+        p.reset();
+        plane.refuse.push(io::ErrorKind::Unsupported.into());
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
+        p.reset();
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
+        let refused = io::Error::from(io::ErrorKind::Unsupported);
+        assert_eq!(
+            said(),
+            [
+                (
+                    log::Level::Info,
+                    "display DP-8 shows it on its cursor plane".to_owned()
+                ),
+                (
+                    log::Level::Info,
+                    "display DP-8 draws it in software from now on".to_owned()
+                ),
+                (
+                    log::Level::Debug,
+                    format!("display DP-8 draws it in software: {refused}")
+                ),
+                (
+                    log::Level::Info,
+                    "display DP-8 shows it on its cursor plane".to_owned()
+                ),
+            ]
+        );
+    }
+
+    // `soft-cursor` logs its decision once at info level, though each new
+    // renderer makes it again.
+    #[test]
+    fn a_soft_pointer_logs_its_decision_at_info_once() {
+        let r = renderer(Orientation::Normal);
+        let (mut p, mut plane) = (Pointer::software(), Fake::default());
+        said();
+        for _ in 0..3 {
+            p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
+            p.reset();
+        }
+        let line = "display DP-8 draws it in software: soft-cursor".to_owned();
+        assert_eq!(
+            said(),
+            [
+                (log::Level::Info, line.clone()),
+                (log::Level::Debug, line.clone()),
+                (log::Level::Debug, line),
+            ]
         );
     }
 }

@@ -158,6 +158,9 @@ impl Plane for dyn Video {
     fn holds(&self, id: DisplayId) -> bool {
         self.hardware_cursor(id)
     }
+    fn display_name(&self, id: DisplayId) -> String {
+        self.name(id)
+    }
 }
 
 impl Video for Drm2d<Card> {
