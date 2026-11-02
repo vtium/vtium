@@ -4,8 +4,8 @@
 
 use std::path::Path;
 
-use vtium_term::Terminal;
-use vtium_term::images::{ImageKey, Limits, NewImage, Place, Protocol, Switches};
+use vtium_term::images::{ImageKey, Kitty, Limits, NewImage, Place, Protocol, Sixel, Switches};
+use vtium_term::{ImageString, Terminal};
 
 use crate::command::{self, Command};
 use crate::host::Host;
@@ -29,8 +29,11 @@ pub(super) struct Images {
 
 impl Images {
     /// The reference host's image settings on `term`: the budget, the cell
-    /// size, both protocols on, and the fixture host installed.
+    /// size, the sixel and kitty handlers installed, both protocols on, and
+    /// the fixture host installed.
     pub(super) fn new(term: &mut Terminal, fixtures: &Path) -> Self {
+        term.set_image_handler(ImageString::Sixel, Some(Box::new(Sixel::default())));
+        term.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
         term.screen_mut().set_image_limit(BUDGET);
         let _ = term.screen_mut().set_image_cell(CELL.0, CELL.1);
         term.set_image_switches(Switches {
@@ -174,5 +177,45 @@ impl Images {
         let (line, reply) = host.answer(&request);
         term.image_reply(reply);
         Some((line, term.take_replies()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A terminal with the reference host's image settings.
+    fn host() -> Terminal {
+        let mut t = Terminal::new(10, 4, 16);
+        let _ = Images::new(&mut t, Path::new("fixtures"));
+        t
+    }
+
+    #[test]
+    fn the_reference_host_installs_the_sixel_and_kitty_handlers() {
+        let t = host();
+        let installed = |which, is: fn(&dyn core::any::Any) -> bool| {
+            t.image_handler(which).is_some_and(|h| is(h.as_any()))
+        };
+        assert!(installed(ImageString::Sixel, |h| h.is::<Sixel>()));
+        assert!(installed(ImageString::Kitty, |h| h.is::<Kitty>()));
+        assert!(t.image_handler(ImageString::Iterm2).is_none());
+    }
+
+    #[test]
+    fn the_handlers_read_a_dcs_q_and_an_apc_g_string() {
+        let strings: [&[u8]; 2] = [
+            b"\x1bPq#0;2;100;0;0#0~~~~-~~\x1b\\",
+            b"\x1b_Ga=T,f=24,s=1,v=1;AAAA\x1b\\",
+        ];
+        for string in strings {
+            let mut t = host();
+            t.input(b"ab");
+            let before = t.screen().clone();
+            t.input(string);
+            assert!(t.screen().images().work() > 0, "a handler read {string:?}");
+            assert!(*t.screen() == before, "{string:?} changed the screen");
+            assert!(t.replies().is_empty());
+        }
     }
 }

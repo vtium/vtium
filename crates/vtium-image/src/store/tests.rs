@@ -787,3 +787,90 @@ fn a_cut_placements_pieces_stay_beneath_a_later_picture() {
         "a's pieces stay where a was, beneath b's"
     );
 }
+
+#[test]
+fn a_frame_entry_carries_the_whole_placements_crop_and_drawn_picture() {
+    let f = Fake::new(8);
+    let mut s = store(1 << 30);
+    let k = add(&mut s, &f, Protocol::KITTY, 100, 60, 1);
+    // a 40x20 crop fitted to a 4 by 2 box of 8x16 cells, 32x32 pixels: it
+    // scales to 32x16, centred 8 pixels down
+    let place = Place {
+        row: 1,
+        cols: 4,
+        rows: 2,
+        src_x: 10,
+        src_y: 5,
+        src_width: 40,
+        src_height: 20,
+        ..Place::default()
+    };
+    s.place(k, place, f.screens(), COLS).unwrap();
+    let p = &s.frame(f.rows(), COLS)[0];
+    assert_eq!(
+        (p.crop_x, p.crop_y, p.crop_width, p.crop_height),
+        (10, 5, 40, 20)
+    );
+    assert_eq!((p.offset_x, p.offset_y), (0, 8));
+    assert_eq!((p.drawn_width, p.drawn_height), (32, 16));
+    assert_eq!((p.x, p.y, p.width, p.height), (0, 8, 32, 16));
+
+    // a cut through a sixel at 1:1: the piece below the cut row shows only
+    // the picture's lower part, and still names the whole picture
+    let six = add(&mut s, &f, Protocol::SIXEL, 16, 48, 0);
+    put(&mut s, &f, six, 10, 4);
+    s.cut(4, 10, 11, f.rows(), COLS);
+    let below = s
+        .frame(f.rows(), COLS)
+        .into_iter()
+        .find(|p| p.image == six && p.row == 5)
+        .expect("the piece below the cut");
+    assert_eq!((below.cols, below.rows), (2, 2));
+    assert_eq!(
+        (below.src_y, below.src_height),
+        (16, 32),
+        "the visible part"
+    );
+    assert_eq!(
+        (
+            below.crop_x,
+            below.crop_y,
+            below.crop_width,
+            below.crop_height
+        ),
+        (0, 0, 16, 48),
+        "the whole crop"
+    );
+    assert_eq!((below.offset_x, below.offset_y), (0, -16));
+    assert_eq!((below.drawn_width, below.drawn_height), (16, 48));
+
+    // a cut through the middle column of a 24x16 sixel: the piece to its
+    // right shows the picture's last 8 columns, drawn from 16 pixels left
+    // of its box
+    let wide = add(&mut s, &f, Protocol::SIXEL, 24, 16, 0);
+    put(&mut s, &f, wide, 14, 7);
+    s.cut(7, 15, 15, f.rows(), COLS);
+    let right = s
+        .frame(f.rows(), COLS)
+        .into_iter()
+        .find(|p| p.image == wide && p.col == 16)
+        .expect("the piece right of the cut");
+    assert_eq!((right.cols, right.rows), (1, 1));
+    assert_eq!(
+        (right.x, right.width, right.src_x, right.src_width),
+        (0, 8, 16, 8),
+        "the visible part"
+    );
+    assert_eq!(
+        (
+            right.crop_x,
+            right.crop_y,
+            right.crop_width,
+            right.crop_height
+        ),
+        (0, 0, 24, 16),
+        "the whole crop"
+    );
+    assert_eq!((right.offset_x, right.offset_y), (-16, 0));
+    assert_eq!((right.drawn_width, right.drawn_height), (24, 16));
+}
