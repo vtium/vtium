@@ -306,6 +306,78 @@ fn now() -> Instant {
     Instant::now()
 }
 
+/// A gate a head's frames wait at, through the head's draw hook on its
+/// render thread, until the test opens it. It also opens when the test
+/// drops its [`Opens`], so a failing test never leaves a render thread
+/// waiting. A frame waits at most three times [`BOUND`], only so that a
+/// frame the gate never lets through fails the test instead of hanging
+/// it, and the gate records that it gave up.
+struct Gate {
+    open: Mutex<bool>,
+    opened: std::sync::Condvar,
+    expired: std::sync::atomic::AtomicBool,
+}
+
+impl Gate {
+    /// A closed gate, the hook that holds a frame at it, and the guard
+    /// that opens it when dropped.
+    fn closed() -> (Arc<Gate>, vtium::head::DrawHook, Opens) {
+        let gate = Arc::new(Gate {
+            open: Mutex::new(false),
+            opened: std::sync::Condvar::new(),
+            expired: std::sync::atomic::AtomicBool::new(false),
+        });
+        let held = Arc::clone(&gate);
+        let hook: vtium::head::DrawHook = Arc::new(move || {
+            let open = held.open.lock().expect("the gate");
+            let (open, waited) = held
+                .opened
+                .wait_timeout_while(open, 3 * BOUND, |open| !*open)
+                .expect("the gate");
+            drop(open);
+            if waited.timed_out() {
+                held.expired
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+        let opens = Opens(Arc::clone(&gate));
+        (gate, hook, opens)
+    }
+
+    fn open(&self) {
+        *self.open.lock().expect("the gate") = true;
+        self.opened.notify_all();
+    }
+
+    /// Whether a frame gave up waiting before the gate opened.
+    fn expired(&self) -> bool {
+        self.expired.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// Opens its gate when dropped.
+struct Opens(Arc<Gate>);
+
+impl Drop for Opens {
+    fn drop(&mut self) {
+        self.0.open();
+    }
+}
+
+/// Holds every later frame of head `name` at a closed gate, once no frame
+/// of the head is out: a frame composed before the hook went in would come
+/// past the gate. No turn runs between the wait and the hook, so no frame
+/// starts between them.
+fn hold_frames(s: &mut Seat, name: &str) -> (Arc<Gate>, Opens) {
+    assert!(
+        s.until(BOUND, |a| a.head(name).is_some_and(|h| h.frames_out() == 0)),
+        "no frame of head {name} is out"
+    );
+    let (gate, hook, opens) = Gate::closed();
+    s.app.set_draw_hook(name, Some(hook));
+    (gate, opens)
+}
+
 /// No frits and no vconsole font, so the seat draws its built-in font
 /// whatever the machine running the tests holds.
 fn no_fonts() -> Sources {
@@ -992,29 +1064,6 @@ display card:mem-large -> off
 /// hanging.
 #[test]
 fn a_slow_head_delays_neither_another_heads_frame_nor_input() {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Condvar, Mutex};
-    /// The gate a frame of the slow head waits at, open once the test
-    /// opens it or drops it, so a failing test never leaves a render
-    /// thread waiting.
-    struct Gate {
-        open: Mutex<bool>,
-        opened: Condvar,
-        /// A frame stopped waiting before the gate opened.
-        expired: AtomicBool,
-    }
-    impl Gate {
-        fn open(&self) {
-            *self.open.lock().expect("the gate") = true;
-            self.opened.notify_all();
-        }
-    }
-    struct Opens(Arc<Gate>);
-    impl Drop for Opens {
-        fn drop(&mut self) {
-            self.0.open();
-        }
-    }
     let heads = "version = 1
 [head slow]
 [head fast]
@@ -1034,36 +1083,7 @@ input class:keyboard -> roaming
         s.until(SECOND, |a| a.head("fast").is_some_and(Head::started)),
         "the fast head's session runs"
     );
-    // A frame the slow head composed before the gate would come past it,
-    // so the gate goes in once no frame of the slow head is out, with no
-    // turn between, and every later frame of the slow head waits at it.
-    assert!(
-        s.until(BOUND, |a| a
-            .head("slow")
-            .is_some_and(|h| h.frames_out() == 0)),
-        "no frame of the slow head is out"
-    );
-    let gate = Arc::new(Gate {
-        open: Mutex::new(false),
-        opened: Condvar::new(),
-        expired: AtomicBool::new(false),
-    });
-    let held = Arc::clone(&gate);
-    s.app.set_draw_hook(
-        "slow",
-        Some(Arc::new(move || {
-            let open = held.open.lock().expect("the gate");
-            let (open, waited) = held
-                .opened
-                .wait_timeout_while(open, 3 * BOUND, |open| !*open)
-                .expect("the gate");
-            drop(open);
-            if waited.timed_out() {
-                held.expired.store(true, Ordering::SeqCst);
-            }
-        })),
-    );
-    let _opens = Opens(Arc::clone(&gate));
+    let (gate, _opens) = hold_frames(&mut s, "slow");
     let (slow_before, fast_before) = (s.memory("/dev/mem0").frames, s.memory("/dev/mem1").frames);
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
     assert!(
@@ -1092,7 +1112,7 @@ input class:keyboard -> roaming
         "the slow head's frame comes once the gate opens"
     );
     assert!(
-        !gate.expired.load(Ordering::SeqCst),
+        !gate.expired(),
         "a frame of the slow head stopped waiting before the gate opened"
     );
 }
@@ -1193,14 +1213,11 @@ fn a_flood_in_the_small_head_leaves_the_large_head_its_keys_and_frames() {
     a_flood_leaves_the_other_head_its_turn("panel", "desk", KBD_LARGE, "/dev/mem1");
 }
 
-/// D2: a frame composing holds up no VT switch. While the slow head's
-/// frame takes 2 s to compose, the VT's release is acknowledged within a
-/// second, the device asleep; the acquire draws the display again.
+/// D2: a frame composing holds up no VT switch. While the head's frame
+/// waits at a gate the test holds closed, the VT's release is
+/// acknowledged and the device sleeps, the frame still waiting; the
+/// acquire draws the display again once the gate opens.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the stand-in's slow draw is a sleep"
-)]
 fn a_frame_composing_holds_up_no_vt_release() {
     let display = (
         "/dev/mem0",
@@ -1208,12 +1225,7 @@ fn a_frame_composing_holds_up_no_vt_release() {
     );
     let mut s = Seat::boot(&[], [display], "read x");
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
-    let slow = Duration::from_secs(2);
-    s.app.set_draw_hook(
-        "console",
-        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
-    );
-    let started = now();
+    let (gate, _opens) = hold_frames(&mut s, "console");
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
     assert!(
         s.until(BOUND, |a| a.heads().iter().any(|h| h.frames_out() > 0)),
@@ -1237,12 +1249,12 @@ fn a_frame_composing_holds_up_no_vt_release() {
         s.until(SECOND, |a| !a.vt.is_active()),
         "the release acknowledged"
     );
-    let released = now() - started;
     assert!(
-        released < Duration::from_secs(1),
-        "the release waited on the frame: {released:?}"
+        s.app.heads().iter().any(|h| h.frames_out() > 0),
+        "the release is acknowledged while the frame still composes"
     );
     s.app.set_draw_hook("console", None);
+    gate.open();
     let before = s.memory("/dev/mem0").frames;
     s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
     assert!(s.until(SECOND, |a| a.vt.is_active()));
@@ -1251,20 +1263,21 @@ fn a_frame_composing_holds_up_no_vt_release() {
             && m.frames > before),
         "the acquire draws the display again"
     );
+    assert!(
+        !gate.expired(),
+        "the frame stopped waiting before the gate opened"
+    );
 }
 
 /// ADR-1401 D2: a frame in flight across a VT release is never shown. On
-/// a seat of two heads, the slow head's frame takes 3 s to compose; the VT
-/// is released while it composes and acquired again before it is done. The
-/// token for that frame comes back with a lease from before the release, so
-/// the display drops it, and the first token lent after the acquire has age
-/// 0, so the frame after the acquire is drawn whole. The fast head's display
-/// draws again too.
+/// a seat of two heads, the slow head's frame waits at a gate the test
+/// holds closed; the VT is released while it waits and acquired again,
+/// and only then does the test open the gate. The token for that frame
+/// comes back with a lease from before the release, so the display drops
+/// it, and the first token lent after the acquire has age 0, so the frame
+/// after the acquire is drawn whole. The fast head's display draws again
+/// too.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the stand-in's slow draw is a sleep"
-)]
 fn a_frame_in_flight_across_a_vt_release_is_dropped_and_the_next_drawn_whole() {
     let heads = "version = 1
 [head slow]
@@ -1280,20 +1293,16 @@ input class:keyboard -> roaming
     assert!(s.until(SECOND, |a| a.cells().len() == 2), "both lit");
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
     assert!(s.until_memory("/dev/mem1", SECOND, |m| m.frames > 0));
-    let slow = Duration::from_secs(3);
-    s.app.set_draw_hook(
-        "slow",
-        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
-    );
+    let (gate, _opens) = hold_frames(&mut s, "slow");
     let (lease, shown) = {
         let m = s.memory("/dev/mem0");
         (m.lease, m.shown.len())
     };
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
-    // The turn that starts the slow head's frame.
-    s.until(Duration::from_millis(30), |_| false);
     assert!(
-        Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
+        s.until(BOUND, |a| a
+            .head("slow")
+            .is_some_and(|h| h.frames_out() > 0)),
         "the slow head's frame is in flight"
     );
     let ctrl_super_f12 = KeyEvent {
@@ -1317,11 +1326,15 @@ input class:keyboard -> roaming
     let fast = s.memory("/dev/mem1").frames;
     s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
     assert!(s.until(SECOND, |a| a.vt.is_active()), "the acquire");
+    // The display lends no token while the frame's is out, so the next
+    // token lent is the first after the acquire.
     assert!(
-        Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
+        s.app.head("slow").is_some_and(|h| h.frames_out() > 0)
+            && Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
         "the frame from before the release is still in flight at the acquire"
     );
     let lent = s.memory("/dev/mem0").ages.len();
+    gate.open();
     assert!(
         s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.shown.len()
             > shown
@@ -1344,6 +1357,10 @@ input class:keyboard -> roaming
     assert!(
         s.until_memory("/dev/mem1", SECOND, |m| m.frames > fast),
         "the fast head's display draws again"
+    );
+    assert!(
+        !gate.expired(),
+        "the frame stopped waiting before the gate opened"
     );
 }
 
