@@ -1102,10 +1102,19 @@ fn a_freed_images_buffer_goes_back_to_the_next_picture_of_its_size() {
     // a kitty transmission of the same id replaces it and frees the old
     let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
     let mut edit = Edit::new(&mut s, f.screens(), COLS);
-    assert!(edit.take_spare(16 * 31).is_none(), "another size");
-    let spare = edit.take_spare(16 * 32).expect("the freed buffer");
+    assert!(
+        edit.take_spare(Protocol::KITTY, 0, 16 * 31).is_none(),
+        "another size"
+    );
+    let (spare, r) = edit
+        .take_spare(Protocol::KITTY, 0, 16 * 32)
+        .expect("the freed buffer");
     assert_eq!(spare.as_ptr(), buffer);
-    assert!(edit.take_spare(16 * 32).is_none(), "taken once");
+    assert_eq!(r.bytes(), 16 * 32 * 4, "its charge comes with it");
+    assert!(
+        edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_none(),
+        "taken once"
+    );
 }
 
 // A frame that still holds the freed image's pixels keeps the buffer from
@@ -1124,9 +1133,9 @@ fn a_freed_buffer_a_frame_still_holds_is_not_given_back() {
     let frame = s.frame(view, COLS);
     let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
     let mut edit = Edit::new(&mut s, f.screens(), COLS);
-    assert!(edit.take_spare(16 * 32).is_none());
+    assert!(edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_none());
     drop(frame);
-    assert!(edit.take_spare(16 * 32).is_some());
+    assert!(edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_some());
 }
 
 // The spare buffer is charged to the budget, and a reset frees it.
@@ -1142,7 +1151,7 @@ fn a_reset_frees_the_spare_buffer_and_its_charge() {
     s.reset();
     assert_eq!(s.bytes(), 0);
     let mut edit = Edit::new(&mut s, f.screens(), COLS);
-    assert!(edit.take_spare(16 * 32).is_none());
+    assert!(edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_none());
 }
 
 // A reservation that needs room frees the spare buffer before it evicts
@@ -1167,5 +1176,58 @@ fn a_reservation_that_needs_room_frees_the_spare_before_any_image() {
     assert_eq!(s.image_count(), 2, "no image was evicted");
     s.unreserve(r);
     let mut edit = Edit::new(&mut s, f.screens(), COLS);
-    assert!(edit.take_spare(16 * 32).is_none());
+    assert!(edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_none());
+}
+
+// kitty's case: under a budget that fits the frame shown and the one
+// replacing it, and no more, a handler that takes the spare buffer with
+// its charge, rather than reserving a frame afresh, reuses the buffer
+// every frame: the reservation never needs room, so it never evicts the
+// buffer it is about to fill.
+// covers: image.pipeline
+#[test]
+fn frames_of_one_size_reuse_the_spare_under_a_tight_budget() {
+    const LEN: usize = 16 * 32;
+    let frame = 16 * 32 * 4;
+    let f = Fake::new(4);
+    let mut s = store(2 * (frame + IMAGE_OVERHEAD));
+    let mut buffers = Vec::new();
+    let mut shown: Option<ImageKey> = None;
+    for n in 0..8 {
+        let before = s.bytes();
+        let taken = Edit::new(&mut s, f.screens(), COLS).take_spare(Protocol::KITTY, 0, LEN);
+        let (pixels, r) = match taken {
+            Some(spare) => {
+                // the spare's charge moved into the reservation whole
+                assert_eq!(s.bytes(), before, "frame {n}");
+                assert_eq!(spare.1.bytes(), frame, "frame {n}");
+                spare
+            }
+            None => {
+                let r = s
+                    .reserve(Protocol::KITTY, 0, frame, f.screens())
+                    .expect("room for a frame");
+                (vec![0xff00_00ff; LEN], r)
+            }
+        };
+        buffers.push(pixels.as_ptr());
+        let new = NewImage {
+            pixels,
+            ..image(Protocol::KITTY, 16, 32, 0)
+        };
+        let key = s.add_image(new, Some(r), f.screens()).expect("stored");
+        if let Some(old) = shown.replace(key) {
+            s.drop_image(old);
+        }
+        assert_eq!(s.image_count(), 1, "frame {n}");
+        assert!(s.bytes() <= s.limit(), "frame {n}");
+    }
+    for n in 2..buffers.len() {
+        assert_eq!(
+            buffers[n],
+            buffers[n - 2],
+            "frame {n} reuses frame {}'s buffer",
+            n - 2
+        );
+    }
 }
