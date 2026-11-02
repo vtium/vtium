@@ -138,19 +138,29 @@ pub fn already_given(n: u16) -> String {
     format!("VT {n} is vtium's already: nothing changed.")
 }
 
-pub fn given(n: u16) -> String {
+/// What `enable N` says once VT `n` is vtium's; `running` when vtium runs
+/// on VT `n` already, so there is nothing to start and no getty to stop.
+pub fn given(n: u16, running: bool) -> String {
     let switch = match n {
         // logind never starts a console on VT 1.
         1 => String::new(),
+        super::RESERVED_VT if running => String::new(),
         super::RESERVED_VT => format!(
-            ", and logind starts it there at the next switch to VT {n}, logind's reserved VT, which stops a getty waiting at its login prompt there; that ends no session, since no one is logged in there"
+            ", and logind starts it there at the next switch to VT {n}, logind's reserved VT, which stops a getty there if one waits at its login prompt; that ends no session"
         ),
         _ => format!(
             ", and logind starts it there when you switch to VT {n} while nothing runs on it"
         ),
     };
+    let now = if running {
+        format!(" vtium@tty{n} runs there already.")
+    } else {
+        format!(
+            " To start it now, which ends every session on VT {n}: systemctl start vtium@tty{n}.service"
+        )
+    };
     format!(
-        "VT {n} is vtium's from its next start: systemd starts vtium@tty{n} there at the next boot{switch}. To start it now, which ends every session on VT {n}: systemctl start vtium@tty{n}.service"
+        "VT {n} is vtium's from its next start: systemd starts vtium@tty{n} there at the next boot{switch}.{now}"
     )
 }
 
@@ -190,7 +200,7 @@ pub fn given_all(vt1: bool, vt6: bool) -> String {
     };
     let six = if vt6 {
         format!(
-            " On VT {0}, logind's reserved VT, logind starts vtium at the next switch to it, which stops a getty waiting at its login prompt there; that ends no session, since no one is logged in there.",
+            " On VT {0}, logind's reserved VT, logind starts vtium at the next switch to it, which stops a getty there if one waits at its login prompt; that ends no session.",
             super::RESERVED_VT
         )
     } else {

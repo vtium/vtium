@@ -542,7 +542,7 @@ impl Run<'_, '_, '_> {
                     }
                 }
                 self.enable_vt(&mut state, n)?;
-                self.say(&text::given(n));
+                self.say(&text::given(n, state.runs(n, VTIUM)));
                 Ok(0)
             }
             Verb::Enable(Which::All) => self.enable_all(&mut state, &unit),

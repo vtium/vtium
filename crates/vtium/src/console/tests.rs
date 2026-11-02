@@ -1658,9 +1658,12 @@ fn a_login_on_loginds_reserved_vt_is_refused() {
     let (status, out, err) = m.console(&["enable", "6"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
-        out.contains("which stops a getty waiting at its login prompt there; that ends no session"),
+        out.contains(
+            "which stops a getty there if one waits at its login prompt; that ends no session"
+        ),
         "{out}"
     );
+    assert!(out.contains("systemctl start vtium@tty6.service"), "{out}");
     assert_eq!(m.console(&["disable", "6"]).0, 0);
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
@@ -1670,7 +1673,7 @@ fn a_login_on_loginds_reserved_vt_is_refused() {
     );
     assert!(
         out.contains(
-            "On VT 6, logind's reserved VT, logind starts vtium at the next switch to it, which stops a getty waiting at its login prompt there; that ends no session"
+            "On VT 6, logind's reserved VT, logind starts vtium at the next switch to it, which stops a getty there if one waits at its login prompt; that ends no session."
         ),
         "{out}"
     );
@@ -1739,8 +1742,13 @@ fn a_login_inside_vtium_on_loginds_reserved_vt_is_no_refusal() {
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(out.contains("already"), "{out}");
     assert_eq!(m.snapshot(), snapshot);
+    // With vtium running on VT 6 already, there is no getty to stop and
+    // nothing to start.
     let (status, out, err) = m.console(&["enable", "6"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(out.contains("vtium@tty6 runs there already."), "{out}");
+    assert!(!out.contains("getty"), "{out}");
+    assert!(!out.contains("To start it now"), "{out}");
     // A second enable 6 says that VT 6 is vtium's already, a login on VT 6
     // or not, and vtium running there or not.
     for running in [true, false] {
