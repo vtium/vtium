@@ -73,6 +73,10 @@ considered:
     via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
     paraphrase: true
     covers: [choosing a profile]
+  - operator: aaronsb
+    said: "Pin D6: the heads.conf writer is a module of vtium-config and stays the one writer for good. vtium-vitrify, vtiumctl and vtium check-config all link it, and no tool shells out to another to edit heads.conf. The only subprocess boundary in this design is the privilege step, sudo vtium-vitrify apply DIR, which keeps the code that runs as root small."
+    via: the maintainer, in the steering session, 2026-11-02, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next switches the whole console to that frit, and the TUI's own screen redraws at the console's new grid"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"
@@ -203,8 +207,12 @@ An example of the font view at 40 columns, to show that it fits; its layout is t
 ### D6: the head file has one writer
 
 - **vtiumctl keeps the head file and the devices:** detecting them, setting up heads, rules, policy, the trial, and installing the head file (ADR-1401 D12). vtium-vitrify changes one thing in it, a head's `profile =` line (D1).
-- **One writer.** vtium-vitrify never writes `heads.conf` text of its own. It calls the head-file writer vtiumctl uses, so one piece of code edits the head file whichever tool asks. vtiumctl is not built yet, so that writer is a module of vtium-config, the configuration crate that already holds the head file's parser and evaluator and that both tools link (ADR-1401 D12). It edits line by line as D5's vtium.conf rules do, setting a head's `profile =` line in its section and keeping every other byte. Once vtiumctl is built, it links the same module; whether vtium-vitrify then keeps linking it or runs `vtiumctl` to make the change, which the maintainer named as another way to keep the split, is the vtiumctl work's choice, and either way the edit comes from that one module.
+- **One writer, a library.** vtium-vitrify never writes `heads.conf` text of its own. The head file's writer is a module of vtium-config, the configuration crate that already holds the head file's parser and evaluator, and it stays the one writer for good (the maintainer, 2026-11-02). vtium-vitrify, vtiumctl and `vtium check-config` all link it, and no tool runs another to edit the head file. The writer edits line by line as D5's vtium.conf rules do, setting a head's `profile =` line in its section and keeping every other byte.
+- **Why a library.** The three tools are Rust crates in one workspace, built and shipped together. Linking one module gives them one parser, one check, one rule for editing without losing comments, and one wording of each error, fixed when they are compiled. Nothing parses another program's text output, a development build and a packaged one cannot disagree about the file, and vtium-vitrify does not need vtiumctl to be built. A shared piece that shows a change and asks to confirm it keeps the two tools' screens alike.
+- **The one process boundary** in this design is the privilege step, `sudo vtium-vitrify apply DIR` (D5), which keeps the code that runs as root small.
 - **Checked before it is written.** The TUI writes the edited head file into the draft as the user, and `apply`, under sudo, checks it with `vtium check-config FILE` before it writes it, as it checks every file (D5). Once profiles have a file and a head names a profile with its own font, a profile wins over vtium.conf's `font-name` for that head (ADR-1200 D16), so the TUI's save view then says which heads the saved font does not reach.
+
+> Edited 2026-11-02: the maintainer pinned the head file's writer to a module of vtium-config for good, linked by every tool, with no tool running another to edit the file (`considered`). The bullet said that vtiumctl, once built, would link the module, and that whether vtium-vitrify kept linking it or ran `vtiumctl` was the vtiumctl work's choice.
 
 > Edited 2026-11-02: the maintainer had vtium-vitrify assign a head's profile through the head-file writer vtiumctl uses (`considered`). D6 was headed "the head file stays out" and began: "The TUI does not read or edit `heads.conf`. vtiumctl keeps the head file and the devices: detecting them, setting up heads, the trial, and installing the head file (ADR-1401 D12)."
 
@@ -251,7 +259,7 @@ These change when this record is accepted, in their owners' changes; this record
 - **ADR-1200 D4's `preview` row** draws the engine's specimen through kitty graphics (D9).
 - **ADR-1401 D12:** vtiumctl's drafts and `install DIR` of frits move to vtium-vitrify's `apply`; vtiumctl keeps the head file, but for a head's `profile =` line, which vtium-vitrify's `apply` also writes, through the same writer (D6). `vtiumctl check` still checks frits through vtium-vitrify's frit reader. The minspec bullet's "a frit is previewed by trying it on the live console through OSC 50 under the same countdown" becomes the TUI's live preview, with no countdown (D4). "`vtium-vitrify` keeps the fonts" gains vtium.conf.
 - **ADR-1200 D16:** "`vtiumctl` writes them when asked" of profile files becomes vtium-vitrify, which writes and chooses them (D1).
-- **ADR-1401 D12's `setup`,** which asks "which profile and frit" for each display, asks which profile, among those vtium-vitrify wrote. vtium-vitrify also sets a head's profile (D1). Both write through one head-file writer, a module of vtium-config, which D12's "Detection and setup live only in `vtiumctl`" and its "one crate parses and evaluates the configuration" gain (D6).
+- **ADR-1401 D12's `setup`,** which asks "which profile and frit" for each display, asks which profile, among those vtium-vitrify wrote. vtium-vitrify also sets a head's profile (D1). Both write through one head-file writer, a module of vtium-config that `vtium check-config` also links, and no tool runs another to edit the file; D12's "Detection and setup live only in `vtiumctl`" and its "one crate parses and evaluates the configuration" gain (D6).
 - **The tracker issue for vtium-vitrify** lists this work.
 
 ### For the maintainer's check
@@ -285,7 +293,7 @@ The maintainer decided on 2026-11-02 the three calls this section listed (`consi
 - vtium's key table moves into vtium-config, which the console already links.
 - `set` stops writing OSC 50 to terminals that are not vtium.
 - Profiles are written, chosen and assigned to heads in vtium-vitrify.
-- The head file's writer is a module of vtium-config before vtiumctl exists.
+- The head file's writer is a module of vtium-config, which every tool that touches the head file links.
 - `preview` and the TUI share one picture renderer.
 
 ## Alternatives Considered
@@ -304,3 +312,4 @@ The maintainer decided on 2026-11-02 the three calls this section listed (`consi
 - **Running the whole TUI as root, or asking sudo at each step.** Not taken: the first parses fonts and writes into the user's home as root, against ADR-1200 D14 and ADR-1401 D12; the second asks for a password many times.
 - **Editing the head file in the TUI beyond a head's profile.** Not taken: vtiumctl keeps it (D6).
 - **A head-file writer of vtium-vitrify's own.** Not taken, by the maintainer: two writers of one file would drift, so vtium-vitrify uses vtiumctl's (D6).
+- **Running `vtiumctl` to edit the head file.** Not taken, by the maintainer: it would parse text across a process boundary, let a development build and a packaged one disagree, and need vtiumctl built; the tools link one module instead (D6).
