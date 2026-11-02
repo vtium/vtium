@@ -12,8 +12,12 @@ jobs:
       # libudev and libxkbcommon, which vtium-platform links, and libsystemd,
       # which its logind feature links
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev
-      - uses: dtolnay/rust-toolchain@stable
+      # The toolchain rust-toolchain.toml pins.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
           components: rustfmt, clippy
       # Cache the cargo registry and the target directory between runs; the
       # key follows Cargo.lock, the toolchain and this job, so every job still
@@ -37,7 +41,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev
-      - uses: dtolnay/rust-toolchain@stable
+      # The toolchain rust-toolchain.toml pins.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
       # Cache the cargo registry and the target directory between runs; the
       # key follows Cargo.lock, the toolchain and this job, so every job still
       # builds and tests everything it did.
@@ -50,8 +59,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # The toolchain rust-toolchain.toml pins.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
           targets: aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf
       # Cache the cargo registry and the target directory between runs; the
       # key follows Cargo.lock, the toolchain and this job, so every job still
@@ -64,6 +77,32 @@ jobs:
           path: ~/.cache/vtium/arm/debs
           key: arm-debs-${{ hashFiles('tools/arm/pin.tsv') }}
       - run: make arm
+
+  # The oldest Rust vtium builds on: the rust-version Cargo.toml declares.
+  # The builds catch a language feature or a dependency newer than it; the
+  # gates' tests run on the pinned toolchain in the jobs above.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev
+      # RUSTUP_TOOLCHAIN takes precedence over rust-toolchain.toml's pin, so
+      # every later step, the cache's key included, runs on the rust-version.
+      - id: msrv
+        run: |
+          version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      # Cache the cargo registry and the target directory between runs; the
+      # key follows Cargo.lock, the toolchain and this job, so every job still
+      # builds and tests everything it did.
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace --all-features --locked
+      - name: minspec build
+        run: cargo build --profile minspec --locked
 
   adr:
     runs-on: ubuntu-latest
@@ -81,7 +120,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # The toolchain rust-toolchain.toml pins.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
       # Cache the cargo registry and the target directory between runs; the
       # key follows Cargo.lock, the toolchain and this job, so every job still
       # builds and tests everything it did.
@@ -96,6 +140,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The toolchain rust-toolchain.toml pins, for the cargo tests and
+      # cargo tree the target runs.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
       - run: make test-tools
 
   # Tier 2: the renderer's screens against vtium's goldens and the C
@@ -110,7 +161,12 @@ jobs:
       # libudev and libxkbcommon, which vtium-platform links through
       # vtium-vitrify, the tool that vitrifies the test fonts
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev
-      - uses: dtolnay/rust-toolchain@stable
+      # The toolchain rust-toolchain.toml pins.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' vtium/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
       # Cache the cargo registry and the target directory between runs; the
       # key follows Cargo.lock, the toolchain and this job, so every job still
       # builds and tests everything it did.
