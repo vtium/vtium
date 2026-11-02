@@ -337,6 +337,22 @@ fn template_prefix(path: &str) -> Option<&str> {
         .filter(|p| !p.is_empty())
 }
 
+/// The names whose `NAME.d` directories hold drop-ins for the unit `name`,
+/// most specific first, as systemd expands them: `foo-bar-baz.service`,
+/// then `foo-bar-.service` and `foo-.service`.
+fn drop_in_names(name: &str) -> Vec<String> {
+    let mut out = vec![name.to_owned()];
+    let mut prefix = name.strip_suffix(".service").unwrap_or_default();
+    while let Some((head, _)) = prefix.rsplit_once('-') {
+        if head.is_empty() {
+            break;
+        }
+        out.push(format!("{head}-.service"));
+        prefix = head;
+    }
+    out
+}
+
 /// `(PREFIX, N)` of a unit named `PREFIX@ttyN.service`.
 fn instance(name: &str) -> Option<(&str, u16)> {
     let (prefix, inst) = name.strip_suffix(".service")?.split_once('@')?;
@@ -365,6 +381,8 @@ struct State {
     /// whose getty its unit conflicts with, and the graphical sessions and
     /// greeters on it now.
     graphics: BTreeMap<u16, Vec<Holder>>,
+    /// The other sessions on each VT, such as a user's login at a getty.
+    logins: BTreeMap<u16, Vec<Holder>>,
     /// Why logind could not be asked which sessions run, when it could not.
     sessions_unknown: Option<String>,
     /// Each VT's own `autovt@ttyN.service` link.
@@ -391,6 +409,12 @@ impl State {
 
     fn own(&self, n: u16) -> &Link {
         self.own.get(&n).unwrap_or(&Link::Absent)
+    }
+
+    /// Whether logind follows the template link on VT `n`: whether the VT
+    /// has no link of its own.
+    fn templated(&self, n: u16) -> bool {
+        *self.own(n) == Link::Absent
     }
 
     fn runs(&self, n: u16, prefix: &str) -> bool {
@@ -436,6 +460,9 @@ fn names(dir: &Path) -> Vec<String> {
     names.sort();
     names
 }
+
+/// Who holds which VT, a VT once for each holder.
+type OnVts = Vec<(u16, Holder)>;
 
 /// A step that could not be taken: what to print, on stderr.
 struct Stop(String);
@@ -501,6 +528,14 @@ impl Run<'_, '_, '_> {
                 self.refuse_kmscon(&state, n)?;
                 self.refuse_graphics(&state, n)?;
                 self.refuse_vt(&state, n)?;
+                // logind starts autovt@tty6 on every switch to its reserved
+                // VT, so vtium enabled there would end a login there at
+                // the next switch.
+                if n == RESERVED_VT {
+                    if let Some(logins) = state.logins.get(&n) {
+                        return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
+                    }
+                }
                 if state.given(n) {
                     self.say(&text::already_given(n));
                     return Ok(0);
@@ -512,6 +547,9 @@ impl Run<'_, '_, '_> {
             Verb::Enable(Which::All) => self.enable_all(&mut state, &unit),
             Verb::Disable(Which::Vt(n)) => {
                 if !state.vtium_on(n) {
+                    // A run whose last step, the reload, failed finds its
+                    // links done, so a run that changes nothing reloads.
+                    self.reload()?;
                     self.say(&text::not_given(n));
                     return Ok(0);
                 }
@@ -532,9 +570,14 @@ impl Run<'_, '_, '_> {
     /// Where systemd finds `PREFIX@.service`: in the first unit directory
     /// that has it, unless that directory masks it.
     fn unit_file(&self, prefix: &str) -> UnitFile {
-        let file = format!("{prefix}@.service");
+        self.find(&format!("{prefix}@.service"))
+    }
+
+    /// Where systemd finds the unit file `file`: in the first unit
+    /// directory that has it, unless that directory masks it.
+    fn find(&self, file: &str) -> UnitFile {
         for dir in UNIT_DIRS {
-            let path = self.path(dir).join(&file);
+            let path = self.path(dir).join(file);
             match Link::read(&path) {
                 Link::Absent => {}
                 link if link.masks() => return UnitFile::Masked,
@@ -577,14 +620,8 @@ impl Run<'_, '_, '_> {
                     .insert(prefix.to_owned(), link);
             }
         }
-        let dm_link = Link::read(&etc.join(DISPLAY_MANAGER));
-        state.display_manager = match &dm_link {
-            Link::Absent => None,
-            link if link.masks() => None,
-            link => Some(link.file_name().unwrap_or(DISPLAY_MANAGER).to_owned()),
-        };
-        if let Some(dm) = state.display_manager.clone() {
-            let texts = self.unit_texts(&dm, &dm_link);
+        state.display_manager = self.display_manager();
+        if let Some((dm, texts)) = state.display_manager.clone().zip(self.dm_texts()) {
             for n in graphical::conflicts(texts.iter().map(String::as_str)) {
                 state
                     .graphics
@@ -594,9 +631,12 @@ impl Run<'_, '_, '_> {
             }
         }
         match self.sessions() {
-            Ok(sessions) => {
-                for (n, holder) in sessions {
+            Ok((graphics, logins)) => {
+                for (n, holder) in graphics {
                     state.graphics.entry(n).or_default().push(holder);
+                }
+                for (n, holder) in logins {
+                    state.logins.entry(n).or_default().push(holder);
                 }
             }
             Err(Stop(why)) => state.sessions_unknown = Some(why),
@@ -635,29 +675,62 @@ impl Run<'_, '_, '_> {
         Ok(state)
     }
 
-    /// The unit file `name` and its drop-ins, as systemd reads them: the
-    /// file `link` names, or else the first unit directory's, and then each
-    /// `name.d/*.conf` in name order, a drop-in in an earlier directory
-    /// standing for one of the same name in a later one.
-    fn unit_texts(&self, name: &str, link: &Link) -> Vec<String> {
-        let main = match link {
-            Link::To(to) if to.starts_with('/') => {
-                Some(self.host.root.join(to.trim_start_matches('/')))
-            }
-            Link::Other => Some(self.path(ETC).join(DISPLAY_MANAGER)),
-            _ => UNIT_DIRS
-                .iter()
-                .map(|dir| self.path(dir).join(name))
-                .find(|path| path.is_file()),
+    /// The unit `display-manager.service` names: the name of the file its
+    /// link in `/etc/systemd/system` names, or `display-manager.service`
+    /// when it is a file there. None when there is neither, or when the
+    /// link or the unit it names is masked.
+    fn display_manager(&self) -> Option<String> {
+        let name = match Link::read(&self.path(ETC).join(DISPLAY_MANAGER)) {
+            Link::Absent => return None,
+            link if link.masks() => return None,
+            Link::Other => DISPLAY_MANAGER.to_owned(),
+            link => link.file_name().unwrap_or(DISPLAY_MANAGER).to_owned(),
         };
-        let mut texts: Vec<String> = main
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .into_iter()
-            .collect();
+        (self.find(&name) != UnitFile::Masked).then_some(name)
+    }
+
+    /// The display manager's unit file and its drop-ins, as systemd reads
+    /// them, or None when there is no display manager.
+    ///
+    /// systemd loads the unit by its name, so the file of that name in the
+    /// first unit directory that has one is read, which may be an
+    /// administrator's copy in `/etc/systemd/system` rather than the file
+    /// the link names (measured). The drop-ins are each `*.conf` in the
+    /// directories `NAME.d` of the unit's own name, then of its alias
+    /// `display-manager.service`, with the prefix directories of each
+    /// name, such as `display-.service.d`, and last the directory
+    /// `service.d` that applies to every service, each looked for in every
+    /// unit directory in the search path's order. A drop-in's file name is
+    /// read once, from the first of those directories that has it, and the
+    /// drop-ins are read in file-name order (systemd's
+    /// `unit_file_find_dropin_paths`, `src/shared/dropin.c`).
+    fn dm_texts(&self) -> Option<Vec<String>> {
+        let name = self.display_manager()?;
+        let mut texts: Vec<String> = match self.find(&name) {
+            UnitFile::At(path) => {
+                std::fs::read_to_string(self.host.root.join(path.trim_start_matches('/')))
+                    .ok()
+                    .into_iter()
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        let mut units = vec![name.as_str()];
+        if name != DISPLAY_MANAGER {
+            units.push(DISPLAY_MANAGER);
+        }
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        for unit in units {
+            for dir in UNIT_DIRS {
+                for dropin in drop_in_names(unit) {
+                    dirs.push(self.path(dir).join(format!("{dropin}.d")));
+                }
+            }
+        }
+        dirs.extend(UNIT_DIRS.iter().map(|dir| self.path(dir).join("service.d")));
         let mut drop_ins: BTreeMap<String, PathBuf> = BTreeMap::new();
-        for dir in UNIT_DIRS {
-            let dir = self.path(dir).join(format!("{name}.d"));
-            for file in names(&dir).into_iter().filter(|f| f.ends_with(".conf")) {
+        for dir in &dirs {
+            for file in names(dir).into_iter().filter(|f| f.ends_with(".conf")) {
                 drop_ins
                     .entry(file.clone())
                     .or_insert_with(|| dir.join(file));
@@ -668,15 +741,16 @@ impl Run<'_, '_, '_> {
                 .values()
                 .filter_map(|path| std::fs::read_to_string(path).ok()),
         );
-        texts
+        Some(texts)
     }
 
-    /// The graphical sessions and greeters on a VT now, from logind.
-    fn sessions(&mut self) -> Step<Vec<(u16, Holder)>> {
+    /// The sessions on a VT now, from logind: the graphical sessions and
+    /// greeters, and the others.
+    fn sessions(&mut self) -> Step<(OnVts, OnVts)> {
         let list = self.loginctl(&["list-sessions", "--no-legend"])?;
         let ids = graphical::session_ids(&list.stdout);
         if ids.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
         let mut args = vec!["show-session"];
         args.extend(ids.iter().map(String::as_str));
@@ -684,7 +758,10 @@ impl Run<'_, '_, '_> {
             "-p", "Name", "-p", "VTNr", "-p", "Service", "-p", "Type", "-p", "Class",
         ]);
         let show = self.loginctl(&args)?;
-        Ok(graphical::graphical(&show.stdout))
+        Ok((
+            graphical::graphical(&show.stdout),
+            graphical::logins(&show.stdout),
+        ))
     }
 
     fn loginctl(&mut self, args: &[&str]) -> Step<Reply> {
@@ -946,9 +1023,22 @@ impl Run<'_, '_, '_> {
         }
         // logind starts autovt@tty6 on every switch to its reserved VT,
         // even while something holds it, so graphics there would meet
-        // vtium through the template link.
+        // vtium through the template link, and so would a login, kmscon or
+        // the development install there that VT 6's own link does not keep
+        // from the template.
         if let Some(holders) = state.graphics.get(&RESERVED_VT) {
             return Err(Stop(text::graphics_on_reserved_vt(RESERVED_VT, holders)));
+        }
+        if state.templated(RESERVED_VT) {
+            if let Some(logins) = state.logins.get(&RESERVED_VT) {
+                return Err(Stop(text::login_on_reserved_vt(RESERVED_VT, logins, true)));
+            }
+            if state.holds(RESERVED_VT, KMSCON) {
+                return Err(Stop(text::kmscon_on_reserved_vt(RESERVED_VT)));
+            }
+            if state.holds(RESERVED_VT, DEV) {
+                return Err(Stop(text::dev_on_reserved_vt(RESERVED_VT)));
+            }
         }
         // What each VT keeps, and the VTs whose gettys go.
         let mut kept: Vec<String> = Vec::new();
@@ -970,6 +1060,21 @@ impl Run<'_, '_, '_> {
                 kept.push(text::kept_dev(n));
                 continue;
             }
+            // A mask keeps vtium from a VT only where logind does not load
+            // vtium through the template link: on VT 1, where logind starts
+            // no console, above its VTs, and where an enabled getty holds
+            // the VT from boot. On VT 6, logind's reserved VT, it loads
+            // vtium at every switch.
+            if state.masked.contains(&n) {
+                let through_template = state.templated(n)
+                    && (n == RESERVED_VT
+                        || ((2..=LOGIND_VTS).contains(&n) && !state.wanted(n, GETTY)));
+                if through_template {
+                    return Err(Stop(text::masked_under_template(n, n == RESERVED_VT)));
+                }
+                kept.push(text::kept_masked(n));
+                continue;
+            }
             if n != 1 {
                 if let Some(unit) = state.own(n).unit().filter(|u| *u != VTIUM) {
                     kept.push(text::kept_own_link(n, unit));
@@ -983,16 +1088,22 @@ impl Run<'_, '_, '_> {
                 }
             }
         }
-        // VT 1 gets `enable N` unless the development install or graphics
-        // hold it, so it is refused as `enable N` would be.
-        let vt1_kept =
-            state.holds(1, DEV) || state.holds(1, KMSCON) || state.graphics.contains_key(&1);
+        // VT 1 gets `enable N` unless the development install, kmscon or
+        // graphics hold it or vtium is masked there, so it is refused as
+        // `enable N` would be.
+        let vt1_kept = state.holds(1, DEV)
+            || state.holds(1, KMSCON)
+            || state.graphics.contains_key(&1)
+            || state.masked.contains(&1);
         if !vt1_kept {
             self.refuse_vt(state, 1)?;
         }
         let template_done = state.template_etc.names(VTIUM);
         let vt1_done = vt1_kept || state.given(1);
         if template_done && vt1_done && gettys.is_empty() {
+            // A run whose last step, the reload, failed finds its links
+            // done, so a run that changes nothing reloads.
+            self.reload()?;
             self.say(text::ALREADY_ALL);
             for line in &kept {
                 self.say(line);
@@ -1017,7 +1128,7 @@ impl Run<'_, '_, '_> {
             self.disable_getty(state, n)?;
         }
         self.reload()?;
-        self.say(&text::given_all(!vt1_kept));
+        self.say(&text::given_all(!vt1_kept, state.templated(RESERVED_VT)));
         for line in &kept {
             self.say(line);
         }
@@ -1032,6 +1143,9 @@ impl Run<'_, '_, '_> {
             .collect();
         let template = state.template_etc.names(VTIUM);
         if vts.is_empty() && !template && state.template_record.is_none() {
+            // A run whose last step, the reload, failed finds its links
+            // done, so a run that changes nothing reloads.
+            self.reload()?;
             self.say(text::NOT_GIVEN_ANY);
             return Ok(0);
         }
@@ -1105,9 +1219,11 @@ impl Run<'_, '_, '_> {
                         }
                     }
                 }
-                // logind starts a console by itself only on its VTs.
+                // logind starts a console by itself only on its VTs, and
+                // never on VT 1: to ask whether a VT is busy it opens
+                // /dev/tty1 itself, and that open makes VT 1 busy.
                 let switched = match state.own(n) {
-                    _ if n > LOGIND_VTS && n != RESERVED_VT => None,
+                    _ if n == 1 || (n > LOGIND_VTS && n != RESERVED_VT) => None,
                     Link::Absent => state.template().unit().map(|u| format!("{u}@tty{n}")),
                     Link::Other => Some(format!("autovt@tty{n}")),
                     link => link.unit().map(|u| format!("{u}@tty{n}")),

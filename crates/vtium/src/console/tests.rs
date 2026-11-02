@@ -175,6 +175,15 @@ impl Fake {
             target, "getty.target",
             "vtium console adds wants to getty.target alone"
         );
+        // A missing target is refused (measured).
+        if !UNIT_DIRS
+            .iter()
+            .any(|d| self.root.join(d).join(target).is_file())
+        {
+            return refused(format!(
+                "Failed to add dependency on unit: Unit {target} does not exist\n"
+            ));
+        }
         let (prefix, _) = self.instance(name);
         let Some((file, _)) = self.template(prefix) else {
             return refused(format!(
@@ -326,6 +335,11 @@ impl Machine {
         generate("vtium-dev", "/usr/local/bin/vtium-dev", &lib);
         std::fs::write(lib.join("getty@.service"), GETTY_UNIT).unwrap();
         std::fs::write(lib.join("kmsconvt@.service"), KMSCON_UNIT).unwrap();
+        std::fs::write(
+            lib.join("getty.target"),
+            "[Unit]\nDescription=Login Prompts\n",
+        )
+        .unwrap();
         Machine {
             fake: Fake {
                 root,
@@ -708,7 +722,8 @@ fn enable_all_twice_changes_nothing_the_second_time() {
     let (status, out, _) = m.console(&["enable", "--all"]);
     assert_eq!(status, 0);
     assert!(out.contains("already"), "{out}");
-    assert_eq!(m.changes().len(), calls);
+    // It only reloads, in case the first run's reload failed.
+    assert_eq!(m.changes().get(calls..).unwrap(), ["daemon-reload"]);
     assert_eq!(m.snapshot(), snapshot);
 }
 
@@ -772,7 +787,8 @@ fn disable_n_on_a_vt_vtium_does_not_hold_changes_nothing() {
     let (status, out, _) = m.console(&["disable", "5"]);
     assert_eq!(status, 0);
     assert!(out.contains("not enabled on VT 5"), "{out}");
-    assert!(m.changes().is_empty());
+    // It only reloads, in case an earlier run's reload failed.
+    assert_eq!(m.changes(), ["daemon-reload"]);
     assert_eq!(m.snapshot(), before);
 }
 
@@ -928,6 +944,14 @@ fn the_stand_in_refuses_what_systemctl_refuses() {
     // disable leaves the alias (measured).
     assert_eq!(m.links("autovt@tty3.service"), to("vtium"));
     assert!(!m.wanted("vtium@tty3.service"));
+    // add-wants refuses a target that does not exist (measured).
+    assert!(m.fake.add_wants("getty.target", "getty@tty1.service").ok);
+    std::fs::remove_file(m.root().join(WANTS).join("getty@tty1.service")).unwrap();
+    std::fs::remove_file(m.root().join("usr/lib/systemd/system/getty.target")).unwrap();
+    let reply = m.fake.add_wants("getty.target", "getty@tty1.service");
+    assert!(!reply.ok);
+    assert!(reply.stderr.contains("Unit getty.target does not exist"));
+    assert!(!m.wanted("getty@tty1.service"));
 }
 
 #[test]
@@ -1058,8 +1082,10 @@ fn a_display_manager_keeps_the_vts_its_unit_conflicts_with() {
 }
 
 #[test]
-fn a_display_managers_drop_in_moves_the_vt_it_claims() {
-    // A drop-in in /etc clears the vendor unit's Conflicts= and claims VT 2.
+fn a_display_managers_drop_in_adds_a_vt_it_claims() {
+    // A drop-in in /etc claims VT 2 beside the vendor unit's VT 1. Its empty
+    // Conflicts= clears nothing: systemd cannot reset a dependency
+    // (measured).
     let mut m = Machine::gettys("dm-drop-in");
     display_manager(&m);
     let dir = m.root().join(ETC).join("sddm.service.d");
@@ -1075,10 +1101,17 @@ fn a_display_managers_drop_in_moves_the_vt_it_claims() {
         err.contains("the display manager sddm.service holds VT 2"),
         "{err}"
     );
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager sddm.service holds VT 1"),
+        "{err}"
+    );
     let (status, out, _) = m.console(&["enable", "--all"]);
     assert_eq!(status, 0, "{out}");
     assert!(m.wanted("getty@tty2.service"));
-    assert!(m.wanted("vtium@tty1.service"));
+    assert!(m.wanted("getty@tty1.service"));
+    assert!(!m.wanted("vtium@tty1.service"));
 }
 
 #[test]
@@ -1336,4 +1369,345 @@ fn a_display_manager_whose_unit_claims_another_vt_keeps_that_vt() {
             .any(|l| l.starts_with("2 ") && l.contains("display manager (gdm.service)")),
         "{out}"
     );
+}
+
+#[test]
+fn enable_all_passes_by_a_masked_vt_whose_getty_holds_it() {
+    // A mask keeps vtium from a VT where logind starts no console through
+    // the template: VT 1, and a VT whose enabled getty holds it from boot.
+    let mut m = Machine::gettys("all-masked");
+    for n in [1, 2] {
+        symlink(
+            MASK,
+            m.root().join(ETC).join(format!("vtium@tty{n}.service")),
+        )
+        .unwrap();
+    }
+    let before = m.snapshot();
+    let (status, out, err) = m.console(&["enable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    for n in [1, 2] {
+        assert!(m.wanted(&format!("getty@tty{n}.service")), "{n}");
+        assert!(!m.wanted(&format!("vtium@tty{n}.service")), "{n}");
+        assert!(
+            !m.root().join(RECORDS).join(format!("tty{n}")).exists(),
+            "{n}"
+        );
+        assert!(
+            out.contains(&format!(
+                "VT {n} is left as it is, its getty included: vtium@tty{n}.service is masked"
+            )),
+            "{out}"
+        );
+    }
+    assert!(!out.contains("systemctl start vtium@tty1.service"), "{out}");
+    assert_eq!(m.links(TEMPLATE), to("vtium"));
+    assert!(!m.wanted("getty@tty3.service"));
+    assert_eq!(m.console(&["disable", "--all"]).0, 0);
+    let mut after = m.snapshot();
+    after.remove("var/lib/vtium/console");
+    assert_eq!(after, before);
+}
+
+#[test]
+fn enable_all_refuses_a_masked_vt_the_template_still_reaches() {
+    // systemd loads autovt@ttyN.service through the template link even
+    // while vtium@ttyN.service is masked (measured), so a mask keeps vtium
+    // from neither VT 6, logind's reserved VT, nor a VT no getty holds.
+    for (n, getty) in [(6, true), (3, false)] {
+        let mut m = Machine::gettys(&format!("all-masked-{n}"));
+        symlink(
+            MASK,
+            m.root().join(ETC).join(format!("vtium@tty{n}.service")),
+        )
+        .unwrap();
+        if !getty {
+            std::fs::remove_file(m.root().join(WANTS).join(format!("getty@tty{n}.service")))
+                .unwrap();
+        }
+        let before = m.snapshot();
+        let (status, _, err) = m.console(&["enable", "--all"]);
+        assert_eq!(status, 1, "{n}");
+        assert!(
+            err.contains(&format!(
+                "vtium@tty{n}.service is masked, but with autovt@.service linked to vtium"
+            )),
+            "{err}"
+        );
+        assert!(
+            err.contains(&format!("systemctl unmask vtium@tty{n}.service")),
+            "{err}"
+        );
+        assert!(m.changes().is_empty(), "{:?}", m.changes());
+        assert_eq!(m.snapshot(), before);
+        // VT 6's own link keeps the template from it.
+        if n == 6 {
+            m.link("autovt@tty6.service", "getty");
+            let (status, out, err) = m.console(&["enable", "--all"]);
+            assert_eq!((status, err.as_str()), (0, ""), "{out}");
+            assert!(m.wanted("getty@tty6.service"));
+        }
+    }
+}
+
+#[test]
+fn status_shows_no_console_logind_starts_on_vt_1() {
+    // logind never starts autovt@tty1.service: asking whether VT 1 is busy,
+    // it opens /dev/tty1, and that makes VT 1 busy.
+    let mut m = Machine::gettys("status-vt1");
+    let (_, out, _) = m.console(&["status"]);
+    assert!(
+        out.lines()
+            .any(|l| l.split_whitespace().collect::<Vec<_>>() == ["1", "getty@tty1", "-", "-"]),
+        "{out}"
+    );
+    let (status, out, _) = m.console(&["enable", "1"]);
+    assert_eq!(status, 0);
+    assert!(
+        out.contains("systemd starts vtium@tty1 there at the next boot."),
+        "{out}"
+    );
+    assert!(!out.contains("switch to VT 1"), "{out}");
+    let (_, out, _) = m.console(&["status"]);
+    assert!(
+        out.lines().any(|l| l.split_whitespace().collect::<Vec<_>>()
+            == ["1", "vtium@tty1,", "getty", "recorded", "-", "-"]),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_rerun_after_a_failed_reload_reloads() {
+    // Each verb's last step is the reload. A run that finds the links done
+    // reloads, so running the same command again finishes the change.
+    for (words, setup) in [
+        (&["enable", "--all"][..], &[][..]),
+        (&["disable", "--all"], &["enable", "--all"][..]),
+        (&["disable", "3"], &["enable", "3"]),
+    ] {
+        let mut m = Machine::gettys(&format!("reload-{}", words.join("-")));
+        m.fake.running.push("vtium@tty3.service".into());
+        if !setup.is_empty() {
+            assert_eq!(m.console(setup).0, 0);
+        }
+        if words == ["disable", "3"] {
+            // A hand-made link to take back, so disable N reloads.
+            assert_eq!(m.links("autovt@tty3.service"), to("vtium"));
+        }
+        m.fake.fail = Some("daemon-reload".into());
+        let (status, _, err) = m.console(words);
+        assert_eq!(status, 1, "{words:?}");
+        assert!(err.contains("systemctl daemon-reload failed"), "{err}");
+        assert!(
+            err.contains("Running the same command again finishes"),
+            "{err}"
+        );
+        m.fake.fail = None;
+        let snapshot = m.snapshot();
+        let calls = m.changes().len();
+        let (status, out, err) = m.console(words);
+        assert_eq!((status, err.as_str()), (0, ""), "{words:?}: {out}");
+        assert_eq!(
+            m.changes().get(calls..).unwrap(),
+            ["daemon-reload"],
+            "{words:?}"
+        );
+        assert_eq!(m.snapshot(), snapshot, "{words:?}");
+    }
+}
+
+/// sddm's unit, as [`display_manager`] installs it, with `files` written
+/// under the root, each path relative to it.
+fn display_manager_with(m: &Machine, files: &[(&str, &str)]) {
+    display_manager(m);
+    for (path, text) in files {
+        let path = m.root().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+}
+
+/// The VTs `vtium console status` marks as the display manager's.
+fn claimed(m: &mut Machine) -> Vec<u16> {
+    let (_, out, _) = m.console(&["status"]);
+    out.lines()
+        .filter(|l| l.contains("display manager ("))
+        .filter_map(|l| l.split_whitespace().next()?.parse().ok())
+        .collect()
+}
+
+#[test]
+fn a_display_managers_drop_ins_are_read_under_its_names_as_systemd_reads_them() {
+    // Each claims one more VT: the alias's directory, its prefix directory,
+    // and the directory for every service (measured).
+    let mut m = Machine::gettys("dm-names");
+    display_manager_with(
+        &m,
+        &[
+            (
+                "etc/systemd/system/display-manager.service.d/a.conf",
+                "[Unit]\nConflicts=getty@tty2.service\n",
+            ),
+            (
+                "etc/systemd/system/display-.service.d/b.conf",
+                "[Unit]\nConflicts=getty@tty3.service\n",
+            ),
+            (
+                "usr/lib/systemd/system/service.d/c.conf",
+                "[Unit]\nConflicts=getty@tty4.service\n",
+            ),
+        ],
+    );
+    assert_eq!(claimed(&mut m), [1, 2, 3, 4]);
+    // A drop-in of one file name is read once: the unit's own name's
+    // directories come before the alias's, so the vendor directory's copy
+    // under sddm.service.d wins over /etc's under the alias (measured).
+    let mut m = Machine::gettys("dm-same-name");
+    display_manager_with(
+        &m,
+        &[
+            (
+                "etc/systemd/system/display-manager.service.d/vt.conf",
+                "[Unit]\nConflicts=getty@tty2.service\n",
+            ),
+            (
+                "usr/lib/systemd/system/sddm.service.d/vt.conf",
+                "[Unit]\nConflicts=getty@tty3.service\n",
+            ),
+        ],
+    );
+    assert_eq!(claimed(&mut m), [1, 3]);
+}
+
+#[test]
+fn a_drop_in_in_an_earlier_directory_stands_for_one_of_its_name_in_a_later_one() {
+    let mut m = Machine::gettys("dm-earlier");
+    display_manager_with(
+        &m,
+        &[
+            (
+                "etc/systemd/system/sddm.service.d/vt.conf",
+                "[Unit]\nConflicts=getty@tty2.service\n",
+            ),
+            (
+                "usr/lib/systemd/system/sddm.service.d/vt.conf",
+                "[Unit]\nConflicts=getty@tty3.service\n",
+            ),
+        ],
+    );
+    assert_eq!(claimed(&mut m), [1, 2]);
+}
+
+#[test]
+fn an_administrators_copy_of_the_display_managers_unit_is_the_one_read() {
+    // systemd loads the unit by its name along the search path, so a copy
+    // in /etc stands for the vendor file the link names (measured).
+    let mut m = Machine::gettys("dm-copy");
+    display_manager_with(
+        &m,
+        &[(
+            "etc/systemd/system/sddm.service",
+            "[Unit]\nConflicts=getty@tty3.service\n",
+        )],
+    );
+    assert_eq!(claimed(&mut m), [3]);
+}
+
+#[test]
+fn a_masked_display_manager_claims_nothing() {
+    // display-manager.service masked, or the unit it names masked.
+    for masked in [DISPLAY_MANAGER, "sddm.service"] {
+        let mut m = Machine::gettys(&format!("dm-masked-{masked}"));
+        display_manager(&m);
+        let path = m.root().join(ETC).join(masked);
+        let _ = std::fs::remove_file(&path);
+        symlink(MASK, &path).unwrap();
+        let (status, out, _) = m.console(&["status"]);
+        assert_eq!(status, 0);
+        assert!(!out.contains("display manager"), "{masked}: {out}");
+        assert_eq!(m.console(&["enable", "1"]).0, 0, "{masked}");
+    }
+}
+
+#[test]
+fn a_login_on_loginds_reserved_vt_is_refused() {
+    // logind starts autovt@tty6 on every switch to VT 6, so vtium there
+    // would stop the getty a user is logged in at.
+    let mut m = Machine::gettys("reserved-login");
+    m.fake.running.push("getty@tty6.service".into());
+    m.fake.sessions = vec![["carol", "6", "login", "tty", "user"]];
+    let before = m.snapshot();
+    for words in [&["enable", "--all"][..], &["enable", "6"]] {
+        let (status, _, err) = m.console(words);
+        assert_eq!(status, 1, "{words:?}");
+        assert!(
+            err.contains(
+                "the login session of carol (login, tty) is on VT 6, logind's reserved VT"
+            ),
+            "{err}"
+        );
+        assert!(err.contains("Log out of VT 6 first"), "{err}");
+    }
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
+    assert_eq!(m.snapshot(), before);
+    // A login on another VT is safe: logind starts nothing on a busy VT.
+    m.fake.sessions = vec![["carol", "3", "login", "tty", "user"]];
+    let (status, out, err) = m.console(&["enable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    // A getty at its login prompt on VT 6 ends nothing when it stops, and
+    // vtium says that the first switch stops it.
+    assert!(
+        out.contains(
+            "on VT 6, logind's reserved VT, logind starts vtium at the first switch to it"
+        ),
+        "{out}"
+    );
+}
+
+#[test]
+fn kmscon_on_loginds_reserved_vt_keeps_it_only_by_its_own_link() {
+    // Enabled or running on VT 6 without a link of its own, kmscon would be
+    // stopped by vtium's Conflicts= at the first switch to VT 6.
+    let mut m = Machine::gettys("reserved-kmscon");
+    std::fs::remove_file(m.root().join(WANTS).join("getty@tty6.service")).unwrap();
+    m.link("getty.target.wants/kmsconvt@tty6.service", "kmsconvt");
+    let before = m.snapshot();
+    let (status, _, err) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("kmsconvt@tty6.service, is enabled or running on VT 6, logind's reserved VT"),
+        "{err}"
+    );
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
+    assert_eq!(m.snapshot(), before);
+    // With VT 6's own link to kmscon, the template does not reach VT 6.
+    m.link("autovt@tty6.service", "kmsconvt");
+    let (status, out, err) = m.console(&["enable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(
+        out.contains("VT 6 keeps the C reference's console"),
+        "{out}"
+    );
+    assert!(!out.contains("logind's reserved VT"), "{out}");
+}
+
+#[test]
+fn the_development_install_on_loginds_reserved_vt_keeps_it_only_by_its_own_link() {
+    let mut m = Machine::gettys("reserved-dev");
+    m.fake.running.push("vtium-dev@tty6.service".into());
+    let before = m.snapshot();
+    let (status, _, err) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("vtium-dev@tty6.service, is enabled or running on VT 6, logind's reserved VT"),
+        "{err}"
+    );
+    assert!(err.contains("make vt-uninstall VT=6"), "{err}");
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
+    assert_eq!(m.snapshot(), before);
+    // make vt-install VT=6 links VT 6 to the development install.
+    m.link("autovt@tty6.service", "vtium-dev");
+    let (status, out, err) = m.console(&["enable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(out.contains("VT 6 keeps the development install"), "{out}");
 }

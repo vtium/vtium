@@ -29,8 +29,10 @@ pub enum Holder {
 }
 
 /// The VTs whose `getty@ttyN.service` a unit's `Conflicts=` lines name,
-/// read from the unit file's text and then its drop-ins' texts, in order.
-/// An empty `Conflicts=` clears what came before, as systemd reads it.
+/// in the unit file's text and its drop-ins' texts. A drop-in only adds to
+/// `Conflicts=`: systemd cannot reset a dependency to an empty list
+/// (systemd.unit(5)), and an empty `Conflicts=` changes nothing (measured
+/// with systemd 262).
 pub fn conflicts<'t>(texts: impl IntoIterator<Item = &'t str>) -> BTreeSet<u16> {
     let mut vts = BTreeSet::new();
     for text in texts {
@@ -44,9 +46,6 @@ pub fn conflicts<'t>(texts: impl IntoIterator<Item = &'t str>) -> BTreeSet<u16> 
             let Some(value) = line.strip_prefix("Conflicts=").filter(|_| in_unit) else {
                 continue;
             };
-            if value.trim().is_empty() {
-                vts.clear();
-            }
             for name in value.split_whitespace() {
                 if let Some((GETTY, n)) = instance(name) {
                     vts.insert(n);
@@ -70,38 +69,74 @@ pub fn session_ids(list: &str) -> Vec<String> {
         .collect()
 }
 
-/// The graphical sessions and greeters on a VT in `loginctl show-session`'s
-/// output, one block of `Key=value` lines a session, the blocks parted by
-/// an empty line.
-pub fn graphical(show: &str) -> Vec<(u16, Holder)> {
-    let mut found = Vec::new();
-    for block in show.split("\n\n") {
+/// One session in `loginctl show-session`'s output that is on a VT.
+struct Session<'s> {
+    vt: u16,
+    user: &'s str,
+    service: &'s str,
+    kind: &'s str,
+    class: &'s str,
+}
+
+/// The sessions on a VT in `loginctl show-session`'s output, one block of
+/// `Key=value` lines a session, the blocks parted by an empty line.
+fn sessions(show: &str) -> impl Iterator<Item = Session<'_>> {
+    show.split("\n\n").filter_map(|block| {
         let fields: BTreeMap<&str, &str> = block
             .lines()
             .filter_map(|line| line.split_once('='))
             .collect();
         let get = |key: &str| fields.get(key).copied().unwrap_or_default();
-        let Ok(vt) = get("VTNr").parse::<u16>() else {
-            continue;
-        };
-        let kind = match (get("Type"), get("Class")) {
-            (_, "greeter") => "greeter",
-            (kind @ ("x11" | "wayland" | "mir"), _) => kind,
-            _ => continue,
-        };
-        if vt == 0 {
-            continue;
-        }
-        found.push((
+        let vt = get("VTNr").parse::<u16>().ok().filter(|vt| *vt != 0)?;
+        Some(Session {
             vt,
+            user: get("Name"),
+            service: get("Service"),
+            kind: get("Type"),
+            class: get("Class"),
+        })
+    })
+}
+
+impl Session<'_> {
+    /// The session as a [`Holder`], its kind `greeter` for a greeter.
+    fn holder(&self, kind: &str) -> (u16, Holder) {
+        (
+            self.vt,
             Holder::Session {
-                user: get("Name").to_owned(),
-                service: get("Service").to_owned(),
+                user: self.user.to_owned(),
+                service: self.service.to_owned(),
                 kind: kind.to_owned(),
             },
-        ));
+        )
     }
-    found
+
+    /// `greeter`, `x11`, `wayland` or `mir` for a graphical session or a
+    /// greeter.
+    fn graphical(&self) -> Option<&str> {
+        match (self.kind, self.class) {
+            (_, "greeter") => Some("greeter"),
+            (kind @ ("x11" | "wayland" | "mir"), _) => Some(kind),
+            _ => None,
+        }
+    }
+}
+
+/// The graphical sessions and greeters on a VT in `loginctl show-session`'s
+/// output.
+pub fn graphical(show: &str) -> Vec<(u16, Holder)> {
+    sessions(show)
+        .filter_map(|s| s.graphical().map(|kind| s.holder(kind)))
+        .collect()
+}
+
+/// The other sessions on a VT in `loginctl show-session`'s output, such as
+/// a user's login at a getty, its kind the session's type, such as `tty`.
+pub fn logins(show: &str) -> Vec<(u16, Holder)> {
+    sessions(show)
+        .filter(|s| s.graphical().is_none())
+        .map(|s| s.holder(s.kind))
+        .collect()
 }
 
 #[cfg(test)]
@@ -113,7 +148,7 @@ mod tests {
         let unit = "[Unit]\nConflicts=getty@tty1.service plymouth-quit.service\nAfter=getty@tty1.service\n[Service]\nConflicts=getty@tty3.service\n";
         assert_eq!(conflicts([unit]), BTreeSet::from([1]));
         let drop_in = "[Unit]\nConflicts=\nConflicts=getty@tty7.service\n";
-        assert_eq!(conflicts([unit, drop_in]), BTreeSet::from([7]));
+        assert_eq!(conflicts([unit, drop_in]), BTreeSet::from([1, 7]));
         assert!(conflicts(["[Unit]\nConflicts=getty@ttytty1.service\n"]).is_empty());
     }
 
@@ -141,6 +176,17 @@ mod tests {
                     }
                 ),
             ]
+        );
+        assert_eq!(
+            logins(show),
+            [(
+                3,
+                Holder::Session {
+                    user: "bob".into(),
+                    service: "login".into(),
+                    kind: "tty".into()
+                }
+            )]
         );
         assert_eq!(
             session_ids(

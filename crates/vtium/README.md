@@ -57,11 +57,11 @@ vtium console status                      # per VT: what systemd starts at boot,
 sudo vtium console enable 3               # VT 3 is vtium's from its next start, and its getty is disabled
 sudo systemctl start vtium@tty3.service   # start vtium on VT 3 now, which ends every session there
 sudo vtium console disable 3              # VT 3 goes back to what it had from its next start
-sudo vtium console enable --all           # every VT is vtium's, on a machine that runs no kmscon
+sudo vtium console enable --all           # every VT is vtium's, on a machine whose autovt@.service link does not name kmscon
 sudo vtium console disable --all          # every VT goes back as vtium console found it
 ```
 
-`enable --all` links `autovt@.service`, the unit logind starts on a VT when you switch to it and nothing runs there, to vtium, enables vtium at boot on VT 1, and disables the gettys on VTs 2 to 6, so vtium starts on each the first time you switch to it. vtium console leaves alone every VT that graphics hold: the VTs a display manager's unit claims through `Conflicts=getty@ttyN.service`, as sddm claims VT 1, and the VTs a graphical session or greeter is on now, which it asks logind for with `loginctl`. `enable N` refuses such a VT, `enable --all` passes it by and says so, and `status` marks it. Neither verb starts or stops vtium. Each prints the `systemctl start` or `stop` that does, and that command ends every session on the VT. Before `enable` changes a VT or moves `autovt@.service`, it records what was there in `/var/lib/vtium/console/`, the unit file each getty linked to included, and `disable` puts back exactly that. `vtium console` refuses a VT that the C reference's console holds. On a host that was not booted with systemd it changes nothing and says so, and there an inittab line or an init script runs `vtium --vt=ttyN --no-switchvt` on the VT ([docs/systemd.md](../../docs/systemd.md)).
+`enable --all` links `autovt@.service`, the unit logind starts on a VT when you switch to it and nothing runs there, to vtium, enables vtium at boot on VT 1, where logind never starts a console itself, and disables the gettys on VTs 2 to 6, so vtium starts on each the first time you switch to it. VT 6 is logind's reserved VT, where logind starts a console at every switch, even while the VT is in use, so `enable --all` refuses while someone is logged in on VT 6, or while kmscon or a masked `vtium@tty6` is there without a link of VT 6's own, and says what frees the VT. vtium console leaves alone every VT that graphics hold: the VTs a display manager's unit claims through `Conflicts=getty@ttyN.service`, as sddm claims VT 1, and the VTs a graphical session or greeter is on now, which it asks logind for with `loginctl`. `enable N` refuses such a VT, `enable --all` passes it by and says so, and `status` marks it. Neither verb starts or stops vtium. Each prints the `systemctl start` or `stop` that does, and that command ends every session on the VT. Before `enable` changes a VT or moves `autovt@.service`, it records what was there in `/var/lib/vtium/console/`, the unit file each getty linked to included, and `disable` puts back exactly that. `vtium console` refuses a VT that the C reference's console holds. On a host that was not booted with systemd it changes nothing and says so, and there an inittab line or an init script runs `vtium --vt=ttyN --no-switchvt` on the VT ([docs/systemd.md](../../docs/systemd.md)).
 
 ### Sharing VTs with kmscon
 
@@ -86,7 +86,16 @@ sudo systemctl add-wants getty.target getty@tty3.service    # only if you disabl
 
 Use `add-wants` rather than `systemctl enable getty@tty3.service` there. `enable` also links `autovt@tty3.service` to the getty, and `vtium console enable 3` then refuses VT 3 until that link is gone.
 
-`sudo systemctl enable --now kmsconvt@tty3.service` makes the same link and also starts kmscon on VT 3 at boot and at once. Its way back is `sudo systemctl disable --now kmsconvt@tty3.service`, which ends every session on VT 3, and then `sudo rm /etc/systemd/system/autovt@tty3.service`, the link that `disable` leaves. The guide prefers the hand-made link because two consoles started at boot both open the display card, and the second cannot draw while the first holds it. Do not run kmscon's own `systemctl enable kmsconvt@` while vtium holds the template link either. It fails on that link, and it still enables kmscon at boot on VT 1, beside vtium there.
+`sudo systemctl enable --now kmsconvt@tty3.service`, run after the same `systemctl disable getty@tty3.service`, makes the same link and also starts kmscon on VT 3 at boot and at once. Without the getty's disable, systemd would start both kmscon and the getty on VT 3 at boot, and the two conflict. The way back:
+
+```sh
+sudo systemctl disable --now kmsconvt@tty3.service    # stops kmscon, which ends every session on VT 3, and takes it off boot
+sudo rm /etc/systemd/system/autovt@tty3.service      # the link that disable leaves
+sudo systemctl daemon-reload
+sudo systemctl add-wants getty.target getty@tty3.service    # only if you disabled VT 3's getty
+```
+
+The guide prefers the hand-made link because two consoles started at boot both open the display card, and the second cannot draw while the first holds it. Do not run kmscon's own `systemctl enable kmsconvt@` while vtium holds the template link either. It fails on that link, and it still enables kmscon at boot on VT 1, beside vtium there.
 
 **`/etc/systemd/system/autovt@.service` links to `kmsconvt@.service`**, as on a machine set up to run kmscon on every VT. `sudo vtium console enable N` gives vtium one VT at a time, and `sudo vtium console enable --all` refuses until kmscon lets go of the template.
 

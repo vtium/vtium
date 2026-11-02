@@ -139,8 +139,18 @@ pub fn already_given(n: u16) -> String {
 }
 
 pub fn given(n: u16) -> String {
+    let switch = match n {
+        // logind never starts a console on VT 1.
+        1 => String::new(),
+        super::RESERVED_VT => format!(
+            ", and logind starts it there at the next switch to VT {n}, logind's reserved VT, which stops a getty that runs there"
+        ),
+        _ => format!(
+            ", and logind starts it there when you switch to VT {n} while nothing runs on it"
+        ),
+    };
     format!(
-        "VT {n} is vtium's from its next start: systemd starts vtium@tty{n} there at the next boot, and logind starts it there when you switch to VT {n} while nothing runs on it. To start it now, which ends every session on VT {n}: systemctl start vtium@tty{n}.service"
+        "VT {n} is vtium's from its next start: systemd starts vtium@tty{n} there at the next boot{switch}. To start it now, which ends every session on VT {n}: systemctl start vtium@tty{n}.service"
     )
 }
 
@@ -167,7 +177,7 @@ pub fn template_still_vtium(n: u16) -> String {
 
 pub const ALREADY_ALL: &str = "Every VT is vtium's already: nothing changed.";
 
-pub fn given_all(vt1: bool) -> String {
+pub fn given_all(vt1: bool, vt6: bool) -> String {
     let boot = if vt1 {
         "systemd starts vtium@tty1 at the next boot, and logind starts vtium on each other VT"
     } else {
@@ -178,8 +188,16 @@ pub fn given_all(vt1: bool) -> String {
     } else {
         ""
     };
+    let six = if vt6 {
+        format!(
+            ", but on VT {0}, logind's reserved VT, logind starts vtium at the first switch to it, which stops a getty that runs there",
+            super::RESERVED_VT
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "Every VT is vtium's from its next start: {boot} when you switch to it while nothing runs there. A getty running now keeps its VT until it stops.{now}"
+        "Every VT is vtium's from its next start: {boot} when you switch to it while nothing runs there. A getty running now keeps its VT until it stops{six}.{now}"
     )
 }
 
@@ -222,6 +240,97 @@ pub fn graphics_on_reserved_vt(n: u16, list: &[super::Holder]) -> String {
     format!(
         "{} holds VT {n}, logind's reserved VT, where logind starts autovt@tty{n}.service on every switch even while the VT is in use. With autovt@.service linked to vtium, a vtium would start beside it there. Move it to another VT, or give vtium VTs one at a time with vtium console enable N.",
         holders(list)
+    )
+}
+
+/// Who is logged in on a VT, in words: "the login session of carol
+/// (login, tty)".
+fn logins(list: &[super::Holder]) -> String {
+    list.iter()
+        .map(|h| match h {
+            super::Holder::Session {
+                user,
+                service,
+                kind,
+            } => format!("the login session of {user} ({service}, {kind})"),
+            super::Holder::DisplayManager(dm) => format!("the display manager {dm}"),
+        })
+        .collect::<Vec<_>>()
+        .join(" and ")
+}
+
+/// Why a VT cannot be given to vtium while `what` is on VT `n`, logind's
+/// reserved VT: `by` says what makes logind start vtium there, `then` what
+/// that start does, and `fix` how to free the VT.
+fn reserved_vt(n: u16, what: &str, by: &str, then: &str, fix: &str) -> String {
+    format!(
+        "{what} on VT {n}, logind's reserved VT, where logind starts autovt@tty{n}.service at every switch to it, even while the VT is in use. {by}, the next switch to VT {n} would start vtium there, and that {then}. {fix}"
+    )
+}
+
+/// What makes logind start vtium on the reserved VT: VT `n`'s own link
+/// for `enable N`, or the template link for `enable --all`.
+fn reserved_by(n: u16, all: bool) -> String {
+    if all {
+        "With autovt@.service linked to vtium".to_owned()
+    } else {
+        format!("With autovt@tty{n}.service linked to vtium")
+    }
+}
+
+pub fn login_on_reserved_vt(n: u16, list: &[super::Holder], all: bool) -> String {
+    let is = if list.len() > 1 { "are" } else { "is" };
+    reserved_vt(
+        n,
+        &format!("{} {is}", logins(list)),
+        &reserved_by(n, all),
+        "stops the getty and ends every session on the VT",
+        &format!(
+            "Log out of VT {n} first: the getty there then waits at its login prompt, and nothing ends when it stops."
+        ),
+    )
+}
+
+pub fn kmscon_on_reserved_vt(n: u16) -> String {
+    reserved_vt(
+        n,
+        &format!("the C reference's console, kmsconvt@tty{n}.service, is enabled or running"),
+        &reserved_by(n, true),
+        "stops kmscon through vtium's Conflicts=",
+        &format!(
+            "Free VT {n} with systemctl disable --now kmsconvt@tty{n}.service, which ends every session on it, or keep it for kmscon with a link of its own: ln -s /usr/lib/systemd/system/kmsconvt@.service /etc/systemd/system/autovt@tty{n}.service."
+        ),
+    )
+}
+
+pub fn dev_on_reserved_vt(n: u16) -> String {
+    reserved_vt(
+        n,
+        &format!("the development install, vtium-dev@tty{n}.service, is enabled or running"),
+        &reserved_by(n, true),
+        "stops the development install through vtium's Conflicts=",
+        &format!("make vt-uninstall VT={n} frees it."),
+    )
+}
+
+pub fn masked_under_template(n: u16, reserved: bool) -> String {
+    let when = if reserved {
+        format!(
+            "at every switch to VT {n}, logind's reserved VT, where logind starts autovt@tty{n}.service even while the VT is in use"
+        )
+    } else {
+        format!(
+            "when you switch to VT {n} while nothing runs there, since no getty is enabled there to hold the VT"
+        )
+    };
+    format!(
+        "vtium@tty{n}.service is masked, but with autovt@.service linked to vtium, logind would still load vtium through that link {when}: the mask does not reach a unit loaded through a link (measured). A mask is the administrator's choice, so vtium changes nothing: lift it with systemctl unmask vtium@tty{n}.service, or give VT {n} a link of its own, /etc/systemd/system/autovt@tty{n}.service, to the console it is to have."
+    )
+}
+
+pub fn kept_masked(n: u16) -> String {
+    format!(
+        "VT {n} is left as it is, its getty included: vtium@tty{n}.service is masked, and systemctl unmask vtium@tty{n}.service lifts the mask."
     )
 }
 
