@@ -137,6 +137,13 @@ esac
 # reset does, so only what the run carries across reaches the session; the
 # tests' own variables stay, which the stand-ins read.
 SETPRIV = "#!/bin/bash\n" + RECORD + """
+# Whether it holds a stand-in VT (a file ttyN among the stand-ins) open: a
+# line "held" or "free" in $SETPRIV_HOLD.
+h=free
+for f in /proc/$$/fd/*; do
+	case $(readlink "$f") in "$VTIUM_VT_STANDINS"/tty[0-9]*) h=held ;; esac
+done
+echo "$h" >>"${SETPRIV_HOLD:-/dev/null}"
 while [ $# -gt 0 ] && [ "$1" != -- ]; do [ "$1" != --reset-env ] || unset VTIUM_HEAD VTIUM_CONSOLE; shift; done
 shift
 exec "$@"
@@ -992,6 +999,22 @@ class RunVt(Case):
         calls = read(self.s.calls).splitlines()
         end = max(i for i, c in enumerate(calls) if c.startswith("setpriv ") and "end-1.state" in c)
         self.assertLess(end, calls.index("systemctl start kmsconvt@tty8.service"))
+
+    def test_no_process_run_as_the_user_inherits_the_hold(self):
+        # Root's read-write descriptor of the VT would let the user's process,
+        # or anyone who traces it, write to the VT and take it. The copies of
+        # the DRM state run as the user, during the run and at its end.
+        self.s.cards()
+        drm = os.path.join(self.s.tmp, "drm")
+        os.mkdir(drm, 0o700)
+        held = os.path.join(self.s.tmp, "setpriv-hold")
+        p = self.run_vt(f"--debug={drm}", "8", BIN_LOG=logged(*DISPLAY_LINES[0][1:3]) + "\\n", SETPRIV_HOLD=held)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("end-0.state", os.listdir(drm))
+        # The checks before the hold, a copy at the display line and one at
+        # the end, two cards each: none holds the VT.
+        self.assertEqual(read(held).split(), ["free"] * len(read(held).split()))
+        self.assertGreaterEqual(len(read(held).split()), 4)
 
     def test_the_watched_lines_are_the_ones_vtium_logs(self):
         # A line reworded in the code would never make a copy again.

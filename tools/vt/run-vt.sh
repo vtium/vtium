@@ -345,7 +345,8 @@ fi
 # user, and names the copies in vtium's log. A card is a directory of $dri with
 # a state file; the same card under a second name (a symlink, or its bus id)
 # is copied once, under its number where it has one. It never fails: a copy
-# that cannot be made is named instead.
+# that cannot be made is named instead. The copy runs as the user, so it never
+# gets the run's hold on the VT, fd 7, which is root's and read-write.
 capture() {
 	local name=$1 d e real seen=" " numbered=() named=() copied=()
 	for d in "$dri"/*/; do
@@ -360,7 +361,7 @@ capture() {
 		[[ $seen != *" $real "* ]] || continue
 		seen+="$real "
 		if "${drop[@]}" -- /bin/sh -c 'umask 077 && set -C && cat >"$1"' sh "$debug/$name-$e.state" \
-			<"$dri/$e/state" 2>/dev/null; then
+			<"$dri/$e/state" 2>/dev/null 7>&-; then
 			copied+=("$name-$e.state")
 		else
 			echo "run-vt: cannot copy $dri/$e/state to $debug/$name-$e.state" || true
@@ -518,8 +519,11 @@ trap 'exit 129' HUP
 if [ -n "$dry" ]; then
 	echo "  (run-vt.sh holds $tty_dev open from here until the units start again, so logind starts no console there)"
 else
-	exec 7<>"$tty_dev" || die "cannot open $tty_dev to hold VT $vt"
+	# Marked before it opens, so a signal in between still lets go of it
+	# before the units start; letting go of a hold that never opened does
+	# nothing.
 	holding=1
+	exec 7<>"$tty_dev" || die "cannot open $tty_dev to hold VT $vt"
 fi
 
 label=${label:-unlabelled}
