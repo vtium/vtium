@@ -95,10 +95,11 @@ pub fn temp_ok(path: &Path, tmpdir: Option<&Path>) -> bool {
 }
 
 /// The filesystem type of `fd`, as `<linux/magic.h>` numbers it.
-#[expect(
+// `allow`, not `expect`: on armv7 f_type is 32 bits, so nothing truncates
+#[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "a filesystem magic is 32 bits, which f_type holds signed on some architectures"
+    reason = "a filesystem magic is 32 bits, which f_type holds signed and in 64 bits on some architectures"
 )]
 fn fs_type(fd: impl AsFd) -> Option<u32> {
     rustix::fs::fstatfs(fd).ok().map(|fs| fs.f_type as u32)
