@@ -229,6 +229,9 @@
 ## Take pointers: mice, touchpads and touchscreens.
 #mouse
 
+## Invert the mouse wheel: it scrolls the view and reports to a program the other way, and so do the cursor keys it sends on the alternate screen under mode 1007. Ctrl and the wheel still zoom in when the wheel turns up.
+#no-natural-scrolling
+
 ## Draw the pointer in software on every display, never on a display's cursor plane.
 #no-soft-cursor
 
