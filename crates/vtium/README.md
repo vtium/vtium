@@ -86,7 +86,7 @@ sudo systemctl add-wants getty.target getty@tty3.service    # only if you disabl
 
 Use `add-wants` rather than `systemctl enable getty@tty3.service` there. `enable` also links `autovt@tty3.service` to the getty, and `vtium console enable 3` then refuses VT 3 until that link is gone.
 
-`sudo systemctl enable --now kmsconvt@tty3.service` makes the same link and also starts kmscon on VT 3 at boot and at once. These steps avoid it on purpose: two consoles starting at boot both open the display card, and the second cannot draw while the first holds it. Do not run kmscon's own `systemctl enable kmsconvt@` while vtium holds the template link either. It fails on that link, and it still enables kmscon at boot on VT 1, beside vtium there.
+`sudo systemctl enable --now kmsconvt@tty3.service` makes the same link and also starts kmscon on VT 3 at boot and at once. Its way back is `sudo systemctl disable --now kmsconvt@tty3.service`, which ends every session on VT 3, and then `sudo rm /etc/systemd/system/autovt@tty3.service`, the link that `disable` leaves. The guide prefers the hand-made link because two consoles started at boot both open the display card, and the second cannot draw while the first holds it. Do not run kmscon's own `systemctl enable kmsconvt@` while vtium holds the template link either. It fails on that link, and it still enables kmscon at boot on VT 1, beside vtium there.
 
 **kmscon holds the template link**, as on a machine that ran only kmscon until now. `sudo vtium console enable N` gives vtium one VT at a time, and `sudo vtium console enable --all` refuses until kmscon lets go of the template.
 
