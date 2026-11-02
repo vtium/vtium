@@ -15,7 +15,9 @@
 # stops and disables getty@ttyN and enables and starts vtium-dev@ttyN.
 # uninstall reads the manifest and undoes all of it: vtium-dev@ttyN stopped
 # and disabled, getty@ttyN enabled and started again where it was before, and
-# the files removed once no other VT's manifest needs them.
+# the files removed once no other VT's manifest needs them. One run at a
+# time reads and changes the install: each holds a lock on
+# /var/lib/vtium-dev-install, and a second run refuses while the first runs.
 #
 # Every name is the development install's own, so the packaged vtium, whose
 # package owns /usr/bin/vtium, /usr/bin/vtium-vitrify, vtium@.service and
@@ -178,16 +180,39 @@ put() {
 	as_root mv -fT -- "$root$t" "$root$2"
 }
 
-# Removes each file at the temporary name of a path in "$@", which a run cut
-# short in the middle of a copy left.
+# Prints each file at one of the temporary names, one a line: the temporary
+# name of each file install writes, and every temporary name in the state
+# directory, which holds those of the record and of each VT's manifest. A
+# run holding the lock (lock_state) finds there only what a run cut short in
+# the middle of a copy left, such as a first install killed while it copied
+# its manifest.
 leftovers() {
 	local f t
-	for f in "$@"; do
-		t=$(staged "$f")
-		if [ -e "$root$t" ] || [ -L "$root$t" ]; then
-			as_root rm -f -- "$root$t"
-		fi
+	for f in "${files[@]}"; do
+		t=$root$(staged "$f")
+		[ ! -e "$t" ] && [ ! -L "$t" ] || printf '%s\n' "$t"
 	done
+	# A pattern that matches nothing stays as it is, and names no file.
+	for t in "$root$state_dir"/.*.vt-install-new; do
+		[ ! -e "$t" ] && [ ! -L "$t" ] || printf '%s\n' "$t"
+	done
+}
+
+# Takes the lock on the state directory, which must exist, or refuses. Each
+# run holds it from before it reads what is installed until it ends, so two
+# runs never interleave, and a run that clears the temporary files never
+# removes one that another run is still writing. The lock is an flock on the
+# directory itself, which the user can open without root, so a run that
+# finds the directory takes the lock before it asks sudo for anything.
+lock_state() {
+	exec 9<"$root$state_dir" || die "cannot open $state_dir to lock it"
+	flock -n 9 ||
+		die "another make vt-install or make vt-uninstall is running (it holds $state_dir locked); run this again once it ends"
+	# The last uninstall removes the directory while it holds the lock. A
+	# run that opened the directory before that, and took the lock after,
+	# holds the lock on a directory that is gone.
+	[ "$root$state_dir" -ef "/proc/$$/fd/9" ] ||
+		die "another make vt-install or make vt-uninstall removed $state_dir while this one started; run this again"
 }
 
 # Refuses the VT on screen (the desktop's, since this runs from it) and a VT
@@ -235,7 +260,23 @@ manifest_value() {
 }
 
 if [ "$action" = uninstall ]; then
-	[ -f "$root$manifest" ] || die "no $manifest: make vt-install did not install vtium on VT $vt, so there is nothing to undo"
+	nothing="no $manifest: make vt-install did not install vtium on VT $vt, so there is nothing to undo"
+	[ -d "$root$state_dir" ] || die "$nothing"
+	lock_state
+	mapfile -t temps < <(leftovers)
+	if [ ! -f "$root$manifest" ]; then
+		# A first install killed while it copied its manifest leaves the
+		# manifest's temporary file and no manifest. Uninstall clears what
+		# such a run left, and the state directory once nothing else is in it.
+		[ "${#temps[@]}" -gt 0 ] || die "$nothing"
+		[ -z "$dry" ] || echo "vt-uninstall: the commands, none of them run:"
+		for t in "${temps[@]}"; do
+			as_root rm -f -- "$t"
+		done
+		as_root rmdir --ignore-fail-on-non-empty -- "$root$state_dir"
+		[ -n "$dry" ] || echo "vt-uninstall: make vt-install did not install vtium on VT $vt; vt-uninstall removed the temporary files that a run cut short left"
+		exit 0
+	fi
 	was_enabled=$(manifest_value getty-enabled)
 	was_active=$(manifest_value getty-active)
 	others=$(manifests | grep -vx "tty$vt" || true)
@@ -259,7 +300,9 @@ if [ "$action" = uninstall ]; then
 	# install's disable removed.
 	[ "$was_enabled" = no ] || as_root "$systemctl" add-wants getty.target "$getty"
 	[ "$was_active" = no ] || as_root "$systemctl" start "$getty"
-	leftovers "$manifest" "${files[@]}" "$record"
+	for t in "${temps[@]}"; do
+		as_root rm -f -- "$t"
+	done
 	as_root rm -f -- "$root$manifest"
 	if [ -n "$others" ]; then
 		echo "vt-uninstall: kept ${files[*]}: vt-install holds $(paste -sd' ' <<<"$others") as well"
@@ -318,6 +361,15 @@ grep -qaF -- "$helper_path" "$bin" ||
 	die "kmsconvt@tty$vt is running on VT $vt; stop it first, or pick another VT"
 packaged=$(vt_packaged "$systemctl" "$vt")
 [ -z "$packaged" ] || die "VT $vt refused: $packaged; or pick another VT"
+
+# A run that finds the state directory takes its lock now, before it reads
+# what is installed. A first install finds none, and takes the lock once it
+# has made the directory, below.
+locked=
+if [ -d "$root$state_dir" ]; then
+	lock_state
+	locked=1
+fi
 
 # A file at one of the paths is replaced only when it is the one install
 # wrote, by the record's checksum; any other is someone else's, or an edit.
@@ -405,6 +457,14 @@ failed() {
 }
 # The manifest goes first, so a run cut short can still be undone.
 [ -d "$root$state_dir" ] || as_root install -d -m 0755 "${own[@]}" -- "$root$state_dir"
+if [ -z "$locked$dry" ]; then
+	lock_state
+	# This run read what is installed while there was no state directory, so
+	# a run that has written anything into it since then has changed what
+	# this one read.
+	[ -z "$(ls -A -- "$root$state_dir")" ] ||
+		die "another make vt-install or make vt-uninstall ran while this one started; run this again"
+fi
 if [ -n "$write_manifest" ]; then
 	put "$tmp/manifest" "$manifest" 0644
 fi

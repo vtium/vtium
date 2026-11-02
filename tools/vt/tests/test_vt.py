@@ -1685,6 +1685,95 @@ exec "$@"
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.left(), [])
 
+    def test_uninstall_clears_what_a_killed_first_install_left(self):
+        # A first install killed while it copied its manifest leaves the
+        # state directory with the manifest's temporary file and no manifest.
+        stray = self.STATE + "/.tty4.vt-install-new"
+        os.makedirs(self.at(self.STATE))
+        write(self.at(stray), "# Written by make vt-install\nvt=4\n", 0o600)
+        p = self.vt_install("uninstall", "--dry-run", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"+ sudo rm -f -- {self.at(stray)}", p.stdout)
+        self.assertEqual(self.left(), [self.STATE, stray])
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("removed the temporary files that a run cut short left", p.stdout)
+        self.assertEqual(self.left(), [])
+        # With VT 3 installed, the stray goes and VT 3's install stays.
+        p = self.vt_install("install", "3")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        write(self.at(stray), "vt=4\n", 0o600)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.temps(), [])
+        for f in (*self.FILES, self.STATE + "/tty3"):
+            self.assertTrue(os.path.exists(self.at(f)), f)
+        # Uninstall of another VT clears it too.
+        write(self.at(stray), "vt=4\n", 0o600)
+        p = self.vt_install("uninstall", "3")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+        # With nothing left behind, there is still nothing to undo.
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("uninstall", "4"), "make vt-install did not install vtium on VT 4, so there is nothing to undo")
+
+    def test_a_run_refuses_while_another_holds_the_lock(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        before = self.left()
+        fd = os.open(self.at(self.STATE), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # The lock is taken before sudo is asked for anything.
+            for args in (("install", "5"), ("install", "4"), ("uninstall", "4"), ("install", "--dry-run", "5")):
+                with self.subTest(args=args):
+                    open(self.s.calls, "w").close()
+                    self.refused(self.vt_install(*args), "another make vt-install or make vt-uninstall is running")
+                    self.assertEqual(self.left(), before)
+        finally:
+            os.close(fd)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+
+    def test_a_first_install_refuses_when_another_run_got_there_first(self):
+        # A first install finds no state directory, reads what is installed
+        # without the lock, and takes the lock once it has made the directory.
+        # Here another install, on VT 5, runs while the first asks sudo.
+        hook = os.path.join(self.s.tmp, "meanwhile")
+        write(hook, f"#!/bin/bash\nexec bash {VT_INSTALL!r} install 5\n")
+        write(os.path.join(self.s.standins, "sudo"), "#!/bin/bash\n" + RECORD + """
+if [ "$1" = -v ]; then
+	[ -z "${MEANWHILE-}" ] || [ -e "$MEANWHILE.done" ] || { : >"$MEANWHILE.done"; "$MEANWHILE" >&2 || exit 1; }
+	exit 0
+fi
+exec "$@"
+""")
+        p = self.vt_install("install", "4", MEANWHILE=hook)
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("another make vt-install or make vt-uninstall ran while this one started; run this again", p.stderr)
+        self.assertIn("vtium-dev runs on VT 5", p.stderr)
+        # The first install changed nothing, and VT 5's install is whole.
+        self.assertFalse(os.path.lexists(self.at(self.STATE + "/tty4")))
+        self.assertNotIn("autovt@tty4.service", self.links())
+        self.assertEqual([c for c in self.s.changes() if "tty4" in c], [])
+        self.assertEqual(self.temps(), [])
+        p = self.vt_install("uninstall", "5")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+
+    def test_a_run_refuses_a_lock_on_a_state_directory_that_is_gone(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # Between this run's open of the directory and its lock, the last
+        # uninstall removed it and a first install made a new one.
+        state = self.at(self.STATE)
+        write(os.path.join(self.s.standins, "flock"), "#!/bin/bash\n"
+              f'mv {state!r} {state + ".gone"!r} && mkdir {state!r} && exec {shutil.which("flock")!r} "$@"\n')
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("uninstall", "4"),
+                     "another make vt-install or make vt-uninstall removed /var/lib/vtium-dev-install while this one started")
+
     def test_a_failed_step_names_the_way_back(self):
         for verb in ("daemon-reload", "enable", "restart", "disable"):
             with self.subTest(verb=verb):
