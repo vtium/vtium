@@ -697,12 +697,15 @@ fn a_framebuffer_token_back_too_late_is_dropped() {
             v.set_dpms(DISPLAY, Dpms::On).unwrap();
             assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
         } else {
+            v.events().for_each(drop);
             v.sleep();
-            // The framebuffer stays mapped for the token, and is cleared
-            // when the token comes back.
-            token.draw(|c| c.pixels.fill(9)).unwrap();
+            // No render thread draws now, so the sleep clears the
+            // framebuffer, revokes the token and reports `Asleep` at once:
+            // nothing the token draws after reaches the next VT's screen.
+            assert_eq!(v.events().collect::<Vec<_>>(), [Event::Asleep]);
+            assert_eq!(token.draw(|c| c.pixels.fill(9)), None, "revoked");
+            assert!(lock(&map).iter().all(|&b| b == 0), "cleared");
             assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
-            assert!(lock(&map).iter().all(|&b| b == 0), "cleared on its return");
             v.wake_up().unwrap();
         }
         assert!(!v.is_flipping(DISPLAY), "nothing shown, blank: {blank}");
@@ -724,4 +727,82 @@ fn the_conversion_copy_is_lent_where_the_layout_needs_it() {
     assert!(map(&mut v).iter().all(|&b| b == 0), "not converted yet");
     v.swap(token, &[WHOLE]).unwrap();
     assert_eq!(&map(&mut v)[0..8], &[0xff; 8]);
+}
+
+/// A token lent and drawing on another thread, which holds its memory
+/// until `go` says, then sends the token back.
+fn drawing(v: &mut Fbdev<FakeFb>) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<Token>) {
+    let mut token = v.lend(DISPLAY).unwrap();
+    let (started, wait) = std::sync::mpsc::channel();
+    let (go, gone) = std::sync::mpsc::channel::<()>();
+    let thread = std::thread::spawn(move || {
+        token
+            .draw(|c| {
+                started.send(()).unwrap();
+                gone.recv().unwrap();
+                c.pixels.fill(9);
+            })
+            .unwrap();
+        token
+    });
+    wait.recv().unwrap();
+    (go, thread)
+}
+
+// A sleep that finds the render thread drawing into the framebuffer holds
+// `Asleep`, and so the VT release, until the token comes back, then clears
+// the framebuffer and revokes the token: the C reference cleared and
+// unmapped the framebuffer before it acknowledged a release.
+#[test]
+fn a_sleep_waits_for_a_token_drawing_into_the_framebuffer() {
+    let mut v = awake(FakeFb::new(32));
+    v.events().for_each(drop);
+    let map = Arc::clone(&v.screen.as_ref().unwrap().map);
+    let (go, thread) = drawing(&mut v);
+    v.sleep();
+    assert_eq!(v.events().count(), 0, "no Asleep while the frame draws");
+    go.send(()).unwrap();
+    let mut token = thread.join().unwrap();
+    assert!(lock(&map).iter().all(|&b| b == 9), "the frame drawn");
+    assert_eq!(
+        token.draw(|c| c.pixels.fill(7)),
+        Some(()),
+        "not yet revoked"
+    );
+    assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
+    assert_eq!(v.events().collect::<Vec<_>>(), [Event::Asleep]);
+    assert!(lock(&map).iter().all(|&b| b == 0), "cleared before Asleep");
+}
+
+// A token the owner keeps, never given back, holds the sleep only for the
+// bound on a flip wait: then the sleep takes the memory, revokes the
+// token, clears and reports `Asleep`.
+#[test]
+fn a_sleep_waits_for_a_kept_token_only_as_long_as_its_bound() {
+    let mut v = awake(FakeFb::new(32));
+    v.events().for_each(drop);
+    let map = Arc::clone(&v.screen.as_ref().unwrap().map);
+    let (go, thread) = drawing(&mut v);
+    v.sleep();
+    go.send(()).unwrap();
+    let mut token = thread.join().unwrap();
+    assert_eq!(v.events().count(), 0);
+    v.fired();
+    assert_eq!(v.events().collect::<Vec<_>>(), [Event::Asleep]);
+    assert_eq!(token.draw(|c| c.pixels.fill(7)), None, "revoked");
+    assert!(lock(&map).iter().all(|&b| b == 0));
+}
+
+// A wake-up with no sleep before it, a retake, maps the framebuffer again:
+// a token of the set-up before, which maps the same memory, can write
+// into it no more, and comes back too late.
+#[test]
+fn a_token_from_before_a_retake_cannot_write() {
+    let mut v = awake(FakeFb::new(32));
+    let mut token = v.lend(DISPLAY).unwrap();
+    v.wake_up().unwrap();
+    assert_eq!(token.draw(|c| c.pixels.fill(9)), None, "revoked");
+    assert!(map(&mut v).iter().all(|&b| b == 0));
+    assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
+    assert_eq!(age(&mut v), 0);
 }

@@ -21,9 +21,13 @@
 //! A display records each token it lends as a [`Loan`]. The token holds a
 //! ticket the loan watches, so the display knows when its token is still
 //! out, when it comes back, and when the owner dropped it without giving
-//! it back.
+//! it back. A display that must stop a token writing before it comes
+//! back, as fbdev does before it lets its framebuffer go to the next VT,
+//! revokes it while it holds the memory's lock: the token draws nothing
+//! from then on.
 
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError, Weak};
 
 use super::{Canvas, DisplayId};
@@ -86,6 +90,9 @@ pub struct Token {
     stride: u32,
     memory: Arc<Memory>,
     ticket: Arc<()>,
+    /// Set by the display, under the memory's lock, once the token may
+    /// write no more.
+    revoked: Arc<AtomicBool>,
 }
 
 impl Token {
@@ -109,6 +116,7 @@ impl Token {
             stride,
             memory,
             ticket: Arc::new(()),
+            revoked: Arc::default(),
         }
     }
 
@@ -133,11 +141,15 @@ impl Token {
 
     /// Calls `draw` with the buffer as a canvas in XRGB8888, and returns
     /// what it returns. `None` where the buffer's memory is shorter than
-    /// its lines, which `draw` is then not called for.
+    /// its lines, or where the display revoked the token, and `draw` is
+    /// then not called.
     pub fn draw<R>(&mut self, draw: impl FnOnce(Canvas<'_>) -> R) -> Option<R> {
         let len =
             usize::try_from(u64::from(self.stride).checked_mul(u64::from(self.height))?).ok()?;
         let mut memory = lock(&self.memory);
+        if self.revoked.load(Ordering::Acquire) {
+            return None;
+        }
         let pixels = (*memory).as_mut().get_mut(..len)?;
         Some(draw(Canvas {
             pixels,
@@ -177,6 +189,7 @@ pub(crate) struct Loan {
     /// comes back too late.
     pub(crate) lease: u64,
     ticket: Weak<()>,
+    revoked: Arc<AtomicBool>,
 }
 
 impl Loan {
@@ -192,10 +205,12 @@ impl Loan {
         memory: Arc<Memory>,
     ) -> (Token, Loan) {
         let ticket = Arc::new(());
+        let revoked = Arc::new(AtomicBool::new(false));
         let loan = Loan {
             buffer,
             lease,
             ticket: Arc::downgrade(&ticket),
+            revoked: Arc::clone(&revoked),
         };
         let token = Token {
             id,
@@ -207,6 +222,7 @@ impl Loan {
             stride,
             memory,
             ticket,
+            revoked,
         };
         (token, loan)
     }
@@ -219,6 +235,26 @@ impl Loan {
     /// Whether `token` is the one this loan lent.
     pub(crate) fn lent(&self, token: &Token) -> bool {
         Weak::ptr_eq(&self.ticket, &Arc::downgrade(&token.ticket))
+    }
+
+    /// Stops the token writing into `memory`, its buffer's: takes the
+    /// memory's lock, waiting for a draw in progress when `wait`, else
+    /// only where no render thread draws now, and revokes the token under
+    /// it. The guard comes back so the display can clear the memory before
+    /// anything else writes; `None` where the lock is busy and `wait` is
+    /// false, and then the token is not revoked.
+    pub(crate) fn revoke<'a, M: ?Sized>(
+        &self,
+        memory: &'a Mutex<M>,
+        wait: bool,
+    ) -> Option<MutexGuard<'a, M>> {
+        let guard = if wait {
+            Some(lock(memory))
+        } else {
+            try_lock(memory)
+        }?;
+        self.revoked.store(true, Ordering::Release);
+        Some(guard)
     }
 
     /// Whether `token`, this loan's, comes back under the same lease.
@@ -278,6 +314,15 @@ mod tests {
         });
         assert_eq!(age, Some(2));
         assert_eq!(lock(&shared).as_mut()[0], 9);
+    }
+
+    #[test]
+    fn a_revoked_token_draws_nothing() {
+        let shared = memory(16);
+        let (mut token, loan) = Loan::lend(DisplayId(1), 0, 0, 0, (2, 2), 8, Arc::clone(&shared));
+        loan.revoke(&*shared, false).unwrap().as_mut().fill(3);
+        assert_eq!(token.draw(|c| c.pixels.fill(9)), None);
+        assert!(lock(&shared).as_mut().iter().all(|&b| b == 3));
     }
 
     #[test]

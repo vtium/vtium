@@ -22,9 +22,7 @@ use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
 use rustix::fs::{Mode as FileMode, OFlags, open};
 
-use super::{
-    Density, DisplayId, Dpms, Event, Loan, Memory, Rect, SwapError, Swapped, Token, lock, try_lock,
-};
+use super::{Density, DisplayId, Dpms, Event, Loan, Memory, Rect, SwapError, Swapped, Token, lock};
 use crate::ioctl::{
     FB_ACTIVATE_FORCE, FB_ACTIVATE_NOW, FB_BLANK_NORMAL, FB_BLANK_POWERDOWN, FB_BLANK_UNBLANK,
     FB_NONSTD_REV_PIX_IN_B, FB_VISUAL_MONO01, FB_VISUAL_MONO10, FB_VISUAL_TRUECOLOR,
@@ -220,9 +218,10 @@ pub struct Fbdev<F: Framebuffer> {
     /// Taken anew at each set-up, VT release and blank: a token of an
     /// older lease comes back too late.
     lease: u64,
-    /// The sleep found the framebuffer lent, so the token's memory is
-    /// cleared to this byte when it comes back.
-    clear_owed: Option<u8>,
+    /// The framebuffer a sleep lets go, with the byte that clears it,
+    /// while a token drawing into it holds the sleep: the sleep clears it
+    /// and reports [`Event::Asleep`] once the token is revoked.
+    closing: Option<(Screen<F::Map>, u8)>,
     /// A swap's stand-in flip event is pending.
     vblank: bool,
     /// Unblanks tried again so far, while retrying.
@@ -256,7 +255,7 @@ impl<F: Framebuffer> Fbdev<F> {
             dpms: None,
             loan: None,
             lease: 0,
-            clear_owed: None,
+            closing: None,
             vblank: false,
             retries: None,
             wake_failed: false,
@@ -448,10 +447,9 @@ impl<F: Framebuffer> Fbdev<F> {
     pub fn give_back(&mut self, token: Token) {
         if self.loan.as_ref().is_some_and(|l| l.lent(&token)) {
             self.loan = None;
-            if let Some(clear) = self.clear_owed.take() {
-                lock(token.memory()).as_mut().fill(clear);
-            }
         }
+        drop(token);
+        self.close(false);
     }
 
     /// The swap: takes back the token lent for this frame, converts its
@@ -465,9 +463,8 @@ impl<F: Framebuffer> Fbdev<F> {
             return Err(SwapError::Dropped);
         };
         if !loan.current(&token, self.lease) {
-            if let Some(clear) = self.clear_owed.take() {
-                lock(token.memory()).as_mut().fill(clear);
-            }
+            drop(token);
+            self.close(false);
             if let Some(s) = self.screen.as_mut() {
                 s.fresh = true;
             }
@@ -501,8 +498,10 @@ impl<F: Framebuffer> Fbdev<F> {
         Ok(Swapped::Frame)
     }
 
-    /// Maps the framebuffer and sets the display up, then reports it.
+    /// Maps the framebuffer and sets the display up, then reports it. A
+    /// sleep a token still holds ends first.
     pub fn wake_up(&mut self) -> io::Result<()> {
+        self.close(true);
         self.awake = true;
         if let Err(e) = self.activate() {
             self.awake = false;
@@ -531,33 +530,68 @@ impl<F: Framebuffer> Fbdev<F> {
         Ok(())
     }
 
-    /// Clears and unmaps the framebuffer. fbdev has no flips to wait for,
-    /// so [`Event::Asleep`] follows at once.
+    /// Clears and unmaps the framebuffer, then reports [`Event::Asleep`].
+    /// A token lent for the framebuffer is revoked first, so nothing it
+    /// draws reaches the next VT's screen. Where the render thread is
+    /// drawing into it, the sleep waits, with the loop running, until the
+    /// token comes back or for at most [`crate::FLIP_WAIT_MS`], as a DRM
+    /// display's sleep waits for a flip, and then takes the memory from
+    /// the draw in progress.
     pub fn sleep(&mut self) {
         // A frame drawn while the VT is let go is not shown.
         self.lease = self.lease.wrapping_add(1);
-        if let Some(s) = self.screen.take() {
-            let clear = s.packing.clear();
-            // A token for the framebuffer may be drawing into it: its
-            // memory is cleared when it comes back.
-            let lent = self.lent() && s.copy.is_none();
-            match try_lock(&s.map).filter(|_| !lent) {
-                Some(mut map) => map.as_mut().fill(clear),
-                None => self.clear_owed = Some(clear),
-            }
-        }
         self.awake = false;
         self.vblank = false;
         self.retries = None;
         self.wake_failed = false;
+        match self.screen.take() {
+            Some(s) => {
+                let clear = s.packing.clear();
+                self.closing = Some((s, clear));
+                self.close(false);
+            }
+            None => self.events.push(Event::Asleep),
+        }
         self.settle();
+    }
+
+    /// Ends a sleep the token holds, where it can: revokes a token lent for
+    /// the framebuffer, waiting for its draw when `wait`, clears the
+    /// framebuffer, unmaps it and reports [`Event::Asleep`].
+    fn close(&mut self, wait: bool) {
+        let Some((screen, clear)) = self.closing.take() else {
+            return;
+        };
+        let cleared = {
+            let lent = self
+                .loan
+                .as_ref()
+                .filter(|l| l.out() && screen.copy.is_none());
+            let map = match lent {
+                Some(loan) => loan.revoke(&screen.map, wait),
+                None => Some(lock(&screen.map)),
+            };
+            map.map(|mut map| map.as_mut().fill(clear)).is_some()
+        };
+        if !cleared {
+            self.closing = Some((screen, clear));
+            return;
+        }
+        drop(screen);
         self.events.push(Event::Asleep);
+        self.settle();
     }
 
     /// The device's timer fired: the stand-in for a flip event, or the
     /// next try of an unblank that failed.
     fn fired(&mut self) {
-        if self.vblank {
+        if self.closing.is_some() {
+            log::warn!(
+                "the render thread held the framebuffer for {} ms past the VT release",
+                crate::FLIP_WAIT_MS
+            );
+            self.close(true);
+        } else if self.vblank {
             self.vblank();
         } else {
             self.retry_unblank();
@@ -579,7 +613,10 @@ impl<F: Framebuffer> Fbdev<F> {
             return;
         };
         let retry = u64::try_from(crate::WAKE_RETRY_MS).unwrap_or(u64::MAX);
-        let after = if self.vblank {
+        let flip = u64::try_from(crate::FLIP_WAIT_MS).unwrap_or(u64::MAX);
+        let after = if self.closing.is_some() {
+            Some(Duration::from_millis(flip))
+        } else if self.vblank {
             Some(self.interval)
         } else {
             self.retries.map(|_| Duration::from_millis(retry))
@@ -676,6 +713,15 @@ impl<F: Framebuffer> Fbdev<F> {
         // fbdev marks a size it does not know 0 or all ones; all ones gives
         // a density under DPI_MIN, so both read as no size.
         self.mm = (var.width, var.height);
+        // A token for the framebuffer of the set-up before maps this same
+        // memory: it is revoked where no frame is drawing into it now, and
+        // a frame drawing now lands on vtium's own screen, which the next
+        // frame draws whole.
+        if let (Some(old), Some(loan)) = (&self.screen, &self.loan) {
+            if old.copy.is_none() {
+                drop(loan.revoke(&old.map, false));
+            }
+        }
         self.screen = Some(Screen {
             map: Arc::new(Mutex::new(map)),
             width: var.xres,
@@ -685,10 +731,8 @@ impl<F: Framebuffer> Fbdev<F> {
             copy,
             fresh: true,
         });
-        // A token of the set-up before comes back too late, and the
-        // framebuffer it maps is this one's, so it is not cleared then.
+        // A token of the set-up before comes back too late.
         self.lease = self.lease.wrapping_add(1);
-        self.clear_owed = None;
         self.online = true;
         Ok(())
     }
