@@ -19,12 +19,18 @@ expect: you type it, completion and history as you know them, and this
 expect: guide back after exit.
 
 step: An editor
-run: f=$(mktemp) && seq -f 'line %g of a file for the editor' 1 300 >"$f" && "$(command -v vim || command -v nano)" "$f"; rm -f "$f"
-do: move with the arrows, Page Down and Page Up, type some text, then
-do: leave without saving: in vim Esc, then :q! and Enter; in nano Ctrl-X,
-do: then n.
-expect: each page drawn whole as you move, the cursor where you type,
-expect: and this screen back as it was after you leave.
+run: f=$(mktemp --suffix=.sh) && { printf '%s\n' '#!/bin/sh' '# A shell script for the editor step: a comment, a function, strings and variables.' 'greet() {' '    name="$1"' '    echo "hello, $name, from $HOME"' '}' 'count=0'; for i in $(seq 1 150); do printf 'greet "call %d of 150"\ncount=$((count + 1))\n' "$i"; done; } >"$f" && if command -v vim >/dev/null; then vim -c 'syntax on' "$f"; else nano "$f"; fi; rm -f "$f"
+do: the editor opens a shell script of about 300 lines. Move with the
+do: arrows, Page Down and Page Up, type some text, then leave without
+do: saving: in vim Esc, then :q! and Enter; in nano Ctrl-X, then n.
+expect: the script drawn in color: the comment lines in one color, the
+expect: quoted text in another, and the function name greet where it is
+expect: defined, the word echo, and the variables $name and $HOME each
+expect: picked out. Each page is drawn whole as you move, the cursor is
+expect: where you type, and this screen comes back as it was after you
+expect: leave. nano shows no color unless its syntax files are turned on
+expect: in your nanorc, so a plain screen in nano is not vtium's fault:
+expect: say so in the note.
 
 step: A pager
 run: less /etc/services

@@ -31,6 +31,21 @@ pub struct FramePlacement {
     pub src_y: u32,
     pub src_width: u32,
     pub src_height: u32,
+    /// The whole placement's source rectangle in the image's pixels, its
+    /// crop, before the view or a cut clipped it.
+    pub crop_x: u32,
+    pub crop_y: u32,
+    pub crop_width: u32,
+    pub crop_height: u32,
+    /// The whole drawn picture, the crop at its scale: its top left at
+    /// `offset_x`, `offset_y` from the box's top left, negative where a
+    /// cut or a scroll left only its lower or right part in the box, and
+    /// `drawn_width` by `drawn_height` pixels. A compositor that scales
+    /// the whole picture once maps the visible part through these.
+    pub offset_x: i64,
+    pub offset_y: i64,
+    pub drawn_width: u64,
+    pub drawn_height: u64,
     /// The cell size the placement was made in, the unit of its pixels.
     pub cell_width: u32,
     pub cell_height: u32,
@@ -149,6 +164,14 @@ fn entry(
         src_y: u(src_y),
         src_width: u(src_w),
         src_height: u(src_h),
+        crop_x: p.sx,
+        crop_y: p.sy,
+        crop_width: p.sw,
+        crop_height: p.sh,
+        offset_x: p.ox,
+        offset_y: p.oy,
+        drawn_width: p.dw,
+        drawn_height: p.dh,
         cell_width: p.cw,
         cell_height: p.ch,
         z: p.z,
