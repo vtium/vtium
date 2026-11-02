@@ -34,6 +34,11 @@ considered:
     said: "An animated GIF that a program sends through iTerm2's OSC 1337 File= plays as an animation through the kitty pipeline. The image helper reads the GIF's frames and attributes: each frame's delay, its disposal method, and the loop count from the NETSCAPE2.0 application extension, 0 meaning forever. The frames are stored and played by ADR-1102's machinery: whole frames under the frame allowance, and the animation clock in the binary. Place them with the kitty pipeline."
     via: the maintainer, 2026-11-02, in the steering session, relayed by the team lead in its brief for the image records; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "Confirmed: every iTerm2 picture, still or animated, keeps sixel's placement rules; only storage and playback come from kitty animation."
+    via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
+    covers: [where an animated GIF lives]
 status: proposed
 date: 2026-11-01
 deciders:
@@ -50,9 +55,11 @@ related: []
 - **One-way?** No. The handler is a thin front end; its keys and formats can grow later without touching the store.
 - **Probes:**
   - *Not confident (formats):* iTerm2 shows any picture its operating system can read, and `imgcat` is used most on photos, which are JPEGs. The record has the helper decode JPEG and a GIF's first frame beside PNG, through two more pure-Rust crates, `zune-jpeg` and `gif`, linked into the helper only. Do you want those two formats now, or PNG alone, with photos dropped until later?
-  - *Not confident (where an animated GIF lives):* you asked that animated GIFs be placed with the kitty pipeline. The record reads that as kitty animation's frame store, frame allowance and clock playing the GIF, while every iTerm2 picture, still or animated, keeps the placement rules it has today: text written over it and erases remove the part they cover, it scrolls with the text, and the cursor ends below it, as `imgcat` expects. The other reading stores every iTerm2 picture as a kitty picture: text and erases would then no longer remove it, only clearing the screen would, it could be pushed out of memory while still on the screen, and a program's kitty command to delete every picture would remove it too. Storing only animated GIFs as kitty pictures would give one protocol two sets of rules, chosen by what the file holds. The record leans to the first reading (D4). Is that what you meant?
+  - *Not confident (where an animated GIF lives):* you asked that animated GIFs be placed with the kitty pipeline. The record reads that as kitty animation's frame store, frame allowance and clock playing the GIF, while every iTerm2 picture, still or animated, keeps the placement rules it has today: text written over it and erases remove the part they cover, it scrolls with the text, and the cursor ends below it, as `imgcat` expects. The other reading stores every iTerm2 picture as a kitty picture: text and erases would then no longer remove it, only clearing the screen would, it could be pushed out of memory while still on the screen, and a program's kitty command to delete every picture would remove it too. Storing only animated GIFs as kitty pictures would give one protocol two sets of rules, chosen by what the file holds. The record leans to the first reading (D4). Is that what you meant? (Answered 2026-11-02; see `considered`.)
   - *Confident (no transfer in parts):* a picture whose file is larger than about 768 KiB does not show, rather than vtium taking iTerm2's newer `MultipartFile` form, which no other terminal vtium is measured against documents. Yes or no?
 - **Inversion:** Between "an image protocol of its own" and "ignore OSC 1337 entirely". The answer, as ADR-1100 framed it, is a compatibility front end that maps each picture onto sixel's rules and the kitty path's decoding, so programs that send it work and nothing else in vtium knows it exists.
+
+> Edited 2026-11-02, the maintainer's answer in the steering session's interview (`considered`): every iTerm2 picture, still or animated, keeps sixel's placement rules, and only storage and playback come from kitty animation (D4, the Alternatives).
 
 > Edited 2026-11-02, the maintainer's decision (2026-11-02): an animated GIF plays as an animation through kitty animation's frames and clock. The helper decodes every frame of a GIF and composes the disposal methods into whole frames (D2); the handler stores them under the frame allowance, with gaps from the delays and loops from the loop count (D2); the placement of such a picture is the probe *where an animated GIF lives*, with the record's lean in D4. The Summary, Trades away, the departures, the Consequences, the Alternatives and D5 follow. The record decoded a GIF's first frame only, and listed that as a departure from iTerm2.
 
@@ -97,9 +104,9 @@ The handler works out the size the picture draws at, in pixels at the console's 
 ### D4: placing, and the cursor
 
 - **Where.** The picture's top left is the cursor's cell, under the sixel tag, so every rule in ADR-1100 D3's sixel column applies to it: text written over it and erases cut it, a region scroll splits it, it draws above text at z 0, and it is never evicted while on the screen's own lines.
-- **An animated GIF** takes the same placement, under the same sixel tag, as every other iTerm2 picture; only its storage and its playback are kitty animation's (the record's lean on the probe *where an animated GIF lives*). Frames belong to an image and never to a tag, so the rules function needs no new column: text written over the GIF, an erase and a region scroll cut and move its placement as they do a sixel's, and every piece of it shows the frame the clock chose (ADR-1102 D3). Where a picture under the sixel tag covers the older pictures beneath it cell by cell (ADR-1100 D2), an animated GIF covers a cell fully only when every one of its frames covers that cell fully, and leaves a cell empty only when every frame leaves it empty. Its frames past the first can be freed for the frame allowance even while it shows, and it then shows its first frame, still (ADR-1102 D1); its first frame, like any sixel-tag picture, is never evicted while on the screen's own lines.
+- **An animated GIF** takes the same placement, under the same sixel tag, as every other iTerm2 picture; only its storage and its playback are kitty animation's (the maintainer, 2026-11-02). Frames belong to an image and never to a tag, so the rules function needs no new column: text written over the GIF, an erase and a region scroll cut and move its placement as they do a sixel's, and every piece of it shows the frame the clock chose (ADR-1102 D3). Where a picture under the sixel tag covers the older pictures beneath it cell by cell (ADR-1100 D2), an animated GIF covers a cell fully only when every one of its frames covers that cell fully, and leaves a cell empty only when every frame leaves it empty. Its frames past the first can be freed for the frame allowance even while it shows, and it then shows its first frame, still (ADR-1102 D1); its first frame, like any sixel-tag picture, is never evicted while on the screen's own lines.
 
-  > Added 2026-11-02: the maintainer decided that an animated GIF plays through kitty animation's frames and clock, and said to place such pictures with the kitty pipeline. Which part of the kitty pipeline places them is the probe *where an animated GIF lives*; this bullet gives the record's lean.
+  > Added 2026-11-02: the maintainer decided that an animated GIF plays through kitty animation's frames and clock, and said to place such pictures with the kitty pipeline. Which part of the kitty pipeline places them was the probe *where an animated GIF lives*, and the maintainer confirmed the record's lean in the steering session's interview the same day (`considered`).
 - **Scrolling.** A box taller than the rows from the cursor to the bottom margin scrolls the screen as a sixel does with sixel scrolling on: the scroll region first, then an index for what the region cannot hold. Mode 80, DECSDM, which turns sixel scrolling off, is a sixel mode and does not apply, so an iTerm2 picture always scrolls.
 - **The cursor** ends where a sixel's does with mode 8452 reset: on the row that holds the picture's last row of pixels, at the picture's left column. Mode 8452, which moves the cursor to the right of a sixel, does not apply. A program such as `imgcat` that writes a new line after the picture then continues on the row below it.
 
@@ -113,7 +120,7 @@ The handler works out the size the picture draws at, in pixels at the console's 
 
 ### Passages this record changes
 
-- **ADR-1100 D9** says that a frame entry for an animated kitty image carries its frames; it covers an animated iTerm2 picture too, and its wording changes in an edit of ADR-1100 once the maintainer answers the probe *where an animated GIF lives*.
+- **ADR-1100 D9** said that a frame entry for an animated kitty image carries its frames; it now names an iTerm2 picture's animated GIF beside kitty's images, with a dated note.
 - **ADR-1000's `osc.1337` row** says OSC 1337 is ignored "apart from File="; it gains `MultipartFile`, `FilePart` and `FileEnd`, in its owner's change.
 
 ## Where vtium departs
@@ -149,7 +156,7 @@ The C reference had no iTerm2 handler, so nothing here departs from it. From iTe
 
 - **PNG only,** the format kitty's `f=100` takes. Rejected (the maintainer, 2026-11-01): most pictures `imgcat` shows are photos, which are JPEGs.
 - **A GIF's first frame only,** the record's first choice (the maintainer, 2026-11-01). Replaced (the maintainer, 2026-11-02): an animated GIF plays through kitty animation's frames and clock (ADR-1102), with the helper composing its disposal methods into whole frames.
-- **Every iTerm2 picture stored as a kitty picture.** Not taken while the probe *where an animated GIF lives* is open: text and erases would stop removing iTerm2 pictures, and a kitty delete would reach pictures that a program sent through another protocol.
+- **Every iTerm2 picture stored as a kitty picture.** Rejected (the maintainer, 2026-11-02): text and erases would stop removing iTerm2 pictures, and a kitty delete would reach pictures that a program sent through another protocol.
 - **Only animated GIFs stored as kitty pictures.** Not taken: one protocol would follow two sets of rules, chosen by what the file holds, and a GIF that loses its frames to the allowance would still follow kitty's rules as a still picture.
 - **No transfer in parts,** keeping one sequence's 1 MiB as the bound. Rejected (the maintainer, 2026-11-02): a photo larger than about 768 KiB would never show.
 - **Honoring WezTerm's `doNotMoveCursor`.** Rejected: vtium adopts no one terminal's extension (the maintainer, 2026-11-01, ADR-1100 D3).

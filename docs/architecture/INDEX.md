@@ -30,7 +30,7 @@ _Inline images - sixel and the kitty graphics protocol, storage and placement_
 |-----|-------|--------|
 | [ADR-1100](./image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md) | One image pipeline: protocol handlers feed a store of placements that travel with lines | accepted |
 | [ADR-1101](./image/ADR-1101-the-image-helper-is-its-own-sandboxed-program-run-as-the-session-s-user.md) | The image helper is its own sandboxed program, run as the session's user | accepted |
-| [ADR-1102](./image/ADR-1102-kitty-animation-frames-are-stored-whole-and-a-clock-outside-the-store-plays-them.md) | Kitty animation frames are stored whole, and a clock outside the store plays them | proposed |
+| [ADR-1102](./image/ADR-1102-kitty-animation-frames-are-stored-as-the-program-sent-them-and-composed-before-drawing-and-a-clock-outside-the-store-plays-them.md) | Kitty animation frames are stored as the program sent them and composed before drawing, and a clock outside the store plays them | proposed |
 | [ADR-1103](./image/ADR-1103-iterm2-pictures-are-sized-by-their-keys-and-decoded-in-the-image-helper.md) | iTerm2 pictures are sized by their keys and decoded in the image helper | proposed |
 
 ## Font
