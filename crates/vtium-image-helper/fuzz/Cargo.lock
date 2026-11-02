@@ -307,14 +307,14 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "vtium-image"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "vtium-parse",
 ]
 
 [[package]]
 name = "vtium-image-helper"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "gif",
  "landlock",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-parse"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 
 [[package]]
 name = "weezl"
