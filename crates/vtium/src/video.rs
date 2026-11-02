@@ -37,14 +37,10 @@ pub const FEATURES_ON_TOP: [(&str, bool); 2] = [
 
 /// Whether any of `features` is on.
 const fn any_on(features: &[(&str, bool)]) -> bool {
-    let mut i = 0;
-    while i < features.len() {
-        if features[i].1 {
-            return true;
-        }
-        i += 1;
+    match features {
+        [] => false,
+        [(_, on), rest @ ..] => *on || any_on(rest),
     }
-    false
 }
 
 /// The buffers each DRM display keeps: `configured`, kmscon.conf's
