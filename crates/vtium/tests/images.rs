@@ -8,7 +8,9 @@
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Read, Write};
+use std::os::fd::OwnedFd;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -21,10 +23,12 @@ use vtium::head::images::Helper;
 use vtium::head::{Head, Start};
 use vtium::video::Video;
 use vtium_image::decode::{Medium, Payload, Reply, Request};
+use vtium_platform::IMAGE_CRASHES_MAX;
 use vtium_platform::display::{
     DisplayId, Dpms, Event, Identity, Memory as Shared, Rect, SwapError, Swapped, Token,
 };
 use vtium_platform::event_loop::Loop;
+use vtium_platform::image_helper::{Session, without_helper};
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
 use vtium_platform::vt::FakeVt;
 
@@ -207,45 +211,164 @@ impl Video for Memory {
     }
 }
 
-/// What a stand-in image helper was asked and answers: the requests it
-/// was sent, the reply the test gives it, the helpers started and the
-/// helpers stopped. Like the real helper it serves every request of its
-/// console, one at a time, and answers only once the console asks.
-#[derive(Default)]
+/// What a stand-in image helper host was sent and answers. It follows
+/// vtium-platform's `ImageHost`: it lasts as long as its console, takes one
+/// request at a time, answers at once past the crash limit, for more
+/// bytes than the budget, and for a session whose pty another account
+/// owns (the rule for a vtium not running as root on a host without
+/// logind), starts a helper at a request when none runs, stops the helper
+/// and counts a crash on a failed reply, stops it with no crash on the
+/// timer, clears its count when the session ends, and gives its reply only
+/// once its socket is readable, which the test makes it by answering.
 struct Asked {
+    /// The requests sent to a helper.
     sent: Vec<Request>,
+    /// The requests answered at once, with no helper.
+    at_once: Vec<Request>,
+    /// The answer [`Asked::answer_at_once`] sets, given in place of a send.
+    answer_at_once: Option<Reply>,
+    /// The reply the test gave.
     reply: Option<Reply>,
     /// A request was sent and not yet answered.
     out: bool,
+    /// A helper runs.
+    running: bool,
+    /// Helpers started.
     started: u32,
+    /// Helpers that ended: on the timer, on a crash or at a session's end.
     stopped: u32,
+    /// Times the timer stopped the helper.
+    stops: u32,
+    /// Times a session ended.
+    ended: u32,
+    crashes: usize,
+    /// Times the console asked for the reply.
+    polls: u32,
+    /// The socket the host watches, and the end the test writes to when
+    /// it answers.
+    socket: (UnixStream, UnixStream),
+}
+
+impl Asked {
+    fn new() -> Asked {
+        let (watched, written) = UnixStream::pair().expect("a socket pair");
+        watched
+            .set_nonblocking(true)
+            .expect("a socket that does not block");
+        Asked {
+            sent: Vec::new(),
+            at_once: Vec::new(),
+            answer_at_once: None,
+            reply: None,
+            out: false,
+            running: false,
+            started: 0,
+            stopped: 0,
+            stops: 0,
+            ended: 0,
+            crashes: 0,
+            polls: 0,
+            socket: (watched, written),
+        }
+    }
+
+    /// The helper answers the request out with `reply`: its socket becomes
+    /// readable.
+    fn answer(&mut self, reply: Reply) {
+        self.reply = Some(reply);
+        (&self.socket.1)
+            .write_all(b"r")
+            .expect("a write to the socket");
+    }
+
+    fn end_helper(&mut self) {
+        if std::mem::take(&mut self.running) {
+            self.stopped += 1;
+        }
+        self.out = false;
+    }
+}
+
+/// Each console's stand-in host, in the order the consoles took them.
+#[derive(Clone, Default)]
+struct Hosts(Rc<RefCell<Vec<Rc<RefCell<Asked>>>>>);
+
+impl Hosts {
+    fn count(&self) -> usize {
+        self.0.borrow().len()
+    }
 }
 
 struct StandIn(Rc<RefCell<Asked>>);
 
 impl Helper for StandIn {
-    fn send(&mut self, request: Request) {
+    fn send(&mut self, request: &Request, session: &Session) -> Result<(), Reply> {
         let mut asked = self.0.borrow_mut();
         assert!(!asked.out, "one request out at a time");
+        let me = rustix::process::geteuid().as_raw();
+        let answer = if !self.available_in(&asked) {
+            Some(without_helper(request))
+        } else if !request.discard && request.min > request.largest_bytes {
+            Some(Reply::OverBudget)
+        } else if session.child.is_none() || session.pty_owner.as_ref().ok() != Some(&me) {
+            Some(Reply::Unreadable)
+        } else {
+            asked.answer_at_once.clone()
+        };
+        if let Some(reply) = answer {
+            asked.at_once.push(request.clone());
+            return Err(reply);
+        }
+        if !asked.running {
+            asked.running = true;
+            asked.started += 1;
+        }
         asked.out = true;
-        asked.sent.push(request);
+        asked.sent.push(request.clone());
+        Ok(())
     }
     fn reply(&mut self) -> Option<Reply> {
         let mut asked = self.0.borrow_mut();
+        asked.polls += 1;
+        if !asked.out || (&asked.socket.0).read(&mut [0u8; 1]).ok() != Some(1) {
+            return None;
+        }
+        let reply = asked.reply.take().expect("the test's reply");
+        let request = asked.sent.last().expect("the request out").clone();
+        let reply = reply.checked(&request);
+        if reply == Reply::Failed {
+            asked.end_helper();
+            asked.crashes += 1;
+        }
+        asked.out = false;
+        Some(reply)
+    }
+    fn stop(&mut self) {
+        let mut asked = self.0.borrow_mut();
+        asked.stops += 1;
+        asked.end_helper();
+    }
+    fn session_ended(&mut self) {
+        let mut asked = self.0.borrow_mut();
+        asked.ended += 1;
+        asked.end_helper();
+        asked.crashes = 0;
+    }
+    fn wake(&self) -> Option<OwnedFd> {
+        let asked = self.0.borrow();
         if !asked.out {
             return None;
         }
-        let reply = asked.reply.take();
-        asked.out = reply.is_none();
-        reply
+        asked.socket.0.try_clone().ok().map(OwnedFd::from)
+    }
+    fn available(&self) -> bool {
+        self.available_in(&self.0.borrow())
     }
 }
 
-impl Drop for StandIn {
-    fn drop(&mut self) {
-        let mut asked = self.0.borrow_mut();
-        asked.stopped += 1;
-        asked.out = false;
+impl StandIn {
+    fn available_in(&self, asked: &Asked) -> bool {
+        asked.crashes < IMAGE_CRASHES_MAX
     }
 }
 
@@ -286,14 +409,14 @@ struct Seat {
 impl Seat {
     /// The seat booted with `args` at 16 points, 16-pixel cells at 72 DPI,
     /// on `memory` as `/dev/mem0`, under the head file `heads` when given,
-    /// its session running `script`, with the stand-in image helper
-    /// `helper` when given.
+    /// its session running `script`, each console with a stand-in image
+    /// helper host of `hosts` when given, else with no image helper.
     fn boot(
         args: &[&str],
         heads: Option<&str>,
         memory: Memory,
         script: &str,
-        helper: Option<&Rc<RefCell<Asked>>>,
+        hosts: Option<&Hosts>,
     ) -> Seat {
         let args: Vec<OsString> = ["--font-size=16"]
             .iter()
@@ -323,13 +446,15 @@ impl Seat {
             assert_eq!(start.line(), None, "a valid head file");
             app.set_heads(start);
         }
-        if let Some(asked) = helper {
-            let asked = Rc::clone(asked);
-            app.set_image_helpers(Some(Rc::new(move || {
-                asked.borrow_mut().started += 1;
-                Box::new(StandIn(Rc::clone(&asked))) as Box<dyn Helper>
-            })));
-        }
+        app.set_image_helpers(hosts.map(|hosts| {
+            let hosts = hosts.clone();
+            let make: vtium::head::images::Helpers = Rc::new(move || {
+                let asked = Rc::new(RefCell::new(Asked::new()));
+                hosts.0.borrow_mut().push(Rc::clone(&asked));
+                Box::new(StandIn(asked)) as Box<dyn Helper>
+            });
+            make
+        }));
         app.add_video(PathBuf::from("/dev/mem0"), Box::new(memory));
         app.vt.activate().expect("the fake VT");
         app.start();
@@ -364,6 +489,12 @@ impl Seat {
             self.turn();
         }
         done(self)
+    }
+
+    /// The stand-in host of `hosts` the `i`th console took, once it has.
+    fn host(&mut self, hosts: &Hosts, i: usize) -> Rc<RefCell<Asked>> {
+        assert!(self.until(|_| hosts.count() > i), "console {i}'s host");
+        Rc::clone(&hosts.0.borrow()[i])
     }
 
     fn memory(&mut self, node: &str) -> &mut Memory {
@@ -644,9 +775,8 @@ fn kitty_file() -> String {
     )
 }
 
-/// D7: with no image helper, which is how vtium runs until the helper is
-/// built, a kitty file is answered at once with EBADF, and what follows it
-/// is read on.
+/// D7: with no image helper a kitty file is answered at once with EBADF,
+/// and what follows it is read on.
 #[test]
 fn with_no_helper_a_kitty_file_is_answered_ebadf_at_once() {
     let mut s = Seat::boot(&[], None, Memory::new(320, 160, "mem"), &kitty_file(), None);
@@ -659,23 +789,25 @@ fn with_no_helper_a_kitty_file_is_answered_ebadf_at_once() {
     assert_eq!(s.placements(), 0);
 }
 
-/// D7: a request goes to the console's helper and its pty is paused, so
-/// the bytes after the string wait for the reply however many turns pass;
-/// the reply places the picture, the kitty handler's OK goes to the
-/// program, and the bytes after it are read.
+/// D7: a request goes to the console's helper, with the console's session,
+/// and its pty is paused, so the bytes after the string wait for the reply
+/// however many turns pass; the reply places the picture, the kitty
+/// handler's OK goes to the program, and the bytes after it are read.
 #[test]
 fn a_request_pauses_the_console_until_its_helper_replies() {
-    let asked = Rc::new(RefCell::new(Asked::default()));
+    let hosts = Hosts::default();
     let mut s = Seat::boot(
         &[],
         None,
         Memory::new(320, 160, "mem"),
         &kitty_file(),
-        Some(&asked),
+        Some(&hosts),
     );
+    let asked = s.host(&hosts, 0);
     assert!(
         s.until(|_| asked.borrow().sent.len() == 1),
-        "a request was sent"
+        "a request was sent: {:?}",
+        asked.borrow().at_once
     );
     let sent = asked.borrow().sent[0].clone();
     assert_eq!(sent.medium, Medium::File(b"/x.png".to_vec()));
@@ -685,7 +817,7 @@ fn a_request_pauses_the_console_until_its_helper_replies() {
     }
     assert!(!s.shows("after"), "{:?}", s.app.screen_text());
     assert_eq!(s.placements(), 0);
-    asked.borrow_mut().reply = Some(Reply::Ok(Payload::Rgba {
+    asked.borrow_mut().answer(Reply::Ok(Payload::Rgba {
         width: 1,
         height: 1,
         data: vec![255, 0, 0, 255],
@@ -699,20 +831,35 @@ fn a_request_pauses_the_console_until_its_helper_replies() {
     assert_eq!((asked.borrow().started, asked.borrow().stopped), (1, 0));
 }
 
+/// The child sends a kitty file, prints the terminal's answer, sends a
+/// second one, prints its answer, then `after`.
+fn two_kitty_files() -> String {
+    format!(
+        "stty -echo -icanon min 1 time 0; printf '\\033[?25l\\033_Ga=t,t=f,f=100,i=7;L3gucG5n\\033\\\\'; {}\
+         printf '\\033_Ga=t,t=f,f=100,i=8;L3gucG5n\\033\\\\'; {}printf 'after\\n'; read x",
+        read_reply("\\"),
+        read_reply("\\")
+    )
+}
+
 /// D7, ADR-1101 D8: a request the helper has not answered when the
-/// 2,000 ms timer fires fails, the helper is stopped, the kitty handler
-/// answers EBADF and the console reads on. The seat's clock moves ahead
-/// past the timer, so the test waits on no real time.
+/// 2,000 ms timer fires fails, the kitty handler answers EBADF and the
+/// console reads on. The console's host is told to stop its helper,
+/// counts no crash and stays the console's: the next request goes to it
+/// and starts another helper. The seat's clock moves ahead past the
+/// timer, so the test waits on no real time.
+// covers: image.helper
 #[test]
 fn a_request_unanswered_for_two_seconds_fails_and_stops_the_helper() {
-    let asked = Rc::new(RefCell::new(Asked::default()));
+    let hosts = Hosts::default();
     let mut s = Seat::boot(
         &["--no-blink"],
         None,
         Memory::new(320, 160, "mem"),
-        &kitty_file(),
-        Some(&asked),
+        &two_kitty_files(),
+        Some(&hosts),
     );
+    let asked = s.host(&hosts, 0);
     assert!(
         s.until(|_| asked.borrow().sent.len() == 1),
         "a request was sent"
@@ -720,8 +867,8 @@ fn a_request_unanswered_for_two_seconds_fails_and_stops_the_helper() {
     for _ in 0..20 {
         s.turn();
     }
-    assert!(!s.shows("after"));
-    assert_eq!(asked.borrow().stopped, 0);
+    assert!(!s.shows("E_Gi=7"));
+    assert_eq!(asked.borrow().stops, 0);
     // The loop wakes for the timer: 10 ms before it is due, the next wake
     // is at most those 10 ms away.
     let timeout = vtium::head::images::REPLY_TIMEOUT;
@@ -733,18 +880,25 @@ fn a_request_unanswered_for_two_seconds_fails_and_stops_the_helper() {
     );
     s.ahead.set(timeout);
     assert!(
-        s.until(|s| s.shows("after") && s.shows("E_Gi=7;EBADF:Failed to read image file")),
+        s.until(|_| asked.borrow().sent.len() == 2),
         "{:?}",
         s.app.screen_text()
     );
-    assert_eq!(asked.borrow().stopped, 1);
+    assert!(s.shows("E_Gi=7;EBADF:Failed to read image file"));
+    let a = asked.borrow();
+    assert_eq!((a.stops, a.crashes, a.started, a.stopped), (1, 0, 2, 1));
+    drop(a);
+    assert_eq!(hosts.count(), 1, "the console keeps its host");
     assert_eq!(s.placements(), 0);
 }
 
 /// ADR-1101 D8: a session that ends with a request out drops it with no
-/// reply and stops its helper, so the reset that starts the next session
-/// takes: here the session is hung up when its head loses its display,
-/// and the next one finds the first session's text gone.
+/// reply, so the reset that starts the next session takes: here the
+/// session is hung up when its head loses its display, and the next one
+/// finds the first session's text gone. The console's host is told the
+/// session ended, so it stops its helper and clears the crash the first
+/// session counted, and the console keeps it for the next session.
+// covers: image.helper
 #[test]
 fn a_session_ending_with_a_request_out_drops_it_and_the_next_starts_clean() {
     let dir = std::env::temp_dir().join(format!("vtium-images-hangup-{}", std::process::id()));
@@ -756,7 +910,7 @@ fn a_session_ending_with_a_request_out_drops_it_and_the_next_starts_clean() {
         format!(
             "if [ -e '{mark}' ]; then printf 'second\\n'; read x; fi\n\
              : > '{mark}'\n\
-             printf 'first\\n{KITTY_FILE}'\n\
+             printf 'first\\n\\033_Ga=t,t=f,f=100,i=6;L3gucG5n\\033\\\\{KITTY_FILE}'\n\
              read x\n",
             mark = mark.display()
         ),
@@ -766,14 +920,15 @@ fn a_session_ending_with_a_request_out_drops_it_and_the_next_starts_clean() {
         "version = 1\n[head main]\nwhen-display-lost = hangup\nlogin = /bin/sh {}\n[rules]\ndisplay card:mem -> main\n",
         script.display()
     );
-    let asked = Rc::new(RefCell::new(Asked::default()));
+    let hosts = Hosts::default();
     let mut s = Seat::boot(
         &[],
         Some(&heads),
         Memory::new(320, 160, "mem"),
         "read x",
-        Some(&asked),
+        Some(&hosts),
     );
+    let asked = s.host(&hosts, 0);
     let main = |s: &Seat, text: &str| {
         s.app
             .head("main")
@@ -783,47 +938,51 @@ fn a_session_ending_with_a_request_out_drops_it_and_the_next_starts_clean() {
         s.until(|_| asked.borrow().sent.len() == 1),
         "a request was sent"
     );
+    asked.borrow_mut().answer(Reply::Failed);
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 2),
+        "the second request was sent"
+    );
+    assert_eq!(asked.borrow().crashes, 1);
     assert!(main(&s, "first"));
     s.memory("/dev/mem0").events.push(Event::Removed(ID));
     assert!(s.until(|s| main(s, "second")), "the next session runs");
     assert!(!main(&s, "first"), "the reset took");
-    assert_eq!(asked.borrow().stopped, 1);
+    let a = asked.borrow();
+    assert_eq!((a.ended, a.crashes, a.stops, a.out), (1, 0, 0, false));
+    assert_eq!((a.started, a.stopped), (2, 2));
+    drop(a);
+    assert_eq!(hosts.count(), 1, "the console keeps its host");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// ADR-1101 D8: any failure stops the helper, not the timer alone. A
-/// FAILED reply, as from a lost socket, stops it, and so does a reply
-/// that fails its checks, here a 2x2 picture holding one pixel's bytes;
-/// each is answered EBADF and the console reads on. The next request
-/// starts another helper.
+/// ADR-1101 D8: a FAILED reply, as from a lost socket, and a reply that
+/// fails its checks, here a 2x2 picture holding one pixel's bytes, are
+/// each answered EBADF and the console reads on. The host stops its
+/// helper and counts a crash for each, and the next request starts
+/// another helper.
 #[test]
 fn a_failed_reply_or_one_that_fails_its_checks_stops_the_helper() {
-    let script = format!(
-        "stty -echo -icanon min 1 time 0; \
-         printf '\\033[?25l\\033_Ga=t,t=f,f=100,i=7;L3gucG5n\\033\\\\\\033_Ga=t,t=f,f=100,i=8;L3gucG5n\\033\\\\after\\n'; \
-         {}{}read x",
-        read_reply("\\"),
-        read_reply("\\")
-    );
-    let asked = Rc::new(RefCell::new(Asked::default()));
+    let hosts = Hosts::default();
     let mut s = Seat::boot(
         &[],
         None,
         Memory::new(320, 160, "mem"),
-        &script,
-        Some(&asked),
+        &two_kitty_files(),
+        Some(&hosts),
     );
+    let asked = s.host(&hosts, 0);
     assert!(
         s.until(|_| asked.borrow().sent.len() == 1),
         "the first request"
     );
-    asked.borrow_mut().reply = Some(Reply::Failed);
+    asked.borrow_mut().answer(Reply::Failed);
     assert!(
         s.until(|_| asked.borrow().sent.len() == 2),
         "the second request"
     );
     assert_eq!((asked.borrow().started, asked.borrow().stopped), (2, 1));
-    asked.borrow_mut().reply = Some(Reply::Ok(Payload::Rgba {
+    asked.borrow_mut().answer(Reply::Ok(Payload::Rgba {
         width: 2,
         height: 2,
         data: vec![255, 0, 0, 255],
@@ -834,8 +993,207 @@ fn a_failed_reply_or_one_that_fails_its_checks_stops_the_helper() {
         s.app.screen_text()
     );
     assert!(s.shows("E_Gi=7;EBADF:Failed to read image file"));
-    assert_eq!((asked.borrow().started, asked.borrow().stopped), (2, 2));
+    let a = asked.borrow();
+    assert_eq!((a.started, a.stopped, a.crashes, a.stops), (2, 2, 2, 0));
     assert_eq!(s.placements(), 0);
+}
+
+/// ADR-1101 D7, D8: an answer the host gives at once, as without a helper,
+/// goes straight back to the program: the console never waits on a reply
+/// for it, so the host is never asked for one and the timer never stops
+/// it, however far the clock moves.
+// covers: image.helper
+#[test]
+fn an_answer_given_at_once_goes_back_without_pausing_the_pty() {
+    let hosts = Hosts::default();
+    let mut s = Seat::boot(
+        &["--no-blink"],
+        None,
+        Memory::new(320, 160, "mem"),
+        &kitty_file(),
+        Some(&hosts),
+    );
+    let asked = s.host(&hosts, 0);
+    asked.borrow_mut().answer_at_once = Some(Reply::Unreadable);
+    assert!(
+        s.until(|s| s.shows("after") && s.shows("E_Gi=7;EBADF:Failed to read image file")),
+        "{:?}",
+        s.app.screen_text()
+    );
+    s.ahead.set(vtium::head::images::REPLY_TIMEOUT * 2);
+    for _ in 0..5 {
+        s.turn();
+    }
+    let a = asked.borrow();
+    assert_eq!(a.at_once.len(), 1);
+    assert_eq!((a.sent.len(), a.polls, a.stops, a.started), (0, 0, 0, 0));
+}
+
+/// Console 1 sends five kitty files, one after another, printing each
+/// answer; console 2 sends two, after console 1 is done with its fourth.
+fn five_and_two() -> String {
+    let file = |i: u32| {
+        format!(
+            "printf '\\033_Ga=t,t=f,f=100,i={i};L3gucG5n\\033\\\\'; {}",
+            read_reply("\\")
+        )
+    };
+    let ones: String = (1..=5).map(file).collect();
+    let twos: String = (8..=9).map(file).collect();
+    format!(
+        "stty -echo -icanon min 1 time 0; printf '\\033[?25l'; \
+         if [ \"$VTIUM_CONSOLE\" = 1 ]; then {ones}else {twos}fi; read x"
+    )
+}
+
+/// Boots a head of two consoles running [`five_and_two`], and fails
+/// console 1's first three requests, which reaches its host's crash limit.
+/// Returns the seat and the two consoles' hosts.
+fn three_crashes_on_console_1() -> (Seat, Rc<RefCell<Asked>>, Rc<RefCell<Asked>>) {
+    let heads = "version = 1\n[head main]\nconsoles = 2\n[rules]\ndisplay card:mem -> main\n";
+    let hosts = Hosts::default();
+    let mut s = Seat::boot(
+        &["--no-blink"],
+        Some(heads),
+        Memory::new(320, 160, "mem"),
+        &five_and_two(),
+        Some(&hosts),
+    );
+    let one = s.host(&hosts, 0);
+    let two = s.host(&hosts, 1);
+    assert!(
+        s.until(|_| two.borrow().sent.len() == 1),
+        "console 2's first request"
+    );
+    for n in 1..=3 {
+        assert!(
+            s.until(|_| one.borrow().sent.len() == n),
+            "console 1's request {n}: {:?}",
+            s.app.head("main").map(Head::consoles_text)
+        );
+        one.borrow_mut().answer(Reply::Failed);
+    }
+    assert_eq!(hosts.count(), 2, "each console keeps its host");
+    (s, one, two)
+}
+
+/// What console `i` of the head shows has `text`.
+fn console_shows(s: &Seat, i: usize, text: &str) -> bool {
+    s.app
+        .head("main")
+        .is_some_and(|h| h.consoles_text()[i].iter().any(|l| l.contains(text)))
+}
+
+/// ADR-1101 D8: after three crashes a console answers its next file at
+/// once with EBADF and starts no helper for it, while the other console
+/// keeps its helper: its request is answered with the picture.
+// covers: image.helper
+#[test]
+fn after_three_crashes_a_console_answers_ebadf_and_another_keeps_its_helper() {
+    let (mut s, one, two) = three_crashes_on_console_1();
+    assert!(
+        s.until(|s| console_shows(s, 0, "E_Gi=4;EBADF:Failed to read image file")),
+        "{:?}",
+        s.app.head("main").map(Head::consoles_text)
+    );
+    for i in 1..=3 {
+        assert!(console_shows(&s, 0, &format!("E_Gi={i};EBADF")));
+    }
+    {
+        let a = one.borrow();
+        assert_eq!((a.started, a.stopped, a.crashes), (3, 3, 3));
+        assert_eq!(a.sent.len(), 3, "no helper took the fourth");
+        assert!(!a.running);
+    }
+    two.borrow_mut().answer(red_picture());
+    assert!(
+        s.until(|s| console_shows(s, 1, "E_Gi=8;OKE")),
+        "{:?}",
+        s.app.head("main").map(Head::consoles_text)
+    );
+    assert_eq!((two.borrow().started, two.borrow().crashes), (1, 0));
+}
+
+/// ADR-1101 D8: a host past its crash limit tells its own console's
+/// terminal that no helper runs, so the terminal answers the console's
+/// fifth file itself and the host never sees it; the other console's
+/// terminal still sends its requests to its host.
+// covers: image.helper
+#[test]
+fn a_helper_becoming_unavailable_changes_its_own_consoles_terminal_alone() {
+    let (mut s, one, two) = three_crashes_on_console_1();
+    assert!(
+        s.until(|s| console_shows(s, 0, "E_Gi=5;EBADF:Failed to read image file")),
+        "{:?}",
+        s.app.head("main").map(Head::consoles_text)
+    );
+    {
+        let a = one.borrow();
+        let seen = a.sent.len() + a.at_once.len();
+        assert!(
+            seen <= 4,
+            "console 1's host saw {seen} requests: the fifth reached it"
+        );
+    }
+    two.borrow_mut().answer(red_picture());
+    assert!(
+        s.until(|_| two.borrow().sent.len() == 2),
+        "console 2's second request reaches its host: {:?}",
+        s.app.head("main").map(Head::consoles_text)
+    );
+}
+
+/// ADR-1101 D7: while a request is out the loop watches the host's socket,
+/// so the loop wakes when the reply arrives and the turn after hands it
+/// back. A timer in the loop, due after [`BOUND`], only bounds the wait and
+/// marks that nothing else woke it; no timer of the seat is due, and the
+/// display has settled.
+// covers: image.helper
+#[test]
+fn the_reply_arriving_wakes_the_loop() {
+    let hosts = Hosts::default();
+    let mut s = Seat::boot(
+        &["--no-blink"],
+        None,
+        Memory::new(320, 160, "mem"),
+        &kitty_file(),
+        Some(&hosts),
+    );
+    let asked = s.host(&hosts, 0);
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 1),
+        "a request was sent"
+    );
+    let quiet = |s: &mut Seat| {
+        s.app.heads()[0].frames_out() == 0
+            && (0..5).all(|_| {
+                s.turn();
+                s.app.heads()[0].frames_out() == 0
+            })
+    };
+    assert!(s.until(quiet), "the display settles");
+    assert!(asked.borrow().out);
+    asked.borrow_mut().answer(red_picture());
+    let bounded = Rc::new(Cell::new(false));
+    let fired = Rc::clone(&bounded);
+    let timer =
+        s.lp.handle()
+            .insert_source(
+                calloop::timer::Timer::from_duration(BOUND),
+                move |_, _, _| {
+                    fired.set(true);
+                    calloop::timer::TimeoutAction::Drop
+                },
+            )
+            .expect("a timer");
+    s.lp.dispatch(None, &mut s.app).expect("dispatch");
+    s.app.turn(s.at());
+    s.lp.handle().remove(timer);
+    assert!(!bounded.get(), "the reply woke the loop");
+    let a = asked.borrow();
+    assert!(!a.out && a.reply.is_none(), "the reply was handed back");
+    drop(a);
+    assert_eq!(s.placements(), 1);
 }
 
 /// The script of console 2 sends a quiet kitty file, `q=2`, which gets no
@@ -853,14 +1211,15 @@ const HIDDEN_REQUEST: &str = "stty -echo -icanon min 1 time 0; \
 #[test]
 fn a_hidden_consoles_request_is_answered_and_the_resume_wakes_the_loop() {
     let heads = "version = 1\n[head main]\nconsoles = 2\n[rules]\ndisplay card:mem -> main\n";
-    let asked = Rc::new(RefCell::new(Asked::default()));
+    let hosts = Hosts::default();
     let mut s = Seat::boot(
         &["--no-blink"],
         Some(heads),
         Memory::new(320, 160, "mem"),
         HIDDEN_REQUEST,
-        Some(&asked),
+        Some(&hosts),
     );
+    let asked = s.host(&hosts, 1);
     let hidden = |s: &Seat, text: &str| {
         s.app.head("main").is_some_and(|h| {
             h.shown_console() == 0 && h.consoles_text()[1].iter().any(|l| l.contains(text))
@@ -875,7 +1234,7 @@ fn a_hidden_consoles_request_is_answered_and_the_resume_wakes_the_loop() {
     }
     assert!(!hidden(&s, "after"));
     assert!(s.until(|s| s.app.head("main").is_some_and(|h| h.frames_out() == 0)));
-    asked.borrow_mut().reply = Some(red_picture());
+    asked.borrow_mut().answer(red_picture());
     // The turn that hands the reply back, then the loop's next wake.
     s.app.turn(s.at());
     let bounded = Rc::new(Cell::new(false));
@@ -907,14 +1266,15 @@ fn a_hidden_consoles_request_is_answered_and_the_resume_wakes_the_loop() {
 /// of the picture's red pixels.
 #[test]
 fn the_turn_that_hands_a_reply_back_draws_its_picture() {
-    let asked = Rc::new(RefCell::new(Asked::default()));
+    let hosts = Hosts::default();
     let mut s = Seat::boot(
         &["--no-blink"],
         None,
         Memory::new(320, 160, "mem"),
         &kitty_file(),
-        Some(&asked),
+        Some(&hosts),
     );
+    let asked = s.host(&hosts, 0);
     assert!(
         s.until(|_| asked.borrow().sent.len() == 1),
         "a request was sent"
@@ -929,7 +1289,7 @@ fn the_turn_that_hands_a_reply_back_draws_its_picture() {
     };
     assert!(s.until(quiet), "the display settles");
     let frames = s.memory("/dev/mem0").frames;
-    asked.borrow_mut().reply = Some(red_picture());
+    asked.borrow_mut().answer(red_picture());
     s.app.turn(s.at());
     assert!(
         s.app.heads()[0].frames_out() > 0 || s.memory("/dev/mem0").frames > frames,

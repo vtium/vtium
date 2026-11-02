@@ -242,6 +242,23 @@ and udev's database, /run/udev/data.\n";
         )
     }
 
+    /// The helper `image-helper` names is one vtium refuses, `why`, for
+    /// the account the check runs as; the start, which may run as
+    /// another, checks it again.
+    pub fn image_helper_refused(why: &str) -> String {
+        format!(
+            "image-helper: {why}; every console would answer files, shared memory, PNG and zlib itself, as with no helper, and the start checks again for the account it runs as"
+        )
+    }
+
+    /// The helper `image-helper` names is one a start as root refuses,
+    /// `why`, though the account the check runs as takes it.
+    pub fn image_helper_refused_as_root(why: &str) -> String {
+        format!(
+            "image-helper: started as root, vtium refuses it: {why}; under the root start every console answers files, shared memory, PNG and zlib itself, as with no helper"
+        )
+    }
+
     /// A candidate head file that is not there.
     pub const NO_SUCH_FILE: &str = "does not exist";
 

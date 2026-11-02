@@ -1362,6 +1362,17 @@ pub const PRIVATE_COLOR_REGISTERS: Key = Key {
     cite: "ADR-1100 D11; xterm's `privateColorRegisters`; src/config.c:1471",
 };
 
+pub const IMAGE_HELPER: Key = Key {
+    name: "image-helper",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Text(crate::head::images::PROGRAM),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The image helper's program, which vtium starts as the session's user to read the files and shared memory a kitty graphics command names and to decode PNG and zlib-compressed pictures, since vtium itself, running as root, does neither. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches the consoles when vtium starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why, and every console then answers those pictures itself, a file, a temporary file or shared memory with `EBADF` and PNG or zlib with `EINVAL`. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with. A build without images reads it and starts no helper.",
+    cite: "ADR-1101 (D1); the maintainer's decision of 2026-11-01",
+};
+
 pub const SIXEL: Key = Key {
     name: "sixel",
     short: None,
@@ -1385,7 +1396,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 104] = [
+pub const KEYS: [Key; 105] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1490,6 +1501,7 @@ pub const KEYS: [Key; 104] = [
     MAX_GRAPHIC_SIZE,
     NUM_COLOR_REGISTERS,
     PRIVATE_COLOR_REGISTERS,
+    IMAGE_HELPER,
 ];
 
 /// The keys vtium takes and does not act on yet, which the crate
