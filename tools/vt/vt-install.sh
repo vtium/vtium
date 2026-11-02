@@ -316,8 +316,11 @@ tmp=$(mktemp -d) || die "cannot create a scratch directory"
 trap 'rm -rf -- "$tmp"' EXIT
 
 # The two units, generated from the shipped ones by units.sh, the one place
-# both this and the package's make install make them.
+# both this and the package's make install make them. The unit stops the
+# packaged vtium and the C reference's console on its VT before it starts,
+# as it stops the getty (ADR-1500 D4).
 "$here/units.sh" --name vtium-dev --exec "$bin_path" --by "make vt-install" \
+	--conflicts 'vtium@%i.service' --conflicts 'kmsconvt@%i.service' \
 	--note "make vt-uninstall removes it." --source "$src" "$tmp" ||
 	die "the units could not be generated (above), so nothing is installed"
 built=$(git -C "$checkout" describe --always --dirty 2>/dev/null) || built=unknown

@@ -6,14 +6,20 @@
 # and make vt-install makes vtium-dev@.service and vtium-dev-getty@.service
 # (docs/vt-review.md, "Installing vtium on a VT").
 #
-#   units.sh --name NAME --exec PATH --by WHO [--note LINE] [--source DIR] OUTDIR
+#   units.sh --name NAME --exec PATH --by WHO [--conflicts UNIT]... [--note LINE]
+#            [--source DIR] OUTDIR
 #
-# It writes OUTDIR/NAME@.service, which is kmsconvt@.service with three
-# changes: its name, ExecStart= running PATH in place of /usr/bin/vtium, and
-# OnFailure= naming NAME-getty@.service. It writes OUTDIR/NAME-getty@.service,
-# which is kmsconvt-getty@.service under its new name. Every other line is the
-# shipped unit's, so Restart= and Alias=autovt@.service come through as the
-# shipped unit has them. Each unit opens with a comment that names WHO made
+# It writes OUTDIR/NAME@.service, which is kmsconvt@.service with these
+# changes (ADR-1500 D3, D4): its name; ExecStart= running PATH in place of
+# /usr/bin/vtium; OnFailure= naming NAME-getty@.service; for each --conflicts
+# UNIT, a Conflicts=UNIT line and an After=UNIT line below the shipped
+# After=getty@%i.service, so that starting the unit on a VT stops UNIT there
+# first, as it stops the getty; and no DefaultInstance=, so that systemctl
+# enable NAME@.service with no VT named links nothing. UNIT is an instance
+# unit on the same VT, such as kmsconvt@%i.service. It writes
+# OUTDIR/NAME-getty@.service, which is kmsconvt-getty@.service under its new
+# name. Every other line is the shipped unit's, so Restart= and
+# Alias=autovt@.service come through as the shipped unit has them. Each unit opens with a comment that names WHO made
 # it, the commit it was made from and each change, and then LINE when --note
 # gives one. --source reads the shipped units from DIR in place of
 # crates/vtium/install, for the tests. It fails, and writes nothing, when the
@@ -21,7 +27,7 @@
 set -euo pipefail
 
 usage() {
-	sed -n '9,9s/^# \{0,1\}//p' "$0" >&2
+	sed -n '9,10s/^# \{0,1\}//p' "$0" >&2
 	exit 2
 }
 
@@ -36,6 +42,7 @@ name=
 exec_path=
 by=
 note=
+conflicts=()
 src=$checkout/crates/vtium/install
 out=
 while [ $# -gt 0 ]; do
@@ -44,6 +51,7 @@ while [ $# -gt 0 ]; do
 	--exec) [ $# -ge 2 ] || usage; exec_path=$2; shift ;;
 	--by) [ $# -ge 2 ] || usage; by=$2; shift ;;
 	--note) [ $# -ge 2 ] || usage; note=$2; shift ;;
+	--conflicts) [ $# -ge 2 ] || usage; conflicts+=("$2"); shift ;;
 	--source) [ $# -ge 2 ] || usage; src=$2; shift ;;
 	-h | --help) usage ;;
 	-*) usage ;;
@@ -56,6 +64,10 @@ done
 # holds only characters that mean nothing to either.
 [[ $name =~ ^[a-z][a-z0-9-]*$ ]] || die "--name '$name' is not a unit name of lowercase letters, digits and dashes"
 [[ $exec_path =~ ^/[A-Za-z0-9/._-]+$ ]] || die "--exec '$exec_path' is not an absolute path of letters, digits and /._-"
+for c in "${conflicts[@]}"; do
+	[[ $c =~ ^[a-z][a-z0-9-]*@%i\.service$ ]] || die "--conflicts '$c' is not an instance unit on the same VT, NAME@%i.service"
+	[ "$c" != "$name@%i.service" ] || die "--conflicts '$c' names the unit itself"
+done
 for f in kmsconvt@.service kmsconvt-getty@.service; do
 	[ -f "$src/$f" ] || die "no $src/$f, which the units are generated from"
 done
@@ -74,11 +86,24 @@ tmp=$(mktemp -d) || die "cannot create a scratch directory"
 trap 'rm -rf -- "$tmp"' EXIT
 unit=$name@.service
 fallback=$name-getty@.service
+changes=()
+for c in "${conflicts[@]}"; do
+	changes+=("Conflicts= and After= $c")
+done
 {
 	header crates/vtium/install/kmsconvt@.service "the name, $name@" \
-		"ExecStart runs $exec_path" "the getty fallback, $name-getty@"
+		"ExecStart runs $exec_path" "the getty fallback, $name-getty@" "${changes[@]}" "no DefaultInstance="
+	# awk puts a Conflicts= and an After= line for each --conflicts unit,
+	# which reach it through the environment, below After=getty@%i.service.
 	sed -e "s|^ExecStart=/usr/bin/vtium |ExecStart=$exec_path |" \
-		-e "s|^OnFailure=kmsconvt-getty@%i\\.service\$|OnFailure=$name-getty@%i.service|" "$src/kmsconvt@.service"
+		-e "s|^OnFailure=kmsconvt-getty@%i\\.service\$|OnFailure=$name-getty@%i.service|" \
+		-e '/^DefaultInstance=/d' "$src/kmsconvt@.service" |
+		UNITS_CONFLICTS="${conflicts[*]}" awk '
+			{ print }
+			$0 == "After=getty@%i.service" {
+				n = split(ENVIRON["UNITS_CONFLICTS"], c, " ")
+				for (i = 1; i <= n; i++) print "Conflicts=" c[i] "\nAfter=" c[i]
+			}'
 } >"$tmp/$unit"
 {
 	header crates/vtium/install/kmsconvt-getty@.service "the name, $name-getty@, which $unit names as its fallback"
@@ -90,10 +115,18 @@ directives() { grep -v '^[[:space:]]*\(#\|$\)' "$1"; }
 	directives "$tmp/$unit" | grep -qF "ExecStart=$exec_path " &&
 	grep -q '^ExecStart=/usr/bin/vtium ' "$src/kmsconvt@.service" ||
 	die "the shipped kmsconvt@.service has no one ExecStart=/usr/bin/vtium line to change"
+[ ${#conflicts[@]} -eq 0 ] || [ "$(directives "$src/kmsconvt@.service" | grep -c '^After=getty@%i\.service$')" = 1 ] ||
+	die "the shipped kmsconvt@.service has no one After=getty@%i.service line to put the --conflicts lines under"
+for c in "${conflicts[@]}"; do
+	directives "$tmp/$unit" | grep -qxF "Conflicts=$c" && directives "$tmp/$unit" | grep -qxF "After=$c" ||
+		die "the generated $unit has no Conflicts= and After= line for $c"
+done
+! directives "$tmp/$unit" | grep -q '^DefaultInstance=' ||
+	die "the generated $unit still holds DefaultInstance="
 directives "$tmp/$unit" | grep -qxF "OnFailure=$name-getty@%i.service" ||
 	die "the shipped kmsconvt@.service has no OnFailure=kmsconvt-getty@%i.service line to change"
 for f in "$unit" "$fallback"; do
-	! directives "$tmp/$f" | grep -q 'kmsconvt' ||
+	! directives "$tmp/$f" | grep -v '^\(Conflicts\|After\)=kmsconvt@%i\.service$' | grep -q 'kmsconvt' ||
 		die "the generated $f still names kmsconvt: the shipped unit changed shape"
 done
 
