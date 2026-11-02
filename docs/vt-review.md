@@ -75,6 +75,8 @@ transcript: /tmp/vtium-vt/vt-20261027T151200-tty5-a1B2c3.transcript
 
 `make vt-check` runs `tools/vt/checks/guide.sh` as vtium's session. Each step is one screen: the command it runs, what to do and what to expect. Enter runs the step's command, or starts its probe or shell; q stops a probe and `exit` ends a shell, and the operator answers y, n or s, with a note. At a step's first prompt, s skips the step and q ends the checks. After the last step vtium exits and the console comes back.
 
+The steps' commands and shells run with the system's locale: when the session has no `LANG`, `guide.sh` takes `LANG` and `LC_*` from `/etc/locale.conf`, by the rule `make vt-shell` uses, so a program such as tmux or vim draws UTF-8. A console that the open chord, Ctrl+Super+Enter, adds to the head runs the head's command again, which is the guide. The guide runs only in the head's first console, so one run asks each step once and keeps one set of answers: in a console whose `VTIUM_CONSOLE` is past 1, `guide.sh` prints which console it is and runs a shell with the prompt `console-N$ `, which `exit` ends.
+
 The answers, and each line a probe prints, are appended to `/tmp/vtium-vt/vt-check.log` under a header naming the guide, the time, the tty and the steps. `guide.sh` refuses that directory before anything is asked when it is a symlink, another user's or open to anyone else.
 
 A guide is `tools/vt/checks/NAME.guide`, lines of `key: text`; blank lines and lines starting with `#` are skipped. Its opening comment says what it checks and the command that runs it.

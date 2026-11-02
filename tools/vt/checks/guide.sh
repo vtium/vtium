@@ -12,7 +12,9 @@
 # vt-check.log in /tmp/vtium-vt (VTIUM_VT_DIR) under a header line for the run.
 # GUIDE_STEPS="4 8 9" (or 4,8,9) runs only those steps. In the guide's text,
 # {vt} is GUIDE_VT and {desktop} GUIDE_DESKTOP, the VT of the run and the
-# desktop's, as run-vt.sh sets them.
+# desktop's, as run-vt.sh sets them. The steps run with the system's locale
+# when no LANG is set. In a console that vtium opens after the first
+# (VTIUM_CONSOLE past 1), guide.sh runs a shell in place of the guide.
 #
 # --check reads the guide, checks it and the step list, prints the steps and
 # exits, without a terminal.
@@ -132,6 +134,31 @@ if [ -n "$check" ]; then
 		printf '  %2d  %-12s %s\n' "$((s + 1))" "$mode" "${titles[s]}"
 	done
 	exit 0
+fi
+
+# A console that the open chord, Ctrl+Super+Enter, adds to the head starts
+# the head's command again, which is this guide (ADR-1401 D5). The guide
+# runs in the head's first console alone, so that one run asks each step
+# once and writes one set of answers; any later console gets a shell
+# instead, which says so.
+if [[ ${VTIUM_CONSOLE:-} =~ ^[0-9]+$ ]] && [ "$VTIUM_CONSOLE" != 1 ]; then
+	printf 'This is console %s of the head %s. The guide runs in console 1.\n' \
+		"$VTIUM_CONSOLE" "${VTIUM_HEAD:-}"
+	printf 'Ctrl+Super+Left and Ctrl+Super+Right switch between the consoles.\n\n'
+	PS1="console-$VTIUM_CONSOLE\$ " exec /bin/bash --noprofile --norc -i
+fi
+
+# run-vt.sh clears the session's environment, so the steps' commands and
+# shells get the system's locale here, as make vt-shell's shell does: LANG
+# and LC_* from /etc/locale.conf, each a value of locale-name characters.
+# A guide run by hand in a terminal that has a LANG keeps that terminal's.
+if [ -z "${LANG:-}" ] && [ -f /etc/locale.conf ]; then
+	assignment='^(LANG|LC_[A-Z]+)="?([[:alnum:]_.@-]+)"?$'
+	while IFS= read -r line || [ -n "$line" ]; do
+		if [[ $line =~ $assignment ]]; then
+			export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+		fi
+	done </etc/locale.conf
 fi
 
 log=$vt_dir/vt-check.log
