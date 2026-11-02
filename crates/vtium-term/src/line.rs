@@ -1469,31 +1469,66 @@ mod tests {
         }
     }
 
+    /// A cluster of exactly `bytes` UTF-8 bytes, 2 to 128: a base of 1 to
+    /// 4 bytes and marks of 4 bytes, or a mark of 1 to 3 bytes; a single
+    /// letter for 1 byte.
+    fn sized(bytes: usize) -> String {
+        match bytes {
+            1 => "x".into(),
+            2 => "ea".into(),
+            3 => "e\u{301}".into(),
+            4 => "e\u{20D0}".into(),
+            _ => {
+                let rest = bytes.saturating_sub(1);
+                let base = match rest % 4 {
+                    0 => 'e',
+                    1 => '\u{E9}',
+                    2 => '\u{4E2D}',
+                    _ => '\u{1F600}',
+                };
+                std::iter::once(base)
+                    .chain(std::iter::repeat_n('\u{E0100}', rest / 4))
+                    .collect()
+            }
+        }
+    }
+
     // A table's capacity stops at the limit it compacts at, so a row
-    // `write` fills holds no room past what `Line::bytes_max` prices.
+    // `write` fills holds no room past what `Line::bytes_max` prices. At
+    // 17 columns no limit is a power of two, so a table that only doubled
+    // would pass it. Each write takes a style and a link no other write
+    // takes; sweeps of plain text and of small clusters, with each size of
+    // cluster in the first cell, bring each table to its limit and no
+    // further. `tests/memory.rs` drives rows to the whole bound.
     #[test]
     fn the_tables_grow_no_further_than_they_compact_at() {
-        let cols = 16;
-        let mut line = Line::new(LineId::new(1), cols);
+        let cols = 17;
         let limit = cols * TABLE_GROWTH;
-        let mut most = 0;
-        for n in 0..2_000u32 {
-            let cluster = accented(1 + usize::try_from(n % 7).unwrap());
-            let col = usize::try_from(n).unwrap() % cols;
-            line.write(
-                col,
-                Glyph::Cluster(&cluster),
-                Width::Narrow,
-                &rgb(n),
-                Some(LinkId::new(n)),
-            );
-            let t = tables(&line);
-            assert!(t.styles.capacity() <= limit, "{}", t.styles.capacity());
-            assert!(t.links.capacity() <= limit, "{}", t.links.capacity());
-            assert!(t.clusters.capacity() <= limit * CLUSTER_BYTES_PER_CELL);
-            most = most.max(size_of::<Line>() + line.heap_bytes());
+        let (mut most, mut styles, mut links, mut arena) = (0, 0, 0, 0);
+        let mut n = 0u32;
+        for first in 2..=128 {
+            for small in [1, 2, 5, 11] {
+                let mut line = Line::new(LineId::new(1), cols);
+                for col in (0..6 * cols).map(|i| i % cols) {
+                    n += 1;
+                    let cluster = sized(if col == 0 { first } else { small });
+                    let glyph = match small {
+                        1 if col > 0 => Glyph::Char('x'),
+                        _ => Glyph::Cluster(&cluster),
+                    };
+                    line.write(col, glyph, Width::Narrow, &rgb(n), Some(LinkId::new(n)));
+                    let t = tables(&line);
+                    styles = styles.max(t.styles.capacity());
+                    links = links.max(t.links.capacity());
+                    arena = arena.max(t.clusters.capacity());
+                    most = most.max(size_of::<Line>() + line.heap_bytes());
+                }
+            }
         }
-        assert_eq!(most, Line::bytes_max(cols));
+        assert_eq!(styles, limit);
+        assert_eq!(links, limit);
+        assert_eq!(arena, limit * CLUSTER_BYTES_PER_CELL);
+        assert!(most <= Line::bytes_max(cols), "{most}");
     }
 
     // A row a rewrap built names past its arena's limit. Compacting it
