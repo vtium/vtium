@@ -35,6 +35,9 @@ struct Host {
     requests: Vec<Request>,
     limits: Limits,
     work: u64,
+    /// The rows of each index the handler asked for, which the real screen
+    /// would scroll by past the bottom margin.
+    indexed: Vec<usize>,
 }
 
 impl Host {
@@ -53,6 +56,7 @@ impl Host {
             requests: Vec::new(),
             limits: Limits::default(),
             work: 0,
+            indexed: Vec::new(),
         }
     }
 
@@ -123,13 +127,23 @@ impl Context for Host {
     }
 
     fn index(&mut self, n: usize) {
+        // as the screen's move_down: inside the region the cursor stops at
+        // the bottom margin and the region scrolls, which the stand-in
+        // cannot do; below it the cursor stops at the screen's last row
+        self.indexed.push(n);
         let (col, row) = self.cursor;
-        let to = row + n;
+        let bottom = self.margins.bottom;
+        let end = if row <= bottom {
+            bottom + 1
+        } else {
+            self.screen.len()
+        };
+        let room = end - row - 1;
         assert!(
-            to <= self.margins.bottom,
+            n <= room || row > bottom,
             "the stand-in screen does not scroll"
         );
-        self.cursor = (col, to);
+        self.cursor = (col, row + n.min(room));
     }
 
     fn scroll_up(&mut self, _: usize) {
@@ -717,4 +731,99 @@ fn a_reservation_for_an_id_keeps_the_old_image_when_the_new_one_is_refused() {
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     assert!(h.boxes().is_empty());
     assert_eq!(h.store.bytes(), 400 + IMAGE_OVERHEAD);
+}
+
+// covers: image.kitty
+#[test]
+fn the_cursor_after_a_tall_image_is_bounded_by_the_margin_and_a_screen() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    // the cursor below the region: the rows indexed stop at the screen's
+    // last row, and the column goes past the box
+    h.margins = Margins { top: 0, bottom: 1 };
+    h.cursor = (3, 2);
+    send(&mut k, &mut h, &format!("a=T,s=8,v=96,i=1;{}", red(8 * 96)));
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    assert_eq!(h.boxes(), vec![(3, 2, 1, 6)]);
+    // 5 rows asked of a box 6 rows tall, bounded to no margin room and one
+    // screen of 4 rows
+    assert_eq!(h.indexed, vec![4]);
+    assert_eq!(h.cursor, (4, 3));
+    // a box as wide as the screen from column 0 wraps: down one row more
+    // than its rows less one, to column 0
+    h.margins = Margins { top: 0, bottom: 3 };
+    h.cursor = (0, 0);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,s=96,v=16,i=2;{}", red(96 * 16)),
+    );
+    assert_eq!(h.cursor, (0, 1));
+}
+
+// covers: image.kitty
+#[test]
+fn point_deletes_take_kitty_placements_and_leave_a_sixel_beside_them() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    // a sixel over the first two cells of row 0, made through the store
+    let screens = Screens {
+        main: Rows {
+            screen: &h.screen,
+            above: &[],
+        },
+        alt: Rows::default(),
+    };
+    let sixel = crate::NewImage {
+        protocol: crate::Protocol::SIXEL,
+        width: 16,
+        height: 16,
+        pixels: vec![0xff00_00ff; 256],
+        id: 0,
+        number: 0,
+        transient: false,
+    };
+    let key = h.store.add_image(sixel, None, screens).unwrap();
+    let at = crate::Place::default();
+    h.store.place(key, at, screens, 12).unwrap();
+    h.cursor = (2, 0);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,s=16,v=16,i=1,z=1,C=1;{}", red(256)),
+    );
+    h.cursor = (2, 1);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,s=16,v=16,i=2,z=2,C=1;{}", red(256)),
+    );
+    let _ = h.take();
+    let all = vec![(0, 0, 2, 1), (2, 0, 2, 1), (2, 1, 2, 1)];
+    assert_eq!(h.boxes(), all);
+    // d=p on the sixel's cell takes nothing, and on kitty 1's takes it
+    send(&mut k, &mut h, "a=d,d=p,x=1,y=1");
+    assert_eq!(h.boxes(), all);
+    send(&mut k, &mut h, "a=d,d=p,x=3,y=1");
+    assert_eq!(h.boxes(), vec![(0, 0, 2, 1), (2, 1, 2, 1)]);
+    // d=q needs the z too
+    send(&mut k, &mut h, "a=d,d=q,x=4,y=2,z=1");
+    assert_eq!(h.boxes().len(), 2);
+    send(&mut k, &mut h, "a=d,d=q,x=4,y=2,z=2");
+    assert_eq!(h.boxes(), vec![(0, 0, 2, 1)]);
+    // d=x and d=y through the sixel's column and row leave it
+    h.cursor = (0, 1);
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    send(&mut k, &mut h, "a=d,d=x,x=1");
+    assert_eq!(h.boxes(), vec![(0, 0, 2, 1)]);
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    send(&mut k, &mut h, "a=d,d=y,y=1");
+    assert_eq!(h.boxes(), vec![(0, 0, 2, 1), (0, 1, 2, 1)]);
+    send(&mut k, &mut h, "a=d,d=y,y=2");
+    assert_eq!(h.boxes(), vec![(0, 0, 2, 1)]);
+    // a coordinate not given chooses nothing
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    send(&mut k, &mut h, "a=d,d=p,x=1");
+    send(&mut k, &mut h, "a=d,d=x");
+    assert_eq!(h.boxes().len(), 2);
+    // the puts are answered, and no delete is
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\".repeat(3));
 }
