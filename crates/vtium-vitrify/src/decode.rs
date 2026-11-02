@@ -12,6 +12,7 @@ use std::io::Read;
 
 use miniz_oxide::inflate::stream::{InflateState, inflate};
 use miniz_oxide::{DataFormat, MZFlush, MZStatus};
+use ruzstd::decoding::errors::FrameDecoderError;
 use vtium_font::{GZIP_BYTES_MAX, PSF_BYTES_MAX, Psf, Style};
 
 use crate::glyphs::Glyphs;
@@ -107,7 +108,10 @@ fn unzstd(mut input: &[u8], limit: usize) -> Result<Vec<u8>, String> {
             &mut input,
             ZSTD_WINDOW_MAX,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| match e {
+            FrameDecoderError::WindowSizeTooBig { requested, .. } => window_too_big(requested),
+            e => e.to_string(),
+        })?;
         let frame = read_bounded(&mut decoder, limit.saturating_sub(out.len()))?;
         let frame_decoder = decoder.into_frame_decoder();
         if !frame_decoder.is_finished() {
@@ -121,6 +125,18 @@ fn unzstd(mut input: &[u8], limit: usize) -> Result<Vec<u8>, String> {
         out.extend_from_slice(&frame);
     }
     Ok(out)
+}
+
+/// The refusal of a zstd frame whose window passes `ZSTD_WINDOW_MAX`, which
+/// says what to do about it. The console shows it in a frit's warning, as
+/// `frit:line: source=...: zstd: <this>; the source is left out`.
+fn window_too_big(requested: u64) -> String {
+    format!(
+        "the font's window is {} MiB and vitrify reads at most {} MiB, so the font needs recompressing with a window of {} MiB or less",
+        requested.div_ceil(1 << 20),
+        ZSTD_WINDOW_MAX >> 20,
+        ZSTD_WINDOW_MAX >> 20,
+    )
 }
 
 /// What `reader` decodes, refused past `limit` bytes.
@@ -646,7 +662,7 @@ pub(crate) mod tests {
     /// A zstd frame with no content size and no checksum, whose window
     /// descriptor is `window`, holding one last block of `kind` (0 raw, 2
     /// compressed) with `body`.
-    fn zstd_frame(window: u8, kind: u32, body: &[u8]) -> Vec<u8> {
+    pub(crate) fn zstd_frame(window: u8, kind: u32, body: &[u8]) -> Vec<u8> {
         let mut f = vec![0x28, 0xb5, 0x2f, 0xfd, 0x00, window];
         let header = 1 | (kind << 1) | ((body.len() as u32) << 3);
         f.extend_from_slice(&header.to_le_bytes()[..3]);
@@ -744,7 +760,11 @@ pub(crate) mod tests {
         assert!(Psf::parse(&plain).is_ok());
         let piped = zstd_frame(0x78, 0, &plain);
         let e = decompress(&piped).expect_err("a 32 MiB window");
-        assert!(e.starts_with("zstd") && e.contains("window"), "{e}");
+        assert_eq!(
+            e,
+            "zstd: the font's window is 32 MiB and vitrify reads at most 16 MiB, \
+             so the font needs recompressing with a window of 16 MiB or less"
+        );
     }
 
     #[test]
