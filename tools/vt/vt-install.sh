@@ -13,9 +13,13 @@
 # enables and starts vtium@ttyN. uninstall reads the manifest and undoes all
 # of it: vtium@ttyN stopped and disabled, getty@ttyN enabled and started
 # again where it was before, and the files removed once no other VT's
-# manifest needs them. The names kmsconvt@, kmsconvt-getty@ and autovt@ are
-# left alone: the C reference's package owns them on this machine. So is
-# /etc/kmscon/kmscon.conf, which vtium reads and neither command touches.
+# manifest needs them. The names kmsconvt@ and kmsconvt-getty@ are left
+# alone: the C reference's package owns them on this machine. Its template
+# alias /etc/systemd/system/autovt@.service is left alone too; enabling
+# vtium@ttyN adds the per-VT alias autovt@ttyN.service -> vtium@.service, so
+# that logind, which starts autovt@ttyN on a VT nothing holds, starts vtium
+# there and never the C reference's console beside it. Neither command
+# touches /etc/kmscon/kmscon.conf, which vtium reads.
 #
 # Each command that changes anything runs through sudo and is printed first.
 # --dry-run (make DRY_RUN=1) asks what it would ask and prints the units and
@@ -89,6 +93,9 @@ getty=getty@tty$vt.service
 manifest=$state_dir/tty$vt
 # What install writes, by its path on the machine; uninstall removes these.
 files=("$bin_path" "$unit_dir/vtium@.service" "$unit_dir/vtium-getty@.service")
+# The per-VT alias that enabling vtium@ttyN makes, and where it points.
+alias_link=$unit_dir/autovt@tty$vt.service
+alias_target=$unit_dir/vtium@.service
 
 show() {
 	printf '+'
@@ -136,6 +143,11 @@ if [ "$action" = uninstall ]; then
 	[ -z "$dry" ] || echo "vt-uninstall: the commands, none of them run:"
 	as_root "$systemctl" stop "$unit"
 	as_root "$systemctl" disable "$unit"
+	# disable leaves the per-VT alias autovt@ttyN, so logind would start
+	# vtium there again; it goes when it is still the one enable made.
+	if [ "$(readlink -- "$root$alias_link" 2>/dev/null)" = "$alias_target" ]; then
+		as_root rm -f -- "$root$alias_link"
+	fi
 	# A unit that failed stays listed as failed until this clears it.
 	show sudo "$systemctl" reset-failed "$unit" "$fallback"
 	[ -n "$dry" ] || "$sudo" "$systemctl" reset-failed "$unit" "$fallback" 2>/dev/null || true
@@ -176,14 +188,19 @@ if [ -z "$held" ]; then
 			die "$f is there already and vt-install did not write it; it is left alone, so nothing is installed"
 	done
 fi
+# The per-VT alias is enable's to make; one there already, unless it is the
+# one an earlier install on this VT made, belongs to someone else.
+if [ -e "$root$alias_link" ] || [ -L "$root$alias_link" ]; then
+	[ -f "$root$manifest" ] && [ "$(readlink -- "$root$alias_link")" = "$alias_target" ] ||
+		die "$alias_link is there already and vt-install did not make it; it is left alone, so nothing is installed"
+fi
 
 tmp=$(mktemp -d) || die "cannot create a scratch directory"
 trap 'rm -rf -- "$tmp"' EXIT
 
 # Generates the two units from the shipped ones, changing only the unit's
-# name, ExecStart's path, the fallback's name and dropping the alias
-# autovt@, which the C reference's package holds here. Every other line,
-# Restart= and its kin included, is the shipped unit's. Fails when the
+# name, ExecStart's path and the fallback's name. Every other line, Restart=
+# and the alias autovt@ included, is the shipped unit's. Fails when the
 # shipped unit no longer has the lines it changes.
 built=$(git -C "$checkout" describe --always --dirty 2>/dev/null) || built=unknown
 # header SOURCE CHANGES...: the generated unit's opening comment, a line for
@@ -199,11 +216,9 @@ for f in kmsconvt@.service kmsconvt-getty@.service; do
 done
 {
 	header crates/vtium/install/kmsconvt@.service "the name, vtium@" \
-		"ExecStart runs /usr/local/bin/vtium" "the getty fallback, vtium-getty@" \
-		"no alias autovt@, which the C reference's package holds on this machine"
+		"ExecStart runs /usr/local/bin/vtium" "the getty fallback, vtium-getty@"
 	sed -e 's|^ExecStart=/usr/bin/vtium |ExecStart=/usr/local/bin/vtium |' \
-		-e 's|^OnFailure=kmsconvt-getty@%i\.service$|OnFailure=vtium-getty@%i.service|' \
-		-e '/^Alias=autovt@\.service$/d' "$src/kmsconvt@.service"
+		-e 's|^OnFailure=kmsconvt-getty@%i\.service$|OnFailure=vtium-getty@%i.service|' "$src/kmsconvt@.service"
 } >"$tmp/vtium@.service"
 {
 	header crates/vtium/install/kmsconvt-getty@.service "the name, vtium-getty@, which vtium@.service names as its fallback"
@@ -216,8 +231,8 @@ directives() { grep -v '^[[:space:]]*\(#\|$\)' "$1"; }
 directives "$tmp/vtium@.service" | grep -qx 'OnFailure=vtium-getty@%i.service' ||
 	die "the shipped kmsconvt@.service has no OnFailure=kmsconvt-getty@%i.service line to change"
 for f in vtium@.service vtium-getty@.service; do
-	! directives "$tmp/$f" | grep -q 'kmsconvt\|autovt@\|/usr/bin/vtium' ||
-		die "the generated $f still names kmsconvt, autovt@ or /usr/bin/vtium: the shipped unit changed shape"
+	! directives "$tmp/$f" | grep -q 'kmsconvt\|/usr/bin/vtium' ||
+		die "the generated $f still names kmsconvt or /usr/bin/vtium: the shipped unit changed shape"
 done
 
 # What getty@ttyN was before, so uninstall puts it back: the first install
