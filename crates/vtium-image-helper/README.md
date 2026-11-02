@@ -16,6 +16,7 @@
 | `src/bounds.rs` | The helper's named constants. |
 | `tests/helper.rs` | The gate of ADR-1101 D9: the real program, started by vtium-platform's real host under its filter, sent every kind of request, each reply checked, so a worker that finds its sandbox wrong fails it; a stream of inline frames served by one stream worker, and frames from shared memory served by one-off workers; a larger budget replacing the helper. |
 | `tests/filter.rs` | The filters in a child: calls outside the list answered ENOSYS; a worker that cannot start a process, make a memory file or, under its third filter, open a file; a worker locked in that reads what it holds and opens nothing; and the attacks on a `sleep` the test starts that the filter's conditions and the domain's scope stop, a descriptor's signals pointed at it and its limits changed, with executable memory refused. |
+| `tests/jpeg.rs`, `tests/fixtures/jpeg/` | Two JPEGs that panicked `zune-jpeg` 0.4.21, from the fuzz target, each decoded to a picture or a refusal; the fixtures' README says where they came from. |
 | `examples/streams.rs` | The measurement of ADR-1101 D4's three ways to serve a stream, from which the maintainer chose the stream worker. |
 | `fuzz/` | A fuzz target for each decoding path, in its own workspace ([fuzz/README.md](fuzz/README.md)). |
 

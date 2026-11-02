@@ -1,6 +1,6 @@
 # vtium-image-helper fuzz targets
 
-cargo-fuzz targets in their own workspace, so the main workspace and CI never build them or pull `libfuzzer-sys`. ADR-1101 D6 gives each decoding path a fuzz target that covers every crate on that path, run in-process and outside the helper's memory cap. Run them on nightly from this directory, with a corpus directory of your own first and the seeds after it, for example `cargo +nightly fuzz run png corpus/png seeds/png`. A fuzzer rarely writes a PNG whose checksums hold, or a JPEG or zlib stream whose structure holds, so the seeds give it whole files to mutate from.
+cargo-fuzz targets in their own workspace, so the main workspace and CI never build them or pull `libfuzzer-sys`. ADR-1101 D6 gives each decoding path a fuzz target that covers every crate on that path, run in-process and outside the helper's memory cap. Run them on nightly from this directory, with a corpus directory of your own first and the seeds after it, for example `cargo +nightly fuzz run png corpus/png seeds/png`. A fuzzer rarely writes a PNG whose checksums hold, or a JPEG or zlib stream whose structure holds, so the seeds give it whole files to mutate from. The JPEGs that once crashed the decoder are in `../tests/fixtures/jpeg/`, which a run of the `jpeg` target can add as one more corpus directory.
 
 | Path | What it is |
 |---|---|

@@ -173,13 +173,14 @@ fn expand(rgba: &mut [u8], channels: usize) {
 
 /// A JPEG decoded to 8-bit RGB, opaque, its orientation tag not read.
 pub fn jpeg(data: &[u8], bounds: Bounds) -> Result<Picture, Failure> {
+    use zune_jpeg::zune_core::bytestream::ZCursor;
     use zune_jpeg::zune_core::colorspace::ColorSpace;
     use zune_jpeg::zune_core::options::DecoderOptions;
     let options = DecoderOptions::new_safe()
         .set_max_width(usize::try_from(bounds.largest.0).unwrap_or(usize::MAX))
         .set_max_height(usize::try_from(bounds.largest.1).unwrap_or(usize::MAX))
         .jpeg_set_out_colorspace(ColorSpace::RGB);
-    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(data, options);
+    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(data), options);
     let corrupt = |e: zune_jpeg::errors::DecodeErrors| {
         Failure::new(Status::Corrupt, format!("corrupt JPEG: {e:?}"))
     };

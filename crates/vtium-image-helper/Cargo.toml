@@ -34,7 +34,7 @@ libc = "=0.2.191"
 png = "=0.18.1"
 # zlib (kitty's o=z), the inflater already in vtium's tree.
 miniz_oxide = "0.8.9"
-zune-jpeg = { version = "=0.4.21", default-features = false, features = ["std"] }
+zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"] }
 gif = { version = "=0.13.3", default-features = false, features = ["std"] }
 # Each worker's landlock domain (ADR-1101 D9), the Linux landlock
 # maintainers' own binding.
