@@ -96,6 +96,8 @@ getty=getty@tty$vt.service
 manifest=$state_dir/tty$vt
 # The checksum of each file install wrote, one "SHA256  PATH" line each, as
 # sha256sum prints them. The files are every VT's, so the record is too.
+# While install copies, a file can hold its checksum from before or after
+# the copy, so the record holds both until the copies are done.
 record=$state_dir/files
 # What install writes, by its path on the machine; uninstall removes these.
 files=("$bin_path" "$unit_dir/vtium@.service" "$unit_dir/vtium-getty@.service")
@@ -133,7 +135,7 @@ manifests() {
 	done
 }
 
-# The checksum the record holds for file $1, or nothing.
+# The checksums the record holds for file $1, one a line, or nothing.
 recorded() {
 	[ -f "$root$record" ] || return 0
 	awk -v f="$1" '$2 == f && $1 ~ /^[0-9a-f]+$/ && length($1) == 64 { print $1 }' "$root$record"
@@ -142,6 +144,12 @@ recorded() {
 # The checksum of file $1 as it is on the machine now.
 checksum() {
 	sha256sum <"$root$1" | cut -d' ' -f1
+}
+
+# Whether file $1 is one install wrote: a regular file whose checksum the
+# record holds.
+written() {
+	[ -f "$root$1" ] && [ ! -L "$root$1" ] && recorded "$1" | grep -qxF -- "$(checksum "$1")"
 }
 
 # The value of KEY in the manifest, which install wrote as root: yes or no.
@@ -158,8 +166,12 @@ if [ "$action" = uninstall ]; then
 	was_active=$(manifest_value getty-active)
 	others=$(manifests | grep -vx "tty$vt" || true)
 	[ -z "$dry" ] || echo "vt-uninstall: the commands, none of them run:"
-	as_root "$systemctl" stop "$unit"
-	as_root "$systemctl" disable "$unit"
+	# A run cut short before vtium@.service was copied left no unit to stop
+	# or disable, and systemctl refuses a unit it cannot find.
+	if [ -e "$root$unit_dir/vtium@.service" ]; then
+		as_root "$systemctl" stop "$unit"
+		as_root "$systemctl" disable "$unit"
+	fi
 	# disable leaves the per-VT alias autovt@ttyN, so logind would start
 	# vtium there again; it goes when it is still the one enable made.
 	if [ "$(readlink -- "$root$alias_link" 2>/dev/null)" = "$alias_target" ]; then
@@ -181,8 +193,7 @@ if [ "$action" = uninstall ]; then
 		# since is someone's edit, and stays.
 		for f in "${files[@]}"; do
 			[ -e "$root$f" ] || continue
-			sum=$(recorded "$f")
-			if [ -n "$sum" ] && [ "$(checksum "$f")" = "$sum" ]; then
+			if written "$f"; then
 				as_root rm -f -- "$root$f"
 			else
 				echo "vt-uninstall: kept $f: it changed since vt-install wrote it"
@@ -213,11 +224,9 @@ read -r owner mode < <(stat -c '%u %a' -- "$bin")
 # wrote, by the record's checksum; any other is someone else's, or an edit.
 for f in "${files[@]}"; do
 	[ -e "$root$f" ] || [ -L "$root$f" ] || continue
-	sum=$(recorded "$f")
-	[ -n "$sum" ] ||
+	[ -n "$(recorded "$f")" ] ||
 		die "$f is there already and vt-install did not write it; it is left alone, so nothing is installed"
-	[ ! -L "$root$f" ] && [ "$(checksum "$f")" = "$sum" ] ||
-		die "$f changed since vt-install wrote it; it is left alone, so nothing is installed"
+	written "$f" || die "$f changed since vt-install wrote it; it is left alone, so nothing is installed"
 done
 # The per-VT alias is enable's to make; one there already, unless it is the
 # one an earlier install on this VT made, belongs to someone else.
@@ -312,10 +321,21 @@ fi
 # The manifest goes first, so a run cut short can still be undone.
 [ -d "$root$state_dir" ] || as_root install -d -m 0755 "${own[@]}" -- "$root$state_dir"
 [ -z "$write_manifest" ] || as_root install -m 0644 "${own[@]}" -- "$tmp/manifest" "$root$manifest"
+# The record goes before the copies, holding each file's checksum from before
+# and after, so a copy that fails leaves every file in a state the record
+# knows: uninstall removes it, and a second run replaces it.
+{
+	cat "$tmp/files"
+	for f in "${files[@]}"; do
+		! written "$f" || printf '%s  %s\n' "$(checksum "$f")" "$f"
+	done
+} >"$tmp/files.both"
+as_root install -m 0644 "${own[@]}" -- "$tmp/files.both" "$root$record"
 as_root install -D -m 0755 "${own[@]}" -- "$bin" "$root$bin_path"
 for f in vtium@.service vtium-getty@.service; do
 	as_root install -D -m 0644 "${own[@]}" -- "$tmp/$f" "$root$unit_dir/$f"
 done
+# The copies are done, so the record holds only what is there now.
 as_root install -m 0644 "${own[@]}" -- "$tmp/files" "$root$record"
 as_root "$systemctl" daemon-reload
 # vtium starts first: its Conflicts=getty@%i stops the getty as it starts,
