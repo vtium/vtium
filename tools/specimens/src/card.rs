@@ -3,7 +3,9 @@
 //! A block is one 320x240 screen at 8x8 (#118). Each is written cell by
 //! cell from its own top left with CUP, so the same block draws the same
 //! cells wherever a page places it, and a page holds as many as its grid
-//! fits. Every line ends with SGR 0, so no pen crosses into another line.
+//! fits; a grid shorter than a block shows it in slices, as many side by
+//! side on a page as the grid's width holds blocks ([`Layout`]). Every line ends with SGR 0, so no pen crosses into
+//! another line.
 //!
 //! The blocks: the header and text; the attributes; color; the sprites,
 //! symbols and emoji, ending with a wide character at the right margin.
@@ -12,7 +14,7 @@
 
 use std::fmt::Write as _;
 
-use crate::profiles::{Layout, Profile};
+use crate::profiles::{Layout, Placed, Profile};
 
 pub const BLOCK_COLS: usize = 40;
 pub const BLOCK_ROWS: usize = 30;
@@ -32,21 +34,34 @@ pub const TITLES: [&str; BLOCKS] = [
 /// That row's first two columns are blank in every block.
 const MARGIN_ROW: usize = 28;
 
-/// One block being written: its place on the page.
+/// One block being written: its place on the page, and the slice of it
+/// the page shows.
 struct Block<'a> {
     out: &'a mut String,
+    layout: &'a Layout,
+    slice: usize,
     top: usize,
     left: usize,
 }
 
 impl Block<'_> {
-    /// `text` at the block's `row` and `col`, then SGR 0.
+    /// The grid's row, from 0, that shows the block's `row` on this page;
+    /// `None` where another slice shows it.
+    fn at(&self, row: usize) -> Option<usize> {
+        self.layout.row(self.slice, row).map(|r| self.top + r)
+    }
+
+    /// `text` at the block's `row` and `col`, then SGR 0; nothing where the
+    /// page shows another slice of the block.
     fn put(&mut self, row: usize, col: usize, text: &str) {
         debug_assert!(row < BLOCK_ROWS && col < BLOCK_COLS);
+        let Some(at) = self.at(row) else {
+            return;
+        };
         let _ = write!(
             self.out,
             "\x1b[{};{}H{text}\x1b[m",
-            self.top + row + 1,
+            at + 1,
             self.left + col + 1
         );
     }
@@ -81,9 +96,17 @@ fn run(first: u32, last: u32, step: usize) -> String {
 /// cursor hidden, and the page's blocks.
 pub fn page(profile: &Profile, layout: &Layout, page: usize) -> Vec<u8> {
     let mut out = String::from("\x1b[?25l\x1b[H\x1b[2J");
-    for (n, top, left) in layout.blocks(page) {
+    for Placed {
+        block: n,
+        slice,
+        top,
+        left,
+    } in layout.blocks(page)
+    {
         let mut b = Block {
             out: &mut out,
+            layout,
+            slice,
             top,
             left,
         };
@@ -462,7 +485,12 @@ fn emoji(b: &mut Block<'_>, l: &Layout) {
     // grid is wider; the last block has no neighbour to its right
     let dots = l.cols - (b.left + 1);
     debug_assert!(dots >= BLOCK_COLS - 1);
-    let mut line = format!("\x1b[{};{}H\x1b[33m", b.top + MARGIN_ROW + 1, b.left + 1);
+    // the wrap lands on the row below, which the same slice shows
+    let (Some(at), Some(below)) = (b.at(MARGIN_ROW), b.at(MARGIN_ROW + 1)) else {
+        return;
+    };
+    debug_assert_eq!(below, at + 1);
+    let mut line = format!("\x1b[{};{}H\x1b[33m", at + 1, b.left + 1);
     line.extend(std::iter::repeat_n('·', dots));
     line.push_str("界\x1b[m");
     b.out.push_str(&line);

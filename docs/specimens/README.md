@@ -6,12 +6,15 @@ vtium's test card, drawn by vtium's renderer in memory for each display profile,
 |---|---|---|---|---|---|---|---|
 | [320x240-1bit](320x240-1bit/) | 1-bit | 8x8 | 40x30 | `unscii-8` | 7 | provisional | [<img src="320x240-1bit/collage.png" width="160">](320x240-1bit/collage.png) |
 | [320x240](320x240/) | 24-bit color | 8x8 | 40x30 | `unscii-8` | 7 | provisional | [<img src="320x240/collage.png" width="160">](320x240/collage.png) |
+| [320x240-tiny5](320x240-tiny5/) | 24-bit color | 6x9 | 53x26 | `tiny5` | 12 | provisional | [<img src="320x240-tiny5/collage.png" width="160">](320x240-tiny5/collage.png) |
 | [480x320](480x320/) | 24-bit color | 8x8 | 60x40 | `unscii-8` | 6 | provisional | [<img src="480x320/collage.png" width="160">](480x320/collage.png) |
 | [640x480](640x480/) | 24-bit color | 8x16 | 80x30 | `unifont` | 4 | provisional | [<img src="640x480/collage.png" width="160">](640x480/collage.png) |
 | [800x480](800x480/) | 24-bit color | 8x16 | 100x30 | `unifont` | 4 | provisional | [<img src="800x480/collage.png" width="160">](800x480/collage.png) |
 | [1366x768](1366x768/) | 24-bit color | 8x16 | 170x48 | `unifont` | 3 | provisional | [<img src="1366x768/collage.png" width="160">](1366x768/collage.png) |
 | [1920x1080](1920x1080/) | 24-bit color | 11x24 | 174x45 | `desktop` | 3 | provisional | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
 | [2560x1440](2560x1440/) | 24-bit color | 14x32 | 182x45 | `desktop` | 3 | provisional | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
+
+`320x240-tiny5` shows an example frit, `tiny5`, the smallest font, which vtium does not use by default; vtium's own choice at 320x240 is the profile `320x240`.
 
 A provisional profile waits on the operator's review, and `provisional.tsv` lists it: a drawing that moves it is reported as drift and fails nothing. An accepted profile fails on a moved pixel.
 
@@ -27,7 +30,7 @@ vtium draws a gray panel exactly as a color display, and the panel's driver conv
 
 ## The card
 
-The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered:
+The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered. A grid shorter than a block, such as the 53x26 that 6x9 cells give at 320x240, shows each block over more than one screen: the rows that fit, then the block's title again and the rows after them:
 
 1. Text
 2. Attributes

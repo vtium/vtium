@@ -1293,6 +1293,62 @@ mod tests {
         }
     }
 
+    // ADR-1200 D7: Tiny5 Mono's 6x9 cell is narrower than Unscii-8's
+    // 8x8, so the built-in glyph is centered and cut evenly, a column off
+    // each side, as the C reference's fit_glyph cut a glyph wider than
+    // its cells; it is never scaled. It sits in the top 8 rows, its
+    // baseline on Tiny5 Mono's, and the 9th row is blank.
+    #[test]
+    fn unscii_8_in_a_narrower_cell_is_centered_and_cut_evenly() {
+        let f = frit_font(Some(cell(6, 9)));
+        let face = f.face(9, "C").expect("a face");
+        assert_eq!(face.cell(), cell(6, 9));
+        let builtin = Chosen::Builtin(Some("unscii-8"))
+            .face(8, "C")
+            .expect("unscii-8");
+        let rows = |g: &vtium_font::Glyph| -> Vec<String> {
+            (0..g.height())
+                .map(|y| {
+                    (0..g.width())
+                        .map(|x| {
+                            if g.pixel(x, y).is_some_and(|p| p.iter().any(|&b| b > 0)) {
+                                '#'
+                            } else {
+                                '.'
+                            }
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+        let draw = |face: &DisplayFace, c| {
+            face.draw(&[c], vtium_font::Style::default())
+                .expect("a glyph")
+        };
+        let m = draw(&face, 'M');
+        assert_eq!((m.width(), m.height()), (6, 9));
+        assert_eq!(
+            rows(&m),
+            [
+                "#...##", "##.###", "######", "#.#.##", "#...##", "#...##", "#...##", "......",
+                "......"
+            ],
+            "Unscii-8's M less its first and last columns"
+        );
+        for c in ['A', 'M', 'g', 'y', '#', '|'] {
+            let (g, own) = (draw(&face, c), draw(&builtin, c));
+            for y in 0..8 {
+                for x in 0..6 {
+                    assert_eq!(g.pixel(x, y), own.pixel(x + 1, y), "{c} at {x},{y}");
+                }
+            }
+            assert!(
+                (0..6).all(|x| g.pixel(x, 8) == Some(&[0][..])),
+                "{c}'s 9th row"
+            );
+        }
+    }
+
     // ADR-1200 D17: with no stated cell, the display's: the C reference's
     // automatic height, #118's floor first, as wide as the built-in font
     // is at that height
