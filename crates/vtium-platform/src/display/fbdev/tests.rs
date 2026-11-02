@@ -806,3 +806,17 @@ fn a_token_from_before_a_retake_cannot_write() {
     assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
     assert_eq!(age(&mut v), 0);
 }
+
+// A token the owner drops instead of giving back frees the framebuffer to
+// lend again, at age 0, as for one that came back too late.
+#[test]
+fn a_framebuffer_token_dropped_unreturned_leaves_age_0() {
+    let mut v = awake(FakeFb::new(32));
+    draw(&mut v, &[WHOLE], |_| ()).unwrap();
+    v.vblank();
+    let mut token = v.lend(DISPLAY).unwrap();
+    assert_eq!(token.age(), 1);
+    token.draw(|c| c.pixels.fill(9)).unwrap();
+    drop(token);
+    assert_eq!(age(&mut v), 0);
+}
