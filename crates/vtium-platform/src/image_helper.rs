@@ -25,13 +25,17 @@
 //!   seals hold before its size is read, the exact size. Then the console
 //!   copies the pixels once into memory only it holds: out of a read-only
 //!   mapping of a sealed file, or with `pread` from a pooled one.
-//! - **Failures.** The socket closing or failing, or a reply that fails a
-//!   check, ends the request with [`Reply::Failed`], kills the helper's
-//!   process group and reaps it, and counts a crash. A helper found
-//!   exited, or with its socket closed, while no request is out counts a
-//!   crash too unless it exited with status 0, which a helper that idles
-//!   out or loses vtium's socket does: the real helper exits 1 when a
-//!   worker is killed by a signal after its outcome is in. After
+//! - **Failures.** The socket failing, or a reply that fails a check,
+//!   ends the request with [`Reply::Failed`], kills the helper's process
+//!   group and reaps it, and counts a crash. A helper found exited, or
+//!   with its socket closed, counts a crash too unless it exited with
+//!   status 0, which a helper that idles out or loses vtium's socket does:
+//!   the real helper exits 1 when a worker is killed by a signal, after
+//!   its outcome is in or before. When that happens while a request is
+//!   out, the request fails either way. A helper that idles out just as
+//!   vtium sends a request exits 0 with the request unread, and counts no
+//!   crash, since an honest helper never exits 0 once it has read one.
+//!   After
 //!   [`IMAGE_CRASHES_MAX`] the console starts no more helpers until its
 //!   session ends. The binary's timer stops the helper the same way but
 //!   counts nothing, since a large picture on a slow board can take that
@@ -313,15 +317,15 @@ impl ImageHost {
         Reply::Failed
     }
 
-    /// A helper that has exited or closed its socket with no request out is
-    /// reaped, and a crash counted unless it exited with status 0.
+    /// A helper that has exited or closed its socket is reaped, and a
+    /// crash counted unless it exited with status 0.
     fn retire(&mut self) {
         let Some(r) = self.running.take() else {
             return;
         };
         if !start::finish(&r.started) {
             log::warn!(
-                "image helper {} ended with another status than 0 after its last reply",
+                "image helper {} ended with another status than 0",
                 r.started.pid.as_raw_nonzero()
             );
             self.count_crash();
@@ -368,15 +372,20 @@ impl ImageHost {
             let packet = match receive(&running.started.socket) {
                 Ok(Some(p)) => p,
                 Ok(None) => return None,
-                Err(why) => {
-                    if self.out.is_none() && why == Broken::Closed {
-                        // a helper that idled out, or one that failed after
-                        // its last reply
-                        self.retire();
-                        return None;
-                    }
-                    return Some(self.crash(why.text()));
+                Err(Broken::Closed) => {
+                    // a helper that idled out, perhaps just as the request
+                    // went out, or one that failed: its status says which
+                    let out = self.out.take();
+                    self.retire();
+                    return out.map(|out| {
+                        log::debug!(
+                            "image request {} went out as the helper ended",
+                            out.id
+                        );
+                        Reply::Failed
+                    });
                 }
+                Err(why) => return Some(self.crash(why.text())),
             };
             if running.hello.is_none() {
                 match wire::decode_hello(&packet.bytes) {
@@ -585,6 +594,10 @@ fn receive(socket: impl AsFd) -> Result<Option<Packet>, Broken> {
             Ok(got) => break got,
             Err(rustix::io::Errno::INTR) => {}
             Err(rustix::io::Errno::AGAIN) => return Ok(None),
+            // the helper closed its end with a request unread, as one that
+            // idles out just as the request goes out does; its exit status
+            // says whether that was honest
+            Err(rustix::io::Errno::CONNRESET) => return Err(Broken::Closed),
             Err(_) => return Err(Broken::Failed),
         }
     };

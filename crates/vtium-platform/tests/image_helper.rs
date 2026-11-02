@@ -52,6 +52,13 @@ fn stand_in(role: &str, tmpdir: Option<&str>) -> ! {
         };
         send(&socket, &wire::encode_hello(&hello), None);
     }
+    // as the real helper does when it idles out just as a request comes:
+    // the request is there, unread, and the helper exits 0
+    if role == "idle" {
+        let mut fds = [PollFd::new(&socket, PollFlags::IN)];
+        let _ = rustix::event::poll(&mut fds, None);
+        std::process::exit(0);
+    }
     loop {
         let mut buf = vec![0u8; wire::PACKET_MAX + 1];
         let mut space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(4))];
@@ -85,7 +92,8 @@ fn stand_in(role: &str, tmpdir: Option<&str>) -> ! {
                     let _ = rustix::event::poll(&mut [], None);
                 }
             }
-            "crash" => std::process::exit(0),
+            // as the real helper does when a worker is killed by a signal
+            "crash" => std::process::exit(1),
             "once" => {
                 answer(&socket, role, id, &request);
                 std::process::exit(0);
@@ -725,6 +733,25 @@ fn a_helper_that_fails_after_its_reply_counts_a_crash() {
     println!("test a_helper_that_fails_after_its_reply_counts_a_crash ... ok");
 }
 
+/// A helper that idles out just as a request goes out exits 0 with the
+/// request unread: the request fails, and no crash is counted, since an
+/// honest helper exits 0 only before it reads a request. One that exits
+/// with another status while a request is out counts a crash.
+fn a_helper_that_idles_out_as_a_request_goes_out_counts_no_crash() {
+    let dir = scratch("idle-race");
+    let mut idle = host(&dir, "idle");
+    for n in 1..=3 {
+        assert_eq!(ask(&mut idle, &file()), Reply::Failed, "request {n}");
+        assert_eq!(idle.crashes(), 0, "after request {n}");
+        assert_eq!(idle.pid(), None, "the helper is reaped");
+    }
+    assert!(idle.available());
+    let mut failed = host(&dir, "crash");
+    assert_eq!(ask(&mut failed, &file()), Reply::Failed);
+    assert_eq!(failed.crashes(), 1);
+    println!("test a_helper_that_idles_out_as_a_request_goes_out_counts_no_crash ... ok");
+}
+
 fn a_program_others_may_change_is_refused() {
     let dir = scratch("program");
     let path = dir.join("vtium-image");
@@ -761,6 +788,7 @@ fn main() {
     a_session_that_ends_drops_its_request_and_its_helper();
     a_helper_that_exited_idle_is_replaced_at_the_next_request();
     a_helper_that_fails_after_its_reply_counts_a_crash();
+    a_helper_that_idles_out_as_a_request_goes_out_counts_no_crash();
     a_program_others_may_change_is_refused();
     drop(run);
 }
