@@ -21,6 +21,27 @@ basis:
     said: "The recipes live in their own repos, submoduled into vtium; the vtium package lives alongside the installed kmscon package rather than replacing it; the -git package builds GitHub's main, with a setting to point it at a local checkout."
     via: "the maintainer's answers to the steering session's questions, 2026-11-02, relayed in this record's brief; the wording is the team lead's"
     paraphrase: true
+  - operator: aaronsb
+    level: directed
+    said: "you know what, might as well just publish it on the real aur. I have rights there already"
+    via: "the steering session, 2026-11-02, relayed by the team lead"
+  - operator: aaronsb
+    level: directed
+    said: "if someone wants to install it that's their risk!"
+    via: "the steering session, 2026-11-02, relayed by the team lead"
+  - operator: aaronsb
+    level: directed
+    said: "I'd like to make sure we keep both vtium and vtium-git as ours"
+    via: "the steering session, 2026-11-02, relayed by the team lead"
+  - operator: aaronsb
+    level: directed
+    said: "let's make sure we gpg sign things too"
+    via: "the steering session, 2026-11-02, relayed by the team lead"
+  - operator: aaronsb
+    level: directed
+    said: "vtium-git is published on the real AUR under the maintainer's account from the vtium-arch repo, by a publish script that pushes each package directory to its AUR repo; until the staging make target is on main, the recipe does its install steps inside package(). vtium is published from a first pre-release, v0.1.0-alpha.1, tagged on main after this session's work merges there. Tags are signed with the maintainer's key 33F9B54FD2A4B6A4110749B3BA464FC9847A832A; the vtium recipe builds from the signed tag with that key in validpgpkeys and ships the public key under keys/pgp/; vtium-git stays unverified, because main's tip is a merge commit signed by GitHub's key; commits stay unsigned, because an agent's signing would ask for the passphrase each time."
+    via: "the team lead's account of the maintainer's decisions, 2026-11-02; the wording is the team lead's"
+    paraphrase: true
   - evidence: "measured 2026-11-01 on this machine: Arch's kmscon 10.1.0-1 from the extra repository owns /usr/bin/kmscon, /usr/lib/systemd/system/kmscon.service, /usr/lib/systemd/system/kmsconvt@.service and /etc/kmscon/kmscon.conf.example, and depends on kmscon-terminfo 10.1.0-1, which owns /usr/share/terminfo/k/kmscon; no package owns /etc/kmscon/kmscon.conf; /etc/systemd/system/autovt@.service links to kmsconvt@.service; getty.target wants getty@tty1 to getty@tty6; nothing is installed at /usr/bin/vtium, /usr/bin/vtium-vitrify, /usr/local/bin/vtium or /var/lib/vtium-vt-install; vtium/vtium-arch exists on GitHub and is empty"
   - evidence: "measured 2026-11-01: tic -x on crates/vtium/install/kmscon.ti, compared with infocmp against kmscon-terminfo's entry, gives vtium's entry XF, dim, sitm, ritm, smxx, rmxx, E3, BD, BE, PS, PE, Ms, Setulc, Smulx, Sync, XM, fd, fe, kxIN and kxOUT, which the installed entry lacks, kmous \\E[< where it has \\E[M, and setrgbf and setrgbb without its trailing ';'"
   - evidence: "measured 2026-11-01 with systemd 262's systemctl --root on a scratch tree holding kmsconvt@.service and a vtium@.service generated from the shipped units: with autovt@.service linked to kmsconvt@.service, `enable vtium@tty5.service` links autovt@tty5.service and getty.target.wants/vtium@tty5.service to vtium@.service; `enable vtium@.service` fails on the existing autovt@.service yet still links getty.target.wants/vtium@tty1.service from DefaultInstance=tty1, and with DefaultInstance= removed it links nothing; `disable vtium@tty5.service` leaves autovt@tty5.service; a second unit enabled on tty5 fails on autovt@tty5.service and still links its getty.target.wants entry"
@@ -38,6 +59,8 @@ observable:
   - "`systemctl enable vtium@.service`, with no VT named, links nothing and leaves /etc/systemd/system/autovt@.service as it was"
   - "With vtium-git's vtium@tty5 running, `make vt-install VT=6` installs vtium-dev on VT 6, both run at once, `make vt-check` borrows a third VT, and `vtium blank --vt 6` blanks the development vtium"
   - "Upgrading vtium-git while vtium@tty5 runs leaves every session on VT 5 running, and the journal's `vtium Revision` line for VT 5 changes only after `systemctl restart vtium@tty5.service`"
+  - "`makepkg` in `vtium-arch`'s `vtium` directory, with the maintainer's public key imported from `keys/pgp/`, builds `v0.1.0-alpha.1`, and refuses the build when the tag is unsigned or signed by another key"
+  - "An AUR helper such as `yay`, asked for `vtium-git` on another Arch machine, installs the package the AUR carries, which matches `vtium-arch`'s `vtium-git` directory"
   - "A development build whose helper speaks a different wire format from the packaged helper still draws its frit's glyphs once installed with `make vt-install`"
 status: proposed
 date: 2026-11-01
@@ -50,9 +73,9 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium's packaging recipes live in one repository per package manager in the vtium GitHub organization, each a git submodule of vtium under `packaging/<manager>`. Arch comes first, in `vtium/vtium-arch`: `vtium-git`, built from the tip of GitHub's `main` or, by a documented setting, from a local checkout and branch, and later `vtium`, built from version tags. The package installs vtium beside the C reference's own Arch package, `kmscon`, and takes none of its files or unit names: it installs `/usr/bin/vtium`, the glyph helper `/usr/bin/vtium-vitrify`, and the units `vtium@.service` and `vtium-getty@.service`, and the user enables vtium on one VT at a time. A development install, `make vt-install`, moves to names of its own (`vtium-dev@.service`, `vtium-dev-getty@.service`, `/usr/local/bin/vtium-dev` and its own helper) so that the packaged vtium and a development vtium run on separate VTs at once. Both read the same configuration. An upgrade replaces the files and never restarts a running vtium; the new build runs from that VT's next start. Every problem the packaged vtium shows becomes an issue.
-- **Trades away:** The development install's current names: `make vt-install` and the docs that name `vtium@ttyN` for it change. A second repository to keep, and a submodule pointer to move when it changes. The packaged vtium runs behind development on purpose. Until the maintainer answers the first open question, vtium's sessions under the package use the C reference's older terminfo entry.
-- **One-way?** Reversible now: nothing is published and nobody has enabled the units. Expensive once the recipes are published to the AUR, since other machines then enable `vtium@ttyN` by that name and install the package by its name.
+- **Decided:** vtium's packaging recipes live in one repository per package manager in the vtium GitHub organization, each a git submodule of vtium under `packaging/<manager>`. Arch comes first, in `vtium/vtium-arch`, published to the AUR under the maintainer's account: `vtium-git`, built from the tip of GitHub's `main` or, by a documented setting, from a local checkout and branch, and `vtium`, built from a signed version tag, the first being the pre-release `v0.1.0-alpha.1`. The package installs vtium beside the C reference's own Arch package, `kmscon`, and takes none of its files or unit names: it installs `/usr/bin/vtium`, the glyph helper `/usr/bin/vtium-vitrify`, and the units `vtium@.service` and `vtium-getty@.service`, and the user enables vtium on one VT at a time. A development install, `make vt-install`, moves to names of its own (`vtium-dev@.service`, `vtium-dev-getty@.service`, `/usr/local/bin/vtium-dev` and its own helper) so that the packaged vtium and a development vtium run on separate VTs at once. Both read the same configuration. An upgrade replaces the files and never restarts a running vtium; the new build runs from that VT's next start. Every problem the packaged vtium shows becomes an issue.
+- **Trades away:** Packages that anyone on the AUR can install before vtium is ready for them, at their own risk. The development install's current names: `make vt-install` and the docs that name `vtium@ttyN` for it change. A second repository to keep, and a submodule pointer to move when it changes. The packaged vtium runs behind development on purpose. Until the maintainer answers the first open question, vtium's sessions under the package use the C reference's older terminfo entry.
+- **One-way?** Expensive: the packages are published to the AUR, so other machines can install them by their names and enable `vtium@ttyN` by that name, and a rename strands them. A signed tag, once published, is never moved.
 - **Probes:**
   - *Confident (upgrades):* an upgrade of the package never restarts vtium on a VT. The new build runs from that VT's next start: a reboot, a failure, or a restart the user asks for.
   - *Not confident (shared head file):* the development vtium and the packaged one read the same `/etc/vtium/heads.conf`, so a key that only the newer build knows breaks the file for the older one.
@@ -71,16 +94,18 @@ A VT (a Linux virtual console, switched with Ctrl-Alt-F<n>) runs one console at 
 ### D1: one recipe repository per package manager, submoduled into vtium
 
 - Each package manager's recipes live in their own repository in the vtium GitHub organization, and vtium holds each as a git submodule at `packaging/<manager>`. A submodule is a pointer from vtium's tree to one commit of the other repository, so vtium's history records which recipes go with which code, and the recipes keep their own history and can be published from their own repository.
-- Arch comes first: `vtium/vtium-arch`, at `packaging/arch`. It holds `vtium-git` now, which builds the latest `main`, and `vtium`, built from a version tag, once vtium has tags. Debian, Fedora and Nix each get a repository of their own later, named `vtium/vtium-<manager>` in the same way.
-- A recipe stays thin: it calls vtium's own make targets to build and stage the files, so the knowledge of which file goes where lives in vtium's tree, and the package installs what tier 3 tests. vtium's Makefile gains a staging target for a package that lives beside the C reference's (D3), which every manager's recipe calls. It is not built yet.
-- For now the recipes are built locally on this machine, with `makepkg`. Publishing them to the AUR, Arch's user repository, waits for the maintainer's ask.
+- Arch comes first: `vtium/vtium-arch`, at `packaging/arch`. It holds `vtium-git`, which builds the latest `main`, and `vtium`, which builds a signed version tag (D2). Both names are vtium's on the AUR, which reserves no name, so each is published as soon as it can build: `vtium` from the first pre-release. Debian, Fedora and Nix each get a repository of their own later, named `vtium/vtium-<manager>` in the same way.
+- A recipe stays thin: it calls vtium's own make targets to build and stage the files, so the knowledge of which file goes where lives in vtium's tree, and the package installs what tier 3 tests. vtium's Makefile gains a staging target for a package that lives beside the C reference's (D3), which every manager's recipe calls. Until that target reaches GitHub's `main`, the Arch recipe does the same install steps itself, inside its `package()` function, so that it builds from the `main` that exists today; it moves to the target once the target is on `main`.
+- The Arch packages are published on the AUR, Arch's user repository, under the maintainer's account. `vtium-arch` holds one directory per package and a publish script that pushes each directory to that package's AUR repository, so the AUR always carries what `vtium-arch` holds. Anyone may install them, at their own risk. The maintainer builds them on this machine with `makepkg` the same way.
 
-### D2: what vtium-git builds
+### D2: what the packages build
 
 - `vtium-git` builds the tip of GitHub's `main`. Only reviewed work whose CI passed reaches `main`, so the packaged vtium is never a branch in progress.
 - A documented setting in `vtium-arch` points the build at another git source and branch instead, such as a local checkout (`git+file:///path/to/vtium`, with `#branch=integration`), through makepkg's source entry (PKGBUILD(5)). makepkg clones that source, so the build takes the branch's last commit and never a checkout's uncommitted changes. The setting is read from the environment of the `makepkg` run, and `vtium-arch`'s README names it.
 - The package follows Arch's rules for a package built from version control: it is named `vtium-git`, provides and conflicts with `vtium`, and computes its version in `pkgver()` from the commit it built, so `pacman -Q vtium-git` names the commit that the journal's `vtium Revision` line names at start.
 - It builds the console with the features `make install-tree` builds by default, the minspec console, the one build tier 3 judges. The same setting may name features (`FEATURES='images logind'`).
+- `vtium` builds one version tag, the first being the pre-release `v0.1.0-alpha.1`, tagged on `main` once the work this record starts has merged there. Its source entry names the tag and asks makepkg to check its signature (`git+https://github.com/vtium/vtium.git#tag=v0.1.0-alpha.1?signed`, PKGBUILD(5)), and its `validpgpkeys` holds the one key that signs vtium's tags, so makepkg refuses a tag that key did not sign. `vtium` conflicts with `vtium-git`, so a machine holds one of the two.
+- **Signatures.** The maintainer signs each version tag with their key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. `vtium-arch` ships that key's public half under `keys/pgp/`, named for its fingerprint, so a builder can import it before building `vtium`. `vtium-git` checks no signature: the tip of `main` is a merge commit that GitHub signs with its own key, which says only that GitHub made the merge. Commits stay unsigned, because a delegated agent's signing would ask for the passphrase at every commit.
 
 ### D3: living beside the C reference's package
 
@@ -164,12 +189,15 @@ Each question below is open. The record's lean is written as its decision until 
 
 - `packaging/` holds only submodules. A clone without `--recurse-submodules` has empty directories there, and no gate, CI job or build reads them.
 - The recipes build against the same pinned sysroot and toolchain as `make install-tree`, so a build on this machine needs what `make install-tree` needs, and a network connection for the sysroot and the crates.
-- When vtium starts tagging versions, `vtium-arch` gains the `vtium` package built from a tag, which provides and conflicts with `vtium-git`.
+- Each later version tag moves `vtium`'s recipe to that tag, and the publish script pushes it to the AUR.
 
 ## Alternatives Considered
 
 - **Recipes in vtium's own tree,** under `packaging/` as plain files. Rejected by the maintainer: a recipe repository of its own can be published and versioned apart from vtium, and the submodule still ties each recipe to the code it builds.
 - **A package that replaces the C reference's,** providing and conflicting with `kmscon` and installing the drop-in tree that `make install-tree` stages. Rejected by the maintainer for now: the C reference's console stays installed on this machine beside vtium. D3 leaves it as a later variant.
+- **A local builder only, published later.** Replaced by the maintainer: the packages go on the AUR now, since the maintainer holds an account there and the names stay vtium's.
+- **Checking a signature on `vtium-git`'s source.** Rejected: the tip of `main` carries GitHub's signature on its merge commit, which proves nothing about vtium's maintainer.
+- **Signed commits.** Rejected: an agent's every commit would ask for the passphrase; the signed tag is what a builder checks.
 - **Building the local checkout by default.** Rejected by the maintainer: `main` holds only reviewed work with green CI, and the setting in D2 reaches a local checkout when one is wanted.
 - **One set of names for both installs,** with `make vt-install` replacing the package's files. Rejected: the maintainer wants the packaged vtium kept running while development goes on, and a unit in `/etc/systemd/system` overrides the packaged one on every VT.
 - **Keeping the development binary's name `vtium` in a directory of its own,** such as `/usr/local/lib/vtium-dev/vtium`, so that `vtium blank` finds it without change. Not chosen: `ps`, `pgrep` and the journal then show two processes with one name, and telling them apart is the point of separate names.
