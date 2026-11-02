@@ -1,0 +1,80 @@
+# vtium draws each frame straight into the buffer the display shows, with
+# no copy of the whole frame kept beside it (ADR-1401 D2, the buffer
+# token). The renderer draws only what changed since that buffer was last
+# shown, so a wrong buffer age shows as a letter that flickers, a line that
+# goes missing or old text that comes back. The minspec build keeps two
+# buffers a display. The unplug step needs a machine with two displays.
+#
+#   make vt-check GUIDE=token
+
+title: frames drawn straight into the display's buffer
+
+step: Letters appear one at a time
+run: for c in a b c d e f g h i j k l m n o p q r s t u v w x y z; do printf %s "$c"; sleep 0.25; done; echo
+do: watch the line until the last letter, z, is drawn.
+expect: the letters appear one by one from left to right. No letter
+expect: flickers, disappears or comes back, and the cursor moves one cell
+expect: ahead of the last letter.
+
+step: Scrolling, fast and then slow
+run: seq -f 'line %g of 3000, scrolling fast' 1 3000; for n in $(seq 1 40); do echo "slow line $n of 40"; sleep 0.1; done
+do: watch the fast lines, then the slow ones, until "slow line 40 of 40".
+expect: every row is drawn whole while it moves. No row is torn across the
+expect: middle, missing or drawn twice, and the screen ends on the slow lines
+expect: in order, with "slow line 40 of 40" last.
+
+step: A full-screen redraw, then a blank screen
+run: ls -R /usr | head -5000; clear; sleep 5
+do: watch the screen until the question comes back.
+expect: the listing rushes past, then the screen goes blank at once and
+expect: stays blank for five seconds while the cursor blinks at the top
+expect: left. No line of the listing shows again, not even for one blink.
+
+step: The scrollback, a page at a time
+run: seq -f 'scrollback line %g of 500' 1 500
+do: press Shift+PgUp five times, then Shift+PgDn until the question below
+do: shows again.
+expect: each press shows a whole page of older or newer lines in order,
+expect: with no row left over from the page before, and the last press
+expect: brings back the screen as it was.
+
+step: The cursor
+probe: shell
+do: press Enter. At the prompt, type: echo the quick brown fox jumps
+do: then move the cursor with Left and Right, Home and End, and delete a
+do: few letters with Backspace. Stop for a few blinks. Then Ctrl-C, exit.
+expect: one cursor, always in the cell where the next letter goes. No
+expect: cursor block is left behind in a cell it moved away from, even
+expect: after it has stayed still for a few blinks.
+
+step: A switch away and back while lines arrive
+run: for n in $(seq 1 20); do echo "tick $n of 20"; sleep 1; done
+do: as soon as "tick 1" shows, press Ctrl-Alt-F{desktop}. Wait about ten
+do: seconds on the desktop, then press Ctrl-Alt-F{vt}.
+expect: back here, the screen is drawn whole at once with every tick so
+expect: far, and the ticks go on to "tick 20 of 20". No frame from before
+expect: the switch, and nothing of the desktop, shows in between.
+
+step: The displays go dark and wake, with a line written while dark
+run: printf '\033[9;1]'; sleep 65; echo "written while the screen was dark"; sleep 10; printf '\033[13]\033[9;10]'
+do: after Enter, touch no key and do not move the pointer until the
+do: question comes back.
+expect: the screen goes dark about a minute after Enter, and lights again
+expect: about 15 seconds later with no key pressed. It shows this screen
+expect: whole, with "written while the screen was dark" on it, then the
+expect: question.
+
+step: A display unplugged and plugged back
+run: for n in $(seq 1 30); do echo "tick $n of 30"; sleep 1; done
+do: skip this step (s, then Enter) on a machine with one display. Else,
+do: after "tick 1" shows, unplug one display's cable, or turn that monitor
+do: off, wait five seconds, then plug it back in or turn it on.
+expect: the other display keeps drawing the ticks the whole time. The
+expect: display that comes back lights with the current ticks drawn whole,
+expect: never an old frame or a half-drawn one.
+
+step: Anything else
+do: look back over every step.
+expect: no tearing (a moving line split by a seam across the screen), no
+expect: missing lines and no old content anywhere. Note anything that
+expect: looked wrong, however small.
