@@ -52,6 +52,8 @@ pub struct Font {
     /// GSUB's lookups, each under its feature, applied in this order, for
     /// the scripts `DFLT` and `arab`.
     pub gsub: Vec<([u8; 4], Lookup)>,
+    /// GPOS's lookups, each [`Lookup::Advance`], laid out as GSUB's are.
+    pub gpos: Vec<([u8; 4], Lookup)>,
     /// A `post` table's underline: its position, the top of the stroke
     /// below the baseline when negative, and its thickness.
     pub underline: Option<(i16, i16)>,
@@ -64,13 +66,15 @@ pub struct Font {
     pub empty_gpos: bool,
 }
 
-/// A GSUB lookup.
+/// A GSUB or GPOS lookup.
 #[derive(Clone)]
 pub enum Lookup {
-    /// Each glyph and the glyph it becomes.
+    /// GSUB: each glyph and the glyph it becomes.
     Single(Vec<(u16, u16)>),
-    /// Each sequence of glyphs and the ligature it becomes.
+    /// GSUB: each sequence of glyphs and the ligature it becomes.
     Ligature(Vec<(Vec<u16>, u16)>),
+    /// GPOS: each glyph and the units added to its advance.
+    Advance(Vec<(u16, i16)>),
 }
 
 /// A CBDT glyph: its glyph, the bitmap's size, its left bearing, its top
@@ -240,13 +244,27 @@ fn subtable(lookup: &Lookup) -> Vec<u8> {
                 out.extend(set);
             }
         }
+        Lookup::Advance(pairs) => {
+            // a single adjustment of format 2: an XAdvance for each glyph
+            let mut pairs = pairs.clone();
+            pairs.sort();
+            let glyphs: Vec<u16> = pairs.iter().map(|p| p.0).collect();
+            p16(&mut out, 2);
+            p16(&mut out, 8 + 2 * pairs.len() as u16);
+            p16(&mut out, 0x0004);
+            p16(&mut out, pairs.len() as u16);
+            for &(_, by) in &pairs {
+                pi16(&mut out, by);
+            }
+            out.extend(coverage(&glyphs));
+        }
     }
     out
 }
 
-/// GSUB: each lookup under a feature of its own, every feature in the
-/// default language system of `DFLT` and `arab`.
-fn gsub(lookups: &[([u8; 4], Lookup)]) -> Vec<u8> {
+/// GSUB or GPOS: each lookup under a feature of its own, every feature in
+/// the default language system of `DFLT` and `arab`.
+fn layout(lookups: &[([u8; 4], Lookup)]) -> Vec<u8> {
     let n = lookups.len() as u16;
     // the script list: two scripts, each with only a default LangSys
     let mut langsys = Vec::new();
@@ -287,7 +305,7 @@ fn gsub(lookups: &[([u8; 4], Lookup)]) -> Vec<u8> {
         .iter()
         .map(|(_, l)| {
             let kind = match l {
-                Lookup::Single(_) => 1,
+                Lookup::Single(_) | Lookup::Advance(_) => 1,
                 Lookup::Ligature(_) => 4,
             };
             let mut body = Vec::new();
@@ -432,6 +450,10 @@ impl Font {
         name.extend(data);
         tables.push((*b"name", name));
 
+        if !self.gpos.is_empty() {
+            assert!(!self.empty_gpos, "an empty GPOS or one with lookups");
+            tables.push((*b"GPOS", layout(&self.gpos)));
+        }
         if self.empty_gpos {
             let mut gpos = Vec::new();
             p16(&mut gpos, 1);
@@ -525,7 +547,7 @@ impl Font {
         }
 
         if !self.gsub.is_empty() {
-            tables.push((*b"GSUB", gsub(&self.gsub)));
+            tables.push((*b"GSUB", layout(&self.gsub)));
         }
 
         if !self.colr.is_empty() {
@@ -630,6 +652,7 @@ pub fn test_mono() -> Font {
         palette: vec![[255, 0, 0, 255], [0, 0, 255, 128]],
         cbdt: None,
         gsub: Vec::new(),
+        gpos: Vec::new(),
         underline: None,
         os2: None,
         empty_gpos: false,
@@ -673,6 +696,7 @@ pub fn test_emoji() -> Font {
             }],
         )),
         gsub: Vec::new(),
+        gpos: Vec::new(),
         underline: None,
         os2: None,
         empty_gpos: false,

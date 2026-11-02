@@ -354,6 +354,56 @@ fn a_letter_and_mark_that_fit_are_untouched() {
     );
 }
 
+// A cluster whose pen sum is negative is placed as one with no advance
+// (review finding A9, through rasterise): its pen goes half the cell in,
+// as the C reference's centre_dx clamped the advance at 0. Test Mono with
+// an x, a bar from 100 to 500 units across and 400 tall, and a dot above,
+// at 20 pixels: as the font gives it,
+// x advances 600 units, 11.7 pixels, which rounds to the 12-pixel cell,
+// so its pen is on the cell's left edge. With a GPOS adjustment of -1600
+// units to x's advance the cluster's pen sum is -1000 units, and its pen
+// is 6 columns in, where an unclamped advance of -19.5 pixels would put
+// it 16 columns in, past the cell
+#[test]
+fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
+    let font = |by: Option<i16>| {
+        let mut f = ttf::test_mono();
+        f.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 400));
+        let x = u16::try_from(f.glyphs.len() - 1).expect("a glyph id");
+        f.glyphs.push(ttf::Glyph::rect(0, -350, 500, -250, 600));
+        f.cmap.push((0x78, x));
+        f.cmap.push((0x307, x + 1));
+        f.cmap.sort_unstable();
+        if let Some(by) = by {
+            f.gpos = vec![(*b"kern", ttf::Lookup::Advance(vec![(x, by)]))];
+        }
+        f.build()
+    };
+    let key = ['x', '\u{307}'];
+    let drawn = |by: Option<i16>| {
+        let o = rasterise(&OutlineRequest {
+            font: font(by).into(),
+            family: "Test Mono".to_owned(),
+            cells: vec![(12, 20)],
+            cover: Vec::new(),
+            clusters: vec![ask(&key, Kind::Marks)],
+            baselines: Vec::new(),
+        })
+        .expect("rasterised");
+        let g = cluster(&o, &key).expect("x and its dot").clone();
+        // the columns x's ink covers in row 12, between its top and the
+        // baseline
+        (0..12)
+            .filter(|&c| g.pixels[12 * 12 + c] > 0)
+            .collect::<Vec<usize>>()
+    };
+    let at_edge = drawn(None);
+    let negative = drawn(Some(-1600));
+    assert!(!at_edge.is_empty(), "x's ink as the font places it");
+    let moved: Vec<usize> = at_edge.iter().map(|c| c + 6).filter(|&c| c < 12).collect();
+    assert_eq!(negative, moved, "x's ink 6 columns in, cut at the cell");
+}
+
 /// Test Mono with an Arabic alef (U+0627), a bar 760 units tall, and a
 /// damma (U+064F), a mark of no advance 300 units tall, which HarfRust
 /// places just above the alef, past the row's top.
