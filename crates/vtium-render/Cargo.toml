@@ -14,6 +14,8 @@ workspace = true
 [dependencies]
 vtium-term.workspace = true
 vtium-font.workspace = true
+# the store's frame entries, which the compositor draws (ADR-1100 D9)
+vtium-image = { workspace = true, optional = true }
 
 [dev-dependencies]
 # the tests draw PSF fonts, whose loader the console leaves out
@@ -22,3 +24,6 @@ vtium-font = { workspace = true, features = ["psf"] }
 [features]
 # the glyph cache defaults to its performance profile (ADR-1300 D4)
 performance-cache = []
+# draws a frame's image placements, keeps their scaled copies and marks the
+# cells they change (ADR-1100 D1, D10); the minspec build leaves it out
+images = ["dep:vtium-image", "vtium-term/images"]

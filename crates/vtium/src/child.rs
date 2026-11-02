@@ -4,7 +4,9 @@
 //! The command is `login`, or `/bin/login -p` with `reset-env` on and
 //! `/bin/login` with it off. With `reset-env` on the environment starts
 //! empty, and off it starts as vtium's own. Over it vtium sets `TERM`,
-//! `COLORTERM=truecolor`, `XDG_SEAT` and `XDG_VTNR` when it knows them,
+//! `TERM_PROGRAM=vtium` and `TERM_PROGRAM_VERSION`, vtium's version, which
+//! name the terminal whatever `TERM` names, `COLORTERM=truecolor`,
+//! `XDG_SEAT` and `XDG_VTNR` when it knows them,
 //! `TERM_SESSION_TYPE`: `kms` on a DRM display, or `fb` on fbdev, and
 //! `VTIUM_HEAD` and `VTIUM_CONSOLE`, the session's head and the console's
 //! id (ADR-1401 D5), when it runs in a head's console. Then each word
@@ -63,6 +65,8 @@ pub fn child(
     };
     let mut set = |k: &str, v: &str| env.insert(k.into(), v.into());
     set("TERM", config.text(&TERM).unwrap_or_default());
+    set("TERM_PROGRAM", "vtium");
+    set("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     set("COLORTERM", "truecolor");
     if let Some(seat) = place.seat {
         set("XDG_SEAT", seat);
@@ -116,6 +120,9 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+
+    /// vtium's version, which `TERM_PROGRAM_VERSION` gives.
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
     use crate::config::load;
 
     fn config(args: &[&str]) -> Config {
@@ -142,9 +149,15 @@ mod tests {
     };
 
     fn vtiums_own() -> Vec<(OsString, OsString)> {
-        os(&[("HOME", "/root"), ("TERM", "linux"), ("PATH", "/usr/bin")])
-            .into_iter()
-            .collect()
+        // started from another terminal, which named itself
+        os(&[
+            ("HOME", "/root"),
+            ("TERM", "linux"),
+            ("TERM_PROGRAM", "kitty"),
+            ("PATH", "/usr/bin"),
+        ])
+        .into_iter()
+        .collect()
     }
 
     #[test]
@@ -155,7 +168,9 @@ mod tests {
             c.env,
             os(&[
                 ("COLORTERM", "truecolor"),
-                ("TERM", "kmscon"),
+                ("TERM", "xterm-vtium"),
+                ("TERM_PROGRAM", "vtium"),
+                ("TERM_PROGRAM_VERSION", VERSION),
                 ("TERM_SESSION_TYPE", "kms"),
                 ("XDG_SEAT", "seat0"),
                 ("XDG_VTNR", "2"),
@@ -178,6 +193,8 @@ mod tests {
                 ("HOME", "/root"),
                 ("PATH", "/usr/bin"),
                 ("TERM", "xterm"),
+                ("TERM_PROGRAM", "vtium"),
+                ("TERM_PROGRAM_VERSION", VERSION),
                 ("TERM_SESSION_TYPE", "kms"),
                 ("XDG_SEAT", "seat0"),
                 ("XDG_VTNR", "2"),
@@ -198,7 +215,9 @@ mod tests {
             c.env,
             os(&[
                 ("COLORTERM", "truecolor"),
-                ("TERM", "kmscon"),
+                ("TERM", "xterm-vtium"),
+                ("TERM_PROGRAM", "vtium"),
+                ("TERM_PROGRAM_VERSION", VERSION),
                 ("TERM_SESSION_TYPE", "fb"),
             ])
         );
@@ -220,13 +239,13 @@ mod tests {
         let c = child(&config(&args), &TTY2, vtiums_own());
         assert_eq!(
             c.argv,
-            argv(&["/bin/sh", "kmscon", "/root", "", "$HOME", "a$HOME"])
+            argv(&["/bin/sh", "xterm-vtium", "/root", "", "$HOME", "a$HOME"])
         );
         // With the environment reset, HOME is not in it.
         let c = child(&config(&args[1..]), &TTY2, vtiums_own());
         assert_eq!(
             c.argv,
-            argv(&["/bin/sh", "kmscon", "", "", "$HOME", "a$HOME"])
+            argv(&["/bin/sh", "xterm-vtium", "", "", "$HOME", "a$HOME"])
         );
     }
 
@@ -275,10 +294,10 @@ mod tests {
             .get_envs()
             .map(|(k, v)| (k.to_owned(), v.map(OsStr::to_owned)))
             .collect();
-        assert_eq!(env.len(), 5);
+        assert_eq!(env.len(), 7);
         assert_eq!(
             env.get(OsStr::new("TERM")),
-            Some(&Some(OsString::from("kmscon")))
+            Some(&Some(OsString::from("xterm-vtium")))
         );
         let none = Child {
             argv: Vec::new(),

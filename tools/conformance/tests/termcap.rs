@@ -41,7 +41,9 @@ fn the_termcap_fixture_is_the_table_vtium_answers_from() {
             .map(|(name, value)| (name.as_slice(), value.as_deref())),
     )
     .unwrap_or_else(|e| panic!("{e:?}"));
-    let table = vtium::termcap::termcap().unwrap_or_else(|e| panic!("{e:?}"));
+    let table = vtium::termcap::for_term("kmscon")
+        .unwrap_or_else(|| panic!("vtium answers XTGETTCAP under kmscon"))
+        .unwrap_or_else(|e| panic!("{e:?}"));
     assert!(
         fixture == table,
         "{} differs from crates/vtium/src/termcap/table.rs: write each entry as NAME or NAME=HEX",
