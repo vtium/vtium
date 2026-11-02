@@ -1071,7 +1071,7 @@ pub const FONT_HINTING: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "How the font helper hints outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits it both ways. Bitmap fonts take no hinting. Unset, the frit's `hinting=` decides, `light` where it states none.",
+    what: "How the font helper is to hint outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits a TrueType font both ways, and draws a CFF font as `light` does. Bitmap fonts take no hinting. vtium does not yet hand this key to the helper, so for now each frit's `hinting=` decides, `light` where it states none.",
     cite: "ADR-1200 D1; the C reference hinted every glyph lightly, src/font/font_freetype.c:119",
 };
 
