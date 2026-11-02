@@ -17,6 +17,12 @@ pub(super) enum Error {
     BadFile,
     /// The budget refused.
     NoSpace,
+    /// A relative placement's parent does not exist.
+    NoParent,
+    /// A relative placement would follow itself.
+    Cycle,
+    /// A chain of relative placements would pass `RELATIVE_DEPTH_MAX`.
+    TooDeep,
     /// Anything else the handler cannot do.
     Invalid,
 }
@@ -27,6 +33,9 @@ impl Error {
             Self::NotFound => "ENOENT:image not found",
             Self::BadFile => "EBADF:Failed to read image file",
             Self::NoSpace => "ENOSPC:image storage is full",
+            Self::NoParent => "ENOPARENT:parent placement not found",
+            Self::Cycle => "ECYCLE:relative placement would make a cycle",
+            Self::TooDeep => "ETOODEEP:chain of relative placements is too deep",
             Self::Invalid => "EINVAL:invalid argument",
         }
     }
@@ -271,24 +280,38 @@ impl Command {
         self.format == 100 || self.compression == b'z'
     }
 
-    /// The parts of the protocol whose own work answers them later:
-    /// animation, Unicode placeholders and relative placements (D13, and
-    /// kitty animation's record). Until then each is refused with EINVAL, as the C
-    /// reference refused them.
+    /// The part of the protocol whose own work answers it later:
+    /// animation (kitty animation's record). Until then it is refused with
+    /// EINVAL, as the C reference refused it.
     pub(super) fn later(&self) -> bool {
-        let relative = bit(b'P') | bit(b'Q') | bit(b'H') | bit(b'V');
         matches!(self.action, b'f' | b'a' | b'c')
-            || self.virtual_placement != 0
-            || self.seen & relative != 0
+    }
+
+    /// A put makes a relative placement: it names a parent image with `P`
+    /// (D13). An id of 0 names no image anywhere in the protocol, so `P=0`
+    /// is no parent, and `Q`, `H` and `V` without a parent do nothing.
+    pub(super) fn relative(&self) -> bool {
+        self.parent != 0
+    }
+
+    /// A put makes a virtual placement, for Unicode placeholders: `U=1`.
+    pub(super) fn virtual_placement(&self) -> bool {
+        self.virtual_placement == 1
     }
 
     /// What is refused before any data is read: a key that cannot be read;
-    /// `i` with `I`, as the spec asks; [`later`](Self::later)'s parts; a raw
-    /// format without `s` and `v` or past `max-graphic-size`; and a
-    /// placement whose pixel offset lies outside its cell or whose box
-    /// passes [`BOX_CELLS_MAX`].
+    /// `i` with `I`, as the spec asks; [`later`](Self::later)'s part; a `U`
+    /// other than 0 or 1, and `U=1` with a parent, since a virtual placement
+    /// is never a relative one (D13); a raw format without `s` and `v` or
+    /// past `max-graphic-size`; and a placement whose pixel offset lies
+    /// outside its cell or whose box passes [`BOX_CELLS_MAX`].
     pub(super) fn refusal(&self, ctx: &dyn Context) -> Option<Error> {
-        if self.bad || (self.id != 0 && self.number != 0) || self.later() {
+        if self.bad
+            || (self.id != 0 && self.number != 0)
+            || self.later()
+            || self.virtual_placement > 1
+            || (self.virtual_placement() && self.relative())
+        {
             return Some(Error::Invalid);
         }
         let (max_w, max_h) = graphic(ctx);

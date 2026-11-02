@@ -125,13 +125,21 @@ fn ask(host: &mut ImageHost, request: &Request) -> Reply {
     panic!("no reply after the hello");
 }
 
+/// A reply's picture and its bytes, read out of the helper's reply file.
 fn picture(reply: Reply) -> (u32, u32, Vec<u8>) {
     match reply {
-        Reply::Ok(Payload::Rgba {
+        Reply::Ok(Payload::File {
             width,
             height,
-            data,
-        }) => (width, height, data),
+            file,
+        }) => {
+            let mut data = Vec::new();
+            assert!(
+                file.read(&mut |run| data.extend_from_slice(run)),
+                "a short file"
+            );
+            (width, height, data)
+        }
         other => panic!("not a picture: {other:?}"),
     }
 }

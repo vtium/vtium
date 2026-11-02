@@ -45,7 +45,7 @@ mod store;
 
 pub use bounds::{
     AUTO_CAP, AUTO_FLOOR, AUTO_FRAMES, BOX_CELLS_MAX, CELL_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX,
-    IMAGES_PER_BUFFER, PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER, auto_limit,
+    IMAGES_PER_BUFFER, PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER, RELATIVE_DEPTH_MAX, auto_limit,
 };
 pub use handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
 pub use image::{ImageKey, LineKey, NewImage, Pixels, Place, PlacementKey, Refusal};

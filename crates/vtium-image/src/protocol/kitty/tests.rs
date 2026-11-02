@@ -1,11 +1,13 @@
 //! The kitty handler's tests, through a stand-in for vtium-term's context.
 //!
-//! The stand-in holds a real store over a screen of fixed lines, and does
-//! what vtium-term's context does with each call: it runs a store edit
-//! over both buffers' rows and settles the store after it, clamps the
-//! cursor to the screen, and keeps replies and requests in order. It does
-//! not scroll: an index past the bottom margin fails the test, so the
-//! cases that scroll are tier 1's, through the real screen.
+//! The stand-in holds a real store over a screen of fixed lines and the
+//! scrollback above it, and does what vtium-term's context does with each
+//! call: it runs a store edit over both buffers' rows and settles the store
+//! after it, clamps the cursor to the screen, and keeps replies and
+//! requests in order. A handler's index past the bottom margin fails the
+//! test, so the cases where a handler scrolls are tier 1's, through the
+//! real screen; a test scrolls the screen itself as vtium-term does, the
+//! store's scroll before the lines move and its `scroll_done` after.
 
 #![expect(
     clippy::indexing_slicing,
@@ -19,7 +21,9 @@ use vtium_parse::Chunk;
 
 use super::Kitty;
 use crate::IMAGE_OVERHEAD;
-use crate::decode::{Alpha, Description, Layout, Medium, Payload, Reply, Request};
+use crate::decode::{
+    Alpha, Description, Layout, Medium, Payload, Reply, ReplyFile, ReplySource, Request,
+};
 use crate::handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
 use crate::image::LineKey;
 use crate::store::{Edit, Rows, Screens, Store};
@@ -27,6 +31,10 @@ use crate::store::{Edit, Rows, Screens, Store};
 struct Host {
     store: Store,
     screen: Vec<LineKey>,
+    /// The scrollback's lines, newest first.
+    above: Vec<LineKey>,
+    /// The key the next new line gets.
+    next_line: u64,
     cols: usize,
     cursor: (usize, usize),
     margins: Margins,
@@ -48,6 +56,8 @@ impl Host {
         Self {
             store,
             screen: (0..4).map(LineKey::new).collect(),
+            above: Vec::new(),
+            next_line: 100,
             cols: 12,
             cursor: (0, 0),
             margins: Margins { top: 0, bottom: 3 },
@@ -69,13 +79,36 @@ impl Host {
     fn boxes(&self) -> Vec<(u32, i64, u32, u32)> {
         let view = Rows {
             screen: &self.screen,
-            above: &[],
+            above: &self.above,
         };
         self.store
             .frame(view, self.cols)
             .iter()
             .map(|p| (p.col, p.row, p.cols, p.rows))
             .collect()
+    }
+
+    /// Rows `top` to `bottom` scroll up one, as vtium-term scrolls them: the
+    /// whole screen sends its top line into the scrollback, a region drops
+    /// it, and a new line enters at the bottom.
+    fn scroll_up(&mut self, top: usize, bottom: usize) {
+        let whole = top == 0 && bottom + 1 == self.screen.len();
+        let rows = Rows {
+            screen: &self.screen,
+            above: &self.above,
+        };
+        self.store.scroll((top, bottom), 1, true, whole, rows);
+        let gone = self.screen.remove(top);
+        if whole {
+            self.above.insert(0, gone);
+        }
+        self.screen.insert(bottom, LineKey::new(self.next_line));
+        self.next_line += 1;
+        let rows = Rows {
+            screen: &self.screen,
+            above: &self.above,
+        };
+        self.store.scroll_done(rows);
     }
 }
 
@@ -88,7 +121,7 @@ impl Context for Host {
         let screens = Screens {
             main: Rows {
                 screen: &self.screen,
-                above: &[],
+                above: &self.above,
             },
             alt: Rows::default(),
         };
@@ -519,18 +552,11 @@ fn a_delete_answers_only_an_error() {
 }
 
 #[test]
-fn the_later_parts_of_the_protocol_are_refused_for_now() {
+fn animation_is_refused_for_now() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     send(&mut k, &mut h, &format!("a=t,s=1,v=1,i=1;{}", red(1)));
     let _ = h.take();
-    for keys in [
-        "a=p,i=1,U=1",
-        "a=p,i=1,P=1",
-        "a=p,i=1,Q=0",
-        "a=p,i=1,H=1",
-        "a=a,i=1",
-        "a=c,i=1",
-    ] {
+    for keys in ["a=a,i=1", "a=c,i=1"] {
         send(&mut k, &mut h, keys);
         assert_eq!(
             h.take(),
@@ -1017,4 +1043,376 @@ fn a_replacement_keeps_the_same_images_whether_or_not_it_takes_the_spare() {
     let (held, free) = (run(true), run(false));
     assert_eq!(held.0, 3, "the static picture and both ids stay");
     assert_eq!(held, free);
+}
+
+/// Transmits image `id`, 16 by 16 opaque pixels, two cells wide and one
+/// high, answered under no `q`.
+fn wide(k: &mut Kitty, h: &mut Host, id: u32) {
+    send(k, h, &format!("a=t,f=32,s=16,v=16,i={id},q=2;{}", red(256)));
+}
+
+/// Transmits image `id`, 8 by 32 opaque pixels, one cell wide and two
+/// high, answered under no `q`.
+fn tall(k: &mut Kitty, h: &mut Host, id: u32) {
+    send(k, h, &format!("a=t,f=32,s=8,v=32,i={id},q=2;{}", red(256)));
+}
+
+/// The frame's boxes, sorted, as (column, row, columns, rows).
+fn sorted(h: &Host) -> Vec<(u32, i64, u32, u32)> {
+    let mut boxes = h.boxes();
+    boxes.sort_unstable();
+    boxes
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_draws_at_its_parents_origin_plus_its_offset() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    h.cursor = (2, 1);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=3,V=1");
+    assert_eq!(h.take(), "\x1b_Gi=1,p=1;OK\x1b\\\x1b_Gi=2,p=1;OK\x1b\\");
+    assert_eq!(sorted(&h), vec![(2, 1, 2, 1), (5, 2, 2, 1)]);
+    assert_eq!(
+        h.cursor,
+        (2, 1),
+        "a relative placement never moves the cursor"
+    );
+    // negative offsets go left and up, and the part left of the screen is
+    // cut off
+    send(&mut k, &mut h, "a=p,i=2,p=2,P=1,Q=1,H=-3,V=-1");
+    assert_eq!(h.take(), "\x1b_Gi=2,p=2;OK\x1b\\");
+    assert_eq!(sorted(&h), vec![(0, 0, 1, 1), (2, 1, 2, 1), (5, 2, 2, 1)]);
+    // without Q, the parent is the image's placement made last that has no
+    // placement id
+    h.cursor = (0, 3);
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    h.cursor = (6, 3);
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    send(&mut k, &mut h, "a=p,i=2,p=3,P=1,H=2");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\\x1b_Gi=2,p=3;OK\x1b\\"
+    );
+    assert!(sorted(&h).contains(&(8, 3, 2, 1)), "{:?}", sorted(&h));
+    // P=0 names no image, so the put is an ordinary one at the cursor
+    h.cursor = (0, 2);
+    send(&mut k, &mut h, "a=p,i=2,p=4,P=0,H=5,C=1");
+    assert!(sorted(&h).contains(&(0, 2, 2, 1)), "{:?}", sorted(&h));
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_follows_its_parent_through_a_scroll_and_the_scrollback() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    h.cursor = (1, 1);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,V=2,q=1");
+    assert_eq!(sorted(&h), vec![(1, 1, 2, 1), (1, 3, 2, 1)]);
+    h.scroll_up(0, 3);
+    assert_eq!(sorted(&h), vec![(1, 0, 2, 1), (1, 2, 2, 1)]);
+    // the parent leaves the screen for the scrollback, and the child still
+    // draws: the frame is given the rows above the screen it reaches
+    h.scroll_up(0, 3);
+    assert_eq!(h.store.reach(), 2);
+    assert_eq!(sorted(&h), vec![(1, 1, 2, 1)]);
+    // the scrollback drops its oldest line, then the parent's: the parent
+    // goes, and the child with it, taking its image, which has no
+    // placement left
+    let oldest = h.above.pop().unwrap();
+    h.store.discard_line(oldest, h.above.last().copied());
+    assert_eq!(sorted(&h), vec![(1, 1, 2, 1)]);
+    let parents = h.above.pop().unwrap();
+    h.store.discard_line(parents, h.screen.first().copied());
+    assert_eq!(sorted(&h), vec![]);
+    assert_eq!(h.store.placement_count(), 0);
+    assert_eq!(h.store.image_count(), 1, "image 1 stays; image 2 went");
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_moves_with_its_parent_in_a_region_scroll() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    // a parent inside rows 1 to 2 and its child below the region: the
+    // child moves because its parent does, wherever the margins are
+    h.cursor = (0, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=3,V=1,q=1");
+    assert_eq!(sorted(&h), vec![(0, 2, 2, 1), (3, 3, 2, 1)]);
+    h.scroll_up(1, 2);
+    assert_eq!(sorted(&h), vec![(0, 1, 2, 1), (3, 2, 2, 1)]);
+    // a region scroll that cuts the parent's top keeps the child where it
+    // was against the parent's picture
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    tall(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    h.cursor = (0, 1);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=1,V=1,q=1");
+    assert_eq!(sorted(&h), vec![(0, 1, 1, 2), (1, 2, 2, 1)]);
+    h.scroll_up(1, 3);
+    assert_eq!(sorted(&h), vec![(0, 1, 1, 1), (1, 1, 2, 1)]);
+    // a parent across the region's edge keeps its place, and so does its
+    // child
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    tall(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    h.cursor = (0, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=1,q=1");
+    h.scroll_up(1, 2);
+    assert_eq!(sorted(&h), vec![(0, 2, 1, 2), (1, 2, 2, 1)]);
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_follows_its_parent_when_the_parent_is_replaced() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=2,V=1,q=1");
+    assert_eq!(sorted(&h), vec![(0, 0, 2, 1), (2, 1, 2, 1)]);
+    // a put with the same image and placement id replaces the parent, and
+    // keeps its child
+    h.cursor = (5, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    assert_eq!(sorted(&h), vec![(5, 2, 2, 1), (7, 3, 2, 1)]);
+    assert_eq!(h.store.placement_count(), 2);
+    // a parent replaced as a child of another placement takes its child
+    // along
+    h.cursor = (0, 0);
+    wide(&mut k, &mut h, 3);
+    send(&mut k, &mut h, "a=p,i=3,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=1,p=1,P=3,Q=1,V=1,q=1");
+    assert_eq!(sorted(&h), vec![(0, 0, 2, 1), (0, 1, 2, 1), (2, 2, 2, 1)]);
+}
+
+// covers: image.kitty-relative
+#[test]
+fn deleting_a_parent_takes_its_children_and_images_left_without_placements() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    for id in 1..=4 {
+        wide(&mut k, &mut h, id);
+    }
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=2,q=1");
+    send(&mut k, &mut h, "a=p,i=3,p=1,P=2,Q=1,H=2,q=1");
+    // image 4 has a placement of its own beside its child of image 1
+    h.cursor = (0, 2);
+    send(&mut k, &mut h, "a=p,i=4,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=4,p=2,P=1,Q=1,V=1,q=1");
+    assert_eq!(h.store.placement_count(), 5);
+    // a lowercase delete keeps image 1's data; its child and grandchild go
+    // with it and take their images, left with no placement, while image 4
+    // keeps its own placement and its data
+    send(&mut k, &mut h, "a=d,d=i,i=1");
+    assert_eq!(sorted(&h), vec![(0, 2, 2, 1)]);
+    assert_eq!(h.store.image_count(), 2);
+    send(&mut k, &mut h, "a=p,i=2,C=1");
+    send(&mut k, &mut h, "a=p,i=3,C=1");
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=2;ENOENT:image not found\x1b\\\x1b_Gi=3;ENOENT:image not found\x1b\\\x1b_Gi=1;OK\x1b\\"
+    );
+    // ED 2 takes a child by the rows it draws on, and with its parent
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,V=2,q=1");
+    h.store.erase_screen(Rows {
+        screen: &h.screen,
+        above: &h.above,
+    });
+    assert_eq!(h.store.placement_count(), 0);
+    assert_eq!(h.store.image_count(), 1, "the child's image went with it");
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_parent_that_does_not_exist_is_enoparent() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    let enoparent = "\x1b_Gi=2;ENOPARENT:parent placement not found\x1b\\";
+    for keys in ["a=p,i=2,P=9", "a=p,i=2,P=1,Q=5", "a=p,i=2,P=1"] {
+        send(&mut k, &mut h, keys);
+        assert_eq!(h.take(), enoparent, "{keys}");
+    }
+    assert_eq!(h.store.placement_count(), 1, "a refused put places nothing");
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_placement_that_would_follow_itself_is_ecycle() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    for id in 1..=3 {
+        wide(&mut k, &mut h, id);
+    }
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,V=1,q=1");
+    send(&mut k, &mut h, "a=p,i=3,p=1,P=2,Q=1,V=1,q=1");
+    let before = sorted(&h);
+    send(&mut k, &mut h, "a=p,i=1,p=1,P=3,Q=1");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=1,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
+    );
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=2,Q=1");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=2,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
+    );
+    assert_eq!(
+        sorted(&h),
+        before,
+        "a refused replacement keeps the old one"
+    );
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_chain_deeper_than_eight_relative_placements_is_etoodeep() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    for id in 1..=11 {
+        wide(&mut k, &mut h, id);
+    }
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    // eight relative placements below image 1's
+    for id in 2..=9 {
+        send(&mut k, &mut h, &format!("a=p,i={id},p=1,P={},Q=1", id - 1));
+        assert_eq!(h.take(), format!("\x1b_Gi={id},p=1;OK\x1b\\"));
+    }
+    let toodeep = "ETOODEEP:chain of relative placements is too deep";
+    send(&mut k, &mut h, "a=p,i=10,p=1,P=9,Q=1");
+    assert_eq!(h.take(), format!("\x1b_Gi=10,p=1;{toodeep}\x1b\\"));
+    // the chain's first placement replaced as a child would put the chain
+    // nine deep
+    h.cursor = (0, 3);
+    send(&mut k, &mut h, "a=p,i=11,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=1,p=1,P=11,Q=1");
+    assert_eq!(h.take(), format!("\x1b_Gi=1,p=1;{toodeep}\x1b\\"));
+    // its second, with seven below it, fits
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=11,Q=1");
+    assert_eq!(h.take(), "\x1b_Gi=2,p=1;OK\x1b\\");
+    assert_eq!(h.store.placement_count(), 10);
+}
+
+// covers: image.kitty-placeholders
+#[test]
+fn a_virtual_placement_is_stored_on_no_line_and_only_a_delete_by_image_takes_it() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.cursor = (3, 1);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=32,s=16,v=16,i=1,p=7,U=1,c=4,r=2;{}", red(256)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1,p=7;OK\x1b\\");
+    assert_eq!(
+        h.cursor,
+        (3, 1),
+        "a virtual placement never moves the cursor"
+    );
+    assert_eq!(h.store.placement_count(), 1);
+    assert_eq!(
+        sorted(&h),
+        vec![],
+        "it draws only through placeholder cells"
+    );
+    // no screen event reaches it, and neither do the deletes by cell, row,
+    // column or z
+    for _ in 0..6 {
+        h.scroll_up(0, 3);
+    }
+    h.scroll_up(1, 2);
+    h.store.erase_screen(Rows {
+        screen: &h.screen,
+        above: &h.above,
+    });
+    for keys in [
+        "a=d,d=A",
+        "a=d,d=C",
+        "a=d,d=P,x=4,y=2",
+        "a=d,d=Q,x=4,y=2,z=0",
+        "a=d,d=X,x=4",
+        "a=d,d=Y,y=2",
+        "a=d,d=Z,z=0",
+    ] {
+        send(&mut k, &mut h, keys);
+        assert_eq!(h.store.placement_count(), 1, "{keys}");
+    }
+    // a virtual placement is never a child, though it may be a parent; its
+    // child draws nothing while the store reads no placeholder cells
+    wide(&mut k, &mut h, 2);
+    send(&mut k, &mut h, "a=p,i=2,U=1,P=1,Q=7");
+    assert_eq!(h.take(), "\x1b_Gi=2;EINVAL:invalid argument\x1b\\");
+    send(&mut k, &mut h, "a=p,i=2,P=1,Q=7,H=1");
+    assert_eq!(h.take(), "\x1b_Gi=2;OK\x1b\\");
+    assert_eq!(h.store.placement_count(), 2);
+    assert_eq!(sorted(&h), vec![]);
+    // a delete by image takes it, and its child with it
+    send(&mut k, &mut h, "a=d,d=i,i=1,p=7");
+    assert_eq!(h.store.placement_count(), 0);
+    assert_eq!(h.store.image_count(), 1, "image 1 stays; image 2 went");
+}
+
+/// A helper's reply file that holds `held` bytes of opaque red but says it
+/// holds what the picture needs, as a lying or truncated file would.
+#[derive(Debug)]
+struct Lying {
+    held: usize,
+    says: u64,
+}
+
+impl ReplySource for Lying {
+    fn bytes(&self) -> u64 {
+        self.says
+    }
+
+    fn read(&self, sink: &mut dyn FnMut(&[u8])) -> bool {
+        sink(&[0xff, 0, 0, 0xff].repeat(self.held / 4));
+        true
+    }
+}
+
+// covers: image.kitty
+#[test]
+fn a_reply_file_too_short_or_too_long_is_ebadf_and_gives_its_bytes_back() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    for (id, held) in [(1, 12), (2, 20)] {
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=t,t=f,f=32,s=2,v=2,i={id};{}", b64(b"/x")),
+        );
+        assert_eq!(h.requests.len(), 1);
+        h.requests.clear();
+        let file = ReplyFile::new(Lying { held, says: 16 });
+        k.decoded(
+            &mut h,
+            Reply::Ok(Payload::File {
+                width: 2,
+                height: 2,
+                file,
+            }),
+        );
+        assert_eq!(
+            h.take(),
+            format!("\x1b_Gi={id};EBADF:Failed to read image file\x1b\\"),
+            "{held} bytes"
+        );
+        assert_eq!(h.store.image_count(), 0);
+        assert_eq!(h.store.bytes(), 0, "the budget is whole again");
+    }
 }

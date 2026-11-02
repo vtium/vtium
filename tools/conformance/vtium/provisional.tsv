@@ -4,3 +4,5 @@ kit-g14-su-sd	#49's Ghostty 1.4 gate: a kitty placement moves with its lines thr
 kit-g14-margins	#49's Ghostty 1.4 gate: a margin scroll moves and clips a placement wholly inside the region and leaves one crossing its edge; not reviewed yet
 kit-g14-point-deletes	#49's Ghostty 1.4 gate: d=p, d=q, d=x and d=y take kitty placements and leave a sixel in the same cells; not reviewed yet
 kit-g14-tall-cursor	#49's Ghostty 1.4 gate: the cursor after an image taller than the screen, and after one as wide as it; not reviewed yet
+kit-relative	#49: a kitty relative placement follows its parent through a region scroll, a replacement and a whole-screen scroll, a part left of the screen cut off, and goes with its parent, taking its image; not reviewed yet
+kit-relative-refusals	#49: a chain of eight relative placements, ENOPARENT, ECYCLE, ETOODEEP, and U=1 alone and with P; not reviewed yet
