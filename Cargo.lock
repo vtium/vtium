@@ -512,7 +512,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "vtium"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "calloop",
  "log",
@@ -529,14 +529,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-config"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "rustix",
 ]
 
 [[package]]
 name = "vtium-conformance"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "regex",
  "rustix",
@@ -547,14 +547,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-cover-tables"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "vtium-font",
 ]
 
 [[package]]
 name = "vtium-font"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "miniz_oxide",
  "vtium-font",
@@ -562,18 +562,18 @@ dependencies = [
 
 [[package]]
 name = "vtium-image"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "vtium-parse",
 ]
 
 [[package]]
 name = "vtium-parse"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 
 [[package]]
 name = "vtium-platform"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "calloop",
  "drm-ffi",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-render"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "vtium-font",
  "vtium-image",
@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-specimens"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "miniz_oxide",
  "vtium-font",
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-term"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "vtium-image",
  "vtium-parse",
@@ -616,14 +616,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-testfont"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "vtium-font",
 ]
 
 [[package]]
 name = "vtium-tier2"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "vtium",
  "vtium-config",
@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-vitrify"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "bzip2",
  "harfrust",
