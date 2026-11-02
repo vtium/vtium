@@ -402,7 +402,8 @@ impl App {
             sleeping: Rc::default(),
             modes,
             use_original,
-            display_buffers: crate::video::BUILD_BUFFERS,
+            // kmscon.conf's `display-buffers` goes in here.
+            display_buffers: crate::video::display_buffers(None),
             vt,
             videos: BTreeMap::new(),
             input: None,

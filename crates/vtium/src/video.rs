@@ -23,6 +23,14 @@ pub const BUILD_BUFFERS: Buffers = if cfg!(any(feature = "images", feature = "lo
     Buffers::Two
 };
 
+/// The buffers each DRM display keeps: `configured`, kmscon.conf's
+/// `display-buffers` as its accessor reads it, where it is 1, 2 or 3, and
+/// else the build's [`BUILD_BUFFERS`]. A value outside 1 to 3 never
+/// reaches here, since the configuration refuses it.
+pub fn display_buffers(configured: Option<u8>) -> Buffers {
+    configured.and_then(Buffers::new).unwrap_or(BUILD_BUFFERS)
+}
+
 /// A video device: its displays, each lending a buffer token for a frame
 /// and presenting it, and its sleep, wake-up and power.
 pub trait Video: Any {
@@ -301,6 +309,19 @@ mod tests {
     #[test]
     fn the_minspec_build_keeps_two_buffers() {
         assert_eq!(BUILD_BUFFERS, Buffers::Two);
+    }
+
+    // ADR-1401 D2: `display-buffers` set gives its count, and unset or out
+    // of range the build's.
+    #[test]
+    fn the_setting_chooses_the_buffers_and_the_build_fills_in() {
+        let counts: Vec<Buffers> = [Some(1), Some(2), Some(3)]
+            .into_iter()
+            .map(display_buffers)
+            .collect();
+        assert_eq!(counts, [Buffers::One, Buffers::Two, Buffers::Three]);
+        assert_eq!(display_buffers(None), BUILD_BUFFERS);
+        assert_eq!(display_buffers(Some(4)), BUILD_BUFFERS);
     }
 
     // ADR-1401 D2: a build that adds features on top of minspec keeps
