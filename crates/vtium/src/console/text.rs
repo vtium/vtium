@@ -190,26 +190,83 @@ pub fn given_all(vt1: bool) -> String {
 
 pub const TEMPLATE_MASKED: &str = "vtium@.service is masked. A mask is the administrator's choice; systemctl unmask vtium@.service lifts it.";
 
-pub fn display_manager_holds(dm: &str) -> String {
+/// Who holds a VT for graphics, in words: "the display manager
+/// sddm.service" or "the graphical session of aaron (sddm, wayland)".
+fn holder(holder: &super::Holder) -> String {
+    match holder {
+        super::Holder::DisplayManager(dm) => format!("the display manager {dm}"),
+        super::Holder::Session {
+            user,
+            service,
+            kind,
+        } if kind == "greeter" => {
+            format!("the greeter of {user} ({service})")
+        }
+        super::Holder::Session {
+            user,
+            service,
+            kind,
+        } => {
+            format!("the graphical session of {user} ({service}, {kind})")
+        }
+    }
+}
+
+fn holders(list: &[super::Holder]) -> String {
+    list.iter().map(holder).collect::<Vec<_>>().join(" and ")
+}
+
+pub fn graphics_hold(n: u16, list: &[super::Holder]) -> String {
     format!(
-        "the display manager, {dm}, starts on VT 1 at boot (/etc/systemd/system/display-manager.service links to it), and a vtium started there at boot would race it for the display. vtium console leaves VT 1 to it; give vtium another VT."
+        "{} holds VT {n}, and a vtium there would race it for the display. vtium console leaves VT {n} to it; give vtium another VT.",
+        holders(list)
     )
 }
 
-pub fn kept_display_manager(dm: &str) -> String {
+pub fn graphics_on_reserved_vt(n: u16, list: &[super::Holder]) -> String {
     format!(
-        "VT 1 keeps the display manager, {dm}, and its getty as they are: /etc/systemd/system/display-manager.service links to it, and it starts on VT 1 at boot."
+        "{} holds VT {n}, logind's reserved VT, where logind starts autovt@tty{n}.service on every switch even while the VT is in use. With autovt@.service linked to vtium, a vtium would start beside it there. Move it to another VT, or give vtium VTs one at a time with vtium console enable N.",
+        holders(list)
+    )
+}
+
+pub fn kept_graphics(n: u16, list: &[super::Holder]) -> String {
+    format!("VT {n} is left as it is: {} holds it.", holders(list))
+}
+
+pub fn holder_cell(h: &super::Holder) -> String {
+    match h {
+        super::Holder::DisplayManager(dm) => {
+            format!(
+                "display manager ({})",
+                dm.strip_suffix(".service").unwrap_or(dm)
+            )
+        }
+        super::Holder::Session {
+            user,
+            service,
+            kind,
+        } if kind == "greeter" => {
+            format!("greeter of {user} ({service})")
+        }
+        super::Holder::Session {
+            user,
+            service,
+            kind,
+        } => {
+            format!("graphical session of {user} ({service}, {kind})")
+        }
+    }
+}
+
+pub fn cannot_ask_logind(line: &str, why: &str) -> String {
+    format!(
+        "cannot ask logind which graphical sessions run (loginctl {line}: {why}), so vtium cannot tell which VTs they hold, and gives vtium no VT."
     )
 }
 
 pub fn status_display_manager(dm: &str) -> String {
-    format!(
-        "The display manager, {dm}, starts on VT 1 at boot: /etc/systemd/system/display-manager.service links to it."
-    )
-}
-
-pub fn display_manager_cell(dm: &str) -> String {
-    format!("{dm} (display manager)")
+    format!("The display manager is {dm}: /etc/systemd/system/display-manager.service links to it.")
 }
 
 pub fn kept_dev(n: u16) -> String {

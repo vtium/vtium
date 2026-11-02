@@ -10,7 +10,8 @@
 //! gettys on VTs 2 to 6, which logind then fills with vtium. Before vtium
 //! disables a getty or moves the template link, it writes a record of
 //! what was there under `/var/lib/vtium/console/`, and `disable` puts back
-//! what the records say. A display manager keeps VT 1.
+//! what the records say. It passes by every VT that graphics hold: the
+//! VTs a display manager claims, and the VTs a graphical session is on.
 //!
 //! The subcommand starts and stops nothing, since either ends every
 //! session on the VT, and masks nothing, since a mask is the
@@ -18,8 +19,8 @@
 //!
 //! Everything it touches is reached through [`Host`]: a root directory,
 //! `/` on the running system and a scratch directory in the tests, and a
-//! [`Systemctl`], which runs `systemctl` on the running system and is a
-//! stand-in in the tests. It reads systemd's links itself, and changes them
+//! [`Systemd`], which runs `systemctl` and `loginctl` on the running system
+//! and is a stand-in in the tests. It reads systemd's links itself, and changes them
 //! through `systemctl enable`, `disable`, `add-wants` and `daemon-reload`,
 //! but for the links no systemctl verb makes or removes as they were: the
 //! template link, a VT's `autovt@ttyN.service` link that `disable` leaves,
@@ -32,7 +33,10 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+mod graphical;
 mod text;
+
+use graphical::Holder;
 
 /// The highest VT number the kernel has (`MAX_NR_CONSOLES`).
 pub const LAST_VT: u16 = 63;
@@ -67,6 +71,9 @@ const UNIT_DIRS: [&str; 5] = [
 const ETC: &str = "etc/systemd/system";
 /// The units systemd starts on the VTs at boot.
 const WANTS: &str = "etc/systemd/system/getty.target.wants";
+/// logind's reserved VT, `ReserveVT=`, whose default is 6 (logind.conf(5)).
+const RESERVED_VT: u16 = 6;
+
 /// The template link's name.
 const TEMPLATE: &str = "autovt@.service";
 /// The alias a display manager's unit takes when it is enabled.
@@ -194,17 +201,19 @@ pub struct Reply {
     pub stderr: String,
 }
 
-/// Runs `systemctl` with the arguments it is given.
-pub trait Systemctl {
-    fn run(&mut self, args: &[&str]) -> io::Result<Reply>;
+/// Runs systemd's `systemctl` and `loginctl` with the arguments it is
+/// given.
+pub trait Systemd {
+    fn systemctl(&mut self, args: &[&str]) -> io::Result<Reply>;
+    fn loginctl(&mut self, args: &[&str]) -> io::Result<Reply>;
 }
 
-/// The running system's `systemctl`, found on `PATH`.
-pub struct SystemSystemctl;
+/// The running system's `systemctl` and `loginctl`, found on `PATH`.
+pub struct RunningSystemd;
 
-impl Systemctl for SystemSystemctl {
-    fn run(&mut self, args: &[&str]) -> io::Result<Reply> {
-        let out = Command::new("systemctl")
+impl RunningSystemd {
+    fn run(program: &str, args: &[&str]) -> io::Result<Reply> {
+        let out = Command::new(program)
             .args(args)
             .stdin(Stdio::null())
             .output()?;
@@ -216,13 +225,23 @@ impl Systemctl for SystemSystemctl {
     }
 }
 
+impl Systemd for RunningSystemd {
+    fn systemctl(&mut self, args: &[&str]) -> io::Result<Reply> {
+        RunningSystemd::run("systemctl", args)
+    }
+
+    fn loginctl(&mut self, args: &[&str]) -> io::Result<Reply> {
+        RunningSystemd::run("loginctl", args)
+    }
+}
+
 /// What the subcommand runs against.
 pub struct Host<'a> {
     /// The system's root directory: `/`, or a scratch directory in a test.
     pub root: PathBuf,
     /// Whether the effective user is root.
     pub root_user: bool,
-    pub systemctl: &'a mut dyn Systemctl,
+    pub systemd: &'a mut dyn Systemd,
 }
 
 /// A symbolic link's state.
@@ -339,9 +358,15 @@ struct State {
     /// The units `getty.target` wants on each VT, by prefix, and what each
     /// want links to.
     wants: BTreeMap<u16, BTreeMap<String, Link>>,
-    /// The display manager's unit, when `display-manager.service` is
-    /// linked or there: it starts on VT 1 at boot.
+    /// The display manager's unit, such as `sddm.service`, when
+    /// `display-manager.service` is linked or there and not masked.
     display_manager: Option<String>,
+    /// What holds each VT for graphics: the display manager, for the VTs
+    /// whose getty its unit conflicts with, and the graphical sessions and
+    /// greeters on it now.
+    graphics: BTreeMap<u16, Vec<Holder>>,
+    /// Why logind could not be asked which sessions run, when it could not.
+    sessions_unknown: Option<String>,
     /// Each VT's own `autovt@ttyN.service` link.
     own: BTreeMap<u16, Link>,
     /// The VTs whose `vtium@ttyN` is masked.
@@ -474,9 +499,7 @@ impl Run<'_, '_, '_> {
             Verb::Status => Ok(0),
             Verb::Enable(Which::Vt(n)) => {
                 self.refuse_kmscon(&state, n)?;
-                if let Some(dm) = state.display_manager.as_deref().filter(|_| n == 1) {
-                    return Err(Stop(text::display_manager_holds(dm)));
-                }
+                self.refuse_graphics(&state, n)?;
                 self.refuse_vt(&state, n)?;
                 if state.given(n) {
                     self.say(&text::already_given(n));
@@ -554,11 +577,30 @@ impl Run<'_, '_, '_> {
                     .insert(prefix.to_owned(), link);
             }
         }
-        state.display_manager = match Link::read(&etc.join(DISPLAY_MANAGER)) {
+        let dm_link = Link::read(&etc.join(DISPLAY_MANAGER));
+        state.display_manager = match &dm_link {
             Link::Absent => None,
             link if link.masks() => None,
             link => Some(link.file_name().unwrap_or(DISPLAY_MANAGER).to_owned()),
         };
+        if let Some(dm) = state.display_manager.clone() {
+            let texts = self.unit_texts(&dm, &dm_link);
+            for n in graphical::conflicts(texts.iter().map(String::as_str)) {
+                state
+                    .graphics
+                    .entry(n)
+                    .or_default()
+                    .push(Holder::DisplayManager(dm.clone()));
+            }
+        }
+        match self.sessions() {
+            Ok(sessions) => {
+                for (n, holder) in sessions {
+                    state.graphics.entry(n).or_default().push(holder);
+                }
+            }
+            Err(Stop(why)) => state.sessions_unknown = Some(why),
+        }
         for name in names(&etc) {
             match instance(&name) {
                 Some(("autovt", n)) => {
@@ -593,6 +635,75 @@ impl Run<'_, '_, '_> {
         Ok(state)
     }
 
+    /// The unit file `name` and its drop-ins, as systemd reads them: the
+    /// file `link` names, or else the first unit directory's, and then each
+    /// `name.d/*.conf` in name order, a drop-in in an earlier directory
+    /// standing for one of the same name in a later one.
+    fn unit_texts(&self, name: &str, link: &Link) -> Vec<String> {
+        let main = match link {
+            Link::To(to) if to.starts_with('/') => {
+                Some(self.host.root.join(to.trim_start_matches('/')))
+            }
+            Link::Other => Some(self.path(ETC).join(DISPLAY_MANAGER)),
+            _ => UNIT_DIRS
+                .iter()
+                .map(|dir| self.path(dir).join(name))
+                .find(|path| path.is_file()),
+        };
+        let mut texts: Vec<String> = main
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .into_iter()
+            .collect();
+        let mut drop_ins: BTreeMap<String, PathBuf> = BTreeMap::new();
+        for dir in UNIT_DIRS {
+            let dir = self.path(dir).join(format!("{name}.d"));
+            for file in names(&dir).into_iter().filter(|f| f.ends_with(".conf")) {
+                drop_ins
+                    .entry(file.clone())
+                    .or_insert_with(|| dir.join(file));
+            }
+        }
+        texts.extend(
+            drop_ins
+                .values()
+                .filter_map(|path| std::fs::read_to_string(path).ok()),
+        );
+        texts
+    }
+
+    /// The graphical sessions and greeters on a VT now, from logind.
+    fn sessions(&mut self) -> Step<Vec<(u16, Holder)>> {
+        let list = self.loginctl(&["list-sessions", "--no-legend"])?;
+        let ids = graphical::session_ids(&list.stdout);
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut args = vec!["show-session"];
+        args.extend(ids.iter().map(String::as_str));
+        args.extend([
+            "-p", "Name", "-p", "VTNr", "-p", "Service", "-p", "Type", "-p", "Class",
+        ]);
+        let show = self.loginctl(&args)?;
+        Ok(graphical::graphical(&show.stdout))
+    }
+
+    fn loginctl(&mut self, args: &[&str]) -> Step<Reply> {
+        let line = args.join(" ");
+        let reply = self
+            .host
+            .systemd
+            .loginctl(args)
+            .map_err(|e| Stop(text::cannot_ask_logind(&line, &e.to_string())))?;
+        if reply.ok {
+            Ok(reply)
+        } else {
+            Err(Stop(text::cannot_ask_logind(
+                &line,
+                reply.stderr.trim_end(),
+            )))
+        }
+    }
+
     /// The consoles running on each VT, from the running manager.
     fn running(&mut self) -> Step<BTreeMap<u16, BTreeSet<String>>> {
         let patterns = [VTIUM, DEV, GETTY, KMSCON].map(|p| format!("{p}@*.service"));
@@ -613,8 +724,8 @@ impl Run<'_, '_, '_> {
         let line = args.join(" ");
         let reply = self
             .host
-            .systemctl
-            .run(args)
+            .systemd
+            .systemctl(args)
             .map_err(|e| Stop(text::cannot_run(&line, &e.to_string())))?;
         if reply.ok {
             Ok(reply)
@@ -647,6 +758,18 @@ impl Run<'_, '_, '_> {
             return Err(Stop(text::kmscon_holds(n, state.own(n).names(KMSCON))));
         }
         Ok(())
+    }
+
+    /// Refuses VT `n` while graphics hold it, or while vtium cannot tell
+    /// whether they do.
+    fn refuse_graphics(&self, state: &State, n: u16) -> Step {
+        if let Some(why) = &state.sessions_unknown {
+            return Err(Stop(why.clone()));
+        }
+        match state.graphics.get(&n) {
+            Some(holders) => Err(Stop(text::graphics_hold(n, holders))),
+            None => Ok(()),
+        }
     }
 
     /// Refuses VT `n` for `enable N` when the development install holds
@@ -826,14 +949,25 @@ impl Run<'_, '_, '_> {
         if state.template_etc == Link::Other {
             return Err(Stop(text::TEMPLATE_NOT_LINK.to_owned()));
         }
+        if let Some(why) = &state.sessions_unknown {
+            return Err(Stop(why.clone()));
+        }
+        // logind starts autovt@tty6 on every switch to its reserved VT,
+        // even while something holds it, so graphics there would meet
+        // vtium through the template link.
+        if let Some(holders) = state.graphics.get(&RESERVED_VT) {
+            return Err(Stop(text::graphics_on_reserved_vt(RESERVED_VT, holders)));
+        }
         // What each VT keeps, and the VTs whose gettys go.
         let mut kept: Vec<String> = Vec::new();
-        let dm = state.display_manager.clone();
-        if let Some(dm) = &dm {
-            kept.push(text::kept_display_manager(dm));
-        }
         let mut gettys: Vec<u16> = Vec::new();
+        for (n, holders) in &state.graphics {
+            kept.push(text::kept_graphics(*n, holders));
+        }
         for n in state.vts() {
+            if state.graphics.contains_key(&n) {
+                continue;
+            }
             if state.holds(n, DEV) {
                 kept.push(text::kept_dev(n));
                 continue;
@@ -851,9 +985,9 @@ impl Run<'_, '_, '_> {
                 }
             }
         }
-        // VT 1 gets `enable N` unless the development install or a display
-        // manager holds it, so it is refused as `enable N` would be.
-        let vt1_kept = state.holds(1, DEV) || dm.is_some();
+        // VT 1 gets `enable N` unless the development install or graphics
+        // hold it, so it is refused as `enable N` would be.
+        let vt1_kept = state.holds(1, DEV) || state.graphics.contains_key(&1);
         if !vt1_kept {
             self.refuse_vt(state, 1)?;
         }
@@ -947,8 +1081,12 @@ impl Run<'_, '_, '_> {
         if let Some(dm) = &state.display_manager {
             self.say(&text::status_display_manager(dm));
         }
+        if let Some(why) = &state.sessions_unknown {
+            self.say(why);
+        }
         let mut vts: BTreeSet<u16> = (1..=LOGIND_VTS).collect();
         vts.extend(state.vts());
+        vts.extend(state.graphics.keys());
         let rows: Vec<[String; 4]> = vts
             .into_iter()
             .map(|n| {
@@ -957,19 +1095,32 @@ impl Run<'_, '_, '_> {
                     .get(&n)
                     .map(|w| units(w.keys(), n))
                     .unwrap_or_default();
-                if let Some(dm) = state.display_manager.as_deref().filter(|_| n == 1) {
-                    at_boot = join(&at_boot, &text::display_manager_cell(dm));
+                let mut running_graphics = String::new();
+                for holder in state.graphics.get(&n).into_iter().flatten() {
+                    match holder {
+                        Holder::DisplayManager(_) => {
+                            at_boot = join(&at_boot, &text::holder_cell(holder));
+                        }
+                        Holder::Session { .. } => {
+                            running_graphics = join(&running_graphics, &text::holder_cell(holder));
+                        }
+                    }
                 }
+                // logind starts a console by itself only on its VTs.
                 let switched = match state.own(n) {
+                    _ if n > LOGIND_VTS && n != RESERVED_VT => None,
                     Link::Absent => state.template().unit().map(|u| format!("{u}@tty{n}")),
                     Link::Other => Some(format!("autovt@tty{n}")),
                     link => link.unit().map(|u| format!("{u}@tty{n}")),
                 };
-                let running = state
-                    .running
-                    .get(&n)
-                    .map(|r| units(r.iter(), n))
-                    .unwrap_or_default();
+                let running = join(
+                    &state
+                        .running
+                        .get(&n)
+                        .map(|r| units(r.iter(), n))
+                        .unwrap_or_default(),
+                    &running_graphics,
+                );
                 let mut boot = at_boot;
                 if state.masked.contains(&n) {
                     boot = join(&boot, &text::masked_cell(n));
@@ -1010,10 +1161,10 @@ fn units<'p>(prefixes: impl Iterator<Item = &'p String>, n: u16) -> String {
 }
 
 fn join(a: &str, b: &str) -> String {
-    if a.is_empty() {
-        b.to_owned()
-    } else {
-        format!("{a}, {b}")
+    match (a.is_empty(), b.is_empty()) {
+        (true, _) => b.to_owned(),
+        (_, true) => a.to_owned(),
+        _ => format!("{a}, {b}"),
     }
 }
 
@@ -1028,11 +1179,11 @@ pub fn usage() -> &'static str {
 pub fn subcommand(args: &[OsString]) -> Option<i32> {
     Some(match parse(args)? {
         Ok(Parsed::Run(verb)) => {
-            let mut systemctl = SystemSystemctl;
+            let mut systemd = RunningSystemd;
             let mut host = Host {
                 root: PathBuf::from("/"),
                 root_user: rustix::process::geteuid().is_root(),
-                systemctl: &mut systemctl,
+                systemd: &mut systemd,
             };
             run(verb, &mut host, &mut io::stdout(), &mut io::stderr())
         }

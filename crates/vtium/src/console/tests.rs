@@ -30,13 +30,19 @@ const GETTY_UNIT: &str = "[Unit]\nDescription=Getty on %I\n\n[Service]\nExecStar
 /// its `[Install]` section.
 const KMSCON_UNIT: &str = include_str!("../../install/kmsconvt@.service");
 
-/// A stand-in for `systemctl` on the running system whose root is `root`.
+/// A stand-in for `systemctl` and `loginctl` on the running system whose
+/// root is `root`.
 struct Fake {
     root: PathBuf,
     /// Each call, its arguments joined by spaces.
     calls: Vec<String>,
     /// The units running, by name.
     running: Vec<String>,
+    /// logind's sessions, as `loginctl show-session` prints each one's
+    /// properties: Name, VTNr, Service, Type and Class.
+    sessions: Vec<[&'static str; 5]>,
+    /// Whether loginctl fails, as with no logind on the bus.
+    logind_down: bool,
     /// A call that fails as if systemd refused it.
     fail: Option<String>,
 }
@@ -204,8 +210,64 @@ impl Fake {
     }
 }
 
-impl Systemctl for Fake {
-    fn run(&mut self, args: &[&str]) -> io::Result<Reply> {
+impl Systemd for Fake {
+    fn loginctl(&mut self, args: &[&str]) -> io::Result<Reply> {
+        self.calls.push(format!("loginctl {}", args.join(" ")));
+        if self.logind_down {
+            return Ok(refused(
+                "Failed to connect to system scope bus via local transport: No such file or directory\n"
+                    .to_owned(),
+            ));
+        }
+        let id = |i: usize| format!("c{i}");
+        Ok(match args {
+            ["list-sessions", "--no-legend"] => Reply {
+                ok: true,
+                stdout: (0..self.sessions.len())
+                    .map(|i| format!("{} 1000 someone seat0 100 user tty1 no -\n", id(i)))
+                    .collect(),
+                stderr: String::new(),
+            },
+            ["show-session", rest @ ..] => {
+                let n = self.sessions.len();
+                let ids: Vec<String> = (0..n).map(id).collect();
+                let props = [
+                    "-p", "Name", "-p", "VTNr", "-p", "Service", "-p", "Type", "-p", "Class",
+                ];
+                assert_eq!(
+                    rest.get(..n).unwrap(),
+                    ids,
+                    "show-session asks for every session listed"
+                );
+                assert_eq!(
+                    rest.get(n..).unwrap(),
+                    props,
+                    "show-session asks for the properties vtium reads"
+                );
+                // systemd prints the properties in its own order, not the
+                // order asked.
+                let blocks: Vec<String> = self
+                    .sessions
+                    .iter()
+                    .enumerate()
+                    .map(|(i, [name, vt, service, kind, class])| {
+                        format!("Id={}\nName={name}\nVTNr={vt}\nService={service}\nType={kind}\nClass={class}\n", id(i))
+                    })
+                    .collect();
+                Reply {
+                    ok: true,
+                    stdout: blocks.join("\n"),
+                    stderr: String::new(),
+                }
+            }
+            _ => panic!(
+                "vtium console ran loginctl {}, which it never runs",
+                args.join(" ")
+            ),
+        })
+    }
+
+    fn systemctl(&mut self, args: &[&str]) -> io::Result<Reply> {
         let line = args.join(" ");
         self.calls.push(line.clone());
         if self.fail.as_deref() == Some(line.as_str()) {
@@ -269,6 +331,8 @@ impl Machine {
                 root,
                 calls: Vec::new(),
                 running: Vec::new(),
+                sessions: Vec::new(),
+                logind_down: false,
                 fail: None,
             },
         }
@@ -310,7 +374,7 @@ impl Machine {
         let mut host = Host {
             root: self.fake.root.clone(),
             root_user,
-            systemctl: &mut self.fake,
+            systemd: &mut self.fake,
         };
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let status = run(verb, &mut host, &mut out, &mut err);
@@ -367,7 +431,7 @@ impl Machine {
             .calls
             .iter()
             .map(String::as_str)
-            .filter(|c| !c.starts_with("list-units"))
+            .filter(|c| !c.starts_with("list-units") && !c.starts_with("loginctl"))
             .collect()
     }
 }
@@ -858,7 +922,8 @@ fn status_shows_what_each_vt_starts_and_runs() {
         ]
     );
     assert_eq!(row("6"), ["6", "getty@tty6", "getty@tty6", "-"]);
-    assert_eq!(row("9"), ["9", "getty@tty9", "getty@tty9", "-"]);
+    // logind starts no console by itself on a VT past its six.
+    assert_eq!(row("9"), ["9", "getty@tty9", "-", "-"]);
     // VTs 7 and 8 hold nothing and are past logind's six.
     assert!(
         !lines
@@ -911,14 +976,14 @@ fn display_manager(m: &Machine) {
 }
 
 #[test]
-fn a_display_manager_keeps_vt_1() {
+fn a_display_manager_keeps_the_vts_its_unit_conflicts_with() {
     let mut m = Machine::gettys("display-manager");
     display_manager(&m);
     let before = m.snapshot();
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager, sddm.service, starts on VT 1"),
+        err.contains("the display manager sddm.service holds VT 1"),
         "{err}"
     );
     assert!(m.changes().is_empty(), "{:?}", m.changes());
@@ -929,7 +994,7 @@ fn a_display_manager_keeps_vt_1() {
     assert!(m.wanted("getty@tty1.service"));
     assert!(!m.root().join(RECORDS).join("tty1").exists());
     assert!(
-        out.contains("VT 1 keeps the display manager, sddm.service"),
+        out.contains("VT 1 is left as it is: the display manager sddm.service holds it."),
         "{out}"
     );
     assert!(!out.contains("systemctl start vtium@tty1.service"), "{out}");
@@ -937,17 +1002,130 @@ fn a_display_manager_keeps_vt_1() {
     assert_eq!(m.links(TEMPLATE), to("vtium"));
     assert!(!m.wanted("getty@tty2.service"));
     let (_, out, _) = m.console(&["status"]);
-    assert!(
-        out.contains("The display manager, sddm.service, starts on VT 1 at boot"),
-        "{out}"
-    );
+    assert!(out.contains("The display manager is sddm.service"), "{out}");
     assert!(
         out.lines()
-            .any(|l| l.starts_with("1 ") && l.contains("sddm.service (display manager)")),
+            .any(|l| l.starts_with("1 ") && l.contains("display manager (sddm)")),
         "{out}"
     );
     assert_eq!(m.console(&["disable", "--all"]).0, 0);
     assert_eq!(m.snapshot(), before);
+}
+
+#[test]
+fn a_display_managers_drop_in_moves_the_vt_it_claims() {
+    // A drop-in in /etc clears the vendor unit's Conflicts= and claims VT 2.
+    let mut m = Machine::gettys("dm-drop-in");
+    display_manager(&m);
+    let dir = m.root().join(ETC).join("sddm.service.d");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("vt.conf"),
+        "[Unit]\nConflicts=\nConflicts=getty@tty2.service\n",
+    )
+    .unwrap();
+    let (status, _, err) = m.console(&["enable", "2"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager sddm.service holds VT 2"),
+        "{err}"
+    );
+    let (status, out, _) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 0, "{out}");
+    assert!(m.wanted("getty@tty2.service"));
+    assert!(m.wanted("vtium@tty1.service"));
+}
+
+#[test]
+fn a_graphical_session_keeps_its_vt() {
+    // This machine: a Wayland session through sddm on VT 7, and one on VT
+    // 3, inside logind's VTs, where getty@tty3 is enabled too.
+    let mut m = Machine::gettys("session");
+    m.fake.sessions = vec![
+        ["aaron", "0", "systemd-user", "unspecified", "manager"],
+        ["aaron", "7", "sddm", "wayland", "user"],
+        ["bob", "3", "gdm-password", "x11", "user"],
+        ["carol", "4", "login", "tty", "user"],
+    ];
+    for n in ["7", "3"] {
+        let (status, _, err) = m.console(&["enable", n]);
+        assert_eq!(status, 1, "{n}");
+        assert!(err.contains("graphical session of"), "{err}");
+    }
+    let (_, _, err) = m.console(&["enable", "3"]);
+    assert!(
+        err.contains("the graphical session of bob (gdm-password, x11) holds VT 3"),
+        "{err}"
+    );
+    // A text login is no graphical session.
+    assert_eq!(m.console(&["enable", "4"]).0, 0);
+    assert_eq!(m.console(&["disable", "4"]).0, 0);
+    let before = m.snapshot();
+    let (status, out, _) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 0, "{out}");
+    assert!(m.wanted("getty@tty3.service"));
+    assert!(!m.root().join(RECORDS).join("tty3").exists());
+    assert!(
+        out.contains("VT 3 is left as it is: the graphical session of bob"),
+        "{out}"
+    );
+    assert!(
+        out.contains("VT 7 is left as it is: the graphical session of aaron (sddm, wayland)"),
+        "{out}"
+    );
+    assert!(!m.wanted("getty@tty5.service"));
+    let (_, out, _) = m.console(&["status"]);
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("7 ")
+                && l.ends_with("graphical session of aaron (sddm, wayland)")),
+        "{out}"
+    );
+    assert_eq!(m.console(&["disable", "--all"]).0, 0);
+    assert_eq!(m.snapshot(), before);
+}
+
+#[test]
+fn a_greeter_keeps_its_vt() {
+    let mut m = Machine::gettys("greeter");
+    m.fake.sessions = vec![["sddm", "1", "sddm-greeter", "x11", "greeter"]];
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the greeter of sddm (sddm-greeter) holds VT 1"),
+        "{err}"
+    );
+    assert_eq!(m.console(&["enable", "--all"]).0, 0);
+    assert!(!m.wanted("vtium@tty1.service") && m.wanted("getty@tty1.service"));
+}
+
+#[test]
+fn enable_all_refuses_graphics_on_loginds_reserved_vt() {
+    // logind starts autovt@tty6 on every switch to VT 6, busy or not.
+    let mut m = Machine::gettys("reserved");
+    m.fake.sessions = vec![["aaron", "6", "sddm", "wayland", "user"]];
+    let before = m.snapshot();
+    let (status, _, err) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 1);
+    assert!(err.contains("logind's reserved VT"), "{err}");
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
+    assert_eq!(m.snapshot(), before);
+}
+
+#[test]
+fn without_logind_enable_refuses_and_disable_works() {
+    let mut m = Machine::gettys("no-logind");
+    assert_eq!(m.console(&["enable", "3"]).0, 0);
+    m.fake.logind_down = true;
+    for verb in [&["enable", "4"][..], &["enable", "--all"]] {
+        let (status, _, err) = m.console(verb);
+        assert_eq!(status, 1, "{verb:?}");
+        assert!(err.contains("cannot ask logind"), "{err}");
+    }
+    assert_eq!(m.console(&["disable", "3"]).0, 0);
+    let (status, out, _) = m.console(&["status"]);
+    assert_eq!(status, 0);
+    assert!(out.contains("cannot ask logind"), "{out}");
 }
 
 #[test]
