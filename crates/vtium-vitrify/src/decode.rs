@@ -82,13 +82,16 @@ pub fn decompress(bytes: &[u8]) -> Result<(Vec<u8>, Compression), String> {
         .map_err(|e| format!("{}: {e}", kind.name()))
 }
 
-/// The largest window a zstd frame may declare. `ruzstd` reserves the
-/// declared window as the frame starts, and vitrify keeps no more than
-/// `PSF_BYTES_MAX` bytes of any file, so a frame that declares a larger
-/// window is refused before anything is reserved for it. `zstd` sizes a
-/// file's window to the file, so a font that fits `PSF_BYTES_MAX` never
-/// declares more.
-pub const ZSTD_WINDOW_MAX: u64 = PSF_BYTES_MAX as u64;
+/// The largest window a zstd frame may declare: 128 MiB, the most that
+/// libzstd's `zstd -d` accepts by default. A frame that declares more is
+/// refused as its header is read. `zstd` sizes the window to the file only
+/// when it knows the file's size. Through a pipe, the window comes from the
+/// level, 32 MiB at `--ultra -20` and up to 128 MiB at `-22` or with
+/// `--long`, so a small font can declare a large window. This bound sits
+/// beside `PSF_BYTES_MAX`, which caps what a frame decodes to: `ruzstd`
+/// keeps only the part of the window the frame has already decoded, so the
+/// memory a frame takes follows its output, not its declared window.
+pub const ZSTD_WINDOW_MAX: u64 = 1 << 27;
 
 /// A zstd stream's frames decoded and joined, each frame's checksum
 /// compared with the bytes it decoded to when the frame carries one, as
@@ -707,14 +710,29 @@ pub(crate) mod tests {
 
     #[test]
     fn a_zstd_frame_declaring_a_window_past_its_bound_is_refused() {
-        // 0x70 declares a 16 MiB window, PSF_BYTES_MAX, which reads; 0x71 a
-        // window an eighth larger, refused before the block is read.
-        assert_eq!(ZSTD_WINDOW_MAX, 16 << 20);
-        let at = zstd_frame(0x70, 0, b"hello");
+        // 0x88 declares a 128 MiB window, libzstd's default limit, which
+        // reads; 0x89, the next descriptor, 144 MiB, which is refused before
+        // the block is read.
+        assert_eq!(ZSTD_WINDOW_MAX, 128 << 20);
+        let at = zstd_frame(0x88, 0, b"hello");
         assert_eq!(decompress(&at).expect("at the bound").0, b"hello");
-        let past = zstd_frame(0x71, 0, b"hello");
+        let past = zstd_frame(0x89, 0, b"hello");
         let e = decompress(&past).expect_err("a window past its bound");
         assert!(e.contains("window"), "{e}");
+    }
+
+    #[test]
+    fn a_zstd_font_with_a_32_mib_window_reads() {
+        // `zstd --ultra -20` through a pipe declares a 32 MiB window (0x78)
+        // whatever the font's size; the font reads as itself.
+        let plain = psf2(8, 16, 64, None);
+        let piped = zstd_frame(0x78, 0, &plain);
+        let (back, kind) = decompress(&piped).expect("a 32 MiB window");
+        assert_eq!(
+            (back.as_slice(), kind),
+            (plain.as_slice(), Compression::Zstd)
+        );
+        assert!(Psf::parse(&back).is_ok());
     }
 
     #[test]
