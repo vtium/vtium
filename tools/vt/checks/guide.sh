@@ -152,13 +152,15 @@ fi
 # shells get the system's locale here, as make vt-shell's shell does: LANG
 # and LC_* from /etc/locale.conf, each a value of locale-name characters.
 # A guide run by hand in a terminal that has a LANG keeps that terminal's.
-if [ -z "${LANG:-}" ] && [ -f /etc/locale.conf ]; then
+# GUIDE_LOCALE_CONF names another file in its place, for the tests.
+locale_conf=${GUIDE_LOCALE_CONF:-/etc/locale.conf}
+if [ -z "${LANG:-}" ] && [ -f "$locale_conf" ]; then
 	assignment='^(LANG|LC_[A-Z]+)="?([[:alnum:]_.@-]+)"?$'
 	while IFS= read -r line || [ -n "$line" ]; do
 		if [[ $line =~ $assignment ]]; then
 			export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
 		fi
-	done </etc/locale.conf
+	done <"$locale_conf"
 fi
 
 log=$vt_dir/vt-check.log

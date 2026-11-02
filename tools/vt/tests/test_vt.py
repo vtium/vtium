@@ -871,7 +871,7 @@ class VtSh(Case):
                 self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE=bad), "is refused (above)")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_STEPS="3"),
                      "is refused (above)")
-        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank start vt wave-a")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank chords daily restart start token vt wave-a")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide"), "GUIDE=NAME names the guide")
         self.assertEqual(self.s.calls_of("sudo"), [])
         self.assertEqual(self.s.changes(), [])
@@ -1074,7 +1074,7 @@ class Make(Case):
     def test_vt_check_without_a_guide_fails_before_the_build(self):
         p = self.make("vt-check")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank start vt wave-a.", p.stderr)
+        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank chords daily restart start token vt wave-a.", p.stderr)
         self.assertNotIn("cargo", p.stdout)
 
     def test_vt_debug_reaches_every_vt_target(self):
@@ -1362,6 +1362,61 @@ class Guide(Case):
                                      "  command exited with status 131", "  answer: no  note: cut short"])
         self.assertRegex(log[16], r"^=== done ")
 
+
+    def test_a_console_after_the_first_runs_a_shell_in_place_of_the_guide(self):
+        # Ctrl+Super+Enter starts the head's command, the guide, again in the
+        # new console (ADR-1401 D5); one run asks each step once.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Console guide\nstep: Look\ndo: look\nexpect: it is there\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(VTIUM_HEAD="desk", VTIUM_CONSOLE="2"))
+        g.wait_for(b"This is console 2 of the head desk. The guide runs in console 1.")
+        g.wait_for(b"console-2$ ")
+        g.send(b"echo shell $((6 * 7))\r")
+        g.wait_for(b"shell 42")
+        g.wait_for(b"console-2$ ")
+        g.send(b"exit\r")
+        self.assertEqual(g.finish(), 0)
+        self.assertNotIn(b"Console guide", g.seen)
+        self.assertFalse(os.path.exists(os.path.join(self.s.dir, "vt-check.log")))
+        # The first console, and a value that is no console id, run the guide.
+        for console in ("1", "x2", ""):
+            with self.subTest(console=console):
+                g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(VTIUM_HEAD="desk", VTIUM_CONSOLE=console))
+                g.wait_for(b"Console guide")
+                g.wait_for(b"Press Enter to begin.")
+                g.send(b"q\r")
+                g.wait_for(b"Step 1 of 1: Look")
+                g.send(b"q\r")
+                self.assertEqual(g.finish(), 0)
+                self.assertNotIn(b"This is console", g.seen)
+
+    def test_the_steps_get_the_systems_locale_when_no_lang_is_set(self):
+        conf = os.path.join(self.s.tmp, "locale.conf")
+        write(conf, '# a comment\nLANG="de_DE.UTF-8"\nLC_TIME=en_GB.UTF-8\nLC_ALL=$(touch pwned)\n'
+                    'LC_PAPER=de DE\nTZ=UTC\n', 0o644)
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Locale guide\nstep: Locale\n"
+                     "run: echo \"got LANG=$LANG LC_TIME=$LC_TIME LC_ALL=${LC_ALL-unset} "
+                     "LC_PAPER=${LC_PAPER-unset} TZ=${TZ-unset}.\"\nexpect: e\n", 0o644)
+        for env, want in (({}, b"got LANG=de_DE.UTF-8 LC_TIME=en_GB.UTF-8 LC_ALL=unset LC_PAPER=unset TZ=unset."),
+                          ({"LANG": "C.UTF-8"}, b"got LANG=C.UTF-8 LC_TIME= LC_ALL=unset LC_PAPER=unset TZ=unset.")):
+            with self.subTest(env=env):
+                g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(GUIDE_LOCALE_CONF=conf, **env))
+                g.wait_for(b"Press Enter to begin.")
+                g.send(b"\r")
+                g.wait_for(b"Press Enter to run it (")
+                g.send(b"\r")
+                g.wait_for(b"vtium-check$ echo")
+                g.wait_for(want)
+                g.wait_for(b"[y]es [n]o [s]kip: ")
+                g.send(b"y")
+                g.wait_for(b"Note (Enter for none): ")
+                g.send(b"\r")
+                g.wait_for(b"Press Enter to end the run.")
+                g.send(b"\r")
+                self.assertEqual(g.finish(), 0)
+        self.assertFalse(os.path.exists("pwned"))
+        self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "pwned")))
 
 class Demo(Case):
     """demo.sh and feedback.sh on a pseudo-terminal."""
