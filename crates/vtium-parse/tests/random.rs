@@ -122,7 +122,7 @@ const TOKENS: &[&[u8]] = &[
 fn tokens(rng: &mut Rng, n: usize) -> Vec<u8> {
     let mut v = Vec::new();
     for _ in 0..n {
-        v.extend_from_slice(rng.pick(TOKENS));
+        v.extend_from_slice(*rng.pick(TOKENS));
     }
     v
 }
@@ -138,9 +138,9 @@ fn osc_near_the_bound(rng: &mut Rng) -> Vec<u8> {
     let mut v = b"\x1b]".to_vec();
     v.extend(std::iter::repeat_n(b'a', OSC_MAX - 16));
     for _ in 0..rng.below(16) {
-        v.extend_from_slice(rng.pick(&pieces));
+        v.extend_from_slice(*rng.pick(&pieces));
     }
-    v.extend_from_slice(rng.pick(&[&b"\x07"[..], b"\x1b\\", b"\xc2\x9c", b"\x18"]));
+    v.extend_from_slice(*rng.pick(&[&b"\x07"[..], b"\x1b\\", b"\xc2\x9c", b"\x18"]));
     v
 }
 
@@ -152,14 +152,14 @@ fn bound_stress(rng: &mut Rng) -> Vec<u8> {
             v.extend_from_slice(b"\x1b]");
             let pieces: [&[u8]; 4] = [b"a", "é".as_bytes(), "€".as_bytes(), "😀".as_bytes()];
             for _ in 0..100 + rng.below(100) {
-                v.extend_from_slice(rng.pick(&pieces));
+                v.extend_from_slice(*rng.pick(&pieces));
             }
-            v.extend_from_slice(rng.pick(&[&b"\x07"[..], b"\x1b\\", b"\xc2\x9c", b"\x18"]));
+            v.extend_from_slice(*rng.pick(&[&b"\x07"[..], b"\x1b\\", b"\xc2\x9c", b"\x18"]));
         }
         1 => {
-            v.extend_from_slice(rng.pick(&[&b"\x1b["[..], b"\x1bP"]));
+            v.extend_from_slice(*rng.pick(&[&b"\x1b["[..], b"\x1bP"]));
             for _ in 0..rng.below(40) {
-                v.extend_from_slice(rng.pick(&[
+                v.extend_from_slice(*rng.pick(&[
                     &b"1"[..],
                     b"23",
                     b"999999",
@@ -169,7 +169,7 @@ fn bound_stress(rng: &mut Rng) -> Vec<u8> {
                     b":5",
                 ]));
             }
-            v.extend_from_slice(rng.pick(&[&b"m"[..], b"q", b"H"]));
+            v.extend_from_slice(*rng.pick(&[&b"m"[..], b"q", b"H"]));
             v.extend_from_slice(b"\x1b\\");
         }
         2 => {
@@ -177,7 +177,7 @@ fn bound_stress(rng: &mut Rng) -> Vec<u8> {
             for _ in 0..1030 + rng.below(20) {
                 v.push(*rng.pick(b"0123456789abcdef;"));
             }
-            v.extend_from_slice(rng.pick(&[&b"\x1b\\"[..], b"\xc2\x9c", b"\x1bx", b"\x1a"]));
+            v.extend_from_slice(*rng.pick(&[&b"\x1b\\"[..], b"\xc2\x9c", b"\x1bx", b"\x1a"]));
         }
         3 => {
             v.extend_from_slice(b"\x1b_Ga=T;");
