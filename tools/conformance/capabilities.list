@@ -63,8 +63,8 @@ osc-133-marks                 missing #40   osc.133                        place
 
 # images: working in a build with images and failing, as a missing probe
 # must, in one without. The list names the build feature -Dimages; vtium's
-# is vtium-image (sixel #48, kitty graphics #49), and vtium builds without it
-# until it lands.
+# is vtium-image (sixel #48, kitty graphics #49), which vtium-replay is
+# built with.
 sixel                         works   -Dimages image.sixel,query.xtsmgraphics DA1 attribute 4, and XTSMGRAPHICS reads the register count (#48)
 kitty-graphics                works   -Dimages image.kitty                  a kitty a=q with an id gets OK (#49)
 mode-80                       works   -Dimages DEC-80                       DECRQM 80 (DECSDM) replies 1 or 2 while sixel is on (#48)

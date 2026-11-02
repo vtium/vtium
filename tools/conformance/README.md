@@ -123,7 +123,7 @@ Before any case runs, the runner checks `--describe` against INTERFACE.md's `des
 `conformance probes` reads `probes/probes.replay` and vtium's own `probes/vtium.replay`, replays each probe through vtium-replay's code and judges it against the list:
 
 - a probe listed `works` fails the run when it fails, and one listed `missing` when it passes, so the change that adds a feature also sets its line to `works` and closes its issue;
-- a probe listed with a build feature passes in a build with it and fails, as absent, in one without; the list's `-Dimages` is the C reference's build option, which built the sixel and kitty handlers with the image pipeline, so until those handlers land (#48, #49) the runner reports the build without it and the image probes must fail, and a feature the build does not name fails the run;
+- a probe listed with a build feature passes in a build with it and fails, as absent, in one without; the list's `-Dimages` is the C reference's build option, which built the sixel and kitty handlers with the image pipeline; the runner reports vtium-replay's build with it, since that build holds both handlers (#48, #49), so the image probes must pass, and a feature the build does not name fails the run;
 - a probe the list does not name, or a name in the list no probe defines, fails the run;
 - a probe that names a fixture reads it from `fixtures/`, and one whose fixture is missing is not judged, which fails the run: `xtgettcap` names `kmscon.termcap`, vtium's XTGETTCAP table (`tests/termcap.rs`), as the C reference's build wrote its own from its terminfo entry with `tic`.
 

@@ -33,11 +33,10 @@ const COPIED: [&str; 3] = [
 const OWN: [&str; 1] = ["tools/conformance/probes/vtium.replay"];
 /// The build features the capability list names. Its `-Dimages` is the
 /// C reference's build option, which built the sixel and kitty handlers
-/// with the image pipeline. vtium-replay built with images has the
-/// pipeline, and the handlers arrive with the sixel and kitty graphics
-/// work (#48, #49), so until then the probes that need them fail as
-/// absent.
-const BUILD: [(&str, bool); 1] = [("images", false)];
+/// with the image pipeline. vtium-replay is built with images, which holds
+/// the pipeline and both handlers (#48, #49), so the probes that need them
+/// are judged as working.
+const BUILD: [(&str, bool); 1] = [("images", true)];
 /// Features interface 1 lets an implementation without images, or
 /// without the draw2 view, leave out.
 const OPTIONAL: [&str; 6] = [
