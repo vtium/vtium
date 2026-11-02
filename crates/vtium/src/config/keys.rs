@@ -966,6 +966,17 @@ pub const MOUSE: Key = Key {
     cite: "src/config.c:1385",
 };
 
+pub const NATURAL_SCROLLING: Key = Key {
+    name: "natural-scrolling",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Invert the mouse wheel: it scrolls the view and reports to a program the other way, and so do the cursor keys it sends on the alternate screen under mode 1007. Ctrl and the wheel still zoom in when the wheel turns up.",
+    cite: "src/config.c:149-150, 1386; src/terminal.c:1474-1476, 1646",
+};
+
 pub const POINTER_CHAR: Key = Key {
     name: "pointer-char",
     short: None,
@@ -1274,7 +1285,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 95] = [
+pub const KEYS: [Key; 96] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1344,6 +1355,7 @@ pub const KEYS: [Key; 95] = [
     XKB_REPEAT_DELAY,
     XKB_REPEAT_RATE,
     MOUSE,
+    NATURAL_SCROLLING,
     SOFT_CURSOR,
     POINTER_CHAR,
     POINTER_HIDE_TIMEOUT,

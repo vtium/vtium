@@ -400,7 +400,7 @@ impl App {
             selection: None,
             paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
             hide_while_typing: config.switch(&keys::POINTER_HIDE_WHILE_TYPING),
-            natural_scrolling: false,
+            natural_scrolling: config.switch(&keys::NATURAL_SCROLLING),
             power_keys,
             power: Box::new(power::System),
             sleeping: Rc::default(),
@@ -2171,8 +2171,7 @@ impl App {
     /// Natural scrolling, on or off (vtium/vtium#203): the wheel scrolls the
     /// view and reports to a program the other way, and the cursor keys
     /// mode 1007 sends reverse, while Ctrl's zoom keeps the wheel's own
-    /// direction. kmscon.conf's `natural-scrolling` sets it once the key
-    /// is in the key table.
+    /// direction. kmscon.conf's `natural-scrolling` sets it at the start.
     pub fn set_natural_scrolling(&mut self, on: bool) {
         self.natural_scrolling = on;
     }
@@ -3927,6 +3926,38 @@ mod tests {
         let rang = |app: &mut App| app.vt.get::<Bells>().map(|v| v.rang);
         app.turn(Instant::now());
         assert_eq!(rang(&mut app), Some(1));
+    }
+
+    // vtium/vtium#203: kmscon.conf's `natural-scrolling`, off by default
+    // as the C reference had it (src/config.c:1386), turns the seat's
+    // natural scrolling on, from the file and from the command line
+    #[test]
+    fn natural_scrolling_comes_from_the_file_and_the_command_line() {
+        let natural = |args: &[&str], file: Option<&[u8]>| {
+            let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+            let loaded = crate::config::load(&args, None, &mut |p: &Path| {
+                Ok(file
+                    .filter(|_| p == Path::new("/etc/kmscon/kmscon.conf"))
+                    .map(<[u8]>::to_vec))
+            });
+            assert_eq!(loaded.reports, [], "{args:?}");
+            let lp: Loop<App> = Loop::new().unwrap();
+            let app = App::new(
+                loaded.config,
+                Box::new(FakeVt::new()),
+                lp.handle(),
+                Rc::new(Instant::now),
+                Vec::new(),
+            );
+            app.natural_scrolling
+        };
+        assert!(!natural(&[], None), "off by default");
+        assert!(natural(&[], Some(b"natural-scrolling\n")), "the file");
+        assert!(natural(&["--natural-scrolling"], None), "the command line");
+        assert!(
+            !natural(&["--no-natural-scrolling"], Some(b"natural-scrolling\n")),
+            "the command line over the file"
+        );
     }
 
     // ADR-1401 D8: the loop wakes when a head's `when-display-lost` time runs out.
