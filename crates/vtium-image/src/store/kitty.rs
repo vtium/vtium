@@ -181,7 +181,8 @@ impl Edit<'_> {
     /// `id` (D5). When the store's spare buffer, the one the image it freed
     /// last left, holds `len` pixels and no frame holds it, the buffer comes
     /// still holding that image's pixels, which the caller overwrites, with
-    /// its charge as the reservation, grown by the rest of `bytes`, so no
+    /// its charge as the reservation, grown by the rest of `bytes` less the
+    /// charge of the image of id `id` that the new one replaces, so no
     /// reservation of the handler's own can evict the buffer it is about to
     /// fill; otherwise the buffer is new and the whole
     /// charge is reserved. The players that send video as kitty pictures
@@ -207,7 +208,7 @@ impl Edit<'_> {
             let keep = reservation.old.map(|old| (reservation.buffer, old));
             self.store.settle(self.screens);
             if let Ok(added) = self.store.reserve_bytes(more, keep, self.screens) {
-                reservation.bytes = reservation.bytes.saturating_add(added);
+                self.store.add_to(&mut reservation, added);
                 return Ok((buffer, reservation));
             }
             // the buffer goes with its charge, and a reservation of the

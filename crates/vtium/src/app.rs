@@ -284,6 +284,10 @@ pub struct App {
     /// A frame has been on screen since the start.
     presented: bool,
     timer_due: Option<Instant>,
+    /// What starts each console's image helper; none until the image
+    /// helper is built (ADR-1101), so every terminal is told no helper runs.
+    #[cfg(feature = "images")]
+    image_helpers: Option<crate::head::images::Helpers>,
     /// The displays whose density is assumed, each warned of once.
     assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// Where the font's sets come from.
@@ -459,6 +463,8 @@ impl App {
             wait,
             presented: false,
             timer_due: None,
+            #[cfg(feature = "images")]
+            image_helpers: None,
             exit: None,
             leaving: None,
             inherited,
@@ -535,6 +541,14 @@ impl App {
     /// for PID 1, logind and the kernel.
     pub fn set_power(&mut self, power: Box<dyn Power>) {
         self.power = power;
+    }
+
+    /// Starts each console's image helper with `helpers`, or, with none,
+    /// tells every terminal that no helper runs, from the next turn on
+    /// (ADR-1100 D7). This is where the image helper plugs in.
+    #[cfg(feature = "images")]
+    pub fn set_image_helpers(&mut self, helpers: Option<crate::head::images::Helpers>) {
+        self.image_helpers = helpers;
     }
 
     /// Runs `hook` before each frame of the head `name` is composed, a
@@ -1740,13 +1754,61 @@ impl App {
                     self.relayout(h);
                 }
             }
+            // A modeset or a wake-up may have given the display a new
+            // mode in place, on the same connector. Its view then draws
+            // with a new renderer at the display's new size, and the head
+            // is laid out again: a view left at the old size never draws,
+            // because every token the display lends has the new size.
             Event::Redraw(id) => {
                 let key = (node.to_owned(), id);
-                for head in &mut self.heads {
-                    if let Some(v) = head.views.get_mut(&key) {
-                        v.lost = true;
-                        head.draw_now = true;
+                let mode = self
+                    .videos
+                    .get(node)
+                    .and_then(|video| Some((video.size(id)?, video.refresh_mhz(id))));
+                let name = self.videos.get(node).map(|video| video.name(id));
+                let App {
+                    heads,
+                    config,
+                    locale,
+                    ..
+                } = self;
+                let mut resized = None;
+                for (h, head) in heads.iter_mut().enumerate() {
+                    let Some(v) = head.views.get(&key) else {
+                        continue;
+                    };
+                    let height = v.height;
+                    let new = mode.filter(|&(size, _)| size != v.size);
+                    let font = new.map(|_| {
+                        head.face(height, locale)
+                            .map(|face| head.font_at(face, config))
+                    });
+                    let render = head.render_config(config);
+                    head.draw_now = true;
+                    let Some(v) = head.views.get_mut(&key) else {
+                        continue;
+                    };
+                    v.lost = true;
+                    match (new, font) {
+                        (Some((size, refresh)), Some(Ok(font))) => {
+                            v.resize(font, size, refresh, render);
+                            resized = Some(h);
+                        }
+                        // With no font at its height the view keeps its
+                        // size and its renderer, so it never draws at a
+                        // size its renderer was not made for; it draws
+                        // nothing until the next set-up.
+                        (Some((size, _)), Some(Err(e))) => log::warn!(
+                            "cannot draw display {} at its new size {}x{}: {e}",
+                            name.as_deref().unwrap_or("?"),
+                            size.0,
+                            size.1
+                        ),
+                        _ => {}
                     }
+                }
+                if let Some(h) = resized {
+                    self.relayout(h);
                 }
             }
             // A frame waiting on this flip is drawn at the turn's end,
@@ -2848,6 +2910,12 @@ impl App {
         if bell && self.bell {
             self.vt.bell();
         }
+        // After the sessions' turns, whose respawns drop a request out,
+        // and before the draw, which shows what a reply placed.
+        #[cfg(feature = "images")]
+        for head in &mut self.heads {
+            head.image_turn(now, self.image_helpers.as_ref());
+        }
         if let Some(order) = self.order.take() {
             self.outside_order(order, now);
         }
@@ -3169,6 +3237,8 @@ impl App {
             due.extend(head.notice_due);
             due.extend(head.osd_due);
             due.extend(head.brief_due);
+            #[cfg(feature = "images")]
+            due.extend(head.image_due());
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));

@@ -1487,6 +1487,51 @@ class Install(Case):
         self.assertIn("kept /usr/local/bin/vtium-dev: it changed since vt-install wrote it", p.stdout)
         self.assertEqual(read(self.at(self.BIN)), old_build)
 
+    def temps(self):
+        """Every file under the root at one of vt-install's temporary names."""
+        return [f for f in self.left() if f.endswith(".vt-install-new")]
+
+    def test_a_reinstall_renames_each_new_file_into_place(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.temps(), [])
+        # The running vtium holds its binary open, as these do each file.
+        # A rename leaves the open file as it was, while a copy into the
+        # same file would change what the running vtium reads.
+        paths = (*self.FILES, self.STATE + "/files")
+        held = {f: open(self.at(f), "rb") for f in paths}
+        try:
+            old = {f: held[f].read() for f in paths}
+            write(self.s.bin, read(self.s.bin) + "# a newer build\n")
+            p = self.vt_install("install", "4")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertEqual(read(self.at(self.BIN)), read(self.s.bin))
+            for f in paths:
+                with self.subTest(f=f):
+                    held[f].seek(0)
+                    self.assertEqual(held[f].read(), old[f])
+                    self.assertNotEqual(os.stat(self.at(f)).st_ino, os.fstat(held[f].fileno()).st_ino)
+        finally:
+            for h in held.values():
+                h.close()
+        self.assertEqual(self.temps(), [])
+
+    def test_each_copy_is_on_the_disk_before_it_is_renamed_into_place(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        calls = self.s.calls_of("sudo")
+        renames = [i for i, c in enumerate(calls) if c.startswith("mv -fT -- ")]
+        # The manifest, the record twice, the helper, the binary, the units.
+        self.assertEqual(len(renames), 7, calls)
+        for i in renames:
+            temp = calls[i].split()[3]
+            self.assertEqual(calls[i - 1], f"sync -- {temp}")
+            self.assertTrue(calls[i - 2].startswith("install -D ") and calls[i - 2].endswith(f" {temp}"), calls[i - 2])
+        # The manifest's rename is on the disk before any other copy starts.
+        first = renames[0]
+        self.assertEqual(calls[first].split()[4], self.at(self.STATE + "/tty4"))
+        self.assertEqual(calls[first + 1], f"sync -- {self.at(self.STATE)}")
+
     def test_a_checksum_counts_only_for_the_path_it_was_recorded_for(self):
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -1644,6 +1689,95 @@ exec "$@"
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.left(), [])
 
+    def test_uninstall_clears_what_a_killed_first_install_left(self):
+        # A first install killed while it copied its manifest leaves the
+        # state directory with the manifest's temporary file and no manifest.
+        stray = self.STATE + "/.tty4.vt-install-new"
+        os.makedirs(self.at(self.STATE))
+        write(self.at(stray), "# Written by make vt-install\nvt=4\n", 0o600)
+        p = self.vt_install("uninstall", "--dry-run", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"+ sudo rm -f -- {self.at(stray)}", p.stdout)
+        self.assertEqual(self.left(), [self.STATE, stray])
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("removed the temporary files that a run cut short left", p.stdout)
+        self.assertEqual(self.left(), [])
+        # With VT 3 installed, the stray goes and VT 3's install stays.
+        p = self.vt_install("install", "3")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        write(self.at(stray), "vt=4\n", 0o600)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.temps(), [])
+        for f in (*self.FILES, self.STATE + "/tty3"):
+            self.assertTrue(os.path.exists(self.at(f)), f)
+        # Uninstall of another VT clears it too.
+        write(self.at(stray), "vt=4\n", 0o600)
+        p = self.vt_install("uninstall", "3")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+        # With nothing left behind, there is still nothing to undo.
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("uninstall", "4"), "make vt-install did not install vtium on VT 4, so there is nothing to undo")
+
+    def test_a_run_refuses_while_another_holds_the_lock(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        before = self.left()
+        fd = os.open(self.at(self.STATE), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # The lock is taken before sudo is asked for anything.
+            for args in (("install", "5"), ("install", "4"), ("uninstall", "4"), ("install", "--dry-run", "5")):
+                with self.subTest(args=args):
+                    open(self.s.calls, "w").close()
+                    self.refused(self.vt_install(*args), "another make vt-install or make vt-uninstall is running")
+                    self.assertEqual(self.left(), before)
+        finally:
+            os.close(fd)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+
+    def test_a_first_install_refuses_when_another_run_got_there_first(self):
+        # A first install finds no state directory, reads what is installed
+        # without the lock, and takes the lock once it has made the directory.
+        # Here another install, on VT 5, runs while the first asks sudo.
+        hook = os.path.join(self.s.tmp, "meanwhile")
+        write(hook, f"#!/bin/bash\nexec bash {VT_INSTALL!r} install 5\n")
+        write(os.path.join(self.s.standins, "sudo"), "#!/bin/bash\n" + RECORD + """
+if [ "$1" = -v ]; then
+	[ -z "${MEANWHILE-}" ] || [ -e "$MEANWHILE.done" ] || { : >"$MEANWHILE.done"; "$MEANWHILE" >&2 || exit 1; }
+	exit 0
+fi
+exec "$@"
+""")
+        p = self.vt_install("install", "4", MEANWHILE=hook)
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("another make vt-install or make vt-uninstall ran while this one started; run this again", p.stderr)
+        self.assertIn("vtium-dev runs on VT 5", p.stderr)
+        # The first install changed nothing, and VT 5's install is whole.
+        self.assertFalse(os.path.lexists(self.at(self.STATE + "/tty4")))
+        self.assertNotIn("autovt@tty4.service", self.links())
+        self.assertEqual([c for c in self.s.changes() if "tty4" in c], [])
+        self.assertEqual(self.temps(), [])
+        p = self.vt_install("uninstall", "5")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+
+    def test_a_run_refuses_a_lock_on_a_state_directory_that_is_gone(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # Between this run's open of the directory and its lock, the last
+        # uninstall removed it and a first install made a new one.
+        state = self.at(self.STATE)
+        write(os.path.join(self.s.standins, "flock"), "#!/bin/bash\n"
+              f'mv {state!r} {state + ".gone"!r} && mkdir {state!r} && exec {shutil.which("flock")!r} "$@"\n')
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("uninstall", "4"),
+                     "another make vt-install or make vt-uninstall removed /var/lib/vtium-dev-install while this one started")
+
     def test_a_failed_step_names_the_way_back(self):
         for verb in ("daemon-reload", "enable", "restart", "disable"):
             with self.subTest(verb=verb):
@@ -1665,6 +1799,12 @@ exec "$@"
         self.assertIn("vt-install: a step failed before anything was installed", p.stderr)
         self.assertNotIn("make vt-uninstall", p.stderr)
         self.assertEqual(self.left(), [self.STATE])
+        # Uninstall removes the empty state directory such a run leaves, and
+        # still says there was nothing to undo.
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("so there is nothing to undo; vt-uninstall removed the empty /var/lib/vtium-dev-install", p.stdout)
+        self.assertEqual(self.left(), [])
         # On a reinstall, uninstall removes the earlier install too.
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -1986,6 +2126,38 @@ exec "$@"
                 self.refused(self.vt_install("uninstall", "4", **env), why)
         os.chmod(self.s.standins, 0o755)
         os.chmod(sudo, 0o755)
+        p = self.vt_install("install", "4", **sudo_uid)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+    def test_root_checks_every_file_in_the_stand_ins_directory(self):
+        # The stand-ins lead PATH, so as root any file there runs as root
+        # when the script calls a command of its name: id and stat, which the
+        # check itself runs, and sha256sum, which install runs after it.
+        sudo_uid = self.as_root()
+        sha = os.path.join(self.s.standins, "sha256sum")
+        write(sha, f'#!/bin/bash\nexec {shutil.which("sha256sum")!r} "$@"\n')
+        # A symlink there is checked by the file it names.
+        elsewhere = os.path.join(self.s.tmp, "awk")
+        write(elsewhere, f'#!/bin/bash\nexec {shutil.which("awk")!r} "$@"\n')
+        awk = os.path.join(self.s.standins, "awk")
+        os.symlink(elsewhere, awk)
+        for name, path in (("id", None), ("stat", None), ("sha256sum", sha), ("awk", elsewhere)):
+            path = path or os.path.join(self.s.standins, name)
+            with self.subTest(name=name):
+                os.chmod(path, 0o777)
+                for action in ("install", "uninstall"):
+                    open(self.s.calls, "w").close()
+                    shown = awk if name == "awk" else path
+                    self.refused(self.vt_install(action, "4", **sudo_uid),
+                                 f"{shown} is writable by group or others (mode 777)")
+                os.chmod(path, 0o755)
+        # A symlink that names no file has no owner to read, so it is refused.
+        gone = os.path.join(self.s.standins, "gone")
+        os.symlink(os.path.join(self.s.tmp, "nothing-here"), gone)
+        for action in ("install", "uninstall"):
+            open(self.s.calls, "w").close()
+            self.refused(self.vt_install(action, "4", **sudo_uid), f"cannot read the owner of {gone}")
+        os.unlink(gone)
         p = self.vt_install("install", "4", **sudo_uid)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 

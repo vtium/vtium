@@ -124,8 +124,9 @@ pub enum Reason {
 
 /// The screen as a head's frame shows it, owned, so the head's render
 /// thread reads it while the session runs on: the visible lines, their
-/// change ages, the palette, the cursor, the selection and the hovered
-/// link.
+/// change ages, the palette, the cursor, the selection, the hovered link,
+/// and in a build with images the pictures, each sharing its image's
+/// pixels (ADR-1100 D9).
 pub struct Snapshot {
     lines: Vec<Line>,
     damage: Damage,
@@ -135,6 +136,8 @@ pub struct Snapshot {
     selection: Vec<Range<usize>>,
     hovered: Option<LinkId>,
     overlay: Option<(usize, String)>,
+    #[cfg(feature = "images")]
+    placements: Vec<vtium_image::FramePlacement>,
 }
 
 impl Snapshot {
@@ -164,6 +167,8 @@ impl Snapshot {
         };
         let (cursor, hovered) = (frame.cursor(), frame.hovered());
         let overlay = frame.overlay().map(|o| (o.row, o.uri.to_owned()));
+        #[cfg(feature = "images")]
+        let placements = frame.placements().to_vec();
         Snapshot {
             lines,
             damage: screen.damage().clone(),
@@ -173,12 +178,14 @@ impl Snapshot {
             hovered,
             overlay,
             palette,
+            #[cfg(feature = "images")]
+            placements,
         }
     }
 
     /// The frame a display that last drew at `since` reads.
     fn frame(&self, since: Age) -> Frame<'_> {
-        Frame::new(
+        let frame = Frame::new(
             self.lines.iter().collect(),
             &self.damage,
             &self.palette,
@@ -190,7 +197,10 @@ impl Snapshot {
         .with_hover(
             self.hovered,
             self.overlay.as_ref().map(|(row, uri)| (*row, uri.as_str())),
-        )
+        );
+        #[cfg(feature = "images")]
+        let frame = frame.with_placements(self.placements.clone());
+        frame
     }
 }
 
@@ -521,6 +531,15 @@ pub struct Presented {
     pub queued: bool,
 }
 
+/// The interval between a display's refreshes at `refresh_mhz`, `None`
+/// where the display reports no rate.
+fn refresh(refresh_mhz: Option<u32>) -> Option<std::time::Duration> {
+    refresh_mhz
+        .filter(|&m| m > 0)
+        .and_then(|m| 1_000_000_000_000_u64.checked_div(u64::from(m)))
+        .map(std::time::Duration::from_nanos)
+}
+
 /// One display drawing the terminal.
 pub struct View {
     pub id: DisplayId,
@@ -594,10 +613,7 @@ impl View {
             lost: true,
             timer: measure.then(RenderTimer::new),
             size,
-            refresh: refresh_mhz
-                .filter(|&m| m > 0)
-                .and_then(|m| 1_000_000_000_000_u64.checked_div(u64::from(m)))
-                .map(std::time::Duration::from_nanos),
+            refresh: refresh(refresh_mhz),
             pointer: Pointer::default(),
             forgotten: Vec::new(),
             arrived: Vec::new(),
@@ -640,12 +656,36 @@ impl View {
         self.pointer.reset();
     }
 
+    /// The display's new mode, which a modeset set in place on the same
+    /// connector: the view takes `size` and `refresh_mhz` and draws from
+    /// here on with a new renderer at that size, with `font` at the height
+    /// it had, so the next frame is drawn whole. The view's size is always
+    /// its renderer's: it changes only with the renderer.
+    pub fn resize(
+        &mut self,
+        font: Font<DisplayFace>,
+        size: (u32, u32),
+        refresh_mhz: Option<u32>,
+        config: RenderConfig,
+    ) {
+        self.size = size;
+        self.refresh = refresh(refresh_mhz);
+        self.rebuild(font, self.height, config);
+    }
+
     /// Draws another screen from the next frame, as a console switch
     /// shows: the checkpoint the view kept is the other screen's history,
     /// so the next frame draws every cell, in every buffer.
     pub fn show_another(&mut self) {
         self.since = Age::NEVER;
         self.lost = true;
+    }
+
+    /// Whether the view's renderer draws pictures, which a head needs of
+    /// every display before it offers sixel and kitty graphics (ADR-1100
+    /// D10): the CPU compositor draws them in a build with images.
+    pub fn draws_placements(&self) -> bool {
+        vtium_render::DRAWS_PLACEMENTS
     }
 
     /// The font's cell.
