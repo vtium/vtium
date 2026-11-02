@@ -1246,3 +1246,101 @@ fn a_run_of_cells_under_one_picture_is_written_a_display_line_at_a_time() {
         }
     }
 }
+
+// A block cursor covers its cell, selected or not, with no picture; a bar
+// or underline cursor lies above the selection's tint (the maintainer,
+// 2026-11-01; ADR-1100 D4)
+// covers: image.compositor
+#[test]
+fn a_cursor_in_a_selected_cell_lies_above_the_tint() {
+    let mut s = Screen::new(10, 4, rgb("c0c0c0"), rgb("000000"));
+    s.text(0, 1, "          ", style(rgb("ffffff"), rgb("200000")));
+    s.cursor.visible = true;
+    s.cursor.row = 1;
+    s.cursor.col = 3;
+    let mut con = Console::new(10, 4, 0);
+    let img = con.image(Protocol::SIXEL, 0, (80, 16), solid(BLUE));
+    con.place(
+        img,
+        Place {
+            col: 0,
+            row: 1,
+            ..Place::default()
+        },
+    );
+    // row 1, columns 2 to 4 selected
+    let go = |s: &Screen, p: Vec<FramePlacement>| {
+        let mut r = Renderer::new(unifont(), 80, 64, Config::default());
+        let mut c = Canvas::new(80, 64, 0);
+        let frame = s
+            .frame(Age::NEVER)
+            .with_placements(p)
+            .with_selection(vec![0..0, 2..5]);
+        r.draw(&frame, &mut c, 0, &state(s));
+        c
+    };
+    for shape in [CursorShape::Block, CursorShape::Bar, CursorShape::Underline] {
+        s.cursor.shape = shape;
+        let pic = cell(&go(&s, con.frame(0)), 3, 1);
+        let bare = cell(&go(&s, Vec::new()), 3, 1);
+        s.cursor.visible = false;
+        let selected = cell(&go(&s, Vec::new()), 3, 1);
+        s.cursor.visible = true;
+        let mut marked = 0;
+        for (i, ((&g, &b), &n)) in pic.iter().zip(&bare).zip(&selected).enumerate() {
+            if shape == CursorShape::Block {
+                assert_eq!(g, b, "block pixel {i}");
+            } else if b != n {
+                // a pixel of the bar or line: the cursor's own, above the tint
+                assert_eq!(g, b, "{shape:?} pixel {i}");
+                marked += 1;
+            } else {
+                // the rest of the cell: the picture under the selection's tint
+                assert_ne!(g, BLUE & 0xff_ffff, "{shape:?} pixel {i}: tinted");
+                assert_ne!(g, n, "{shape:?} pixel {i}: the picture shows");
+            }
+        }
+        if shape != CursorShape::Block {
+            assert!(marked > 0);
+        }
+    }
+}
+
+// A run of covered cells ends where another picture begins, so each cell
+// draws its own picture's pixels
+// covers: image.compositor
+#[test]
+fn a_run_of_covered_cells_stops_at_another_picture() {
+    let s = Screen::new(10, 4, rgb("c0c0c0"), rgb("000000"));
+    let mut con = Console::new(10, 4, 0);
+    let a = con.image(Protocol::SIXEL, 0, (24, 16), ramp);
+    let b = con.image(Protocol::SIXEL, 0, (24, 16), |x, y| ramp(x + 100, y + 50));
+    con.place(
+        a,
+        Place {
+            col: 0,
+            row: 1,
+            ..Place::default()
+        },
+    );
+    con.place(
+        b,
+        Place {
+            col: 3,
+            row: 1,
+            ..Place::default()
+        },
+    );
+    let (c, _) = draw_with(unifont(), &s, con.frame(0), (80, 64), Config::default());
+    for y in 16..32 {
+        for x in 0..24 {
+            assert_eq!(
+                c.pixel(x, y),
+                Some(ramp(x, y - 16) & 0xff_ffff),
+                "a at {x},{y}"
+            );
+            let b = ramp(x + 100, y - 16 + 50) & 0xff_ffff;
+            assert_eq!(c.pixel(x + 24, y), Some(b), "b at {x},{y}");
+        }
+    }
+}
