@@ -431,9 +431,28 @@ impl Terminal {
     }
 
     /// Turns the image protocols on or off: an off protocol's strings are
-    /// ignored as every string vtium does not take is.
+    /// ignored as every string vtium does not take is. A protocol turned
+    /// off has its handler cancelled at once, so a string it was being fed
+    /// ends and an upload in chunks gives back what it holds, as the C
+    /// reference's `tsm_vte_set_sixel` and `tsm_vte_set_kitty_graphics`
+    /// dropped the sixel decoder and cancelled the kitty parser (libtsm
+    /// `eeaf293`, `src/tsm/tsm-vte-image.c:466-474` and `:493-503`).
     pub fn set_image_switches(&mut self, switches: Switches) {
+        let old = self.state.images.switches;
         self.state.images.switches = switches;
+        let turned = [
+            (ImageString::Sixel, old.sixel, switches.sixel),
+            (ImageString::Kitty, old.kitty, switches.kitty),
+            (ImageString::Iterm2, old.iterm2, switches.iterm2),
+        ];
+        for (which, was, now) in turned {
+            if was && !now {
+                if self.state.images.active == Some(which) {
+                    self.state.images.active = None;
+                }
+                self.state.with_handler(which, |h, ctx| h.cancel(ctx));
+            }
+        }
     }
 
     pub fn image_switches(&self) -> Switches {
@@ -463,7 +482,9 @@ impl Terminal {
         self.state
             .with_handler(ImageString::Sixel, |h, ctx| h.reset(ctx));
         self.state.images.registers = None;
-        // a number with no row changes nothing, so this waits for the rows
+        // Until the mode table has rows for 80, 1070 and 8452, these three
+        // calls change nothing. They name the numbers because the table's
+        // other row that only RIS resets, 2028, is not the host's to reset.
         modes::set(&mut self.state, true, 80, false);
         modes::set(&mut self.state, true, 1070, limits.private_registers);
         modes::set(&mut self.state, true, 8452, false);
@@ -1004,6 +1025,66 @@ mod tests {
         assert_eq!(by_handler.screen().cursor(), (2, 1), "the cursor stays");
         let above = moving(1, Mover::default());
         assert!(shown(&by_handler) != shown(&above), "the region scrolled");
+    }
+
+    #[test]
+    fn a_change_of_the_register_settings_cancels_a_sixel_being_fed() {
+        let mut t = probed(1 << 20);
+        let _ = t.input(b"\x1bPq");
+        t.set_image_limits(Limits {
+            registers: 256,
+            ..Limits::default()
+        });
+        let _ = t.input(b"\x1b\\");
+        assert_eq!(probe(&t).placed, None, "the string ended cancelled");
+        assert_eq!(t.screen().images().image_count(), 0);
+    }
+
+    /// A terminal with kitty graphics on and a holding handler for it, its
+    /// upload's 4096 bytes reserved.
+    fn uploading() -> Terminal {
+        let mut t = Terminal::new(8, 4, 16);
+        t.screen_mut().set_image_limit(1 << 20);
+        t.set_image_switches(Switches {
+            sixel: false,
+            kitty: true,
+            iterm2: false,
+        });
+        t.set_image_handler(ImageString::Kitty, Some(Box::new(Holding::default())));
+        let _ = t.input(b"\x1b_Gx\x1b\\");
+        assert_eq!(t.screen().images().bytes(), 4096);
+        t
+    }
+
+    #[test]
+    fn an_apc_that_is_not_kitty_leaves_an_upload_alone() {
+        let mut t = uploading();
+        let _ = t.input(b"\x1b_x\x1b\\");
+        assert_eq!(t.screen().images().bytes(), 4096);
+    }
+
+    #[test]
+    fn switching_kitty_off_cancels_an_upload_at_once() {
+        let mut t = uploading();
+        t.set_image_switches(Switches {
+            sixel: false,
+            kitty: false,
+            iterm2: false,
+        });
+        assert_eq!(t.screen().images().bytes(), 0);
+        // switching another protocol off cancels nothing of kitty's
+        let mut t = uploading();
+        t.set_image_switches(Switches {
+            sixel: true,
+            kitty: true,
+            iterm2: false,
+        });
+        t.set_image_switches(Switches {
+            sixel: false,
+            kitty: true,
+            iterm2: false,
+        });
+        assert_eq!(t.screen().images().bytes(), 4096);
     }
 
     #[test]
