@@ -54,6 +54,7 @@ use std::io::{self, Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use drm_ffi::{
     DRM_CAP_CURSOR_HEIGHT, DRM_CAP_CURSOR_WIDTH, DRM_CAP_DUMB_BUFFER, DRM_CLIENT_CAP_ATOMIC,
@@ -62,10 +63,10 @@ use drm_ffi::{
 };
 use rustix::io::Errno;
 
-use super::Mode;
 use super::kms::{
     Connector, ConnectorRead, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources,
 };
+use super::{Mode, lock};
 
 pub(crate) const PRIMARY: u64 = 1;
 pub(crate) const CURSOR: u64 = 2;
@@ -364,7 +365,9 @@ impl std::fmt::Debug for Between {
 }
 
 /// The bytes of each dumb buffer, by handle: what its mappings wrote.
-type Memory = Rc<RefCell<BTreeMap<u32, Vec<u8>>>>;
+/// The card's memory, by dumb buffer. A mapping can go to a render thread
+/// inside a token and be dropped there, so it is shared across threads.
+type Memory = Arc<Mutex<BTreeMap<u32, Vec<u8>>>>;
 
 /// A dumb buffer's mapping: its bytes, written back to the card's memory
 /// when the mapping goes, as device memory keeps what was written to it.
@@ -391,7 +394,7 @@ impl AsMut<[u8]> for Mapping {
 impl Drop for Mapping {
     fn drop(&mut self) {
         let bytes = std::mem::take(&mut self.bytes);
-        if let Some(m) = self.memory.borrow_mut().get_mut(&self.handle) {
+        if let Some(m) = lock(&self.memory).get_mut(&self.handle) {
             *m = bytes;
         }
     }
@@ -578,7 +581,7 @@ impl FakeCard {
     /// The bytes of the dumb buffer `handle` as its last mapping left
     /// them, if it is still there.
     pub(crate) fn memory(&self, handle: u32) -> Option<Vec<u8>> {
-        self.memory.borrow().get(&handle).cloned()
+        lock(&self.memory).get(&handle).cloned()
     }
 
     /// Makes `change` to the card right after the next `read`, as an
@@ -959,9 +962,7 @@ impl Kms for FakeCard {
         drop(s);
         let size = width * 4 * height;
         // A new buffer holds whatever the device memory held.
-        self.memory
-            .borrow_mut()
-            .insert(handle, vec![0xa5; usize::try_from(size).unwrap_or(0)]);
+        lock(&self.memory).insert(handle, vec![0xa5; usize::try_from(size).unwrap_or(0)]);
         Ok(Dumb {
             handle,
             pitch: width * 4,
@@ -970,7 +971,7 @@ impl Kms for FakeCard {
     }
 
     fn destroy_dumb(&self, handle: u32) -> io::Result<()> {
-        self.memory.borrow_mut().remove(&handle);
+        lock(&self.memory).remove(&handle);
         let mut s = self.state.borrow_mut();
         s.buffer_calls.push(BufferCall::DestroyDumb(handle));
         s.dumbs
@@ -990,7 +991,7 @@ impl Kms for FakeCard {
         Ok(Mapping {
             handle: dumb.handle,
             bytes,
-            memory: Rc::clone(&self.memory),
+            memory: Arc::clone(&self.memory),
         })
     }
 

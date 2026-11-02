@@ -135,6 +135,8 @@ done <<<"$list"
 why_busy() {
 	local e
 	[ "$1" != "$active" ] || { echo "it is on screen"; return; }
+	! vt_installed "${standins:+$standins/root}" "$1" ||
+		{ echo "make vt-install installed vtium there; make vt-uninstall VT=$1 frees it"; return; }
 	for e in "${sessions[@]}"; do
 		[ "${e%% *}" != "$1" ] || { echo "logind session ${e#* } is on it"; return; }
 	done

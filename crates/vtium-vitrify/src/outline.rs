@@ -9,12 +9,13 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT3\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT4\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
 //!          u8, length u8 and scalar values u32, baseline count u32 (0, or
-//!          the cell count), each baseline u32
+//!          the cell count), each baseline u32, hinting u8 (0 light, 1
+//!          full)
 //! answer   magic "VTVOUTL3", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
@@ -43,9 +44,12 @@
 //! past its cells. A glyph advancing more
 //! than one and a half cells is two cells wide. A color glyph larger than
 //! its cells is drawn again at the size that fits them, centred across
-//! them and kept inside the cell's height. Outlines are hinted; color
-//! glyphs are not, and a COLR glyph's layers are laid over each other here,
-//! premultiplied with the renderer's rounding.
+//! them and kept inside the cell's height. Outlines are hinted as the
+//! request says ([`Hinting`], ADR-1200 D1): lightly by default, which
+//! moves a glyph's rows only, as the C reference's FreeType light hinting
+//! did, or fully. Color glyphs are not hinted, and a COLR glyph's layers
+//! are laid over each other here, premultiplied with the renderer's
+//! rounding.
 //!
 //! The clusters asked for ([`crate::shaping`]) are shaped once with
 //! HarfRust and drawn at each cell: each glyph the shaper gives at its
@@ -53,7 +57,7 @@
 
 use std::sync::Arc;
 
-use crate::frit::Cover;
+use crate::frit::{Cover, Hinting};
 use crate::shaping::{Ask, Kind};
 use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_CHUNK_BYTES};
 
@@ -79,7 +83,7 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT3\0";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT4\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL3";
 
 const GLYPH_WIDE: u8 = 1;
@@ -109,6 +113,9 @@ pub struct OutlineRequest {
     /// [`baseline`] gives it and the helper keeps it for the source and the
     /// cell's height; empty, the rasteriser finds each itself.
     pub baselines: Vec<u32>,
+    /// How the outline glyphs are fitted to the pixel grid, the frit's
+    /// `hinting=` (ADR-1200 D1).
+    pub hinting: Hinting,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
@@ -286,6 +293,10 @@ impl OutlineRequest {
         for &b in &self.baselines {
             put32(&mut out, b);
         }
+        out.push(match self.hinting {
+            Hinting::Light => 0,
+            Hinting::Full => 1,
+        });
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -327,6 +338,11 @@ impl OutlineRequest {
         {
             return Err("a baseline for no cell, or below its cell");
         }
+        let hinting = match r.u8()? {
+            0 => Hinting::Light,
+            1 => Hinting::Full,
+            _ => return Err("an unknown hinting"),
+        };
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -337,6 +353,7 @@ impl OutlineRequest {
             cover,
             clusters,
             baselines,
+            hinting,
         })
     }
 
@@ -569,11 +586,18 @@ pub use raster::{baseline, cell_width, decorations, rasterise};
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 pub(crate) mod raster {
     use super::{
-        InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike, family_key,
+        Hinting, InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike,
+        family_key,
     };
+    use skrifa::instance::{LocationRef, Size};
+    use skrifa::outline::{
+        DrawSettings, Engine, GlyphStyles, HintingInstance, HintingOptions, OutlineGlyphCollection,
+        OutlineGlyphFormat, OutlinePen, SmoothMode,
+    };
+    use skrifa::{GlyphId, MetadataProvider};
     use swash::scale::image::{Content, Image};
     use swash::scale::{Render, ScaleContext, Source, StrikeWith};
-    use swash::zeno::{Mask, Origin, Placement};
+    use swash::zeno::{Command, Mask, Origin, Placement, Point, Transform};
 
     use crate::resample::{self, METHOD};
     use swash::{FontDataRef, FontRef, StringId};
@@ -656,18 +680,81 @@ pub(crate) mod raster {
     }
 
     /// Draws one face's glyphs: color glyphs unhinted, as COLR layers or
-    /// bitmaps, and outlines hinted.
+    /// bitmaps, and outlines hinted as [`Hinting`] says.
     pub(crate) struct Drawer<'a> {
         pub(crate) font: FontRef<'a>,
         context: ScaleContext,
+        /// The face's outlines as skrifa reads them, which swash's own
+        /// scaler hints in one fixed mode only.
+        outlines: Option<OutlineGlyphCollection<'a>>,
+        hinting: Hinting,
+        /// The hinter for the last size an outline was drawn at.
+        hinter: Option<(f32, HintingInstance)>,
+        /// The automatic hinter's classes of the face's glyphs, found once.
+        styles: Option<GlyphStyles>,
+    }
+
+    /// An outline as skrifa draws it, as the path zeno fills: its points
+    /// moved by the transform when there is one, and each contour closed,
+    /// as swash's own scaler writes them.
+    struct Pen {
+        path: Vec<Command>,
+        transform: Option<Transform>,
+    }
+
+    impl Pen {
+        fn point(&self, x: f32, y: f32) -> Point {
+            let p = Point::new(x, y);
+            self.transform.map_or(p, |t| t.transform_point(p))
+        }
+
+        fn end_contour(&mut self) {
+            if !matches!(self.path.last(), None | Some(Command::Close)) {
+                self.path.push(Command::Close);
+            }
+        }
+    }
+
+    impl OutlinePen for Pen {
+        fn move_to(&mut self, x: f32, y: f32) {
+            self.end_contour();
+            let p = self.point(x, y);
+            self.path.push(Command::MoveTo(p));
+        }
+
+        fn line_to(&mut self, x: f32, y: f32) {
+            let p = self.point(x, y);
+            self.path.push(Command::LineTo(p));
+        }
+
+        fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+            let (c, p) = (self.point(cx0, cy0), self.point(x, y));
+            self.path.push(Command::QuadTo(c, p));
+        }
+
+        fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+            let (c0, c1, p) = (self.point(cx0, cy0), self.point(cx1, cy1), self.point(x, y));
+            self.path.push(Command::CurveTo(c0, c1, p));
+        }
+
+        fn close(&mut self) {
+            self.path.push(Command::Close);
+        }
     }
 
     impl<'a> Drawer<'a> {
-        /// A drawer of `font`'s glyphs.
-        pub(crate) fn new(font: FontRef<'a>) -> Self {
+        /// A drawer of the glyphs of `font`, face `index` of its file,
+        /// hinting its outlines as `hinting` says.
+        pub(crate) fn new(font: FontRef<'a>, index: u32, hinting: Hinting) -> Self {
             Self {
                 font,
                 context: ScaleContext::new(),
+                outlines: skrifa::FontRef::from_index(font.data, index)
+                    .ok()
+                    .map(|f| f.outline_glyphs()),
+                hinting,
+                hinter: None,
+                styles: None,
             }
         }
 
@@ -700,16 +787,87 @@ pub(crate) mod raster {
                     return Some(image);
                 }
             }
-            let mut scaler = self
-                .context
-                .builder(self.font)
-                .size(ppem)
-                .hint(true)
-                .build();
-            let stretch = (sx != 1.0).then(|| swash::zeno::Transform::scale(sx, 1.0));
-            Render::new(&[Source::Outline])
-                .transform(stretch)
-                .render(&mut scaler, g)
+            let stretch = (sx != 1.0).then(|| Transform::scale(sx, 1.0));
+            self.outline(g, ppem, stretch)
+        }
+
+        /// How the hinter is set for this face (ADR-1200 D1), as FreeType
+        /// chose for the C reference. Light hinting gives a TrueType face
+        /// to the automatic hinter, which moves rows only, since FreeType's
+        /// TrueType driver did not hint lightly itself and FreeType sent a
+        /// light load to the automatic hinter; a CFF face keeps its own
+        /// hints, which move rows only. Full hinting runs a TrueType face's
+        /// own instructions, or the automatic hinter at full strength for a
+        /// face that has none, and a CFF face's hints.
+        fn options(&mut self, outlines: &OutlineGlyphCollection<'_>) -> HintingOptions {
+            match self.hinting {
+                Hinting::Light if outlines.format() == Some(OutlineGlyphFormat::Glyf) => {
+                    let styles = self
+                        .styles
+                        .get_or_insert_with(|| GlyphStyles::new(outlines))
+                        .clone();
+                    HintingOptions {
+                        engine: Engine::Auto(Some(styles)),
+                        target: SmoothMode::Light.into(),
+                    }
+                }
+                Hinting::Light => HintingOptions {
+                    engine: Engine::Interpreter,
+                    target: SmoothMode::Light.into(),
+                },
+                Hinting::Full => HintingOptions {
+                    engine: Engine::AutoFallback,
+                    target: SmoothMode::Normal.into(),
+                },
+            }
+        }
+
+        /// Glyph `g`'s outline at `ppem`, hinted, its points moved by
+        /// `transform`, as coverage with its top-left corner above the
+        /// baseline and right of the pen, as swash places one. A face whose
+        /// hinter cannot be set up for the size, or a glyph whose hinting
+        /// fails, is drawn unhinted rather than not at all.
+        fn outline(&mut self, g: u16, ppem: f32, transform: Option<Transform>) -> Option<Image> {
+            let outlines = self.outlines.clone()?;
+            let glyph = outlines.get(GlyphId::new(u32::from(g)))?;
+            if self.hinter.as_ref().is_none_or(|&(at, _)| at != ppem) {
+                let options = self.options(&outlines);
+                let size = Size::new(ppem);
+                let built = match self.hinter.take() {
+                    Some((_, mut h)) => h
+                        .reconfigure(&outlines, size, LocationRef::default(), options)
+                        .ok()
+                        .map(|()| h),
+                    None => {
+                        HintingInstance::new(&outlines, size, LocationRef::default(), options).ok()
+                    }
+                };
+                self.hinter = built.map(|h| (ppem, h));
+            }
+            let unhinted = DrawSettings::unhinted(Size::new(ppem), LocationRef::default());
+            let mut pen = Pen {
+                path: Vec::new(),
+                transform,
+            };
+            let hinted = self
+                .hinter
+                .as_ref()
+                .is_some_and(|(_, h)| glyph.draw(DrawSettings::hinted(h, false), &mut pen).is_ok());
+            if !hinted {
+                pen.path.clear();
+                glyph.draw(unhinted, &mut pen).ok()?;
+            }
+            pen.end_contour();
+            let mut mask = Mask::new(&pen.path[..]);
+            // the placement's top is right only once the mask knows its size
+            mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
+            let (data, placement) = mask.render();
+            Some(Image {
+                source: Source::Outline,
+                content: Content::Mask,
+                placement,
+                data,
+            })
         }
 
         /// A color bitmap from the font's largest strike holding `g`, its
@@ -879,9 +1037,11 @@ pub(crate) mod raster {
         }
         let mut widest = None;
         for &(data, family) in faces {
-            let (font, _, _) = face(data, family)?;
+            let (font, _, index) = face(data, family)?;
             let ppem = ppem(&metrics(font)?, height);
-            let mut drawer = Drawer::new(font);
+            // the W rule measures the unhinted outline whatever `hinting=`
+            // says (ADR-1200 D1, D17); only a color W is drawn, unhinted
+            let mut drawer = Drawer::new(font, index, Hinting::default());
             let width = w_width(&mut drawer, ppem, height);
             widest = Some(widest.map_or(width, |w: u32| w.max(width)));
         }
@@ -921,14 +1081,20 @@ pub(crate) mod raster {
     }
 
     /// The baseline of the face `family` of `font` in a cell `height`
-    /// pixels high, as [`rasterise`] draws it (ADR-1302 D3).
-    pub fn baseline(font: &[u8], family: &str, height: u32) -> Result<u32, String> {
+    /// pixels high, its glyphs hinted as `hinting` says, as [`rasterise`]
+    /// draws it (ADR-1302 D3).
+    pub fn baseline(
+        font: &[u8],
+        family: &str,
+        height: u32,
+        hinting: Hinting,
+    ) -> Result<u32, String> {
         if !(1..=vtium_font::CELL_SIDE_MAX).contains(&height) {
             return Err(format!("a cell {height} pixels high, past CELL_SIDE_MAX"));
         }
-        let (font, _, _) = face(font, family)?;
+        let (font, _, index) = face(font, family)?;
         let metrics = metrics(font)?;
-        let mut drawer = Drawer::new(font);
+        let mut drawer = Drawer::new(font, index, hinting);
         Ok(baseline_at(
             &mut drawer,
             &metrics,
@@ -944,21 +1110,23 @@ pub(crate) mod raster {
     /// underline's thickness comes from the `post` table when the font has
     /// one and it gives a thickness that rounds above 0, else a fourteenth
     /// of the cell. Its centre is below the baseline by `post`'s position
-    /// less half its thickness, as FreeType's `underline_position` gave it,
-    /// else a thickness and a half above the cell's bottom. The
+    /// less half its thickness, divided as integers, as FreeType's
+    /// `underline_position` gave it, where that is not 0, else a thickness
+    /// and a half above the cell's bottom. The
     /// strike-through's top and thickness come from the `OS/2` table's
     /// strikeout, above the baseline, when its size is above 0. Else it is
     /// as thick as the underline and centred on half the x-height, which is
     /// `OS/2`'s `sxHeight`, else the `x` glyph's height, else half the
     /// baseline. Each line is at least a row thick, at most a quarter of
-    /// the cell, and inside it.
+    /// the cell, and inside it. The `x` glyph is hinted as `hinting` says.
     pub fn decorations(
         font: &[u8],
         family: &str,
         height: u32,
         baseline: u32,
+        hinting: Hinting,
     ) -> Result<vtium_font::Decorations, String> {
-        let (font, _, _) = face(font, family)?;
+        let (font, _, index) = face(font, family)?;
         let m = metrics(font)?;
         let h = f64::from(height.max(1));
         let scale = f64::from(ppem(&m, height)) / f64::from(m.units_per_em);
@@ -979,10 +1147,12 @@ pub(crate) mod raster {
             thick = (h / 14.0).floor().max(1.0);
         }
         // FreeType's underline_position, which the C reference took as the
-        // stroke's centre, is post's underlinePosition less half its
-        // underlineThickness
-        let centre = match position.filter(|&p| p != 0.0) {
-            Some(p) => base - (p - size.unwrap_or(0.0) / 2.0) * scale,
+        // stroke's centre whenever it was not 0, is post's
+        // underlinePosition less half its underlineThickness, divided as
+        // integers; a font with no post table gives 0
+        let freetype = position.map(|p| p as i32 - size.unwrap_or(0.0) as i32 / 2);
+        let centre = match freetype.filter(|&p| p != 0) {
+            Some(p) => base - f64::from(p) * scale,
             None => h - thick / 2.0 - thick,
         };
         let ul_thick = (thick as u32).clamp(1, max_thick);
@@ -1002,7 +1172,7 @@ pub(crate) mod raster {
                     .map(|x| x * scale);
                 if xh.is_none() {
                     // the x glyph's top above the baseline, hinted
-                    let mut drawer = Drawer::new(font);
+                    let mut drawer = Drawer::new(font, index, hinting);
                     let g = font.charmap().map('x');
                     xh = (g != 0)
                         .then(|| drawer.draw(g, ppem(&m, height), (u32::MAX, u32::MAX)))
@@ -1038,7 +1208,7 @@ pub(crate) mod raster {
         wanted.dedup_by_key(|&mut (c, _)| c);
         let shaped =
             crate::shaping::shape::shape_all(&request.font, index, font, &request.clusters);
-        let mut drawer = Drawer::new(font);
+        let mut drawer = Drawer::new(font, index, request.hinting);
         let mut strikes = Vec::new();
         for (i, &(want_w, h)) in request.cells.iter().enumerate() {
             let ppem = ppem(&metrics, h);

@@ -11,6 +11,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use vtium::app::{App, Exit};
@@ -18,7 +19,9 @@ use vtium::config;
 use vtium::font::Sources;
 use vtium::start::Start;
 use vtium::video::Video;
-use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
+use vtium_platform::display::{
+    DisplayId, Dpms, Event, Memory as Shared, Rect, SwapError, Swapped, Token,
+};
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods, PointerEvent};
 use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
@@ -31,11 +34,20 @@ const W: u32 = 320;
 const H: u32 = 160;
 const ID: DisplayId = DisplayId(7);
 
-/// A device with one display, its frame buffer in memory.
+/// A device with one display, its frame buffer in memory. It holds the
+/// seat to what a framebuffer holds it to with its one buffer's token: a
+/// second token is refused while one is out, a token from
+/// before a sleep, a wake-up or a blank comes back too late and is
+/// dropped, a dropped token leaves the buffer at age 0, a failed swap still
+/// leaves the frame in the buffer, and a sleep that finds the buffer lent
+/// reports `Asleep` only once the token comes back.
 struct Memory {
     w: u32,
     h: u32,
+    /// What the display shows: the buffer lent, as the last swap left it.
     pixels: Vec<u8>,
+    /// The buffer each token lends, drawn into on the render thread.
+    drawn: Arc<Mutex<Vec<u8>>>,
     events: Vec<Event>,
     awake: bool,
     dpms: Option<Dpms>,
@@ -46,8 +58,17 @@ struct Memory {
     sleeps: u32,
     /// Each DPMS state set, in order.
     dpms_sets: Vec<Dpms>,
-    /// Each canvas lent's age, in order.
+    /// Each token lent's age, in order.
     ages: Vec<u32>,
+    /// Taken anew at each sleep, wake-up and blank.
+    lease: u64,
+    /// A token was lent and not given back since.
+    lent: bool,
+    /// Tokens asked for and refused while one was out.
+    refused_while_out: u32,
+    /// The sleep found the buffer lent: it clears the buffer and reports
+    /// `Asleep` when the token comes back.
+    asleep_owed: bool,
     refresh_mhz: u32,
     /// Every swap fails, as on a display announced and never shown.
     refuses: bool,
@@ -68,6 +89,7 @@ impl Memory {
             w,
             h,
             pixels: Vec::new(),
+            drawn: Arc::default(),
             events: Vec::new(),
             awake: false,
             dpms: None,
@@ -78,10 +100,26 @@ impl Memory {
             sleeps: 0,
             dpms_sets: Vec::new(),
             ages: Vec::new(),
+            lease: 0,
+            lent: false,
+            refused_while_out: 0,
+            asleep_owed: false,
             refresh_mhz: 60_000,
             refuses: false,
             // the C reference's fixed density, where a point is a pixel
             dpi: Some((72.0, 72.0)),
+        }
+    }
+}
+
+impl Memory {
+    /// Ends a sleep the token held, once no token holds the buffer: clears
+    /// it and reports `Asleep`.
+    fn pay_clear(&mut self) {
+        if self.asleep_owed && Arc::strong_count(&self.drawn) == 1 {
+            self.asleep_owed = false;
+            self.drawn.lock().unwrap().fill(0);
+            self.events.push(Event::Asleep);
         }
     }
 }
@@ -108,29 +146,56 @@ impl Video for Memory {
     fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
         self.dpi
     }
-    fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
-        if !self.awake || self.dpms != Some(Dpms::On) {
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // One token at a time: the seat asks again while one is out when
+        // a new renderer, as a zoom or a font switch makes, draws before
+        // the old one's frame comes back, and is refused, as a display
+        // refuses.
+        if Arc::strong_count(&self.drawn) > 1 {
+            self.refused_while_out += 1;
             return None;
         }
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        if std::mem::take(&mut self.lent) {
+            // dropped without being given back
+            self.age = 0;
+        }
+        self.lent = true;
         let age = self.age;
         self.ages.push(age);
-        Some(Canvas {
-            pixels: &mut self.pixels,
-            width: self.w,
-            height: self.h,
-            stride: self.w * 4,
-            age,
-        })
+        let memory: Arc<Shared> = self.drawn.clone();
+        Some(Token::new(id, (self.w, self.h), self.w * 4, age, memory).leased(self.lease))
     }
-    fn swap(&mut self, id: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+    fn give_back(&mut self, token: Token) {
+        self.lent = false;
+        drop(token);
+        self.pay_clear();
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let id = token.id();
+        self.lent = false;
+        if token.lease() != self.lease {
+            drop(token);
+            self.pay_clear();
+            self.age = 0;
+            return Err(SwapError::Dropped);
+        }
+        if damage.is_empty() && self.dpms == Some(Dpms::On) {
+            return Ok(Swapped::Nothing);
+        }
         if self.dpms != Some(Dpms::On) {
             return Err(SwapError::Off);
         }
+        // The buffer holds the frame, whether the swap takes or not.
+        self.age = 1;
         if self.refuses {
             return Err(SwapError::Failed(io::Error::other("refused")));
         }
         self.frames += 1;
-        self.age = 1;
+        // The display shows the buffer the frame was drawn into.
+        self.pixels.clone_from(&self.drawn.lock().unwrap());
         self.events.push(Event::Flipped(id));
         Ok(Swapped::Frame)
     }
@@ -138,9 +203,12 @@ impl Video for Memory {
         false
     }
     fn ready_for_frame(&self, _: DisplayId) -> bool {
-        self.awake && self.dpms == Some(Dpms::On)
+        self.awake && self.dpms == Some(Dpms::On) && Arc::strong_count(&self.drawn) == 1
     }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
+        if dpms != Dpms::On && self.dpms == Some(Dpms::On) {
+            self.lease += 1;
+        }
         self.dpms = Some(dpms);
         self.dpms_sets.push(dpms);
         if dpms == Dpms::On {
@@ -151,13 +219,29 @@ impl Video for Memory {
     }
     fn sleep(&mut self) {
         self.sleeps += 1;
+        self.lease += 1;
         self.awake = false;
-        self.events.push(Event::Asleep);
+        if Arc::strong_count(&self.drawn) > 1 {
+            self.asleep_owed = true;
+        } else {
+            self.drawn.lock().unwrap().fill(0);
+            self.events.push(Event::Asleep);
+        }
     }
     fn wake_up(&mut self) -> io::Result<()> {
         self.wake_ups += 1;
+        self.lease += 1;
+        // A sleep the token still holds ends now.
+        if std::mem::take(&mut self.asleep_owed) {
+            self.events.push(Event::Asleep);
+        }
         let first = self.pixels.is_empty();
         self.pixels = vec![0; (self.w * self.h * 4) as usize];
+        // A token from before still holds the buffer, which the next frame
+        // after it comes back draws whole.
+        if Arc::strong_count(&self.drawn) == 1 {
+            *self.drawn.lock().unwrap() = self.pixels.clone();
+        }
         self.awake = true;
         self.dpms = Some(Dpms::On);
         self.age = 0;
@@ -772,8 +856,9 @@ fn a_retaken_vt_sets_the_displays_up_again_and_draws_them_whole() {
         h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1 && m.frames > frames),
         "the device is set up again and a frame drawn after it"
     );
-    // The wake-up made the buffer's contents unknown: the frame after it
-    // was drawn whole, into a canvas of age 0.
+    // The wake-up made the buffer's contents unknown, and a token lent
+    // before it comes back too late: the first token lent after it is age
+    // 0, so the frame is drawn whole.
     assert_eq!(h.memory().ages.get(lent), Some(&0));
     assert_eq!(h.memory().wake_ups, wake_ups + 1);
     assert!(h.app.vt.is_active());
@@ -1488,12 +1573,19 @@ impl Video for SlowFlip {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
         self.swapped = Some(now());
-        self.memory.swap(id, damage)
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
         self.swapped
@@ -3011,11 +3103,18 @@ impl Video for Late {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        self.memory.swap(id, damage)
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         self.memory.is_flipping(id)
@@ -3102,11 +3201,18 @@ impl Video for Planed {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        self.memory.swap(id, damage)
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         self.memory.is_flipping(id)
@@ -3281,11 +3387,18 @@ impl Video for Gate {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        self.memory.swap(id, damage)
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
         self.flipping
@@ -3379,13 +3492,13 @@ fn a_flip_draws_only_its_own_display() {
     );
 }
 
-/// A device that lends no canvas while the test withholds it, and reports
+/// A device that lends no token while the test withholds it, and reports
 /// nothing when it lends again, as a DRM display lends none while a
 /// modeset waits for another display's flip.
 struct Withhold {
     memory: Memory,
     withholding: bool,
-    /// The canvases asked for while withheld, shared with the test so a
+    /// The tokens asked for while withheld, shared with the test so a
     /// wait can read it.
     refused: Rc<Cell<u32>>,
 }
@@ -3412,15 +3525,18 @@ impl Video for Withhold {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
         if self.withholding {
             self.refused.set(self.refused.get() + 1);
             return None;
         }
-        self.memory.canvas(id)
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        self.memory.swap(id, damage)
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         self.memory.is_flipping(id)
@@ -3451,10 +3567,10 @@ impl Video for Withhold {
     }
 }
 
-/// The seat on a device that withholds its canvas, once the session
-/// printed `got` while the device withheld its canvas and a frame of it
-/// found no canvas. Each wait is on the state it needs, the first frame
-/// shown and then a canvas refused, however long the render thread takes;
+/// The seat on a device that withholds its token, once the session
+/// printed `got` while the device withheld its token and a frame of it
+/// found no token. Each wait is on the state it needs, the first frame
+/// shown and then a token refused, however long the render thread takes;
 /// the bound only fails a test that would otherwise hang.
 fn withheld() -> (Harness, u32, Vec<u8>) {
     let refused = Rc::new(Cell::new(0));
@@ -3486,7 +3602,7 @@ fn withheld() -> (Harness, u32, Vec<u8>) {
     assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "got")));
     assert!(
         h.until(BOUND, |_| refused.get() > 0),
-        "a frame found no canvas"
+        "a frame found no token"
     );
     assert_eq!(h.memory().frames, frames, "nothing drawn while withheld");
     (h, frames, shown)
@@ -3500,7 +3616,7 @@ fn withholding(h: &mut Harness) -> &mut Withhold {
         .expect("the withholding device")
 }
 
-/// A frame that finds no canvas while the VT is shown waits for its
+/// A frame that finds no token while the VT is shown waits for its
 /// display: once the display lends one again, the frame reaches the
 /// screen with no other event (vtium/vtium#174).
 #[test]
@@ -3514,7 +3630,7 @@ fn a_frame_that_found_no_canvas_is_drawn_once_the_display_lends_again() {
     assert_ne!(h.memory().pixels, shown, "the screen shows the line");
 }
 
-/// A display that lends no canvas for a long run does not turn the loop at
+/// A display that lends no token for a long run does not turn the loop at
 /// full speed: the waiting frame is composed again only once the display
 /// takes a frame.
 #[test]
@@ -3535,7 +3651,7 @@ fn a_display_lending_no_canvas_does_not_spin_the_loop() {
     let asked = withholding(&mut h).refused.get() - refused;
     assert!(
         turns < 50 && asked < 5,
-        "{turns} turns and {asked} canvases asked for in 1 s"
+        "{turns} turns and {asked} tokens asked for in 1 s"
     );
 }
 
@@ -3678,10 +3794,11 @@ impl Video for Unusable {
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
         None
     }
-    fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
+    fn lend(&mut self, _: DisplayId) -> Option<Token> {
         None
     }
-    fn swap(&mut self, _: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+    fn give_back(&mut self, _: Token) {}
+    fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
         Err(SwapError::Off)
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
@@ -4258,11 +4375,19 @@ impl Video for Slow {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        let swapped = self.memory.swap(id, damage)?;
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let id = token.id();
+        let swapped = self.memory.swap(token, damage)?;
         self.memory.events.retain(|e| *e != Event::Flipped(id));
         self.landed = Some(now() + Slow::FLIP);
         Ok(swapped)
@@ -5944,4 +6069,131 @@ fn a_frits_glyph_source_sets_the_policy_and_the_keys_override_it() {
     );
     let want = SpritePolicy::all(Source::Font).with(Range::Braille, Source::Auto);
     assert_eq!(h.app.font_policy(), Some((want, Missing::Replacement)));
+}
+
+/// A release that finds a frame composing waits for it, as a framebuffer's
+/// sleep waits for its token: the display reports `Asleep` once the
+/// frame's token comes back, on a later turn, so the release is
+/// acknowledged then. The frame is not shown, and the first frame after
+/// the acquire is drawn whole, into a buffer of age 0.
+#[test]
+fn a_release_waits_for_the_frame_composing() {
+    let mut h = Harness::with_vt(
+        &[
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x; echo got; read y",
+        ],
+        ScriptedVt::default(),
+    );
+    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    h.shown();
+    h.settled();
+    let (entered, composing) = std::sync::mpsc::channel();
+    let (go, gone) = std::sync::mpsc::channel::<()>();
+    let gate = Mutex::new((entered, gone));
+    h.app.set_draw_hook(
+        "console",
+        Some(Arc::new(move || {
+            let gate = gate.lock().unwrap();
+            gate.0.send(()).ok();
+            gate.1.recv().ok();
+        })),
+    );
+    h.type_str("\r");
+    assert!(
+        h.eventually(BOUND, |_| composing.try_recv().is_ok()),
+        "a frame composing"
+    );
+    let frames = h.memory().frames;
+    h.scripted().events.push(VtEvent::Release);
+    assert!(
+        h.until_memory(BOUND, |m| m.sleeps == 1),
+        "the device sleeps"
+    );
+    h.until(Duration::from_millis(20), |_| false);
+    assert!(
+        h.app.vt.is_active(),
+        "not acknowledged while the frame composes"
+    );
+    h.app.set_draw_hook("console", None);
+    go.send(()).unwrap();
+    assert!(
+        h.until(BOUND, |a| !a.vt.is_active()),
+        "acknowledged once the token came back"
+    );
+    assert_eq!(h.memory().frames, frames, "the frame is not shown");
+    let lent = h.memory().ages.len();
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    assert!(
+        h.until_memory(BOUND, |m| m.frames > frames),
+        "drawn after the acquire"
+    );
+    assert_eq!(h.memory().ages.get(lent), Some(&0));
+}
+
+/// A display whose swaps fail still holds each frame in its buffer, so the
+/// seat draws the next frame at age 1, the cells that changed, and not
+/// the whole screen again.
+#[test]
+fn a_frame_after_a_failed_swap_is_drawn_at_age_1() {
+    let memory = Memory {
+        refuses: true,
+        ..Memory::default()
+    };
+    let mut h = Harness::build(
+        &["--no-blink", "--login", "--", "/bin/sh", "-c", "read x"],
+        ScriptedVt::default(),
+        Box::new(memory),
+    );
+    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    h.type_str("ab");
+    assert!(
+        h.until_memory(BOUND, |m| m.ages.contains(&1)),
+        "a frame drawn into the buffer the failed swap left: {:?}",
+        h.memory().ages
+    );
+}
+
+/// A zoom while a frame composes makes a new renderer, whose first frame
+/// asks for a token while the old frame's is still out: the display
+/// refuses it, and the new frame is drawn once the old token comes back.
+#[test]
+fn a_zoom_while_a_frame_composes_waits_for_its_token() {
+    let mut h = Harness::new(&["--no-blink", "--login", "--", "/bin/sh", "-c", "read x"]);
+    h.shown();
+    h.settled();
+    let (entered, composing) = std::sync::mpsc::channel();
+    let (go, gone) = std::sync::mpsc::channel::<()>();
+    let gate = Mutex::new((entered, gone));
+    h.app.set_draw_hook(
+        "console",
+        Some(Arc::new(move || {
+            let gate = gate.lock().unwrap();
+            gate.0.send(()).ok();
+            gate.1.recv().ok();
+        })),
+    );
+    h.type_str("x");
+    assert!(
+        h.eventually(BOUND, |_| composing.try_recv().is_ok()),
+        "a frame composing"
+    );
+    let (lent, frames) = (h.memory().ages.len(), h.memory().frames);
+    h.app.input_event(key(Mods::CTRL, 0x3d), now());
+    assert!(
+        h.until_memory(BOUND, |m| m.refused_while_out > 0),
+        "the new renderer's frame asks while the old token is out"
+    );
+    assert_eq!(h.memory().ages.len(), lent, "no second token lent");
+    h.app.set_draw_hook("console", None);
+    go.send(()).unwrap();
+    assert!(
+        h.until_memory(BOUND, |m| m.frames > frames && m.ages.len() > lent),
+        "the new renderer's frame drawn once the old token came back"
+    );
 }

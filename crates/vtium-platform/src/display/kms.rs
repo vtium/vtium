@@ -103,8 +103,9 @@ pub(crate) enum CrtcEvent {
 
 /// The operations of a DRM card drm2d uses. Ids are the kernel's.
 pub(crate) trait Kms {
-    /// A dumb buffer mapped into memory.
-    type Map: AsMut<[u8]>;
+    /// A dumb buffer mapped into memory, which a token carries to the
+    /// head's render thread.
+    type Map: AsMut<[u8]> + Send + 'static;
 
     /// The descriptor the loop watches: readable when events wait.
     fn fd(&self) -> Rc<OwnedFd>;

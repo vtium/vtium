@@ -92,6 +92,8 @@ done
 vt=${vt:-3}
 
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+# shellcheck source=tools/vt/common.sh
+. "$here/common.sh"
 checkout=$(readlink -m "$here/../..")
 standins=${VTIUM_VT_STANDINS:-}
 if [ -n "$standins" ]; then
@@ -120,9 +122,10 @@ else
 	run_user=/run/user
 	dri=/sys/kernel/debug/dri
 fi
-# The units that may hold the VT: the stock kmscon, a getty, and autovt@,
-# which logind starts on a switch to the VT and which is one of the other two.
-units=("kmsconvt@tty$vt.service" "getty@tty$vt.service" "autovt@tty$vt.service")
+# The units that may hold the VT: the stock kmscon, a getty, vtium as make
+# vt-install installs it, and autovt@, which logind starts on a switch to the
+# VT and which is one of the others. A VT vtium@ holds is refused below.
+units=("kmsconvt@tty$vt.service" "getty@tty$vt.service" "vtium@tty$vt.service" "autovt@tty$vt.service")
 
 # show prints a command as it would be typed; act shows it, then runs it unless
 # this is a dry run.
@@ -149,7 +152,8 @@ act() {
 # session options, --login, --configdir, --oneshot, the grabs but grab-paste
 # (one reboots), and options naming files (asciicast, issue-path, xkb-keymap,
 # xkb-compose-file). The on-screen display's osd, osd-timeout and focus-mark
-# are choices that name no file.
+# are choices that name no file, and display-buffers, 1, 2 or 3, how many
+# buffers each display draws into (ADR-1401 D2).
 valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette palette-black palette-red palette-green palette-yellow palette-blue
 	palette-magenta palette-cyan palette-light-grey palette-dark-grey
@@ -158,7 +162,8 @@ valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette-background underline-color strike-color grapheme-width xkb-model
 	xkb-layout xkb-variant xkb-options xkb-repeat-delay xkb-repeat-rate
 	dpms-timeout render-timer image-storage-limit sync-timeout blink-text
-	grab-paste pointer-hide-timeout pointer-char osd osd-timeout focus-mark "
+	grab-paste pointer-hide-timeout pointer-char osd osd-timeout focus-mark
+	display-buffers "
 switches=" drm hwaccel use-original-mode blink bell soft-cursor mouse
 	natural-scrolling force-decoration-colors backspace-delete verbose debug silent
 	blink-decorations program-blank pointer-hide-while-typing "
@@ -174,6 +179,10 @@ for o in "${extra[@]}"; do
 			(( 10#${BASH_REMATCH[1]} > (4 << 30) >> ${unit_shift[${BASH_REMATCH[2]:-B}]} )); then
 			die "--image-storage-limit takes auto or a size up to 4G here, not '$size'"
 		fi
+	fi
+	# vtium would refuse any other count, once the console units are stopped.
+	if [[ $o == --display-buffers=* ]] && ! [[ ${o#*=} =~ ^[123]$ ]]; then
+		die "--display-buffers takes 1, 2 or 3 here, not '${o#*=}'"
 	fi
 	# A name is lower-case letters and dashes, so no two names of a list,
 	# joined by a space, pass as one.
@@ -343,25 +352,6 @@ if [ -z "$dry" ]; then
 	flock -n 9 || die "another VT review run is in progress (it holds $lock); one build on a VT at a time"
 fi
 
-# Prints "ID STATE" for each logind session on VT $vt, and fails when loginctl
-# cannot list the sessions. A session whose query fails is skipped only when a
-# second list no longer has it, as one that ended between the list and the
-# query; one still listed is a session on an unknown VT, so that fails too.
-vt_sessions() {
-	local list s props
-	list=$("$loginctl" list-sessions --no-legend) || return 1
-	while read -r s _; do
-		[ -n "$s" ] || continue
-		if ! props=$("$loginctl" show-session -p VTNr -p State "$s" 2>/dev/null); then
-			"$loginctl" list-sessions --no-legend | awk -v s="$s" '$1 == s { listed = 1 } END { exit listed }' ||
-				return 1
-			continue
-		fi
-		[ "$(sed -n 's/^VTNr=//p' <<<"$props")" != "$vt" ] ||
-			echo "$s $(sed -n 's/^State=//p' <<<"$props")"
-	done <<<"$list"
-}
-
 # Refuse the VT on screen (the one this command was typed on) and any VT a
 # logind session sits on, the graphical one included: stopping the unit there
 # would end that session. When the sessions cannot be listed, refuse too. A
@@ -370,11 +360,20 @@ fg=$(cat "$active_file") || die "cannot read $active_file, so the VT on screen i
 fg=${fg#tty}
 [[ $fg =~ ^[0-9]+$ ]] || die "$active_file reads '$fg', so the VT on screen is unknown"
 [ "$fg" != "$vt" ] || die "VT $vt is on screen now; run this from another VT"
-on_vt=$(vt_sessions) ||
+on_vt=$(vt_sessions "$loginctl" "$vt") ||
 	die "loginctl could not list the sessions or read one of them, so whether a session is on VT $vt is unknown"
 if [ -n "$on_vt" ]; then
 	s=${on_vt%% *}
 	die "logind session $s ($("$loginctl" show-session -p Name -p Type --value "$s" | paste -sd' ')) is on VT $vt; pick another VT"
+fi
+
+# A VT make vt-install holds is the maintainer's everyday console: a review
+# run would stop it, and a start limit or a failed restore would leave it
+# without one. It is never borrowed, installed or running.
+installed_root=
+[ -z "$standins" ] || installed_root=$standins/root
+if vt_installed "$installed_root" "$vt" || "$systemctl" is-active --quiet "vtium@tty$vt.service"; then
+	die "VT $vt holds vtium@tty$vt, which make vt-install installed; make vt-uninstall VT=$vt frees it, or pick another VT"
 fi
 
 # The VT's units that run now: each is stopped below and started again on
@@ -573,7 +572,7 @@ if [ -n "$login" ]; then
 	while running; do
 		sleep 1 &
 		wait $! || true
-		if ! now=$(vt_sessions); then
+		if ! now=$(vt_sessions "$loginctl" "$vt"); then
 			failed=$((failed + 1))
 			[ "$failed" -ne 10 ] ||
 				echo "run-vt: loginctl failed 10 polls in a row; until it answers, a logout does not end the run (Ctrl-C here does)" >&2

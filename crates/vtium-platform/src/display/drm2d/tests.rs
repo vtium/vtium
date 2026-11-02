@@ -105,9 +105,35 @@ const DOT: Rect = Rect {
 
 /// Draws a frame and swaps it.
 fn frame(v: &mut Drm2d<FakeCard>, damage: &[Rect]) -> Result<Swapped, SwapError> {
-    let canvas = v.canvas(DisplayId(A)).expect("a canvas");
-    canvas.pixels[0] = 1;
-    v.swap(DisplayId(A), damage)
+    fill(v, A, 1, damage)
+}
+
+/// Draws a frame of `byte` on display `id` and swaps it with `damage`.
+fn fill(v: &mut Drm2d<FakeCard>, id: u32, byte: u8, damage: &[Rect]) -> Result<Swapped, SwapError> {
+    let mut token = v.lend(DisplayId(id)).expect("a token");
+    token.draw(|c| c.pixels.fill(byte)).expect("its memory");
+    v.swap(token, damage)
+}
+
+/// The age of the token display `id` lends now, given back unused.
+fn age(v: &mut Drm2d<FakeCard>, id: u32) -> u32 {
+    let token = v.lend(DisplayId(id)).expect("a token");
+    let age = token.age();
+    v.give_back(token);
+    age
+}
+
+/// Whether display `id` lends a token now, given back unused.
+fn lends(v: &mut Drm2d<FakeCard>, id: u32) -> bool {
+    v.lend(DisplayId(id)).map(|t| v.give_back(t)).is_some()
+}
+
+/// The size of the token display `id` lends now, given back unused.
+fn token_size(v: &mut Drm2d<FakeCard>, id: u32) -> (u32, u32) {
+    let token = v.lend(DisplayId(id)).expect("a token");
+    let size = token.size();
+    v.give_back(token);
+    size
 }
 
 // covers: platform.drm2d-fbdev
@@ -149,10 +175,7 @@ fn a_display_opens_in_its_preferred_mode() {
 fn the_first_frame_is_whole_and_drawn_into_cleared_buffers() {
     let mut v = one();
     v.wake_up().unwrap();
-    assert!(
-        v.canvas(DisplayId(A)).is_none(),
-        "the modeset's flip is pending"
-    );
+    assert!(!lends(&mut v, A), "the modeset's flip is pending");
     flip(&mut v);
     assert_eq!(
         events(&mut v),
@@ -162,14 +185,18 @@ fn the_first_frame_is_whole_and_drawn_into_cleared_buffers() {
             Event::Flipped(DisplayId(A))
         ]
     );
-    let canvas = v.canvas(DisplayId(A)).unwrap();
-    assert_eq!(
-        (canvas.width, canvas.height, canvas.stride),
-        (640, 480, 2560)
-    );
-    assert_eq!(canvas.age, 0);
-    assert!(canvas.pixels.iter().all(|&b| b == 0));
-    v.swap(DisplayId(A), &[rect(0, 0, 8, 8)]).unwrap();
+    let mut token = v.lend(DisplayId(A)).unwrap();
+    assert_eq!(token.age(), 0);
+    token
+        .draw(|canvas| {
+            assert_eq!(
+                (canvas.width, canvas.height, canvas.stride),
+                (640, 480, 2560)
+            );
+            assert!(canvas.pixels.iter().all(|&b| b == 0));
+        })
+        .unwrap();
+    v.swap(token, &[rect(0, 0, 8, 8)]).unwrap();
     let c = v.card().last_commit().unwrap();
     assert_eq!(c.flags, DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT);
     assert_eq!(clips(&c, primary(&v, A)), None);
@@ -207,10 +234,10 @@ fn buffer_ages_follow_the_flips() {
     let mut v = awake(one());
     frame(&mut v, &[DOT]).unwrap();
     flip(&mut v);
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
+    assert_eq!(age(&mut v, A), 0);
     frame(&mut v, &[DOT]).unwrap();
     flip(&mut v);
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 2);
+    assert_eq!(age(&mut v, A), 2);
 }
 
 // A device with universal planes and no atomic commits presents whole
@@ -247,7 +274,7 @@ fn a_failed_swap_keeps_its_damage() {
     flip(&mut v);
     assert!(events(&mut v).is_empty(), "no flip for a failed swap");
     // The back buffer holds the frame that failed.
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 1);
+    assert_eq!(age(&mut v, A), 1);
     frame(&mut v, &[rect(100, 100, 8, 16)]).unwrap();
     let c = v.card().last_commit().unwrap();
     assert_eq!(
@@ -269,8 +296,8 @@ fn ebusy_is_busy() {
     assert!(logs::at_least(Level::Warn).is_empty());
     vblank(&mut v);
     frame(&mut v, &[DOT]).unwrap();
-    assert!(v.canvas(DisplayId(A)).is_none(), "the flip is pending");
-    assert!(matches!(v.swap(DisplayId(A), &[]), Err(SwapError::Busy)));
+    assert!(!lends(&mut v, A), "the flip is pending");
+    assert!(matches!(v.commit(DisplayId(A)), Err(SwapError::Busy)));
 }
 
 #[test]
@@ -279,7 +306,7 @@ fn a_swap_while_powered_down_is_off() {
     v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
     assert_eq!(v.card().state().dpms[&A], 3);
     assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::Off));
-    assert!(matches!(v.swap(DisplayId(A), &[]), Err(SwapError::Off)));
+    assert!(matches!(v.commit(DisplayId(A)), Err(SwapError::Off)));
     v.set_dpms(DisplayId(A), Dpms::On).unwrap();
     frame(&mut v, &[DOT]).unwrap();
 }
@@ -335,7 +362,7 @@ fn a_wake_up_while_blanked_brings_every_display_on() {
     activity(&mut v, &mut blank, at);
     assert_eq!(v.card().state().commits.len(), commits, "already on");
     flip(&mut v);
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
+    assert_eq!(age(&mut v, A), 0);
 }
 
 // The cursor commits (aaronsb/kmscon#119).
@@ -351,7 +378,7 @@ fn the_cursor_goes_with_the_next_commit() {
     v.set_cursor_offset(DisplayId(A), 5, 5);
     v.show_cursor(DisplayId(A), 10, 20).unwrap();
     assert!(v.need_commit(DisplayId(A)));
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Cursor);
     assert!(!v.need_commit(DisplayId(A)));
     let c = v.card().last_commit().unwrap();
     let fb = v.outputs[0].cursor.as_ref().unwrap().fb;
@@ -367,13 +394,13 @@ fn the_cursor_goes_with_the_next_commit() {
     v.show_cursor(DisplayId(A), 10, 20).unwrap();
     assert!(!v.need_commit(DisplayId(A)));
     v.show_cursor(DisplayId(A), -3, 0).unwrap();
-    v.swap(DisplayId(A), &[]).unwrap();
+    v.commit(DisplayId(A)).unwrap();
     let c = v.card().last_commit().unwrap();
     assert_eq!(c.get(cp, "CRTC_X"), Some(signed(5 - 3 - 1)));
     flip(&mut v);
     v.hide_cursor(DisplayId(A));
     assert!(v.need_commit(DisplayId(A)));
-    v.swap(DisplayId(A), &[]).unwrap();
+    v.commit(DisplayId(A)).unwrap();
     let c = v.card().last_commit().unwrap();
     assert_eq!(c.get(cp, "FB_ID"), Some(0));
     assert_eq!(c.get(cp, "CRTC_ID"), Some(0));
@@ -391,7 +418,7 @@ fn the_cursor_plane_shows_the_image_set_up() {
     let image: Vec<u32> = (0..60 * 2).map(|i| 0xff00_0000 | i).collect();
     v.setup_cursor(DisplayId(A), &image, 60, 2, (3, 1)).unwrap();
     v.show_cursor(DisplayId(A), 40, 30).unwrap();
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Cursor);
     let c = v.card().last_commit().unwrap();
     let cursor = v.outputs[0].cursor.as_ref().unwrap();
     assert_eq!(c.get(cp, "FB_ID"), Some(u64::from(cursor.fb)));
@@ -478,7 +505,7 @@ fn a_cursor_only_commit_that_fails_gives_the_plane_up() {
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
     v.card().state().commit_errors.push_back(Errno::INVAL);
     let commits = v.card().state().commits.len();
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Nothing);
     assert!(!v.hardware_cursor(DisplayId(A)));
     assert!(!v.need_commit(DisplayId(A)));
     assert!(v.card().state().commits.len() <= commits + 1);
@@ -498,7 +525,7 @@ fn a_commit_that_fails_either_way_keeps_the_cursor() {
     assert!(frame(&mut v, &[DOT]).is_err());
     assert!(v.hardware_cursor(DisplayId(A)));
     assert!(v.need_commit(DisplayId(A)));
-    v.swap(DisplayId(A), &[]).unwrap();
+    v.commit(DisplayId(A)).unwrap();
     assert!(v.hardware_cursor(DisplayId(A)));
 }
 
@@ -510,10 +537,10 @@ fn a_busy_commit_keeps_the_cursor_waiting() {
     v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
     v.card().state().commit_errors.push_back(Errno::BUSY);
-    assert!(v.swap(DisplayId(A), &[]).is_err());
+    assert!(v.commit(DisplayId(A)).is_err());
     assert!(v.need_commit(DisplayId(A)));
     vblank(&mut v);
-    v.swap(DisplayId(A), &[]).unwrap();
+    v.commit(DisplayId(A)).unwrap();
     assert!(!v.need_commit(DisplayId(A)));
 }
 
@@ -526,15 +553,15 @@ fn a_new_cursor_image_leaves_the_plane_recorded_hidden() {
     let mut v = awake(one());
     v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Cursor);
     flip(&mut v);
     let cp = cursor_plane(&v, A);
     v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
     assert!(!v.card().state().plane_crtc.contains_key(&cp));
     assert!(!v.need_commit(DisplayId(A)));
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Nothing);
     v.show_cursor(DisplayId(A), 2, 2).unwrap();
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Cursor);
     let fb = v.outputs[0].cursor.as_ref().unwrap().fb;
     let c = v.card().last_commit().unwrap();
     assert_eq!(c.get(cp, "FB_ID"), Some(u64::from(fb)));
@@ -553,17 +580,17 @@ fn a_cursor_change_undone_before_the_swap_sends_nothing() {
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
     v.hide_cursor(DisplayId(A));
     assert!(!v.need_commit(DisplayId(A)));
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Nothing);
     assert_eq!(v.card().state().commits.len(), commits);
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Cursor);
     flip(&mut v);
     let commits = v.card().state().commits.len();
     v.show_cursor(DisplayId(A), 2, 2).unwrap();
     v.set_cursor_offset(DisplayId(A), 1, 1);
     v.set_cursor_offset(DisplayId(A), 0, 0);
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Nothing);
     assert_eq!(v.card().state().commits.len(), commits);
 }
 
@@ -603,7 +630,7 @@ fn a_modeset_waits_for_the_pending_flip() {
         "nothing commits over a pending flip"
     );
     assert_eq!(v.waits(), (true, false));
-    assert!(matches!(v.swap(DisplayId(A), &[]), Err(SwapError::Busy)));
+    assert!(matches!(v.commit(DisplayId(A)), Err(SwapError::Busy)));
     flip(&mut v);
     assert_eq!(v.waits(), (false, false));
     let c = v.card().last_commit().unwrap();
@@ -614,24 +641,20 @@ fn a_modeset_waits_for_the_pending_flip() {
 }
 
 /// Whether each of `ids` is ready for a frame, after checking that the
-/// display lends a canvas exactly when it says it is.
+/// display lends a token exactly when it says it is.
 fn ready(v: &mut Drm2d<FakeCard>, ids: &[u32]) -> Vec<bool> {
     ids.iter()
         .map(|&id| {
             let ready = v.ready_for_frame(DisplayId(id));
-            assert_eq!(v.canvas(DisplayId(id)).is_some(), ready, "display {id}");
-            // A canvas asked for here draws nothing: the next swap sends
-            // no frame for it.
-            if let Some(o) = v.outputs.iter_mut().find(|o| o.id.0 == id) {
-                o.lent = false;
-            }
+            // A token lent here draws nothing, and goes back unused.
+            assert_eq!(lends(v, id), ready, "display {id}");
             ready
         })
         .collect()
 }
 
 // vtium/vtium#174: a display says whether it takes a frame, and lends a
-// canvas exactly then. A display kept through a modeset that waits for
+// token exactly then. A display kept through a modeset that waits for
 // another display's flip takes none until that flip and the modeset's own
 // are done; a display powered down, one waiting for a vblank, and every
 // display of a card asleep take none either.
@@ -720,8 +743,8 @@ fn a_sleep_waits_for_the_pending_flip() {
     let c = v.card().last_commit().unwrap();
     assert_eq!(c.get(399, "CRTC_ID"), Some(0));
     assert_eq!(c.get(cursor_plane(&v, A), "FB_ID"), Some(0));
-    assert!(v.canvas(DisplayId(A)).is_none());
-    assert!(matches!(v.swap(DisplayId(A), &[]), Err(SwapError::Off)));
+    assert!(!lends(&mut v, A));
+    assert!(matches!(v.commit(DisplayId(A)), Err(SwapError::Off)));
 }
 
 #[test]
@@ -740,14 +763,12 @@ fn a_sleep_goes_ahead_when_the_flip_never_completes() {
 #[test]
 fn a_sleep_blanks_the_shown_buffer() {
     let mut v = awake(one());
-    let canvas = v.canvas(DisplayId(A)).unwrap();
-    canvas.pixels.fill(0xee);
-    v.swap(DisplayId(A), &[rect(0, 0, 640, 480)]).unwrap();
+    fill(&mut v, A, 0xee, &[rect(0, 0, 640, 480)]).unwrap();
     flip(&mut v);
     v.sleep();
     let o = &mut v.outputs[0];
     let front = o.front();
-    assert!(o.buffers[front].map.iter().all(|&b| b == 0));
+    assert!(lock(&o.buffers[front].map).iter().all(|&b| b == 0));
 }
 
 #[test]
@@ -899,7 +920,7 @@ fn a_failed_test_commit_retries_with_the_default_mode() {
     );
     assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
     flip(&mut v);
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().width, 640);
+    assert_eq!(token_size(&mut v, A).0, 640);
     assert_eq!(logs::at_least(Level::Error).len(), 1);
 }
 
@@ -918,7 +939,7 @@ fn a_configured_mode_is_set() {
     };
     let mut v = awake(Drm2d::with(card, policy).unwrap());
     assert_eq!(v.size(DisplayId(A)), Some((320, 240)));
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().height, 240);
+    assert_eq!(token_size(&mut v, A).1, 240);
 }
 
 #[test]
@@ -1162,7 +1183,7 @@ fn a_swap_with_nothing_to_send_commits_nothing() {
     let mut v = awake(one());
     let before = v.card().state().commits.len();
     assert_eq!(frame(&mut v, &[]).unwrap(), Swapped::Nothing);
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Nothing);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Nothing);
     assert!(!v.need_commit(DisplayId(A)));
     assert_eq!(v.card().state().commits.len(), before);
     assert!(!v.is_flipping(DisplayId(A)));
@@ -1186,18 +1207,18 @@ fn a_cursor_move_commits_only_the_cursor_plane() {
     let mut v = awake(one());
     frame(&mut v, &[rect(0, 0, 8, 8)]).unwrap();
     flip(&mut v);
-    let age = v.canvas(DisplayId(A)).unwrap().age;
+    let before = age(&mut v, A);
     v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
     assert!(v.hardware_cursor(DisplayId(A)));
     v.show_cursor(DisplayId(A), 3, 4).unwrap();
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Cursor);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Cursor);
     let c = v.card().last_commit().unwrap();
     let plane = primary(&v, A);
     assert_eq!(c.get(cursor_plane(&v, A), "CRTC_X"), Some(3));
     assert!(!c.mentions(plane), "the primary plane is left as it is");
     assert_eq!(c.get(100, "MODE_ID"), None);
     flip(&mut v);
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, age);
+    assert_eq!(age(&mut v, A), before);
 }
 
 // Rule 5: a swap after a failed one, with nothing new drawn, presents the
@@ -1210,7 +1231,7 @@ fn a_swap_after_a_failed_one_sends_the_kept_frame() {
     v.card().state().commit_errors.push_back(Errno::INVAL);
     assert!(frame(&mut v, &[rect(0, 0, 8, 16)]).is_err());
     assert!(v.need_commit(DisplayId(A)));
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Frame);
     let c = v.card().last_commit().unwrap();
     assert_eq!(clips(&c, primary(&v, A)), Some(vec![rect(0, 0, 8, 16)]));
 }
@@ -1247,7 +1268,7 @@ fn a_lost_flip_event_is_taken_as_done_after_the_bound() {
             app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
         });
         assert!(took.as_millis() >= 900, "flipped after {took:?}");
-        assert!(app.0.canvas(DisplayId(A)).is_some());
+        assert!(lends(&mut app.0, A));
     }
     assert_eq!(logs::at_least(Level::Warn).len(), 1, "one warning");
 }
@@ -1266,7 +1287,7 @@ fn a_late_flip_event_after_the_bound_is_a_flip() {
     turn_until(&mut lp, &mut app, |app| {
         app.0.events().any(|e| e == Event::Flipped(DisplayId(A)))
     });
-    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    assert_eq!(app.0.commit(DisplayId(A)).unwrap(), Swapped::Frame);
 }
 
 // vtium/vtium#171: the card refuses a frame's commit as busy while no flip
@@ -1290,10 +1311,7 @@ fn a_frame_refused_as_busy_with_no_flip_in_flight_reaches_the_screen() {
         "the refused frame waits for the display's next vblank"
     );
     let sent = app.0.card().real_commits().len();
-    assert!(matches!(
-        app.0.swap(DisplayId(A), &[]),
-        Err(SwapError::Busy)
-    ));
+    assert!(matches!(app.0.commit(DisplayId(A)), Err(SwapError::Busy)));
     assert_eq!(app.0.card().real_commits().len(), sent, "nothing is sent");
     app.0.card().vblank();
     turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
@@ -1304,13 +1322,13 @@ fn a_frame_refused_as_busy_with_no_flip_in_flight_reaches_the_screen() {
     assert!(events(&mut app.0).is_empty(), "no frame of vtium's flipped");
     // The owner draws again: the back buffer still holds the frame.
     assert!(app.0.need_commit(DisplayId(A)));
-    assert_eq!(app.0.canvas(DisplayId(A)).unwrap().age, 1);
-    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    assert_eq!(age(&mut app.0, A), 1);
+    assert_eq!(app.0.commit(DisplayId(A)).unwrap(), Swapped::Frame);
     flip(&mut app.0);
     assert!(app.0.card().shows(100, fb), "{:?}", app.0.card().state());
     let o = app.0.outputs.iter().find(|o| o.id.0 == A).unwrap();
     assert_eq!(o.front(), back);
-    assert_eq!(o.buffers[back].map[0], 1, "the frame drawn is shown");
+    assert_eq!(lock(&o.buffers[back].map)[0], 1, "the frame drawn is shown");
 }
 
 // A card that refuses every commit as busy is sent one commit a vblank:
@@ -1328,11 +1346,8 @@ fn a_card_refusing_every_commit_is_sent_one_a_vblank() {
     for n in 1..=3 {
         app.0.card().state().commit_errors.push_back(Errno::BUSY);
         assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
-        assert!(app.0.canvas(DisplayId(A)).is_none());
-        assert!(matches!(
-            app.0.swap(DisplayId(A), &[]),
-            Err(SwapError::Busy)
-        ));
+        assert!(!lends(&mut app.0, A));
+        assert!(matches!(app.0.commit(DisplayId(A)), Err(SwapError::Busy)));
         assert_eq!(app.0.card().real_commits().len(), before + n);
         let start = std::time::Instant::now();
         lp.dispatch(Some(std::time::Duration::from_millis(100)), &mut app)
@@ -1358,7 +1373,7 @@ fn a_lost_vblank_event_is_taken_as_done_after_the_bound() {
     assert!(took.as_millis() >= 900, "taken as done after {took:?}");
     assert!(events(&mut app.0).is_empty(), "no frame flipped");
     assert_eq!(logs::at_least(Level::Warn).len(), 1, "one warning");
-    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    assert_eq!(app.0.commit(DisplayId(A)).unwrap(), Swapped::Frame);
     // The vblank's event, arriving late, ends nothing: a flip is in flight.
     app.0.card().state().vblanks.push(100);
     app.0.card().vblank();
@@ -1370,7 +1385,7 @@ fn a_lost_vblank_event_is_taken_as_done_after_the_bound() {
 // udl or gud, or virtio-gpu before Linux 6.19, refuses
 // the wait for a vblank with EOPNOTSUPP while its commits can still be
 // refused as busy. The display then has nothing to wait for: it lends its
-// canvas again, and the frame goes with the next swap the owner tries,
+// token again, and the frame goes with the next swap the owner tries,
 // which nothing asks for until the next draw (vtium/vtium#176).
 #[test]
 fn a_frame_refused_on_a_card_without_vblank_events_goes_with_the_next_swap() {
@@ -1381,7 +1396,7 @@ fn a_frame_refused_on_a_card_without_vblank_events_goes_with_the_next_swap() {
     assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
     assert!(logs::at_least(Level::Warn).is_empty());
     assert!(!v.is_flipping(DisplayId(A)));
-    assert_eq!(v.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Frame);
 }
 
 // The stand-in ends vblank waits as the kernel does: a wait on a CRTC that
@@ -1418,12 +1433,12 @@ fn a_display_powered_down_during_a_vblank_wait_ends_it_at_once() {
     assert!(took.as_millis() < 500, "the wait ended after {took:?}");
     assert!(logs::at_least(Level::Warn).is_empty());
     assert!(events(&mut app.0).is_empty(), "no frame flipped");
-    assert!(matches!(app.0.swap(DisplayId(A), &[]), Err(SwapError::Off)));
+    assert!(matches!(app.0.commit(DisplayId(A)), Err(SwapError::Off)));
 }
 
 // A vblank wait that spans a VT leave ends before the sleep does, as a flip
 // in flight does. Its event, arriving during the wake-up's modeset flip,
-// must not end that flip early nor lend the canvas before it.
+// must not end that flip early nor lend a token before it.
 #[test]
 fn a_vblank_event_left_from_before_a_sleep_ends_no_later_flip() {
     let mut v = awake(one());
@@ -1438,9 +1453,9 @@ fn a_vblank_event_left_from_before_a_sleep_ends_no_later_flip() {
     assert!(v.is_flipping(DisplayId(A)), "the modeset's flip");
     vblank(&mut v);
     assert!(v.is_flipping(DisplayId(A)), "the old vblank ends no flip");
-    assert!(v.canvas(DisplayId(A)).is_none());
+    assert!(!lends(&mut v, A));
     flip(&mut v);
-    assert!(v.canvas(DisplayId(A)).is_some());
+    assert!(lends(&mut v, A));
 }
 
 // The warning for a lost event goes once for a run of lost events, and
@@ -1454,7 +1469,7 @@ fn each_run_of_lost_events_warns_once() {
     assert!(matches!(frame(&mut app.0, &[DOT]), Err(SwapError::Busy)));
     turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
     assert_eq!(logs::at_least(Level::Warn).len(), 1, "the lost vblank");
-    assert_eq!(app.0.swap(DisplayId(A), &[]).unwrap(), Swapped::Frame);
+    assert_eq!(app.0.commit(DisplayId(A)).unwrap(), Swapped::Frame);
     app.0.card().complete_flips();
     turn_until(&mut lp, &mut app, |app| !app.0.is_flipping(DisplayId(A)));
     app.0.card().state().lose_flips = true;
@@ -1487,8 +1502,7 @@ fn fbs(v: &Drm2d<FakeCard>, id: u32) -> (Vec<u32>, (u32, u32)) {
 fn a_hotplug_keeps_what_the_running_display_shows() {
     let mut v = a_then_b(ModePolicy::default());
     for _ in 0..2 {
-        v.canvas(DisplayId(A)).unwrap().pixels.fill(0xee);
-        v.swap(DisplayId(A), &[rect(0, 0, 640, 480)]).unwrap();
+        fill(&mut v, A, 0xee, &[rect(0, 0, 640, 480)]).unwrap();
         flip(&mut v);
     }
     v.events().for_each(drop);
@@ -1502,10 +1516,10 @@ fn a_hotplug_keeps_what_the_running_display_shows() {
     assert_eq!(c.get(primary(&v, A), "FB_ID"), Some(u64::from(shown)));
     assert_eq!(fbs(&v, A), held);
     let o = &v.outputs[0];
-    assert!(o.buffers[o.front()].map.iter().all(|&b| b == 0xee));
+    assert!(lock(&o.buffers[o.front()].map).iter().all(|&b| b == 0xee));
     assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
     flip(&mut v);
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 2);
+    assert_eq!(age(&mut v, A), 2);
 }
 
 // Finding 6: a modeset whose default-mode retry would resize a running
@@ -1559,7 +1573,7 @@ fn a_new_display_that_cannot_be_set_is_left_off() {
     assert!(c.mentions(A) && !c.mentions(B));
     flip(&mut v);
     assert_eq!(events(&mut v), [Event::Flipped(DisplayId(A))]);
-    assert!(v.canvas(DisplayId(A)).is_some());
+    assert!(lends(&mut v, A));
     // B is tried again at the next hotplug.
     v.card().state().refused.clear();
     v.poll().unwrap();
@@ -1666,7 +1680,7 @@ fn input_after_a_hotplugs_retries_ran_out_sets_the_modes() {
 }
 
 // Finding 2 and the frame contract, rule 6: a display powered down lends
-// no canvas, so no frame is drawn and lost; powered on, every buffer is
+// no token, so no frame is drawn and lost; powered on, every buffer is
 // age 0, its next frame goes whole, and the owner is told to redraw.
 // covers: platform.drm2d-fbdev
 #[test]
@@ -1678,10 +1692,10 @@ fn a_powered_down_display_lends_no_canvas() {
     flip(&mut v);
     v.events().for_each(drop);
     v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
-    assert!(v.canvas(DisplayId(A)).is_none());
+    assert!(!lends(&mut v, A));
     v.set_dpms(DisplayId(A), Dpms::On).unwrap();
     assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
+    assert_eq!(age(&mut v, A), 0);
     frame(&mut v, &[DOT]).unwrap();
     let c = v.card().last_commit().unwrap();
     assert_eq!(clips(&c, primary(&v, A)), None, "the whole frame");
@@ -1695,7 +1709,7 @@ fn a_hotplug_while_blanked_commits_nothing_until_input() {
     let mut v = a_then_b(ModePolicy::default());
     v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
-    v.swap(DisplayId(A), &[]).unwrap();
+    v.commit(DisplayId(A)).unwrap();
     flip(&mut v);
     let (mut blank, at) = blanked(&mut v);
     v.events().for_each(drop);
@@ -1721,7 +1735,7 @@ fn a_hotplug_while_blanked_commits_nothing_until_input() {
     assert_eq!(v.card().state().dpms[&A], 0);
     assert_eq!(v.dpms(DisplayId(A)), Some(Dpms::On));
     flip(&mut v);
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
+    assert_eq!(age(&mut v, A), 0);
 }
 
 // A monitor asleep can leave and come back as a hotplug pulse. While
@@ -2000,7 +2014,7 @@ fn input_with_no_modeset_owed_powers_on_through_dpms() {
     assert_eq!(v.card().state().commits.len(), commits, "no modeset");
     assert_eq!(v.card().state().dpms[&A], 0);
     assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
-    assert_eq!(v.canvas(DisplayId(A)).unwrap().age, 0);
+    assert_eq!(age(&mut v, A), 0);
 }
 
 // Round 4, finding 1: input with no modeset owed powers every display on
@@ -3126,14 +3140,13 @@ fn console_mode(w: u16, h: u16) -> Vec<u8> {
 /// events it raised are dropped.
 fn drawn(v: &mut Drm2d<FakeCard>, id: u32, byte: u8) -> u32 {
     flip(v);
-    v.canvas(DisplayId(id)).expect("a canvas").pixels.fill(byte);
     let o = v.outputs.iter().find(|o| o.id.0 == id).unwrap();
     let (back, fb) = (o.back, o.back_fb());
-    v.swap(DisplayId(id), &[rect(0, 0, 640, 480)]).unwrap();
+    fill(v, id, byte, &[rect(0, 0, 640, 480)]).unwrap();
     flip(v);
     let o = v.outputs.iter().find(|o| o.id.0 == id).unwrap();
     assert_eq!(o.front(), back, "the frame is the front buffer");
-    assert!(o.buffers[back].map.iter().all(|&b| b == byte));
+    assert!(lock(&o.buffers[back].map).iter().all(|&b| b == byte));
     v.events().for_each(drop);
     fb
 }
@@ -3415,4 +3428,409 @@ fn a_returned_display_is_set_from_off_only_once() {
     v.wake_up().unwrap();
     let after = &v.card().real_commits()[before..];
     assert_eq!(after.len(), 1, "the wake-up's modeset alone: {after:?}");
+}
+
+// ADR-1401 D2, the buffer token.
+
+/// A card with one display at 640x480 keeping `buffers` buffers, awake.
+fn kept(buffers: Buffers) -> Drm2d<FakeCard> {
+    let mut v = one();
+    v.buffers = buffers;
+    awake(v)
+}
+
+/// The age of each token lent, frame by frame, each frame drawn, swapped
+/// and flipped.
+fn ages(v: &mut Drm2d<FakeCard>, frames: usize) -> Vec<u32> {
+    (0..frames)
+        .map(|_| {
+            let mut token = v.lend(DisplayId(A)).expect("a token");
+            let age = token.age();
+            token.draw(|c| c.pixels[0] = 1).unwrap();
+            v.swap(token, &[DOT]).unwrap();
+            flip(v);
+            age
+        })
+        .collect()
+}
+
+// A display keeps as many buffers as it is given, and each token's age
+// counts the display's own frames since its buffer was drawn: with one
+// buffer always the frame before, with two the frame before that, with
+// three the frame before that again; 0 until each buffer holds a frame.
+#[test]
+fn a_tokens_age_counts_the_frames_since_its_buffer_was_drawn() {
+    for (buffers, want) in [
+        (Buffers::One, vec![0, 1, 1, 1, 1]),
+        (Buffers::Two, vec![0, 0, 2, 2, 2]),
+        (Buffers::Three, vec![0, 0, 0, 3, 3]),
+    ] {
+        let mut v = kept(buffers);
+        assert_eq!(v.outputs[0].buffers.len(), buffers.count());
+        assert_eq!(ages(&mut v, 5), want, "{buffers:?}");
+    }
+}
+
+// The buffers take turns: each frame swapped goes to the next buffer, and
+// a modeset puts the first on screen.
+#[test]
+fn three_buffers_take_turns() {
+    let mut v = kept(Buffers::Three);
+    let fbs: Vec<u32> = v.outputs[0].buffers.iter().map(|b| b.fb).collect();
+    let mut shown = Vec::new();
+    for _ in 0..4 {
+        frame(&mut v, &[DOT]).unwrap();
+        let c = v.card().last_commit().unwrap();
+        shown.push(c.get(primary(&v, A), "FB_ID").unwrap());
+        flip(&mut v);
+    }
+    let want: Vec<u64> = [1, 2, 0, 1].iter().map(|&i| u64::from(fbs[i])).collect();
+    assert_eq!(shown, want);
+}
+
+// Two displays of one card count their own frames, so their ages differ
+// when one draws more often (the C reference kept a text layer, and its
+// ages, for each display).
+#[test]
+fn two_displays_of_one_card_keep_their_ages_apart() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    for _ in 0..3 {
+        fill(&mut v, A, 1, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    fill(&mut v, B, 1, &[DOT]).unwrap();
+    flip(&mut v);
+    assert_eq!((age(&mut v, A), age(&mut v, B)), (2, 0));
+    fill(&mut v, B, 1, &[DOT]).unwrap();
+    flip(&mut v);
+    assert_eq!((age(&mut v, A), age(&mut v, B)), (2, 2));
+}
+
+// While its token is out a display lends no other and is not ready for a
+// frame, so a display has one frame on its way at a time.
+#[test]
+fn a_display_lends_no_second_token_while_one_is_out() {
+    for buffers in [Buffers::One, Buffers::Two, Buffers::Three] {
+        let mut v = kept(buffers);
+        let token = v.lend(DisplayId(A)).unwrap();
+        assert!(v.lend(DisplayId(A)).is_none(), "{buffers:?}");
+        assert!(!v.ready_for_frame(DisplayId(A)));
+        v.give_back(token);
+        assert!(v.ready_for_frame(DisplayId(A)));
+        assert!(lends(&mut v, A));
+    }
+}
+
+// With two buffers the frame after a swap waits for its flip; with three
+// the third buffer is free while the second flips, and with one vtium draws
+// into the buffer shown, so neither waits. A frame kept from a busy swap
+// waits for the flip whatever the buffers.
+#[test]
+fn one_and_three_buffers_lend_while_a_flip_is_pending() {
+    for (buffers, ready) in [
+        (Buffers::One, true),
+        (Buffers::Two, false),
+        (Buffers::Three, true),
+    ] {
+        let mut v = kept(buffers);
+        frame(&mut v, &[DOT]).unwrap();
+        assert!(v.is_flipping(DisplayId(A)));
+        assert_eq!(v.ready_for_frame(DisplayId(A)), ready, "{buffers:?}");
+        assert_eq!(lends(&mut v, A), ready, "{buffers:?}");
+        if ready {
+            let busy = frame(&mut v, &[DOT]);
+            assert!(matches!(busy, Err(SwapError::Busy)), "{buffers:?}");
+            assert!(!v.ready_for_frame(DisplayId(A)), "the kept frame waits");
+            flip(&mut v);
+            assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Frame);
+        }
+    }
+}
+
+// A cursor commit while a token is out sends the cursor plane alone: the
+// frame kept from a failed swap goes with the token's own swap, so the
+// buffer the render thread draws into is never put on screen under it.
+#[test]
+fn a_commit_while_a_token_is_out_keeps_the_kept_frame_for_it() {
+    let mut v = kept(Buffers::Two);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Failed(_))));
+    let token = v.lend(DisplayId(A)).unwrap();
+    assert_eq!(token.age(), 1, "the buffer holds the frame that failed");
+    assert!(!v.need_commit(DisplayId(A)));
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Nothing);
+    assert_eq!(v.swap(token, &[]).unwrap(), Swapped::Frame);
+}
+
+// A modeset that gives the display new buffers while its token is out
+// keeps the token's buffer allocated and mapped: the render thread still
+// draws into it, the modeset does not wait for it, and it is freed when the
+// token comes back, which is too late. The next frame is drawn whole, into
+// a new buffer.
+#[test]
+fn a_buffer_replaced_while_its_token_is_out_stays_until_the_token_returns() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
+    let policy = ModePolicy {
+        use_original: false,
+        wanted: Some(Box::new(|_: &str| {
+            Some(Wanted {
+                width: 320,
+                height: 240,
+                rate: None,
+            })
+        })),
+    };
+    let mut v = awake(Drm2d::with(card, policy).unwrap());
+    let mut token = v.lend(DisplayId(A)).unwrap();
+    let old = v.outputs[0].buffers[token.buffer()].handle;
+    // The wake-up's test commit fails, so it is tried again in the
+    // display's default mode, which needs new buffers.
+    v.sleep();
+    flip(&mut v);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "a new mode");
+    assert!(
+        v.outputs[0].buffers.iter().all(|b| b.handle != old),
+        "new buffers"
+    );
+    assert!(
+        v.card().state().dumbs.contains_key(&old),
+        "the token's buffer stays allocated"
+    );
+    assert!(!v.ready_for_frame(DisplayId(A)), "the token is still out");
+    token.draw(|c| c.pixels.fill(7)).expect("still mapped");
+    let from = v.card().state().buffer_calls.len();
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    assert!(buffer_calls(&v, from).contains(&BufferCall::DestroyDumb(old)));
+    assert!(!v.card().state().dumbs.contains_key(&old));
+    assert_eq!(age(&mut v, A), 0);
+    assert_eq!(token_size(&mut v, A), (640, 480));
+}
+
+// A token that comes back after its display's VT was released, or after
+// its display was powered down, is dropped: the frame is not shown and
+// every buffer is age 0, so the next frame is drawn whole.
+#[test]
+fn a_token_back_after_a_vt_release_or_a_blank_is_dropped() {
+    for release in [true, false] {
+        let mut v = awake(one());
+        for _ in 0..3 {
+            frame(&mut v, &[DOT]).unwrap();
+            flip(&mut v);
+        }
+        let token = v.lend(DisplayId(A)).unwrap();
+        assert_eq!(token.age(), 2);
+        if release {
+            v.sleep();
+            flip(&mut v);
+            v.wake_up().unwrap();
+            flip(&mut v);
+        } else {
+            v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+            v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+        }
+        let commits = v.card().state().commits.len();
+        assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+        assert_eq!(v.card().state().commits.len(), commits, "nothing shown");
+        assert_eq!(age(&mut v, A), 0, "release: {release}");
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+        assert_eq!(age(&mut v, A), 0, "the other buffer, release: {release}");
+    }
+}
+
+// A token that comes back to a display that has gone is dropped, and its
+// buffer is freed then.
+#[test]
+fn a_token_back_to_a_display_gone_is_dropped() {
+    let mut v = awake(one());
+    let token = v.lend(DisplayId(A)).unwrap();
+    let held = v.outputs[0].buffers[token.buffer()].handle;
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    assert!(v.card().state().dumbs.contains_key(&held));
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    assert!(v.card().state().dumbs.is_empty());
+}
+
+// A token the owner drops instead of giving back frees the display to
+// lend again, with every buffer at age 0, as for one that came back late.
+#[test]
+fn a_token_dropped_unreturned_leaves_every_buffer_age_0() {
+    let mut v = awake(one());
+    for _ in 0..3 {
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    let token = v.lend(DisplayId(A)).unwrap();
+    assert_eq!(token.age(), 2);
+    assert!(!v.ready_for_frame(DisplayId(A)));
+    drop(token);
+    assert!(v.ready_for_frame(DisplayId(A)));
+    assert_eq!(age(&mut v, A), 0);
+}
+
+// With one buffer the sleep's clear finds the buffer shown lent: the
+// token's memory is cleared when it comes back, after the render thread
+// is done with it.
+#[test]
+fn the_sleep_clears_a_lent_buffer_when_its_token_returns() {
+    let mut v = kept(Buffers::One);
+    let mut token = v.lend(DisplayId(A)).unwrap();
+    v.sleep();
+    token.draw(|c| c.pixels.fill(9)).unwrap();
+    let map = Arc::clone(&v.outputs[0].buffers[0].map);
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    assert!(lock(&map).iter().all(|&b| b == 0));
+}
+
+// The token's memory goes to the render thread and is drawn there.
+#[test]
+fn a_token_is_drawn_into_on_another_thread() {
+    let mut v = awake(one());
+    let mut token = v.lend(DisplayId(A)).unwrap();
+    let index = token.buffer();
+    let token = std::thread::spawn(move || {
+        token.draw(|c| c.pixels[..4].fill(0x42)).unwrap();
+        token
+    })
+    .join()
+    .unwrap();
+    v.swap(token, &[DOT]).unwrap();
+    assert_eq!(lock(&v.outputs[0].buffers[index].map)[..4], [0x42; 4]);
+}
+
+// A display whose connector has no DPMS property stays lit through the
+// blank, and nothing powers it on after it, so nothing else sets its ages
+// to 0: a token lent before the blank and back after it is dropped, and
+// the drop alone leaves every buffer at age 0.
+#[test]
+fn a_token_back_after_a_blank_without_dpms_leaves_every_buffer_age_0() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().no_dpms.push(A);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    for _ in 0..3 {
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    let token = v.lend(DisplayId(A)).unwrap();
+    assert_eq!(token.age(), 2);
+    v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    assert_eq!(age(&mut v, A), 0);
+}
+
+// A retake, a wake-up with no release before it, sets every display up
+// again: what each buffer holds counts as unknown, so a token lent before
+// it comes back too late, and each buffer is drawn whole after it, as the
+// C reference's text layer drew both buffers whole after a wake-up.
+#[test]
+fn a_token_back_after_a_retake_is_dropped() {
+    let mut v = awake(one());
+    for _ in 0..3 {
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    let token = v.lend(DisplayId(A)).unwrap();
+    assert_eq!(token.age(), 2);
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    for _ in 0..2 {
+        assert_eq!(age(&mut v, A), 0);
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    assert_eq!(age(&mut v, A), 2);
+}
+
+// A hotplug's modeset that gives a display new buffers, with no wake-up
+// around it, takes a new lease: a token lent for an old buffer comes back
+// too late, and its buffer is freed then. Here the modeset with the
+// configured mode fails its test commit, so every display falls back to
+// its default mode, which needs new buffers for A.
+#[test]
+fn new_buffers_from_a_hotplug_drop_a_token_lent_before() {
+    let policy = ModePolicy {
+        use_original: false,
+        wanted: Some(Box::new(|_: &str| {
+            Some(Wanted {
+                width: 320,
+                height: 240,
+                rate: None,
+            })
+        })),
+    };
+    let mut v = a_then_b(policy);
+    assert_eq!(v.size(DisplayId(A)), Some((320, 240)));
+    let token = v.lend(DisplayId(A)).unwrap();
+    let old = v.outputs[0].buffers[token.buffer()].handle;
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "the default mode");
+    assert!(v.outputs[0].buffers.iter().all(|b| b.handle != old));
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    assert!(!v.card().state().dumbs.contains_key(&old));
+    assert_eq!(age(&mut v, A), 0);
+}
+
+// With one buffer the sleep's clear finds the buffer lent, and a token
+// given back unused pays the clear it owes, as a late swap does.
+#[test]
+fn a_token_given_back_after_the_sleep_clears_its_buffer() {
+    let mut v = kept(Buffers::One);
+    let mut token = v.lend(DisplayId(A)).unwrap();
+    v.sleep();
+    token.draw(|c| c.pixels.fill(9)).unwrap();
+    let map = Arc::clone(&v.outputs[0].buffers[0].map);
+    v.give_back(token);
+    assert!(lock(&map).iter().all(|&b| b == 0));
+}
+
+// A frame kept from a failed swap waits in the back buffer; a token for
+// that buffer drawn over it and dropped as too late leaves the buffer
+// holding neither frame, so the kept frame goes whole, with no clips.
+#[test]
+fn a_late_token_over_a_kept_frame_sends_it_whole() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().no_dpms.push(A);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    for _ in 0..2 {
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Failed(_))));
+    let mut token = v.lend(DisplayId(A)).unwrap();
+    token.draw(|c| c.pixels.fill(7)).unwrap();
+    v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Frame);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(clips(&c, primary(&v, A)), None, "the whole screen");
+}
+
+// A token the owner drops after its display has gone frees the display's
+// buffer at the card's next hotplug scan, with no display left to lend.
+#[test]
+fn a_buffer_retired_for_a_dropped_token_is_freed_at_the_next_scan() {
+    let mut v = awake(one());
+    let token = v.lend(DisplayId(A)).unwrap();
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert!(!v.card().state().dumbs.is_empty(), "kept for the token");
+    drop(token);
+    v.poll().unwrap();
+    assert!(v.card().state().dumbs.is_empty());
 }

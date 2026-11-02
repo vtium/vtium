@@ -1,0 +1,145 @@
+# The daily-driver soak: the programs and habits of a working day, one at
+# a time, ending with whether vtium could stay on a VT every day. The bell
+# rings only with --bell. The guide runs as your session with no login:
+# make vt-login checks the login prompt itself.
+#
+#   make vt-check GUIDE=daily DEMO_ARGS='--bell'
+
+title: a working day on vtium
+
+intro: Take your time: each step is something you do every day, and the
+intro: last step asks whether you would leave vtium running on a VT.
+
+step: Your own shell
+run: cd && "$SHELL" -l
+do: work in your own shell for a minute, as you do every day: your
+do: prompt, history with Up, Tab completion, a few commands. Then exit.
+expect: your prompt drawn as in your desktop terminal, each key shown as
+expect: you type it, completion and history as you know them, and this
+expect: guide back after exit.
+
+step: An editor
+run: f=$(mktemp) && seq -f 'line %g of a file for the editor' 1 300 >"$f" && "$(command -v vim || command -v nano)" "$f"; rm -f "$f"
+do: move with the arrows, Page Down and Page Up, type some text, then
+do: leave without saving: in vim Esc, then :q! and Enter; in nano Ctrl-X,
+do: then n.
+expect: each page drawn whole as you move, the cursor where you type,
+expect: and this screen back as it was after you leave.
+
+step: A pager
+run: less /etc/services
+do: page down with Space and back with b, search with /http and Enter,
+do: press n for the next match a few times, then q.
+expect: each page drawn whole, every match highlighted, and this screen
+expect: back as it was after q.
+
+step: A screen that updates itself
+run: "$(command -v htop || command -v top)"
+do: watch it for half a minute, then press q.
+expect: the numbers change in place every second or two, with no flicker
+expect: and nothing left over from the update before, and this screen back
+expect: after q.
+
+step: tmux with two panes
+run: tmux -L vtium-check -f /dev/null new-session \; split-window -h
+do: type in each pane. Ctrl-B then an arrow moves between the panes, and
+do: Ctrl-B then z zooms the pane and again unzooms it. Type exit in both
+do: panes to leave. (-L vtium-check keeps it apart from your own tmux.)
+expect: two panes side by side with a whole line between them, each
+expect: pane's text in its own half, the status line at the bottom, and
+expect: this screen back after the last exit.
+
+step: A long cat of a big file
+run: f=$(mktemp) && seq -f 'line %g of a long file' 1 200000 >"$f" && time cat "$f"; rm -f "$f"
+do: watch it to the end, and put the "real" time in your note.
+expect: the lines scroll without a stall and end within a few seconds,
+expect: the last rows whole up to "line 200000 of a long file", then the
+expect: times.
+
+step: 256 colors
+run: for i in $(seq 0 255); do printf '\e[48;5;%dm%4d' "$i" "$i"; [ $((i % 16)) != 15 ] || printf '\e[0m\n'; done
+expect: 16 rows of 16 numbered cells, each one even color: the first row
+expect: the 16 basic colors, then the color cube changing in steps, and the
+expect: last 24 cells grays from near black to near white.
+
+step: Truecolor
+run: c=$(tput cols); for i in $(seq 0 $((c - 1))); do printf '\e[48;2;%d;%d;128m ' $((255 - i * 255 / (c - 1))) $((i * 255 / (c - 1))); done; printf '\e[0m\n'; for i in $(seq 0 $((c - 1))); do v=$((i * 255 / (c - 1))); printf '\e[48;2;%d;%d;%dm ' $v $v $v; done; printf '\e[0m\n'
+expect: two bands across the screen: the first from pink-red on the left
+expect: to green on the right, the second from black to white. Both are
+expect: smooth, with no sudden step or band of one flat color.
+
+step: Unicode and wide characters
+run: printf '%s\n' 'Accents: café naïve Ελληνικά Кириллица' 'Boxes:   ┌──┬──┐ └──┴──┘ ░▒▓█' 'ASCII:   |abcd|efg|x|' 'Wide:    |日本|語a|x|' 'Emoji:   |🙂👍|✅a|x|' 'Marks:   |éëèe|ñnn|x|'
+expect: the letters of each language drawn right, and the box corners
+expect: joined. On the last four rows the bars line up in columns: each
+expect: wide character and each emoji takes two cells, and each letter
+expect: with an accent mark built on it takes one.
+
+step: Copy and paste with the mouse
+probe: shell
+do: press Enter. At the prompt type: ls -l /etc | head, and Enter. Then
+do: double-click a word, triple-click a line and drag across a few words,
+do: and after each, click the middle button at the prompt. Shift+Insert
+do: pastes too. Then Ctrl-C, and type exit.
+expect: the selection drawn as you make it, and each paste exactly the
+expect: text you selected, at the prompt, with nothing run until Enter.
+
+step: The wheel
+run: seq -f 'wheel line %g of 500' 1 500
+do: roll the wheel up a few notches, then down until the question shows.
+expect: rolling up shows older lines a few at a time, each screen whole,
+expect: and rolling down brings back the screen as it was.
+
+step: A link
+run: printf '\e]8;;https://example.com\e\\link\e]8;;\e\\\n'
+do: rest the pointer on "link", hold Ctrl and let go, then Ctrl+click it.
+expect: the pointer over "link" underlines it with dashes. While Ctrl is
+expect: held, https://example.com shows in inverted colors at the start of
+expect: the bottom row, and it goes when Ctrl is let go. Ctrl+click opens
+expect: nothing: it copies the address, which the next step pastes.
+
+step: The link's address pastes
+probe: shell
+do: press Enter. At the prompt click the middle button, then press
+do: Ctrl-C and type exit.
+expect: https://example.com pasted at the prompt, exactly, and nothing else.
+
+step: Prompt jumps
+run: PS1='\[\e]133;A\e\\\]jump$ ' bash --noprofile --norc -i
+do: at the prompt "jump$ " run: seq 1 100, then Up and Enter three more
+do: times. Press Ctrl+Shift+Up four times, then Ctrl+Shift+Down until the
+do: live screen comes back. Then type exit.
+expect: each Ctrl+Shift+Up puts the prompt before at the top of the
+expect: screen, one prompt a press. Each Ctrl+Shift+Down goes one prompt
+expect: forward, and past the newest the live screen comes back.
+
+step: The bell
+run: printf 'ring\a\n'
+do: skip this step (s, then Enter) if this machine has no speaker.
+expect: one beep from the machine's speaker as "ring" prints.
+
+step: Zoom
+probe: shell
+do: press Enter. Type: stty size, and Enter. Press Ctrl+= twice and type
+do: stty size again; press Ctrl+- twice and type it once more. Then run
+do: vim, press Ctrl+= and then Ctrl+- in it, quit with :q!, and type exit.
+expect: each zoom redraws the screen at once in larger or smaller letters.
+expect: stty size shows fewer rows and columns after zooming in and the
+expect: first numbers again after zooming out, and vim redraws whole at
+expect: each size.
+
+step: Suspend and resume
+run: systemctl suspend
+do: systemctl suspend puts the whole machine to sleep, your desktop and
+do: everything running on it too, not only vtium. Skip this step (s, then
+do: Enter) unless you want that now. Else systemctl may ask for your
+do: password; wake the machine as you usually do, and come back to VT {vt}
+do: with Ctrl-Alt-F{vt} if the desktop shows.
+expect: after the machine wakes, this screen drawn whole on every display,
+expect: and a key you press answers the question below.
+
+step: Would you leave this running on a VT?
+do: think back over the whole session.
+expect: answer y if you would leave vtium running on a VT every day as it
+expect: is now, and n if not. Either way, say in the note what would stop
+expect: you, or what you would change first.

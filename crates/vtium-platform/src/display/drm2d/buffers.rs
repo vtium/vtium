@@ -17,6 +17,7 @@
 //! belonged to the shared logic (`kmscon/src/video/drm_shared.c:338-399`).
 
 use std::io;
+use std::sync::{Arc, Mutex};
 
 use super::super::kms::Kms;
 use super::output::XRGB8888;
@@ -26,8 +27,9 @@ pub(crate) struct Buffer<M> {
     pub(super) fb: u32,
     /// The bytes from one line of pixels to the next.
     pub(super) pitch: u32,
-    /// The memory a frame is drawn into.
-    pub(super) map: M,
+    /// The memory a frame is drawn into, which a token the display lends
+    /// shares while it is out (ADR-1401 D2).
+    pub(super) map: Arc<Mutex<M>>,
     /// The size it was made for.
     pub(super) size: (u32, u32),
     /// The card's handle on the buffer, which the framebuffer was made
@@ -38,14 +40,16 @@ pub(crate) struct Buffer<M> {
 /// Makes and frees the XRGB8888 buffers a display shows, each with its
 /// framebuffer.
 pub(crate) trait Source<K: Kms> {
-    /// A buffer's memory, which the display lends as a frame's canvas.
-    type Memory: AsMut<[u8]>;
+    /// A buffer's memory, which the display lends in a token, so the
+    /// head's render thread draws into it.
+    type Memory: AsMut<[u8]> + Send + 'static;
 
     /// A buffer of `width` by `height` pixels and the framebuffer over it.
     /// Its pixels hold whatever the memory held.
     fn create(&self, card: &K, width: u32, height: u32) -> io::Result<Buffer<Self::Memory>>;
 
-    /// Frees a buffer and its framebuffer.
+    /// Frees a buffer and its framebuffer. drm2d frees a buffer only once
+    /// no token holds its memory.
     fn destroy(&self, card: &K, buffer: Buffer<Self::Memory>);
 }
 
@@ -69,7 +73,7 @@ impl<K: Kms> Source<K> for Dumbs {
             Ok(map) => Ok(Buffer {
                 fb,
                 pitch: dumb.pitch,
-                map,
+                map: Arc::new(Mutex::new(map)),
                 size: (width, height),
                 handle: dumb.handle,
             }),

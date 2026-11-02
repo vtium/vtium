@@ -556,6 +556,7 @@ dependencies = [
  "miniz_oxide",
  "rustix",
  "ruzstd",
+ "skrifa",
  "swash",
  "vtium-font",
  "vtium-platform",
