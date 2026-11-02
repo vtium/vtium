@@ -178,15 +178,47 @@ fn capability_lines(process: &str) -> Vec<String> {
 /// the helper every capability, and one that skips emptying the bounding
 /// set leaves the helper's bounding set full, and either turns this test
 /// red. A kernel or system that gives no such namespace, or a security
-/// module that refuses the namespace's capabilities, as AppArmor does on
-/// Ubuntu, skips the case and says so.
+/// module that refuses the namespace's capabilities or the mapping of its
+/// ids, as AppArmor does on Ubuntu 24.04 with
+/// `apparmor_restrict_unprivileged_userns` set, skips the case and says
+/// so on the test's own standard error, which the test harness does not
+/// capture, so a skip never reads as a pass.
 #[test]
 fn a_root_helper_starts_with_no_capability() {
     if std::env::var_os(AS_ROOT).is_some() {
         as_root();
         return;
     }
-    let run = std::process::Command::new("unshare")
+    match root_case(None) {
+        RootCase::Passed => {}
+        RootCase::Skipped(why) => {
+            use std::io::Write;
+            let _ = writeln!(
+                std::io::stderr(),
+                "skipped: a_root_helper_starts_with_no_capability: {why}"
+            );
+        }
+        RootCase::Failed(output) => panic!("{output}"),
+    }
+}
+
+/// What the root case's run in a user namespace came to.
+#[derive(Debug, PartialEq, Eq)]
+enum RootCase {
+    Passed,
+    /// It could not run here, and why.
+    Skipped(String),
+    /// It ran and failed: what it wrote.
+    Failed(String),
+}
+
+/// Runs the namespace's side of the root case through `unshare`, found on
+/// `path` where one is given and otherwise on this process's `PATH`.
+/// `unshare` failing to make the namespace or to map its ids, before the
+/// case runs, is a skip; so is the case finding no capability to use.
+fn root_case(path: Option<&std::ffi::OsStr>) -> RootCase {
+    let mut command = std::process::Command::new("unshare");
+    command
         .args(["--user", "--map-root-user", "--"])
         .arg(std::env::current_exe().unwrap())
         .args([
@@ -195,24 +227,88 @@ fn a_root_helper_starts_with_no_capability() {
             "--nocapture",
             "--test-threads=1",
         ])
-        .env(AS_ROOT, "1")
-        .output();
-    match run {
-        Ok(out) if out.status.code() == Some(77) => println!(
-            "skipped: {}",
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .find(|l| l.starts_with("skip:"))
-                .unwrap_or_default()
-        ),
-        Ok(out) => assert!(
-            out.status.success(),
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        ),
-        Err(e) => println!("skipped: no unshare to run it: {e}"),
+        .env(AS_ROOT, "1");
+    if let Some(path) = path {
+        command.env("PATH", path);
     }
+    let out = match command.output() {
+        Ok(out) => out,
+        Err(e) => return RootCase::Skipped(format!("no unshare to run it: {e}")),
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if out.status.code() == Some(77) {
+        let line = stdout.lines().find(|l| l.starts_with("skip:"));
+        return RootCase::Skipped(line.unwrap_or_default().to_owned());
+    }
+    if out.status.success() {
+        return RootCase::Passed;
+    }
+    // unshare's own messages begin with its name; these say it could not
+    // make the namespace or map its ids, so the case never ran
+    let refused = stderr.lines().find(|l| {
+        l.starts_with("unshare:")
+            && ["uid_map", "gid_map", "setgroups", "unshare failed"]
+                .iter()
+                .any(|what| l.contains(what))
+    });
+    match refused {
+        Some(line) => RootCase::Skipped(format!("unshare cannot set up the namespace: {line}")),
+        None => RootCase::Failed(format!("{stdout}{stderr}")),
+    }
+}
+
+/// The root case run through a stand-in `unshare` placed first on `PATH`,
+/// a shell script that writes `message` to its standard error and exits
+/// with `status`: a failure to map the namespace's ids, as on Ubuntu
+/// 24.04 with `apparmor_restrict_unprivileged_userns` set, is a skip that
+/// says why; any other failure, of `unshare` or of the case, fails.
+#[test]
+fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
+    use std::os::unix::fs::PermissionsExt;
+    let exe = std::env::current_exe().unwrap();
+    let dir = exe
+        .parent()
+        .unwrap()
+        .join(format!("vtium-image-unshare-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut path = std::ffi::OsString::from(&dir);
+    if let Some(rest) = std::env::var_os("PATH") {
+        path.push(":");
+        path.push(rest);
+    }
+    let run = |message: &str, status: u8| {
+        let fake = dir.join("unshare");
+        std::fs::write(
+            &fake,
+            format!("#!/bin/sh\necho '{message}' >&2\nexit {status}\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        root_case(Some(&path))
+    };
+    let uid = run(
+        "unshare: write failed /proc/self/uid_map: Operation not permitted",
+        1,
+    );
+    let gid = run(
+        "unshare: write failed /proc/self/gid_map: Operation not permitted",
+        1,
+    );
+    let other = run("unshare: unrecognized option '--user'", 1);
+    let case = run("the case failed", 101);
+    let passed = run("", 0);
+    let _ = std::fs::remove_dir_all(&dir);
+    for (got, map) in [(uid, "uid_map"), (gid, "gid_map")] {
+        match got {
+            RootCase::Skipped(why) => assert!(why.contains(map), "{why}"),
+            other => panic!("{other:?}"),
+        }
+    }
+    assert!(matches!(other, RootCase::Failed(_)), "{other:?}");
+    assert!(matches!(case, RootCase::Failed(_)), "{case:?}");
+    assert_eq!(passed, RootCase::Passed);
 }
 
 /// The namespace's side: as uid 0 with every capability, the inheritable
