@@ -1740,13 +1740,30 @@ impl App {
                     self.relayout(h);
                 }
             }
+            // A modeset or a wake-up may have given the display a new
+            // mode in place, on the same connector. Its view is then laid
+            // out again at the display's new size: a view left at the old
+            // size never draws, because every token the display lends has
+            // the new size.
             Event::Redraw(id) => {
                 let key = (node.to_owned(), id);
-                for head in &mut self.heads {
+                let mode = self
+                    .videos
+                    .get(node)
+                    .map(|video| (video.size(id), video.refresh_mhz(id)));
+                let mut resized = None;
+                for (h, head) in self.heads.iter_mut().enumerate() {
                     if let Some(v) = head.views.get_mut(&key) {
                         v.lost = true;
                         head.draw_now = true;
+                        if let Some((Some(size), refresh)) = mode.filter(|m| m.0 != Some(v.size)) {
+                            v.resize(size, refresh);
+                            resized = Some(h);
+                        }
                     }
+                }
+                if let Some(h) = resized {
+                    self.relayout(h);
                 }
             }
             // A frame waiting on this flip is drawn at the turn's end,

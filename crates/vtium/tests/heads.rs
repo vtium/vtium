@@ -127,6 +127,19 @@ impl Memory {
 }
 
 impl Memory {
+    /// A new mode in place, `w` by `h`, on the same connector, as a
+    /// modeset that falls back to the display's default mode sets it: the
+    /// display draws into new buffers at the new size, a token lent before
+    /// comes back too late, and the owner is told to redraw.
+    fn set_mode(&mut self, w: u32, h: u32) {
+        (self.w, self.h) = (w, h);
+        self.lease += 1;
+        self.age = 0;
+        self.pixels = vec![0; (w * h * 4) as usize];
+        self.drawn = Arc::new(Mutex::new(self.pixels.clone()));
+        self.events.push(Event::Redraw(ID));
+    }
+
     /// Pays a clear the sleep owed, once no token holds the buffer.
     fn pay_clear(&mut self) {
         if self.clear_owed && Arc::strong_count(&self.drawn) == 1 {
@@ -1053,6 +1066,46 @@ display card:mem-large -> off
         dark.dpms_sets
     );
     assert_eq!(dark.dpms, Some(Dpms::Off));
+}
+
+/// vtium/vtium#208: a display whose mode changes in place while vtium
+/// runs, the same connector at a new size, is laid out again at that size:
+/// the grid grows to fill it, and the display's next frame is drawn whole
+/// at the new size.
+#[test]
+fn a_display_whose_mode_changes_in_place_draws_whole_at_its_new_size() {
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, "echo ready; read x");
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "the session runs");
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0),
+        "the display draws"
+    );
+    // 320x160 holds 40x10 cells of 8x16.
+    assert_eq!(s.app.grid(), (40, 10));
+    let (frames, lent) = {
+        let m = s.memory("/dev/mem0");
+        (m.frames, m.ages.len())
+    };
+    s.memory("/dev/mem0").set_mode(640, 320);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws again after its mode changed"
+    );
+    assert_eq!(s.app.grid(), (80, 20), "the grid fills the new size");
+    let m = s.memory("/dev/mem0");
+    assert_eq!(
+        m.ages.get(lent),
+        Some(&0),
+        "the first frame after is drawn whole"
+    );
+    assert_eq!(m.pixels.len(), 640 * 320 * 4);
+    // The prompt's row shows its text at the new size: some pixel of the
+    // first row of cells is lit.
+    assert!(
+        m.pixels[..(640 * 16 * 4)].iter().any(|&b| b != 0),
+        "the first row shows text"
+    );
 }
 
 /// D2: one render thread per head. The slow head, first in the file,
