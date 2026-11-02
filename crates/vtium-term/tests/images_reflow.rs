@@ -1,15 +1,38 @@
 #![cfg(feature = "images")]
-//! Placements through rewraps (ADR-1003, "Images"; ADR-1100, D8): a
-//! stream of text, resizes, view moves, scrollback sizes and placements
-//! ends with the same placements, text and counts whether the scrollback
-//! rewraps lazily, eagerly after each resize, or whole at each resize with
-//! nothing left to wait, and with the same placements with no view moves.
-//! A crafted sweep of drops during a rewrap compares the same three.
-//! `recheck_cost` measures a resize with a placement at the scrollback's
-//! oldest row (ignored: run it with `--release -- --ignored
-//! --nocapture`). `RECHECK_ONLY=SEED` replays one seed of the property
-//! test with its stream printed; `VTIUM_TERM_SEEDS` sets how many seeds
-//! it runs.
+//! Placements through rewraps (ADR-1003, "Images"; ADR-1100, D8).
+//!
+//! Three terminals run each stream of text, resizes, view moves,
+//! scrollback sizes and placements, and the tests compare them:
+//!
+//! - Lazy leaves the oldest rows to wait at each resize, as vtium does.
+//! - Eager runs the same resize and then rewraps every row left waiting.
+//!   It runs the same code as Lazy for the lines an anchor is on: the
+//!   resize rewraps those at once in both (`take_for_reflow`), and a drop
+//!   onto a waiting line rewraps it in both (`note_anchor`). So Eager
+//!   checks the rows that wait without an anchor, the drops past
+//!   `sb-size` and the view moves, and it is no oracle for how an anchor
+//!   is carried.
+//! - Whole stands the view on the oldest row as each resize happens, so
+//!   the resize takes every row at once and nothing waits, as the rewrap
+//!   did before rows waited. It never reaches `rewrap_at` or
+//!   `note_anchor`, so it is the oracle for the carry. It shares
+//!   `rewrap_line`, the drop log, `discard_rows` and the screen's handling
+//!   of both with the other two.
+//!
+//! What all three share is pinned by tests with expected results written
+//! out: `a_waiting_placement_past_the_text_keeps_the_column_each_width_left_it`
+//! and `a_placement_dropped_through_a_whole_waiting_line_loses_its_rows_at_the_width`
+//! here, the scrollback's and `rewrap_line`'s unit tests, the store's
+//! `a_line_dropped_for_several_rows_clips_as_many_as_one_drop_a_row`, and
+//! the drop tests in `tests/images.rs`.
+//!
+//! The property test also runs Lazy with no view moves and compares its
+//! placements. The crafted sweeps compare the three on drops during a
+//! rewrap. `recheck_cost` measures a resize with a placement at the
+//! scrollback's oldest row (ignored: run it with `--release --
+//! --ignored --nocapture`). `RECHECK_ONLY=SEED` replays one seed of the
+//! property test with its stream printed; `VTIUM_TERM_SEEDS` sets how
+//! many seeds it runs.
 
 mod common;
 
@@ -367,4 +390,68 @@ fn a_placement_dropped_onto_a_waiting_line_lands_as_each_width_puts_it() {
     }
     assert!(shown > 0, "some combination keeps the placement in view");
     assert_eq!(found, 0, "combinations where lazy and eager differ");
+}
+
+/// The placements the view shows from the scrollback's oldest row.
+fn from_the_oldest(t: &mut Terminal) -> Vec<(i64, u32, u32, u32)> {
+    t.screen_mut().scroll_view_up(usize::MAX);
+    let shown = t
+        .screen()
+        .placements()
+        .iter()
+        .map(|p| (p.row, p.col, p.cols, p.rows))
+        .collect();
+    t.screen_mut().reset_view();
+    shown
+}
+
+/// A 12 by 4 terminal holding `first` with a kitty placement of 1 by
+/// `rows` cells at column `col` of its row, then `after`, then 20 short
+/// lines, so that a resize leaves them all waiting.
+fn deep(first: &str, col: usize, rows: u32, after: &str) -> Terminal {
+    let mut t = Terminal::new(12, 4, 100);
+    t.screen_mut().set_scrollback_max(100);
+    t.screen_mut().set_image_limit(1 << 30);
+    t.input(first.as_bytes());
+    t.input(format!("\x1b[1;{}H", col + 1).as_bytes());
+    apply(&mut t, Ev::Place(true, 1, rows), Mode::Lazy);
+    t.input(format!("\r\n{after}").as_bytes());
+    for i in 0..20 {
+        t.input(format!("\r\nf{i}").as_bytes());
+    }
+    t
+}
+
+// "abc" with a placement at column 7, past its text, waiting through 5
+// columns and then 10: at 5 the placement is kept inside the row, at
+// column 4, and it stays there at 10, where a rewrap from 12 to 10 alone
+// would leave it at 7.
+#[test]
+fn a_waiting_placement_past_the_text_keeps_the_column_each_width_left_it() {
+    for mode in [Mode::Lazy, Mode::Eager, Mode::Whole] {
+        let mut t = deep("abc", 7, 1, "");
+        apply(&mut t, Ev::Resize(5, 4), mode);
+        assert_eq!(from_the_oldest(&mut t), [(0, 4, 1, 1)], "{mode:?} at 5");
+        apply(&mut t, Ev::Resize(10, 4), mode);
+        assert_eq!(from_the_oldest(&mut t), [(0, 4, 1, 1)], "{mode:?} at 10");
+    }
+}
+
+// A placement 5 rows tall on "a", above a line of 12 cells that waits at
+// 12 columns after a resize to 4 and so stands for 3 rows: dropping the 4
+// oldest rows takes "a" and that line whole, and the placement loses 4
+// rows, its last one left on the line after them, "c".
+#[test]
+fn a_placement_dropped_through_a_whole_waiting_line_loses_its_rows_at_the_width() {
+    for mode in [Mode::Lazy, Mode::Eager, Mode::Whole] {
+        let mut t = deep("a", 0, 5, "bbbbbbbbbbbb\r\nc");
+        apply(&mut t, Ev::Resize(4, 4), mode);
+        let mut count = t.clone();
+        count.screen_mut().rewrap_scrollback();
+        let total = count.screen().scrollback().len();
+        t.screen_mut().set_scrollback_max(total - 4);
+        assert_eq!(from_the_oldest(&mut t), [(0, 0, 1, 1)], "{mode:?}");
+        let oldest = common::scrollback(t.screen()).into_iter().next();
+        assert_eq!(oldest.as_deref().map(str::trim_end), Some("c"), "{mode:?}");
+    }
 }

@@ -750,6 +750,36 @@ mod tests {
         );
     }
 
+    // A place past the text, or on a row that does not rewrap, is kept
+    // inside the row at each width it passes, so a narrower width on the way
+    // moves it for good: this is why a waiting line an image is anchored on
+    // rewraps at every width (ADR-1003, "Images").
+    #[test]
+    fn a_place_past_the_text_is_kept_inside_the_row_at_each_width() {
+        let mut through = [Place::at(0, 7)];
+        let out = rewrap(vec![row(1, "abc", false)], 5, &mut through);
+        assert_eq!(through, [Place::at(0, 4)], "inside a row of 5");
+        rewrap(out, 10, &mut through);
+        assert_eq!(through, [Place::at(0, 4)], "and there at 10");
+        let mut once = [Place::at(0, 7)];
+        rewrap(vec![row(1, "abc", false)], 10, &mut once);
+        assert_eq!(once, [Place::at(0, 7)], "rewrapped once at 10");
+
+        let mut wrapped = [Place::at(1, 3)];
+        let rows = vec![row(1, "abcd", true), row(2, "ef", false)];
+        let out = rewrap(rows, 3, &mut wrapped);
+        assert_eq!(out.iter().map(text_of).collect::<Vec<_>>(), ["abc", "def"]);
+        // a cell past "ef", kept inside a last row already full
+        assert_eq!(wrapped, [Place::at(1, 2)]);
+
+        let mut fixed = row(1, "abcdef", false);
+        fixed.flags_mut().insert(LineFlags::FIXED);
+        let mut cut = [Place::at(0, 5)];
+        let out = rewrap(vec![fixed], 4, &mut cut);
+        assert_eq!(out.iter().map(text_of).collect::<Vec<_>>(), ["abcd"]);
+        assert_eq!(cut, [Place::at(0, 3)], "the cut row's last column");
+    }
+
     // A row of double size, or one written with mode 2028 reset, joins
     // nothing and is cut; a mark goes to its logical line's first row.
     #[test]

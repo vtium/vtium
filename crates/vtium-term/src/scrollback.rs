@@ -1080,6 +1080,154 @@ mod tests {
         sb.lines().map(|l| l.id().get()).collect()
     }
 
+    /// A row of `len` cells of text, its id `id`, marked wrapped.
+    #[cfg(feature = "images")]
+    fn wrapped(id: u64, len: usize) -> Line {
+        let mut line = text(id, len);
+        line.flags_mut().insert(LineFlags::WRAPPED);
+        line
+    }
+
+    /// Every row's id, waiting and rewrapped, oldest first.
+    #[cfg(feature = "images")]
+    fn all_ids(sb: &Scrollback) -> Vec<u64> {
+        sb.all_rows().map(|l| l.id().get()).collect()
+    }
+
+    #[cfg(feature = "images")]
+    fn dropped(line: u64, rows: usize, next: Option<u64>) -> Change {
+        Change::Dropped {
+            line: LineId::new(line),
+            rows,
+            next: next.map(LineId::new),
+        }
+    }
+
+    /// A scrollback of 100 rows holding `lines`, then left to wait at
+    /// `width` with nothing taken, the anchors `anchors` given; its log is
+    /// taken first.
+    #[cfg(feature = "images")]
+    fn waiting_at(
+        lines: Vec<Line>,
+        width: usize,
+        anchors: &[(u64, u32)],
+        next: &mut u64,
+    ) -> Scrollback {
+        let mut sb = Scrollback::new(100);
+        sb.set_max(100);
+        for line in lines {
+            sb.push(line);
+        }
+        let mut given: BTreeMap<LineId, Vec<u32>> = BTreeMap::new();
+        for &(id, col) in anchors {
+            given.entry(LineId::new(id)).or_default().push(col);
+        }
+        sb.set_anchors(given);
+        let taken = sb.take_for_reflow(width, 0, None, next);
+        assert!(taken.rows.is_empty());
+        sb
+    }
+
+    // Rows already rewrapped drop one by one, each going on to the next;
+    // the newest dropped goes on to the oldest row left.
+    #[cfg(feature = "images")]
+    #[test]
+    fn rewrapped_rows_drop_one_by_one_onto_the_next() {
+        let mut sb = Scrollback::new(100);
+        sb.set_max(100);
+        for id in 1..=5 {
+            sb.push(text(id, 3));
+        }
+        let _ = sb.take_changes();
+        sb.set_max(2);
+        let want = [
+            dropped(1, 1, Some(2)),
+            dropped(2, 1, Some(3)),
+            dropped(3, 1, Some(4)),
+        ];
+        assert_eq!(sb.take_changes(), want);
+        sb.set_max(0);
+        assert_eq!(
+            sb.take_changes(),
+            [dropped(4, 1, Some(5)), dropped(5, 1, None)]
+        );
+    }
+
+    // A push into a full scrollback drops the oldest row, which goes on to
+    // the line pushed when nothing else is left.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_row_dropped_by_a_push_goes_on_to_the_line_pushed() {
+        let mut sb = Scrollback::new(100);
+        sb.set_max(1);
+        sb.push(text(1, 3));
+        sb.push(text(2, 3));
+        assert_eq!(sb.take_changes(), [dropped(1, 1, Some(2))]);
+    }
+
+    // A waiting line dropped whole stands for the rows it takes at the
+    // width, 3 here, and each row of it goes on to the line after it.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_waiting_line_dropped_whole_stands_for_its_rows_at_the_width() {
+        let mut next = 100;
+        let lines = vec![wrapped(1, 6), text(2, 6), text(3, 2)];
+        let mut sb = waiting_at(lines, 4, &[], &mut next);
+        assert_eq!(sb.total(), 4);
+        let _ = sb.take_changes();
+        sb.set_max(1);
+        assert_eq!(
+            sb.take_changes(),
+            [dropped(1, 3, Some(3)), dropped(2, 1, Some(3))]
+        );
+        assert_eq!(all_ids(&sb), [3]);
+    }
+
+    // A resize rewraps a waiting line an anchor is on at once, carrying the
+    // anchor, and later takes its rows as they are: their ids stay.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_waiting_anchored_line_rewraps_at_once_and_is_then_taken_as_it_is() {
+        let mut next = 100;
+        // one logical line of 8 cells, its anchor at the 6th
+        let lines = vec![wrapped(1, 4), text(2, 4), text(3, 2)];
+        let mut sb = waiting_at(lines, 3, &[(2, 1)], &mut next);
+        assert_eq!(
+            all_ids(&sb),
+            [1, 100, 101, 3],
+            "8 cells at 3: rows of 3, 3 and 2"
+        );
+        let carried = Move {
+            from: LineId::new(2),
+            col: 1,
+            to: LineId::new(100),
+            to_col: 2,
+        };
+        assert_eq!(sb.take_changes(), [Change::Carried(vec![carried])]);
+        sb.rewrap_all();
+        assert_eq!(ids(&sb), [1, 100, 101, 3], "taken as they are");
+        assert_eq!(sb.bytes(), charge(sb.lines()));
+    }
+
+    // A placement a drop moves onto a waiting line has that line rewrapped
+    // at the width then.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_waiting_line_a_placement_moves_onto_rewraps_and_is_counted_exactly() {
+        let mut next = 100;
+        let lines = vec![text(1, 2), text(2, 12), text(3, 2)];
+        let mut sb = waiting_at(lines, 4, &[], &mut next);
+        let moved = sb.note_anchor(LineId::new(2), &[5], &mut next);
+        assert_eq!(moved, [], "a placement on the line's first row stays there");
+        // the resize reserved 100 and 101 for the line's rows to come, so
+        // this rewrap takes new ids, and the reserved ones go unused
+        assert_eq!(all_ids(&sb), [1, 2, 102, 103, 3]);
+        assert_eq!(sb.total(), 5);
+        // held rewrapped, a second placement there rewraps nothing
+        assert_eq!(sb.note_anchor(LineId::new(2), &[0], &mut next), []);
+        assert_eq!(all_ids(&sb), [1, 2, 102, 103, 3]);
+    }
+
     // The operator's fence (vtium/vtium#131): from 1 MiB to the lesser of
     // 1 GiB and a quarter of the machine's memory, and never below 1 MiB.
     #[test]
