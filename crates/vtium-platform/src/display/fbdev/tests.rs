@@ -895,3 +895,27 @@ fn a_sleep_during_the_stand_in_flip_waits_its_own_bound() {
     assert_eq!(app.0.events().collect::<Vec<_>>(), [Event::Asleep]);
     assert!(app.0.timer.is_none());
 }
+
+// Through the real loop: a token whose draw held the sleep and which the
+// owner then dropped, never given back, as the seat drops the token of a
+// frame whose display has gone, ends the sleep when the bound's timer
+// fires, so the release is acknowledged.
+#[test]
+fn the_loop_ends_a_sleep_whose_token_was_dropped() {
+    let (mut lp, mut app) = looped();
+    let (go, thread) = drawing(&mut app.0);
+    app.0.sleep();
+    go.send(()).unwrap();
+    drop(thread.join().unwrap());
+    assert_eq!(app.0.events().count(), 0, "held until the bound");
+    let mut asleep = false;
+    for _ in 0..50 {
+        lp.dispatch(Some(Duration::from_millis(100)), &mut app)
+            .unwrap();
+        if app.0.events().any(|e| e == Event::Asleep) {
+            asleep = true;
+            break;
+        }
+    }
+    assert!(asleep, "the bound's timer ends the sleep");
+}
