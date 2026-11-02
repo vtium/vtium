@@ -207,7 +207,7 @@ impl Edit<'_> {
             let keep = reservation.old.map(|old| (reservation.buffer, old));
             self.store.settle(self.screens);
             if let Ok(added) = self.store.reserve_bytes(more, keep, self.screens) {
-                reservation.bytes = reservation.bytes.saturating_add(added);
+                self.store.add_to(&mut reservation, added);
                 return Ok((buffer, reservation));
             }
             // the buffer goes with its charge, and a reservation of the

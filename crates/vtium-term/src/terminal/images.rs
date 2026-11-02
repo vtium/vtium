@@ -855,6 +855,9 @@ mod tests {
         fn start(&mut self, _: &mut dyn Context, _: Intro<'_>) {}
         fn feed(&mut self, _: &mut dyn Context, _: Chunk<'_>) {}
         fn finish(&mut self, ctx: &mut dyn Context) {
+            if let Some(r) = self.0.take() {
+                ctx.unreserve(r);
+            }
             self.0 = ctx.reserve(Protocol::KITTY, 0, 4096).ok();
         }
         fn cancel(&mut self, ctx: &mut dyn Context) {
@@ -889,7 +892,9 @@ mod tests {
             iterm2: false,
         });
         t.set_image_handler(ImageString::Kitty, Some(Box::new(Holding::default())));
-        let _ = t.input(b"\x1b_Gx\x1b\\");
+        // the second string's reservation takes the place of the first's,
+        // which the handler gives back
+        let _ = t.input(b"\x1b_Gx\x1b\\\x1b_Gx\x1b\\");
         assert_eq!(t.screen().images().bytes(), 4096);
         let _ = t.input(b"\x1bc");
         assert_eq!(t.screen().images().bytes(), 0);
