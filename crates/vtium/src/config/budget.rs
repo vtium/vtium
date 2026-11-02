@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(
             memory_warning().as_deref(),
             Some(
-                "cannot read the machine's memory from /proc/meminfo; sb-memory is at most 5963776"
+                "cannot read the machine's memory from /proc/meminfo; sb-memory is at most 5242880"
             )
         );
         set_test_memory(Some(512 << 20));
