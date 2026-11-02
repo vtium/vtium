@@ -365,7 +365,7 @@ mod tests {
         named.sort_unstable();
         assert_eq!(features, named);
         let on: Vec<bool> = FEATURES_ON_TOP.iter().map(|(_, on)| *on).collect();
-        assert!(on.iter().all(|&o| o == on[0]), "{FEATURES_ON_TOP:?}");
+        assert!(on.windows(2).all(|w| w.first() == w.last()), "{FEATURES_ON_TOP:?}");
     }
 
     // Each flag of FEATURES_ON_TOP reads its own feature, checked against
