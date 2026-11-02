@@ -511,6 +511,22 @@ fn a_line_dropped_from_the_scrollback_clips_its_placements() {
 }
 
 #[test]
+fn a_line_dropped_for_several_rows_clips_as_many_as_one_drop_a_row() {
+    let f = Fake::new(4);
+    let mut once = store(1 << 30);
+    let tall = add(&mut once, &f, Protocol::KITTY, 8, 48, 1);
+    put(&mut once, &f, tall, 0, 0);
+    let mut each = once.clone();
+    once.discard_rows(LineKey::new(0), 2, Some(LineKey::new(2)));
+    each.discard_line(LineKey::new(0), Some(LineKey::new(1)));
+    each.discard_line(LineKey::new(1), Some(LineKey::new(2)));
+    assert_eq!(shown(&once, &f), [(2, 0, 1, 1, tall)]);
+    assert_eq!(shown(&once, &f), shown(&each, &f));
+    once.discard_rows(LineKey::new(2), 1, Some(LineKey::new(3)));
+    assert_eq!(shown(&once, &f), [], "no row is left to show");
+}
+
+#[test]
 fn the_alternate_buffer_empties_both_ways_and_ris_empties_both() {
     let f = Fake::new(4);
     let mut s = store(1 << 30);

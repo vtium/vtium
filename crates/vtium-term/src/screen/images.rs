@@ -15,7 +15,7 @@ mod with {
 
     use super::super::Screen;
     use crate::line::{Line, LineId};
-    use crate::scrollback::Change;
+    use crate::scrollback::{Change, Move};
 
     fn key(line: &Line) -> LineKey {
         LineKey::new(line.id().get())
@@ -188,53 +188,64 @@ mod with {
             self.images_settled();
         }
 
-        /// What the scrollback did to its rows since: each row dropped from
-        /// its oldest end clips its placements, which go on from the row
-        /// after it, and each anchor a rewrap of waiting rows carried moves
-        /// to its new row (ADR-1003, "Images").
+        /// What the scrollback did to its rows since, in order: each row
+        /// dropped from its oldest end clips its placements by the rows it
+        /// stood for, and they go on from the row after it; each anchor a
+        /// rewrap of waiting rows carried moves to its new row (ADR-1003,
+        /// "Images").
         pub(in crate::screen) fn images_dropped(&mut self) {
             let changes = self.scrollback.take_changes();
             if changes.is_empty() || self.images.is_empty() {
                 return;
             }
-            let oldest = self
-                .scrollback
-                .oldest_id()
-                .or_else(|| self.main.first().map(Line::id));
-            for (i, change) in changes.iter().enumerate() {
-                match *change {
-                    Change::Dropped(line) => {
-                        let next = match changes.get(i.saturating_add(1)) {
-                            Some(&Change::Dropped(next)) => Some(next),
-                            _ => oldest,
-                        };
+            for change in changes {
+                match change {
+                    Change::Dropped { line, rows, next } => {
                         let to = next.map(|n| LineKey::new(n.get()));
-                        self.images.discard_line(LineKey::new(line.get()), to);
-                        // the piece now on a waiting row is carried when
-                        // that row rewraps
-                        if let Some(next) = next {
-                            for (_, col) in self.images.anchors_on(LineKey::new(next.get())) {
-                                self.scrollback.note_anchor(next, col);
-                            }
+                        let rows = u32::try_from(rows).unwrap_or(u32::MAX);
+                        self.images.discard_rows(LineKey::new(line.get()), rows, to);
+                        let Some(next) = next else {
+                            continue;
+                        };
+                        let cols: Vec<u32> = self
+                            .images
+                            .anchors_on(LineKey::new(next.get()))
+                            .into_iter()
+                            .map(|(_, col)| col)
+                            .collect();
+                        if !cols.is_empty() {
+                            let moves = self.scrollback.note_anchor(next, &cols, &mut self.next_id);
+                            self.images_move(&moves);
                         }
                     }
-                    Change::Moved { from, col, to, to_col } => {
-                        for (p, at) in self.images.anchors_on(LineKey::new(from.get())) {
-                            if at == col {
-                                self.images.move_anchor(p, Some((LineKey::new(to.get()), to_col)));
-                            }
-                        }
-                    }
+                    Change::Carried(moves) => self.images_move(&moves),
                 }
             }
             self.images_settled();
         }
 
-        /// After a resize: the anchors on rows left waiting are recorded,
-        /// for the rewrap that later reaches them to carry.
-        pub(in crate::screen) fn images_register_waiting(&mut self) {
+        /// Moves the placements anchored at each move's cell to where the
+        /// rewrap carried it, all at once.
+        fn images_move(&mut self, moves: &[Move]) {
+            let moved: Vec<(PlacementKey, LineKey, u32)> = moves
+                .iter()
+                .flat_map(|m| {
+                    self.images
+                        .anchors_on(LineKey::new(m.from.get()))
+                        .into_iter()
+                        .filter(|&(_, col)| col == m.col)
+                        .map(|(p, _)| (p, LineKey::new(m.to.get()), m.to_col))
+                })
+                .collect();
+            for (p, line, col) in moved {
+                self.images.move_anchor(p, Some((line, col)));
+            }
+        }
+
+        /// Before a resize: the anchors of the main buffer's placements, for
+        /// the scrollback to carry on the rows it leaves to wait.
+        pub(in crate::screen) fn images_give_anchors(&mut self) {
             if !self.images.main_has_placements() {
-                self.scrollback.set_waiting_anchors(Vec::new());
                 return;
             }
             let anchors = self
@@ -243,7 +254,7 @@ mod with {
                 .into_iter()
                 .map(|(line, cols)| (LineId::new(line.get()), cols))
                 .collect();
-            self.scrollback.set_waiting_anchors(anchors);
+            self.scrollback.set_anchors(anchors);
         }
 
         /// ED 2's own rule, after its erase.

@@ -435,6 +435,15 @@ impl Store {
     /// A line left the scrollback past `sb-size`: its placements lose that
     /// row and go on from `next`, the line after it (D8).
     pub fn discard_line(&mut self, line: LineKey, next: Option<LineKey>) {
+        self.discard_rows(line, 1, next);
+    }
+
+    /// A line left the scrollback past `sb-size` standing for `rows` rows,
+    /// as a logical line the scrollback held unrewrapped does for the rows
+    /// it takes at the width: its placements lose that many rows and go on
+    /// from `next`, the line after it, as `rows` calls of
+    /// [`discard_line`](Self::discard_line) would leave them (D8).
+    pub fn discard_rows(&mut self, line: LineKey, rows: u32, next: Option<LineKey>) {
         let b = MAIN;
         let keys = self.anchored(b, line);
         for key in keys {
@@ -443,10 +452,10 @@ impl Store {
             };
             let (prows, last) = (p.rows, p.cols.saturating_sub(1));
             match next {
-                Some(next) if prows >= 2 => {
+                Some(next) if prows > rows => {
                     let r1 = prows.saturating_sub(1);
                     let piece = Piece {
-                        r0: 1,
+                        r0: rows,
                         r1,
                         c0: 0,
                         c1: last,

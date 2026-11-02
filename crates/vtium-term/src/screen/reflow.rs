@@ -465,6 +465,8 @@ impl Screen {
         let margin = rows.saturating_add(self.images_reach());
         #[cfg(not(feature = "images"))]
         let margin = rows;
+        #[cfg(feature = "images")]
+        self.images_give_anchors();
         let taken = self
             .scrollback
             .take_for_reflow(cols, margin, reach, &mut self.next_id);
@@ -553,8 +555,6 @@ impl Screen {
         self.scrollback.enforce_max();
         self.images_dropped();
         self.discard_lines(gone);
-        #[cfg(feature = "images")]
-        self.images_register_waiting();
     }
 
     /// Puts what the rewrap carried where its cells landed: rows from `top`

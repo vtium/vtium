@@ -1,12 +1,15 @@
 #![cfg(feature = "images")]
 //! Placements through rewraps (ADR-1003, "Images"; ADR-1100, D8): a
 //! stream of text, resizes, view moves, scrollback sizes and placements
-//! ends with the same placements whether the scrollback rewraps lazily,
-//! eagerly at each resize, or with no view moves, and a crafted sweep of
-//! drops during a rewrap. `recheck_cost` measures a resize with a
-//! placement at the scrollback's oldest row (ignored: run it with
-//! `--release -- --ignored --nocapture`). `RECHECK_ONLY=SEED` replays one
-//! seed of the property test with its stream printed.
+//! ends with the same placements, text and counts whether the scrollback
+//! rewraps lazily, eagerly after each resize, or whole at each resize with
+//! nothing left to wait, and with the same placements with no view moves.
+//! A crafted sweep of drops during a rewrap compares the same three.
+//! `recheck_cost` measures a resize with a placement at the scrollback's
+//! oldest row (ignored: run it with `--release -- --ignored
+//! --nocapture`). `RECHECK_ONLY=SEED` replays one seed of the property
+//! test with its stream printed; `VTIUM_TERM_SEEDS` sets how many seeds
+//! it runs.
 
 mod common;
 
@@ -41,11 +44,30 @@ fn ev(rng: &mut Rng) -> Ev {
     }
 }
 
-fn apply(t: &mut Terminal, e: Ev, eager: bool) {
+/// How a terminal under test rewraps its scrollback at a resize.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    /// The rows that wait rewrap when something reaches them.
+    Lazy,
+    /// Every row left waiting rewraps right after the resize.
+    Eager,
+    /// The view stands on the oldest row as the resize happens, so the
+    /// resize takes every row at once and nothing waits, as the rewrap did
+    /// before the scrollback waited.
+    Whole,
+}
+
+fn apply(t: &mut Terminal, e: Ev, mode: Mode) {
     match e {
         Ev::Resize(c, r) => {
-            t.resize(c, r);
-            if eager {
+            if mode == Mode::Whole {
+                t.screen_mut().scroll_view_up(usize::MAX);
+                t.resize(c, r);
+                t.screen_mut().reset_view();
+            } else {
+                t.resize(c, r);
+            }
+            if mode != Mode::Lazy {
                 t.screen_mut().rewrap_scrollback();
             }
         }
@@ -81,7 +103,7 @@ fn apply(t: &mut Terminal, e: Ev, eager: bool) {
     }
 }
 
-fn feed(t: &mut Terminal, bytes: &[u8], events: &[(usize, Ev)], eager: bool, views: bool) {
+fn feed(t: &mut Terminal, bytes: &[u8], events: &[(usize, Ev)], mode: Mode, views: bool) {
     let mut at = 0;
     let mut stops: Vec<usize> = events.iter().map(|e| e.0).collect();
     stops.push(bytes.len());
@@ -97,9 +119,9 @@ fn feed(t: &mut Terminal, bytes: &[u8], events: &[(usize, Ev)], eager: bool, vie
                 continue;
             }
             if std::env::var("RECHECK_ONLY").is_ok() {
-                eprintln!("EV {e:?} eager={eager}");
+                eprintln!("EV {e:?} {mode:?}");
             }
-            apply(t, e, eager);
+            apply(t, e, mode);
         }
     }
 }
@@ -174,20 +196,27 @@ fn recheck_lazy_eager_with_placements() {
             eprintln!("BYTES {:?}", String::from_utf8_lossy(&bytes));
         }
         let mut lazy = make();
-        feed(&mut lazy, &bytes, &events, false, true);
+        feed(&mut lazy, &bytes, &events, Mode::Lazy, true);
         let mut eager = make();
-        feed(&mut eager, &bytes, &events, true, true);
+        feed(&mut eager, &bytes, &events, Mode::Eager, true);
+        let mut whole = make();
+        feed(&mut whole, &bytes, &events, Mode::Whole, true);
         let mut noview = make();
-        feed(&mut noview, &bytes, &events, false, false);
-        let (l, e, n) = (snap(&mut lazy), snap(&mut eager), snap(&mut noview));
-        if l != e || l.0 != n.0 || l.1 != n.1 {
+        feed(&mut noview, &bytes, &events, Mode::Lazy, false);
+        let (l, e, w, n) = (
+            snap(&mut lazy),
+            snap(&mut eager),
+            snap(&mut whole),
+            snap(&mut noview),
+        );
+        if l != e || l != w || l.0 != n.0 || l.1 != n.1 {
             bad += 1;
             if bad <= 3 {
                 eprintln!(
-                    "seed {seed} cols {cols}\nevents {events:?}\nlazy  {:?} {} {}\neager {:?} {} {}\nnoview {:?} {} {}",
-                    l.0, l.1, l.2, e.0, e.1, e.2, n.0, n.1, n.2
+                    "seed {seed} cols {cols}\nevents {events:?}\nlazy  {:?} {} {}\neager {:?} {} {}\nwhole {:?} {} {}\nnoview {:?} {} {}",
+                    l.0, l.1, l.2, e.0, e.1, e.2, w.0, w.1, w.2, n.0, n.1, n.2
                 );
-                if l.3 != e.3 {
+                if l.3 != e.3 || l.3 != w.3 {
                     eprintln!("text differs");
                 }
             }
@@ -212,7 +241,7 @@ fn recheck_cost() {
             .flat_map(|i| format!("\x1b[38;5;{}m\u{4e00}", i % 256).into_bytes())
             .collect();
         if deep {
-            apply(&mut t, Ev::Place(true, 2, 2), false);
+            apply(&mut t, Ev::Place(true, 2, 2), Mode::Lazy);
         }
         for _ in 0..4_950 {
             t.input(&line);
@@ -231,21 +260,16 @@ fn recheck_cost() {
     }
 }
 
-fn crafted(eager: bool, c_width: usize, k: usize, sbm: usize, a: usize, b: usize) -> Snap {
+fn crafted(mode: Mode, c_width: usize, k: usize, sbm: usize, a: usize, b: usize) -> Snap {
     let mut t = Terminal::new(20, 4, 100);
     t.screen_mut().set_scrollback_max(sbm);
     t.screen_mut().set_image_limit(1 << 30);
-    let step = |t: &mut Terminal, c: usize, r: usize| {
-        t.resize(c, r);
-        if eager {
-            t.screen_mut().rewrap_scrollback();
-        }
-    };
+    let step = |t: &mut Terminal, c: usize, r: usize| apply(t, Ev::Resize(c, r), mode);
     for i in 0..3 {
         t.input(format!("line {i:02}\r\n").as_bytes());
     }
     t.input(b"line 03       ");
-    apply(&mut t, Ev::Place(true, 1, 3), false);
+    apply(&mut t, Ev::Place(true, 1, 3), Mode::Lazy);
     t.input(b"\r\n");
     for i in 4..4 + k {
         t.input(format!("line {i:02}\r\n").as_bytes());
@@ -273,16 +297,17 @@ fn recheck_crafted() {
             for a in [3, 4, 5] {
                 for b in [6, 8, 12] {
                     for c in 2..12 {
-                        let (l, e) = (
-                            crafted(false, c, k, sbm, a, b),
-                            crafted(true, c, k, sbm, a, b),
+                        let (l, e, w) = (
+                            crafted(Mode::Lazy, c, k, sbm, a, b),
+                            crafted(Mode::Eager, c, k, sbm, a, b),
+                            crafted(Mode::Whole, c, k, sbm, a, b),
                         );
-                        if l.0 != e.0 {
+                        if l != e || l != w {
                             found += 1;
                             if found < 4 {
                                 eprintln!(
-                                    "sbm={sbm} k={k} A={a} B={b} C={c}\n lazy  {:?} {} {}\n eager {:?} {} {}",
-                                    l.0, l.1, l.2, e.0, e.1, e.2
+                                    "sbm={sbm} k={k} A={a} B={b} C={c}\n lazy  {:?} {} {}\n eager {:?} {} {}\n whole {:?} {} {}",
+                                    l.0, l.1, l.2, e.0, e.1, e.2, w.0, w.1, w.2
                                 );
                             }
                         }
