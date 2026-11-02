@@ -67,6 +67,15 @@ The child starts with every signal at its default disposition and none blocked, 
 
 The child is watched through a pidfd, so SIGCHLD keeps its default disposition and the loop handles no signal for it. Signals the console handles go through one signalfd in `Loop`; the C reference's eloop used a signalfd the same way.
 
+vtium waits for every child it starts, so no child stays a zombie. While the pty is in the loop, its exit source waits for the child once the child's pidfd reports the exit. Each other path waits for the child too:
+
+- If the pidfd cannot be opened after the fork, `Pty::spawn` kills the child with SIGKILL and waits for it before it returns the error.
+- If `Pty::insert` cannot add its second source, it removes the first one, so the loop holds nothing of the pty and the pty is as it was before the call.
+- A `Pty` dropped while it is in no loop, because it was never inserted or its insert failed, kills its child with SIGKILL and waits for it, since no loop will.
+- A `Pty` dropped in its loop while its child runs takes its own sources out of the loop first, and then adds a source that waits for the child once the SIGHUP ends it. The sources go first because the exit source watches the same pidfd, and the loop's poller refuses a descriptor it already watches. If the loop refuses the new source anyway, the drop kills the child with SIGKILL and waits for it.
+
+The C reference could not fail after its fork: it added the master and the child callback to its loop before it forked (pty.c:785-828), and its loop waited for every child of the process on each SIGCHLD (shl/eloop.c:316-345). Tests: the unit tests in `src/pty.rs`, which make each of these steps fail on purpose and check that the test's thread has no child left that nobody waited for.
+
 What the consumer is fed, and every reply it writes, depend only on the bytes the child sent (docs/architecture.md, "Determinism"). A stall delays them and drops nothing, as long as the consumer stops once `Replies::full` is true. `src/channel/tests.rs` holds the chunking-invariance property test, with random read sizes, random takes, a child that reads at random and pauses at random. `tests/pty.rs` repeats it through a real pty.
 
 ## Displays
