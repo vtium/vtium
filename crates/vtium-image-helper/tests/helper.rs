@@ -31,7 +31,7 @@ fn session() -> Session {
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
         "vtium-image-helper-gate-{}-{name}",
         std::process::id()
     ));

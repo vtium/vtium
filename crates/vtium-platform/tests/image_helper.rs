@@ -215,8 +215,14 @@ fn report(dir: &Path) {
 
 // ---- the host's side ----
 
+/// This run's scratch: under the build's own temporary directory, on disk,
+/// since each case copies this binary, and removed once every case passes.
+fn run_dir() -> PathBuf {
+    Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("vtium-image-host-{}", std::process::id()))
+}
+
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("vtium-image-host-{}-{name}", std::process::id()));
+    let dir = run_dir().join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -605,6 +611,8 @@ fn with_three_free() -> ! {
     let mut host = ImageHost::new(Some(program), Some(dir));
     let reply = ask(&mut host, &file());
     assert!(matches!(reply, Reply::Ok(_)), "{reply:?}");
+    drop(host);
+    let _ = std::fs::remove_dir_all(run_dir());
     std::process::exit(0);
 }
 
@@ -670,4 +678,5 @@ fn main() {
     a_session_that_ends_drops_its_request_and_its_helper();
     a_helper_that_exited_idle_is_replaced_at_the_next_request();
     a_program_others_may_change_is_refused();
+    let _ = std::fs::remove_dir_all(run_dir());
 }
