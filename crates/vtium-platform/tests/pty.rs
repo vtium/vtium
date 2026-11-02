@@ -20,7 +20,7 @@ use rustix::termios::{OptionalActions, SpecialCodeIndex, tcgetattr, tcsetattr};
 use vtium_platform::calloop::timer::{TimeoutAction, Timer};
 use vtium_platform::event_loop::{Loop, Signal};
 use vtium_platform::pty::{Consumer, Erase, Pty, Replies, Size};
-use vtium_platform::{MOTION_COALESCE_AT, REPLY_HIGH};
+use vtium_platform::{MOTION_COALESCE_AT, REPLY_HIGH, REPLY_LOW};
 
 const SIZE: Size = Size {
     cols: 80,
@@ -569,7 +569,11 @@ fn replies_to_a_child_that_does_not_read_stay_bounded() {
     let mut h = Host::default();
     open(&lp, &mut h, role("flood"));
 
-    // Turn until the reading has stalled: 50 turns with nothing taken.
+    // Turn until the reading has stalled: 50 turns with nothing taken
+    // while the replies queued hold the stall, at REPLY_LOW or more. The
+    // stall starts at REPLY_HIGH, and the kernel can take more of the
+    // queue after it starts, so the queue may sit below REPLY_HIGH while
+    // the reading stays stalled; the reading resumes only below REPLY_LOW.
     let mut most = 0;
     let mut still = 0;
     let mut last = 0;
@@ -578,7 +582,7 @@ fn replies_to_a_child_that_does_not_read_stay_bounded() {
             .expect("dispatch");
         let queued = h.pty.as_ref().expect("pty").queued_replies();
         most = most.max(queued);
-        if h.term.taken.len() == last && queued >= REPLY_HIGH {
+        if h.term.taken.len() == last && most >= REPLY_HIGH && queued >= REPLY_LOW {
             still += 1;
             if still == 50 {
                 break;
