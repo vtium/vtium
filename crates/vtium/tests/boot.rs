@@ -5135,7 +5135,11 @@ fn a_late_outline_cell_is_dropped_and_the_next_zoom_asks_again() {
         .expect("the go FIFO");
     // the late answer arrives, and is dropped with no failure
     assert!(h.until(SECOND, |_| cell_answers(&kinds) == 1));
-    assert_eq!(h.app.cells(), vec![(8, 22)], "the late answer changes nothing");
+    assert_eq!(
+        h.app.cells(),
+        vec![(8, 22)],
+        "the late answer changes nothing"
+    );
     // The zoom's ask at 21 finds the late answer at 22 first, whichever
     // turn reads it, and takes the answer at 21 behind it.
     h.app.input_event(key(Mods::CTRL, minus), now());

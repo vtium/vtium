@@ -1494,7 +1494,10 @@ fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_
         if n > 0 {
             press_chord(&mut s, KBD_SMALL, RIGHT);
         }
-        assert!(head_shows(&s.app, "small", &format!("is:{id}")), "console {id} shown");
+        assert!(
+            head_shows(&s.app, "small", &format!("is:{id}")),
+            "console {id} shown"
+        );
         s.type_on(KBD_SMALL, &format!("end{id}\r"));
         assert!(
             s.until(SECOND, |a| head_shows(a, "small", &format!("got:end{id}"))),
@@ -1932,7 +1935,11 @@ fn a_vt_switch_away_and_back_ends_the_overlay() {
     s.app.vt.activate().expect("the fake VT");
     assert!(s.until_memory("/dev/mem1", SECOND, |m| m.awake));
     s.app.turn(now());
-    assert_eq!(overlay_of(&s.app, "large"), None, "the overlay ended at the return");
+    assert_eq!(
+        overlay_of(&s.app, "large"),
+        None,
+        "the overlay ended at the return"
+    );
     assert_eq!(
         hovered_on(&s.app, "large").as_deref(),
         Some(A_MD),
