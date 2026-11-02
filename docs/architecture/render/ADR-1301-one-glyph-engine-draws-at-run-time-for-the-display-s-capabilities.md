@@ -293,7 +293,7 @@ One reader in vtium-platform serves the console and `vtium-vitrify new`, and the
 |---|---|---|
 | Bitmap glyphs | 1-bit glyphs at the font's own size, scaled by whole factors (ADR-1200 D2, ADR-1300 D2) | the source |
 | Crisp outline glyphs | An outline glyph rasterised hinted to the pixel grid, every pixel 0 or 255 | the grid, or `antialias=no` |
-| Hinting | Every outline glyph is hinted lightly, fitted to the pixel grid up and down only, as the C reference's FreeType engine did; `full` fits it both ways. The cell's W measure stays unhinted (ADR-1200 D17). Not built yet. | `hinting=`, `light` or `full`, in the frit (ADR-1200 D1); `font-hinting=` in the configuration or a profile, over the frit's |
+| Hinting | Every outline glyph is hinted lightly, fitted to the pixel grid up and down only, as the C reference's FreeType engine did; `full` also fits a TrueType glyph sideways, and draws a CFF font as `light` does, since a CFF font's hints move rows only. The cell's W measure stays unhinted (ADR-1200 D17). The helper builds both values; the console's `font-hinting` over the frit's is not built yet (ADR-1200 D1). | `hinting=`, `light` or `full`, in the frit (ADR-1200 D1); `font-hinting=` in the configuration or a profile, over the frit's |
 | Whole-pixel grayscale antialiasing | One coverage value a pixel, R8 (ADR-1200 D13) | the grid |
 | `antialias=` | `auto`, the default, follows the grid; `no` makes every outline glyph crisp at any size | the frit |
 | `font-antialias=` | The same, `auto` or `no`, for the console, over the frit's | the configuration |
@@ -302,6 +302,8 @@ One reader in vtium-platform serves the console and `vtium-vitrify new`, and the
 | Color glyphs | Premultiplied RGBA strikes (ADR-1200 D13) | the source |
 
 > Edited 2026-11-01: the maintainer decided that glyphs are hinted lightly by default and fully on request (`considered` in ADR-1200, 2026-11-01). The table had no hinting row; the earlier text is in git at 292d0b5.
+
+> Edited 2026-11-02: the helper's side of `hinting=` is built (ADR-1200 D1), and the fonts review found that `full` draws a CFF font as `light` does. The hinting row read "`full` fits it both ways" and ended "Not built yet."; the earlier text is in git at 04de5a0.
 
 ### D5: the display classes
 
