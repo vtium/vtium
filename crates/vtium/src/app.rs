@@ -306,8 +306,7 @@ pub struct App {
     modes: Vec<ModeSpec>,
     /// `use-original-mode`, off when a mode is set.
     use_original: bool,
-    /// The buffers each DRM display keeps (ADR-1401 D2): the build's
-    /// default until kmscon.conf's `display-buffers` sets it here.
+    /// The buffers each DRM display keeps (ADR-1401 D2).
     display_buffers: Buffers,
     /// `clipboard-write`: OSC 52's selection is taken.
     clipboard_write: bool,
@@ -409,7 +408,6 @@ impl App {
             sleeping: Rc::default(),
             modes,
             use_original,
-            // kmscon.conf's `display-buffers` goes in here.
             display_buffers: crate::video::display_buffers(config.display_buffers()),
             vt,
             videos: BTreeMap::new(),
