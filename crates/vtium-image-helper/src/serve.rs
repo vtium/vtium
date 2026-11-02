@@ -1,34 +1,34 @@
 //! The helper's loop (ADR-1101 D4): it takes one request at a time from
-//! vtium on descriptor 3, forks a worker that carries it out, removes a
+//! vtium on descriptor 3, has a worker carry it out, removes a
 //! shared-memory object that held a valid picture, and replies.
 //!
-//! For each request the helper makes a Unix socket pair of the
-//! sequenced-packet kind and takes the reply's memory file, forks a worker
-//! and sends it the request, the reply's memory file and, for inline
-//! bytes, their memory file over the pair. The worker adds its second
-//! filter, opens what the request names, removes a temporary file that
-//! must go, enters its landlock domain, reads, inflates or decodes, writes
-//! the reply's memory file and answers with its outcome. The helper
-//! replies as soon as the outcome is in and reaps the worker after. A
-//! worker killed by a signal shares the helper's address layout, so the
-//! helper exits, and vtium counts a crash and starts a new helper whose
-//! layout is chosen afresh.
+//! For a one-off request the helper makes a Unix socket pair of the
+//! sequenced-packet kind and the reply's memory file, forks a worker and
+//! sends it the request, the reply's memory file and, for inline bytes,
+//! their memory file over the pair. The worker checks its sandbox, opens
+//! what the request names, removes a temporary file that must go, locks
+//! itself in, reads, inflates or decodes, writes the reply's memory file
+//! and answers with its outcome. The helper replies as soon as the outcome
+//! is in and reaps the worker after. A worker killed by a signal shares
+//! the helper's address layout, so the helper exits, and vtium counts a
+//! crash and starts a new helper whose layout is chosen afresh.
 //!
 //! **Streams.** A program that plays video re-sends a picture for each
-//! frame. Once [`STREAM_AFTER`] requests in a row carry the same medium,
-//! flags and picture size, the helper calls it a stream and keeps
-//! [`REPLY_POOL_FILES`] reply files of the stream's size, faulted in once
-//! and sealed against shrinking and growing only; each frame's worker,
-//! still a fresh one, writes into the next of them, and the reply says the
-//! file is pooled. The measurement ADR-1101 D4 asks for chose this way
-//! over one long-lived worker for the stream (the crate's README gives the
-//! figures). Raw frames count from any medium, since their size is in the
-//! request; a decoded frame counts only when it was sent inline, since a
-//! frame that decodes to another size is run again, as a one-off with a
-//! fresh reply file, and only an inline frame's sealed memory file reads
-//! the same bytes twice. The stream ends on the first request that does
-//! not match, after [`STREAM_IDLE_MS`] with no request, or on any outcome
-//! but a picture. The helper counts requests, never time, to start one.
+//! frame. Once [`STREAM_AFTER`] inline requests in a row carry the same
+//! flags and picture size, the helper calls it a stream: it forks one
+//! long-lived stream worker, which locks itself in before it reads
+//! anything, and keeps [`REPLY_POOL_FILES`] reply files of the stream's
+//! size, faulted in once and sealed against shrinking and growing only.
+//! The stream worker writes each later frame into the next of them, and
+//! the reply says the file is pooled. Frames from files and shared memory
+//! never make a stream, since the stream worker can open nothing. A frame
+//! that decodes to another size than the stream's ends the stream and is
+//! run again as a one-off with a fresh reply file, which reads the same
+//! bytes, since an inline frame's memory file is sealed. The stream ends
+//! on the first request that does not match, after [`STREAM_IDLE_MS`]
+//! with no request, or on any outcome but a picture. The helper counts
+//! requests, never time, to start one. The maintainer chose the stream
+//! worker after the measurement in the crate's README.
 //!
 //! The helper exits 0 when vtium closes its end or after
 //! [`HELPER_IDLE_MS`] with no request; 1 when the socket or a worker
@@ -46,10 +46,12 @@ use rustix::process::{Pid, WaitOptions};
 use vtium_image::decode::wire::{self, PACKET_MAX, ReplyHeader, Status};
 use vtium_image::decode::{Alpha, Layout, Medium, Request};
 
-use crate::bounds::{HELPER_IDLE_MS, REPLY_POOL_FILES, SHM_DIR, STREAM_AFTER, STREAM_IDLE_MS};
+use crate::bounds::{
+    HELPER_IDLE_MS, REPLY_POOL_FILES, SHM_DIR, SOCKET_FD, STREAM_AFTER, STREAM_IDLE_MS,
+};
 use crate::channel::{self, Outcome, Received};
-use crate::fork::{Forked, fork};
-use crate::job::{self, ReplyFile};
+use crate::fork::{self, Forked};
+use crate::job::{self, ReplyFile, Source};
 use crate::{files, sandbox};
 
 /// The exit status for a request vtium would not build.
@@ -67,14 +69,20 @@ const JOB_POOLED: u8 = 1;
 pub struct Settings {
     /// vtium's own `TMPDIR`, resolved, where a temporary file may lie.
     pub tmpdir: Option<PathBuf>,
-    /// The worker's second filter, built once.
+    /// The worker's second and third filters, built once.
     pub filter: sandbox::WorkerFilter,
+    /// The landlock version the kernel offers, 0 for none: above 0, every
+    /// worker must be in a landlock domain.
+    pub landlock: u32,
+    /// The seccomp filters the helper runs under once its own is in, where
+    /// it installs one and the kernel counts them: every worker must run
+    /// under one more.
+    pub filters: Option<u32>,
 }
 
-/// What requests of one stream share, their picture's size apart.
+/// What inline requests of one stream share, their picture's size apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Kind {
-    medium: char,
     inflate: bool,
     png: bool,
     exact: bool,
@@ -84,14 +92,12 @@ struct Kind {
 
 impl Kind {
     /// The kind of `request`, or `None` for one that never counts toward
-    /// a stream: a discard, or a decoded picture from a named medium.
+    /// a stream: a discard, or anything but inline bytes.
     fn of(request: &Request) -> Option<Self> {
-        let direct = matches!(request.medium, Medium::Direct(_));
-        if request.discard || (request.pixels.is_none() && !direct) {
+        if request.discard || !matches!(request.medium, Medium::Direct(_)) {
             return None;
         }
         Some(Self {
-            medium: request.medium.letter(),
             inflate: request.inflate,
             png: request.png,
             exact: request.exact,
@@ -101,78 +107,91 @@ impl Kind {
     }
 }
 
-/// The requests in a row that match, and the stream's pool once there are
+/// The long-lived stream worker, its channel and the stream's pool.
+#[derive(Debug)]
+struct Stream {
+    channel: OwnedFd,
+    pid: Pid,
+    pool: Vec<OwnedFd>,
+    next: usize,
+}
+
+/// The inline requests in a row that match, and the stream once there are
 /// enough of them.
 #[derive(Debug, Default)]
 struct Run {
     /// The kind and size of the last request's picture.
     last: Option<(Kind, (u32, u32))>,
     count: u32,
-    pool: Vec<OwnedFd>,
-    next: usize,
+    stream: Option<Stream>,
 }
 
 impl Run {
     fn streaming(&self) -> bool {
-        !self.pool.is_empty()
+        self.stream.is_some()
     }
 
-    /// A copy of the descriptor of the pooled file `request` writes, when
-    /// it continues the stream: the same kind, and for raw pixels the same
-    /// size; a decoded picture's size is known only once it decodes.
-    fn pooled(&mut self, request: &Request) -> Option<OwnedFd> {
-        let (kind, size) = self.last?;
-        let len = self.pool.len();
-        if len == 0 || Kind::of(request) != Some(kind) {
-            return None;
-        }
-        if request.pixels.is_some_and(|d| (d.width, d.height) != size) {
-            return None;
-        }
-        let fd = self
-            .pool
-            .get(self.next.checked_rem(len)?)?
-            .try_clone()
-            .ok()?;
-        self.next = self.next.wrapping_add(1);
-        Some(fd)
+    /// Whether `request` is the stream's next frame: of its kind, and for
+    /// raw pixels of its size; a decoded picture's size is known only once
+    /// it decodes.
+    fn continues(&self, request: &Request) -> bool {
+        let Some((kind, size)) = self.last else {
+            return false;
+        };
+        self.streaming()
+            && Kind::of(request) == Some(kind)
+            && !request.pixels.is_some_and(|d| (d.width, d.height) != size)
     }
 
     /// Counts `request`'s outcome toward the run: a picture of the last
-    /// one's kind and size continues it, anything else ends it. Once the
-    /// run reaches [`STREAM_AFTER`], the pool is made; a pool that cannot
-    /// be made leaves the frames to fresh reply files.
-    fn after(&mut self, request: &Request, outcome: &Outcome) {
+    /// one's kind and size continues it, anything else ends it. `true`
+    /// when the run has just reached [`STREAM_AFTER`] with no stream yet,
+    /// so one starts; `Err` when the stream it ends had a worker killed by
+    /// a signal.
+    fn after(&mut self, request: &Request, outcome: &Outcome) -> Result<bool, String> {
         let shape = Kind::of(request)
             .filter(|_| outcome.status == Status::Ok)
             .map(|k| (k, (outcome.width, outcome.height)));
         if shape.is_some() && shape == self.last {
             self.count = self.count.saturating_add(1);
         } else {
-            self.end();
+            self.end()?;
             self.last = shape;
             self.count = u32::from(shape.is_some());
         }
-        if self.count >= STREAM_AFTER && self.pool.is_empty() {
-            let (w, h) = (outcome.width, outcome.height);
-            let len = u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4);
-            self.pool = (0..REPLY_POOL_FILES)
-                .filter_map(|_| pooled_file(len).ok())
-                .collect();
-            if self.pool.len() != REPLY_POOL_FILES {
-                self.pool.clear();
-            }
-        }
+        Ok(self.count >= STREAM_AFTER && !self.streaming())
     }
 
-    /// The stream ends: its pool is freed and the run counts again from
-    /// nothing.
-    fn end(&mut self) {
-        self.pool.clear();
-        self.next = 0;
-        self.count = 0;
+    /// The run ends: the stream worker's channel is closed, so it exits,
+    /// and it is reaped; the pool is freed, and the run counts again from
+    /// nothing. `Err` when the stream worker was killed by a signal.
+    fn end(&mut self) -> Result<(), String> {
         self.last = None;
+        self.count = 0;
+        let Some(stream) = self.stream.take() else {
+            return Ok(());
+        };
+        drop(stream.channel);
+        drop(stream.pool);
+        if reaped(stream.pid) {
+            Ok(())
+        } else {
+            Err("the stream worker was killed by a signal".to_owned())
+        }
     }
+}
+
+/// The bytes of each pooled file for a stream of pictures `size`, as the
+/// worker reported it, or `None` when that size is outside what `request`
+/// allows: its largest width and height, and its `max_bytes`.
+fn pool_len(request: &Request, (w, h): (u32, u32)) -> Option<u64> {
+    if w == 0 || h == 0 || w > request.largest.0 || h > request.largest.1 {
+        return None;
+    }
+    u64::from(w)
+        .checked_mul(u64::from(h))?
+        .checked_mul(4)
+        .filter(|&len| len <= request.largest_bytes)
 }
 
 /// A pooled reply file of `len` bytes, every page faulted in once, sealed
@@ -192,6 +211,40 @@ fn pooled_file(len: u64) -> std::io::Result<OwnedFd> {
     }
     rustix::fs::fcntl_add_seals(&fd, SealFlags::SHRINK | SealFlags::GROW)?;
     Ok(fd)
+}
+
+/// A stream worker forked for a stream of pictures `size`, the request
+/// that started it giving the bounds, and its pool made; `None` when the
+/// size is outside the bounds or the pool or the fork fails, which leaves
+/// the frames to one-off workers.
+fn start_stream(
+    socket: &OwnedFd,
+    request: &Request,
+    size: (u32, u32),
+    settings: &Settings,
+) -> Option<Stream> {
+    let len = pool_len(request, size)?;
+    let (ours, theirs) = pair().ok()?;
+    let close = [socket.as_raw_fd(), ours.as_raw_fd()];
+    let pid = match fork::fork(&close).ok()? {
+        Forked::Child => std::process::exit(stream_worker(&theirs, settings)),
+        Forked::Parent(pid) => pid,
+    };
+    drop(theirs);
+    let pool: Vec<OwnedFd> = (0..REPLY_POOL_FILES)
+        .map_while(|_| pooled_file(len).ok())
+        .collect();
+    if pool.len() != REPLY_POOL_FILES {
+        drop(ours);
+        let _ = reaped(pid);
+        return None;
+    }
+    Some(Stream {
+        channel: ours,
+        pid,
+        pool,
+        next: 0,
+    })
 }
 
 /// Waits up to `ms` for `socket` to be readable; `false` on the timeout.
@@ -223,7 +276,9 @@ pub fn serve(socket: &OwnedFd, settings: &Settings) -> u8 {
         match readable(socket, wait) {
             Ok(true) => {}
             Ok(false) if run.streaming() => {
-                run.end();
+                if run.end().is_err() {
+                    return EXIT_FAILED;
+                }
                 continue;
             }
             Ok(false) => return 0,
@@ -241,27 +296,40 @@ pub fn serve(socket: &OwnedFd, settings: &Settings) -> u8 {
         if packet.fds.len() != usize::from(direct) {
             return EXIT_REQUEST;
         }
+        // a request that is no frame of the stream ends it before any
+        // other worker is forked, so none holds the stream's descriptors
+        if run.streaming() && !run.continues(&request) && run.end().is_err() {
+            return EXIT_FAILED;
+        }
         let inline: Vec<BorrowedFd<'_>> = packet.fds.iter().map(AsFd::as_fd).collect();
         let served = serve_one(socket, &packet.bytes, &inline, &request, &mut run, settings);
         let Ok((outcome, reply, pooled, worker)) = served else {
             return EXIT_FAILED;
         };
-        run.after(&request, &outcome);
         let outcome = remove_shm(&request, outcome);
         if answer(socket, id, &request, &outcome, reply.as_ref(), pooled).is_err() {
             return EXIT_FAILED;
         }
-        if !reaped(worker) {
+        if worker.is_some_and(|w| !reaped(w)) {
             return EXIT_FAILED;
+        }
+        match run.after(&request, &outcome) {
+            Ok(true) => {
+                run.stream =
+                    start_stream(socket, &request, (outcome.width, outcome.height), settings);
+            }
+            Ok(false) => {}
+            Err(_) => return EXIT_FAILED,
         }
     }
 }
 
-/// One request carried out: by a worker writing the stream's next pooled
-/// file when it continues a stream, and otherwise, or when a pooled frame
-/// decodes to another size, by one writing a fresh file. The outcome, the
-/// reply file, whether it is pooled, and the worker still to reap.
-type Served = (Outcome, Option<OwnedFd>, bool, Pid);
+/// One request carried out: by the stream worker writing the stream's
+/// next pooled file when it is the stream's next frame, and otherwise, or
+/// when a frame decodes to another size than the stream's, by a one-off
+/// worker writing a fresh file. The outcome, the reply file, whether it is
+/// pooled, and the one-off worker still to reap.
+type Served = (Outcome, Option<OwnedFd>, bool, Option<Pid>);
 
 fn serve_one(
     socket: &OwnedFd,
@@ -271,17 +339,18 @@ fn serve_one(
     run: &mut Run,
     settings: &Settings,
 ) -> Result<Served, String> {
-    if !request.discard {
-        if let Some(pooled) = run.pooled(request) {
-            let (outcome, worker) =
-                run_worker(socket, JOB_POOLED, packet, Some(&pooled), inline, settings)?;
-            if !outcome.mismatch {
-                return Ok((outcome, Some(pooled), true, worker));
+    if run.continues(request) {
+        let frame = run.stream.as_mut().map(|s| frame(s, packet, inline));
+        match frame {
+            Some(Ok((outcome, pooled))) if !outcome.mismatch => {
+                return Ok((outcome, Some(pooled), true, None));
             }
-            if !reaped(worker) {
-                return Err("the worker was killed by a signal".to_owned());
+            Some(Ok(_)) => run.end()?,
+            Some(Err(why)) => {
+                let _ = run.end();
+                return Err(why);
             }
-            run.end();
+            None => {}
         }
     }
     let reply = if request.discard {
@@ -289,9 +358,27 @@ fn serve_one(
     } else {
         Some(job::memory_file("vtium-image-reply").map_err(|e| format!("no reply file: {e}"))?)
     };
-    let (outcome, worker) =
-        run_worker(socket, JOB_FRESH, packet, reply.as_ref(), inline, settings)?;
-    Ok((outcome, reply, false, worker))
+    let (outcome, worker) = one_off(socket, packet, reply.as_ref(), inline, settings)?;
+    Ok((outcome, reply, false, Some(worker)))
+}
+
+/// The stream's next frame sent to its worker with the next pooled file;
+/// the outcome and the pooled file it wrote, or why the stream worker
+/// failed.
+fn frame(
+    stream: &mut Stream,
+    packet: &[u8],
+    inline: &[BorrowedFd<'_>],
+) -> Result<(Outcome, OwnedFd), String> {
+    let len = stream.pool.len();
+    let pooled = stream
+        .pool
+        .get(stream.next.checked_rem(len).unwrap_or(0))
+        .and_then(|fd| fd.try_clone().ok())
+        .ok_or("no pooled file")?;
+    stream.next = stream.next.wrapping_add(1);
+    let outcome = exchange(&stream.channel, JOB_POOLED, packet, Some(&pooled), inline)?;
+    Ok((outcome, pooled))
 }
 
 /// Reaps the worker; `false` when it was killed by a signal.
@@ -315,7 +402,7 @@ fn remove_shm(request: &Request, mut outcome: Outcome) -> Outcome {
         return outcome;
     };
     let path = Path::new(SHM_DIR).join(OsStr::from_bytes(bare));
-    if let Err(why) = files::remove_checked(&path, id) {
+    if let Err(why) = files::remove_checked(&path, id, files::me()) {
         outcome.reason = format!("shared memory not removed: {why}");
     }
     outcome
@@ -353,45 +440,59 @@ fn answer(
     channel::send(socket, &wire::encode_reply(&header), &fds)
 }
 
-/// Forks a worker for one request and returns its outcome and its pid, to
-/// reap once the reply is out, or why the helper must exit: the pair or
-/// the fork failed, or the worker ended without a well-formed outcome, as
-/// a worker killed by a signal does.
-fn run_worker(
-    socket: &OwnedFd,
-    pooled: u8,
-    packet: &[u8],
-    reply: Option<&OwnedFd>,
-    inline: &[BorrowedFd<'_>],
-    settings: &Settings,
-) -> Result<(Outcome, Pid), String> {
-    let (ours, theirs) = rustix::net::socketpair(
+/// A Unix socket pair of the sequenced-packet kind, for a worker's
+/// channel.
+fn pair() -> Result<(OwnedFd, OwnedFd), String> {
+    rustix::net::socketpair(
         AddressFamily::UNIX,
         SocketType::SEQPACKET,
         SocketFlags::CLOEXEC,
         None,
     )
-    .map_err(|e| format!("cannot make the worker's channel: {e}"))?;
+    .map_err(|e| format!("cannot make the worker's channel: {e}"))
+}
+
+/// Sends a worker on `channel` one job, the request `packet` behind its
+/// `kind`, with the reply file and the inline bytes' file, and returns its
+/// outcome.
+fn exchange(
+    channel: &OwnedFd,
+    kind: u8,
+    packet: &[u8],
+    reply: Option<&OwnedFd>,
+    inline: &[BorrowedFd<'_>],
+) -> Result<Outcome, String> {
+    let mut job = Vec::with_capacity(packet.len().saturating_add(1));
+    job.push(kind);
+    job.extend_from_slice(packet);
+    let mut handed: Vec<BorrowedFd<'_>> = reply.iter().map(|fd| fd.as_fd()).collect();
+    handed.extend_from_slice(inline);
+    channel::send(channel, &job, &handed)
+        .map_err(|e| format!("cannot send the worker its request: {e}"))?;
+    let got = channel::receive(channel, channel::OUTCOME_MAX)
+        .map_err(|e| format!("the worker gave no outcome: {e:?}"))?;
+    channel::decode_outcome(&got.bytes).ok_or_else(|| "a malformed outcome".to_owned())
+}
+
+/// Forks a one-off worker for one request and returns its outcome and its
+/// pid, to reap once the reply is out, or why the helper must exit: the
+/// pair or the fork failed, or the worker ended without a well-formed
+/// outcome, as a worker killed by a signal or one that found its sandbox
+/// wrong does.
+fn one_off(
+    socket: &OwnedFd,
+    packet: &[u8],
+    reply: Option<&OwnedFd>,
+    inline: &[BorrowedFd<'_>],
+    settings: &Settings,
+) -> Result<(Outcome, Pid), String> {
+    let (ours, theirs) = pair()?;
     let close = [socket.as_raw_fd(), ours.as_raw_fd()];
-    match fork(&close).map_err(|e| format!("cannot fork a worker: {e}"))? {
+    match fork::fork(&close).map_err(|e| format!("cannot fork a worker: {e}"))? {
         Forked::Child => std::process::exit(worker(&theirs, settings)),
         Forked::Parent(pid) => {
             drop(theirs);
-            let mut job = Vec::with_capacity(packet.len().saturating_add(1));
-            job.push(pooled);
-            job.extend_from_slice(packet);
-            let mut handed: Vec<BorrowedFd<'_>> = reply.iter().map(|fd| fd.as_fd()).collect();
-            handed.extend_from_slice(inline);
-            let sent = channel::send(&ours, &job, &handed);
-            let got = channel::receive(&ours, channel::OUTCOME_MAX);
-            let outcome = sent
-                .map_err(|e| format!("cannot send the worker its request: {e}"))
-                .and_then(|()| got.map_err(|e| format!("the worker gave no outcome: {e:?}")))
-                .and_then(|p| {
-                    channel::decode_outcome(&p.bytes)
-                        .ok_or_else(|| "a malformed outcome".to_owned())
-                });
-            match outcome {
+            match exchange(&ours, JOB_FRESH, packet, reply, inline) {
                 Ok(o) => Ok((o, pid)),
                 Err(why) => {
                     let _ = reaped(pid);
@@ -402,11 +503,50 @@ fn run_worker(
     }
 }
 
-/// A worker's life on `channel`: its second filter, then the one request
-/// it is sent carried out and answered. The exit status: 0 once the
-/// request is answered, 1 on a failure.
+/// A worker's first steps, before it reads anything: vtium's socket,
+/// descriptor 3, is closed in it, and it adds its second filter and then
+/// runs under one more seccomp filter than the helper. `false` when any
+/// of these is wrong, and the worker exits without an outcome.
+fn confined(settings: &Settings) -> bool {
+    if fork::is_open(SOCKET_FD) {
+        return false;
+    }
+    match settings.filter.install() {
+        Ok(true) => settings
+            .filters
+            .is_none_or(|n| sandbox::seccomp_filters() == n.checked_add(1)),
+        Ok(false) => true,
+        Err(_) => false,
+    }
+}
+
+/// The worker locks itself in: its landlock domain, or on a kernel
+/// without landlock its third filter. `false` when the kernel offers
+/// landlock and the worker is in no domain, or when a domain or the third
+/// filter is in force and the worker can still open a directory.
+fn locked(settings: &Settings) -> bool {
+    let Ok(landlocked) = sandbox::lock_in() else {
+        return false;
+    };
+    let no_open = if landlocked {
+        false
+    } else {
+        match settings.filter.install_no_open() {
+            Ok(installed) => installed,
+            Err(_) => return false,
+        }
+    };
+    if settings.landlock > 0 && !landlocked {
+        return false;
+    }
+    !((landlocked || no_open) && sandbox::can_open_root())
+}
+
+/// A one-off worker's life on `channel`: its sandbox checked, then the one
+/// request it is sent carried out and answered. The exit status: 0 once
+/// the request is answered, 1 on a failure.
 pub fn worker(channel: &OwnedFd, settings: &Settings) -> i32 {
-    if settings.filter.install().is_err() {
+    if !confined(settings) {
         return 1;
     }
     let packet = match channel::receive(channel, PACKET_MAX.saturating_add(1)) {
@@ -425,13 +565,12 @@ pub fn worker(channel: &OwnedFd, settings: &Settings) -> i32 {
     } else {
         match (kind, fds.next()) {
             (JOB_FRESH, Some(fd)) => Some(ReplyFile::Fresh(fd)),
-            (JOB_POOLED, Some(fd)) => Some(ReplyFile::Pooled(fd)),
             _ => return 1,
         }
     };
     let inline = fds.next();
     let source = job::open(&request, inline, settings.tmpdir.as_deref());
-    if sandbox::lock_in().is_err() {
+    if !locked(settings) {
         return 1;
     }
     let outcome = match source {
@@ -444,6 +583,42 @@ pub fn worker(channel: &OwnedFd, settings: &Settings) -> i32 {
     0
 }
 
+/// The stream worker's life on `channel`: its sandbox checked and locked
+/// in before it reads anything, then each frame it is sent written into
+/// the pooled file that comes with it and answered, until the helper
+/// closes the channel. The exit status: 0 when the channel closes, 1 on a
+/// failure, such as a job that is no inline frame with a pooled file.
+pub fn stream_worker(channel: &OwnedFd, settings: &Settings) -> i32 {
+    if !confined(settings) || !locked(settings) {
+        return 1;
+    }
+    loop {
+        let packet = match channel::receive(channel, PACKET_MAX.saturating_add(1)) {
+            Ok(p) => p,
+            Err(Received::Closed) => return 0,
+            Err(Received::Broken(_)) => return 1,
+        };
+        let Some((&JOB_POOLED, rest)) = packet.bytes.split_first() else {
+            return 1;
+        };
+        let Ok((_, request)) = wire::decode_request(rest) else {
+            return 1;
+        };
+        if Kind::of(&request).is_none() {
+            return 1;
+        }
+        let mut fds = packet.fds.into_iter();
+        let (Some(reply), Some(inline), None) = (fds.next(), fds.next(), fds.next()) else {
+            return 1;
+        };
+        let reply = ReplyFile::Pooled(reply);
+        let outcome = job::finish(&request, Source::Inline(inline), Some(&reply));
+        if channel::send(channel, &channel::encode_outcome(&outcome), &[]).is_err() {
+            return 1;
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -454,13 +629,13 @@ mod tests {
     use super::*;
     use vtium_image::decode::Description;
 
-    fn raw(medium: Medium, w: u32, h: u32) -> Request {
+    fn zlib(w: u32, h: u32) -> Request {
         Request {
-            medium,
+            medium: Medium::Direct(Vec::new()),
             offset: 0,
             max: 0,
             min: u64::from(w * h * 4),
-            inflate: false,
+            inflate: true,
             png: false,
             exact: false,
             discard: false,
@@ -470,7 +645,7 @@ mod tests {
                 alpha: Alpha::Straight,
                 width: w,
                 height: h,
-                compressed: false,
+                compressed: true,
             }),
             largest: (100, 100),
             largest_bytes: 1 << 20,
@@ -486,53 +661,67 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_starts_after_three_matching_requests_and_ends_on_another() {
-        let shm = raw(Medium::SharedMemory(b"f".to_vec()), 2, 2);
+    fn a_stream_starts_after_three_matching_inline_requests_and_a_mismatch_restarts_the_count() {
+        let frame = zlib(2, 2);
         let mut run = Run::default();
-        for n in 1..=STREAM_AFTER {
-            assert!(run.pooled(&shm).is_none(), "request {n} is no stream yet");
-            run.after(&shm, &picture(2, 2));
+        for n in 1..STREAM_AFTER {
+            assert!(!run.after(&frame, &picture(2, 2)).unwrap(), "request {n}");
         }
-        assert!(run.streaming());
-        // the pooled files alternate, each the stream's size
-        let a = run.pooled(&shm).unwrap();
-        let b = run.pooled(&shm).unwrap();
-        let ino = |fd: &OwnedFd| rustix::fs::fstat(fd).unwrap().st_ino;
-        assert_ne!(ino(&a), ino(&b));
-        assert_eq!(rustix::fs::fstat(&a).unwrap().st_size, 16);
-        assert_eq!(ino(&run.pooled(&shm).unwrap()), ino(&a));
-        // another size of raw pixels is no frame of it, and ends it
-        let other = raw(Medium::SharedMemory(b"f".to_vec()), 3, 2);
-        assert!(run.pooled(&other).is_none());
-        run.after(&other, &picture(3, 2));
-        assert!(!run.streaming());
-        // an outcome other than a picture ends a run too
-        for _ in 0..STREAM_AFTER {
-            run.after(&shm, &picture(2, 2));
-        }
-        assert!(run.streaming());
-        run.after(&shm, &Outcome::failed(Status::TooShort, ""));
-        assert!(!run.streaming());
+        assert!(
+            run.after(&frame, &picture(2, 2)).unwrap(),
+            "a stream starts"
+        );
+        // another size of raw pixels restarts the count, as does an outcome
+        // other than a picture
+        assert!(!run.after(&zlib(3, 2), &picture(3, 2)).unwrap());
+        assert_eq!(run.count, 1);
+        run.after(&frame, &Outcome::failed(Status::TooShort, ""))
+            .unwrap();
+        assert_eq!((run.count, run.last), (0, None));
     }
 
     #[test]
-    fn a_decoded_frame_counts_only_when_sent_inline() {
-        let png = |medium| Request {
-            png: true,
-            pixels: None,
-            min: 0,
-            ..raw(medium, 1, 1)
-        };
+    fn frames_from_files_and_shared_memory_never_make_a_stream() {
         let mut run = Run::default();
-        for _ in 0..STREAM_AFTER {
-            run.after(&png(Medium::File(b"/a.png".to_vec())), &picture(4, 4));
+        for medium in [
+            Medium::SharedMemory(b"f".to_vec()),
+            Medium::File(b"/a".to_vec()),
+            Medium::TempFile(b"/tmp/tty-graphics-protocol".to_vec()),
+        ] {
+            let r = Request {
+                medium,
+                inflate: false,
+                ..zlib(2, 2)
+            };
+            for _ in 0..STREAM_AFTER * 2 {
+                assert!(!run.after(&r, &picture(2, 2)).unwrap());
+            }
         }
-        assert!(!run.streaming(), "a file read twice could differ");
-        for _ in 0..STREAM_AFTER {
-            run.after(&png(Medium::Direct(Vec::new())), &picture(4, 4));
-        }
-        assert!(run.streaming());
-        let pooled = run.pooled(&png(Medium::Direct(Vec::new()))).unwrap();
+        let discard = Request {
+            discard: true,
+            ..zlib(2, 2)
+        };
+        assert_eq!(Kind::of(&discard), None);
+    }
+
+    #[test]
+    fn the_pool_is_bounded_by_the_request_that_started_the_stream() {
+        let r = zlib(2, 2);
+        assert_eq!(pool_len(&r, (2, 2)), Some(16));
+        // the size a worker reports is untrusted
+        assert_eq!(pool_len(&r, (101, 1)), None);
+        assert_eq!(pool_len(&r, (1, 101)), None);
+        assert_eq!(pool_len(&r, (0, 1)), None);
+        let poor = Request {
+            largest_bytes: 15,
+            ..r
+        };
+        assert_eq!(pool_len(&poor, (2, 2)), None);
+    }
+
+    #[test]
+    fn a_pooled_file_is_sealed_against_shrinking_and_growing_only() {
+        let pooled = pooled_file(64).unwrap();
         assert_eq!(rustix::fs::fstat(&pooled).unwrap().st_size, 64);
         let seals = rustix::fs::fcntl_get_seals(&pooled).unwrap();
         assert!(seals.contains(SealFlags::SHRINK | SealFlags::GROW));

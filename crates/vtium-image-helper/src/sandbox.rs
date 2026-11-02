@@ -68,6 +68,29 @@ pub fn lock_in() -> Result<bool, String> {
     Ok(status.ruleset != RulesetStatus::NotEnforced)
 }
 
+/// The seccomp filters the calling process runs under, from the
+/// `Seccomp_filters` line of `/proc/self/status`; `None` on a kernel that
+/// does not count them, before 5.9.
+pub fn seccomp_filters() -> Option<u32> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    status
+        .lines()
+        .find_map(|l| l.strip_prefix("Seccomp_filters:"))
+        .and_then(|n| n.trim().parse().ok())
+}
+
+/// Whether the calling process can still open a directory: `false` once
+/// a landlock domain or the third filter is in force.
+pub fn can_open_root() -> bool {
+    use rustix::fs::{Mode, OFlags};
+    rustix::fs::open(
+        "/",
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .is_ok()
+}
+
 /// Whether this build installs a seccomp filter.
 pub const SECCOMP: bool = cfg!(any(
     target_arch = "x86_64",

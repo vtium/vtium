@@ -76,7 +76,7 @@ pub fn open(
             let (opened, _) = files::open_file(name, temp, tmpdir).map_err(Failure::unreadable)?;
             if temp {
                 // a failure to remove leaves the file and changes no reply
-                let _ = files::remove_checked(&opened.resolved, opened.id);
+                let _ = files::remove_checked(&opened.resolved, opened.id, files::me());
             }
             Ok(Source::Opened(opened))
         }
@@ -90,10 +90,12 @@ pub fn open(
 fn discard(request: &Request, tmpdir: Option<&Path>) -> String {
     match &request.medium {
         Medium::TempFile(name) => match files::open_file(name, false, tmpdir) {
-            Ok((opened, true)) => match files::remove_checked(&opened.resolved, opened.id) {
-                Ok(()) => format!("discarded {}", opened.resolved.display()),
-                Err(why) => format!("not removed: {why}"),
-            },
+            Ok((opened, true)) => {
+                match files::remove_checked(&opened.resolved, opened.id, files::me()) {
+                    Ok(()) => format!("discarded {}", opened.resolved.display()),
+                    Err(why) => format!("not removed: {why}"),
+                }
+            }
             Ok((opened, false)) => format!(
                 "not removed, not a temporary file: {}",
                 opened.resolved.display()
@@ -440,9 +442,17 @@ mod tests {
 
     #[test]
     fn a_shared_memory_picture_reports_the_object_it_came_from() {
+        /// The object, removed when the test ends, whether it passes or
+        /// panics.
+        struct Object(std::path::PathBuf);
+        impl Drop for Object {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
         let name = format!("vtium-image-helper-test-{}", std::process::id());
-        let path = Path::new("/dev/shm").join(&name);
-        std::fs::write(&path, [1, 2, 3, 4, 5, 6]).unwrap();
+        let object = Object(Path::new("/dev/shm").join(&name));
+        std::fs::write(&object.0, [1, 2, 3, 4, 5, 6]).unwrap();
         let r = raw(
             Medium::SharedMemory(name.clone().into_bytes()),
             Layout::Rgb,
@@ -466,6 +476,5 @@ mod tests {
             Some(&ReplyFile::Fresh(memory_file("r").unwrap())),
         );
         assert_eq!((o.status, o.shm), (Status::TooShort, None));
-        let _ = std::fs::remove_file(&path);
     }
 }

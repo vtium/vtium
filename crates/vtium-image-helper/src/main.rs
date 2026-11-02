@@ -31,12 +31,17 @@ fn settings(args: &[std::ffi::OsString]) -> Result<Settings, ()> {
         .and_then(|d| std::fs::canonicalize(d).ok())
         .filter(|d| d != Path::new("/"));
     let filter = sandbox::WorkerFilter::build().map_err(|_| ())?;
-    Ok(Settings { tmpdir, filter })
+    Ok(Settings {
+        tmpdir,
+        filter,
+        landlock: 0,
+        filters: None,
+    })
 }
 
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let Ok(settings) = settings(&args) else {
+    let Ok(mut settings) = settings(&args) else {
         return ExitCode::from(2);
     };
     let Some(socket) = fork::socket() else {
@@ -46,9 +51,18 @@ fn main() -> ExitCode {
         return ExitCode::from(4);
     }
     let landlock = sandbox::landlock_version();
+    let before = sandbox::seccomp_filters();
     let Ok(seccomp) = sandbox::install_helper_filter() else {
         return ExitCode::from(4);
     };
+    // the helper's own filter is in force where the kernel counts filters,
+    // and each worker must then run under one more
+    let filters = sandbox::seccomp_filters().filter(|_| seccomp);
+    if filters.is_some() && filters != before.and_then(|n| n.checked_add(1)) {
+        return ExitCode::from(4);
+    }
+    settings.landlock = landlock;
+    settings.filters = filters;
     let hello = Hello {
         version: wire::VERSION,
         landlock,

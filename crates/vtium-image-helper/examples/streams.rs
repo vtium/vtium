@@ -1,6 +1,7 @@
-//! The measurement ADR-1101 D4 asks for before any way of serving a stream
-//! is built past the first: the time a frame takes, for each way, on real
-//! frames, at 1366x768 and 7680x2160.
+//! The measurement ADR-1101 D4 records, from which the maintainer chose
+//! the long-lived stream worker for inline frames: the time a frame takes,
+//! for each way of serving a stream, on real frames, at 1366x768 and
+//! 7680x2160.
 //!
 //! 1. A fresh worker and a fresh reply file for each frame.
 //! 2. A fresh worker for each frame, writing into a reply file from a pool

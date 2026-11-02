@@ -1,6 +1,7 @@
 //! The one module of the helper that holds `unsafe` (ADR-1101 D1), which a
 //! reviewer of any change to it audits line by line: taking the socket
-//! vtium put on descriptor 3, and forking a worker.
+//! vtium put on descriptor 3, asking whether a descriptor is open, and
+//! forking a worker.
 //!
 //! Every Rust binding of `fork` is `unsafe`, since a child forked from a
 //! process with threads may call only what is safe after a fork. The
@@ -25,14 +26,7 @@ pub enum Forked {
 /// The socket vtium put on descriptor 3, or `None` when descriptor 3 is
 /// not open or is no socket.
 pub fn socket() -> Option<OwnedFd> {
-    #[expect(
-        unsafe_code,
-        reason = "fcntl(2) on a descriptor number this process may not hold"
-    )]
-    // SAFETY: F_GETFD reads the descriptor's flags and touches no memory;
-    // a number that is not open answers EBADF.
-    let open = unsafe { libc::fcntl(SOCKET_FD, libc::F_GETFD) } >= 0;
-    if !open {
+    if !is_open(SOCKET_FD) {
         return None;
     }
     #[expect(
@@ -46,6 +40,18 @@ pub fn socket() -> Option<OwnedFd> {
     let fd = unsafe { OwnedFd::from_raw_fd(SOCKET_FD) };
     let st = rustix::fs::fstat(&fd).ok()?;
     (FileType::from_raw_mode(st.st_mode) == FileType::Socket).then_some(fd)
+}
+
+/// Whether descriptor `fd` is open in this process.
+pub fn is_open(fd: RawFd) -> bool {
+    #[expect(
+        unsafe_code,
+        reason = "fcntl(2) on a descriptor number this process may not hold"
+    )]
+    // SAFETY: F_GETFD reads the descriptor's flags and touches no memory;
+    // a number that is not open answers EBADF.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    flags >= 0
 }
 
 /// Whether this process has one thread, as [`fork`] requires: the

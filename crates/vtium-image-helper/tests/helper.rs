@@ -29,14 +29,42 @@ fn session() -> Session {
     }
 }
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
-        "vtium-image-helper-gate-{}-{name}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// The files and directories a test makes outside its own memory, in
+/// `/dev/shm`, the temporary directory and the build's, removed when the
+/// test ends, whether it passes or panics.
+#[derive(Default)]
+struct Leftovers(Vec<PathBuf>);
+
+impl Leftovers {
+    /// `path`, to be removed when the test ends.
+    fn add(&mut self, path: PathBuf) -> PathBuf {
+        self.0.push(path.clone());
+        path
+    }
+
+    /// A new directory of this test's own under the build's temporary
+    /// directory.
+    fn dir(&mut self, name: &str) -> PathBuf {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+            "vtium-image-helper-gate-{}-{name}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        self.add(dir)
+    }
+}
+
+impl Drop for Leftovers {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            if path.is_dir() {
+                let _ = std::fs::remove_dir_all(path);
+            } else {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
 }
 
 /// A request the kitty handler could make, its bounds wide.
@@ -123,7 +151,8 @@ const PREMULTIPLIED: [u8; 8] = [0xff, 0x80, 0, 0xff, 0x80, 0x80, 0x80, 0x80];
 // covers: image.helper
 #[test]
 fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
-    let dir = scratch("kinds");
+    let mut leftovers = Leftovers::default();
+    let dir = leftovers.dir("kinds");
     let mut host = ImageHost::new(Some(program()), None);
 
     // inline raw pixels with zlib, converted and premultiplied
@@ -191,8 +220,9 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
     assert_eq!(picture(ask(&mut host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
 
     // a temporary file is read and removed
-    let temp =
-        std::env::temp_dir().join(format!("tty-graphics-protocol-gate-{}", std::process::id()));
+    let temp = leftovers.add(
+        std::env::temp_dir().join(format!("tty-graphics-protocol-gate-{}", std::process::id())),
+    );
     std::fs::write(&temp, &file).unwrap();
     let r = Request {
         png: true,
@@ -203,7 +233,7 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
 
     // shared memory: a valid picture removes the object, a short one stays
     let name = format!("vtium-image-gate-{}", std::process::id());
-    let shm = Path::new("/dev/shm").join(&name);
+    let shm = leftovers.add(Path::new("/dev/shm").join(&name));
     std::fs::write(&shm, [1, 2, 3, 4, 5, 6]).unwrap();
     let short = raw(
         Medium::SharedMemory(name.clone().into_bytes()),
@@ -241,7 +271,6 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
     };
     assert_eq!(ask(&mut host, &discard), Reply::Ok(Payload::Discarded));
     assert!(shm.exists());
-    let _ = std::fs::remove_file(&shm);
 
     // refused paths: a symlink into /proc, a FIFO, a name escaping /dev/shm
     let link = dir.join("status");
@@ -279,10 +308,12 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
     );
     assert_eq!(ask(&mut host, &escape), Reply::Unreadable);
 
-    // every request above went to one helper, which never crashed
+    // every request above went to one helper, which never crashed: each
+    // worker found its sandbox as it should be, vtium's socket closed, one
+    // more seccomp filter than the helper and, where the kernel offers
+    // landlock, a domain it cannot open a directory through
     assert_eq!(host.crashes(), 0);
     assert!(host.pid().is_some());
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The pooled reply files the running helper holds open: the distinct
@@ -303,13 +334,37 @@ fn pools(host: &ImageHost) -> usize {
     inodes.len()
 }
 
+/// The running helper's children: its workers not yet reaped.
+fn workers(host: &ImageHost) -> Vec<u32> {
+    let helper = host.pid().unwrap();
+    std::fs::read_dir("/proc")
+        .unwrap()
+        .filter_map(|e| {
+            let pid: u32 = e.ok()?.file_name().to_str()?.parse().ok()?;
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+            // the parent's pid is the second field after the name
+            let ppid: u32 = stat
+                .rsplit_once(')')?
+                .1
+                .split_whitespace()
+                .nth(1)?
+                .parse()
+                .ok()?;
+            (ppid == helper).then_some(pid)
+        })
+        .collect()
+}
+
 // covers: image.helper
 #[test]
-fn a_stream_of_frames_is_served_from_pooled_files_and_a_new_size_ends_it() {
+fn a_stream_of_inline_frames_has_one_worker_and_a_new_size_ends_it() {
+    let mut leftovers = Leftovers::default();
     let mut host = ImageHost::new(Some(program()), None);
+    // frames from shared memory never make a stream: each has a fresh
+    // worker and a fresh reply file
     let name = format!("vtium-image-stream-{}", std::process::id());
-    let shm = Path::new("/dev/shm").join(&name);
-    for n in 0..6u8 {
+    let shm = leftovers.add(Path::new("/dev/shm").join(&name));
+    for n in 0..5u8 {
         std::fs::write(&shm, [n, 2, 3, 0xff, 4, 5, 6, 0xff]).unwrap();
         let r = raw(
             Medium::SharedMemory(name.clone().into_bytes()),
@@ -324,26 +379,40 @@ fn a_stream_of_frames_is_served_from_pooled_files_and_a_new_size_ends_it() {
             "frame {n}"
         );
         assert!(!shm.exists(), "frame {n}'s object is removed");
-        let pools = pools(&host);
-        let want = if n + 1 >= 3 { 2 } else { 0 };
-        assert_eq!(pools, want, "after frame {n}");
+        assert_eq!(pools(&host), 0, "after frame {n}");
     }
-    // inline PNG frames, then one that decodes to another size
-    let frames = [
-        png(2, 1, &STRAIGHT),
-        png(2, 1, &STRAIGHT),
-        png(2, 1, &STRAIGHT),
-        png(2, 1, &STRAIGHT),
-    ];
-    for file in &frames {
-        let r = Request {
-            png: true,
-            ..base(Medium::Direct(file.clone()))
-        };
-        assert_eq!(picture(ask(&mut host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
+    // inline PNG frames: from the fourth, one stream worker serves them
+    let frame = Request {
+        png: true,
+        ..base(Medium::Direct(png(2, 1, &STRAIGHT)))
+    };
+    let mut stream_worker = None;
+    for n in 1..=6 {
+        assert_eq!(
+            picture(ask(&mut host, &frame)),
+            (2, 1, PREMULTIPLIED.to_vec()),
+            "frame {n}"
+        );
+        // the stream starts once the third frame's reply is out, and the
+        // fourth request is read only once it has
+        if n < 3 {
+            assert_eq!(pools(&host), 0, "after frame {n}");
+        }
+        if n > 3 {
+            assert_eq!(pools(&host), 2, "after frame {n}");
+            let now = workers(&host);
+            assert_eq!(now.len(), 1, "the stream worker alone, after frame {n}");
+            assert_eq!(
+                *stream_worker.get_or_insert(now[0]),
+                now[0],
+                "one worker for the whole stream"
+            );
+        }
     }
-    // a frame of more bytes than the stream's does not fit its pooled
-    // file, so it runs again as a one-off with a fresh one
+    let stream_worker = stream_worker.unwrap();
+    // a frame that decodes to more bytes than the stream's does not fit
+    // its pooled file, so the stream ends and the frame runs again as a
+    // one-off with a fresh file
     let four = [STRAIGHT, STRAIGHT].concat();
     let r = Request {
         png: true,
@@ -355,10 +424,26 @@ fn a_stream_of_frames_is_served_from_pooled_files_and_a_new_size_ends_it() {
         (2, 2, both),
         "run again as a one-off"
     );
-    let pools = pools(&host);
-    assert_eq!(pools, 0, "the stream ended");
+    assert_eq!(pools(&host), 0, "the stream ended");
+    assert!(
+        !workers(&host).contains(&stream_worker),
+        "the stream worker is reaped"
+    );
+    // inline zlib frames make a stream too, and a request of another kind
+    // ends it before it is served
+    let z = miniz_oxide::deflate::compress_to_vec_zlib(&STRAIGHT, 6);
+    let zlib = raw(Medium::Direct(z), Layout::Rgba, 2, 1, true);
+    for n in 1..=4 {
+        assert_eq!(
+            picture(ask(&mut host, &zlib)),
+            (2, 1, PREMULTIPLIED.to_vec()),
+            "zlib frame {n}"
+        );
+    }
+    assert_eq!(pools(&host), 2);
+    assert_eq!(picture(ask(&mut host, &frame)).0, 2);
+    assert_eq!(pools(&host), 0, "a PNG frame ends a zlib stream");
     assert_eq!(host.crashes(), 0);
-    let _ = std::fs::remove_file(&shm);
 }
 
 #[test]

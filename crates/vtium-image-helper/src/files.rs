@@ -250,10 +250,11 @@ pub fn open_shm(name: &[u8]) -> Result<Opened, String> {
 
 /// Removes the checked file at `resolved`, whose identity is `id`: only
 /// the entry with that device and inode, in a parent directory reached
-/// with no symlink, and only when this process's own account owns it. A
-/// root helper ignores the sticky bit of `/tmp` and `/dev/shm`, so without
-/// the owner check it could be made to remove another user's file.
-pub fn remove_checked(resolved: &Path, id: Identity) -> Result<(), String> {
+/// with no symlink, and only when `owner` owns it, the helper's own
+/// account, which [`me`] gives. A root helper ignores the sticky bit of
+/// `/tmp` and `/dev/shm`, so without the owner check it could be made to
+/// remove another user's file.
+pub fn remove_checked(resolved: &Path, id: Identity, owner: u32) -> Result<(), String> {
     let (Some(parent), Some(base)) = (resolved.parent(), resolved.file_name()) else {
         return Err(format!("no file name in {}", resolved.display()));
     };
@@ -275,16 +276,20 @@ pub fn remove_checked(resolved: &Path, id: Identity) -> Result<(), String> {
     if !same {
         return Err(format!("{} is no longer the file read", resolved.display()));
     }
-    let me = rustix::process::geteuid().as_raw();
-    if entry.st_uid != me {
+    if entry.st_uid != owner {
         return Err(format!(
-            "{} belongs to uid {}, not the helper's {me}",
+            "{} belongs to uid {}, not the helper's {owner}",
             resolved.display(),
             entry.st_uid
         ));
     }
     rustix::fs::unlinkat(&dir, base, AtFlags::empty())
         .map_err(|e| format!("cannot remove {}: {e}", resolved.display()))
+}
+
+/// The helper's own account, which owns every file it may remove.
+pub fn me() -> u32 {
+    rustix::process::geteuid().as_raw()
 }
 
 #[cfg(test)]
@@ -335,19 +340,30 @@ mod tests {
         assert!(shm_name(&[b'a'; SHM_NAME_MAX + 1]).is_none());
     }
 
-    fn scratch(name: &str) -> PathBuf {
+    /// A test's own directory in the temporary directory, removed when
+    /// the test ends, whether it passes or panics.
+    struct Scratch(PathBuf);
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
         let dir = std::env::temp_dir().join(format!(
             "vtium-image-helper-files-{}-{name}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        Scratch(dir)
     }
 
     #[test]
     fn a_symlink_into_a_refused_place_a_fifo_and_a_directory_are_refused() {
-        let dir = scratch("refusals");
+        let scratch = scratch("refusals");
+        let dir = &scratch.0;
         let link = dir.join("mem");
         std::os::unix::fs::symlink("/proc/self/status", &link).unwrap();
         let why = open_file(link.as_os_str().as_bytes(), false, None).unwrap_err();
@@ -365,24 +381,28 @@ mod tests {
         assert!(!temp, "{} is no temporary file", file.display());
         let why = open_file(file.as_os_str().as_bytes(), true, None).unwrap_err();
         assert!(why.contains("not a temporary file"), "{why}");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_removal_takes_only_the_file_that_was_read() {
-        let dir = scratch("removal");
+        let scratch = scratch("removal");
+        let dir = &scratch.0;
         let file = dir.join("a");
         std::fs::write(&file, b"x").unwrap();
         let (opened, _) = open_file(file.as_os_str().as_bytes(), false, None).unwrap();
         // another file put in its place stays
         std::fs::remove_file(&file).unwrap();
         std::fs::write(&file, b"y").unwrap();
-        let why = remove_checked(&opened.resolved, opened.id).unwrap_err();
+        let why = remove_checked(&opened.resolved, opened.id, me()).unwrap_err();
         assert!(why.contains("no longer the file read"), "{why}");
         assert!(file.exists());
         let (opened, _) = open_file(file.as_os_str().as_bytes(), false, None).unwrap();
-        remove_checked(&opened.resolved, opened.id).unwrap();
+        // a file another account owns stays, as a root helper's would
+        let other = me().wrapping_add(1);
+        let why = remove_checked(&opened.resolved, opened.id, other).unwrap_err();
+        assert!(why.contains(&format!("not the helper's {other}")), "{why}");
+        assert!(file.exists());
+        remove_checked(&opened.resolved, opened.id, me()).unwrap();
         assert!(!file.exists());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
