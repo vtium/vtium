@@ -21,7 +21,9 @@ use vtium_parse::Chunk;
 
 use super::Kitty;
 use crate::IMAGE_OVERHEAD;
-use crate::decode::{Alpha, Description, Layout, Medium, Payload, Reply, Request};
+use crate::decode::{
+    Alpha, Description, Layout, Medium, Payload, Reply, ReplyFile, ReplySource, Request,
+};
 use crate::handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
 use crate::image::LineKey;
 use crate::store::{Edit, Rows, Screens, Store};
@@ -1362,4 +1364,55 @@ fn a_virtual_placement_is_stored_on_no_line_and_only_a_delete_by_image_takes_it(
     send(&mut k, &mut h, "a=d,d=i,i=1,p=7");
     assert_eq!(h.store.placement_count(), 0);
     assert_eq!(h.store.image_count(), 1, "image 1 stays; image 2 went");
+}
+
+/// A helper's reply file that holds `held` bytes of opaque red but says it
+/// holds what the picture needs, as a lying or truncated file would.
+#[derive(Debug)]
+struct Lying {
+    held: usize,
+    says: u64,
+}
+
+impl ReplySource for Lying {
+    fn bytes(&self) -> u64 {
+        self.says
+    }
+
+    fn read(&self, sink: &mut dyn FnMut(&[u8])) -> bool {
+        sink(&[0xff, 0, 0, 0xff].repeat(self.held / 4));
+        true
+    }
+}
+
+// covers: image.kitty
+#[test]
+fn a_reply_file_too_short_or_too_long_is_ebadf_and_gives_its_bytes_back() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    for (id, held) in [(1, 12), (2, 20)] {
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=t,t=f,f=32,s=2,v=2,i={id};{}", b64(b"/x")),
+        );
+        assert_eq!(h.requests.len(), 1);
+        h.requests.clear();
+        let file = ReplyFile::new(Lying { held, says: 16 });
+        k.decoded(
+            &mut h,
+            Reply::Ok(Payload::File {
+                width: 2,
+                height: 2,
+                file,
+            }),
+        );
+        assert_eq!(
+            h.take(),
+            format!("\x1b_Gi={id};EBADF:Failed to read image file\x1b\\"),
+            "{held} bytes"
+        );
+        assert_eq!(h.store.image_count(), 0);
+        assert_eq!(h.store.bytes(), 0, "the budget is whole again");
+    }
 }

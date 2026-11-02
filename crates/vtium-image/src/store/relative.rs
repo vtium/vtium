@@ -256,6 +256,20 @@ impl Buffer {
     }
 }
 
+impl Buffer {
+    /// The most rows any relative placement starts above the line its root
+    /// is anchored on, 0 when none does.
+    pub(super) fn reach_below(&self) -> usize {
+        let mut most = 0i64;
+        for &k in self.children.values().flatten() {
+            if let Some(Located::At { row, .. }) = self.locate(k) {
+                most = most.max(row.saturating_neg());
+            }
+        }
+        usize::try_from(most).unwrap_or(usize::MAX)
+    }
+}
+
 impl Store {
     /// The parent a relative placement names in buffer `b`: the placement
     /// of the image of kitty id `id` whose placement id is `placement`, or

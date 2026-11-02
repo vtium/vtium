@@ -72,8 +72,33 @@ impl Store {
     /// placement draws where its parent's origin and its offset put it,
     /// cut at the screen's left edge, and draws nothing while it follows a
     /// virtual placement (D13); a virtual placement draws nothing itself.
-    /// A drawn frame moves no clock.
+    /// A drawn frame moves no clock. A relative placement whose root lies
+    /// below the view, and which starts above its root, draws only through
+    /// [`frame_with_below`](Self::frame_with_below).
     pub fn frame(&self, view: Rows<'_>, cols: usize) -> Vec<FramePlacement> {
+        self.frame_with_below(view, &[], cols)
+    }
+
+    /// The lines below the view's bottom a frame of the buffer in use must
+    /// be given: the most rows any relative placement starts above the line
+    /// its root is anchored on, so that a child whose root has scrolled out
+    /// below a view moved back into the scrollback still draws.
+    pub fn reach_below(&self) -> usize {
+        self.buffers
+            .get(self.active())
+            .map_or(0, super::Buffer::reach_below)
+    }
+
+    /// [`frame`](Self::frame), given also `below`, the lines below the
+    /// view's bottom, top to bottom, as many as
+    /// [`reach_below`](Self::reach_below): a relative placement whose root
+    /// is anchored on one of them draws where its box reaches the view.
+    pub fn frame_with_below(
+        &self,
+        view: Rows<'_>,
+        below: &[LineKey],
+        cols: usize,
+    ) -> Vec<FramePlacement> {
         let Some(buf) = self.buffers.get(self.active()) else {
             return Vec::new();
         };
@@ -106,6 +131,11 @@ impl Store {
             }
         }
         let height = i64::try_from(view.screen.len()).unwrap_or(i64::MAX);
+        if !buf.children.is_empty() {
+            for (line, row) in below.iter().zip(height..) {
+                line_rows.insert(*line, row);
+            }
+        }
         let width = i64::try_from(cols).unwrap_or(i64::MAX);
         let mut moved: BTreeMap<PlacementKey, (Placement, u64)> = BTreeMap::new();
         for &k in buf.children.values().flatten() {

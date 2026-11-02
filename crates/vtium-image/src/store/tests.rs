@@ -1629,3 +1629,41 @@ fn an_image_shown_only_by_a_virtual_placement_is_evicted_as_one_on_the_screen() 
     assert!(s.image(MAIN, shown).is_some());
     assert!(s.image(MAIN, scrolled).is_none());
 }
+
+// covers: image.kitty-relative
+#[test]
+fn a_child_above_a_parent_below_the_view_draws_from_the_lines_below() {
+    // two scrollback lines, 20 and 21, above a screen of six, 0 to 5
+    let f = Fake::new(6);
+    let mut s = store(1 << 30);
+    let parent = add(&mut s, &f, Protocol::KITTY, 8, 16, 1);
+    let child = add(&mut s, &f, Protocol::KITTY, 8, 16, 2);
+    let place = Place {
+        row: 5,
+        id: 1,
+        ..Place::default()
+    };
+    s.place(parent, place, f.screens(), COLS).unwrap();
+    let up = Link::Parent {
+        image: 1,
+        placement: 1,
+        cols: 1,
+        rows: -3,
+    };
+    link(&mut s, &f, child, up, (0, 0), 1);
+    assert_eq!(s.reach_below(), 3);
+    // the view scrolled back two rows shows lines 20, 21 and 0 to 3, and
+    // the parent's line 5 lies below it
+    let view: Vec<LineKey> = [20, 21, 0, 1, 2, 3].map(LineKey::new).to_vec();
+    let below: Vec<LineKey> = [4, 5].map(LineKey::new).to_vec();
+    let rows = Rows {
+        screen: &view,
+        above: &[],
+    };
+    let drawn: Vec<(i64, u32)> = s
+        .frame_with_below(rows, &below, COLS)
+        .iter()
+        .map(|p| (p.row, p.col))
+        .collect();
+    assert_eq!(drawn, [(4, 1)], "the child on line 2, the view's row 4");
+}
