@@ -99,7 +99,7 @@ header() {
 	[ -z "$note" ] || printf '# %s\n' "$note"
 }
 # body FILE: the shipped unit from its first section on, without the opening
-# comment that names the C reference's units.
+# comment that describes the shipped source.
 body() { awk 'started || /^\[/ { started = 1; print }' "$1"; }
 
 tmp=$(mktemp -d) || die "cannot create a scratch directory"
@@ -124,12 +124,31 @@ done
 	cat <<EOF
 # vtium on one VT of seat0, in place of its getty. The instance is the VT's
 # name, as getty@.service's is, and the unit is enabled one VT at a time,
-# naming the VT:
+# naming the VT.
+EOF
+	# The packaged vtium's unit is given its VTs by vtium console, which
+	# manages vtium@ alone (ADR-1500 D7); the development install's is
+	# enabled by make vt-install.
+	if [ "$name" = vtium ]; then
+		cat <<EOF
+# To give vtium a VT, or every VT that logind spawns:
+#   vtium console enable 3
+#   vtium console enable --all
+# The first enables vtium@tty3.service, which also links autovt@tty3.service
+# here, so logind starts vtium on that VT. The way back:
+#   vtium console disable 3
+#   vtium console disable --all
+EOF
+	else
+		cat <<EOF
 #   systemctl enable $name@tty3.service
 # That also links autovt@tty3.service here, so logind starts vtium on that
-# VT. Enabling $name@.service with no VT named fails and links nothing,
-# because its DefaultInstance= names no VT; running vtium on every VT that
-# logind spawns is a separate step, taken by hand.
+# VT.
+EOF
+	fi
+	cat <<EOF
+# Enabling $name@.service with no VT named fails and links nothing, because
+# its DefaultInstance= names no VT.
 # It conflicts with getty@ on the same VT. When vtium fails, its OnFailure=
 # starts $name-getty@, which starts getty@ on the VT unless the head file's
 # policy is closed (ADR-1401 D9), and a Restart= line, where the unit has
@@ -141,8 +160,7 @@ EOF
 	# awk puts a Conflicts= and an After= line for each --conflicts unit,
 	# which reach it through the environment, just above OnFailure=, and
 	# puts the refused DefaultInstance= in place of the shipped one, at the
-	# end of [Install], the unit's last section. The AUR recipes make the
-	# same changes in the same places.
+	# end of [Install], the unit's last section.
 	sed -e "s|^ExecStart=/usr/bin/vtium |ExecStart=$exec_path |" \
 		-e "s|^OnFailure=vtium-getty@%i\\.service\$|OnFailure=$name-getty@%i.service|" \
 		-e '/^DefaultInstance=/d' <(body "$src/vtium@.service") |

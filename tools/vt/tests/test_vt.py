@@ -2472,8 +2472,22 @@ class Package(Case):
                              and "kmsconvt@%i.service" not in l]
                     self.assertEqual(stray, [], f)
                 unit = read(os.path.join(out, f"{name}@.service"))
-                self.assertIn(f"#   systemctl enable {name}@tty3.service", unit)
-                self.assertIn(f"{name}-getty@", unit.split("[Unit]")[0])
+                comment = unit.split("[Unit]")[0]
+                # The packaged unit names the vtium console verbs, which
+                # manage vtium@ alone; the development unit names the
+                # systemctl enable that make vt-install runs.
+                verbs = ["#   vtium console enable 3", "#   vtium console enable --all",
+                         "#   vtium console disable 3", "#   vtium console disable --all"]
+                if name == "vtium":
+                    for v in verbs:
+                        self.assertIn(v + "\n", comment)
+                    self.assertNotIn("systemctl enable", comment)
+                else:
+                    self.assertIn(f"#   systemctl enable {name}@tty3.service\n", comment)
+                    self.assertNotIn("vtium console", comment)
+                self.assertIn(f"# Enabling {name}@.service with no VT named fails and links nothing", comment)
+                self.assertNotIn("by hand", comment)
+                self.assertIn(f"{name}-getty@", comment)
 
     def test_units_refuses_a_name_or_a_path_it_cannot_put_in_a_unit(self):
         for args, why in ((["--name", "Vtium", "--exec", "/usr/bin/vtium"], "is not a unit name"),
