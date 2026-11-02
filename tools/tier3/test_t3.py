@@ -3611,13 +3611,18 @@ class HeadsTest(unittest.TestCase):
                     for line in map(str.strip, text.splitlines())
                     if line and line[0] not in "#;" and "=" in line]
         self.assertEqual([v for k, v in settings if k == "Restart"], ["on-failure"])
-        # StartLimitInterval= is the older spelling of StartLimitIntervalSec=,
-        # which systemd still reads in [Unit] and [Service]
-        for key in ("RestartSec", "RestartMode", "RestartSteps", "RestartMaxDelaySec",
-                    "StartLimitIntervalSec", "StartLimitInterval", "StartLimitBurst",
-                    "StartLimitAction"):
+        # No other key that changes when or how often systemd restarts it:
+        # every Restart*= but Restart= itself (RestartSec=, RestartMode=,
+        # RestartSteps=, RestartMaxDelaySec=, RestartPreventExitStatus=,
+        # RestartForceExitStatus=), every StartLimit*= (StartLimitInterval=
+        # is the older spelling of StartLimitIntervalSec=, which systemd
+        # still reads), and every *ExitStatus=, as SuccessExitStatus= turns a
+        # failure into a success that starts nothing.
+        for key in (k for k, _ in settings):
             with self.subTest(key):
-                self.assertNotIn(key, [k for k, _ in settings])
+                self.assertFalse(key.startswith("Restart") and key != "Restart", key)
+                self.assertFalse(key.startswith("StartLimit"), key)
+                self.assertFalse(key.endswith("ExitStatus"), key)
 
     def test_held_and_exit(self):
         first = t3_heads.parse_state(agent_state(pid=(400, 1.0)))
