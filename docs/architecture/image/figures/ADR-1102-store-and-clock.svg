@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="380" viewBox="0 0 1000 380" font-family="DejaVu Sans, sans-serif">
+<title>The store records an animation's commands; the clock in the binary picks the frame on show</title>
+<rect width="1000" height="380" fill="#ffffff"/>
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#52606d"/></marker></defs>
+<text x="20" y="28" font-size="15" text-anchor="start" fill="#1f2933" font-weight="bold">The store records commands; the animation clock in the binary picks the frame on show</text>
+<line x1="200" y1="330" x2="960" y2="330" stroke="#52606d" stroke-width="1.2" marker-end="url(#ah)"/>
+<text x="960" y="350" font-size="11" text-anchor="end" fill="#52606d" font-weight="normal">time</text>
+<text x="20" y="82" font-size="12" text-anchor="start" fill="#1f2933" font-weight="bold">the stream</text>
+<text x="20" y="98" font-size="11" text-anchor="start" fill="#52606d" font-weight="normal">(bytes, in order)</text>
+<text x="20" y="162" font-size="12" text-anchor="start" fill="#1f2933" font-weight="bold">the store</text>
+<text x="20" y="178" font-size="11" text-anchor="start" fill="#52606d" font-weight="normal">(follows the bytes)</text>
+<text x="20" y="252" font-size="12" text-anchor="start" fill="#1f2933" font-weight="bold">the clock</text>
+<text x="20" y="268" font-size="11" text-anchor="start" fill="#52606d" font-weight="normal">(binary; reads the time)</text>
+<line x1="200.0" y1="60" x2="200.0" y2="330" stroke="#9aa5b1" stroke-dasharray="3 3"/>
+<rect x="204.0" y="62" width="150" height="40" rx="4" fill="#fbecd0" stroke="#d97706"/>
+<text x="210.0" y="79" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">a=f: frames 2 and 3,</text>
+<text x="210.0" y="95" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">gap 40 ms each</text>
+<line x1="361.5" y1="60" x2="361.5" y2="330" stroke="#9aa5b1" stroke-dasharray="3 3"/>
+<rect x="365.5" y="62" width="150" height="40" rx="4" fill="#fbecd0" stroke="#d97706"/>
+<text x="371.5" y="79" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">a=a, s=3:</text>
+<text x="371.5" y="95" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">run and loop</text>
+<line x1="741.5" y1="60" x2="741.5" y2="330" stroke="#9aa5b1" stroke-dasharray="3 3"/>
+<rect x="745.5" y="62" width="150" height="40" rx="4" fill="#fbecd0" stroke="#d97706"/>
+<text x="751.5" y="79" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">a=a, s=1:</text>
+<text x="751.5" y="95" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">stop</text>
+<rect x="202.0" y="142" width="157.5" height="40" rx="4" fill="#dbe7f6" stroke="#2d7d9a"/>
+<text x="208.0" y="166" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">3 frames, stopped</text>
+<rect x="363.5" y="142" width="376.0" height="40" rx="4" fill="#dbe7f6" stroke="#2d7d9a"/>
+<text x="369.5" y="166" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">3 frames, running, loops forever, current 1, stamp 1</text>
+<rect x="743.5" y="142" width="214.5" height="40" rx="4" fill="#dbe7f6" stroke="#2d7d9a"/>
+<text x="749.5" y="166" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">stopped, current 1, stamp 2</text>
+<rect x="201.0" y="232" width="159.5" height="40" fill="#e4e7eb" stroke="#9aa5b1"/>
+<text x="280.75" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">1</text>
+<rect x="362.5" y="232" width="36.0" height="40" fill="#d5f0ea" stroke="#9aa5b1"/>
+<text x="380.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">2</text>
+<rect x="400.5" y="232" width="36.0" height="40" fill="#c9e3f5" stroke="#9aa5b1"/>
+<text x="418.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">3</text>
+<rect x="438.5" y="232" width="36.0" height="40" fill="#d5f0ea" stroke="#9aa5b1"/>
+<text x="456.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">2</text>
+<rect x="476.5" y="232" width="36.0" height="40" fill="#c9e3f5" stroke="#9aa5b1"/>
+<text x="494.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">3</text>
+<rect x="514.5" y="232" width="36.0" height="40" fill="#d5f0ea" stroke="#9aa5b1"/>
+<text x="532.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">2</text>
+<rect x="552.5" y="232" width="36.0" height="40" fill="#c9e3f5" stroke="#9aa5b1"/>
+<text x="570.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">3</text>
+<rect x="590.5" y="232" width="36.0" height="40" fill="#d5f0ea" stroke="#9aa5b1"/>
+<text x="608.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">2</text>
+<rect x="628.5" y="232" width="36.0" height="40" fill="#c9e3f5" stroke="#9aa5b1"/>
+<text x="646.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">3</text>
+<rect x="666.5" y="232" width="36.0" height="40" fill="#d5f0ea" stroke="#9aa5b1"/>
+<text x="684.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">2</text>
+<rect x="704.5" y="232" width="36.0" height="40" fill="#c9e3f5" stroke="#9aa5b1"/>
+<text x="722.5" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">3</text>
+<rect x="742.5" y="232" width="216.5" height="40" fill="#c9e3f5" stroke="#9aa5b1"/>
+<text x="850.75" y="257" font-size="11" text-anchor="middle" fill="#1f2933" font-weight="normal">3</text>
+<text x="749.5" y="298" font-size="11" text-anchor="start" fill="#52606d" font-weight="normal">keeps the frame that was showing</text>
+<text x="363.5" y="298" font-size="11" text-anchor="start" fill="#52606d" font-weight="normal">frame 1's gap is 0, so it is skipped</text>
+<text x="20" y="320" font-size="11" text-anchor="start" fill="#52606d" font-weight="normal">A replay prints the store's</text>
+<text x="20" y="336" font-size="11" text-anchor="start" fill="#52606d" font-weight="normal">lane, never the clock's.</text>
+</svg>
