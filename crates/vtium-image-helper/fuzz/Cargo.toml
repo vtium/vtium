@@ -1,0 +1,55 @@
+# The image helper's fuzz targets, one for each decoding path, run with
+# cargo-fuzz on nightly in-process and outside the helper's memory cap:
+#   cargo +nightly fuzz run png
+# Its own workspace, so the main workspace and CI do not build it.
+[package]
+name = "vtium-image-helper-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+vtium-image = { path = "../../vtium-image" }
+vtium-image-helper = { path = ".." }
+
+[[bin]]
+name = "png"
+path = "fuzz_targets/png.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "zlib"
+path = "fuzz_targets/zlib.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jpeg"
+path = "fuzz_targets/jpeg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gif"
+path = "fuzz_targets/gif.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "request"
+path = "fuzz_targets/request.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
