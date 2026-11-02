@@ -79,8 +79,9 @@ jobs:
       - run: make arm
 
   # The oldest Rust vtium builds on: the rust-version Cargo.toml declares.
-  # The builds catch a language feature or a dependency newer than it; the
-  # gates' tests run on the pinned toolchain in the jobs above.
+  # The builds catch a language feature or a dependency newer than it, and
+  # --all-targets keeps the tests building too; the gates run the tests on
+  # the pinned toolchain in the jobs above.
   msrv:
     runs-on: ubuntu-latest
     steps:
@@ -100,7 +101,7 @@ jobs:
       # key follows Cargo.lock, the toolchain and this job, so every job still
       # builds and tests everything it did.
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --workspace --all-features --locked
+      - run: cargo build --workspace --all-features --all-targets --locked
       - name: minspec build
         run: cargo build --profile minspec --locked
 
