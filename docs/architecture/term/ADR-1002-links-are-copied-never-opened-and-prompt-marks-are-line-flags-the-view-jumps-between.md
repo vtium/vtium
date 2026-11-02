@@ -99,7 +99,9 @@ What links cost, against ADR-1001's 48-byte line and 8-byte cell:
 | One link, on a line with no tables | nothing | 84 bytes: the 80-byte table block and 4 | as above |
 | A link per cell, 170 cells, ADR-1001's worst line | nothing | 680 bytes once trimmed, which ADR-1001's worst case counts | within 256 KiB in all |
 
-A `file://` URI of 50 bytes is charged 114, so the store holds about 2,300 such links. With a full store, ADR-1001's worst default scrollback, held to `sb-memory`'s default, comes to about 15.99 MiB against the 16 MiB peak; at the 10,000-line cap the store adds its 0.25 MiB to 63.2 MiB.
+A `file://` URI of 50 bytes is charged 114, so the store holds about 2,300 such links. With a full store, ADR-1001's worst default scrollback at the minspec grid, held to `sb-memory`'s default, comes to 16,776,192 bytes (16.00 MiB) against the 16 MiB peak; at the 10,000-line cap the store adds its 0.25 MiB to 63.2 MiB.
+
+> Edited 2026-11-02, with `sb-memory`'s default following the console's grid and the screens priced at their worst: the worst default scrollback came to "about 15.99 MiB".
 
 | Option | Cost | Who does it | Verdict |
 |---|---|---|---|

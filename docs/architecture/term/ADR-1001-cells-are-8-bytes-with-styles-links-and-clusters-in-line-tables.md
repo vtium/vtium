@@ -35,6 +35,18 @@ considered:
     said: "accept"
     via: steering session, 2026-11-02
     covers: [placeholder memory]
+  - operator: aaronsb
+    said: "I think A"
+    via: "the maintainer, 2026-11-02, in the steering session, answering option A for the minspec peak test that priced the two screens as empty: the scrollback default follows the display; at start, vtium sizes the scrollback's memory budget from the real grid so the 16 MiB peak always holds; small displays keep the full scrollback; only a 1366x768 screen gets a smaller budget; the rule holds by construction, with a test"
+  - operator: aaronsb
+    said: "I really have no issues with an 8k display scrolling crazy glyphs, characters, and images on a terminal consuming hundreds of megabytes of ram on a sufficicently capable machine (like this one). it's not a hard gate that everything must fit within 16mb. I hope we didn't record it like that"
+    via: the maintainer, 2026-11-02, in the steering session, on what option A meant for displays larger than minspec's
+  - operator: aaronsb
+    said: "we should be kind to normal computers - a lightweight laptop or tablet, or some other typical machine that would get regular use of a terminal, can of course go beyond minspec but we should be mindful not to guzzle ram"
+    via: the maintainer, 2026-11-02, in the steering session, on whether the scrollback default grows past minspec
+  - operator: aaronsb
+    said: "above minspec I value usability and performance over ram footprint. (within reason)"
+    via: the maintainer, 2026-11-02, in the steering session, the principle behind the two answers before it
 observable:
   - "`cargo test -p vtium-term --test memory -- --nocapture` prints the resident figures this record quotes, and fails when the model's size changes"
   - "Changing the cell or the line so it grows fails the build at the size assertions in `src/cell.rs` and `src/line.rs`"
@@ -65,6 +77,8 @@ related: []
   - *Not confident (placeholder memory):* a picture drawn with kitty's placeholder cells keeps up to 17 bytes a cell, so the worst row of scrollback the memory test prices grows from 7,560 to 10,450 bytes. The 16 MiB peak and `sb-memory`'s default stay as you set them, and the scrollback still stops at that default, so the cost is fewer of the worst rows kept: about 570 where it was about 788. Ordinary shell lines are unchanged. Is that acceptable?
 
   > Added 2026-11-02, with placeholder cells (Memory, the note of 2026-11-02).
+
+  > Note 2026-11-02, later: `sb-memory`'s default now follows the console's grid, and at the minspec grid it is 5 MiB, where it was 5,963,776 bytes, so the scrollback keeps fewer of the worst rows there (Memory, the note of 2026-11-02 on the screens).
 - **Inversion:** Between "a fat cell that holds everything inline" (the C reference's 32 bytes) and "a tiny cell indexing tables the whole screen shares" (style ids with reference counts). The answer is the tiny cell with its tables owned by its line: no shared table to count references in, hash, or fill, and a line that leaves the scrollback takes everything it used with it.
 
 ## Context
@@ -171,7 +185,9 @@ Bold as bright and dim join the resolution with the work on resolving bold, the 
 
 ### Memory
 
-Computed from the structures by capacity in `crates/vtium-term/tests/memory.rs`, which pins each figure. A line costs its 48-byte struct and its heap. The main and alternate screens, 170 by 48 lines each with their damage, are 267,264 bytes (0.25 MiB), against the C reference's 0.50 MiB.
+Computed from the structures by capacity in `crates/vtium-term/tests/memory.rs`, which pins each figure. A line costs its 48-byte struct and its heap. The main and alternate screens, 170 by 48 blank lines each, and the one set of change ages they share, are 201,216 bytes (0.19 MiB), against the C reference's 0.50 MiB.
+
+> Edited 2026-11-02 (the note of 2026-11-02 below): the screens counted their change ages twice, where a screen holds one set of 66,048 bytes for both. The sentence read "The main and alternate screens, 170 by 48 lines each with their damage, are 267,264 bytes (0.25 MiB)".
 
 | Scrollback content | Bytes a line | 1,000 lines | 10,000 lines | 30,000 lines | 100,000 lines |
 |---|---|---|---|---|---|
@@ -183,7 +199,9 @@ Computed from the structures by capacity in `crates/vtium-term/tests/memory.rs`,
 
 The C reference's figures are its measured totals, 10.3 MiB after the first screen and 15.7 MiB at peak with unifont, and what its layout gives: 0.50 MiB for its two screens and 5.19 MiB for 1,000 lines of scrollback. Assuming everything else in vtium's process costs what everything else in the C reference's did, 9.80 MiB:
 
-- **After the first screen**, about 10.06 MiB, against the target of 10.3 MiB.
+- **After the first screen**, about 9.99 MiB, against the target of 10.3 MiB.
+
+  > Edited 2026-11-02, with the screens' figure above: this read "about 10.06 MiB".
 - **At the default 1,000 lines**, about 11.5 MiB full of full-width shell lines, 4.2 MiB under the 15.7 MiB peak target, and about 15.4 MiB in the worst case, 0.3 MiB under. `the_worst_default_scrollback_fits_the_minspec_peak` checks the worst case against the peak.
 - **At the 10,000-line cap**, below 2 GiB, about 24.5 MiB full of full-width shell lines and 63.2 MiB in the worst case, 12% of a 512 MB machine. The 15.7 MiB target was measured with 1,000 lines, so the cap passes it; meeting it at 10,000 lines would take about 3.4 bytes a cell, which only packing the text reaches (Alternatives).
 - **At the 30,000-line cap**, from 2 GiB, the worst case is about 169 MiB, 8% of 2 GiB; **at the 100,000-line cap**, from 4 GiB, about 541 MiB, 13% of 4 GiB.
@@ -199,6 +217,30 @@ Tier 3 measures the real figures from the first working build (kmscon ADR-304 §
 > Added 2026-10-29: with heads (ADR-1401 D1), each head holds a stack of virtual consoles, and each console's session has a scrollback of its own under `sb-memory`, so the scrollback across every virtual console on minspec needs a total budget. No decision sets it yet: it is an open question for the heads build, beside ADR-1401's probe 6 on the caps of consoles per head and in total.
 
 > Added 2026-10-29: the operator set the caps at 4 consoles a head and 8 in total by default, with hard maxima of 50 consoles and 16 heads (ADR-1401 D10); the heads build's slice H3b sets the total scrollback budget from measurement.
+
+> Added 2026-11-02, the maintainer's decisions (`considered`): the 16 MiB peak holds on minspec's grids, up to the largest, 170 by 48, and `sb-memory`'s default follows the console's grid there. The peak is minspec's promise, not a limit on vtium everywhere. The memory test had priced the two screens as empty, so it missed what a program can make them hold: with every cell of every row its own style, its own link and a cluster, a screen row of 170 cells grew to 14,768 bytes, because each of its tables, which compact at twice what the row can name, sat in a vector that may have doubled past that limit. The two screens then held 1,483,776 bytes at the minspec grid, and the worst peak came to about 17.16 MiB, over 16 MiB. vtium does three things about it.
+>
+> - **A row's tables stop at the limit they compact at.** The style table and the link table grow by doubling, as a vector does, but stop at twice the row's cells, which is where the row compacts them; the cluster arena stops the same way at twice the row's budget. A row that a rewrap built may name more than that while it waits in the scrollback, and compacting such a row sizes its arena to what its cells name, once; on a screen it is held to the arena's limit (the note of 2026-11-02 after review of the scrollback budget). The most a screen row of W cells holds is then its 48-byte struct, 8 bytes a cell, the tables' 80-byte struct and 2W entries of 14 bytes of style, 4 of link and 6 of arena: 128 + 56W bytes, which is 9,648 at 170 columns, 4,608 at 80 and 2,368 at 40. `Line::bytes_max` gives it, and the memory test drives rows through `write` and through a rewrap to it and no further.
+> - **`sb-memory`'s default is worked out from the grid.** It is no longer one fixed number. On a grid up to 170 by 48, vtium takes 16 MiB, less the rest of the process (the C reference's measured 10.3 MiB after its first screen, less its two screens, 10,038 KiB rounded up), less the two screens at their worst at the console's grid, every row at its bound with the change ages, less a full link store, and rounds the result down to 64 KiB, so a smaller grid keeps more. On a larger grid the default is the 170 by 48 value, 5,242,880 bytes (5 MiB), and never less: the 1 MiB floor of the fence no longer decides a 4K or 8K console. The fence applies on top, as before: at least 1 MiB, and at most the lesser of 1 GiB and a quarter of the machine's memory. An explicit `sb-memory` still wins, up to that fence, because the user chose it. When the grid changes, through a hotplug, a resize or a zoom, the default is worked out again from the rows the two screens then hold, which include the rows a screen keeps below its last row after it shrank, and the oldest lines past the new budget go, as when `sb-memory` changes. The 170 by 48 value, where it was 5,963,776, is also what the scrollback starts with and what `sb-memory` may be at most when the machine's memory cannot be read.
+> - **The test checks the peak at three grids.** `the_worst_default_scrollback_fits_the_minspec_peak` prices the screens with rows driven to their worst, checks that price against the one the default is worked out from, and holds the worst default scrollback, rows at the bound a rewrap allows, inside 16 MiB at the minspec grid, at 80 by 30 (a 640x480 display in 8x16 cells) and at 40 by 30 (a 320x240 display in 8x8 cells). A unit test and the memory test hold a 3840x2160 display in 8x16 cells, 480 by 135, to the 170 by 48 value.
+>
+> | Grid | Screens at their worst | `sb-memory` default | Worst rows it holds | Worst peak, before | Worst peak, now |
+> |---|---|---|---|---|---|
+> | 170 by 48 | 992,256 bytes, where it was 1,483,776 | 5,242,880 bytes | 693 of 7,560 bytes | 17,988,608 bytes (17.16 MiB) | 16,776,192 bytes (16.00 MiB) |
+> | 80 by 30 | 296,160 bytes, where it was 455,520 | 5,898,240 bytes | 1,627 of 3,624 bytes | 14,620,576 bytes (13.94 MiB) | 14,461,216 bytes (13.79 MiB) |
+> | 40 by 30 | 152,160 bytes, where it was 230,880 | 6,029,312 bytes | 3,213 of 1,876 bytes | 12,647,936 bytes (12.06 MiB) | 12,569,216 bytes (11.99 MiB) |
+>
+> The smaller grids keep the default 1,000 lines whatever a program writes into them, and at the minspec grid the default 1,000 full-width shell lines take about 1.45 MiB of the 5 MiB, so only the worst rows lose lines there. Placeholder cells raise a row's arena limit once the line keeps them (Placeholder cells, under The line), and `Line::bytes_max` then takes the placeholder term, so the default follows without another rule.
+>
+> **Above minspec's grids.** The maintainer's three answers make one rule. On minspec's grids, up to 170 by 48, vtium keeps the 16 MiB peak. Above them, usability and performance come before memory footprint, within reason: a console on a larger display holds larger screens and uses more memory than the peak by design, and the maintainer accepts that on machines that can afford it, up to hundreds of megabytes for an 8K display full of images. But the defaults stay modest on ordinary laptops and tablets, so the scrollback default does not grow with the display or with the machine's memory: above 170 by 48 it stays at 5,242,880 bytes a console. A user who wants a deeper scrollback raises `sb-memory`, up to the lesser of 1 GiB and a quarter of the machine's memory. At 480 by 135, for example, the two screens at their worst hold 7,812,720 bytes and the default scrollback 5 MiB, so the worst console comes to about 22.5 MiB with the rest of the process.
+>
+> The peak counts one console: the rest of the process once, and one console's two screens, scrollback and link store. Each further virtual console holds its own two screens, its own link store and its own scrollback under the same default, so each further console at the minspec grid can hold about 6.2 MiB more: 992,256 bytes of screens, 5,242,880 of scrollback and 262,144 of links. What bounds them together today is ADR-1401 D10's cap, a quarter of the machine's memory shared among the most consoles the heads may hold, and the total budget across consoles is still the heads build's open question (the notes of 2026-10-29).
+
+> Edited 2026-11-02, after a re-check found a screen widened from 28 columns to 33 holding a row of 2,048 bytes against its bound of 1,976: the first point read "A row that a rewrap built may name more than that, and compacting such a row sizes its arena to what its cells name, once."
+
+> Added 2026-11-02, after review of the scrollback budget that follows the grid: a row narrowed from a much wider grid kept every cluster it was written with, because a rewrap moves clusters whole and cutting a row to fewer cells kept the clusters of the cells left. On a grid 4,000 columns wide, 52 lines of 170 cells, each cell with its own color, its own link and a cluster of 125 bytes, then a resize to 170 by 48, left a screen row of 25,968 bytes against the 9,648 of `Line::bytes_max`, and the main screen alone held 1,201,456 bytes, more than the 992,256 both screens are priced at. Each line now records the width its clusters were written within: the width it was written at, or, for a row a rewrap builds, the widest of the rows its clusters came from. The record takes 2 bytes of the line's padding, so the line stays 48 bytes. A row cut to fewer cells, and a row that lands on a screen narrower than that width, from a rewrap or from the scrollback, keep the clusters that writing them at the new width keeps: from the first cell on, a cluster that would pass what is left of the 6 bytes a cell keeps the longest run of its first codepoints that fits, and at least its first codepoint. A row that lands on a screen at least as wide as that width, from a rewrap or from the scrollback, is held the same way to its arena's limit, twice its budget, 12 bytes a cell. A widening by a factor that is not a whole number can gather onto one row the end of one source row, the whole of the next and the start of the one after, and when each of those source rows holds its whole budget in a few cells, the row names up to about 16.5 bytes a cell: widened from 28 columns to 33, such a row named 504 bytes, about 15.3 a cell, and with its own style and link in every other cell it held 2,048 bytes against its bound of 1,976. The scrollback keeps every cluster of each row that rewraps, and `sb-memory` holds it to its bytes; it cuts a row that never rewraps as a screen does. So no screen row passes 128 + 56W bytes, whatever width it was written at, and the figures above do not move. `tests/memory.rs` narrows both screens from 4,000 and from 1,300 columns to 170, widens a screen from 15 to 17, 28 to 33, 53 to 65 and 110 to 129 columns and pulls the widened row back from the scrollback, edits, cuts and widens rows at random, and holds every row to the bound after each step.
+
+> Edited 2026-11-02, after the same re-check: the note held only a row that lands on a narrower screen, and its sentence on the rest read "A widening keeps every cluster, as before, and so does the scrollback, which `sb-memory` holds to its bytes." Its test widened no screen.
 
 ## Consequences
 

@@ -229,7 +229,10 @@ pub struct Head {
 }
 
 /// A console's terminal for `config`, on [`GRID`] with the scrollback cap
-/// and length `scrollback` and `bytes` of scrollback memory.
+/// and length `scrollback`. `bytes` is the console's scrollback memory
+/// when the configuration sets `sb-memory`; left to its default, the
+/// budget follows the console's grid, as vtium-term works it out at each
+/// resize, and `bytes` is the most it may be.
 pub(crate) fn terminal(
     config: &Config,
     scrollback: (usize, usize),
@@ -239,7 +242,11 @@ pub(crate) fn terminal(
     let (cap, lines) = scrollback;
     let mut terminal = Terminal::new(GRID.0, GRID.1, cap);
     terminal.screen_mut().set_scrollback_max(lines);
-    terminal.screen_mut().set_scrollback_memory(bytes);
+    if crate::config::budget::sb_memory_set(config) {
+        terminal.screen_mut().set_scrollback_memory(bytes);
+    } else {
+        terminal.screen_mut().set_scrollback_memory_from_grid(bytes);
+    }
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
@@ -1915,18 +1922,52 @@ mod tests {
         );
     }
 
+    // ADR-1001, "Memory": left to its default, a console's scrollback
+    // budget follows its grid, what the 16 MiB minspec peak leaves after
+    // its two screens, so the 170 by 48 minspec grid gets less than a
+    // 640x480 display's 80 by 30; under the console's share, and an
+    // explicit `sb-memory` keeps its value through every resize.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_consoles_scrollback_budget_follows_its_grid_unless_set() {
+        let budget = |args: &[&str], share: usize, grid: (usize, usize)| {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            let loaded = crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None));
+            assert_eq!(loaded.reports, [], "{args:?}");
+            let mut term = terminal(
+                &loaded.config,
+                (1000, 1000),
+                share,
+                std::rc::Rc::new(Instant::now),
+            );
+            term.terminal.resize(grid.0, grid.1);
+            term.terminal.screen().scrollback_memory()
+        };
+        let share = 128 << 20;
+        let minspec = budget(&[], share, (170, 48));
+        let small = budget(&[], share, (80, 30));
+        assert_eq!(minspec, vtium_term::sb_memory_default(170, 48));
+        assert_eq!(small, vtium_term::sb_memory_default(80, 30));
+        assert!(minspec < small);
+        assert_eq!(budget(&[], 2 << 20, (80, 30)), 2 << 20);
+        for grid in [(170, 48), (80, 30)] {
+            assert_eq!(budget(&["--sb-memory=6M"], 6 << 20, grid), 6 << 20);
+        }
+    }
+
     // ADR-1401 D10: every console's scrollback together stays within the
     // most `sb-memory` may be on the machine, and every frit's store within
     // the machine's store limit.
     #[test]
     fn the_memory_of_every_console_and_frit_together_is_bounded() {
         const MIB: u64 = 1 << 20;
-        // 512 MiB: `sb-memory` may be 128 MiB. The default, 5,963,776
-        // bytes, fits 8 times; 50 consoles take 2,684,354 bytes each.
-        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 8, 1), 5_963_776);
-        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 50, 1), 2_684_354);
+        // 512 MiB: `sb-memory` may be 128 MiB. The default at the minspec
+        // grid, 5,242,880 bytes, fits 8 times; 50 consoles take 2,684,354
+        // bytes each.
+        assert_eq!(console_scrollback(5_242_880, 128 * MIB, 8, 1), 5_242_880);
+        assert_eq!(console_scrollback(5_242_880, 128 * MIB, 50, 1), 2_684_354);
         assert_eq!(console_scrollback(64 << 20, 128 * MIB, 8, 1), 16 << 20);
-        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 0, 0), 5_963_776);
+        assert_eq!(console_scrollback(5_242_880, 128 * MIB, 0, 0), 5_242_880);
         // 9 heads past `consoles-max`'s 8 each keep a console: 9 shares.
         assert_eq!(console_scrollback(64 << 20, 128 * MIB, 8, 9), 14_913_080);
         assert_eq!(frit_store(16 * MIB, 1), 16 * MIB);
