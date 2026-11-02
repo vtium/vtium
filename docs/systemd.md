@@ -4,6 +4,8 @@ vtium runs without systemd: launched by its unit, an init script or by hand (ADR
 
 "Without systemd" is a host whose PID 1 is another init (sysvinit, OpenRC, runit, s6, busybox) with no logind. "elogind" is such a host running elogind, the standalone logind, which owns `org.freedesktop.login1` on the system bus and ships libelogind in place of libsystemd; vtium's `logind` feature links whichever of the two pkg-config finds, libsystemd first.
 
+vtium supports systemd 254 and newer (ADR-1401 D9). On systemd 239 to 253, which vtium does not support, the unit's `OnFailure=` starts the getty fallback only once vtium's unit stops restarting. So under an open head-file policy a failure that repeats more slowly than 5 starts in 10 s never trips the start limit and never brings a getty: on a machine with no display, vtium waits `display-wait`, exits with status 1 and is restarted, over and over, and no login prompt ever comes. Tier 3 refuses a guest whose systemd is older than 254.
+
 ## Touchpoints
 
 | Touchpoint | Where | With systemd | Without systemd | Under elogind | Build |
