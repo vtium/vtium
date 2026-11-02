@@ -3820,3 +3820,17 @@ fn a_late_token_over_a_kept_frame_sends_it_whole() {
     let c = v.card().last_commit().unwrap();
     assert_eq!(clips(&c, primary(&v, A)), None, "the whole screen");
 }
+
+// A token the owner drops after its display has gone frees the display's
+// buffer at the card's next hotplug scan, with no display left to lend.
+#[test]
+fn a_buffer_retired_for_a_dropped_token_is_freed_at_the_next_scan() {
+    let mut v = awake(one());
+    let token = v.lend(DisplayId(A)).unwrap();
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert!(!v.card().state().dumbs.is_empty(), "kept for the token");
+    drop(token);
+    v.poll().unwrap();
+    assert!(v.card().state().dumbs.is_empty());
+}

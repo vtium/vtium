@@ -827,6 +827,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// again every [`crate::WAKE_RETRY_MS`], at most
     /// [`crate::WAKE_RETRIES`] times.
     pub fn wake_up(&mut self) -> io::Result<()> {
+        self.reap();
         self.foreground = true;
         self.retries = None;
         let woken = self.try_wake(Scan::WakeUp);
@@ -919,6 +920,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// done. A card that never woke drops the master its open gave it, so
     /// the vtium of the VT shown can take it (vtium/vtium#139).
     pub fn sleep(&mut self) {
+        self.reap();
         self.foreground = false;
         self.owed = false;
         self.retries = None;
@@ -973,6 +975,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// though a retry while blanked leaves its modeset owed to input. A
     /// wake-up that failed and ran out of retries is tried again.
     pub fn poll(&mut self) -> io::Result<()> {
+        self.reap();
         if !self.awake {
             if !self.foreground || self.retries.is_some() {
                 return Ok(());
