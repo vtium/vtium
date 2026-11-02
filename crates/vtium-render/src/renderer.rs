@@ -933,10 +933,13 @@ impl<F: Face> Renderer<F> {
         let (deco_ul, deco_strike) = self.deco;
         // the frame has dimmed the foreground; the cursor draws over it
         let (mut fg, mut bg) = (fc.fg, fc.bg);
+        let placeholder = draws_no_text(fc.glyph);
         // A cell of the link under the pointer draws a dashed underline in
         // place of its own style, in its own underline color (ADR-1002,
         // "Drawing").
-        let mut underline = if fc.hovered {
+        let mut underline = if placeholder {
+            vtium_term::UnderlineStyle::None
+        } else if fc.hovered {
             vtium_term::UnderlineStyle::Dashed
         } else {
             fc.attrs.underline()
@@ -986,10 +989,8 @@ impl<F: Face> Renderer<F> {
                 (_, _, None) => fg,
             }
         };
-        let strike = fc
-            .attrs
-            .contains(Attrs::STRIKE)
-            .then_some(deco_strike.unwrap_or(fg));
+        let strike =
+            (fc.attrs.contains(Attrs::STRIKE) && !placeholder).then_some(deco_strike.unwrap_or(fg));
         let mut underline = Kind::underline(underline).map(|k| (k, ul_color));
         let mut strike = strike;
         let blink = self.config.blink;
@@ -1019,7 +1020,7 @@ impl<F: Face> Renderer<F> {
             text.push(BAR);
             FontWidth::Narrow
         } else {
-            if !hidden {
+            if !hidden && !placeholder {
                 match fc.glyph {
                     Glyph::Empty => {}
                     Glyph::Char(c) => text.push(c),
@@ -1264,4 +1265,20 @@ impl<F: Face> Renderer<F> {
             });
         }
     }
+}
+
+/// Whether a cell holding `glyph` draws no text and no decoration of its own:
+/// a kitty Unicode placeholder, a cluster whose first scalar value is
+/// U+10EEEE, marks where a virtual placement's picture draws (ADR-1100 D13).
+/// Its background, the cursor and the selection draw as on any cell. In a
+/// build without `images`, U+10EEEE is a private-use character like any
+/// other.
+fn draws_no_text(glyph: Glyph<'_>) -> bool {
+    const PLACEHOLDER: char = '\u{10EEEE}';
+    cfg!(feature = "images")
+        && match glyph {
+            Glyph::Empty => false,
+            Glyph::Char(c) => c == PLACEHOLDER,
+            Glyph::Cluster(s) => s.starts_with(PLACEHOLDER),
+        }
 }
