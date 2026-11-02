@@ -164,6 +164,16 @@ pub(crate) struct Source<'a> {
 }
 
 impl Source<'_> {
+    /// The source rectangle's row `y`, `len` pixels from its left.
+    fn row(&self, y: u32, len: usize) -> &[u32] {
+        let x = usize::try_from(self.x).unwrap_or(usize::MAX);
+        let y = usize::try_from(self.y.saturating_add(y)).unwrap_or(usize::MAX);
+        let start = y.saturating_mul(self.stride).saturating_add(x);
+        self.pixels
+            .get(start..start.saturating_add(len))
+            .unwrap_or_default()
+    }
+
     fn pixel(&self, x: u32, y: u32) -> u32 {
         let x = usize::try_from(self.x.saturating_add(x)).unwrap_or(usize::MAX);
         let y = usize::try_from(self.y.saturating_add(y)).unwrap_or(usize::MAX);
@@ -197,12 +207,7 @@ pub(crate) fn eval(src: &Source<'_>, tx: &Taps, ty: &Taps, u: u32, v: u32) -> u3
             *a = a.saturating_add(u64::from(wyk).saturating_mul(hc));
         }
     }
-    let mut out = 0u32;
-    for (c, a) in (0u32..).zip(acc) {
-        let v = u32::try_from((a.saturating_add(HALF) >> 32).min(255)).unwrap_or(255);
-        out |= v << c.saturating_mul(8);
-    }
-    out
+    round(acc)
 }
 
 /// The picture's column and row under the pixel `ox`, `oy` of its display
@@ -220,8 +225,35 @@ pub(crate) fn uv(o: Orientation, (w, h): (u32, u32), (ox, oy): (u32, u32)) -> (u
     }
 }
 
+/// Sums the ring of filtered rows holds at most, four to a pixel: the
+/// output columns go in slices narrow enough that the rows one output row
+/// reads fit, as the C reference's `RING_MAX` bounded them.
+const RING_MAX: usize = 1 << 16;
+
+/// Where the picture's column `u`, row `v` lands in its display rectangle,
+/// a row `dw` long: [`uv`] undone.
+fn display_index(o: Orientation, (w, h): (u32, u32), (u, v): (u32, u32), dw: u32) -> usize {
+    let back = |n: u32, x: u32| n.saturating_sub(1).saturating_sub(x);
+    let (ox, oy) = match o {
+        Orientation::Normal => (u, v),
+        Orientation::UpsideDown => (back(w, u), back(h, v)),
+        Orientation::Right => (back(h, v), u),
+        Orientation::Left => (v, back(w, u)),
+    };
+    let i = u64::from(oy)
+        .saturating_mul(u64::from(dw))
+        .saturating_add(u64::from(ox));
+    usize::try_from(i).unwrap_or(usize::MAX)
+}
+
 /// The source rectangle `sw` by `sh` of `src` scaled to `w` by `h` and
 /// turned as `o` says, row by row in display order.
+///
+/// It runs in two passes, as the C reference's scaler did: each source row
+/// an output row reads is filtered across once, into a ring holding the
+/// rows one output row needs, and each output pixel then sums those rows
+/// down and is rounded once. The sums are whole numbers, so the bytes are
+/// those [`eval`] gives each pixel alone.
 pub(crate) fn turned_copy(
     src: &Source<'_>,
     (sw, sh): (u32, u32),
@@ -230,14 +262,104 @@ pub(crate) fn turned_copy(
 ) -> Vec<u32> {
     let tx = Taps::new(sw, w, 0, w);
     let ty = Taps::new(sh, h, 0, h);
-    let (dw, dh) = if o.turned() { (h, w) } else { (w, h) };
-    let n = usize::try_from(u64::from(dw).saturating_mul(u64::from(dh))).unwrap_or(0);
-    let mut out = Vec::with_capacity(n);
-    for oy in 0..dh {
-        for ox in 0..dw {
-            let (u, v) = uv(o, (w, h), (ox, oy));
-            out.push(eval(src, &tx, &ty, u, v));
+    let dw = if o.turned() { h } else { w };
+    let n = usize::try_from(u64::from(w).saturating_mul(u64::from(h))).unwrap_or(0);
+    let mut out = vec![0u32; n];
+    let rows = ty.max.max(1);
+    let slice = u32::try_from(RING_MAX.checked_div(rows).unwrap_or(1).max(1))
+        .unwrap_or(u32::MAX)
+        .min(w.max(1));
+    // each source row filtered across: four channels' sums a pixel, each
+    // at most 65,536 times 255, so a u32 holds it
+    let mut ring: Vec<[u32; 4]> = Vec::new();
+    let mut ring_row: Vec<Option<u32>> = vec![None; rows];
+    let mut starts: Vec<usize> = Vec::with_capacity(rows);
+    let width_of = |a: u32, b: u32| usize::try_from(b.saturating_sub(a)).unwrap_or(0);
+    let sw_px = usize::try_from(sw).unwrap_or(0);
+    let mut c0 = 0u32;
+    while c0 < w {
+        let c1 = c0.saturating_add(slice).min(w);
+        let width = width_of(c0, c1);
+        ring.clear();
+        ring.resize(rows.saturating_mul(width), [0; 4]);
+        ring_row.fill(None);
+        for v in 0..h {
+            let Some((fy, wy)) = ty.at(v) else { continue };
+            // the source rows this output row reads, filtered across once
+            // each; they span at most `rows`, so none is replaced while
+            // this output row needs it
+            for r in (fy..).take(wy.len()) {
+                let slot = usize::try_from(r)
+                    .unwrap_or(0)
+                    .checked_rem(rows)
+                    .unwrap_or(0);
+                if ring_row.get(slot).copied().flatten() == Some(r) {
+                    continue;
+                }
+                if let Some(s) = ring_row.get_mut(slot) {
+                    *s = Some(r);
+                }
+                let at = slot.saturating_mul(width);
+                let Some(line) = ring.get_mut(at..at.saturating_add(width)) else {
+                    continue;
+                };
+                let row = src.row(r, sw_px);
+                for (u, sum) in (c0..c1).zip(line.iter_mut()) {
+                    let Some((fx, wx)) = tx.at(u) else { continue };
+                    let fx = usize::try_from(fx).unwrap_or(usize::MAX);
+                    let taps = row.get(fx..fx.saturating_add(wx.len())).unwrap_or_default();
+                    let (mut b, mut g, mut rr, mut a) = (0u32, 0u32, 0u32, 0u32);
+                    for (&p, &k) in taps.iter().zip(wx) {
+                        b = b.wrapping_add(k.wrapping_mul(p & 0xff));
+                        g = g.wrapping_add(k.wrapping_mul(p >> 8 & 0xff));
+                        rr = rr.wrapping_add(k.wrapping_mul(p >> 16 & 0xff));
+                        a = a.wrapping_add(k.wrapping_mul(p >> 24));
+                    }
+                    *sum = [b, g, rr, a];
+                }
+            }
+            // each output pixel of the slice: its rows summed down, rounded;
+            // where each of those rows starts in the ring, found once a row
+            starts.clear();
+            starts.extend((fy..).take(wy.len()).map(|r| {
+                let slot = usize::try_from(r)
+                    .unwrap_or(0)
+                    .checked_rem(rows)
+                    .unwrap_or(0);
+                slot.saturating_mul(width)
+            }));
+            let base = u64::from(v).saturating_mul(u64::from(w));
+            for (k, u) in (c0..c1).enumerate() {
+                let mut acc = [0u64; 4];
+                for (&start, &wyk) in starts.iter().zip(wy) {
+                    let Some(hs) = ring.get(start.saturating_add(k)) else {
+                        continue;
+                    };
+                    for (a, &hc) in acc.iter_mut().zip(hs) {
+                        *a = a.wrapping_add(u64::from(wyk).wrapping_mul(u64::from(hc)));
+                    }
+                }
+                let i = if o == Orientation::Normal {
+                    usize::try_from(base.saturating_add(u64::from(u))).unwrap_or(usize::MAX)
+                } else {
+                    display_index(o, (w, h), (u, v), dw)
+                };
+                if let Some(px) = out.get_mut(i) {
+                    *px = round(acc);
+                }
+            }
         }
+        c0 = c1;
+    }
+    out
+}
+
+/// Four channels' sums of weights times bytes, each rounded once to a byte.
+fn round(acc: [u64; 4]) -> u32 {
+    let mut out = 0u32;
+    for (c, a) in (0u32..).zip(acc) {
+        let v = u32::try_from((a.saturating_add(HALF) >> 32).min(255)).unwrap_or(255);
+        out |= v << c.saturating_mul(8);
     }
     out
 }
@@ -317,6 +439,49 @@ mod tests {
         assert_eq!(copy(Orientation::Right), [a, b]);
         // a quarter left: the picture's left goes to the bottom
         assert_eq!(copy(Orientation::Left), [b, a]);
+    }
+
+    /// The copy one pixel at a time through [`eval`], for the two-pass
+    /// copy to match.
+    fn one_pass(src: &Source<'_>, s: (u32, u32), d: (u32, u32), o: Orientation) -> Vec<u32> {
+        let tx = Taps::new(s.0, d.0, 0, d.0);
+        let ty = Taps::new(s.1, d.1, 0, d.1);
+        let (dw, dh) = if o.turned() { (d.1, d.0) } else { d };
+        let mut out = Vec::new();
+        for oy in 0..dh {
+            for ox in 0..dw {
+                let (u, v) = uv(o, d, (ox, oy));
+                out.push(eval(src, &tx, &ty, u, v));
+            }
+        }
+        out
+    }
+
+    // the two passes sum the same whole numbers and round once, so they
+    // give every byte one pass gives
+    #[test]
+    fn the_two_passes_give_the_bytes_of_one() {
+        let px: Vec<u32> = (0..37u32 * 23)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 3) | 0x8000_0000)
+            .collect();
+        let src = Source {
+            pixels: &px,
+            stride: 37,
+            x: 2,
+            y: 1,
+        };
+        let turns = [
+            Orientation::Normal,
+            Orientation::Right,
+            Orientation::UpsideDown,
+            Orientation::Left,
+        ];
+        for d in [(70, 44), (35, 21), (9, 5), (1, 1), (100, 3), (2, 90)] {
+            for o in turns {
+                let two = turned_copy(&src, (35, 21), d, o);
+                assert_eq!(two, one_pass(&src, (35, 21), d, o), "{d:?} {o:?}");
+            }
+        }
     }
 
     #[test]
