@@ -6,7 +6,7 @@
 
 use std::cell::Cell;
 
-use super::{Config, keys};
+use super::{Config, Origin, keys};
 
 /// Where the machine's memory is read.
 const MEMINFO: &str = "/proc/meminfo";
@@ -51,8 +51,23 @@ pub fn sb_memory_cap() -> u64 {
     cap_for(physical_memory())
 }
 
-/// The scrollback's byte budget `config` gives on this machine.
+/// Whether the configuration sets `sb-memory` itself, in a file or on the
+/// command line. Left to its default, the budget follows each console's
+/// grid (ADR-1001, "Memory").
+pub fn sb_memory_set(config: &Config) -> bool {
+    !matches!(
+        config.origin(&keys::SB_MEMORY),
+        None | Some(Origin::Default)
+    )
+}
+
+/// The scrollback's byte budget `config` gives on this machine: `sb-memory`
+/// as set, inside its cap; or, left to its default, the cap, the most the
+/// budget that follows each console's grid may be.
 pub fn sb_memory(config: &Config) -> usize {
+    if !sb_memory_set(config) {
+        return usize::try_from(sb_memory_cap()).unwrap_or(usize::MAX);
+    }
     let asked = config
         .number(&keys::SB_MEMORY)
         .unwrap_or(vtium_term::SB_MEMORY_DEFAULT as u64);
