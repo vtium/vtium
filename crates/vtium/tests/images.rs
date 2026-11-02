@@ -219,7 +219,9 @@ impl Video for Memory {
 /// logind), starts a helper at a request when none runs, stops the helper
 /// and counts a crash on a failed reply, stops it with no crash on the
 /// timer, clears its count when the session ends, and gives its reply only
-/// once its socket is readable, which the test makes it by answering.
+/// once its socket is readable, which the test makes it by answering. Each
+/// helper it starts has a socket of its own, as each real helper does, so
+/// a reply a stopped helper sends late never reaches the next one.
 struct Asked {
     /// The requests sent to a helper.
     sent: Vec<Request>,
@@ -227,12 +229,10 @@ struct Asked {
     at_once: Vec<Request>,
     /// The answer [`Asked::answer_at_once`] sets, given in place of a send.
     answer_at_once: Option<Reply>,
-    /// The reply the test gave.
-    reply: Option<Reply>,
     /// A request was sent and not yet answered.
     out: bool,
-    /// A helper runs.
-    running: bool,
+    /// The running helper's socket, while a helper runs.
+    channel: Option<Rc<Channel>>,
     /// Helpers started.
     started: u32,
     /// Helpers that ended: on the timer, on a crash or at a session's end.
@@ -244,45 +244,80 @@ struct Asked {
     crashes: usize,
     /// Times the console asked for the reply.
     polls: u32,
-    /// The socket the host watches, and the end the test writes to when
-    /// it answers.
-    socket: (UnixStream, UnixStream),
 }
 
-impl Asked {
-    fn new() -> Asked {
+/// One stand-in helper's socket: the end the host watches, the end the
+/// helper writes to, and the reply it carries.
+struct Channel {
+    watched: UnixStream,
+    written: UnixStream,
+    reply: RefCell<Option<Reply>>,
+}
+
+impl Channel {
+    fn new() -> Channel {
         let (watched, written) = UnixStream::pair().expect("a socket pair");
         watched
             .set_nonblocking(true)
             .expect("a socket that does not block");
+        Channel {
+            watched,
+            written,
+            reply: RefCell::new(None),
+        }
+    }
+
+    /// The helper sends `reply`: its socket becomes readable.
+    fn answer(&self, reply: Reply) {
+        *self.reply.borrow_mut() = Some(reply);
+        (&self.written)
+            .write_all(b"r")
+            .expect("a write to the socket");
+    }
+
+    /// How many descriptors of this process refer to the end the host
+    /// watches: the helper's own, and one for each watch the loop holds.
+    fn watched_descriptors(&self) -> usize {
+        let ino = rustix::fs::fstat(&self.watched)
+            .expect("the socket's inode")
+            .st_ino;
+        let name = format!("socket:[{ino}]");
+        std::fs::read_dir("/proc/self/fd")
+            .expect("this process's descriptors")
+            .filter_map(Result::ok)
+            .filter(|e| std::fs::read_link(e.path()).is_ok_and(|l| l.as_os_str() == name.as_str()))
+            .count()
+    }
+}
+
+impl Asked {
+    fn new() -> Asked {
         Asked {
             sent: Vec::new(),
             at_once: Vec::new(),
             answer_at_once: None,
-            reply: None,
             out: false,
-            running: false,
+            channel: None,
             started: 0,
             stopped: 0,
             stops: 0,
             ended: 0,
             crashes: 0,
             polls: 0,
-            socket: (watched, written),
         }
     }
 
-    /// The helper answers the request out with `reply`: its socket becomes
-    /// readable.
+    /// The running helper answers the request out with `reply`.
     fn answer(&mut self, reply: Reply) {
-        self.reply = Some(reply);
-        (&self.socket.1)
-            .write_all(b"r")
-            .expect("a write to the socket");
+        self.channel
+            .as_ref()
+            .expect("a running helper")
+            .answer(reply);
     }
 
+    /// The running helper ends, and its socket with it.
     fn end_helper(&mut self) {
-        if std::mem::take(&mut self.running) {
+        if self.channel.take().is_some() {
             self.stopped += 1;
         }
         self.out = false;
@@ -319,8 +354,8 @@ impl Helper for StandIn {
             asked.at_once.push(request.clone());
             return Err(reply);
         }
-        if !asked.running {
-            asked.running = true;
+        if asked.channel.is_none() {
+            asked.channel = Some(Rc::new(Channel::new()));
             asked.started += 1;
         }
         asked.out = true;
@@ -330,10 +365,11 @@ impl Helper for StandIn {
     fn reply(&mut self) -> Option<Reply> {
         let mut asked = self.0.borrow_mut();
         asked.polls += 1;
-        if !asked.out || (&asked.socket.0).read(&mut [0u8; 1]).ok() != Some(1) {
+        let channel = asked.channel.clone().filter(|_| asked.out)?;
+        if (&channel.watched).read(&mut [0u8; 1]).ok() != Some(1) {
             return None;
         }
-        let reply = asked.reply.take().expect("the test's reply");
+        let reply = channel.reply.take().expect("the helper's reply");
         let request = asked.sent.last().expect("the request out").clone();
         let reply = reply.checked(&request);
         if reply == Reply::Failed {
@@ -359,7 +395,8 @@ impl Helper for StandIn {
         if !asked.out {
             return None;
         }
-        asked.socket.0.try_clone().ok().map(OwnedFd::from)
+        let channel = asked.channel.as_ref()?;
+        channel.watched.try_clone().ok().map(OwnedFd::from)
     }
     fn available(&self) -> bool {
         self.available_in(&self.0.borrow())
@@ -1103,7 +1140,7 @@ fn after_three_crashes_a_console_answers_ebadf_and_another_keeps_its_helper() {
         let a = one.borrow();
         assert_eq!((a.started, a.stopped, a.crashes), (3, 3, 3));
         assert_eq!(a.sent.len(), 3, "no helper took the fourth");
-        assert!(!a.running);
+        assert!(a.channel.is_none());
     }
     two.borrow_mut().answer(red_picture());
     assert!(
@@ -1191,7 +1228,7 @@ fn the_reply_arriving_wakes_the_loop() {
     s.lp.handle().remove(timer);
     assert!(!bounded.get(), "the reply woke the loop");
     let a = asked.borrow();
-    assert!(!a.out && a.reply.is_none(), "the reply was handed back");
+    assert!(!a.out, "the reply was handed back");
     drop(a);
     assert_eq!(s.placements(), 1);
 }
@@ -1304,4 +1341,105 @@ fn the_turn_that_hands_a_reply_back_draws_its_picture() {
     }
     assert_eq!(s.memory("/dev/mem0").frames, frames + 1);
     assert_eq!(s.memory("/dev/mem0").count(RED), 48);
+}
+
+/// ADR-1101 D7: the loop watches a helper's socket only while a request is
+/// out. Each request adds one watch, and the reply takes it away again, so
+/// after two requests to one helper the loop holds no descriptor of that
+/// socket: only the helper's own end is left.
+// covers: image.helper
+#[test]
+fn the_loop_watches_the_socket_only_while_a_request_is_out() {
+    let hosts = Hosts::default();
+    let mut s = Seat::boot(
+        &["--no-blink"],
+        None,
+        Memory::new(320, 160, "mem"),
+        &two_kitty_files(),
+        Some(&hosts),
+    );
+    let asked = s.host(&hosts, 0);
+    let one_pixel = || {
+        Reply::Ok(Payload::Rgba {
+            width: 1,
+            height: 1,
+            data: vec![255, 0, 0, 255],
+        })
+    };
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 1),
+        "the first request"
+    );
+    let channel = asked.borrow().channel.clone().expect("a running helper");
+    assert_eq!(
+        channel.watched_descriptors(),
+        2,
+        "the helper's end and the loop's watch"
+    );
+    asked.borrow_mut().answer(one_pixel());
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 2),
+        "the second request"
+    );
+    assert_eq!(
+        channel.watched_descriptors(),
+        2,
+        "one watch, for the request out"
+    );
+    asked.borrow_mut().answer(one_pixel());
+    assert!(
+        s.until(|s| s.shows("after") && s.shows("E_Gi=8;OKE")),
+        "{:?}",
+        s.app.screen_text()
+    );
+    assert_eq!(asked.borrow().started, 1, "one helper took both");
+    assert_eq!(channel.watched_descriptors(), 1, "no watch is left");
+}
+
+/// ADR-1101 D8: a reply a helper sends after the timer stopped it never
+/// reaches the terminal and counts nothing. The console's next request
+/// starts another helper with a socket of its own, and the late reply, a
+/// failure, stays on the stopped helper's socket while the new helper's
+/// picture answers the second request.
+// covers: image.helper
+#[test]
+fn a_reply_a_stopped_helper_sends_late_never_reaches_the_terminal() {
+    let hosts = Hosts::default();
+    let mut s = Seat::boot(
+        &["--no-blink"],
+        None,
+        Memory::new(320, 160, "mem"),
+        &two_kitty_files(),
+        Some(&hosts),
+    );
+    let asked = s.host(&hosts, 0);
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 1),
+        "the first request"
+    );
+    let stopped = asked.borrow().channel.clone().expect("a running helper");
+    s.ahead.set(vtium::head::images::REPLY_TIMEOUT);
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 2),
+        "{:?}",
+        s.app.screen_text()
+    );
+    assert!(s.shows("E_Gi=7;EBADF:Failed to read image file"));
+    assert_eq!(asked.borrow().stops, 1);
+    stopped.answer(Reply::Failed);
+    for _ in 0..5 {
+        s.turn();
+    }
+    asked.borrow_mut().answer(Reply::Ok(Payload::Rgba {
+        width: 1,
+        height: 1,
+        data: vec![255, 0, 0, 255],
+    }));
+    assert!(
+        s.until(|s| s.shows("after") && s.shows("E_Gi=8;OKE")),
+        "{:?}",
+        s.app.screen_text()
+    );
+    let a = asked.borrow();
+    assert_eq!((a.started, a.crashes, a.stops), (2, 0, 1));
 }

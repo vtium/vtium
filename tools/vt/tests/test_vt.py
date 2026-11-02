@@ -2349,6 +2349,17 @@ class Package(Case):
             f"VTIUM_VITRIFY=unset VTIUM_IMAGE=unset build --frozen --release -p vtium-vitrify -p vtium-image-helper "
             f"--target-dir {self.build}"])
 
+    def test_install_finds_images_in_features_separated_by_commas(self):
+        # cargo takes --features images,logind as it takes "images logind",
+        # so make install stages the image helper for either form.
+        self.built("/usr/bin/vtium-vitrify", "/usr/bin/vtium-image")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "FEATURES=images,logind")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in ("usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf"):
+            self.assertIn(f, self.staged())
+        self.assertIn("-p vtium-image-helper", " ".join(self.s.calls_of("cargo")))
+
     def test_a_minspec_install_stages_no_image_helper(self):
         # A console built without images starts no image helper, so the
         # package ships neither the helper nor its account file (ADR-1101 D1).

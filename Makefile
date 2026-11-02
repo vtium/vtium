@@ -107,8 +107,10 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
 # The image helper ships only with a console built with images: a minspec
-# build installs none (ADR-1101 D1).
-IMAGES := $(filter images,$(FEATURES))
+# build installs none (ADR-1101 D1). FEATURES may separate its features
+# with commas or spaces, as cargo's --features does.
+comma := ,
+IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
 IMAGE_RELEASE := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-image
 
 .PHONY: vitrify-release
@@ -185,6 +187,10 @@ install-build: ## Build what make install stages, for PREFIX (default /usr/local
 	VTIUM_VITRIFY=$(PREFIX)/bin/vtium-vitrify $(if $(IMAGES),VTIUM_IMAGE=$(PREFIX)/bin/vtium-image) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc $(CARGO_BUILD_FLAGS) --profile minspec -p vtium --bin vtium --target-dir $(INSTALL_TARGET_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(INSTALL_TARGET_DIR)/minspec/vtium)
 	grep -qaF '$(PREFIX)/bin/vtium-vitrify' $(INSTALL_TARGET_DIR)/minspec/vtium || { echo "$(INSTALL_TARGET_DIR)/minspec/vtium does not start its helper at $(PREFIX)/bin/vtium-vitrify" >&2; exit 1; }
+# At PREFIX=/usr this path is also the one vtium is built with when
+# VTIUM_IMAGE is unset, so there the check passes whether or not VTIUM_IMAGE
+# reached the build, and the console is right either way. It still catches
+# a console left from a build for another prefix, which lacks the path.
 ifneq ($(IMAGES),)
 	grep -qaF '$(PREFIX)/bin/vtium-image' $(INSTALL_TARGET_DIR)/minspec/vtium || { echo "$(INSTALL_TARGET_DIR)/minspec/vtium does not start its image helper at $(PREFIX)/bin/vtium-image" >&2; exit 1; }
 endif

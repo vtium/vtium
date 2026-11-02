@@ -301,6 +301,10 @@ How the C reference's flow drew, as the logical reference for vtium's damage pat
 - kmscon's text layer emptied a buffer's ages with `kmscon_text_redraw_all` (`src/render/text.h:214-217`), so its next draw marked every cell changed, on each font set and unset (`kmscon_text_unset`, `src/render/text.c:322`, which `kmscon_text_set` calls first), each resize (`src/render/text.c:351`), each rotation (`src/render/text.c:432`), a switch of screen and a failed draw or swap (`src/render/text.c:751, 766, 864`), and in bbulk for two frames after the default or decoration colors changed (`src/render/bbulk.c:1797-1810`).
 - bbulk rasterised a glyph lazily in its draw path: `find_glyph` looked the cell's key up and rendered it with `kmscon_font_render` on a miss (`src/render/bbulk.c:529-557`, called at 1427). A glyph existed the moment a frame asked for it, so no glyph arrived between frames and no arrival damaged anything.
 
+## Limitations
+
+A vtium not running as root refuses every image request while the session's program holds its terminal exclusive with TIOCEXCL, unless logind names the session's user: the kernel refuses to reopen an exclusive pty's slave for an unprivileged process, so vtium cannot read the pty's owner.
+
 ## Not yet built
 
 Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the render timer's on-screen display, and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs but `grab-reboot`, and the rest.
