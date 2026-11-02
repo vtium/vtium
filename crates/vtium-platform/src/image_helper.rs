@@ -378,10 +378,7 @@ impl ImageHost {
                     let out = self.out.take();
                     self.retire();
                     return out.map(|out| {
-                        log::debug!(
-                            "image request {} went out as the helper ended",
-                            out.id
-                        );
+                        log::debug!("image request {} went out as the helper ended", out.id);
                         Reply::Failed
                     });
                 }

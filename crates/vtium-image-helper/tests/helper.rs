@@ -256,10 +256,7 @@ fn every_kind_of_request(host: &mut ImageHost) {
     );
     let slash = format!("/{name}").into_bytes();
     let r = raw(Medium::SharedMemory(slash), Layout::Rgb, 2, 1, false);
-    assert_eq!(
-        picture(ask(host, &r)).2,
-        [1, 2, 3, 0xff, 4, 5, 6, 0xff]
-    );
+    assert_eq!(picture(ask(host, &r)).2, [1, 2, 3, 0xff, 4, 5, 6, 0xff]);
     assert!(!shm.exists(), "a valid picture's object is removed");
 
     // a discard removes a temporary file and reads nothing; of shared
@@ -299,12 +296,7 @@ fn every_kind_of_request(host: &mut ImageHost) {
             1,
             false,
         );
-        assert_eq!(
-            ask(host, &r),
-            Reply::Unreadable,
-            "{}",
-            refused.display()
-        );
+        assert_eq!(ask(host, &r), Reply::Unreadable, "{}", refused.display());
     }
     let escape = raw(
         Medium::SharedMemory(b"../shm/x".to_vec()),
