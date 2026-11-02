@@ -5135,9 +5135,15 @@ fn a_late_outline_cell_is_dropped_and_the_next_zoom_asks_again() {
         .expect("the go FIFO");
     // the late answer arrives, and is dropped with no failure
     assert!(h.until(SECOND, |_| cell_answers(&kinds) == 1));
-    h.until(Duration::from_millis(50), |_| false);
-    assert_eq!(h.app.cells(), vec![(8, 22)], "the late answer is dropped");
+    assert_eq!(h.app.cells(), vec![(8, 22)], "the late answer changes nothing");
+    // The zoom's ask at 21 finds the late answer at 22 first, whichever
+    // turn reads it, and takes the answer at 21 behind it.
     h.app.input_event(key(Mods::CTRL, minus), now());
+    let at21 = h.app.cells();
+    assert!(
+        at21.first().is_some_and(|c| c.1 == 21 && c.0 != 8),
+        "the helper's cell at 21, not the built-in font's: {at21:?}"
+    );
     h.app.input_event(key(Mods::CTRL, equal), now());
     assert_eq!(h.app.cells(), vec![(12, 22)], "asked again at 22");
     let lines = logged();

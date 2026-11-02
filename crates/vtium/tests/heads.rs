@@ -1488,12 +1488,25 @@ fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_
         "no id is given twice: {:?}",
         told_ids(&s.app, "small")
     );
-    s.until(Duration::from_millis(100), |_| false);
+    // Each live session echoes a last line typed into it; a chord that had
+    // reached a session as Return would have echoed before it.
+    for (n, id) in ["5", "2", "1"].into_iter().enumerate() {
+        if n > 0 {
+            press_chord(&mut s, KBD_SMALL, RIGHT);
+        }
+        assert!(head_shows(&s.app, "small", &format!("is:{id}")), "console {id} shown");
+        s.type_on(KBD_SMALL, &format!("end{id}\r"));
+        assert!(
+            s.until(SECOND, |a| head_shows(a, "small", &format!("got:end{id}"))),
+            "console {id} echoes"
+        );
+    }
     assert!(
         every_console(&s.app, "small")
             .iter()
             .flatten()
-            .all(|l| !l.starts_with("got:")),
+            .filter(|l| l.starts_with("got:"))
+            .all(|l| l.starts_with("got:end")),
         "no chord reached a session: {:?}",
         every_console(&s.app, "small")
     );
@@ -1505,7 +1518,8 @@ fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_
 // covers: platform.heads
 #[test]
 fn closing_a_console_hangs_up_its_session_alone() {
-    let d = std::env::temp_dir().join(format!("vtium-heads-close-{}", std::process::id()));
+    let d = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("vtium-heads-close-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).expect("a marker directory");
     let script = format!(
