@@ -30,7 +30,11 @@ const W: u32 = 320;
 const H: u32 = 160;
 const ID: DisplayId = DisplayId(7);
 
-/// A device with one display, its frame buffer in memory.
+/// A device with one display, its frame buffer in memory. It checks what
+/// a framebuffer checks of its one buffer's token: one token out at a time,
+/// a token from before a sleep, a wake-up or a blank comes back too late,
+/// a dropped token leaves the buffer at age 0, and a sleep with the buffer
+/// lent clears it when the token comes back.
 struct Memory {
     w: u32,
     h: u32,
@@ -50,8 +54,12 @@ struct Memory {
     dpms_sets: Vec<Dpms>,
     /// Each token lent's age, in order.
     ages: Vec<u32>,
-    /// Whether each frame swapped carried the whole screen, in order.
-    wholes: Vec<bool>,
+    /// Taken anew at each sleep, wake-up and blank.
+    lease: u64,
+    /// A token was lent and not given back since.
+    lent: bool,
+    /// The sleep found the buffer lent.
+    clear_owed: bool,
     refresh_mhz: u32,
     /// Every swap fails, as on a display announced and never shown.
     refuses: bool,
@@ -83,11 +91,23 @@ impl Memory {
             sleeps: 0,
             dpms_sets: Vec::new(),
             ages: Vec::new(),
-            wholes: Vec::new(),
+            lease: 0,
+            lent: false,
+            clear_owed: false,
             refresh_mhz: 60_000,
             refuses: false,
             // the C reference's fixed density, where a point is a pixel
             dpi: Some((72.0, 72.0)),
+        }
+    }
+}
+
+impl Memory {
+    /// Pays a clear the sleep owed, once no token holds the buffer.
+    fn pay_clear(&mut self) {
+        if self.clear_owed && Arc::strong_count(&self.drawn) == 1 {
+            self.clear_owed = false;
+            self.drawn.lock().unwrap().fill(0);
         }
     }
 }
@@ -115,35 +135,45 @@ impl Video for Memory {
         self.dpi
     }
     fn lend(&mut self, id: DisplayId) -> Option<Token> {
-        if !self.awake || self.dpms != Some(Dpms::On) {
+        if !self.ready_for_frame(id) {
             return None;
         }
+        if std::mem::take(&mut self.lent) {
+            // dropped without being given back
+            self.age = 0;
+        }
+        self.lent = true;
         let age = self.age;
         self.ages.push(age);
         let memory: Arc<Shared> = self.drawn.clone();
-        Some(Token::new(id, (self.w, self.h), self.w * 4, age, memory))
+        Some(Token::new(id, (self.w, self.h), self.w * 4, age, memory).leased(self.lease))
     }
-    fn give_back(&mut self, _: Token) {}
+    fn give_back(&mut self, token: Token) {
+        self.lent = false;
+        drop(token);
+        self.pay_clear();
+    }
     fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
         let id = token.id();
+        self.lent = false;
+        if token.lease() != self.lease {
+            drop(token);
+            self.pay_clear();
+            self.age = 0;
+            return Err(SwapError::Dropped);
+        }
         if damage.is_empty() && self.dpms == Some(Dpms::On) {
             return Ok(Swapped::Nothing);
         }
         if self.dpms != Some(Dpms::On) {
             return Err(SwapError::Off);
         }
+        // The buffer holds the frame, whether the swap takes or not.
+        self.age = 1;
         if self.refuses {
             return Err(SwapError::Failed(io::Error::other("refused")));
         }
         self.frames += 1;
-        self.age = 1;
-        let screen = Rect {
-            x: 0,
-            y: 0,
-            width: self.w,
-            height: self.h,
-        };
-        self.wholes.push(damage.contains(&screen));
         // The display shows the buffer the frame was drawn into.
         self.pixels.clone_from(&self.drawn.lock().unwrap());
         self.events.push(Event::Flipped(id));
@@ -153,9 +183,12 @@ impl Video for Memory {
         false
     }
     fn ready_for_frame(&self, _: DisplayId) -> bool {
-        self.awake && self.dpms == Some(Dpms::On)
+        self.awake && self.dpms == Some(Dpms::On) && Arc::strong_count(&self.drawn) == 1
     }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
+        if dpms != Dpms::On && self.dpms == Some(Dpms::On) {
+            self.lease += 1;
+        }
         self.dpms = Some(dpms);
         self.dpms_sets.push(dpms);
         if dpms == Dpms::On {
@@ -166,14 +199,26 @@ impl Video for Memory {
     }
     fn sleep(&mut self) {
         self.sleeps += 1;
+        self.lease += 1;
         self.awake = false;
+        if Arc::strong_count(&self.drawn) > 1 {
+            self.clear_owed = true;
+        } else {
+            self.drawn.lock().unwrap().fill(0);
+        }
         self.events.push(Event::Asleep);
     }
     fn wake_up(&mut self) -> io::Result<()> {
         self.wake_ups += 1;
+        self.lease += 1;
+        self.clear_owed = false;
         let first = self.pixels.is_empty();
         self.pixels = vec![0; (self.w * self.h * 4) as usize];
-        *self.drawn.lock().unwrap() = self.pixels.clone();
+        // A token from before still holds the buffer, which the next frame
+        // after it comes back draws whole.
+        if Arc::strong_count(&self.drawn) == 1 {
+            *self.drawn.lock().unwrap() = self.pixels.clone();
+        }
         self.awake = true;
         self.dpms = Some(Dpms::On);
         self.age = 0;
@@ -781,17 +826,17 @@ fn a_retaken_vt_sets_the_displays_up_again_and_draws_them_whole() {
     );
     assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "held")));
     assert!(h.until_memory(SECOND, |m| m.frames > 0 && m.age == 1));
-    let wake_ups = h.memory().wake_ups;
-    let swapped = h.memory().wholes.len();
+    let (wake_ups, frames) = (h.memory().wake_ups, h.memory().frames);
+    let lent = h.memory().ages.len();
     h.scripted().events.push(VtEvent::Retaken);
-    // The wake-up made the buffer's contents unknown: a frame after it is
-    // drawn whole. A frame composing when the VT came back may be swapped
-    // first.
     assert!(
-        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1
-            && m.wholes.get(swapped..).is_some_and(|w| w.contains(&true))),
-        "the device is set up again and a frame drawn whole after it"
+        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1 && m.frames > frames),
+        "the device is set up again and a frame drawn after it"
     );
+    // The wake-up made the buffer's contents unknown, and a token lent
+    // before it comes back too late: the first token lent after it is age
+    // 0, so the frame is drawn whole.
+    assert_eq!(h.memory().ages.get(lent), Some(&0));
     assert_eq!(h.memory().wake_ups, wake_ups + 1);
     assert!(h.app.vt.is_active());
 }

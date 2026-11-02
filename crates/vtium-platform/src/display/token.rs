@@ -120,6 +120,19 @@ impl Token {
         }
     }
 
+    /// The token with `lease`, the stand-in display's lease when it lent
+    /// it, so the stand-in can tell a token that comes back too late as a
+    /// real display does.
+    pub fn leased(mut self, lease: u64) -> Token {
+        self.lease = lease;
+        self
+    }
+
+    /// The lease of the display when it lent the token.
+    pub fn lease(&self) -> u64 {
+        self.lease
+    }
+
     /// The display that lent it.
     pub fn id(&self) -> DisplayId {
         self.id
