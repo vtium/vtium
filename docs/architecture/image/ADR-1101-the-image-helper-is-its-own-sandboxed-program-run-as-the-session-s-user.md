@@ -67,6 +67,10 @@ considered:
     said: "The record names three ways to serve a stream of frames: a fresh worker with a fresh reply memfd; a fresh worker writing into a small per-console pool of pre-faulted reply memfds the helper keeps; and the long-lived per-console stream worker, triggered after three matching requests by count, never by time, with the same sandbox and end conditions. The builder measures all three on a real stream (timg-style PNG and raw f=32) at 1366x768 and 7680x2160; if the pool comes close to the stream worker, vtium takes the pool, which is simpler and keeps per-picture isolation; if the stream worker clearly wins, vtium builds it."
     via: the maintainer, 2026-11-02, in the steering session
     paraphrase: true
+  - operator: Aaron Bockelie
+    said: "quarter, hopefully we can do better"
+    via: steering session, 2026-11-02
+    covers: [stream variants]
 status: proposed
 date: 2026-11-01
 deciders:

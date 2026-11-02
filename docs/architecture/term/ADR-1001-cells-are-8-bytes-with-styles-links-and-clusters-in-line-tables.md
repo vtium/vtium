@@ -31,6 +31,10 @@ considered:
     said: "Placeholder cells: widen the cluster budget for U+10EEEE cells only, to at most three diacritics (up to 17 bytes); every other cell keeps the 6-byte cap."
     via: the maintainer, 2026-11-02, in the steering session
     paraphrase: true
+  - operator: Aaron Bockelie
+    said: "accept"
+    via: steering session, 2026-11-02
+    covers: [placeholder memory]
 observable:
   - "`cargo test -p vtium-term --test memory -- --nocapture` prints the resident figures this record quotes, and fails when the model's size changes"
   - "Changing the cell or the line so it grows fails the build at the size assertions in `src/cell.rs` and `src/line.rs`"
