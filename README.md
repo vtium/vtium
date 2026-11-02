@@ -163,7 +163,7 @@ Building needs Rust and clang, and the first build fetches a Debian sysroot with
 
 [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together, and [AGENTS.md](AGENTS.md) gives every gate and test command.
 
-[docs/terminology.md](docs/terminology.md) defines vtium's terms, from a VT to a frit, and tells why its font tools are named for glass.
+[docs/why-vtium.md](docs/why-vtium.md) tells a newcomer why to choose vtium over the kernel's console, `kmscon` or a desktop terminal, why it suits the console on small and large machines alike, and why its font tools are named for glass.
 
 ## Provenance
 
