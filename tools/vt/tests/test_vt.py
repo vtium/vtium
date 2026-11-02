@@ -1290,6 +1290,58 @@ class Install(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f"{self.sha(self.BIN)}  /{self.BIN}", read(self.at(self.STATE + "/files")).splitlines())
 
+    def test_a_reinstall_leaves_only_the_new_builds_checksums(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        old_build = read(self.at(self.BIN))
+        old_sha = self.sha(self.BIN)
+        write(self.s.bin, read(self.s.bin) + "# a newer build\n")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (self.BIN, self.UNIT, self.FALLBACK)))
+        self.assertNotIn(f"{old_sha}  /{self.BIN}", record)
+        # The old build put back is not the file vt-install wrote, so neither
+        # an install on another VT nor uninstall touches it.
+        write(self.at(self.BIN), old_build)
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "5"), "/usr/local/bin/vtium changed since vt-install wrote it")
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("kept /usr/local/bin/vtium: it changed since vt-install wrote it", p.stdout)
+        self.assertEqual(read(self.at(self.BIN)), old_build)
+
+    def test_a_checksum_counts_only_for_the_path_it_was_recorded_for(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # vtium@.service now holds what vtium-getty@.service holds, whose
+        # checksum the record has, but under the fallback's path.
+        write(self.at(self.UNIT), read(self.at(self.FALLBACK)), 0o644)
+        changed = read(self.at(self.UNIT))
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "5"), "/etc/systemd/system/vtium@.service changed since vt-install wrote it")
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("kept /etc/systemd/system/vtium@.service: it changed since vt-install wrote it", p.stdout)
+        self.assertEqual(read(self.at(self.UNIT)), changed)
+
+    def test_a_symlink_at_a_files_path_is_not_the_file_install_wrote(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # A symlink to a file that holds the same bytes as the binary
+        # install wrote: its checksum matches, but install wrote no symlink.
+        elsewhere = os.path.join(self.s.tmp, "vtium-elsewhere")
+        shutil.copy(self.at(self.BIN), elsewhere)
+        os.unlink(self.at(self.BIN))
+        os.symlink(elsewhere, self.at(self.BIN))
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "5"), "/usr/local/bin/vtium changed since vt-install wrote it")
+        self.assertEqual(os.readlink(self.at(self.BIN)), elsewhere)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("kept /usr/local/bin/vtium: it changed since vt-install wrote it", p.stdout)
+        self.assertEqual(os.readlink(self.at(self.BIN)), elsewhere)
+
     def test_a_file_changed_since_install_wrote_it_is_neither_replaced_nor_removed(self):
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
