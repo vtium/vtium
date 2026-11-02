@@ -14,8 +14,10 @@ X86_TARGET := x86_64-unknown-linux-gnu
 # targets build first; another binary is run as it is. make vt-install's
 # default is the development console, the minspec build made to start its
 # glyph helper at VTIUM_DEV_HELPER, in a target directory of its own so that
-# it never replaces the minspec build; its helper, VTIUM_VITRIFY_BIN, is the
-# release build of vtium-vitrify unless named.
+# it never replaces the minspec build. The helper, VTIUM_VITRIFY_BIN, is the
+# release build of vtium-vitrify unless named: make vt-install installs it,
+# and the review runs copy it into /run/vtium-vt/ and run vtium with
+# --font-helper naming the copy, so each run starts the helper built with it.
 VTIUM_MINSPEC := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/minspec/vtium
 VTIUM_DEV_DIR := $(or $(CARGO_TARGET_DIR),target)/vt-dev
 VTIUM_DEV := $(VTIUM_DEV_DIR)/$(X86_TARGET)/minspec/vtium
@@ -39,7 +41,8 @@ ifeq ($(origin VTIUM_VITRIFY_BIN),undefined)
 VTIUM_VITRIFY_BIN := $(VITRIFY_RELEASE)
 endif
 vt_build := $(if $(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),minspec)
-vt_dev_build := $(if $(filter $(VTIUM_DEV),$(VTIUM_BIN)),vt-dev-console) $(if $(filter $(VITRIFY_RELEASE),$(VTIUM_VITRIFY_BIN)),vitrify-release)
+vt_helper_build := $(if $(filter $(VITRIFY_RELEASE),$(VTIUM_VITRIFY_BIN)),vitrify-release)
+vt_dev_build := $(if $(filter $(VTIUM_DEV),$(VTIUM_BIN)),vt-dev-console) $(vt_helper_build)
 
 .PHONY: help
 help: ## Show this help
@@ -266,6 +269,7 @@ test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sud
 # commands without running them, and VT_DEBUG=1 runs vtium with --debug and
 # copies the kernel's DRM state beside the log.
 $(VT_GOALS): export VTIUM_VT_BIN = $(value VTIUM_BIN)
+$(VT_GOALS): export VTIUM_VT_HELPER = $(value VTIUM_VITRIFY_BIN)
 $(VT_GOALS): export VTIUM_VT_NR = $(value VT)
 $(VT_GOALS): export VTIUM_VT_ARGS = $(value DEMO_ARGS)
 $(VT_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
@@ -277,17 +281,17 @@ $(VT_GOALS): export VTIUM_VT_STEPS =
 
 .PHONY: vt-demo
 vt-demo: export VTIUM_VT_SESSION = demo
-vt-demo: $(vt_build) ## Run vtium with the demo on a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
+vt-demo: $(vt_build) $(vt_helper_build) ## Run vtium with the demo on a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-login
 vt-login: export VTIUM_VT_SESSION = login
-vt-login: $(vt_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-login: $(vt_build) $(vt_helper_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-shell
 vt-shell: export VTIUM_VT_SESSION = shell
-vt-shell: $(vt_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-shell: $(vt_build) $(vt_helper_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # Without GUIDE it fails before the build, naming the guides.
@@ -300,7 +304,7 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
+vt-check: $(vt_build) $(vt_helper_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # A development build of vtium as the console of one VT, across reboots,

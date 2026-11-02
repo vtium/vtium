@@ -137,6 +137,7 @@ printf '%s:x:%s:%s::%s:%s\\n' "$2" "$(id -u)" "$(id -g)" "$LOGIN_HOME" "$LOGIN_S
 # shows each.
 LOGIN_SHELL = """#!/bin/bash
 printf 'login shell: %s as %s in %s\\n' "$*" "$(id -un)" "$PWD"
+printf 'terminfo: %s\\n' "$([ -f "${TERMINFO-}/x/xterm-vtium" ] && echo xterm-vtium || echo none)"
 printf 'env: %s\\n' "LANG=${LANG-}" "LC_TIME=${LC_TIME-}" "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR-}" \\
 	"DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS-}" "VTIUM_HEAD=${VTIUM_HEAD-}" \\
 	"VTIUM_CONSOLE=${VTIUM_CONSOLE-}"
@@ -626,8 +627,56 @@ class RunVt(Case):
         uid, gid = os.getuid(), os.getgid()
         self.assertEqual(argv[at + 1:], [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}",
                                          "--init-groups", "--inh-caps=-all", "--reset-env", "--", *CARRY,
-                                         "/usr/bin/env", "DEMO_LABEL=vtium dev build abc", "/bin/bash",
+                                         "/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
+                                         "DEMO_LABEL=vtium dev build abc", "/bin/bash",
                                          os.path.join(VT, "demo.sh")])
+
+    def test_a_run_starts_the_helper_built_with_it_from_a_copy_of_roots(self):
+        helper = self.s.helper
+        p = self.run_vt(f"--helper={helper}", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        stage = os.path.join(self.s.standins, "run-vtium-vt")
+        for line in (f"+ rm -rf -- {stage}", f"+ install -d -m 0755 -- {stage} {stage}/terminfo",
+                     f"+ install -m 0755 -- {helper} {stage}/vtium-vitrify"):
+            self.assertIn(line, p.stdout)
+        self.assertIn(f" --font-helper={stage}/vtium-vitrify ", p.stdout)
+        self.assertFalse(os.path.exists(stage))
+        # A real run: vtium gets the copy's path, and the copy, the compiled
+        # entry and their directory are gone once the run ends.
+        p = self.run_vt(f"--helper={helper}", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        self.assertIn(f"--font-helper={stage}/vtium-vitrify", argv)
+        self.assertNotIn("--term=kmscon", argv)
+        self.assertFalse(os.path.exists(stage))
+        # Without --helper, vtium starts the helper it was built with.
+        p = self.run_vt("8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse([a for a in read(self.s.bin_args).splitlines() if a.startswith("--font-helper")])
+
+    def test_a_helper_another_user_could_have_written_is_refused(self):
+        for mode in (0o775, 0o757):
+            with self.subTest(mode=oct(mode)):
+                os.chmod(self.s.helper, mode)
+                self.refused(self.run_vt(f"--helper={self.s.helper}", "--dry-run", "8"),
+                             "is writable by group or others")
+        os.chmod(self.s.helper, 0o755)
+        self.refused(self.run_vt(f"--helper={self.s.helper}-missing", "--dry-run", "8"), "no glyph helper at")
+
+    def test_a_login_reads_the_systems_entry_or_runs_as_kmscon(self):
+        # /bin/login passes no TERMINFO, so with no xterm-vtium entry in the
+        # system's terminfo the run names TERM=kmscon and says why.
+        p = self.run_vt("--login", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(" --term=kmscon ", p.stdout)
+        self.assertIn("The system has no xterm-vtium terminfo entry", p.stdout)
+        entry = os.path.join(self.s.standins, "terminfo", "x")
+        os.makedirs(entry)
+        write(os.path.join(entry, "xterm-vtium"), "", 0o644)
+        p = self.run_vt("--login", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("--term=kmscon", p.stdout)
+        self.assertNotIn("The system has no xterm-vtium terminfo entry", p.stdout)
 
     def test_a_guide_runs_as_the_user_with_its_vt_and_steps(self):
         guide = os.path.join(VT, "checks", "start.guide")
@@ -636,7 +685,8 @@ class RunVt(Case):
         argv = read(self.s.bin_args).splitlines()
         self.assertIn("--oneshot", argv)
         self.assertEqual(argv[argv.index("/usr/bin/env"):],
-                         ["/usr/bin/env", "GUIDE_VT=8", "GUIDE_DESKTOP=7", "GUIDE_STEPS=2,1",
+                         ["/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
+                          "GUIDE_VT=8", "GUIDE_DESKTOP=7", "GUIDE_STEPS=2,1",
                           "/bin/bash",
                           os.path.join(VT, "checks", "guide.sh"), guide])
         for opts, why in ((["--steps=1;2"], "--steps takes step numbers"),
@@ -673,7 +723,8 @@ class RunVt(Case):
         self.assertEqual(argv[argv.index("--") + 1:],
                          [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}", "--init-groups",
                           "--inh-caps=-all", "--reset-env", "--", *CARRY, "/usr/bin/env",
-                          "-C", self.s.home, SCRIPT, "-q", "-f", "-c", f"exec {self.s.login_shell} -l", t])
+                          "-C", self.s.home, f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
+                          SCRIPT, "-q", "-f", "-c", f"exec {self.s.login_shell} -l", t])
         self.assertIn(f"with {USER}'s shell", p.stdout)
         self.assertEqual(self.s.calls_of("getent"), [f"passwd {USER}"])
         # Without a transcript, the shell is the session itself.
@@ -681,14 +732,15 @@ class RunVt(Case):
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
         self.assertEqual(argv[argv.index("/usr/bin/env"):],
-                         ["/usr/bin/env", "-C", self.s.home, "/bin/bash", "-l"])
+                         ["/usr/bin/env", "-C", self.s.home, f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
+                          "/bin/bash", "-l"])
 
     def shell_env(self, **env):
         """The words between the shell's env and the shell itself."""
         p = self.run_vt("--shell", "8", **env)
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
-        return argv[argv.index(self.s.home) + 1:-2]
+        return argv[argv.index(self.s.home) + 1:-3]
 
     def test_a_shell_gets_the_locale_and_the_users_runtime_directory(self):
         self.assertEqual(self.shell_env(), [])
@@ -1104,7 +1156,7 @@ class VtSh(Case):
         answers = os.path.join(self.s.tmp, "answers")
         write(answers, "\n\ny" "all drawn\n" "\necho hello vtium\nexit\n" "n\n" "\n", 0o644)
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-check", "GUIDE=start",
-                            f"VTIUM_BIN={self.s.bin}", "VT=6"],
+                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=6"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=answers, ACTIVE_UNITS="getty@tty6.service"),
                            capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -1120,7 +1172,8 @@ class VtSh(Case):
     def test_the_demo_runs_and_its_answers_reach_the_caller(self):
         # demo.sh reads its keys from the terminal make runs in.
         env = self.s.env(BIN_MODE="session", BIN_STDIN="/dev/null", TERM="linux", ACTIVE_UNITS="kmsconvt@tty5.service")
-        d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-demo", f"VTIUM_BIN={self.s.bin}"], env)
+        d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-demo", f"VTIUM_BIN={self.s.bin}",
+                 f"VTIUM_VITRIFY_BIN={self.s.helper}"], env)
         d.wait_for(b"Switch to VT 5 now")
         d.wait_for(b"press a key for the first section", timeout=20)
         d.send(b" ")
@@ -1142,7 +1195,8 @@ class VtSh(Case):
         write(typed, "ls -l\n", 0o644)
         self.s.locale("LANG=de_DE.UTF-8\n")
         self.s.runtime_dir_path = self.s.runtime_dir()
-        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-shell", f"VTIUM_BIN={self.s.bin}", "VT=6"],
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-shell", f"VTIUM_BIN={self.s.bin}",
+                            f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=6"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell,
                                           ACTIVE_UNITS="getty@tty6.service"),
                            capture_output=True, text=True, timeout=30)
@@ -1160,6 +1214,9 @@ class VtSh(Case):
         # vtium's variables cross setpriv's reset of the environment.
         self.assertIn("env: VTIUM_HEAD=console\n", text)
         self.assertIn("env: VTIUM_CONSOLE=1\n", text)
+        # The shell reads the xterm-vtium entry the run compiled from the
+        # checkout, as the package ships it.
+        self.assertIn("terminfo: xterm-vtium\n", text)
         self.assertEqual(self.s.calls_of("sudo")[0], "-v")
         self.assertEqual(self.s.changes(), ["stop getty@tty6.service", "start getty@tty6.service"])
 
@@ -1168,6 +1225,10 @@ class Make(Case):
     """The Makefile's guards, which act before anything is built."""
 
     def make(self, *args, **env):
+        # The review targets build the helper unless one is named; these
+        # tests name the stand-in's, as they name the binary.
+        if not any(a.startswith(("VTIUM_VITRIFY_BIN=", "VITRIFY_RELEASE=")) for a in args) and "VTIUM_VITRIFY_BIN" not in env:
+            args = (*args, f"VTIUM_VITRIFY_BIN={self.s.helper}")
         return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
                               capture_output=True, text=True, timeout=30, start_new_session=True)
 
@@ -1189,6 +1250,19 @@ class Make(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu -- -C link-arg=-Wl,-z,pack-relative-relocs"])
         self.assertIn(f"--bin={self.s.bin} ", p.stdout)
+        self.assertIn(f"--helper={self.s.helper} ", p.stdout)
+
+    def test_the_default_helper_is_the_release_build(self):
+        # VITRIFY_RELEASE points the default helper at the stand-in, which the
+        # stand-in cargo "builds"; run-vt.sh runs vtium with the copy it makes.
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"VITRIFY_RELEASE={self.s.helper}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("cargo"), ["build --release -p vtium-vitrify --target x86_64-unknown-linux-gnu"])
+        self.assertIn(f"--helper={self.s.helper} ", p.stdout)
+        self.assertIn(f"--font-helper={self.s.standins}/run-vtium-vt/vtium-vitrify ", p.stdout)
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", VTIUM_VITRIFY_BIN=self.s.helper)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("VTIUM_VITRIFY_BIN is set in the environment", p.stderr)
 
     def test_another_binary_is_run_as_it_is(self):
         p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")

@@ -5,7 +5,7 @@
 # When the session ends, this script is interrupted or vtium fails, the units
 # that were running are started again. See docs/vt-review.md.
 #
-#   sudo tools/vt/run-vt.sh --bin=PATH [--dry-run] [--label=TEXT] [--debug=DIR] [--login |
+#   sudo tools/vt/run-vt.sh --bin=PATH [--helper=PATH] [--dry-run] [--label=TEXT] [--debug=DIR] [--login |
 #        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]
 #
 # --bin names the vtium binary, which runs as root: a regular file owned by
@@ -34,6 +34,19 @@
 # after its modeset is done, as NNN-modeset-<N>.state, and as end-<N>.state once
 # vtium has stopped. Each copy is written as the user, who must be able to write DIR; a
 # line in vtium's log names it.
+# --helper names the glyph helper vtium-vitrify built with the binary, held
+# to the binary's rules. The run copies it, owned by root and mode 0755, into
+# /run/vtium-vt/, a directory only root can write, and runs vtium with
+# --font-helper naming the copy, so a review run starts the helper built with
+# it and never the packaged one or the development install's (ADR-1500 D4).
+# The run also compiles the checkout's terminfo entry, xterm-vtium, the name
+# vtium gives TERM, into /run/vtium-vt/terminfo, and the demo, the guide and
+# the shell get TERMINFO naming it, so they read the entry the package ships,
+# as built from this checkout. A login session gets no such variable through
+# /bin/login, so with --login the run uses the system's xterm-vtium entry when
+# one is installed, as the packaged vtium's sessions do, and runs vtium with
+# --term=kmscon when none is, saying so. /run/vtium-vt/ is removed when the
+# run ends.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
 # it; it needs no root.
@@ -42,7 +55,8 @@
 # systemctl, loginctl, setpriv and getent, a file "active" in place of
 # /sys/class/tty/tty0/active, "shells" and "locale.conf" in place of
 # /etc/shells and /etc/locale.conf, "run-user" in place of /run/user, and
-# "debugfs-dri" in place of /sys/kernel/debug/dri.
+# "debugfs-dri" in place of /sys/kernel/debug/dri, "run-vtium-vt" in place of
+# /run/vtium-vt, and "terminfo" in place of /usr/share/terminfo.
 # Each is run from there by its full path, so no system command is reached,
 # and the run goes through without root. As root the variable is refused.
 set -euo pipefail
@@ -63,6 +77,7 @@ die() {
 dry=
 vt=
 bin=
+helper=
 label=
 extra=()
 login=
@@ -75,6 +90,7 @@ while [ $# -gt 0 ]; do
 	case $1 in
 	--dry-run) dry=1 ;;
 	--bin=*) bin=${1#*=} ;;
+	--helper=*) helper=${1#*=}; [ -n "$helper" ] || die "--helper needs the glyph helper's path" ;;
 	--label=*) label=${1#*=} ;;
 	--login) login=1 ;;
 	--guide=*) guide=${1#*=}; [ -n "$guide" ] || die "--guide needs the guide's path: --guide=tools/vt/checks/NAME.guide" ;;
@@ -110,6 +126,10 @@ if [ -n "$standins" ]; then
 	locale_file=$standins/locale.conf
 	run_user=$standins/run-user
 	dri=$standins/debugfs-dri
+	stage=$standins/run-vtium-vt
+	system_terminfo=$standins/terminfo
+	# The tests run without root, so the staged files stay theirs.
+	own=()
 else
 	systemctl=systemctl
 	loginctl=loginctl
@@ -121,6 +141,9 @@ else
 	locale_file=/etc/locale.conf
 	run_user=/run/user
 	dri=/sys/kernel/debug/dri
+	stage=/run/vtium-vt
+	system_terminfo=/usr/share/terminfo
+	own=(-o root -g root)
 fi
 # The units that may hold the VT: the stock kmscon, a getty, the packaged
 # vtium, vtium as make vt-install installs it, and autovt@, which logind
@@ -273,6 +296,26 @@ read -r owner mode < <(stat -c '%u %a' -- "$bin")
 	die "$bin belongs to uid $owner, neither root nor $user; it would run as root"
 (( (8#$mode & 8#022) == 0 )) ||
 	die "$bin is writable by group or others (mode $mode); it would run as root"
+# The helper is held to the same rules: vtium, as root, starts it as nobody,
+# from the copy this run makes.
+if [ -n "$helper" ]; then
+	helper=$(readlink -m -- "$helper")
+	[ -f "$helper" ] && [ -x "$helper" ] || die "no glyph helper at $helper: build it first (make vitrify-release)"
+	read -r owner mode < <(stat -c '%u %a' -- "$helper")
+	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
+		die "$helper belongs to uid $owner, neither root nor $user; vtium, as root, would start it"
+	(( (8#$mode & 8#022) == 0 )) ||
+		die "$helper is writable by group or others (mode $mode); vtium, as root, would start it"
+fi
+# vtium names itself TERM=xterm-vtium; the run compiles that entry from the
+# checkout, as the package does, for the sessions it starts itself.
+terminfo_src=$checkout/crates/vtium/install/xterm-vtium.ti
+[ -f "$terminfo_src" ] || die "no $terminfo_src, the terminfo entry the sessions read"
+# /bin/login passes no TERMINFO to the session it starts, so a login session
+# reads the system's entries: the packaged one when it is installed, and
+# kmscon's, which the machine keeps, when it is not.
+term_opt=()
+[ -z "$login" ] || [ -f "$system_terminfo/x/xterm-vtium" ] || term_opt=(--term=kmscon)
 
 # --inh-caps=-all empties the one capability set the uid change leaves. The
 # bounding set and no-new-privs are left alone: sudo works in the shell.
@@ -388,6 +431,7 @@ done
 child=
 watcher=
 fifo_dir=
+stage_made=
 # Whether vtium still runs, asked of this shell's job table rather than of its
 # PID: once bash has reaped it, the PID may be another process's. grep reads
 # all of jobs' output, so pipefail sees no SIGPIPE.
@@ -437,6 +481,7 @@ restore() {
 		capture end
 	fi
 	[ -z "$fifo_dir" ] || rm -rf -- "$fifo_dir"
+	[ -z "$stage_made" ] || [ -n "$dry" ] || rm -rf -- "$stage"
 	if [ ${#active[@]} -gt 0 ] && ! act "$systemctl" start "${active[@]}"; then
 		echo "run-vt: restarting ${active[*]} failed; restore it with: sudo systemctl start ${active[*]}" >&2
 		exit 1
@@ -479,6 +524,12 @@ else
      press q in the demo to finish"
 fi
 users_shell="$user's shell"
+term_note=
+[ ${#term_opt[@]} -eq 0 ] ||
+	term_note="  The system has no xterm-vtium terminfo entry, which /bin/login's session
+  would read, so vtium runs with --term=kmscon; the packaged vtium-terminfo
+  holds the entry.
+"
 cat <<EOF
 
 vtium $label on VT $vt${login:+, with a login prompt}${guide:+, with guided checks}${shell:+, with $users_shell}
@@ -487,7 +538,7 @@ vtium $label on VT $vt${login:+, with a login prompt}${guide:+, with guided chec
   $last. $after;
      switch back to your desktop with Ctrl-Alt-F$fg
 $manual
-
+$term_note
 EOF
 
 # The demo, the guide and the shell run as $user, never as root, with the
@@ -504,14 +555,15 @@ EOF
 # ignores Ctrl-C (bash does that for background jobs in a script) and this
 # script decides how it stops: SIGTERM from restore(). --configdir keeps the
 # system's config out of the run; config/ holds the review's own.
-session=(/usr/bin/env DEMO_LABEL="vtium $label" /bin/bash "$here/demo.sh")
+terminfo=(TERMINFO="$stage/terminfo")
+session=(/usr/bin/env "${terminfo[@]}" DEMO_LABEL="vtium $label" /bin/bash "$here/demo.sh")
 if [ -n "$guide" ]; then
-	session=(/usr/bin/env GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
+	session=(/usr/bin/env "${terminfo[@]}" GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
 		/bin/bash "$here/checks/guide.sh" "$guide")
 elif [ -n "$shell" ]; then
-	session=(/usr/bin/env -C "$home" "${locale[@]}" "${runtime[@]}" "$login_shell" -l)
+	session=(/usr/bin/env -C "$home" "${locale[@]}" "${runtime[@]}" "${terminfo[@]}" "$login_shell" -l)
 	[ -z "$transcript" ] ||
-		session=(/usr/bin/env -C "$home" "${locale[@]}" "${runtime[@]}"
+		session=(/usr/bin/env -C "$home" "${locale[@]}" "${runtime[@]}" "${terminfo[@]}"
 			"$script" -q -f -c "exec $login_shell -l" "$transcript")
 fi
 # setpriv's --reset-env clears the environment vtium gave the session, so
@@ -524,6 +576,8 @@ fi
 carry=(/bin/sh -c 'h=$1 c=$2; shift 2; exec /usr/bin/env VTIUM_HEAD="$h" VTIUM_CONSOLE="$c" "$@"'
 	sh '$VTIUM_HEAD' '$VTIUM_CONSOLE')
 once=(--oneshot)
+helper_opt=()
+[ -z "$helper" ] || helper_opt=(--font-helper="$stage/vtium-vitrify")
 debug_opt=()
 [ -z "$debug" ] || debug_opt=(--debug)
 login_argv=("${drop[@]}" -- "${carry[@]}" "${session[@]}")
@@ -531,8 +585,15 @@ if [ -n "$login" ]; then
 	once=()
 	login_argv=(/bin/login -p)
 fi
-cmd=("$bin" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" "${debug_opt[@]}"
-	"${extra[@]}" --login -- "${login_argv[@]}")
+cmd=("$bin" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" "${helper_opt[@]}"
+	"${term_opt[@]}" "${debug_opt[@]}" "${extra[@]}" --login -- "${login_argv[@]}")
+# The helper's copy and the terminfo entry, in a directory of root's alone,
+# made fresh for this run and removed when it ends.
+act rm -rf -- "$stage"
+act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo"
+stage_made=1
+[ -z "$helper" ] || act install -m 0755 "${own[@]}" -- "$helper" "$stage/vtium-vitrify"
+act tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_src"
 show "${cmd[@]}"
 [ -z "$dry" ] || exit 0
 # Under --debug, vtium's output goes through watch_log, which closes the lock
