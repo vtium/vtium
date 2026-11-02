@@ -2030,6 +2030,31 @@ exec "$@"
         p = self.vt_install("install", "4", **sudo_uid)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
+    def test_root_checks_every_file_in_the_stand_ins_directory(self):
+        # The stand-ins lead PATH, so as root any file there runs as root
+        # when the script calls a command of its name: id and stat, which the
+        # check itself runs, and sha256sum, which install runs after it.
+        sudo_uid = self.as_root()
+        sha = os.path.join(self.s.standins, "sha256sum")
+        write(sha, f'#!/bin/bash\nexec {shutil.which("sha256sum")!r} "$@"\n')
+        # A symlink there is checked by the file it names.
+        elsewhere = os.path.join(self.s.tmp, "awk")
+        write(elsewhere, f'#!/bin/bash\nexec {shutil.which("awk")!r} "$@"\n')
+        awk = os.path.join(self.s.standins, "awk")
+        os.symlink(elsewhere, awk)
+        for name, path in (("id", None), ("stat", None), ("sha256sum", sha), ("awk", elsewhere)):
+            path = path or os.path.join(self.s.standins, name)
+            with self.subTest(name=name):
+                os.chmod(path, 0o777)
+                for action in ("install", "uninstall"):
+                    open(self.s.calls, "w").close()
+                    shown = awk if name == "awk" else path
+                    self.refused(self.vt_install(action, "4", **sudo_uid),
+                                 f"{shown} is writable by group or others (mode 777)")
+                os.chmod(path, 0o755)
+        p = self.vt_install("install", "4", **sudo_uid)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
     def test_make_runs_it_with_the_binary_named_and_no_build(self):
         make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, *a],
                                               env=self.s.env(**e), capture_output=True, text=True, timeout=30)

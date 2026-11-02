@@ -81,12 +81,25 @@ standins=${VTIUM_VT_STANDINS:-}
 [ -n "$standins" ] || [ "$(id -u)" -ne 0 ] ||
 	die "run it as yourself, not as root or under sudo; it asks sudo for each step that needs root"
 # As root, the script runs the stand-ins as root, so only root or the user
-# who ran sudo may have written them, as run-vt.sh asks of the binary.
+# who ran sudo may have written them, as run-vt.sh asks of the binary. It
+# runs sudo, systemctl and loginctl from the stand-ins' directory by path,
+# and the tests put the directory first on PATH, so any other file there
+# runs when the script calls a command of that name. The check therefore
+# covers the directory and every regular file in it, following symlinks.
+# Two commands run from PATH before the check is done: id, which says
+# whether this is root, and stat, which the check reads the owners with. For
+# those two the script trusts PATH, as root trusts its PATH.
 if [ -n "$standins" ] && [ "$(id -u)" -eq 0 ]; then
 	sudo_uid=${SUDO_UID:-0}
 	[[ $sudo_uid =~ ^[0-9]+$ ]] || die "SUDO_UID is '$sudo_uid', not a uid"
-	for f in "$standins" "$standins/sudo" "$standins/systemctl" "$standins/loginctl"; do
-		read -r owner mode < <(stat -c '%u %a' -- "$f") || die "cannot read the owner of $f"
+	shopt -s dotglob nullglob
+	checked=("$standins" "$standins/sudo" "$standins/systemctl" "$standins/loginctl")
+	for f in "$standins"/*; do
+		[ ! -f "$f" ] || checked+=("$f")
+	done
+	shopt -u dotglob nullglob
+	for f in "${checked[@]}"; do
+		read -r owner mode < <(stat -L -c '%u %a' -- "$f") || die "cannot read the owner of $f"
 		[ "$owner" -eq 0 ] || [ "$owner" -eq "$sudo_uid" ] ||
 			die "$f belongs to uid $owner, neither root nor the user who ran sudo; as root, vt-install runs the stand-ins as root"
 		(( (8#$mode & 8#022) == 0 )) ||
