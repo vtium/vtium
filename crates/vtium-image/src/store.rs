@@ -354,6 +354,12 @@ pub struct Store {
     spare: Option<Pixels>,
     /// An image is being evicted for room, so its pixels go.
     evicting: bool,
+    /// The ledger of the reservations the store granted and has not seen
+    /// spent: each one's number and the bytes it holds of the budget,
+    /// which `used` counts.
+    reservations: BTreeMap<u64, u64>,
+    /// The number the next reservation gets.
+    next_reservation: u64,
 }
 
 /// Two stores compare by what they hold; the work an input call counted
@@ -376,6 +382,8 @@ impl PartialEq for Store {
             && self.keep == other.keep
             && self.dying == other.dying
             && self.spare_bytes() == other.spare_bytes()
+            && self.reservations == other.reservations
+            && self.next_reservation == other.next_reservation
     }
 }
 
@@ -408,6 +416,8 @@ impl Store {
             changed: Vec::new(),
             spare: None,
             evicting: false,
+            reservations: BTreeMap::new(),
+            next_reservation: 0,
         }
     }
 
@@ -582,14 +592,17 @@ impl Store {
     ) -> Result<ImageKey, Refusal> {
         let b = self.active();
         // the image a reservation held for its replacement, when it is
-        // still in the buffer in use with the id; it is held no more
-        let (mut reserved, held) = match reservation {
-            Some(r) => {
+        // still in the buffer in use with the id; it is held no more. A copy
+        // of a reservation already spent holds nothing, so the image
+        // reserves its whole cost
+        let spent = reservation.and_then(|r| self.spend(&r).map(|bytes| (r, bytes)));
+        let (mut reserved, held) = match spent {
+            Some((r, bytes)) => {
                 self.hold(r.buffer, r.old, false);
                 let still = r
                     .old
                     .filter(|&o| r.buffer == b && self.image(b, o).is_some_and(|i| i.id == new.id));
-                (r.bytes, still)
+                (bytes, still)
             }
             None => (0, None),
         };

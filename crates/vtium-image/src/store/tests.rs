@@ -726,6 +726,151 @@ fn a_reservation_given_back_frees_its_bytes_and_its_hold() {
     assert_eq!(s.bytes(), ONE_CELL);
 }
 
+// A handler that gives one reservation back twice, through a copy, gets its
+// bytes and its hold back once: the second copy finds the store's ledger
+// without it and changes nothing.
+// covers: image.pipeline
+#[test]
+fn a_reservation_given_back_twice_gives_its_bytes_and_its_hold_back_once() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    // a sixel of 1024 bytes, as the review of the handler contract stored
+    let _ = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    assert_eq!(s.bytes(), 8 * 16 * 4 + IMAGE_OVERHEAD);
+    let r = s.reserve(Protocol::SIXEL, 0, 4096, f.screens()).unwrap();
+    s.unreserve(r.clone());
+    s.unreserve(r);
+    assert_eq!(
+        s.bytes(),
+        8 * 16 * 4 + IMAGE_OVERHEAD,
+        "the sixel's bytes stay"
+    );
+    // two reservations hold the image of id 7; one given back twice
+    // releases only its own hold
+    let old = add(&mut s, &f, Protocol::KITTY, 8, 16, 7);
+    let before = s.bytes();
+    let first = s.reserve(Protocol::KITTY, 7, 4096, f.screens()).unwrap();
+    let second = s.reserve(Protocol::KITTY, 7, 4096, f.screens()).unwrap();
+    assert_eq!(s.image(MAIN, old).map(|i| i.hold), Some(2));
+    s.unreserve(first.clone());
+    s.unreserve(first);
+    assert_eq!(
+        s.image(MAIN, old).map(|i| i.hold),
+        Some(1),
+        "the second still holds it"
+    );
+    assert_eq!(s.bytes(), before + second.bytes());
+    s.unreserve(second);
+    assert_eq!(s.bytes(), before);
+}
+
+// A copy of a reservation an image already spent pays for no second image:
+// that image reserves its whole cost, which a budget with room for one
+// image refuses.
+// covers: image.pipeline
+#[test]
+fn a_reservation_an_image_spent_pays_for_no_second_image() {
+    let f = Fake::new(4);
+    let mut s = store(ONE_CELL);
+    let r = s
+        .reserve(Protocol::SIXEL, 0, ONE_CELL, f.screens())
+        .unwrap();
+    let a = s
+        .add_image(
+            image(Protocol::SIXEL, 8, 16, 0),
+            Some(r.clone()),
+            f.screens(),
+        )
+        .expect("stored");
+    // a sixel placed on the screen is never evicted
+    put(&mut s, &f, a, 0, 0);
+    assert_eq!(s.bytes(), ONE_CELL);
+    assert_eq!(
+        s.add_image(
+            image(Protocol::SIXEL, 8, 16, 0),
+            Some(r.clone()),
+            f.screens()
+        ),
+        Err(Refusal::NoSpace),
+        "the second image has nothing reserved"
+    );
+    assert_eq!(s.image_count(), 1);
+    assert_eq!(s.bytes(), ONE_CELL);
+    // and the copy given back gives back nothing
+    s.unreserve(r);
+    assert_eq!(s.bytes(), ONE_CELL);
+}
+
+// A copy of a reservation already spent does not grow: the bytes it would
+// reserve would belong to no reservation the store could take them back
+// from.
+// covers: image.pipeline
+#[test]
+fn a_reservation_already_spent_is_refused_growth() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    let r = s.reserve(Protocol::SIXEL, 0, 4096, f.screens()).unwrap();
+    let mut copy = r.clone();
+    s.unreserve(r);
+    assert_eq!(s.bytes(), 0);
+    assert_eq!(s.grow(&mut copy, 4096, f.screens()), Err(Refusal::Invalid));
+    assert_eq!(s.bytes(), 0, "nothing was reserved");
+    assert_eq!(copy.bytes(), 4096, "the copy is as it was");
+    // a live reservation grows, and gives back what it grew by
+    let mut live = s.reserve(Protocol::SIXEL, 0, 4096, f.screens()).unwrap();
+    s.grow(&mut live, 4096, f.screens()).expect("room");
+    assert_eq!(live.bytes(), 8192);
+    assert_eq!(s.bytes(), 8192);
+    s.unreserve(live);
+    assert_eq!(s.bytes(), 0);
+}
+
+// The reservation `kitty_buffer` makes of the spare buffer's charge, grown
+// by the rest of the picture's cost and holding the image of the id the
+// new one replaces, is spent once like any other.
+// covers: image.pipeline
+#[test]
+fn a_spare_buffer_reservation_given_back_twice_gives_back_once() {
+    const LEN: usize = 16 * 32;
+    let cost = 16 * 32 * 4 + IMAGE_OVERHEAD;
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    // the replacement frees the first image, whose pixels stay as the spare
+    let old = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let images = s.bytes() - 16 * 32 * 4;
+    let (buffer, r) = Edit::new(&mut s, f.screens(), COLS)
+        .kitty_buffer(7, LEN, cost)
+        .expect("room");
+    assert_eq!(buffer.len(), LEN, "the buffer is the spare");
+    let other = s.reserve(Protocol::KITTY, 7, cost, f.screens()).unwrap();
+    assert_eq!(s.image(MAIN, old).map(|i| i.hold), Some(2));
+    assert_eq!(s.bytes(), images + r.bytes() + other.bytes());
+    s.unreserve(r.clone());
+    s.unreserve(r);
+    assert_eq!(
+        s.image(MAIN, old).map(|i| i.hold),
+        Some(1),
+        "the other still holds it"
+    );
+    assert_eq!(s.bytes(), images + other.bytes());
+    s.unreserve(other);
+    assert_eq!(s.bytes(), images);
+    // with no image of its id to count, the reservation grows by the 512
+    // bytes beside the pixels, and gives those back too
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let images = s.bytes() - 16 * 32 * 4;
+    let (buffer, r) = Edit::new(&mut s, f.screens(), COLS)
+        .kitty_buffer(0, LEN, cost)
+        .expect("room");
+    assert_eq!(buffer.len(), LEN, "the buffer is the spare");
+    assert_eq!(r.bytes(), cost);
+    assert_eq!(s.bytes(), images + cost);
+    s.unreserve(r.clone());
+    s.unreserve(r);
+    assert_eq!(s.bytes(), images);
+}
+
 #[test]
 fn a_command_finds_an_image_by_id_or_newest_number_and_stamps_it() {
     let f = Fake::new(4);
