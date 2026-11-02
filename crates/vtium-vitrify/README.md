@@ -150,7 +150,7 @@ A frit and every source file are opened once, never blocking on a FIFO, refused 
 | `UNIMAP_ENTRIES_MAX` | 65535, kbd's count | The unimap is refused |
 | A font file, a unimap | vtium-font's `PSF_BYTES_MAX` | The source is refused before it is parsed |
 | `COMPRESSED_BYTES_MAX` | vtium-font's `GZIP_BYTES_MAX`, 1 MiB, in every compression | The source is refused before it is decoded |
-| `ZSTD_WINDOW_MAX` | 128 MiB, the window a zstd frame declares, as libzstd's `zstd -d` allows by default; a second bound beside `PSF_BYTES_MAX`, which caps what the frame decodes to | The source is refused as the frame's header is read |
+| `ZSTD_WINDOW_MAX` | vtium-font's `PSF_BYTES_MAX`, 16 MiB, the window a zstd frame declares. `ruzstd` holds up to one declared window of decoded bytes, and a block, before it hands any out, so this bound is what limits a frame's buffer, beside `PSF_BYTES_MAX` on the output. `zstd font` and `zstd -19` through a pipe stay inside it; a font piped through `zstd --ultra -20` or above, or `zstd --long`, declares more | The source is refused as the frame's header is read |
 | A zstd block | the smaller of its frame's window and 128 KiB decoded, RFC 8878's `Block_Maximum_Size`, which `ruzstd` enforces | The source is refused as the block decodes |
 | vconsole.conf, the kernel command line | 64 KiB | The source is refused |
 | `GLYPHS_BYTES_MAX` | the largest PSF's glyphs and a map of every codepoint | The parser's answer is refused |
