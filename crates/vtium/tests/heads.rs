@@ -1819,18 +1819,15 @@ fn closing_a_console_hangs_up_its_session_alone() {
 // covers: platform.heads
 #[test]
 fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("vtium-heads-unstartable-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("a scratch directory");
     let login = dir.join("login");
-    std::fs::write(
+    script_file(
         &login,
         "#!/bin/sh\necho ready; while read a; do echo \"got:$a\"; done\n",
-    )
-    .expect("the login");
-    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    );
     let heads = CLAIMED.replace(
         "[head small]\n",
         &format!("[head small]\nlogin = {}\n", login.display()),
@@ -1860,15 +1857,36 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
 /// console's id, then echoes each line it reads through `cat -v`, so a
 /// focus report it was sent shows on its screen.
 fn focus_login(dir: &Path) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let login = dir.join("login");
-    std::fs::write(
+    script_file(
         &login,
         "#!/bin/sh\nprintf '\\033[?1004h'; echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\" | cat -v; done\n",
-    )
-    .expect("the login");
-    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    );
     login
+}
+
+/// Writes `text` as a script at `path` that a head's login starts. This
+/// process writes the text to a file beside it, and `cp` writes the
+/// script, so this process never holds the script open to write. A child
+/// that another test forks while this process holds a file open to write
+/// holds that descriptor until its own exec, and starting the script
+/// while it does fails with ETXTBSY.
+fn script_file(path: &Path, text: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let staged = path.with_extension("text");
+    std::fs::write(&staged, text).expect("the script's text");
+    let copied = std::process::Command::new("cp")
+        .arg(&staged)
+        .arg(path)
+        .status()
+        .expect("cp");
+    assert!(
+        copied.success(),
+        "cp {} {}",
+        staged.display(),
+        path.display()
+    );
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("its mode");
 }
 
 /// A scratch directory for test `name`, on disk under the build's own.
