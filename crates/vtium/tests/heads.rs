@@ -21,6 +21,10 @@ use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
 use vtium_platform::vt::FakeVt;
 
+#[path = "common/helper.rs"]
+mod stand_in;
+use stand_in::real_helper;
+
 const ID: DisplayId = DisplayId(1);
 const SECOND: Duration = Duration::from_secs(5);
 
@@ -720,37 +724,32 @@ display card:mem-large -> large
 
 /// ADR-1200 D17, binary-recheck's finding 4: a bitmap frit asks for its
 /// fonts' own cell at an OSC 50 switch. Switched away and back while
-/// another head still draws it, a frit whose last ask had no answer in time
-/// asks again; one the helper refused keeps the refusal and asks nothing.
+/// another head still draws it, a frit whose last ask had no answer in
+/// time asks again; one the helper refused keeps the refusal and asks
+/// nothing. The helper is the real one, so each query gets one answer:
+/// its frit names a kbd font no machine has, which it refuses, and held,
+/// it answers nothing until the test opens its go FIFO, which it never
+/// does here.
 // covers: text.font-change
 #[test]
 fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
-    let refusal = {
-        let why = b"source=kbd:x: no such font";
-        let mut frame = 7u32.to_le_bytes().to_vec();
-        frame.extend(u32::try_from(why.len()).unwrap_or(0).to_le_bytes());
-        frame.extend(why);
-        frame
-    };
-    // the helper never answers, or refuses the first query
-    for (case, helper, answer, again) in [
-        ("timeout", "cat >/dev/null", Vec::new(), 1),
-        ("refused", "cat >/dev/null & cat \"$1\"; wait", refusal, 0),
-    ] {
+    for (case, held, again) in [("timeout", true, 1), ("refused", false, 0)] {
         let dir = scratch_dir(&format!("osc50-{case}"));
-        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").expect("the frit");
-        std::fs::write(dir.join("answer"), &answer).expect("the answer");
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:vtium-no-such-font\n").expect("the frit");
+        let (kinds, go) = (dir.join("kinds"), dir.join("go"));
+        if held {
+            rustix::fs::mknodat(
+                rustix::fs::CWD,
+                &go,
+                rustix::fs::FileType::Fifo,
+                rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+                0,
+            )
+            .expect("the go FIFO");
+        }
         let fonts = Sources {
             frits: dir.clone(),
-            helper: Some(vtium::helper::Command {
-                program: PathBuf::from("/bin/sh"),
-                args: ["-c", helper, "helper"]
-                    .into_iter()
-                    .map(OsString::from)
-                    .chain([dir.join("answer").into_os_string()])
-                    .collect(),
-                account: None,
-            }),
+            helper: Some(real_helper(&kinds, held.then_some(go.as_path()))),
             ..no_fonts()
         };
         let heads = "version = 1
@@ -788,6 +787,7 @@ input class:keyboard -> roaming
         assert!(s.until(SECOND, |a| head_shows(a, "a", "back")), "{case}");
         assert_eq!(s.app.font_name(), "t", "{case}");
         assert_eq!(unknown(&logged()), again, "{case}: the switch back");
+        drop(s);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
