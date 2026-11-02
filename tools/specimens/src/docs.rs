@@ -255,6 +255,7 @@ fn index(rows: &[String], simulated: &[String]) -> String {
          | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |\n\
          |---|---|---|---|---|---|---|---|\n\
          {rows}\n\n\
+         `320x240-tiny5` shows an example frit, `tiny5`, the smallest font, which vtium does not use by default; vtium's own choice at 320x240 is the profile `320x240`.\n\n\
          A provisional profile waits on the operator's review, and `provisional.tsv` lists it: a drawing that moves it is reported as drift and fails nothing. An accepted profile fails on a moved pixel.\n\n\
          ## Gray panels, simulated\n\n\
          vtium draws a gray panel exactly as a color display, and the panel's driver converts each pixel (#135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing of vtium's drawing; a stale one is reported as its own kind of fault.\n\n\

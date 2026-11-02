@@ -1,7 +1,8 @@
-# tiny5: an example frit at the small end of the range, Tiny5 Mono at its
-# own 6x9 cell (vtium/vtium#197). It shows how small a frit's cell can
-# go, 6 pixels wide being the narrowest a frit may state. It is never a
-# default: vtium draws it only where font-name or a profile names it.
+# tiny5: an example frit of the smallest font vtium draws, Tiny5 Mono at
+# its own 6x9 cell, 6 pixels wide being the narrowest cell a frit may
+# state. It is never a default, and vtium names it nowhere: a person who
+# wants it installs this frit and the font by hand. The sizes below were
+# measured for vtium/vtium#197.
 # Tiny5 Mono is a pixel font whose capitals are 5 pixels tall, drawn on a
 # 6-pixel advance with 7 rows above the baseline and 2 below. At 6x9 a
 # 320x240 panel holds 53x26 cells and a 640x480 one 106x53, where the
