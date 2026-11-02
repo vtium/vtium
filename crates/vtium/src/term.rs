@@ -1454,6 +1454,36 @@ mod tests {
         }
     }
 
+    // A frame composed with a renderer the view has since replaced, as a
+    // zoom replaces it, is not shown, and its token goes back to the
+    // display, which then lends again.
+    #[test]
+    fn a_frame_of_an_older_renderer_gives_its_token_back() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(false);
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let Prepared::Job(job) = view.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &DrawState::default(),
+            None,
+            &Instant::now,
+        ) else {
+            panic!("a job");
+        };
+        let face: DisplayFace = Box::new(Unifont::new(16));
+        view.rebuild(Font::new(face), 32, RenderConfig::default());
+        let shown = view.present(job.compose(), &mut term, &mut video, true, &Instant::now);
+        assert_eq!(shown, Presented::default());
+        assert_eq!(video.swaps, [], "not shown");
+        assert!(!video.out, "the token went back");
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(video.swaps, [1], "the display lends again");
+    }
+
     // A job refused for a display that lost its picture keeps it lost, so
     // the frame drawn at the next turn is drawn whole and through a hold.
     #[test]
