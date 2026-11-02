@@ -1600,6 +1600,92 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A login script at `dir/login` that turns on mode 1004, prints its
+/// console's id, then echoes each line it reads through `cat -v`, so a
+/// focus report it was sent shows on its screen.
+fn focus_login(dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let login = dir.join("login");
+    std::fs::write(
+        &login,
+        "#!/bin/sh\nprintf '\\033[?1004h'; echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\" | cat -v; done\n",
+    )
+    .expect("the login");
+    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    login
+}
+
+/// A scratch directory for test `name`, on disk under the build's own.
+fn scratch_dir(name: &str) -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("vtium-heads-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    dir
+}
+
+/// Head small of [`CLAIMED`] with three consoles running [`focus_login`]
+/// from `dir`, each printed its id, with its own keyboard and
+/// [`KBD_LARGE`].
+fn three_focus_consoles(dir: &Path) -> (Seat, PathBuf) {
+    let login = focus_login(dir);
+    let heads = CLAIMED.replace(
+        "[head small]\n",
+        &format!("[head small]\nconsoles = 3\nlogin = {}\n", login.display()),
+    );
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let mut s = Seat::with_heads(&[], Some(&heads), displays, ECHO);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
+    assert!(s.until(SECOND, |a| told_ids(a, "small").iter().all(Option::is_some)));
+    (s, login)
+}
+
+/// D5, binary-recheck's R1: a failed open from the middle of a ring of
+/// three keeps the ring's order and shows the console shown before; the
+/// id it took is used up, and the next open, once the login can start
+/// again, takes the id after it and lands just after the shown console.
+// covers: platform.heads
+#[test]
+fn a_failed_open_mid_ring_keeps_the_order_and_uses_up_its_id() {
+    let dir = scratch_dir("mid-ring");
+    let (mut s, login) = three_focus_consoles(&dir);
+    let is = |ids: &[&str]| -> Vec<Option<String>> {
+        ids.iter().map(|id| Some(format!("is:{id}"))).collect()
+    };
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert_eq!(consoles(&s.app, "small"), Some((3, 1)));
+    std::fs::rename(&login, dir.join("gone")).expect("the login moved");
+    press_chord(&mut s, KBD_SMALL, RETURN);
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((3, 1)),
+        "the count and the place"
+    );
+    assert!(head_shows(&s.app, "small", "is:2"), "console 2 shown again");
+    assert_eq!(
+        told_ids(&s.app, "small"),
+        is(&["1", "2", "3"]),
+        "the ring's order"
+    );
+    std::fs::rename(dir.join("gone"), &login).expect("the login back");
+    press_chord(&mut s, KBD_SMALL, RETURN);
+    assert!(
+        s.until(SECOND, |a| told_ids(a, "small")
+            == is(&["1", "2", "5", "3"])),
+        "id 4 is never given again, and 5 opens after console 2: {:?}",
+        told_ids(&s.app, "small")
+    );
+    assert_eq!(s.app.finished(), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// D5, the maintainer's answer of 2026-11-01: on a head's last console
 /// Ctrl-Super-Backspace closes nothing and reaches no session.
 // covers: platform.heads
