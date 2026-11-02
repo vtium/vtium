@@ -48,7 +48,10 @@ considered:
     said: "Composition is a hybrid, composed on demand. The store keeps each frame as the program sent it, a change on a base frame with its blend and offset, and composes a frame into whole pixels only when it is about to be shown, keeping a small bounded cache of composed frames. Composition happens once, on the CPU, in the store or the kitty handler's frame code, before any renderer, so the CPU and GPU renderers still draw whole pixels and tier 2's byte-for-byte rule holds. The store may compose a small or short animation at arrival instead. Animated GIFs stay composed by the image helper into whole frames. The reason: memory for animations, while keeping the renderers simple."
     via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
     paraphrase: true
-status: proposed
+  - operator: aaronsb
+    said: "The compose-on-arrival limits (a whole frame of 64 KiB or less, a change covering half the picture or more, more than 8 layers) and a cache of 2 composed frames per image are accepted as starting values, held as named constants."
+    via: the maintainer, in the steering session's interview, 2026-11-02
+status: accepted
 date: 2026-11-01
 deciders:
   - aaronsb

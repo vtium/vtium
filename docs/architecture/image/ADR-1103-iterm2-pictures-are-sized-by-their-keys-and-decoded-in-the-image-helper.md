@@ -39,7 +39,7 @@ considered:
     via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
     paraphrase: true
     covers: [where an animated GIF lives]
-status: proposed
+status: accepted
 date: 2026-11-01
 deciders:
   - aaronsb
