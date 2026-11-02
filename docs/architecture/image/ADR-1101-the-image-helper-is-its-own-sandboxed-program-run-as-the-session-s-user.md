@@ -74,7 +74,10 @@ considered:
   - operator: Aaron Bockelie
     said: "3. keep"
     via: steering session, 2026-11-02, answering whether the helper premultiplies every reply, decoded PNG/JPEG/GIF included
-status: proposed
+  - operator: Aaron Bockelie
+    said: "lets mark 1101 accepted. we can start more lanes"
+    via: steering session, 2026-11-02
+status: accepted
 date: 2026-11-01
 deciders:
   - aaronsb
