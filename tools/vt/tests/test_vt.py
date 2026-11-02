@@ -1516,6 +1516,18 @@ class Install(Case):
                 h.close()
         self.assertEqual(self.temps(), [])
 
+    def test_each_copy_is_on_the_disk_before_it_is_renamed_into_place(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        calls = self.s.calls_of("sudo")
+        renames = [i for i, c in enumerate(calls) if c.startswith("mv -fT -- ")]
+        # The manifest, the record twice, the helper, the binary, the units.
+        self.assertEqual(len(renames), 7, calls)
+        for i in renames:
+            temp = calls[i].split()[3]
+            self.assertEqual(calls[i - 1], f"sync -- {temp}")
+            self.assertTrue(calls[i - 2].startswith("install -D ") and calls[i - 2].endswith(f" {temp}"), calls[i - 2])
+
     def test_a_checksum_counts_only_for_the_path_it_was_recorded_for(self):
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)

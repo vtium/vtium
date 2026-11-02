@@ -153,11 +153,12 @@ staged() {
 # goes to PATH's temporary name and is renamed into place, so PATH holds the
 # old file or the whole new one, never part of a file: a copy cut short, as
 # on a full disk, leaves only a part at the temporary name, which put then
-# removes.
+# removes. sync writes the copy to the disk before the rename, so a power cut
+# just after the rename cannot bring PATH back empty.
 put() {
 	local t
 	t=$(staged "$2")
-	if ! as_root install -D -m "$3" "${own[@]}" -- "$1" "$root$t"; then
+	if ! as_root install -D -m "$3" "${own[@]}" -- "$1" "$root$t" || ! as_root sync -- "$root$t"; then
 		as_root rm -f -- "$root$t" || true
 		return 1
 	fi
