@@ -1196,6 +1196,9 @@ fn frames_of_one_size_reuse_the_spare_under_a_tight_budget() {
     for n in 0..8 {
         let before = s.bytes();
         let taken = Edit::new(&mut s, f.screens(), COLS).take_spare(Protocol::KITTY, 0, LEN);
+        // from the third frame on, the frame before the last has been freed
+        // and nothing holds it, so the spare is there to take
+        assert_eq!(taken.is_some(), n >= 2, "frame {n} takes the spare");
         let (pixels, r) = match taken {
             Some(spare) => {
                 // the spare's charge moved into the reservation whole
@@ -1229,5 +1232,92 @@ fn frames_of_one_size_reuse_the_spare_under_a_tight_budget() {
             "frame {n} reuses frame {}'s buffer",
             n - 2
         );
+    }
+}
+
+/// Blends the pictures of `frame`'s entries over `out`, a screen of
+/// `COLS` by `rows` cells of 8 by 16 pixels in premultiplied ARGB, each
+/// entry at its pixel size: the compositor's "over" for pictures drawn 1:1.
+fn blend_over(out: &mut [u32], frame: &[FramePlacement], rows: usize) {
+    let (w, h) = (COLS * 8, rows * 16);
+    for p in frame {
+        assert_eq!((p.width, p.height), (p.src_width, p.src_height), "1:1");
+        let px = p.pixels.as_slice();
+        for j in 0..p.height {
+            for i in 0..p.width {
+                let sx = usize::try_from(p.col * 8 + p.x + i).expect("a column");
+                let Ok(sy) = usize::try_from(p.row * 16 + i64::from(p.y + j)) else {
+                    continue;
+                };
+                if sx >= w || sy >= h {
+                    continue;
+                }
+                let src = px[((p.src_y + j) * p.image_width + p.src_x + i) as usize];
+                let d = &mut out[sy * w + sx];
+                let a = src >> 24;
+                let blend = |shift: u32| {
+                    let sc = (src >> shift) & 0xff;
+                    let dc = (*d >> shift) & 0xff;
+                    (sc + (dc * (255 - a) + 127) / 255).min(255) << shift
+                };
+                *d = blend(24) | blend(16) | blend(8) | blend(0);
+            }
+        }
+    }
+}
+
+// D2's per-cell coverage and the hidden piece it drops: placing a sixel over
+// older ones, whatever the store removes, draws exactly what the older
+// pictures with the new one blended over them draw. 3,000 rounds of two to
+// five random sixels, opaque, two-color, with clear or half-clear pixels,
+// at random sizes and cells, from one fixed seed.
+// covers: image.pipeline
+#[test]
+fn hidden_pieces_change_no_composite_pixel() {
+    const ROWS: usize = 6;
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut rnd = move |n: u32| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % u64::from(n)) as u32
+    };
+    let colors = [0xff00_ff00u32, 0xffff_0000, 0x8040_0000, 0];
+    for round in 0..3000 {
+        let f = Fake::new(ROWS as u64);
+        let mut s = store(1 << 30);
+        for n in 0..2 + rnd(4) {
+            let (w, h) = (1 + rnd(40), 1 + rnd(60));
+            let kind = rnd(4);
+            let pixels: Vec<u32> = (0..w * h)
+                .map(|_| match kind {
+                    0 => colors[0],
+                    1 => colors[rnd(2) as usize],
+                    2 => colors[rnd(4) as usize],
+                    _ if rnd(8) == 0 => colors[2],
+                    _ => colors[1],
+                })
+                .collect();
+            let new = NewImage {
+                pixels,
+                ..image(Protocol::SIXEL, w, h, 0)
+            };
+            let (col, row) = (rnd(6), rnd(4));
+            // what the screen showed, with the new picture blended over it
+            let mut want = vec![0u32; COLS * 8 * ROWS * 16];
+            blend_over(&mut want, &s.frame(f.rows(), COLS), ROWS);
+            let mut alone = store(1 << 30);
+            let key = alone
+                .add_image(new.clone(), None, f.screens())
+                .expect("stored");
+            put(&mut alone, &f, key, col, row);
+            blend_over(&mut want, &alone.frame(f.rows(), COLS), ROWS);
+            // what the store shows once it places the new picture
+            let key = s.add_image(new, None, f.screens()).expect("stored");
+            put(&mut s, &f, key, col, row);
+            let mut got = vec![0u32; COLS * 8 * ROWS * 16];
+            blend_over(&mut got, &s.frame(f.rows(), COLS), ROWS);
+            assert!(want == got, "round {round}, picture {n}");
+        }
     }
 }
