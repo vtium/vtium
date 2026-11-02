@@ -11,7 +11,6 @@
 *	utf8-ill-formed	departure	crates/vtium-parse/README.md	C1 controls do nothing in UTF-8 mode.
 *	host-palette	departure	INTERFACE.md	The C reference erased the screen and reset the current attributes when a palette was chosen; `host-palette` records it, and an implementation may list it as a departure.
 *	host-identify	pending	#48	the sixel test command; the case also differs by DA1 and by XTGETTCAP's uppercase names, crates/vtium-term/README.md
-*	apc-kitty-graphics	pending	#49	kitty graphics
 *	img-alt-1049	pending	#48	sixel
 *	img-alt-47	pending	#48	sixel
 *	img-dch	pending	#48	sixel
@@ -40,55 +39,14 @@
 *	img-scroll-down-sb	pending	#48	sixel
 *	img-scroll-up	pending	#48	sixel
 *	img-sixel-over	pending	#48	sixel
-*	kit-bands	pending	#49	kitty graphics
-*	kit-cancel	pending	#49	kitty graphics
-*	kit-chunk-abort	pending	#49	kitty graphics
-*	kit-chunked	pending	#49	kitty graphics
-*	kit-chunk-large	pending	#49	kitty graphics
-*	kit-cursor	pending	#49	kitty graphics
-*	kit-delete-a	pending	#49	kitty graphics
-*	kit-delete-c	pending	#49	kitty graphics
-*	kit-delete-f	pending	#49	kitty graphics
-*	kit-delete-i	pending	#49	kitty graphics
-*	kit-delete-n	pending	#49	kitty graphics
-*	kit-delete-p	pending	#49	kitty graphics
-*	kit-delete-q	pending	#49	kitty graphics
-*	kit-delete-r	pending	#49	kitty graphics
-*	kit-delete-sb	pending	#49	kitty graphics
-*	kit-delete-x	pending	#49	kitty graphics
-*	kit-delete-y	pending	#49	kitty graphics
-*	kit-delete-z	pending	#49	kitty graphics
-*	kit-ed2	pending	#49	kitty graphics
-*	kit-evict	pending	#49	kitty graphics
-*	kit-evict-stamp	pending	#49	kitty graphics
-*	kit-host-errors	pending	#49	kitty graphics
-*	kit-host-errors-nohook	pending	#49	kitty graphics
-*	kit-host-icat	pending	#49	kitty graphics
-*	kit-host-icat-gif	pending	#49	kitty graphics
-*	kit-host-icat-gif-nohook	pending	#49	kitty graphics
-*	kit-host-icat-nohook	pending	#49	kitty graphics
-*	kit-host-lengths	pending	#49	kitty graphics
-*	kit-host-lengths-nohook	pending	#49	kitty graphics
-*	kit-host-media	pending	#49	kitty graphics
-*	kit-host-media-nohook	pending	#49	kitty graphics
-*	kit-host-mpv	pending	#49	kitty graphics
-*	kit-host-names	pending	#49	kitty graphics
-*	kit-host-names-nohook	pending	#49	kitty graphics
-*	kit-host-outcomes	pending	#49	kitty graphics
-*	kit-host-outcomes-nohook	pending	#49	kitty graphics
-*	kit-host-pause	pending	#49	kitty graphics
-*	kit-host-pause-nohook	pending	#49	kitty graphics
-*	kit-host-requests	pending	#49	kitty graphics
-*	kit-host-requests-nohook	pending	#49	kitty graphics
-*	kit-ids	pending	#49	kitty graphics
-*	kit-place-size	pending	#49	kitty graphics
-*	kit-query	pending	#49	kitty graphics
-*	kit-query-number	pending	#49	kitty graphics
-*	kit-refused	pending	#49	kitty graphics
-*	kit-replace	pending	#49	kitty graphics
-*	kit-replace-refused	pending	#49	kitty graphics
-*	kit-replies	pending	#49	kitty graphics
-*	kit-transmit	pending	#49	kitty graphics
+*	kit-cursor	departure	crates/vtium-term/README.md	DECSTBM homes the cursor, and an omitted bottom margin is the last row.
+*	kit-delete-sb	pending	#48	the case places a sixel, which the sixel handler draws
+*	kit-evict	pending	#48	the case places a sixel, which the sixel handler draws
+*	kit-host-errors	pending	#49	the fixture host answers a picture past the request's largest as OK, where a helper answers TOO_LARGE or OVER_BUDGET
+*	kit-host-icat	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
+*	kit-host-icat-nohook	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
+*	kit-replace-refused	pending	#48	the case places a sixel, which the sixel handler draws
+*	kit-transmit	departure	crates/vtium-image/README.md	A kitty picture whose image has no id goes on top of its stack as it arrives,
 *	six-cancel	pending	#48	sixel
 *	six-colours	pending	#48	sixel
 *	six-cursor	pending	#48	sixel
