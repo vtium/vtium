@@ -208,7 +208,6 @@
 <text x="20" y="440" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">The picture is fitted to c by r cells with its aspect</text>
 <text x="20" y="458" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">kept. The cell's background shows where the picture</text>
 <text x="20" y="476" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">is transparent, and the cell draws no glyph.</text>
-<text x="20" y="504" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">Diacritics left out are taken from the cell to the left,</text>
-<text x="20" y="522" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">so a cell the line's cluster budget cut still draws</text>
-<text x="20" y="540" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">its part when the cell to its left is of the same picture.</text>
+<text x="20" y="504" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">A cell written without its diacritics takes them</text>
+<text x="20" y="522" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">from the cell to its left.</text>
 </svg>

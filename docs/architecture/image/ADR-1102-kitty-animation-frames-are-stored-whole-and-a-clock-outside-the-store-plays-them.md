@@ -34,6 +34,11 @@ considered:
     via: the maintainer, 2026-11-01, in the steering session
     paraphrase: true
     covers: [frames in the budget]
+  - operator: aaronsb
+    said: "A stopped animation stays put: the record's lean is taken."
+    via: the maintainer, 2026-11-02, in the steering session
+    paraphrase: true
+    covers: [a stopped animation stays put]
 status: proposed
 date: 2026-11-01
 deciders:
@@ -53,6 +58,8 @@ related: []
   - *Confident (a stopped animation stays put):* when a program stops an animation, the screen keeps the frame that was showing at that moment, rather than jumping back to a frame the program named earlier. Yes or no?
 - **Inversion:** Between "the store plays the animation", which makes its state depend on time, and "the program drives every frame itself", which the spec allows but which leaves `cat`-like programs unable to animate. The answer keeps the store a record of commands and puts playback in a named clock outside it.
 
+> Edited 2026-11-02, after the re-check: `d=f`, `d=F` and frames freed for the allowance set the store's current frame to the root and its run state to stopped, and move both stamps (D1, D3, D5), so the clock tells them from `a=a` with `c` and the store never names a deleted frame. They moved only the frame stamp.
+
 > Edited 2026-11-01, after the fresh review and the maintainer's answers (`considered`): frames past the root take a separate allowance of five times the image budget (D1), where they were charged to the one budget; composed pixels count as input work (D2); the clock answers each command by name, through a frame stamp and a run stamp (D3); `d=f` with neither `i` nor `I` does nothing (D5). The earlier text is in git at 991986ba.
 
 ## Context
@@ -70,7 +77,7 @@ Terms used below: a *frame* is one picture of an animation, numbered from 1; the
 - **Whole frames.** The store keeps an image's frames as a list beside its pixels, each frame a whole picture of the image's width and height in premultiplied RGBA, the format of ADR-1100 D2, behind a shared reference as the image's pixels are. Every command that makes or changes a frame composes it into those pixels when the command arrives (D2), so drawing a frame never needs another frame, and a later change to one frame never changes another.
 - **The root frame is the image.** The image's own pixels are charged to the console's image budget, as every picture is (ADR-1100 D5), and its eviction follows D5's ranks and order.
 - **A frame allowance of its own.** Each frame past the root costs width × height × 4 bytes plus `FRAME_OVERHEAD`, a named constant of vtium-image's bounds table, starting at 64 bytes, toward the console's *frame allowance*: `FRAME_ALLOWANCE_FACTOR`, 5, times the console's image budget, as kitty's frame quota is five times its base quota (the maintainer, 2026-11-01). The allowance covers both buffers, follows the budget when `auto` is computed again, and is 0 when the budget is 0. Frames never count toward the image budget, so a frame never evicts a still picture, and a still picture never evicts a frame.
-- **When the allowance is full.** The store reserves a frame's cost before it allocates it. When the reservation would pass the allowance, the store first counts what it could free: the frames past the root of other animated images, the image used least recently first by the use clock (ADR-1100 D5), never the image the frame belongs to and never a root frame. When that falls short, it frees nothing and the frame answers ENOSPC, leaving the animation as it was. Otherwise it frees those images' frames, whole lists at a time, and each such animation goes back to its root frame and stops (D3).
+- **When the allowance is full.** The store reserves a frame's cost before it allocates it. When the reservation would pass the allowance, the store first counts what it could free: the frames past the root of other animated images, the image used least recently first by the use clock (ADR-1100 D5), never the image the frame belongs to and never a root frame. When that falls short, it frees nothing and the frame answers ENOSPC, leaving the animation as it was. Otherwise it frees those images' frames, whole lists at a time, and for each such image sets its current frame to the root and its run state to stopped and moves both its stamps (D3), so nothing in the store names a frame that is gone.
 - **A count bound.** An image holds at most `FRAMES_MAX` frames, a named constant starting at 1,024, the root included; a frame past it answers ENOSPC. Every walk over frames, as when a delete or a reservation frees them, counts as input work (ADR-1100 D5).
 - **Eviction takes the frames with the image.** When D5 evicts an image from the image budget, its frames go with it and give back their allowance.
 - **Pictures re-sent frame by frame** are ordinary pictures: a program such as mpv or timg that sends a new image, or replaces one, for each frame of a video stores no animation frames and stays wholly in the image budget, as in the C reference (the maintainer, 2026-11-01).
@@ -89,14 +96,14 @@ Composition follows the kitty spec's rules, done by the kitty handler in the con
 
 ### D3: who owns the timing
 
-- **The store records commands, never the time.** For each animated image the store keeps its frames and their gaps, its run state (stopped, running, or running while waiting for more frames), the number of loops a command asked for, the frame a command last made current with `a=a` and `c`, and two stamps: a *frame stamp*, a count that moves when a command makes a frame current or when frames are deleted or freed, and a *run stamp*, a count that moves when a command sets the run state or the loops. Nothing in the store depends on when a command arrived or how long ago it was, so the store still follows from the bytes, and the chunking test, which feeds a stream whole and cut at random points, ends in the same store either way.
+- **The store records commands, never the time.** For each animated image the store keeps its frames and their gaps, its run state (stopped, running, or running while waiting for more frames), the number of loops a command asked for, the frame a command last made current with `a=a` and `c`, and two stamps: a *frame stamp*, a count that moves when a command makes a frame current or when frames are deleted or freed, and a *run stamp*, a count that moves when a command sets the run state or the loops, or when frames are deleted or freed. Nothing in the store depends on when a command arrived or how long ago it was, so the store still follows from the bytes, and the chunking test, which feeds a stream whole and cut at random points, ends in the same store either way.
 - **The animation clock is the one place time enters.** It lives in the binary, beside the blink timers (`crates/vtium/src/blink.rs`), and reads the monotonic time that the event loop gives it, as the respawn policy takes its times as arguments. For each animated image of the console a head shows, it keeps what it is showing: the frame, when that frame began, the loops played, and the two stamps it last saw.
 - **How the clock answers each command.** When it sees a stamp move, the clock answers by what moved, the frame stamp first:
 
   | Command | What the clock does |
   |---|---|
   | `a=a` with `c` (the frame stamp moves) | shows the store's current frame from that moment, and keeps running or stopped as it was |
-  | `d=f` or `d=F`, or frames freed for the allowance (the frame stamp moves) | shows the root frame, stopped |
+  | `d=f` or `d=F`, or frames freed for the allowance (both stamps move; the store's current frame is the root and its run state stopped) | shows the store's current frame, the root, and stops, as the two rows for `c` and `s=1` together give |
   | `a=a` with `s=1` (the run stamp moves) | stops, keeping the frame on show, and sets the loops played back to 0 |
   | `a=a` with `s=2` or `s=3` while stopped (the run stamp moves) | runs from the frame on show |
   | `a=a` with `s=2` or `s=3` while running (the run stamp moves) | keeps its place and takes the new mode |
@@ -123,7 +130,7 @@ The figure shows one animation over time: the commands in the stream, what the s
 
 ### D5: deleting frames
 
-`a=d` with `d=f` or `d=F` and with `i` or `I` deletes every frame of that image but the root, gives back their allowance, and moves its frame stamp, so the animation shows its root frame, stopped. Frames hold no placements, so the lowercase and uppercase forms do the same, and the image itself stays. The spec requires `i` or `I` on every animation command, so `d=f` with neither does nothing until a black-box run of kitty shows what kitty does with it (ADR-1100 D14). vtium's own replay cases judge both, provisional until the maintainer reviews them.
+`a=d` with `d=f` or `d=F` and with `i` or `I` deletes every frame of that image but the root, gives back their allowance, sets its current frame to the root and its run state to stopped, and moves both its stamps, so the animation shows its root frame, stopped, and nothing in the store names a frame that is gone. Frames hold no placements, so the lowercase and uppercase forms do the same, and the image itself stays. The spec requires `i` or `I` on every animation command, so `d=f` with neither does nothing until a black-box run of kitty shows what kitty does with it (ADR-1100 D14). vtium's own replay cases judge both, provisional until the maintainer reviews them.
 
 ### D6: detection and verification
 

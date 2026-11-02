@@ -27,6 +27,10 @@ considered:
     said: "10000 lines is fine but it should be configurable"
     via: operator, in session 2026-10-26, after the corrected worst case
     covers: [the cap]
+  - operator: aaronsb
+    said: "Placeholder cells: widen the cluster budget for U+10EEEE cells only, to at most three diacritics (up to 17 bytes); every other cell keeps the 6-byte cap."
+    via: the maintainer, 2026-11-02, in the steering session
+    paraphrase: true
 observable:
   - "`cargo test -p vtium-term --test memory -- --nocapture` prints the resident figures this record quotes, and fails when the model's size changes"
   - "Changing the cell or the line so it grows fails the build at the size assertions in `src/cell.rs` and `src/line.rs`"
@@ -92,6 +96,10 @@ The clusters a line's cells name take at most `CLUSTER_BYTES_PER_CELL`, 6, bytes
 > Added 2026-10-26, after review measured a line of 32-codepoint clusters at 24.6 KB, 26.4 MiB at the default 1,000 lines. The bound holds the worst case at the default inside the minspec peak (Memory).
 
 > Edited 2026-10-26, after review of the screen and scrollback work: a line trimmed for the scrollback keeps the clusters its cells name, which may pass the budget of its fewer cells but never that of the width it was written at, so the memory bound holds. This paragraph read "bytes per cell of the line".
+
+**Placeholder cells.** A cluster whose first codepoint is U+10EEEE, the kitty graphics protocol's Unicode placeholder (ADR-1100 D13), keeps its first three combining marks whatever the line's budget: the budget never cuts them, and such a cluster takes at most 17 bytes with its length byte, a 4-byte placeholder and three marks of up to 4 bytes each. Its bytes count toward the line's budget as any cluster's do, so a line of placeholders may name up to 17 bytes a cell, and every other cluster is cut at the budget as before (the maintainer, 2026-11-02). A placeholder carries its picture's row, column and the top byte of its image id in those three marks, and cutting them made a picture that starts late in a line, such as one in a tmux pane to the right of another, draw each of its rows as its first. A row of 170 placeholder cells names at most 2,890 bytes, under the 3,012 bytes a row the note of 2026-10-28 under Memory derives; vtium-term's flood test derives the worst row again with placeholder cells among long clusters, and `sb-memory` bounds the scrollback's bytes whatever that figure comes to. The C reference had no byte budget and kept a cluster's first 32 codepoints, so it kept a placeholder's marks too, and for placeholder cells vtium's departure in vtium-term's README no longer applies.
+
+> Added 2026-11-02: the maintainer widened the budget for placeholder cells only (`considered`), from the image records' question on kitty placeholders. Until then a placeholder's marks were cut at the budget like any other cluster's.
 
 A write looks its style and link up in the line's table, newest entry first, and appends them if absent, so a write is linear in the line's width at worst. Once the style or link table reaches twice the line's cells, or the arena twice the line's cluster budget, the line compacts: it keeps the entries a cell still names and renumbers the cells. A compaction costs time linear in the line's width, as a lookup does, and no table holds more than twice what its line can name, whatever a program writes. Shrinking a line compacts it too. `COLUMNS_MAX` (8192) keeps twice the widest line inside a 16-bit index, and twice its cluster budget inside the cell's 21 bits; compile-time assertions hold both. Nothing is shared between lines, so no table needs a reference count or a hash.
 
