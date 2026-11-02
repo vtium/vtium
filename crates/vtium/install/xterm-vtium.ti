@@ -1,5 +1,6 @@
 # vtium's terminfo entry. vtium sets TERM=xterm-vtium by default, so a session
 # finds this entry, and vtium answers XTGETTCAP from it under that name only.
+# Under TERM=kmscon vtium answers from the C reference's table, kmscon.ti's.
 # The name starts with "xterm-" because programs that do not know vtium
 # recognize an xterm-like terminal by that prefix: mc, for one, turns its
 # mouse on. The entry describes what vtium does, which is largely what kitty

@@ -1,10 +1,12 @@
-# vtium's earlier terminfo entry, under the C reference's name, kmscon.
-# vtium's own entry is xterm-vtium.ti, its default TERM, and the XTGETTCAP
-# table is generated from that file; under TERM=kmscon vtium answers
-# XTGETTCAP with no capability. make install-tree installs this file until
-# the packaging takes the kmscon name from the kmscon-terminfo package. The
-# capabilities are the C reference's (scripts/terminfo/kmscon.ti at kmscon
-# b1f7a7c5), whose probes judge them, and Ms, which it lacked.
+# The C reference's terminfo entry, kmscon, and Ms, which it lacked. vtium's
+# own entry is xterm-vtium.ti, its default TERM. Under TERM=kmscon vtium
+# answers XTGETTCAP from the table in crates/vtium/src/termcap/table.rs
+# generated from this file, as the C reference answered from its table under
+# its own name; a test fails when they differ, and VTIUM_BLESS=1 cargo test
+# -p vtium termcap rewrites the table. make install-tree installs this file
+# until the packaging takes the kmscon name from the kmscon-terminfo package.
+# The capabilities are the C reference's (scripts/terminfo/kmscon.ti at
+# kmscon b1f7a7c5), whose probes judge them.
 kmscon|KMS Console,
   am, bce, km, mir, msgr, npc, xenl,
   colors#256, pairs#32767,

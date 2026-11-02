@@ -163,27 +163,55 @@ fn literal(bytes: &[u8]) -> String {
     out
 }
 
-/// `table.rs`.
-fn render(table: &[(String, Option<Vec<u8>>)]) -> String {
-    let mut out = String::from(
-        "//! Generated from install/xterm-vtium.ti by the test `table_matches_the_entry`;\n\
-         //! do not edit. `VTIUM_BLESS=1 cargo test -p vtium termcap` rewrites it.\n\
-         \n\
+/// One table's constant in `table.rs`: `name`, from the entry `source`.
+fn render_const(out: &mut String, name: &str, source: &str, table: &[(String, Option<Vec<u8>>)]) {
+    out.push_str(&format!(
+        "\n/// The table generated from `install/{source}`.\n\
          #[rustfmt::skip]\n\
-         pub(super) const TABLE: &[(&str, Option<&[u8]>)] = &[\n",
-    );
-    for (name, value) in table {
+         pub(super) const {name}: &[(&str, Option<&[u8]>)] = &[\n"
+    ));
+    for (cap, value) in table {
         let value = match value {
             Some(v) => format!("Some({})", literal(v)),
             None => "None".to_owned(),
         };
-        out.push_str(&format!("    (\"{name}\", {value}),\n"));
+        out.push_str(&format!("    (\"{cap}\", {value}),\n"));
     }
     out.push_str("];\n");
+}
+
+/// `table.rs`: a table for each entry.
+fn render() -> String {
+    let mut out = String::from(
+        "//! Generated from install/xterm-vtium.ti and install/kmscon.ti by the\n\
+         //! test `table_matches_the_entry`; do not edit. `VTIUM_BLESS=1 cargo test\n\
+         //! -p vtium termcap` rewrites it.\n",
+    );
+    for (name, source, entry) in ENTRIES {
+        render_const(&mut out, name, source, &table(entry));
+    }
     out
 }
 
+/// vtium's entry, `xterm-vtium`.
 const ENTRY: &str = include_str!("../../install/xterm-vtium.ti");
+/// The C reference's entry, `kmscon`, with `Ms`.
+const KMSCON: &str = include_str!("../../install/kmscon.ti");
+
+/// Each table's constant, the file it is generated from and that file's
+/// text.
+const ENTRIES: [(&str, &str, &str); 2] = [
+    ("XTERM_VTIUM", "xterm-vtium.ti", ENTRY),
+    ("KMSCON", "kmscon.ti", KMSCON),
+];
+
+/// Each compiled table, by the name it answers under, with its entry.
+fn compiled() -> [(&'static str, super::Entries, &'static str); 2] {
+    [
+        (super::NAME, super::table::XTERM_VTIUM, ENTRY),
+        (super::KMSCON, super::table::KMSCON, KMSCON),
+    ]
+}
 
 #[test]
 fn escapes_decode_to_their_bytes() {
@@ -233,6 +261,10 @@ fn the_entry_reads() {
     names.sort_unstable();
     names.dedup();
     assert_eq!(names.len(), 182);
+    // the C reference's 136 and Ms
+    let (name, caps) = parse(KMSCON);
+    assert_eq!(name, super::KMSCON);
+    assert_eq!(caps.len(), 137);
 }
 
 #[test]
@@ -248,13 +280,18 @@ fn the_table_adds_xterms_names_and_drops_the_size() {
     assert_eq!(get("lines"), None);
     assert_eq!(t.len(), 182 - 2 + 3);
     assert!(t.windows(2).all(|w| w[0].0 < w[1].0), "sorted");
+    let t = table(KMSCON);
+    let get = |n: &str| t.iter().find(|(c, _)| c == n).map(|(_, v)| v.clone());
+    assert_eq!(get("TN"), Some(Some(b"kmscon".to_vec())));
+    assert_eq!(get("name"), Some(Some(b"kmscon".to_vec())));
+    assert_eq!(t.len(), 137 - 2 + 3);
 }
 
 // covers: platform.terminfo
 #[test]
 fn table_matches_the_entry() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/termcap/table.rs");
-    let want = render(&table(ENTRY));
+    let want = render();
     let have = std::fs::read_to_string(path).unwrap_or_default();
     if have == want {
         return;
@@ -264,15 +301,19 @@ fn table_matches_the_entry() {
         return;
     }
     panic!(
-        "src/termcap/table.rs differs from install/xterm-vtium.ti; \
+        "src/termcap/table.rs differs from install/xterm-vtium.ti or install/kmscon.ti; \
          rerun with VTIUM_BLESS=1 to rewrite it"
     );
 }
 
 #[test]
-fn the_terminal_takes_the_table() {
-    let t = super::termcap().expect("vtium-term's bounds hold the table");
-    assert_ne!(t, vtium_term::Termcap::default());
+fn the_terminal_takes_each_table() {
+    for (term, _, _) in compiled() {
+        let t = super::for_term(term)
+            .expect("a table")
+            .expect("vtium-term's bounds hold the table");
+        assert_ne!(t, vtium_term::Termcap::default(), "{term}");
+    }
 }
 
 /// A capability's value as the table holds it.
@@ -291,40 +332,41 @@ fn value(cap: &Cap) -> Option<Vec<u8>> {
 // covers: platform.terminfo
 #[test]
 fn the_table_and_the_entry_agree() {
-    let (term, caps) = parse(ENTRY);
-    let entry = |name: &str| caps.iter().find(|(n, _)| n == name).map(|(_, c)| value(c));
-    for (name, have) in super::table::TABLE {
-        let want = match *name {
-            "TN" | "name" => Some(term.clone().into_bytes()),
-            "Co" => entry("colors").expect("the entry has colors"),
-            n => entry(n).unwrap_or_else(|| {
-                panic!("the table answers {n}, which install/xterm-vtium.ti lacks")
-            }),
-        };
-        assert_eq!(have.map(<[u8]>::to_vec), want, "{name}");
-    }
-    for (name, cap) in &caps {
-        let have = super::table::TABLE.iter().find(|(n, _)| n == name);
-        if name == "cols" || name == "lines" {
-            assert_eq!(have, None, "{name} gives a default size, never asked");
-            continue;
+    for (term, compiled, source) in compiled() {
+        let (name, caps) = parse(source);
+        assert_eq!(name, term);
+        let entry = |cap: &str| caps.iter().find(|(n, _)| n == cap).map(|(_, c)| value(c));
+        for (cap, have) in compiled {
+            let want = match *cap {
+                "TN" | "name" => Some(name.clone().into_bytes()),
+                "Co" => entry("colors").expect("the entry has colors"),
+                n => entry(n)
+                    .unwrap_or_else(|| panic!("{term}'s table answers {n}, which its entry lacks")),
+            };
+            assert_eq!(have.map(<[u8]>::to_vec), want, "{term}: {cap}");
         }
-        let (_, have) =
-            have.unwrap_or_else(|| panic!("install/xterm-vtium.ti has {name}; the table lacks it"));
-        assert_eq!(have.map(<[u8]>::to_vec), value(cap), "{name}");
+        for (cap, value_of) in &caps {
+            let have = compiled.iter().find(|(n, _)| n == cap);
+            if cap == "cols" || cap == "lines" {
+                assert_eq!(
+                    have, None,
+                    "{term}: {cap} gives a default size, never asked"
+                );
+                continue;
+            }
+            let (_, have) =
+                have.unwrap_or_else(|| panic!("{term}'s entry has {cap}; its table lacks it"));
+            assert_eq!(have.map(<[u8]>::to_vec), value(value_of), "{term}: {cap}");
+        }
     }
 }
 
-// Each mode the entry sets and resets is one vtium-term sets and resets, as
-// DECRQM reports it.
+// Each mode an entry sets and resets is one vtium-term sets and resets, as
+// DECRQM reports it. The C reference's entry lacks the margins' and insert
+// mode's capabilities.
 // covers: platform.terminfo
 #[test]
 fn the_entrys_modes_are_vtiums() {
-    let (_, caps) = parse(ENTRY);
-    let string = |name: &str| match caps.iter().find(|(n, _)| n == name) {
-        Some((_, Cap::Str(v))) => v.clone(),
-        other => panic!("{name}: {other:?}"),
-    };
     // The capability that sets the mode, the one that resets it, and the
     // mode as DECRQM names it.
     let modes = [
@@ -335,40 +377,57 @@ fn the_entrys_modes_are_vtiums() {
         ("fe", "fd", "?1004"),
         ("BE", "BD", "?2004"),
     ];
-    for (set, reset, mode) in modes {
-        let mut t = vtium_term::Terminal::new(80, 24, 0);
-        for (cap, state) in [(reset, 2), (set, 1)] {
-            t.input(&string(cap));
-            t.input(format!("\x1b[{mode}$p").as_bytes());
-            assert_eq!(
-                String::from_utf8_lossy(&t.take_replies()),
-                format!("\x1b[{mode};{state}$y"),
-                "{cap}"
-            );
+    for (term, entry, lacks) in [(super::NAME, ENTRY, 0), (super::KMSCON, KMSCON, 2)] {
+        let (_, caps) = parse(entry);
+        let string = |name: &str| match caps.iter().find(|(n, _)| n == name) {
+            Some((_, Cap::Str(v))) => Some(v.clone()),
+            _ => None,
+        };
+        let mut missing = 0;
+        for (set, reset, mode) in modes {
+            let (Some(on), Some(off)) = (string(set), string(reset)) else {
+                missing += 1;
+                continue;
+            };
+            let mut t = vtium_term::Terminal::new(80, 24, 0);
+            for (cap, bytes, state) in [(reset, off, 2), (set, on, 1)] {
+                t.input(&bytes);
+                t.input(format!("\x1b[{mode}$p").as_bytes());
+                assert_eq!(
+                    String::from_utf8_lossy(&t.take_replies()),
+                    format!("\x1b[{mode};{state}$y"),
+                    "{term}: {cap}"
+                );
+            }
         }
+        assert_eq!(missing, lacks, "{term}");
     }
 }
 
-// A terminal answers XTGETTCAP from the table only while its session's TERM
-// is vtium's entry; under kmscon, or any other name, it answers nothing.
+// A terminal answers XTGETTCAP from vtium's table under xterm-vtium and
+// from the C reference's under kmscon, as the C reference answered under
+// its own name; under any other name it answers nothing.
 // covers: query.xtgettcap
 #[test]
-fn only_vtiums_own_name_gets_the_table() {
-    let ask = |table: Option<vtium_term::Termcap>| {
+fn each_entrys_name_gets_its_own_table() {
+    let ask = |term: &str| {
         let mut t = vtium_term::Terminal::new(80, 24, 0);
-        if let Some(table) = table {
-            t.set_termcap(table);
+        if let Some(table) = super::for_term(term) {
+            t.set_termcap(table.expect("the table holds"));
         }
         // TN, in hex
         t.input(b"\x1bP+q544E\x1b\\");
         t.take_replies()
     };
-    let table = super::for_term(super::NAME).map(|t| t.expect("the table holds"));
     // TN=xterm-vtium
-    assert_eq!(ask(table), b"\x1bP1+r544E=787465726D2D767469756D\x1b\\");
-    for other in ["kmscon", "xterm-kitty", "xterm", "xterm-vtium ", ""] {
-        let table = super::for_term(other).map(|t| t.expect("the table holds"));
-        assert!(table.is_none(), "{other:?}");
-        assert_eq!(ask(table), b"\x1bP0+r\x1b\\", "{other:?}");
+    assert_eq!(
+        ask("xterm-vtium"),
+        b"\x1bP1+r544E=787465726D2D767469756D\x1b\\"
+    );
+    // TN=kmscon
+    assert_eq!(ask("kmscon"), b"\x1bP1+r544E=6B6D73636F6E\x1b\\");
+    for other in ["xterm-kitty", "xterm", "xterm-vtium ", "KMSCON", ""] {
+        assert!(super::for_term(other).is_none(), "{other:?}");
+        assert_eq!(ask(other), b"\x1bP0+r\x1b\\", "{other:?}");
     }
 }

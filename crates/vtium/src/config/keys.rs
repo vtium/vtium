@@ -372,7 +372,7 @@ pub const TERM: Key = Key {
     default: Default::Text(crate::termcap::NAME),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "`TERM` in the session's environment. The default names vtium's own terminfo entry, and vtium answers XTGETTCAP only under that name; under another, such as `kmscon` for the C reference's entry, every name XTGETTCAP asks for is unknown.",
+    what: "`TERM` in the session's environment. The default names vtium's own terminfo entry, and XTGETTCAP answers from that entry's capabilities; `kmscon` names the C reference's entry, and XTGETTCAP answers from the C reference's. Under any other name every name XTGETTCAP asks for is unknown.",
     cite: "src/config.c:1368; meson.options:51-52; src/terminal_vte.c:36-56; ADR-1000, \"The terminfo entry and TERM\"",
 };
 

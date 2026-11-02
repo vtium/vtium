@@ -79,7 +79,7 @@
 #osd-background=11,42,91
 #osd-border=100,143,255
 
-## `TERM` in the session's environment. The default names vtium's own terminfo entry, and vtium answers XTGETTCAP only under that name; under another, such as `kmscon` for the C reference's entry, every name XTGETTCAP asks for is unknown.
+## `TERM` in the session's environment. The default names vtium's own terminfo entry, and XTGETTCAP answers from that entry's capabilities; `kmscon` names the C reference's entry, and XTGETTCAP answers from the C reference's. Under any other name every name XTGETTCAP asks for is unknown.
 #term=xterm-vtium
 
 ## Start the session with an empty environment and the variables vtium sets; off, with vtium's own environment as well.
