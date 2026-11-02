@@ -347,6 +347,20 @@ impl Pty {
     pub fn child_id(&self) -> Option<u32> {
         self.child.as_ref().map(Child::id)
     }
+
+    /// The uid that owns the pty's slave now, as `login` sets it when a
+    /// user logs in. The slave is reopened from the master, as
+    /// [`Pty::spawn`] opens it, so no path name in `/dev/pts` is trusted;
+    /// it is opened without becoming a controlling terminal, read with
+    /// `fstat`, and closed. The image helper's identity reads it before
+    /// each request (ADR-1101 D2).
+    pub fn slave_owner(&self) -> io::Result<u32> {
+        let slave = ioctl_tiocgptpeer(
+            &*self.master,
+            OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC,
+        )?;
+        Ok(rustix::fs::fstat(&slave)?.st_uid)
+    }
 }
 
 /// Sets every signal's disposition to its default and empties the mask,
@@ -629,6 +643,19 @@ mod tests {
     /// The loop's data holds no pty: the tests keep it.
     fn nothing(_: &mut ()) -> Option<(&mut Pty, &mut Ignore)> {
         None
+    }
+
+    // ADR-1101 D2: the image helper's identity reads the slave's owner,
+    // which grantpt gives the account that opened the pty, here the
+    // account the test runs as.
+    #[test]
+    fn the_slave_owner_is_the_account_the_pty_was_opened_as() {
+        let before = children();
+        let pty = Pty::spawn(sleeper(), SIZE, Erase::Delete).unwrap();
+        let owner = pty.slave_owner();
+        drop(pty);
+        left_unreaped(&before);
+        assert_eq!(owner.unwrap(), rustix::process::geteuid().as_raw());
     }
 
     #[test]

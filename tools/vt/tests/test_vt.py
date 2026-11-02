@@ -2458,8 +2458,9 @@ class Package(Case):
         "usr/share/licenses/vtium/LICENSE",
     ])
 
-    # A stand-in cargo that records the helper path each build bakes in.
-    CARGO = "#!/bin/bash\n" + 'printf "%s\\n" "cargo VTIUM_VITRIFY=${VTIUM_VITRIFY-unset} $*" >>"$CALLS"\n'
+    # A stand-in cargo that records the helper paths each build bakes in.
+    CARGO = "#!/bin/bash\n" + ('printf "%s\\n" "cargo VTIUM_VITRIFY=${VTIUM_VITRIFY-unset} '
+                               'VTIUM_IMAGE=${VTIUM_IMAGE-unset} $*" >>"$CALLS"\n')
 
     def setUp(self):
         super().setUp()
@@ -2467,11 +2468,15 @@ class Package(Case):
         self.build = os.path.join(self.s.tmp, "build")
         self.dest = os.path.join(self.s.tmp, "stage")
 
-    def built(self, helper):
+    def built(self, helper, image=None):
         """The stand-in builds in INSTALL_TARGET_DIR: a console that starts
-        its helper at helper, and the helper."""
-        for path, text in (("minspec/vtium", f"#!/bin/sh\n# starts {helper}\n"),
-                           ("release/vtium-vitrify", "#!/bin/sh\n# the helper\n")):
+        its glyph helper at helper, and the helper; with image, a console
+        that also starts its image helper there, and the image helper."""
+        files = [("minspec/vtium", f"#!/bin/sh\n# starts {helper}\n" + (f"# and {image}\n" if image else "")),
+                 ("release/vtium-vitrify", "#!/bin/sh\n# the helper\n")]
+        if image:
+            files.append(("release/vtium-image", "#!/bin/sh\n# the image helper\n"))
+        for path, text in files:
             os.makedirs(os.path.dirname(os.path.join(self.build, path)), exist_ok=True)
             write(os.path.join(self.build, path), text)
 
@@ -2514,12 +2519,12 @@ class Package(Case):
         # build in a target directory of their own with the host's toolchain.
         builds = self.s.calls_of("cargo")
         self.assertEqual(builds, [
-            f"VTIUM_VITRIFY=/usr/bin/vtium-vitrify rustc --profile minspec -p vtium --bin vtium --target-dir {self.build} "
-            "-- -C link-arg=-Wl,-z,pack-relative-relocs",
-            f"VTIUM_VITRIFY=unset build --release -p vtium-vitrify --target-dir {self.build}"])
+            f"VTIUM_VITRIFY=/usr/bin/vtium-vitrify VTIUM_IMAGE=unset rustc --profile minspec -p vtium --bin vtium "
+            f"--target-dir {self.build} -- -C link-arg=-Wl,-z,pack-relative-relocs",
+            f"VTIUM_VITRIFY=unset VTIUM_IMAGE=unset build --release -p vtium-vitrify --target-dir {self.build}"])
 
     def test_install_passes_the_prefix_and_the_package_builds_flags_through(self):
-        self.built("/opt/vt/bin/vtium-vitrify")
+        self.built("/opt/vt/bin/vtium-vitrify", "/opt/vt/bin/vtium-image")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/opt/vt", f"INSTALL_TARGET_DIR={self.build}",
                       "CARGO_BUILD_FLAGS=--frozen", "FEATURES=images")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2528,16 +2533,52 @@ class Package(Case):
         self.assertIn("etc/vtium/vtium.conf.example", self.staged())
         unit = read(os.path.join(self.dest, "opt/vt/lib/systemd/system/vtium@.service")).splitlines()
         self.assertIn("ExecStart=/opt/vt/bin/vtium --vt=%I --no-switchvt", unit)
+        # With images the console starts its image helper where the package
+        # puts it, and the helper and its account file are staged (ADR-1101
+        # D1, D2).
+        for f in ("opt/vt/bin/vtium-image", "opt/vt/lib/sysusers.d/vtium-image.conf"):
+            self.assertIn(f, self.staged())
+        self.assertTrue(os.access(os.path.join(self.dest, "opt/vt/bin/vtium-image"), os.X_OK))
         self.assertEqual(self.s.calls_of("cargo"), [
-            f"VTIUM_VITRIFY=/opt/vt/bin/vtium-vitrify rustc --frozen --profile minspec -p vtium --bin vtium "
-            f"--target-dir {self.build} --features images -- -C link-arg=-Wl,-z,pack-relative-relocs",
-            f"VTIUM_VITRIFY=unset build --frozen --release -p vtium-vitrify --target-dir {self.build}"])
+            f"VTIUM_VITRIFY=/opt/vt/bin/vtium-vitrify VTIUM_IMAGE=/opt/vt/bin/vtium-image rustc --frozen "
+            f"--profile minspec -p vtium --bin vtium --target-dir {self.build} --features images "
+            "-- -C link-arg=-Wl,-z,pack-relative-relocs",
+            f"VTIUM_VITRIFY=unset VTIUM_IMAGE=unset build --frozen --release -p vtium-vitrify -p vtium-image-helper "
+            f"--target-dir {self.build}"])
+
+    def test_install_finds_images_in_features_separated_by_commas(self):
+        # cargo takes --features images,logind as it takes "images logind",
+        # so make install stages the image helper for either form.
+        self.built("/usr/bin/vtium-vitrify", "/usr/bin/vtium-image")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "FEATURES=images,logind")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in ("usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf"):
+            self.assertIn(f, self.staged())
+        self.assertIn("-p vtium-image-helper", " ".join(self.s.calls_of("cargo")))
+
+    def test_a_minspec_install_stages_no_image_helper(self):
+        # A console built without images starts no image helper, so the
+        # package ships neither the helper nor its account file (ADR-1101 D1).
+        self.built("/usr/bin/vtium-vitrify")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual([f for f in self.staged() if "vtium-image" in f], [])
+        self.assertNotIn("-p vtium-image-helper", " ".join(self.s.calls_of("cargo")))
 
     def test_install_refuses_a_console_that_starts_another_helper(self):
         self.built("/usr/local/bin/vtium-dev-vitrify")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
         self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("does not start its helper at /usr/bin/vtium-vitrify", p.stderr)
+        self.assertEqual(self.staged(), [])
+
+    def test_install_with_images_refuses_a_console_that_starts_another_image_helper(self):
+        self.built("/usr/bin/vtium-vitrify", "/usr/local/bin/vtium-image")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "FEATURES=images")
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("does not start its image helper at /usr/bin/vtium-image", p.stderr)
         self.assertEqual(self.staged(), [])
 
     def test_install_needs_destdir_named(self):

@@ -139,24 +139,51 @@ pub fn notes(config: &Config) -> Vec<String> {
         Some(dpi) => check_config::display_dpi(dpi),
         None => check_config::MEASURED_DENSITY.to_owned(),
     };
-    std::iter::once(density)
-        .chain(helper_note(
-            &helper::program(config),
-            rustix::process::geteuid().as_raw(),
-        ))
-        .collect()
+    let me = rustix::process::geteuid().as_raw();
+    let notes = std::iter::once(density).chain(helper_note(&helper::program(config), me));
+    #[cfg(feature = "images")]
+    let notes = notes.chain(image_helper_note(&crate::head::images::program(config), me));
+    notes.collect()
 }
 
-/// What check-config notes of the helper at `program` when it runs as
-/// `me`: a refusal for that account, else, when `me` is not root, the
-/// refusal of the start as root, which takes only root's file.
+/// What check-config notes of the glyph helper at `program` when it runs
+/// as `me` ([`refusal_note`]).
 fn helper_note(program: &Path, me: u32) -> Option<String> {
-    match helper::open_program(program, me) {
-        Err(why) => Some(check_config::helper_refused(&why)),
-        Ok(_) if me != 0 => helper::open_program(program, 0)
-            .err()
-            .map(|why| check_config::helper_refused_as_root(&why)),
-        Ok(_) => None,
+    refusal_note(
+        |me| helper::open_program(program, me).map(drop),
+        me,
+        check_config::helper_refused,
+        check_config::helper_refused_as_root,
+    )
+}
+
+/// What check-config notes of the image helper at `program` when it runs
+/// as `me` ([`refusal_note`]), in a build with images, the only build that
+/// starts it (ADR-1101 D1).
+#[cfg(feature = "images")]
+fn image_helper_note(program: &Path, me: u32) -> Option<String> {
+    refusal_note(
+        |me| vtium_platform::image_helper::open_program(program, me).map(drop),
+        me,
+        check_config::image_helper_refused,
+        check_config::image_helper_refused_as_root,
+    )
+}
+
+/// What check-config notes of a helper that `open` opens for an account:
+/// `refused` of its refusal for `me`, the account the check runs as,
+/// else, when `me` is not root, `as_root` of the refusal of the start as
+/// root, which takes only root's file.
+fn refusal_note(
+    open: impl Fn(u32) -> Result<(), String>,
+    me: u32,
+    refused: fn(&str) -> String,
+    as_root: fn(&str) -> String,
+) -> Option<String> {
+    match open(me) {
+        Err(why) => Some(refused(&why)),
+        Ok(()) if me != 0 => open(0).err().map(|why| as_root(&why)),
+        Ok(()) => None,
     }
 }
 
@@ -835,14 +862,15 @@ mod tests {
         };
         // root's /bin/sh, a helper vtium takes
         let helper = "--font-helper=/bin/sh";
+        let image = "--image-helper=/bin/sh";
         assert_eq!(
-            note(&["--display-dpi=109", helper]),
+            note(&["--display-dpi=109", helper, image]),
             [
                 "display-dpi=109: every display converts points at 109 DPI, its measured density aside"
             ]
         );
         assert_eq!(
-            note(&[helper]),
+            note(&[helper, image]),
             [
                 "each display converts points at the density it measures from its physical size, else at 96 DPI with a warning naming it; the start logs which"
             ]
@@ -855,7 +883,7 @@ mod tests {
     #[test]
     fn a_helper_vtium_would_refuse_is_noted() {
         let note = |args: &[&str]| {
-            let args: Vec<OsString> = [SUBCOMMAND]
+            let args: Vec<OsString> = [SUBCOMMAND, "--image-helper=/bin/sh"]
                 .iter()
                 .chain(args)
                 .map(OsString::from)
@@ -882,6 +910,102 @@ mod tests {
             run_with(&["--font-helper=bin/vtium-vitrify"], ""),
             (Vec::new(), 0)
         );
+    }
+
+    // ADR-1101 D1: image-helper defaults to the path vtium was built
+    // with, the one vtium-platform starts by default too
+    #[cfg(feature = "images")]
+    // covers: image.helper
+    #[test]
+    fn image_helper_defaults_to_the_built_path() {
+        let loaded = config::load(&[OsString::from(SUBCOMMAND)], None, &mut |_: &Path| {
+            Ok(None)
+        });
+        assert_eq!(
+            crate::head::images::program(&loaded.config),
+            Path::new(crate::head::images::PROGRAM)
+        );
+        assert_eq!(
+            crate::head::images::PROGRAM,
+            vtium_platform::image_helper::PROGRAM
+        );
+        let args: Vec<OsString> = [SUBCOMMAND, "--image-helper=/opt/vtium-image"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+        assert_eq!(
+            crate::head::images::program(&loaded.config),
+            Path::new("/opt/vtium-image")
+        );
+    }
+
+    // ADR-1101 D1: an image helper vtium would refuse is noted outside the
+    // status, as the glyph helper is, since the start may run as another
+    // account and checks it again
+    #[cfg(feature = "images")]
+    // covers: image.helper
+    #[test]
+    fn an_image_helper_vtium_would_refuse_is_noted() {
+        let note = |args: &[&str]| {
+            let args: Vec<OsString> = [SUBCOMMAND, "--font-helper=/bin/sh"]
+                .iter()
+                .chain(args)
+                .map(OsString::from)
+                .collect();
+            notes(&config::load(&args, None, &mut |_: &Path| Ok(None)).config)
+        };
+        let density = check_config::MEASURED_DENSITY;
+        assert_eq!(note(&["--image-helper=/bin/sh"]), [density]);
+        assert_eq!(
+            note(&["--image-helper=bin/vtium-image"]),
+            [
+                density,
+                "image-helper: the image helper's path bin/vtium-image is not absolute, so vtium does not start it; every console would answer files, shared memory, PNG and zlib itself, as with no helper, and the start checks again for the account it runs as"
+            ]
+        );
+        assert_eq!(
+            note(&["--image-helper=/"]),
+            [
+                density,
+                "image-helper: the image helper / is not a regular file, so vtium does not start it; every console would answer files, shared memory, PNG and zlib itself, as with no helper, and the start checks again for the account it runs as"
+            ]
+        );
+        assert_eq!(
+            run_with(&["--image-helper=bin/vtium-image"], ""),
+            (Vec::new(), 0)
+        );
+    }
+
+    // ADR-1101 D1: check-config run as another account notes an image
+    // helper the root start refuses
+    #[cfg(feature = "images")]
+    // covers: image.helper
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn an_image_helper_the_root_start_refuses_is_noted() {
+        let dir = std::env::temp_dir().join(format!("vtium-check-image-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let program = dir.join("vtium-image");
+        std::fs::write(&program, "").unwrap();
+        let owner = std::fs::metadata(&program)
+            .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
+            .unwrap();
+        assert_eq!(image_helper_note(Path::new("/bin/sh"), 1000), None);
+        let note = image_helper_note(&program, owner);
+        if owner == 0 {
+            assert_eq!(note, None, "root's file");
+        } else {
+            assert_eq!(
+                note.unwrap(),
+                format!(
+                    "image-helper: started as root, vtium refuses it: the image helper {} is owned by uid {owner}, which is neither root nor the account vtium runs as, so vtium does not start it; under the root start every console answers files, shared memory, PNG and zlib itself, as with no helper",
+                    program.display()
+                )
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // check-config run as another account notes a helper the root start
