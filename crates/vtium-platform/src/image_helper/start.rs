@@ -413,6 +413,26 @@ pub fn exited(started: &Started) -> bool {
     )
 }
 
+/// Ends a helper that has exited or closed its socket with no request
+/// out, and whether it exited with status 0, as a helper does when it
+/// idles out or vtium closes its socket. Its process group is killed
+/// first, which leaves the status of a helper already exiting as it was
+/// and ends one that closed its socket and lives on, so the wait for it
+/// that follows lasts only as long as its exit. It is then reaped through
+/// its pidfd.
+pub fn finish(started: &Started) -> bool {
+    use rustix::process::{WaitId, WaitIdOptions};
+    kill_group(started);
+    loop {
+        match rustix::process::waitid(WaitId::PidFd(started.pidfd.as_fd()), WaitIdOptions::EXITED) {
+            Ok(Some(status)) => return status.exit_status() == Some(0),
+            Err(rustix::io::Errno::INTR) => {}
+            // nothing else reaps the helper, so its end is unknown
+            Ok(None) | Err(_) => return false,
+        }
+    }
+}
+
 /// Reaps the helper through its pidfd; `false` while it has not exited.
 pub fn reap(started: &Started, block: bool) -> bool {
     use rustix::process::{WaitId, WaitIdOptions};

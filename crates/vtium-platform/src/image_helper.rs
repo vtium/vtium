@@ -27,7 +27,11 @@
 //!   mapping of a sealed file, or with `pread` from a pooled one.
 //! - **Failures.** The socket closing or failing, or a reply that fails a
 //!   check, ends the request with [`Reply::Failed`], kills the helper's
-//!   process group and reaps it, and counts a crash; after
+//!   process group and reaps it, and counts a crash. A helper found
+//!   exited, or with its socket closed, while no request is out counts a
+//!   crash too unless it exited with status 0, which a helper that idles
+//!   out or loses vtium's socket does: the real helper exits 1 when a
+//!   worker is killed by a signal after its outcome is in. After
 //!   [`IMAGE_CRASHES_MAX`] the console starts no more helpers until its
 //!   session ends. The binary's timer stops the helper the same way but
 //!   counts nothing, since a large picture on a slow board can take that
@@ -193,6 +197,13 @@ impl ImageHost {
         if self.out.is_some() {
             return Err(Reply::Failed);
         }
+        if self
+            .running
+            .as_ref()
+            .is_some_and(|r| start::exited(&r.started))
+        {
+            self.retire();
+        }
         if !self.available() {
             return Err(without_helper(request));
         }
@@ -235,7 +246,7 @@ impl ImageHost {
         };
         if let Err(e) = send_packet(&running.started.socket, &packet, inline.as_ref()) {
             log::warn!("cannot send image request {id}: {e}");
-            self.kill();
+            self.retire();
             return Err(Reply::Unreadable);
         }
         let mut kept = request.clone();
@@ -247,12 +258,13 @@ impl ImageHost {
     }
 
     /// A helper running as `account` for requests of up to `max_bytes`:
-    /// the one running, unless its account differs, its cap was set from
-    /// fewer bytes or it has exited, else a new one.
+    /// the one running, unless its account differs or its cap was set from
+    /// fewer bytes, else a new one.
     fn ensure(&mut self, account: &Account, max_bytes: u64) -> Result<(), Reply> {
-        let stale = self.running.as_ref().is_some_and(|r| {
-            r.account != *account || max_bytes > r.max_bytes || start::exited(&r.started)
-        });
+        let stale = self
+            .running
+            .as_ref()
+            .is_some_and(|r| r.account != *account || max_bytes > r.max_bytes);
         if stale {
             self.kill();
         }
@@ -299,13 +311,32 @@ impl ImageHost {
         log::warn!("image helper: {why}; stopping it");
         self.kill();
         self.out = None;
+        self.count_crash();
+        Reply::Failed
+    }
+
+    /// A helper that has exited or closed its socket with no request out is
+    /// reaped, and a crash counted unless it exited with status 0.
+    fn retire(&mut self) {
+        let Some(r) = self.running.take() else {
+            return;
+        };
+        if !start::finish(&r.started) {
+            log::warn!(
+                "image helper {} ended with another status than 0 after its last reply",
+                r.started.pid.as_raw_nonzero()
+            );
+            self.count_crash();
+        }
+    }
+
+    fn count_crash(&mut self) {
         self.crashes = self.crashes.saturating_add(1);
         if self.crashes == IMAGE_CRASHES_MAX {
             log::warn!(
                 "the image helper crashed {IMAGE_CRASHES_MAX} times on this console; it starts no more until the console's session ends"
             );
         }
-        Reply::Failed
     }
 
     /// The binary's reply timer fired: the request out is dropped and the
@@ -341,8 +372,9 @@ impl ImageHost {
                 Ok(None) => return None,
                 Err(why) => {
                     if self.out.is_none() && why == Broken::Closed {
-                        // a helper that idled out with nothing asked of it
-                        self.kill();
+                        // a helper that idled out, or one that failed after
+                        // its last reply
+                        self.retire();
                         return None;
                     }
                     return Some(self.crash(why.text()));

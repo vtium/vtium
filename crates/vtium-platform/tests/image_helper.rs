@@ -90,6 +90,12 @@ fn stand_in(role: &str, tmpdir: Option<&str>) -> ! {
                 answer(&socket, role, id, &request);
                 std::process::exit(0);
             }
+            // as the real helper does when its worker is killed by a
+            // signal after its outcome is in
+            "once-fail" => {
+                answer(&socket, role, id, &request);
+                std::process::exit(1);
+            }
             _ => answer(&socket, role, id, &request),
         }
     }
@@ -651,17 +657,13 @@ fn with_three_free() -> ! {
     std::process::exit(0);
 }
 
-/// A helper that has exited on its own, as one does after its idle
-/// interval, is replaced at the next request, and no crash is counted.
-fn a_helper_that_exited_idle_is_replaced_at_the_next_request() {
-    let dir = scratch("idle");
-    let mut host = host(&dir, "once");
-    assert!(matches!(ask(&mut host, &file()), Reply::Ok(_)));
-    let first = host.pid().unwrap();
+/// Waits, at most ten seconds, until the helper `pid` has exited and
+/// waits to be reaped.
+fn until_exited(pid: u32) {
     for _ in 0..1000 {
-        let state = std::fs::read_to_string(format!("/proc/{first}/stat")).unwrap_or_default();
+        let state = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
         if state.contains(") Z ") {
-            break;
+            return;
         }
         let _ = rustix::event::poll(
             &mut [],
@@ -671,11 +673,56 @@ fn a_helper_that_exited_idle_is_replaced_at_the_next_request() {
             }),
         );
     }
+    panic!("helper {pid} has not exited in ten seconds");
+}
+
+/// A helper that has exited on its own with status 0, as one does after
+/// its idle interval, is replaced at the next request, and no crash is
+/// counted; nor is one when the loop reads its closed socket.
+fn a_helper_that_exited_idle_is_replaced_at_the_next_request() {
+    let dir = scratch("idle");
+    let mut host = host(&dir, "once");
+    assert!(matches!(ask(&mut host, &file()), Reply::Ok(_)));
+    let first = host.pid().unwrap();
+    until_exited(first);
     assert!(matches!(ask(&mut host, &file()), Reply::Ok(_)));
     assert_ne!(host.pid().unwrap(), first);
     assert!(gone(first), "the exited helper is reaped");
     assert_eq!(host.crashes(), 0);
+    let second = host.pid().unwrap();
+    until_exited(second);
+    assert_eq!(host.readable(), None, "nothing was asked of it");
+    assert!(gone(second), "the exited helper is reaped");
+    assert_eq!(host.crashes(), 0);
     println!("test a_helper_that_exited_idle_is_replaced_at_the_next_request ... ok");
+}
+
+/// A helper that answers and then exits with another status than 0, as
+/// the real helper does when its worker is killed by a signal after its
+/// outcome is in, counts a crash once the host finds it gone: at the next
+/// request, or when the loop reads its closed socket. Otherwise a hostile
+/// picture that crashed the worker just after its outcome could retry
+/// without bound.
+fn a_helper_that_fails_after_its_reply_counts_a_crash() {
+    let dir = scratch("after");
+    let mut at_next = host(&dir, "once-fail");
+    assert!(matches!(ask(&mut at_next, &file()), Reply::Ok(_)));
+    let first = at_next.pid().unwrap();
+    until_exited(first);
+    assert_eq!(at_next.crashes(), 0, "the exit is not seen yet");
+    assert!(matches!(ask(&mut at_next, &file()), Reply::Ok(_)));
+    assert!(gone(first), "the failed helper is reaped");
+    assert_eq!(at_next.crashes(), 1, "seen at the next request");
+
+    let mut on_close = host(&dir, "once-fail");
+    assert!(matches!(ask(&mut on_close, &file()), Reply::Ok(_)));
+    let helper = on_close.pid().unwrap();
+    until_exited(helper);
+    assert_eq!(on_close.readable(), None);
+    assert!(gone(helper), "the failed helper is reaped");
+    assert_eq!(on_close.crashes(), 1, "seen when its socket closes");
+    assert_eq!(on_close.pid(), None);
+    println!("test a_helper_that_fails_after_its_reply_counts_a_crash ... ok");
 }
 
 fn a_program_others_may_change_is_refused() {
@@ -811,6 +858,7 @@ fn main() {
     a_request_no_account_may_read_starts_no_helper();
     a_session_that_ends_drops_its_request_and_its_helper();
     a_helper_that_exited_idle_is_replaced_at_the_next_request();
+    a_helper_that_fails_after_its_reply_counts_a_crash();
     a_program_others_may_change_is_refused();
     a_root_helper_starts_with_no_capability();
     drop(run);
