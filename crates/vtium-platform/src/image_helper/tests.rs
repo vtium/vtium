@@ -212,17 +212,23 @@ enum RootCase {
     Failed(String),
 }
 
+/// The root case's test, as the test harness names it.
+const ROOT_CASE: &str = "image_helper::tests::a_root_helper_starts_with_no_capability";
+
 /// Runs the namespace's side of the root case through `unshare`, found on
 /// `path` where one is given and otherwise on this process's `PATH`.
 /// `unshare` failing to make the namespace or to map its ids, before the
-/// case runs, is a skip; so is the case finding no capability to use.
+/// case runs, is a skip; so is the case finding no capability to use. An
+/// exit status of 0 is a pass only when the test harness says the case
+/// ran and passed, since the harness also exits with 0 when its filter
+/// matched no test.
 fn root_case(path: Option<&std::ffi::OsStr>) -> RootCase {
     let mut command = std::process::Command::new("unshare");
     command
         .args(["--user", "--map-root-user", "--"])
         .arg(std::env::current_exe().unwrap())
         .args([
-            "image_helper::tests::a_root_helper_starts_with_no_capability",
+            ROOT_CASE,
             "--exact",
             "--nocapture",
             "--test-threads=1",
@@ -242,7 +248,14 @@ fn root_case(path: Option<&std::ffi::OsStr>) -> RootCase {
         return RootCase::Skipped(line.unwrap_or_default().to_owned());
     }
     if out.status.success() {
-        return RootCase::Passed;
+        let ran = format!("test {ROOT_CASE} ... ok");
+        return if stdout.lines().any(|l| l == ran) {
+            RootCase::Passed
+        } else {
+            RootCase::Failed(format!(
+                "the run ended with 0 but never said `{ran}`:\n{stdout}{stderr}"
+            ))
+        };
     }
     // unshare's own messages begin with its name; these say it could not
     // make the namespace or map its ids, so the case never ran
@@ -259,10 +272,14 @@ fn root_case(path: Option<&std::ffi::OsStr>) -> RootCase {
 }
 
 /// The root case run through a stand-in `unshare` placed first on `PATH`,
-/// a shell script that writes `message` to its standard error and exits
-/// with `status`: a failure to map the namespace's ids, as on Ubuntu
-/// 24.04 with `apparmor_restrict_unprivileged_userns` set, is a skip that
-/// says why; any other failure, of `unshare` or of the case, fails.
+/// a shell script that writes `said` to its standard output and `message`
+/// to its standard error and exits with `status`: a failure to map the
+/// namespace's ids, as on Ubuntu 24.04 with
+/// `apparmor_restrict_unprivileged_userns` set, is a skip that says why;
+/// any other failure, of `unshare` or of the case, fails. An exit status
+/// of 0 passes only with the test harness's line saying the case ran and
+/// passed, so a run that matched no test, which the harness also ends
+/// with 0, fails.
 #[test]
 fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
     use std::os::unix::fs::PermissionsExt;
@@ -278,16 +295,17 @@ fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
         path.push(":");
         path.push(rest);
     }
-    let run = |message: &str, status: u8| {
+    let run_saying = |said: &str, message: &str, status: u8| {
         let fake = dir.join("unshare");
         std::fs::write(
             &fake,
-            format!("#!/bin/sh\necho '{message}' >&2\nexit {status}\n"),
+            format!("#!/bin/sh\necho '{said}'\necho '{message}' >&2\nexit {status}\n"),
         )
         .unwrap();
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
         root_case(Some(&path))
     };
+    let run = |message: &str, status: u8| run_saying("", message, status);
     let uid = run(
         "unshare: write failed /proc/self/uid_map: Operation not permitted",
         1,
@@ -298,7 +316,13 @@ fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
     );
     let other = run("unshare: unrecognized option '--user'", 1);
     let case = run("the case failed", 101);
-    let passed = run("", 0);
+    let passed = run_saying(
+        "test image_helper::tests::a_root_helper_starts_with_no_capability ... ok",
+        "",
+        0,
+    );
+    let silent = run("", 0);
+    let none_ran = run_saying("running 0 tests", "", 0);
     let _ = std::fs::remove_dir_all(&dir);
     for (got, map) in [(uid, "uid_map"), (gid, "gid_map")] {
         match got {
@@ -309,6 +333,8 @@ fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
     assert!(matches!(other, RootCase::Failed(_)), "{other:?}");
     assert!(matches!(case, RootCase::Failed(_)), "{case:?}");
     assert_eq!(passed, RootCase::Passed);
+    assert!(matches!(silent, RootCase::Failed(_)), "{silent:?}");
+    assert!(matches!(none_ran, RootCase::Failed(_)), "{none_ran:?}");
 }
 
 /// The namespace's side: as uid 0 with every capability, the inheritable
