@@ -267,6 +267,10 @@ if [ -n "$dry" ]; then
 	printf '\nvt-install: the commands, none of them run:\n'
 else
 	"$sudo" -v || die "sudo failed"
+	# From here on a step that fails leaves part of the install in place,
+	# which the manifest, written first, lets uninstall undo.
+	set -E
+	trap 'echo "vt-install: a step failed; make vt-uninstall VT=$vt undoes what this run did" >&2' ERR
 fi
 # The manifest goes first, so a run cut short can still be undone.
 [ -d "$root$state_dir" ] || as_root install -d -m 0755 "${own[@]}" -- "$root$state_dir"
@@ -276,10 +280,11 @@ for f in vtium@.service vtium-getty@.service; do
 	as_root install -D -m 0644 "${own[@]}" -- "$tmp/$f" "$root$unit_dir/$f"
 done
 as_root "$systemctl" daemon-reload
-as_root "$systemctl" stop "$getty"
-as_root "$systemctl" disable "$getty"
+# vtium starts first: its Conflicts=getty@%i stops the getty as it starts,
+# so the VT always has one of them. The getty is disabled once vtium runs.
 as_root "$systemctl" enable "$unit"
 as_root "$systemctl" restart "$unit"
+as_root "$systemctl" disable "$getty"
 [ -n "$dry" ] || cat <<EOF
 
 vt-install: vtium runs on VT $vt, and starts there at every boot.

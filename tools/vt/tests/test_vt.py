@@ -1225,11 +1225,26 @@ class Install(Case):
         manifest = read(self.at(self.STATE + "/tty4")).splitlines()
         self.assertEqual([l for l in manifest if not l.startswith("#")],
                          ["vt=4", "getty-enabled=yes", "getty-active=yes"])
-        self.assertEqual(self.s.changes(), ["daemon-reload", "stop getty@tty4.service", "disable getty@tty4.service",
-                                            "enable vtium@tty4.service", "restart vtium@tty4.service"])
+        # vtium starts first, and its Conflicts= stops the getty, so the VT is
+        # never left with neither; the getty is disabled after.
+        self.assertEqual(self.s.changes(), ["daemon-reload", "enable vtium@tty4.service",
+                                            "restart vtium@tty4.service", "disable getty@tty4.service"])
         self.assertIn("-v", self.s.calls_of("sudo"))
         self.assertIn("vtium runs on VT 4", p.stdout)
         self.assertIn("make vt-uninstall VT=4", p.stdout)
+
+    def test_a_failed_step_names_the_way_back(self):
+        for verb in ("daemon-reload", "enable", "restart", "disable"):
+            with self.subTest(verb=verb):
+                p = self.vt_install("install", "4", FAIL_VERB=verb)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("make vt-uninstall VT=4 undoes what this run did", p.stderr)
+                self.assertNotIn("vtium runs on VT 4", p.stdout)
+                p = self.vt_install("uninstall", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # A refusal before anything changed names no way back.
+        p = self.vt_install("install", "1")
+        self.assertNotIn("make vt-uninstall", p.stderr)
 
     def test_systemd_analyze_verifies_the_generated_units(self):
         if not REAL_ANALYZE:
@@ -1314,10 +1329,9 @@ class Install(Case):
         self.assertIn("--- /var/lib/vtium-vt-install/tty4", p.stdout)
         self.assertIn("getty-active=yes", p.stdout)
         commands = [l for l in p.stdout.splitlines() if l.startswith("+ sudo ")]
-        self.assertEqual([c.split()[-2:] for c in commands[-5:]],
-                         [[f"{self.s.standins}/systemctl", "daemon-reload"], ["stop", "getty@tty4.service"],
-                          ["disable", "getty@tty4.service"],
-                          ["enable", "vtium@tty4.service"], ["restart", "vtium@tty4.service"]])
+        self.assertEqual([c.split()[-2:] for c in commands[-4:]],
+                         [[f"{self.s.standins}/systemctl", "daemon-reload"], ["enable", "vtium@tty4.service"],
+                          ["restart", "vtium@tty4.service"], ["disable", "getty@tty4.service"]])
         self.assertEqual(self.s.calls_of("sudo"), [])
         self.assertEqual(self.s.changes(), [])
         for f in (self.BIN, self.UNIT, self.FALLBACK, self.STATE):
