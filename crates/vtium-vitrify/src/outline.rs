@@ -1110,8 +1110,9 @@ pub(crate) mod raster {
     /// underline's thickness comes from the `post` table when the font has
     /// one and it gives a thickness that rounds above 0, else a fourteenth
     /// of the cell. Its centre is below the baseline by `post`'s position
-    /// less half its thickness, as FreeType's `underline_position` gave it,
-    /// else a thickness and a half above the cell's bottom. The
+    /// less half its thickness, divided as integers, as FreeType's
+    /// `underline_position` gave it, where that is not 0, else a thickness
+    /// and a half above the cell's bottom. The
     /// strike-through's top and thickness come from the `OS/2` table's
     /// strikeout, above the baseline, when its size is above 0. Else it is
     /// as thick as the underline and centred on half the x-height, which is
@@ -1146,10 +1147,12 @@ pub(crate) mod raster {
             thick = (h / 14.0).floor().max(1.0);
         }
         // FreeType's underline_position, which the C reference took as the
-        // stroke's centre, is post's underlinePosition less half its
-        // underlineThickness
-        let centre = match position.filter(|&p| p != 0.0) {
-            Some(p) => base - (p - size.unwrap_or(0.0) / 2.0) * scale,
+        // stroke's centre whenever it was not 0, is post's
+        // underlinePosition less half its underlineThickness, divided as
+        // integers; a font with no post table gives 0
+        let freetype = position.map(|p| p as i32 - size.unwrap_or(0.0) as i32 / 2);
+        let centre = match freetype.filter(|&p| p != 0) {
+            Some(p) => base - f64::from(p) * scale,
             None => h - thick / 2.0 - thick,
         };
         let ul_thick = (thick as u32).clamp(1, max_thick);

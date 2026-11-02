@@ -517,6 +517,30 @@ fn the_underline_is_centred_below_the_baseline_as_freetype_gives_it() {
     assert_eq!((d.underline, d.underline_thickness), (18, 1));
 }
 
+// The C reference took the underline from the font when FreeType's
+// underline_position was not 0 (kmscon_font_freetype_get_deco), and
+// FreeType gave underlinePosition less underlineThickness / 2, divided as
+// integers. A post table with underlinePosition 0 and thickness 50 gives
+// -25, which is not 0: the centre is 16 + 25 * 0.0195 = 16.49 at Test
+// Mono's 20 pixels, its top row round(15.99) = 16. Position 25 and
+// thickness 50 give 0, so the underline takes the cell's rule: its centre
+// 1.5 rows above the bottom, 18.5, its top row 18
+// covers: text.overhang
+#[test]
+fn the_underline_follows_post_where_freetypes_position_is_not_0() {
+    let at = |position, thickness| {
+        let font = ttf::Font {
+            underline: Some((position, thickness)),
+            ..ttf::test_mono()
+        }
+        .build();
+        let d = decorations(&font, "Test Mono", 20, 16, Hinting::Light).expect("the lines");
+        (d.underline, d.underline_thickness)
+    };
+    assert_eq!(at(0, 50), (16, 1), "underlinePosition 0, thickness 50");
+    assert_eq!(at(25, 50), (18, 1), "underlinePosition 25, thickness 50");
+}
+
 // The lines a strike reports, each pinned to the C reference's formula
 // (kmscon_font_freetype_get_deco, kmscon_font_get_deco), for Test Mono at
 // 20 pixels, baseline 16, 0.0195 of a pixel to the unit. With an OS/2
