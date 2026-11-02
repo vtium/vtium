@@ -1649,6 +1649,9 @@ impl App {
                 if let Some(input) = &mut self.input {
                     input.wake_up();
                 }
+                // The keyboards start afresh, holding no modifier, so a
+                // Ctrl held before the switch shows no overlay now.
+                self.rehover();
                 for (node, video) in &mut self.videos {
                     if let Err(e) = video.wake_up() {
                         log::warn!("cannot wake {}: {e}", node.display());

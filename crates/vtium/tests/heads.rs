@@ -1900,6 +1900,32 @@ fn releasing_ctrl_over_a_link_hides_its_overlay() {
     );
 }
 
+/// ADR-1002, "What a link does", binary-review's finding 4: after a VT
+/// switch away and back, the keyboards start afresh holding no Ctrl, so
+/// the overlay Ctrl showed before the switch ends at the return, with no
+/// key pressed after it.
+// covers: osc.8
+#[test]
+fn a_vt_switch_away_and_back_ends_the_overlay() {
+    let mut s = linked_heads();
+    let over = over_cell(&s, "large", 5);
+    s.app.pointer_event(over, Mods::CTRL, now());
+    assert_eq!(overlay_of(&s.app, "large").as_deref(), Some(A_MD));
+    s.app.vt.leave().expect("the fake VT");
+    s.app.turn(now());
+    s.app.turn(now());
+    assert!(!s.app.vt.is_active(), "the VT switched away");
+    s.app.vt.activate().expect("the fake VT");
+    assert!(s.until_memory("/dev/mem1", SECOND, |m| m.awake));
+    s.app.turn(now());
+    assert_eq!(overlay_of(&s.app, "large"), None, "the overlay ended at the return");
+    assert_eq!(
+        hovered_on(&s.app, "large").as_deref(),
+        Some(A_MD),
+        "the link stays underlined"
+    );
+}
+
 /// ADR-1002, "What a link does": unplugging the keyboard that holds Ctrl
 /// ends the overlay. Its route goes before its modifiers' end is queued,
 /// so the seat reads the head's keyboards again as the device goes.
