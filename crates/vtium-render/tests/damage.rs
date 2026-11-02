@@ -819,3 +819,35 @@ fn the_pointer_leaves_nothing_behind_at_odd_cell_sizes() {
         }
     }
 }
+
+// Something other than the renderer drew over an area of every buffer, as
+// vtium's notice box does, and went: after `redraw_area` each buffer, the
+// newest and the older one, draws the cells and the border under it again,
+// and equals a whole draw. Without it, a buffer older than the frame that
+// noted the area kept what was drawn over it.
+#[test]
+fn an_area_drawn_over_is_redrawn_in_every_buffer() {
+    let (w, h) = PROMPT;
+    let mut s = prompt();
+    let st = state(&s);
+    let mut d = Display::new(2, w, h);
+    d.draw(&mut s, &st);
+    d.draw(&mut s, &st);
+    // a box across the top, over the border and the first row of cells
+    let area = Rect {
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 12,
+    };
+    for b in &mut d.buffers {
+        for y in area.y..area.y + area.height {
+            b.canvas
+                .write(area.x, y, &vec![0x00ff_ffff; area.width as usize]);
+        }
+    }
+    d.r.redraw_area(area);
+    for _ in 0..3 {
+        d.draw(&mut s, &st);
+    }
+}

@@ -10,13 +10,16 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use vtium::app::App;
 use vtium::blank::Order;
 use vtium::config;
 use vtium::video::Video;
-use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
+use vtium_platform::display::{
+    DisplayId, Dpms, Event, Memory as Shared, Rect, SwapError, Swapped, Token,
+};
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
 use vtium_platform::rt_signal;
@@ -29,7 +32,10 @@ const ID: DisplayId = DisplayId(7);
 /// A device with one display, its frame buffer in memory.
 #[derive(Default)]
 struct Memory {
+    /// What the display shows: the buffer lent, as the last swap left it.
     pixels: Vec<u8>,
+    /// The buffer each token lends, drawn into on the render thread.
+    drawn: Arc<Mutex<Vec<u8>>>,
     events: Vec<Event>,
     awake: bool,
     dpms: Option<Dpms>,
@@ -63,22 +69,24 @@ impl Video for Memory {
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
         Some(60_000)
     }
-    fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
         if !self.awake || self.dpms != Some(Dpms::On) {
             return None;
         }
-        Some(Canvas {
-            pixels: &mut self.pixels,
-            width: W,
-            height: H,
-            stride: W * 4,
-            age: 0,
-        })
+        let memory: Arc<Shared> = self.drawn.clone();
+        Some(Token::new(id, (W, H), W * 4, 0, memory))
     }
-    fn swap(&mut self, id: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+    fn give_back(&mut self, _: Token) {}
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let id = token.id();
+        if damage.is_empty() && self.dpms == Some(Dpms::On) {
+            return Ok(Swapped::Nothing);
+        }
         if self.dpms != Some(Dpms::On) {
             return Err(SwapError::Off);
         }
+        // The display shows the buffer the frame was drawn into.
+        self.pixels.clone_from(&self.drawn.lock().unwrap());
         self.events.push(Event::Flipped(id));
         Ok(Swapped::Frame)
     }
@@ -106,6 +114,7 @@ impl Video for Memory {
     fn wake_up(&mut self) -> io::Result<()> {
         let first = self.pixels.is_empty();
         self.pixels = vec![0; (W * H * 4) as usize];
+        *self.drawn.lock().unwrap() = self.pixels.clone();
         self.awake = true;
         self.dpms = Some(Dpms::On);
         self.events.push(if first {

@@ -5,15 +5,26 @@ use std::any::Any;
 use std::io;
 
 use vtium_platform::display::{
-    Canvas, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Identity, Rect, SwapError,
-    Swapped,
+    Buffers, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Identity, Rect, SwapError,
+    Swapped, Token,
 };
 use vtium_render::Arrow;
 
 use crate::pointer::Plane;
 
-/// A video device: its displays, each lending a canvas for a frame and
-/// presenting it, and its sleep, wake-up and power.
+/// How many buffers a DRM display keeps when kmscon.conf does not say
+/// (ADR-1401 D2): three in a build that adds features on top of minspec,
+/// two in the minspec build, vtium's default build. One buffer is for a
+/// build smaller than minspec, which none is yet; [`Buffers::One`] reaches
+/// it through the setting.
+pub const BUILD_BUFFERS: Buffers = if cfg!(any(feature = "images", feature = "logind")) {
+    Buffers::Three
+} else {
+    Buffers::Two
+};
+
+/// A video device: its displays, each lending a buffer token for a frame
+/// and presenting it, and its sleep, wake-up and power.
 pub trait Video: Any {
     /// The backend's name in the display's log line.
     fn backend(&self) -> &'static str;
@@ -27,15 +38,19 @@ pub trait Video: Any {
     fn size(&self, id: DisplayId) -> Option<(u32, u32)>;
     /// A display's refresh in millihertz, if it reports one.
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32>;
-    /// The back buffer, lent for one frame.
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>>;
-    /// Presents the frame drawn into the canvas with its damage.
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError>;
+    /// The prepare step: the buffer the next frame is drawn into, lent as
+    /// a token with its age while the display is ready for a frame.
+    fn lend(&mut self, id: DisplayId) -> Option<Token>;
+    /// The swap: takes the token back and presents the frame drawn into
+    /// its buffer with its damage, or a cursor change alone where the
+    /// damage is empty. A token back too late is dropped.
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError>;
+    /// Takes a token back with nothing drawn into it.
+    fn give_back(&mut self, token: Token);
     /// Whether a frame swapped is still on its way to the screen.
     fn is_flipping(&self, id: DisplayId) -> bool;
-    /// Whether the display takes a frame now. On the CPU path a frame is
-    /// the canvas the display lends. A frame the display does not take
-    /// waits until the display is ready.
+    /// Whether the display takes a frame now: it would lend a token. A
+    /// frame the display does not take waits until the display is ready.
     fn ready_for_frame(&self, id: DisplayId) -> bool;
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()>;
     fn sleep(&mut self);
@@ -147,11 +162,14 @@ impl Video for Drm2d<Card> {
     fn identity(&self, id: DisplayId) -> Option<Identity> {
         Drm2d::identity(self, id).cloned()
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        Drm2d::canvas(self, id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        Drm2d::lend(self, id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        Drm2d::swap(self, id, damage)
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        Drm2d::swap(self, token, damage)
+    }
+    fn give_back(&mut self, token: Token) {
+        Drm2d::give_back(self, token);
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         Drm2d::is_flipping(self, id)
@@ -235,11 +253,14 @@ impl Video for Fbdev<Fb> {
             .filter(Density::measured)
             .map(|d| d.dpi())
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        Fbdev::canvas(self, id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        Fbdev::lend(self, id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        Fbdev::swap(self, id, damage)
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        Fbdev::swap(self, token, damage)
+    }
+    fn give_back(&mut self, token: Token) {
+        Fbdev::give_back(self, token);
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         Fbdev::is_flipping(self, id)
@@ -267,5 +288,26 @@ impl Video for Fbdev<Fb> {
     }
     fn as_any(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ADR-1401 D2: the minspec build, vtium's default build, keeps two
+    // buffers a DRM display.
+    #[cfg(not(any(feature = "images", feature = "logind")))]
+    #[test]
+    fn the_minspec_build_keeps_two_buffers() {
+        assert_eq!(BUILD_BUFFERS, Buffers::Two);
+    }
+
+    // ADR-1401 D2: a build that adds features on top of minspec keeps
+    // three.
+    #[cfg(any(feature = "images", feature = "logind"))]
+    #[test]
+    fn a_build_with_features_keeps_three_buffers() {
+        assert_eq!(BUILD_BUFFERS, Buffers::Three);
     }
 }

@@ -3706,3 +3706,24 @@ fn a_token_is_drawn_into_on_another_thread() {
     v.swap(token, &[DOT]).unwrap();
     assert_eq!(lock(&v.outputs[0].buffers[index].map)[..4], [0x42; 4]);
 }
+
+// A display whose connector has no DPMS property stays lit through the
+// blank, and nothing powers it on after it, so nothing else sets its ages
+// to 0: a token lent before the blank and back after it is dropped, and
+// the drop alone leaves every buffer at age 0.
+#[test]
+fn a_token_back_after_a_blank_without_dpms_leaves_every_buffer_age_0() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().no_dpms.push(A);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    for _ in 0..3 {
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    let token = v.lend(DisplayId(A)).unwrap();
+    assert_eq!(token.age(), 2);
+    v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    assert_eq!(age(&mut v, A), 0);
+}

@@ -8,6 +8,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use vtium::app::App;
@@ -16,7 +17,9 @@ use vtium::font::Sources;
 use vtium::head::{Head, Start};
 use vtium::video::Video;
 use vtium_config::Class;
-use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Identity, Rect, SwapError, Swapped};
+use vtium_platform::display::{
+    DisplayId, Dpms, Event, Identity, Memory as Shared, Rect, SwapError, Swapped, Token,
+};
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
 use vtium_platform::vt::FakeVt;
@@ -44,7 +47,10 @@ struct Memory {
     held: bool,
     /// Let go: the next hotplug announces it.
     released: bool,
+    /// What the display shows: the buffer lent, as the last swap left it.
     pixels: Vec<u8>,
+    /// The buffer each token lends, drawn into on the render thread.
+    drawn: Arc<Mutex<Vec<u8>>>,
     events: Vec<Event>,
     awake: bool,
     dpms: Option<Dpms>,
@@ -68,6 +74,7 @@ impl Memory {
             held: false,
             released: false,
             pixels: Vec::new(),
+            drawn: Arc::default(),
             events: Vec::new(),
             awake: false,
             dpms: None,
@@ -128,23 +135,25 @@ impl Video for Memory {
             lit_at_start: self.lit,
         })
     }
-    fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
         if !self.awake || self.dpms != Some(Dpms::On) {
             return None;
         }
-        Some(Canvas {
-            pixels: &mut self.pixels,
-            width: self.w,
-            height: self.h,
-            stride: self.w * 4,
-            age: 0,
-        })
+        let memory: Arc<Shared> = self.drawn.clone();
+        Some(Token::new(id, (self.w, self.h), self.w * 4, 0, memory))
     }
-    fn swap(&mut self, id: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+    fn give_back(&mut self, _: Token) {}
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let id = token.id();
+        if damage.is_empty() && self.dpms == Some(Dpms::On) {
+            return Ok(Swapped::Nothing);
+        }
         if self.dpms != Some(Dpms::On) {
             return Err(SwapError::Off);
         }
         self.frames += 1;
+        // The display shows the buffer the frame was drawn into.
+        self.pixels.clone_from(&self.drawn.lock().unwrap());
         self.events.push(Event::Flipped(id));
         Ok(Swapped::Frame)
     }
@@ -166,6 +175,7 @@ impl Video for Memory {
     fn wake_up(&mut self) -> io::Result<()> {
         let first = self.pixels.is_empty();
         self.pixels = vec![0; (self.w * self.h * 4) as usize];
+        *self.drawn.lock().unwrap() = self.pixels.clone();
         self.awake = true;
         self.dpms = Some(Dpms::On);
         if !self.held {

@@ -11,6 +11,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use vtium::app::{App, Exit};
@@ -18,7 +19,9 @@ use vtium::config;
 use vtium::font::Sources;
 use vtium::start::Start;
 use vtium::video::Video;
-use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
+use vtium_platform::display::{
+    DisplayId, Dpms, Event, Memory as Shared, Rect, SwapError, Swapped, Token,
+};
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods, PointerEvent};
 use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
@@ -31,7 +34,10 @@ const ID: DisplayId = DisplayId(7);
 struct Memory {
     w: u32,
     h: u32,
+    /// What the display shows: the buffer lent, as the last swap left it.
     pixels: Vec<u8>,
+    /// The buffer each token lends, drawn into on the render thread.
+    drawn: Arc<Mutex<Vec<u8>>>,
     events: Vec<Event>,
     awake: bool,
     dpms: Option<Dpms>,
@@ -42,8 +48,10 @@ struct Memory {
     sleeps: u32,
     /// Each DPMS state set, in order.
     dpms_sets: Vec<Dpms>,
-    /// Each canvas lent's age, in order.
+    /// Each token lent's age, in order.
     ages: Vec<u32>,
+    /// Whether each frame swapped carried the whole screen, in order.
+    wholes: Vec<bool>,
     refresh_mhz: u32,
     /// Every swap fails, as on a display announced and never shown.
     refuses: bool,
@@ -64,6 +72,7 @@ impl Memory {
             w,
             h,
             pixels: Vec::new(),
+            drawn: Arc::default(),
             events: Vec::new(),
             awake: false,
             dpms: None,
@@ -74,6 +83,7 @@ impl Memory {
             sleeps: 0,
             dpms_sets: Vec::new(),
             ages: Vec::new(),
+            wholes: Vec::new(),
             refresh_mhz: 60_000,
             refuses: false,
             // the C reference's fixed density, where a point is a pixel
@@ -104,21 +114,21 @@ impl Video for Memory {
     fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
         self.dpi
     }
-    fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
         if !self.awake || self.dpms != Some(Dpms::On) {
             return None;
         }
         let age = self.age;
         self.ages.push(age);
-        Some(Canvas {
-            pixels: &mut self.pixels,
-            width: self.w,
-            height: self.h,
-            stride: self.w * 4,
-            age,
-        })
+        let memory: Arc<Shared> = self.drawn.clone();
+        Some(Token::new(id, (self.w, self.h), self.w * 4, age, memory))
     }
-    fn swap(&mut self, id: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+    fn give_back(&mut self, _: Token) {}
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let id = token.id();
+        if damage.is_empty() && self.dpms == Some(Dpms::On) {
+            return Ok(Swapped::Nothing);
+        }
         if self.dpms != Some(Dpms::On) {
             return Err(SwapError::Off);
         }
@@ -127,6 +137,15 @@ impl Video for Memory {
         }
         self.frames += 1;
         self.age = 1;
+        let screen = Rect {
+            x: 0,
+            y: 0,
+            width: self.w,
+            height: self.h,
+        };
+        self.wholes.push(damage.contains(&screen));
+        // The display shows the buffer the frame was drawn into.
+        self.pixels.clone_from(&self.drawn.lock().unwrap());
         self.events.push(Event::Flipped(id));
         Ok(Swapped::Frame)
     }
@@ -154,6 +173,7 @@ impl Video for Memory {
         self.wake_ups += 1;
         let first = self.pixels.is_empty();
         self.pixels = vec![0; (self.w * self.h * 4) as usize];
+        *self.drawn.lock().unwrap() = self.pixels.clone();
         self.awake = true;
         self.dpms = Some(Dpms::On);
         self.age = 0;
@@ -761,16 +781,17 @@ fn a_retaken_vt_sets_the_displays_up_again_and_draws_them_whole() {
     );
     assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "held")));
     assert!(h.until_memory(SECOND, |m| m.frames > 0 && m.age == 1));
-    let (wake_ups, frames) = (h.memory().wake_ups, h.memory().frames);
-    let lent = h.memory().ages.len();
+    let wake_ups = h.memory().wake_ups;
+    let swapped = h.memory().wholes.len();
     h.scripted().events.push(VtEvent::Retaken);
+    // The wake-up made the buffer's contents unknown: a frame after it is
+    // drawn whole. A frame composing when the VT came back may be swapped
+    // first.
     assert!(
-        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1 && m.frames > frames),
-        "the device is set up again and a frame drawn after it"
+        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1
+            && m.wholes.get(swapped..).is_some_and(|w| w.contains(&true))),
+        "the device is set up again and a frame drawn whole after it"
     );
-    // The wake-up made the buffer's contents unknown: the frame after it
-    // was drawn whole, into a canvas of age 0.
-    assert_eq!(h.memory().ages.get(lent), Some(&0));
     assert_eq!(h.memory().wake_ups, wake_ups + 1);
     assert!(h.app.vt.is_active());
 }
@@ -1484,12 +1505,19 @@ impl Video for SlowFlip {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
         self.swapped = Some(now());
-        self.memory.swap(id, damage)
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
         self.swapped
@@ -2892,11 +2920,18 @@ impl Video for Late {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        self.memory.swap(id, damage)
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         self.memory.is_flipping(id)
@@ -2983,11 +3018,18 @@ impl Video for Planed {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        self.memory.swap(id, damage)
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         self.memory.is_flipping(id)
@@ -3162,11 +3204,18 @@ impl Video for Gate {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        self.memory.swap(id, damage)
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
         self.flipping
@@ -3292,15 +3341,18 @@ impl Video for Withhold {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
         if self.withholding {
             self.refused.set(self.refused.get() + 1);
             return None;
         }
-        self.memory.canvas(id)
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        self.memory.swap(id, damage)
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        self.memory.swap(token, damage)
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         self.memory.is_flipping(id)
@@ -3558,10 +3610,11 @@ impl Video for Unusable {
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
         None
     }
-    fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
+    fn lend(&mut self, _: DisplayId) -> Option<Token> {
         None
     }
-    fn swap(&mut self, _: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+    fn give_back(&mut self, _: Token) {}
+    fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
         Err(SwapError::Off)
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
@@ -4138,11 +4191,19 @@ impl Video for Slow {
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         self.memory.dpi(id)
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        self.memory.canvas(id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // A display lends a token only while it is ready for a frame.
+        if !self.ready_for_frame(id) {
+            return None;
+        }
+        self.memory.lend(id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        let swapped = self.memory.swap(id, damage)?;
+    fn give_back(&mut self, token: Token) {
+        self.memory.give_back(token);
+    }
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        let id = token.id();
+        let swapped = self.memory.swap(token, damage)?;
         self.memory.events.retain(|e| *e != Event::Flipped(id));
         self.landed = Some(now() + Slow::FLIP);
         Ok(swapped)
