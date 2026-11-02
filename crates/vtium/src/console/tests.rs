@@ -800,11 +800,56 @@ fn enable_refuses_a_vt_the_c_references_console_holds() {
             link
         );
     }
-    let (status, _, err) = m.console(&["enable", "--all"]);
-    assert_eq!(status, 1);
-    assert!(err.contains("holds VT 2, 3, 4"), "{err}");
     assert!(m.changes().is_empty(), "{:?}", m.changes());
     assert_eq!(m.snapshot(), before);
+    // enable --all leaves each of them to kmscon, getty and link included,
+    // and takes the others.
+    let (status, out, err) = m.console(&["enable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    for n in 2..=4 {
+        assert!(
+            out.contains(&format!("VT {n} keeps the C reference's console")),
+            "{out}"
+        );
+        assert!(m.wanted(&format!("getty@tty{n}.service")), "{n}");
+        assert!(
+            !m.root().join(RECORDS).join(format!("tty{n}")).exists(),
+            "{n}"
+        );
+    }
+    assert_eq!(m.links("autovt@tty3.service"), to("kmsconvt"));
+    assert!(!m.wanted("getty@tty5.service") && m.wanted("vtium@tty1.service"));
+    assert_eq!(m.console(&["disable", "--all"]).0, 0);
+    assert_eq!(m.snapshot(), before);
+}
+
+#[test]
+fn kmscon_on_one_vt_beside_vtiums_template_keeps_it() {
+    // The README's steps: vtium holds the template, then
+    // systemctl enable kmsconvt@tty3 links that VT's own alias (measured).
+    let mut m = Machine::gettys("kmscon-beside");
+    assert_eq!(m.console(&["enable", "--all"]).0, 0);
+    m.link("autovt@tty3.service", "kmsconvt");
+    m.link("getty.target.wants/kmsconvt@tty3.service", "kmsconvt");
+    let (status, _, err) = m.console(&["enable", "3"]);
+    assert_eq!(status, 1);
+    assert!(err.contains("kmsconvt@tty3.service, holds VT 3"), "{err}");
+    let (status, out, _) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 0, "{out}");
+    assert!(
+        out.contains("VT 3 keeps the C reference's console"),
+        "{out}"
+    );
+    let (_, out, _) = m.console(&["status"]);
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("3 ") && l.matches("kmsconvt@tty3").count() == 2),
+        "{out}"
+    );
+    // disable --all leaves kmscon's VT as it is.
+    assert_eq!(m.console(&["disable", "--all"]).0, 0);
+    assert_eq!(m.links("autovt@tty3.service"), to("kmsconvt"));
+    assert!(m.wanted("kmsconvt@tty3.service"));
 }
 
 #[test]
@@ -1005,7 +1050,7 @@ fn a_display_manager_keeps_the_vts_its_unit_conflicts_with() {
     assert!(out.contains("The display manager is sddm.service"), "{out}");
     assert!(
         out.lines()
-            .any(|l| l.starts_with("1 ") && l.contains("display manager (sddm)")),
+            .any(|l| l.starts_with("1 ") && l.contains("display manager (sddm.service)")),
         "{out}"
     );
     assert_eq!(m.console(&["disable", "--all"]).0, 0);
@@ -1259,4 +1304,36 @@ fn disable_all_after_the_hand_typed_steps_leaves_the_vendor_template_in_force() 
     let mut after = m.snapshot();
     after.remove("var/lib/vtium/console");
     assert_eq!(after, before);
+}
+
+#[test]
+fn a_display_manager_whose_unit_claims_another_vt_keeps_that_vt() {
+    let mut m = Machine::gettys("dm-vt2");
+    let lib = m.root().join("usr/lib/systemd/system");
+    std::fs::write(
+        lib.join("gdm.service"),
+        "[Unit]\nConflicts=getty@tty2.service plymouth-quit.service\nAfter=getty@tty2.service\n",
+    )
+    .unwrap();
+    symlink(
+        "/usr/lib/systemd/system/gdm.service",
+        m.root().join(ETC).join(DISPLAY_MANAGER),
+    )
+    .unwrap();
+    let (status, _, err) = m.console(&["enable", "2"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager gdm.service holds VT 2"),
+        "{err}"
+    );
+    assert_eq!(m.console(&["enable", "--all"]).0, 0);
+    assert!(m.wanted("getty@tty2.service"));
+    // VT 1 is no display manager's here, so it is vtium's.
+    assert!(m.wanted("vtium@tty1.service"));
+    let (_, out, _) = m.console(&["status"]);
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("2 ") && l.contains("display manager (gdm.service)")),
+        "{out}"
+    );
 }

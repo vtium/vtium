@@ -938,14 +938,6 @@ impl Run<'_, '_, '_> {
         if state.template().names(KMSCON) {
             return Err(Stop(text::KMSCON_TEMPLATE.to_owned()));
         }
-        let kmscon: Vec<u16> = state
-            .vts()
-            .into_iter()
-            .filter(|&n| state.holds(n, KMSCON))
-            .collect();
-        if !kmscon.is_empty() {
-            return Err(Stop(text::kmscon_holds_vts(&kmscon)));
-        }
         if state.template_etc == Link::Other {
             return Err(Stop(text::TEMPLATE_NOT_LINK.to_owned()));
         }
@@ -968,6 +960,12 @@ impl Run<'_, '_, '_> {
             if state.graphics.contains_key(&n) {
                 continue;
             }
+            // kmscon on a VT of its own keeps it: its own link wins over
+            // the template.
+            if state.holds(n, KMSCON) {
+                kept.push(text::kept_kmscon(n));
+                continue;
+            }
             if state.holds(n, DEV) {
                 kept.push(text::kept_dev(n));
                 continue;
@@ -987,7 +985,8 @@ impl Run<'_, '_, '_> {
         }
         // VT 1 gets `enable N` unless the development install or graphics
         // hold it, so it is refused as `enable N` would be.
-        let vt1_kept = state.holds(1, DEV) || state.graphics.contains_key(&1);
+        let vt1_kept =
+            state.holds(1, DEV) || state.holds(1, KMSCON) || state.graphics.contains_key(&1);
         if !vt1_kept {
             self.refuse_vt(state, 1)?;
         }

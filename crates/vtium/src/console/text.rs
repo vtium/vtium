@@ -102,14 +102,9 @@ pub fn kmscon_holds(n: u16, own_link: bool) -> String {
 
 pub const KMSCON_TEMPLATE: &str = "the C reference's console holds every VT: autovt@.service links to kmsconvt@.service. vtium on every VT is for a machine without it; systemctl disable kmsconvt@.service removes its links. vtium console enable N gives one VT to vtium beside it.";
 
-pub fn kmscon_holds_vts(vts: &[u16]) -> String {
-    let list = vts
-        .iter()
-        .map(u16::to_string)
-        .collect::<Vec<_>>()
-        .join(", ");
+pub fn kept_kmscon(n: u16) -> String {
     format!(
-        "the C reference's console, kmsconvt@, holds VT {list}. vtium on every VT is for a machine without it; free each VT with systemctl disable --now kmsconvt@ttyN.service, which ends every session there."
+        "VT {n} keeps the C reference's console, kmsconvt@tty{n}: it is enabled, linked or running there. systemctl disable --now kmsconvt@tty{n}.service frees it, ending every session there."
     )
 }
 
@@ -237,10 +232,7 @@ pub fn kept_graphics(n: u16, list: &[super::Holder]) -> String {
 pub fn holder_cell(h: &super::Holder) -> String {
     match h {
         super::Holder::DisplayManager(dm) => {
-            format!(
-                "display manager ({})",
-                dm.strip_suffix(".service").unwrap_or(dm)
-            )
+            format!("display manager ({dm})")
         }
         super::Holder::Session {
             user,
