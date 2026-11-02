@@ -19,6 +19,12 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "iTerm2 pictures take PNG, JPEG and a GIF's first frame, through png, zune-jpeg and gif, crates approved for the image helper only with what they pull in."
+    via: the maintainer, 2026-11-01, in the steering session
+    paraphrase: true
+    covers: [formats]
 status: proposed
 date: 2026-11-01
 deciders:
@@ -31,12 +37,14 @@ related: []
 ## Summary
 
 - **Decided:** vtium shows a picture a program sends as iTerm2's `OSC 1337 ; File=` when the string arrives complete, within the 1 MiB bound vtium-parse holds an OSC string to, and carries `inline=1`. The iTerm2 compatibility handler (ADR-1100) decodes the base64 in the console and hands the whole file to the image helper (ADR-1101), which recognizes PNG, JPEG and GIF by their first bytes and decodes them through the pure-Rust crates `png`, `zune-jpeg` and `gif`, a GIF's first frame only; any other file is dropped. `width` and `height` size the picture in cells, in pixels, in percent of the screen, or at its own size, and `preserveAspectRatio` keeps its shape unless it is 0. The handler places the picture at the cursor under sixel's rules, scrolls as a sixel does, and moves the cursor as a sixel does. Transfers in parts, `doNotMoveCursor` and every other OSC 1337 command are ignored, and nothing is ever answered.
-- **Trades away:** A picture file larger than about 768 KiB, which base64 grows past the 1 MiB bound, is dropped, since vtium takes no transfer in parts. An animated GIF shows only its first frame. A JPEG's orientation tag is not read, so a photo a camera stored on its side shows on its side. Two more decoders run in the helper, each facing a program's bytes.
+- **Trades away:** A picture file larger than about 768 KiB, which base64 grows past the 1 MiB bound that iTerm2 also holds one sequence to, is dropped, since vtium takes no transfer in parts. An animated GIF shows only its first frame. A JPEG's orientation tag is not read, so a photo a camera stored on its side shows on its side. Two more decoders run in the helper, each facing a program's bytes.
 - **One-way?** No. The handler is a thin front end; its keys and formats can grow later without touching the store.
 - **Probes:**
   - *Not confident (formats):* iTerm2 shows any picture its operating system can read, and `imgcat` is used most on photos, which are JPEGs. The record has the helper decode JPEG and a GIF's first frame beside PNG, through two more pure-Rust crates, `zune-jpeg` and `gif`, linked into the helper only. Do you want those two formats now, or PNG alone, with photos dropped until later?
   - *Confident (no transfer in parts):* a picture whose file is larger than about 768 KiB does not show, rather than vtium taking iTerm2's newer `MultipartFile` form, which no other terminal vtium is measured against documents. Yes or no?
 - **Inversion:** Between "an image protocol of its own" and "ignore OSC 1337 entirely". The answer, as ADR-1100 framed it, is a compatibility front end that maps each picture onto sixel's rules and the kitty path's decoding, so programs that send it work and nothing else in vtium knows it exists.
+
+> Edited 2026-11-01, after the fresh review and the maintainer's answers (`considered`): the 1 MiB bound is recorded as iTerm2's own, so only the transfer in parts departs; `type`, which iTerm2's documentation does not list, is no longer named. The earlier text is in git at 991986ba.
 
 ## Context
 
@@ -46,9 +54,9 @@ ADR-1100 carries iTerm2's inline images as a compatibility handler, never as a p
 
 ### D1: what vtium takes
 
-- **The string.** The router hands the handler a complete `OSC 1337 ; File=` string (ADR-1100 D6). The keys run from `File=` to the first `:`, separated by `;`, each a name, `=` and a value; the base64 file follows the `:`. A string with no `:` is dropped. An unknown key, `name`, `size` and `type` are read and ignored: vtium saves no file and draws no progress. WezTerm's `doNotMoveCursor` is ignored too, since vtium adopts no one terminal's extension (ADR-1100 D3).
+- **The string.** The router hands the handler a complete `OSC 1337 ; File=` string (ADR-1100 D6). The keys run from `File=` to the first `:`, separated by `;`, each a name, `=` and a value; the base64 file follows the `:`. A string with no `:` is dropped. `name` and `size` are read and ignored, since vtium saves no file and draws no progress, and so is any key iTerm2's documentation does not list. WezTerm's `doNotMoveCursor` is ignored too, since vtium adopts no one terminal's extension (ADR-1100 D3).
 - **Inline only.** A string without `inline=1` is dropped, since iTerm2 would download its file, and vtium saves nothing.
-- **The bound.** vtium-parse holds an OSC string to 1 MiB, so an iTerm2 picture's file can be about 768 KiB at most after base64 grows it by a third; a longer string is dropped whole, as every OSC string past the bound is. vtium keeps that bound for iTerm2 pictures and does not take `MultipartFile`, `FilePart` and `FileEnd`, iTerm2's form for larger files, which stay ignored as OSC 1337's other commands are (ADR-1000). This settles the question ADR-1100 D6 left to this handler.
+- **The bound.** vtium-parse holds an OSC string to 1 MiB, the same 1,048,576 bytes iTerm2 holds one of its sequences to, so an iTerm2 picture's file can be about 768 KiB at most after base64 grows it by a third; a longer string is dropped whole, as every OSC string past the bound is, and as iTerm2 refuses it. vtium keeps that bound for iTerm2 pictures and does not take `MultipartFile`, `FilePart` and `FileEnd`, iTerm2's form for larger files, which stay ignored as OSC 1337's other commands are (ADR-1000). This settles the question ADR-1100 D6 left to this handler.
 - **When it runs.** vtium-term's router has a switch for iTerm2 strings beside sixel's and kitty's. The binary turns it on while sixel is offered (ADR-1100 D10) and an image helper is available, since the handler places its pictures under sixel's rules and decodes them only through the helper. It has no configuration key of its own.
 - **No reply.** iTerm2's protocol answers nothing, so the handler writes no reply, and a picture that fails at any step is dropped without a word to the program. The reason goes to vtium's log at debug level.
 
@@ -64,7 +72,7 @@ The handler works out the size the picture draws at, in pixels at the console's 
 
 - **Each of `width` and `height`** is a whole number of cells (`20`), a whole number of pixels (`300px`), a whole percentage of the screen's width or height in pixels (`50%`), or `auto`, the picture's own size. A value left out, a value of 0, and a value vtium cannot read each count as `auto`.
 - **`preserveAspectRatio`** is 1 unless the string gives `0`. With it at 1, a size given on one side sets the other in the picture's own proportion, and sizes given on both sides make a box the picture is scaled into, as large as fits with its shape kept. With it at 0, each side takes the size given, or the picture's own where it is `auto`, and the picture is stretched to fit.
-- **The box.** The placement covers the cells the drawn size reaches from the cursor's cell, its width and height in pixels each rounded up to whole cells, and the picture draws into the rectangle of that size at the box's top left (ADR-1100 D2). A box past 10,000 cells on either side, ADR-1100's bound, drops the picture. A box wider than the columns left of the cursor is cut at the right edge when it is drawn, as a sixel is.
+- **The box.** The placement covers the cells the drawn size reaches from the cursor's cell, its width and height in pixels each rounded up to whole cells, and the picture draws into the rectangle of that size at the box's top left (ADR-1100 D2). A box past 10,000 cells on either side, ADR-1100's bound, drops the picture. A box wider than the columns from the cursor to the right edge is cut at the right edge when it is drawn, as a sixel is.
 - For example, at a 10 by 20 pixel cell, a 640 by 480 picture sent with `width=32` draws 320 by 240 pixels, over 32 columns and 12 rows. Sent with `width=100%;height=6`, on an 80-column screen, it draws inside 800 by 120 pixels as 160 by 120, over 16 columns and 6 rows; with `preserveAspectRatio=0` as well, it draws 800 by 120 over 80 columns and 6 rows.
 
 ### D4: placing, and the cursor
@@ -86,7 +94,7 @@ The C reference had no iTerm2 handler, so nothing here departs from it. From iTe
 
 - **Only PNG, JPEG and a GIF's first frame show,** where iTerm2 shows any format its operating system reads, PDF and animated GIFs among them.
 - **A JPEG's orientation tag is not read.**
-- **A picture's file is bounded at about 768 KiB,** where iTerm2 takes a string of up to 1,048,576 bytes and larger files in parts.
+- **A file too large for one sequence does not show,** where iTerm2 takes larger files in parts through `MultipartFile`; the 1 MiB bound on one sequence is iTerm2's own.
 - **A string without `inline=1` is dropped,** where iTerm2 saves its file to the Downloads folder.
 
 ## Consequences
@@ -111,5 +119,5 @@ The C reference had no iTerm2 handler, so nothing here departs from it. From iTe
 - **PNG only,** the format kitty's `f=100` takes. Not taken: most pictures `imgcat` shows are photos, which are JPEGs; the probe above asks the maintainer.
 - **The image's every frame for an animated GIF,** played through kitty animation's store (ADR-1102). Not taken: iTerm2 pictures carry the sixel tag, which has no frames, and a GIF's frames would need their own handling of gaps and disposal.
 - **Taking `MultipartFile`, `FilePart` and `FileEnd`** to lift the bound. Not taken now: no terminal vtium is measured against documents them besides iTerm2, and a picture assembled across strings would need a buffer held between strings, under the budget, with rules for an interrupted transfer.
-- **Honouring WezTerm's `doNotMoveCursor`.** Rejected: vtium adopts no one terminal's extension (the maintainer, 2026-11-01, ADR-1100 D3).
+- **Honoring WezTerm's `doNotMoveCursor`.** Rejected: vtium adopts no one terminal's extension (the maintainer, 2026-11-01, ADR-1100 D3).
 - **A configuration key of its own.** Not taken: the handler follows sixel's switch, whose rules its pictures follow, and needs the helper in any case.
