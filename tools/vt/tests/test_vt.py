@@ -1354,6 +1354,25 @@ class Install(Case):
         self.refused(self.vt_install("install", "4"), "/usr/local/bin/vtium is there already")
         self.assertEqual(read(self.at(self.BIN)), "#!/bin/sh\n")
 
+    def test_a_binary_another_user_could_have_written_is_refused(self):
+        # It runs as root once installed, so only root or the user may own it,
+        # and only they may write it.
+        for mode in (0o775, 0o757, 0o777):
+            with self.subTest(mode=oct(mode)):
+                os.chmod(self.s.bin, mode)
+                open(self.s.calls, "w").close()
+                self.refused(self.vt_install("install", "4"), "is writable by group or others")
+        os.chmod(self.s.bin, 0o755)
+        # A stand-in stat says another uid owns the binary, since only root
+        # could make that so.
+        write(os.path.join(self.s.standins, "stat"), "#!/bin/bash\n"
+              f'if [ "${{*: -1}}" = {self.s.bin!r} ]; then echo "4242 755"; exit; fi\n'
+              f'exec {shutil.which("stat")!r} "$@"\n')
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "4"), "belongs to uid 4242, neither root nor you")
+        for f in (self.BIN, self.UNIT, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
+
     def test_a_dry_run_shows_the_units_and_the_commands_and_runs_none(self):
         p = self.vt_install("install", "--dry-run", "4", ACTIVE_UNITS="getty@tty4.service")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
