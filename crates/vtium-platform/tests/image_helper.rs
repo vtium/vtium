@@ -1,6 +1,7 @@
 //! The image helper's host against stand-in helpers (ADR-1101 D3, D7,
 //! D8): the child's setup, the start from the opened program, the
-//! deadline, the crash limit, and each check of a reply.
+//! stop the binary's timer asks for, the crash limit, and each check of a
+//! reply.
 //!
 //! A stand-in is this binary run again, from the program file the host
 //! opened, with `--stand-in ROLE` before the host's own `--tmpdir`
@@ -286,7 +287,7 @@ fn file() -> Request {
 /// came.
 fn wait(host: &mut ImageHost) -> Option<Reply> {
     for _ in 0..3 {
-        let socket = host.socket()?;
+        let socket = host.wake()?;
         let mut fds = [PollFd::new(&socket, PollFlags::IN)];
         let ten = Timespec {
             tv_sec: 10,
@@ -384,16 +385,17 @@ fn every_helper_starts_from_the_program_opened_at_start() {
     println!("test every_helper_starts_from_the_program_opened_at_start ... ok");
 }
 
-fn a_request_unanswered_by_its_deadline_fails_and_kills_the_group_without_a_crash() {
+fn a_stop_kills_the_helpers_group_and_counts_no_crash() {
     let dir = scratch("deadline");
     let mut host = host(&dir, "hang");
     host.send(&file(), &session()).unwrap();
     let helper = host.pid().unwrap();
     // the hello comes; the reply never does
     assert_eq!(host.readable(), None);
-    let deadline = host.deadline().unwrap();
-    let just_before = deadline - std::time::Duration::from_nanos(1);
-    assert_eq!(host.expired_at(just_before), None);
+    assert!(
+        host.wake().is_some(),
+        "the loop watches the socket while the request is out"
+    );
     // the stand-in's worker-like child has started
     let worker_file = dir.join("worker");
     for _ in 0..1000 {
@@ -413,8 +415,10 @@ fn a_request_unanswered_by_its_deadline_fails_and_kills_the_group_without_a_cras
         .trim()
         .parse()
         .unwrap();
-    assert_eq!(host.expired_at(deadline), Some(Reply::Failed));
+    // the binary's timer fires and asks for the stop
+    host.stop();
     assert!(!host.busy());
+    assert!(host.wake().is_none());
     assert_eq!(host.crashes(), 0, "a timeout is no crash");
     assert!(host.available());
     // the group is killed, the helper reaped; the worker, which the
@@ -440,9 +444,7 @@ fn a_request_unanswered_by_its_deadline_fails_and_kills_the_group_without_a_cras
         worker_state.is_empty() || worker_state.contains(") Z "),
         "the worker was killed: {worker_state}"
     );
-    println!(
-        "test a_request_unanswered_by_its_deadline_fails_and_kills_the_group_without_a_crash ... ok"
-    );
+    println!("test a_stop_kills_the_helpers_group_and_counts_no_crash ... ok");
 }
 
 fn three_crashes_stop_the_consoles_helpers_until_its_session_ends() {
@@ -671,7 +673,7 @@ fn main() {
     the_program_never_lies_on_the_childs_socket_descriptor();
     the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else();
     every_helper_starts_from_the_program_opened_at_start();
-    a_request_unanswered_by_its_deadline_fails_and_kills_the_group_without_a_crash();
+    a_stop_kills_the_helpers_group_and_counts_no_crash();
     three_crashes_stop_the_consoles_helpers_until_its_session_ends();
     each_reply_that_fails_a_check_fails_the_request_as_a_crash();
     a_request_no_account_may_read_starts_no_helper();

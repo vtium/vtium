@@ -194,14 +194,6 @@ const PROPERTY: Bound = Bound {
     cite: "ADR-1401 D4; vtium/vtium#47",
 };
 
-const IMAGE_REPLY: Bound = Bound {
-    name: "IMAGE_REPLY_MS",
-    value: 2_000,
-    what: "Milliseconds the image helper has to answer a request, while the console's pty is paused",
-    past: "The request answers `FAILED`, the helper's process group is killed and reaped, and the pty resumes; a timeout does not count as a crash",
-    cite: "ADR-1101 D8; `IMAGE_HOST_TIMEOUT_MS`, image_host.h",
-};
-
 const IMAGE_CRASHES: Bound = Bound {
     name: "IMAGE_CRASHES_MAX",
     value: 3,
@@ -220,7 +212,7 @@ const IMAGE_BASE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 25] = [
+pub(crate) const BOUNDS: [Bound; 24] = [
     READ,
     READS,
     BUDGET,
@@ -243,7 +235,6 @@ pub(crate) const BOUNDS: [Bound; 25] = [
     PLANES,
     PROPERTIES,
     PROPERTY,
-    IMAGE_REPLY,
     IMAGE_CRASHES,
     IMAGE_BASE,
 ];
@@ -309,9 +300,6 @@ pub const RETAKE_QUIET_MS: usize = RETAKE_QUIET.value;
 
 /// Reads of a DRM card's CRTC and connector lists before one fails.
 pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;
-
-/// Milliseconds the image helper has to answer one request.
-pub const IMAGE_REPLY_MS: usize = IMAGE_REPLY.value;
 
 /// Image helper crashes one console's session takes before it starts no
 /// more.

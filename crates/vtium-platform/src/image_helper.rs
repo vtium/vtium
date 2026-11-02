@@ -1,19 +1,18 @@
 //! The image helper's host (ADR-1101): it starts `vtium-image` as the
 //! session's user, sends it one request at a time, checks each reply
-//! before it reads a pixel, and bounds both the helper's time and its
+//! before it reads a pixel, kills and reaps the helper, and bounds its
 //! crashes.
 //!
-//! Each console has one [`ImageHost`]. The binary hands it each request
-//! the terminal makes, with the console's [`Session`]: [`ImageHost::send`]
-//! either answers at once, without a helper, or sends the request and
-//! returns. While the request is out, the binary pauses the console's
-//! pty, watches [`ImageHost::socket`] for input and wakes at
-//! [`ImageHost::deadline`], a calloop timer's deadline;
-//! [`ImageHost::readable`] and
-//! [`ImageHost::expired`] give the reply, which the binary hands back to
-//! the terminal before it resumes the pty. The deadline is the one place
-//! time enters: a request not answered in [`IMAGE_REPLY_MS`] fails and
-//! the helper is killed.
+//! Each console has one [`ImageHost`], which lasts as long as the
+//! console's session, so its crash count does too. The binary hands it
+//! each request the terminal makes, with the console's [`Session`]:
+//! [`ImageHost::send`] either answers at once, without a helper, or sends
+//! the request and returns. While the request is out, the binary pauses
+//! the console's pty, watches [`ImageHost::wake`] in its loop and holds the
+//! reply timer; [`ImageHost::readable`] gives the reply, which the binary
+//! hands back to the terminal before it resumes the pty. When the timer
+//! fires first, the binary calls [`ImageHost::stop`], which kills the
+//! helper and counts no crash.
 //!
 //! - **Whose account.** [`identity`] finds the session's user again
 //!   before each request, and a running helper whose account differs is
@@ -26,11 +25,13 @@
 //!   seals hold before its size is read, the exact size. Then the console
 //!   copies the pixels once into memory only it holds: out of a read-only
 //!   mapping of a sealed file, or with `pread` from a pooled one.
-//! - **Failures.** The deadline passing, the socket closing or failing,
-//!   or a reply that fails a check ends the request with
-//!   [`Reply::Failed`], kills the helper's process group and reaps it. All
-//!   but the deadline count as crashes, and after [`IMAGE_CRASHES_MAX`] the
-//!   console starts no more helpers until its session ends.
+//! - **Failures.** The socket closing or failing, or a reply that fails a
+//!   check, ends the request with [`Reply::Failed`], kills the helper's
+//!   process group and reaps it, and counts a crash; after
+//!   [`IMAGE_CRASHES_MAX`] the console starts no more helpers until its
+//!   session ends. The binary's timer stops the helper the same way but
+//!   counts nothing, since a large picture on a slow board can take that
+//!   long honestly.
 
 mod identity;
 #[cfg(feature = "logind")]
@@ -44,7 +45,6 @@ use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
 
 use rustix::fs::{FileType, SealFlags};
 use rustix::net::{
@@ -60,7 +60,7 @@ pub use identity::{
 };
 pub use start::{PROGRAM, Program, memory_cap, open_program};
 
-use crate::bounds::{IMAGE_CRASHES_MAX, IMAGE_REPLY_MS};
+use crate::bounds::IMAGE_CRASHES_MAX;
 use start::Started;
 
 /// The most descriptors a reply is read with, so every one a helper sends
@@ -88,7 +88,6 @@ struct Out {
     id: u64,
     /// The request, its inline bytes dropped.
     request: Request,
-    deadline: Instant,
 }
 
 /// One console's image helper host.
@@ -174,22 +173,20 @@ impl ImageHost {
         self.running.as_ref().and_then(|r| r.hello)
     }
 
-    /// The socket to watch for input while a request is out.
-    pub fn socket(&self) -> Option<BorrowedFd<'_>> {
+    /// While a request is out, a descriptor that becomes readable when the
+    /// helper has written to its socket: a copy of the socket the loop may
+    /// own, in a calloop source say, until the reply. Each helper has a
+    /// socket of its own, so the loop takes a new one for each request.
+    pub fn wake(&self) -> Option<OwnedFd> {
         self.out.as_ref()?;
-        self.running.as_ref().map(|r| r.started.socket.as_fd())
-    }
-
-    /// When the request out fails unanswered.
-    pub fn deadline(&self) -> Option<Instant> {
-        self.out.as_ref().map(|o| o.deadline)
+        let socket = &self.running.as_ref()?.started.socket;
+        rustix::io::fcntl_dupfd_cloexec(socket, 3).ok()
     }
 
     /// Sends `request` for the console whose session is `session`; `Err`
     /// holds the reply when it is answered at once: with no helper, past
     /// the crash limit, with no account that may read it, or when the
-    /// helper cannot be started or sent the request. The request's
-    /// deadline starts now.
+    /// helper cannot be started or sent the request.
     pub fn send(&mut self, request: &Request, session: &Session) -> Result<(), Reply> {
         if self.out.is_some() {
             return Err(Reply::Failed);
@@ -236,24 +233,14 @@ impl ImageHost {
         };
         if let Err(e) = send_packet(&running.started.socket, &packet, inline.as_ref()) {
             log::warn!("cannot send image request {id}: {e}");
-            self.stop();
+            self.kill();
             return Err(Reply::Unreadable);
         }
         let mut kept = request.clone();
         if let Medium::Direct(bytes) = &mut kept.medium {
             *bytes = Vec::new();
         }
-        let ms = u64::try_from(IMAGE_REPLY_MS).unwrap_or(u64::MAX);
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the request's deadline, where time enters the image helper's host"
-        )]
-        let now = Instant::now();
-        self.out = Some(Out {
-            id,
-            request: kept,
-            deadline: now.checked_add(Duration::from_millis(ms)).unwrap_or(now),
-        });
+        self.out = Some(Out { id, request: kept });
         Ok(())
     }
 
@@ -265,7 +252,7 @@ impl ImageHost {
             r.account != *account || max_bytes > r.max_bytes || start::exited(&r.started)
         });
         if stale {
-            self.stop();
+            self.kill();
         }
         if self.running.is_some() {
             return Ok(());
@@ -293,7 +280,7 @@ impl ImageHost {
     /// Kills the helper's process group and reaps the helper. Nothing
     /// reaps the helper before this, so its group's id cannot have passed
     /// to another process when the group is signalled.
-    fn stop(&mut self) {
+    fn kill(&mut self) {
         if let Some(r) = self.running.take() {
             start::kill_group(&r.started);
             if !start::reap(&r.started, false) {
@@ -308,7 +295,7 @@ impl ImageHost {
     /// crash counted.
     fn crash(&mut self, why: &str) -> Reply {
         log::warn!("image helper: {why}; stopping it");
-        self.stop();
+        self.kill();
         self.out = None;
         self.crashes = self.crashes.saturating_add(1);
         if self.crashes == IMAGE_CRASHES_MAX {
@@ -319,38 +306,24 @@ impl ImageHost {
         Reply::Failed
     }
 
-    /// The deadline has passed: the request fails and the helper is
-    /// stopped, with no crash counted, since a large picture on a slow
-    /// board can take that long honestly. `None` before the deadline.
-    pub fn expired(&mut self) -> Option<Reply> {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the request's deadline, where time enters the image helper's host"
-        )]
-        self.expired_at(Instant::now())
-    }
-
-    /// [`ImageHost::expired`] at `now`, for a caller that holds the
-    /// loop's clock, such as a calloop timer's deadline.
-    pub fn expired_at(&mut self, now: Instant) -> Option<Reply> {
-        let out = self.out.as_ref()?;
-        if now < out.deadline {
-            return None;
+    /// The binary's reply timer fired: the request out is dropped and the
+    /// helper killed, with no crash counted. The next request starts a new
+    /// helper.
+    pub fn stop(&mut self) {
+        if let Some(out) = self.out.take() {
+            log::warn!(
+                "image request {} had no reply in time; stopping the helper",
+                out.id
+            );
         }
-        log::warn!(
-            "image request {} had no reply in time; stopping the helper",
-            out.id
-        );
-        self.out = None;
-        self.stop();
-        Some(Reply::Failed)
+        self.kill();
     }
 
     /// The console's session has ended: the request out is dropped with no
     /// reply, the helper stopped, and the crash count cleared.
     pub fn session_ended(&mut self) {
         self.out = None;
-        self.stop();
+        self.kill();
         self.crashes = 0;
         self.disagreement = None;
     }
@@ -367,7 +340,7 @@ impl ImageHost {
                 Err(why) => {
                     if self.out.is_none() && why == Broken::Closed {
                         // a helper that idled out with nothing asked of it
-                        self.stop();
+                        self.kill();
                         return None;
                     }
                     return Some(self.crash(why.text()));
@@ -449,7 +422,7 @@ impl ImageHost {
 
 impl Drop for ImageHost {
     fn drop(&mut self) {
-        self.stop();
+        self.kill();
     }
 }
 

@@ -11,7 +11,6 @@
     reason = "a test fails by panicking"
 )]
 
-use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
@@ -81,7 +80,7 @@ fn ask(host: &mut ImageHost, request: &Request) -> Reply {
         return answer;
     }
     for _ in 0..3 {
-        let socket = host.socket().expect("a request is out");
+        let socket = host.wake().expect("a request is out");
         let mut fds = [PollFd::new(&socket, PollFlags::IN)];
         let ten = Timespec {
             tv_sec: 10,
@@ -401,5 +400,4 @@ fn a_picture_past_the_budget_is_refused_before_it_is_decoded() {
         ..base(Medium::Direct(big))
     };
     assert_eq!(ask(&mut host, &r), Reply::OverBudget);
-    let _ = host.socket().map(|s| s.as_fd().try_clone_to_owned());
 }
