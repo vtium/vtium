@@ -53,6 +53,10 @@ considered:
     said: "vtium names itself xterm-vtium by default. vtium establishes its own name: most programs and platforms do not know vtium, so the entry says what vtium can do, which is largely kitty-compatible. The term setting keeps any other name available: --term=kmscon for compatibility, --term=xterm-kitty once kitty graphics land. This machine keeps the kmscon-terminfo package for the kmscon name, and vtium ships its own entry only as xterm-vtium."
     via: the maintainer's decisions in the steering session, 2026-11-01, relayed by the team lead in the brief for the terminal-name work; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "vtium presents itself as a kitty-compatible terminal under its own name: for kitty's protocols it follows kitty's spec, and kitty's own behaviour where the spec is silent; it answers kitty's detection queries as kitty does; it keeps TERM=xterm-vtium and does not set KITTY_WINDOW_ID, which tells programs this is kitty and invites kitty-only features vtium lacks, such as remote control."
+    via: the maintainer's direction in the steering session, 2026-11-01, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
 status: accepted
 date: 2026-10-26
 deciders:
@@ -142,9 +146,11 @@ vtium ships its own terminfo entry, `xterm-vtium` (`crates/vtium/install/xterm-v
 - **XTGETTCAP answers from the table of the entry `TERM` names.** The C reference answered from its own table while the session's `TERM` was its entry's name, `kmscon`, and vtium follows that flow for each entry it has a table for. Under `xterm-vtium` it answers from the table generated from vtium's entry. Under `kmscon` it answers from the C reference's table, generated from the C reference's entry with `Ms` (`crates/vtium/install/kmscon.ti`), which the C reference's capability probe judges. The kmscon-terminfo package that a machine keeps for the `kmscon` name ships a different entry: it lacks `Ms`, `Smulx`, `Setulc`, `Sync`, `XM`, `XF`, `E3`, `BD`, `BE`, `PS`, `PE`, `fe`, `fd`, `kxIN`, `kxOUT`, `smxx`, `rmxx`, `sitm`, `ritm` and `dim`, reports the mouse with `kmous=\E[M` where the table has `\E[<`, and ends `setrgbf` and `setrgbb` with `;m`. vtium keeps the C reference's answers anyway, because the C reference's copied probe judges them. Under any other name every capability XTGETTCAP asks for is unknown.
 - **Each session also gets `TERM_PROGRAM=vtium` and `TERM_PROGRAM_VERSION`,** vtium's version, which name the terminal whatever `TERM` names.
 
+vtium presents itself as a kitty-compatible terminal under its own name. For kitty's protocols, vtium follows kitty's specification, and kitty's own behaviour where the specification says nothing. vtium answers kitty's detection queries as kitty answers them. It keeps `TERM=xterm-vtium` and does not set `KITTY_WINDOW_ID`. That variable tells a program that it runs in kitty, so the program would use features only kitty has, such as remote control, which vtium does not have. ADR-1100 records the same decision for kitty's image protocol.
+
 The C reference's default `TERM` was `kmscon`; vtium lists its own default as a departure in `crates/vtium/README.md`. vtium ships only the `xterm-vtium` entry, and a machine that keeps the `kmscon` name takes its entry from the kmscon-terminfo package. A host that has no `xterm-vtium` entry, such as a machine reached over ssh, does not know the name: there the user copies the entry over (`infocmp -x xterm-vtium | ssh HOST tic -x -`) or sets another `TERM`, and on the console `--term` names another entry for every session.
 
-> Edited 2026-11-01: the maintainer's decision on vtium's terminal name (`considered`, 2026-11-01) adds this section. Until then vtium's entry was named `kmscon`, `TERM` defaulted to `kmscon`, and the XTGETTCAP table, the C reference's, answered under every `TERM`.
+> Edited 2026-11-01: the maintainer's decision on vtium's terminal name (`considered`, 2026-11-01) adds this section, and the maintainer's direction of the same day adds the paragraph on presenting vtium as a kitty-compatible terminal. Until then vtium's entry was named `kmscon`, `TERM` defaulted to `kmscon`, and the XTGETTCAP table, the C reference's, answered under every `TERM`.
 
 ### The tables as data
 
