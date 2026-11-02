@@ -101,20 +101,39 @@ pub(crate) const fn sb_memory_left(screens: usize) -> usize {
 }
 
 /// `sb-memory` when the configuration does not set it, for a console of
-/// `cols` by `rows`: what [`MINSPEC_PEAK`] leaves after [`MINSPEC_REST`],
-/// the two screens at their worst ([`screens_bytes_max`]) and a full link
-/// store, rounded down to 64 KiB, so the worst a program can write into
-/// the console stays inside the peak. The fence, [`sb_memory`], applies on
-/// top. A screen follows its grid through
+/// `cols` by `rows`. On minspec's grids, up to [`MINSPEC_GRID`], it is
+/// what [`MINSPEC_PEAK`] leaves after [`MINSPEC_REST`], the two screens at
+/// their worst ([`screens_bytes_max`]) and a full link store, rounded down
+/// to 64 KiB, so the worst a program can write into the console stays
+/// inside the peak, and a smaller grid keeps more. A larger grid keeps
+/// [`SB_MEMORY_DEFAULT`], the value at the minspec grid: its console uses
+/// more memory than the peak by design, and the default does not grow
+/// with the display or the machine, so a user who wants more scrollback
+/// raises `sb-memory` (ADR-1001, "Memory"). The fence, [`sb_memory`],
+/// applies on top. A screen follows its grid through
 /// [`Screen::set_scrollback_memory_from_grid`](crate::Screen::set_scrollback_memory_from_grid).
 pub const fn sb_memory_default(cols: usize, rows: usize) -> usize {
-    sb_memory_left(screens_bytes_max(cols, rows))
+    sb_memory_held(screens_bytes_max(cols, rows))
 }
 
-/// [`sb_memory_default`] at [`MINSPEC_GRID`]: the budget a scrollback
-/// starts with, and the most `sb-memory` may be when the machine's memory
-/// cannot be read.
-pub const SB_MEMORY_DEFAULT: usize = sb_memory_default(MINSPEC_GRID.0, MINSPEC_GRID.1);
+/// [`sb_memory_default`] for a console whose screens hold at most
+/// `screens` bytes: what the peak leaves after them, and never less than
+/// [`SB_MEMORY_DEFAULT`].
+pub(crate) const fn sb_memory_held(screens: usize) -> usize {
+    let left = sb_memory_left(screens);
+    if left > SB_MEMORY_DEFAULT {
+        left
+    } else {
+        SB_MEMORY_DEFAULT
+    }
+}
+
+/// `sb-memory`'s default at [`MINSPEC_GRID`], and on every larger grid:
+/// what the peak leaves after the minspec grid's two screens at their
+/// worst. It is the budget a scrollback starts with, and the most
+/// `sb-memory` may be when the machine's memory cannot be read.
+pub const SB_MEMORY_DEFAULT: usize =
+    sb_memory_left(screens_bytes_max(MINSPEC_GRID.0, MINSPEC_GRID.1));
 
 const _: () = assert!(SB_MEMORY_MIN <= SB_MEMORY_DEFAULT && SB_MEMORY_DEFAULT <= SB_MEMORY_MAX);
 
@@ -1366,6 +1385,16 @@ mod tests {
         assert!((SB_MEMORY_DEFAULT..SB_MEMORY_DEFAULT + (64 << 10)).contains(&rest));
         assert!(sb_memory_default(80, 30) > SB_MEMORY_DEFAULT);
         assert!(sb_memory_default(40, 30) > sb_memory_default(80, 30));
+    }
+
+    // Above minspec's grids the default stays at the minspec grid's value:
+    // a 3840x2160 display in 8x16 cells keeps 5 MiB, where the peak alone
+    // would leave it the fence's 1 MiB floor.
+    #[test]
+    fn a_grid_past_minspec_keeps_the_minspec_default() {
+        assert_eq!(sb_memory_default(480, 135), SB_MEMORY_DEFAULT);
+        assert_eq!(sb_memory_default(171, 48), SB_MEMORY_DEFAULT);
+        assert_eq!(sb_memory_default(COLUMNS_MAX, ROWS_MAX), SB_MEMORY_DEFAULT);
     }
 
     #[test]

@@ -38,7 +38,7 @@ use crate::frame::{Cursor, CursorShape, Frame};
 use crate::line::{Line, LineFlags, LineId, LinkId};
 use crate::links::LinkStore;
 use crate::palette::Palette;
-use crate::scrollback::{Scrollback, lines_bytes_max, sb_memory_left};
+use crate::scrollback::{Scrollback, lines_bytes_max, sb_memory_held};
 use crate::style::Style;
 use crate::unicode::Segmenter;
 
@@ -501,10 +501,11 @@ impl Screen {
     /// Makes `sb-memory` follow the grid, as it does when the configuration
     /// does not set it, and as a new screen starts: the budget is what the
     /// minspec peak leaves after the rest of the process, the rows the two
-    /// screens hold at their worst and a full link store
-    /// ([`sb_memory_default`](crate::sb_memory_default)), at least
-    /// [`SB_MEMORY_MIN`] and at most `cap`. Each resize works it out again,
-    /// and the oldest lines past a lower budget go.
+    /// screens hold at their worst and a full link store, never less than
+    /// [`SB_MEMORY_DEFAULT`](crate::SB_MEMORY_DEFAULT), the value at the
+    /// minspec grid ([`sb_memory_default`](crate::sb_memory_default)), and
+    /// at most `cap`. Each resize works it out again, and the oldest lines
+    /// past a lower budget go.
     pub fn set_scrollback_memory_from_grid(&mut self, cap: usize) {
         self.sb_memory_cap = Some(cap);
         self.follow_grid();
@@ -523,7 +524,7 @@ impl Screen {
             .max(self.rows)
             .saturating_add(self.alt.len().max(self.rows));
         let screens = lines_bytes_max(self.cols, self.rows, lines);
-        self.apply_scrollback_memory(sb_memory_left(screens).max(SB_MEMORY_MIN).min(cap));
+        self.apply_scrollback_memory(sb_memory_held(screens).max(SB_MEMORY_MIN).min(cap));
     }
 
     fn apply_scrollback_memory(&mut self, bytes: usize) {

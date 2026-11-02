@@ -391,7 +391,7 @@ fn a_rewrapped_screen_row_costs_at_most_its_bound() {
 
 // The worst default scrollback, every row at the bound a rewrap allows,
 // the two screens every row at its worst and the link store full, stays
-// inside the minspec peak at every grid, taking the rest of vtium's
+// inside the minspec peak on each of minspec's grids, taking the rest of vtium's
 // process at what the rest of the C reference's cost: its first screen
 // less its two screens (ADR-1002, "Link storage"). `sb-memory`'s default
 // follows the grid: it is what the peak leaves after the rest, so a
@@ -482,6 +482,14 @@ fn the_scrollback_budget_follows_the_grid() {
     t.screen_mut().set_scrollback_memory(3 << 20);
     t.screen_mut().resize(COLS, ROWS);
     assert_eq!(t.screen().scrollback_memory(), 3 << 20);
+    // Past minspec's grids, as on a 3840x2160 display in 8x16 cells, the
+    // default stays at the minspec grid's value and never falls to the
+    // fence's floor; the console uses more than the minspec peak.
+    let mut t = Terminal::new(COLS, ROWS, 1000);
+    assert_eq!(t.screen().scrollback_memory(), SB_MEMORY_DEFAULT);
+    t.screen_mut().resize(480, 135);
+    assert_eq!(t.screen().scrollback_memory(), SB_MEMORY_DEFAULT);
+    assert!(screens_bytes_max(480, 135) > screens_bytes_max(COLS, ROWS));
 }
 
 // The C reference's 1,000 lines of 32-byte cells, derived from its layout.
