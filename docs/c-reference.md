@@ -472,7 +472,7 @@ Optional backends were modules loaded at start: drm3d, gltex, FreeType, Pango, P
 
 **Verdict: follows.** Cargo features replace meson options and loadable modules, a Rust shape for the same choice. #21 carries the drift test for the terminfo entry. vtium departs in the default `TERM`: its own entry, `xterm-vtium`. Under `kmscon` it answers XTGETTCAP from the C reference's table, as the C reference did (ADR-1000, "The terminfo entry and TERM"). #5 changes the default of `use-original-mode` (see part 3 for what the C default was).
 
-**Not planned:** the seat's own `<seat>.seat.conf`, the command line's precedence over the file, and the PAM file are named in no issue. vtium installs `kmsconvt@.service` (`crates/vtium/install/`), which tier 3's guest starts (#22); `kmscon.service`, for a system with no VTs, has no counterpart yet.
+**Not planned:** the seat's own `<seat>.seat.conf`, the command line's precedence over the file, and the PAM file are named in no issue. vtium installs its own unit, `vtium@.service` (`crates/vtium/install/`, ADR-1500 D3), which tier 3's guest starts (#22); `kmscon.service`, for a system with no VTs, has no counterpart yet.
 
 ## 11. Data flow end to end
 

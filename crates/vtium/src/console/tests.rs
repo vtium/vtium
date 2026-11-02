@@ -26,9 +26,9 @@ use super::*;
 /// ships it.
 const GETTY_UNIT: &str = "[Unit]\nDescription=Getty on %I\n\n[Service]\nExecStart=-/sbin/agetty -o '-- \\\\u' --noreset --noclear - ${TERM}\n\n[Install]\nAlias=autovt@.service\n\nWantedBy=getty.target\nDefaultInstance=tty1\n";
 
-/// The shipped unit, which the C reference's `kmsconvt@.service` is in
-/// its `[Install]` section.
-const KMSCON_UNIT: &str = include_str!("../../install/kmsconvt@.service");
+/// The shipped unit, `vtium@.service`, whose `[Install]` section is the
+/// C reference's `kmsconvt@.service`'s, written below under that name.
+const KMSCON_UNIT: &str = include_str!("../../install/vtium@.service");
 
 /// A stand-in for `systemctl` and `loginctl` on the running system whose
 /// root is `root`.

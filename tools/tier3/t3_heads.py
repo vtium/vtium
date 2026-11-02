@@ -15,7 +15,7 @@ one that must see vtium outlast display-wait waits for vtium's age, read in
 the guest.
 
 The getty fallback (vtium-getty@.service, which tools/vt/units.sh generates
-from crates/vtium/install/kmsconvt-getty@.service) and the unit's restarts
+from crates/vtium/install/vtium-getty@.service) and the unit's restarts
 are the part no unit test reaches. When vtium's unit on tty2 fails,
 systemd starts vtium again after 100 ms (Restart=on-failure), up to
 systemd's default limit of 5 starts in 10 s, and each failure's

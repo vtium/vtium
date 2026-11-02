@@ -169,10 +169,12 @@ The C reference recorded no reason for its units' lack of hardening. The likely 
 
 vtium's units match the C reference's, with getty parity and no hardening directive:
 
-- getty's `TTYPath`, `TTYReset`, `TTYVHangup`, `TTYVTDisallocate` and `UtmpIdentifier`, its ordering, `Conflicts=getty@%i`, and a getty fallback: `OnFailure=` starts `kmsconvt-getty@%i`, which starts `getty@%i` unless vtium's closed marker exists (ADR-1401 D9);
-- the names tier 3 needs, `kmsconvt@.service` among them;
+- getty's `TTYPath`, `TTYReset`, `TTYVHangup`, `TTYVTDisallocate` and `UtmpIdentifier`, its ordering, `Conflicts=getty@%i`, and a getty fallback: `OnFailure=` starts `vtium-getty@%i`, which starts `getty@%i` unless vtium's closed marker exists (ADR-1401 D9);
+- vtium's own unit names, `vtium@.service` and `vtium-getty@.service`, which every install and tier 3 use (ADR-1500 D3);
 - in a `libseat` build, `User=root` and `PAMName` with the C reference's greeter PAM file. The login child inherits that greeter session, and the helper treats it as no session of the login's own, as the C reference's did;
 - an optional sysusers file creating the pre-login account, with no home, shell or files.
+
+> Edited 2026-11-02: the units carry vtium's own names, after the maintainer's decision that kmscon is an independent product (ADR-1500). The first bullet named the fallback `kmsconvt-getty@%i`, and the second read: "the names tier 3 needs, `kmsconvt@.service` among them;".
 
 > Edited 2026-10-31: slice S6 of the head-file wiring work sends the getty fallback through `kmsconvt-getty@%i`, which starts `getty@%i` unless the closed marker exists (ADR-1401 D9), a departure from the C reference's unit. The bullet read: "`Conflicts=getty@%i` and `OnFailure=getty@%i`;", and the Summary read: "The units match the C reference's: getty parity and no hardening directives".
 

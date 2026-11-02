@@ -81,7 +81,7 @@ fn tier3_guest_configurations() {
 // covers: platform.config
 #[test]
 fn tier3_command_lines() {
-    // kmsconvt@.service's ExecStart, which tier 3's guest starts on tty2.
+    // vtium@.service's ExecStart, which tier 3's guest starts on tty2.
     let l = load_with(&["--vt=tty2", "--no-switchvt"], None, &[]);
     assert_eq!(l.reports, []);
     assert_eq!(l.config.text(&VT), Some("tty2"));

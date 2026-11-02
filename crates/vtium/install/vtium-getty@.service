@@ -1,4 +1,4 @@
-# The getty fallback of kmsconvt@.service: when vtium on a VT fails, its
+# The getty fallback of vtium@.service: when vtium on a VT fails, its
 # OnFailure= starts this unit, which starts getty@ on that VT, so a user is
 # never left at a dead screen. Under a closed head-file policy a getty's
 # login would take any keyboard (ADR-1401 D9), so vtium writes

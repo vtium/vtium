@@ -3248,7 +3248,7 @@ class HeadsTest(unittest.TestCase):
                          ("vtium@tty2.service", "vtium-getty@tty2.service",
                           "getty@tty2.service"))
         with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
-                               "kmsconvt-getty@.service")) as f:
+                               "vtium-getty@.service")) as f:
             self.assertIn("ConditionPathExists=!/run/vtium/%i.closed\n", f.read())
 
     def test_qemu_gets_the_agents_port_and_no_display(self):
@@ -3644,7 +3644,7 @@ class HeadsTest(unittest.TestCase):
         # vtium's unit restarts on failure with systemd's defaults
         # (ADR-1401 D9): no delay or start limit of its own.
         with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
-                               "kmsconvt@.service")) as f:
+                               "vtium@.service")) as f:
             text = f.read()
         # systemd strips the space around each key and value, and reads a
         # line that starts with # or ; as a comment (systemd.syntax(7))

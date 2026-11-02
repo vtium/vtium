@@ -1,6 +1,6 @@
 #!/bin/bash
 # Generates vtium's VT unit and its getty fallback from the shipped units,
-# crates/vtium/install/kmsconvt@.service and kmsconvt-getty@.service, under a
+# crates/vtium/install/vtium@.service and vtium-getty@.service, under a
 # name of the caller's. It is the one place the units are made: make install,
 # which the package build runs, and make install-tree, the tree tier 3
 # installs, make vtium@.service and vtium-getty@.service, and make vt-install
@@ -10,9 +10,10 @@
 #   units.sh --name NAME --exec PATH --by WHO [--conflicts UNIT]... [--note LINE]
 #            [--source DIR] OUTDIR
 #
-# It writes OUTDIR/NAME@.service, which is kmsconvt@.service with these
-# changes (ADR-1500 D3, D4): its name; ExecStart= running PATH in place of
-# /usr/bin/vtium; OnFailure= naming NAME-getty@.service; for each --conflicts
+# It writes OUTDIR/NAME@.service, which is vtium@.service with these
+# changes (ADR-1500 D3, D4): for a NAME other than vtium, its name and
+# OnFailure= naming NAME-getty@.service; ExecStart= running PATH in place of
+# /usr/bin/vtium; for each --conflicts
 # UNIT, a Conflicts=UNIT line and an After=UNIT line just above OnFailure=,
 # below the shipped unit's own Conflicts= and After= for the getty, so that
 # starting the unit on a VT stops UNIT there first, as it stops the getty;
@@ -31,9 +32,9 @@
 # cost: systemctl list-unit-files shows the template as "bad", and
 # systemctl is-enabled NAME@.service fails, while each NAME@ttyN reads as
 # enabled or disabled as usual. It writes
-# OUTDIR/NAME-getty@.service, which is kmsconvt-getty@.service under its new
-# name. Each unit's opening comment, which names the C reference's units, gives
-# way to one that describes the unit under its own name. Every other line is
+# OUTDIR/NAME-getty@.service, which is vtium-getty@.service under NAME. Each
+# unit's opening comment, which describes the shipped source, gives way to
+# one that describes the unit under its own name. Every other line is
 # the shipped unit's, so Restart= and Alias=autovt@.service come through as
 # the shipped unit has them. Each unit opens with a comment that names WHO made
 # it, the commit it was made from and each change, and then LINE when --note
@@ -84,7 +85,7 @@ for c in "${conflicts[@]}"; do
 	[[ $c =~ ^[a-z][a-z0-9-]*@%i\.service$ ]] || die "--conflicts '$c' is not an instance unit on the same VT, NAME@%i.service"
 	[ "$c" != "$name@%i.service" ] || die "--conflicts '$c' names the unit itself"
 done
-for f in kmsconvt@.service kmsconvt-getty@.service; do
+for f in vtium@.service vtium-getty@.service; do
 	[ -f "$src/$f" ] || die "no $src/$f, which the units are generated from"
 done
 
@@ -105,13 +106,21 @@ tmp=$(mktemp -d) || die "cannot create a scratch directory"
 trap 'rm -rf -- "$tmp"' EXIT
 unit=$name@.service
 fallback=$name-getty@.service
+# The name, and the fallback the unit names, change only for a name other
+# than the shipped one.
+renamed=()
+renamed_fallback=()
+if [ "$name" != vtium ]; then
+	renamed=("the name, $name@" "the getty fallback, $name-getty@")
+	renamed_fallback=("the name, $name-getty@, which $unit names as its fallback")
+fi
 changes=()
 for c in "${conflicts[@]}"; do
 	changes+=("Conflicts= and After= $c")
 done
 {
-	header crates/vtium/install/kmsconvt@.service "the name, $name@" \
-		"ExecStart runs $exec_path" "the getty fallback, $name-getty@" "${changes[@]}" "DefaultInstance=name-a-VT/$name@ttyN, which is no VT"
+	header crates/vtium/install/vtium@.service "${renamed[@]}" \
+		"ExecStart runs $exec_path" "${changes[@]}" "DefaultInstance=name-a-VT/$name@ttyN, which is no VT"
 	cat <<EOF
 # vtium on one VT of seat0, in place of its getty. The instance is the VT's
 # name, as getty@.service's is, and the unit is enabled one VT at a time,
@@ -135,8 +144,8 @@ EOF
 	# end of [Install], the unit's last section. The AUR recipes make the
 	# same changes in the same places.
 	sed -e "s|^ExecStart=/usr/bin/vtium |ExecStart=$exec_path |" \
-		-e "s|^OnFailure=kmsconvt-getty@%i\\.service\$|OnFailure=$name-getty@%i.service|" \
-		-e '/^DefaultInstance=/d' <(body "$src/kmsconvt@.service") |
+		-e "s|^OnFailure=vtium-getty@%i\\.service\$|OnFailure=$name-getty@%i.service|" \
+		-e '/^DefaultInstance=/d' <(body "$src/vtium@.service") |
 		UNITS_CONFLICTS="${conflicts[*]}" UNITS_NAME="$name" awk '
 			/^OnFailure=/ {
 				n = split(ENVIRON["UNITS_CONFLICTS"], c, " ")
@@ -150,7 +159,7 @@ EOF
 			}'
 } >"$tmp/$unit"
 {
-	header crates/vtium/install/kmsconvt-getty@.service "the name, $name-getty@, which $unit names as its fallback"
+	header crates/vtium/install/vtium-getty@.service "${renamed_fallback[@]}"
 	cat <<EOF
 # The getty fallback of $unit: when vtium on a VT fails, its
 # OnFailure= starts this unit, which starts getty@ on that VT, so a user is
@@ -161,14 +170,14 @@ EOF
 # open policy, and /run is cleared at every boot.
 
 EOF
-	body "$src/kmsconvt-getty@.service"
+	body "$src/vtium-getty@.service"
 } >"$tmp/$fallback"
 
 directives() { grep -v '^[[:space:]]*\(#\|$\)' "$1"; }
 [ "$(directives "$tmp/$unit" | grep -c '^ExecStart=')" = 1 ] &&
 	directives "$tmp/$unit" | grep -qF "ExecStart=$exec_path " &&
-	grep -q '^ExecStart=/usr/bin/vtium ' "$src/kmsconvt@.service" ||
-	die "the shipped kmsconvt@.service has no one ExecStart=/usr/bin/vtium line to change"
+	grep -q '^ExecStart=/usr/bin/vtium ' "$src/vtium@.service" ||
+	die "the shipped vtium@.service has no one ExecStart=/usr/bin/vtium line to change"
 for c in "${conflicts[@]}"; do
 	directives "$tmp/$unit" | grep -qxF "Conflicts=$c" && directives "$tmp/$unit" | grep -qxF "After=$c" ||
 		die "the generated $unit has no Conflicts= and After= line for $c"
@@ -177,7 +186,7 @@ done
 	[ "$(grep '^\[' "$tmp/$unit" | tail -n1)" = "[Install]" ] ||
 	die "the generated $unit has no one refused DefaultInstance= at the end of its [Install] section"
 directives "$tmp/$unit" | grep -qxF "OnFailure=$name-getty@%i.service" ||
-	die "the shipped kmsconvt@.service has no OnFailure=kmsconvt-getty@%i.service line to change"
+	die "the shipped vtium@.service has no OnFailure=vtium-getty@%i.service line to change"
 for f in "$unit" "$fallback"; do
 	! directives "$tmp/$f" | grep -v '^\(Conflicts\|After\)=kmsconvt@%i\.service$' | grep -q 'kmsconvt' ||
 		die "the generated $f still names kmsconvt: the shipped unit changed shape"

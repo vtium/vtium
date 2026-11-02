@@ -1,20 +1,20 @@
-# vtium on a VT of seat0, in place of getty. The instance is the VT's name,
-# as getty@.service's is. Enabled, the unit's alias makes logind start it
-# for each VT it spawns:
-#   systemctl enable kmsconvt@.service
+# vtium on a VT of seat0, in place of getty. This is the source of the VT
+# unit: tools/vt/units.sh generates vtium@.service from it for the package,
+# make install and make install-tree, and vtium-dev@.service for make
+# vt-install, and replaces its DefaultInstance= with one that names no VT
+# (ADR-1500 D3, D4). The instance is the VT's name, as getty@.service's is.
 # It conflicts with getty@ on the same VT. When vtium fails, systemd starts
 # it again after 100 ms, up to systemd's default limit of 5 starts in 10 s,
-# and from systemd 254 on each failure also starts kmsconvt-getty@, which
+# and from systemd 254 on each failure also starts vtium-getty@, which
 # starts getty@ on the VT unless the head file's policy is closed (ADR-1401
 # D9). So under an open policy the getty takes the VT at the first failure,
 # and starting it stops this unit; under a closed one vtium comes back, and
 # past the limit the unit stays failed with no login on the VT. Without VTs
 # it starts nothing.
 #
-# The name, the ordering and the TTY settings are getty's and the C
-# reference's, so tier 3's guest, whose autovt@.service links here, starts
-# vtium as it started the C reference. The unit sets no sandboxing
-# directive: the login session vtium starts would inherit it (ADR-1400, D3).
+# The ordering and the TTY settings are getty's. The unit sets no
+# sandboxing directive: the login session vtium starts would inherit it
+# (ADR-1400, D3).
 
 [Unit]
 Description=vtium on %I
@@ -32,7 +32,7 @@ Before=getty.target
 # direction vtium has stopped before the fallback's getty starts.
 Conflicts=getty@%i.service
 After=getty@%i.service
-OnFailure=kmsconvt-getty@%i.service
+OnFailure=vtium-getty@%i.service
 IgnoreOnIsolate=yes
 ConditionPathExists=/dev/tty0
 
