@@ -54,3 +54,10 @@ _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
 | [ADR-1400](./platform/ADR-1400-the-privilege-and-sandbox-model.md) | The privilege and sandbox model | accepted |
 | [ADR-1401](./platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) | Heads: a terminal per physical display, placed by a first-match ruleset | accepted |
 | [ADR-1402](./platform/ADR-1402-vtium-s-own-text-is-translated-through-gettext-catalogs-in-the-system-s-language.md) | vtium's own text is translated through gettext catalogs in the system's language | proposed |
+
+## Project
+_Process, harness and contributions - how vtium is built, tested and judged_
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [ADR-1500](./project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-and-lives-beside-the-c-reference-s-package.md) | vtium is packaged from a recipe repo per package manager, and lives beside the C reference's package | proposed |

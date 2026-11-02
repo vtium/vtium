@@ -12,7 +12,8 @@
 //! programs on the terminal.
 //!
 //! An instance is found by what it holds: the vtium on VT N is the
-//! process named `vtium` with `/dev/ttyN` open, which every vtium on a
+//! process named `vtium`, or `vtium-dev` for the development install, with
+//! `/dev/ttyN` open, which every vtium on a
 //! kernel VT keeps open while it runs ([`find`]). It is held by its pidfd
 //! and looked at again before the signal, so a process that took its pid
 //! in between is never signalled. Reading a process's
@@ -222,10 +223,14 @@ fn find_with(proc: &Path, vt: u16, me: u32, device: &Device) -> Found {
     found
 }
 
-/// Whether the process at `dir` is named `vtium`.
+/// The names a vtium runs under: `vtium` packaged, `vtium-dev` as
+/// `make vt-install` installs it (ADR-1500 D4).
+const NAMES: [&str; 2] = ["vtium", "vtium-dev"];
+
+/// Whether the process at `dir` is named as a vtium runs.
 fn named_vtium(dir: &Path) -> bool {
     std::fs::read_to_string(dir.join("comm"))
-        .is_ok_and(|comm| comm.trim_end_matches('\n') == "vtium")
+        .is_ok_and(|comm| NAMES.contains(&comm.trim_end_matches('\n')))
 }
 
 /// Whether the process at `dir` holds VT `vt` open on a descriptor past
@@ -504,6 +509,20 @@ mod tests {
         assert_eq!(p.find(6, 1).pids, [200]);
         assert_eq!(p.find(55, 1).pids, [500]);
         assert_eq!(p.find(7, 1), Found::default());
+    }
+
+    /// The development install runs the same console as `vtium-dev`
+    /// (ADR-1500 D4), so it is found under that name too, and a name that
+    /// only starts like either is not vtium.
+    #[test]
+    fn the_development_vtium_is_found_by_its_own_name() {
+        let p = Proc::new("dev");
+        p.process(100, 1, "vtium-dev", &["/dev/tty4"])
+            .process(200, 1, "vtium-dev-vitri", &["/dev/tty4"])
+            .process(300, 1, "vtium-devx", &["/dev/tty4"])
+            .process(400, 1, "vtium", &["/dev/tty5"]);
+        assert_eq!(p.find(4, 1).pids, [100]);
+        assert_eq!(p.find(5, 1).pids, [400]);
     }
 
     /// A vtium started from VT 5's login to run on VT 7 has VT 5 as its

@@ -20,7 +20,7 @@ use rustix::termios::{OptionalActions, SpecialCodeIndex, tcgetattr, tcsetattr};
 use vtium_platform::calloop::timer::{TimeoutAction, Timer};
 use vtium_platform::event_loop::{Loop, Signal};
 use vtium_platform::pty::{Consumer, Erase, Pty, Replies, Size};
-use vtium_platform::{MOTION_COALESCE_AT, REPLY_HIGH};
+use vtium_platform::{MOTION_COALESCE_AT, REPLY_HIGH, REPLY_LOW};
 
 const SIZE: Size = Size {
     cols: 80,
@@ -42,7 +42,7 @@ fn main() {
         .skip(1)
         .filter(|a| !a.starts_with('-'))
         .collect();
-    let cases: [(&str, fn()); 8] = [
+    let cases: [(&str, fn()); 10] = [
         // first: no thread has started yet
         (
             "sigterm_is_served_while_the_loop_waits",
@@ -73,6 +73,14 @@ fn main() {
             a_writing_grandchild_does_not_hold_back_the_exit,
         ),
         ("the_child_holds_only_the_pty", the_child_holds_only_the_pty),
+        (
+            "closing_the_pty_signals_its_leader_before_its_input_ends",
+            closing_the_pty_signals_its_leader_before_its_input_ends,
+        ),
+        (
+            "closing_the_pty_signals_a_leader_its_child_handed_the_pty_to",
+            closing_the_pty_signals_a_leader_its_child_handed_the_pty_to,
+        ),
     ];
     let mut ran = 0;
     for (name, case) in cases {
@@ -228,8 +236,90 @@ fn child(role: &str) {
             }
             read_until(|got| got.ends_with(b"Q"));
         }
+        // Blocks SIGHUP, says it is ready, waits for SIGHUP and records
+        // who sent the first one.
+        "hup-first" => record_first_sighup(&mut out),
+        // Hands the pty on as util-linux login does: it ignores SIGHUP,
+        // gives the pty up, forwards SIGHUP to its fork's process group
+        // and waits. The fork starts a new session with the pty as its
+        // controlling terminal, so it leads the pty's session and this
+        // process is outside it, then does what "hup-first" does.
+        "login-shaped" => {
+            #[expect(
+                unsafe_code,
+                reason = "forking, signal handlers and the tty ioctls are libc calls"
+            )]
+            // SAFETY: the process has one thread, so the fork's child may
+            // call anything and the masks set are the process's; the
+            // handler makes only kill(2), which is async-signal-safe, and
+            // reads an atomic; the sigaction, sigset_t and siginfo_t are
+            // owned and initialised before use.
+            unsafe {
+                static FORK: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+                extern "C" fn forward(sig: libc::c_int) {
+                    let fork = FORK.load(std::sync::atomic::Ordering::SeqCst);
+                    if fork > 0 {
+                        // SAFETY: kill(2) is async-signal-safe.
+                        unsafe { libc::kill(-fork, sig) };
+                    }
+                }
+                let mut ignore: libc::sigaction = std::mem::zeroed();
+                ignore.sa_sigaction = libc::SIG_IGN;
+                let mut default: libc::sigaction = std::mem::zeroed();
+                libc::sigaction(libc::SIGHUP, &ignore, &mut default);
+                libc::ioctl(0, libc::TIOCNOTTY);
+                let mut handler: libc::sigaction = std::mem::zeroed();
+                handler.sa_sigaction = forward as extern "C" fn(libc::c_int) as libc::sighandler_t;
+                libc::sigaction(libc::SIGHUP, &handler, std::ptr::null_mut());
+                let fork = libc::fork();
+                assert!(fork >= 0, "fork");
+                if fork > 0 {
+                    FORK.store(fork, std::sync::atomic::Ordering::SeqCst);
+                    libc::close(0);
+                    libc::close(1);
+                    libc::close(2);
+                    while libc::waitpid(fork, std::ptr::null_mut(), 0) < 0 {}
+                    return;
+                }
+                libc::sigaction(libc::SIGHUP, &default, std::ptr::null_mut());
+                assert!(libc::setsid() > 0, "setsid");
+                assert_eq!(libc::ioctl(0, libc::TIOCSCTTY, 0), 0, "TIOCSCTTY");
+            }
+            record_first_sighup(&mut out);
+        }
         _ => panic!("no child role {role}"),
     }
+}
+
+/// Blocks SIGHUP, writes `!` to `out`, waits for SIGHUP and records who
+/// sent the first one, its `si_code` and `si_pid`, at `VTIUM_PTY_OUT`. A
+/// blocked SIGHUP is pending once, so a second one is not recorded.
+fn record_first_sighup(out: &mut std::io::Stdout) {
+    #[expect(
+        unsafe_code,
+        reason = "blocking a signal and waiting for it are libc calls"
+    )]
+    // SAFETY: the process has one thread, so the mask it sets is the
+    // process's, and nothing else in it waits for SIGHUP; the sigset_t and
+    // siginfo_t are owned and initialised before use.
+    let (code, pid) = unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        libc::sigaddset(&mut set, libc::SIGHUP);
+        assert_eq!(
+            libc::sigprocmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()),
+            0
+        );
+        out.write_all(b"!").expect("ready");
+        out.flush().expect("flush");
+        let mut info: libc::siginfo_t = std::mem::zeroed();
+        assert_eq!(libc::sigwaitinfo(&set, &mut info), libc::SIGHUP);
+        (info.si_code, info.si_pid())
+    };
+    let record = env_path("VTIUM_PTY_OUT");
+    let partial = record.with_extension("partial");
+    fs::write(&partial, format!("{code} {pid}")).expect("record");
+    fs::rename(&partial, &record).expect("record");
 }
 
 /// Runs under `env --ignore-signal=INT,SYS,RTMAX --block-signal=TERM`, starts
@@ -479,7 +569,11 @@ fn replies_to_a_child_that_does_not_read_stay_bounded() {
     let mut h = Host::default();
     open(&lp, &mut h, role("flood"));
 
-    // Turn until the reading has stalled: 50 turns with nothing taken.
+    // Turn until the reading has stalled: 50 turns with nothing taken
+    // while the replies queued hold the stall, at REPLY_LOW or more. The
+    // stall starts at REPLY_HIGH, and the kernel can take more of the
+    // queue after it starts, so the queue may sit below REPLY_HIGH while
+    // the reading stays stalled; the reading resumes only below REPLY_LOW.
     let mut most = 0;
     let mut still = 0;
     let mut last = 0;
@@ -488,7 +582,7 @@ fn replies_to_a_child_that_does_not_read_stay_bounded() {
             .expect("dispatch");
         let queued = h.pty.as_ref().expect("pty").queued_replies();
         most = most.max(queued);
-        if h.term.taken.len() == last && queued >= REPLY_HIGH {
+        if h.term.taken.len() == last && most >= REPLY_HIGH && queued >= REPLY_LOW {
             still += 1;
             if still == 50 {
                 break;
@@ -746,6 +840,56 @@ fn the_child_holds_only_the_pty() {
             && ["0", "1", "2"].iter().all(|f| fds.contains(f))
             && !fds.contains(&held.as_str()),
         "{fds:?}"
+    );
+}
+
+// pty.c:830-848: the C reference closed the master alone. The kernel's
+// hangup wakes a reader of the pty with EIO before it sends SIGHUP to the
+// session's leader, so a leader that read the EIO and exited in between
+// was never signalled. Dropping the pty sends the leader SIGHUP before the
+// master closes: the leader, which blocks SIGHUP, finds pending the one
+// its parent sent, not the kernel's.
+fn closing_the_pty_signals_its_leader_before_its_input_ends() {
+    let scratch = Scratch::new("hup-first");
+    let record = scratch.join("record");
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    let mut child = role("hup-first");
+    child.env("VTIUM_PTY_OUT", &record);
+    open(&lp, &mut h, child);
+    turn_until(&mut lp, &mut h, 500, |h| h.term.taken.ends_with(b"!"));
+    h.pty = None;
+    turn_until(&mut lp, &mut h, 500, |_| record.exists());
+    let first = fs::read_to_string(&record).expect("the record");
+    assert_eq!(
+        first,
+        format!("{} {}", libc::SI_USER, std::process::id()),
+        "the first SIGHUP is the parent's (si_code 0, its pid), not the kernel's hangup (si_code 128)"
+    );
+}
+
+// A child shaped like util-linux login hands the pty to a fork that leads
+// a new session on it, and forwards SIGHUP to that fork once the signal
+// reaches it. Dropping the pty sends SIGHUP to the session's leader, the
+// fork, and not to the child, whose forwarding could come after the
+// master closes: the fork's first SIGHUP is its grandparent's.
+fn closing_the_pty_signals_a_leader_its_child_handed_the_pty_to() {
+    let scratch = Scratch::new("login-shaped");
+    let record = scratch.join("record");
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    let mut child = role("login-shaped");
+    child.env("VTIUM_PTY_OUT", &record);
+    open(&lp, &mut h, child);
+    turn_until(&mut lp, &mut h, 500, |h| h.term.taken.ends_with(b"!"));
+    let forwarder = h.pty.as_ref().and_then(Pty::child_id).expect("the child");
+    h.pty = None;
+    turn_until(&mut lp, &mut h, 500, |_| record.exists());
+    let first = fs::read_to_string(&record).expect("the record");
+    assert_eq!(
+        first,
+        format!("{} {}", libc::SI_USER, std::process::id()),
+        "the first SIGHUP is the parent's (si_code 0, its pid), not the forwarding child's (pid {forwarder}) nor the kernel's hangup (si_code 128)"
     );
 }
 

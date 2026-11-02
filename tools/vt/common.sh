@@ -38,12 +38,38 @@ vt_sessions() {
 }
 
 # Where make vt-install keeps its manifests, one a VT it holds
-# (tools/vt/vt-install.sh).
-vt_install_state=/var/lib/vtium-vt-install
+# (tools/vt/vt-install.sh). The development install is vtium-dev@, beside the
+# packaged vtium@, which a package manager installs and make vt-install never
+# touches.
+vt_install_state=/var/lib/vtium-dev-install
 
 # vt_installed ROOT N: whether make vt-install holds VT N, which its manifest
-# under ROOT (empty for the machine itself) says. A review run never borrows
-# such a VT.
+# under ROOT (empty for the machine itself) says.
 vt_installed() {
 	[ -f "$1$vt_install_state/tty$2" ]
+}
+
+# vt_unit_held SYSTEMCTL UNIT: whether UNIT runs or is enabled, so that it
+# holds its VT now or at the VT's next start.
+vt_unit_held() {
+	"$1" is-active --quiet "$2" || [ "$("$1" is-enabled "$2" 2>/dev/null)" = enabled ]
+}
+
+# vt_packaged SYSTEMCTL N: why the packaged vtium holds VT N, or nothing.
+vt_packaged() {
+	! vt_unit_held "$1" "vtium@tty$2.service" ||
+		echo "the packaged vtium@tty$2 holds it; sudo systemctl disable --now vtium@tty$2 frees it"
+}
+
+# vt_held SYSTEMCTL ROOT N: why an installed vtium holds VT N, the
+# development install or the packaged one, or nothing when neither does. A
+# review run never borrows such a VT: it is the maintainer's everyday
+# console, which a review run would stop, and a start limit or a failed
+# restore would leave without one.
+vt_held() {
+	if vt_installed "$2" "$3" || vt_unit_held "$1" "vtium-dev@tty$3.service"; then
+		echo "make vt-install installed vtium-dev@tty$3 there; make vt-uninstall VT=$3 frees it"
+	else
+		vt_packaged "$1" "$3"
+	fi
 }

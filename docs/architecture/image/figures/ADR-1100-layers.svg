@@ -15,7 +15,7 @@
 <rect x="20" y="130" width="430" height="34" rx="4" fill="#d5f0ea" stroke="#9aa5b1"/>
 <text x="32" y="152" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">6  kitty placements with z of 0 or more; every sixel at z 0</text>
 <rect x="20" y="88" width="430" height="34" rx="4" fill="#fbecd0" stroke="#9aa5b1"/>
-<text x="32" y="110" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">7  the cursor, the pointer, vtium's own notices and marks</text>
+<text x="32" y="110" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">7  selection tint, cursor, pointer, notices, focus mark</text>
 <text x="20" y="400" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">Within a layer: by z. At equal z, a later picture draws above an</text>
 <text x="20" y="418" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">earlier one, except that a newly arrived kitty picture slides in</text>
 <text x="20" y="436" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">beneath the first kitty picture with a higher id. Nothing already</text>

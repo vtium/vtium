@@ -306,6 +306,78 @@ fn now() -> Instant {
     Instant::now()
 }
 
+/// A gate a head's frames wait at, through the head's draw hook on its
+/// render thread, until the test opens it. It also opens when the test
+/// drops its [`Opens`], so a failing test never leaves a render thread
+/// waiting. A frame waits at most three times [`BOUND`], only so that a
+/// frame the gate never lets through fails the test instead of hanging
+/// it, and the gate records that it gave up.
+struct Gate {
+    open: Mutex<bool>,
+    opened: std::sync::Condvar,
+    expired: std::sync::atomic::AtomicBool,
+}
+
+impl Gate {
+    /// A closed gate, the hook that holds a frame at it, and the guard
+    /// that opens it when dropped.
+    fn closed() -> (Arc<Gate>, vtium::head::DrawHook, Opens) {
+        let gate = Arc::new(Gate {
+            open: Mutex::new(false),
+            opened: std::sync::Condvar::new(),
+            expired: std::sync::atomic::AtomicBool::new(false),
+        });
+        let held = Arc::clone(&gate);
+        let hook: vtium::head::DrawHook = Arc::new(move || {
+            let open = held.open.lock().expect("the gate");
+            let (open, waited) = held
+                .opened
+                .wait_timeout_while(open, 3 * BOUND, |open| !*open)
+                .expect("the gate");
+            drop(open);
+            if waited.timed_out() {
+                held.expired
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+        let opens = Opens(Arc::clone(&gate));
+        (gate, hook, opens)
+    }
+
+    fn open(&self) {
+        *self.open.lock().expect("the gate") = true;
+        self.opened.notify_all();
+    }
+
+    /// Whether a frame gave up waiting before the gate opened.
+    fn expired(&self) -> bool {
+        self.expired.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// Opens its gate when dropped.
+struct Opens(Arc<Gate>);
+
+impl Drop for Opens {
+    fn drop(&mut self) {
+        self.0.open();
+    }
+}
+
+/// Holds every later frame of head `name` at a closed gate, once no frame
+/// of the head is out: a frame composed before the hook went in would come
+/// past the gate. No turn runs between the wait and the hook, so no frame
+/// starts between them.
+fn hold_frames(s: &mut Seat, name: &str) -> (Arc<Gate>, Opens) {
+    assert!(
+        s.until(BOUND, |a| a.head(name).is_some_and(|h| h.frames_out() == 0)),
+        "no frame of head {name} is out"
+    );
+    let (gate, hook, opens) = Gate::closed();
+    s.app.set_draw_hook(name, Some(hook));
+    (gate, opens)
+}
+
 /// No frits and no vconsole font, so the seat draws its built-in font
 /// whatever the machine running the tests holds.
 fn no_fonts() -> Sources {
@@ -984,15 +1056,13 @@ display card:mem-large -> off
 }
 
 /// D2: one render thread per head. The slow head, first in the file,
-/// takes 3 s to compose each frame once a stand-in slows it; while it
-/// composes a frame, a key reaches the session of the fast head, which
-/// holds the focus, and the fast head's display shows its echo, both
-/// within a second. The slow head's frame comes once it is composed.
+/// composes no frame past a gate the test holds closed; while its frame
+/// waits there, a key reaches the session of the fast head, which holds
+/// the focus, and the fast head's display shows its echo. The slow head's
+/// frame comes once the test opens the gate. The order is set by the
+/// gate, and each wait is bounded only so the test fails instead of
+/// hanging.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the stand-in's slow draw is a sleep"
-)]
 fn a_slow_head_delays_neither_another_heads_frame_nor_input() {
     let heads = "version = 1
 [head slow]
@@ -1013,13 +1083,8 @@ input class:keyboard -> roaming
         s.until(SECOND, |a| a.head("fast").is_some_and(Head::started)),
         "the fast head's session runs"
     );
-    let slow = Duration::from_secs(3);
-    s.app.set_draw_hook(
-        "slow",
-        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
-    );
+    let (gate, _opens) = hold_frames(&mut s, "slow");
     let (slow_before, fast_before) = (s.memory("/dev/mem0").frames, s.memory("/dev/mem1").frames);
-    let started = now();
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
     assert!(
         s.until(BOUND, |a| a
@@ -1036,22 +1101,20 @@ input class:keyboard -> roaming
         s.until_memory("/dev/mem1", SECOND, |m| m.frames > fast_before),
         "the fast head drew"
     );
-    let fast = now() - started;
     assert_eq!(
         s.memory("/dev/mem0").frames,
         slow_before,
-        "the slow head's frame is still composing"
+        "the slow head's frame is still held at the gate"
+    );
+    gate.open();
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > slow_before),
+        "the slow head's frame comes once the gate opens"
     );
     assert!(
-        fast < Duration::from_secs(1),
-        "the key and the fast head's frame waited on the slow head: {fast:?}"
+        !gate.expired(),
+        "a frame of the slow head stopped waiting before the gate opened"
     );
-    assert!(
-        s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.frames
-            > slow_before),
-        "the slow head's frame comes"
-    );
-    assert!(now() - started >= slow, "after its slow compose");
 }
 
 /// Two heads, `desk` on the large display and `panel` on the small one,
@@ -1150,14 +1213,11 @@ fn a_flood_in_the_small_head_leaves_the_large_head_its_keys_and_frames() {
     a_flood_leaves_the_other_head_its_turn("panel", "desk", KBD_LARGE, "/dev/mem1");
 }
 
-/// D2: a frame composing holds up no VT switch. While the slow head's
-/// frame takes 2 s to compose, the VT's release is acknowledged within a
-/// second, the device asleep; the acquire draws the display again.
+/// D2: a frame composing holds up no VT switch. While the head's frame
+/// waits at a gate the test holds closed, the VT's release is
+/// acknowledged and the device sleeps, the frame still waiting; the
+/// acquire draws the display again once the gate opens.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the stand-in's slow draw is a sleep"
-)]
 fn a_frame_composing_holds_up_no_vt_release() {
     let display = (
         "/dev/mem0",
@@ -1165,12 +1225,7 @@ fn a_frame_composing_holds_up_no_vt_release() {
     );
     let mut s = Seat::boot(&[], [display], "read x");
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
-    let slow = Duration::from_secs(2);
-    s.app.set_draw_hook(
-        "console",
-        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
-    );
-    let started = now();
+    let (gate, _opens) = hold_frames(&mut s, "console");
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
     assert!(
         s.until(BOUND, |a| a.heads().iter().any(|h| h.frames_out() > 0)),
@@ -1194,12 +1249,12 @@ fn a_frame_composing_holds_up_no_vt_release() {
         s.until(SECOND, |a| !a.vt.is_active()),
         "the release acknowledged"
     );
-    let released = now() - started;
     assert!(
-        released < Duration::from_secs(1),
-        "the release waited on the frame: {released:?}"
+        s.app.heads().iter().any(|h| h.frames_out() > 0),
+        "the release is acknowledged while the frame still composes"
     );
     s.app.set_draw_hook("console", None);
+    gate.open();
     let before = s.memory("/dev/mem0").frames;
     s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
     assert!(s.until(SECOND, |a| a.vt.is_active()));
@@ -1208,20 +1263,21 @@ fn a_frame_composing_holds_up_no_vt_release() {
             && m.frames > before),
         "the acquire draws the display again"
     );
+    assert!(
+        !gate.expired(),
+        "the frame stopped waiting before the gate opened"
+    );
 }
 
 /// ADR-1401 D2: a frame in flight across a VT release is never shown. On
-/// a seat of two heads, the slow head's frame takes 3 s to compose; the VT
-/// is released while it composes and acquired again before it is done. The
-/// token for that frame comes back with a lease from before the release, so
-/// the display drops it, and the first token lent after the acquire has age
-/// 0, so the frame after the acquire is drawn whole. The fast head's display
-/// draws again too.
+/// a seat of two heads, the slow head's frame waits at a gate the test
+/// holds closed; the VT is released while it waits and acquired again,
+/// and only then does the test open the gate. The token for that frame
+/// comes back with a lease from before the release, so the display drops
+/// it, and the first token lent after the acquire has age 0, so the frame
+/// after the acquire is drawn whole. The fast head's display draws again
+/// too.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the stand-in's slow draw is a sleep"
-)]
 fn a_frame_in_flight_across_a_vt_release_is_dropped_and_the_next_drawn_whole() {
     let heads = "version = 1
 [head slow]
@@ -1237,20 +1293,16 @@ input class:keyboard -> roaming
     assert!(s.until(SECOND, |a| a.cells().len() == 2), "both lit");
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
     assert!(s.until_memory("/dev/mem1", SECOND, |m| m.frames > 0));
-    let slow = Duration::from_secs(3);
-    s.app.set_draw_hook(
-        "slow",
-        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
-    );
+    let (gate, _opens) = hold_frames(&mut s, "slow");
     let (lease, shown) = {
         let m = s.memory("/dev/mem0");
         (m.lease, m.shown.len())
     };
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
-    // The turn that starts the slow head's frame.
-    s.until(Duration::from_millis(30), |_| false);
     assert!(
-        Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
+        s.until(BOUND, |a| a
+            .head("slow")
+            .is_some_and(|h| h.frames_out() > 0)),
         "the slow head's frame is in flight"
     );
     let ctrl_super_f12 = KeyEvent {
@@ -1274,11 +1326,15 @@ input class:keyboard -> roaming
     let fast = s.memory("/dev/mem1").frames;
     s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
     assert!(s.until(SECOND, |a| a.vt.is_active()), "the acquire");
+    // The display lends no token while the frame's is out, so the next
+    // token lent is the first after the acquire.
     assert!(
-        Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
+        s.app.head("slow").is_some_and(|h| h.frames_out() > 0)
+            && Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
         "the frame from before the release is still in flight at the acquire"
     );
     let lent = s.memory("/dev/mem0").ages.len();
+    gate.open();
     assert!(
         s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.shown.len()
             > shown
@@ -1301,6 +1357,10 @@ input class:keyboard -> roaming
     assert!(
         s.until_memory("/dev/mem1", SECOND, |m| m.frames > fast),
         "the fast head's display draws again"
+    );
+    assert!(
+        !gate.expired(),
+        "the frame stopped waiting before the gate opened"
     );
 }
 
@@ -1768,7 +1828,12 @@ fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_
 }
 
 /// D5: closing the console shown closes its pty, so its programs get
-/// SIGHUP, as on a hang-up; the other consoles' sessions run on.
+/// SIGHUP, as on a hang-up; the other consoles' sessions run on. Each
+/// session waits in `read` on its pty. When the pty closes, the kernel
+/// ends that read before it sends its own SIGHUP, so a shell that vtium
+/// did not signal before the close can leave its loop and exit without
+/// ever running its trap. Ids are each head's own, and the large head's
+/// console is 1 too, so each marker names its head.
 // covers: platform.heads
 #[test]
 fn closing_a_console_hangs_up_its_session_alone() {
@@ -1777,8 +1842,8 @@ fn closing_a_console_hangs_up_its_session_alone() {
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).expect("a marker directory");
     let script = format!(
-        "trap 'echo > {d}/hup-$VTIUM_CONSOLE; exit 0' HUP; echo \"is:$VTIUM_CONSOLE\"; \
-         while read a; do echo \"got:$a\"; done",
+        "trap 'echo > {d}/hup-$VTIUM_HEAD-$VTIUM_CONSOLE; exit 0' HUP; \
+         echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\"; done",
         d = d.display()
     );
     let displays = [
@@ -1792,13 +1857,14 @@ fn closing_a_console_hangs_up_its_session_alone() {
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     assert!(s.until(SECOND, |a| told_ids(a, "small").iter().all(Option::is_some)));
     press_chord(&mut s, KBD_SMALL, BACKSPACE);
-    let hup = |id: u32| d.join(format!("hup-{id}")).exists();
+    let hup = |head: &str, id: u32| d.join(format!("hup-{head}-{id}")).exists();
     let end = now() + BOUND;
-    while !hup(1) && now() < end {
+    while !hup("small", 1) && now() < end {
         s.until(Duration::from_millis(20), |_| false);
     }
-    assert!(hup(1), "console 1's session got SIGHUP");
-    assert!(!hup(2), "console 2's runs on");
+    assert!(hup("small", 1), "console 1's session got SIGHUP");
+    assert!(!hup("small", 2), "console 2's runs on");
+    assert!(!hup("large", 1), "the large head's runs on");
     s.type_on(KBD_SMALL, "on\r");
     assert!(s.until(SECOND, |a| head_shows(a, "small", "got:on")));
     let _ = std::fs::remove_dir_all(&d);
@@ -1814,18 +1880,15 @@ fn closing_a_console_hangs_up_its_session_alone() {
 // covers: platform.heads
 #[test]
 fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("vtium-heads-unstartable-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("a scratch directory");
     let login = dir.join("login");
-    std::fs::write(
+    script_file(
         &login,
         "#!/bin/sh\necho ready; while read a; do echo \"got:$a\"; done\n",
-    )
-    .expect("the login");
-    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    );
     let heads = CLAIMED.replace(
         "[head small]\n",
         &format!("[head small]\nlogin = {}\n", login.display()),
@@ -1855,15 +1918,36 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
 /// console's id, then echoes each line it reads through `cat -v`, so a
 /// focus report it was sent shows on its screen.
 fn focus_login(dir: &Path) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let login = dir.join("login");
-    std::fs::write(
+    script_file(
         &login,
         "#!/bin/sh\nprintf '\\033[?1004h'; echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\" | cat -v; done\n",
-    )
-    .expect("the login");
-    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    );
     login
+}
+
+/// Writes `text` as a script at `path` that a head's login starts. This
+/// process writes the text to a file beside it, and `cp` writes the
+/// script, so this process never holds the script open to write. A child
+/// that another test forks while this process holds a file open to write
+/// holds that descriptor until its own exec, and starting the script
+/// while it does fails with ETXTBSY.
+fn script_file(path: &Path, text: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let staged = path.with_extension("text");
+    std::fs::write(&staged, text).expect("the script's text");
+    let copied = std::process::Command::new("cp")
+        .arg(&staged)
+        .arg(path)
+        .status()
+        .expect("cp");
+    assert!(
+        copied.success(),
+        "cp {} {}",
+        staged.display(),
+        path.display()
+    );
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("its mode");
 }
 
 /// A scratch directory for test `name`, on disk under the build's own.
@@ -2070,7 +2154,10 @@ fn under_osd_full_opening_and_closing_a_console_shows_the_new_count() {
 }
 
 /// D5: closing the shown console gives mode 1004's focus to the console
-/// shown next.
+/// shown next. Turning mode 1004 on reports nothing, as in the C
+/// reference, so the keyboard comes, and the switch is pressed, only once
+/// both sessions have printed their ids, which they print after they turn
+/// the mode on: a focus given before then is never reported.
 // covers: platform.heads
 #[test]
 fn closing_a_console_gives_the_console_shown_next_the_focus() {
@@ -2084,6 +2171,10 @@ fn closing_a_console_gives_the_console_shown_next_the_focus() {
         ),
     ];
     let mut s = Seat::with_heads(&[], Some(&claimed_consoles(2)), displays, script);
+    assert!(
+        s.until(SECOND, |a| told_ids(a, "small").iter().all(Option::is_some)),
+        "both sessions turned mode 1004 on"
+    );
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     let (focus_in, focus_out) = ("1b 5b 49", "1b 5b 4f");
     assert!(s.until(SECOND, |a| head_shows(a, "small", focus_in)));
@@ -5220,6 +5311,11 @@ fn with_no_keyboard_at_start_the_notice_says_so() {
 /// The operator's answers (2026-10-30) and D7: an ended head's notice
 /// stays and keeps no time, so once 30 s have passed the loop still
 /// sleeps, where a timer left in the past would wake it at once forever.
+/// The loop turns 400 times, 1 ms apart, and is asked when it next wakes
+/// at the instant of its last turn: every timer due by then has fired and
+/// moved on in that turn, so a wake of zero is a timer left in the past.
+/// Asked even 1 ms later, a blink timer that falls due in that gap is
+/// rightly due at once.
 #[test]
 fn an_ended_heads_notice_leaves_the_loop_asleep() {
     let mut s = claimed_with(&["--oneshot"]);
@@ -5227,10 +5323,11 @@ fn an_ended_heads_notice_leaves_the_loop_asleep() {
     assert!(s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)));
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)));
     let t = now() + Duration::from_secs(31);
+    let last = t + Duration::from_millis(399);
     for i in 0..400u64 {
         s.app.turn(t + Duration::from_millis(i));
     }
-    let wake = s.app.next_wake(t + Duration::from_millis(400));
+    let wake = s.app.next_wake(last);
     assert!(wake.is_none_or(|w| w > Duration::ZERO), "spins: {wake:?}");
     assert_eq!(notice(&s.app, "small").as_deref(), Some(ENDED));
 }
