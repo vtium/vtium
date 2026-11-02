@@ -14,9 +14,22 @@
 # /usr/bin/vtium; OnFailure= naming NAME-getty@.service; for each --conflicts
 # UNIT, a Conflicts=UNIT line and an After=UNIT line just above OnFailure=,
 # below the shipped unit's own Conflicts= and After= for the getty, so that
-# starting the unit on a VT stops UNIT there first, as it stops the getty; and no DefaultInstance=, so that systemctl
-# enable NAME@.service with no VT named links nothing. UNIT is an instance
-# unit on the same VT, such as kmsconvt@%i.service. It writes
+# starting the unit on a VT stops UNIT there first, as it stops the getty;
+# and DefaultInstance=name-a-VT/NAME@ttyN, which is no VT. UNIT is an
+# instance unit on the same VT, such as kmsconvt@%i.service.
+#
+# The DefaultInstance= is there so that systemctl enable NAME@.service with
+# no VT named fails before it links anything, on every machine. systemctl
+# ignores DefaultInstance= when it enables an instance, so enable NAME@ttyN
+# works as before; for the template alone it refuses a value that names no
+# instance, and stops before Alias=autovt@.service is linked. With no
+# DefaultInstance= at all, systemctl links autovt@.service -> NAME@.service
+# first and only then refuses the template, and logind then starts the unit
+# on every VT it spawns; with the shipped DefaultInstance=tty1 it enables VT
+# 1 (measured with systemd 262; systemd 254's install.c does the same). The
+# cost: systemctl list-unit-files shows the template as "bad", and
+# systemctl is-enabled NAME@.service fails, while each NAME@ttyN reads as
+# enabled or disabled as usual. It writes
 # OUTDIR/NAME-getty@.service, which is kmsconvt-getty@.service under its new
 # name. Every other line is the shipped unit's, so Restart= and
 # Alias=autovt@.service come through as the shipped unit has them. Each unit opens with a comment that names WHO made
@@ -92,19 +105,26 @@ for c in "${conflicts[@]}"; do
 done
 {
 	header crates/vtium/install/kmsconvt@.service "the name, $name@" \
-		"ExecStart runs $exec_path" "the getty fallback, $name-getty@" "${changes[@]}" "no DefaultInstance="
+		"ExecStart runs $exec_path" "the getty fallback, $name-getty@" "${changes[@]}" "DefaultInstance=name-a-VT/$name@ttyN, which is no VT"
 	# awk puts a Conflicts= and an After= line for each --conflicts unit,
-	# which reach it through the environment, just above OnFailure=. The AUR
-	# recipes put them in the same place.
+	# which reach it through the environment, just above OnFailure=, and
+	# puts the refused DefaultInstance= in place of the shipped one, at the
+	# end of [Install], the unit's last section. The AUR recipes make the
+	# same changes in the same places.
 	sed -e "s|^ExecStart=/usr/bin/vtium |ExecStart=$exec_path |" \
 		-e "s|^OnFailure=kmsconvt-getty@%i\\.service\$|OnFailure=$name-getty@%i.service|" \
 		-e '/^DefaultInstance=/d' "$src/kmsconvt@.service" |
-		UNITS_CONFLICTS="${conflicts[*]}" awk '
+		UNITS_CONFLICTS="${conflicts[*]}" UNITS_NAME="$name" awk '
 			/^OnFailure=/ {
 				n = split(ENVIRON["UNITS_CONFLICTS"], c, " ")
 				for (i = 1; i <= n; i++) print "Conflicts=" c[i] "\nAfter=" c[i]
 			}
-			{ print }'
+			{ print }
+			END {
+				print "# No VT: systemctl refuses it, so enabling " ENVIRON["UNITS_NAME"] "@.service with no VT"
+				print "# named fails and links nothing. Name the VT: " ENVIRON["UNITS_NAME"] "@tty3.service."
+				print "DefaultInstance=name-a-VT/" ENVIRON["UNITS_NAME"] "@ttyN"
+			}'
 } >"$tmp/$unit"
 {
 	header crates/vtium/install/kmsconvt-getty@.service "the name, $name-getty@, which $unit names as its fallback"
@@ -120,8 +140,9 @@ for c in "${conflicts[@]}"; do
 	directives "$tmp/$unit" | grep -qxF "Conflicts=$c" && directives "$tmp/$unit" | grep -qxF "After=$c" ||
 		die "the generated $unit has no Conflicts= and After= line for $c"
 done
-! directives "$tmp/$unit" | grep -q '^DefaultInstance=' ||
-	die "the generated $unit still holds DefaultInstance="
+[ "$(directives "$tmp/$unit" | grep '^DefaultInstance=')" = "DefaultInstance=name-a-VT/$name@ttyN" ] &&
+	[ "$(grep '^\[' "$tmp/$unit" | tail -n1)" = "[Install]" ] ||
+	die "the generated $unit has no one refused DefaultInstance= at the end of its [Install] section"
 directives "$tmp/$unit" | grep -qxF "OnFailure=$name-getty@%i.service" ||
 	die "the shipped kmsconvt@.service has no OnFailure=kmsconvt-getty@%i.service line to change"
 for f in "$unit" "$fallback"; do

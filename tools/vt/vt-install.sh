@@ -264,6 +264,14 @@ if [ "$action" = uninstall ]; then
 		as_root rmdir --ignore-fail-on-non-empty -- "$root$state_dir"
 	fi
 	as_root "$systemctl" daemon-reload
+	# A template alias autovt@.service that points at vtium-dev@.service is
+	# no link vt-install makes: systemctl enable vtium-dev@.service with no VT
+	# named makes it on a machine that had none, and logind then starts
+	# vtium-dev on every VT it spawns. Uninstall names it and leaves it to
+	# whoever made it.
+	if [ "$(readlink -- "$root$unit_dir/autovt@.service" 2>/dev/null)" = "$alias_target" ]; then
+		echo "vt-uninstall: $unit_dir/autovt@.service points at vtium-dev@.service, so logind starts vtium-dev on every VT it spawns; vt-install did not make it. Remove it: sudo rm $unit_dir/autovt@.service && sudo systemctl daemon-reload"
+	fi
 	[ -n "$dry" ] || echo "vt-uninstall: VT $vt is back as it was before make vt-install"
 	exit 0
 fi

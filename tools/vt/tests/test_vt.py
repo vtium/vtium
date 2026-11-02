@@ -220,7 +220,9 @@ def generated(src_lines, name, exec_path, conflicts):
     """The shipped kmsconvt@.service's lines as units.sh changes them for
     NAME with EXEC_PATH and each --conflicts unit: ExecStart= and OnFailure=
     renamed, a Conflicts= and an After= line for each unit just above
-    OnFailure=, and DefaultInstance= gone (ADR-1500 D3, D4)."""
+    OnFailure=, and the shipped DefaultInstance= replaced, at the end of
+    [Install], by one that names no VT, which systemctl refuses (ADR-1500 D3,
+    D4)."""
     out = []
     for line in src_lines:
         if line.startswith("DefaultInstance="):
@@ -230,7 +232,9 @@ def generated(src_lines, name, exec_path, conflicts):
                 out += [f"Conflicts={c}", f"After={c}"]
         out.append({"ExecStart=/usr/bin/vtium --vt=%I --no-switchvt": f"ExecStart={exec_path} --vt=%I --no-switchvt",
                     "OnFailure=kmsconvt-getty@%i.service": f"OnFailure={name}-getty@%i.service"}.get(line, line))
-    return out
+    return out + [f"# No VT: systemctl refuses it, so enabling {name}@.service with no VT",
+                  f"# named fails and links nothing. Name the VT: {name}@tty3.service.",
+                  f"DefaultInstance=name-a-VT/{name}@ttyN"]
 
 
 def write(path, text, mode=0o755):
@@ -1322,7 +1326,7 @@ class Install(Case):
         for other in ("vtium@%i.service", "kmsconvt@%i.service"):
             self.assertIn(f"Conflicts={other}", unit)
             self.assertIn(f"After={other}", unit)
-        self.assertFalse([l for l in unit if l.startswith("DefaultInstance=")])
+        self.assertEqual([l for l in unit if l.startswith("DefaultInstance=")], ["DefaultInstance=name-a-VT/vtium-dev@ttyN"])
         self.assertIn("WantedBy=getty.target", unit)
         directives = [l for l in unit if l and not l.startswith("#")]
         ordering = {f"{k}={u}" for k in ("Conflicts", "After") for u in ("vtium@%i.service", "kmsconvt@%i.service")}
@@ -1736,6 +1740,26 @@ exec "$@"
         for f in (*self.FILES, self.STATE):
             self.assertFalse(os.path.exists(self.at(f)), f)
 
+    def test_uninstall_names_a_template_alias_to_vtium_dev(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # Someone ran systemctl enable vtium-dev@.service with no VT named on
+        # a machine with no template alias of its own.
+        template = self.at("etc/systemd/system/autovt@.service")
+        os.unlink(template)
+        os.symlink("/etc/systemd/system/vtium-dev@.service", template)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("/etc/systemd/system/autovt@.service points at vtium-dev@.service", p.stdout)
+        self.assertEqual(os.readlink(template), "/etc/systemd/system/vtium-dev@.service")
+        # The C reference's template alias is named by nobody.
+        os.unlink(template)
+        os.symlink("/usr/lib/systemd/system/kmsconvt@.service", template)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        p = self.vt_install("uninstall", "4")
+        self.assertNotIn("autovt@.service points at", p.stdout)
+
     def test_a_reinstall_refuses_a_per_vt_alias_someone_else_made(self):
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2012,7 +2036,7 @@ class Package(Case):
                      "Conflicts=getty@%i.service", "After=getty@%i.service",
                      "Conflicts=kmsconvt@%i.service", "After=kmsconvt@%i.service"):
             self.assertIn(line, unit)
-        self.assertFalse([l for l in unit if l.startswith("DefaultInstance=")], unit)
+        self.assertEqual([l for l in unit if l.startswith("DefaultInstance=")], ["DefaultInstance=name-a-VT/vtium@ttyN"], unit)
         directives = [l for l in unit if l and not l.startswith("#")]
         self.assertFalse([l for l in directives if ("kmsconvt" in l and l not in ("Conflicts=kmsconvt@%i.service",
                                                                                 "After=kmsconvt@%i.service"))
@@ -2070,31 +2094,42 @@ class Package(Case):
         self.assertNotIn("usr/share/licenses/vtium/LICENSE", self.staged())
 
     def test_enabling_the_packaged_template_with_no_vt_links_nothing(self):
-        # With DefaultInstance=tty1 the shipped unit's enable would link
-        # getty.target.wants/vtium@tty1.service and fail on autovt@.service,
-        # which the C reference's package holds (ADR-1500 D3).
+        # Enabling the template with no VT named must link nothing on every
+        # machine (ADR-1500 D3). With DefaultInstance=tty1 it would enable VT
+        # 1. With no DefaultInstance=, systemctl links Alias=autovt@.service
+        # before it refuses the template, so on a machine with no
+        # /etc/systemd/system/autovt@.service yet, logind would start vtium
+        # on every VT it spawns. Each root: none, the getty's link, which
+        # systemd's preset makes, and the C reference's.
         if not REAL_SYSTEMCTL:
             self.skipTest("no systemctl")
-        root = os.path.join(self.s.tmp, "root")
-        unit_dir = os.path.join(root, "usr/lib/systemd/system")
-        _, p = self.units("--name", "vtium", "--exec", "/usr/bin/vtium", "--by", "a test",
-                          "--conflicts", "kmsconvt@%i.service", out=unit_dir)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        write(os.path.join(unit_dir, "getty.target"), "[Unit]\nDescription=Login Prompts\n", 0o644)
-        etc = os.path.join(root, "etc/systemd/system")
-        os.makedirs(etc)
-        os.symlink("/usr/lib/systemd/system/kmsconvt@.service", os.path.join(etc, "autovt@.service"))
-        e = subprocess.run([REAL_SYSTEMCTL, f"--root={root}", "enable", "vtium@.service"],
-                           capture_output=True, text=True, timeout=30)
-        self.assertNotEqual(e.returncode, 0, e.stdout + e.stderr)
-        links = [os.path.relpath(os.path.join(d, n), etc) for d, _, ns in os.walk(etc) for n in ns]
-        self.assertEqual(links, ["autovt@.service"])
-        # One VT named is enabled as before: its wants and its own autovt link.
-        e = subprocess.run([REAL_SYSTEMCTL, f"--root={root}", "enable", "vtium@tty3.service"],
-                           capture_output=True, text=True, timeout=30)
-        self.assertEqual(e.returncode, 0, e.stdout + e.stderr)
-        links = sorted(os.path.relpath(os.path.join(d, n), etc) for d, _, ns in os.walk(etc) for n in ns)
-        self.assertEqual(links, ["autovt@.service", "autovt@tty3.service", "getty.target.wants/vtium@tty3.service"])
+        for holder in (None, "getty@.service", "kmsconvt@.service"):
+            with self.subTest(autovt=holder):
+                root = os.path.join(self.s.tmp, f"root-{holder}")
+                unit_dir = os.path.join(root, "usr/lib/systemd/system")
+                _, p = self.units("--name", "vtium", "--exec", "/usr/bin/vtium", "--by", "a test",
+                                  "--conflicts", "kmsconvt@%i.service", out=unit_dir)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                write(os.path.join(unit_dir, "getty.target"), "[Unit]\nDescription=Login Prompts\n", 0o644)
+                etc = os.path.join(root, "etc/systemd/system")
+                os.makedirs(etc)
+                before = []
+                if holder:
+                    os.symlink(f"/usr/lib/systemd/system/{holder}", os.path.join(etc, "autovt@.service"))
+                    before = ["autovt@.service"]
+                e = subprocess.run([REAL_SYSTEMCTL, f"--root={root}", "enable", "vtium@.service"],
+                                   capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(e.returncode, 0, e.stdout + e.stderr)
+                links = sorted(os.path.relpath(os.path.join(d, n), etc) for d, _, ns in os.walk(etc) for n in ns)
+                self.assertEqual(links, before)
+                # One VT named is enabled as before: its wants and its own
+                # autovt link, which points at vtium@.
+                e = subprocess.run([REAL_SYSTEMCTL, f"--root={root}", "enable", "vtium@tty3.service"],
+                                   capture_output=True, text=True, timeout=30)
+                self.assertEqual(e.returncode, 0, e.stdout + e.stderr)
+                links = sorted(os.path.relpath(os.path.join(d, n), etc) for d, _, ns in os.walk(etc) for n in ns)
+                self.assertEqual(links, sorted(before + ["autovt@tty3.service", "getty.target.wants/vtium@tty3.service"]))
+                self.assertEqual(os.readlink(os.path.join(etc, "autovt@tty3.service")), "/usr/lib/systemd/system/vtium@.service")
 
     # A small entry under vtium's terminfo name, as the test's stand-in for
     # crates/vtium/install/xterm-vtium.ti.
