@@ -1583,19 +1583,36 @@ class Install(Case):
         # A stand-in id says uid 0 for -u, as under sudo.
         write(os.path.join(self.s.standins, "id"), "#!/bin/bash\n"
               f'[ "$1" != -u ] || {{ echo 0; exit; }}\nexec {shutil.which("id")!r} "$@"\n')
+        # On the machine itself, with no stand-ins named, make and the script
+        # refuse root before they do anything.
+        real = self.s.env()
+        del real["VTIUM_VT_STANDINS"]
         for target in ("vt-install", "vt-uninstall"):
             with self.subTest(target=target):
                 open(self.s.calls, "w").close()
                 p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, target, "VT=4", "DRY_RUN=1"],
-                                   env=self.s.env(), capture_output=True, text=True, timeout=30)
+                                   env=real, capture_output=True, text=True, timeout=30)
                 self.assertNotEqual(p.returncode, 0)
                 self.assertIn(f"{target}: run it as yourself, not as root", p.stderr)
                 self.assertEqual(self.s.calls_of("cargo"), [])
                 self.assertEqual(self.s.calls_of("sudo"), [])
-        # Run by hand as root, the script refuses as well.
-        p = self.vt_install("install", "--dry-run", "4")
+        p = subprocess.run(["bash", VT_INSTALL, "install", "--dry-run", "4"], env=dict(real, VTIUM_VT_BIN=self.s.bin),
+                           capture_output=True, text=True, timeout=20, cwd=self.s.tmp)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("run it as yourself, not as root", p.stderr)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        # With the stand-ins, which write only under their own root, a test
+        # run as root goes through.
+        # A test run as root makes its files as root, which a stand-in stat
+        # says of the binary here.
+        write(os.path.join(self.s.standins, "stat"), "#!/bin/bash\n"
+              f'if [ "${{*: -1}}" = {self.s.bin!r} ]; then echo "0 755"; exit; fi\n'
+              f'exec {shutil.which("stat")!r} "$@"\n')
+        p = self.vt_install("install", "--dry-run", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                            f"VTIUM_BIN={self.s.bin}"], env=self.s.env(), capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
     def test_make_runs_it_with_the_binary_named_and_no_build(self):
         make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, *a],

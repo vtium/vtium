@@ -64,13 +64,14 @@ done
 [ "$vt" != 1 ] || die "VT 1 is refused: it holds the boot's messages and its first login, and a VT that comes back wrong there leaves no console to fix it from"
 [ "$vt" -ge 2 ] && [ "$vt" -le 12 ] || die "VT must be a number from 2 to 12, not '$vt'"
 
-# It asks sudo for each step that needs root, and prints each one first.
-[ "$(id -u)" -ne 0 ] || die "run it as yourself, not as root or under sudo; it asks sudo for each step that needs root"
-
 standins=${VTIUM_VT_STANDINS:-}
+# On the machine it asks sudo for each step that needs root, and prints each
+# one first. The tests' stand-ins write only under their own root, so a test
+# run as root goes through.
+[ -n "$standins" ] || [ "$(id -u)" -ne 0 ] ||
+	die "run it as yourself, not as root or under sudo; it asks sudo for each step that needs root"
 src=$checkout/crates/vtium/install
 if [ -n "$standins" ]; then
-	[ "$(id -u)" -ne 0 ] || die "VTIUM_VT_STANDINS is for the tests, which run without root; unset it"
 	sudo=$standins/sudo
 	systemctl=$standins/systemctl
 	loginctl=$standins/loginctl

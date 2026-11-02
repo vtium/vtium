@@ -228,9 +228,10 @@ vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers
 # tools/vt/vt-install.sh through the environment, never as recipe text.
 # Run as root, the build would leave root's files in target/, and the
 # script asks sudo for each step that needs root, so root is refused before
-# anything is built.
+# anything is built. The tests, whose stand-ins write only under their own
+# root (VTIUM_VT_STANDINS), may run as root.
 ifneq ($(filter $(VT_INSTALL_GOALS),$(MAKECMDGOALS)),)
-ifeq ($(shell id -u),0)
+ifeq ($(shell id -u)$(VTIUM_VT_STANDINS),0)
 $(error $(firstword $(filter $(VT_INSTALL_GOALS),$(MAKECMDGOALS))): run it as yourself, not as root or under sudo; it asks sudo for each step that needs root)
 endif
 endif
