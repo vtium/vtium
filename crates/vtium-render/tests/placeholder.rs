@@ -3,14 +3,16 @@
 //! strike-through, since the picture its virtual placement names draws
 //! there instead. The cursor and the selection draw over it as over any
 //! cell. Each case is checked against a screen that draws what the cell
-//! should look like with ordinary characters.
-#![cfg(feature = "images")]
+//! should look like with ordinary characters. Without `images`, U+10EEEE
+//! is a private-use character like any other.
 
 mod common;
 
 use common::{Screen, rgb, style, unifont};
 use vtium_render::{Canvas, Config, DrawState, Renderer};
-use vtium_term::{Age, Attrs, CursorShape, Glyph, Style, UnderlineStyle, Width};
+#[cfg(feature = "images")]
+use vtium_term::CursorShape;
+use vtium_term::{Age, Attrs, Glyph, LinkId, Style, UnderlineStyle, Width};
 
 const FG: &str = "e0a040";
 const BG: &str = "203040";
@@ -20,6 +22,11 @@ const BG: &str = "203040";
 const PLACEHOLDER: &str = "\u{10EEEE}\u{305}\u{30D}";
 
 fn draw(s: &Screen, cursor_on: bool) -> Canvas {
+    draw_hovered(s, cursor_on, None)
+}
+
+/// Draws `s` with the link `hovered` under the pointer.
+fn draw_hovered(s: &Screen, cursor_on: bool, hovered: Option<LinkId>) -> Canvas {
     let (w, h) = (s.cols as u32 * 8, s.rows as u32 * 16);
     let mut r = Renderer::new(unifont(), w, h, Config::default());
     let mut c = Canvas::new(w, h, 0);
@@ -28,7 +35,12 @@ fn draw(s: &Screen, cursor_on: bool) -> Canvas {
         background: s.palette.bg(),
         ..DrawState::default()
     };
-    r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
+    r.draw(
+        &s.frame(Age::NEVER).with_hover(hovered, None),
+        &mut c,
+        0,
+        &st,
+    );
     c
 }
 
@@ -42,9 +54,14 @@ fn decorated() -> Style {
 
 /// "a", then `glyph` in `st` at column 1, then "b".
 fn screen(glyph: Glyph<'_>, st: Style) -> Screen {
+    linked(glyph, st, None)
+}
+
+/// The same screen, with column 1 in `link`.
+fn linked(glyph: Glyph<'_>, st: Style, link: Option<LinkId>) -> Screen {
     let mut s = Screen::new(3, 1, rgb("c0c0c0"), rgb("101010"));
     s.text(0, 0, "a", style(rgb(FG), rgb(BG)));
-    s.lines[0].write(1, glyph, Width::Narrow, &st, None);
+    s.lines[0].write(1, glyph, Width::Narrow, &st, link);
     s.damage.mark_cell(0, 1);
     s.text(2, 0, "b", style(rgb(FG), rgb(BG)));
     s
@@ -56,6 +73,7 @@ fn background_only() -> Screen {
 }
 
 // covers: image.kitty-placeholders
+#[cfg(feature = "images")]
 #[test]
 fn a_placeholder_cell_draws_only_its_background() {
     let want = draw(&background_only(), false);
@@ -71,6 +89,7 @@ fn a_placeholder_cell_draws_only_its_background() {
 // Only a cluster that starts with U+10EEEE is a placeholder: one that holds
 // it after another character is text, drawn with its decorations.
 // covers: image.kitty-placeholders
+#[cfg(feature = "images")]
 #[test]
 fn a_cluster_that_holds_the_placeholder_later_draws_as_text() {
     let text = Glyph::Cluster("a\u{10EEEE}");
@@ -87,6 +106,7 @@ fn a_cluster_that_holds_the_placeholder_later_draws_as_text() {
 }
 
 // covers: image.kitty-placeholders
+#[cfg(feature = "images")]
 #[test]
 fn the_cursor_draws_over_a_placeholder_cell() {
     let at_placeholder = |shape| {
@@ -113,4 +133,39 @@ fn the_cursor_draws_over_a_placeholder_cell() {
     // a bar draws its left eighth block
     let s = at_placeholder(CursorShape::Bar);
     assert!(draw(&s, true) == draw(&screen(Glyph::Char('\u{258F}'), plain), false));
+}
+
+// The pointer over a link of placeholder cells draws no dashed underline
+// there, as the cell draws no underline of its own.
+// covers: image.kitty-placeholders
+#[cfg(feature = "images")]
+#[test]
+fn a_hovered_link_draws_no_dash_on_a_placeholder_cell() {
+    let link = LinkId::new(7);
+    let s = linked(Glyph::Cluster(PLACEHOLDER), decorated(), Some(link));
+    let hovered = draw_hovered(&s, false, Some(link));
+    assert!(hovered == draw(&background_only(), false));
+}
+
+// Without `images`, U+10EEEE draws as another private-use character does,
+// with its decorations.
+#[cfg(not(feature = "images"))]
+#[test]
+fn without_images_the_placeholder_is_text() {
+    let other = draw(&screen(Glyph::Char('\u{10EEED}'), decorated()), false);
+    let placeholder = draw(&screen(Glyph::Char('\u{10EEEE}'), decorated()), false);
+    assert!(placeholder == other);
+    let plain = draw(
+        &screen(Glyph::Cluster(PLACEHOLDER), style(rgb(FG), rgb(BG))),
+        false,
+    );
+    assert!(
+        plain != draw(&background_only(), false),
+        "the glyph is not drawn"
+    );
+    let decorated = draw(&screen(Glyph::Cluster(PLACEHOLDER), decorated()), false);
+    assert!(
+        decorated != plain,
+        "the underline and strike-through are not drawn"
+    );
 }
