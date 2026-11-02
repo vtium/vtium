@@ -17,6 +17,10 @@ use crate::pointer::Plane;
 /// two in the minspec build, vtium's default build. One buffer is for a
 /// build smaller than minspec, which none is yet; [`Buffers::One`] reaches
 /// it through the setting.
+///
+/// The features named here are all of crates/vtium's features but
+/// `default`. A test holds the two lists equal, so a feature added to
+/// Cargo.toml fails it until it is named here too.
 pub const BUILD_BUFFERS: Buffers = if cfg!(any(feature = "images", feature = "logind")) {
     Buffers::Three
 } else {
@@ -322,6 +326,27 @@ mod tests {
         assert_eq!(counts, [Buffers::One, Buffers::Two, Buffers::Three]);
         assert_eq!(display_buffers(None), BUILD_BUFFERS);
         assert_eq!(display_buffers(Some(4)), BUILD_BUFFERS);
+    }
+
+    /// The features BUILD_BUFFERS names as added on top of minspec.
+    const ON_TOP: [&str; 2] = ["images", "logind"];
+
+    // Every feature of the crate but `default` adds to minspec, so each is
+    // one BUILD_BUFFERS gives three buffers for: a new feature fails this
+    // test until it is named in BUILD_BUFFERS and here.
+    #[test]
+    fn build_buffers_names_every_feature_on_top_of_minspec() {
+        let manifest = include_str!("../Cargo.toml");
+        let mut features: Vec<&str> = manifest
+            .lines()
+            .skip_while(|l| l.trim() != "[features]")
+            .skip(1)
+            .take_while(|l| !l.trim_start().starts_with('['))
+            .filter_map(|l| l.split_once('=').map(|(name, _)| name.trim()))
+            .filter(|name| !name.starts_with('#') && *name != "default")
+            .collect();
+        features.sort_unstable();
+        assert_eq!(features, ON_TOP);
     }
 
     // ADR-1401 D2: a build that adds features on top of minspec keeps
