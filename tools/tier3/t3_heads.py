@@ -74,6 +74,11 @@ SYSTEMD_ONFAILURE_EACH = 254
 # kills the running vtium and each of the 5 the unit starts after it, and
 # systemd refuses the sixth start: 6 kills.
 START_LIMIT_BURST = 5
+# Under open the most kills the start-limit check may send: the first, and
+# a second when the unit started vtium again after its 100 ms before the
+# getty's start stopped the unit. A third means the getty did not take the
+# VT at the first failure.
+OPEN_LIMIT_KILLS = 2
 # The kernel console's cell on the guest's 640x480 display, the font the
 # kernel draws a VT in once vtium has left it: past the start limit the VT
 # is blank but for the cursor in its first cell.
@@ -135,8 +140,9 @@ CHECKS = {
                    "fallback skipped on its condition, the marker there, no getty started "
                    "on tty2 since boot, and the VT blank but for the kernel console's "
                    "cursor; started by hand, vtium draws its first screen again. Correct "
-                   "under open: the first kill ends it, as the getty takes the VT and stops "
-                   "vtium's unit before the limit. The capture is tty2 once the unit "
+                   "under open: at most 2 kills, the first and one more if the unit started "
+                   "vtium again before the getty's start stopped it, as the getty takes the "
+                   "VT at the first failure. The capture is tty2 once the unit "
                    "stopped restarting (ADR-1401 D9).",
     "display-held": "No display device under a closed policy: vtium on tty2 read past "
                     "display-wait. Correct: the same vtium still running, no line that no "
@@ -464,10 +470,11 @@ def judge_limit(closed, answer, before, state):
     vt = unit(state, VTIUM_UNIT)
     ours = vtium_words(words)
     if not closed:
-        # the getty takes the VT and stops vtium's unit before its limit
-        if not 1 <= kills <= START_LIMIT_BURST or "failed:start-limit-hit" in ours:
-            return ("under the open policy the kills went on to vtium's start limit: %d kills, "
-                    "systemd logged %s" % (kills, " ".join(ours)))
+        # the getty takes the VT at the first failure and stops vtium's unit
+        if not 1 <= kills <= OPEN_LIMIT_KILLS or "failed:start-limit-hit" in ours:
+            return ("under the open policy the getty did not take the VT at the first failure: "
+                    "%d kills, not 1 or %d, and systemd logged %s" % (
+                        kills, OPEN_LIMIT_KILLS, " ".join(ours)))
         return judge_fallback("kill", before, state)
     if kills != START_LIMIT_BURST + 1:
         return ("vtium's unit stopped restarting after %d kills, not the %d that systemd's "

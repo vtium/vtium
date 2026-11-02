@@ -3552,9 +3552,24 @@ class HeadsTest(unittest.TestCase):
         one = ["sent KILL to 900", "stopped inactive dead success after 1 kills"]
         self.assertIsNone(t3_heads.judge_limit(False, one, before, t3_heads.parse_state(
             agent_state(**opened))))
+        # a second kill, when the unit started vtium again before the
+        # getty's start stopped it
+        two = ["sent KILL to 900", "sent KILL to 901",
+               "stopped inactive dead success after 2 kills"]
+        self.assertIsNone(t3_heads.judge_limit(False, two, before, t3_heads.parse_state(
+            agent_state(**dict(opened, journal=boot + [
+                "failed:signal", "restart:1", "started", "failed:signal", "fell-back",
+                "fell-back", "stopped"])))))
+        three = ["sent KILL to %d" % n for n in (900, 901, 902)] + [
+            "stopped inactive dead success after 3 kills"]
+        got = t3_heads.judge_limit(False, three, before, t3_heads.parse_state(agent_state(
+            **dict(opened, journal=boot + ["failed:signal", "restart:1", "started"] * 2 + [
+                "failed:signal", "fell-back", "stopped"]))))
+        self.assertTrue(got.startswith("under the open policy the getty did not take the VT "
+                                       "at the first failure: 3 kills"), got)
         got = t3_heads.judge_limit(False, answer, before, t3_heads.parse_state(agent_state(
             **dict(opened, journal=boot + words))))
-        self.assertTrue(got.startswith("under the open policy the kills went on"), got)
+        self.assertTrue(got.startswith("under the open policy the getty did not take"), got)
         got = t3_heads.judge_limit(False, one, before, t3_heads.parse_state(agent_state(
             **dict(opened, getty="inactive", tty2=""))))
         self.assertTrue(got.startswith("after the kill no getty runs"), got)
