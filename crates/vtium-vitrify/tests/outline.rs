@@ -750,6 +750,24 @@ fn an_answer_reads_back_and_each_malformed_one_is_refused() {
 }
 
 #[test]
+fn a_color_glyph_brighter_than_its_alpha_in_its_last_pixel_is_refused() {
+    // The check reads every pixel, not only the first: the glyph's last
+    // pixel made brighter than its alpha refuses the answer too.
+    let req = request(&[(0, 10)], &[]);
+    let mut bad = rasterise(&req).expect("rasterised");
+    let e = bad.strikes[0]
+        .glyphs
+        .iter_mut()
+        .find(|g| g.color)
+        .expect("a color glyph");
+    let last = e.pixels.len() - 4;
+    assert!(last > 0, "the color glyph has more than one pixel");
+    e.pixels[last..].copy_from_slice(&[9, 0, 0, 8]);
+    let err = Outline::decode(&bad.encode(), &req).expect_err("a bright last pixel");
+    assert!(err.contains("not premultiplied"), "{err}");
+}
+
+#[test]
 fn the_request_reads_back() {
     let r = request(&[(0, 10), (8, 16)], &[(0x41, 0x5a)]);
     assert_eq!(OutlineRequest::decode(&r.encode()), Ok(r.clone()));
