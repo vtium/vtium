@@ -1741,25 +1741,56 @@ impl App {
                 }
             }
             // A modeset or a wake-up may have given the display a new
-            // mode in place, on the same connector. Its view is then laid
-            // out again at the display's new size: a view left at the old
-            // size never draws, because every token the display lends has
-            // the new size.
+            // mode in place, on the same connector. Its view then draws
+            // with a new renderer at the display's new size, and the head
+            // is laid out again: a view left at the old size never draws,
+            // because every token the display lends has the new size.
             Event::Redraw(id) => {
                 let key = (node.to_owned(), id);
                 let mode = self
                     .videos
                     .get(node)
-                    .map(|video| (video.size(id), video.refresh_mhz(id)));
+                    .and_then(|video| Some((video.size(id)?, video.refresh_mhz(id))));
+                let name = self.videos.get(node).map(|video| video.name(id));
+                let App {
+                    heads,
+                    config,
+                    locale,
+                    ..
+                } = self;
                 let mut resized = None;
-                for (h, head) in self.heads.iter_mut().enumerate() {
-                    if let Some(v) = head.views.get_mut(&key) {
-                        v.lost = true;
-                        head.draw_now = true;
-                        if let Some((Some(size), refresh)) = mode.filter(|m| m.0 != Some(v.size)) {
-                            v.resize(size, refresh);
+                for (h, head) in heads.iter_mut().enumerate() {
+                    let Some(v) = head.views.get(&key) else {
+                        continue;
+                    };
+                    let height = v.height;
+                    let new = mode.filter(|&(size, _)| size != v.size);
+                    let font = new.map(|_| {
+                        head.face(height, locale)
+                            .map(|face| head.font_at(face, config))
+                    });
+                    let render = head.render_config(config);
+                    head.draw_now = true;
+                    let Some(v) = head.views.get_mut(&key) else {
+                        continue;
+                    };
+                    v.lost = true;
+                    match (new, font) {
+                        (Some((size, refresh)), Some(Ok(font))) => {
+                            v.resize(font, size, refresh, render);
                             resized = Some(h);
                         }
+                        // With no font at its height the view keeps its
+                        // size and its renderer, so it never draws at a
+                        // size its renderer was not made for; it draws
+                        // nothing until the next set-up.
+                        (Some((size, _)), Some(Err(e))) => log::warn!(
+                            "cannot draw display {} at its new size {}x{}: {e}",
+                            name.as_deref().unwrap_or("?"),
+                            size.0,
+                            size.1
+                        ),
+                        _ => {}
                     }
                 }
                 if let Some(h) = resized {

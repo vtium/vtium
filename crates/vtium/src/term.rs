@@ -647,14 +647,20 @@ impl View {
     }
 
     /// The display's new mode, which a modeset set in place on the same
-    /// connector: the view takes `size` and `refresh_mhz`, and its height
-    /// is unknown again, as a new view's is, so the next layout gives it a
-    /// renderer at the new size, which draws the next frame whole.
-    pub fn resize(&mut self, size: (u32, u32), refresh_mhz: Option<u32>) {
+    /// connector: the view takes `size` and `refresh_mhz` and draws from
+    /// here on with a new renderer at that size, with `font` at the height
+    /// it had, so the next frame is drawn whole. The view's size is always
+    /// its renderer's: it changes only with the renderer.
+    pub fn resize(
+        &mut self,
+        font: Font<DisplayFace>,
+        size: (u32, u32),
+        refresh_mhz: Option<u32>,
+        config: RenderConfig,
+    ) {
         self.size = size;
         self.refresh = refresh(refresh_mhz);
-        self.height = 0;
-        self.lost = true;
+        self.rebuild(font, self.height, config);
     }
 
     /// Draws another screen from the next frame, as a console switch
