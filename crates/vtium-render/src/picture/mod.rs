@@ -175,9 +175,9 @@ struct Geometry {
     pic: Area,
     /// The part it draws.
     clip: Area,
-    /// The source rectangle the whole picture shows.
+    /// The source rectangle the whole picture shows: its crop.
     src: (u32, u32, u32, u32),
-    /// Drawn at the source's own size.
+    /// Drawn at the crop's own size, in the renderer's cell.
     own_size: bool,
 }
 
@@ -197,14 +197,17 @@ fn geometry(p: &FramePlacement, (cw, ch): (u32, u32), (gw, gh): (i64, i64)) -> O
         && mh > 0
         && p.width > 0
         && p.height > 0
-        && p.src_width > 0
-        && p.src_height > 0
+        && p.crop_width > 0
+        && p.crop_height > 0
         && p.cols > 0
         && p.rows > 0
         && u64::try_from(p.pixels.as_slice().len()).ok() == Some(pixels)
-        && fits(p.src_x, p.src_width, iw)
-        && fits(p.src_y, p.src_height, ih);
-    if !well_formed {
+        && fits(p.crop_x, p.crop_width, iw)
+        && fits(p.crop_y, p.crop_height, ih);
+    let (Ok(dw), Ok(dh)) = (i64::try_from(p.drawn_width), i64::try_from(p.drawn_height)) else {
+        return None;
+    };
+    if !well_formed || dw <= 0 || dh <= 0 {
         return None;
     }
     let (cw, ch) = (i64::from(cw), i64::from(ch));
@@ -239,18 +242,19 @@ fn geometry(p: &FramePlacement, (cw, ch): (u32, u32), (gw, gh): (i64, i64)) -> O
         w: gw,
         h: gh,
     };
-    // a placement shown at its source's pixel size, as every sixel is,
-    // shows the whole image, which its pieces and its scrolling share
-    let own_size = p.width == p.src_width && p.height == p.src_height;
-    let (pic, src) = if own_size {
-        let ox = mx.saturating_sub(i64::from(p.src_x));
-        let oy = my.saturating_sub(i64::from(p.src_y));
-        let (x, w) = span(ox, ox.saturating_add(i64::from(iw)), cw, mw);
-        let (y, h) = span(oy, oy.saturating_add(i64::from(ih)), ch, mh);
-        (Area { x, y, w, h }, (0, 0, iw, ih))
-    } else {
-        (visible, (p.src_x, p.src_y, p.src_width, p.src_height))
-    };
+    // the whole drawn picture, its crop at its scale: every piece a cut or
+    // a scroll leaves of one placement names the same picture, so they
+    // share one copy, and the copy reads nothing past the crop
+    let ox = i64::from(p.col)
+        .saturating_mul(mw)
+        .saturating_add(p.offset_x);
+    let oy = p.row.saturating_mul(mh).saturating_add(p.offset_y);
+    let (x, w) = span(ox, ox.saturating_add(dw), cw, mw);
+    let (y, h) = span(oy, oy.saturating_add(dh), ch, mh);
+    let pic = Area { x, y, w, h };
+    let src = (p.crop_x, p.crop_y, p.crop_width, p.crop_height);
+    let own_size =
+        p.drawn_width == u64::from(p.crop_width) && p.drawn_height == u64::from(p.crop_height);
     let clip = meet(&meet(&meet(&visible, &in_box), &grid), &pic);
     if clip.w <= 0 || clip.h <= 0 || pic.w <= 0 || pic.h <= 0 {
         return None;
@@ -547,7 +551,13 @@ impl Pictures {
         let row = |stride: i64| at(dy.saturating_mul(stride).saturating_add(dx));
         let src: &[u32] = match &pic.how {
             How::Direct => {
-                let start = row(i64::from(pic.key.image_size.0));
+                // the crop's pixel under the display's, in the image's rows
+                let (cx, cy) = (i64::from(pic.key.src.0), i64::from(pic.key.src.1));
+                let start = at(dy
+                    .saturating_add(cy)
+                    .saturating_mul(i64::from(pic.key.image_size.0))
+                    .saturating_add(dx)
+                    .saturating_add(cx));
                 pic.pixels
                     .as_slice()
                     .get(start..start.saturating_add(n))

@@ -497,11 +497,11 @@ fn malformed_zero_sized_and_huge_placements_draw_safely() {
     let nothing: [&dyn Fn(&mut FramePlacement); 8] = [
         &|p| p.width = 0,
         &|p| p.height = 0,
-        &|p| p.src_width = 0,
+        &|p| p.crop_width = 0,
         &|p| p.cell_width = 0,
         &|p| p.cols = 0,
         &|p| p.pixels = Pixels::new(vec![0xffff_ffff; 3]),
-        &|p| p.src_x = 60,
+        &|p| p.crop_x = 60,
         &|p| p.row = -100,
     ];
     for (i, f) in nothing.iter().enumerate() {
@@ -1080,4 +1080,53 @@ fn a_picture_on_a_1_bit_display_draws_black_and_white() {
     let lit = c.pixels().iter().filter(|&&p| p == 0xff_ffff).count();
     assert!(c.pixels().iter().all(|&p| p == 0 || p == 0xff_ffff));
     assert!(lit > 0 && lit < c.pixels().len());
+}
+
+// A cropped picture shows its crop and nothing past it, at any size: the
+// C reference keyed its copies on the visible source rectangle and never
+// read past the crop
+// covers: image.compositor
+#[test]
+fn a_cropped_picture_never_shows_the_pixels_past_its_crop() {
+    const RED: u32 = 0xffc0_0000;
+    let s = Screen::new(10, 4, rgb("c0c0c0"), rgb("000000"));
+    // the left half red, the right half blue; the placement shows the left
+    let half = |x: u32, _: u32| if x < 8 { RED } else { BLUE };
+    for font in [16u32, 32, 24] {
+        let mut con = Console::new(10, 4, 0);
+        let img = con.image(Protocol::KITTY, 1, (16, 16), half);
+        con.place(
+            img,
+            Place {
+                col: 1,
+                row: 0,
+                src_width: 8,
+                ..Place::default()
+            },
+        );
+        let (c, _) = if font == 24 {
+            draw_with(psf(12, 24), &s, con.frame(0), (120, 96), Config::default())
+        } else {
+            let f = vtium_font::Font::new(vtium_font::Unifont::new(font));
+            let scale = font / 16;
+            draw_with(
+                f,
+                &s,
+                con.frame(0),
+                (80 * scale, 64 * scale),
+                Config::default(),
+            )
+        };
+        // the box is one cell at column 1: its pixels are all red
+        let (cw, ch) = match font {
+            16 => (8, 16),
+            32 => (16, 32),
+            _ => (12, 24),
+        };
+        for y in 0..ch {
+            for x in cw..2 * cw {
+                assert_eq!(c.pixel(x, y), Some(RED & 0xff_ffff), "{font}: {x},{y}");
+            }
+        }
+    }
 }
