@@ -28,7 +28,7 @@ use rustix::runtime_448b8ad740e2a26f::{
     kernel_sigprocmask,
 };
 use rustix::termios::{
-    OptionalActions, SpecialCodeIndex, Winsize, tcgetattr, tcsetattr, tcsetwinsize,
+    OptionalActions, SpecialCodeIndex, Winsize, tcgetattr, tcgetsid, tcsetattr, tcsetwinsize,
 };
 
 use crate::channel::{Channel, Endpoint, Next};
@@ -360,27 +360,53 @@ pub(crate) unsafe fn default_signals() -> io::Result<()> {
 }
 
 impl Drop for Pty {
-    /// Sends SIGHUP to a child still running, then removes the pty from its
-    /// loop and closes the master, which hangs up the child's session. A
-    /// child still running is reaped by the loop when it exits.
+    /// Sends SIGHUP to the leader of the pty's session, then removes the
+    /// pty from its loop and closes the master, which hangs up the session.
+    /// A child still running is reaped by the loop when it exits.
     ///
     /// The signal goes first because the kernel's hangup ends the session's
     /// input before it signals the session's leader: closing the master
     /// wakes a reader of the pty with EIO, and only then sends SIGHUP to
     /// the leader. A leader that reads the pty can see the EIO and exit in
     /// between, so the kernel's SIGHUP finds no process and the session is
-    /// never told it was hung up. Sent through the child's pidfd before the
-    /// master closes, SIGHUP is pending in the leader before its input
-    /// ends.
+    /// never told it was hung up. Sent before the master closes, SIGHUP is
+    /// pending in the leader before its input ends.
     fn drop(&mut self) {
-        if self.child.is_some() {
-            let _ = pidfd_send_signal(&*self.pidfd, Signal::HUP);
-        }
+        self.signal_leader();
         let Some(link) = self.link.take() else {
             return;
         };
         if let Some(child) = self.child.take() {
             link.reap(child, Rc::clone(&self.pidfd));
+        }
+    }
+}
+
+impl Pty {
+    /// Sends SIGHUP to the process the kernel's hangup signals: the leader
+    /// of the session whose controlling terminal the pty is. That is the
+    /// child vtium started until the child hands the pty on, as login does:
+    /// its first process gives the pty up and forks, and the fork starts a
+    /// new session on the pty, so the shell leads the session and the
+    /// child is outside it. The leader is found by its session id and
+    /// reached through a pidfd, which is used only when the pty still names
+    /// that session after the pidfd is open: the kernel clears the pty's
+    /// session when its leader exits, so a process that took the leader's
+    /// id since is never signalled. With no session on the pty, a child
+    /// still running gets the signal.
+    fn signal_leader(&self) {
+        let leader = tcgetsid(&*self.master).ok().and_then(|sid| {
+            let pidfd = pidfd_open(sid, PidfdFlags::empty()).ok()?;
+            (tcgetsid(&*self.master).ok() == Some(sid)).then_some(pidfd)
+        });
+        match leader {
+            Some(pidfd) => {
+                let _ = pidfd_send_signal(&pidfd, Signal::HUP);
+            }
+            None if self.child.is_some() => {
+                let _ = pidfd_send_signal(&*self.pidfd, Signal::HUP);
+            }
+            None => {}
         }
     }
 }

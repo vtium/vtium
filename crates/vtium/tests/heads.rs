@@ -1769,10 +1769,11 @@ fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_
 
 /// D5: closing the console shown closes its pty, so its programs get
 /// SIGHUP, as on a hang-up; the other consoles' sessions run on. Each
-/// session reads its pty, so its read ends as the pty closes, which is
-/// when a session the close did not signal first leaves without the
-/// SIGHUP. Ids are each head's own, and the large head's console is 1 too,
-/// so each marker names its head.
+/// session waits in `read` on its pty. When the pty closes, the kernel
+/// ends that read before it sends its own SIGHUP, so a shell that vtium
+/// did not signal before the close can leave its loop and exit without
+/// ever running its trap. Ids are each head's own, and the large head's
+/// console is 1 too, so each marker names its head.
 // covers: platform.heads
 #[test]
 fn closing_a_console_hangs_up_its_session_alone() {
