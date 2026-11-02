@@ -709,6 +709,9 @@ struct Reserving(Option<vtium_term::images::Reservation>);
 
 impl Handler for Reserving {
     fn start(&mut self, ctx: &mut dyn Context, _: Intro<'_>) {
+        if let Some(r) = self.0.take() {
+            ctx.unreserve(r);
+        }
         self.0 = ctx.reserve(Protocol::SIXEL, 0, 4096).ok();
     }
     fn feed(&mut self, _: &mut dyn Context, _: Chunk<'_>) {}
