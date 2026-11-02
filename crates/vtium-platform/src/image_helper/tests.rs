@@ -13,7 +13,23 @@ use vtium_image::decode::{Medium, Reply, Request};
 
 use super::identity::Account;
 use super::start::{self, Program, refusal};
-use super::{inline_file, memory_cap, pixels, without_helper};
+use super::{checked_file, inline_file, memory_cap, without_helper};
+
+/// The bytes of the reply file `fd` once [`checked_file`] has checked it,
+/// read out of it, or its refusal.
+fn read(
+    fd: &std::os::fd::OwnedFd,
+    header: &ReplyHeader,
+    request: &Request,
+) -> Result<Vec<u8>, &'static str> {
+    let file = checked_file(fd.try_clone().unwrap(), header, request)?;
+    let mut out = Vec::new();
+    assert!(
+        file.read(&mut |run| out.extend_from_slice(run)),
+        "a short read"
+    );
+    Ok(out)
+}
 
 fn request(medium: Medium) -> Request {
     Request {
@@ -126,26 +142,26 @@ fn a_replys_seals_are_checked_before_its_size() {
     // the shrink seal holds the size could change under a mapping
     let both = reply_file(5, SealFlags::empty());
     assert_eq!(
-        pixels(&both, &header(false), &r),
+        read(&both, &header(false), &r),
         Err("a reply's memory file is not sealed")
     );
     let pooled_both = reply_file(5, SealFlags::SHRINK);
     assert_eq!(
-        pixels(&pooled_both, &header(true), &r),
+        read(&pooled_both, &header(true), &r),
         Err("a reply's memory file is not sealed")
     );
     // sealed, the size is read next
     let wrong = reply_file(5, sealed);
     assert_eq!(
-        pixels(&wrong, &header(false), &r),
+        read(&wrong, &header(false), &r),
         Err("a reply's memory file is not exactly the size asked for")
     );
     assert_eq!(
-        pixels(&reply_file(4, sealed), &header(false), &r),
+        read(&reply_file(4, sealed), &header(false), &r),
         Ok(vec![0; 4])
     );
     let pooled = reply_file(4, SealFlags::SHRINK | SealFlags::GROW);
-    assert_eq!(pixels(&pooled, &header(true), &r), Ok(vec![0; 4]));
+    assert_eq!(read(&pooled, &header(true), &r), Ok(vec![0; 4]));
 }
 
 /// The variable that tells this test binary, run again in a user

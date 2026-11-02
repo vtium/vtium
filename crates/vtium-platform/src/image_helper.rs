@@ -22,9 +22,12 @@
 //! - **The reply.** Every packet is checked in the C reference's order:
 //!   a request out, the exact length, the version, id and status, the
 //!   bytes ignored, the one descriptor of a picture, a regular file whose
-//!   seals hold before its size is read, the exact size. Then the console
-//!   copies the pixels once into memory only it holds: out of a read-only
-//!   mapping of a sealed file, or with `pread` from a pooled one.
+//!   seals hold before its size is read, the exact size. The reply then
+//!   carries the file itself, unread, as a [`ReplyFile`]: the handler
+//!   reserves the picture's bytes under the budget first, and only then
+//!   copies the pixels once into that buffer, clamping them as it goes,
+//!   out of a read-only mapping of a sealed file or with `pread` from a
+//!   pooled one.
 //! - **Failures.** The socket failing, or a reply that fails a check,
 //!   ends the request with [`Reply::Failed`], kills the helper's process
 //!   group and reaps it, and counts a crash. A helper found exited, or
@@ -60,7 +63,7 @@ use rustix::net::{
     SendAncillaryMessage, SendFlags,
 };
 use vtium_image::decode::wire::{self, Hello, REASON_MAX, REPLY_FIXED, ReplyHeader, Status};
-use vtium_image::decode::{Medium, Payload, Reply, Request};
+use vtium_image::decode::{Medium, Payload, Reply, ReplyFile, ReplySource, Request};
 
 pub use identity::{
     Account, Facts, LOGIN_CLASSES, LoginSession, Me, PRELOGIN_ACCOUNTS, Prelogin, Refusal, Session,
@@ -407,7 +410,7 @@ impl ImageHost {
     }
 
     /// One reply packet checked against the request out, before any byte
-    /// of a picture is read, and its pixels copied.
+    /// of a picture is read; its picture stays in its file, unread.
     fn check(&mut self, mut packet: Packet) -> Result<Reply, &'static str> {
         let out = self.out.as_ref().ok_or("a reply with no request out")?;
         let header = wire::decode_reply(&packet.bytes).map_err(|m| m.0)?;
@@ -441,7 +444,7 @@ impl ImageHost {
             .fds
             .pop()
             .ok_or("a reply without exactly one descriptor")?;
-        let data = pixels(&fd, &header, request)?;
+        let file = checked_file(fd, &header, request)?;
         if header.ignored != 0 {
             log::debug!(
                 "image request {}, t={}: {} bytes past what was used ignored",
@@ -450,10 +453,10 @@ impl ImageHost {
                 header.ignored
             );
         }
-        Ok(Reply::Ok(Payload::Rgba {
+        Ok(Reply::Ok(Payload::File {
             width: header.width,
             height: header.height,
-            data,
+            file,
         }))
     }
 }
@@ -622,14 +625,18 @@ fn receive(socket: impl AsFd) -> Result<Option<Packet>, Broken> {
     Ok(Some(Packet { bytes, fds }))
 }
 
-/// The pixels of an OK reply in `fd`, checked before any is read: a size
-/// within `max-graphic-size` and the budget, and the size the request
+/// The picture of an OK reply in `fd`, checked before any of it is read: a
+/// size within `max-graphic-size` and the budget, and the size the request
 /// described if it did; a regular file; its seals, before its size, since
 /// until the shrink seal holds the helper could cut the file under a
-/// mapping and fault the root process; then exactly that size. A sealed
-/// file is copied out of a read-only mapping and a pooled one read with
-/// `pread`, each byte once, into memory only the console holds.
-fn pixels(fd: &OwnedFd, header: &ReplyHeader, request: &Request) -> Result<Vec<u8>, &'static str> {
+/// mapping and fault the root process; then exactly that size. Nothing is
+/// read here: the handler reads the file once, after it has reserved the
+/// picture's bytes ([`MemoryFile`]).
+fn checked_file(
+    fd: OwnedFd,
+    header: &ReplyHeader,
+    request: &Request,
+) -> Result<ReplyFile, &'static str> {
     let (w, h) = (header.width, header.height);
     if w == 0 || h == 0 || w > request.largest.0 || h > request.largest.1 {
         return Err("a reply's size is outside max-graphic-size");
@@ -649,11 +656,11 @@ fn pixels(fd: &OwnedFd, header: &ReplyHeader, request: &Request) -> Result<Vec<u
         .filter(|&n| n <= request.largest_bytes)
         .ok_or("a reply larger than the budget")?;
     let len = usize::try_from(bytes).map_err(|_| "a reply larger than the budget")?;
-    let st = rustix::fs::fstat(fd).map_err(|_| "a reply's descriptor cannot be read")?;
+    let st = rustix::fs::fstat(&fd).map_err(|_| "a reply's descriptor cannot be read")?;
     if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile {
         return Err("a reply's descriptor is not a regular file");
     }
-    let seals = rustix::fs::fcntl_get_seals(fd).map_err(|_| "a reply's file is no memory file")?;
+    let seals = rustix::fs::fcntl_get_seals(&fd).map_err(|_| "a reply's file is no memory file")?;
     let mut need = SealFlags::SHRINK | SealFlags::GROW;
     if !header.pooled {
         // F_SEAL_FUTURE_WRITE does not stand in for F_SEAL_WRITE
@@ -662,37 +669,77 @@ fn pixels(fd: &OwnedFd, header: &ReplyHeader, request: &Request) -> Result<Vec<u
     if !seals.contains(need) {
         return Err("a reply's memory file is not sealed");
     }
-    let st = rustix::fs::fstat(fd).map_err(|_| "a reply's descriptor cannot be read")?;
+    let st = rustix::fs::fstat(&fd).map_err(|_| "a reply's descriptor cannot be read")?;
     if u64::try_from(st.st_size).ok() != Some(bytes) {
         return Err("a reply's memory file is not exactly the size asked for");
     }
-    let data = if header.pooled {
-        read_all(fd, len)
-    } else {
-        copy_mapped(fd, len)
-    };
-    data.map_err(|_| "a reply's memory file cannot be read whole")
+    Ok(ReplyFile::new(MemoryFile {
+        fd,
+        len,
+        pooled: header.pooled,
+    }))
 }
 
-/// `len` bytes of `fd` from its start, with `pread`; fewer fails.
-fn read_all(fd: &OwnedFd, len: usize) -> std::io::Result<Vec<u8>> {
-    let mut out = vec![0u8; len];
+/// A reply's checked memory file, read once when the handler asks: a
+/// sealed one out of a read-only mapping, a pooled one with `pread` in
+/// runs of [`RUN`] bytes through a buffer on the stack, so neither way
+/// allocates anything the size of the picture.
+#[derive(Debug)]
+struct MemoryFile {
+    fd: OwnedFd,
+    len: usize,
+    pooled: bool,
+}
+
+/// The bytes of a pooled file each `pread` run takes: a whole number of
+/// pixels.
+const RUN: usize = 16 << 10;
+
+impl ReplySource for MemoryFile {
+    fn bytes(&self) -> u64 {
+        u64::try_from(self.len).unwrap_or(u64::MAX)
+    }
+
+    fn read(&self, sink: &mut dyn FnMut(&[u8])) -> bool {
+        let read = if self.pooled {
+            read_runs(&self.fd, self.len, sink)
+        } else {
+            read_mapped(&self.fd, self.len, sink)
+        };
+        if let Err(why) = &read {
+            log::debug!("an image reply's memory file cannot be read whole: {why}");
+        }
+        read.is_ok()
+    }
+}
+
+/// `len` bytes of `fd` from its start, with `pread`, handed to `sink` a
+/// full run at a time; fewer fails.
+fn read_runs(fd: &OwnedFd, len: usize, sink: &mut dyn FnMut(&[u8])) -> std::io::Result<()> {
+    let mut run = [0u8; RUN];
     let mut done = 0usize;
     while done < len {
-        let at = u64::try_from(done).unwrap_or(u64::MAX);
-        match rustix::io::pread(fd, out.get_mut(done..).unwrap_or_default(), at) {
-            Ok(0) => return Err(std::io::Error::other("a short read")),
-            Ok(n) => done = done.saturating_add(n),
-            Err(rustix::io::Errno::INTR) => {}
-            Err(e) => return Err(e.into()),
+        let want = RUN.min(len.saturating_sub(done));
+        let mut filled = 0usize;
+        while filled < want {
+            let at = u64::try_from(done.saturating_add(filled)).unwrap_or(u64::MAX);
+            let into = run.get_mut(filled..want).unwrap_or_default();
+            match rustix::io::pread(fd, into, at) {
+                Ok(0) => return Err(std::io::Error::other("a short read")),
+                Ok(n) => filled = filled.saturating_add(n),
+                Err(rustix::io::Errno::INTR) => {}
+                Err(e) => return Err(e.into()),
+            }
         }
+        sink(run.get(..want).unwrap_or_default());
+        done = done.saturating_add(want);
     }
-    Ok(out)
+    Ok(())
 }
 
-/// `len` bytes of the sealed memory file `fd`, copied out of a private,
-/// read-only mapping of it.
-fn copy_mapped(fd: &OwnedFd, len: usize) -> std::io::Result<Vec<u8>> {
+/// The `len` bytes of the sealed memory file `fd`, handed to `sink` out of
+/// a private, read-only mapping of it.
+fn read_mapped(fd: &OwnedFd, len: usize, sink: &mut dyn FnMut(&[u8])) -> std::io::Result<()> {
     use rustix::mm::{MapFlags, ProtFlags};
     #[expect(
         unsafe_code,
@@ -714,11 +761,12 @@ fn copy_mapped(fd: &OwnedFd, len: usize) -> std::io::Result<Vec<u8>> {
     };
     #[expect(unsafe_code, reason = "the mapped bytes, read once")]
     // SAFETY: `ptr` starts a readable mapping of `len` bytes, alive until
-    // the munmap below, and nothing writes through it.
-    let copy = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) }.to_vec();
+    // the munmap below, and nothing writes through it; the sealed file
+    // cannot be written either.
+    sink(unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) });
     #[expect(unsafe_code, reason = "undoing the mapping made above")]
-    // SAFETY: `ptr` and `len` are the mapping made above, and the slice
-    // of it has been dropped.
+    // SAFETY: `ptr` and `len` are the mapping made above, and `sink` has
+    // returned, so nothing holds the slice of it.
     let _ = unsafe { rustix::mm::munmap(ptr, len) };
-    Ok(copy)
+    Ok(())
 }

@@ -316,17 +316,17 @@ $(VT_GOALS): export VTIUM_VT_STEPS =
 
 .PHONY: vt-demo
 vt-demo: export VTIUM_VT_SESSION = demo
-vt-demo: $(vt_build) $(vt_helper_build) ## Run vtium with the demo on a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
+vt-demo: $(vt_build) $(vt_helper_build) ## Run vtium with the demo on the development VT or a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-login
 vt-login: export VTIUM_VT_SESSION = login
-vt-login: $(vt_build) $(vt_helper_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-login: $(vt_build) $(vt_helper_build) ## Run vtium with a login prompt on the development VT or a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-shell
 vt-shell: export VTIUM_VT_SESSION = shell
-vt-shell: $(vt_build) $(vt_helper_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-shell: $(vt_build) $(vt_helper_build) ## Run your login shell, as you, in vtium on the development VT or a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # Without GUIDE it fails before the build, naming the guides.
@@ -339,7 +339,7 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) $(vt_helper_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
+vt-check: $(vt_build) $(vt_helper_build) ## Run a guide's checks on the development VT or a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # A development build of vtium as the console of one VT, across reboots,

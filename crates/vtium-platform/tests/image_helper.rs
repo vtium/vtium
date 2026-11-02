@@ -24,6 +24,7 @@ use std::io::{IoSlice, IoSliceMut};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 
 use rustix::event::{PollFd, PollFlags, Timespec};
 use rustix::fs::{MemfdFlags, SealFlags};
@@ -33,6 +34,59 @@ use rustix::net::{
 use vtium_image::decode::wire::{self, Hello, ReplyHeader, Status};
 use vtium_image::decode::{Alpha, Description, Layout, Medium, Payload, Reply, Request};
 use vtium_platform::image_helper::{ImageHost, Program, Session, memory_cap};
+
+// ---- the count of large allocations ----
+
+/// The size from which an allocation counts as one of a picture's
+/// buffers: the 256 by 256 picture of the one-copy case, 4 bytes a pixel.
+const BIG: usize = 256 * 256 * 4;
+
+/// How many allocations of at least [`BIG`] bytes this process made,
+/// grown ones included.
+static BIGS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The system allocator, counting the allocations of a picture's size.
+struct Counting;
+
+#[expect(
+    unsafe_code,
+    reason = "a global allocator that counts, over the system's"
+)]
+// SAFETY: every call goes to the system allocator with the arguments it
+// was given; the count is all this adds.
+unsafe impl std::alloc::GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        if layout.size() >= BIG {
+            BIGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        // SAFETY: the caller's layout, passed on.
+        unsafe { std::alloc::System.alloc(layout) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        if layout.size() >= BIG {
+            BIGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        // SAFETY: the caller's layout, passed on.
+        unsafe { std::alloc::System.alloc_zeroed(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        // SAFETY: the caller's pointer and layout, passed on.
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
+        if size >= BIG {
+            BIGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        // SAFETY: the caller's pointer, layout and size, passed on.
+        unsafe { std::alloc::System.realloc(ptr, layout, size) }
+    }
+}
+
+#[global_allocator]
+static COUNTING: Counting = Counting;
 
 // ---- the stand-in's side ----
 
@@ -348,6 +402,22 @@ fn ask(host: &mut ImageHost, request: &Request) -> Reply {
     }
 }
 
+/// A reply's picture and its bytes, read out of its file.
+fn bytes(reply: &Reply) -> Option<(u32, u32, Vec<u8>)> {
+    match reply {
+        Reply::Ok(Payload::File {
+            width,
+            height,
+            file,
+        }) => {
+            let mut out = Vec::new();
+            file.read(&mut |run| out.extend_from_slice(run))
+                .then_some((*width, *height, out))
+        }
+        _ => None,
+    }
+}
+
 fn gone(pid: u32) -> bool {
     !Path::new(&format!("/proc/{pid}")).exists()
 }
@@ -359,7 +429,7 @@ fn the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else() {
     assert!(
         matches!(
             picture,
-            Reply::Ok(Payload::Rgba {
+            Reply::Ok(Payload::File {
                 width: 2,
                 height: 2,
                 ..
@@ -544,14 +614,7 @@ fn each_reply_that_fails_a_check_fails_the_request_as_a_crash() {
     // a pooled file sealed against shrinking and growing is read
     let mut host = host(&dir, "pooled");
     let reply = ask(&mut host, &file());
-    assert_eq!(
-        reply,
-        Reply::Ok(Payload::Rgba {
-            width: 2,
-            height: 2,
-            data: vec![0x10; 16]
-        })
-    );
+    assert_eq!(bytes(&reply), Some((2, 2, vec![0x10; 16])));
     // and a discard is answered with nothing
     let discard = Request {
         discard: true,
@@ -767,6 +830,147 @@ fn a_program_others_may_change_is_refused() {
     println!("test a_program_others_may_change_is_refused ... ok");
 }
 
+/// The kitty handler's context over one store, for the one-copy case: it
+/// keeps the request the handler makes and the replies it writes, and
+/// edits the store over a screen of four fixed lines.
+struct Console {
+    store: vtium_image::Store,
+    screen: Vec<vtium_image::LineKey>,
+    requests: Vec<Request>,
+    replies: Vec<u8>,
+}
+
+impl vtium_image::Context for Console {
+    fn store(&self) -> &vtium_image::Store {
+        &self.store
+    }
+
+    fn edit_store(&mut self, f: &mut dyn FnMut(&mut vtium_image::Edit<'_>)) {
+        let screens = vtium_image::Screens {
+            main: vtium_image::Rows {
+                screen: &self.screen,
+                above: &[],
+            },
+            alt: vtium_image::Rows::default(),
+        };
+        f(&mut vtium_image::Edit::new(&mut self.store, screens, 12));
+        self.store.settle_event(screens);
+    }
+
+    fn helper(&self) -> bool {
+        true
+    }
+
+    fn request(&mut self, request: Request) {
+        self.requests.push(request);
+    }
+
+    fn cell_size(&self) -> (u32, u32) {
+        self.store.cell()
+    }
+
+    fn grid(&self) -> (usize, usize) {
+        (12, 4)
+    }
+
+    fn cursor(&self) -> (usize, usize) {
+        (0, 0)
+    }
+
+    fn move_cursor(&mut self, _: usize, _: usize) {}
+
+    fn margins(&self) -> vtium_image::Margins {
+        vtium_image::Margins { top: 0, bottom: 3 }
+    }
+
+    fn index(&mut self, _: usize) {}
+
+    fn scroll_up(&mut self, _: usize) {}
+
+    fn sixel(&self) -> vtium_image::SixelState {
+        vtium_image::SixelState {
+            display: false,
+            private_registers: true,
+            cursor_right: false,
+            registers: 1024,
+        }
+    }
+
+    fn reply(&mut self, _: vtium_image::ReplyKind, bytes: &[u8]) {
+        self.replies.extend_from_slice(bytes);
+    }
+
+    fn switches(&self) -> vtium_image::Switches {
+        vtium_image::Switches {
+            sixel: false,
+            kitty: true,
+            iterm2: false,
+        }
+    }
+
+    fn limits(&self) -> vtium_image::Limits {
+        vtium_image::Limits::default()
+    }
+
+    fn add_work(&mut self, _: u64) {}
+}
+
+/// Sends a kitty transmission of a 256 by 256 RGBA picture from the file
+/// `/x`, image id `id`, through `kitty`, and returns the request it makes.
+fn transmit(kitty: &mut vtium_image::Kitty, console: &mut Console, id: u32) -> Request {
+    use vtium_image::Handler;
+    kitty.start(console, vtium_image::Intro::String);
+    let keys = format!("a=t,t=f,f=32,s=256,v=256,i={id};L3g=");
+    kitty.feed_some(console, keys.as_bytes(), u64::MAX);
+    kitty.finish(console);
+    console.requests.pop().expect("a request for the helper")
+}
+
+fn a_reply_is_copied_once_into_a_buffer_the_budget_granted_first() {
+    use vtium_image::Handler;
+    let dir = scratch("one-copy");
+    let mut host = host(&dir, "answer");
+    let mut kitty = vtium_image::Kitty::default();
+    let mut store = vtium_image::Store::new();
+    store.set_limit(1 << 22);
+    let mut console = Console {
+        store,
+        screen: (0..4).map(vtium_image::LineKey::new).collect(),
+        requests: Vec::new(),
+        replies: Vec::new(),
+    };
+    let order = Ordering::Relaxed;
+    // the helper's reply, and the handler's copy of it into the store:
+    // the picture's bytes come into memory the console holds once, into
+    // the buffer the handler reserved
+    let request = transmit(&mut kitty, &mut console, 1);
+    host.send(&request, &session()).unwrap();
+    BIGS.store(0, order);
+    let reply = wait(&mut host).expect("a reply in ten seconds");
+    kitty.decoded(&mut console, reply);
+    assert_eq!(BIGS.load(order), 1, "the picture's bytes were copied once");
+    assert_eq!(
+        String::from_utf8_lossy(&console.replies),
+        "\x1b_Gi=1;OK\x1b\\"
+    );
+    assert_eq!(console.store.image_count(), 1);
+    // the budget, lowered while the request is out, refuses the next
+    // picture before any buffer of its size is made
+    console.replies.clear();
+    let request = transmit(&mut kitty, &mut console, 2);
+    host.send(&request, &session()).unwrap();
+    console.store.set_limit(1 << 10);
+    BIGS.store(0, order);
+    let reply = wait(&mut host).expect("a reply in ten seconds");
+    kitty.decoded(&mut console, reply);
+    assert_eq!(BIGS.load(order), 0, "the refusal came before any copy");
+    assert_eq!(
+        String::from_utf8_lossy(&console.replies),
+        "\x1b_Gi=2;ENOSPC:image storage is full\x1b\\"
+    );
+    println!("test a_reply_is_copied_once_into_a_buffer_the_budget_granted_first ... ok");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--fd-three") {
@@ -784,6 +988,7 @@ fn main() {
     a_stop_kills_the_helpers_group_and_counts_no_crash();
     three_crashes_stop_the_consoles_helpers_until_its_session_ends();
     each_reply_that_fails_a_check_fails_the_request_as_a_crash();
+    a_reply_is_copied_once_into_a_buffer_the_budget_granted_first();
     a_request_no_account_may_read_starts_no_helper();
     a_session_that_ends_drops_its_request_and_its_helper();
     a_helper_that_exited_idle_is_replaced_at_the_next_request();
