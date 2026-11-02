@@ -1,0 +1,99 @@
+checkpoint 2435
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 0 col 1 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 2 row 0 col 2 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 3 row 0 col 3 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 4 row 0 col 4 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 5 row 0 col 5 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 6 row 0 col 6 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 7 row 0 col 7 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 8 row 0 col 8 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+image 0 8x16 digest bb18cac5
+image 1 8x16 digest da180ec5
+checkpoint 2499
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5f47693d332c703d313b454e4f504152454e543a706172656e7420706c6163656d656e74206e6f7420666f756e641b5c1b5f47693d332c703d313b454e4f504152454e543a706172656e7420706c6163656d656e74206e6f7420666f756e641b5c1b5f47693d332c703d313b454e4f504152454e543a706172656e7420706c6163656d656e74206e6f7420666f756e641b5c
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 0 col 1 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 2 row 0 col 2 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 3 row 0 col 3 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 4 row 0 col 4 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 5 row 0 col 5 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 6 row 0 col 6 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 7 row 0 col 7 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 8 row 0 col 8 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+image 0 8x16 digest bb18cac5
+image 1 8x16 digest da180ec5
+checkpoint 2547
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5f47693d312c703d313b454359434c453a72656c617469766520706c6163656d656e7420776f756c64206d616b652061206379636c651b5c1b5f47693d322c703d343b454359434c453a72656c617469766520706c6163656d656e7420776f756c64206d616b652061206379636c651b5c
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 0 col 1 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 2 row 0 col 2 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 3 row 0 col 3 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 4 row 0 col 4 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 5 row 0 col 5 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 6 row 0 col 6 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 7 row 0 col 7 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 8 row 0 col 8 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+image 0 8x16 digest bb18cac5
+image 1 8x16 digest da180ec5
+checkpoint 2571
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5f47693d332c703d313b45544f4f444545503a636861696e206f662072656c617469766520706c6163656d656e747320697320746f6f20646565701b5c
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 0 col 1 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 2 row 0 col 2 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 3 row 0 col 3 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 4 row 0 col 4 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 5 row 0 col 5 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 6 row 0 col 6 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 7 row 0 col 7 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 8 row 0 col 8 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+image 0 8x16 digest bb18cac5
+image 1 8x16 digest da180ec5
+checkpoint 2655
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5f47693d332c703d323b4f4b1b5c1b5f47693d332c703d333b45494e56414c3a696e76616c696420617267756d656e741b5c1b5f47693d332c703d343b4f4b1b5c
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 0 col 1 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 2 row 0 col 2 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 3 row 0 col 3 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 4 row 0 col 4 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 5 row 0 col 5 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 6 row 0 col 6 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 7 row 0 col 7 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 8 row 0 col 8 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque
+image 0 8x16 digest bb18cac5
+image 1 8x16 digest da180ec5
