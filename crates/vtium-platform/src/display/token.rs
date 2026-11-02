@@ -203,6 +203,9 @@ pub(crate) struct Loan {
     pub(crate) lease: u64,
     ticket: Weak<()>,
     revoked: Arc<AtomicBool>,
+    /// The memory it lent, which a revoke locks. Weak, so the loan never
+    /// keeps a buffer alive or counts as a holder of it.
+    memory: Weak<Memory>,
 }
 
 impl Loan {
@@ -224,6 +227,7 @@ impl Loan {
             lease,
             ticket: Arc::downgrade(&ticket),
             revoked: Arc::clone(&revoked),
+            memory: Arc::downgrade(&memory),
         };
         let token = Token {
             id,
@@ -250,24 +254,27 @@ impl Loan {
         Weak::ptr_eq(&self.ticket, &Arc::downgrade(&token.ticket))
     }
 
-    /// Stops the token writing into `memory`, its buffer's: takes the
-    /// memory's lock, waiting for a draw in progress when `wait`, else
-    /// only where no render thread draws now, and revokes the token under
-    /// it. The guard comes back so the display can clear the memory before
-    /// anything else writes; `None` where the lock is busy and `wait` is
-    /// false, and then the token is not revoked.
-    pub(crate) fn revoke<'a, M: ?Sized>(
-        &self,
-        memory: &'a Mutex<M>,
-        wait: bool,
-    ) -> Option<MutexGuard<'a, M>> {
+    /// Stops the token writing into the memory it lent: takes that
+    /// memory's lock, waiting for a draw in progress when `wait`, else only
+    /// where no render thread draws now, and revokes the token under it.
+    /// Returns whether the token is revoked; `false` where the lock is busy
+    /// and `wait` is false. A token whose memory is gone writes nothing,
+    /// and counts as revoked.
+    pub(crate) fn revoke(&self, wait: bool) -> bool {
+        let Some(memory) = self.memory.upgrade() else {
+            return true;
+        };
         let guard = if wait {
-            Some(lock(memory))
+            Some(lock(&memory))
         } else {
-            try_lock(memory)
-        }?;
+            try_lock(&memory)
+        };
+        let Some(guard) = guard else {
+            return false;
+        };
         self.revoked.store(true, Ordering::Release);
-        Some(guard)
+        drop(guard);
+        true
     }
 
     /// Whether `token`, this loan's, comes back under the same lease.
@@ -333,9 +340,9 @@ mod tests {
     fn a_revoked_token_draws_nothing() {
         let shared = memory(16);
         let (mut token, loan) = Loan::lend(DisplayId(1), 0, 0, 0, (2, 2), 8, Arc::clone(&shared));
-        loan.revoke(&*shared, false).unwrap().as_mut().fill(3);
+        assert!(loan.revoke(false));
         assert_eq!(token.draw(|c| c.pixels.fill(9)), None);
-        assert!(lock(&shared).as_mut().iter().all(|&b| b == 3));
+        assert!(lock(&shared).as_mut().iter().all(|&b| b == 0));
     }
 
     #[test]

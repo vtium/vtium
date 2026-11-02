@@ -820,3 +820,43 @@ fn a_framebuffer_token_dropped_unreturned_leaves_age_0() {
     drop(token);
     assert_eq!(age(&mut v), 0);
 }
+
+// A retake while the render thread draws leaves the old token unrevoked,
+// since its draw holds the lock. A sleep that comes before that draw ends
+// revokes the old token under the lock of the memory it lent, so it holds
+// `Asleep` until the draw ends, and nothing reaches the framebuffer after.
+#[test]
+fn a_sleep_after_a_busy_retake_waits_for_the_old_token() {
+    let mut v = awake(FakeFb::new(32));
+    v.events().for_each(drop);
+    let (go, thread) = drawing(&mut v);
+    v.wake_up().unwrap();
+    v.events().for_each(drop);
+    v.sleep();
+    assert_eq!(v.events().count(), 0, "no Asleep while the old token draws");
+    go.send(()).unwrap();
+    let token = thread.join().unwrap();
+    assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
+    assert_eq!(v.events().collect::<Vec<_>>(), [Event::Asleep]);
+}
+
+// The same with a retake to a depth that needs a conversion copy: the
+// new screen's buffer is the copy, and the old token, which maps the
+// framebuffer itself, is still revoked before `Asleep`.
+#[test]
+fn a_sleep_after_a_retake_to_a_copy_waits_for_the_old_token() {
+    let mut v = awake(FakeFb::new(32));
+    v.events().for_each(drop);
+    let (go, thread) = drawing(&mut v);
+    v.dev.depths = vec![16];
+    v.dev.var.borrow_mut().bits_per_pixel = 16;
+    v.wake_up().unwrap();
+    assert!(v.screen.as_ref().unwrap().copy.is_some());
+    v.events().for_each(drop);
+    v.sleep();
+    assert_eq!(v.events().count(), 0, "no Asleep while the old token draws");
+    go.send(()).unwrap();
+    let token = thread.join().unwrap();
+    assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
+    assert_eq!(v.events().collect::<Vec<_>>(), [Event::Asleep]);
+}

@@ -562,16 +562,16 @@ impl<F: Framebuffer> Fbdev<F> {
         let Some((screen, clear)) = self.closing.take() else {
             return;
         };
-        let cleared = {
-            let lent = self
-                .loan
-                .as_ref()
-                .filter(|l| l.out() && screen.copy.is_none());
-            let map = match lent {
-                Some(loan) => loan.revoke(&screen.map, wait),
-                None => Some(lock(&screen.map)),
-            };
-            map.map(|mut map| map.as_mut().fill(clear)).is_some()
+        // The token is revoked under the lock of the memory it lent, which
+        // after a retake is an earlier set-up's mapping, or a copy's.
+        let revoked = self
+            .loan
+            .as_ref()
+            .filter(|l| l.out())
+            .is_none_or(|loan| loan.revoke(wait));
+        let cleared = revoked && {
+            lock(&screen.map).as_mut().fill(clear);
+            true
         };
         if !cleared {
             self.closing = Some((screen, clear));
@@ -713,14 +713,13 @@ impl<F: Framebuffer> Fbdev<F> {
         // fbdev marks a size it does not know 0 or all ones; all ones gives
         // a density under DPI_MIN, so both read as no size.
         self.mm = (var.width, var.height);
-        // A token for the framebuffer of the set-up before maps this same
-        // memory: it is revoked where no frame is drawing into it now, and
-        // a frame drawing now lands on vtium's own screen, which the next
-        // frame draws whole.
-        if let (Some(old), Some(loan)) = (&self.screen, &self.loan) {
-            if old.copy.is_none() {
-                drop(loan.revoke(&old.map, false));
-            }
+        // A token of the set-up before maps this same memory, where it
+        // draws into the framebuffer itself: it is revoked where no frame is
+        // drawing into it now, and a frame drawing now lands on vtium's own
+        // screen, which the next frame draws whole. A later sleep revokes
+        // it, waiting for that frame.
+        if let Some(loan) = self.loan.as_ref().filter(|l| l.out()) {
+            loan.revoke(false);
         }
         self.screen = Some(Screen {
             map: Arc::new(Mutex::new(map)),
