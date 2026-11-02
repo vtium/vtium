@@ -30,7 +30,7 @@ ifneq ($(filter environment%,$(origin VTIUM_BIN)),)
 $(error VTIUM_BIN is set in the environment; the vt targets run it as root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_BIN=PATH)
 endif
 ifneq ($(filter environment%,$(origin VTIUM_VITRIFY_BIN)),)
-$(error VTIUM_VITRIFY_BIN is set in the environment; vt-install installs it for vtium to start as root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_VITRIFY_BIN=PATH)
+$(error VTIUM_VITRIFY_BIN is set in the environment; the vt targets give it to vtium, which starts it from root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_VITRIFY_BIN=PATH)
 endif
 endif
 # Simply expanded, so the recipes' $(value VTIUM_BIN) is the path itself.

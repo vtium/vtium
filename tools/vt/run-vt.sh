@@ -42,11 +42,11 @@
 # The run also compiles the checkout's terminfo entry, xterm-vtium, the name
 # vtium gives TERM, into /run/vtium-vt/terminfo, and the demo, the guide and
 # the shell get TERMINFO naming it, so they read the entry the package ships,
-# as built from this checkout. A login session gets no such variable through
-# /bin/login, so with --login the run uses the system's xterm-vtium entry when
-# one is installed, as the packaged vtium's sessions do, and runs vtium with
-# --term=kmscon when none is, saying so. /run/vtium-vt/ is removed when the
-# run ends.
+# as built from this checkout. The run does not pass that variable to
+# /bin/login's session, so with --login the run uses the system's
+# xterm-vtium entry when one is installed, as the packaged vtium's sessions
+# do, and runs vtium with --term=kmscon when none is, saying so.
+# /run/vtium-vt/ is removed when the run ends.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
 # it; it needs no root.
@@ -311,7 +311,7 @@ fi
 # checkout, as the package does, for the sessions it starts itself.
 terminfo_src=$checkout/crates/vtium/install/xterm-vtium.ti
 [ -f "$terminfo_src" ] || die "no $terminfo_src, the terminfo entry the sessions read"
-# /bin/login passes no TERMINFO to the session it starts, so a login session
+# The run does not pass TERMINFO to /bin/login's session, so a login session
 # reads the system's entries: the packaged one when it is installed, and
 # kmscon's, which the machine keeps, when it is not.
 term_opt=()
@@ -588,12 +588,18 @@ fi
 cmd=("$bin" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" "${helper_opt[@]}"
 	"${term_opt[@]}" "${debug_opt[@]}" "${extra[@]}" --login -- "${login_argv[@]}")
 # The helper's copy and the terminfo entry, in a directory of root's alone,
-# made fresh for this run and removed when it ends.
-act rm -rf -- "$stage"
-act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo"
+# made fresh for this run and removed when it ends. tic makes the entry's
+# directory and file under the umask, and the caller's may be 077, which
+# would leave the entry unreadable to the session that runs as the user, so
+# the staging runs under 022.
 stage_made=1
-[ -z "$helper" ] || act install -m 0755 "${own[@]}" -- "$helper" "$stage/vtium-vitrify"
-act tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_src"
+(
+	umask 022
+	act rm -rf -- "$stage"
+	act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo"
+	[ -z "$helper" ] || act install -m 0755 "${own[@]}" -- "$helper" "$stage/vtium-vitrify"
+	act tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_src"
+)
 show "${cmd[@]}"
 [ -z "$dry" ] || exit 0
 # Under --debug, vtium's output goes through watch_log, which closes the lock
