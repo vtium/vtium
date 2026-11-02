@@ -437,7 +437,8 @@ mod images {
             assert_eq!(shown(&t), [(0, 0, 3, 3, 0, 48)], "after frame {n}");
         }
         assert_eq!(t.screen().images().image_count(), 1);
-        assert_eq!(t.screen().images().bytes(), 24 * 48 * 4 + 512);
+        // the picture, and the last one freed, kept as the spare buffer
+        assert_eq!(t.screen().images().bytes(), 24 * 48 * 4 + 512 + 24 * 48 * 4);
     }
 
     // covers: image.sixel
@@ -550,6 +551,32 @@ mod images {
         }
         assert!(pieces.screen() == t.screen());
         assert_eq!(shown(&t).len(), 1);
+    }
+
+    // The re-check's case: pictures of 1,000 by 1,000 clear pixels, each
+    // with one set pixel low in its last column, placed over each other.
+    // Each older one shows past the newer one only at its set pixel, so
+    // the check of what each new picture hides reads whole pictures; it
+    // reads at most as many pixels as the new picture has, so no call
+    // passes the work bound by more than one band.
+    // covers: image.sixel
+    #[test]
+    fn the_check_of_hidden_pieces_is_bounded_by_the_new_picture() {
+        const BOUND: u64 = 1 << 24; // vtium-term's INPUT_WORK_MAX
+        const BAND: u64 = 1_000 * 6 + 10;
+        let mut t = term(130, 70);
+        for i in 0..24u32 {
+            let y = 999 - i;
+            let mut data = String::from("\"1;1;1000;1000#1;2;100;0;0#1");
+            data += &"-".repeat(usize::try_from(y / 6).expect("small"));
+            data += "!999?";
+            data.push(char::from(0x3f + (1u8 << (y % 6))));
+            let mut s = b"\x1b[1;1H".to_vec();
+            s.extend(sixel("0;1;0", &data));
+            for (call, w) in feed_calls(&mut t, &s).into_iter().enumerate() {
+                assert!(w < BOUND + BAND, "picture {i}, call {call} did {w}");
+            }
+        }
     }
 
     // docs/architecture.md, "Determinism": a sixel stream fed whole, and

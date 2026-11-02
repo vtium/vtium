@@ -99,23 +99,41 @@ impl Rect {
     }
 }
 
-/// Reads the image pixels under box rectangle `r` of a picture drawn at
-/// its own size, row by row, until `stop` says so; returns whether it
-/// stopped, and adds the pixels it read to `read`.
-fn scan(img: &Image, d: &Drawn, r: Rect, read: &mut usize, stop: impl Fn(u32) -> bool) -> bool {
+/// The image pixels of a picture drawn at its own size under box row `y`,
+/// from box column `x0` to `x1`: one row of the image, or nothing where
+/// the row lies outside it.
+fn row_of<'a>(img: &'a Image, d: &Drawn, y: i64, x0: i64, x1: i64) -> &'a [u32] {
     let width = i64::from(img.width);
-    let pixels = img.pixels.as_slice();
-    let x0 = d.sx.saturating_add(r.x0.saturating_sub(d.x));
-    let x1 = d.sx.saturating_add(r.x1.saturating_sub(d.x));
+    let row = d.sy.saturating_add(y.saturating_sub(d.y));
+    let at = |x: i64| {
+        let col = d.sx.saturating_add(x.saturating_sub(d.x));
+        usize::try_from(row.saturating_mul(width).saturating_add(col)).ok()
+    };
+    if !(0..i64::from(img.height)).contains(&row) {
+        return &[];
+    }
+    match (at(x0), at(x1)) {
+        (Some(a), Some(b)) => img.pixels.as_slice().get(a..b).unwrap_or_default(),
+        _ => &[],
+    }
+}
+
+/// Reads the image pixels under box rectangle `r` of a picture drawn at
+/// its own size, row by row, until `stop` says so or the pixels read reach
+/// `cap`; returns whether it stopped, and adds the pixels it read to
+/// `read`.
+fn scan(
+    img: &Image,
+    d: &Drawn,
+    r: Rect,
+    read: &mut usize,
+    cap: usize,
+    stop: impl Fn(u32) -> bool,
+) -> bool {
     for y in r.y0..r.y1 {
-        let row = d.sy.saturating_add(y.saturating_sub(d.y));
-        let at = |x: i64| usize::try_from(row.saturating_mul(width).saturating_add(x)).ok();
-        let line = match (at(x0), at(x1)) {
-            (Some(a), Some(b)) => pixels.get(a..b).unwrap_or_default(),
-            _ => &[],
-        };
+        let line = row_of(img, d, y, r.x0, r.x1);
         *read = read.saturating_add(line.len());
-        if line.iter().any(|&px| stop(px)) {
+        if line.iter().any(|&px| stop(px)) || *read >= cap {
             return true;
         }
     }
@@ -155,7 +173,9 @@ fn covered(
         for col in 0..=g.cols {
             let full = col < g.cols && {
                 let r = cell(col, row, size);
-                r.inside(d) && (img.opaque || !scan(img, d, r, &mut read, |px| px >> 24 != 0xff))
+                r.inside(d)
+                    && (img.opaque
+                        || !scan(img, d, r, &mut read, usize::MAX, |px| px >> 24 != 0xff))
             };
             match (full, start) {
                 (true, None) => start = Some(col),
@@ -229,16 +249,23 @@ impl Store {
             row: i64::from(place.row),
             cell: self.cell,
         };
+        // the check reads at most as many pixels as the new picture has,
+        // so a placement costs at most twice its own pixels, whatever lies
+        // under it; a piece left unchecked stays, which changes no pixel
+        let cap = usize::try_from(g.dw.saturating_mul(g.dh)).unwrap_or(usize::MAX);
         let mut read = 0usize;
         let mut hidden = Vec::new();
         for (key, row) in under {
+            if read >= cap {
+                break;
+            }
             let Some(p) = self.placement(b, key) else {
                 continue;
             };
             let Some(img) = self.image(b, p.image) else {
                 continue;
             };
-            if !shows_past(img, p, row, &over, &mut read) {
+            if !shows_past(img, p, row, &over, &mut read, cap) {
                 hidden.push(key);
             }
         }
@@ -304,23 +331,19 @@ struct Over<'a> {
     cell: (u32, u32),
 }
 
-/// The pixel of a picture drawn at its own size at box pixel `x`, `y`.
-fn pixel_at(img: &Image, d: &Drawn, x: i64, y: i64) -> u32 {
-    let ix = d.sx.saturating_add(x.saturating_sub(d.x));
-    let iy = d.sy.saturating_add(y.saturating_sub(d.y));
-    let at = iy.saturating_mul(i64::from(img.width)).saturating_add(ix);
-    usize::try_from(at)
-        .ok()
-        .and_then(|i| img.pixels.as_slice().get(i))
-        .copied()
-        .unwrap_or(0)
-}
-
 /// Whether placement `p` of `img`, its top on screen row `row`, shows a
 /// pixel once `over` is drawn: a pixel of its picture inside its box with
 /// alpha above 0 that no opaque pixel of `over` hides. A picture drawn
-/// scaled, or in another cell size than `over`, is taken to show one.
-fn shows_past(img: &Image, p: &Placement, row: i64, over: &Over<'_>, read: &mut usize) -> bool {
+/// scaled, or in another cell size than `over`, is taken to show one, and
+/// so is one whose check would read `read` past `cap`.
+fn shows_past(
+    img: &Image,
+    p: &Placement,
+    row: i64,
+    over: &Over<'_>,
+    read: &mut usize,
+    cap: usize,
+) -> bool {
     let d = Drawn::of(p);
     let corner = cell(p.cols, p.rows, (p.cw, p.ch));
     let boxed = Rect {
@@ -373,7 +396,7 @@ fn shows_past(img: &Image, p: &Placement, row: i64, over: &Over<'_>, read: &mut 
         },
     ];
     for r in outside.iter().filter(|r| !r.is_empty()) {
-        if img.opaque || scan(img, &d, *r, read, |px| px >> 24 != 0) {
+        if img.opaque || scan(img, &d, *r, read, cap, |px| px >> 24 != 0) {
             return true;
         }
     }
@@ -391,13 +414,23 @@ fn shows_past(img: &Image, p: &Placement, row: i64, over: &Over<'_>, read: &mut 
         return true;
     }
     for y in inside.y0..inside.y1 {
-        for x in inside.x0..inside.x1 {
-            *read = read.saturating_add(1);
-            let mine = pixel_at(img, &d, x, y);
-            let theirs = pixel_at(over.img, o, x.saturating_sub(dx), y.saturating_sub(dy));
-            if mine >> 24 != 0 && theirs >> 24 != 0xff {
-                return true;
-            }
+        let mine = row_of(img, &d, y, inside.x0, inside.x1);
+        let theirs = row_of(
+            over.img,
+            o,
+            y.saturating_sub(dy),
+            inside.x0.saturating_sub(dx),
+            inside.x1.saturating_sub(dx),
+        );
+        *read = read.saturating_add(mine.len());
+        if mine.len() != theirs.len()
+            || mine
+                .iter()
+                .zip(theirs)
+                .any(|(&m, &t)| m >> 24 != 0 && t >> 24 != 0xff)
+            || *read >= cap
+        {
+            return true;
         }
     }
     false
