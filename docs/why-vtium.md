@@ -56,12 +56,12 @@ A frit is a small text file that names the fonts vtium draws from, such as a cod
 
 ## Why glass
 
-vtium's font words come from glassmaking, to keep a connection to the history of terminals, in which the early screen terminals were called glass TTYs.
+vtium's name and its font words come from glass, which keeps a link to the history of terminals.
 
 - **VT and TTY.** A teletype, TTY for short, was a terminal that printed on paper, and Linux still names its terminal devices `tty`. DEC's video terminals were named VT, such as the VT100 of 1978 ([Wikipedia, VT100](https://en.wikipedia.org/wiki/VT100)), and the Linux console still speaks "a large subset of the VT102" terminal's controls ([`console_codes(4)`](https://man7.org/linux/man-pages/man4/console_codes.4.html)).
-- **Glass TTY.** Early terminals with a screen in place of paper, DEC's VT05 among them, were often called glass TTYs ([Wikipedia, Computer terminal](https://en.wikipedia.org/wiki/Computer_terminal)). vtium is a glass terminal for the VT.
-- **The name vtium.** The maintainer chose it for its sound, in place of the working title kmscon-rust ([the record of that choice, in the kmscon fork](https://github.com/aaronsb/kmscon/blob/main/docs/architecture/fork/ADR-304-vtium-a-full-rust-port-of-kmscon-and-libtsm-minspec-first-judged-by-the-existing-tiers.md)). <!-- adr-cite-ignore: the kmscon fork's record, not one of vtium's -->
-- **Vitrify.** To vitrify is to turn something into glass by heat, from vitrum, Latin for glass ([Wiktionary, vitrify](https://en.wiktionary.org/wiki/vitrify)). vtium-vitrify turns fonts into the glyphs on the screen.
+- **Glass TTY.** Early terminals with a screen in place of paper, DEC's VT05 among them, were often called glass TTYs: they were the video terminals that replaced paper teletypes ([Wikipedia, Computer terminal](https://en.wikipedia.org/wiki/Computer_terminal)).
+- **The name vtium.** vtium echoes vitrum, Latin for glass. vtium is a glass terminal for the VT, and its name keeps the link to the glass TTYs. The maintainer chose the name, also for its sound, in place of the working title kmscon-rust ([the record of that choice, in the kmscon fork](https://github.com/aaronsb/kmscon/blob/main/docs/architecture/fork/ADR-304-vtium-a-full-rust-port-of-kmscon-and-libtsm-minspec-first-judged-by-the-existing-tiers.md)). <!-- adr-cite-ignore: the kmscon fork's record, not one of vtium's -->
+- **Vitrify.** To vitrify is to turn something into glass by heat, and the word comes from the same Latin vitrum ([Wiktionary, vitrify](https://en.wiktionary.org/wiki/vitrify)). vtium-vitrify turns fonts into the glyphs on the screen.
 - **Frit.** A glassmaker's frit is the mix of raw materials, fused, cooled and ground, that is melted into glass ([Wikipedia, Frit](https://en.wikipedia.org/wiki/Frit)). vtium's frit is the list of fonts that vtium-vitrify melts down. The maintainer gave the frit its name on 2026-10-28, after the glassmaker's ground glass that is melted again.
 
 The figure sets the two side by side. The parallel has one gap: a glassmaker's frit is the material itself, and vtium's frit only names its fonts.
