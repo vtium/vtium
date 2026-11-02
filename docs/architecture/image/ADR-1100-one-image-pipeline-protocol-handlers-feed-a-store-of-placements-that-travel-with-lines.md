@@ -158,6 +158,10 @@ considered:
     said: "A principle: vtium presents itself as a kitty-compatible terminal under its own name. For kitty's protocols it follows kitty's spec, and kitty's own behaviour, checked by black-box runs, where the spec is silent. It answers kitty's detection queries as kitty does. It keeps TERM=xterm-vtium and does not set KITTY_WINDOW_ID."
     via: the maintainer, 2026-11-01, in the steering session
     paraphrase: true
+  - operator: aaronsb
+    said: "The selection draws above pictures as a tint: the selection color blends over the picture at partial strength, and both stay visible."
+    via: the maintainer, 2026-11-01, in the steering session
+    paraphrase: true
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
   - "The flood test feeds a stream of transmissions and placements past a full store whole and cut at random points, with frames drawn at different points, and every run ends in the same store; with the input-work count removed from a scan, planted, it fails"
@@ -257,7 +261,11 @@ The events every placement meets alike are D8's and are not in the table.
 
 ### D4: the order a frame draws placements in
 
-A frame draws, from the bottom: the default background; the layer below backgrounds, kitty placements with z below -1,073,741,824; the cell backgrounds that are not the default; the layer below text, kitty placements with z from -1,073,741,824 to -1; glyphs and decorations; the layer above text, kitty placements with z of 0 or more and every sixel placement, the iTerm2 handler's among them; and last, above every placement, the cursor, the pointer and vtium's own notices and marks, so no program's picture can hide them (the maintainer, 2026-11-01). The lowest layer shows only through cells whose background is the default, which the frame cell's `default_bg` tells the compositor (ADR-1001).
+A frame draws, from the bottom: the default background; the layer below backgrounds, kitty placements with z below -1,073,741,824; the cell backgrounds that are not the default; the layer below text, kitty placements with z from -1,073,741,824 to -1; glyphs and decorations; the layer above text, kitty placements with z of 0 or more and every sixel placement, the iTerm2 handler's among them; and last, above every placement, the selection's tint, then the cursor, the pointer, vtium's own notices and the head's focus mark (ADR-1401), so no program's picture can hide them (the maintainer, 2026-11-01). The lowest layer shows only through cells whose background is the default, which the frame cell's `default_bg` tells the compositor (ADR-1001).
+
+**The selection over a picture.** On a selected cell that a picture covers, the compositor blends the selection's color over the picture at partial strength, a named constant of vtium-render, so the picture and the selection both stay visible (the maintainer, 2026-11-01). A selected cell that no picture covers draws as it does in a frame without pictures.
+
+> Edited 2026-11-01: the maintainer decided that the selection draws above pictures as a tint. The sentence ended "the cursor, the pointer and vtium's own notices and marks, so no program's picture can hide them", where "marks" meant the head's focus mark.
 
 Within a layer, placements draw by z. The placements at one z in one layer form a stack, bottom to top, and the frame draws each stack in that order. The store keeps the stack as placements arrive, with these rules:
 
@@ -277,7 +285,7 @@ The C reference drew every sixel above every kitty placement at equal z, and kit
 
 The figure shows the layers, the order within a layer, and what one erase does to each kind of placement.
 
-![Two panels. A: the layers of a frame from the bottom: 1, the default background; 2, kitty placements with z below -1,073,741,824; 3, cell backgrounds that are not the default; 4, kitty placements with z from -1,073,741,824 to -1; 5, glyphs and decorations; 6, kitty placements with z of 0 or more, and every sixel at z 0, the iTerm2 handler's pictures among them; 7, the cursor, the pointer, and vtium's own notices and marks. Below the stack: within a layer, placements draw by z; at equal z a later picture draws above an earlier one, except that a newly arrived kitty picture slides in beneath the first kitty picture with a higher id, and nothing already shown moves. B: a grid of ten columns and four rows before and after EL 2 erases its third row. An orange sixel four columns wide covers all four rows, and a teal kitty placement three columns wide beside it covers all four rows. After the erase, the sixel has lost the erased row and remains as two pieces, the top two rows and the bottom row, while the kitty placement is unchanged, since no erase command but ED 2 reaches it. Each piece shows part of the same picture, and the picture itself is never cut.](figures/ADR-1100-layers.svg)
+![Two panels. A: the layers of a frame from the bottom: 1, the default background; 2, kitty placements with z below -1,073,741,824; 3, cell backgrounds that are not the default; 4, kitty placements with z from -1,073,741,824 to -1; 5, glyphs and decorations; 6, kitty placements with z of 0 or more, and every sixel at z 0, the iTerm2 handler's pictures among them; 7, the selection's tint over pictures, the cursor, the pointer, vtium's own notices and the head's focus mark. Below the stack: within a layer, placements draw by z; at equal z a later picture draws above an earlier one, except that a newly arrived kitty picture slides in beneath the first kitty picture with a higher id, and nothing already shown moves. B: a grid of ten columns and four rows before and after EL 2 erases its third row. An orange sixel four columns wide covers all four rows, and a teal kitty placement three columns wide beside it covers all four rows. After the erase, the sixel has lost the erased row and remains as two pieces, the top two rows and the bottom row, while the kitty placement is unchanged, since no erase command but ED 2 reaches it. Each piece shows part of the same picture, and the picture itself is never cut.](figures/ADR-1100-layers.svg)
 
 ### D5: the budget and eviction
 
@@ -503,6 +511,7 @@ How the C reference handled images, as the logical reference for the decisions a
 - **Bounds and charges.** `TSM_SCREEN_IMAGE_OVERHEAD` (512), `TSM_SCREEN_IMAGES_PER_STORE` (1024), `TSM_SCREEN_PLACEMENT_OVERHEAD` (256), `TSM_SCREEN_PLACEMENTS_PER_STORE` (4096) and `TSM_SCREEN_IMAGE_MAX_CELLS` (10,000, checked against a box's columns and rows each, `tsm-image.c:1899`) in `libtsm.h`; `placement_make_room` charged the placement overhead, and `screen_images_settle` paid a debt the budget refused by dropping the smallest placements first.
 - **Draw order.** `frame_rec_cmp` sorted a frame's placements by z, which also set the band, then kitty before sixel, then image id, then creation order, a placement's pieces by key (`tsm-image.c:951-967`).
 - **Modes.** `tsm-modes.def` marked 80, 1070 and 8452 `HOST_SIXEL`, and `mode_offered` in `tsm-vte.c` reported their fixed state through `MODE_FIXED` while `vte_sixel_on` was false.
+- **The selection under pictures.** kmscon's bbulk composed a cell under a picture in `compose_covered` (`src/render/bbulk.c:1355-1402`), with its text, selection colors included, below the top band's pictures, so a picture above text hid a selected cell.
 - **XTSMGRAPHICS.** `vte_xtsmgraphics` answered status 1 for every item while sixel was off (`tsm-vte-image.c`), and the minimal build's own `vte_xtsmgraphics` answered `CSI ? Pi ; 1 S` always (`libtsm/src/tsm/tsm-vte-image-none.c:75-84`).
 - **Resets and an APC while kitty was off** (libtsm `src/tsm/tsm-vte-image.c`). `vte_image_reset`, which RIS called, dropped the sixel decoder and the shared registers and set the register count back to the host's. `tsm_vte_set_sixel_registers`, the host's call to set the register count and `private-color-registers`, called `vte_image_reset` and `vte_modes_reset_hard`, which reset the modes only RIS resets, 80, 1070 and 8452 among them. `vte_apc_start` called `tsm_kitty_cancel` on every APC string while kitty was off, which dropped an upload in progress and its reservation.
 - **Routing and the pause.** `vte_dcs_start`, `vte_dcs_collect` and `vte_dcs_end` fed the sixel decoder (`tsm_sixel_feed_some`, `tsm_sixel_finish`), and `vte_apc_start`, `vte_apc_collect` and `vte_apc_end` the kitty parser (`tsm-vte-image.c`). A bounded input call stopped at `VTE_INPUT_WORK`, 2^24 (`tsm-vte.c:3690`), and took nothing while `vte_image_paused` held. kmscon's `kmscon_pty_pause` and `kmscon_pty_resume` stopped and restarted a pty's reads (`src/misc/pty.c`), tested by `test_pause` in `tests/test_pty.c`, and `tsm_vte_image_reply` delivered the helper's answer.
@@ -521,6 +530,7 @@ How the C reference handled images, as the logical reference for the decisions a
 - **A width change rewraps the main screen and carries each anchor** (D8, ADR-1003); the C reference never reflowed.
 - **A handler acts only on a string ended by its terminator,** vtium-parse's listed departure.
 - **The cursor, the pointer and vtium's notices draw above every placement** (D4); ADR-103 gave them no place in its order.
+- **The selection tints a picture that covers a selected cell** (D4), so both stay visible, where the C reference composed a selected cell like any other cell, so a picture above text hid the selection.
 - **Relative placements, Unicode placeholders and animation are supported targets** (ADR-1000), which the C reference answered with EINVAL; the kitty handler builds the first two (D13), and kitty animation builds on this pipeline (ADR-1102).
 
 ## Where vtium departs from the specifications
