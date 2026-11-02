@@ -3238,10 +3238,7 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Show
     all
 }
 
-/// Draws each of `head`'s displays that something asks to: its render
-/// thread composes the frame, or the loop where the thread could not
-/// start.
-/// The height head `h` draws at with its display's density `dpi`: the
+/// The height `head` draws at with its display's density `dpi`: the
 /// configured `font-size` in points, else the automatic rule, else the
 /// height it has, as a bitmap frit's whole multiples snap it.
 fn draw_height(head: &Head, dpi: f64, locale: &str) -> u32 {
@@ -3258,6 +3255,9 @@ fn draw_height(head: &Head, dpi: f64, locale: &str) -> u32 {
     head.chosen().snap(height)
 }
 
+/// Draws each of `head`'s displays that something asks to: its render
+/// thread composes the frame, or the loop where the thread could not
+/// start.
 fn draw_head(
     head: &mut Head,
     videos: &mut BTreeMap<PathBuf, Box<dyn Video>>,
