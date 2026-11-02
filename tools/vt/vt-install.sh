@@ -87,17 +87,20 @@ standins=${VTIUM_VT_STANDINS:-}
 # runs sudo, systemctl and loginctl from the stand-ins' directory by path,
 # and the tests put the directory first on PATH, so any other file there
 # runs when the script calls a command of that name. The check therefore
-# covers the directory and every regular file in it, following symlinks.
-# Two commands run from PATH before the check is done: id, which says
-# whether this is root, and stat, which the check reads the owners with. For
-# those two the script trusts PATH, as root trusts its PATH.
+# covers the directory and every regular file and symlink in it, and reads
+# a symlink's owner and mode from the file it names; a symlink that names no
+# file is refused, since its owner cannot be read. Three programs are found
+# through PATH before the check is done: bash, which runs this script, id,
+# which says whether this is root, and stat, which the check reads the
+# owners with. For those three the script trusts PATH, as root trusts its
+# PATH.
 if [ -n "$standins" ] && [ "$(id -u)" -eq 0 ]; then
 	sudo_uid=${SUDO_UID:-0}
 	[[ $sudo_uid =~ ^[0-9]+$ ]] || die "SUDO_UID is '$sudo_uid', not a uid"
 	shopt -s dotglob nullglob
 	checked=("$standins" "$standins/sudo" "$standins/systemctl" "$standins/loginctl")
 	for f in "$standins"/*; do
-		[ ! -f "$f" ] || checked+=("$f")
+		[ ! -f "$f" ] && [ ! -L "$f" ] || checked+=("$f")
 	done
 	shopt -u dotglob nullglob
 	for f in "${checked[@]}"; do
@@ -203,7 +206,11 @@ leftovers() {
 # runs never interleave, and a run that clears the temporary files never
 # removes one that another run is still writing. The lock is an flock on the
 # directory itself, which the user can open without root, so a run that
-# finds the directory takes the lock before it asks sudo for anything.
+# finds the directory takes the lock before it asks sudo for anything. The
+# directory is mode 0755 and flock needs only read access, so any local user
+# can hold the lock and keep vt-install from running. That only blocks a
+# run, never changes the install, and is acceptable on a development machine
+# that one person uses.
 lock_state() {
 	exec 9<"$root$state_dir" || die "cannot open $state_dir to lock it"
 	flock -n 9 ||
@@ -266,15 +273,25 @@ if [ "$action" = uninstall ]; then
 	mapfile -t temps < <(leftovers)
 	if [ ! -f "$root$manifest" ]; then
 		# A first install killed while it copied its manifest leaves the
-		# manifest's temporary file and no manifest. Uninstall clears what
-		# such a run left, and the state directory once nothing else is in it.
-		[ "${#temps[@]}" -gt 0 ] || die "$nothing"
+		# manifest's temporary file and no manifest, and one whose manifest
+		# copy failed, or that was killed before the copy, leaves an empty
+		# state directory. Uninstall clears what such a run left, and the
+		# state directory once nothing else is in it.
+		empty=
+		[ -n "$(ls -A -- "$root$state_dir")" ] || empty=1
+		[ "${#temps[@]}" -gt 0 ] || [ -n "$empty" ] || die "$nothing"
 		[ -z "$dry" ] || echo "vt-uninstall: the commands, none of them run:"
 		for t in "${temps[@]}"; do
 			as_root rm -f -- "$t"
 		done
 		as_root rmdir --ignore-fail-on-non-empty -- "$root$state_dir"
-		[ -n "$dry" ] || echo "vt-uninstall: make vt-install did not install vtium on VT $vt; vt-uninstall removed the temporary files that a run cut short left"
+		if [ -n "$dry" ]; then
+			:
+		elif [ "${#temps[@]}" -gt 0 ]; then
+			echo "vt-uninstall: make vt-install did not install vtium on VT $vt; vt-uninstall removed the temporary files that a run cut short left"
+		else
+			echo "vt-uninstall: $nothing; vt-uninstall removed the empty $state_dir that a run cut short left"
+		fi
 		exit 0
 	fi
 	was_enabled=$(manifest_value getty-enabled)
@@ -455,7 +472,12 @@ failed() {
 		echo "vt-install: a step failed; make vt-uninstall VT=$vt undoes what this run did" >&2
 	fi
 }
-# The manifest goes first, so a run cut short can still be undone.
+# The manifest goes first, so a run cut short can still be undone. After its
+# rename, sync writes the state directory to the disk, so the rename is
+# there before anything in /usr/local or /etc changes. That matters when
+# /var is on a filesystem of its own: a power cut could otherwise keep a
+# later rename in /etc and lose the manifest's, leaving files on the
+# machine that no manifest names.
 [ -d "$root$state_dir" ] || as_root install -d -m 0755 "${own[@]}" -- "$root$state_dir"
 if [ -z "$locked$dry" ]; then
 	lock_state
@@ -467,6 +489,7 @@ if [ -z "$locked$dry" ]; then
 fi
 if [ -n "$write_manifest" ]; then
 	put "$tmp/manifest" "$manifest" 0644
+	as_root sync -- "$root$state_dir"
 fi
 manifest_written=1
 # Each file is written through put, so it holds its content from before the

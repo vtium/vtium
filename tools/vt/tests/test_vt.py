@@ -1527,6 +1527,10 @@ class Install(Case):
             temp = calls[i].split()[3]
             self.assertEqual(calls[i - 1], f"sync -- {temp}")
             self.assertTrue(calls[i - 2].startswith("install -D ") and calls[i - 2].endswith(f" {temp}"), calls[i - 2])
+        # The manifest's rename is on the disk before any other copy starts.
+        first = renames[0]
+        self.assertEqual(calls[first].split()[4], self.at(self.STATE + "/tty4"))
+        self.assertEqual(calls[first + 1], f"sync -- {self.at(self.STATE)}")
 
     def test_a_checksum_counts_only_for_the_path_it_was_recorded_for(self):
         p = self.vt_install("install", "4")
@@ -1795,6 +1799,12 @@ exec "$@"
         self.assertIn("vt-install: a step failed before anything was installed", p.stderr)
         self.assertNotIn("make vt-uninstall", p.stderr)
         self.assertEqual(self.left(), [self.STATE])
+        # Uninstall removes the empty state directory such a run leaves, and
+        # still says there was nothing to undo.
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("so there is nothing to undo; vt-uninstall removed the empty /var/lib/vtium-dev-install", p.stdout)
+        self.assertEqual(self.left(), [])
         # On a reinstall, uninstall removes the earlier install too.
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2141,6 +2151,13 @@ exec "$@"
                     self.refused(self.vt_install(action, "4", **sudo_uid),
                                  f"{shown} is writable by group or others (mode 777)")
                 os.chmod(path, 0o755)
+        # A symlink that names no file has no owner to read, so it is refused.
+        gone = os.path.join(self.s.standins, "gone")
+        os.symlink(os.path.join(self.s.tmp, "nothing-here"), gone)
+        for action in ("install", "uninstall"):
+            open(self.s.calls, "w").close()
+            self.refused(self.vt_install(action, "4", **sudo_uid), f"cannot read the owner of {gone}")
+        os.unlink(gone)
         p = self.vt_install("install", "4", **sudo_uid)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
