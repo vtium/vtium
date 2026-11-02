@@ -10,13 +10,17 @@ use vtium_conformance::generate::{self, Inputs};
 use vtium_conformance::interface;
 use vtium_conformance::probes::{self, Outcome, Replay};
 use vtium_conformance::runner::lists::{self, Expected};
-use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, provenance};
+use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, own, provenance};
 use vtium_conformance::spec::Spec;
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
 /// The corpus and the probes, each file copied with a row in
 /// `provenance.tsv`; vtium's own probes sit beside the copied file.
 const CORPUS: &str = "corpus";
+/// vtium's own cases, laid out as the corpus is, with the list of those
+/// whose goldens wait for the maintainer's review.
+const OWN_CASES: &str = "vtium";
+const PROVISIONAL: &str = "vtium/provisional.tsv";
 /// The interface's documents, each a later version of the one before.
 const INTERFACE: [&str; 2] = ["corpus/INTERFACE.md", "INTERFACE-vtium.md"];
 const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
@@ -271,14 +275,57 @@ fn run(o: &Options) -> Result<bool, String> {
             count("FAIL")
         );
     }
+    let own_cases = Corpus::open(&Path::new(TOOL).join(OWN_CASES))?;
+    let provisional = own::provisional(&read(&Path::new(TOOL).join(PROVISIONAL))?)?;
+    for listed in provisional.keys() {
+        if !own_cases.cases.iter().any(|c| &c.name == listed) {
+            return Err(format!(
+                "{PROVISIONAL}: {listed} is no case of {OWN_CASES}/cases.list"
+            ));
+        }
+    }
+    for (view, name, golden_dir) in VIEWS {
+        let (mut pass, mut drift) = (0, 0);
+        for case in &own_cases.cases {
+            let got = vtium_conformance::replay::run(&own_cases.input(case, view)?);
+            let golden = own_cases.golden(case, golden_dir)?;
+            match (
+                runner::judge(&got, &golden, None),
+                provisional.get(&case.name),
+            ) {
+                (Verdict::Pass, _) => pass += 1,
+                (_, Some(reason)) => {
+                    drift += 1;
+                    println!(
+                        "provisional {name} {}: differs from its golden, which judges nothing until it is reviewed ({reason})",
+                        case.name
+                    );
+                }
+                (Verdict::Fail(why), None) => {
+                    ok = false;
+                    println!("FAIL vtium {name} {}: {why}", case.name);
+                }
+                (_, None) => {
+                    ok = false;
+                    println!("FAIL vtium {name} {}: differs from its golden", case.name);
+                }
+            }
+        }
+        println!(
+            "vtium {name}: {} cases, {pass} match their goldens, {} provisional, {drift} differ from a provisional golden",
+            own_cases.cases.len(),
+            provisional.len()
+        );
+    }
     println!(
         "chunking: seed {}, {} rounds of extra cuts",
         o.seed, o.rounds
     );
     for (view, name, _) in VIEWS {
         let mut chunked = 0;
-        for case in &corpus.cases {
-            let input = corpus.input(case, view)?;
+        let cases = corpus.cases.iter().map(|c| (&corpus, c));
+        for (set, case) in cases.chain(own_cases.cases.iter().map(|c| (&own_cases, c))) {
+            let input = set.input(case, view)?;
             match chunking::check(&input, o.seed, o.rounds) {
                 Ok(()) => chunked += 1,
                 // the replay refuses the case: the verdicts above judged

@@ -43,6 +43,8 @@ target/release/conformance interface      # the interface check alone
 | `fixtures/kmscon.termcap` | The xtgettcap probe's termcap fixture: vtium's XTGETTCAP table. |
 | `src/bin/conformance.rs` | The runner's commands and its report. |
 | `corpus/` | The copied corpus: `INTERFACE.md`, `cases.list`, `cases/` with each case's stream, cuts and fixtures, and the goldens, `golden/` for the screen view and `golden-frame/` for the frame view. |
+| `vtium/` | vtium's own cases, laid out as `corpus/` is: `cases.list`, `cases/`, `golden/` and `golden-frame/`, and `provisional.tsv`, the cases whose goldens wait for the maintainer's review (vtium's own cases). |
+| `src/runner/own.rs` | Reading `vtium/provisional.tsv`. |
 | `INTERFACE-vtium.md` | vtium's additions to the interface: the `clipboard` command and feature, and the line it prints. |
 | `probes/probes.replay` | The copied capability probes. |
 | `probes/vtium.replay` | vtium's own probes. |
@@ -87,6 +89,10 @@ With images, the reference host gives the store a budget of 320,000,000 bytes an
 The reference host is a scrollback of 0 lines (`sb-max` raises it, up to `SB_SIZE_MAX`), the cell size 8 by 16, the cursor blinking, mode 2026 presented, BackSpace sending 0x08, XTVERSION's text `tsm-replay`, an empty XTGETTCAP table, and the `legacy` palette, which is vtium-term's default. Each `termcap` fixture is checked against the interface's bounds before vtium-term's `Termcap` takes it.
 
 The frame view prints the colors vtium-term's frame resolves, so a difference in that resolution shows as a difference from the golden. Each block's `changed` count is the cells the frame marks changed since the view's previous block, every cell for the first; each `frame-since` caller keeps its own age.
+
+## vtium's own cases
+
+`vtium/` holds cases for behaviour the C reference's corpus does not hold, such as `sixel-over`, which plays chafa's padded frames and mpv's opaque frames, whose edge ends inside a cell, over each other, and a picture with a clear pixel in each cell over the last, the cases that tell vtium's per-cell sixel coverage apart from cutting a whole box. Its files are vtium's own, so they have no rows in `provenance.tsv`, and the generator does not write them. `conformance run` replays each in both views after the corpus and compares it with its golden, masked as the corpus is, and puts it through the chunking check. A golden is vtium's own output, and it lands in a commit of its own. Until the maintainer reviews it, its case is listed in `provisional.tsv`, `CASE REASON` a line, and the golden judges nothing: a difference from it is printed as `provisional` and fails nothing. A case not listed there fails on any difference, as a copied case with no row in `expected.tsv` does. A listed case that `cases.list` does not hold stops the run.
 
 ## The judge
 
