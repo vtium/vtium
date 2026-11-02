@@ -28,11 +28,13 @@ expect: 0", and systemd 254 or later. If any of these differs, answer n,
 expect: then press q at the next step to end the checks.
 
 step: make vt-install puts vtium on VT {vt}
-run: make vt-install VT={vt} && systemctl show -p ExecStart -p Restart -p OnFailure -p ActiveState vtium@tty{vt}.service
+run: make vt-install VT={vt} && systemctl show -p ExecStart -p Restart -p OnFailure -p ActiveState vtium@tty{vt}.service && echo "autovt@tty{vt} is $(systemctl show -p Id --value autovt@tty{vt}.service)"
 do: then press Ctrl-Alt-F{vt}, look, and come back with Ctrl-Alt-F{desktop}.
 expect: "vtium runs on VT {vt}", then ExecStart running /usr/local/bin/vtium
 expect: with --vt=tty{vt}, Restart=on-failure, OnFailure=vtium-getty@tty{vt}
-expect: .service and ActiveState=active. VT {vt} shows vtium's login prompt.
+expect: .service and ActiveState=active, and "autovt@tty{vt} is vtium@tty{vt}
+expect: .service": logind's autovt@ on this VT is vtium, never the C
+expect: reference's console. VT {vt} shows vtium's login prompt.
 expect: Restart=no means the shipped unit has no Restart= line yet: answer n.
 
 step: One kill under the open policy hands VT {vt} to a getty
