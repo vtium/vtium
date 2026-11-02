@@ -462,18 +462,18 @@ impl Job {
                     .collect();
                 let (most_cols, most_rows) = drawing.renderer.grid_size();
                 let grid = (grid.0.min(most_cols), grid.1.min(most_rows));
-                let covers = self.overlay.draw_into(
+                let overlaid = self.overlay.draw_into(
                     &drawing.renderer,
                     grid,
                     self.orientation,
                     size,
                     &mut target,
                 );
-                damage.extend_from_slice(&covers);
-                Some((damage, covers, stats))
+                damage.extend_from_slice(&overlaid);
+                Some((damage, overlaid, stats))
             })
             .flatten();
-        let (damage, covers, stats) = drawn.unwrap_or_default();
+        let (damage, overlaid, stats) = drawn.unwrap_or_default();
         let at = self.tip.and_then(|t| drawing.renderer.pointer_at(t));
         Composed {
             key: self.key,
@@ -481,7 +481,7 @@ impl Job {
             drawing,
             token,
             damage,
-            covers,
+            overlaid,
             stats,
             at,
             tip: self.tip,
@@ -496,8 +496,8 @@ pub struct Composed {
     drawing: Box<Drawing>,
     token: Token,
     damage: Vec<DisplayRect>,
-    /// The areas the overlay covers.
-    covers: Vec<DisplayRect>,
+    /// The areas the overlay drew over.
+    overlaid: Vec<DisplayRect>,
     pub stats: Stats,
     /// Where the display's cursor plane shows the pointer's tip.
     at: Option<(i32, i32)>,
@@ -558,7 +558,7 @@ pub struct View {
     forgotten: Vec<char>,
     arrived: Vec<char>,
     /// The areas the overlay covered in the last frame composed.
-    covers: Vec<DisplayRect>,
+    overlaid: Vec<DisplayRect>,
     /// When the frame composing was taken.
     sent: Option<Instant>,
     /// What vtium draws over the next frame.
@@ -601,7 +601,7 @@ impl View {
             pointer: Pointer::default(),
             forgotten: Vec::new(),
             arrived: Vec::new(),
-            covers: Vec::new(),
+            overlaid: Vec::new(),
             sent: None,
             overlay: Overlay::default(),
             overlay_sent: None,
@@ -620,7 +620,7 @@ impl View {
         self.generation = self.generation.wrapping_add(1);
         self.forgotten.clear();
         self.arrived.clear();
-        self.covers.clear();
+        self.overlaid.clear();
         self.overlay_sent = None;
     }
 
@@ -750,7 +750,7 @@ impl View {
         let gone = if self.overlay_sent.as_ref() == Some(&self.overlay) {
             Vec::new()
         } else {
-            std::mem::take(&mut self.covers)
+            std::mem::take(&mut self.overlaid)
         };
         self.overlay_sent = Some(self.overlay.clone());
         Prepared::Job(Box::new(Job {
@@ -779,7 +779,7 @@ impl View {
             self.drawing = Some(job.drawing);
             self.since = job.since;
             self.pending = true;
-            self.covers.extend(job.gone);
+            self.overlaid.extend(job.gone);
             self.overlay_sent = None;
         }
     }
@@ -804,7 +804,7 @@ impl View {
             mut drawing,
             token,
             damage,
-            covers,
+            overlaid,
             stats,
             at,
             tip,
@@ -827,7 +827,7 @@ impl View {
                 .glyphs_changed(&std::mem::take(&mut self.arrived));
         }
         self.drawing = Some(drawing);
-        self.covers = covers;
+        self.overlaid = overlaid;
         if !awake {
             self.lost = true;
             let _ = video.swap(token, &damage);

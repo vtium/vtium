@@ -3094,7 +3094,7 @@ fn draw_head(
         }
         let owed = view.owed && !holding;
         // A pending view waits for its display to take a frame, so a
-        // display that lends no canvas never turns the loop.
+        // display that lends no token never turns the loop.
         let wants =
             now_all || view.lost || owed || due || (view.pending && video.ready_for_frame(view.id));
         if !wants {

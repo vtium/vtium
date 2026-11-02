@@ -3308,13 +3308,13 @@ fn a_flip_draws_only_its_own_display() {
     );
 }
 
-/// A device that lends no canvas while the test withholds it, and reports
+/// A device that lends no token while the test withholds it, and reports
 /// nothing when it lends again, as a DRM display lends none while a
 /// modeset waits for another display's flip.
 struct Withhold {
     memory: Memory,
     withholding: bool,
-    /// The canvases asked for while withheld, shared with the test so a
+    /// The tokens asked for while withheld, shared with the test so a
     /// wait can read it.
     refused: Rc<Cell<u32>>,
 }
@@ -3383,10 +3383,10 @@ impl Video for Withhold {
     }
 }
 
-/// The seat on a device that withholds its canvas, once the session
-/// printed `got` while the device withheld its canvas and a frame of it
-/// found no canvas. Each wait is on the state it needs, the first frame
-/// shown and then a canvas refused, however long the render thread takes;
+/// The seat on a device that withholds its token, once the session
+/// printed `got` while the device withheld its token and a frame of it
+/// found no token. Each wait is on the state it needs, the first frame
+/// shown and then a token refused, however long the render thread takes;
 /// the bound only fails a test that would otherwise hang.
 fn withheld() -> (Harness, u32, Vec<u8>) {
     let refused = Rc::new(Cell::new(0));
@@ -3418,7 +3418,7 @@ fn withheld() -> (Harness, u32, Vec<u8>) {
     assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "got")));
     assert!(
         h.until(BOUND, |_| refused.get() > 0),
-        "a frame found no canvas"
+        "a frame found no token"
     );
     assert_eq!(h.memory().frames, frames, "nothing drawn while withheld");
     (h, frames, shown)
@@ -3432,7 +3432,7 @@ fn withholding(h: &mut Harness) -> &mut Withhold {
         .expect("the withholding device")
 }
 
-/// A frame that finds no canvas while the VT is shown waits for its
+/// A frame that finds no token while the VT is shown waits for its
 /// display: once the display lends one again, the frame reaches the
 /// screen with no other event (vtium/vtium#174).
 #[test]
@@ -3446,7 +3446,7 @@ fn a_frame_that_found_no_canvas_is_drawn_once_the_display_lends_again() {
     assert_ne!(h.memory().pixels, shown, "the screen shows the line");
 }
 
-/// A display that lends no canvas for a long run does not turn the loop at
+/// A display that lends no token for a long run does not turn the loop at
 /// full speed: the waiting frame is composed again only once the display
 /// takes a frame.
 #[test]
@@ -3467,7 +3467,7 @@ fn a_display_lending_no_canvas_does_not_spin_the_loop() {
     let asked = withholding(&mut h).refused.get() - refused;
     assert!(
         turns < 50 && asked < 5,
-        "{turns} turns and {asked} canvases asked for in 1 s"
+        "{turns} turns and {asked} tokens asked for in 1 s"
     );
 }
 

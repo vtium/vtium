@@ -318,7 +318,7 @@ impl<F: Framebuffer> Fbdev<F> {
 
     /// Sets the display's power state through `FBIOBLANK`, ending any
     /// retries of an unblank. While it is not on the display lends no
-    /// canvas; unblanked, its buffer is age 0 and [`Event::Redraw`]
+    /// token; unblanked, its buffer is age 0 and [`Event::Redraw`]
     /// follows.
     pub fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         if id != DISPLAY || !self.online || !self.awake {
@@ -712,7 +712,7 @@ impl<M: AsMut<[u8]>> Screen<M> {
         let Some(copy) = &self.copy else {
             return;
         };
-        let shadow = lock(copy);
+        let copy = lock(copy);
         let mut map = lock(&self.map);
         let bytes = layout.bytes;
         let width = usize::try_from(self.width).unwrap_or(0);
@@ -727,7 +727,7 @@ impl<M: AsMut<[u8]>> Screen<M> {
             let to = y
                 .saturating_mul(self.stride)
                 .saturating_add(x.saturating_mul(bytes));
-            let src = shadow.get(from..).unwrap_or_default().chunks_exact(4);
+            let src = copy.get(from..).unwrap_or_default().chunks_exact(4);
             let dst = map
                 .get_mut(to..)
                 .unwrap_or_default()
@@ -748,7 +748,7 @@ impl<M: AsMut<[u8]>> Screen<M> {
         let Some(copy) = &self.copy else {
             return;
         };
-        let shadow = lock(copy);
+        let copy = lock(copy);
         let mut map = lock(&self.map);
         let width = usize::try_from(self.width).unwrap_or(0);
         let first = usize::try_from(r.x).unwrap_or(0) / 8;
@@ -769,7 +769,7 @@ impl<M: AsMut<[u8]>> Screen<M> {
                         break;
                     }
                     let at = line.saturating_add(x.saturating_mul(4));
-                    let px = shadow
+                    let px = copy
                         .get(at..at.saturating_add(4))
                         .and_then(|p| <[u8; 4]>::try_from(p).ok())
                         .map_or(0, u32::from_ne_bytes);

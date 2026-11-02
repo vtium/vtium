@@ -597,7 +597,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Sets a display's power state. A display whose connector has no
     /// DPMS property keeps its state, and still counts as powered down for
-    /// the blank. While a display is not on it lends no canvas; powered
+    /// the blank. While a display is not on it lends no token; powered
     /// on, every buffer is age 0 and [`Event::Redraw`] follows.
     pub fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         let awake = self.awake;

@@ -641,7 +641,7 @@ fn a_modeset_waits_for_the_pending_flip() {
 }
 
 /// Whether each of `ids` is ready for a frame, after checking that the
-/// display lends a canvas exactly when it says it is.
+/// display lends a token exactly when it says it is.
 fn ready(v: &mut Drm2d<FakeCard>, ids: &[u32]) -> Vec<bool> {
     ids.iter()
         .map(|&id| {
@@ -654,7 +654,7 @@ fn ready(v: &mut Drm2d<FakeCard>, ids: &[u32]) -> Vec<bool> {
 }
 
 // vtium/vtium#174: a display says whether it takes a frame, and lends a
-// canvas exactly then. A display kept through a modeset that waits for
+// token exactly then. A display kept through a modeset that waits for
 // another display's flip takes none until that flip and the modeset's own
 // are done; a display powered down, one waiting for a vblank, and every
 // display of a card asleep take none either.
@@ -1385,7 +1385,7 @@ fn a_lost_vblank_event_is_taken_as_done_after_the_bound() {
 // udl or gud, or virtio-gpu before Linux 6.19, refuses
 // the wait for a vblank with EOPNOTSUPP while its commits can still be
 // refused as busy. The display then has nothing to wait for: it lends its
-// canvas again, and the frame goes with the next swap the owner tries,
+// token again, and the frame goes with the next swap the owner tries,
 // which nothing asks for until the next draw (vtium/vtium#176).
 #[test]
 fn a_frame_refused_on_a_card_without_vblank_events_goes_with_the_next_swap() {
@@ -1438,7 +1438,7 @@ fn a_display_powered_down_during_a_vblank_wait_ends_it_at_once() {
 
 // A vblank wait that spans a VT leave ends before the sleep does, as a flip
 // in flight does. Its event, arriving during the wake-up's modeset flip,
-// must not end that flip early nor lend the canvas before it.
+// must not end that flip early nor lend a token before it.
 #[test]
 fn a_vblank_event_left_from_before_a_sleep_ends_no_later_flip() {
     let mut v = awake(one());
@@ -1680,7 +1680,7 @@ fn input_after_a_hotplugs_retries_ran_out_sets_the_modes() {
 }
 
 // Finding 2 and the frame contract, rule 6: a display powered down lends
-// no canvas, so no frame is drawn and lost; powered on, every buffer is
+// no token, so no frame is drawn and lost; powered on, every buffer is
 // age 0, its next frame goes whole, and the owner is told to redraw.
 // covers: platform.drm2d-fbdev
 #[test]
