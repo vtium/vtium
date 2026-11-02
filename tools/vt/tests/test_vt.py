@@ -11,6 +11,7 @@ stand-ins also lead PATH, so a command the tools reach by name finds one.
 """
 
 import fcntl
+import hashlib
 import os
 import pty
 import select
@@ -1232,6 +1233,38 @@ class Install(Case):
         self.assertIn("-v", self.s.calls_of("sudo"))
         self.assertIn("vtium runs on VT 4", p.stdout)
         self.assertIn("make vt-uninstall VT=4", p.stdout)
+
+    def sha(self, path):
+        with open(self.at(path), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+
+    def test_install_records_a_checksum_for_each_file_it_writes(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (self.BIN, self.UNIT, self.FALLBACK)))
+        # A new build is installed over the one the record names, and the
+        # record follows it.
+        write(self.s.bin, read(self.s.bin) + "# a newer build\n")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"{self.sha(self.BIN)}  /{self.BIN}", read(self.at(self.STATE + "/files")).splitlines())
+
+    def test_a_file_changed_since_install_wrote_it_is_neither_replaced_nor_removed(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        with open(self.at(self.UNIT), "a") as f:
+            f.write("# a line the maintainer added\n")
+        changed = read(self.at(self.UNIT))
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "5"), "/etc/systemd/system/vtium@.service changed since vt-install wrote it")
+        self.assertEqual(read(self.at(self.UNIT)), changed)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("kept /etc/systemd/system/vtium@.service: it changed since vt-install wrote it", p.stdout)
+        self.assertEqual(read(self.at(self.UNIT)), changed)
+        for f in (self.BIN, self.FALLBACK, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
 
     def test_a_failed_step_names_the_way_back(self):
         for verb in ("daemon-reload", "enable", "restart", "disable"):

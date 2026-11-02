@@ -91,6 +91,9 @@ unit=vtium@tty$vt.service
 fallback=vtium-getty@tty$vt.service
 getty=getty@tty$vt.service
 manifest=$state_dir/tty$vt
+# The checksum of each file install wrote, one "SHA256  PATH" line each, as
+# sha256sum prints them. The files are every VT's, so the record is too.
+record=$state_dir/files
 # What install writes, by its path on the machine; uninstall removes these.
 files=("$bin_path" "$unit_dir/vtium@.service" "$unit_dir/vtium-getty@.service")
 # The per-VT alias that enabling vtium@ttyN makes, and where it points.
@@ -127,6 +130,17 @@ manifests() {
 	done
 }
 
+# The checksum the record holds for file $1, or nothing.
+recorded() {
+	[ -f "$root$record" ] || return 0
+	awk -v f="$1" '$2 == f && $1 ~ /^[0-9a-f]+$/ && length($1) == 64 { print $1 }' "$root$record"
+}
+
+# The checksum of file $1 as it is on the machine now.
+checksum() {
+	sha256sum <"$root$1" | cut -d' ' -f1
+}
+
 # The value of KEY in the manifest, which install wrote as root: yes or no.
 manifest_value() {
 	local v
@@ -160,9 +174,18 @@ if [ "$action" = uninstall ]; then
 	if [ -n "$others" ]; then
 		echo "vt-uninstall: kept ${files[*]}: vt-install holds $(paste -sd' ' <<<"$others") as well"
 	else
+		# Only a file that is still the one install wrote goes; one changed
+		# since is someone's edit, and stays.
 		for f in "${files[@]}"; do
-			as_root rm -f -- "$root$f"
+			[ -e "$root$f" ] || continue
+			sum=$(recorded "$f")
+			if [ -n "$sum" ] && [ "$(checksum "$f")" = "$sum" ]; then
+				as_root rm -f -- "$root$f"
+			else
+				echo "vt-uninstall: kept $f: it changed since vt-install wrote it"
+			fi
 		done
+		as_root rm -f -- "$root$record"
 		as_root rmdir --ignore-fail-on-non-empty -- "$root$state_dir"
 	fi
 	as_root "$systemctl" daemon-reload
@@ -183,14 +206,16 @@ read -r owner mode < <(stat -c '%u %a' -- "$bin")
 ! "$systemctl" is-active --quiet "kmsconvt@tty$vt.service" ||
 	die "kmsconvt@tty$vt is running on VT $vt; stop it first, or pick another VT"
 
-# A file at one of the paths that no manifest accounts for is someone else's.
-held=$(manifests)
-if [ -z "$held" ]; then
-	for f in "${files[@]}"; do
-		[ ! -e "$root$f" ] && [ ! -L "$root$f" ] ||
-			die "$f is there already and vt-install did not write it; it is left alone, so nothing is installed"
-	done
-fi
+# A file at one of the paths is replaced only when it is the one install
+# wrote, by the record's checksum; any other is someone else's, or an edit.
+for f in "${files[@]}"; do
+	[ -e "$root$f" ] || [ -L "$root$f" ] || continue
+	sum=$(recorded "$f")
+	[ -n "$sum" ] ||
+		die "$f is there already and vt-install did not write it; it is left alone, so nothing is installed"
+	[ ! -L "$root$f" ] && [ "$(checksum "$f")" = "$sum" ] ||
+		die "$f changed since vt-install wrote it; it is left alone, so nothing is installed"
+done
 # The per-VT alias is enable's to make; one there already, unless it is the
 # one an earlier install on this VT made, belongs to someone else.
 if [ -e "$root$alias_link" ] || [ -L "$root$alias_link" ]; then
@@ -257,6 +282,13 @@ EOF
 	write_manifest=1
 fi
 
+{
+	printf '%s  %s\n' "$(sha256sum <"$bin" | cut -d' ' -f1)" "$bin_path"
+	for f in vtium@.service vtium-getty@.service; do
+		printf '%s  %s\n' "$(sha256sum <"$tmp/$f" | cut -d' ' -f1)" "$unit_dir/$f"
+	done
+} >"$tmp/files"
+
 if [ -n "$dry" ]; then
 	echo "vt-install: the units it would write:"
 	for f in vtium@.service vtium-getty@.service; do
@@ -264,6 +296,8 @@ if [ -n "$dry" ]; then
 		cat "$tmp/$f"
 	done
 	[ -z "$write_manifest" ] || { printf '\n--- %s\n' "$manifest"; cat "$tmp/manifest"; }
+	printf '\n--- %s\n' "$record"
+	cat "$tmp/files"
 	printf '\nvt-install: the commands, none of them run:\n'
 else
 	"$sudo" -v || die "sudo failed"
@@ -279,6 +313,7 @@ as_root install -D -m 0755 "${own[@]}" -- "$bin" "$root$bin_path"
 for f in vtium@.service vtium-getty@.service; do
 	as_root install -D -m 0644 "${own[@]}" -- "$tmp/$f" "$root$unit_dir/$f"
 done
+as_root install -m 0644 "${own[@]}" -- "$tmp/files" "$root$record"
 as_root "$systemctl" daemon-reload
 # vtium starts first: its Conflicts=getty@%i stops the getty as it starts,
 # so the VT always has one of them. The getty is disabled once vtium runs.
