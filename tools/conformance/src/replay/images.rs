@@ -204,18 +204,23 @@ mod tests {
 
     #[test]
     fn the_handlers_read_a_dcs_q_and_an_apc_g_string() {
-        let strings: [&[u8]; 2] = [
-            b"\x1bPq#0;2;100;0;0#0~~~~-~~\x1b\\",
-            b"\x1b_Ga=T,f=24,s=1,v=1;AAAA\x1b\\",
-        ];
-        for string in strings {
-            let mut t = host();
-            t.input(b"ab");
-            let before = t.screen().clone();
-            t.input(string);
-            assert!(t.screen().images().work() > 0, "a handler read {string:?}");
-            assert!(*t.screen() == before, "{string:?} changed the screen");
-            assert!(t.replies().is_empty());
-        }
+        // the sixel handler draws its picture at the cursor
+        let mut t = host();
+        t.input(b"ab");
+        t.input(b"\x1bPq#0;2;100;0;0#0~~~~-~~\x1b\\");
+        assert!(t.screen().images().work() > 0, "the sixel handler read it");
+        let placed = t.screen().placements();
+        assert_eq!(placed.len(), 1);
+        assert_eq!((placed[0].col, placed[0].image_width), (2, 4));
+        assert!(t.replies().is_empty());
+        // the kitty handler reads its string and changes nothing yet
+        let string = b"\x1b_Ga=T,f=24,s=1,v=1;AAAA\x1b\\";
+        let mut t = host();
+        t.input(b"ab");
+        let before = t.screen().clone();
+        t.input(string);
+        assert!(t.screen().images().work() > 0, "a handler read {string:?}");
+        assert!(*t.screen() == before, "{string:?} changed the screen");
+        assert!(t.replies().is_empty());
     }
 }
