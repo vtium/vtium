@@ -88,7 +88,7 @@ vtium shows pictures that programs send with sixel and the kitty graphics protoc
 
 ### Scrollback and reflow
 
-Each console's scrollback is bounded in bytes, by default by what the 16 MiB minspec peak leaves after the console's two screens at its grid, 5 MiB at 170 by 48, and all consoles together stay within a quarter of the machine's memory. When the width changes, vtium rewraps the main screen and its scrollback, and carries the cursor, the selection and the view with them ([ADR-1003](docs/architecture/term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md)).
+Each console's scrollback is bounded in bytes. By default the bound keeps minspec's grids inside their 16 MiB peak: it is what that peak leaves after the console's two screens, more on a small display and 5 MiB at 170 by 48, and a larger display keeps the 5 MiB, so `sb-memory` raises it on a machine that can spare more. All consoles together stay within a quarter of the machine's memory. When the width changes, vtium rewraps the main screen and its scrollback, and carries the cursor, the selection and the view with them ([ADR-1003](docs/architecture/term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md)).
 
 ### Small machines
 

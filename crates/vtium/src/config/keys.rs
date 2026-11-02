@@ -442,7 +442,7 @@ pub const SB_MEMORY: Key = Key {
     default: Default::Number(SB_MEMORY_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The most bytes the scrollback holds, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory, or the default when `/proc/meminfo` cannot be read; its oldest lines go past it, as past `sb-size`. Left unset, the default follows each console's grid: it is what the 16 MiB minspec peak leaves after the console's two screens at their worst and the rest of vtium, worked out again when the grid changes, so a smaller display keeps more; the default shown is its value at the 170 by 48 minspec grid. Set, it stays fixed.",
+    what: "The most bytes the scrollback holds, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory, or the default when `/proc/meminfo` cannot be read; its oldest lines go past it, as past `sb-size`. Left unset, the default follows each console's grid, worked out again when the grid changes: on a grid up to minspec's 170 by 48 it is what the 16 MiB minspec peak leaves after the console's two screens at their worst and the rest of vtium, so a smaller display keeps more, and a larger display keeps the 170 by 48 value shown here. The default does not grow with the display or the machine's memory; on a machine that can spare more, set `sb-memory` for a deeper scrollback, and it stays fixed.",
     cite: "vtium/vtium#131; ADR-1001, \"Memory\"",
 };
 
