@@ -71,6 +71,9 @@ considered:
     said: "quarter, hopefully we can do better"
     via: steering session, 2026-11-02
     covers: [stream variants]
+  - operator: Aaron Bockelie
+    said: "3. keep"
+    via: steering session, 2026-11-02, answering whether the helper premultiplies every reply, decoded PNG/JPEG/GIF included
 status: proposed
 date: 2026-11-01
 deciders:
