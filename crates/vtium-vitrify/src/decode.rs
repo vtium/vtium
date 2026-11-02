@@ -82,15 +82,28 @@ pub fn decompress(bytes: &[u8]) -> Result<(Vec<u8>, Compression), String> {
         .map_err(|e| format!("{}: {e}", kind.name()))
 }
 
+/// The largest window a zstd frame may declare. `ruzstd` reserves the
+/// declared window as the frame starts, and vitrify keeps no more than
+/// `PSF_BYTES_MAX` bytes of any file, so a frame that declares a larger
+/// window is refused before anything is reserved for it. `zstd` sizes a
+/// file's window to the file, so a font that fits `PSF_BYTES_MAX` never
+/// declares more.
+pub const ZSTD_WINDOW_MAX: u64 = PSF_BYTES_MAX as u64;
+
 /// A zstd stream's frames decoded and joined, each frame's checksum
 /// compared with the bytes it decoded to when the frame carries one, as
 /// `zstd -d` does; `ruzstd` computes the checksum and leaves the
-/// comparison to its caller.
+/// comparison to its caller. `ruzstd` refuses a block that decodes past
+/// the smaller of the frame's window and 128 KiB, as RFC 8878 bounds a
+/// block, so no block holds more than that in memory at once.
 fn unzstd(mut input: &[u8], limit: usize) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     while !input.is_empty() {
-        let mut decoder =
-            ruzstd::decoding::StreamingDecoder::new(&mut input).map_err(|e| e.to_string())?;
+        let mut decoder = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(
+            &mut input,
+            ZSTD_WINDOW_MAX,
+        )
+        .map_err(|e| e.to_string())?;
         let frame = read_bounded(&mut decoder, limit.saturating_sub(out.len()))?;
         let frame_decoder = decoder.into_frame_decoder();
         if !frame_decoder.is_finished() {
@@ -625,6 +638,84 @@ pub(crate) mod tests {
         let mut two = zstd(&plain[..100]);
         two.extend(zstd(&plain[100..]));
         assert_eq!(decompress(&two).expect("two frames").0, plain);
+    }
+
+    /// A zstd frame with no content size and no checksum, whose window
+    /// descriptor is `window`, holding one last block of `kind` (0 raw, 2
+    /// compressed) with `body`.
+    fn zstd_frame(window: u8, kind: u32, body: &[u8]) -> Vec<u8> {
+        let mut f = vec![0x28, 0xb5, 0x2f, 0xfd, 0x00, window];
+        let header = 1 | (kind << 1) | ((body.len() as u32) << 3);
+        f.extend_from_slice(&header.to_le_bytes()[..3]);
+        f.extend_from_slice(body);
+        f
+    }
+
+    /// A compressed block of `count` sequences, each one literal byte and
+    /// then a match of 65,539 plus `extra` copies of it. Each sequence takes
+    /// 2 bytes of the block, and at `extra` 65,535 it names the longest
+    /// match a sequence can, so it decodes to 131,075 bytes.
+    fn zstd_match_block(count: u32, extra: u16) -> Vec<u8> {
+        assert!((1..0x7f00).contains(&count));
+        // Literals: one byte, `count` times, in an RLE literals block with a
+        // 20-bit size.
+        let mut b = vec![
+            (((count & 0xf) << 4) | 0b1101) as u8,
+            (count >> 4) as u8,
+            (count >> 12) as u8,
+            b'A',
+        ];
+        if count < 128 {
+            b.push(count as u8);
+        } else {
+            b.extend_from_slice(&[(count >> 8) as u8 + 0x80, count as u8]);
+        }
+        // Each code table is RLE: a literal length of 1, offset code 0 (the
+        // last offset, 1) and match length code 52 (65,539 and 16 extra
+        // bits). The bitstream ends in a byte holding only its end marker.
+        b.extend_from_slice(&[0x54, 1, 0, 52]);
+        for _ in 0..count {
+            b.extend_from_slice(&extra.to_le_bytes());
+        }
+        b.push(0x01);
+        b
+    }
+
+    #[test]
+    fn a_zstd_frame_reads_through_the_crafted_fixtures() {
+        // The fixtures are well formed: a raw block reads as it is, and a
+        // compressed block of one short sequence, which stays inside a
+        // block's 128 KiB, decodes to its literal and its match.
+        let raw = zstd_frame(0x50, 0, b"hello");
+        assert_eq!(decompress(&raw).expect("raw").0, b"hello");
+        let one = decompress(&zstd_frame(0x50, 2, &zstd_match_block(1, 0))).expect("one");
+        assert_eq!(one.0, vec![b'A'; 65_540]);
+    }
+
+    #[test]
+    fn a_zstd_block_that_decodes_past_its_bound_is_refused() {
+        // A block of one longest sequence decodes to 131,075 bytes, just past
+        // a block's 128 KiB; one of three to 393,225, inside PSF_BYTES_MAX;
+        // and one of 512 to 67 MB from 1 KiB, past both. ruzstd refuses each
+        // as the block decodes, before vitrify's own bound sees the output.
+        for count in [1, 3, 512] {
+            let bomb = zstd_frame(0x50, 2, &zstd_match_block(count, u16::MAX));
+            assert!(bomb.len() < 1100, "{count}: the fixture is small");
+            let e = decompress(&bomb).expect_err("a block past its bound");
+            assert!(e.starts_with("zstd: corrupt"), "{count}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_zstd_frame_declaring_a_window_past_its_bound_is_refused() {
+        // 0x70 declares a 16 MiB window, PSF_BYTES_MAX, which reads; 0x71 a
+        // window an eighth larger, refused before the block is read.
+        assert_eq!(ZSTD_WINDOW_MAX, 16 << 20);
+        let at = zstd_frame(0x70, 0, b"hello");
+        assert_eq!(decompress(&at).expect("at the bound").0, b"hello");
+        let past = zstd_frame(0x71, 0, b"hello");
+        let e = decompress(&past).expect_err("a window past its bound");
+        assert!(e.contains("window"), "{e}");
     }
 
     #[test]

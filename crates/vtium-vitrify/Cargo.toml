@@ -3,7 +3,8 @@ name = "vtium-vitrify"
 description = "Generates vtium's glyphs from frits at run time, and switches the console's frit"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# ruzstd 0.9.1 needs Rust 1.87, past the workspace's 1.85.
+rust-version = "1.87"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -31,7 +32,7 @@ rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"
 # Rust with no C compiled, in this binary only; the README says why each.
 bzip2 = "=0.6.1"
 lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz"] }
-ruzstd = "=0.8.2"
+ruzstd = "=0.9.1"
 # The outline rasteriser ADR-1200 D14 decided on: outlines with hinting,
 # embedded bitmaps and color (COLR and CBDT), pure Rust, run only in the
 # parser's child; MIT or Apache-2.0, as are skrifa, read-fonts, zeno and
