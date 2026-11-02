@@ -42,7 +42,7 @@ fn main() {
         .skip(1)
         .filter(|a| !a.starts_with('-'))
         .collect();
-    let cases: [(&str, fn()); 8] = [
+    let cases: [(&str, fn()); 9] = [
         // first: no thread has started yet
         (
             "sigterm_is_served_while_the_loop_waits",
@@ -73,6 +73,10 @@ fn main() {
             a_writing_grandchild_does_not_hold_back_the_exit,
         ),
         ("the_child_holds_only_the_pty", the_child_holds_only_the_pty),
+        (
+            "closing_the_pty_signals_its_leader_before_its_input_ends",
+            closing_the_pty_signals_its_leader_before_its_input_ends,
+        ),
     ];
     let mut ran = 0;
     for (name, case) in cases {
@@ -227,6 +231,36 @@ fn child(role: &str) {
                 nap(5);
             }
             read_until(|got| got.ends_with(b"Q"));
+        }
+        // Blocks SIGHUP, says it is ready, waits for SIGHUP and records
+        // who sent the first one: its `si_code` and `si_pid`. A blocked
+        // SIGHUP is pending once, so a second one is not recorded.
+        "hup-first" => {
+            #[expect(
+                unsafe_code,
+                reason = "blocking a signal and waiting for it are libc calls"
+            )]
+            // SAFETY: the child has one thread, so the mask it sets is the
+            // process's, and nothing else in it waits for SIGHUP; the
+            // sigset_t and siginfo_t are owned and initialised before use.
+            let (code, pid) = unsafe {
+                let mut set: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut set);
+                libc::sigaddset(&mut set, libc::SIGHUP);
+                assert_eq!(
+                    libc::sigprocmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()),
+                    0
+                );
+                out.write_all(b"!").expect("ready");
+                out.flush().expect("flush");
+                let mut info: libc::siginfo_t = std::mem::zeroed();
+                assert_eq!(libc::sigwaitinfo(&set, &mut info), libc::SIGHUP);
+                (info.si_code, info.si_pid())
+            };
+            let record = env_path("VTIUM_PTY_OUT");
+            let partial = record.with_extension("partial");
+            fs::write(&partial, format!("{code} {pid}")).expect("record");
+            fs::rename(&partial, &record).expect("record");
         }
         _ => panic!("no child role {role}"),
     }
@@ -746,6 +780,31 @@ fn the_child_holds_only_the_pty() {
             && ["0", "1", "2"].iter().all(|f| fds.contains(f))
             && !fds.contains(&held.as_str()),
         "{fds:?}"
+    );
+}
+
+// pty.c:830-848: the C reference closed the master alone. The kernel's
+// hangup wakes a reader of the pty with EIO before it sends SIGHUP to the
+// session's leader, so a leader that read the EIO and exited in between
+// was never signalled. Dropping the pty sends the leader SIGHUP before the
+// master closes: the leader, which blocks SIGHUP, finds pending the one
+// its parent sent, not the kernel's.
+fn closing_the_pty_signals_its_leader_before_its_input_ends() {
+    let scratch = Scratch::new("hup-first");
+    let record = scratch.join("record");
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    let mut child = role("hup-first");
+    child.env("VTIUM_PTY_OUT", &record);
+    open(&lp, &mut h, child);
+    turn_until(&mut lp, &mut h, 500, |h| h.term.taken.ends_with(b"!"));
+    h.pty = None;
+    turn_until(&mut lp, &mut h, 500, |_| record.exists());
+    let first = fs::read_to_string(&record).expect("the record");
+    assert_eq!(
+        first,
+        format!("{} {}", libc::SI_USER, std::process::id()),
+        "the first SIGHUP is the parent's (si_code 0, its pid), not the kernel's hangup (si_code 128)"
     );
 }
 

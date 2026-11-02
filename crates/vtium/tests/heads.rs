@@ -1768,7 +1768,11 @@ fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_
 }
 
 /// D5: closing the console shown closes its pty, so its programs get
-/// SIGHUP, as on a hang-up; the other consoles' sessions run on.
+/// SIGHUP, as on a hang-up; the other consoles' sessions run on. Each
+/// session reads its pty, so its read ends as the pty closes, which is
+/// when a session the close did not signal first leaves without the
+/// SIGHUP. Ids are each head's own, and the large head's console is 1 too,
+/// so each marker names its head.
 // covers: platform.heads
 #[test]
 fn closing_a_console_hangs_up_its_session_alone() {
@@ -1777,8 +1781,8 @@ fn closing_a_console_hangs_up_its_session_alone() {
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).expect("a marker directory");
     let script = format!(
-        "trap 'echo > {d}/hup-$VTIUM_CONSOLE; exit 0' HUP; echo \"is:$VTIUM_CONSOLE\"; \
-         while read a; do echo \"got:$a\"; done",
+        "trap 'echo > {d}/hup-$VTIUM_HEAD-$VTIUM_CONSOLE; exit 0' HUP; \
+         echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\"; done",
         d = d.display()
     );
     let displays = [
@@ -1792,13 +1796,14 @@ fn closing_a_console_hangs_up_its_session_alone() {
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     assert!(s.until(SECOND, |a| told_ids(a, "small").iter().all(Option::is_some)));
     press_chord(&mut s, KBD_SMALL, BACKSPACE);
-    let hup = |id: u32| d.join(format!("hup-{id}")).exists();
+    let hup = |head: &str, id: u32| d.join(format!("hup-{head}-{id}")).exists();
     let end = now() + BOUND;
-    while !hup(1) && now() < end {
+    while !hup("small", 1) && now() < end {
         s.until(Duration::from_millis(20), |_| false);
     }
-    assert!(hup(1), "console 1's session got SIGHUP");
-    assert!(!hup(2), "console 2's runs on");
+    assert!(hup("small", 1), "console 1's session got SIGHUP");
+    assert!(!hup("small", 2), "console 2's runs on");
+    assert!(!hup("large", 1), "the large head's runs on");
     s.type_on(KBD_SMALL, "on\r");
     assert!(s.until(SECOND, |a| head_shows(a, "small", "got:on")));
     let _ = std::fs::remove_dir_all(&d);

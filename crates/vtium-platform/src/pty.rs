@@ -18,7 +18,7 @@ use std::rc::Rc;
 use calloop::generic::Generic;
 use calloop::{Interest, LoopHandle, Mode, PostAction, RegistrationToken};
 use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
-use rustix::process::{Pid, PidfdFlags, ioctl_tiocsctty, pidfd_open, setsid};
+use rustix::process::{Pid, PidfdFlags, ioctl_tiocsctty, pidfd_open, pidfd_send_signal, setsid};
 // rustix publishes its runtime module under a name that changes between
 // releases, as it keeps that API unstable; Cargo.toml pins rustix to the
 // release whose name this is.
@@ -360,10 +360,22 @@ pub(crate) unsafe fn default_signals() -> io::Result<()> {
 }
 
 impl Drop for Pty {
-    /// Removes the pty from its loop and closes the master, which hangs up
-    /// the child's session. A child still running is reaped by the loop
-    /// when it exits.
+    /// Sends SIGHUP to a child still running, then removes the pty from its
+    /// loop and closes the master, which hangs up the child's session. A
+    /// child still running is reaped by the loop when it exits.
+    ///
+    /// The signal goes first because the kernel's hangup ends the session's
+    /// input before it signals the session's leader: closing the master
+    /// wakes a reader of the pty with EIO, and only then sends SIGHUP to
+    /// the leader. A leader that reads the pty can see the EIO and exit in
+    /// between, so the kernel's SIGHUP finds no process and the session is
+    /// never told it was hung up. Sent through the child's pidfd before the
+    /// master closes, SIGHUP is pending in the leader before its input
+    /// ends.
     fn drop(&mut self) {
+        if self.child.is_some() {
+            let _ = pidfd_send_signal(&*self.pidfd, Signal::HUP);
+        }
         let Some(link) = self.link.take() else {
             return;
         };
