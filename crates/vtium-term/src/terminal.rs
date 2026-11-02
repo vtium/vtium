@@ -949,6 +949,7 @@ impl Consumer for State {
             (Some(b'?'), [], b'n') if params.get(0) == Some(6) => self.reply_cursor(true),
             (Some(b'?'), [], b'n') if params.get(0) == Some(996) => self.reply_scheme(),
             (Some(b'?'), [], b'n') if params.get(0) == Some(998) => self.reply_visibility(),
+            (Some(b'?'), [], b'S') => self.reply_xtsmgraphics(params),
             (Some(b'>'), [], b'm') if !params.has_subparams() => {
                 self.set_modify_other_keys(params);
             }

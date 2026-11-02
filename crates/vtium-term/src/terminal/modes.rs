@@ -71,6 +71,12 @@ pub(crate) enum Host {
     /// It rings the bell by its setting when it takes one
     /// ([`Terminal::take_bell`](crate::Terminal::take_bell)).
     Bell,
+    /// It offers sixel: the row exists only in a build with images, and
+    /// until the host offers sixel
+    /// ([`Terminal::set_image_switches`](crate::Terminal::set_image_switches),
+    /// an installed handler and a budget above 0), DECRQM reports the
+    /// row's fixed state while SM and RM still store it (ADR-1100, D10).
+    Sixel,
 }
 
 /// The accessors of a supported row.
@@ -112,6 +118,9 @@ pub(crate) enum Mode {
     SchemeReport,
     VisibilityReport,
     ResizeReport,
+    SixelDisplay,
+    SixelPrivateRegisters,
+    SixelCursorRight,
 }
 
 /// One mode.
@@ -155,6 +164,12 @@ const FIXED: &[&str] =
     &["modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing"];
 const MOUSE: &[&str] = &["modes.rs::mouse_tracking_reports_by_its_mode"];
 const SGR_MOUSE: &[&str] = &["modes.rs::sgr_mouse_encodings_report_cells_or_pixels"];
+const SIXEL_MODES: &[&str] = &[
+    "sixel.rs::the_sixel_modes_are_offered_while_sixel_is",
+    "sixel.rs::decsdm_places_a_picture_at_the_top_left_and_leaves_the_cursor",
+    "sixel.rs::mode_1070_gives_each_picture_its_own_registers",
+    "sixel.rs::mode_8452_ends_the_cursor_right_of_the_picture",
+];
 
 macro_rules! row {
     ($dec:expr, $n:expr, $name:expr, $status:ident, $initial:expr, $reset:ident, $host:ident,
@@ -199,6 +214,7 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 45, "XTREVWRAP", Supported, RESET, Soft, Nothing, "", "ctlseqs, reverse wraparound: while DECAWM is set, BS and CUB go on from the first column to the last column of the row above when printing wrapped from that row, as xterm moves; a pending wrap takes one step, so CUB n from it ends n - 1 columns left of the last column, where xterm's CursorBack counts the pending wrap twice for n of 2 or more and ends n - 2 columns left", &["modes.rs::mode_45_wraps_backwards_into_the_row_that_wrapped"], Some(Mode::ReverseWrap)),
     row!(DEC, 47, "ALTBUF", Supported, RESET, Soft, Nothing, "", "ctlseqs, the alternate screen, neither cleared nor the cursor saved", &["modes.rs::mode_47_switches_screens_only"], Some(Mode::AltScreen)),
     row!(DEC, 66, "DECNKM", Supported, RESET, Soft, Nothing, "", "ctlseqs; VT510; the keypad's application mode, which DECKPAM sets and DECKPNM resets", &["modes.rs::decnkm_switches_the_keypad_as_deckpam_and_deckpnm_do"], Some(Mode::Decnkm)),
+    row!(DEC, 80, "DECSDM", Supported, RESET, Hard, Sixel, "", "ctlseqs, DECSDM in xterm's sense: set, sixel scrolling is off and a picture sits at the screen's top left, cut to the screen, with the cursor left where it is; reset, a picture's top left is the cursor's cell (ADR-1100)", SIXEL_MODES, Some(Mode::SixelDisplay)),
     row!(DEC, 1000, "VT200MOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, normal tracking; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", MOUSE, Some(Mode::NormalMouse)),
     row!(DEC, 1001, "HILITEMOUSE", Refused, RESET, Never, Nothing, "", "ctlseqs; refused: the terminal waits on the program's XTHIMOUSE answer before it can show a selection (ADR-1000)", FIXED, None),
     row!(DEC, 1002, "BTNMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, button-event tracking; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", MOUSE, Some(Mode::ButtonMouse)),
@@ -215,6 +231,7 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 1047, "ALTBUF1047", Supported, RESET, Soft, Nothing, "", "ctlseqs, the alternate screen, cleared as it is left", &["modes.rs::mode_1047_clears_the_alternate_screen_as_it_leaves"], Some(Mode::AltScreenClear)),
     row!(DEC, 1048, "SAVECUR", Supported, RESET, Never, Nothing, "", "ctlseqs, \"Save cursor as in DECSC\": set saves, reset restores as DECRC does, and nothing stays set", &["modes.rs::mode_1048_saves_and_restores_the_cursor_as_decsc_does"], Some(Mode::SaveCursor)),
     row!(DEC, 1049, "ALTBUF1049", Supported, RESET, Soft, Nothing, "smcup rmcup", "ctlseqs, the cursor saved as in DECSC and the alternate screen cleared as it is entered; leaving restores the cursor and the pen as DECRC does (libtsm#20)", &["modes.rs::mode_1049_saves_the_cursor_and_the_pen_around_the_alternate_screen"], Some(Mode::AltScreenSaveCursor)),
+    row!(DEC, 1070, "SIXELPRIVATE", Supported, Initial::Host("private-color-registers"), Hard, Sixel, "", "ctlseqs, private sixel color registers: set, each picture starts from the default registers; reset, the pictures share one set of registers, kept until RIS or a change of the register count", SIXEL_MODES, Some(Mode::SixelPrivateRegisters)),
     row!(DEC, 2004, "BRPASTE", Supported, RESET, Soft, Paste, "BD BE PS PE", "ctlseqs, bracketed paste; a paste never carries its own end marker (ADR-1000)", &["modes.rs::bracketed_paste_brackets_a_paste"], Some(Mode::BracketedPaste)),
     row!(DEC, 2026, "SYNC", Supported, RESET, Soft, Draw, "Sync", "contour synchronized-output; offered while the host presents by it", &["modes.rs::mode_2026_holds_frames_while_the_host_offers_it"], Some(Mode::Sync)),
     row!(DEC, 2027, "GRAPHEME", Supported, Initial::Host("the host's width method"), Soft, Nothing, "", "contour unicode-core; RIS and DECSTR return it to the configured method", &["modes.rs::mode_2027_reports_and_resets_to_the_configured_method"], Some(Mode::GraphemeWidth)),
@@ -222,10 +239,23 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 2031, "SCHEMEREPORT", Supported, RESET, Soft, Nothing, "", "contour color-palette-update-notifications; CSI ? 997 ; Ps n when the default background turns dark or light by its luma (ITU-R BT.601), as CSI ? 996 n answers", &["inband.rs::mode_2031_reports_a_change_of_scheme", "inband.rs::decstr_and_ris_reset_the_report_modes"], Some(Mode::SchemeReport)),
     row!(DEC, 2033, "VISREPORT", Supported, RESET, Soft, Notify, "", "foot(7), rockorager's visibility reports; CSI ? 999 ; Ps n as it is set and on each change, a VT switch or a blank", &["inband.rs::mode_2033_reports_visibility_on_set_and_each_change", "inband.rs::decstr_and_ris_reset_the_report_modes"], Some(Mode::VisibilityReport)),
     row!(DEC, 2048, "RESIZEREPORT", Supported, RESET, Soft, Notify, "", "rockorager's in-band resize notifications; CSI 48 ; rows ; cols ; height ; width t as it is set and after each resize, the text area in pixels 0 while the cell size is unknown", &["inband.rs::mode_2048_reports_the_text_area_on_set_and_each_resize", "inband.rs::decstr_and_ris_reset_the_report_modes"], Some(Mode::ResizeReport)),
+    row!(DEC, 8452, "SIXELRIGHT", Supported, RESET, Hard, Sixel, "", "ctlseqs, sixel cursor to the right: set, the cursor ends a picture in the column after its right edge, at most the last column; reset, at its left column", SIXEL_MODES, Some(Mode::SixelCursorRight)),
 ];
 
+/// The row of a mode number, in this build: the sixel rows are in the
+/// table for its documents in every build, and only a build with images
+/// has them (ADR-1100, D10).
 fn find(dec: bool, number: u32) -> Option<&'static Row> {
-    MODES.iter().find(|r| r.dec == dec && r.number == number)
+    MODES
+        .iter()
+        .find(|r| r.dec == dec && r.number == number && r.built())
+}
+
+impl Row {
+    /// Whether this build has the row.
+    fn built(&self) -> bool {
+        self.host != Host::Sixel || cfg!(feature = "images")
+    }
 }
 
 /// Mouse tracking: which pointer events are reported (modes 9, 1000,
@@ -278,6 +308,9 @@ pub(super) struct Modes {
     scheme_report: bool,
     visibility_report: bool,
     resize_report: bool,
+    sixel_display: bool,
+    sixel_private_registers: bool,
+    sixel_cursor_right: bool,
 }
 
 impl Modes {
@@ -302,6 +335,9 @@ impl Modes {
         scheme_report: false,
         visibility_report: false,
         resize_report: false,
+        sixel_display: false,
+        sixel_private_registers: true,
+        sixel_cursor_right: false,
     };
 
     /// SRM: set, the default, sends with no local echo.
@@ -440,6 +476,9 @@ impl State {
             Mode::SchemeReport => m.scheme_report,
             Mode::VisibilityReport => m.visibility_report,
             Mode::ResizeReport => m.resize_report,
+            Mode::SixelDisplay => m.sixel_display,
+            Mode::SixelPrivateRegisters => m.sixel_private_registers,
+            Mode::SixelCursorRight => m.sixel_cursor_right,
         }
     }
 
@@ -522,6 +561,9 @@ impl State {
                     self.report_size();
                 }
             }
+            Mode::SixelDisplay => self.modes.sixel_display = on,
+            Mode::SixelPrivateRegisters => self.modes.sixel_private_registers = on,
+            Mode::SixelCursorRight => self.modes.sixel_cursor_right = on,
         }
     }
 
@@ -563,14 +605,26 @@ impl State {
             (Initial::Host(_), Some(Mode::GraphemeWidth)) => {
                 self.host.width_method == WidthMethod::Unicode
             }
+            #[cfg(feature = "images")]
+            (Initial::Host(_), Some(Mode::SixelPrivateRegisters)) => {
+                self.image_limits().private_registers
+            }
             _ => false,
         }
     }
 
     /// Whether the host offers a row's mode: a mode the host presents
-    /// frames by only while it says it does.
+    /// frames by only while it says it does, and a mode of sixel's only
+    /// while sixel is offered.
     fn offered(&self, row: &Row) -> bool {
-        row.host != Host::Draw || self.host.sync_enabled
+        match row.host {
+            Host::Draw => self.host.sync_enabled,
+            #[cfg(feature = "images")]
+            Host::Sixel => self.image_offered(super::images::ImageString::Sixel),
+            #[cfg(not(feature = "images"))]
+            Host::Sixel => false,
+            _ => true,
+        }
     }
 }
 
@@ -844,6 +898,7 @@ mod tests {
             Host::Draw => "presents by it",
             Host::Notify => "tells of changes",
             Host::Bell => "rings the bell",
+            Host::Sixel => "offers sixel",
         }
     }
 
@@ -1108,9 +1163,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(
-            checked,
-            256 + 65536 - u32::try_from(MODES.len()).expect("rows")
-        );
+        let built = MODES.iter().filter(|r| r.built()).count();
+        assert_eq!(checked, 256 + 65536 - u32::try_from(built).expect("rows"));
     }
 }

@@ -808,17 +808,20 @@ fn mode_1042_lets_bel_reach_the_host() {
 }
 
 /// The supported rows of `docs/modes.tsv`, which the mode table generates:
-/// whether each is a DEC private mode, and its number.
+/// whether each is a DEC private mode, and its number. The rows of sixel's
+/// modes are left out: they exist only in a build with images and are
+/// offered only with sixel's handler installed, and `tests/sixel.rs` holds
+/// their tests.
 fn supported_modes() -> Vec<(bool, u32)> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/modes.tsv");
     let tsv = std::fs::read_to_string(path).unwrap();
     let mut lines = tsv.lines();
     let header: Vec<&str> = lines.next().unwrap().split('\t').collect();
     let col = |name: &str| header.iter().position(|h| *h == name).unwrap();
-    let (kind, number, status) = (col("kind"), col("number"), col("status"));
+    let (kind, number, status, host) = (col("kind"), col("number"), col("status"), col("host"));
     let modes: Vec<(bool, u32)> = lines
         .map(|l| l.split('\t').collect::<Vec<_>>())
-        .filter(|r| r[status] == "supported")
+        .filter(|r| r[status] == "supported" && r[host] != "offers sixel")
         .map(|r| (r[kind] == "DEC", r[number].parse().unwrap()))
         .collect();
     assert!(modes.len() > 30, "the table's supported rows");

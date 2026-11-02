@@ -59,7 +59,7 @@ DEC-67	DEC	67	DECBKM	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverifi
 DEC-68	DEC	68	DECKBUM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-69	DEC	69	DECLRMM (DECVSSM)	ctlseqs; VT510	absent	yes	no	yes (Ghostty decslrm page)	yes (DECRQSS for DECSLRM, WezTerm es)	unverified	supported		top	#55	
 DEC-73	DEC	73	DECXRLM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
-DEC-80	DEC	80	DECSDM	ctlseqs	SUPPORTED, offered while sixel was on	yes	no	unverified	unverified	unverified	supported		images	#48	
+DEC-80	DEC	80	DECSDM	ctlseqs	SUPPORTED, offered while sixel was on	yes	no	unverified	unverified	unverified	supported		images	#48	crates/vtium-term/tests/sixel.rs::decsdm_places_a_picture_at_the_top_left_and_leaves_the_cursor, crates/vtium-term/tests/sixel.rs::the_sixel_modes_are_offered_while_sixel_is
 DEC-81	DEC	81	DECKPM	VT510	absent	no	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-95	DEC	95	DECNCSM	ctlseqs; VT510	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-96	DEC	96	DECRLCM, cursor right to left	VT510	absent	no	no	unverified	unverified	unverified	no row	until #43 decides	top	#43	
@@ -110,7 +110,7 @@ DEC-1052	DEC	1052	HP function keys	ctlseqs	absent	yes	no	unverified	unverified	u
 DEC-1053	DEC	1053	SCO function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-1060	DEC	1060	legacy X11R6 keyboard	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-1061	DEC	1061	VT220 keyboard	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
-DEC-1070	DEC	1070	private sixel color registers	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48	
+DEC-1070	DEC	1070	private sixel color registers	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48	crates/vtium-term/tests/sixel.rs::mode_1070_gives_each_picture_its_own_registers, crates/vtium-term/tests/sixel.rs::the_sixel_modes_are_offered_while_sixel_is
 DEC-2001	DEC	2001	readline mouse button 1	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-2002	DEC	2002	readline mouse button 2	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-2003	DEC	2003	readline mouse button 3	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
@@ -125,5 +125,5 @@ DEC-2033	DEC	2033	visibility reports	foot(7) (rockorager's spec)	absent	no	yes	u
 DEC-2034	DEC	2034	semantic block query	contour semantic-block-query	absent	no	no	unverified	unverified	unverified	no row	revisit with #40	minspec	#12	
 DEC-2048	DEC	2048	in-band resize notifications	foot(7)	absent	no	yes	unverified	unverified	unverified	supported	reports a resize when a display is hot-plugged or changes mode	top	#57	crates/vtium-term/tests/inband.rs::decstr_and_ris_reset_the_report_modes, crates/vtium-term/tests/inband.rs::mode_2048_reports_the_text_area_on_set_and_each_resize, crates/vtium/tests/boot.rs::a_zoom_reports_the_text_area_to_a_program_waiting_in_a_read
 DEC-5522	DEC	5522	paste events	kitty clipboard	absent	no	no	yes (Ghostty 1.4.0 release notes)	unverified	yes	no row		minspec	#12	
-DEC-8452	DEC	8452	sixel cursor to the right	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48	
+DEC-8452	DEC	8452	sixel cursor to the right	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48	crates/vtium-term/tests/sixel.rs::mode_8452_ends_the_cursor_right_of_the_picture, crates/vtium-term/tests/sixel.rs::the_sixel_modes_are_offered_while_sixel_is
 DEC-737769	DEC	737769	input method mode	foot(7)	absent	no	yes	unverified	unverified	unverified	no row	revisit with #45	minspec	#12	
