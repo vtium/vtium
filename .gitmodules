@@ -1,0 +1,3 @@
+[submodule "packaging/arch"]
+	path = packaging/arch
+	url = https://github.com/vtium/vtium-arch.git
