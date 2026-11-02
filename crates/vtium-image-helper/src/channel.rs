@@ -126,11 +126,9 @@ pub struct Outcome {
     /// worker wrote nothing (ADR-1101 D4).
     pub mismatch: bool,
     /// The worker could open no directory when it answered: its landlock
-    /// domain or its third filter was in force.
+    /// domain or its third filter was in force. The worker reports this
+    /// itself, so it holds in honest runs only (ADR-1101 D10).
     pub locked: bool,
-    /// The seccomp filters the worker ran under once its second was in,
-    /// 0 where the kernel does not count them or none is built.
-    pub filters: u32,
     pub reason: String,
 }
 
@@ -145,14 +143,13 @@ impl Outcome {
             shm: None,
             mismatch: false,
             locked: false,
-            filters: 0,
             reason: reason.into(),
         }
     }
 }
 
 /// The bytes of an outcome before its reason.
-const OUTCOME_FIXED: usize = 48;
+const OUTCOME_FIXED: usize = 44;
 /// The most bytes an outcome takes.
 pub const OUTCOME_MAX: usize = OUTCOME_FIXED + REASON_MAX;
 
@@ -181,7 +178,6 @@ pub fn encode_outcome(o: &Outcome) -> Vec<u8> {
         out.extend_from_slice(&v.to_le_bytes());
     }
     out.extend_from_slice(&flags.to_le_bytes());
-    out.extend_from_slice(&o.filters.to_le_bytes());
     out.extend_from_slice(reason.as_bytes());
     out
 }
@@ -221,7 +217,6 @@ pub fn decode_outcome(packet: &[u8]) -> Option<Outcome> {
         shm,
         mismatch: flags & 2 != 0,
         locked: flags & 4 != 0,
-        filters: u32_at(44)?,
         reason: String::from_utf8_lossy(packet.get(OUTCOME_FIXED..)?).into_owned(),
     })
 }
@@ -271,7 +266,6 @@ mod tests {
             shm: Some(Identity { dev: 6, ino: 7 }),
             mismatch: true,
             locked: true,
-            filters: 2,
             reason: "é".repeat(200),
         };
         let packet = encode_outcome(&o);

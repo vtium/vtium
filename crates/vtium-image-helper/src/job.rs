@@ -155,7 +155,6 @@ pub fn finish(
                 shm,
                 mismatch: false,
                 locked: false,
-                filters: 0,
                 reason: String::new(),
             },
             Ok(false) => Outcome {

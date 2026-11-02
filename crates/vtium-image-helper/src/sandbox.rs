@@ -108,8 +108,20 @@ pub fn lock(filter: &WorkerFilter, landlock: u32) -> Option<Locked> {
 /// `Seccomp_filters` line of `/proc/self/status`; `None` on a kernel that
 /// does not count them, before 5.9.
 pub fn seccomp_filters() -> Option<u32> {
-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
-    status
+    filters_in("/proc/self/status")
+}
+
+/// The seccomp filters process `pid` runs under, as the kernel counts
+/// them, read by its parent before it reaps it, so the pid is still its
+/// child's; `None` where the kernel does not count them or the process
+/// cannot be read.
+pub fn seccomp_filters_of(pid: rustix::process::Pid) -> Option<u32> {
+    filters_in(&format!("/proc/{}/status", pid.as_raw_nonzero()))
+}
+
+fn filters_in(status: &str) -> Option<u32> {
+    std::fs::read_to_string(status)
+        .ok()?
         .lines()
         .find_map(|l| l.strip_prefix("Seccomp_filters:"))
         .and_then(|n| n.trim().parse().ok())
