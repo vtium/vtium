@@ -246,6 +246,31 @@ impl Line {
         }
     }
 
+    /// The most bytes a screen row of `cols` cells holds, `cols` at least 1
+    /// and at most [`COLUMNS_MAX`]: its struct, its cells, and its style
+    /// table, link table and cluster arena each at the limit it compacts
+    /// at, by capacity. A row that `write` and `erase` fill reaches it; a
+    /// row a rewrap built and a later write compacted holds fewer styles
+    /// and links and stays under it. `tests/memory.rs` drives rows on both
+    /// paths and holds each to it.
+    pub const fn bytes_max(cols: usize) -> usize {
+        let cols = if cols == 0 {
+            1
+        } else if cols > COLUMNS_MAX {
+            COLUMNS_MAX
+        } else {
+            cols
+        };
+        let tables = cols.saturating_mul(TABLE_GROWTH);
+        let entry = size_of::<Style>()
+            .saturating_add(size_of::<LinkId>())
+            .saturating_add(CLUSTER_BYTES_PER_CELL);
+        size_of::<Self>()
+            .saturating_add(cols.saturating_mul(size_of::<Cell>()))
+            .saturating_add(size_of::<Tables>())
+            .saturating_add(tables.saturating_mul(entry))
+    }
+
     /// An empty line with room for `cols` cells, for a rewrap to fill.
     pub(crate) fn with_capacity(id: LineId, flags: LineFlags, cols: usize) -> Self {
         Self {
@@ -532,6 +557,8 @@ impl Line {
         let cols = cols.min(COLUMNS_MAX);
         let shrinking = cols < self.cells.len();
         let fill = self.fill_cell();
+        self.cells
+            .reserve_exact(cols.saturating_sub(self.cells.len()));
         self.cells.resize(cols, fill);
         if shrinking {
             if let Some(last) = self.cells.last_mut()
@@ -606,7 +633,10 @@ impl Line {
     /// fill, as a rewrapped line takes its place on the screen.
     pub(crate) fn paint(&mut self, cols: usize) {
         let fill = self.fill_cell();
-        self.cells.resize(cols.min(COLUMNS_MAX), fill);
+        let cols = cols.min(COLUMNS_MAX);
+        self.cells
+            .reserve_exact(cols.saturating_sub(self.cells.len()));
+        self.cells.resize(cols, fill);
     }
 
     /// Appends `cell` of `src`, its style, link and cluster copied into
@@ -672,17 +702,26 @@ impl Line {
             return (StyleIndex(0), LinkIndex(0));
         };
         map.fit(from);
+        let (limit, _) = self.limits();
         let to = self.tables.get_or_insert_default();
-        let style = remap(&mut map.styles, style.0, &from.styles, &mut to.styles);
-        let link = remap(&mut map.links, link.0, &from.links, &mut to.links);
+        let style = remap(
+            &mut map.styles,
+            style.0,
+            &from.styles,
+            &mut to.styles,
+            limit,
+        );
+        let link = remap(&mut map.links, link.0, &from.links, &mut to.links, limit);
         (StyleIndex(style), LinkIndex(link))
     }
 
     /// Stores the cluster `s` whole.
     fn copy_cluster(&mut self, s: &str) -> Option<Content> {
+        let (_, arena) = self.limits();
         let t = self.tables.get_or_insert_default();
         let len = u8::try_from(s.len()).ok()?;
         let offset = u32::try_from(t.clusters.len()).ok()?;
+        reserve_within(&mut t.clusters, s.len().saturating_add(1), arena);
         t.clusters.push(len);
         t.clusters.extend_from_slice(s.as_bytes());
         t.live = t.live.saturating_add(s.len()).saturating_add(1);
@@ -739,12 +778,21 @@ impl Line {
         self.cells.len().saturating_mul(CLUSTER_BYTES_PER_CELL)
     }
 
+    /// The most entries the style and the link table each hold, and the
+    /// most bytes the cluster arena holds, before the line compacts them:
+    /// [`TABLE_GROWTH`] times what the line's cells can name. A table's
+    /// capacity grows by doubling, as a vector's does, but stops at its
+    /// limit ([`reserve_within`]), so a line's tables never hold room past
+    /// what they compact at.
+    fn limits(&self) -> (usize, usize) {
+        let tables = self.cells.len().max(1).saturating_mul(TABLE_GROWTH);
+        (tables, tables.saturating_mul(CLUSTER_BYTES_PER_CELL))
+    }
+
     /// Compacts the tables when one more entry in any of them could pass
     /// its limit, so the indices `write` and `erase` intern stay valid.
     fn make_room(&mut self) {
-        let cells = self.cells.len().max(1);
-        let limit = cells.saturating_mul(TABLE_GROWTH);
-        let arena = limit.saturating_mul(CLUSTER_BYTES_PER_CELL);
+        let (limit, arena) = self.limits();
         let full = self.tables.as_ref().is_some_and(|t| {
             t.styles.len() >= limit
                 || t.links.len() >= limit
@@ -770,16 +818,29 @@ impl Line {
         let Some(old) = self.tables.take() else {
             return;
         };
+        let (limit, arena) = self.limits();
         let mut new = Tables::default();
+        // A row a rewrap built may name more than its arena's limit; its
+        // arena is sized once, to what its cells name, so that compacting
+        // it never doubles past what it holds.
+        if old.live > arena {
+            new.clusters.reserve_exact(old.live);
+        }
         let mut styles = vec![0u16; old.styles.len()];
         let mut links = vec![0u16; old.links.len()];
         let mut clusters = BTreeMap::new();
         for cell in &mut self.cells {
-            let style = remap(&mut styles, cell.style().0, &old.styles, &mut new.styles);
-            let link = remap(&mut links, cell.link().0, &old.links, &mut new.links);
+            let style = remap(
+                &mut styles,
+                cell.style().0,
+                &old.styles,
+                &mut new.styles,
+                limit,
+            );
+            let link = remap(&mut links, cell.link().0, &old.links, &mut new.links, limit);
             let content = match cell.content() {
                 Content::Cluster(ClusterOffset(o)) => {
-                    match remap_cluster(&mut clusters, o, &old, &mut new) {
+                    match remap_cluster(&mut clusters, o, &old, &mut new, arena) {
                         Some(n) => Content::Cluster(ClusterOffset(n)),
                         None => Content::Empty,
                     }
@@ -788,7 +849,7 @@ impl Line {
             };
             *cell = Cell::new(content, cell.width(), StyleIndex(style), LinkIndex(link));
         }
-        let fill = remap(&mut styles, self.fill, &old.styles, &mut new.styles);
+        let fill = remap(&mut styles, self.fill, &old.styles, &mut new.styles, limit);
         self.fill = fill;
         new.live = new.clusters.len();
         if !new.is_empty() {
@@ -820,16 +881,18 @@ impl Line {
         if *style == Style::DEFAULT {
             return StyleIndex(0);
         }
+        let (limit, _) = self.limits();
         let styles = &mut self.tables.get_or_insert_default().styles;
-        StyleIndex(intern(styles, style))
+        StyleIndex(intern(styles, style, limit))
     }
 
     fn intern_link(&mut self, link: Option<LinkId>) -> LinkIndex {
         let Some(link) = link else {
             return LinkIndex(0);
         };
+        let (limit, _) = self.limits();
         let links = &mut self.tables.get_or_insert_default().links;
-        LinkIndex(intern(links, &link))
+        LinkIndex(intern(links, &link, limit))
     }
 
     /// Stores the cluster `s`, as much of it as the budget allows.
@@ -856,6 +919,7 @@ impl Line {
         if count < 2 {
             return Content::Char(first);
         }
+        let (_, arena) = self.limits();
         let t = self.tables.get_or_insert_default();
         let (Some(bytes), Ok(len), Ok(offset)) = (
             s.as_bytes().get(..end),
@@ -864,6 +928,7 @@ impl Line {
         ) else {
             return Content::Char(first);
         };
+        reserve_within(&mut t.clusters, end.saturating_add(1), arena);
         t.clusters.push(len);
         t.clusters.extend_from_slice(bytes);
         t.live = t.live.saturating_add(end).saturating_add(1);
@@ -902,10 +967,11 @@ impl IndexMap {
 /// the newest entry is the likeliest match, so the search runs from the
 /// end; it is linear in the line's width at worst. The bounds' compile-time
 /// check keeps every index inside 16 bits.
-fn intern<T: PartialEq + Copy>(table: &mut Vec<T>, value: &T) -> u16 {
+fn intern<T: PartialEq + Copy>(table: &mut Vec<T>, value: &T, limit: usize) -> u16 {
     let i = match table.iter().rposition(|v| v == value) {
         Some(i) => i,
         None => {
+            reserve_within(table, 1, limit);
             table.push(*value);
             table.len().saturating_sub(1)
         }
@@ -913,10 +979,29 @@ fn intern<T: PartialEq + Copy>(table: &mut Vec<T>, value: &T) -> u16 {
     u16::try_from(i.saturating_add(1)).unwrap_or(u16::MAX)
 }
 
+/// Makes room for `more` entries in `table`. Its capacity doubles, as a
+/// vector's does, but stops at `limit` while the entries fit inside it, so
+/// a table that compacts at `limit` never holds room past it. A table
+/// that passes its limit, as a row a rewrap builds may, doubles past it.
+fn reserve_within<T>(table: &mut Vec<T>, more: usize, limit: usize) {
+    let need = table.len().saturating_add(more);
+    if need <= table.capacity() {
+        return;
+    }
+    let doubled = table.capacity().saturating_mul(2).max(4);
+    let target = if need <= limit {
+        doubled.min(limit).max(need)
+    } else {
+        doubled.max(need)
+    };
+    table.reserve_exact(target.saturating_sub(table.len()));
+}
+
 /// The new 1-based index of old index `i`, copying its entry into `new`
-/// the first time a cell names it. `map` holds the new index of each old
-/// entry, 0 until it is copied.
-fn remap<T: Copy>(map: &mut [u16], i: u16, old: &[T], new: &mut Vec<T>) -> u16 {
+/// the first time a cell names it, `new` growing within `limit`
+/// ([`reserve_within`]). `map` holds the new index of each old entry, 0
+/// until it is copied.
+fn remap<T: Copy>(map: &mut [u16], i: u16, old: &[T], new: &mut Vec<T>, limit: usize) -> u16 {
     let Some(at) = usize::from(i).checked_sub(1) else {
         return 0;
     };
@@ -924,6 +1009,7 @@ fn remap<T: Copy>(map: &mut [u16], i: u16, old: &[T], new: &mut Vec<T>) -> u16 {
         return 0;
     };
     if *slot == 0 {
+        reserve_within(new, 1, limit);
         new.push(*value);
         *slot = u16::try_from(new.len()).unwrap_or(u16::MAX);
     }
@@ -931,12 +1017,14 @@ fn remap<T: Copy>(map: &mut [u16], i: u16, old: &[T], new: &mut Vec<T>) -> u16 {
 }
 
 /// The new offset of the cluster at old offset `o`, copying it into `new`
-/// the first time a cell names it.
+/// the first time a cell names it, the arena growing within `arena`
+/// ([`reserve_within`]).
 fn remap_cluster(
     map: &mut BTreeMap<u32, u32>,
     o: u32,
     old: &Tables,
     new: &mut Tables,
+    arena: usize,
 ) -> Option<u32> {
     if let Some(&n) = map.get(&o) {
         return Some(n);
@@ -944,6 +1032,7 @@ fn remap_cluster(
     let s = old.cluster(o)?;
     let len = u8::try_from(s.len()).ok()?;
     let n = u32::try_from(new.clusters.len()).ok()?;
+    reserve_within(&mut new.clusters, s.len().saturating_add(1), arena);
     new.clusters.push(len);
     new.clusters.extend_from_slice(s.as_bytes());
     map.insert(o, n);
@@ -1301,6 +1390,62 @@ mod tests {
             }
             assert!(tables(&line).styles.len() <= TABLE_GROWTH * cols);
         }
+    }
+
+    // A table's capacity stops at the limit it compacts at, so a row
+    // `write` fills holds no room past what `Line::bytes_max` prices.
+    #[test]
+    fn the_tables_grow_no_further_than_they_compact_at() {
+        let cols = 16;
+        let mut line = Line::new(LineId::new(1), cols);
+        let limit = cols * TABLE_GROWTH;
+        let mut most = 0;
+        for n in 0..2_000u32 {
+            let cluster = accented(1 + usize::try_from(n % 7).unwrap());
+            let col = usize::try_from(n).unwrap() % cols;
+            line.write(
+                col,
+                Glyph::Cluster(&cluster),
+                Width::Narrow,
+                &rgb(n),
+                Some(LinkId::new(n)),
+            );
+            let t = tables(&line);
+            assert!(t.styles.capacity() <= limit, "{}", t.styles.capacity());
+            assert!(t.links.capacity() <= limit, "{}", t.links.capacity());
+            assert!(t.clusters.capacity() <= limit * CLUSTER_BYTES_PER_CELL);
+            most = most.max(size_of::<Line>() + line.heap_bytes());
+        }
+        assert_eq!(most, Line::bytes_max(cols));
+    }
+
+    // A row a rewrap built names past its arena's limit. Compacting it
+    // sizes the arena to what its cells name, without doubling past it.
+    #[test]
+    fn compacting_a_row_past_its_limit_sizes_its_arena_to_what_it_names() {
+        let cols = 10;
+        let mut src = Line::new(LineId::new(1), 4 * cols);
+        let heavy = accented(31);
+        src.write(
+            0,
+            Glyph::Cluster(&heavy),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        let mut row = Line::with_capacity(LineId::new(2), LineFlags::empty(), cols);
+        let mut map = IndexMap::default();
+        for _ in 0..cols {
+            row.push_from(&src, src.cell(0), Width::Narrow, false, &mut map);
+        }
+        row.shrink();
+        let named = row.cluster_bytes();
+        assert!(named > cols * TABLE_GROWTH * CLUSTER_BYTES_PER_CELL);
+        row.write(0, Glyph::Char('x'), Width::Narrow, &rgb(1), None);
+        let t = tables(&row);
+        // The write compacts before it overwrites the first cell.
+        assert_eq!(t.clusters.len(), named);
+        assert_eq!(t.clusters.capacity(), named);
     }
 
     // A style index that passed 16 bits would collapse to another entry or
