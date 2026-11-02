@@ -28,9 +28,9 @@
 //!
 //! The property test also runs Lazy with no view moves and compares its
 //! placements. The crafted sweeps compare the three on drops during a
-//! rewrap. `recheck_cost` measures a resize with a placement at the
-//! scrollback's oldest row (ignored: run it with `--release --
-//! --ignored --nocapture`). `RECHECK_ONLY=SEED` replays one seed of the
+//! rewrap. `recheck_cost` measures a resize with a placement kept alive at
+//! the scrollback's oldest row through every resize (ignored: run it with
+//! `--release -- --ignored --nocapture`). `RECHECK_ONLY=SEED` replays one seed of the
 //! property test with its stream printed; `VTIUM_TERM_SEEDS` sets how
 //! many seeds it runs.
 
@@ -256,8 +256,11 @@ fn recheck_cost() {
         (false, "no placement"),
         (true, "placement at the oldest row"),
     ] {
-        let mut t = Terminal::new(170, 50, 10_000);
-        t.screen_mut().set_scrollback_max(10_000);
+        // Lines of 170 wide characters take 2 rows at 170 columns and 4 at
+        // 97, so sb-size is 100,000: at 10,000 the first narrowing would
+        // drop the oldest rows, and the placement with them.
+        let mut t = Terminal::new(170, 50, 100_000);
+        t.screen_mut().set_scrollback_max(100_000);
         t.screen_mut().set_scrollback_memory(1 << 30);
         t.screen_mut().set_image_limit(1 << 30);
         let line: Vec<u8> = (0..170)
@@ -270,16 +273,24 @@ fn recheck_cost() {
             t.input(&line);
             t.input(b"\r\n");
         }
+        let placements = usize::from(deep);
         eprintln!(
             "{label}: sb {} placements {}",
             t.screen().scrollback().len(),
             t.screen().images().placement_count()
         );
-        let start = std::time::Instant::now();
+        let mut spent = std::time::Duration::ZERO;
         for i in 0..20 {
+            let start = std::time::Instant::now();
             t.resize(if i % 2 == 0 { 97 } else { 170 }, 50);
+            spent += start.elapsed();
+            assert_eq!(
+                t.screen().images().placement_count(),
+                placements,
+                "{label}: the placement lives through resize {i}"
+            );
         }
-        eprintln!("{label}: {:?} a resize", start.elapsed() / 20);
+        eprintln!("{label}: {:?} a resize", spent / 20);
     }
 }
 
