@@ -2594,25 +2594,29 @@ impl App {
         }
         let term = crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock));
         let since = now.saturating_duration_since(self.epoch);
-        let id = head.open_console(term, since, self.awake);
+        let (id, at) = head.open_console(term, since);
         log::info!("head {}: console {id} opens", head.name());
-        // The new console's program starts on the grid the layout gives it.
-        self.relayout(h);
-        // A session that cannot start leaves the run alive, as the C
-        // reference ignored a terminal that would not open
-        // (`src/terminal.c:1771-1772`, `src/seat.c:624-628` at kmscon
-        // b1f7a7c5): its console leaves, and the head shows the one it
-        // showed before.
+        // The session starts while the console is hidden, so a session that
+        // cannot start leaves the console shown before told nothing. That
+        // leaves the run alive: the console leaves, and the head says so.
+        // The C reference kept such a session and tried to open its
+        // terminal again at each activation (`src/terminal.c:1771-1772` at
+        // kmscon b1f7a7c5), a departure the crate's README lists.
         if let Err(why) = self.start_session(h, id) {
-            let visible = self.awake;
             if let Some(head) = self.heads.get_mut(h) {
                 log::warn!("head {}: console {id} does not open: {why}", head.name());
-                head.withdraw_shown(visible);
+                head.drop_hidden(id);
                 head.brief = Some(crate::notice::NO_CONSOLE_OPENED.to_owned());
                 head.brief_due = None;
             }
-            self.relayout(h);
+            return false;
         }
+        let visible = self.awake;
+        if let Some(head) = self.heads.get_mut(h) {
+            head.show(at, visible);
+        }
+        // The head lays the console it shows out on its displays.
+        self.relayout(h);
         true
     }
 

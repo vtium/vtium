@@ -189,32 +189,24 @@ impl Head {
     }
 
     /// Opens a console on a terminal `term` makes, just after the console
-    /// shown, and shows it (ADR-1401 D5), its count of starts and quick
-    /// exits begun at `since`. Returns its id, whose session starts.
-    pub(crate) fn open_console(&mut self, term: Term, since: Duration, visible: bool) -> u64 {
+    /// shown, and leaves it hidden until its session starts (ADR-1401 D5),
+    /// its count of starts and quick exits begun at `since`. It takes the
+    /// shown console's grid at the configured font size, as a head's
+    /// consoles do at its start. Returns its id and its ring position, where
+    /// [`Head::show`] shows it.
+    pub(crate) fn open_console(&mut self, term: Term, since: Duration) -> (u64, usize) {
         let id = self.next_id();
         let mut console = Console::new(id, term, self.fresh_fit());
         console.respawn = Some(Respawn::new(since));
-        let after = self.at.saturating_add(1);
         self.hidden.insert(self.at.min(self.hidden.len()), console);
-        self.show(after, visible);
-        id
+        (id, self.at.saturating_add(1))
     }
 
-    /// Takes back the console the open chord just opened and shows, whose
-    /// session could not start: it leaves the head, which shows the console
-    /// before it, the one it showed before the chord, and the console that
-    /// leaves is told nothing.
-    pub(crate) fn withdraw_shown(&mut self, visible: bool) {
-        let Some(before) = self.at.checked_sub(1) else {
-            return;
-        };
-        if before >= self.hidden.len() {
-            return;
-        }
-        let previous = self.hidden.remove(before);
-        drop(self.swap_shown(previous, visible, true));
-        self.at = before;
+    /// Takes back the hidden console `id`, the open chord's, whose session
+    /// could not start: it leaves the head, which never showed it, and its
+    /// id stays given.
+    pub(crate) fn drop_hidden(&mut self, id: u64) {
+        self.hidden.retain(|c| c.id != id);
         self.compose_notices();
     }
 

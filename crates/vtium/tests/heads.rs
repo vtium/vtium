@@ -1647,6 +1647,33 @@ fn three_focus_consoles(dir: &Path) -> (Seat, PathBuf) {
     (s, login)
 }
 
+/// D5, binary-recheck's finding 2: a failed open never shows its console,
+/// so the console shown before is told nothing: no focus-out and focus-in
+/// reach its program before the line typed next. The focus-in the head's
+/// keyboard gave it at the start may come before, whichever came first of
+/// the keyboard and the program's mode 1004.
+// covers: platform.heads
+#[test]
+fn a_failed_open_tells_the_console_shown_nothing() {
+    let dir = scratch_dir("failed-open-focus");
+    let (mut s, login) = three_focus_consoles(&dir);
+    std::fs::rename(&login, dir.join("gone")).expect("the login moved");
+    press_chord(&mut s, KBD_SMALL, RETURN);
+    assert_eq!(consoles(&s.app, "small"), Some((3, 0)));
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:")));
+    let got = console_lines(&s.app, "small", "got:")
+        .first()
+        .cloned()
+        .flatten();
+    assert!(
+        got.as_deref()
+            .is_some_and(|l| l.ends_with('x') && !l.contains("^[[O")),
+        "console 1's program got no focus-out before the line: {got:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// D5, binary-recheck's R1: a failed open from the middle of a ring of
 /// three keeps the ring's order and shows the console shown before; the
 /// id it took is used up, and the next open, once the login can start
