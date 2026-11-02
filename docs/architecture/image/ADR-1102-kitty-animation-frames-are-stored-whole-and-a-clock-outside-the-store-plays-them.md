@@ -39,6 +39,11 @@ considered:
     via: the maintainer, 2026-11-02, in the steering session
     paraphrase: true
     covers: [a stopped animation stays put]
+  - operator: aaronsb
+    said: "Yes: a stopped animation keeps the frame that was showing at the moment it was stopped."
+    via: the maintainer, 2026-11-02, in the steering session, relayed by the team lead in its brief for the image records' amendments; the wording is the team lead's
+    paraphrase: true
+    covers: [a stopped animation stays put]
 status: proposed
 date: 2026-11-01
 deciders:
@@ -54,8 +59,10 @@ related: []
 - **Trades away:** A frame that changes a few pixels costs as many bytes as a full frame, where kitty can keep it as a set of operations. A console may hold its image budget plus five times that in frames, so a machine with little memory and a large budget can run short. Which frame a stopped animation keeps on screen depends on when it was stopped, so tier 1 cannot judge what an animation shows, only what it stores.
 - **One-way?** No while nothing is built. It becomes expensive once replay goldens print the store's animation state and programs rely on the replies.
 - **Probes:**
-  - *Not confident (frames in the budget):* an animation's frames count against the same image budget as every other picture, so a long animation can push older pictures out of the scrollback, and one that does not fit is refused with ENOSPC. kitty keeps frames on disk under a separate, larger quota. Is one budget for pictures and frames what you want?
-  - *Confident (a stopped animation stays put):* when a program stops an animation, the screen keeps the frame that was showing at that moment, rather than jumping back to a frame the program named earlier. Yes or no?
+  - *Confident (frames in the budget):* an animation's frames past the root take a frame allowance of their own, five times the console's image budget, as kitty keeps its frames under a separate quota of five times its base quota. A long animation therefore never pushes a still picture out of the scrollback, and a frame that does not fit the allowance is refused with ENOSPC. Pictures that a program re-sends frame by frame, as mpv and timg do, stay in the one image budget. (Answered 2026-11-01; see `considered`.)
+  - *Confident (a stopped animation stays put):* when a program stops an animation, the screen keeps the frame that was showing at that moment, rather than jumping back to a frame the program named earlier. Yes or no? (Answered 2026-11-02; see `considered`.)
+
+  > Edited 2026-11-02: the maintainer asked that the probe on frames state the allowance decided on 2026-11-01, which D1 already carries. It read: "*Not confident (frames in the budget):* an animation's frames count against the same image budget as every other picture, so a long animation can push older pictures out of the scrollback, and one that does not fit is refused with ENOSPC. kitty keeps frames on disk under a separate, larger quota. Is one budget for pictures and frames what you want?"
 - **Inversion:** Between "the store plays the animation", which makes its state depend on time, and "the program drives every frame itself", which the spec allows but which leaves `cat`-like programs unable to animate. The answer keeps the store a record of commands and puts playback in a named clock outside it.
 
 > Edited 2026-11-02, third round of fixes: D3's first bullet names the root as the current frame after frames are deleted or freed, as D1 and D5 already said.
@@ -113,6 +120,9 @@ Composition follows the kitty spec's rules, done by the kitty handler in the con
   | `a=f`, a new or changed gap, or `a=c` (no stamp moves) | keeps its place; a frame that changed shows its new pixels |
 
 - **The snapshot carries the choice.** The frame's placement list carries, for an animated image, its frames, their gaps and its animation state, with the pixels shared (ADR-1100 D9). When the binary takes the head's snapshot, it keeps for each animated image only the frame the clock chose, so the render thread composes one picture for each placement, as for any image, and every placement of an image shows the same frame.
+- **What names the pixels a placement shows.** Three values together name the pixels of every frame entry: its image's key; the number of the frame it shows, which is 1 for the root frame and for a picture that is not animated; and that frame's *pixel revision*, the store's revision count at the moment the frame's pixels were last written. The store gives a frame a new pixel revision whenever it writes that frame's pixels, whatever command writes them: a transmission that makes or replaces the image writes the root frame, `a=f` makes or edits a frame, and `a=c` composes into one. Two entries with the same three values therefore show the same bytes. The pixel revision is not D3's frame stamp, which counts commands that change which frame is current. The store keeps each frame's pixel revision beside its pixels. The binary's snapshot fills in the frame number and its pixel revision from the frame the animation clock chose, beside that frame's pixels; for a picture that is not animated it takes frame 1 and the image's own pixel revision, as the store gives them. The renderer keys what it keeps for a picture on all three values, both its scaled copies and its record of what each display last drew, so when any of the three changes it draws the cells under the placement again from the new pixels and never draws a kept copy of another frame. The CPU renderer and the GPU renderer key on the same three values and read the same frame's pixels from the snapshot, so the GPU path still draws the CPU path's pixels (ADR-1300 D6, ADR-1301).
+
+  > Added 2026-11-02, after the gap-check: the renderer's picture cache named a picture by its image and the store's revision only, so a frame the clock moved to would have drawn the pixels of the frame before it.
 - **Redrawing.** When the clock moves an image to another frame, the binary marks changed the cells under that image's placements in the last frame it listed, placeholder pictures included, as the blink timer redraws the cells it blinks. That changes what a display must draw, never the terminal's or the store's state.
 - **Its timer.** The clock arms one timer, for the soonest frame change among the animations visible on the console a head shows, and none while no animation plays, the console is not shown, or every display of the head is blanked. It fires at most once every `ANIMATION_FLOOR_MS`, 10 ms, a named constant; a frame whose gap is shorter shows at the next firing or is passed over, as the time since its start decides. When a hidden console is shown again, the clock works out from the time how far each animation has played, rather than replaying every frame it missed.
 - **Mode 2026.** A synchronized-output hold (ADR-1100 D9) holds an animation's frame change as it holds any change: a display that still shows its last frame keeps it until the hold ends.
@@ -141,12 +151,13 @@ The figure shows one animation over time: the commands in the stream, what the s
 - **Unit tests** for the allowance: a frame reserved before it is allocated against the allowance and never the image budget; other images' frames freed least recently used first, never the image's own and never a root; refused with ENOSPC when freeing cannot cover it; the frame count bound; each seen to fail with its check planted out.
 - **The clock** takes its times as arguments, so its tests pass the times in and check each row of D3's table: a running animation shows each frame for its gap, loops `v` − 1 times, skips gapless frames, keeps its place as frames arrive in loading mode, keeps the frame on show when stopped, starts from the frame on show, takes the store's frame on `c`, and arms no timer while hidden.
 - **Determinism:** a stream of frames and controls fed whole and cut at random points ends in the same store, with frames drawn at different points and none; with a stamp moved by a drawn frame, planted, the test fails.
+- **The renderer** takes two snapshots of one animated placement that differ only in the frame the clock chose, with the same image key and store revision, and draws each frame's own pixels, on the CPU path, and on the GPU path under llvmpipe once that path is built, byte for byte alike; with the frame number and pixel revision left out of what names a picture, planted, the second draw shows the first frame and the test fails.
 - **Tier 3** plays an animation on a VT and captures it at fixed points, its goldens vtium's own and provisional.
 
 ### Passages this record changes
 
 - **`docs/architecture.md`, "Time enters in named places only,"** names the helper's timer, mode 2026's timeout and the respawn policy; it gains the animation clock, which changes what a display shows and never the store. It changes in its owner's change, when the animation build lands.
-- **ADR-1100 D9** says that an entry for an animated image carries its frames and that the snapshot keeps the frame the clock chose; **ADR-1100 D5** says that frames past the root take this record's allowance. Both carry dated notes.
+- **ADR-1100 D9** says that an entry for an animated image carries its frames, that the snapshot keeps the frame the clock chose, and that every entry carries its frame's number and pixel revision (D3); **ADR-1100 D5** says that frames past the root take this record's allowance. Both carry dated notes.
 
 ## C notes: the C reference's flow
 
