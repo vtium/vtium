@@ -222,7 +222,7 @@ pub(crate) const BOUNDS: [Bound; 22] = [
 ];
 
 // A turn's share of a pty is whole reads at the largest.
-const _: () = assert!(BUDGET.value % READ.value == 0);
+const _: () = assert!(BUDGET.value.is_multiple_of(READ.value));
 
 // The stall ends below where it starts, and starts below the ceiling.
 const _: () = assert!(LOW.value < HIGH.value && HIGH.value < CEILING.value);

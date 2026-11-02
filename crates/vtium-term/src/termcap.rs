@@ -100,7 +100,7 @@ impl Termcap {
 
     /// The entry a hex-encoded name names.
     fn lookup(&self, hex: &[u8]) -> Option<&Entry> {
-        if hex.is_empty() || hex.len() % 2 != 0 || hex.len() / 2 > TERMCAP_NAME_MAX {
+        if hex.is_empty() || !hex.len().is_multiple_of(2) || hex.len() / 2 > TERMCAP_NAME_MAX {
             return None;
         }
         let mut name = [0_u8; TERMCAP_NAME_MAX];

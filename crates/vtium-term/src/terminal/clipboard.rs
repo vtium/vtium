@@ -54,7 +54,7 @@ fn decode(text: &[u8], max: usize) -> Option<Vec<u8>> {
         .unwrap_or(text);
     let padded = body.len() != text.len();
     // a last group of one character holds no byte
-    if body.len() % 4 == 1 || (padded && text.len() % 4 != 0) {
+    if body.len() % 4 == 1 || (padded && !text.len().is_multiple_of(4)) {
         return None;
     }
     // each group of four is three bytes, and a last group of two or three

@@ -47,7 +47,7 @@ fn flood(shift: u32) -> Screen {
         let mut col = 0;
         while col < cols {
             let mut st = style(Rgb::new(200, (n % 200) as u8, 90), rgb("101010"));
-            if n % 3 == 0 {
+            if n.is_multiple_of(3) {
                 st.attrs.insert(Attrs::BOLD);
             }
             if row % 2 == 0 {

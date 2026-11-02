@@ -3,8 +3,7 @@ name = "vtium-vitrify"
 description = "Generates vtium's glyphs from frits at run time, and switches the console's frit"
 version.workspace = true
 edition.workspace = true
-# ruzstd 0.9.1 needs Rust 1.87, past the workspace's 1.85.
-rust-version = "1.87"
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
