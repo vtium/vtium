@@ -10,8 +10,13 @@
 //! A bytes, whether the helper decoded it or converted described pixels,
 //! so the console has one path for every reply. The handler turns the
 //! outcome into its protocol's reply. The console checks a reply's sizes
-//! against its request, [`Reply::checked`], before it uses anything, and
-//! reads its pixels with [`convert::from_reply`], which clamps them.
+//! against its request, [`Reply::checked`], before it uses anything. The
+//! helper's pixels stay in its reply file, a [`ReplyFile`], until the
+//! handler has reserved their bytes under the budget; then
+//! [`Payload::copy_into`] reads them once into that buffer, clamping each
+//! color to its alpha as it goes ([`convert::from_reply`]), so a picture
+//! is copied into memory only the console holds exactly once (ADR-1101
+//! D7).
 //!
 //! [`wire`] encodes both packets for the socket, and both ends link it, so
 //! they cannot read a field differently. [`convert`] is the one conversion
@@ -28,6 +33,9 @@ pub(crate) mod sixel;
 pub mod wire;
 
 pub use convert::{Alpha, Layout};
+
+use core::fmt;
+use std::sync::Arc;
 
 /// What a request reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,21 +125,128 @@ impl Description {
     }
 }
 
+/// The bytes of a picture still in the image helper's reply file, which
+/// vtium-platform implements over the memory file once it has checked its
+/// seals and size (ADR-1101 D7).
+pub trait ReplySource: fmt::Debug + Send + Sync {
+    /// The bytes it holds.
+    fn bytes(&self) -> u64;
+    /// Hands each of its bytes to `sink` once, in order, in runs each a
+    /// whole number of 4-byte pixels, allocating nothing the size of the
+    /// picture; false when it cannot be read whole.
+    fn read(&self, sink: &mut dyn FnMut(&[u8])) -> bool;
+}
+
+/// A reply's picture left in the helper's file, shared so a reply can be
+/// cloned and compared: two are equal when they are the same file.
+#[derive(Clone)]
+pub struct ReplyFile(Arc<dyn ReplySource>);
+
+impl ReplyFile {
+    pub fn new(source: impl ReplySource + 'static) -> Self {
+        Self(Arc::new(source))
+    }
+
+    /// The bytes the file holds.
+    pub fn bytes(&self) -> u64 {
+        self.0.bytes()
+    }
+
+    /// Hands the file's bytes to `sink` once, as [`ReplySource::read`]
+    /// says; false when they cannot be read whole.
+    pub fn read(&self, sink: &mut dyn FnMut(&[u8])) -> bool {
+        self.0.read(sink)
+    }
+}
+
+impl fmt::Debug for ReplyFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl PartialEq for ReplyFile {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ReplyFile {}
+
 /// What the helper sends back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Payload {
     /// A picture in the store's format: premultiplied R, G, B, A bytes,
-    /// rows top to bottom, exactly width × height × 4 of them. The helper
-    /// decoded it or converted described pixels into it; the console
-    /// still clamps each color to its alpha as it reads it
-    /// ([`convert::from_reply`]).
+    /// rows top to bottom, exactly width × height × 4 of them, already in
+    /// memory, as the replay interface's fixture host and the tests' stand-in
+    /// helpers give it.
     Rgba {
         width: u32,
         height: u32,
         data: Vec<u8>,
     },
+    /// The same picture left in the image helper's reply file, as the real
+    /// helper's host gives it: [`copy_into`](Self::copy_into) reads it once.
+    File {
+        width: u32,
+        height: u32,
+        file: ReplyFile,
+    },
     /// A discard's answer, which carries nothing.
     Discarded,
+}
+
+impl Payload {
+    /// A picture's width and height; `None` for a discard's answer.
+    pub fn size(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::Rgba { width, height, .. } | Self::File { width, height, .. } => {
+                Some((*width, *height))
+            }
+            Self::Discarded => None,
+        }
+    }
+
+    /// The bytes a picture holds.
+    fn bytes(&self) -> Option<u64> {
+        match self {
+            Self::Rgba { data, .. } => u64::try_from(data.len()).ok(),
+            Self::File { file, .. } => Some(file.bytes()),
+            Self::Discarded => None,
+        }
+    }
+
+    /// The one copy of a picture into memory only the console holds: its
+    /// pixels in the store's format, each color clamped to its alpha, in
+    /// `out`, emptied first, which the caller reserved under the budget, and
+    /// whether every pixel is opaque ([`convert::from_reply`]). `out` grows
+    /// at most once, to the picture's size, and not at all when it already
+    /// has room. `None` for a discard's answer, and for a file that cannot
+    /// be read whole or hands over more or fewer bytes than its size.
+    pub fn copy_into(&self, mut out: Vec<u32>) -> Option<(Vec<u32>, bool)> {
+        let (width, height) = self.size()?;
+        let pixels = usize::try_from(u64::from(width).checked_mul(u64::from(height))?).ok()?;
+        match self {
+            Self::Rgba { data, .. } => {
+                let (out, opaque) = convert::from_reply(data, out);
+                (out.len() == pixels).then_some((out, opaque))
+            }
+            Self::File { file, .. } => {
+                out.clear();
+                out.reserve_exact(pixels);
+                let mut alphas = 0xffu8;
+                let mut over = false;
+                let whole = file.read(&mut |run| {
+                    let room = pixels.saturating_sub(out.len()).saturating_mul(4);
+                    let take = run.get(..room).unwrap_or(run);
+                    over |= take.len() < run.len();
+                    convert::extend_from_reply(take, &mut out, &mut alphas);
+                });
+                (whole && !over && out.len() == pixels).then_some((out, alphas == 0xff))
+            }
+            Self::Discarded => None,
+        }
+    }
 }
 
 /// One outcome of a request.
@@ -157,26 +272,23 @@ impl Reply {
     pub fn checked(self, request: &Request) -> Self {
         let fits = match &self {
             Self::Ok(payload) if request.discard => *payload == Payload::Discarded,
-            Self::Ok(Payload::Rgba {
-                width,
-                height,
-                data,
-            }) => {
-                let len = u64::from(*width)
-                    .checked_mul(u64::from(*height))
+            Self::Ok(Payload::Discarded) => false,
+            Self::Ok(picture) => {
+                let (width, height) = picture.size().unwrap_or_default();
+                let len = u64::from(width)
+                    .checked_mul(u64::from(height))
                     .and_then(|n| n.checked_mul(4));
                 let size = match request.pixels {
-                    Some(d) => (d.width, d.height) == (*width, *height),
+                    Some(d) => (d.width, d.height) == (width, height),
                     None => request.png || request.any_image,
                 };
-                size && *width > 0
-                    && *height > 0
-                    && *width <= request.largest.0
-                    && *height <= request.largest.1
+                size && width > 0
+                    && height > 0
+                    && width <= request.largest.0
+                    && height <= request.largest.1
                     && len.is_some_and(|l| l <= request.largest_bytes)
-                    && u64::try_from(data.len()).ok() == len
+                    && picture.bytes() == len
             }
-            Self::Ok(Payload::Discarded) => false,
             _ => true,
         };
         if fits { self } else { Self::Failed }
@@ -256,5 +368,66 @@ mod tests {
         assert_eq!(rgba(2, 1, 8).checked(&described), rgba(2, 1, 8));
         assert_eq!(rgba(1, 2, 8).checked(&described), Reply::Failed);
         assert_eq!(rgba(1, 1, 4).checked(&described), Reply::Failed);
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+mod file_tests {
+    use super::*;
+
+    /// A reply file over `data`, handed over in runs of `run` bytes, that
+    /// says it holds `bytes`.
+    #[derive(Debug)]
+    struct Fake {
+        data: Vec<u8>,
+        run: usize,
+        bytes: u64,
+    }
+
+    impl ReplySource for Fake {
+        fn bytes(&self) -> u64 {
+            self.bytes
+        }
+
+        fn read(&self, sink: &mut dyn FnMut(&[u8])) -> bool {
+            self.data.chunks(self.run).for_each(&mut *sink);
+            true
+        }
+    }
+
+    fn file(data: Vec<u8>, run: usize) -> Payload {
+        let bytes = u64::try_from(data.len()).unwrap();
+        Payload::File {
+            width: 2,
+            height: 1,
+            file: ReplyFile::new(Fake { data, run, bytes }),
+        }
+    }
+
+    #[test]
+    fn a_file_is_copied_once_into_the_buffer_given_and_clamped() {
+        let pixels = [0x40, 0x80, 0x10, 0x40, 1, 2, 3, 0xff];
+        let buffer = Vec::with_capacity(2);
+        let at = buffer.as_ptr();
+        let (out, opaque) = file(pixels.to_vec(), 4).copy_into(buffer).unwrap();
+        assert_eq!(out, [0x4040_4010, 0xff01_0203]);
+        assert!(!opaque);
+        assert_eq!(out.as_ptr(), at, "a buffer with room is filled where it is");
+        // the same bytes in memory give the same pixels
+        let rgba = Payload::Rgba {
+            width: 2,
+            height: 1,
+            data: pixels.to_vec(),
+        };
+        assert_eq!(rgba.copy_into(Vec::new()).unwrap(), (out, false));
+    }
+
+    #[test]
+    fn a_file_that_hands_over_more_or_fewer_bytes_than_its_picture_fails() {
+        assert_eq!(file(vec![0xff; 4], 4).copy_into(Vec::new()), None);
+        assert_eq!(file(vec![0xff; 12], 4).copy_into(Vec::new()), None);
+        assert!(file(vec![0xff; 8], 8).copy_into(Vec::new()).unwrap().1);
+        assert_eq!(Payload::Discarded.copy_into(Vec::new()), None);
     }
 }

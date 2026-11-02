@@ -4,7 +4,7 @@ vtium is a terminal for the Linux virtual console. It runs on a VT, one of the f
 
 It is written in Rust. Its behaviour is judged against the C reference, the maintainer's forks of the C terminal `kmscon` and its library `libtsm`: tests compare vtium's screens and replies with the C reference's saved results, as text and pixel for pixel.
 
-If you are new to vtium, [docs/why-vtium.md](docs/why-vtium.md) says why you might choose it over the kernel's console, `kmscon` or a desktop terminal, and why its font tools take their names from glass; [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together.
+If you are new to vtium, [docs/why-vtium.md](docs/why-vtium.md) says why you might choose it over the kernel's console, `kmscon` or a desktop terminal, and why its font tools take their names from glass; [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together. [docs/managing-vtium.md](docs/managing-vtium.md) gives the steps of running vtium day to day, from installing it and giving it VTs to choosing its font and finding out what went wrong.
 
 ![vtium on a 640x480 display: the labels fg30 to fg97 in their own colors and bg40 to bg107 on their own backgrounds, each set wrapped over two rows, with fg30 and bg40 drawn black on black; the words bold, underline, reverse, bold-underline-red, faint and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green to red, and a shell prompt with a block cursor](tools/tier3/goldens/2d-640x480-psf16/sgr.png)
 
@@ -159,7 +159,7 @@ The state vtium shows follows only from the bytes a program sends: the same stre
 
 ## Trying it
 
-Building needs Rust 1.88 or later and clang, and the first build fetches a Debian sysroot with glibc 2.36 to link against ([tools/arm/README.md](tools/arm/README.md)); `make install-tree` also needs `tic`. On a machine with systemd and logind, `make vt-shell` builds the minspec binary, picks a free VT, asks for sudo, and runs your own shell in vtium there. Exit the shell to end the run, and the VT's own service starts again. [docs/vt-review.md](docs/vt-review.md) describes this and the other VT runs. [crates/vtium/README.md](crates/vtium/README.md#setting-it-up) says how to give an installed vtium a VT, or every VT, and how ssh behaves from it.
+Building needs Rust 1.88 or later and clang, and the first build fetches a Debian sysroot with glibc 2.36 to link against ([tools/arm/README.md](tools/arm/README.md)); `make install-tree` also needs `tic`. On a machine with systemd and logind, `make vt-shell` builds the minspec binary, picks the VT where `make vt-install` put a development build of vtium, or a free VT on a machine without one, asks for sudo, and runs your own shell in vtium there. Exit the shell to end the run, and the VT's own service starts again. [docs/vt-review.md](docs/vt-review.md) describes this and the other VT runs. [crates/vtium/README.md](crates/vtium/README.md#setting-it-up) says how to give an installed vtium a VT, or every VT, and how ssh behaves from it.
 
 `make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-vitrify`, the VT unit and its getty fallback, the terminfo entry and the example configuration. vtium reads its configuration from `/etc/vtium/vtium.conf`, which takes the C reference's keys and adds vtium's own ([docs/config.md](docs/config.md)).
 

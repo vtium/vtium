@@ -1,8 +1,9 @@
 #!/bin/bash
 # The operator's review of vtium on a real VT in one blocking command, as make
-# vt-demo, vt-login, vt-check and vt-shell run it (docs/vt-review.md): picks a
-# free VT, runs run-vt.sh there through sudo, and when the run ends prints a
-# health check of vtium's log and the run's answers.
+# vt-demo, vt-login, vt-check and vt-shell run it (docs/vt-review.md): picks
+# the development VT, or a free VT where there is none, runs run-vt.sh there
+# through sudo, and when the run ends prints a health check of vtium's log and
+# the run's answers.
 #
 #   vt.sh [N] [-- VTIUM-OPTION...]
 #
@@ -10,10 +11,14 @@
 #   VTIUM_VT_BIN      the vtium binary, which run-vt.sh runs as root
 #   VTIUM_VT_HELPER   the glyph helper built with it, which run-vt.sh copies
 #                     into /run/vtium-vt/ and names with --font-helper
-#   VTIUM_VT_NR       the VT (VT=); without it, the first free one of 5, 6, 4,
-#                     3 and 2. A VT is free when it is not on screen and no
-#                     logind session is on it; run-vt.sh checks again before
-#                     it stops anything.
+#   VTIUM_VT_NR       the VT (VT=); without it, the development VT, the first
+#                     VT whose manifest make vt-install wrote and whose
+#                     vtium-dev@ttyN is enabled, which the run borrows and
+#                     gives back; without one, the first free VT of 5, 6, 4,
+#                     3 and 2. A VT can be borrowed when it is not on screen,
+#                     no logind session is on it, the packaged vtium does not
+#                     hold it and it is not logind's reserved VT; run-vt.sh
+#                     checks again before it stops anything.
 #   VTIUM_VT_ARGS     vtium options (DEMO_ARGS=), split into words by xargs,
 #                     which honours quotes and backslashes and expands nothing
 #   VTIUM_VT_SESSION  demo (the default), login, guide or shell; shell's
@@ -28,10 +33,11 @@
 #                     each time a display comes or goes and at the end
 #                     (run-vt.sh --debug)
 #
-# For the tests, VTIUM_VT_STANDINS names a directory of stand-ins: sudo, and
-# the file "active" in place of /sys/class/tty/tty0/active, come from there,
-# and run-vt.sh takes its own (see run-vt.sh). VTIUM_VT_DIR is honoured only
-# then, since a run's session writes to the default.
+# For the tests, VTIUM_VT_STANDINS names a directory of stand-ins: sudo,
+# systemctl, loginctl, systemd-analyze, the file "active" in place of
+# /sys/class/tty/tty0/active, and "root" in place of / for the manifests,
+# come from there, and run-vt.sh takes its own (see run-vt.sh). VTIUM_VT_DIR
+# is honoured only then, since a run's session writes to the default.
 set -euo pipefail
 
 usage() {
@@ -122,6 +128,7 @@ if [ -n "$standins" ]; then
 fi
 loginctl=${standins:+$standins/}loginctl
 systemctl=${standins:+$standins/}systemctl
+analyze=${standins:+$standins/}systemd-analyze
 feedback=$vt_dir/feedback.tsv
 checklog=$vt_dir/vt-check.log
 
@@ -141,21 +148,35 @@ while read -r s _; do
 	sessions+=("$n $s ($what)")
 done <<<"$list"
 
-# Prints why VT $1 is refused, or nothing when it is free.
+# Prints why VT $1 is refused, or nothing when a run can borrow it.
 why_busy() {
 	local e
 	[ "$1" != "$active" ] || { echo "it is on screen"; return; }
-	e=$(vt_held "$systemctl" "${standins:+$standins/root}" "$1")
+	e=$(vt_borrowable "$systemctl" "$analyze" "$1")
 	[ -z "$e" ] || { echo "$e"; return; }
 	for e in "${sessions[@]}"; do
 		[ "${e%% *}" != "$1" ] || { echo "logind session ${e#* } is on it"; return; }
 	done
 }
 
+# Without VT=, the development VT, the lowest when make vt-install holds
+# more than one. sed reads the whole list, so nothing before it in the pipe
+# meets a closed pipe.
+dev=
+if [ -z "$vt" ]; then
+	dev=$(vt_dev_vts "$systemctl" "${standins:+$standins/root}" | sed -n 1p)
+	vt=$dev
+fi
 if [ -n "$vt" ]; then
 	[[ $vt =~ ^[1-9][0-9]*$ ]] && [ "$vt" -ge 2 ] && [ "$vt" -le 12 ] ||
 		die "VT must be a number from 2 to 12, not '$vt'"
 	why=$(why_busy "$vt")
+	if [ -n "$dev" ]; then
+		hint="name another VT with VT=N"
+		[[ $why != "logind session "* ]] || hint="log out there, or $hint"
+		[ -z "$why" ] || die "the development VT $vt is refused: $why; $hint"
+		echo "vt: VT $vt is the development VT (make vt-install VT=$vt); the run borrows it and gives it back as it found it"
+	fi
 	[ -z "$why" ] || die "VT $vt refused: $why"
 else
 	refused=

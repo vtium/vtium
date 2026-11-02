@@ -59,6 +59,14 @@ const BOX: Bound = Bound {
     cite: "The C reference's `TSM_SCREEN_IMAGE_MAX_CELLS`, checked against the columns and the rows each",
 };
 
+const RELATIVE_DEPTH: Bound = Bound {
+    name: "RELATIVE_DEPTH_MAX",
+    value: 8,
+    what: "Relative kitty placements a chain holds below the placement it starts from, which is on a line or virtual",
+    past: "The put is refused with ETOODEEP and places nothing",
+    cite: "The kitty spec's least: \"at least 8 levels\"; ADR-1100, D13",
+};
+
 const IMAGE_CHARGE: Bound = Bound {
     name: "IMAGE_OVERHEAD",
     value: 512,
@@ -107,6 +115,7 @@ pub(crate) const BOUNDS: &[Bound] = &[
     SIDE,
     CELL,
     BOX,
+    RELATIVE_DEPTH,
     IMAGE_CHARGE,
     PLACEMENT_CHARGE,
     FRAMES,
@@ -124,6 +133,8 @@ pub const IMAGE_SIDE_MAX: u64 = SIDE.value;
 pub const CELL_MAX: u64 = CELL.value;
 /// Cells a box has in each direction.
 pub const BOX_CELLS_MAX: u64 = BOX.value;
+/// Relative placements a chain holds below its first placement.
+pub const RELATIVE_DEPTH_MAX: u64 = RELATIVE_DEPTH.value;
 /// Bytes an image costs beside its pixels.
 pub const IMAGE_OVERHEAD: u64 = IMAGE_CHARGE.value;
 /// Bytes each placement past an image's first costs.

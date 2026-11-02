@@ -333,3 +333,6 @@
 
 ## Mode 1070's state at a reset: on, each sixel picture starts from the default colors; off, the pictures share their color registers. A build without images reads it and draws no picture.
 #private-color-registers
+
+## The image helper's program, which vtium starts as the session's user to read the files and shared memory a kitty graphics command names and to decode PNG and zlib-compressed pictures, since vtium itself, running as root, does neither. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches the consoles when vtium starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why, and every console then answers those pictures itself, a file, a temporary file or shared memory with `EBADF` and PNG or zlib with `EINVAL`. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with. A build without images reads it and starts no helper.
+#image-helper=/usr/bin/vtium-image

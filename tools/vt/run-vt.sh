@@ -1,9 +1,12 @@
 #!/bin/bash
-# Runs vtium on one VT in place of the VT's console unit (kmsconvt@, getty@ or
-# autovt@ttyN), with the demo, a login prompt, a guide or the user's shell as
-# its only session.
+# Runs vtium on one VT in place of the VT's console unit (vtium-dev@, getty@,
+# kmsconvt@ or autovt@ttyN), with the demo, a login prompt, a guide or the
+# user's shell as its only session.
 # When the session ends, this script is interrupted or vtium fails, the units
-# that were running are started again. See docs/vt-review.md.
+# that were running are started again, and only those. From the moment the
+# units have stopped until they start again, the script holds the VT open, so
+# that logind starts no console there when the VT is switched to. See
+# docs/vt-review.md.
 #
 #   sudo tools/vt/run-vt.sh --bin=PATH [--helper=PATH] [--dry-run] [--label=TEXT] [--debug=DIR] [--login |
 #        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]
@@ -52,7 +55,8 @@
 # it; it needs no root.
 #
 # For the tests, VTIUM_VT_STANDINS names a directory holding stand-ins for
-# systemctl, loginctl, setpriv and getent, a file "active" in place of
+# systemctl, loginctl, setpriv, getent and systemd-analyze, "ttyN" in place
+# of the VT's /dev/ttyN, a file "active" in place of
 # /sys/class/tty/tty0/active, "shells" and "locale.conf" in place of
 # /etc/shells and /etc/locale.conf, "run-user" in place of /run/user, and
 # "debugfs-dri" in place of /sys/kernel/debug/dri, "run-vtium-vt" in place of
@@ -114,11 +118,13 @@ checkout=$(readlink -m "$here/../..")
 standins=${VTIUM_VT_STANDINS:-}
 if [ -n "$standins" ]; then
 	[ "$(id -u)" -ne 0 ] || die "VTIUM_VT_STANDINS is for the tests, which run without root; unset it"
-	for c in systemctl loginctl setpriv getent; do
+	for c in systemctl loginctl setpriv getent systemd-analyze; do
 		[ -x "$standins/$c" ] || die "VTIUM_VT_STANDINS has no stand-in $c"
 	done
 	systemctl=$standins/systemctl
 	loginctl=$standins/loginctl
+	analyze=$standins/systemd-analyze
+	tty_dev=$standins/tty$vt
 	setpriv=$standins/setpriv
 	getent=$standins/getent
 	active_file=$standins/active
@@ -133,6 +139,8 @@ if [ -n "$standins" ]; then
 else
 	systemctl=systemctl
 	loginctl=loginctl
+	analyze=systemd-analyze
+	tty_dev=/dev/tty$vt
 	# vtium starts its session with execve, without a PATH search.
 	setpriv=$(command -v setpriv) || die "setpriv (util-linux) is missing; it runs the session as you"
 	getent=getent
@@ -145,11 +153,11 @@ else
 	system_terminfo=/usr/share/terminfo
 	own=(-o root -g root)
 fi
-# The units that may hold the VT: the stock kmscon, a getty, the packaged
-# vtium, vtium as make vt-install installs it, and autovt@, which logind
-# starts on a switch to the VT and which is one of the others. A VT vtium@ or
-# vtium-dev@ holds is refused below.
-units=("kmsconvt@tty$vt.service" "getty@tty$vt.service" "vtium@tty$vt.service" "vtium-dev@tty$vt.service" "autovt@tty$vt.service")
+# The units that may hold the VT and that the run borrows it from: vtium as
+# make vt-install installs it, a getty, the C reference's console, and
+# autovt@, which logind starts on a switch to the VT and which names one of
+# them or another console. A VT the packaged vtium@ holds is refused below.
+units=("vtium-dev@tty$vt.service" "getty@tty$vt.service" "kmsconvt@tty$vt.service" "autovt@tty$vt.service")
 
 # show prints a command as it would be typed; act shows it, then runs it unless
 # this is a dry run.
@@ -337,7 +345,8 @@ fi
 # user, and names the copies in vtium's log. A card is a directory of $dri with
 # a state file; the same card under a second name (a symlink, or its bus id)
 # is copied once, under its number where it has one. It never fails: a copy
-# that cannot be made is named instead.
+# that cannot be made is named instead. The copy runs as the user, so it never
+# gets the run's hold on the VT, fd 7, which is root's and read-write.
 capture() {
 	local name=$1 d e real seen=" " numbered=() named=() copied=()
 	for d in "$dri"/*/; do
@@ -352,7 +361,7 @@ capture() {
 		[[ $seen != *" $real "* ]] || continue
 		seen+="$real "
 		if "${drop[@]}" -- /bin/sh -c 'umask 077 && set -C && cat >"$1"' sh "$debug/$name-$e.state" \
-			<"$dri/$e/state" 2>/dev/null; then
+			<"$dri/$e/state" 2>/dev/null 7>&-; then
 			copied+=("$name-$e.state")
 		else
 			echo "run-vt: cannot copy $dri/$e/state to $debug/$name-$e.state" || true
@@ -408,30 +417,32 @@ on_vt=$(vt_sessions "$loginctl" "$vt") ||
 	die "loginctl could not list the sessions or read one of them, so whether a session is on VT $vt is unknown"
 if [ -n "$on_vt" ]; then
 	s=${on_vt%% *}
-	die "logind session $s ($("$loginctl" show-session -p Name -p Type --value "$s" | paste -sd' ')) is on VT $vt; pick another VT"
+	die "logind session $s ($("$loginctl" show-session -p Name -p Type --value "$s" | paste -sd' ')) is on VT $vt; log out there, or pick another VT"
 fi
 
-# A VT the packaged vtium or make vt-install holds is the maintainer's
-# everyday console: a review run would stop it, and a start limit or a failed
-# restore would leave it without one. It is never borrowed, installed,
-# enabled or running.
-held=$(vt_held "$systemctl" "${standins:+$standins/root}" "$vt")
+# The packaged vtium's VT and logind's reserved VT are never borrowed
+# (vt_borrowable in common.sh).
+held=$(vt_borrowable "$systemctl" "$analyze" "$vt")
 [ -z "$held" ] || die "VT $vt refused: $held; or pick another VT"
 
 # The VT's units that run now: each is stopped below and started again on
-# exit. autovt@ttyN is another name for one of the others, which systemctl
-# takes for the same unit.
+# exit, and no other. autovt@ttyN is another name for the unit logind
+# started there, vtium-dev@ttyN on the development VT, so that unit is stopped
+# and started once, under its own name.
 active=()
 for u in "${units[@]}"; do
-	if "$systemctl" is-active --quiet "$u"; then
-		active+=("$u")
+	"$systemctl" is-active --quiet "$u" || continue
+	if [[ $u == autovt@* ]] && id=$("$systemctl" show -p Id --value "$u") && [ -n "$id" ]; then
+		u=$id
 	fi
+	[[ " ${active[*]} " == *" $u "* ]] || active+=("$u")
 done
 
 child=
 watcher=
 fifo_dir=
 stage_made=
+holding=
 # Whether vtium still runs, asked of this shell's job table rather than of its
 # PID: once bash has reaped it, the PID may be another process's. grep reads
 # all of jobs' output, so pipefail sees no SIGPIPE.
@@ -482,6 +493,10 @@ restore() {
 	fi
 	[ -z "$fifo_dir" ] || rm -rf -- "$fifo_dir"
 	[ -z "$stage_made" ] || [ -n "$dry" ] || rm -rf -- "$stage"
+	# The VT is let go before its units start: a console unit's start hangs
+	# the VT up and may hand it back to the kernel (TTYVHangup=,
+	# TTYVTDisallocate=), which an open VT would refuse.
+	[ -z "$holding" ] || exec 7>&-
 	if [ ${#active[@]} -gt 0 ] && ! act "$systemctl" start "${active[@]}"; then
 		echo "run-vt: restarting ${active[*]} failed; restore it with: sudo systemctl start ${active[*]}" >&2
 		exit 1
@@ -493,6 +508,23 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 [ ${#active[@]} -eq 0 ] || act "$systemctl" stop "${active[@]}"
+# logind starts autovt@ttyN when the VT is switched to and nothing holds it
+# open (the kernel's VT_GETSTATE), and on the development VT that is
+# vtium-dev@ttyN through its own link. vtium holds the VT while it runs; this
+# script holds it too, from the moment its units have stopped until they start
+# again, so a switch before vtium opens the VT or after it ends starts nothing
+# there. Opening a terminal makes it the controlling one only for a session
+# leader that has none, which this script, started by sudo from a terminal,
+# never is. vtium and the log's watcher do not inherit the hold.
+if [ -n "$dry" ]; then
+	echo "  (run-vt.sh holds $tty_dev open from here until the units start again, so logind starts no console there)"
+else
+	# Marked before it opens, so a signal in between still lets go of it
+	# before the units start; letting go of a hold that never opened does
+	# nothing.
+	holding=1
+	exec 7<>"$tty_dev" || die "cannot open $tty_dev to hold VT $vt"
+fi
 
 label=${label:-unlabelled}
 ends="the demo ends" last=3
@@ -611,7 +643,7 @@ if [ -n "$debug" ]; then
 	[ -z "$standins" ] || fifo_base=$standins
 	fifo_dir=$(mktemp -d -p "$fifo_base") || die "cannot create a directory for vtium's log"
 	mkfifo -m 0600 -- "$fifo_dir/log" || die "cannot create a FIFO for vtium's log"
-	{ exec 9>&-; watch_log; } <"$fifo_dir/log" &
+	{ exec 7>&- 9>&-; watch_log; } <"$fifo_dir/log" &
 	watcher=$!
 	exec 8>"$fifo_dir/log"
 	rm -rf -- "$fifo_dir"
@@ -621,9 +653,9 @@ fi
 # still empty, so restore() starts the units again without stopping vtium. The
 # window is a few microseconds and is left open.
 if [ -n "$watcher" ]; then
-	"${cmd[@]}" >&8 2>&1 8>&- 9>&- &
+	"${cmd[@]}" >&8 2>&1 7>&- 8>&- 9>&- &
 else
-	"${cmd[@]}" 9>&- &
+	"${cmd[@]}" 7>&- 9>&- &
 fi
 child=$!
 # With --login, the first logout ends the run, so a login left behind does

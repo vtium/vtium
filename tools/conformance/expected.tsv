@@ -43,6 +43,7 @@ screen	img-resize-shrink	departure	INTERFACE.md	In the screen view the C referen
 *	kit-evict	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
 *	kit-host-icat	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
 *	kit-host-icat-nohook	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
+*	kit-refused	departure	crates/vtium-image/README.md	Relative placements and virtual placements are built.
 *	kit-replace-refused	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
 *	kit-transmit	departure	crates/vtium-image/README.md	A kitty picture whose image has no id goes on top of its stack as it arrives,
 *	six-cancel	departure	crates/vtium-parse/README.md	A string acts only when its terminator completes it.

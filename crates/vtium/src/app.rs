@@ -284,8 +284,9 @@ pub struct App {
     /// A frame has been on screen since the start.
     presented: bool,
     timer_due: Option<Instant>,
-    /// What starts each console's image helper; none until the image
-    /// helper is built (ADR-1101), so every terminal is told no helper runs.
+    /// What makes each console's image helper host, from the program
+    /// opened at start (ADR-1101 D1); with none, every terminal is told no
+    /// helper runs.
     #[cfg(feature = "images")]
     image_helpers: Option<crate::head::images::Helpers>,
     /// The displays whose density is assumed, each warned of once.
@@ -399,6 +400,14 @@ impl App {
             (!forever)
                 .then(|| Duration::from_secs(config.number(&keys::DISPLAY_WAIT).unwrap_or(10))),
         );
+        let image_program = crate::head::images::program(&config);
+        #[cfg(feature = "images")]
+        let image_helpers = Some(crate::head::images::hosts(
+            &image_program,
+            crate::head::images::tmpdir(&inherited),
+        ));
+        #[cfg(not(feature = "images"))]
+        let _ = image_program;
         App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
@@ -464,7 +473,7 @@ impl App {
             presented: false,
             timer_due: None,
             #[cfg(feature = "images")]
-            image_helpers: None,
+            image_helpers,
             exit: None,
             leaving: None,
             inherited,
@@ -543,9 +552,11 @@ impl App {
         self.power = power;
     }
 
-    /// Starts each console's image helper with `helpers`, or, with none,
-    /// tells every terminal that no helper runs, from the next turn on
-    /// (ADR-1100 D7). This is where the image helper plugs in.
+    /// Makes each console's image helper host with `helpers` in place of
+    /// the hosts the start made, or, with none, tells every terminal that
+    /// no helper runs, from the next turn on (ADR-1100 D7): a test's
+    /// stand-in for the image helper. A console keeps the host it already
+    /// has.
     #[cfg(feature = "images")]
     pub fn set_image_helpers(&mut self, helpers: Option<crate::head::images::Helpers>) {
         self.image_helpers = helpers;
@@ -2913,7 +2924,7 @@ impl App {
         // and before the draw, which shows what a reply placed.
         #[cfg(feature = "images")]
         for head in &mut self.heads {
-            head.image_turn(now, self.image_helpers.as_ref());
+            head.image_turn(now, self.image_helpers.as_ref(), &self.handle);
         }
         if let Some(order) = self.order.take() {
             self.outside_order(order, now);
