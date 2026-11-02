@@ -83,7 +83,7 @@ pub use cache::{Budgets, CacheCounts, Profile, Storage};
 pub use mono::Depth;
 pub use notice::{Colors, Mark, Notice, NoticeReport, Surface, quote};
 #[cfg(feature = "images")]
-pub use picture::PictureCounts;
+pub use picture::{PictureCounts, SELECTION_TINT};
 pub use renderer::{
     BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, PointerShape, Renderer,
     Stats, TextBlink,

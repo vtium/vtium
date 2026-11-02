@@ -1,6 +1,6 @@
 //! vtium's own goldens of a few frames with pictures (issue #30): a picture
 //! at its own size, the same zoomed, on a turned display, and text over a
-//! picture under a picture. Each screen is drawn, written to
+//! picture under a picture, and a selection over a picture. Each screen is drawn, written to
 //! `$CARGO_TARGET_TMPDIR/pictures/<name>.ppm`, and compared with
 //! `tests/pictures/<name>.ppm`. While `tests/pictures/provisional.tsv`
 //! lists a golden, the maintainer has not reviewed it: a difference is
@@ -103,6 +103,28 @@ fn draw<F: Face>(
     c
 }
 
+/// `s` with `p` and a selection across rows 1 to 4 from column 8 to 15,
+/// over the sunset's left half and the text beside it: the selection
+/// tints the picture (the maintainer, 2026-11-01).
+fn selected(s: &Screen, p: Vec<FramePlacement>) -> Canvas {
+    let mut r = Renderer::new(unifont(), 160, 96, Config::default());
+    let mut c = Canvas::new(160, 96, 0);
+    let st = DrawState {
+        background: s.palette.bg(),
+        ..DrawState::default()
+    };
+    let selection = vec![0..0, 8..16, 8..16, 8..16, 0..12];
+    r.draw(
+        &s.frame(Age::NEVER)
+            .with_placements(p)
+            .with_selection(selection),
+        &mut c,
+        0,
+        &st,
+    );
+    c
+}
+
 /// The screens, by name.
 fn screens() -> Vec<(&'static str, Canvas)> {
     let mut s = Screen::new(20, 6, rgb("c0c0c0"), rgb("000000"));
@@ -195,6 +217,10 @@ fn screens() -> Vec<(&'static str, Canvas)> {
                 (160, 96),
                 Orientation::Normal,
             ),
+        ),
+        (
+            "selection-over-picture",
+            selected(&s, placements(20, 6, &one)),
         ),
     ]
 }

@@ -9,7 +9,7 @@ use crate::blend::{argb_over, mask, over_bg, pixel, tint_over};
 use crate::cache::GlyphCache;
 use crate::deco::{Kind, Sprites};
 #[cfg(feature = "images")]
-use crate::picture::{Mark, Pictures, Under, over_px};
+use crate::picture::{Mark, Pictures, Under, over_px, tint};
 use crate::stored::{Pens, Rows, Stored};
 use crate::target::Target;
 
@@ -376,9 +376,11 @@ fn cell_line(
 
 /// Draws `job`'s lines from `y0` into `out`, lines `w` apart and `jw`
 /// wide, where any of the frame's pictures reach it: whether it did. A
-/// cell under a block cursor or the selection is vtium's mark, which
-/// covers every picture, and draws as any other cell does.
+/// cell under a block cursor, which covers every picture, draws as any
+/// other cell does; a selected cell is tinted with the selection's color
+/// over its pictures.
 #[cfg(feature = "images")]
+#[deny(clippy::float_arithmetic)]
 fn pictured(
     (pictures, meeting): (&mut Pictures, &mut Vec<usize>),
     job: &Job,
@@ -415,7 +417,8 @@ fn pictured(
         let hides_text = pictures
             .pic(i)
             .is_some_and(|p| p.layer() == Layer::AboveText);
-        if job.under.mark == Mark::None && (hides_text || !job.draws_text(glyph.is_some())) {
+        let plain = job.under.mark == Mark::None && !job.under.selected;
+        if plain && (hides_text || !job.draws_text(glyph.is_some())) {
             for (y, line) in (y0..).zip(out.chunks_mut(w.max(1))) {
                 if let Some(line) = line.get_mut(..jw) {
                     pictures.over(i, y, x0, line);
@@ -460,6 +463,13 @@ fn pictured(
         if !text {
             text_over(job, glyph, sprites, lines, y, line);
         }
+        // the selection tints the cell and its pictures, and the cursor
+        // lies above the selection
+        if job.under.selected {
+            for p in line.iter_mut() {
+                *p = tint(*p, job.bg);
+            }
+        }
         mark_over(job, glyph, sprites, lines, y, line);
     }
     true
@@ -468,6 +478,7 @@ fn pictured(
 /// `kind` tinted `c` over the premultiplied line `prem`, across the job's
 /// cells, at display line `y`.
 #[cfg(feature = "images")]
+#[deny(clippy::float_arithmetic)]
 fn deco_over(
     job: &Job,
     sprites: &Sprites,
@@ -487,6 +498,7 @@ fn deco_over(
 
 /// The job's glyph tinted over the premultiplied line `prem`.
 #[cfg(feature = "images")]
+#[deny(clippy::float_arithmetic)]
 fn glyph_over(job: &Job, g: &Stored, y: i64, lines: (&mut [u32], &mut [u8], &mut [u32])) {
     let (prem, cov, src) = lines;
     let (gx, gy) = (job.r.x.saturating_sub(job.g.x), y.saturating_sub(job.g.y));
@@ -509,6 +521,7 @@ fn glyph_over(job: &Job, g: &Stored, y: i64, lines: (&mut [u32], &mut [u8], &mut
 /// `out`: its underline, glyph and strike, less what vtium's mark draws
 /// above the pictures.
 #[cfg(feature = "images")]
+#[deny(clippy::float_arithmetic)]
 fn text_over(
     job: &Job,
     glyph: Option<&Stored>,
@@ -546,6 +559,7 @@ fn text_over(
 /// vtium's mark at display line `y`, over everything else in `out`: the
 /// bar of a bar cursor, or an underline cursor's line.
 #[cfg(feature = "images")]
+#[deny(clippy::float_arithmetic)]
 fn mark_over(
     job: &Job,
     glyph: Option<&Stored>,

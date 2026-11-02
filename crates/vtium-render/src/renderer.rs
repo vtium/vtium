@@ -1038,7 +1038,8 @@ impl<F: Face> Renderer<F> {
         #[cfg(feature = "images")]
         let under = |mark: Mark| Under {
             default_bg: fc.default_bg,
-            mark: if fc.selected { Mark::Opaque } else { mark },
+            selected: fc.selected,
+            mark,
         };
         let mut at = at;
         if bar && at.ncells == 2 {

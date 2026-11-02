@@ -6,6 +6,9 @@
 //! The layers a cell under a picture is composed in are the row scratch's
 //! (`src/compose.rs`); this module says which pictures reach a cell and
 //! hands each one's pixels a display line at a time.
+// Pictures scale to the same pixels on every machine (docs/architecture.md,
+// "Determinism"): integer arithmetic only, here and in every submodule.
+#![deny(clippy::float_arithmetic)]
 
 mod copies;
 mod scale;
@@ -22,12 +25,19 @@ pub use copies::PictureCounts;
 use copies::{Copies, Key};
 use scale::{Source, Taps};
 
+/// How strongly the selection's color tints a selected cell that a
+/// picture reaches, out of 255: the selected cell shows both the selection
+/// and the picture under it (the maintainer, 2026-11-01).
+pub const SELECTION_TINT: u8 = 128;
+
 /// What a cell's own state adds to the pictures over it: whether its
 /// background is the default, which lets the layer below backgrounds show
-/// (ADR-1001's `default_bg`), and the mark vtium draws over it.
+/// (ADR-1001's `default_bg`), whether it is selected, and the cursor
+/// vtium draws over it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Under {
     pub(crate) default_bg: bool,
+    pub(crate) selected: bool,
     pub(crate) mark: Mark,
 }
 
@@ -36,8 +46,8 @@ pub(crate) struct Under {
 pub(crate) enum Mark {
     #[default]
     None,
-    /// A block cursor or the selection: the cell, drawn as today, covers
-    /// every picture under it.
+    /// A block cursor: the cell, drawn as without pictures, covers every
+    /// picture under it.
     Opaque,
     /// A bar cursor: the cell's glyph is the bar.
     Bar,
@@ -583,6 +593,15 @@ impl Pictures {
             }
         }
     }
+}
+
+/// The selection's color `c` over the display pixel `dst` at
+/// [`SELECTION_TINT`]: each channel `(c * t + dst * (255 - t)) / 255`,
+/// rounded, the arithmetic a mask's coverage blends with.
+pub(crate) fn tint(dst: u32, c: vtium_term::Rgb) -> u32 {
+    let ch = |shift: u32| u8::try_from(dst >> shift & 0xff).unwrap_or(0);
+    let under = vtium_term::Rgb::new(ch(16), ch(8), ch(0));
+    crate::blend::mask(c, under, SELECTION_TINT)
 }
 
 /// The premultiplied `src` over the opaque display pixel `dst`: each

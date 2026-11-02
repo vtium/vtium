@@ -5,3 +5,4 @@ picture-1x	vtium/vtium#30: a sixel at its own size beside text, drawn by vtium, 
 picture-zoomed	vtium/vtium#30: the same screen at twice the cell size, the sixel scaled with its box, drawn by vtium, not yet reviewed
 picture-turned	vtium/vtium#30: the same screen on a display turned a quarter right, drawn by vtium, not yet reviewed
 text-over-picture	vtium/vtium#30: text over a kitty picture below text, a half-transparent sixel above it and a bar cursor above both, drawn by vtium, not yet reviewed
+selection-over-picture	vtium/vtium#30: a selection over the sixel and the text beside it, tinting the picture at SELECTION_TINT (the maintainer, 2026-11-01), drawn by vtium, not yet reviewed

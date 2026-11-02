@@ -14,7 +14,8 @@ use vtium_image::{
     FramePlacement, ImageKey, LineKey, NewImage, Pixels, Place, Protocol, Rows, Screens, Store,
 };
 use vtium_render::{
-    Canvas, Config, DrawState, Orientation, PICTURE_CACHE_SCREENS, PictureCounts, Renderer, Target,
+    Canvas, Config, DrawState, Orientation, PICTURE_CACHE_SCREENS, PictureCounts, Renderer,
+    SELECTION_TINT, Target,
 };
 use vtium_term::{Age, CursorShape, Style};
 
@@ -354,7 +355,8 @@ fn the_cursor_the_selection_and_the_pointer_draw_above_every_picture() {
         }
         assert!(cell(&c, 3, 1).iter().all(|&p| p == BLUE & 0xff_ffff));
     }
-    // the selection is vtium's mark too: its cells draw as selected
+    // the selection tints the picture at partial strength, so a selected
+    // cell shows both (the maintainer, 2026-11-01)
     s.cursor.visible = false;
     let frame = |p: Vec<FramePlacement>| {
         s.frame(Age::NEVER)
@@ -367,8 +369,31 @@ fn the_cursor_the_selection_and_the_pointer_draw_above_every_picture() {
     let mut r = Renderer::new(unifont(), 80, 64, Config::default());
     let mut sel = Canvas::new(80, 64, 0);
     r.draw(&frame(Vec::new()), &mut sel, 0, &state(&s));
+    // each channel the selection's at SELECTION_TINT out of 255 and the
+    // picture's at the rest, rounded to the nearest
+    let t = u32::from(SELECTION_TINT);
+    let mix = |s: u32, p: u32| {
+        let ch = |shift: u32| {
+            let v = ((s >> shift) & 0xff) * t + ((p >> shift) & 0xff) * (255 - t);
+            ((v * 2 + 255) / 510) << shift
+        };
+        ch(16) | ch(8) | ch(0)
+    };
     for col in 2..4 {
-        assert_eq!(cell(&c, col, 1), cell(&sel, col, 1), "selected cell {col}");
+        let (got, selected) = (cell(&c, col, 1), cell(&sel, col, 1));
+        for (i, (&g, &v)) in got.iter().zip(&selected).enumerate() {
+            assert_eq!(
+                g,
+                mix(v, BLUE & 0xff_ffff),
+                "selected cell {col}, pixel {i}"
+            );
+            assert_ne!(g, v, "selected cell {col}, pixel {i}: the picture shows");
+            assert_ne!(
+                g,
+                BLUE & 0xff_ffff,
+                "selected cell {col}, pixel {i}: the selection shows"
+            );
+        }
     }
     assert!(cell(&c, 4, 1).iter().all(|&p| p == BLUE & 0xff_ffff));
     // the pointer's arrow, blended as each line is written, lies over it
@@ -1009,4 +1034,50 @@ fn every_orientation_draws_the_same_pictures_turned() {
             assert!(back == normal, "{o:?} at a {font}-pixel font");
         }
     }
+}
+
+// vtium/vtium#135: every pixel a 1-bit display gets is black or white,
+// a picture's included, which the threshold cuts as the frame is written
+// covers: image.compositor
+#[test]
+fn a_picture_on_a_1_bit_display_draws_black_and_white() {
+    let mut s = screen();
+    s.cursor.visible = true;
+    s.cursor.row = 1;
+    s.cursor.col = 3;
+    s.cursor.shape = CursorShape::Bar;
+    let mut con = Console::new(10, 4, 0);
+    let img = con.image(Protocol::SIXEL, 0, (40, 32), ramp);
+    con.place(
+        img,
+        Place {
+            col: 1,
+            row: 0,
+            ..Place::default()
+        },
+    );
+    let half = con.image(Protocol::KITTY, 1, (16, 16), solid(0x8040_2000));
+    con.place(
+        half,
+        Place {
+            col: 6,
+            row: 1,
+            z: -1,
+            ..Place::default()
+        },
+    );
+    let config = Config {
+        depth: vtium_render::Depth::One,
+        ..Config::default()
+    };
+    let frame = s
+        .frame(Age::NEVER)
+        .with_placements(con.frame(0))
+        .with_selection(vec![0..0, 5..8]);
+    let mut r = Renderer::new(unifont(), 80, 64, config);
+    let mut c = Canvas::new(80, 64, 0x0012_3456);
+    r.draw(&frame, &mut c, 0, &state(&s));
+    let lit = c.pixels().iter().filter(|&&p| p == 0xff_ffff).count();
+    assert!(c.pixels().iter().all(|&p| p == 0 || p == 0xff_ffff));
+    assert!(lit > 0 && lit < c.pixels().len());
 }
