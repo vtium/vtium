@@ -14,6 +14,8 @@ vtium's test card, drawn by vtium's renderer in memory for each display profile,
 | [1920x1080](1920x1080/) | 24-bit color | 11x24 | 174x45 | `desktop` | 3 | provisional | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
 | [2560x1440](2560x1440/) | 24-bit color | 14x32 | 182x45 | `desktop` | 3 | provisional | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
 
+`320x240-tiny5` shows an example frit, `tiny5`, the smallest font, which vtium does not use by default; vtium's own choice at 320x240 is the profile `320x240`.
+
 A provisional profile waits on the operator's review, and `provisional.tsv` lists it: a drawing that moves it is reported as drift and fails nothing. An accepted profile fails on a moved pixel.
 
 ## Gray panels, simulated
