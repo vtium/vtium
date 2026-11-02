@@ -854,9 +854,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
         self.awake = true;
         // Another program held the displays: what the buffers hold counts
-        // as unknown, and each display is drawn whole.
+        // as unknown, and each display is drawn whole, so a token lent
+        // before comes back too late.
         for o in &mut self.outputs {
             o.ages = Ages::default();
+            o.lease = o.lease.wrapping_add(1);
             o.clear_owed = false;
             o.redraw = true;
         }

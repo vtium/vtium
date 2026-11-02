@@ -3727,3 +3727,27 @@ fn a_token_back_after_a_blank_without_dpms_leaves_every_buffer_age_0() {
     assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
     assert_eq!(age(&mut v, A), 0);
 }
+
+// A retake, a wake-up with no release before it, sets every display up
+// again: what each buffer holds counts as unknown, so a token lent before
+// it comes back too late, and each buffer is drawn whole after it, as the
+// C reference's text layer drew both buffers whole after a wake-up.
+#[test]
+fn a_token_back_after_a_retake_is_dropped() {
+    let mut v = awake(one());
+    for _ in 0..3 {
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    let token = v.lend(DisplayId(A)).unwrap();
+    assert_eq!(token.age(), 2);
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    for _ in 0..2 {
+        assert_eq!(age(&mut v, A), 0);
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    assert_eq!(age(&mut v, A), 2);
+}
