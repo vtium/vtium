@@ -22,7 +22,7 @@ use vtium::font::Sources;
 use vtium::head::images::Helper;
 use vtium::head::{Head, Start};
 use vtium::video::Video;
-use vtium_image::decode::{Medium, Payload, Reply, Request};
+use vtium_image::decode::{Medium, Payload, Reply, ReplyFile, ReplySource, Request};
 use vtium_platform::IMAGE_CRASHES_MAX;
 use vtium_platform::display::{
     DisplayId, Dpms, Event, Identity, Memory as Shared, Rect, SwapError, Swapped, Token,
@@ -324,6 +324,39 @@ impl Asked {
     }
 }
 
+/// A picture's bytes as a stand-in helper leaves them in its reply file,
+/// handed over in runs of whole pixels, as vtium-platform's reply file
+/// hands them.
+#[derive(Debug)]
+struct InMemory(Vec<u8>);
+
+impl ReplySource for InMemory {
+    fn bytes(&self) -> u64 {
+        u64::try_from(self.0.len()).unwrap_or(u64::MAX)
+    }
+    fn read(&self, sink: &mut dyn FnMut(&[u8])) -> bool {
+        self.0.chunks(4 * 3).for_each(&mut *sink);
+        true
+    }
+}
+
+/// `reply` as the real host gives a picture: left in the helper's reply
+/// file for the console to copy once.
+fn in_file(reply: Reply) -> Reply {
+    match reply {
+        Reply::Ok(Payload::Rgba {
+            width,
+            height,
+            data,
+        }) => Reply::Ok(Payload::File {
+            width,
+            height,
+            file: ReplyFile::new(InMemory(data)),
+        }),
+        other => other,
+    }
+}
+
 /// Each console's stand-in host, in the order the consoles took them.
 #[derive(Clone, Default)]
 struct Hosts(Rc<RefCell<Vec<Rc<RefCell<Asked>>>>>);
@@ -369,7 +402,7 @@ impl Helper for StandIn {
         if (&channel.watched).read(&mut [0u8; 1]).ok() != Some(1) {
             return None;
         }
-        let reply = channel.reply.take().expect("the helper's reply");
+        let reply = in_file(channel.reply.take().expect("the helper's reply"));
         let request = asked.sent.last().expect("the request out").clone();
         let reply = reply.checked(&request);
         if reply == Reply::Failed {
