@@ -1815,6 +1815,34 @@ class Guide(Case):
                 self.assertEqual(g.finish(), 0)
                 self.assertNotIn(b"This is console", g.seen)
 
+    def test_the_closing_lines_fit_a_run_in_vtium_and_one_by_hand(self):
+        # In vtium (VTIUM_CONSOLE set) the run ends with vtium; by hand in a
+        # desktop terminal, as restart.guide runs, it ends in that terminal.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Closing guide\nstep: Look\ndo: look\nexpect: it is there\n", 0o644)
+        log = os.path.join(self.s.dir, "vt-check.log")
+        for env, start, end, absent in (
+                ({"VTIUM_CONSOLE": "1"}, b"After the last step vtium exits and VT 6 gets its console back",
+                 b"vtium exits and VT 6 gets its console back. Ctrl+Alt+F7 is your desktop.", b"in this terminal"),
+                ({}, b"After the last step the checks end here, in this terminal.",
+                 b"The answers are in " + log.encode() + b".", b"vtium exits")):
+            with self.subTest(env=env):
+                g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(**env))
+                g.wait_for(start)
+                g.wait_for(b"Press Enter to begin.")
+                g.send(b"\r")
+                g.wait_for(b"Press Enter when done")
+                g.send(b"\r")
+                g.wait_for(b"[y]es [n]o [s]kip: ")
+                g.send(b"y")
+                g.wait_for(b"Note (Enter for none): ")
+                g.send(b"\r")
+                g.wait_for(b"Press Enter to end the run.")
+                g.wait_for(end)
+                g.send(b"\r")
+                self.assertEqual(g.finish(), 0)
+                self.assertNotIn(absent, g.seen)
+
     def test_the_steps_get_the_systems_locale_when_no_lang_is_set(self):
         conf = os.path.join(self.s.tmp, "locale.conf")
         write(conf, '# a comment\nLANG="de_DE.UTF-8"\nLC_TIME=en_GB.UTF-8\nLC_ALL=$(touch pwned)\n'

@@ -248,6 +248,18 @@ run() {
 
 note "=== $title, $(date -Is), guide $(readlink -f "$guide"), tty $(tty), steps ${only[*]:-all}"
 
+# How the run ends: as vtium's session (VTIUM_CONSOLE set), vtium exits with
+# the guide; run by hand in a terminal, as restart.guide is, the guide ends
+# there and nothing else does.
+if [ -n "${VTIUM_CONSOLE:-}" ]; then
+	start_end="After the last step vtium exits and VT $vt gets its console back;
+Ctrl+Alt+F$desktop is your desktop."
+	last_end="vtium exits and VT $vt gets its console back. Ctrl+Alt+F$desktop is your desktop."
+else
+	start_end="After the last step the checks end here, in this terminal."
+	last_end="The answers are in $log."
+fi
+
 clear_screen
 printf '%s\n\n' "$title"
 [ ${#intro[@]} -eq 0 ] || printf '%s\n' "${intro[@]}" ""
@@ -259,8 +271,7 @@ s, with a note if something looked off. A probe prints each sequence the
 terminal sends, with the time it read it. At a step's first prompt, s skips
 the step and q ends the checks.
 
-After the last step vtium exits and VT $vt gets its console back;
-Ctrl+Alt+F$desktop is your desktop.
+$start_end
 
 Press Enter to begin.
 EOF
@@ -305,6 +316,6 @@ note "=== done $(date -Is)"
 clear_screen
 cat <<EOF
 All steps done; the answers are saved. Press Enter to end the run.
-vtium exits and VT $vt gets its console back. Ctrl+Alt+F$desktop is your desktop.
+$last_end
 EOF
 read -r _ || true
