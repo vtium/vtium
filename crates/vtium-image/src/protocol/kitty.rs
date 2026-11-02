@@ -46,8 +46,9 @@ use vtium_parse::Chunk;
 
 use crate::bounds::IMAGE_OVERHEAD;
 use crate::decode::base64::{Base64, Sink};
-use crate::decode::raw::{self, Raw};
-use crate::decode::{Medium, Payload, Reply, Request};
+use crate::decode::convert::{self, Alpha, Layout};
+use crate::decode::raw::Raw;
+use crate::decode::{Description, Medium, Payload, Reply, Request};
 use crate::handler::{Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place, Refusal};
 use crate::protocol::chunk_work;
@@ -471,6 +472,8 @@ impl Kitty {
             png: false,
             exact: false,
             discard: discard.is_some(),
+            any_image: false,
+            pixels: None,
             largest: (max_w, max_h),
             largest_bytes: ctx.store().limit().saturating_sub(IMAGE_OVERHEAD),
         };
@@ -489,7 +492,20 @@ impl Kitty {
                     request.min = u64::from(cmd.size);
                 }
             } else {
+                // the helper converts the raw pixels it reads or inflates
+                // into the store's format, from this description
                 request.min = cmd.pixels().saturating_mul(u64::from(cmd.bpp()));
+                request.pixels = Some(Description {
+                    layout: if cmd.bpp() == 3 {
+                        Layout::Rgb
+                    } else {
+                        Layout::Rgba
+                    },
+                    alpha: Alpha::Straight,
+                    width: cmd.width,
+                    height: cmd.height,
+                    compressed: request.inflate,
+                });
             }
         }
         self.pending = Some(Pending {
@@ -834,15 +850,14 @@ impl Handler for Kitty {
         }
         let named = cmd.medium != b'd';
         let inflate = cmd.compression == b'z';
-        let (size, bpp, data) = match answer {
+        // every picture comes back premultiplied, decoded or converted
+        // from the pixels the request described (ADR-1101 D7)
+        let (size, data) = match answer {
             Reply::Ok(Payload::Rgba {
                 width,
                 height,
                 data,
-            }) if cmd.format == 100 => ((width, height), 4usize, data),
-            Reply::Ok(Payload::Bytes(bytes)) if cmd.format != 100 => {
-                ((cmd.width, cmd.height), usize::from(cmd.bpp()), bytes)
-            }
+            }) => ((width, height), data),
             other => {
                 let e = outcome(&other, named, inflate);
                 return reply(ctx, &cmd, cmd.id, Err(e));
@@ -861,10 +876,10 @@ impl Handler for Kitty {
         let Some((into, reservation)) = buffer(ctx, cmd.id, len, charge(count)) else {
             return reply(ctx, &cmd, cmd.id, Err(Error::NoSpace));
         };
-        let want = usize::try_from(count)
-            .unwrap_or(usize::MAX)
-            .saturating_mul(bpp);
-        let (pixels, opaque) = raw::convert(data.get(..want).unwrap_or_default(), bpp, into);
+        // the one copy into memory only the console holds clamps each
+        // color to its alpha and finds the opacity, before the store sees
+        // a pixel
+        let (pixels, opaque) = convert::from_reply(&data, into);
         ctx.add_work(count);
         store(ctx, &cmd, (size.0, size.1, pixels, opaque), reservation);
     }

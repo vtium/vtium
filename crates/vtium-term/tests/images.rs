@@ -565,6 +565,8 @@ impl Handler for Stand {
                 png: false,
                 exact: false,
                 discard: false,
+                any_image: false,
+                pixels: None,
                 largest: (10_000, 10_000),
                 largest_bytes: 1 << 30,
             });
@@ -621,9 +623,7 @@ fn feed(t: &mut Terminal, stream: &[u8], cuts: &[usize]) -> Vec<usize> {
             let n = t.input(piece);
             taken.push(n);
             if t.take_image_request().is_some() {
-                t.image_reply(Reply::Ok(vtium_term::images::decode::Payload::Bytes(
-                    Vec::new(),
-                )));
+                t.image_reply(Reply::Corrupt);
             }
             piece = &piece[n..];
         }
