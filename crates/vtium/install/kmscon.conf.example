@@ -265,7 +265,7 @@
 ## The font's size in points, 1/72 inch, drawn at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and over a frit's `cell=`; 0 picks one from the display's size.
 #font-size=0
 
-## How the font helper hints outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits it both ways. Bitmap fonts take no hinting. Unset, the frit's `hinting=` decides, `light` where it states none.
+## How the font helper is to hint outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits a TrueType font both ways, and draws a CFF font as `light` does. Bitmap fonts take no hinting. vtium does not yet hand this key to the helper, so for now each frit's `hinting=` decides, `light` where it states none.
 #font-hinting=
 
 ## Height added to each row, over a frit's `line-spacing=`: a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=` decides, 0 where it states none.
