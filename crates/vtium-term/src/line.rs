@@ -643,12 +643,18 @@ impl Line {
     /// fill, as a line takes its place on a screen `cols` wide from a
     /// rewrap or the scrollback. A line written at a wider width is held
     /// to the budget of the screen's, as writing it there would
-    /// ([`hold_to_budget`](Self::hold_to_budget)), so no screen row names
-    /// more than a row written at the screen's width.
+    /// ([`hold_to_budget`](Self::hold_to_budget)). A line a rewrap built
+    /// at the screen's width or a narrower one may gather more than one
+    /// source row's budget, and it is held to its arena's limit, twice its
+    /// budget, with the same cut ([`hold_to`](Self::hold_to)). So no
+    /// screen row holds more than [`bytes_max`](Self::bytes_max).
     pub(crate) fn paint(&mut self, cols: usize) {
         self.resize(cols);
         if usize::from(self.written_at) > self.cells.len() {
             self.hold_to_budget();
+        } else {
+            let (_, arena) = self.limits();
+            self.hold_to(arena);
         }
     }
 
@@ -931,15 +937,21 @@ impl Line {
     }
 
     /// Holds the clusters the line's cells name to the budget of its
-    /// width, as writing the line at that width keeps them: from the first
-    /// cell on, a cluster that would pass what is left of the budget keeps
-    /// the longest run of its first codepoints that fits, and at least its
-    /// first codepoint. The line then counts as written at its width. A
-    /// line inside its budget is left as it is; one past it has its arena
-    /// rebuilt, in time linear in its width.
+    /// width, as writing the line at that width keeps them
+    /// ([`hold_to`](Self::hold_to)). The line then counts as written at
+    /// its width.
     fn hold_to_budget(&mut self) {
         self.written_at = width_of(self.cells.len());
-        let budget = self.cluster_budget();
+        self.hold_to(self.cluster_budget());
+    }
+
+    /// Holds the clusters the line's cells name to `budget` bytes, length
+    /// bytes included: from the first cell on, a cluster that would pass
+    /// what is left of `budget` keeps the longest run of its first
+    /// codepoints that fits, and at least its first codepoint. A line
+    /// inside `budget` is left as it is; one past it has its arena
+    /// rebuilt, in time linear in its width.
+    fn hold_to(&mut self, budget: usize) {
         if self.tables.as_ref().is_none_or(|t| t.live <= budget) {
             return;
         }

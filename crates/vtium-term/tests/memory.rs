@@ -359,8 +359,10 @@ fn a_screen_row_costs_at_most_its_bound() {
 }
 
 // A rewrap moves clusters with their cells, so a row it builds may name
-// twice its own cells' budget, the arena's whole limit; written to again,
-// such a row compacts and costs no more than a row `write` fills.
+// more than its own cells' budget. A row that lands on the screen keeps at
+// most twice that budget, the arena's whole limit; here every row reaches
+// it. Written to again, such a row compacts and costs no more than a row
+// `write` fills.
 #[test]
 fn a_rewrapped_screen_row_costs_at_most_its_bound() {
     let (cols, rows) = MINSPEC_GRID;
@@ -492,6 +494,140 @@ fn a_screen_narrowed_from_a_wide_grid_holds_its_rows_to_their_bound() {
         assert!(
             shown(t.screen()) == shown(narrow.screen()),
             "alternate, from {wide}"
+        );
+    }
+}
+
+/// Clusters that fill `budget` bytes of a row's arena, length bytes
+/// included, in as few cells as they fit in: clusters of 125 bytes, and
+/// shorter ones for the rest.
+fn budget_in_few_cells(budget: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut left = budget;
+    while left >= 3 {
+        let mut take = left.min(126);
+        if matches!(left - take, 1 | 2) {
+            take -= 3;
+        }
+        out.push(cluster_of(take - 1));
+        left -= take;
+    }
+    out
+}
+
+/// One logical line printed `w` columns wide, which a widening to `cols`
+/// gathers onto one row: the source row that ends `p` cells into a new
+/// row holds its whole budget in its last cells, and the two rows after
+/// it hold theirs in their first cells, so the new row takes the end of
+/// one source row, the whole of the next and the start of the one after.
+/// Every cell has its own style, and each cell of a row its own link, the
+/// links shared by column so the link store holds them all. Returns the
+/// text and its rows, or `None` when no source row ends `p` cells into a
+/// new row among the first `rows`, or when the budget takes more than `p`
+/// cells.
+fn gathered_by_widening(w: usize, cols: usize, p: usize, rows: usize) -> Option<(String, usize)> {
+    let j = (0..rows).find(|&j| (cols * j) % w == w - p)?;
+    let a = cols * j / w;
+    let lines = a + 4;
+    let full = budget_in_few_cells(w * CLUSTER_BYTES_PER_CELL);
+    if lines > rows || full.len() > p {
+        return None;
+    }
+    let mut n = 0u32;
+    let mut s = String::new();
+    for r in 0..lines {
+        for c in 0..w {
+            n += 1;
+            let glyph = if r == a && c >= w - full.len() {
+                full[c - (w - full.len())].clone()
+            } else if (r == a + 1 || r == a + 2) && c < full.len() {
+                full[c].clone()
+            } else {
+                "x".into()
+            };
+            let [b0, b1, b2, b3] = n.to_le_bytes();
+            s.push_str(&format!(
+                "\x1b[38;2;{b0};{b1};{b2};48;2;{b3};1;0m\x1b]8;;http://x/{c}\x1b\\{glyph}"
+            ));
+        }
+    }
+    s.push_str("\x1b]8;;\x1b\\\x1b[m");
+    Some((s, lines))
+}
+
+/// Writes a new style and a new link into every cell of `t`'s screen that
+/// holds no cluster, six times over, so each row's style and link tables
+/// fill to the limit they compact at. The links are shared by sweep and
+/// column, so the link store holds them all.
+fn sweep_styles_and_links(t: &mut Terminal, mut n: u32) {
+    for sweep in 0..6 {
+        for row in 0..t.screen().rows() {
+            let line = &t.screen().lines()[row];
+            let free: Vec<usize> = (0..line.len())
+                .filter(|&c| !matches!(line.glyph(line.cell(c)), Glyph::Cluster(_)))
+                .collect();
+            let mut s = String::new();
+            for c in free {
+                n += 1;
+                let [b0, b1, b2, b3] = n.to_le_bytes();
+                s.push_str(&format!(
+                    "\x1b[{};{}H\x1b[38;2;{b0};{b1};{b2};48;2;{b3};1;0m\x1b]8;;http://y/{sweep}/{c}\x1b\\y",
+                    row + 1,
+                    c + 1
+                ));
+            }
+            s.push_str("\x1b]8;;\x1b\\\x1b[m");
+            t.input(s.as_bytes());
+        }
+    }
+}
+
+// A widening by a factor that is not a whole number can gather onto one
+// row the end of one source row, the whole of the next and the start of
+// the one after. When each of those source rows holds its whole budget in
+// a few cells, the new row names about 16.5 bytes a cell, past its arena's
+// limit of 12. On the screen, such a row keeps the clusters that fit its
+// arena's limit, from its first cell on, so with its own style and link in
+// every other cell it costs no more than `Line::bytes_max`: as the screen
+// widens, and as it grows taller and pulls the row back from the
+// scrollback. The scrollback keeps the row's clusters whole.
+#[test]
+fn a_screen_widened_by_a_fraction_holds_its_rows_to_their_bound() {
+    let rows = 60;
+    for (w, cols, p) in [(15, 17, 1), (28, 33, 2), (53, 65, 5), (110, 129, 7)] {
+        let arena = 2 * CLUSTER_BYTES_PER_CELL * cols;
+        let (text, lines) = gathered_by_widening(w, cols, p, rows).unwrap();
+        let mut t = Terminal::new(w, rows, 1000);
+        t.input(text.as_bytes());
+        t.screen_mut().resize(cols, rows);
+        sweep_styles_and_links(&mut t, 1 << 20);
+        check_rows(t.screen(), cols, &format!("{w} to {cols}"));
+        let most = t.screen().lines().iter().map(Line::cluster_bytes).max();
+        assert!(
+            most.is_some_and(|b| b > arena / 2 && b <= arena),
+            "{w} to {cols}: {most:?}"
+        );
+
+        // Printed onto a screen of 4 rows and pushed into the scrollback,
+        // the line keeps its clusters whole there through the widening.
+        let mut t = Terminal::new(w, 4, 1000);
+        t.screen_mut().set_scrollback_max(1000);
+        t.input(text.as_bytes());
+        t.input("\r\n".repeat(4).as_bytes());
+        t.screen_mut().resize(cols, 4);
+        t.screen_mut().rewrap_scrollback();
+        let most = t.screen().scrollback().map(Line::cluster_bytes).max();
+        assert!(
+            most.is_some_and(|b| b > arena),
+            "{w} to {cols}, scrollback: {most:?}"
+        );
+        t.screen_mut().resize(cols, lines + 4);
+        sweep_styles_and_links(&mut t, 1 << 20);
+        check_rows(t.screen(), cols, &format!("{w} to {cols}, pulled back"));
+        let most = t.screen().lines().iter().map(Line::cluster_bytes).max();
+        assert!(
+            most.is_some_and(|b| b > arena / 2 && b <= arena),
+            "{w} to {cols}, pulled back: {most:?}"
         );
     }
 }
