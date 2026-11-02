@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="872" height="430" viewBox="0 0 872 430" font-family="DejaVu Sans Mono, monospace">
+<title>Glassmaking and vtium's fonts, side by side</title>
+<rect width="872" height="430" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<rect x="16" y="24" width="840" height="160" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="32" y="50" font-size="15" fill="#1f2933">in glassmaking</text>
+<rect x="32" y="72" width="172" height="88" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="118" y="98" font-size="15" text-anchor="middle" fill="#1f2933">raw materials</text>
+<text x="118" y="120" font-size="13" text-anchor="middle" fill="#1f2933">sand and fluxes</text>
+<rect x="244" y="72" width="172" height="88" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="330" y="98" font-size="15" text-anchor="middle" fill="#1f2933">frit</text>
+<text x="330" y="120" font-size="13" text-anchor="middle" fill="#1f2933">the mix, fused,</text>
+<text x="330" y="138" font-size="13" text-anchor="middle" fill="#1f2933">cooled and ground</text>
+<rect x="456" y="72" width="172" height="88" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="542" y="98" font-size="15" text-anchor="middle" fill="#1f2933">melting</text>
+<text x="542" y="120" font-size="13" text-anchor="middle" fill="#1f2933">the frit vitrifies:</text>
+<text x="542" y="138" font-size="13" text-anchor="middle" fill="#1f2933">it turns to glass</text>
+<rect x="668" y="72" width="172" height="88" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="754" y="98" font-size="15" text-anchor="middle" fill="#1f2933">glass</text>
+<text x="754" y="120" font-size="13" text-anchor="middle" fill="#1f2933">clear, and set</text>
+<text x="754" y="138" font-size="13" text-anchor="middle" fill="#1f2933">in its shape</text>
+<line x1="206" y1="116" x2="240" y2="116" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="418" y1="116" x2="452" y2="116" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="630" y1="116" x2="664" y2="116" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<g stroke="#9aa5b1" stroke-width="1.5" stroke-dasharray="2 4">
+<line x1="118" y1="162" x2="118" y2="250"/>
+<line x1="330" y1="162" x2="330" y2="250"/>
+<line x1="542" y1="162" x2="542" y2="250"/>
+<line x1="754" y1="162" x2="754" y2="250"/>
+</g>
+<rect x="16" y="204" width="840" height="160" fill="#e8f3ec" stroke="#9aa5b1" stroke-width="1"/>
+<text x="32" y="230" font-size="15" fill="#1f2933">in vtium</text>
+<rect x="32" y="252" width="172" height="88" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="118" y="278" font-size="15" text-anchor="middle" fill="#1f2933">font files</text>
+<text x="118" y="300" font-size="13" text-anchor="middle" fill="#1f2933">PSF, BDF, kbd,</text>
+<text x="118" y="318" font-size="13" text-anchor="middle" fill="#1f2933">outline fonts</text>
+<rect x="244" y="252" width="172" height="88" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="330" y="278" font-size="15" text-anchor="middle" fill="#1f2933">NAME.vtfrit</text>
+<text x="330" y="300" font-size="13" text-anchor="middle" fill="#1f2933">fonts, characters</text>
+<text x="330" y="318" font-size="13" text-anchor="middle" fill="#1f2933">and the cell</text>
+<rect x="456" y="252" width="172" height="88" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="542" y="278" font-size="15" text-anchor="middle" fill="#1f2933">vtium-vitrify</text>
+<text x="542" y="300" font-size="13" text-anchor="middle" fill="#1f2933">reads the fonts and</text>
+<text x="542" y="318" font-size="13" text-anchor="middle" fill="#1f2933">draws their glyphs</text>
+<rect x="668" y="252" width="172" height="88" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="754" y="278" font-size="15" text-anchor="middle" fill="#1f2933">glyphs</text>
+<text x="754" y="300" font-size="13" text-anchor="middle" fill="#1f2933">bitmaps at the cell,</text>
+<text x="754" y="318" font-size="13" text-anchor="middle" fill="#1f2933">on the screen</text>
+<line x1="206" y1="296" x2="240" y2="296" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="418" y1="296" x2="452" y2="296" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="630" y1="296" x2="664" y2="296" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="24" y="392" font-size="13" fill="#1f2933">A glassmaker's frit is the material itself. A vtium frit is a short text</text>
+<text x="24" y="412" font-size="13" fill="#1f2933">file that names the fonts to melt down, and it holds no font data.</text>
+</svg>

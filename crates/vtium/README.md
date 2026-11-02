@@ -21,6 +21,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/head/chord.rs` | The heads' chords: the console chords and the roaming chord |
 | `src/head/session.rs` | A head's consoles over their lives: the share each head opens within the caps, the console chords, a console's exit and when vtium ends |
 | `src/head/console.rs` | A head's console: its session's terminal and pty, its respawn count and its fit |
+| `src/head/images.rs` | What the image keys give each console in a build with images: its handlers, its budget, whether it offers sixel and kitty graphics, the cell its pictures are placed in, and its requests to the image helper (see "Pictures") |
 | `src/head/identity.rs` | vtium-platform's identities of a display and an input mapped into the head file's, which the start and `vtium check-config` read alike |
 | `src/term.rs` | A head's terminal as the pty's consumer, and a view per display of the head that draws it: the frame it takes with the buffer token its display lends, composes straight into that buffer and presents |
 | `src/painter.rs` | A head's render thread, which composes the head's frames, and the frame times it logs |
@@ -33,11 +34,13 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/getty.rs` | The marker that keeps the unit's getty fallback off vtium's VT under a closed policy, `/run/vtium/ttyN.closed` |
 | `src/main.rs` | Start-up and the loop |
 | `src/blank.rs` | The blank and wake from outside the session: the signals the loop takes, and `vtium blank` and `vtium wake`, which find the vtium on a VT and signal it |
+| `src/console.rs`, `src/console/text.rs`, `src/console/graphical.rs` | `vtium console`, which gives one VT or every VT to the packaged `vtium@.service` and takes them back, leaving alone the VTs that graphics hold (`graphical.rs`), through systemctl and three links it makes itself, keeping records of what it changed in `/var/lib/vtium/console/` (ADR-1500 D7); `src/console/tests.rs` runs it against a scratch root and a stand-in systemctl that does what systemd 262 was measured doing |
 | `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it reads `/sys`, opens nothing under `/dev` and writes nothing, and that `--help` reads no device |
 | `tests/panic_hook.rs` | The panic hook's order, in a process of its own |
 | `tests/blank_wake.rs` | The blank and wake signals through the seat's loop, on a display in memory |
 | `tests/power_keys.rs` | The power keys through the key order, acting on a stand-in for PID 1, logind and the kernel |
 | `tests/heads.rs` | Heads booted with displays in memory: one grid mirrored with no head file, a grid per head at its own density, a display left dark, the active head's start, a zoom per head, no session without a display, a head's font, a frit's one helper, a claimed keyboard, the roaming chord, mode 1004 per head, the console chords and caps, a console's exit and its restart in place, the respawn policy per console, a display lost under each `when-display-lost` and mirrored, a head reattached only by its rules, the active head and the keys with a display gone or never lit, and each head-file outcome under each policy |
+| `tests/images.rs` | Pictures in a build with images, through the seat's loop on a display in memory: a sixel drawn, the offering rule and DA1, the budget following the displays, the cell size and a zoom, a console switch, and requests to a stand-in image helper |
 | `tests/boot.rs` | The seat booted with no hardware: output drawn, keys, a VT switch, the blank and what counts as activity, the respawn limit, DECARM, selection, copy and paste with the pointer, links and prompt jumps, the font's policy, the font a name gives, frits made on the fly, the kernel's font handed to the helper, OSC 50 and zoom, the wait for a display and the session with none, the exit |
 | `install/kmscon.conf.example` | The example configuration, generated from the key table |
 | `install/xterm-vtium.ti` | vtium's terminfo entry, `xterm-vtium`, installed compiled with `tic -x` |
@@ -46,6 +49,99 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `install/kmsconvt-getty@.service` | The VT unit's getty fallback, which its `OnFailure=` starts: getty on the VT, unless vtium's closed marker exists |
 
 `docs/config.md` describes every key. `VTIUM_BLESS=1 cargo test -p vtium` rewrites the three generated files; without it, a test fails when one differs from its source.
+
+## Setting it up
+
+The vtium package (ADR-1500) installs `/usr/bin/vtium`, its glyph helper and the unit `vtium@.service`, and enables nothing. `vtium console` gives vtium a VT, or every VT, and takes them back (ADR-1500 D7). `enable` and `disable` need root, and as any other user they change nothing and say so; `status` runs as any user:
+
+```sh
+vtium console status                      # per VT: what systemd starts at boot, what logind starts when you switch to it, what runs now
+sudo vtium console enable 3               # VT 3 is vtium's from its next start, and its getty is disabled
+sudo systemctl start vtium@tty3.service   # start vtium on VT 3 now, which ends every session there
+sudo vtium console disable 3              # VT 3 goes back to what it had from its next start
+sudo vtium console enable --all           # every VT is vtium's, on a machine whose autovt@.service link does not name kmscon
+sudo vtium console disable --all          # every VT goes back as vtium console found it
+```
+
+`enable --all` links `autovt@.service`, the unit logind starts on a VT when you switch to it and nothing runs there, to vtium, enables vtium at boot on VT 1, where logind never starts a console itself, and disables the gettys on VTs 2 to 6, so vtium starts on each the first time you switch to it. VT 6 is logind's reserved VT, where logind starts a console at every switch, even while the VT is in use, so `enable --all` and `enable 6` refuse while someone is logged in on VT 6 anywhere but inside a vtium running there, and `enable --all` also refuses while kmscon, the development install or a masked `vtium@tty6` is there without a link of VT 6's own, and says what to free first. A getty waiting at its login prompt on VT 6 holds no session: both verbs go ahead, and the next switch to VT 6 stops that getty, which ends nothing. vtium console leaves alone every VT that graphics hold: the VTs a display manager's unit claims through `Conflicts=getty@ttyN.service`, as sddm claims VT 1, and the VTs a graphical session or greeter is on now, which it asks logind for with `loginctl`. `enable N` refuses such a VT, `enable --all` passes it by and says so, and `status` marks it. Neither verb starts or stops vtium. Each prints the `systemctl start` or `stop` that does, and that command ends every session on the VT. Before `enable` changes a VT or moves `autovt@.service`, it records what was there in `/var/lib/vtium/console/`, the unit file each getty linked to included, and `disable` puts back exactly that. `vtium console` refuses a VT that the C reference's console holds. On a host that was not booted with systemd it changes nothing and says so, and there an inittab line or an init script runs `vtium --vt=ttyN --no-switchvt` on the VT ([docs/systemd.md](../../docs/systemd.md)).
+
+### Sharing VTs with kmscon
+
+kmscon, the C reference's console, and vtium can run on one machine, each on VTs of its own. When you switch to a VT that no console runs on, logind starts the unit `autovt@ttyN.service` there, N being the VT's number. systemd looks first for a link of that exact name, `/etc/systemd/system/autovt@ttyN.service`, which gives one VT a console of its own. Every VT without one falls back to the single template link, `/etc/systemd/system/autovt@.service`, so whichever console that link names gets all of those VTs. `sudo vtium console enable --all` points it at vtium. On Arch it points at the getty from the start, because systemd's package enables `getty@.service` when it installs; kmscon's own `sudo systemctl enable kmsconvt@` then fails on that link (it still enables kmscon at boot on VT 1), and only `systemctl enable --force kmsconvt@.service` points the link at kmscon. `vtium console status` says on its first line which console the link names.
+
+**vtium holds the template link, and you want kmscon on one VT.** Give that VT a link of its own to kmscon. For VT 3:
+
+```sh
+sudo systemctl disable getty@tty3.service    # only where VT 3's getty is enabled at boot
+sudo ln -s /usr/lib/systemd/system/kmsconvt@.service /etc/systemd/system/autovt@tty3.service
+sudo systemctl daemon-reload
+```
+
+Nothing starts kmscon at boot or at once. logind starts it the next time you switch to VT 3 while no console runs there. `vtium console` sees the link and leaves VT 3 to kmscon: `enable 3` refuses it, `enable --all` names it and passes it by, and `disable` never touches it. The way back:
+
+```sh
+sudo systemctl stop kmsconvt@tty3.service    # ends every session on VT 3
+sudo rm /etc/systemd/system/autovt@tty3.service
+sudo systemctl daemon-reload
+sudo systemctl add-wants getty.target getty@tty3.service    # only if you disabled VT 3's getty above
+```
+
+Use `add-wants` rather than `systemctl enable getty@tty3.service` there. `enable` also links `autovt@tty3.service` to the getty, and `vtium console enable 3` then refuses VT 3 until that link is gone.
+
+`sudo systemctl enable --now kmsconvt@tty3.service`, run after the same `systemctl disable getty@tty3.service`, makes the same link and also starts kmscon on VT 3 at boot and at once. Without the getty's disable, systemd would start both kmscon and the getty on VT 3 at boot, and the two conflict. The way back:
+
+```sh
+sudo systemctl disable --now kmsconvt@tty3.service    # stops kmscon, which ends every session on VT 3, and takes it off boot
+sudo rm /etc/systemd/system/autovt@tty3.service      # the link that disable leaves
+sudo systemctl daemon-reload
+sudo systemctl add-wants getty.target getty@tty3.service    # only if you disabled VT 3's getty
+```
+
+The guide prefers the hand-made link because two consoles started at boot both open the display card, and the second cannot draw while the first holds it. Do not run kmscon's own `systemctl enable kmsconvt@` while vtium holds the template link either. It fails on that link, and it still enables kmscon at boot on VT 1, beside vtium there.
+
+**`/etc/systemd/system/autovt@.service` links to `kmsconvt@.service`**, as on a machine set up to run kmscon on every VT. `sudo vtium console enable N` gives vtium one VT at a time, and `sudo vtium console enable --all` refuses until kmscon lets go of the template.
+
+**Moving from kmscon to vtium entirely:**
+
+```sh
+sudo systemctl disable kmsconvt@.service      # removes the template link and every VT's kmscon link
+systemctl list-units 'kmsconvt@*'             # the VTs where kmscon still runs
+sudo systemctl stop kmsconvt@tty2.service     # for each VT listed; ends every session there
+sudo vtium console enable --all               # every VT is vtium's from its next start; it prints the command that starts vtium on VT 1 now
+sudo pacman -R kmscon                         # if you want: removes kmscon itself
+```
+
+`systemctl disable` stops nothing, and logging out of a VT leaves its kmscon running. `vtium console enable --all` passes by every VT where kmscon still runs, names each one, and leaves its getty as it is, so that VT keeps its getty after a reboot. Stop kmscon there first, as above, or run `sudo vtium console enable N` for that VT once kmscon has stopped.
+
+`pacman -R kmscon` leaves the `kmscon-terminfo` package, which holds the terminfo entry named `kmscon`. vtium sets `TERM=xterm-vtium`, whose entry the `vtium-terminfo` package installs, so vtium itself needs no `kmscon` entry. Keep `kmscon-terminfo` while anything still uses `TERM=kmscon`: a vtium run with `--term=kmscon` or `term=kmscon` in its configuration, `make vt-login` on a machine without the `xterm-vtium` entry, which then runs vtium with `--term=kmscon`, and an ssh login to this machine from a kmscon console elsewhere, which arrives with `TERM=kmscon`. Once nothing does, you may remove it with `sudo pacman -R kmscon-terminfo`.
+
+### ssh from vtium
+
+vtium sets `TERM=xterm-vtium` in its session, or `TERM=kmscon` when it runs with `--term=kmscon`. ssh passes `TERM` on to the remote host, and most hosts have no terminfo entry by either name, so the programs there cannot look up how to drive the terminal, and the remote shell misbehaves: zsh, for one, echoes every keystroke.
+
+The fix the maintainer uses is to wrap ssh in the shell's rc file on the machine that runs vtium, so that a plain `ssh` from vtium presents the remote host with `xterm-256color`, an entry nearly every host has. In `~/.zshrc`:
+
+```zsh
+if [[ $TERM == (xterm-vtium|kmscon) ]]; then
+  ssh() { TERM=xterm-256color command ssh "$@" }
+fi
+```
+
+In `~/.bashrc`:
+
+```bash
+case $TERM in
+xterm-vtium | kmscon) ssh() { TERM=xterm-256color command ssh "$@"; } ;;
+esac
+```
+
+Remote programs then use only what `xterm-256color` describes, and none of vtium's own capabilities that the entry lacks. On a host you own you can install vtium's entry instead, from a machine that has it (the `vtium-terminfo` package installs it):
+
+```sh
+infocmp -x xterm-vtium | ssh host tic -x -
+```
+
+`tic` run as a user other than root compiles the entry into that user's `~/.terminfo` on the host. With the wrapper in place, `command ssh host` skips it, so that host gets `xterm-vtium`.
 
 ## Heads
 
@@ -81,6 +177,20 @@ The pointer drives vtium-term's selection, and the seat keeps one selection buff
 
 The pointer also drives OSC 8 links and OSC 133 prompt marks, as ADR-1002 decides. vtium tells the shown console's screen which cell the pointer is over and whether Ctrl is held, at each pointer event and each key press, so the frame names the link under the pointer and, while Ctrl is held, carries its URI for the overlay row. Letting go of Ctrl sends no key, so vtium also reads which modifiers a head's own keyboards hold, the keyboards that deliver to it, whenever a keyboard's modifiers change, a keyboard goes, the focus moves, the anti-lockout guard moves a keyboard or the VT comes back, when the keyboards start afresh: letting go of Ctrl or unplugging the keyboard that holds it ends the overlay. The overlay is the focus's. The head that loses the focus shows none unless one of its own keyboards holds Ctrl, though it still underlines the link under its pointer and still draws its pointer, and the head that takes it shows the overlay of the link under its own pointer at once while the keyboard that follows the focus holds Ctrl. A pointer that hides, or that is in the strip a display leaves past the grid, is over no cell, so it hovers no link; a click in that strip still selects at the grid's nearest cell. The pointer is over the shown console alone: a console chord leaves the console it hides hovering nothing, and the console it shows hovers the link under the pointer at once, with the Ctrl the chord holds. Ctrl+click on a link copies its URI into the selection buffer and clears the selection; nothing is opened and nothing reaches the program until the user pastes. Ctrl+right-click on a line of a command's output selects that output as whole lines and copies it. While a program tracks the pointer, both take Shift as well, as selection does. On the main screen Ctrl+Shift+Up moves the view to the nearest marked prompt above its top row and Ctrl+Shift+Down to the nearest below, or back to the live screen; on the alternate screen both keys reach the program.
 
+## Pictures
+
+The `images` feature (ADR-1100 D10) builds vtium-term with its image store and router, vtium-render with the compositor's pictures, and vtium-image with the sixel and kitty graphics handlers. The minspec build, which leaves the feature out, carries none of that code. Every build reads the six image keys, `image-storage-limit`, `max-graphic-size`, `num-color-registers`, `private-color-registers`, `sixel` and `kitty-graphics` (ADR-1100 D11), and a build without images then draws no picture.
+
+In a build with images, each console's terminal gets the sixel and kitty handlers, with `max-graphic-size` and the color registers' keys as their limits. At every turn of the loop, between two input calls, each head gives each of its consoles three host events (ADR-1100 D5), each only when it changed:
+
+- **The budget**: `image-storage-limit`, or under `auto` four frames of the head's displays in RGBA, from 16 MiB to 192 MiB, worked out again when a display joins or leaves the head or changes size. A smaller budget evicts nothing at once; the store's next reservation evicts down to it.
+- **What it offers**: sixel and kitty graphics, each while its key is on, the budget is above 0 and every display of the head draws pictures, which the CPU compositor does in this build. A head with no display yet offers them. A console that offers sixel reports DA1's attribute 4.
+- **The cell size** its pictures are placed in: the head's cell for the console shown, the console's own for a hidden one. A picture keeps the cell it was made in, so a zoom draws it scaled.
+
+The head's snapshot carries the frame's pictures to its render thread, each sharing its image's pixels (ADR-1100 D9). A renderer keeps scaled copies and its damage history under the image keys of one console's store, and every console's store numbers its keys from zero, so a console switch makes each display of the head a new renderer, as a font change does.
+
+A handler that needs the image helper, for a file, shared memory, PNG or zlib, leaves a request, and its terminal takes no input until the reply. At the turn that finds the request, the head sends it to the console's helper, pauses the console's pty and holds the reply timer, `head::images::REPLY_TIMEOUT`, 2,000 ms; the reply, or `FAILED` once the timer fires, goes back to the terminal, the replies the handler writes go to the program, and the pty resumes. The binary checks a reply's sizes against its request before it hands it back. A failure stops the helper: the timer firing, a `FAILED` reply, as from a lost socket, or a reply that fails its checks, which the terminal is handed as `FAILED`. The console's next request starts another helper. A session that ends with a request out drops it with no reply, so the reset that starts the next session takes. Each console has at most one helper, and other consoles, drawing and keys carry on while one console waits. `App::set_image_helpers` is where the image helper plugs in; until it is built, the app holds none, every terminal is told that no helper runs, and the kitty handler answers such a request at once with the reply ADR-1100 D7 gives for "no helper", `EBADF` for a file, a temporary file or shared memory and `EINVAL` for PNG and zlib.
+
 ## The font
 
 vtium draws frits, generated at run time by the helper (ADR-1200, ADR-1301 D2), and its built-in fonts, and parses no font file: vtium-font's PSF loader is behind a feature the binary leaves out.
@@ -110,11 +220,14 @@ A configuration file is untrusted input. The bounds of each key's value are in `
 | `consoles-max` | 8 consoles every head together by default, 1 to 50 | Each head keeps its first; the others past it, in the file's order, do not open, with a warning |
 | `HEADS_MAX` | 16 heads a head file declares (vtium-config's bounds) | The file is invalid, and the shipped rules run |
 | A console's scrollback | `sb-memory`, at most a quarter of the machine's memory divided by `consoles-max` or by the heads, whichever is more | Its oldest lines go, as past `sb-memory` |
+| `REPLY_TIMEOUT` | 2,000 ms a request to the image helper is out, in a build with images (ADR-1100 D7) | The request fails, the helper is stopped and the console's pty resumes |
 | A frit's glyph store | the machine's store limit (16 MiB below 2 GiB, 64 MiB from 2 GiB, 128 MiB from 4 GiB) divided by the heads | A fill stops at it, as at the store's limit |
 
 ## Departures
 
 Each was the C reference's behaviour at kmscon `b1f7a7c5`.
+
+- **A build without images reads the image keys and says nothing of them.** The C reference's build without images logged at every start, at the information level, that it turned `sixel` and `kitty-graphics` off, since both are on by default (`src/config.c:1221-1247`). vtium's minspec build never offers either, so the line would say nothing a reader needs.
 
 - **A file is read whole up to `FILE_MAX`,** where the C reference read any length into memory (`src/misc/conf.c:533-590`).
 - **Only a regular file is read.** A FIFO, a device or a directory at a configuration file's path is reported and skipped, and the file is opened without blocking; the C reference opened any path that existed (`src/misc/conf.c:542-556`), so a FIFO with no writer held the start forever.
@@ -190,6 +303,8 @@ How the C reference's flow drew, as the logical reference for vtium's damage pat
 ## Not yet built
 
 Each is the C reference's and waits for its own change: drawing through the GPU, which `hwaccel` asks for and which warns at start (vtium draws in software), the `multi-monitor` key's `clone` and `largest` (vtium lays several displays out as `scaled`, the operator's choice on vtium/vtium#21), the render timer's on-screen display, and the C reference's keys the table lacks: `multi-monitor`, `screen`, the grabs but `grab-reboot`, and the rest.
+
+The image helper (ADR-1101) is its own program, which vtium does not build yet, so a build with images answers each request for a file, shared memory, PNG or zlib as "no helper" (see "Pictures").
 
 vtium takes `font-hinting` and `font-line-spacing`, checks their values and warns when one is set, but nothing reads them yet: the font helper hints and spaces lines as the frit says.
 

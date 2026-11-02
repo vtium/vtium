@@ -10,7 +10,7 @@
 
 use std::io;
 use std::marker::PhantomData;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::rc::Rc;
@@ -18,7 +18,11 @@ use std::rc::Rc;
 use calloop::generic::Generic;
 use calloop::{Interest, LoopHandle, Mode, PostAction, RegistrationToken};
 use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
-use rustix::process::{Pid, PidfdFlags, ioctl_tiocsctty, pidfd_open, pidfd_send_signal, setsid};
+use rustix::io::Errno;
+use rustix::process::{
+    Pid, PidfdFlags, WaitId, WaitIdOptions, ioctl_tiocsctty, pidfd_open, pidfd_send_signal, setsid,
+    waitid,
+};
 // rustix publishes its runtime module under a name that changes between
 // releases, as it keeps that API unstable; Cargo.toml pins rustix to the
 // release whose name this is.
@@ -86,8 +90,9 @@ impl Endpoint for Master {
 trait Link {
     /// Does what a [`Next`] asks.
     fn kick(&self, next: Next);
-    /// Leaves a source in the loop that reaps `child` when it exits.
-    fn reap(&self, child: Child, pidfd: Rc<OwnedFd>);
+    /// Takes the pty out of the loop and leaves a source there that reaps
+    /// `child` when it exits.
+    fn reap(self: Box<Self>, child: Child, pidfd: Rc<OwnedFd>);
 }
 
 /// A pty and its child.
@@ -164,11 +169,24 @@ impl Pty {
         // Here and not in the hook: listing the descriptors where
         // close_range cannot mark them allocates.
         crate::fds::cloexec_before_spawn()?;
-        let child = command.spawn()?;
+        let mut child = command.spawn()?;
         // The parent's copies of the slave go with the command, so the
         // master sees a hangup once the child's session closes it.
         drop(command);
-        let pidfd = pidfd_open(Pid::from_child(&child), PidfdFlags::empty())?;
+        let opened = fail_at(Step::Pidfd)
+            .and_then(|()| Ok(pidfd_open(Pid::from_child(&child), PidfdFlags::empty())?));
+        let pidfd = match opened {
+            Ok(pidfd) => pidfd,
+            Err(e) => {
+                // Nothing else will wait for this child, so spawn kills it
+                // and waits for it here; a child nobody waits for stays a
+                // zombie until vtium exits. SIGKILL ends the child whatever
+                // it does with other signals, so the wait is short.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e);
+            }
+        };
 
         let master = Rc::new(master);
         Ok(Pty {
@@ -185,55 +203,70 @@ impl Pty {
     /// Puts the pty in the loop behind `handle`. `access` finds the pty
     /// and its consumer in the loop's data, or `None` once the host has
     /// closed it.
+    ///
+    /// When it fails, it leaves nothing of the pty in the loop, and the pty
+    /// is as it was before the call: the host may insert it again, and
+    /// dropping it kills and reaps its child.
     pub fn insert<D, C, A>(&mut self, handle: &LoopHandle<'static, D>, access: A) -> io::Result<()>
     where
         D: 'static,
         C: Consumer + 'static,
         A: Fn(&mut D) -> Option<(&mut Pty, &mut C)> + Clone + 'static,
     {
-        let output = handle
-            .insert_source(
-                Generic::new(Rc::clone(&self.master), Interest::BOTH, Mode::Edge),
-                {
-                    let access = access.clone();
-                    move |readiness, _, data: &mut D| {
-                        let Some((pty, consumer)) = access(data) else {
-                            return Ok(PostAction::Remove);
-                        };
-                        let readable = readiness.readable || readiness.error;
-                        let next = pty.channel.ready(readable, readiness.writable, consumer);
-                        pty.settle(next, consumer);
-                        Ok(PostAction::Continue)
-                    }
-                },
-            )
-            .map_err(|e| io::Error::from(e.error))?;
-        let exit = handle
-            .insert_source(
-                Generic::new(Rc::clone(&self.pidfd), Interest::READ, Mode::Level),
-                {
-                    let access = access.clone();
-                    move |_, _, data: &mut D| {
-                        let Some((pty, consumer)) = access(data) else {
-                            return Ok(PostAction::Remove);
-                        };
-                        let Some(child) = pty.child.as_mut() else {
-                            return Ok(PostAction::Remove);
-                        };
-                        match child.try_wait()? {
-                            Some(status) => {
-                                pty.child = None;
-                                pty.exit = Some(status);
-                                let next = pty.channel.orphan();
-                                pty.settle(next, consumer);
-                                Ok(PostAction::Remove)
-                            }
-                            None => Ok(PostAction::Continue),
+        let output = fail_at(Step::OutputSource).and_then(|()| {
+            handle
+                .insert_source(
+                    Generic::new(Rc::clone(&self.master), Interest::BOTH, Mode::Edge),
+                    {
+                        let access = access.clone();
+                        move |readiness, _, data: &mut D| {
+                            let Some((pty, consumer)) = access(data) else {
+                                return Ok(PostAction::Remove);
+                            };
+                            let readable = readiness.readable || readiness.error;
+                            let next = pty.channel.ready(readable, readiness.writable, consumer);
+                            pty.settle(next, consumer);
+                            Ok(PostAction::Continue)
                         }
-                    }
-                },
-            )
-            .map_err(|e| io::Error::from(e.error))?;
+                    },
+                )
+                .map_err(|e| io::Error::from(e.error))
+        })?;
+        let exit = fail_at(Step::ExitSource).and_then(|()| {
+            handle
+                .insert_source(
+                    Generic::new(Rc::clone(&self.pidfd), Interest::READ, Mode::Level),
+                    {
+                        let access = access.clone();
+                        move |_, _, data: &mut D| {
+                            let Some((pty, consumer)) = access(data) else {
+                                return Ok(PostAction::Remove);
+                            };
+                            let Some(child) = pty.child.as_mut() else {
+                                return Ok(PostAction::Remove);
+                            };
+                            match child.try_wait()? {
+                                Some(status) => {
+                                    pty.child = None;
+                                    pty.exit = Some(status);
+                                    let next = pty.channel.orphan();
+                                    pty.settle(next, consumer);
+                                    Ok(PostAction::Remove)
+                                }
+                                None => Ok(PostAction::Continue),
+                            }
+                        }
+                    },
+                )
+                .map_err(|e| io::Error::from(e.error))
+        });
+        let exit = match exit {
+            Ok(exit) => exit,
+            Err(e) => {
+                handle.remove(output);
+                return Err(e);
+            }
+        };
         self.link = Some(Box::new(LoopLink {
             handle: handle.clone(),
             output,
@@ -362,7 +395,12 @@ pub(crate) unsafe fn default_signals() -> io::Result<()> {
 impl Drop for Pty {
     /// Sends SIGHUP to the leader of the pty's session, then removes the
     /// pty from its loop and closes the master, which hangs up the session.
-    /// A child still running is reaped by the loop when it exits.
+    /// A child still running is reaped by the loop when it exits. A pty
+    /// that is in no loop, because it was never inserted or its insert
+    /// failed, kills its child with SIGKILL and waits for it, as does a pty
+    /// whose loop cannot take the source that would reap the child: nothing
+    /// else would wait for the child, and a child nobody waits for stays a
+    /// zombie until vtium exits.
     ///
     /// The signal goes first because the kernel's hangup ends the session's
     /// input before it signals the session's leader: closing the master
@@ -373,11 +411,13 @@ impl Drop for Pty {
     /// pending in the leader before its input ends.
     fn drop(&mut self) {
         self.signal_leader();
-        let Some(link) = self.link.take() else {
+        let link = self.link.take();
+        let Some(child) = self.child.take() else {
             return;
         };
-        if let Some(child) = self.child.take() {
-            link.reap(child, Rc::clone(&self.pidfd));
+        match link {
+            Some(link) => link.reap(child, Rc::clone(&self.pidfd)),
+            None => kill_and_reap(self.pidfd.as_fd()),
         }
     }
 }
@@ -411,6 +451,41 @@ impl Pty {
     }
 }
 
+/// Kills the child behind `pidfd` with SIGKILL and waits for it to exit,
+/// for a child no loop will reap. SIGKILL ends the child whatever it does
+/// with other signals, so the wait is short.
+fn kill_and_reap(pidfd: BorrowedFd<'_>) {
+    let _ = pidfd_send_signal(pidfd, Signal::KILL);
+    while let Err(Errno::INTR) = waitid(WaitId::PidFd(pidfd), WaitIdOptions::EXITED) {}
+}
+
+/// The steps after the fork that can fail, which a unit test makes fail to
+/// check that the child is still reaped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    /// [`Pty::spawn`]'s pidfd for the child.
+    Pidfd,
+    /// [`Pty::insert`]'s source for the master.
+    OutputSource,
+    /// [`Pty::insert`]'s source for the child's exit.
+    ExitSource,
+    /// The source a dropped pty leaves in its loop to reap its child.
+    Reaper,
+}
+
+/// Fails at `step` when a unit test asks it to, and otherwise succeeds.
+#[cfg(not(test))]
+#[expect(clippy::unnecessary_wraps, reason = "the unit tests' version fails")]
+#[inline]
+fn fail_at(_: Step) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(test)]
+fn fail_at(step: Step) -> io::Result<()> {
+    tests::fail_at(step)
+}
+
 struct LoopLink<D: 'static, C, A> {
     handle: LoopHandle<'static, D>,
     output: RegistrationToken,
@@ -442,14 +517,25 @@ where
         }
     }
 
-    fn reap(&self, mut child: Child, pidfd: Rc<OwnedFd>) {
-        let _ = self.handle.insert_source(
-            Generic::new(pidfd, Interest::READ, Mode::Level),
-            move |_, _, _| match child.try_wait() {
-                Ok(None) => Ok(PostAction::Continue),
-                _ => Ok(PostAction::Remove),
-            },
-        );
+    fn reap(self: Box<Self>, mut child: Child, pidfd: Rc<OwnedFd>) {
+        let handle = self.handle.clone();
+        // The exit source watches the same pidfd, and the loop's poller
+        // refuses a descriptor it already watches, so the pty's sources
+        // leave the loop before the reaper joins it.
+        drop(self);
+        let inserted = fail_at(Step::Reaper).is_ok()
+            && handle
+                .insert_source(
+                    Generic::new(Rc::clone(&pidfd), Interest::READ, Mode::Level),
+                    move |_, _, _| match child.try_wait() {
+                        Ok(None) => Ok(PostAction::Continue),
+                        _ => Ok(PostAction::Remove),
+                    },
+                )
+                .is_ok();
+        if !inserted {
+            kill_and_reap(pidfd.as_fd());
+        }
     }
 }
 
@@ -457,5 +543,167 @@ impl<D: 'static, C, A> Drop for LoopLink<D, C, A> {
     fn drop(&mut self) {
         self.handle.remove(self.output);
         self.handle.remove(self.exit);
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+
+    use calloop::EventLoop;
+    use rustix::process::{WaitOptions, kill_process, waitpid};
+
+    thread_local! {
+        /// The step at which the next [`fail_at`] on this thread fails.
+        static FAIL: Cell<Option<Step>> = const { Cell::new(None) };
+    }
+
+    /// Fails once, at the step the test set, with EMFILE, as a process
+    /// out of descriptors would.
+    pub(super) fn fail_at(step: Step) -> io::Result<()> {
+        if FAIL.get() == Some(step) {
+            FAIL.set(None);
+            return Err(io::Error::from_raw_os_error(libc::EMFILE));
+        }
+        Ok(())
+    }
+
+    const SIZE: Size = Size {
+        cols: 80,
+        rows: 25,
+        cell_width: 8,
+        cell_height: 16,
+    };
+
+    /// A child that runs until something ends it.
+    fn sleeper() -> Command {
+        let mut command = Command::new("sleep");
+        command.arg("1000");
+        command
+    }
+
+    /// The children of this thread that nobody has waited for yet: those
+    /// running and the zombies. Each test runs on a thread of its own, so
+    /// another test's children are not listed.
+    fn children() -> BTreeSet<i32> {
+        std::fs::read_to_string("/proc/thread-self/children")
+            .unwrap()
+            .split_whitespace()
+            .map(|pid| pid.parse().unwrap())
+            .collect()
+    }
+
+    /// The children this thread started since `before` and has not waited
+    /// for. The test kills and reaps each one before it asserts, so a
+    /// failing test leaves no process behind.
+    fn left_unreaped(before: &BTreeSet<i32>) -> Vec<i32> {
+        let left: Vec<i32> = children().difference(before).copied().collect();
+        for &raw in &left {
+            let pid = Pid::from_raw(raw).unwrap();
+            let _ = kill_process(pid, Signal::KILL);
+            let _ = waitpid(Some(pid), WaitOptions::empty());
+        }
+        left
+    }
+
+    /// Makes the next `step` fail, runs `f`, and checks that `f` reached it.
+    fn failing_at<T>(step: Step, f: impl FnOnce() -> T) -> T {
+        FAIL.set(Some(step));
+        let done = f();
+        assert_eq!(FAIL.take(), None, "{step:?} was never reached");
+        done
+    }
+
+    struct Ignore;
+
+    impl Consumer for Ignore {
+        fn output(&mut self, output: &[u8], _: &mut Replies<'_>) -> usize {
+            output.len()
+        }
+
+        fn exited(&mut self, _: ExitStatus) {}
+    }
+
+    /// The loop's data holds no pty: the tests keep it.
+    fn nothing(_: &mut ()) -> Option<(&mut Pty, &mut Ignore)> {
+        None
+    }
+
+    #[test]
+    fn a_spawn_that_fails_after_the_fork_leaves_no_child() {
+        let before = children();
+        let spawned = failing_at(Step::Pidfd, || {
+            Pty::spawn(sleeper(), SIZE, Erase::Delete).err()
+        });
+        let left = left_unreaped(&before);
+        assert!(spawned.is_some(), "the spawn fails");
+        assert_eq!(left, [], "children left unreaped");
+    }
+
+    #[test]
+    fn a_pty_whose_insert_failed_leaves_no_child_once_dropped() {
+        for step in [Step::OutputSource, Step::ExitSource] {
+            let lp: EventLoop<'static, ()> = EventLoop::try_new().unwrap();
+            let before = children();
+            let mut pty = Pty::spawn(sleeper(), SIZE, Erase::Delete).unwrap();
+            let inserted = failing_at(step, || pty.insert(&lp.handle(), nothing));
+            drop(pty);
+            let left = left_unreaped(&before);
+            assert!(inserted.is_err(), "the insert fails at {step:?}");
+            assert_eq!(left, [], "children left unreaped after {step:?}");
+        }
+    }
+
+    // The loop's poller refuses a descriptor it already watches, so a
+    // second insert succeeds only if the failed one removed the master's
+    // source.
+    #[test]
+    fn a_failed_insert_leaves_nothing_in_the_loop() {
+        let lp: EventLoop<'static, ()> = EventLoop::try_new().unwrap();
+        let before = children();
+        let mut pty = Pty::spawn(sleeper(), SIZE, Erase::Delete).unwrap();
+        let first = failing_at(Step::ExitSource, || pty.insert(&lp.handle(), nothing));
+        let second = pty.insert(&lp.handle(), nothing);
+        drop(pty);
+        left_unreaped(&before);
+        assert!(first.is_err(), "the first insert fails");
+        assert!(second.is_ok(), "the second insert: {second:?}");
+    }
+
+    // The drop sends SIGHUP, which ends the sleeper, and the loop waits for
+    // it: the drop itself neither kills nor waits for a child in a loop.
+    #[test]
+    fn a_pty_dropped_in_its_loop_leaves_its_child_to_the_loop() {
+        let mut lp: EventLoop<'static, ()> = EventLoop::try_new().unwrap();
+        let before = children();
+        let mut pty = Pty::spawn(sleeper(), SIZE, Erase::Delete).unwrap();
+        pty.insert(&lp.handle(), nothing).unwrap();
+        drop(pty);
+        let after_drop = children().difference(&before).count();
+        // bounded so the test fails instead of hanging
+        for _ in 0..100 {
+            if children().is_subset(&before) {
+                break;
+            }
+            lp.dispatch(Some(Duration::from_secs(1)), &mut ()).unwrap();
+        }
+        let left = left_unreaped(&before);
+        assert_eq!(after_drop, 1, "the child is the loop's to reap");
+        assert_eq!(left, [], "children the loop left unreaped");
+    }
+
+    #[test]
+    fn a_pty_whose_reaper_cannot_join_the_loop_leaves_no_child() {
+        let lp: EventLoop<'static, ()> = EventLoop::try_new().unwrap();
+        let before = children();
+        let mut pty = Pty::spawn(sleeper(), SIZE, Erase::Delete).unwrap();
+        pty.insert(&lp.handle(), nothing).unwrap();
+        failing_at(Step::Reaper, || drop(pty));
+        let left = left_unreaped(&before);
+        assert_eq!(left, [], "children left unreaped");
     }
 }

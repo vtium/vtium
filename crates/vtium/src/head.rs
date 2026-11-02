@@ -13,6 +13,7 @@
 pub(crate) mod chord;
 pub mod console;
 pub mod identity;
+pub mod images;
 pub(crate) mod route;
 pub(crate) mod session;
 
@@ -222,6 +223,9 @@ pub struct Head {
     pub(crate) notice_only: bool,
     /// The report the notice screen shows, the panic screen's.
     report: Option<vtium_render::NoticeReport>,
+    /// What the image keys give the head's consoles (ADR-1100 D11).
+    #[cfg(feature = "images")]
+    pub(crate) image_settings: images::Settings,
 }
 
 /// A console's terminal for `config`, on [`GRID`] with the scrollback cap
@@ -253,6 +257,13 @@ pub(crate) fn terminal(
     let timeout = Duration::from_millis(config.number(&keys::SYNC_TIMEOUT).unwrap_or(200));
     terminal.set_sync_enabled(!timeout.is_zero());
     let sync = Sync::new(timeout, terminal.sync_frames());
+    // Every build reads the image keys; a build with images gives the
+    // terminal its handlers and their limits.
+    let pictures = images::Settings::read(config);
+    #[cfg(feature = "images")]
+    images::install(&mut terminal, &pictures);
+    #[cfg(not(feature = "images"))]
+    let _ = pictures;
     Term::new(terminal, sync, Blink::configured(config), clock)
 }
 
@@ -387,6 +398,8 @@ impl Head {
             figures: Figures::default(),
             notice_only: false,
             report: None,
+            #[cfg(feature = "images")]
+            image_settings: images::Settings::read(config),
         }
     }
 
@@ -668,6 +681,15 @@ impl Head {
         for v in self.views.values_mut() {
             v.show_another();
         }
+        // A renderer draws the pictures of one console's store, whose keys
+        // another console's store reuses, so each display draws the new
+        // console with a new renderer, which the relayout that follows
+        // every switch makes (vtium-render's README, "One image store for
+        // each renderer").
+        #[cfg(feature = "images")]
+        {
+            self.refont = true;
+        }
         self.draw_now = true;
         old
     }
@@ -825,6 +847,12 @@ impl Head {
         let (cw, ch) = self.cell;
         let (w, h) = self.pixels(grid);
         self.console.term.terminal.set_cell_size(cw, ch);
+        // The cell pictures are placed in too, so a picture that arrives
+        // before the next image turn takes the new cell.
+        #[cfg(feature = "images")]
+        self.console
+            .pictures
+            .give_cell(&mut self.console.term, (cw, ch));
         self.console.term.terminal.set_display_size(w, h);
         for v in self.views.values_mut() {
             v.lost = true;

@@ -43,6 +43,8 @@ pub enum Kind {
     Grab,
     /// One character, no control character or space.
     Char,
+    /// A size in pixels, `WxH`, each side from 1 to `max`.
+    Size { max: u32 },
     /// A decoration's color: `fg`, the cell's foreground; a palette index
     /// from 0 to 255, which follows the palette a program changes; or
     /// `#rrggbb`.
@@ -1306,8 +1308,84 @@ pub const GRAB_SUSPEND: Key = Key {
     cite: "vtium/vtium#21",
 };
 
+pub const IMAGE_STORAGE_LIMIT: Key = Key {
+    name: "image-storage-limit",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 1 << 40,
+        unit: "bytes",
+        word: Some("auto"),
+    },
+    default: Default::Text("auto"),
+    scope: Scope::Anywhere,
+    reader: "vtium-image",
+    what: "The most bytes each console's pictures hold, its main and alternate screens together, or KiB, MiB or GiB with `K`, `M` or `G` (`64M`), at most 1 TiB. `auto` gives each console four frames of its head's displays, 16 MiB to 192 MiB, and works it out again when a display joins or leaves the head or changes size. `0` turns sixel and kitty graphics off. A build without images reads it and draws no picture.",
+    cite: "ADR-1100 D5, D11; Ghostty's `image-storage-limit`; src/config.c:1023-1064, 1462",
+};
+
+pub const MAX_GRAPHIC_SIZE: Key = Key {
+    name: "max-graphic-size",
+    short: None,
+    kind: Kind::Size { max: 65_535 },
+    default: Default::Text("10000x10000"),
+    scope: Scope::Anywhere,
+    reader: "vtium-image",
+    what: "The largest picture a program may send, in pixels, `WxH`, for sixel and kitty graphics alike; a larger one is refused. A build without images reads it and draws no picture.",
+    cite: "ADR-1100 D11; xterm's `maxGraphicSize`; src/config.c:1071-1107, 1467",
+};
+
+pub const NUM_COLOR_REGISTERS: Key = Key {
+    name: "num-color-registers",
+    short: None,
+    kind: Kind::Number {
+        min: 2,
+        max: 65_535,
+        unit: "registers",
+        word: None,
+    },
+    default: Default::Number(1024),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "How many color registers a sixel picture has, and the most XTSMGRAPHICS lets a program set. A build without images reads it and draws no picture.",
+    cite: "ADR-1100 D11; xterm's `numColorRegisters`; src/config.c:1114-1145, 1469",
+};
+
+pub const PRIVATE_COLOR_REGISTERS: Key = Key {
+    name: "private-color-registers",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Mode 1070's state at a reset: on, each sixel picture starts from the default colors; off, the pictures share their color registers. A build without images reads it and draws no picture.",
+    cite: "ADR-1100 D11; xterm's `privateColorRegisters`; src/config.c:1471",
+};
+
+pub const SIXEL: Key = Key {
+    name: "sixel",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "Sixel graphics. Off, vtium neither offers nor decodes sixel: DA1 reports no attribute 4 and a sixel string is ignored. vtium offers sixel only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.",
+    cite: "ADR-1100 D10, D11; src/config.c:1221-1234, 1464",
+};
+
+pub const KITTY_GRAPHICS: Key = Key {
+    name: "kitty-graphics",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    reader: "vtium-term",
+    what: "The kitty graphics protocol. Off, vtium neither offers nor decodes it: a graphics command is ignored and a query gets no reply. vtium offers it only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.",
+    cite: "ADR-1100 D10, D11; src/config.c:1236-1247, 1465",
+};
+
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 98] = [
+pub const KEYS: [Key; 104] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1406,6 +1484,12 @@ pub const KEYS: [Key; 98] = [
     DISPLAY_DEPTH,
     DISPLAY_DPI,
     RENDER_TIMER,
+    IMAGE_STORAGE_LIMIT,
+    SIXEL,
+    KITTY_GRAPHICS,
+    MAX_GRAPHIC_SIZE,
+    NUM_COLOR_REGISTERS,
+    PRIVATE_COLOR_REGISTERS,
 ];
 
 /// The keys vtium takes and does not act on yet, which the crate

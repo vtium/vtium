@@ -1457,3 +1457,46 @@ fn font_line_spacing_is_a_percentage_from_0_to_100() {
         assert_eq!(l.reports, [], "{args:?}");
     }
 }
+
+#[test]
+fn the_image_keys_take_auto_a_size_and_bytes() {
+    let d = main_file("");
+    assert_eq!(d.config.number(&IMAGE_STORAGE_LIMIT), None);
+    assert_eq!(d.config.text(&IMAGE_STORAGE_LIMIT), Some("auto"));
+    assert_eq!(d.config.size(&MAX_GRAPHIC_SIZE), Some((10_000, 10_000)));
+    assert_eq!(d.config.number(&NUM_COLOR_REGISTERS), Some(1024));
+    assert!(d.config.switch(&PRIVATE_COLOR_REGISTERS));
+    assert!(d.config.switch(&SIXEL));
+    assert!(d.config.switch(&KITTY_GRAPHICS));
+    let l = main_file(
+        "image-storage-limit=64M\nmax-graphic-size=1920x65535\nnum-color-registers=1\nno-sixel\n",
+    );
+    assert_eq!(l.config.number(&IMAGE_STORAGE_LIMIT), Some(64 << 20));
+    assert_eq!(l.config.size(&MAX_GRAPHIC_SIZE), Some((1920, 65_535)));
+    // below its bound, clamped and reported
+    assert_eq!(l.config.number(&NUM_COLOR_REGISTERS), Some(2));
+    assert!(!l.config.switch(&SIXEL));
+    assert!(matches!(
+        &problems(&l)[..],
+        [Problem::Clamped { used: 2, .. }]
+    ));
+    // 1 TiB at most, and `0` is a limit of its own
+    let l = main_file("image-storage-limit=2048G\n");
+    assert_eq!(l.config.number(&IMAGE_STORAGE_LIMIT), Some(1 << 40));
+    let l = main_file("image-storage-limit=0\n");
+    assert_eq!(l.config.number(&IMAGE_STORAGE_LIMIT), Some(0));
+    // a size is two sides from 1 to 65535; a bad one keeps the default
+    for bad in ["0x10", "10x", "65536x1", "10", "10x10x10", "+5x5", "auto"] {
+        let l = main_file(&format!("max-graphic-size={bad}\n"));
+        assert_eq!(
+            l.config.size(&MAX_GRAPHIC_SIZE),
+            Some((10_000, 10_000)),
+            "{bad}"
+        );
+        assert!(
+            matches!(&problems(&l)[..], [Problem::BadValue { .. }]),
+            "{bad}: {:?}",
+            l.reports
+        );
+    }
+}
