@@ -19,29 +19,22 @@ use vtium_image_helper::{channel, fork, sandbox};
 /// The `TMPDIR` the arguments name, resolved; `Err` for an argument the
 /// helper does not know. A `TMPDIR` that is not absolute, does not
 /// resolve, or resolves to `/` is no temporary place.
-fn settings(args: &[std::ffi::OsString]) -> Result<Settings, ()> {
+fn tmpdir(args: &[std::ffi::OsString]) -> Result<Option<PathBuf>, ()> {
     let mut tmpdir = None;
     for arg in args {
         let text = arg.to_str().ok_or(())?;
         let dir = text.strip_prefix("--tmpdir=").ok_or(())?;
         tmpdir = Some(PathBuf::from(dir));
     }
-    let tmpdir = tmpdir
+    Ok(tmpdir
         .filter(|d| d.is_absolute())
         .and_then(|d| std::fs::canonicalize(d).ok())
-        .filter(|d| d != Path::new("/"));
-    let filter = sandbox::WorkerFilter::build().map_err(|_| ())?;
-    Ok(Settings {
-        tmpdir,
-        filter,
-        landlock: 0,
-        filters: None,
-    })
+        .filter(|d| d != Path::new("/")))
 }
 
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let Ok(mut settings) = settings(&args) else {
+    let Ok(tmpdir) = tmpdir(&args) else {
         return ExitCode::from(2);
     };
     let Some(socket) = fork::socket() else {
@@ -51,6 +44,10 @@ fn main() -> ExitCode {
         return ExitCode::from(4);
     }
     let landlock = sandbox::landlock_version();
+    // the worker's filters depend on whether the kernel offers landlock
+    let Ok(filter) = sandbox::WorkerFilter::build(landlock) else {
+        return ExitCode::from(4);
+    };
     let before = sandbox::seccomp_filters();
     let Ok(seccomp) = sandbox::install_helper_filter() else {
         return ExitCode::from(4);
@@ -61,8 +58,11 @@ fn main() -> ExitCode {
     if filters.is_some() && filters != before.and_then(|n| n.checked_add(1)) {
         return ExitCode::from(4);
     }
-    settings.landlock = landlock;
-    settings.filters = filters;
+    let settings = Settings {
+        tmpdir,
+        filter,
+        filters,
+    };
     let hello = Hello {
         version: wire::VERSION,
         landlock,

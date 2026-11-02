@@ -4,8 +4,9 @@
 //! but the sequenced-packet one, a fork that makes a sibling or a new
 //! namespace, and setting the descriptor limit are outside it; the
 //! worker's second filter refusing a fork, a memory file and a socket
-//! pair, and its third refusing an open; the worker's landlock domain, after which it opens nothing but
-//! still reads what it holds; and two attacks on a `sleep` process this
+//! pair, and its third refusing an open; the worker's landlock domain,
+//! after which it opens nothing but still reads what it holds; and two
+//! attacks on a `sleep` process this
 //! test starts, which the filter's conditions and the domain's scope
 //! each stop: pointing a descriptor's signals at it, and changing its
 //! limits.
@@ -26,7 +27,9 @@ fn child(worker: bool) -> u8 {
     if !vtium_image_helper::fork::one_thread() {
         return 90;
     }
-    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build() else {
+    // the filters of a worker on a kernel without landlock, which adds a
+    // third
+    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build(0) else {
         return 92;
     };
     match vtium_image_helper::sandbox::install_helper_filter() {

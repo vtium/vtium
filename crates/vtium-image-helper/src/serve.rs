@@ -69,11 +69,10 @@ const JOB_POOLED: u8 = 1;
 pub struct Settings {
     /// vtium's own `TMPDIR`, resolved, where a temporary file may lie.
     pub tmpdir: Option<PathBuf>,
-    /// The worker's second and third filters, built once.
+    /// The worker's second and third filters, built once for the landlock
+    /// version the kernel offers: above 0, every worker must be in a
+    /// landlock domain.
     pub filter: sandbox::WorkerFilter,
-    /// The landlock version the kernel offers, 0 for none: above 0, every
-    /// worker must be in a landlock domain.
-    pub landlock: u32,
     /// The seccomp filters the helper runs under once its own is in, where
     /// it installs one and the kernel counts them: every worker must run
     /// under one more.
@@ -562,17 +561,20 @@ fn attested(mut outcome: Outcome) -> Outcome {
 }
 
 /// Whether a request was served under the sandbox the helper expects:
-/// the worker that answered runs under one more seccomp filter than the
-/// helper, as the helper read from the kernel, wherever the kernel counts
-/// them, and it reports that it could open no directory, wherever the
-/// kernel offers landlock or the third filter is built. A worker that
-/// shows otherwise fails the request as a crash.
+/// the worker that answered, one-off or stream, runs under the helper's
+/// seccomp filters and those every worker adds once it has locked itself
+/// in, its second and, on a kernel without landlock, its third, as the
+/// helper read from the kernel, wherever the kernel counts them; and it
+/// reports that it could open no directory, wherever the kernel offers
+/// landlock or the third filter is built. A worker that shows otherwise
+/// fails the request as a crash.
 fn sandboxed(served: &Served, settings: &Settings) -> bool {
     let filters = settings.filters.is_none_or(|n| {
-        n.checked_add(1)
+        n.checked_add(settings.filter.added())
             .is_some_and(|want| served.filters == Some(want))
     });
-    let locked = served.outcome.locked || (settings.landlock == 0 && !sandbox::SECCOMP);
+    let locked =
+        served.outcome.locked || (settings.filter.landlock() == 0 && !sandbox::SECCOMP);
     filters && locked
 }
 
@@ -604,7 +606,7 @@ pub fn worker(channel: &OwnedFd, settings: &Settings) -> i32 {
     };
     let inline = fds.next();
     let source = job::open(&request, inline, settings.tmpdir.as_deref());
-    let Some(locked) = sandbox::lock(&settings.filter, settings.landlock) else {
+    let Some(locked) = sandbox::lock(&settings.filter) else {
         return 1;
     };
     let outcome = match source {
@@ -627,7 +629,7 @@ pub fn stream_worker(channel: &OwnedFd, settings: &Settings) -> i32 {
     if !confined(settings) {
         return 1;
     }
-    let Some(locked) = sandbox::lock(&settings.filter, settings.landlock) else {
+    let Some(locked) = sandbox::lock(&settings.filter) else {
         return 1;
     };
     loop {

@@ -1,9 +1,10 @@
 //! The helper's filters (ADR-1101 D9): a seccomp allow-list the helper
 //! installs before it reads its first request; a second filter each
 //! worker adds, which refuses forking, starting a program, making a
-//! memory file and making a socket pair; a third, which refuses opening and removing a file, for a
-//! worker on a kernel without landlock; and the landlock domain each
-//! worker enters once it holds the descriptor it reads.
+//! memory file and making a socket pair; a third, which refuses opening
+//! and removing a file, for a worker on a kernel without landlock; and
+//! the landlock domain each worker enters once it holds the descriptor it
+//! reads.
 //!
 //! The allow-list answers every call outside it with ENOSYS rather than
 //! killing the helper, so a C library update that tries a newer call falls
@@ -69,9 +70,13 @@ pub fn lock_in() -> Result<bool, String> {
 }
 
 /// Proof that the calling worker has locked itself in, which only [`lock`]
-/// makes. Every function that reads a program's bytes, [`job::finish`],
-/// the inflater and each decoder, takes `&Locked`, so a worker that
-/// inflates or decodes before its lock does not compile. Tests and fuzz
+/// makes. [`job::finish`], which carries out a request once its source is
+/// open, the inflater and each decoder take `&Locked`, so a worker that
+/// inflates or decodes before its lock does not compile. The token covers
+/// what `job::finish` calls without one too: the bounded read of the
+/// source and vtium-image's conversion of raw pixels, which the console
+/// links as well and so cannot take a token of the helper's. Both run only
+/// inside `job::finish` and the decoders, after the lock. Tests and fuzz
 /// targets, which decode in-process with no sandbox, make one with
 /// `Locked::unsandboxed`, which only their builds have.
 ///
@@ -87,18 +92,17 @@ impl Locked {
     }
 }
 
-/// Locks the calling worker in: its landlock domain, or on a kernel
-/// without landlock the third filter of `filter`. `None` when the kernel
-/// offers landlock, `landlock` above 0, and the worker is in no domain, or
-/// when a domain or the third filter is in force and the worker can still
-/// open a directory.
-pub fn lock(filter: &WorkerFilter, landlock: u32) -> Option<Locked> {
-    let landlocked = lock_in().ok()?;
-    let no_open = !landlocked && filter.install_no_open().ok()?;
-    if landlock > 0 && !landlocked {
-        return None;
-    }
-    if (landlocked || no_open) && can_open_root() {
+/// Locks the calling worker in: its landlock domain where the kernel
+/// offers landlock, as `filter` was built for, and otherwise the third
+/// filter of `filter`. `None` when the worker cannot enter its domain or
+/// add its third filter, or can still open a directory once either is in
+/// force.
+pub fn lock(filter: &WorkerFilter) -> Option<Locked> {
+    if filter.landlock > 0 {
+        if !lock_in().ok()? || can_open_root() {
+            return None;
+        }
+    } else if filter.install_no_open().ok()? && can_open_root() {
         return None;
     }
     Some(Locked(()))
@@ -520,11 +524,15 @@ pub fn install_helper_filter() -> Result<bool, String> {
     Ok(false)
 }
 
-/// The worker's second filter, which refuses forking, starting a
-/// program, making a memory file and making a socket pair, built once by
-/// the helper so each worker only installs it.
+/// The worker's second and third filters, built once by the helper for
+/// the landlock version its kernel offers, so each worker only installs
+/// them.
 #[derive(Clone, Debug)]
 pub struct WorkerFilter {
+    /// The landlock version the kernel offers, 0 for none: above 0, every
+    /// worker enters a landlock domain; at 0, it adds the third filter
+    /// instead.
+    landlock: u32,
     #[cfg(any(
         target_arch = "x86_64",
         target_arch = "aarch64",
@@ -540,8 +548,11 @@ pub struct WorkerFilter {
 }
 
 impl WorkerFilter {
-    pub fn build() -> Result<Self, String> {
+    /// The filters for workers on a kernel that offers landlock version
+    /// `landlock`, 0 for none.
+    pub fn build(landlock: u32) -> Result<Self, String> {
         Ok(Self {
+            landlock,
             #[cfg(any(
                 target_arch = "x86_64",
                 target_arch = "aarch64",
@@ -557,8 +568,24 @@ impl WorkerFilter {
         })
     }
 
-    /// Adds the filter to the calling worker; `Ok(false)` where no filter
-    /// is built.
+    /// The landlock version these filters were built for.
+    pub fn landlock(&self) -> u32 {
+        self.landlock
+    }
+
+    /// The seccomp filters each worker runs under beyond the helper's
+    /// once it has locked itself in: its second, and on a kernel without
+    /// landlock its third; none where no filter is built.
+    pub fn added(&self) -> u32 {
+        match (SECCOMP, self.landlock) {
+            (false, _) => 0,
+            (true, 0) => 2,
+            (true, _) => 1,
+        }
+    }
+
+    /// Adds the second filter to the calling worker; `Ok(false)` where no
+    /// filter is built.
     pub fn install(&self) -> Result<bool, String> {
         #[cfg(any(
             target_arch = "x86_64",
@@ -620,6 +647,7 @@ mod tests {
         {
             assert!(!filter::helper().unwrap().is_empty());
             assert!(!filter::worker().unwrap().is_empty());
+            assert!(!filter::no_open().unwrap().is_empty());
         }
         // the build machine's kernel has landlock; a kernel without it reads 0
         assert!(landlock_version() <= 9);

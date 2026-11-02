@@ -1,7 +1,9 @@
 //! The gate of ADR-1101 D9: the real helper program, built as installed,
 //! started by the real host under its filter, sent every kind of request,
 //! each reply checked. A call the filter wrongly refuses fails a request,
-//! and this test with it, so a stale list cannot pass.
+//! and this test with it, so a stale list cannot pass. The same requests
+//! and a stream run again with landlock hidden, as on a kernel without
+//! it, where each worker adds its third filter.
 
 #![allow(
     clippy::unwrap_used,
@@ -151,14 +153,19 @@ const PREMULTIPLIED: [u8; 8] = [0xff, 0x80, 0, 0xff, 0x80, 0x80, 0x80, 0x80];
 // covers: image.helper
 #[test]
 fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
+    every_kind_of_request(&mut ImageHost::new(Some(program()), None));
+}
+
+/// Every kind of request sent to the helper `host` starts, each reply
+/// checked, and none of them a crash.
+fn every_kind_of_request(host: &mut ImageHost) {
     let mut leftovers = Leftovers::default();
     let dir = leftovers.dir("kinds");
-    let mut host = ImageHost::new(Some(program()), None);
 
     // inline raw pixels with zlib, converted and premultiplied
     let z = miniz_oxide::deflate::compress_to_vec_zlib(&STRAIGHT, 6);
     let r = raw(Medium::Direct(z), Layout::Rgba, 2, 1, true);
-    assert_eq!(picture(ask(&mut host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
+    assert_eq!(picture(ask(host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
     let hello = host.hello().unwrap();
     assert_eq!(
         hello.seccomp,
@@ -171,7 +178,7 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
         png: true,
         ..base(Medium::Direct(file.clone()))
     };
-    assert_eq!(picture(ask(&mut host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
+    assert_eq!(picture(ask(host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
     let r = Request {
         png: true,
         inflate: true,
@@ -181,19 +188,19 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
             &file, 6,
         )))
     };
-    assert_eq!(picture(ask(&mut host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
+    assert_eq!(picture(ask(host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
     // iTerm2's any image
     let r = Request {
         any_image: true,
         ..base(Medium::Direct(file.clone()))
     };
-    assert_eq!(picture(ask(&mut host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
+    assert_eq!(picture(ask(host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
     // a PNG that does not decode
     let r = Request {
         png: true,
         ..base(Medium::Direct(b"\x89PNG\r\n\x1a\njunk".to_vec()))
     };
-    assert_eq!(ask(&mut host, &r), Reply::Corrupt);
+    assert_eq!(ask(host, &r), Reply::Corrupt);
 
     // a file of raw RGB pixels at an offset
     let path = dir.join("rgb");
@@ -207,7 +214,7 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
     );
     r.offset = 2;
     assert_eq!(
-        picture(ask(&mut host, &r)),
+        picture(ask(host, &r)),
         (2, 1, vec![1, 2, 3, 0xff, 4, 5, 6, 0xff])
     );
     // a PNG file
@@ -217,7 +224,7 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
         png: true,
         ..base(Medium::File(pngfile.as_os_str().as_bytes().to_vec()))
     };
-    assert_eq!(picture(ask(&mut host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
+    assert_eq!(picture(ask(host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
 
     // a temporary file is read and removed
     let temp = leftovers.add(
@@ -228,7 +235,7 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
         png: true,
         ..base(Medium::TempFile(temp.as_os_str().as_bytes().to_vec()))
     };
-    assert_eq!(picture(ask(&mut host, &r)).0, 2);
+    assert_eq!(picture(ask(host, &r)).0, 2);
     assert!(!temp.exists(), "the temporary file is removed once read");
 
     // shared memory: a valid picture removes the object, a short one stays
@@ -242,7 +249,7 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
         1,
         false,
     );
-    assert_eq!(ask(&mut host, &short), Reply::TooShort);
+    assert_eq!(ask(host, &short), Reply::TooShort);
     assert!(
         shm.exists(),
         "an object a picture cannot be read from stays"
@@ -250,7 +257,7 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
     let slash = format!("/{name}").into_bytes();
     let r = raw(Medium::SharedMemory(slash), Layout::Rgb, 2, 1, false);
     assert_eq!(
-        picture(ask(&mut host, &r)).2,
+        picture(ask(host, &r)).2,
         [1, 2, 3, 0xff, 4, 5, 6, 0xff]
     );
     assert!(!shm.exists(), "a valid picture's object is removed");
@@ -262,14 +269,14 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
         discard: true,
         ..base(Medium::TempFile(temp.as_os_str().as_bytes().to_vec()))
     };
-    assert_eq!(ask(&mut host, &discard), Reply::Ok(Payload::Discarded));
+    assert_eq!(ask(host, &discard), Reply::Ok(Payload::Discarded));
     assert!(!temp.exists());
     std::fs::write(&shm, b"x").unwrap();
     let discard = Request {
         discard: true,
         ..base(Medium::SharedMemory(name.clone().into_bytes()))
     };
-    assert_eq!(ask(&mut host, &discard), Reply::Ok(Payload::Discarded));
+    assert_eq!(ask(host, &discard), Reply::Ok(Payload::Discarded));
     assert!(shm.exists());
 
     // refused paths: a symlink into /proc, a FIFO, a name escaping /dev/shm
@@ -293,7 +300,7 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
             false,
         );
         assert_eq!(
-            ask(&mut host, &r),
+            ask(host, &r),
             Reply::Unreadable,
             "{}",
             refused.display()
@@ -306,7 +313,7 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
         1,
         false,
     );
-    assert_eq!(ask(&mut host, &escape), Reply::Unreadable);
+    assert_eq!(ask(host, &escape), Reply::Unreadable);
 
     // every request above went to one helper, which never crashed: each
     // worker found its sandbox as it should be, vtium's socket closed, one
@@ -358,8 +365,14 @@ fn workers(host: &ImageHost) -> Vec<u32> {
 // covers: image.helper
 #[test]
 fn a_stream_of_inline_frames_has_one_worker_and_a_new_size_ends_it() {
+    a_stream(&mut ImageHost::new(Some(program()), None));
+}
+
+/// Frames from shared memory, each served by a one-off worker, then
+/// streams of inline frames served by one stream worker, sent to the
+/// helper `host` starts, and none of them a crash.
+fn a_stream(host: &mut ImageHost) {
     let mut leftovers = Leftovers::default();
-    let mut host = ImageHost::new(Some(program()), None);
     // frames from shared memory never make a stream: each has a fresh
     // worker and a fresh reply file
     let name = format!("vtium-image-stream-{}", std::process::id());
@@ -374,12 +387,12 @@ fn a_stream_of_inline_frames_has_one_worker_and_a_new_size_ends_it() {
             false,
         );
         assert_eq!(
-            picture(ask(&mut host, &r)).2,
+            picture(ask(host, &r)).2,
             [n, 2, 3, 0xff, 4, 5, 6, 0xff],
             "frame {n}"
         );
         assert!(!shm.exists(), "frame {n}'s object is removed");
-        assert_eq!(pools(&host), 0, "after frame {n}");
+        assert_eq!(pools(host), 0, "after frame {n}");
     }
     // inline PNG frames: from the fourth, one stream worker serves them
     let frame = Request {
@@ -389,18 +402,18 @@ fn a_stream_of_inline_frames_has_one_worker_and_a_new_size_ends_it() {
     let mut stream_worker = None;
     for n in 1..=6 {
         assert_eq!(
-            picture(ask(&mut host, &frame)),
+            picture(ask(host, &frame)),
             (2, 1, PREMULTIPLIED.to_vec()),
             "frame {n}"
         );
         // the stream starts once the third frame's reply is out, and the
         // fourth request is read only once it has
         if n < 3 {
-            assert_eq!(pools(&host), 0, "after frame {n}");
+            assert_eq!(pools(host), 0, "after frame {n}");
         }
         if n > 3 {
-            assert_eq!(pools(&host), 2, "after frame {n}");
-            let now = workers(&host);
+            assert_eq!(pools(host), 2, "after frame {n}");
+            let now = workers(host);
             assert_eq!(now.len(), 1, "the stream worker alone, after frame {n}");
             assert_eq!(
                 *stream_worker.get_or_insert(now[0]),
@@ -420,13 +433,13 @@ fn a_stream_of_inline_frames_has_one_worker_and_a_new_size_ends_it() {
     };
     let both = [PREMULTIPLIED, PREMULTIPLIED].concat();
     assert_eq!(
-        picture(ask(&mut host, &r)),
+        picture(ask(host, &r)),
         (2, 2, both),
         "run again as a one-off"
     );
-    assert_eq!(pools(&host), 0, "the stream ended");
+    assert_eq!(pools(host), 0, "the stream ended");
     assert!(
-        !workers(&host).contains(&stream_worker),
+        !workers(host).contains(&stream_worker),
         "the stream worker is reaped"
     );
     // inline zlib frames make a stream too, and a request of another kind
@@ -435,14 +448,14 @@ fn a_stream_of_inline_frames_has_one_worker_and_a_new_size_ends_it() {
     let zlib = raw(Medium::Direct(z), Layout::Rgba, 2, 1, true);
     for n in 1..=4 {
         assert_eq!(
-            picture(ask(&mut host, &zlib)),
+            picture(ask(host, &zlib)),
             (2, 1, PREMULTIPLIED.to_vec()),
             "zlib frame {n}"
         );
     }
-    assert_eq!(pools(&host), 2);
-    assert_eq!(picture(ask(&mut host, &frame)).0, 2);
-    assert_eq!(pools(&host), 0, "a PNG frame ends a zlib stream");
+    assert_eq!(pools(host), 2);
+    assert_eq!(picture(ask(host, &frame)).0, 2);
+    assert_eq!(pools(host), 0, "a PNG frame ends a zlib stream");
     assert_eq!(host.crashes(), 0);
 }
 
@@ -485,4 +498,67 @@ fn a_picture_past_the_budget_is_refused_before_it_is_decoded() {
         ..base(Medium::Direct(big))
     };
     assert_eq!(ask(&mut host, &r), Reply::OverBudget);
+}
+
+/// The variable that tells this test binary, run again, to hide landlock
+/// from the helpers it starts.
+const NO_LANDLOCK: &str = "VTIUM_TEST_IMAGE_HELPER_NO_LANDLOCK";
+
+/// The helper on a kernel without landlock, before 5.13 or with landlock
+/// left out of `lsm=`, which no gate machine is: this test binary runs
+/// again, and there a seccomp filter on the test's thread answers
+/// `landlock_create_ruleset` with ENOSYS, as such a kernel does. Every
+/// helper the test then starts inherits the filter, so it offers its
+/// workers no landlock, and each worker adds its third filter, which the
+/// helper must count. Every kind of request and a stream must still be
+/// served with no crash.
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+))]
+// covers: image.helper
+#[test]
+fn the_real_helper_serves_every_request_on_a_kernel_without_landlock() {
+    const NAME: &str = "the_real_helper_serves_every_request_on_a_kernel_without_landlock";
+    if std::env::var_os(NO_LANDLOCK).is_some() {
+        hide_landlock();
+        let mut host = ImageHost::new(Some(program()), None);
+        every_kind_of_request(&mut host);
+        assert_eq!(host.hello().unwrap().landlock, 0, "landlock is hidden");
+        a_stream(&mut ImageHost::new(Some(program()), None));
+        return;
+    }
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([NAME, "--exact", "--nocapture", "--test-threads=1"])
+        .env(NO_LANDLOCK, "1")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.contains(&format!("test {NAME} ... ok")),
+        "{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Makes `landlock_create_ruleset` answer ENOSYS on the calling thread and
+/// every process it forks from now on, as on a kernel without landlock.
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+))]
+fn hide_landlock() {
+    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
+    #[cfg(target_arch = "x86_64")]
+    let arch = TargetArch::x86_64;
+    #[cfg(target_arch = "aarch64")]
+    let arch = TargetArch::aarch64;
+    #[cfg(target_arch = "riscv64")]
+    let arch = TargetArch::riscv64;
+    let rules = [(libc::SYS_landlock_create_ruleset, Vec::new())].into();
+    let enosys = SeccompAction::Errno(libc::ENOSYS as u32);
+    let filter = SeccompFilter::new(rules, SeccompAction::Allow, enosys, arch).unwrap();
+    seccompiler::apply_filter(&BpfProgram::try_from(filter).unwrap()).unwrap();
 }

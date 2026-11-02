@@ -126,9 +126,8 @@ fn worker(channel: &OwnedFd, way: Way, filter: &sandbox::WorkerFilter) -> i32 {
     if filter.install().is_err() {
         return 1;
     }
-    let landlock = sandbox::landlock_version();
     let mut held = if way == Way::Stream {
-        match sandbox::lock(filter, landlock) {
+        match sandbox::lock(filter) {
             Some(locked) => Some(locked),
             None => return 1,
         }
@@ -150,7 +149,7 @@ fn worker(channel: &OwnedFd, way: Way, filter: &sandbox::WorkerFilter) -> i32 {
         };
         let source = job::open(&request, fds.next(), None);
         if held.is_none() {
-            held = sandbox::lock(filter, landlock);
+            held = sandbox::lock(filter);
         }
         let Some(locked) = &held else {
             return 1;
@@ -212,7 +211,7 @@ fn time(
     } else {
         (0..REPLY_POOL_FILES).map(|_| pooled(len)).collect()
     };
-    let filter = sandbox::WorkerFilter::build().unwrap();
+    let filter = sandbox::WorkerFilter::build(sandbox::landlock_version()).unwrap();
     let mut stream = (way == Way::Stream).then(|| spawn(way, &filter));
     let mut times = Vec::new();
     for n in 0..frames + 1 {
