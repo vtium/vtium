@@ -187,12 +187,9 @@ impl Handler for Sixel {
         let palette = if state.private_registers {
             Palette::new(state.registers)
         } else {
-            // the shared registers start again from the defaults when the
-            // count in force changed since they were made
-            let shared = self
-                .shared
-                .take()
-                .filter(|p| p.count() == Palette::clamped(state.registers));
+            // the terminal resets the handler, dropping them, whenever the
+            // count in force or the host's settings change
+            let shared = self.shared.take();
             self.shared_in_use = true;
             shared.unwrap_or_else(|| Palette::new(state.registers))
         };
@@ -226,6 +223,21 @@ impl Handler for Sixel {
             Chunk::Char(_) => ctx.add_work(1),
         }
         ctx.add_work(picture.work().saturating_sub(before));
+    }
+
+    fn feed_some(&mut self, ctx: &mut dyn Context, run: &[u8], work_left: u64) -> usize {
+        let Some(picture) = self.picture.as_mut() else {
+            ctx.add_work(chunk_work(Chunk::Bytes(run)));
+            return run.len();
+        };
+        let before = picture.work();
+        let mut hold = Hold {
+            ctx: &mut *ctx,
+            held: &mut self.held,
+        };
+        let taken = picture.feed_some(run, &mut hold, before.saturating_add(work_left));
+        ctx.add_work(picture.work().saturating_sub(before));
+        taken
     }
 
     fn finish(&mut self, ctx: &mut dyn Context) {

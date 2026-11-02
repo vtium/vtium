@@ -229,6 +229,88 @@ mod images {
         assert_eq!(last(&t), CYAN);
     }
 
+    /// The terminal with mode 1070 reset and register 5 shared and defined
+    /// red by a first picture.
+    fn shared_red() -> Terminal {
+        let mut t = term(12, 4);
+        t.input(b"\x1b[?1070l");
+        t.input(&dot(true));
+        t
+    }
+
+    fn sixel_on(t: &mut Terminal) {
+        t.set_image_switches(Switches {
+            sixel: true,
+            kitty: false,
+            iterm2: false,
+        });
+    }
+
+    // The C reference dropped the shared registers whenever sixel went off,
+    // max-graphic-size changed, or XTSMGRAPHICS changed the count
+    // (tsm-vte-image.c's sixel_drop): each change here leaves register 5 at
+    // its default for the next picture.
+    // covers: DEC-1070, query.xtsmgraphics
+    #[test]
+    fn the_shared_registers_start_again_after_each_change_of_their_settings() {
+        const CYAN: u32 = 0xff33_cccc;
+        const RED: u32 = 0xffff_0000;
+        let next = |t: &mut Terminal| {
+            t.input(b"\x1b[3;1H");
+            t.input(&dot(false));
+            let p = t.screen().placements();
+            p.last().expect("a placement").pixels.as_slice()[0]
+        };
+        // nothing changed: the second picture finds register 5 red
+        let mut t = shared_red();
+        assert_eq!(next(&mut t), RED);
+        // sixel switched off and on
+        let mut t = shared_red();
+        sixel_off(&mut t);
+        sixel_on(&mut t);
+        assert_eq!(next(&mut t), CYAN);
+        // max-graphic-size changed
+        let mut t = shared_red();
+        t.set_image_limits(Limits {
+            graphic: (5000, 5000),
+            ..Limits::default()
+        });
+        assert_eq!(next(&mut t), CYAN);
+        // the count changed and changed back: 256, 512, 256
+        let mut t = term(12, 4);
+        t.input(b"\x1b[?1070l\x1b[?1;3;256S");
+        t.input(&dot(true));
+        t.input(b"\x1b[?1;3;512S\x1b[?1;3;256S");
+        assert_eq!(next(&mut t), CYAN);
+        // a count set to the one in force changes nothing
+        let mut t = shared_red();
+        t.input(b"\x1b[?1;3;1024S");
+        assert_eq!(next(&mut t), RED);
+    }
+
+    // A max-graphic-size the host lowers while a string streams in ends
+    // that string, as the C reference's tsm_vte_set_graphic_max_size
+    // dropped the decoder: the picture 50 pixels wide is not placed.
+    // covers: image.sixel
+    #[test]
+    fn a_lower_max_graphic_size_mid_string_drops_the_picture() {
+        let mut t = term(12, 4);
+        let s = solid(50, 12);
+        let (a, b) = s.split_at(s.len() / 2);
+        t.input(a);
+        t.set_image_limits(Limits {
+            graphic: (10, 10),
+            ..Limits::default()
+        });
+        t.input(b);
+        assert!(shown(&t).is_empty());
+        assert_eq!(t.screen().images().bytes(), 0);
+        // the next picture is cut to the new limit
+        t.input(&solid(50, 12));
+        let p = t.screen().placements();
+        assert_eq!((p[0].image_width, p[0].image_height), (10, 10));
+    }
+
     // C reference: tsm-modes.def marked 80, 1070 and 8452 HOST_SIXEL, and
     // mode_offered reported their fixed state while sixel was off; SM and
     // RM still stored them.
@@ -429,6 +511,45 @@ mod images {
         // the text is written over the picture, which it cuts
         assert_eq!(rows(t.screen())[3], "after");
         assert!(!shown(&t).is_empty());
+    }
+
+    /// Feeds `s` as a host does, a call at a time, and returns the image
+    /// work each call did.
+    fn feed_calls(t: &mut Terminal, s: &[u8]) -> Vec<u64> {
+        let mut work = Vec::new();
+        let mut rest = s;
+        while !rest.is_empty() {
+            let n = t.input(rest);
+            work.push(t.screen().images().work());
+            rest = rest.get(n..).expect("in the stream");
+        }
+        work
+    }
+
+    // ADR-1100 D5, and the C reference's tsm_sixel_feed_some: the bound
+    // stops the input call inside one run of data, within one band's work
+    // of it. One run of 65 KB of `#1!10000~$` repeats a 10,000-pixel band
+    // 6,500 times; a call that took the run whole did 390 million work,
+    // 23 times the bound.
+    // covers: image.sixel
+    #[test]
+    fn the_work_bound_stops_an_input_call_inside_a_run() {
+        const BOUND: u64 = 1 << 24; // vtium-term's INPUT_WORK_MAX
+        const BAND: u64 = 10_000 * 6 + 10;
+        let s = sixel("0;0;0", &"#1!10000~$".repeat(6_500));
+        let mut t = term(12, 4);
+        let work = feed_calls(&mut t, &s);
+        assert!(work.len() > 20, "{} calls", work.len());
+        for (call, &w) in work.iter().enumerate() {
+            assert!(w < BOUND + BAND, "call {call} did {w}");
+        }
+        // cut anywhere else, it ends the same
+        let mut pieces = term(12, 4);
+        for piece in s.chunks(777) {
+            feed_calls(&mut pieces, piece);
+        }
+        assert!(pieces.screen() == t.screen());
+        assert_eq!(shown(&t).len(), 1);
     }
 
     // docs/architecture.md, "Determinism": a sixel stream fed whole, and

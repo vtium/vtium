@@ -1016,6 +1016,15 @@ impl Consumer for State {
         };
     }
 
+    fn dcs_put_run(&mut self, run: &[u8]) -> usize {
+        #[cfg(feature = "images")]
+        if self.dcs == Dcs::Image {
+            return self.image_put_run(run);
+        }
+        self.dcs_put(Chunk::Bytes(run));
+        run.len()
+    }
+
     fn dcs_put(&mut self, data: Chunk<'_>) {
         #[cfg(feature = "images")]
         if self.dcs == Dcs::Image {

@@ -118,11 +118,6 @@ impl Palette {
         }
     }
 
-    /// How many registers it has.
-    pub(crate) fn count(&self) -> u32 {
-        u32::try_from(self.0.len()).unwrap_or(REGISTERS_MAX)
-    }
-
     /// Every register back to its default.
     pub(crate) fn reset(&mut self) {
         let mut defaults = VT340.iter();
@@ -643,25 +638,47 @@ impl Decoder {
 
     /// Feeds the string's data.
     pub(crate) fn feed(&mut self, bytes: &[u8], budget: &mut dyn Budget) {
+        self.feed_some(bytes, budget, u64::MAX);
+    }
+
+    /// Feeds the string's data until the work done reaches `limit`, and
+    /// returns how many bytes it took: it stops right after the byte that
+    /// brought the work to `limit` or past it, as the C reference's
+    /// `tsm_sixel_feed_some` stopped, and takes at least one byte of data
+    /// that is not empty. A sixel costs at most 7 work, its byte and its
+    /// six dots, so a run of them is taken a stretch at a time that cannot
+    /// pass the limit by more than one sixel's work, and a repeat by its
+    /// own.
+    pub(crate) fn feed_some(&mut self, bytes: &[u8], budget: &mut dyn Budget, limit: u64) -> usize {
         let mut rest = bytes;
         while let Some((&c, after)) = rest.split_first() {
+            if rest.len() < bytes.len() && self.work >= limit {
+                break;
+            }
             if self.mode == Mode::Data && is_sixel(c) {
                 let n = rest.iter().take_while(|&&b| is_sixel(b)).count();
-                let (run, tail) = rest.split_at(n);
-                self.work = self
-                    .work
-                    .saturating_add(u64::try_from(n).unwrap_or(u64::MAX));
-                let done = self.put_run(run);
-                for &c in run.get(done..).unwrap_or_default() {
+                let room = limit.saturating_sub(self.work) / 7;
+                let n = n.min(usize::try_from(room).unwrap_or(usize::MAX).max(1));
+                let done = self.put_run(rest.get(..n).unwrap_or_default());
+                if done > 0 {
+                    self.work = self
+                        .work
+                        .saturating_add(u64::try_from(done).unwrap_or(u64::MAX));
+                    rest = rest.get(done..).unwrap_or_default();
+                } else {
+                    // past the buffer: one sixel through put, which grows
+                    // the picture
+                    self.work = self.work.saturating_add(1);
                     self.data(c, budget);
+                    rest = after;
                 }
-                rest = tail;
                 continue;
             }
             self.work = self.work.saturating_add(1);
             self.step(c, budget);
             rest = after;
         }
+        bytes.len().saturating_sub(rest.len())
     }
 
     /// Draws a run of sixels, each one column, at the graphics cursor, as
