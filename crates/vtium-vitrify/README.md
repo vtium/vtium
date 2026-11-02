@@ -28,7 +28,7 @@ The program that generates vtium's glyphs at run time (ADR-1200, ADR-1301 D2), i
 | `tests/shaping.rs` | Clusters shaped on a TrueType font with `ccmp`, joining forms and a precomposed letter written in the test. |
 | `gen-shaping/` | The generator of `src/shaping/data.rs` from the Unicode Character Database, its own workspace, run by hand. |
 | `fuzz/` | The fuzz targets, its own workspace (`fuzz/README.md`): `shape` drives clusters through the shaper and the rasteriser, and `bdf` drives any bytes through the BDF reader. |
-| `frits/` | The frits vtium ships: `minspec-16` and `minspec-8`, minspec's curated symbols and emoji over the built-in fonts, `proof`, vtium/vtium#23's desktop frit, and `tiny5`, the pixel font Tiny5 Mono at its own 6x9 cell for small panels (vtium/vtium#217). |
+| `frits/` | The frits vtium ships: `minspec-16` and `minspec-8`, minspec's curated symbols and emoji over the built-in fonts, `proof`, vtium/vtium#23's desktop frit, and `tiny5`, an example at the small end of the range and never a default: the pixel font Tiny5 Mono at its own 6x9 cell (vtium/vtium#217). |
 
 `cargo test -p vtium-vitrify` runs every test.
 

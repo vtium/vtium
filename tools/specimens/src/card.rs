@@ -3,8 +3,8 @@
 //! A block is one 320x240 screen at 8x8 (#118). Each is written cell by
 //! cell from its own top left with CUP, so the same block draws the same
 //! cells wherever a page places it, and a page holds as many as its grid
-//! fits; a grid shorter than a block shows it in slices, one a page
-//! ([`Layout`]). Every line ends with SGR 0, so no pen crosses into
+//! fits; a grid shorter than a block shows it in slices, as many side by
+//! side on a page as the grid's width holds blocks ([`Layout`]). Every line ends with SGR 0, so no pen crosses into
 //! another line.
 //!
 //! The blocks: the header and text; the attributes; color; the sprites,
