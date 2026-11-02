@@ -1218,8 +1218,21 @@ pub(crate) struct Frit {
     /// The cells whose glyphs the helper was asked for, over every head
     /// drawing the frit.
     pub(crate) asked: Vec<vtium_font::Cell>,
-    /// The fonts' own cell, or why it is not known, once asked.
-    pub(crate) own: Option<Result<vtium_font::Cell, String>>,
+    /// The helper's answer to each cell query, or why there was none, by
+    /// the height asked at.
+    pub(crate) own: BTreeMap<u32, Result<crate::helper::OwnCell, String>>,
+}
+
+impl Frit {
+    /// The answer that holds at `height`: a bitmap first source's own
+    /// cell, which holds at every height, else the answer at `height`.
+    pub(crate) fn answer_at(&self, height: u32) -> Option<Result<crate::helper::OwnCell, String>> {
+        self.own
+            .values()
+            .find(|a| matches!(a, Ok(crate::helper::OwnCell::Bitmap(_))))
+            .or_else(|| self.own.get(&height))
+            .cloned()
+    }
 }
 
 impl Head {

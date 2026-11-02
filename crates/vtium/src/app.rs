@@ -801,7 +801,6 @@ impl App {
                         head.font = Some(chosen);
                     }
                     self.share(h);
-                    self.own_cell(h);
                     return;
                 }
             },
@@ -811,51 +810,69 @@ impl App {
         }
     }
 
-    /// A frit of bitmap sources that states no cell, with no `font-size`
-    /// configured, takes its fonts' own cell, as the C reference drew a
-    /// PSF font at its own size (the operator, 2026-10-28): the helper is
-    /// asked for it before the first frame and waited for at most
-    /// [`helper::OWN_CELL_MS`], the one wait on the helper before a frame.
-    /// A refusal, or no answer in time, leaves the display's cell, with
-    /// one line saying why.
-    fn own_cell(&mut self, h: usize) {
-        let wants = self.heads.get(h).is_some_and(|head| {
-            !head.sized() && head.font.as_ref().is_some_and(Chosen::wants_own_cell)
-        });
-        let Some(name) = self.heads.get(h).and_then(Head::frit).map(str::to_owned) else {
+    /// A frit that states no cell takes the cell its first source gives at
+    /// `height`, the height head `h` draws at, which the helper is asked
+    /// for and waited for at most [`helper::OWN_CELL_MS`], the one wait on
+    /// the helper (ADR-1200 D17): a bitmap source's own cell, where no
+    /// `font-size` is configured, as the C reference drew a PSF font at its
+    /// own size (the operator, 2026-10-28), or an outline source's cell at
+    /// `height` (the maintainer, 2026-11-01). Each answer is kept for the
+    /// frit, by the height asked at, for every head drawing it. A refusal,
+    /// or no answer in time, leaves the display's cell, or for an outline
+    /// frit the built-in font's width, with one line saying why.
+    fn own_cell(&mut self, h: usize, height: u32) {
+        let Some(head) = self.heads.get(h) else {
             return;
         };
-        if !wants {
+        let sized = head.sized();
+        if !head
+            .font
+            .as_ref()
+            .is_some_and(|f| f.wants_own_cell(height, sized))
+        {
             return;
         }
-        let known = self.frits.get(&name).and_then(|f| f.own.clone());
+        let outline = head.chosen().outline();
+        let Some(name) = head.frit().map(str::to_owned) else {
+            return;
+        };
+        let known = self.frits.get(&name).and_then(|f| f.answer_at(height));
         let own = match known {
             Some(own) => own,
             None => {
-                let now = (self.clock)();
+                let clock = Rc::clone(&self.clock);
                 let Some(helper) = self.helper(&name) else {
                     return;
                 };
-                let own = helper.own_cell(Duration::from_millis(helper::OWN_CELL_MS), now);
-                match &own {
-                    Ok(cell) => log::info!(
+                let wait = Duration::from_millis(helper::OWN_CELL_MS);
+                let own = helper.own_cell(height, wait, &*clock);
+                match (&own, outline) {
+                    (Ok(helper::OwnCell::Bitmap(cell)), _) => log::info!(
                         "the frit {name} draws in its fonts' own {}x{} cell",
                         cell.width,
                         cell.height
                     ),
-                    Err(why) => log::warn!(
+                    (Ok(helper::OwnCell::Outline(cell)), _) => log::info!(
+                        "the frit {name} draws in its outline font's {}x{} cell at {height} pixels",
+                        cell.width,
+                        cell.height
+                    ),
+                    (Err(why), false) => log::warn!(
                         "the frit {name}'s own cell is not known ({why}): it draws in the display's cell"
+                    ),
+                    (Err(why), true) => log::warn!(
+                        "the frit {name}'s cell at {height} pixels is not known ({why}): it draws as wide as the built-in font"
                     ),
                 }
                 if let Some(frit) = self.frits.get_mut(&name) {
-                    frit.own = Some(own.clone());
+                    frit.own.insert(height, own.clone());
                 }
                 own
             }
         };
-        if let (Ok(cell), Some(head)) = (own, self.heads.get_mut(h)) {
+        if let (Ok(answer), Some(head)) = (own, self.heads.get_mut(h)) {
             if let Some(font) = &mut head.font {
-                font.set_own_cell(cell);
+                font.set_own_cell(answer, sized);
             }
         }
     }
@@ -884,7 +901,7 @@ impl App {
                         helper: None,
                         refused: false,
                         asked: Vec::new(),
-                        own: None,
+                        own: BTreeMap::new(),
                     },
                 );
             }
@@ -942,7 +959,6 @@ impl App {
             };
             let old = head.font.replace(new);
             self.share(h);
-            self.own_cell(h);
             if let Some(head) = self.heads.get_mut(h) {
                 head.refont = true;
             }
@@ -1132,6 +1148,13 @@ impl App {
         }
         self.choose_font(h);
         let dpi = self.dpi(h);
+        if let Some(height) = self
+            .heads
+            .get(h)
+            .map(|head| draw_height(head, dpi, &self.locale))
+        {
+            self.own_cell(h, height);
+        }
         let App {
             heads,
             config,
@@ -1143,14 +1166,7 @@ impl App {
         };
         let locale = locale.as_str();
         let sizes: Vec<(u32, u32)> = head.views.values().map(|v| v.size).collect();
-        if let Some(points) = head.points {
-            head.font_size = font::points_to_pixels(points, dpi);
-        } else if head.auto_size {
-            let w = sizes.iter().map(|s| s.0).min().unwrap_or(0);
-            let ht = sizes.iter().map(|s| s.1).min().unwrap_or(0);
-            head.font_size = head.chosen().auto_height(w, ht, locale, dpi);
-        }
-        head.font_size = head.chosen().snap(head.font_size);
+        head.font_size = draw_height(head, dpi, locale);
         let selected = font::select(head.font_size, head.has_font, |x| head.face(x, locale));
         let base = match selected {
             Ok((face, base)) => {
@@ -2609,10 +2625,20 @@ impl App {
             }
             return;
         };
+        let outline = chosen.outline();
         let (old, auto, points) = (head.font_size, head.auto_size, head.points);
         head.auto_size = false;
         head.points = None;
         head.font_size = size;
+        // An outline frit asks the helper again at each zoom, a height
+        // whose answer failed before included.
+        if let Some(frit) = head
+            .frit()
+            .filter(|_| outline)
+            .and_then(|n| self.frits.get_mut(n))
+        {
+            frit.own.retain(|_, answer| answer.is_ok());
+        }
         if !self.relayout(h) {
             if let Some(head) = self.heads.get_mut(h) {
                 head.font_size = old;
@@ -3180,6 +3206,23 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Show
 /// Draws each of `head`'s displays that something asks to: its render
 /// thread composes the frame, or the loop where the thread could not
 /// start.
+/// The height head `h` draws at with its display's density `dpi`: the
+/// configured `font-size` in points, else the automatic rule, else the
+/// height it has, as a bitmap frit's whole multiples snap it.
+fn draw_height(head: &Head, dpi: f64, locale: &str) -> u32 {
+    let height = if let Some(points) = head.points {
+        font::points_to_pixels(points, dpi)
+    } else if head.auto_size {
+        let sizes = head.views.values().map(|v| v.size);
+        let w = sizes.clone().map(|s| s.0).min().unwrap_or(0);
+        let ht = sizes.map(|s| s.1).min().unwrap_or(0);
+        head.chosen().auto_height(w, ht, locale, dpi)
+    } else {
+        head.font_size
+    };
+    head.chosen().snap(height)
+}
+
 fn draw_head(
     head: &mut Head,
     videos: &mut BTreeMap<PathBuf, Box<dyn Video>>,

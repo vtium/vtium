@@ -4800,6 +4800,240 @@ fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
     );
 }
 
+/// The environment variable that makes [`the_helper_stand_in`] serve, as
+/// the stand-in for the glyph helper, instead of passing as a test.
+const STAND_IN: &str = "VTIUM_TEST_HELPER";
+
+/// The glyph helper the outline tests run: this test binary again, its
+/// [`the_helper_stand_in`] alone, which serves with vtium-vitrify's real
+/// serve mode, so each answer is the one the real helper gives. With
+/// `go`, a FIFO, its first answer waits until the test opens `go` to
+/// write, and the kind of each frame
+/// it sends is appended to `kinds`, one line each. The test harness writes
+/// to standard output, so the frames go out through descriptor 3, which
+/// the shell points at the console's pipe.
+fn real_helper(kinds: &Path, go: Option<&Path>) -> vtium::helper::Command {
+    let mode = format!(
+        "{}:{}",
+        kinds.display(),
+        go.map(|g| g.display().to_string()).unwrap_or_default()
+    );
+    let exe = std::env::current_exe().expect("the test binary");
+    vtium::helper::Command {
+        program: PathBuf::from("/bin/sh"),
+        args: [
+            "-c",
+            "VTIUM_TEST_HELPER=\"$1\" exec \"$0\" --exact the_helper_stand_in -q 3>&1 >/dev/null",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .chain([exe.into_os_string(), OsString::from(mode)])
+        .collect(),
+        account: None,
+    }
+}
+
+/// What the stand-in writes to the console: each frame's kind logged, and
+/// with `go`, a FIFO, nothing sent until the test opens it to write.
+struct Logged {
+    out: std::fs::File,
+    kinds: PathBuf,
+    go: Option<PathBuf>,
+    pending: Vec<u8>,
+}
+
+impl std::io::Write for Logged {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if let Some(go) = self.go.take() {
+            // the stand-in's only wait: opening a FIFO to read blocks until
+            // the test opens it to write, once the console has stopped
+            // waiting for the answer
+            std::fs::File::open(&go)?;
+        }
+        self.pending.extend_from_slice(bytes);
+        while let [k0, k1, k2, k3, l0, l1, l2, l3, ..] = *self.pending.as_slice() {
+            let len = u32::from_le_bytes([l0, l1, l2, l3]) as usize;
+            if self.pending.len() < 8 + len {
+                break;
+            }
+            let kind = u32::from_le_bytes([k0, k1, k2, k3]);
+            let mut log = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.kinds)?;
+            writeln!(log, "{kind}")?;
+            self.pending.drain(..8 + len);
+        }
+        self.out.write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.out.flush()
+    }
+}
+
+/// Not a test of the console: run by [`real_helper`] with [`STAND_IN`]
+/// set, it serves as the glyph helper and exits with serve's status; run
+/// by the test harness, it does nothing.
+#[test]
+fn the_helper_stand_in() {
+    let Ok(mode) = std::env::var(STAND_IN) else {
+        return;
+    };
+    let (kinds, go) = mode.split_once(':').expect("the stand-in's mode");
+    let out = std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/fd/3")
+        .expect("the console's pipe");
+    let mut out = Logged {
+        out,
+        kinds: PathBuf::from(kinds),
+        go: (!go.is_empty()).then(|| PathBuf::from(go)),
+        pending: Vec::new(),
+    };
+    let status = vtium_vitrify::serve::serve(
+        std::io::stdin(),
+        &mut out,
+        &vtium_vitrify::serve::Paths::default(),
+        Duration::from_secs(5),
+    );
+    std::process::exit(i32::from(status));
+}
+
+/// The outline font fixture vtium-vitrify's tests measure: a subset of
+/// DejaVu Sans Mono whose W rule gives 9 columns at 16 pixels and 12 at
+/// 22.
+fn dejavu() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vtium-vitrify/tests/fixtures/DejaVuSansMono-W-M-0.ttf")
+}
+
+/// The fonts of an outline frit `t` drawing [`dejavu`], served by
+/// [`real_helper`], its answers held until the test opens the go FIFO
+/// when `held`; the directory, the fonts, the kinds file and the go FIFO.
+fn outline_frit(name: &str, held: bool) -> (Scratch, Sources, PathBuf, PathBuf) {
+    let scratch = Scratch::new(&format!("vtium-boot-outline-{name}"));
+    let dir = scratch.path().to_owned();
+    std::fs::write(
+        dir.join("t.vtfrit"),
+        format!("source=outline:{}\n", dejavu().display()),
+    )
+    .expect("the frit");
+    let (kinds, go) = (dir.join("kinds"), dir.join("go"));
+    if held {
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &go,
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+            0,
+        )
+        .expect("the go FIFO");
+    }
+    let fonts = Sources {
+        frits: dir,
+        helper: Some(real_helper(&kinds, held.then_some(go.as_path()))),
+        ..no_fonts()
+    };
+    (scratch, fonts, kinds, go)
+}
+
+/// The kind of each frame the stand-in sent so far.
+fn kinds_sent(kinds: &Path) -> Vec<u32> {
+    std::fs::read_to_string(kinds)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| l.parse().ok())
+        .collect()
+}
+
+/// Frame 10, an outline cell, and frame 7, no cell: the answers to a cell
+/// query.
+fn cell_answers(kinds: &Path) -> usize {
+    kinds_sent(kinds)
+        .iter()
+        .filter(|&&k| matches!(k, 6 | 7 | 10))
+        .count()
+}
+
+// overhang part 1 (the maintainer, 2026-11-01): an outline frit that
+// states no cell asks the helper for its cell at the height it draws at,
+// here font-size=16 at 72 DPI, and takes the W rule's 9 columns, where the
+// built-in font's are 8. Each zoom asks again at the new height, and a
+// height asked before is not asked again.
+#[test]
+fn an_outline_frit_draws_in_the_helpers_cell_at_each_height() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let (_dir, fonts, kinds, _go) = outline_frit("each", false);
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=16"], fonts);
+    assert_eq!(h.app.cells(), vec![(9, 16)]);
+    assert_eq!(
+        (h.app.grid().0, h.app.grid().1),
+        (W as usize / 9, H as usize / 16)
+    );
+    assert!(
+        logged()
+            .iter()
+            .any(|l| l == "the frit t draws in its outline font's 9x16 cell at 16 pixels"),
+    );
+    assert_eq!(cell_answers(&kinds), 1, "the first frame asked once");
+    for _ in 16..22 {
+        h.app.input_event(key(Mods::CTRL, equal), now());
+    }
+    assert_eq!(h.app.cells(), vec![(12, 22)]);
+    assert_eq!(cell_answers(&kinds), 7, "each zoom asked at its height");
+    for _ in 16..22 {
+        h.app.input_event(key(Mods::CTRL, minus), now());
+    }
+    assert_eq!(h.app.cells(), vec![(9, 16)]);
+    assert_eq!(cell_answers(&kinds), 7, "each height asked once");
+    h.until(Duration::from_millis(50), |_| false);
+    assert_eq!(
+        kinds_sent(&kinds).iter().filter(|&&k| k == 10).count(),
+        7,
+        "every answer was an outline cell: {:?}",
+        kinds_sent(&kinds)
+    );
+}
+
+// overhang part 1: an outline cell that comes after the console's wait
+// is dropped, the built-in font's width draws, and the next zoom asks
+// again, its answer taken, a height that failed before included
+#[test]
+fn a_late_outline_cell_is_dropped_and_the_next_zoom_asks_again() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let (_dir, fonts, kinds, go) = outline_frit("late", true);
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=22"], fonts);
+    assert_eq!(h.app.cells(), vec![(8, 22)], "the built-in font's width");
+    let lines = logged();
+    assert!(
+        lines.iter().any(|l| l
+            == "the frit t's cell at 22 pixels is not known (the helper gave no answer in 100 ms): it draws as wide as the built-in font"),
+        "{lines:?}"
+    );
+    // opening the FIFO to write lets the stand-in's answers go
+    let _go = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&go)
+        .expect("the go FIFO");
+    // the late answer arrives, and is dropped with no failure
+    assert!(h.until(SECOND, |_| cell_answers(&kinds) == 1));
+    h.until(Duration::from_millis(50), |_| false);
+    assert_eq!(h.app.cells(), vec![(8, 22)], "the late answer is dropped");
+    h.app.input_event(key(Mods::CTRL, minus), now());
+    h.app.input_event(key(Mods::CTRL, equal), now());
+    assert_eq!(h.app.cells(), vec![(12, 22)], "asked again at 22");
+    let lines = logged();
+    assert!(
+        lines
+            .iter()
+            .all(|l| !l.contains("cell query not made") && !l.contains("gives up")),
+        "{lines:?}"
+    );
+}
+
 // #145, ADR-1200 D9: a frit whose cell= is unreadable is not drawn; the
 // built-in font is, with one line naming the font and why, and no command
 #[test]
