@@ -398,10 +398,10 @@ impl State {
             }
             self.images.active = Some(ImageString::Kitty);
             self.with_handler(ImageString::Kitty, |h, ctx| h.start(ctx, Intro::String));
-            if let Chunk::Bytes([_, rest @ ..]) = data {
-                if !rest.is_empty() {
-                    self.image_put(Chunk::Bytes(rest));
-                }
+            if let Chunk::Bytes([_, rest @ ..]) = data
+                && !rest.is_empty()
+            {
+                self.image_put(Chunk::Bytes(rest));
             }
             return;
         }

@@ -248,7 +248,8 @@ impl EventDevice for Evdev {
         let chunks = bytes
             .get(..len)
             .unwrap_or_default()
-            .chunks_exact(EVENT_SIZE);
+            .as_chunks::<EVENT_SIZE>()
+            .0;
         let mut n: usize = 0;
         for (slot, chunk) in buf.iter_mut().zip(chunks) {
             *slot = RawEvent::parse(chunk).unwrap_or_default();

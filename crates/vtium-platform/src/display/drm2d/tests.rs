@@ -85,7 +85,9 @@ fn clips(c: &Commit, plane: u32) -> Option<Vec<Rect>> {
     let blob = c.blob(plane, "FB_DAMAGE_CLIPS")?;
     let int = |b: &[u8]| u32::try_from(i32::from_ne_bytes(b.try_into().unwrap())).unwrap();
     Some(
-        blob.chunks_exact(16)
+        blob.as_chunks::<16>()
+            .0
+            .iter()
             .map(|r| {
                 let (x1, y1) = (int(&r[0..4]), int(&r[4..8]));
                 let (x2, y2) = (int(&r[8..12]), int(&r[12..16]));
@@ -428,14 +430,14 @@ fn the_cursor_plane_shows_the_image_set_up() {
     assert_eq!(c.get(cp, "HOTSPOT_Y"), Some(1));
     let bytes = v.card().memory(cursor.dumb.handle).unwrap();
     assert_eq!(bytes.len(), 64 * 64 * 4);
-    for (px, i) in bytes.chunks_exact(4).zip(0u32..) {
+    for (&px, i) in bytes.as_chunks::<4>().0.iter().zip(0u32..) {
         let (x, y) = (i % 64, i / 64);
         let want = if y < 2 && x < 60 {
             0xff00_0000 | (y * 60 + x)
         } else {
             0
         };
-        let got = u32::from_ne_bytes(px.try_into().unwrap());
+        let got = u32::from_ne_bytes(px);
         assert_eq!(got, want, "{x},{y}");
     }
 }

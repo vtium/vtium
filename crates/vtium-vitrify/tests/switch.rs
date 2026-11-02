@@ -42,10 +42,10 @@ fn console(mut master: File, built: &'static [&'static str], ops: bool) -> JoinH
             let mut rest = &buf[..n];
             while !rest.is_empty() {
                 let taken = t.input(rest);
-                if let Some(name) = t.take_font_request() {
-                    if built.contains(&name.as_str()) {
-                        assert!(t.set_font_name(&name));
-                    }
+                if let Some(name) = t.take_font_request()
+                    && built.contains(&name.as_str())
+                {
+                    assert!(t.set_font_name(&name));
                 }
                 rest = &rest[taken..];
             }

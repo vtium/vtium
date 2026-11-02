@@ -173,10 +173,10 @@ pub fn screens(src: &str) -> Result<BTreeMap<String, CScreen>, String> {
             }
             _ => {}
         }
-        if depth >= 1 {
-            if let Some(e) = entries.last_mut() {
-                e.push(t.clone());
-            }
+        if depth >= 1
+            && let Some(e) = entries.last_mut()
+        {
+            e.push(t.clone());
         }
     }
     let mut out = BTreeMap::new();

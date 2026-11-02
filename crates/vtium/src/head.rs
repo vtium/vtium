@@ -861,10 +861,10 @@ impl Head {
         if grid != self.grid {
             self.grid = grid;
             let size = self.pty_size();
-            if let Some(pty) = &mut self.console.pty {
-                if let Err(e) = pty.resize(size) {
-                    log::warn!("cannot resize the pty: {e}");
-                }
+            if let Some(pty) = &mut self.console.pty
+                && let Err(e) = pty.resize(size)
+            {
+                log::warn!("cannot resize the pty: {e}");
             }
         }
         // Last, so mode 2048 reports the resize once it is complete, a new

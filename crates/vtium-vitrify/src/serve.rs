@@ -1729,6 +1729,34 @@ mod tests {
         assert_eq!(sent, warnings, "sent to the console as the frit loads");
     }
 
+    // A zstd font whose window is past ZSTD_WINDOW_MAX is refused with a
+    // warning that names its window, the 16 MiB limit and what to do
+    #[test]
+    fn a_zstd_font_with_too_large_a_window_warns_how_to_fix_it() {
+        let dir = std::env::temp_dir().join(format!("vtium-serve-window-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wide = dir.join("wide.bdf.zst");
+        let bdf = crate::bdf::tests::bdf("");
+        std::fs::write(
+            &wide,
+            crate::decode::tests::zstd_frame(0x78, 0, bdf.as_bytes()),
+        )
+        .unwrap();
+        let text = format!("source=builtin:unifont\nsource=bdf:{}\n", wide.display());
+        let engine = Engine::load(&frit(&text), &Paths::default(), None);
+        let _ = std::fs::remove_dir_all(&dir);
+        let warnings = engine.unwrap().warnings().to_vec();
+        assert_eq!(
+            warnings,
+            [format!(
+                "t:2: source=bdf:{}: zstd: the font's window is 32 MiB and vitrify reads \
+                 at most 16 MiB, so the font needs recompressing with a window of 16 MiB or \
+                 less; the source is left out",
+                wide.display()
+            )]
+        );
+    }
+
     // `Frit::parse` refuses a name that is not valid, so no engine is
     // named anything but the frit's own name
     #[test]

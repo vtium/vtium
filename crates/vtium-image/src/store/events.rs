@@ -194,17 +194,18 @@ impl Store {
                 });
             }
         }
-        if er1.saturating_add(1) < prows && below_row < rows.height() {
-            if let Some(line) = rows.at(below_row) {
-                let (r0, r1) = (er1.saturating_add(1), prows.saturating_sub(1));
-                pieces.push(Piece {
-                    r0,
-                    r1,
-                    c0: 0,
-                    c1: last,
-                    anchor: Anchor::Line(line),
-                });
-            }
+        if er1.saturating_add(1) < prows
+            && below_row < rows.height()
+            && let Some(line) = rows.at(below_row)
+        {
+            let (r0, r1) = (er1.saturating_add(1), prows.saturating_sub(1));
+            pieces.push(Piece {
+                r0,
+                r1,
+                c0: 0,
+                c1: last,
+                anchor: Anchor::Line(line),
+            });
         }
         self.split(b, key, &pieces);
     }
@@ -391,18 +392,19 @@ impl Store {
                     anchor,
                 });
             }
-            if r1 > hi && hi.saturating_add(1) < rows.height() {
-                if let Some(line) = rows.at(hi.saturating_add(1)) {
-                    let r0 = to_u32(hi.saturating_add(1).saturating_sub(r0));
-                    let r1 = to_u32(prows.saturating_sub(1));
-                    pieces.push(Piece {
-                        r0,
-                        r1,
-                        c0: 0,
-                        c1: last,
-                        anchor: Anchor::Line(line),
-                    });
-                }
+            if r1 > hi
+                && hi.saturating_add(1) < rows.height()
+                && let Some(line) = rows.at(hi.saturating_add(1))
+            {
+                let r0 = to_u32(hi.saturating_add(1).saturating_sub(r0));
+                let r1 = to_u32(prows.saturating_sub(1));
+                pieces.push(Piece {
+                    r0,
+                    r1,
+                    c0: 0,
+                    c1: last,
+                    anchor: Anchor::Line(line),
+                });
             }
             self.split(b, key, &pieces);
         }

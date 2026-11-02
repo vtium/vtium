@@ -293,10 +293,10 @@ pub(crate) struct Reports {
 
 impl Reports {
     pub(crate) fn push(&mut self, origin: Origin, problem: Problem) {
-        if let Problem::UnknownKey(name) = &problem {
-            if !self.unknown.insert(name.clone()) {
-                return;
-            }
+        if let Problem::UnknownKey(name) = &problem
+            && !self.unknown.insert(name.clone())
+        {
+            return;
         }
         if self.list.len() < REPORTS_MAX {
             self.list.push(Report { origin, problem });
@@ -360,13 +360,13 @@ impl Config {
     /// set: a file's to the files', the command line's to the command
     /// line's, which replace the files'.
     fn set(&mut self, a: Assignment) {
-        if let Value::Modes(new) = &a.value {
-            if let Some((Some(Value::Modes(old)), origin)) = self.values.get_mut(a.key.name) {
-                let cmdline = |o: &Origin| matches!(o, Origin::CommandLine { .. });
-                if cmdline(origin) == cmdline(&a.origin) {
-                    old.extend(new.iter().cloned());
-                    return;
-                }
+        if let Value::Modes(new) = &a.value
+            && let Some((Some(Value::Modes(old)), origin)) = self.values.get_mut(a.key.name)
+        {
+            let cmdline = |o: &Origin| matches!(o, Origin::CommandLine { .. });
+            if cmdline(origin) == cmdline(&a.origin) {
+                old.extend(new.iter().cloned());
+                return;
             }
         }
         self.values.insert(a.key.name, (Some(a.value), a.origin));

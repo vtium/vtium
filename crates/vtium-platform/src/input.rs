@@ -501,12 +501,10 @@ impl<O: Open + 'static> Input<O> {
                 Err(e) => log::debug!(target: "input", "no axis ranges: {e}"),
             }
         }
-        if !first {
-            if let Some(keyboard) = probed.keyboard.as_mut() {
-                let leds = keyboard.wake_up(&self.keymap);
-                if probed.caps.leds {
-                    write_leds(&mut dev, &device.node, leds);
-                }
+        if !first && let Some(keyboard) = probed.keyboard.as_mut() {
+            let leds = keyboard.wake_up(&self.keymap);
+            if probed.caps.leds {
+                write_leds(&mut dev, &device.node, leds);
             }
         }
         device.watch = match (&self.link, dev.watch()) {
@@ -604,10 +602,10 @@ impl<O: Open + 'static> Input<O> {
                     (probed.keyboard.as_mut(), KeyState::from_value(ev.value))
                 {
                     let processed = keyboard.process(state, ev.code);
-                    if let (Some(leds), true) = (processed.leds, probed.caps.leds) {
-                        if let Some(dev) = device.open.as_mut() {
-                            write_leds(dev, &device.node, leds);
-                        }
+                    if let (Some(leds), true) = (processed.leds, probed.caps.leds)
+                        && let Some(dev) = device.open.as_mut()
+                    {
+                        write_leds(dev, &device.node, leds);
                     }
                     match processed.repeat {
                         Some(RepeatChange::Start) => {
@@ -732,10 +730,10 @@ impl<O: Open + 'static> Input<O> {
             let Some(device) = self.devices.iter_mut().find(|d| d.id == id) else {
                 continue;
             };
-            if let (Some(dev), Some(link)) = (&device.open, &self.link) {
-                if let Some(Ok(fd)) = dev.watch() {
-                    device.watch = link.watch(id, fd);
-                }
+            if let (Some(dev), Some(link)) = (&device.open, &self.link)
+                && let Some(Ok(fd)) = dev.watch()
+            {
+                device.watch = link.watch(id, fd);
             }
         }
     }

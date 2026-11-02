@@ -602,12 +602,12 @@ impl Decoder {
         if c.is_ascii_digit() {
             // past the parameters it reads, digits are dropped
             let i = self.nparams.saturating_sub(1);
-            if let (true, Some(p)) = (self.nparams <= PARAMS, self.params.get_mut(i)) {
-                if *p < PARAM_CAP {
-                    *p = p
-                        .saturating_mul(10)
-                        .saturating_add(u32::from(c.saturating_sub(b'0')));
-                }
+            if let (true, Some(p)) = (self.nparams <= PARAMS, self.params.get_mut(i))
+                && *p < PARAM_CAP
+            {
+                *p = p
+                    .saturating_mul(10)
+                    .saturating_add(u32::from(c.saturating_sub(b'0')));
             }
             return;
         }

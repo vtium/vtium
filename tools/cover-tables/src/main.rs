@@ -58,13 +58,13 @@ fn run(write: bool, repin: bool) -> Result<bool, String> {
     for source in &SOURCES {
         let bytes = fetch(source.url)?;
         let sha256 = sha256_hex(&Sha256::digest(&bytes));
-        if let Some(pin) = pinned(&pins, source.name).filter(|&p| p != sha256) {
-            if !repin {
-                return Err(format!(
-                    "{}: SHA-256 {sha256}, not the pinned {pin}; --repin takes it",
-                    source.url
-                ));
-            }
+        if let Some(pin) = pinned(&pins, source.name).filter(|&p| p != sha256)
+            && !repin
+        {
+            return Err(format!(
+                "{}: SHA-256 {sha256}, not the pinned {pin}; --repin takes it",
+                source.url
+            ));
         }
         let text = String::from_utf8_lossy(&bytes);
         let at = |e: String| format!("{}: {e}", source.url);

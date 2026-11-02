@@ -283,10 +283,12 @@ impl State {
                 .values()
                 .any(|c| c.id != conn && c.encoder == e)
         };
-        if old != 0 && old != new && !shared(self, old) {
-            if let Some(e) = self.encoders.get_mut(&old) {
-                e.crtc = 0;
-            }
+        if old != 0
+            && old != new
+            && !shared(self, old)
+            && let Some(e) = self.encoders.get_mut(&old)
+        {
+            e.crtc = 0;
         }
         if let Some(e) = self.encoders.get_mut(&new) {
             e.crtc = crtc;

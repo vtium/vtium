@@ -44,12 +44,12 @@ impl Tty {
         if !Path::new("/dev/tty0").exists() {
             return Ok(None);
         }
-        if let Ok(stat) = rustix::fs::fstat(io::stderr().as_fd()) {
-            if let Some(num) = vt_number(stat.st_rdev) {
-                let path = PathBuf::from(format!("/dev/tty{num}"));
-                if path.exists() {
-                    return Ok(Some(path));
-                }
+        if let Ok(stat) = rustix::fs::fstat(io::stderr().as_fd())
+            && let Some(num) = vt_number(stat.st_rdev)
+        {
+            let path = PathBuf::from(format!("/dev/tty{num}"));
+            if path.exists() {
+                return Ok(Some(path));
             }
         }
         let flags = OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;

@@ -5,7 +5,7 @@ members = ["crates/*", "tools/conformance", "tools/cover-tables", "tools/specime
 [workspace.package]
 version = "0.1.0-alpha.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/vtium/vtium"
 authors = ["Aaron Bockelie"]

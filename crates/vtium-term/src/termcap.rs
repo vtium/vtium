@@ -77,10 +77,10 @@ impl Termcap {
             if !name_ok(name) {
                 return Err(TermcapError::BadName(name.to_vec()));
             }
-            if let Some(v) = value {
-                if v.len() > TERMCAP_VALUE_MAX || v.contains(&0) {
-                    return Err(TermcapError::BadValue(name.to_vec()));
-                }
+            if let Some(v) = value
+                && (v.len() > TERMCAP_VALUE_MAX || v.contains(&0))
+            {
+                return Err(TermcapError::BadValue(name.to_vec()));
             }
             table.push(Entry {
                 name: name.into(),
@@ -100,12 +100,12 @@ impl Termcap {
 
     /// The entry a hex-encoded name names.
     fn lookup(&self, hex: &[u8]) -> Option<&Entry> {
-        if hex.is_empty() || hex.len() % 2 != 0 || hex.len() / 2 > TERMCAP_NAME_MAX {
+        if hex.is_empty() || !hex.len().is_multiple_of(2) || hex.len() / 2 > TERMCAP_NAME_MAX {
             return None;
         }
         let mut name = [0_u8; TERMCAP_NAME_MAX];
-        for (slot, pair) in name.iter_mut().zip(hex.chunks_exact(2)) {
-            let (hi, lo) = (hex_digit(*pair.first()?)?, hex_digit(*pair.get(1)?)?);
+        for (slot, &[hi, lo]) in name.iter_mut().zip(hex.as_chunks::<2>().0) {
+            let (hi, lo) = (hex_digit(hi)?, hex_digit(lo)?);
             *slot = hi << 4 | lo;
         }
         let name = name.get(..hex.len() / 2)?;

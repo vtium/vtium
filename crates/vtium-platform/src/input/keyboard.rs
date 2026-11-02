@@ -373,14 +373,14 @@ impl Keyboard {
     fn repeat_change(&mut self, state: KeyState, event: &KeyEvent) -> Option<RepeatChange> {
         let keymap = self.state.get_keymap();
         let keycode = Keycode::new(event.keycode);
-        if let Some(repeat) = &self.repeat {
-            if repeat.keycode == event.keycode {
-                if state == KeyState::Released {
-                    self.repeat = None;
-                    return Some(RepeatChange::Stop);
-                }
-                return None;
+        if let Some(repeat) = &self.repeat
+            && repeat.keycode == event.keycode
+        {
+            if state == KeyState::Released {
+                self.repeat = None;
+                return Some(RepeatChange::Stop);
             }
+            return None;
         }
         if state == KeyState::Pressed && keymap.key_repeats(keycode) {
             self.repeat = Some(event.clone());
@@ -430,10 +430,10 @@ impl Keyboard {
     /// below 128, or else the first layout's that is, so Ctrl+C works on
     /// any layout (shl/misc.h:535-561).
     fn ascii(&self, keycode: Keycode, syms: &[Keysym]) -> u32 {
-        if let [only] = syms {
-            if only.raw() < 128 {
-                return only.raw();
-            }
+        if let [only] = syms
+            && only.raw() < 128
+        {
+            return only.raw();
         }
         let keymap = self.state.get_keymap();
         (0..keymap.num_layouts_for_key(keycode))

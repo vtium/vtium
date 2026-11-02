@@ -288,10 +288,8 @@ impl Pty {
     fn settle<C: Consumer + ?Sized>(&mut self, next: Next, consumer: &mut C) {
         let (next, told) = self.channel.settle(next, consumer);
         self.kick(next);
-        if told {
-            if let Some(status) = self.exit.take() {
-                consumer.exited(status);
-            }
+        if told && let Some(status) = self.exit.take() {
+            consumer.exited(status);
         }
     }
 

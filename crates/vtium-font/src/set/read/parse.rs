@@ -508,8 +508,10 @@ impl ClusterMap {
             .get(start..start.checked_add(len.checked_mul(4)?)?)?;
         Some(
             bytes
-                .chunks_exact(4)
-                .map(|b| b.first_chunk().map_or(u32::MAX, |&w| u32::from_le_bytes(w))),
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&w| u32::from_le_bytes(w)),
         )
     }
 
@@ -573,10 +575,11 @@ pub(super) fn parse_clusters(
         first,
     };
     let scalars = body.get(records..).unwrap_or_default();
-    let mut ok = scalars.chunks_exact(4).all(|w| {
-        w.first_chunk()
-            .is_some_and(|&w| char::from_u32(u32::from_le_bytes(w)).is_some())
-    });
+    let mut ok = scalars
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|&w| char::from_u32(u32::from_le_bytes(w)).is_some());
     for i in 0..count {
         let [strike, len, _, chunk, offset, flags] = map.record(i).ok_or(SetError::Truncated)?;
         if len == 0 || len > CLUSTER_SCALARS_MAX as usize {
@@ -709,10 +712,10 @@ pub(super) fn parse_inks(
 ) -> Result<(InkMap, Vec<Chunk>), SetError> {
     let head: &[u8; 16] = bytes.first_chunk().ok_or(SetError::Truncated)?;
     let word = |i: usize| -> u32 {
-        head.chunks_exact(4)
-            .nth(i)
-            .and_then(|w| w.try_into().ok())
-            .map_or(u32::MAX, u32::from_le_bytes)
+        head.as_chunks::<4>()
+            .0
+            .get(i)
+            .map_or(u32::MAX, |&w| u32::from_le_bytes(w))
     };
     let (count, size, chunk_count, chunk_size) = (word(0), word(1), word(2), word(3));
     if count > SET_INKS_MAX {
