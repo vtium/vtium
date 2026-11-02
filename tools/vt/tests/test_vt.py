@@ -1487,6 +1487,35 @@ class Install(Case):
         self.assertIn("kept /usr/local/bin/vtium-dev: it changed since vt-install wrote it", p.stdout)
         self.assertEqual(read(self.at(self.BIN)), old_build)
 
+    def temps(self):
+        """Every file under the root at one of vt-install's temporary names."""
+        return [f for f in self.left() if f.endswith(".vt-install-new")]
+
+    def test_a_reinstall_renames_each_new_file_into_place(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.temps(), [])
+        # The running vtium holds its binary open, as these do each file.
+        # A rename leaves the open file as it was, while a copy into the
+        # same file would change what the running vtium reads.
+        paths = (*self.FILES, self.STATE + "/files")
+        held = {f: open(self.at(f), "rb") for f in paths}
+        try:
+            old = {f: held[f].read() for f in paths}
+            write(self.s.bin, read(self.s.bin) + "# a newer build\n")
+            p = self.vt_install("install", "4")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertEqual(read(self.at(self.BIN)), read(self.s.bin))
+            for f in paths:
+                with self.subTest(f=f):
+                    held[f].seek(0)
+                    self.assertEqual(held[f].read(), old[f])
+                    self.assertNotEqual(os.stat(self.at(f)).st_ino, os.fstat(held[f].fileno()).st_ino)
+        finally:
+            for h in held.values():
+                h.close()
+        self.assertEqual(self.temps(), [])
+
     def test_a_checksum_counts_only_for_the_path_it_was_recorded_for(self):
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
