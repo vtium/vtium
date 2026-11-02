@@ -19,7 +19,7 @@ vtium-vitrify (binary)   the glyph helper: every font decoder, the outline raste
 └── vtium-platform
 ```
 
-The tree is the workspace as built today. vtium-term takes vtium-image as an optional dependency behind its `images` feature, and vtium-image depends on vtium-parse alone: it names a line by an opaque key, so it never depends on vtium-term (ADR-1100 D1, D10). The binary lists vtium-image as an optional dependency behind its own `images` feature, for sending the image helper its requests and computing the `auto` budget, and uses none of it yet; vtium-render is to reach the image types through vtium-term's frame once a renderer draws placements. The minspec build links none of it.
+The tree is the workspace as built today. vtium-term takes vtium-image as an optional dependency, behind vtium-term's `images` feature. vtium-image depends on vtium-parse alone and names a line by an opaque key, so it never needs vtium-term (ADR-1100 D1, D10). The binary also lists vtium-image as an optional dependency, behind the binary's own `images` feature, and is to use it to send the image helper its requests and to work out the `auto` budget; no code in the binary uses it yet. Once a renderer draws placements, vtium-render is to reach the image types through vtium-term's frame. The minspec build links none of the image code.
 
 vtium-vitrify is a binary of its own. The install tree carries it beside the console, outside the console's binary and outside the minspec size budget, which judges the console alone. The console starts it as its glyph helper, which reads a frit's fonts and sends their glyphs to the console (ADR-1200), so the font decoders and the rasterizer stay out of the console.
 
