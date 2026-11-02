@@ -130,9 +130,11 @@ expect: each size.
 
 step: Suspend and resume
 run: systemctl suspend
-do: skip this step (s, then Enter) unless you want to check suspend. Else
-do: systemctl may ask for your password; wake the machine as you usually
-do: do, and come back to VT {vt} with Ctrl-Alt-F{vt} if the desktop shows.
+do: systemctl suspend puts the whole machine to sleep, your desktop and
+do: everything running on it too, not only vtium. Skip this step (s, then
+do: Enter) unless you want that now. Else systemctl may ask for your
+do: password; wake the machine as you usually do, and come back to VT {vt}
+do: with Ctrl-Alt-F{vt} if the desktop shows.
 expect: after the machine wakes, this screen drawn whole on every display,
 expect: and a key you press answers the question below.
 
