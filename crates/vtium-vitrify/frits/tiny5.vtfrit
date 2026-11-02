@@ -11,7 +11,7 @@
 #
 # The frit has one source. The console draws a character Tiny5 Mono
 # lacks in the built-in font for the cell (ADR-1200 D7), Unscii-8 here,
-# centred in the 6x9 cell with a column cut off each side, so the frit
+# centered in the 6x9 cell with a column cut off each side, so the frit
 # names no builtin: line. Unscii-8 could not be a second source anyway:
 # its 8x8 cell does not fit in Tiny5 Mono's 6x9, and the helper refuses a
 # bitmap source whose cell does not fit the first source's.
