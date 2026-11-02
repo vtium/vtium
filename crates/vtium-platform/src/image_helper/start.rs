@@ -330,6 +330,17 @@ pub fn kill_group(started: &Started) {
     }
 }
 
+/// Whether the helper has exited, without reaping it, so its process
+/// group's id stays its own until [`kill_group`] and [`reap`] are done.
+pub fn exited(started: &Started) -> bool {
+    use rustix::process::{WaitId, WaitIdOptions};
+    let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+    !matches!(
+        rustix::process::waitid(WaitId::PidFd(started.pidfd.as_fd()), options),
+        Ok(None)
+    )
+}
+
 /// Reaps the helper through its pidfd; `false` while it has not exited.
 pub fn reap(started: &Started, block: bool) -> bool {
     use rustix::process::{WaitId, WaitIdOptions};

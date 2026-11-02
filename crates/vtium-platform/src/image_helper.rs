@@ -262,7 +262,7 @@ impl ImageHost {
     /// fewer bytes or it has exited, else a new one.
     fn ensure(&mut self, account: &Account, max_bytes: u64) -> Result<(), Reply> {
         let stale = self.running.as_ref().is_some_and(|r| {
-            r.account != *account || max_bytes > r.max_bytes || start::reap(&r.started, false)
+            r.account != *account || max_bytes > r.max_bytes || start::exited(&r.started)
         });
         if stale {
             self.stop();
@@ -290,7 +290,9 @@ impl ImageHost {
         Ok(())
     }
 
-    /// Kills the helper's process group and reaps the helper.
+    /// Kills the helper's process group and reaps the helper. Nothing
+    /// reaps the helper before this, so its group's id cannot have passed
+    /// to another process when the group is signalled.
     fn stop(&mut self) {
         if let Some(r) = self.running.take() {
             start::kill_group(&r.started);

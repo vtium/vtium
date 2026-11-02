@@ -85,6 +85,10 @@ fn stand_in(role: &str, tmpdir: Option<&str>) -> ! {
                 }
             }
             "crash" => std::process::exit(0),
+            "once" => {
+                answer(&socket, role, id, &request);
+                std::process::exit(0);
+            }
             _ => answer(&socket, role, id, &request),
         }
     }
@@ -604,6 +608,33 @@ fn with_three_free() -> ! {
     std::process::exit(0);
 }
 
+/// A helper that has exited on its own, as one does after its idle
+/// interval, is replaced at the next request, and no crash is counted.
+fn a_helper_that_exited_idle_is_replaced_at_the_next_request() {
+    let dir = scratch("idle");
+    let mut host = host(&dir, "once");
+    assert!(matches!(ask(&mut host, &file()), Reply::Ok(_)));
+    let first = host.pid().unwrap();
+    for _ in 0..1000 {
+        let state = std::fs::read_to_string(format!("/proc/{first}/stat")).unwrap_or_default();
+        if state.contains(") Z ") {
+            break;
+        }
+        let _ = rustix::event::poll(
+            &mut [],
+            Some(&Timespec {
+                tv_sec: 0,
+                tv_nsec: 10_000_000,
+            }),
+        );
+    }
+    assert!(matches!(ask(&mut host, &file()), Reply::Ok(_)));
+    assert_ne!(host.pid().unwrap(), first);
+    assert!(gone(first), "the exited helper is reaped");
+    assert_eq!(host.crashes(), 0);
+    println!("test a_helper_that_exited_idle_is_replaced_at_the_next_request ... ok");
+}
+
 fn a_program_others_may_change_is_refused() {
     let dir = scratch("program");
     let path = dir.join("vtium-image");
@@ -637,5 +668,6 @@ fn main() {
     each_reply_that_fails_a_check_fails_the_request_as_a_crash();
     a_request_no_account_may_read_starts_no_helper();
     a_session_that_ends_drops_its_request_and_its_helper();
+    a_helper_that_exited_idle_is_replaced_at_the_next_request();
     a_program_others_may_change_is_refused();
 }
