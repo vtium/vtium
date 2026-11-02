@@ -779,6 +779,7 @@ impl View {
             self.drawing = Some(job.drawing);
             self.since = job.since;
             self.pending = true;
+            self.lost |= job.whole;
             self.overlaid.extend(job.gone);
             self.overlay_sent = None;
         }
@@ -1451,6 +1452,31 @@ mod tests {
         fn as_any(&mut self) -> &mut dyn Any {
             self
         }
+    }
+
+    // A job refused for a display that lost its picture keeps it lost, so
+    // the frame drawn at the next turn is drawn whole and through a hold.
+    #[test]
+    fn a_job_refused_keeps_its_display_lost() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(false);
+        assert!(view.lost, "a new view draws whole");
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let Prepared::Job(job) = view.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &DrawState::default(),
+            None,
+            &Instant::now,
+        ) else {
+            panic!("a job");
+        };
+        assert!(!view.lost);
+        view.refused(*job, &mut video);
+        assert!(view.lost, "still lost");
     }
 
     // A job the render thread could not take gives its token back, so the
