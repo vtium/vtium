@@ -739,7 +739,16 @@ fn as_root() -> ! {
         println!("the user namespace gives no capability: {before:?}");
         std::process::exit(77);
     }
-    vtium_platform::image_helper::drop_bounding_set(true).unwrap();
+    // a security module, such as AppArmor on Ubuntu, may refuse every
+    // capability the namespace shows
+    match vtium_platform::image_helper::drop_bounding_set(true) {
+        Ok(()) => {}
+        Err(e) if e.raw_os_error() == Some(libc::EPERM) => {
+            println!("the user namespace's capabilities are refused: {e}");
+            std::process::exit(77);
+        }
+        Err(e) => panic!("the bounding set is not emptied: {e}"),
+    }
     vtium_platform::image_helper::clear_capabilities().unwrap();
     let out = std::process::Command::new(std::env::current_exe().unwrap())
         .arg("--capabilities")
