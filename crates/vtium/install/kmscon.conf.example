@@ -315,3 +315,21 @@
 
 ## Measure each display's frames once a second, and write the figures to the log, draw them on screen, or both.
 #render-timer=none
+
+## The most bytes each console's pictures hold, its main and alternate screens together, or KiB, MiB or GiB with `K`, `M` or `G` (`64M`), at most 1 TiB. `auto` gives each console four frames of its head's displays, 16 MiB to 192 MiB, and works it out again when a display joins or leaves the head or changes size. `0` turns sixel and kitty graphics off. A build without images reads it and draws no picture.
+#image-storage-limit=auto
+
+## Sixel graphics. Off, vtium neither offers nor decodes sixel: DA1 reports no attribute 4 and a sixel string is ignored. vtium offers sixel only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.
+#sixel
+
+## The kitty graphics protocol. Off, vtium neither offers nor decodes it: a graphics command is ignored and a query gets no reply. vtium offers it only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.
+#kitty-graphics
+
+## The largest picture a program may send, in pixels, `WxH`, for sixel and kitty graphics alike; a larger one is refused. A build without images reads it and draws no picture.
+#max-graphic-size=10000x10000
+
+## How many color registers a sixel picture has, and the most XTSMGRAPHICS lets a program set. A build without images reads it and draws no picture.
+#num-color-registers=1024
+
+## Mode 1070's state at a reset: on, each sixel picture starts from the default colors; off, the pictures share their color registers. A build without images reads it and draws no picture.
+#private-color-registers

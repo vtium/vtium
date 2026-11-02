@@ -16,6 +16,7 @@ pub(super) fn default(key: &Key) -> Option<Value> {
         keys::Default::Text(t) => match key.kind {
             Kind::Grab => crate::grab::parse(t).ok().map(Value::Chords),
             Kind::DecoColor => parse_deco_color(t).ok().map(Value::DecoColor),
+            Kind::Size { max } => parse_size(t, max).ok().map(|(w, h)| Value::Size(w, h)),
             _ => Some(Value::Text(t.to_owned())),
         },
         keys::Default::Command(c) => Some(Value::Command(c.iter().map(OsString::from).collect())),
@@ -183,6 +184,21 @@ pub(super) fn parse(
                 }
             }
         }
+        Kind::Size { max } => match parse_size(text, max) {
+            Ok((w, h)) => Some(Value::Size(w, h)),
+            Err(why) => {
+                let value = text.to_owned();
+                reports.push(
+                    origin.clone(),
+                    Problem::BadValue {
+                        key: key.name,
+                        value,
+                        why,
+                    },
+                );
+                None
+            }
+        },
         Kind::Char => {
             let mut chars = text.chars();
             match (chars.next(), chars.next()) {
@@ -270,6 +286,18 @@ pub(super) fn parse_deco_color(text: &str) -> Result<DecoColor, &'static str> {
 const MODE_NAME_MAX: usize = 63;
 
 /// A mode line, `[GPU][CONNECTOR]WxH[@RATE]` (`src/config.c:564-617`).
+/// A size, `WxH`, each side a whole number from 1 to `max`.
+fn parse_size(text: &str, max: u32) -> Result<(u32, u32), &'static str> {
+    let side = |s: &str| {
+        s.parse::<u32>()
+            .ok()
+            .filter(|n| (1..=max).contains(n) && s.bytes().all(|b| b.is_ascii_digit()))
+    };
+    text.split_once('x')
+        .and_then(|(w, h)| Some((side(w)?, side(h)?)))
+        .ok_or("a size is WxH, each side a whole number from 1 to its most")
+}
+
 pub(super) fn parse_mode(text: &str) -> Result<ModeSpec, &'static str> {
     let name = |s: &str| -> Result<Option<String>, &'static str> {
         if s.is_empty() {

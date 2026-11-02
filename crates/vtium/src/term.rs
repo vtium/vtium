@@ -124,8 +124,9 @@ pub enum Reason {
 
 /// The screen as a head's frame shows it, owned, so the head's render
 /// thread reads it while the session runs on: the visible lines, their
-/// change ages, the palette, the cursor, the selection and the hovered
-/// link.
+/// change ages, the palette, the cursor, the selection, the hovered link,
+/// and in a build with images the pictures, each sharing its image's
+/// pixels (ADR-1100 D9).
 pub struct Snapshot {
     lines: Vec<Line>,
     damage: Damage,
@@ -135,6 +136,8 @@ pub struct Snapshot {
     selection: Vec<Range<usize>>,
     hovered: Option<LinkId>,
     overlay: Option<(usize, String)>,
+    #[cfg(feature = "images")]
+    placements: Vec<vtium_image::FramePlacement>,
 }
 
 impl Snapshot {
@@ -164,6 +167,8 @@ impl Snapshot {
         };
         let (cursor, hovered) = (frame.cursor(), frame.hovered());
         let overlay = frame.overlay().map(|o| (o.row, o.uri.to_owned()));
+        #[cfg(feature = "images")]
+        let placements = frame.placements().to_vec();
         Snapshot {
             lines,
             damage: screen.damage().clone(),
@@ -173,12 +178,14 @@ impl Snapshot {
             hovered,
             overlay,
             palette,
+            #[cfg(feature = "images")]
+            placements,
         }
     }
 
     /// The frame a display that last drew at `since` reads.
     fn frame(&self, since: Age) -> Frame<'_> {
-        Frame::new(
+        let frame = Frame::new(
             self.lines.iter().collect(),
             &self.damage,
             &self.palette,
@@ -190,7 +197,10 @@ impl Snapshot {
         .with_hover(
             self.hovered,
             self.overlay.as_ref().map(|(row, uri)| (*row, uri.as_str())),
-        )
+        );
+        #[cfg(feature = "images")]
+        let frame = frame.with_placements(self.placements.clone());
+        frame
     }
 }
 
@@ -646,6 +656,13 @@ impl View {
     pub fn show_another(&mut self) {
         self.since = Age::NEVER;
         self.lost = true;
+    }
+
+    /// Whether the view's renderer draws pictures, which a head needs of
+    /// every display before it offers sixel and kitty graphics (ADR-1100
+    /// D10): the CPU compositor draws them in a build with images.
+    pub fn draws_placements(&self) -> bool {
+        vtium_render::DRAWS_PLACEMENTS
     }
 
     /// The font's cell.

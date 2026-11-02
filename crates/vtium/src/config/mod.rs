@@ -64,6 +64,8 @@ pub enum Value {
     Chords(Vec<Chord>),
     /// A [`Kind::DecoColor`] value.
     DecoColor(DecoColor),
+    /// A [`Kind::Size`] value: the width and the height.
+    Size(u32, u32),
 }
 
 /// How the font helper hints outline glyphs, `font-hinting`'s value.
@@ -397,6 +399,14 @@ impl Config {
     pub fn text(&self, key: &Key) -> Option<&str> {
         match self.get(key) {
             Some(Value::Text(t)) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// A size key's width and height, if set.
+    pub fn size(&self, key: &Key) -> Option<(u32, u32)> {
+        match self.get(key) {
+            Some(Value::Size(w, h)) => Some((*w, *h)),
             _ => None,
         }
     }

@@ -14,7 +14,9 @@ workspace = true
 [features]
 # The minspec build is the default: the smallest complete console.
 default = []
-images = ["dep:vtium-image"]
+# Pictures (ADR-1100 D10): the store and the sixel and kitty handlers in
+# vtium-term, the compositor's pictures in vtium-render, and vtium-image.
+images = ["dep:vtium-image", "vtium-term/images", "vtium-render/images"]
 # grab-suspend through logind's Suspend (ADR-1400's L2 layer).
 logind = ["vtium-platform/logind"]
 
