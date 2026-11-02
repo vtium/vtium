@@ -203,12 +203,14 @@ class Qemu:
                 time.sleep(0.1)
         raise RuntimeError("screendump did not produce a readable image")
 
-    def wait_serial(self, marker, timeout, log_path=None):
+    def wait_serial(self, marker, timeout, log_path=None, fail=None):
         """Wait for a line holding `marker` on the console log (or on
         `log_path`), terminal escape sequences left out, and return it.
         Only lines ending in a newline count: the guest writes a line a few
         bytes at a time, and the part of one that has arrived is not yet
-        the line (#61)."""
+        the line (#61). A line holding `fail`, when it is given, ends the
+        wait at once with a RuntimeError that carries the line, since the
+        guest writes no `marker` after it."""
         log_path = log_path or self.serial
         deadline = time.time() + timeout
         while True:
@@ -217,6 +219,9 @@ class Qemu:
             data = data[:data.rfind(b"\n") + 1]
             text = _ESCAPES.sub("", data.decode(errors="replace"))
             for line in text.splitlines():
+                if fail is not None and fail in line:
+                    raise RuntimeError("the guest reported a failure: %s; see %s"
+                                       % (line.strip(), rel(log_path)))
                 if marker in line:
                     return line.strip()
             if self.proc.poll() is not None or time.time() > deadline:

@@ -508,15 +508,22 @@ class ImplementationTest(unittest.TestCase):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
-                                 sorted(["kmscon.conf", "screens", "setup", "t3", "tree.tar"]
+                                 sorted(["vtium.conf", "screens", "setup", "t3", "tree.tar"]
                                         + extra))
-                with open(os.path.join(disc, "kmscon.conf")) as f:
+                with open(os.path.join(disc, "vtium.conf")) as f:
                     self.assertIn("render-timer=log", f.read())
                 if "frits" in extra:
                     self.assertEqual(os.listdir(os.path.join(disc, "frits")),
                                      ["default8x16.vtfrit"])
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
+        # Each guest installs the disc's configuration where vtium reads it,
+        # /etc/vtium/vtium.conf (ADR-1500 D4), and nothing into /etc/kmscon.
+        for guest in (t3_common.GUEST, t3_common.GUEST_SYSVINIT):
+            with self.subTest(guest), open(os.path.join(guest, "setup")) as f:
+                setup = f.read()
+                self.assertIn('install -Dm644 "$disc"/vtium.conf /etc/vtium/vtium.conf\n', setup)
+                self.assertNotIn("/etc/kmscon", setup)
 
     def test_frit_variants(self):
         # A configured frit generated at run time (ADR-1301 D2): two 640x480
@@ -545,7 +552,7 @@ class ImplementationTest(unittest.TestCase):
                                   f.read())
                 t3_scenario.build_disc(name, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
-                                 sorted(["kmscon.conf", "screens", "setup", "t3", "tree.tar",
+                                 sorted(["vtium.conf", "screens", "setup", "t3", "tree.tar",
                                          "deferred-frits"] + (["helper-held"] if held else [])))
                 self.assertEqual(os.listdir(os.path.join(disc, "deferred-frits")),
                                  [font + ".vtfrit"])
@@ -571,7 +578,7 @@ class ImplementationTest(unittest.TestCase):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(os.path.join(disc, "fonts"))),
                                  ["vtium-test-8x16.psf", "vtium-test-8x8.psf"])
-                with open(os.path.join(disc, "kmscon.conf")) as f:
+                with open(os.path.join(disc, "vtium.conf")) as f:
                     self.assertIn("font-name=/usr/local/share/tier3-fonts/%s\n" % conf,
                                   f.read())
         with mock.patch.object(t3_scenario, "make_iso"):
@@ -610,7 +617,7 @@ class ImplementationTest(unittest.TestCase):
                 else:
                     with open(path) as f:
                         self.assertEqual(f.read(), binary)
-                with open(os.path.join(disc, "kmscon.conf")) as f:
+                with open(os.path.join(disc, "vtium.conf")) as f:
                     self.assertIn("grab-reboot=", f.read())
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             text = f.read()
@@ -2065,7 +2072,7 @@ class SysvinitTest(unittest.TestCase):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
-                                 sorted(["kmscon.conf", "screens", "setup", "t3", "t3-console",
+                                 sorted(["vtium.conf", "screens", "setup", "t3", "t3-console",
                                          "tree.tar"] + extra))
                 for name in ("setup", "t3-console"):
                     with open(os.path.join(disc, name)) as f, \
@@ -2561,18 +2568,39 @@ class SerialTest(unittest.TestCase):
         def poll(self):
             return None
 
-    def wait(self, chunks, marker="TIER3-INSTALL-OK", timeout=180):
+    def wait(self, chunks, marker="TIER3-INSTALL-OK", timeout=180, how=None):
+        """Runs `how(vm)`, by default the wait for `marker`, while the guest
+        writes `chunks`, and returns its result and the stand-in clock's
+        time when it returned or raised."""
         with tempfile.TemporaryDirectory() as d:
             vm = t3_qemu.Qemu.__new__(t3_qemu.Qemu)
             vm.serial, vm.proc = os.path.join(d, "serial.log"), self.Proc()
             with open(vm.serial, "wb") as f:
                 f.write(b"[  OK  ] Started \x1b[0;1;39mUser Login Management\x1b[0m.\r\r\n")
             saved = t3_qemu.time
-            t3_qemu.time = self.Clock(vm.serial, chunks)
+            clock = t3_qemu.time = self.Clock(vm.serial, chunks)
             try:
-                return vm.wait_serial(marker, timeout)
+                if how is None:
+                    return vm.wait_serial(marker, timeout)
+                return how(vm)
             finally:
                 t3_qemu.time = saved
+                self.ended = clock.now
+
+    def test_install_failure_ends_the_wait(self):
+        # guest/setup writes TIER3-INSTALL-FAIL and stops when vtium console
+        # enable --all fails. The wait for the install returns at once with
+        # that line's text, where waiting for TIER3-INSTALL-OK would time out
+        # after 180 s.
+        fail = b"[  20.1] TIER3-INSTALL-FAIL vtium console enable --all: VT 1 is held\r\r\n"
+        with self.assertRaisesRegex(RuntimeError, "the guest reported a failure: .*"
+                                    "TIER3-INSTALL-FAIL vtium console enable --all: VT 1 is held"):
+            self.wait([b"[  19.0] setup: installing\r\r\n", fail], how=t3_scenario.wait_install)
+        self.assertLess(self.ended, 1.0)
+
+    def test_install_ok_is_returned(self):
+        self.assertEqual(self.wait([self.LINE + b"\r\r\n"], how=t3_scenario.wait_install),
+                         self.LINE.decode())
 
     def test_two_chunks(self):
         cut = self.LINE.index(b" tree: ")
@@ -2965,6 +2993,47 @@ class DevicesTest(unittest.TestCase):
                       "crates/vtium/install/examples/71-vtium-local.rules "
                       "crates/vtium/install/examples/vtium.hwdb", lines)
 
+    def test_the_tree_installs_vtiums_own_units(self):
+        # make install-tree generates vtium@.service and vtium-getty@.service
+        # with the generator and the changes make install uses (ADR-1500
+        # D3), with the console at /usr/bin/vtium, and installs no unit
+        # under kmscon's names.
+        def make_n(target, *args):
+            r = subprocess.run(["make", "-n", "--no-print-directory", target, *args],
+                               cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
+            return r.stdout.splitlines()
+        tree = make_n("install-tree", "DESTDIR=/D")
+        units = [l for l in tree if "tools/vt/units.sh" in l]
+        self.assertEqual(units, ["tools/vt/units.sh --name vtium --exec /usr/bin/vtium "
+                                 "--by 'make install-tree' --conflicts 'kmsconvt@%i.service' "
+                                 "/D/usr/lib/systemd/system"])
+        package = [l for l in make_n("install", "DESTDIR=/D", "PREFIX=/usr")
+                   if "tools/vt/units.sh" in l]
+        self.assertEqual([l.replace("'make install'", "'make install-tree'") for l in package],
+                         units)
+        self.assertFalse([l for l in tree if "kmsconvt@.service" in l
+                          or "kmsconvt-getty@" in l], tree)
+        self.assertEqual(t3_impl.VT_UNIT, "usr/lib/systemd/system/vtium@.service")
+
+    def test_the_guest_gives_vtium_its_vts_with_vtium_console(self):
+        # The run's setup links the template back to the getty, as Arch's
+        # systemd package has it, then gives vtium every VT as a user does,
+        # with vtium console enable --all, and fails the install when that
+        # fails. No vtium unit is named for kmscon.
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        getty = ("ln -sfn /usr/lib/systemd/system/getty@.service "
+                 "/etc/systemd/system/autovt@.service\n")
+        self.assertIn(getty, setup)
+        self.assertLess(setup.index(getty), setup.index("vtium console enable --all"))
+        self.assertIn("if ! out=$(vtium console enable --all 2>&1); then\n"
+                      "    printf 'TIER3-INSTALL-FAIL vtium console enable --all: %s\\n' "
+                      "\"$out\" > /dev/ttyS0\n    exit 1\nfi\n", setup)
+        self.assertLess(setup.index("tar -xpf"), setup.index("vtium console enable --all"))
+        self.assertIn("/etc/systemd/system/vtium@.service.d/tier3.conf", setup)
+        self.assertFalse([l for l in setup.splitlines()
+                          if "kmsconvt" in l and not l.lstrip().startswith("#")])
+
     def test_keyboard_hotplug_helpers(self):
         self.assertEqual(t3_devices.key_events(["shift", "a"], True),
                          [{"type": "key", "data": {"down": True,
@@ -3033,10 +3102,10 @@ def agent_state(vtium=("active", "success"), fallback=("inactive", "success", "n
     of vtium's unit and its fallback, or None for no journal line."""
     readings = dict({u: (0, 0) for u in t3_heads.GETTY_UNITS}, **dict(gettys))
     lines = (["systemd %d" % systemd] if systemd else []) + [
-             "unit kmsconvt@tty2.service %s %s yes 6418546" % vtium,
-             "restarts kmsconvt@tty2.service running %d" % restarts,
+             "unit vtium@tty2.service %s %s yes 6418546" % vtium,
+             "restarts vtium@tty2.service running %d" % restarts,
              *(["journal " + " ".join(journal)] if journal is not None else []),
-             "unit kmsconvt-getty@tty2.service %s %s %s %d" % fallback,
+             "unit vtium-getty@tty2.service %s %s %s %d" % fallback,
              "unit getty@tty2.service %s success no 0" % getty,
              *("getty %s %d %d" % (u, *r) for u, r in readings.items() if r is not None),
              *("job %s start waiting" % u for u in BOOT_JOBS + list(queued)),
@@ -3197,17 +3266,17 @@ class HeadsTest(unittest.TestCase):
         # the units the agent reads are the ones the tree installs
         with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
             agent = f.read()
-        self.assertIn('units=("kmsconvt@$vt.service" "kmsconvt-getty@$vt.service" '
+        self.assertIn('units=("vtium@$vt.service" "vtium-getty@$vt.service" '
                       '"getty@$vt.service")', agent)
         self.assertIn('gettys=("%s" "%s")' % tuple(u.replace("tty2", "$vt")
                                                    for u in t3_heads.GETTY_UNITS), agent)
         # the keyboard `watch` reads is the one the kiosk check plugs in
         self.assertIn("second=/dev/input/by-path/%s\n" % t3_heads.KIOSK_SECOND, agent)
         self.assertEqual((t3_heads.VTIUM_UNIT, t3_heads.FALLBACK_UNIT, t3_heads.GETTY_UNIT),
-                         ("kmsconvt@tty2.service", "kmsconvt-getty@tty2.service",
+                         ("vtium@tty2.service", "vtium-getty@tty2.service",
                           "getty@tty2.service"))
         with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
-                               "kmsconvt-getty@.service")) as f:
+                               "vtium-getty@.service")) as f:
             self.assertIn("ConditionPathExists=!/run/vtium/%i.closed\n", f.read())
 
     def test_qemu_gets_the_agents_port_and_no_display(self):
@@ -3288,7 +3357,7 @@ class HeadsTest(unittest.TestCase):
     def test_parse_state(self):
         st = t3_heads.parse_state(agent_state(tty2="agetty", fallback=("inactive", "success",
                                                                        "yes", 99)))
-        self.assertEqual(st["units"]["kmsconvt-getty@tty2.service"],
+        self.assertEqual(st["units"]["vtium-getty@tty2.service"],
                          {"active": "inactive", "result": "success", "condition": "yes",
                           "checked": 99})
         self.assertEqual((len(st["queued"]), st["marker"], st["tty2"], st["logins"], st["fgconsole"],
@@ -3307,9 +3376,9 @@ class HeadsTest(unittest.TestCase):
         st = t3_heads.parse_state(agent_state(restarts=3, journal=(
             "started", "failed:signal", "skipped", "restart:1", "started")))
         self.assertEqual(st["systemd"], 262)
-        self.assertEqual((st["units"]["kmsconvt@tty2.service"]["active"],
-                          st["units"]["kmsconvt@tty2.service"]["sub"],
-                          st["units"]["kmsconvt@tty2.service"]["restarts"]),
+        self.assertEqual((st["units"]["vtium@tty2.service"]["active"],
+                          st["units"]["vtium@tty2.service"]["sub"],
+                          st["units"]["vtium@tty2.service"]["restarts"]),
                          ("active", "running", 3))
         self.assertEqual(st["journal"], ["started", "failed:signal", "skipped", "restart:1",
                                          "started"])
@@ -3603,7 +3672,7 @@ class HeadsTest(unittest.TestCase):
         # vtium's unit restarts on failure with systemd's defaults
         # (ADR-1401 D9): no delay or start limit of its own.
         with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
-                               "kmsconvt@.service")) as f:
+                               "vtium@.service")) as f:
             text = f.read()
         # systemd strips the space around each key and value, and reads a
         # line that starts with # or ; as a comment (systemd.syntax(7))

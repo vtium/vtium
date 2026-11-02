@@ -452,6 +452,14 @@ def evaluate_variant(variant, caps, meta, log):
             for case in variant_cases(variant)]
 
 
+def wait_install(vm):
+    """The guest's TIER3-INSTALL-OK line, which its setup writes once the
+    install is done. A setup step that fails writes a TIER3-INSTALL-FAIL
+    line instead and stops, so that line ends the wait at once with its
+    text, where waiting on would only time out."""
+    return vm.wait_serial("TIER3-INSTALL-OK", timeout=180, fail="TIER3-INSTALL-FAIL")
+
+
 def check_install(line, impl):
     """The guest's account of what it installed (the TIER3-INSTALL-OK line
     of guest/setup or guest-sysvinit/setup), as metadata: the tree, the
@@ -514,7 +522,7 @@ def build_disc(variant, work, impl):
     os.makedirs(disc)
     shutil.copy(impl["tar"], os.path.join(disc, "tree.tar"))
     shutil.copy(os.path.join(GUEST, VARIANTS[variant]["conf"]),
-                os.path.join(disc, "kmscon.conf"))
+                os.path.join(disc, "vtium.conf"))
     shutil.copytree(os.path.join(GUEST, "screens"), os.path.join(disc, "screens"))
     shutil.copy(os.path.join(GUEST, "t3"), disc)
     if VARIANTS[variant].get("guest") == "sysvinit":
@@ -721,7 +729,7 @@ def run_variant(variant, timing, impl, log):
               agent=v.get("agent", False))
     caps, errors, notes, error, installed = {}, {}, {}, None, None
     try:
-        line = vm.wait_serial("TIER3-INSTALL-OK", timeout=180)
+        line = wait_install(vm)
         log(line)
         installed = check_install(line, impl)
         check_guest(variant, installed)
@@ -730,8 +738,10 @@ def run_variant(variant, timing, impl, log):
             vm.wait_serial(marker, timeout=120)
         phase("boot")
         # tty1 runs getty. Under systemd, switching to tty2 makes logind
-        # spawn autovt@tty2, which is kmsconvt@tty2, and nothing starts it
-        # earlier: a boot without the keypress has no console on tty2.
+        # spawn autovt@tty2, which is vtium@tty2 through the template link
+        # that the setup's vtium console enable --all makes, and nothing
+        # starts it earlier: a boot without the keypress has no console on
+        # tty2.
         # Under sysvinit, the console the inittab started on tty2 takes it.
         vm.keys("ctrl", "alt", "f2")
         vm.wait_serial(guest["shown"], timeout=60)

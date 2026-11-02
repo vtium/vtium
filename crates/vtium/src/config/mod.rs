@@ -1,4 +1,4 @@
-//! The configuration: `kmscon.conf` in the C reference's key syntax,
+//! The configuration: `vtium.conf` in the C reference's key syntax,
 //! `<seat>.seat.conf` over it, and the command line over both.
 //!
 //! [`keys`] holds the one table of keys. [`load`] reads every source and
@@ -535,10 +535,11 @@ impl Loaded {
 }
 
 /// The configuration files under `dir`, the lowest precedence first: the
-/// main file, then the seat's. The decision on vtium's own file
-/// (vtium/vtium#21) changes this function and nothing else.
+/// main file, `vtium.conf`, then the seat's. The configuration directory
+/// is `/etc/vtium` unless `--configdir` names another, and vtium never
+/// reads the C reference's `/etc/kmscon` (ADR-1500 D4).
 pub fn files(dir: &Path, seat: Option<&str>) -> Vec<PathBuf> {
-    let mut out = vec![dir.join("kmscon.conf")];
+    let mut out = vec![dir.join("vtium.conf")];
     if let Some(seat) = seat {
         out.push(dir.join(format!("{seat}.seat.conf")));
     }

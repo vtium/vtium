@@ -24,9 +24,9 @@ from t3_common import RUNDIR, rel
 BINARY = "usr/bin/vtium"
 BINARY_BUDGET = 3670016
 # What the guest needs of a tree (README, "What the harness needs of the
-# build"): the VT unit the base image's autovt@.service links to, and the
-# binary it starts.
-VT_UNIT = "usr/lib/systemd/system/kmsconvt@.service"
+# build"): the VT unit that vtium console links autovt@.service to in the
+# guest, and the binary it starts.
+VT_UNIT = "usr/lib/systemd/system/vtium@.service"
 REQUIRED = (BINARY, VT_UNIT)
 # The directories udev reads rules and hwdb files from: vtium installs its
 # udev material as examples alone, under usr/share/doc/vtium/examples

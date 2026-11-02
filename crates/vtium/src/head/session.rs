@@ -117,7 +117,7 @@ pub(crate) fn heads(
                     .with_login(text)
                     .map_err(|reports| {
                         for r in reports {
-                            log::warn!("head {}: login: {}, kmscon.conf's runs", h.name, r.problem);
+                            log::warn!("head {}: login: {}, vtium.conf's runs", h.name, r.problem);
                         }
                     })
                     .ok()

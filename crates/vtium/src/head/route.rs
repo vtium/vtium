@@ -233,7 +233,7 @@ fn head_of(place: Place, focus: Option<usize>) -> Option<usize> {
     }
 }
 
-/// The rules in force: `rules`, with kmscon.conf's `mouse` off, its
+/// The rules in force: `rules`, with vtium.conf's `mouse` off, its
 /// shorthand (ADR-1401 D3), sending the shipped rules' pointer rules to
 /// `ignore`, so a pointer is never opened, one with udev's key class on its
 /// node too. The shipped rules are the compiled-in configuration's own and

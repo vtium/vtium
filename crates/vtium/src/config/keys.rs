@@ -1,7 +1,7 @@
 //! The key table: every configuration key and command-line option vtium
 //! reads, with its type, default, bound and the crate that reads it.
 //!
-//! `docs/config.md` and the installed example, `install/kmscon.conf.example`,
+//! `docs/config.md` and the installed example, `install/vtium.conf.example`,
 //! are generated from [`KEYS`]; the test `generated_files_match_the_table`
 //! fails when either differs, and `VTIUM_BLESS=1` rewrites them.
 
@@ -100,11 +100,11 @@ pub const CONFIGDIR: Key = Key {
     name: "configdir",
     short: Some('c'),
     kind: Kind::Text,
-    default: Default::Text("/etc/kmscon"),
+    default: Default::Text("/etc/vtium"),
     scope: Scope::CommandLine,
     reader: "vtium",
-    what: "The directory holding `kmscon.conf` and `<seat>.seat.conf`.",
-    cite: "src/config.c:1349",
+    what: "The directory holding `vtium.conf` and `<seat>.seat.conf`.",
+    cite: "src/config.c:1349, ADR-1500 D4",
 };
 
 pub const HELP: Key = Key {

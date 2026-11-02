@@ -272,15 +272,15 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
         udev_daemon: udev_daemon_runs(&host.udev_control),
         devices: Some(&devices),
     };
-    let kmscon = Kmscon::of(&loaded.config, &host.frits);
+    let settings = Settings::of(&loaded.config, &host.frits);
     // a candidate that is the installed file is checked as the start
     // reads it, ownership and all
     let heads = match loaded.candidate.as_deref() {
         Some(path) if !same_file(path, &host.head_file) => {
-            head_file(path, true, &Trust::ROOT, &machine, &kmscon)
+            head_file(path, true, &Trust::ROOT, &machine, &settings)
         }
-        Some(path) => head_file(path, false, &Trust::ROOT, &machine, &kmscon),
-        None => head_file(&host.head_file, false, &Trust::ROOT, &machine, &kmscon),
+        Some(path) => head_file(path, false, &Trust::ROOT, &machine, &settings),
+        None => head_file(&host.head_file, false, &Trust::ROOT, &machine, &settings),
     };
     let status = u8::from(status != 0 || !heads.counted.is_empty());
     Outcome {
@@ -325,11 +325,11 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// What the head file is checked against of kmscon.conf and the machine's
+/// What the head file is checked against of vtium.conf and the machine's
 /// frits: the console caps (ADR-1401 D10) and the frits directory a
 /// profile's frit is looked up in (D7).
 #[derive(Clone, Copy, Debug)]
-pub struct Kmscon<'a> {
+pub struct Settings<'a> {
     /// `head-consoles-max`.
     pub head_cap: u32,
     /// `consoles-max`.
@@ -337,15 +337,15 @@ pub struct Kmscon<'a> {
     pub frits: &'a Path,
 }
 
-impl Kmscon<'_> {
+impl Settings<'_> {
     /// The caps `config` sets, and the frits in `frits`.
-    pub fn of<'a>(config: &Config, frits: &'a Path) -> Kmscon<'a> {
+    pub fn of<'a>(config: &Config, frits: &'a Path) -> Settings<'a> {
         let number = |key, unset: u32| {
             config
                 .number(key)
                 .map_or(unset, |n| u32::try_from(n).unwrap_or(u32::MAX))
         };
-        Kmscon {
+        Settings {
             head_cap: number(
                 &keys::HEAD_CONSOLES_MAX,
                 vtium_config::HEAD_CONSOLES_DEFAULT,
@@ -358,7 +358,7 @@ impl Kmscon<'_> {
 
 /// Checks the head file at `path`, the installed one or, with
 /// `candidate`, one given to check before it is installed, its bytes read
-/// under `trust`, against `machine` and `kmscon`. It reads the file as
+/// under `trust`, against `machine` and `settings`. It reads the file as
 /// the start does (ADR-1401 D7): each error, counted, with what it drops,
 /// then what survives, and last, as notes, what a start does with the
 /// file and the policy it states. A candidate the ownership check fails
@@ -368,7 +368,7 @@ pub fn head_file(
     candidate: bool,
     trust: &Trust,
     machine: &Machine,
-    kmscon: &Kmscon,
+    settings: &Settings,
 ) -> HeadCheck {
     let mut out = HeadCheck::default();
     let inspected = match vtium_config::inspect(path, trust) {
@@ -414,7 +414,7 @@ pub fn head_file(
     errors(&mut out, path, &reading.errors);
     let trusted = reading.trusted();
     let runs = vtium_config::resolve(&Read::Trusted(trusted)).runs;
-    findings(&mut out, path, &reading.parsed, machine, kmscon, runs);
+    findings(&mut out, path, &reading.parsed, machine, settings, runs);
     out.notes
         .push(at(path, None, AtStart(Read::Trusted(trusted))).to_string());
     out.notes.push(at(path, None, Stating(trusted)).to_string());
@@ -449,7 +449,7 @@ fn errors(out: &mut HeadCheck, path: &Path, rejected: &Rejected) {
 }
 
 /// What survives of the file, which a start `runs`: its warnings, counted,
-/// with those measured against `kmscon`, a head's `consoles` past a cap
+/// with those measured against `settings`, a head's `consoles` past a cap
 /// and a profile naming a missing frit (ADR-1401 D7, D10); and its notes:
 /// each rule that needs a udev daemon where none runs, each
 /// `connector-path:` rule, and the remarks on what runs, with what the
@@ -460,14 +460,14 @@ fn findings(
     path: &Path,
     parsed: &Parsed,
     machine: &Machine,
-    kmscon: &Kmscon,
+    settings: &Settings,
     runs: Runs,
 ) {
-    let has_frit = |name: &str| font::frit(kmscon.frits, name).is_some();
+    let has_frit = |name: &str| font::frit(settings.frits, name).is_some();
     let against = Against {
-        head_cap: kmscon.head_cap,
-        total: kmscon.total,
-        frits: kmscon.frits,
+        head_cap: settings.head_cap,
+        total: settings.total,
+        frits: settings.frits,
         has_frit: &has_frit,
     };
     for w in &vtium_config::warnings(parsed, &against) {
@@ -617,7 +617,7 @@ mod tests {
             .collect();
         let conf = conf.as_bytes().to_vec();
         let loaded = config::load(&args, Some("seat0"), &mut |p: &Path| {
-            Ok((p == Path::new("/etc/kmscon/kmscon.conf")).then(|| conf.clone()))
+            Ok((p == Path::new("/etc/vtium/vtium.conf")).then(|| conf.clone()))
         });
         assert!(loaded.check);
         run(&loaded)
@@ -637,8 +637,8 @@ mod tests {
             lines,
             [
                 "argument 2: unknown key \"--bogus\", ignored",
-                "/etc/kmscon/kmscon.conf:1: sb-size=\"200000\" is out of bounds, 100000 used",
-                "/etc/kmscon/kmscon.conf:2: unknown key \"frob\", ignored",
+                "/etc/vtium/vtium.conf:1: sb-size=\"200000\" is out of bounds, 100000 used",
+                "/etc/vtium/vtium.conf:2: unknown key \"frob\", ignored",
             ]
         );
     }
@@ -704,7 +704,7 @@ mod tests {
         let (lines, _) = run_with(&[], "display-buffers=4\n");
         assert_eq!(
             lines,
-            ["/etc/kmscon/kmscon.conf:1: display-buffers=\"4\" is none of 1, 2, 3, ignored"]
+            ["/etc/vtium/vtium.conf:1: display-buffers=\"4\" is none of 1, 2, 3, ignored"]
         );
     }
 
@@ -948,10 +948,10 @@ mod tests {
         (file, trust)
     }
 
-    /// kmscon.conf's caps with `head_cap` and the default total, and frits
+    /// vtium.conf's caps with `head_cap` and the default total, and frits
     /// nowhere.
-    fn caps(head_cap: u32) -> Kmscon<'static> {
-        Kmscon {
+    fn caps(head_cap: u32) -> Settings<'static> {
+        Settings {
             head_cap,
             total: vtium_config::CONSOLES_TOTAL_DEFAULT,
             frits: Path::new("/nonexistent/vtium/frits"),
@@ -1165,7 +1165,7 @@ mod tests {
         assert_eq!(verdict(&out, &f), [PARTLY_OPEN, PARTLY_UNSET_POLICY]);
     }
 
-    // ADR-1401 D10: a head's `consoles` past kmscon.conf's
+    // ADR-1401 D10: a head's `consoles` past vtium.conf's
     // `head-consoles-max` gets the cap, and counts against the file, once,
     // at its `consoles` line, past the hard cap of 50 too
     // covers: platform.heads.rules
@@ -1173,7 +1173,7 @@ mod tests {
     fn consoles_past_the_head_cap_count_against_the_file() {
         let past = |n: u32| {
             format!(
-                "The head \"a\" asks for more consoles than `head-consoles-max` allows, {n}, so it gets {n}. Lower its `consoles` to {n} or fewer, or raise `head-consoles-max` in kmscon.conf."
+                "The head \"a\" asks for more consoles than `head-consoles-max` allows, {n}, so it gets {n}. Lower its `consoles` to {n} or fewer, or raise `head-consoles-max` in vtium.conf."
             )
         };
         for (consoles, cap, want) in [
@@ -1193,22 +1193,22 @@ mod tests {
                 format!("version = 1\n[head a]\nconsoles = {consoles}\n[rules]\ndisplay * -> a\n");
             let (file, trust) = heads_fixture(&format!("cap-{consoles}-{cap}"), &text, 0o644);
             let f = file.display().to_string();
-            let kmscon = Kmscon {
+            let settings = Settings {
                 total: 64,
                 ..caps(cap)
             };
-            let out = head_file(&file, false, &trust, &machine(true), &kmscon);
+            let out = head_file(&file, false, &trust, &machine(true), &settings);
             std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
             let want: Vec<String> = want.iter().map(|w| format!("{f}:3: {w}")).collect();
             assert_eq!(out.counted, want, "consoles {consoles}, cap {cap}");
         }
     }
 
-    // ADR-1401 D10: with kmscon.conf's caps unset, check-config caps as the
+    // ADR-1401 D10: with vtium.conf's caps unset, check-config caps as the
     // seat does, 4 consoles a head and 8 in all
     #[test]
     fn the_caps_unset_are_the_seats() {
-        let k = Kmscon::of(&config::Config::default(), Path::new("/f"));
+        let k = Settings::of(&config::Config::default(), Path::new("/f"));
         assert_eq!((k.head_cap, k.total), (4, 8));
         assert_eq!(
             (k.head_cap, k.total),
@@ -1233,7 +1233,7 @@ mod tests {
         );
         let short = |line: usize, head: &str, gets: u32| {
             format!(
-                "{f}:{line}: The heads together ask for more consoles than `consoles-max` allows, 8, so the head \"{head}\" gets {gets}. Lower the heads' `consoles`, or raise `consoles-max` in kmscon.conf."
+                "{f}:{line}: The heads together ask for more consoles than `consoles-max` allows, 8, so the head \"{head}\" gets {gets}. Lower the heads' `consoles`, or raise `consoles-max` in vtium.conf."
             )
         };
         assert_eq!(out.counted, [short(5, "b", 3), short(7, "c", 1)]);
@@ -1250,13 +1250,13 @@ mod tests {
         let f = file.display().to_string();
         let frits = file.parent().unwrap().join("frits");
         std::fs::create_dir_all(&frits).unwrap();
-        let kmscon = Kmscon {
+        let settings = Settings {
             frits: &frits,
             ..caps(4)
         };
-        let missing = head_file(&file, false, &trust, &machine(true), &kmscon);
+        let missing = head_file(&file, false, &trust, &machine(true), &settings);
         std::fs::write(frits.join("desk.vtfrit"), "source=builtin:unifont\n").unwrap();
-        let installed = head_file(&file, false, &trust, &machine(true), &kmscon);
+        let installed = head_file(&file, false, &trust, &machine(true), &settings);
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
         let dir = frits.display();
         assert_eq!(
@@ -1823,7 +1823,7 @@ mod tests {
         let l = load(&[SUBCOMMAND, "/tmp/heads.conf"]);
         assert_eq!(l.candidate.as_deref(), Some(Path::new("/tmp/heads.conf")));
         assert!(l.reports.is_empty(), "{:?}", l.reports);
-        let l = load(&["-c", "/etc/kmscon", SUBCOMMAND, "a.conf", "b.conf"]);
+        let l = load(&["-c", "/etc/vtium", SUBCOMMAND, "a.conf", "b.conf"]);
         assert_eq!(l.candidate.as_deref(), Some(Path::new("a.conf")));
         assert_eq!(l.reports.len(), 1, "{:?}", l.reports);
         let l = load(&["a.conf", SUBCOMMAND]);

@@ -2253,7 +2253,7 @@ impl App {
     /// Natural scrolling, on or off (vtium/vtium#203): the wheel scrolls the
     /// view and reports to a program the other way, and the cursor keys
     /// mode 1007 sends reverse, while Ctrl's zoom keeps the wheel's own
-    /// direction. kmscon.conf's `natural-scrolling` sets it at the start.
+    /// direction. vtium.conf's `natural-scrolling` sets it at the start.
     pub fn set_natural_scrolling(&mut self, on: bool) {
         self.natural_scrolling = on;
     }
@@ -3832,7 +3832,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ADR-1401 D3: kmscon.conf's `mouse` off drops the pointer rules from
+    // ADR-1401 D3: vtium.conf's `mouse` off drops the pointer rules from
     // the shipped rules, so a mouse falls to `input * -> ignore` and is
     // never opened; a keyboard still follows the focus.
     #[test]
@@ -3870,7 +3870,7 @@ mod tests {
         );
     }
 
-    // ADR-1401 D3 and D7: kmscon.conf's `mouse` off reaches the shipped
+    // ADR-1401 D3 and D7: vtium.conf's `mouse` off reaches the shipped
     // rules' tail, which a partly broken open file's inputs walk after its
     // surviving rules: a pointer there is never opened, and a keyboard
     // still roams.
@@ -4036,7 +4036,7 @@ mod tests {
         assert_eq!(rang(&mut app), Some(1));
     }
 
-    // ADR-1401 D2, the maintainer's answer of 2026-11-01: kmscon.conf's
+    // ADR-1401 D2, the maintainer's answer of 2026-11-01: vtium.conf's
     // `display-buffers` sets how many buffers each DRM display the seat
     // opens keeps, from the file and from the command line; unset, the
     // build's count
@@ -4047,7 +4047,7 @@ mod tests {
             let args: Vec<OsString> = args.iter().map(OsString::from).collect();
             let loaded = crate::config::load(&args, None, &mut |p: &Path| {
                 Ok(file
-                    .filter(|_| p == Path::new("/etc/kmscon/kmscon.conf"))
+                    .filter(|_| p == Path::new("/etc/vtium/vtium.conf"))
                     .map(<[u8]>::to_vec))
             });
             assert_eq!(loaded.reports, [], "{args:?}");
@@ -4079,7 +4079,7 @@ mod tests {
         );
     }
 
-    // vtium/vtium#203: kmscon.conf's `natural-scrolling`, off by default
+    // vtium/vtium#203: vtium.conf's `natural-scrolling`, off by default
     // as the C reference had it (src/config.c:1386), turns the seat's
     // natural scrolling on, from the file and from the command line
     #[test]
@@ -4088,7 +4088,7 @@ mod tests {
             let args: Vec<OsString> = args.iter().map(OsString::from).collect();
             let loaded = crate::config::load(&args, None, &mut |p: &Path| {
                 Ok(file
-                    .filter(|_| p == Path::new("/etc/kmscon/kmscon.conf"))
+                    .filter(|_| p == Path::new("/etc/vtium/vtium.conf"))
                     .map(<[u8]>::to_vec))
             });
             assert_eq!(loaded.reports, [], "{args:?}");

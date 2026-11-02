@@ -3,7 +3,7 @@
 //! any keyboard, so once the start has read a closed policy vtium writes
 //! `/run/vtium/ttyN.closed` for its VT, and under any other policy it
 //! removes that file, which an earlier closed run of this boot may have
-//! left. The fallback unit, `kmsconvt-getty@.service`, skips the getty
+//! left. The fallback unit, `vtium-getty@.service`, skips the getty
 //! while the file exists, so a hangup, a session that cannot spawn or a
 //! panic under closed leave the VT with no login. vtium never reads the
 //! file.
@@ -241,9 +241,9 @@ mod tests {
     // covers: platform.heads.policy
     #[test]
     fn the_units_skip_the_getty_on_the_file_mark_writes() {
-        let vt = include_str!("../install/kmsconvt@.service");
-        let fallback = include_str!("../install/kmsconvt-getty@.service");
-        assert_eq!(setting(vt, "OnFailure"), Some("kmsconvt-getty@%i.service"));
+        let vt = include_str!("../install/vtium@.service");
+        let fallback = include_str!("../install/vtium-getty@.service");
+        assert_eq!(setting(vt, "OnFailure"), Some("vtium-getty@%i.service"));
         let marker = path(Path::new(DIR), 7);
         let marker = marker.to_str().unwrap().replace("tty7", "%i");
         assert_eq!(
