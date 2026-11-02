@@ -984,16 +984,37 @@ display card:mem-large -> off
 }
 
 /// D2: one render thread per head. The slow head, first in the file,
-/// takes 3 s to compose each frame once a stand-in slows it; while it
-/// composes a frame, a key reaches the session of the fast head, which
-/// holds the focus, and the fast head's display shows its echo, both
-/// within a second. The slow head's frame comes once it is composed.
+/// composes no frame past a gate the test holds closed; while its frame
+/// waits there, a key reaches the session of the fast head, which holds
+/// the focus, and the fast head's display shows its echo. The slow head's
+/// frame comes once the test opens the gate. The order is set by the
+/// gate, and each wait is bounded only so the test fails instead of
+/// hanging.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the stand-in's slow draw is a sleep"
-)]
 fn a_slow_head_delays_neither_another_heads_frame_nor_input() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
+    /// The gate a frame of the slow head waits at, open once the test
+    /// opens it or drops it, so a failing test never leaves a render
+    /// thread waiting.
+    struct Gate {
+        open: Mutex<bool>,
+        opened: Condvar,
+        /// A frame stopped waiting before the gate opened.
+        expired: AtomicBool,
+    }
+    impl Gate {
+        fn open(&self) {
+            *self.open.lock().expect("the gate") = true;
+            self.opened.notify_all();
+        }
+    }
+    struct Opens(Arc<Gate>);
+    impl Drop for Opens {
+        fn drop(&mut self) {
+            self.0.open();
+        }
+    }
     let heads = "version = 1
 [head slow]
 [head fast]
@@ -1013,13 +1034,37 @@ input class:keyboard -> roaming
         s.until(SECOND, |a| a.head("fast").is_some_and(Head::started)),
         "the fast head's session runs"
     );
-    let slow = Duration::from_secs(3);
+    // A frame the slow head composed before the gate would come past it,
+    // so the gate goes in once no frame of the slow head is out, with no
+    // turn between, and every later frame of the slow head waits at it.
+    assert!(
+        s.until(BOUND, |a| a
+            .head("slow")
+            .is_some_and(|h| h.frames_out() == 0)),
+        "no frame of the slow head is out"
+    );
+    let gate = Arc::new(Gate {
+        open: Mutex::new(false),
+        opened: Condvar::new(),
+        expired: AtomicBool::new(false),
+    });
+    let held = Arc::clone(&gate);
     s.app.set_draw_hook(
         "slow",
-        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
+        Some(Arc::new(move || {
+            let open = held.open.lock().expect("the gate");
+            let (open, waited) = held
+                .opened
+                .wait_timeout_while(open, 3 * BOUND, |open| !*open)
+                .expect("the gate");
+            drop(open);
+            if waited.timed_out() {
+                held.expired.store(true, Ordering::SeqCst);
+            }
+        })),
     );
+    let _opens = Opens(Arc::clone(&gate));
     let (slow_before, fast_before) = (s.memory("/dev/mem0").frames, s.memory("/dev/mem1").frames);
-    let started = now();
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
     assert!(
         s.until(BOUND, |a| a
@@ -1036,22 +1081,20 @@ input class:keyboard -> roaming
         s.until_memory("/dev/mem1", SECOND, |m| m.frames > fast_before),
         "the fast head drew"
     );
-    let fast = now() - started;
     assert_eq!(
         s.memory("/dev/mem0").frames,
         slow_before,
-        "the slow head's frame is still composing"
+        "the slow head's frame is still held at the gate"
+    );
+    gate.open();
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > slow_before),
+        "the slow head's frame comes once the gate opens"
     );
     assert!(
-        fast < Duration::from_secs(1),
-        "the key and the fast head's frame waited on the slow head: {fast:?}"
+        !gate.expired.load(Ordering::SeqCst),
+        "a frame of the slow head stopped waiting before the gate opened"
     );
-    assert!(
-        s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.frames
-            > slow_before),
-        "the slow head's frame comes"
-    );
-    assert!(now() - started >= slow, "after its slow compose");
 }
 
 /// Two heads, `desk` on the large display and `panel` on the small one,
@@ -2094,7 +2137,10 @@ fn under_osd_full_opening_and_closing_a_console_shows_the_new_count() {
 }
 
 /// D5: closing the shown console gives mode 1004's focus to the console
-/// shown next.
+/// shown next. Turning mode 1004 on reports nothing, as in the C
+/// reference, so the keyboard comes, and the switch is pressed, only once
+/// both sessions have printed their ids, which they print after they turn
+/// the mode on: a focus given before then is never reported.
 // covers: platform.heads
 #[test]
 fn closing_a_console_gives_the_console_shown_next_the_focus() {
@@ -2108,6 +2154,10 @@ fn closing_a_console_gives_the_console_shown_next_the_focus() {
         ),
     ];
     let mut s = Seat::with_heads(&[], Some(&claimed_consoles(2)), displays, script);
+    assert!(
+        s.until(SECOND, |a| told_ids(a, "small").iter().all(Option::is_some)),
+        "both sessions turned mode 1004 on"
+    );
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     let (focus_in, focus_out) = ("1b 5b 49", "1b 5b 4f");
     assert!(s.until(SECOND, |a| head_shows(a, "small", focus_in)));
@@ -5244,6 +5294,11 @@ fn with_no_keyboard_at_start_the_notice_says_so() {
 /// The operator's answers (2026-10-30) and D7: an ended head's notice
 /// stays and keeps no time, so once 30 s have passed the loop still
 /// sleeps, where a timer left in the past would wake it at once forever.
+/// The loop turns 400 times, 1 ms apart, and is asked when it next wakes
+/// at the instant of its last turn: every timer due by then has fired and
+/// moved on in that turn, so a wake of zero is a timer left in the past.
+/// Asked even 1 ms later, a blink timer that falls due in that gap is
+/// rightly due at once.
 #[test]
 fn an_ended_heads_notice_leaves_the_loop_asleep() {
     let mut s = claimed_with(&["--oneshot"]);
@@ -5251,10 +5306,11 @@ fn an_ended_heads_notice_leaves_the_loop_asleep() {
     assert!(s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)));
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)));
     let t = now() + Duration::from_secs(31);
+    let last = t + Duration::from_millis(399);
     for i in 0..400u64 {
         s.app.turn(t + Duration::from_millis(i));
     }
-    let wake = s.app.next_wake(t + Duration::from_millis(400));
+    let wake = s.app.next_wake(last);
     assert!(wake.is_none_or(|w| w > Duration::ZERO), "spins: {wake:?}");
     assert_eq!(notice(&s.app, "small").as_deref(), Some(ENDED));
 }
