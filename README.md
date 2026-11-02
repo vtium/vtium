@@ -14,13 +14,13 @@ It is written in Rust. Its behaviour is judged against the C reference, the main
 
 ## Status
 
-vtium has no release yet. A checkout builds and runs everything on this page except these, which are designed and landing:
+vtium's first release is the pre-release v0.1.0-alpha.1. A checkout builds and runs everything on this page except these, which are designed and landing:
 
-- **Pictures:** sixel, kitty graphics and iTerm2 inline images, decided in [ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md). The `vtium-image` crate holds no code yet.
+- **Pictures:** sixel, kitty graphics and iTerm2 inline images, decided in [ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md). In a build with the `images` feature, the `vtium-image` crate decodes sixel and kitty graphics sent as pixels, its handlers place them in each console's store, and the CPU compositor draws them. The image helper, the separate program that decodes files, shared memory, PNG and zlib ([ADR-1101](docs/architecture/image/ADR-1101-the-image-helper-is-its-own-sandboxed-program-run-as-the-session-s-user.md)), is not built yet, so vtium answers each such request as it would with no helper running. iTerm2 inline images have no handler yet.
 - **The GPU renderer,** on glow over EGL and GBM ([the GPU path's issue](https://github.com/vtium/vtium/issues/33)). Today every build draws on the CPU.
 - **libseat,** for seat access through seatd or logind ([the libseat issue](https://github.com/vtium/vtium/issues/34)). Today vtium opens the VT, the cards and the input devices itself, as root.
 - **Handing the display back without a VT switch,** through the `setBackground` sequence ([the hand-back issue](https://github.com/vtium/vtium/issues/36)).
-- **Links and prompt marks in the console:** the terminal keeps OSC 8 links and OSC 133 prompt marks today, and the console does not yet show a link's address, copy it on Ctrl+click, or move the view from prompt to prompt ([ADR-1002](docs/architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
+- **Showing links in the console:** Ctrl+click copies an OSC 8 link's address, and Ctrl+Shift+Up and Ctrl+Shift+Down move the view between the prompts OSC 133 marks. The renderer does not yet draw the dashed underline under the link the pointer is over, or the overlay row that shows its address while Ctrl is held ([ADR-1002](docs/architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
 
 Also not built yet: glyph ink reaching into the next cell ([ADR-1302](docs/architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md), decided), ligatures and shaping across cells, the bold and italic faces of outline fonts, the kitty keyboard protocol, bidirectional text, input methods, `vtiumctl`, the font builder and preview (`vtium-vitrify new` and `preview`), `vtium-clipboard`, and reloading the head file without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
 
@@ -80,7 +80,7 @@ vtium shows pictures that programs send with sixel and the kitty graphics protoc
 - vtium draws 24-bit color, the 256-color palette and named palettes. It draws bold, faint, strike, blink and reverse, and underline in five styles (single, double, curly, dotted, dashed), each in a color of its own.
 - It cuts Unicode text into extended grapheme clusters, draws wide characters and emoji presentation, and uses the codepoint-width method when a program resets mode 2027.
 - It reports the mouse (modes 9, 1000, 1002 and 1003, in the SGR, urxvt and pixel encodings), focus, bracketed pastes and in-band resizes (mode 2048), and holds frames for synchronized output (mode 2026).
-- It keeps OSC 8 links and OSC 133 prompt marks. It will show a link's address and copy it on Ctrl+click, never opening it, and move the view from prompt to prompt; that part is landing ([Status](#status)).
+- It keeps OSC 8 links and OSC 133 prompt marks. Ctrl+click copies a link's address, never opening it, and the view moves from prompt to prompt. Showing a link's address on screen is landing ([Status](#status)).
 - Programs set, query and reset colors with OSC 4, 10, 11 and 12, and with xterm's and kitty's color stacks. vtium carries out DEC's rectangular area operations, character protection, XTSAVE and XTRESTORE, and answers XTGETTCAP, XTVERSION and DECRQM.
 - A reply to a query is built from vtium's own state. It never repeats bytes the program sent, so text a program prints cannot type into the program reading the replies.
 
@@ -121,7 +121,7 @@ These are the other ways to get a terminal on a Linux console without a display 
 | fbterm 1.7 | fbdev, or a VESA video card | 256, through its own private sequences under `TERM=fbterm` | fontconfig and FreeType | none listed | 1.7, 2010-10-06 |
 | yaft 0.2.9 | fbdev at 8 to 32 bits per pixel, on Linux and FreeBSD, and on NetBSD and OpenBSD as experimental | 256 | BDF fonts converted into its source when it is built | sixel and DRCS, marked experimental | tag v0.2.9; last commit 2018-11-14 |
 | fbpad | Linux fbdev | 256 | its own tinyfont format and PSF2 | none listed | last commit 2026-10-23 |
-| vtium | KMS/DRM dumb buffers on the CPU or through the GPU, or fbdev | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | sixel, kitty graphics and iTerm2 inline images | none yet |
+| vtium | KMS/DRM dumb buffers on the CPU or through the GPU, or fbdev | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | sixel, kitty graphics and iTerm2 inline images | 0.1.0-alpha.1, a pre-release |
 
 Sources, one per row:
 
