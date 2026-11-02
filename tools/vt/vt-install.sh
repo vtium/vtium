@@ -64,6 +64,9 @@ done
 [ "$vt" != 1 ] || die "VT 1 is refused: it holds the boot's messages and its first login, and a VT that comes back wrong there leaves no console to fix it from"
 [ "$vt" -ge 2 ] && [ "$vt" -le 12 ] || die "VT must be a number from 2 to 12, not '$vt'"
 
+# It asks sudo for each step that needs root, and prints each one first.
+[ "$(id -u)" -ne 0 ] || die "run it as yourself, not as root or under sudo; it asks sudo for each step that needs root"
+
 standins=${VTIUM_VT_STANDINS:-}
 src=$checkout/crates/vtium/install
 if [ -n "$standins" ]; then

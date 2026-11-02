@@ -226,6 +226,14 @@ vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers
 # "Installing vtium on a VT"): VT=N names it, and DRY_RUN=1 prints the units
 # and every command without running any. Their variables reach
 # tools/vt/vt-install.sh through the environment, never as recipe text.
+# Run as root, the build would leave root's files in target/, and the
+# script asks sudo for each step that needs root, so root is refused before
+# anything is built.
+ifneq ($(filter $(VT_INSTALL_GOALS),$(MAKECMDGOALS)),)
+ifeq ($(shell id -u),0)
+$(error $(firstword $(filter $(VT_INSTALL_GOALS),$(MAKECMDGOALS))): run it as yourself, not as root or under sudo; it asks sudo for each step that needs root)
+endif
+endif
 $(VT_INSTALL_GOALS): export VTIUM_VT_BIN = $(value VTIUM_BIN)
 $(VT_INSTALL_GOALS): export VTIUM_VT_NR = $(value VT)
 $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)

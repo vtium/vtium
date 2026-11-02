@@ -105,7 +105,7 @@ The C reference's first guided run left lessons the guides keep:
 
 ## Installing vtium on a VT
 
-`make vt-install VT=N` makes vtium the console of VT N of this machine, in place of its getty, and it stays there across reboots until `make vt-uninstall VT=N`. A run of `make vt-check` or `make vt-shell` borrows a VT for one session and gives it back; an installed vtium is the one the maintainer uses every day. Both targets need sudo, which asks for the password in the terminal they run in.
+`make vt-install VT=N` makes vtium the console of VT N of this machine, in place of its getty, and it stays there across reboots until `make vt-uninstall VT=N`. A run of `make vt-check` or `make vt-shell` borrows a VT for one session and gives it back; an installed vtium is the one the maintainer uses every day. Run both as yourself, never as root or under sudo: each refuses root before it builds anything, and asks sudo for each step that needs root, so sudo asks for the password in the terminal they run in.
 
 ```sh
 make vt-install VT=3 DRY_RUN=1   # print the units it would write and every command; run none

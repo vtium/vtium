@@ -1465,6 +1465,24 @@ class Install(Case):
         self.assertEqual(self.s.changes(), [])
         self.assertTrue(os.path.exists(self.at(self.BIN)))
 
+    def test_root_is_refused_before_the_build(self):
+        # A stand-in id says uid 0 for -u, as under sudo.
+        write(os.path.join(self.s.standins, "id"), "#!/bin/bash\n"
+              f'[ "$1" != -u ] || {{ echo 0; exit; }}\nexec {shutil.which("id")!r} "$@"\n')
+        for target in ("vt-install", "vt-uninstall"):
+            with self.subTest(target=target):
+                open(self.s.calls, "w").close()
+                p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, target, "VT=4", "DRY_RUN=1"],
+                                   env=self.s.env(), capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(f"{target}: run it as yourself, not as root", p.stderr)
+                self.assertEqual(self.s.calls_of("cargo"), [])
+                self.assertEqual(self.s.calls_of("sudo"), [])
+        # Run by hand as root, the script refuses as well.
+        p = self.vt_install("install", "--dry-run", "4")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("run it as yourself, not as root", p.stderr)
+
     def test_make_runs_it_with_the_binary_named_and_no_build(self):
         make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, *a],
                                               env=self.s.env(**e), capture_output=True, text=True, timeout=30)
