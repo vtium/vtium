@@ -10,7 +10,7 @@
 *	insert-wide-one-column	departure	crates/vtium-term/README.md	A line keeps 6 bytes of clusters a cell (ADR-1001's cluster budget),
 *	utf8-ill-formed	departure	crates/vtium-parse/README.md	C1 controls do nothing in UTF-8 mode.
 *	host-palette	departure	INTERFACE.md	The C reference erased the screen and reset the current attributes when a palette was chosen; `host-palette` records it, and an implementation may list it as a departure.
-*	host-identify	pending	#48	the sixel test command; the case also differs by DA1 and by XTGETTCAP's uppercase names, crates/vtium-term/README.md
+*	host-identify	pending	#49	the sixel test command; the case also differs by DA1 and by XTGETTCAP's uppercase names, crates/vtium-term/README.md
 *	img-alt-1049	pending	#48	sixel
 *	img-alt-47	pending	#48	sixel
 *	img-dch	pending	#48	sixel
@@ -42,7 +42,6 @@
 *	kit-cursor	departure	crates/vtium-term/README.md	DECSTBM homes the cursor, and an omitted bottom margin is the last row.
 *	kit-delete-sb	pending	#48	the case places a sixel, which the sixel handler draws
 *	kit-evict	pending	#48	the case places a sixel, which the sixel handler draws
-*	kit-host-errors	pending	#49	the fixture host answers a picture past the request's largest as OK, where a helper answers TOO_LARGE or OVER_BUDGET
 *	kit-host-icat	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
 *	kit-host-icat-nohook	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
 *	kit-replace-refused	pending	#48	the case places a sixel, which the sixel handler draws
