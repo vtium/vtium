@@ -139,12 +139,12 @@ vtium ships its own terminfo entry, `xterm-vtium` (`crates/vtium/install/xterm-v
 - **The name starts with `xterm-`,** because programs that do not know a terminal recognize an xterm-like one by that prefix and turn on what such a terminal has: mc, for one, turns its mouse on.
 - **The entry reports the mouse in SGR form,** `kmous=\E[<` with mode 1006 (DEC-1006), so a click past column 223 reports its column. The `kmscon` entry that the kmscon-terminfo package ships reports the mouse in X10 form, which stops at column 223.
 - **The `term` key keeps any other name available.** `--term=kmscon` names the C reference's entry, for programs that know it, and `--term=xterm-kitty` will name kitty's entry once kitty graphics land.
-- **vtium answers XTGETTCAP only under its own name.** Its table is generated from `xterm-vtium` and describes that entry alone, so while the session's `TERM` is any other name, `kmscon` included, every capability XTGETTCAP asks for is unknown. The C reference answered only under its own entry's name, `kmscon`, and vtium follows that flow.
+- **XTGETTCAP answers from the table of the entry `TERM` names.** The C reference answered from its own table while the session's `TERM` was its entry's name, `kmscon`, and vtium follows that flow for each entry it has a table for. Under `xterm-vtium` it answers from the table generated from vtium's entry. Under `kmscon` it answers from the C reference's table, generated from the C reference's entry with `Ms` (`crates/vtium/install/kmscon.ti`), which the C reference's capability probe judges. Under any other name every capability XTGETTCAP asks for is unknown.
 - **Each session also gets `TERM_PROGRAM=vtium` and `TERM_PROGRAM_VERSION`,** vtium's version, which name the terminal whatever `TERM` names.
 
 The C reference's default `TERM` was `kmscon`; vtium lists its own default as a departure in `crates/vtium/README.md`. vtium ships only the `xterm-vtium` entry, and a machine that keeps the `kmscon` name takes its entry from the kmscon-terminfo package.
 
-> Edited 2026-11-01: the maintainer's decision on vtium's terminal name (`considered`, 2026-11-01) adds this section. Until then vtium's entry was named `kmscon`, `TERM` defaulted to `kmscon`, and the XTGETTCAP table answered under every `TERM`.
+> Edited 2026-11-01: the maintainer's decision on vtium's terminal name (`considered`, 2026-11-01) adds this section. Until then vtium's entry was named `kmscon`, `TERM` defaulted to `kmscon`, and the XTGETTCAP table, the C reference's, answered under every `TERM`.
 
 ### The tables as data
 
