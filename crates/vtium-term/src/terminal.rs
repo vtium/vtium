@@ -780,6 +780,12 @@ impl State {
                 _ => {}
             },
             b'r' => s.set_margins(Self::param(params, 0), Self::param(params, 1)),
+            // SCOSC and SCORC, `CSI s` and `CSI u` with no parameter, save
+            // and restore the cursor as DECSC and DECRC do (ctlseqs). vtium
+            // has no left and right margins yet (#55), so DECLRMM is reset
+            // and `CSI s` is always SCOSC.
+            b's' if params.count() == 1 && params.get(0).is_none() => self.save_cursor(),
+            b'u' if params.count() == 1 && params.get(0).is_none() => self.restore_cursor(),
             b'h' => self.set_modes(params, false, true),
             b'l' => self.set_modes(params, false, false),
             b'm' => sgr::apply(&mut self.screen, params),
