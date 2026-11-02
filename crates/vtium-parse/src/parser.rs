@@ -431,7 +431,11 @@ impl Parser {
                     let n = rest.iter().take_while(|&&b| is_run(b)).count();
                     let (run, after) = rest.split_at_checked(n).unwrap_or((rest, &[]));
                     if self.state == State::DcsPass {
-                        self.dcs_collect_run(consumer, run);
+                        let taken = self.dcs_collect_run(consumer, run);
+                        if taken > 0 && taken < run.len() && consumer.paused() {
+                            rest = rest.get(taken..).unwrap_or_default();
+                            break;
+                        }
                     } else {
                         consumer.apc_put(Chunk::Bytes(run));
                     }
@@ -700,15 +704,18 @@ impl Parser {
 
     /// Collects a run of [`dcs_run_byte`]s at once, as the C reference's
     /// sixel fast path takes them (tsm-vte-image.c:376-398).
-    fn dcs_collect_run<C: Consumer>(&mut self, consumer: &mut C, run: &[u8]) {
+    /// Returns how many of the run's bytes the consumer took: all of them
+    /// unless it stopped at a bound inside the run.
+    fn dcs_collect_run<C: Consumer>(&mut self, consumer: &mut C, run: &[u8]) -> usize {
         match self.dcs {
-            Dcs::Hooked => consumer.dcs_put(Chunk::Bytes(run)),
+            Dcs::Hooked => consumer.dcs_put_run(run),
             Dcs::Xtgettcap => {
                 for &b in run {
                     self.tcap_push(b);
                 }
+                run.len()
             }
-            Dcs::None => {}
+            Dcs::None => run.len(),
         }
     }
 

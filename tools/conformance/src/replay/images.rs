@@ -129,6 +129,7 @@ impl Images {
             id: if i.kitty { i.id } else { 0 },
             number: 0,
             transient: i.transient,
+            opaque: None,
         };
         let key = term.screen_mut().add_image(image).map_err(|e| e.errno())?;
         if let Some(slot) = self.made.get_mut(n) {
@@ -204,15 +205,14 @@ mod tests {
 
     #[test]
     fn the_handlers_read_a_dcs_q_and_an_apc_g_string() {
-        // the sixel handler reads a string and changes nothing until the
-        // sixel work fills it in
-        let sixel = b"\x1bPq#0;2;100;0;0#0~~~~-~~\x1b\\";
+        // the sixel handler draws its picture at the cursor
         let mut t = host();
         t.input(b"ab");
-        let before = t.screen().clone();
-        t.input(sixel);
+        t.input(b"\x1bPq#0;2;100;0;0#0~~~~-~~\x1b\\");
         assert!(t.screen().images().work() > 0, "the sixel handler read it");
-        assert!(*t.screen() == before, "the sixel string changed the screen");
+        let placed = t.screen().placements();
+        assert_eq!(placed.len(), 1);
+        assert_eq!((placed[0].col, placed[0].image_width), (2, 4));
         assert!(t.replies().is_empty());
         // the kitty handler places the picture an APC G string sends, and
         // answers nothing for an image without an id

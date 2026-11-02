@@ -949,6 +949,7 @@ impl Consumer for State {
             (Some(b'?'), [], b'n') if params.get(0) == Some(6) => self.reply_cursor(true),
             (Some(b'?'), [], b'n') if params.get(0) == Some(996) => self.reply_scheme(),
             (Some(b'?'), [], b'n') if params.get(0) == Some(998) => self.reply_visibility(),
+            (Some(b'?'), [], b'S') => self.reply_xtsmgraphics(params),
             (Some(b'>'), [], b'm') if !params.has_subparams() => {
                 self.set_modify_other_keys(params);
             }
@@ -1013,6 +1014,15 @@ impl Consumer for State {
             },
             _ => Dcs::Ignored,
         };
+    }
+
+    fn dcs_put_run(&mut self, run: &[u8]) -> usize {
+        #[cfg(feature = "images")]
+        if self.dcs == Dcs::Image {
+            return self.image_put_run(run);
+        }
+        self.dcs_put(Chunk::Bytes(run));
+        run.len()
     }
 
     fn dcs_put(&mut self, data: Chunk<'_>) {

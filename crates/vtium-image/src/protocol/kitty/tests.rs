@@ -780,6 +780,7 @@ fn point_deletes_take_kitty_placements_and_leave_a_sixel_beside_them() {
         id: 0,
         number: 0,
         transient: false,
+        opaque: None,
     };
     let key = h.store.add_image(sixel, None, screens).unwrap();
     let at = crate::Place::default();

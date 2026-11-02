@@ -369,11 +369,11 @@ pub const TERM: Key = Key {
     name: "term",
     short: Some('t'),
     kind: Kind::Text,
-    default: Default::Text("kmscon"),
+    default: Default::Text(crate::termcap::NAME),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "`TERM` in the session's environment.",
-    cite: "src/config.c:1368; meson.options:51-52",
+    what: "`TERM` in the session's environment. The default names vtium's own terminfo entry, and XTGETTCAP answers from that entry's capabilities; `kmscon` names the C reference's entry, and XTGETTCAP answers from the C reference's. Under any other name every name XTGETTCAP asks for is unknown.",
+    cite: "src/config.c:1368; meson.options:51-52; src/terminal_vte.c:36-56; ADR-1000, \"The terminfo entry and TERM\"",
 };
 
 pub const RESET_ENV: Key = Key {
@@ -1048,6 +1048,28 @@ pub const FONT_NAME: Key = Key {
     cite: "src/config.c:1424; ADR-1200 (D9); vtium/vtium#126",
 };
 
+pub const FONT_FRITS: Key = Key {
+    name: "font-frits",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Text(crate::font::FRITS),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The directory of the frits, the `NAME.vtfrit` files that `font-name` and a head's profile name. The default is the directory vtium was built with.",
+    cite: "ADR-1200 (D1, D15); the maintainer's decision of 2026-11-01",
+};
+
+pub const FONT_HELPER: Key = Key {
+    name: "font-helper",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Text(crate::helper::PROGRAM),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why and draws its built-in font. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with.",
+    cite: "ADR-1200 (D15); the maintainer's decision of 2026-11-01",
+};
+
 pub const FONT_SIZE: Key = Key {
     name: "font-size",
     short: None,
@@ -1285,7 +1307,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 96] = [
+pub const KEYS: [Key; 98] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1366,6 +1388,8 @@ pub const KEYS: [Key; 96] = [
     GRAB_SUSPEND,
     FONT_ENGINE,
     FONT_NAME,
+    FONT_FRITS,
+    FONT_HELPER,
     FONT_SIZE,
     FONT_HINTING,
     FONT_LINE_SPACING,

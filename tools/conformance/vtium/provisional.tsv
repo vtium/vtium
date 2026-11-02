@@ -1,0 +1,2 @@
+# The cases of cases.list whose goldens wait for the maintainer's review: CASE<TAB>REASON.
+sixel-over	vtium's per-cell sixel coverage and its reading of a hidden piece; not reviewed yet

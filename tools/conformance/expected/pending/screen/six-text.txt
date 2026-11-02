@@ -1,8 +1,0 @@
-size 12x4
-cursor 0,2
-flags AUTO_WRAP
-reply 1b5b333b3152
-row 0 | ab|
-row 1 ||
-row 2 |under|
-row 3 ||

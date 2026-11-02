@@ -226,6 +226,7 @@ mod tests {
             id,
             number,
             transient: false,
+            opaque: None,
         };
         s.add_image(new, None, f.screens()).expect("stored")
     }
@@ -453,6 +454,7 @@ mod tests {
             id: 5,
             number: 0,
             transient: false,
+            opaque: None,
         };
         let key = s.add_image(tall, None, f.screens()).expect("stored");
         put(&mut s, &f, key, 0, 0, 0, 0);

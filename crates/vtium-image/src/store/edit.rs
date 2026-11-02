@@ -106,6 +106,28 @@ impl<'a> Edit<'a> {
         self.store.place(image, place, self.screens, self.cols)
     }
 
+    /// The buffer of the image the store freed last, to fill again, when it
+    /// holds `len` pixels and no frame still holds it: a handler that
+    /// receives frame after frame of one size, as kitty's video does, takes
+    /// it in place of a new allocation, and the kernel neither maps nor
+    /// zeroes new pages for it. Its contents are the old image's. It counts
+    /// toward nothing until the handler stores it again, after reserving
+    /// its bytes as for any image (D5).
+    pub fn take_spare(&mut self, len: usize) -> Option<Vec<u32>> {
+        let spare = self.store.spare.take()?;
+        if spare.as_slice().len() != len {
+            self.store.spare = Some(spare);
+            return None;
+        }
+        match spare.into_vec() {
+            Ok(buffer) => Some(buffer),
+            Err(held) => {
+                self.store.spare = Some(held);
+                None
+            }
+        }
+    }
+
     /// The box of a placement of the buffer in use, in columns and rows,
     /// which the cursor rules after a placement read.
     pub fn extent(&self, placement: PlacementKey) -> Option<(u32, u32)> {

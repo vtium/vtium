@@ -630,6 +630,7 @@ fn store(
         id,
         number: cmd.number,
         transient: cmd.hints & 1 != 0,
+        opaque: None,
     };
     let key = match ctx.add_image(image, Some(reservation)) {
         Ok(key) => key,

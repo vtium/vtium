@@ -229,6 +229,18 @@ pub trait Handler: core::fmt::Debug {
     /// Its data, in the pieces the parser hands out as they arrive; an OSC
     /// string comes whole, in one call.
     fn feed(&mut self, ctx: &mut dyn Context, data: Chunk<'_>);
+    /// A run of a DCS string's data, of which the handler may take only the
+    /// first bytes, as many as do `work_left` of work or the byte that
+    /// passes it (D5), and returns how many it took, at least one of a
+    /// run that is not empty. The input call stops there, once the work
+    /// reaches its bound, and the rest of the run comes in the next call.
+    /// The default takes the whole run through [`feed`](Self::feed), so a
+    /// handler that decodes little for each byte need not implement it.
+    fn feed_some(&mut self, ctx: &mut dyn Context, run: &[u8], work_left: u64) -> usize {
+        let _ = work_left;
+        self.feed(ctx, Chunk::Bytes(run));
+        run.len()
+    }
     /// The string ended with its terminator: place the picture, or make a
     /// request, and reply.
     fn finish(&mut self, ctx: &mut dyn Context);
