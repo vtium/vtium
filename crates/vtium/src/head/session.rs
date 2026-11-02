@@ -201,6 +201,23 @@ impl Head {
         id
     }
 
+    /// Takes back the console the open chord just opened and shows, whose
+    /// session could not start: it leaves the head, which shows the console
+    /// before it, the one it showed before the chord, and the console that
+    /// leaves is told nothing.
+    pub(crate) fn withdraw_shown(&mut self, visible: bool) {
+        let Some(before) = self.at.checked_sub(1) else {
+            return;
+        };
+        if before >= self.hidden.len() {
+            return;
+        }
+        let previous = self.hidden.remove(before);
+        drop(self.swap_shown(previous, visible, true));
+        self.at = before;
+        self.compose_notices();
+    }
+
     /// Closes the console shown (ADR-1401 D5): its pty closes, so its
     /// programs get SIGHUP, and the head shows the console after it, or
     /// the first when it was the last. The head's last console never

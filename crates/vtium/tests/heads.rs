@@ -1536,6 +1536,53 @@ fn closing_a_console_hangs_up_its_session_alone() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// D5 and binary-review's finding 2: a session the open chord cannot
+/// start leaves the run alive, as the C reference ignored a terminal that
+/// would not open (`src/terminal.c:1771-1772`, `src/seat.c:624-628`). The
+/// console that could not start leaves the head, which shows the console it
+/// showed before, and the top of the head says so; the other sessions run
+/// on. The head's login here is a script removed once the first console's
+/// session has started, so the second cannot start.
+// covers: platform.heads
+#[test]
+fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("vtium-heads-unstartable-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let login = dir.join("login");
+    std::fs::write(
+        &login,
+        "#!/bin/sh\necho ready; while read a; do echo \"got:$a\"; done\n",
+    )
+    .expect("the login");
+    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    let heads = CLAIMED.replace(
+        "[head small]\n",
+        &format!("[head small]\nlogin = {}\n", login.display()),
+    );
+    let mut s = claimed_on(&[], &heads);
+    std::fs::remove_file(&login).expect("the login removed");
+    press_chord(&mut s, KBD_SMALL, RETURN);
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "the console left");
+    let line = Some("No console opened: its login could not start.");
+    assert!(
+        s.until(SECOND, |a| a.head("small").and_then(Head::status) == line),
+        "the line at the top of the head: {:?}",
+        s.app.head("small").and_then(Head::status)
+    );
+    s.type_on(KBD_SMALL, "on\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:on")),
+        "the first console's session runs on"
+    );
+    s.type_on(KBD_LARGE, "on\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "large", "got:on")));
+    assert_eq!(s.app.finished(), None, "vtium runs on");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// D5, the maintainer's answer of 2026-11-01: on a head's last console
 /// Ctrl-Super-Backspace closes nothing and reaches no session.
 // covers: platform.heads

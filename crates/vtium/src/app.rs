@@ -705,10 +705,21 @@ impl App {
     }
 
     /// Starts the session of head `h`'s console `id`, unless a crash loop
-    /// stopped every head under the closed policy (ADR-1401 D1).
+    /// stopped every head under the closed policy (ADR-1401 D1). A session
+    /// that cannot start ends vtium, so the unit's getty fallback takes the
+    /// VT.
     fn spawn(&mut self, h: usize, id: u64) {
+        if let Err(why) = self.start_session(h, id) {
+            log::error!("{why}");
+            self.request_exit(Exit::Spawn);
+        }
+    }
+
+    /// Starts the session of head `h`'s console `id`, as [`App::spawn`]
+    /// does; the error is why it cannot start, for the caller to act on.
+    fn start_session(&mut self, h: usize, id: u64) -> Result<(), String> {
         if self.stopped {
-            return;
+            return Ok(());
         }
         let config = self
             .heads
@@ -716,39 +727,26 @@ impl App {
             .and_then(|head| head.login.as_ref())
             .unwrap_or(&self.config);
         let spec = child::child(config, &self.place(h, id), self.inherited.clone());
-        let Some(command) = spec.command() else {
-            log::error!("no command to run");
-            self.request_exit(Exit::Spawn);
-            return;
-        };
+        let command = spec.command().ok_or("no command to run")?;
         let erase = if self.config.switch(&keys::BACKSPACE_DELETE) {
             Erase::Delete
         } else {
             Erase::Backspace
         };
         let Some(size) = self.heads.get(h).and_then(|head| head.console_pty_size(id)) else {
-            return;
+            return Ok(());
         };
-        let mut pty = match Pty::spawn(command, size, erase) {
-            Ok(pty) => pty,
-            Err(e) => {
-                log::error!("cannot start the session: {e}");
-                self.request_exit(Exit::Spawn);
-                return;
-            }
-        };
-        let inserted = pty.insert(&self.handle, move |app: &mut App| {
+        let mut pty = Pty::spawn(command, size, erase)
+            .map_err(|e| format!("cannot start the session: {e}"))?;
+        pty.insert(&self.handle, move |app: &mut App| {
             let Console { pty, term, .. } = app.heads.get_mut(h)?.console_mut(id)?;
             pty.as_mut().map(|p| (p, term))
-        });
-        if let Err(e) = inserted {
-            log::error!("cannot watch the session's pty: {e}");
-            self.request_exit(Exit::Spawn);
-            return;
-        }
+        })
+        .map_err(|e| format!("cannot watch the session's pty: {e}"))?;
         if let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) {
             console.pty = Some(pty);
         }
+        Ok(())
     }
 
     /// Chooses head `h`'s font once, at its first display (ADR-1200 D9,
@@ -2596,7 +2594,21 @@ impl App {
         log::info!("head {}: console {id} opens", head.name());
         // The new console's program starts on the grid the layout gives it.
         self.relayout(h);
-        self.spawn(h, id);
+        // A session that cannot start leaves the run alive, as the C
+        // reference ignored a terminal that would not open
+        // (`src/terminal.c:1771-1772`, `src/seat.c:624-628` at kmscon
+        // b1f7a7c5): its console leaves, and the head shows the one it
+        // showed before.
+        if let Err(why) = self.start_session(h, id) {
+            let visible = self.awake;
+            if let Some(head) = self.heads.get_mut(h) {
+                log::warn!("head {}: console {id} does not open: {why}", head.name());
+                head.withdraw_shown(visible);
+                head.brief = Some(crate::notice::NO_CONSOLE_OPENED.to_owned());
+                head.brief_due = None;
+            }
+            self.relayout(h);
+        }
         true
     }
 
