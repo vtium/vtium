@@ -1,0 +1,140 @@
+checkpoint 262
+size 16x5
+cursor 0,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 80
+frame-cursor 0,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+placement 0 row 0 col 0 box 3x3 at 0,0 size 24x48 src 0,0 24x48 cell 8x16 z 0 above-text sixel image 0 changed
+image 0 24x48 digest ea9969c5
+checkpoint 498
+size 16x5
+cursor 0,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 9
+frame-cursor 0,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+placement 0 row 0 col 0 box 3x3 at 0,0 size 24x48 src 0,0 24x48 cell 8x16 z 0 above-text sixel image 0 changed
+image 0 24x48 digest ea9969c5
+checkpoint 734
+size 16x5
+cursor 0,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 9
+frame-cursor 0,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+placement 0 row 0 col 0 box 3x3 at 0,0 size 24x48 src 0,0 24x48 cell 8x16 z 0 above-text sixel image 0 changed
+image 0 24x48 digest ea9969c5
+checkpoint 970
+size 16x5
+cursor 0,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 9
+frame-cursor 0,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+placement 0 row 0 col 0 box 3x3 at 0,0 size 24x48 src 0,0 24x48 cell 8x16 z 0 above-text sixel image 0 changed
+image 0 24x48 digest ea9969c5
+checkpoint 1156
+size 16x5
+cursor 8,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 9
+frame-cursor 8,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+placement 0 row 0 col 0 box 3x3 at 0,0 size 24x48 src 0,0 24x48 cell 8x16 z 0 above-text sixel image 0
+placement 1 row 0 col 8 box 3x3 at 0,0 size 20x40 src 0,0 20x40 cell 8x16 z 0 above-text sixel image 1 opaque changed
+image 0 24x48 digest ea9969c5
+image 1 20x40 digest c2f8be85
+checkpoint 1342
+size 16x5
+cursor 8,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 9
+frame-cursor 8,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+placement 0 row 0 col 0 box 3x3 at 0,0 size 24x48 src 0,0 24x48 cell 8x16 z 0 above-text sixel image 0
+placement 1 row 0 col 8 box 3x3 at 0,0 size 20x40 src 0,0 20x40 cell 8x16 z 0 above-text sixel image 1 opaque changed
+image 0 24x48 digest ea9969c5
+image 1 20x40 digest c2f8be85
+checkpoint 1528
+size 16x5
+cursor 8,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 9
+frame-cursor 8,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+placement 0 row 0 col 0 box 3x3 at 0,0 size 24x48 src 0,0 24x48 cell 8x16 z 0 above-text sixel image 0
+placement 1 row 0 col 8 box 3x3 at 0,0 size 20x40 src 0,0 20x40 cell 8x16 z 0 above-text sixel image 1 opaque changed
+image 0 24x48 digest ea9969c5
+image 1 20x40 digest c2f8be85
+checkpoint 1714
+size 16x5
+cursor 8,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 9
+frame-cursor 8,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+placement 0 row 0 col 0 box 3x3 at 0,0 size 24x48 src 0,0 24x48 cell 8x16 z 0 above-text sixel image 0
+placement 1 row 0 col 8 box 3x3 at 0,0 size 20x40 src 0,0 20x40 cell 8x16 z 0 above-text sixel image 1 opaque
+placement 2 row 0 col 8 box 3x3 at 0,0 size 20x40 src 0,0 20x40 cell 8x16 z 0 above-text sixel image 2 changed
+image 0 24x48 digest ea9969c5
+image 1 20x40 digest c2f8be85
+image 2 20x40 digest 0cfb7add
+checkpoint 1714
+size 16x5
+cursor 8,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 8,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+placement 0 row 0 col 0 box 3x3 at 0,0 size 24x48 src 0,0 24x48 cell 8x16 z 0 above-text sixel image 0
+placement 1 row 0 col 8 box 3x3 at 0,0 size 20x40 src 0,0 20x40 cell 8x16 z 0 above-text sixel image 1 opaque
+placement 2 row 0 col 8 box 3x3 at 0,0 size 20x40 src 0,0 20x40 cell 8x16 z 0 above-text sixel image 2
+image 0 24x48 digest ea9969c5
+image 1 20x40 digest c2f8be85
+image 2 20x40 digest 0cfb7add

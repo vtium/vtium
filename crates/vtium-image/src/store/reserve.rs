@@ -69,6 +69,30 @@ impl Store {
         }
     }
 
+    /// A reservation of `bytes` the store already holds, as the spare
+    /// buffer's charge passes to a handler: an image of `protocol`'s kitty
+    /// id `id` in the buffer in use is held as [`reserve`](Self::reserve)
+    /// holds it.
+    pub(super) fn spare_reservation(
+        &mut self,
+        protocol: Protocol,
+        id: u32,
+        bytes: u64,
+    ) -> Reservation {
+        let b = self.active();
+        let old = if rules(protocol).ids && id != 0 {
+            self.buffers.get(b).and_then(|buf| buf.find_id(id))
+        } else {
+            None
+        };
+        self.hold(b, old, true);
+        Reservation {
+            bytes,
+            old,
+            buffer: b,
+        }
+    }
+
     /// Reserves `more` bytes for a reservation's payload as it grows.
     pub fn grow(
         &mut self,

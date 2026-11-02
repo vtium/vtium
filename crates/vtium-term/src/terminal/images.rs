@@ -283,15 +283,31 @@ impl State {
 
     /// Sets the color register count XTSMGRAPHICS asks for, or with `None`
     /// returns it to `num-color-registers`; the next sixel takes it.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "XTSMGRAPHICS, which the sixel handler's build adds, calls it"
-        )
-    )]
+    ///
+    /// A change of the count in force resets the sixel handler, so the
+    /// registers the pictures share start again from the defaults, as the
+    /// C reference's `vte_xtsmgraphics` dropped them at every change of the
+    /// count (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c`, `sixel_drop`).
     pub(super) fn set_sixel_registers(&mut self, count: Option<u32>) {
+        let before = self.sixel_state().registers;
         self.images.registers = count;
+        if self.sixel_state().registers != before {
+            self.with_handler(ImageString::Sixel, |h, ctx| h.reset(ctx));
+        }
+    }
+
+    /// Ends a sixel string being fed, giving back what it holds, and
+    /// resets the sixel handler, dropping the registers the pictures share,
+    /// as the C reference's `sixel_drop` dropped the decoder and the shared
+    /// registers.
+    fn drop_sixel(&mut self) {
+        if self.images.active == Some(ImageString::Sixel) {
+            self.images.active = None;
+        }
+        self.with_handler(ImageString::Sixel, |h, ctx| {
+            h.cancel(ctx);
+            h.reset(ctx);
+        });
     }
 
     /// RIS: each handler returns to its state at start, before the store
@@ -329,6 +345,19 @@ impl State {
         if let Some(which) = self.images.active {
             self.with_handler(which, |h, ctx| h.feed(ctx, data));
         }
+    }
+
+    /// A run of a DCS or APC string's data to the handler being fed, with the
+    /// work the input call may still do: returns how many bytes it took,
+    /// fewer than all once it reached the bound (D5).
+    pub(super) fn image_put_run(&mut self, run: &[u8]) -> usize {
+        let Some(which) = self.images.active else {
+            return run.len();
+        };
+        let left = INPUT_WORK_MAX.saturating_sub(self.screen.images().work());
+        let mut taken = run.len();
+        self.with_handler(which, |h, ctx| taken = h.feed_some(ctx, run, left));
+        taken
     }
 
     /// The string ends: the handler finishes it when it ended with its
@@ -377,6 +406,29 @@ impl State {
             return;
         }
         self.image_put(data);
+    }
+
+    /// A run of an APC string's data: as [`image_apc_put`](Self::image_apc_put)
+    /// for its first byte, and the rest to the kitty handler with the work
+    /// the input call may still do. Returns how many bytes it took, fewer
+    /// than all once the handler reached the bound (D5).
+    pub(super) fn image_apc_put_run(&mut self, run: &[u8]) -> usize {
+        if !self.images.apc_open {
+            return self.image_put_run(run);
+        }
+        let Some((&first, rest)) = run.split_first() else {
+            return 0;
+        };
+        self.images.apc_open = false;
+        if first != b'G' || !self.image_offered(ImageString::Kitty) {
+            return run.len();
+        }
+        self.images.active = Some(ImageString::Kitty);
+        self.with_handler(ImageString::Kitty, |h, ctx| h.start(ctx, Intro::String));
+        if rest.is_empty() {
+            return 1;
+        }
+        self.image_put_run(rest).saturating_add(1)
     }
 
     pub(super) fn image_apc_end(&mut self, end: StringEnd) {
@@ -433,10 +485,12 @@ impl Terminal {
     /// Turns the image protocols on or off: an off protocol's strings are
     /// ignored as every string vtium does not take is. A protocol turned
     /// off has its handler cancelled at once, so a string it was being fed
-    /// ends and an upload in chunks gives back what it holds, as the C
-    /// reference's `tsm_vte_set_sixel` and `tsm_vte_set_kitty_graphics`
-    /// dropped the sixel decoder and cancelled the kitty parser (libtsm
-    /// `eeaf293`, `src/tsm/tsm-vte-image.c:466-474` and `:493-503`).
+    /// ends and an upload in chunks gives back what it holds; sixel's is
+    /// reset too, dropping the registers the pictures share. The C
+    /// reference's `tsm_vte_set_sixel` dropped the sixel decoder and the
+    /// shared registers, and `tsm_vte_set_kitty_graphics` cancelled the
+    /// kitty parser (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:466-474`
+    /// and `:493-503`).
     pub fn set_image_switches(&mut self, switches: Switches) {
         let old = self.state.images.switches;
         self.state.images.switches = switches;
@@ -446,7 +500,9 @@ impl Terminal {
             (ImageString::Iterm2, old.iterm2, switches.iterm2),
         ];
         for (which, was, now) in turned {
-            if was && !now {
+            if was && !now && which == ImageString::Sixel {
+                self.state.drop_sixel();
+            } else if was && !now {
                 if self.state.images.active == Some(which) {
                     self.state.images.active = None;
                 }
@@ -461,30 +517,29 @@ impl Terminal {
 
     /// Sets the limits D11's settings give the handlers.
     ///
-    /// A change of `num-color-registers` or `private-color-registers` resets
-    /// what the program set from them, as the C reference's
-    /// `tsm_vte_set_sixel_registers` did (libtsm `eeaf293`,
-    /// `src/tsm/tsm-vte-image.c:505-518`): a sixel string being fed is
-    /// cancelled, the sixel handler is reset, the register count returns to
-    /// the new limit, and modes 80, 1070 and 8452 return to their state at
-    /// reset, 1070's from the new `private-color-registers`.
+    /// A change of `max-graphic-size` cancels a sixel string being fed and
+    /// resets the sixel handler, as the C reference's
+    /// `tsm_vte_set_graphic_max_size` dropped the decoder and the shared
+    /// registers (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:477-504`). A
+    /// change of `num-color-registers` or `private-color-registers` does
+    /// that and resets what the program set from them, as the C reference's
+    /// `tsm_vte_set_sixel_registers` did (`:505-518`): the register count
+    /// returns to the new limit, and modes 80, 1070 and 8452 return to
+    /// their state at reset, 1070's from the new `private-color-registers`.
     pub fn set_image_limits(&mut self, limits: Limits) {
         let old = self.state.images.limits;
         self.state.images.limits = limits;
-        if (old.registers, old.private_registers) == (limits.registers, limits.private_registers) {
+        let registers =
+            (old.registers, old.private_registers) != (limits.registers, limits.private_registers);
+        if registers || old.graphic != limits.graphic {
+            self.state.drop_sixel();
+        }
+        if !registers {
             return;
         }
-        if self.state.images.active == Some(ImageString::Sixel) {
-            self.state.images.active = None;
-            self.state
-                .with_handler(ImageString::Sixel, |h, ctx| h.cancel(ctx));
-        }
-        self.state
-            .with_handler(ImageString::Sixel, |h, ctx| h.reset(ctx));
         self.state.images.registers = None;
-        // Until the mode table has rows for 80, 1070 and 8452, these three
-        // calls change nothing. They name the numbers because the table's
-        // other row that only RIS resets, 2028, is not the host's to reset.
+        // The three rows only RIS resets that the host's register settings
+        // govern; 2028, the table's other such row, is not the host's.
         modes::set(&mut self.state, true, 80, false);
         modes::set(&mut self.state, true, 1070, limits.private_registers);
         modes::set(&mut self.state, true, 8452, false);
@@ -627,6 +682,7 @@ mod tests {
                     id: 0,
                     number: 0,
                     transient: false,
+                    opaque: None,
                 };
                 let key = e.add_image(image, Some(r))?;
                 let p = e.place(key, at)?;
@@ -864,8 +920,12 @@ mod tests {
         assert_eq!(probe(&t).sixel.map(|s| s.registers), Some(1024));
     }
 
+    // The C reference dropped the sixel decoder and the shared registers on
+    // a change of max-graphic-size, of the register settings, and of the
+    // count XTSMGRAPHICS sets; only the register settings reset the count
+    // and the modes too.
     #[test]
-    fn a_change_of_the_register_settings_resets_what_the_program_set() {
+    fn a_change_of_the_sixel_settings_resets_the_handler() {
         let mut t = Terminal::new(8, 4, 16);
         t.screen_mut().set_image_limit(1 << 20);
         t.set_image_switches(Switches {
@@ -874,18 +934,27 @@ mod tests {
             iterm2: false,
         });
         t.set_image_handler(ImageString::Sixel, Some(Box::new(Holding::default())));
-        let _ = t.input(b"\x1bPq\x1b\\");
-        assert_eq!(t.screen().images().bytes(), 4096);
+        let hold = |t: &mut Terminal| {
+            let _ = t.input(b"\x1bPq\x1b\\");
+            assert_eq!(t.screen().images().bytes(), 4096);
+        };
+        hold(&mut t);
         t.state.set_sixel_registers(Some(16));
-        // the largest picture is not a register setting: nothing resets
+        assert_eq!(t.screen().images().bytes(), 0, "a new count resets");
+        hold(&mut t);
+        t.state.set_sixel_registers(Some(16));
+        assert_eq!(t.screen().images().bytes(), 4096, "the same count does not");
+        // the largest picture resets the handler and keeps the count
         t.set_image_limits(Limits {
             graphic: (500, 500),
             ..Limits::default()
         });
         assert_eq!(t.state.images.registers, Some(16));
-        assert_eq!(t.screen().images().bytes(), 4096);
-        // the register count is: the handler resets and the count follows
+        assert_eq!(t.screen().images().bytes(), 0);
+        // the register count resets the handler, and the count follows
+        hold(&mut t);
         t.set_image_limits(Limits {
+            graphic: (500, 500),
             registers: 256,
             ..Limits::default()
         });

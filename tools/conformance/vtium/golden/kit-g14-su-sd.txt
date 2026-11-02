@@ -1,0 +1,23 @@
+checkpoint 1466
+size 12x4
+cursor 4,1
+flags AUTO_WRAP
+reply 1b5f47693d313b4f4b1b5c
+row 0 |  ab|
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x2 at 0,0 size 8x32 src 0,0 8x32 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 8x32 digest 74bcf7c5
+test frame-since 0 changed 48
+checkpoint 1506
+size 12x4
+cursor 4,1
+flags AUTO_WRAP
+reply 1b5b323b3552
+row 0 ||
+row 1 |  ab|
+row 2 ||
+row 3 ||
+placement 0 row 1 col 0 box 1x2 at 0,0 size 8x32 src 0,0 8x32 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 8x32 digest 74bcf7c5

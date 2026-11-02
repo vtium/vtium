@@ -76,6 +76,7 @@ impl Console {
             id,
             number: 0,
             transient: false,
+            opaque: None,
         };
         let screens = Screens {
             main: rows,

@@ -712,6 +712,7 @@ mod tests {
             id: 0,
             number: 0,
             transient: false,
+            opaque: None,
         };
         let image = store.add_image(new, None, screens).expect("stored");
         let place = Place {

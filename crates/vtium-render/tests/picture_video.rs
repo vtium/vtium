@@ -76,6 +76,7 @@ fn video(display: (u32, u32), o: Orientation, kitty: bool) -> (f64, u64) {
             id: u32::from(kitty),
             number: 0,
             transient: false,
+            opaque: None,
         };
         let image = store.add_image(new, None, screens).unwrap();
         let (bc, br) = if kitty {

@@ -808,17 +808,19 @@ fn mode_1042_lets_bel_reach_the_host() {
 }
 
 /// The supported rows of `docs/modes.tsv`, which the mode table generates:
-/// whether each is a DEC private mode, and its number.
+/// whether each is a DEC private mode, and its number. A build without
+/// images has no rows for sixel's modes, so it leaves them out.
 fn supported_modes() -> Vec<(bool, u32)> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/modes.tsv");
     let tsv = std::fs::read_to_string(path).unwrap();
     let mut lines = tsv.lines();
     let header: Vec<&str> = lines.next().unwrap().split('\t').collect();
     let col = |name: &str| header.iter().position(|h| *h == name).unwrap();
-    let (kind, number, status) = (col("kind"), col("number"), col("status"));
+    let (kind, number, status, host) = (col("kind"), col("number"), col("status"), col("host"));
     let modes: Vec<(bool, u32)> = lines
         .map(|l| l.split('\t').collect::<Vec<_>>())
         .filter(|r| r[status] == "supported")
+        .filter(|r| cfg!(feature = "images") || r[host] != "offers sixel")
         .map(|r| (r[kind] == "DEC", r[number].parse().unwrap()))
         .collect();
     assert!(modes.len() > 30, "the table's supported rows");
@@ -826,10 +828,24 @@ fn supported_modes() -> Vec<(bool, u32)> {
 }
 
 /// A terminal where every supported mode can change: the host offers mode
-/// 2026, and the cursor has a style mode 12 can make blink or not.
+/// 2026, the cursor has a style mode 12 can make blink or not, and in a
+/// build with images the host offers sixel, whose modes 80, 1070 and 8452
+/// report their state only then.
 fn every_mode_can_change() -> Terminal {
     let mut t = term(8, 4, b"\x1b[2 q");
     t.set_sync_enabled(true);
+    #[cfg(feature = "images")]
+    {
+        use vtium_term::ImageString;
+        use vtium_term::images::{Sixel, Switches};
+        t.screen_mut().set_image_limit(1 << 20);
+        t.set_image_switches(Switches {
+            sixel: true,
+            kitty: false,
+            iterm2: false,
+        });
+        t.set_image_handler(ImageString::Sixel, Some(Box::new(Sixel::default())));
+    }
     t
 }
 

@@ -32,6 +32,7 @@ fn image(t: &mut Terminal, protocol: Protocol, w: u32, h: u32, id: u32) -> Image
         id,
         number: 0,
         transient: false,
+        opaque: None,
     };
     t.screen_mut().add_image(new).expect("stored")
 }
@@ -534,6 +535,7 @@ impl Stand {
             id: self.id,
             number: 0,
             transient: false,
+            opaque: None,
         };
         if let Ok(key) = ctx.add_image(new, None) {
             let at = Place {

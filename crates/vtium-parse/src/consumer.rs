@@ -139,6 +139,20 @@ pub trait Consumer {
     /// keeps none of it, so its bound is the consumer's.
     fn dcs_put(&mut self, data: Chunk<'_>);
 
+    /// A run of the hooked DCS string's bytes, as [`dcs_put`](Self::dcs_put)
+    /// takes them, of which the consumer may take only the first: it
+    /// returns how many it took. Taking fewer than all is for a consumer
+    /// that reaches a bound inside the run, as the C reference's sixel
+    /// decoder stopped at its input call's work bound (tsm-sixel.c,
+    /// `tsm_sixel_feed_some`); it then reports [`paused`](Self::paused),
+    /// and the parser returns with the rest of the run not consumed, to be
+    /// passed again with the rest of the input. A consumer that takes fewer
+    /// and is not paused breaks this contract, which a debug build asserts.
+    fn dcs_put_run(&mut self, run: &[u8]) -> usize {
+        self.dcs_put(Chunk::Bytes(run));
+        run.len()
+    }
+
     /// The hooked DCS string ends (tsm-vte.c:3157).
     fn dcs_unhook(&mut self, end: StringEnd);
 
@@ -149,6 +163,20 @@ pub trait Consumer {
     /// A piece of the APC string's data (tsm-vte.c:3631). The parser keeps
     /// none of it, so its bound is the consumer's.
     fn apc_put(&mut self, data: Chunk<'_>);
+
+    /// A run of the APC string's bytes, as [`apc_put`](Self::apc_put)
+    /// takes them, of which the consumer may take only the first: it
+    /// returns how many it took. As with
+    /// [`dcs_put_run`](Self::dcs_put_run), a consumer that reaches a bound
+    /// inside the run reports [`paused`](Self::paused), and the parser
+    /// returns with the rest of the run not consumed, to be passed again
+    /// with the rest of the input. The C reference's kitty parser took its
+    /// runs whole (tsm-vte-image.c, `vte_kitty_run`); vtium bounds them so
+    /// a kitty payload's work stops an input call as a sixel's does.
+    fn apc_put_run(&mut self, run: &[u8]) -> usize {
+        self.apc_put(Chunk::Bytes(run));
+        run.len()
+    }
 
     /// The APC string ends (tsm-vte.c:3253).
     fn apc_end(&mut self, end: StringEnd);

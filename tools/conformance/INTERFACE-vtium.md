@@ -2,6 +2,10 @@
 
 Interface 1.1 is `corpus/INTERFACE.md`, interface 1.0 as the C reference left it, with the additions below. Each is a command, a feature or a line only a new command prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
+## The fixture host checks a picture's size
+
+vtium's fixture host answers a `png` request as 1.0's table says, with one check before it: a picture whose width or height passes the request's largest picture, which the terminal takes from `max-graphic-size`, is answered `TOO_LARGE`, and one whose width times its height times 4 passes the most bytes the request allows, which the terminal takes from its image budget, is answered `OVER_BUDGET`. A picture exactly at a bound is answered as before. The image helper reads a picture's header and makes the same check before it decodes (ADR-1100, D7), so the fixture host, standing in for it, checks what it checks. The C reference's host made no such check, and its goldens show the same answers, which its terminal reached by checking the decoded picture itself.
+
 ## The clipboard
 
 A program sets the clipboard with OSC 52 (`osc.52.write` in ADR-1000), and a host takes what it set. The reference host takes it only when asked, with the `clipboard` command.
