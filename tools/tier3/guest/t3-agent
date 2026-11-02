@@ -21,6 +21,10 @@
 #                    (KILL, a kill; ABRT, a crash)
 #   hangup           hangs tty2 up, as the kernel's vhangup does
 #   start            starts vtium's unit on tty2 again
+#   reset-failed     clears the failed state and start count of vtium's unit
+#   limit            sends SIGKILL to each new vtium on tty2 until its unit
+#                    stops restarting, and once the unit failed on its start
+#                    limit, starts it once more
 # Any other request, spelled even one character differently, answers
 # "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
 # port, as the harness's self-test does with a pty.
@@ -57,11 +61,26 @@ interrupts() {
 }
 
 state() {
-    local u link
+    local u link words
+    echo "systemd $(systemctl --version | awk 'NR == 1 { print $2 }')"
     for u in "${units[@]}"; do
         echo "unit $u $(systemctl show -P ActiveState "$u") $(systemctl show -P Result "$u")" \
             "$(systemctl show -P ConditionResult "$u") $(systemctl show -P ConditionTimestampMonotonic "$u")"
+        echo "restarts $u $(systemctl show -P SubState "$u") $(systemctl show -P NRestarts "$u")"
     done
+    # What systemd logged this boot of vtium's unit and its fallback, in
+    # order, a word each: a restart clears Result=, so only the journal
+    # keeps each failure's result, and only the journal shows each time the
+    # fallback skipped itself, where the condition's timestamp shows the
+    # last.
+    words=$(journalctl -b -q -o cat -u "${units[0]}" -u "${units[1]}" | sed -n \
+        -e "s/^${units[0]}: Failed with result '\([a-z-]*\)'\.$/failed:\1/p" \
+        -e "s/^${units[0]}: Scheduled restart job, restart counter is at \([0-9]*\)\.$/restart:\1/p" \
+        -e "s/^Started vtium on $vt\.$/started/p" \
+        -e "s/^Stopped vtium on $vt\.$/stopped/p" \
+        -e "s/^getty in place of vtium on $vt skipped, unmet condition check .*$/skipped/p" \
+        -e "s/^Finished getty in place of vtium on $vt\.$/fell-back/p" | tr '\n' ' ')
+    echo "journal ${words% }"
     # A getty that started and ended between two requests leaves these set.
     for u in "${gettys[@]}"; do
         echo "getty $u $(systemctl show -P InactiveExitTimestampMonotonic "$u")" \
@@ -88,6 +107,39 @@ state() {
     vtium_age
 }
 
+# Fails vtium on tty2 past its unit's start limit: sends SIGKILL to each new
+# vtium its unit runs, at most 12 times, until the unit stops restarting,
+# that is until it is failed or inactive and not waiting to restart. Each
+# wait for the next vtium is bounded at 10 s. When the unit failed on its
+# start limit, it then starts the unit once more, at once, so within the
+# limit's 10 s window, and reports whether systemd refused that start.
+limit() {
+    local u=${units[0]} last=0 pid kills=0 active sub
+    while [ "$kills" -lt 12 ]; do
+        pid=0
+        for _ in $(seq 100); do
+            pid=$(systemctl show -P MainPID "$u")
+            active=$(systemctl show -P ActiveState "$u")
+            sub=$(systemctl show -P SubState "$u")
+            [ "${pid:-0}" != 0 ] && [ "$pid" != "$last" ] && break
+            pid=0
+            case "$active $sub" in
+                "failed failed" | "inactive dead") break ;;
+            esac
+            sleep 0.1
+        done
+        [ "$pid" != 0 ] || break
+        kill -s KILL "$pid" && echo "sent KILL to $pid"
+        last=$pid
+        kills=$((kills + 1))
+    done
+    echo "stopped $(systemctl show -P ActiveState "$u") $(systemctl show -P SubState "$u")" \
+        "$(systemctl show -P Result "$u") after $kills kills"
+    if [ "$(systemctl show -P Result "$u")" = start-limit-hit ]; then
+        if systemctl start "$u" > /dev/null 2>&1; then echo "start ran"; else echo "start refused"; fi
+    fi
+}
+
 answer() {
     local n=$1 request=$2 pid
     case "$request" in
@@ -106,6 +158,10 @@ answer() {
                 && echo "hung up /dev/$vt"
             ;;
         start) systemctl start --no-block "${units[0]}" && echo "started ${units[0]}" ;;
+        reset-failed)
+            systemctl reset-failed "${units[0]}" && echo "reset ${units[0]}"
+            ;;
+        limit) limit ;;
         # A reader of the second keyboard's evdev node, apart from the agent
         # and its port, which ends when the keyboard is pulled out; the
         # answer comes once it has opened the node and counted none.
