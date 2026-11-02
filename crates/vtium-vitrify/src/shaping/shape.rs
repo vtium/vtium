@@ -91,12 +91,18 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
         let kept = !glyphs.is_empty()
             && glyphs.iter().all(|a| a.g != 0)
             && match ask.kind {
-                // one glyph, a ligature or a form: none of the cluster's own
-                // scalar values draws it alone
-                Kind::Emoji | Kind::Joining => match glyphs.as_slice() {
-                    [a] => ask.key.iter().all(|&c| charmap.map(c) != a.g),
-                    _ => false,
-                },
+                // one glyph, a ligature or a form, which none of the
+                // cluster's own scalar values draws alone; a joining form
+                // keeps the glyphs of the marks on its letter besides it
+                Kind::Emoji => only_own(&glyphs, &ask.key, &charmap),
+                Kind::Joining => {
+                    let letters: Vec<At> = glyphs
+                        .iter()
+                        .filter(|a| a.mark.is_none())
+                        .copied()
+                        .collect();
+                    only_own(&letters, &ask.key, &charmap)
+                }
                 Kind::Marks => true,
             };
         if kept {
@@ -109,6 +115,15 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
         }
     }
     out
+}
+
+/// Whether `glyphs` is one glyph that none of `key`'s scalar values draws
+/// alone in `charmap`: a ligature, or a form the font shaped.
+fn only_own(glyphs: &[At], key: &[u32], charmap: &swash::Charmap<'_>) -> bool {
+    match glyphs {
+        [a] => key.iter().all(|&c| charmap.map(c) != a.g),
+        _ => false,
+    }
 }
 
 /// Draws each shaped cluster at `cell`, adding its glyph to `glyphs`, one
@@ -133,8 +148,15 @@ pub(crate) fn draw_all(
         let wide = match s.kind {
             Kind::Emoji => true,
             Kind::Marks => s.advance as f32 * scale > cell.width as f32 * 1.5,
-            // a cell for each letter: lam-alef takes the two its letters do
-            Kind::Joining => s.key.iter().filter(|&&c| c != super::ZWJ).count() > 1,
+            // a cell for each letter, the marks on it taking none: lam-alef
+            // takes the two its letters do
+            Kind::Joining => {
+                s.key
+                    .iter()
+                    .filter(|&&c| c != super::ZWJ && super::mark_side(c).is_none())
+                    .count()
+                    > 1
+            }
         };
         // ADR-1302 D2: a cluster is placed by its advance; a joining letter,
         // with the marks on it, is stretched as one to its cells, its pen on

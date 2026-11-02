@@ -405,6 +405,51 @@ fn a_letter_with_a_joiner_draws_one_cell_wide_and_stretched() {
     assert!(row[5] == 0 && row[6] > 200 && row[11] == 255, "{row:?}");
 }
 
+// A beh with a fatha (U+064E), keyed with U+200D on either side, is a
+// joining form (review finding 2): the fatha, whose Joining_Type is T,
+// does not make the cluster an emoji sequence, whose one-glyph rule would
+// drop it. Each order draws one cell wide, the beh in its joined form
+// with the fatha above it: the bar from 0 to 500 units fills rows 6 to 15
+// of the 20-pixel cell, and the fatha, a bar from 600 to 700 units, ink
+// in rows 2 to 4, where the beh alone has none
+#[test]
+fn a_vocalised_letter_with_a_joiner_draws_as_a_joining_form() {
+    const FATHA: char = '\u{64e}';
+    let mut font = ttf::test_shaping();
+    font.glyphs.push(ttf::Glyph::rect(0, -400, 600, -200, 700));
+    let fatha = u16::try_from(font.glyphs.len() - 1).expect("a glyph id");
+    font.cmap.push((u32::from(FATHA), fatha));
+    font.cmap.sort_unstable();
+    let keys = [[BEH, FATHA, ZWJ], [ZWJ, BEH, FATHA]];
+    let bare = [[BEH, ZWJ], [ZWJ, BEH]];
+    let asks: Vec<Ask> = keys
+        .iter()
+        .map(|k| k.as_slice())
+        .chain(bare.iter().map(|k| k.as_slice()))
+        .map(|k| vtium_vitrify::shaping::ask(&key(k)))
+        .collect();
+    let o = rasterise(&OutlineRequest {
+        font: font.build().into(),
+        ..request(asks)
+    })
+    .expect("rasterised");
+    let inked = |p: &Placed, y: usize| p.pixels[y * 12..(y + 1) * 12].iter().any(|&v| v > 0);
+    for (k, b) in keys.iter().zip(&bare) {
+        let g = cluster(&o, k).unwrap_or_else(|| panic!("{k:?} shaped"));
+        let joined = cluster(&o, b).unwrap_or_else(|| panic!("{b:?} shaped"));
+        assert!(!g.wide, "{k:?} one cell");
+        assert!((2..5).any(|y| inked(g, y)), "{k:?}: the fatha");
+        assert!(!(2..5).any(|y| inked(joined, y)), "{b:?}: no fatha");
+        for y in 6..16 {
+            assert_eq!(
+                &g.pixels[y * 12..(y + 1) * 12],
+                &joined.pixels[y * 12..(y + 1) * 12],
+                "{k:?}: the joined beh's row {y}"
+            );
+        }
+    }
+}
+
 // A mark the shaper leaves at the pen, with no advance and no offset, as
 // HarfRust leaves an acute after a circumflex in DejaVu Sans Mono (review
 // finding B5), goes where the C reference put it (render_cluster):

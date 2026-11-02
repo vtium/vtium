@@ -24,8 +24,9 @@ pub enum Kind {
     /// shapes to, one or two cells wide by its advance.
     Marks = 2,
     /// A joining form: a letter keyed with U+200D on each side it joins,
-    /// or lam and alef as their ligature. Kept only when the font shapes
-    /// it to one glyph that none of its scalar values draws alone, placed
+    /// or lam and alef as their ligature, with any marks on it. Kept only
+    /// when the font shapes its letters to one glyph that none of its
+    /// scalar values draws alone, and holds the glyph of each mark, placed
     /// a cell wide for each letter.
     Joining = 3,
 }
@@ -69,13 +70,14 @@ const TAGS: std::ops::RangeInclusive<u32> = 0xe0020..=0xe007f;
 const KEYCAP: u32 = 0x20e3;
 
 /// How the cluster `key` is judged and placed: a joining form when it
-/// holds U+200D and every other character joins ([`joins`]), as a letter
-/// keyed with the joiner on the side it joins; else an emoji sequence when
-/// Unicode lists it as one or it holds U+200D, U+FE0F, a regional
-/// indicator, an emoji modifier, a tag or the keycap mark; else a letter
-/// and its marks.
+/// holds U+200D and a letter, and every letter joins ([`joins`]), as a
+/// letter keyed with the joiner on the side it joins; the marks on a
+/// letter, such as a fatha, are not letters here ([`mark_side`]). Else an
+/// emoji sequence when Unicode lists it as one or it holds U+200D, U+FE0F,
+/// a regional indicator, an emoji modifier, a tag or the keycap mark; else
+/// a letter and its marks.
 pub fn kind(key: &[u32]) -> Kind {
-    let letters = key.iter().filter(|&&c| c != ZWJ);
+    let letters = key.iter().filter(|&&c| c != ZWJ && mark_side(c).is_none());
     if key.contains(&ZWJ) && letters.clone().count() > 0 && letters.clone().all(|&c| joins(c)) {
         return Kind::Joining;
     }
@@ -143,6 +145,13 @@ mod tests {
         assert_eq!(kind(&[0x1f468, ZWJ, 0x1f469]), Kind::Emoji);
         assert_eq!(kind(&[0x41, ZWJ]), Kind::Emoji);
         assert_eq!(kind(&[0x628, 0x64e]), Kind::Marks);
+        // a mark on the letter, of Joining_Type T, leaves it a joining
+        // form in either order (review finding 2); a joiner with marks
+        // alone has no letter to join
+        assert_eq!(kind(&[0x628, 0x64e, ZWJ]), Kind::Joining);
+        assert_eq!(kind(&[ZWJ, 0x628, 0x64e]), Kind::Joining);
+        assert_eq!(kind(&[ZWJ, 0x628, 0x651, 0x64e, ZWJ]), Kind::Joining);
+        assert_ne!(kind(&[ZWJ, 0x64e]), Kind::Joining);
     }
 
     #[test]
