@@ -314,13 +314,26 @@ if [ -n "$dry" ]; then
 else
 	"$sudo" -v || die "sudo failed"
 	# From here on a step that fails leaves part of the install in place,
-	# which the manifest, written first, lets uninstall undo.
+	# which the manifest, written first, lets uninstall undo. The message
+	# says what uninstall would undo: nothing before the manifest exists, and
+	# on a reinstall the earlier install with this run.
 	set -E
-	trap 'echo "vt-install: a step failed; make vt-uninstall VT=$vt undoes what this run did" >&2' ERR
+	trap failed ERR
 fi
+manifest_written=
+failed() {
+	if [ -z "$write_manifest" ]; then
+		echo "vt-install: a step failed; make vt-uninstall VT=$vt removes the whole install on VT $vt, the earlier one too, and make vt-install VT=$vt tries again" >&2
+	elif [ -z "$manifest_written" ]; then
+		echo "vt-install: a step failed before anything was installed; VT $vt is as it was" >&2
+	else
+		echo "vt-install: a step failed; make vt-uninstall VT=$vt undoes what this run did" >&2
+	fi
+}
 # The manifest goes first, so a run cut short can still be undone.
 [ -d "$root$state_dir" ] || as_root install -d -m 0755 "${own[@]}" -- "$root$state_dir"
 [ -z "$write_manifest" ] || as_root install -m 0644 "${own[@]}" -- "$tmp/manifest" "$root$manifest"
+manifest_written=1
 # The record goes before the copies, holding each file's checksum from before
 # and after, so a copy that fails leaves every file in a state the record
 # knows: uninstall removes it, and a second run replaces it.

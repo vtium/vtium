@@ -1364,6 +1364,23 @@ class Install(Case):
         p = self.vt_install("install", "1")
         self.assertNotIn("make vt-uninstall", p.stderr)
 
+    def test_the_way_back_fits_what_the_failed_run_changed(self):
+        write(os.path.join(self.s.standins, "sudo"), "#!/bin/bash\n" + RECORD +
+              '[ "$1" != -v ] || exit 0\n'
+              'if [ -n "${FAIL_COPY-}" ] && [ "$1" = install ] && [ "${*: -1}" = "$FAIL_COPY" ]; then exit 1; fi\n'
+              'exec "$@"\n')
+        # Before the manifest is written, nothing was installed.
+        p = self.vt_install("install", "4", FAIL_COPY=self.at(self.STATE + "/tty4"))
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("vt-install: a step failed before anything was installed", p.stderr)
+        self.assertNotIn("make vt-uninstall", p.stderr)
+        # On a reinstall, uninstall removes the earlier install too.
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        p = self.vt_install("install", "4", FAIL_VERB="restart")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("make vt-uninstall VT=4 removes the whole install on VT 4, the earlier one too", p.stderr)
+
     def test_systemd_analyze_verifies_the_generated_units(self):
         if not REAL_ANALYZE:
             self.skipTest("no systemd-analyze")
