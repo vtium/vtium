@@ -63,6 +63,30 @@ sudo vtium console disable --all          # every VT goes back as vtium console 
 
 `enable --all` links `autovt@.service`, the unit logind starts on a VT when you switch to it and nothing runs there, to vtium, enables vtium at boot on VT 1, and disables the gettys on VTs 2 to 6, so vtium starts on each the first time you switch to it. vtium console leaves alone every VT that graphics hold: the VTs a display manager's unit claims through `Conflicts=getty@ttyN.service`, as sddm claims VT 1, and the VTs a graphical session or greeter is on now, which it asks logind for with `loginctl`. `enable N` refuses such a VT, `enable --all` passes it by and says so, and `status` marks it. Neither verb starts or stops vtium. Each prints the `systemctl start` or `stop` that does, and that command ends every session on the VT. Before `enable` changes a VT or moves `autovt@.service`, it records what was there in `/var/lib/vtium/console/`, the unit file each getty linked to included, and `disable` puts back exactly that. `vtium console` refuses a VT that the C reference's console holds. On a host that was not booted with systemd it changes nothing and says so, and there an inittab line or an init script runs `vtium --vt=ttyN --no-switchvt` on the VT ([docs/systemd.md](../../docs/systemd.md)).
 
+### Sharing VTs with kmscon
+
+kmscon, the C reference's console, and vtium can run on the same machine, each on VTs of its own. When you switch to a VT that nothing runs on, logind starts the unit `autovt@ttyN.service` there. A VT can have a link of its own by that name, made by enabling one console on that VT, and systemd uses it first. Every other VT falls back to the one template link, `autovt@.service`, and whichever console that link names gets all of those VTs: vtium after `sudo vtium console enable --all`, or kmscon after kmscon's own `systemctl enable kmsconvt@`.
+
+When vtium holds the template link and you want kmscon on one VT, enable kmscon on that VT alone:
+
+```sh
+sudo systemctl enable --now kmsconvt@tty3.service   # kmscon on VT 3; --now starts it, which ends every session on VT 3
+```
+
+Enabling one VT's instance also makes that VT's own link, `autovt@tty3.service`, which systemd finds before the template, so logind starts kmscon on VT 3 from then on. `vtium console` leaves that VT alone: `enable 3` refuses it, `enable --all` names it and passes it by, and `disable` never touches it. Do not run kmscon's own `systemctl enable kmsconvt@` in this state. It fails on vtium's template link, and it still enables kmscon at boot on VT 1, beside vtium there.
+
+When kmscon holds the template link, as on a machine that ran only kmscon until now, `sudo vtium console enable N` gives vtium one VT at a time, and `sudo vtium console enable --all` refuses until kmscon lets go of the template.
+
+To move from kmscon to vtium entirely:
+
+```sh
+sudo systemctl disable kmsconvt@.service   # removes the template link and every VT's kmscon link
+sudo vtium console enable --all            # every VT is vtium's from its next start
+sudo pacman -R kmscon                      # if you want: removes kmscon itself
+```
+
+`pacman -R kmscon` leaves the `kmscon-terminfo` package, which holds the terminfo entry named `kmscon`. vtium sets `TERM=xterm-vtium`, whose entry the `vtium-terminfo` package installs, so the console needs no `kmscon` entry. Keep `kmscon-terminfo` while anything runs with `TERM=kmscon`: a vtium started with `--term=kmscon`, and `make vt-login` on a machine without the `xterm-vtium` entry, which then runs vtium with `--term=kmscon`. Once nothing does, you may remove it with `sudo pacman -R kmscon-terminfo`.
+
 ### ssh from vtium
 
 vtium sets `TERM=xterm-vtium` in its session, or `TERM=kmscon` when it runs with `--term=kmscon`. ssh passes `TERM` on to the remote host, and most hosts have no terminfo entry by either name, so the programs there cannot look up how to drive the terminal, and the remote shell misbehaves: zsh, for one, echoes every keystroke.
