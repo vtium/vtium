@@ -151,7 +151,10 @@ if [ "$action" = uninstall ]; then
 	# A unit that failed stays listed as failed until this clears it.
 	show sudo "$systemctl" reset-failed "$unit" "$fallback"
 	[ -n "$dry" ] || "$sudo" "$systemctl" reset-failed "$unit" "$fallback" 2>/dev/null || true
-	[ "$was_enabled" = no ] || as_root "$systemctl" enable "$getty"
+	# enable would also make the getty's own alias autovt@ttyN.service, which
+	# was never there; add-wants makes only the getty.target.wants link that
+	# install's disable removed.
+	[ "$was_enabled" = no ] || as_root "$systemctl" add-wants getty.target "$getty"
 	[ "$was_active" = no ] || as_root "$systemctl" start "$getty"
 	as_root rm -f -- "$root$manifest"
 	if [ -n "$others" ]; then

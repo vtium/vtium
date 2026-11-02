@@ -1124,6 +1124,7 @@ class Make(Case):
 
 
 class Install(Case):
+    maxDiff = None
     """vt-install.sh, make vt-install and make vt-uninstall, with the installed
     paths under the stand-ins' root."""
 
@@ -1325,19 +1326,15 @@ class Install(Case):
     def test_uninstall_puts_the_getty_back_as_it_was_and_removes_what_install_wrote(self):
         wants = self.at("etc/systemd/system/getty.target.wants/getty@tty4.service")
         for enabled, active, back in ((True, "getty@tty4.service",
-                                       ["enable getty@tty4.service", "start getty@tty4.service"]),
+                                       ["add-wants getty.target getty@tty4.service", "start getty@tty4.service"]),
                                       (False, "getty@tty4.service", ["start getty@tty4.service"]),
                                       (False, "", [])):
             with self.subTest(enabled=enabled, active=active):
                 if os.path.lexists(wants):
                     os.unlink(wants)
-                # Uninstall's enable of the getty leaves autovt@tty4 -> getty@
-                # behind, which a second install takes for someone else's.
-                alias = self.at("etc/systemd/system/autovt@tty4.service")
-                if os.path.lexists(alias):
-                    os.unlink(alias)
                 if enabled:
                     os.symlink("/usr/lib/systemd/system/getty@.service", wants)
+                before = self.links()
                 p = self.vt_install("install", "4", ACTIVE_UNITS=active)
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                 open(self.s.calls, "w").close()
@@ -1349,10 +1346,10 @@ class Install(Case):
                                                     *back, "daemon-reload"])
                 for f in (self.BIN, self.UNIT, self.FALLBACK, self.STATE):
                     self.assertFalse(os.path.exists(self.at(f)), f)
-                # disable leaves the per-VT alias; uninstall removes it.
-                links = self.links()
-                self.assertNotEqual(links.get("autovt@tty4.service"), "/etc/systemd/system/vtium@.service")
-                self.assertEqual(links["autovt@.service"], "/usr/lib/systemd/system/kmsconvt@.service")
+                # Every unit link is as it was before install: vtium's per-VT
+                # alias gone, the getty wanted again where it was, and no
+                # autovt@tty4 of the getty's own.
+                self.assertEqual(self.links(), before)
                 # What install did not write stays.
                 self.assertTrue(os.path.isfile(self.at("usr/lib/systemd/system/getty@.service")))
                 self.assertTrue(os.path.isfile(self.at("usr/bin/kmscon")))
