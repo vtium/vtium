@@ -126,7 +126,7 @@ observable:
   - '`vtium console enable 7` on this machine, whose Wayland session through sddm is on VT 7, refuses and names the graphical session of aaron (sddm, wayland), and `vtium console status` marks VT 1 display manager (sddm) and VT 7 that session'
   - '`make install-tree` stages vtium@.service and vtium-getty@.service, generated as `make install` generates them, and no unit named kmsconvt@ or kmsconvt-getty@'
   - '`make install DESTDIR=DIR PREFIX=/usr` stages the example configuration as `etc/vtium/vtium.conf.example` and nothing under `etc/kmscon`, and a vtium started on a machine whose only configuration file is `/etc/kmscon/kmscon.conf` runs at its defaults'
-status: proposed
+status: accepted
 date: 2026-11-01
 deciders:
   - aaronsb
