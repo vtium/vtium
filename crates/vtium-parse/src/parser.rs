@@ -430,14 +430,14 @@ impl Parser {
                 Some(is_run) => {
                     let n = rest.iter().take_while(|&&b| is_run(b)).count();
                     let (run, after) = rest.split_at_checked(n).unwrap_or((rest, &[]));
-                    if self.state == State::DcsPass {
-                        let taken = self.dcs_collect_run(consumer, run);
-                        if taken > 0 && taken < run.len() && consumer.paused() {
-                            rest = rest.get(taken..).unwrap_or_default();
-                            break;
-                        }
+                    let taken = if self.state == State::DcsPass {
+                        self.dcs_collect_run(consumer, run)
                     } else {
-                        consumer.apc_put(Chunk::Bytes(run));
+                        consumer.apc_put_run(run)
+                    };
+                    if taken > 0 && taken < run.len() && consumer.paused() {
+                        rest = rest.get(taken..).unwrap_or_default();
+                        break;
                     }
                     rest = after;
                 }
@@ -797,6 +797,67 @@ mod tests {
         }
         fn apc_end(&mut self, _: StringEnd) {}
         fn xtgettcap(&mut self, _: Option<&[u8]>) {}
+    }
+
+    /// Takes at most `cap` bytes of each APC run and then reports itself
+    /// paused, as a consumer at its work bound does.
+    struct Capped {
+        cap: usize,
+        bytes: Vec<u8>,
+        paused: bool,
+    }
+
+    impl Consumer for Capped {
+        fn print(&mut self, _: char) {}
+        fn execute(&mut self, _: u8) {}
+        fn esc_dispatch(&mut self, _: Intermediates, _: u8) {}
+        fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {}
+        fn osc_end(&mut self, _: &[u8], _: bool, _: StringEnd) {}
+        fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: u8) {}
+        fn dcs_put(&mut self, _: Chunk<'_>) {}
+        fn dcs_unhook(&mut self, _: StringEnd) {}
+        fn apc_start(&mut self) {}
+        fn apc_put(&mut self, data: Chunk<'_>) {
+            if let Chunk::Bytes(run) = data {
+                self.bytes.extend_from_slice(run);
+            }
+        }
+        fn apc_put_run(&mut self, run: &[u8]) -> usize {
+            let n = run.len().min(self.cap);
+            self.bytes
+                .extend_from_slice(run.get(..n).unwrap_or_default());
+            self.paused = n < run.len();
+            n
+        }
+        fn apc_end(&mut self, _: StringEnd) {}
+        fn xtgettcap(&mut self, _: Option<&[u8]>) {}
+        fn paused(&self) -> bool {
+            self.paused
+        }
+    }
+
+    // An APC consumer that takes part of a run and pauses stops the input
+    // call there; the rest of the run, passed again, reaches it in order.
+    #[test]
+    fn an_apc_run_taken_in_part_returns_the_rest_unconsumed() {
+        let mut parser = Parser::new();
+        let mut capped = Capped {
+            cap: 4,
+            bytes: Vec::new(),
+            paused: false,
+        };
+        let input = b"\x1b_Gabcdefghij\x1b\\";
+        let mut rest: &[u8] = input;
+        let mut calls = 0;
+        while !rest.is_empty() {
+            let n = parser.advance(&mut capped, rest);
+            capped.paused = false;
+            rest = rest.get(n..).unwrap_or_default();
+            calls += 1;
+            assert!(calls < 20, "the input never ends");
+        }
+        assert_eq!(capped.bytes, b"Gabcdefghij");
+        assert!(calls >= 3, "{calls} calls");
     }
 
     // Each action takes a character only in the range the state machine

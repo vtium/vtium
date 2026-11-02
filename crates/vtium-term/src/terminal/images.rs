@@ -347,7 +347,7 @@ impl State {
         }
     }
 
-    /// A run of a DCS string's data to the handler being fed, with the
+    /// A run of a DCS or APC string's data to the handler being fed, with the
     /// work the input call may still do: returns how many bytes it took,
     /// fewer than all once it reached the bound (D5).
     pub(super) fn image_put_run(&mut self, run: &[u8]) -> usize {
@@ -406,6 +406,29 @@ impl State {
             return;
         }
         self.image_put(data);
+    }
+
+    /// A run of an APC string's data: as [`image_apc_put`](Self::image_apc_put)
+    /// for its first byte, and the rest to the kitty handler with the work
+    /// the input call may still do. Returns how many bytes it took, fewer
+    /// than all once the handler reached the bound (D5).
+    pub(super) fn image_apc_put_run(&mut self, run: &[u8]) -> usize {
+        if !self.images.apc_open {
+            return self.image_put_run(run);
+        }
+        let Some((&first, rest)) = run.split_first() else {
+            return 0;
+        };
+        self.images.apc_open = false;
+        if first != b'G' || !self.image_offered(ImageString::Kitty) {
+            return run.len();
+        }
+        self.images.active = Some(ImageString::Kitty);
+        self.with_handler(ImageString::Kitty, |h, ctx| h.start(ctx, Intro::String));
+        if rest.is_empty() {
+            return 1;
+        }
+        self.image_put_run(rest).saturating_add(1)
     }
 
     pub(super) fn image_apc_end(&mut self, end: StringEnd) {

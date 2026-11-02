@@ -844,3 +844,37 @@ fn a_cancelled_string_whose_keys_passed_1_kib_still_ends_an_upload() {
     assert_eq!(h.take(), "");
     assert!(h.store.is_empty());
 }
+
+// covers: image.kitty
+#[test]
+fn a_run_fed_a_few_bytes_of_work_at_a_time_stores_what_it_stores_whole() {
+    let data = format!(
+        "a=T,f=24,s=5,v=3,i=1,c=2;{}",
+        b64(&(0..45u8).collect::<Vec<_>>())
+    );
+    let whole = {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        send(&mut k, &mut h, &data);
+        (h.take(), h.store.clone())
+    };
+    for left in [0u64, 1, 3, 7, 1000] {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        k.start(&mut h, Intro::String);
+        let mut rest = data.as_bytes();
+        let mut calls = 0;
+        while !rest.is_empty() {
+            let n = k.feed_some(&mut h, rest, left);
+            assert!(n >= 1 && n <= rest.len(), "took {n} of {}", rest.len());
+            // the keys whole, then at most the work left, or one byte
+            let keys = rest.iter().position(|&b| b == b';').map(|e| e + 1);
+            if keys.is_none() || calls > 0 {
+                assert!(n as u64 <= left.max(1), "took {n} with {left} left");
+            }
+            rest = &rest[n..];
+            calls += 1;
+        }
+        k.finish(&mut h);
+        assert_eq!(h.take(), whole.0, "{left} left");
+        assert!(h.store == whole.1, "{left} left");
+    }
+}

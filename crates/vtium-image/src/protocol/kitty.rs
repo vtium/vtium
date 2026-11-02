@@ -756,6 +756,40 @@ impl Handler for Kitty {
         }
     }
 
+    /// A run of an APC string's data: the key section whole, since it is at
+    /// most 1 KiB, and of the payload only as many bytes as `work_left`
+    /// allows, each byte one unit of work, at least one byte of a run that
+    /// is not empty. The base64 decoder keeps its open group between runs,
+    /// so the rest of the run decodes the same in the next input call.
+    fn feed_some(&mut self, ctx: &mut dyn Context, run: &[u8], work_left: u64) -> usize {
+        let mut taken = 0usize;
+        if self.phase == Phase::Keys {
+            let keys = run
+                .iter()
+                .position(|&b| b == b';')
+                .map_or(run.len(), |e| e.saturating_add(1));
+            self.feed(ctx, Chunk::Bytes(run.get(..keys).unwrap_or_default()));
+            taken = keys;
+        }
+        let rest = run.get(taken..).unwrap_or_default();
+        if rest.is_empty() {
+            return taken.max(usize::from(!run.is_empty()));
+        }
+        if self.phase != Phase::Payload {
+            // an ignored string reads nothing more
+            ctx.add_work(chunk_work(Chunk::Bytes(rest)));
+            return run.len();
+        }
+        let left = work_left.saturating_sub(u64::try_from(taken).unwrap_or(u64::MAX));
+        let n = usize::try_from(left)
+            .unwrap_or(usize::MAX)
+            .clamp(usize::from(taken == 0), rest.len());
+        if n > 0 {
+            self.feed(ctx, Chunk::Bytes(rest.get(..n).unwrap_or_default()));
+        }
+        taken.saturating_add(n)
+    }
+
     fn finish(&mut self, ctx: &mut dyn Context) {
         match core::mem::take(&mut self.phase) {
             Phase::Ignore => return,

@@ -1084,6 +1084,13 @@ impl Consumer for State {
         let _ = data;
     }
 
+    fn apc_put_run(&mut self, run: &[u8]) -> usize {
+        #[cfg(feature = "images")]
+        return self.image_apc_put_run(run);
+        #[cfg(not(feature = "images"))]
+        run.len()
+    }
+
     fn apc_end(&mut self, end: StringEnd) {
         #[cfg(feature = "images")]
         self.image_apc_end(end);
