@@ -3783,3 +3783,16 @@ fn new_buffers_from_a_hotplug_drop_a_token_lent_before() {
     assert!(!v.card().state().dumbs.contains_key(&old));
     assert_eq!(age(&mut v, A), 0);
 }
+
+// With one buffer the sleep's clear finds the buffer lent, and a token
+// given back unused pays the clear it owes, as a late swap does.
+#[test]
+fn a_token_given_back_after_the_sleep_clears_its_buffer() {
+    let mut v = kept(Buffers::One);
+    let mut token = v.lend(DisplayId(A)).unwrap();
+    v.sleep();
+    token.draw(|c| c.pixels.fill(9)).unwrap();
+    let map = Arc::clone(&v.outputs[0].buffers[0].map);
+    v.give_back(token);
+    assert!(lock(&map).iter().all(|&b| b == 0));
+}
