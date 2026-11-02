@@ -1,6 +1,6 @@
 # vtium-vitrify shaping table generator
 
-Generates vtium-vitrify's `src/shaping/data.rs` from the Unicode Character Database 18.0.0: the RGI emoji sequences of more than one scalar value, the joining letters of the scripts HarfRust's Arabic shaper takes, the canonical decompositions keyed at each step, and the ranges of the scripts shaped on demand (vtium/vtium#144). The output is committed, so the crate builds without the UCD; rerun this only to move the pinned version, and commit the new pins and the regenerated file on their own. It is its own workspace with no dependencies, so the main workspace and CI never build it.
+Generates vtium-vitrify's `src/shaping/data.rs` from the Unicode Character Database 18.0.0: the RGI emoji sequences of more than one scalar value, the joining letters of the scripts HarfRust's Arabic shaper takes, the characters of every script that join to their neighbours (Joining_Type D, R, L or C in `ArabicShaping.txt`, which ADR-1302 D2 stretches to their cells), the canonical decompositions keyed at each step, and the ranges of the scripts shaped on demand (vtium/vtium#144). The output is committed, so the crate builds without the UCD; rerun this only to move the pinned version, and commit the new pins and the regenerated file on their own. It is its own workspace with no dependencies, so the main workspace and CI never build it.
 
 Fetch the five UCD files into a directory, then run it from the repository root:
 

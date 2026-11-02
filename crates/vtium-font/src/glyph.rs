@@ -38,6 +38,40 @@ pub struct Glyph {
     cells: Width,
     format: Format,
     pixels: Vec<u8>,
+    ink: Option<Box<Ink>>,
+}
+
+/// The ink box of a glyph whose ink passes its cells (ADR-1302 D1, D6):
+/// the columns from [`Ink::left`], the offset of its first column from
+/// the left edge of the glyph's first cell, 0 or negative, [`Ink::width`]
+/// columns across, over the glyph's full height, in the glyph's format.
+/// It spans the glyph's cells and the ink past them, and reaches at most
+/// one cell past them on each side. The glyph's own pixels stay its ink
+/// cut to its cells, so a renderer that draws no box draws them as
+/// before.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Ink {
+    left: i32,
+    width: u32,
+    pixels: Vec<u8>,
+}
+
+impl Ink {
+    /// The offset of the box's first column from the left edge of the
+    /// glyph's first cell: 0 or negative.
+    pub fn left(&self) -> i32 {
+        self.left
+    }
+
+    /// Its width in pixels.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Every pixel's bytes, row by row, in the glyph's format.
+    pub fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
 }
 
 /// The byte length of a `width` by `height` glyph in `format`, or `None`
@@ -88,6 +122,7 @@ impl Glyph {
             cells: Width::Narrow,
             format,
             pixels,
+            ink: None,
         })
     }
 
@@ -98,6 +133,7 @@ impl Glyph {
             cells: Width::Narrow,
             format,
             pixels: vec![0; len(width, height, format)?],
+            ink: None,
         })
     }
 
@@ -120,6 +156,37 @@ impl Glyph {
     pub fn with_cells(mut self, cells: Width) -> Glyph {
         self.cells = cells;
         self
+    }
+
+    /// Its ink box, when its ink passes its cells (ADR-1302 D6).
+    pub fn ink(&self) -> Option<&Ink> {
+        self.ink.as_deref()
+    }
+
+    /// The same glyph with the ink box `width` columns from `left`,
+    /// holding `pixels` in the glyph's format over its height; `None` when
+    /// the box is not past the glyph's cells, passes its reach, one cell
+    /// past them on each side, or `pixels` is not the box's length. A
+    /// color glyph carries no box: it fits its cells (ADR-1302 D5).
+    pub fn with_ink(mut self, left: i32, width: u32, pixels: Vec<u8>) -> Option<Glyph> {
+        if self.format != Format::Mask {
+            return None;
+        }
+        let cell = i64::from(self.width.checked_div(self.cells.cells())?);
+        let span = i64::from(self.width);
+        if !crate::set::format::in_reach(i64::from(left), i64::from(width), cell, span) {
+            return None;
+        }
+        let n = usize::try_from(width.checked_mul(self.height)?).ok()?;
+        if pixels.len() != n {
+            return None;
+        }
+        self.ink = Some(Box::new(Ink {
+            left,
+            width,
+            pixels,
+        }));
+        Some(self)
     }
 
     /// How its pixels are stored.
@@ -189,7 +256,8 @@ impl Glyph {
     /// This glyph boxed to `width` pixels and marked as spanning `cells`,
     /// centred, with what overflows cut off evenly from both sides; the
     /// pixels unchanged when it is that wide already. The C reference's
-    /// `fit_glyph` (font.c:267-308).
+    /// `fit_glyph` (font.c:267-308). A glyph boxed to another width loses
+    /// its ink box, which was placed for its own cells.
     pub(crate) fn fit(self, width: u32, cells: Width) -> Option<Glyph> {
         if width == self.width {
             return Some(self.with_cells(cells));

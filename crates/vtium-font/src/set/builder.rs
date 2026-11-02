@@ -5,7 +5,7 @@ use std::fmt;
 
 use super::format::{MAJOR, MINOR, STYLE_BOLD, STYLE_ITALIC, valid_name};
 use super::read::PixelFormat;
-use super::write::{RawSet, RawStrike, encode};
+use super::write::{RawInk, RawSet, RawStrike, encode};
 use crate::face::{Cell, Decorations, Style, Width};
 use crate::policy::{Source, SpritePolicy};
 use crate::sprite::Range;
@@ -22,6 +22,10 @@ impl fmt::Display for WriteError {
 
 impl std::error::Error for WriteError {}
 
+/// An ink box as [`StrikeBuilder::ink`] takes it: its left, its width
+/// and its bytes.
+type InkBox = (i32, u32, Vec<u8>);
+
 /// One strike: a style at one cell size in one pixel format, its glyphs
 /// and the codepoints that draw them.
 #[derive(Clone, Debug)]
@@ -35,6 +39,7 @@ pub struct StrikeBuilder {
     glyphs: Vec<(bool, Vec<u8>)>,
     map: Vec<(u32, u32)>,
     clusters: Vec<(Vec<u32>, u32)>,
+    inks: Vec<(u32, InkBox)>,
 }
 
 impl StrikeBuilder {
@@ -54,6 +59,7 @@ impl StrikeBuilder {
             glyphs: Vec::new(),
             map: Vec::new(),
             clusters: Vec::new(),
+            inks: Vec::new(),
         }
     }
 
@@ -96,6 +102,18 @@ impl StrikeBuilder {
             .push((key.iter().map(|&c| u32::from(c)).collect(), glyph));
     }
 
+    /// Gives glyph `glyph` an ink box (ADR-1302 D6, `INKX`): `width`
+    /// columns from `left`, the offset of its first column from the left
+    /// edge of the glyph's first cell, 0 or negative, over the cell's
+    /// height, its bytes in the strike's format. The box spans the glyph's
+    /// cells and the ink past them, at most one cell past them on each
+    /// side; the glyph's own bytes stay its pixels cut to its cells. The
+    /// writer refuses a box in a color strike, past that reach or not past
+    /// the cells, or larger than a chunk.
+    pub fn ink(&mut self, glyph: u32, left: i32, width: u32, bytes: Vec<u8>) {
+        self.inks.push((glyph, (left, width, bytes)));
+    }
+
     /// Whether no codepoint and no cluster is mapped yet: a strike the
     /// writer would write no glyph for.
     pub fn is_empty(&self) -> bool {
@@ -134,6 +152,20 @@ impl StrikeBuilder {
             glyphs: self.glyphs.clone(),
             map: self.map.clone(),
             clusters: self.clusters.clone(),
+            inks: self
+                .inks
+                .iter()
+                .map(|(g, (left, width, bytes))| {
+                    (
+                        *g,
+                        RawInk {
+                            left: *left,
+                            width: *width,
+                            bytes: bytes.clone(),
+                        },
+                    )
+                })
+                .collect(),
         })
     }
 }

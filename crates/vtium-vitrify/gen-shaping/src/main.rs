@@ -41,8 +41,10 @@ const FILES: [(&str, &str, &str); 5] = [
 /// The licence of the UCD files, copied into the output.
 const LICENSE: &str = include_str!("unicode-license.txt");
 
-/// The scripts whose letters join, and so take joining forms built ahead
-/// of time: those HarfRust 0.12 shapes with its Arabic shaper.
+/// The scripts HarfRust 0.12 shapes with its Arabic shaper, whose joining
+/// letters `JOINING` lists. No code reads `JOINING` today: the fill that
+/// built their joined forms ahead of time was dropped, and a letter's
+/// joined form waits on shaping across cells.
 const JOINING_SCRIPTS: [&str; 2] = ["Arabic", "Syriac"];
 
 /// The scripts shaped on demand: those HarfRust 0.12 shapes with its Indic,
@@ -170,17 +172,24 @@ fn run(ucd: &Path) -> Result<(), String> {
     emoji.sort();
     emoji.dedup();
     let scripts = scripts(&read("Scripts.txt")?)?;
-    let joining = joining(&read("ArabicShaping.txt")?, &scripts)?;
-    let decomposed = decomposed(&read("UnicodeData.txt")?)?;
+    let shaping = read("ArabicShaping.txt")?;
+    let joining = joining(&shaping, &scripts)?;
+    let joins = joins(&shaping)?;
+    let unicode_data = read("UnicodeData.txt")?;
+    let decomposed = decomposed(&unicode_data)?;
+    let marks = marks(&unicode_data)?;
     let on_demand = on_demand(&scripts);
     let path = root.join("src/shaping/data.rs");
-    let text = data_rs(&emoji, &joining, &decomposed, &on_demand);
+    let text = data_rs(&emoji, &joining, &joins, &marks, &decomposed, &on_demand);
     std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
     println!(
         "src/shaping/data.rs: Unicode {VERSION}, {} emoji sequences, {} joining letters, \
-         {} decomposed keys, {} scripts shaped on demand",
+         {} ranges of characters that join, {} ranges of marks, {} decomposed keys, \
+         {} scripts shaped on demand",
         emoji.len(),
         joining.len(),
+        joins.len(),
+        marks.len(),
         decomposed.len(),
         on_demand.len()
     );
@@ -289,6 +298,69 @@ fn joining(text: &str, scripts: &BTreeMap<u32, String>) -> Result<Vec<(u32, char
     Ok(out)
 }
 
+/// The characters that join to their neighbours in every script
+/// ArabicShaping.txt lists, as ranges: those of Joining_Type D (dual), R
+/// (right), L (left) or C (join-causing, as the tatweel), the letters
+/// ADR-1302 D2 stretches to their cells. Characters it does not list are
+/// non-joining or transparent.
+fn joins(text: &str) -> Result<Vec<(u32, u32)>, String> {
+    let mut cps = Vec::new();
+    for f in fields(text) {
+        let (Some(cp), Some(kind)) = (f.first(), f.get(2)) else {
+            return Err(format!("a line of fewer than three fields: {f:?}"));
+        };
+        if matches!(*kind, "D" | "R" | "L" | "C") {
+            cps.push(codepoint(cp)?);
+        }
+    }
+    cps.sort_unstable();
+    cps.dedup();
+    let mut out: Vec<(u32, u32)> = Vec::new();
+    for c in cps {
+        match out.last_mut() {
+            Some((_, b)) if *b + 1 == c => *b = c,
+            _ => out.push((c, c)),
+        }
+    }
+    Ok(out)
+}
+
+/// Where a mark goes on its base, by its canonical combining class: 1 above
+/// (classes 214, 216, 228, 230, 232 and 234), 2 below (202, 218, 220, 222
+/// and 233), else 0.
+fn side(ccc: u32) -> u8 {
+    match ccc {
+        214 | 216 | 228 | 230 | 232 | 234 => 1,
+        202 | 218 | 220 | 222 | 233 => 2,
+        _ => 0,
+    }
+}
+
+/// The marks, as ranges of one side each: the characters of
+/// General_Category Mn or Me, or of a combining class other than 0
+/// (UnicodeData.txt), each with [`side`]'s value for its class.
+fn marks(text: &str) -> Result<Vec<(u32, u32, u8)>, String> {
+    let mut out: Vec<(u32, u32, u8)> = Vec::new();
+    for f in fields(text) {
+        let (Some(cp), Some(gc), Some(ccc)) = (f.first(), f.get(2), f.get(3)) else {
+            return Err(format!("a line of fewer than four fields: {f:?}"));
+        };
+        let c = codepoint(cp)?;
+        let ccc: u32 = ccc
+            .parse()
+            .map_err(|_| format!("{cp}: a combining class that is not a number"))?;
+        if !matches!(*gc, "Mn" | "Me") && ccc == 0 {
+            continue;
+        }
+        let s = side(ccc);
+        match out.last_mut() {
+            Some((_, b, last)) if *b + 1 == c && *last == s => *b = c,
+            _ => out.push((c, c, s)),
+        }
+    }
+    Ok(out)
+}
+
 /// The canonical decompositions of two or more scalar values, each key
 /// the precomposed character decomposed one step at a time from its first
 /// scalar: `U+1EBF` gives `U+00EA U+0301` and `U+0065 U+0302 U+0301`.
@@ -362,6 +434,8 @@ fn seq(s: &[u32]) -> String {
 fn data_rs(
     emoji: &[Vec<u32>],
     joining: &[(u32, char, u8)],
+    joins: &[(u32, u32)],
+    marks: &[(u32, u32, u8)],
     decomposed: &[Vec<u32>],
     on_demand: &[(&str, Vec<(u32, u32)>)],
 ) -> String {
@@ -384,11 +458,32 @@ fn data_rs(
         "];\n\n/// The joining letters of the scripts the Arabic shaper takes, Arabic\n\
          /// and Syriac (ArabicShaping.txt): each letter, its joining type, `D`\n\
          /// for dual-joining or `R` for right-joining, and its joining group, 1\n\
-         /// for LAM, 2 for ALEF, else 0.\n\
+         /// for LAM, 2 for ALEF, else 0. No code reads it today: joined forms\n\
+         /// wait on shaping across cells.\n\
          pub const JOINING: &[(u32, char, u8)] = &[\n",
     );
     for (c, kind, group) in joining {
         let _ = writeln!(out, "    (0x{c:x}, '{kind}', {group}),");
+    }
+    out.push_str(
+        "];\n\n/// The characters that join to their neighbours, in every script\n\
+         /// ArabicShaping.txt lists, as sorted ranges: Joining_Type D, R, L or\n\
+         /// C. ADR-1302 D2 stretches an outline glyph of one of them to its\n\
+         /// cells.\n\
+         pub const JOINS: &[(u32, u32)] = &[\n",
+    );
+    for (a, b) in joins {
+        let _ = writeln!(out, "    (0x{a:x}, 0x{b:x}),");
+    }
+    out.push_str(
+        "];\n\n/// The marks, as sorted ranges of one side each (UnicodeData.txt): the\n\
+         /// characters of General_Category Mn or Me or of a combining class\n\
+         /// other than 0, each with where it goes on its base by its class, 1\n\
+         /// above, 2 below, else 0. ADR-1302 D3 fits a mark to the row.\n\
+         pub const MARKS: &[(u32, u32, u8)] = &[\n",
+    );
+    for (a, b, side) in marks {
+        let _ = writeln!(out, "    (0x{a:x}, 0x{b:x}, {side}),");
     }
     out.push_str(
         "];\n\n/// The canonical decompositions of two or more scalar values, each\n\

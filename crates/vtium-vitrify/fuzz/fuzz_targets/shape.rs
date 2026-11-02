@@ -63,6 +63,7 @@ fuzz_target!(|data: &[u8]| {
         cells: vec![(0, 16), (8, 16), (12, 24)],
         cover,
         clusters: keys.iter().map(|k| ask(k)).collect(),
+        baselines: Vec::new(),
     };
     let _ = rasterise(&request);
 });

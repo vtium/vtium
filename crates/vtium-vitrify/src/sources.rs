@@ -551,6 +551,7 @@ fn outline(font: Vec<u8>, family: &str) -> Input {
         cells: Vec::new(),
         cover: Vec::new(),
         clusters: Vec::new(),
+        baselines: Vec::new(),
     })
 }
 

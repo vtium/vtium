@@ -11,7 +11,9 @@ mod ttf;
 use std::path::Path;
 
 use parser::Parser;
-use vtium_vitrify::outline::{Outline, OutlineRequest, cell_width, rasterise};
+use vtium_vitrify::outline::{
+    Outline, OutlineRequest, baseline, cell_width, decorations, rasterise,
+};
 use vtium_vitrify::resample::{self, METHOD};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-vitrify");
@@ -23,6 +25,7 @@ fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
         cells: cells.to_vec(),
         cover: cover.to_vec(),
         clusters: Vec::new(),
+        baselines: Vec::new(),
     }
 }
 
@@ -200,6 +203,363 @@ fn a_color_glyph_is_premultiplied_rgba_two_cells_wide() {
     assert_eq!(px(0, 0), [0; 4], "outside both");
 }
 
+/// Test Mono with `L` (U+004C), a bar from 150 units left of its pen to
+/// 450 right of it, advancing 600, whose ink passes its cell's left edge,
+/// and `R` (U+0052), a bar from 0 to `right` units.
+fn overhanging(right: i16) -> OutlineRequest {
+    let mut font = ttf::test_mono();
+    font.glyphs.push(ttf::Glyph::rect(600, -150, 0, 450, 700));
+    font.glyphs.push(ttf::Glyph::rect(600, 0, 0, right, 700));
+    font.cmap.push((0x4c, 8));
+    font.cmap.push((0x52, 9));
+    font.cmap.sort_unstable();
+    OutlineRequest {
+        font: font.build().into(),
+        ..request(&[(0, 20)], &[])
+    }
+}
+
+// ADR-1302 D1, D6: ink past a glyph's cell is kept in its ink box, up to
+// one cell past it, and the glyph's own pixels stay cut to its cell. At
+// 19.5 pixels to the em, L spans -2.9 to 8.8 pixels: its box starts 3
+// columns left of its 12-pixel cell and ends at the cell's right edge
+// covers: text.overhang
+#[test]
+fn ink_past_a_cell_is_kept_in_the_glyphs_ink_box() {
+    let o = rasterise(&overhanging(600)).expect("rasterised");
+    let l = glyph(&o, 0, 0x4c);
+    assert_eq!(l.pixels.len(), 12 * 20);
+    let ink = l.ink.as_ref().expect("L's box");
+    assert_eq!((ink.left, ink.width), (-3, 15));
+    let at = |y: usize, x: usize| ink.pixels[y * 15 + x];
+    // the box's columns 3 to 14 are the cell's own pixels
+    for y in 0..20 {
+        assert_eq!(
+            &ink.pixels[y * 15 + 3..y * 15 + 15],
+            &l.pixels[y * 12..y * 12 + 12]
+        );
+    }
+    assert_eq!(at(10, 1), 255, "ink two columns left of the cell");
+    assert!(
+        at(10, 0) > 0 && at(10, 0) < 255,
+        "the bar's edge, 0.9 of a pixel in"
+    );
+    // A, W and the space keep their ink in their cells
+    for c in [0x41, 0x57, 0x20] {
+        assert!(glyph(&o, 0, c).ink.is_none(), "{c:#x}");
+    }
+}
+
+// ink past one cell beyond the glyph's is cut at the reach, and nothing
+// moves a glyph to keep its ink in (ADR-1302 D1, D2): R, a bar 2000 units
+// wide, 39 pixels, stays at its pen and is cut one cell past its own
+#[test]
+fn ink_past_the_reach_is_cut() {
+    let o = rasterise(&overhanging(2000)).expect("rasterised");
+    let r = glyph(&o, 0, 0x52);
+    let ink = r.ink.as_ref().expect("R's box");
+    assert_eq!((ink.left, ink.width), (0, 24), "to one cell past its own");
+    assert!(
+        ink.pixels[..24].iter().all(|&p| p == 0),
+        "nothing above the bar"
+    );
+    assert!(
+        ink.pixels[10 * 24..11 * 24].iter().all(|&p| p == 255),
+        "the bar fills the reach"
+    );
+}
+
+// ADR-1302 D2: the pen starts at the cell's left edge, moved by half of
+// what the cells exceed the advance rounded, rounded down. At 19.5 pixels
+// to the em: U+4E00 advances 19.5, rounded 20, in its two 12-pixel cells,
+// so its pen is 2 pixels in and its ink, from 0.98 pixels past the pen,
+// starts in column 2; C advances 750 units, 14.6 rounded 15, in one cell,
+// so its pen moves half of -3, rounded down, 2 pixels left, and its ink
+// runs from 2 left of the cell to 12.6
+// covers: text.overhang
+#[test]
+fn a_glyph_is_placed_by_its_rounded_advance() {
+    let mut font = ttf::test_mono();
+    font.glyphs.push(ttf::Glyph::rect(750, 0, 0, 750, 700));
+    font.cmap.push((0x43, 8));
+    font.cmap.sort_unstable();
+    let o = rasterise(&OutlineRequest {
+        font: font.build().into(),
+        ..request(&[(0, 20)], &[])
+    })
+    .expect("rasterised");
+    let column = |g: &vtium_vitrify::outline::Placed, w: usize, x: usize| {
+        (0..20).map(|y| g.pixels[y * w + x]).max().unwrap_or(0)
+    };
+    let wide = glyph(&o, 0, 0x4e00);
+    assert_eq!(column(wide, 24, 1), 0, "left of the pen's ink");
+    assert!(column(wide, 24, 2) > 0, "the ink's first column");
+    assert!(wide.ink.is_none(), "its ink lies inside its cells");
+    let c = glyph(&o, 0, 0x43);
+    let ink = c.ink.as_ref().expect("C's box");
+    assert_eq!(
+        (ink.left, ink.width),
+        (-2, 15),
+        "from 2 left of the cell to 12.6"
+    );
+    // W: an advance of 11.7, rounded 12, in a 12-pixel cell keeps the pen
+    // on the cell's left edge, as the C reference drew it
+    assert!(column(glyph(&o, 0, 0x57), 12, 0) > 0);
+}
+
+// ADR-1302 D6: a glyph whose box would pass the 16 KiB chunk keeps its
+// pixels cut to its cell and carries no box. At 128 pixels high, a 77-pixel
+// cell, R's box would be the whole reach, 231 by 128 pixels, where L's,
+// from 19.1 pixels left of its cell, 97 by 128, fits
+#[test]
+fn a_box_past_the_chunk_bound_leaves_the_glyph_cut_to_its_cell() {
+    let o = rasterise(&OutlineRequest {
+        cells: vec![(0, 128)],
+        ..overhanging(2000)
+    })
+    .expect("rasterised");
+    let s = &o.strikes[0];
+    assert_eq!(s.width, 77);
+    let r = glyph(&o, 0, 0x52);
+    assert!(r.ink.is_none());
+    assert_eq!(r.pixels.len(), 77 * 128);
+    let l = glyph(&o, 0, 0x4c);
+    assert_eq!(l.ink.as_ref().map(|i| (i.left, i.width)), Some((-20, 97)));
+}
+
+// the parent checks each ink box in the child's answer: R8 only, inside
+// the glyph's reach and past its cells, and no larger than a chunk
+#[test]
+fn an_answer_with_a_box_past_the_reach_is_refused() {
+    let req = overhanging(600);
+    let o = rasterise(&req).expect("rasterised");
+    assert_eq!(Outline::decode(&o.encode(), &req), Ok(o.clone()));
+    let l = o.strikes[0].map.iter().find(|m| m.0 == 0x4c).expect("L").1 as usize;
+    let mut bad = o.clone();
+    let ink = bad.strikes[0].glyphs[l].ink.as_mut().expect("a box");
+    ink.left = -13;
+    ink.width = 25;
+    ink.pixels = vec![0; 25 * 20];
+    assert!(
+        Outline::decode(&bad.encode(), &req).is_err(),
+        "a box past the reach"
+    );
+    let mut inside = o.clone();
+    let ink = inside.strikes[0].glyphs[l].ink.as_mut().expect("a box");
+    (ink.left, ink.width, ink.pixels) = (0, 12, vec![0; 12 * 20]);
+    assert!(
+        Outline::decode(&inside.encode(), &req).is_err(),
+        "a box of the cell alone"
+    );
+    let mut short = o.clone();
+    short.strikes[0].glyphs[l]
+        .ink
+        .as_mut()
+        .expect("a box")
+        .pixels
+        .pop();
+    assert!(
+        Outline::decode(&short.encode(), &req).is_err(),
+        "a box cut short"
+    );
+}
+
+/// Test Mono with an underscore from 200 to 100 units below the baseline
+/// and `a` from it to 500 above.
+fn underscored() -> Vec<u8> {
+    let mut font = ttf::test_mono();
+    font.glyphs.push(ttf::Glyph::rect(600, 0, -200, 600, -100));
+    font.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 500));
+    font.cmap.push((0x5f, 8));
+    font.cmap.push((0x61, 9));
+    font.cmap.sort_unstable();
+    font.build()
+}
+
+// ADR-1302 D3: the baseline is the ascent below the cell's top, rounded
+// up, raised by the whole pixels the lowest ink of printable ASCII passes
+// the cell's bottom. At 9.5, 11.5 and 19.5 pixels to the em the ascent is
+// 7.6, 9.2 and 15.6, rounded 8, 10 and 16, and the underscore's ink ends
+// 1.9, 2.3 and 3.9 pixels below it, in 2, 3 and 4 rows: at 12 pixels that
+// is row 13 of 12, so the baseline rises a row there and nowhere else
+// covers: text.overhang
+#[test]
+fn the_baseline_rises_where_ascii_ink_passes_the_cell() {
+    let font = underscored();
+    let at = |h| baseline(&font, "Test Mono", h).expect("a baseline");
+    assert_eq!([at(10), at(12), at(20)], [8, 9, 16]);
+    let o = rasterise(&OutlineRequest {
+        font: font.clone().into(),
+        cells: vec![(0, 10), (0, 12), (0, 20)],
+        cover: vec![(0x61, 0x61)],
+        ..request(&[], &[])
+    })
+    .expect("rasterised");
+    let bases: Vec<u32> = o.strikes.iter().map(|s| s.baseline).collect();
+    assert_eq!(bases, [8, 9, 16], "whatever the request covers");
+    // the underscore ends in the cell's bottom row, and a's ink stands on
+    // the baseline
+    let o = rasterise(&OutlineRequest {
+        font: font.into(),
+        cells: vec![(0, 12)],
+        ..request(&[], &[])
+    })
+    .expect("rasterised");
+    let s = &o.strikes[0];
+    let row_inked = |c: u32, y: usize| {
+        let g = glyph(&o, 0, c);
+        g.pixels[y * s.width as usize..(y + 1) * s.width as usize]
+            .iter()
+            .any(|&p| p > 0)
+    };
+    assert!(row_inked(0x5f, 11), "the underscore's last row in the cell");
+    assert!(
+        row_inked(0x61, 8) && !row_inked(0x61, 9),
+        "a ends on the baseline"
+    );
+}
+
+// ADR-1302 D3 and the C reference's kmscon_font_freetype_get_deco: the
+// underline's centre is FreeType's underline_position below the baseline,
+// post's underlinePosition less half its underlineThickness. Test Mono at
+// 20 pixels, 0.0195 of a pixel to the unit, baseline 16, with an underline
+// at -100 units and 50 thick: a row thick, round(0.975); its centre 16 +
+// (100 + 25) * 0.0195 = 18.44, its top row floor(18.44) = 18
+// covers: text.overhang
+#[test]
+fn the_underline_is_centred_below_the_baseline_as_freetype_gives_it() {
+    let font = ttf::Font {
+        underline: Some((-100, 50)),
+        ..ttf::test_mono()
+    }
+    .build();
+    let d = decorations(&font, "Test Mono", 20, 16).expect("the lines");
+    assert_eq!((d.underline, d.underline_thickness), (18, 1));
+}
+
+// The lines a strike reports, each pinned to the C reference's formula
+// (kmscon_font_freetype_get_deco, kmscon_font_get_deco), for Test Mono at
+// 20 pixels, baseline 16, 0.0195 of a pixel to the unit. With an OS/2
+// strikeout 50 units thick at 300: a row thick, its top row floor(16 -
+// 5.85 + 0.5) = 10. With no post underline and no OS/2: the underline a
+// fourteenth of the cell thick, floor(20 / 14) = 1, centred 1.5 rows above
+// the bottom, row 18; the strike-through as thick, centred on half the
+// x-height, which the font lacks, so on half the baseline: 16 - 4 = 12,
+// its top row floor(12 - 0.5 + 0.5) = 12
+// covers: text.overhang
+#[test]
+fn the_lines_follow_the_font_as_the_c_reference_placed_them() {
+    let lines = |font: ttf::Font| {
+        let d = decorations(&font.build(), "Test Mono", 20, 16).expect("the lines");
+        (
+            d.underline,
+            d.underline_thickness,
+            d.strike,
+            d.strike_thickness,
+        )
+    };
+    let both = ttf::Font {
+        underline: Some((-100, 50)),
+        os2: Some((50, 300, 0)),
+        ..ttf::test_mono()
+    };
+    assert_eq!(lines(both), (18, 1, 10, 1), "post and OS/2");
+    assert_eq!(lines(ttf::test_mono()), (18, 1, 12, 1), "neither");
+}
+
+// A font with no `post` table takes the underline a fourteenth of the
+// cell thick, as the C reference did when FreeType gave it no underline
+// thickness (kmscon_font_freetype_get_deco), whatever the OS/2
+// strikeout's size (review finding 3; swash gives that size as the
+// stroke's when `post` is missing). Test Mono at 20 pixels, baseline 16,
+// with an OS/2 strikeout 100 units thick, 2 rows, and no `post`: the
+// underline floor(20 / 14) = 1 row thick, centred 1.5 rows above the
+// bottom, row 18; the strike-through 2 rows thick from OS/2
+#[test]
+fn a_font_with_no_post_table_takes_the_underline_from_the_cell() {
+    let font = ttf::Font {
+        os2: Some((100, 300, 0)),
+        ..ttf::test_mono()
+    }
+    .build();
+    let d = decorations(&font, "Test Mono", 20, 16).expect("the lines");
+    assert_eq!(
+        (d.underline, d.underline_thickness),
+        (18, 1),
+        "the underline"
+    );
+    assert_eq!(d.strike_thickness, 2, "the strike-through from OS/2");
+}
+
+// The strike-through as the C reference drew it (review finding A3): as
+// thick as OS/2's yStrikeoutSize, when it is above 0; else as thick as the
+// underline, centred on half the x-height, which OS/2's sxHeight gives,
+// else the x glyph's height. Test Mono at 20 pixels, baseline 16: a
+// strikeout 100 units thick at 300 is 2 rows, its top floor(16 - 5.85 +
+// 0.5) = 10; no strikeout but an sxHeight of 500 puts it at floor(16 -
+// 4.875) = 11; neither, but an x glyph 600 units tall, 12 pixels hinted,
+// at 16 - 6 = 10. The first font's post underline is 50 units, a row, so
+// a strike-through as thick as the underline would be 1
+#[test]
+fn the_strike_through_takes_os2s_size_and_the_x_height() {
+    let lines = |font: ttf::Font| {
+        let d = decorations(&font.build(), "Test Mono", 20, 16).expect("the lines");
+        (d.strike, d.strike_thickness)
+    };
+    assert_eq!(
+        lines(ttf::Font {
+            underline: Some((-100, 50)),
+            os2: Some((100, 300, 0)),
+            ..ttf::test_mono()
+        }),
+        (10, 2),
+        "OS/2's strikeout"
+    );
+    assert_eq!(
+        lines(ttf::Font {
+            os2: Some((0, 300, 500)),
+            ..ttf::test_mono()
+        }),
+        (11, 1),
+        "no strikeout, the sxHeight"
+    );
+    let mut x = ttf::Font {
+        os2: Some((0, 0, 0)),
+        ..ttf::test_mono()
+    };
+    x.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 600));
+    x.cmap.push((0x78, 8));
+    x.cmap.sort_unstable();
+    assert_eq!(lines(x), (10, 1), "no sxHeight, the x glyph");
+}
+
+// The lowest ink comes from the image's box, which swash keeps to rows of
+// ink (review finding A10): a row whose coverage rounds to 0 is not in
+// it, so it raises nothing. A font
+// of 16,384 units to the em, ascent 13,107 and descent 3,277, at 20
+// pixels has its baseline on row 16 and four rows under it; its
+// underscore reaches 3,361 units, 4.0005 pixels, below the baseline: the
+// row past the cell would hold 0.0005 of a pixel's coverage, which rounds
+// to 0, and the baseline stays on row 16
+#[test]
+fn the_lowest_ink_is_measured_on_the_pixels() {
+    let font = ttf::Font {
+        upem: 16384,
+        ascent: 13107,
+        descent: -3277,
+        glyphs: vec![
+            ttf::Glyph::empty(9830),
+            ttf::Glyph::rect(9830, 0, -3361, 9830, 0),
+        ],
+        cmap: vec![(0x5f, 1)],
+        colr: Vec::new(),
+        palette: Vec::new(),
+        ..ttf::test_mono()
+    }
+    .build();
+    assert_eq!(baseline(&font, "Test Mono", 20), Ok(16));
+}
+
 #[test]
 fn a_later_source_draws_at_the_cell_it_is_given_and_only_what_it_covers() {
     let o =
@@ -302,6 +662,7 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
         cells: vec![(0, 10)],
         cover: Vec::new(),
         clusters: Vec::new(),
+        baselines: Vec::new(),
     };
     let o = rasterise(&req).expect("rasterised");
     let s = &o.strikes[0];
