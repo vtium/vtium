@@ -285,6 +285,27 @@ pub enum OwnCell {
     Outline(Cell),
 }
 
+/// Why a cell query has no answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NoCell {
+    pub why: String,
+    /// No answer came in time, as opposed to an answer that says there is
+    /// none, which the frit's text decides and asking again cannot change.
+    pub late: bool,
+}
+
+impl NoCell {
+    fn refused(why: String) -> NoCell {
+        NoCell { why, late: false }
+    }
+}
+
+impl std::fmt::Display for NoCell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)
+    }
+}
+
 /// What the reader thread saw.
 #[derive(Debug)]
 enum Event {
@@ -824,14 +845,14 @@ impl Helper {
         height: u32,
         wait: Duration,
         clock: &dyn Fn() -> Instant,
-    ) -> Result<OwnCell, String> {
+    ) -> Result<OwnCell, NoCell> {
         let now = clock();
         let query = Cell { width: 0, height };
         if self.failed.is_none() {
             self.send(OWN_CELL, query, (&[], &[]), &[], now);
         }
         if let Some(why) = &self.failed {
-            return Err(why.clone());
+            return Err(NoCell::refused(why.clone()));
         }
         let end = after(now, wait);
         loop {
@@ -839,7 +860,7 @@ impl Helper {
             let event = self
                 .running
                 .as_ref()
-                .ok_or("the helper is not running")?
+                .ok_or_else(|| NoCell::refused("the helper is not running".to_owned()))?
                 .events
                 .recv_timeout(left);
             return match event {
@@ -858,9 +879,9 @@ impl Helper {
                         cell.height
                     );
                     self.early.push_back(Event::Malformed(why.clone()));
-                    Err(why)
+                    Err(NoCell::refused(why))
                 }
-                Ok(Event::NoOwnCell(why)) => Err(why.trim().to_owned()),
+                Ok(Event::NoOwnCell(why)) => Err(NoCell::refused(why.trim().to_owned())),
                 Ok(Event::Warning(why)) => {
                     self.warn(why.trim());
                     continue;
@@ -881,14 +902,14 @@ impl Helper {
                         _ => "the helper ended".to_owned(),
                     };
                     self.early.push_back(other);
-                    Err(why)
+                    Err(NoCell::refused(why))
                 }
                 Err(_) => {
                     self.querying = self.querying.saturating_add(1);
-                    Err(format!(
-                        "the helper gave no answer in {} ms",
-                        wait.as_millis()
-                    ))
+                    Err(NoCell {
+                        why: format!("the helper gave no answer in {} ms", wait.as_millis()),
+                        late: true,
+                    })
                 }
             };
         }
@@ -2709,7 +2730,7 @@ mod tests {
             ANSWERS,
             &cell_frame(FRAME_OUTLINE_CELL, 9, 17),
         );
-        let why = s.helper.own_cell(16, wait, &t0).unwrap_err();
+        let why = s.helper.own_cell(16, wait, &t0).unwrap_err().to_string();
         assert_eq!(why, "an outline cell 17 pixels high, where 16 was asked");
         s.run(t0());
         assert!(
@@ -2790,7 +2811,7 @@ mod tests {
             b"source=outline:/f.ttf is an outline font",
         );
         let mut s = StandIn::new("own-cell-refused", ANSWERS, &refusal);
-        let why = s.helper.own_cell(16, wait, &t0).unwrap_err();
+        let why = s.helper.own_cell(16, wait, &t0).unwrap_err().to_string();
         assert!(why.contains("is an outline font"), "{why}");
         s.until_gone(t0());
         assert_eq!(s.helper.failed(), None);
@@ -2800,7 +2821,8 @@ mod tests {
         let why = s
             .helper
             .own_cell(16, Duration::from_millis(50), &t0)
-            .unwrap_err();
+            .unwrap_err()
+            .to_string();
         assert_eq!(why, "the helper gave no answer in 50 ms");
         s.until_gone(t0());
         assert_eq!(s.helper.failed(), None);

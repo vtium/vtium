@@ -963,6 +963,18 @@ impl App {
             };
             let old = head.font.replace(new);
             self.share(h);
+            // A switch asks the helper for the cell again where the last
+            // ask had no answer in time, even while another head draws the
+            // frit; a refusal holds (ADR-1200 D17).
+            if let Some(frit) = self
+                .heads
+                .get(h)
+                .and_then(Head::frit)
+                .and_then(|name| self.frits.get_mut(name))
+            {
+                frit.own
+                    .retain(|_, answer| !answer.as_ref().is_err_and(|no| no.late));
+            }
             if let Some(head) = self.heads.get_mut(h) {
                 head.refont = true;
             }

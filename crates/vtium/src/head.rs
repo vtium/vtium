@@ -1222,7 +1222,7 @@ pub(crate) struct Frit {
     pub(crate) asked: Vec<vtium_font::Cell>,
     /// The helper's answer to each cell query, or why there was none, by
     /// the height asked at.
-    pub(crate) own: BTreeMap<u32, Result<crate::helper::OwnCell, String>>,
+    pub(crate) own: BTreeMap<u32, Result<crate::helper::OwnCell, crate::helper::NoCell>>,
 }
 
 impl Frit {
@@ -1236,7 +1236,7 @@ impl Frit {
         &self,
         height: u32,
         outline: bool,
-    ) -> Option<Result<crate::helper::OwnCell, String>> {
+    ) -> Option<Result<crate::helper::OwnCell, crate::helper::NoCell>> {
         let bitmap = self
             .own
             .values()

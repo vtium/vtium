@@ -718,6 +718,80 @@ display card:mem-large -> large
     }
 }
 
+/// ADR-1200 D17, binary-recheck's finding 4: a bitmap frit asks for its
+/// fonts' own cell at an OSC 50 switch. Switched away and back while
+/// another head still draws it, a frit whose last ask had no answer in time
+/// asks again; one the helper refused keeps the refusal and asks nothing.
+// covers: text.font-change
+#[test]
+fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
+    let refusal = {
+        let why = b"source=kbd:x: no such font";
+        let mut frame = 7u32.to_le_bytes().to_vec();
+        frame.extend(u32::try_from(why.len()).unwrap_or(0).to_le_bytes());
+        frame.extend(why);
+        frame
+    };
+    // the helper never answers, or refuses the first query
+    for (case, helper, answer, again) in [
+        ("timeout", "cat >/dev/null", Vec::new(), 1),
+        ("refused", "cat >/dev/null & cat \"$1\"; wait", refusal, 0),
+    ] {
+        let dir = scratch_dir(&format!("osc50-{case}"));
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").expect("the frit");
+        std::fs::write(dir.join("answer"), &answer).expect("the answer");
+        let fonts = Sources {
+            frits: dir.clone(),
+            helper: Some(vtium::helper::Command {
+                program: PathBuf::from("/bin/sh"),
+                args: ["-c", helper, "helper"]
+                    .into_iter()
+                    .map(OsString::from)
+                    .chain([dir.join("answer").into_os_string()])
+                    .collect(),
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let heads = "version = 1
+[head a]
+profile = t
+[head b]
+profile = t
+[rules]
+display card:mem-small -> a
+display card:mem-large -> b
+input class:keyboard -> roaming
+";
+        let [(small_node, small), large] = two_displays();
+        let displays = [(small_node, small.lit()), large];
+        let script = "echo ready; read a; printf '\\033]50;unifont\\007'; echo away; \
+                      read b; printf '\\033]50;t\\007'; echo back; read c";
+        logged();
+        let mut s = Seat::with_fonts(&["--font-size=0"], Some(heads), displays, script, fonts);
+        assert!(s.until(SECOND, |a| head_shows(a, "a", "ready")), "{case}");
+        let unknown = |lines: &[String]| {
+            lines
+                .iter()
+                .filter(|l| l.contains("own cell is not known"))
+                .count()
+        };
+        assert_eq!(
+            unknown(&logged()),
+            1,
+            "{case}: the start asked once for both heads"
+        );
+        s.type_str("x\r");
+        assert!(s.until(SECOND, |a| head_shows(a, "a", "away")), "{case}");
+        assert_eq!(s.app.font_name(), "unifont", "{case}");
+        s.type_str("y\r");
+        assert!(s.until(SECOND, |a| head_shows(a, "a", "back")), "{case}");
+        assert_eq!(s.app.font_name(), "t", "{case}");
+        assert_eq!(unknown(&logged()), again, "{case}: the switch back");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// D6: with no head file the seat runs the compiled-in configuration,
 /// the parse of the template: its one `console` head.
 #[test]
