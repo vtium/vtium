@@ -345,6 +345,19 @@ mod tests {
         assert!(lock(&shared).as_mut().iter().all(|&b| b == 0));
     }
 
+    // When the token is dropped and nothing else holds its memory, the
+    // memory is gone and the loan has nothing to lock. Nothing can write
+    // into memory that is gone, so revoke counts the token as revoked,
+    // whether it waits or not.
+    #[test]
+    fn a_loan_whose_memory_is_gone_counts_as_revoked() {
+        let (token, loan) = Loan::lend(DisplayId(1), 0, 0, 0, (2, 2), 8, memory(16));
+        drop(token);
+        assert!(loan.memory.upgrade().is_none(), "the memory is gone");
+        assert!(loan.revoke(true));
+        assert!(loan.revoke(false));
+    }
+
     #[test]
     fn a_token_whose_memory_is_short_draws_nothing() {
         let (mut token, _) = Loan::lend(DisplayId(1), 0, 0, 0, (2, 2), 8, memory(15));
