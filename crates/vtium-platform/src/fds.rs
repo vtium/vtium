@@ -18,6 +18,11 @@ pub fn cloexec_above_stdio() -> io::Result<()> {
 /// [`cloexec_above_stdio`] before a child is started, its error naming
 /// the marking, so a spawn that fails on it says so.
 pub(crate) fn cloexec_before_spawn() -> io::Result<()> {
+    // In the unit tests, a test that starts a child marks every descriptor
+    // here, so it waits while this file's tests check that a descriptor
+    // they opened is still unmarked.
+    #[cfg(test)]
+    let _one = tests::one_at_a_time();
     cloexec_above_stdio().map_err(named)
 }
 
@@ -91,11 +96,12 @@ mod tests {
     use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
     use std::sync::{Mutex, MutexGuard};
 
-    /// Held by each test, so another test's marking cannot reach a
+    /// Held by each test here, and by [`cloexec_before_spawn`] in every
+    /// unit test that starts a child, so no other test's marking reaches a
     /// descriptor before its test sees it unmarked.
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
-    fn one_at_a_time() -> MutexGuard<'static, ()> {
+    pub(super) fn one_at_a_time() -> MutexGuard<'static, ()> {
         ONE_AT_A_TIME
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

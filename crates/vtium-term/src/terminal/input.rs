@@ -259,15 +259,15 @@ impl State {
         mods: Mods,
         unicode: Option<char>,
     ) -> Option<(Vec<u8>, bool)> {
-        if self.modify_other_keys > 0 {
-            if let Some(bytes) = self.modified_key(keysym, sym, mods, unicode) {
-                return Some((bytes, false));
-            }
+        if self.modify_other_keys > 0
+            && let Some(bytes) = self.modified_key(keysym, sym, mods, unicode)
+        {
+            return Some((bytes, false));
         }
-        if mods.contains(Mods::CTRL) {
-            if let Some(byte) = ctrl_byte(sym) {
-                return Some((vec![byte], true));
-            }
+        if mods.contains(Mods::CTRL)
+            && let Some(byte) = ctrl_byte(sym)
+        {
+            return Some((vec![byte], true));
         }
         let app = self.modes.keypad_application()
             && !(self.modes.num_lock() && mods.contains(Mods::NUM) && keypad_char_key(keysym));

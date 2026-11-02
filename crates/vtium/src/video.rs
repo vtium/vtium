@@ -12,7 +12,7 @@ use vtium_render::Arrow;
 
 use crate::pointer::Plane;
 
-/// How many buffers a DRM display keeps when kmscon.conf does not say
+/// How many buffers a DRM display keeps when vtium.conf does not say
 /// (ADR-1401 D2): three in a build that adds features on top of minspec,
 /// two in the minspec build, vtium's default build. One buffer is for a
 /// build smaller than minspec, which none is yet; [`Buffers::One`] reaches
@@ -43,7 +43,7 @@ const fn any_on(features: &[(&str, bool)]) -> bool {
     }
 }
 
-/// The buffers each DRM display keeps: `configured`, kmscon.conf's
+/// The buffers each DRM display keeps: `configured`, vtium.conf's
 /// `display-buffers` as its accessor reads it, where it is 1, 2 or 3, and
 /// else the build's [`BUILD_BUFFERS`]. A value outside 1 to 3 never
 /// reaches here, since the configuration refuses it.

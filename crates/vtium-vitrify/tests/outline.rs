@@ -285,7 +285,7 @@ fn a_color_glyph_is_premultiplied_rgba_two_cells_wide() {
         let at = (y * 24 + x) * 4;
         <[u8; 4]>::try_from(&e.pixels[at..at + 4]).expect("a pixel")
     };
-    for p in e.pixels.chunks_exact(4) {
+    for p in e.pixels.as_chunks::<4>().0 {
         assert!(p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3], "{p:?}");
     }
     // the red square's corner, then the blue square over it at half alpha
@@ -747,6 +747,24 @@ fn an_answer_reads_back_and_each_malformed_one_is_refused() {
     let mut bad = o.clone();
     bad.strikes[0].map[0].1 = 99;
     refused(&bad.encode(), &req, "past the count");
+}
+
+#[test]
+fn a_color_glyph_brighter_than_its_alpha_in_its_last_pixel_is_refused() {
+    // The check reads every pixel, not only the first: the glyph's last
+    // pixel made brighter than its alpha refuses the answer too.
+    let req = request(&[(0, 10)], &[]);
+    let mut bad = rasterise(&req).expect("rasterised");
+    let e = bad.strikes[0]
+        .glyphs
+        .iter_mut()
+        .find(|g| g.color)
+        .expect("a color glyph");
+    let last = e.pixels.len() - 4;
+    assert!(last > 0, "the color glyph has more than one pixel");
+    e.pixels[last..].copy_from_slice(&[9, 0, 0, 8]);
+    let err = Outline::decode(&bad.encode(), &req).expect_err("a bright last pixel");
+    assert!(err.contains("not premultiplied"), "{err}");
 }
 
 #[test]

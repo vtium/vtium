@@ -22,7 +22,7 @@ const FILE: Bound = Bound {
     value: 64 * 1024,
     what: "Bytes of a head file",
     past: "The file is dropped whole but for the `policy` lines within the bound; a `policy` line the bound cuts makes the file closed and broken",
-    cite: "ADR-1401 D3, kmscon.conf's bound (`crates/vtium/src/config/mod.rs`, `FILE_MAX`)",
+    cite: "ADR-1401 D3, vtium.conf's bound (`crates/vtium/src/config/mod.rs`, `FILE_MAX`)",
 };
 
 const LINE: Bound = Bound {
@@ -30,7 +30,7 @@ const LINE: Bound = Bound {
     value: 8 * 1024,
     what: "Bytes of one line, its newline apart",
     past: "The file is dropped whole but for its `policy` lines, the line named; a `policy` line past it makes the file closed and broken",
-    cite: "ADR-1401 D3, kmscon.conf's bound (`crates/vtium/src/config/mod.rs`, `LINE_MAX`)",
+    cite: "ADR-1401 D3, vtium.conf's bound (`crates/vtium/src/config/mod.rs`, `LINE_MAX`)",
 };
 
 const NAME: Bound = Bound {
@@ -78,7 +78,7 @@ const ERRORS: Bound = Bound {
     value: 64,
     what: "Errors, warnings and notes a check keeps, each kind apart",
     past: "Counted, not kept, but for the first error of a `policy` line vtium cannot read, which takes the last place",
-    cite: "kmscon.conf's `REPORTS_MAX` (`crates/vtium/src/config/mod.rs`)",
+    cite: "vtium.conf's `REPORTS_MAX` (`crates/vtium/src/config/mod.rs`)",
 };
 
 const QUOTE: Bound = Bound {
@@ -121,11 +121,11 @@ pub const TOKENS_MAX: usize = TOKENS.value as usize;
 /// with a warning.
 pub const CONSOLES_MAX: u32 = CONSOLES.value;
 
-/// Consoles a head gets at most when kmscon.conf's `head-consoles-max`
+/// Consoles a head gets at most when vtium.conf's `head-consoles-max`
 /// is unset (ADR-1401 D10).
 pub const HEAD_CONSOLES_DEFAULT: u32 = 4;
 
-/// Consoles every head together gets at most when kmscon.conf's
+/// Consoles every head together gets at most when vtium.conf's
 /// `consoles-max` is unset (ADR-1401 D10).
 pub const CONSOLES_TOTAL_DEFAULT: u32 = 8;
 

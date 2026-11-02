@@ -1,8 +1,10 @@
 # VTium
 
-vtium is a terminal for the Linux virtual console. It runs on a VT, one of the full-screen text consoles the kernel provides, takes the display through KMS/DRM (or through the older fbdev framebuffer where that is all a machine has), and draws the terminal itself, with text, color and pictures, on the CPU or on the GPU. It needs no display server and does not rely on systemd.
+vtium is a terminal for the Linux virtual console. It runs on a VT, one of the full-screen text consoles the kernel provides, takes the display through KMS/DRM (or through the older fbdev framebuffer where that is all a machine has), and draws the terminal itself, with text, color and pictures. It draws on the CPU today, and a GPU renderer is to come ([Status](#status)). It needs no display server and does not rely on systemd.
 
 It is written in Rust. Its behaviour is judged against the C reference, the maintainer's forks of the C terminal `kmscon` and its library `libtsm`: tests compare vtium's screens and replies with the C reference's saved results, as text and pixel for pixel.
+
+If you are new to vtium, [docs/why-vtium.md](docs/why-vtium.md) says why you might choose it over the kernel's console, `kmscon` or a desktop terminal, and why its font tools take their names from glass; [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together.
 
 ![vtium on a 640x480 display: the labels fg30 to fg97 in their own colors and bg40 to bg107 on their own backgrounds, each set wrapped over two rows, with fg30 and bg40 drawn black on black; the words bold, underline, reverse, bold-underline-red, faint and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green to red, and a shell prompt with a block cursor](tools/tier3/goldens/2d-640x480-psf16/sgr.png)
 
@@ -14,13 +16,13 @@ It is written in Rust. Its behaviour is judged against the C reference, the main
 
 ## Status
 
-vtium has no release yet. A checkout builds and runs everything on this page except these, which are designed and landing:
+vtium's first release is the pre-release v0.1.0-alpha.1. A checkout builds and runs everything on this page except these, which are designed and landing:
 
-- **Pictures:** sixel, kitty graphics and iTerm2 inline images, decided in [ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md). The `vtium-image` crate holds no code yet.
+- **Pictures from files and shared memory, and iTerm2's inline images.** The image helper, the separate program that is to decode files, shared memory, PNG and zlib as the session's user and never as root ([ADR-1101](docs/architecture/image/ADR-1101-the-image-helper-is-its-own-sandboxed-program-run-as-the-session-s-user.md)), is not built yet, so vtium answers each such request as it would with no helper running. iTerm2's inline images have no handler yet; the design gives them one that decodes each picture on the kitty path and places it under sixel's rules ([ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md)).
 - **The GPU renderer,** on glow over EGL and GBM ([the GPU path's issue](https://github.com/vtium/vtium/issues/33)). Today every build draws on the CPU.
 - **libseat,** for seat access through seatd or logind ([the libseat issue](https://github.com/vtium/vtium/issues/34)). Today vtium opens the VT, the cards and the input devices itself, as root.
 - **Handing the display back without a VT switch,** through the `setBackground` sequence ([the hand-back issue](https://github.com/vtium/vtium/issues/36)).
-- **Links and prompt marks in the console:** the terminal keeps OSC 8 links and OSC 133 prompt marks today, and the console does not yet show a link's address, copy it on Ctrl+click, or move the view from prompt to prompt ([ADR-1002](docs/architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
+- **Showing a link's address in the console:** Ctrl+click copies an OSC 8 link's address, Ctrl+Shift+Up and Ctrl+Shift+Down move the view between the prompts OSC 133 marks, and the link under the pointer draws a dashed underline. The renderer does not yet draw the overlay row that shows the link's address while Ctrl is held ([ADR-1002](docs/architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
 
 Also not built yet: glyph ink reaching into the next cell ([ADR-1302](docs/architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md), decided), ligatures and shaping across cells, the bold and italic faces of outline fonts, the kitty keyboard protocol, bidirectional text, input methods, `vtiumctl`, the font builder and preview (`vtium-vitrify new` and `preview`), `vtium-clipboard`, and reloading the head file without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
 
@@ -41,7 +43,7 @@ vtium shares the graphics card with whatever else draws on the machine. vtium ru
 - It presents a frame with an atomic commit that carries the frame's damage as `FB_DAMAGE_CLIPS` (the kernel's "optional plane property to mark damaged regions", [KMS documentation](https://docs.kernel.org/gpu/drm-kms.html)) where the card offers it, with the legacy calls and whole frames where it does not, and through fbdev where there is no DRM.
 - A display the head file leaves dark is turned off at each modeset, so a frame another master left on it goes dark. On a card with only the legacy calls, such a display still shows that frame.
 
-With systemd, vtium's unit, `kmsconvt@.service`, is aliased `autovt@.service`, so logind starts vtium on each VT it would give a getty, `pam_systemd` registers the login with logind, and a fallback unit starts a getty if vtium fails, unless the head file's policy is closed. Without systemd, another init runs `vtium --vt=ttyN --no-switchvt` from an inittab line, a script or a supervisor where it ran a getty, or a person starts it by hand, and elogind, where it runs, registers the login in logind's place. Of the other inits only sysvinit is tested; OpenRC, runit, s6, busybox init and elogind are not. busybox init does not catch `SIGRTMIN+4`, so the power-off key powers nothing off there. Tier 3 boots vtium under sysvinit on Debian 13, with no logind, from an inittab line, with the udev daemon running (`sysvinit-640x480`) and with it stopped (`sysvinit-no-udev`), and its reboot and power-off keys go through sysvinit. The screens it draws there match vtium's own goldens to the pixel, and those goldens still wait for the maintainer's review. [docs/systemd.md](docs/systemd.md) lists each place vtium touches systemd, logind or PID 1, and what it does without them.
+With systemd, vtium runs on a VT in a getty's place, `pam_systemd` registers the login with logind, and a fallback unit starts a getty if vtium fails, unless the head file's policy is closed. The package, and `make install`, install the unit as `vtium@.service` with its fallback `vtium-getty@.service`, and give vtium no VT until `vtium console enable N` gives it VT N or `vtium console enable --all` gives it every VT; logind then starts vtium on those VTs where it would start a getty. `make install-tree`, the tree tier 3 installs in its guest, installs the same two units, and tier 3 gives vtium the guest's VTs with `vtium console enable --all`, as a user does. Without systemd, another init runs `vtium --vt=ttyN --no-switchvt` from an inittab line, a script or a supervisor where it ran a getty, or a person starts it by hand, and elogind, where it runs, registers the login in logind's place. Of the other inits only sysvinit is tested; OpenRC, runit, s6, busybox init and elogind are not. busybox init does not catch `SIGRTMIN+4`, so the power-off key powers nothing off there. Tier 3 boots vtium under sysvinit on Debian 13, with no logind, from an inittab line, with the udev daemon running (`sysvinit-640x480`) and with it stopped (`sysvinit-no-udev`), and its reboot and power-off keys go through sysvinit. The screens it draws there match vtium's own goldens to the pixel, and those goldens still wait for the maintainer's review. [docs/systemd.md](docs/systemd.md) lists each place vtium touches systemd, logind or PID 1, and what it does without them.
 
 With libseat, vtium takes the VT, the cards and the input devices from the seat manager, seatd or logind, whichever is running. libseat is the seat management library "allowing applications to use whatever seat management is available" ([seatd's README](https://git.sr.ht/~kennylevinsen/seatd/blob/master/README.md)). The process still runs as root to start `/bin/login` ([ADR-1400](docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md)). Landing; see [Status](#status).
 
@@ -73,14 +75,14 @@ The console parses no font file. A frit (a font set file, `/etc/vtium/fonts/NAME
 
 ### Pictures
 
-vtium shows pictures that programs send with sixel and the kitty graphics protocol. iTerm2's inline images reach the same pipeline through a compatibility handler, which decodes each picture on the kitty path and places it under sixel's rules ([ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md)). Each console keeps one store of pictures and their placements, bounded in memory. A placement is anchored to the line holding its top row, so it moves with the text, and each protocol's own rules decide what erases it and how it scrolls. Image files are decoded in a sandboxed helper process that runs as the session's user and never as root ([ADR-1400](docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md)). Pictures are a build feature outside minspec. Landing; see [Status](#status).
+vtium draws pictures today in a build with the `images` feature, which minspec leaves out. It decodes the pictures programs send with sixel, and those they send as pixels with the kitty graphics protocol, keeps each console's pictures and their placements in one store, bounded in memory, and draws them with the CPU compositor ([ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md)). A placement is anchored to the line holding its top row, so it moves with the text, and each protocol's own rules decide what erases it and how it scrolls. [Status](#status) says what is still to come.
 
 ### The terminal
 
 - vtium draws 24-bit color, the 256-color palette and named palettes. It draws bold, faint, strike, blink and reverse, and underline in five styles (single, double, curly, dotted, dashed), each in a color of its own.
 - It cuts Unicode text into extended grapheme clusters, draws wide characters and emoji presentation, and uses the codepoint-width method when a program resets mode 2027.
 - It reports the mouse (modes 9, 1000, 1002 and 1003, in the SGR, urxvt and pixel encodings), focus, bracketed pastes and in-band resizes (mode 2048), and holds frames for synchronized output (mode 2026).
-- It keeps OSC 8 links and OSC 133 prompt marks. It will show a link's address and copy it on Ctrl+click, never opening it, and move the view from prompt to prompt; that part is landing ([Status](#status)).
+- It keeps OSC 8 links and OSC 133 prompt marks. Ctrl+click copies a link's address, never opening it, and Ctrl+Shift+Up and Ctrl+Shift+Down move the view from prompt to prompt.
 - Programs set, query and reset colors with OSC 4, 10, 11 and 12, and with xterm's and kitty's color stacks. vtium carries out DEC's rectangular area operations, character protection, XTSAVE and XTRESTORE, and answers XTGETTCAP, XTVERSION and DECRQM.
 - A reply to a query is built from vtium's own state. It never repeats bytes the program sent, so text a program prints cannot type into the program reading the replies.
 
@@ -88,7 +90,7 @@ vtium shows pictures that programs send with sixel and the kitty graphics protoc
 
 ### Scrollback and reflow
 
-Each console's scrollback is bounded in bytes, 5,963,776 by default, and all consoles together stay within a quarter of the machine's memory. When the width changes, vtium rewraps the main screen and its scrollback, and carries the cursor, the selection and the view with them ([ADR-1003](docs/architecture/term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md)).
+Each console's scrollback is bounded in bytes. By default the bound keeps minspec's grids inside their 16 MiB peak: it is what that peak leaves after the console's two screens, more on a small display and 5 MiB at 170 by 48, and a larger display keeps the 5 MiB, so `sb-memory` raises it on a machine that can spare more. All consoles together stay within a quarter of the machine's memory. When the width changes, vtium rewraps the main screen and its scrollback, and carries the cursor, the selection and the view with them ([ADR-1003](docs/architecture/term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md)).
 
 ### Small machines
 
@@ -121,7 +123,7 @@ These are the other ways to get a terminal on a Linux console without a display 
 | fbterm 1.7 | fbdev, or a VESA video card | 256, through its own private sequences under `TERM=fbterm` | fontconfig and FreeType | none listed | 1.7, 2010-10-06 |
 | yaft 0.2.9 | fbdev at 8 to 32 bits per pixel, on Linux and FreeBSD, and on NetBSD and OpenBSD as experimental | 256 | BDF fonts converted into its source when it is built | sixel and DRCS, marked experimental | tag v0.2.9; last commit 2018-11-14 |
 | fbpad | Linux fbdev | 256 | its own tinyfont format and PSF2 | none listed | last commit 2026-10-23 |
-| vtium | KMS/DRM dumb buffers on the CPU or through the GPU, or fbdev | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | sixel, kitty graphics and iTerm2 inline images | none yet |
+| vtium | KMS/DRM dumb buffers drawn on the CPU, or fbdev; a GPU renderer to come | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | sixel and kitty graphics; iTerm2 inline images to come | 0.1.0-alpha.1, a pre-release |
 
 Sources, one per row:
 
@@ -157,11 +159,11 @@ The state vtium shows follows only from the bytes a program sends: the same stre
 
 ## Trying it
 
-Building needs Rust and clang, and the first build fetches a Debian sysroot with glibc 2.36 to link against ([tools/arm/README.md](tools/arm/README.md)); `make install-tree` also needs `tic`. On a machine with systemd and logind, `make vt-shell` builds the minspec binary, picks a free VT, asks for sudo, and runs your own shell in vtium there. Exit the shell to end the run, and the VT's own service starts again. [docs/vt-review.md](docs/vt-review.md) describes this and the other VT runs.
+Building needs Rust 1.88 or later and clang, and the first build fetches a Debian sysroot with glibc 2.36 to link against ([tools/arm/README.md](tools/arm/README.md)); `make install-tree` also needs `tic`. On a machine with systemd and logind, `make vt-shell` builds the minspec binary, picks a free VT, asks for sudo, and runs your own shell in vtium there. Exit the shell to end the run, and the VT's own service starts again. [docs/vt-review.md](docs/vt-review.md) describes this and the other VT runs. [crates/vtium/README.md](crates/vtium/README.md#setting-it-up) says how to give an installed vtium a VT, or every VT, and how ssh behaves from it.
 
-`make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-vitrify`, the VT unit and its getty fallback, the terminfo entry and the example configuration. vtium reads the C reference's configuration file, `/etc/kmscon/kmscon.conf`, with its keys, and adds its own ([docs/config.md](docs/config.md)).
+`make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-vitrify`, the VT unit and its getty fallback, the terminfo entry and the example configuration. vtium reads its configuration from `/etc/vtium/vtium.conf`, which takes the C reference's keys and adds vtium's own ([docs/config.md](docs/config.md)).
 
-[docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together, and [AGENTS.md](AGENTS.md) gives every gate and test command.
+[AGENTS.md](AGENTS.md) gives every gate and test command.
 
 ## Provenance
 

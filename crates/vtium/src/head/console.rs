@@ -26,6 +26,10 @@ pub struct Console {
     /// How the console fits the head's displays while it is hidden; the
     /// head holds the shown console's.
     pub(crate) fit: Fit,
+    /// What its terminal was last given for pictures, its image helper and
+    /// the request out (ADR-1100 D7).
+    #[cfg(feature = "images")]
+    pub(crate) pictures: crate::head::images::Pictures,
 }
 
 /// How a console fits its head's displays: its grid, the base font height
@@ -54,16 +58,18 @@ impl Console {
             respawn: None,
             ended: false,
             fit,
+            #[cfg(feature = "images")]
+            pictures: crate::head::images::Pictures::default(),
         }
     }
 
     /// Its terminal's replies go to its program.
     pub(crate) fn send_replies(&mut self) {
         let bytes = self.term.terminal.take_replies();
-        if let Some(pty) = &mut self.pty {
-            if !bytes.is_empty() {
-                pty.write(&bytes);
-            }
+        if let Some(pty) = &mut self.pty
+            && !bytes.is_empty()
+        {
+            pty.write(&bytes);
         }
     }
 

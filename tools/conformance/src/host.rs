@@ -118,6 +118,18 @@ impl Host {
                 let (Some(width), Some(height)) = (word(0), word(4)) else {
                     return Reply::Corrupt;
                 };
+                // a helper reads the picture's header and refuses it before
+                // decoding, as ADR-1100 D7 asks: past the largest picture,
+                // then past the most bytes
+                if width > r.largest.0 || height > r.largest.1 {
+                    return Reply::TooLarge;
+                }
+                let bytes = u64::from(width)
+                    .saturating_mul(u64::from(height))
+                    .saturating_mul(4);
+                if bytes > r.largest_bytes {
+                    return Reply::OverBudget;
+                }
                 let data = data.get(8..).unwrap_or_default().to_vec();
                 return Reply::Ok(Payload::Rgba {
                     width,
@@ -243,6 +255,62 @@ mod tests {
         let (line, reply) = host.answer(&odd);
         assert!(line.ends_with("name=/a\\x20b\\x5cc len=0"), "{line}");
         assert_eq!(reply, Reply::Unreadable);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A fixture picture of `width` by `height`, its pixels all 0.
+    fn picture(width: u32, height: u32) -> Vec<u8> {
+        let mut rgba = Vec::new();
+        rgba.extend_from_slice(&width.to_le_bytes());
+        rgba.extend_from_slice(&height.to_le_bytes());
+        rgba.resize(8 + (width * height * 4) as usize, 0);
+        rgba
+    }
+
+    #[test]
+    fn a_picture_past_the_requests_largest_is_refused_as_a_helper_refuses_it() {
+        let dir = fixtures(
+            "largest",
+            &[
+                ("wide.rgba", &picture(5, 1)),
+                ("tall.rgba", &picture(1, 5)),
+                ("heavy.rgba", &picture(3, 3)),
+            ],
+        );
+        let mut host = Host::new(&dir);
+        let png = |name: &[u8]| Request {
+            png: true,
+            largest: (4, 4),
+            largest_bytes: 32,
+            ..request(Medium::File(name.to_vec()))
+        };
+        assert_eq!(host.answer(&png(b"/wide")).1, Reply::TooLarge);
+        assert_eq!(host.answer(&png(b"/tall")).1, Reply::TooLarge);
+        // 3 by 3 fits each side but its 36 bytes pass the 32 allowed
+        assert_eq!(host.answer(&png(b"/heavy")).1, Reply::OverBudget);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_picture_exactly_at_each_bound_is_answered() {
+        let dir = fixtures(
+            "bound",
+            &[
+                ("side.rgba", &picture(4, 1)),
+                ("bytes.rgba", &picture(2, 4)),
+            ],
+        );
+        let mut host = Host::new(&dir);
+        let png = |name: &[u8]| Request {
+            png: true,
+            largest: (4, 4),
+            largest_bytes: 32,
+            ..request(Medium::File(name.to_vec()))
+        };
+        // 4 pixels wide at a largest side of 4
+        assert!(matches!(host.answer(&png(b"/side")).1, Reply::Ok(_)));
+        // 2 by 4, 32 bytes, at a most of 32
+        assert!(matches!(host.answer(&png(b"/bytes")).1, Reply::Ok(_)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

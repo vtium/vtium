@@ -146,7 +146,10 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 | Wide pools, glyphs | the cells | twice the cells |
 | Byte ceiling, each pool | two screens of the pool's format at the display's size | 64 MiB, gltex's |
 
-- The `glyph-cache` key in `kmscon.conf`, and `--glyph-cache`, pick `minspec` or `performance` on any build; the work on vtium's configuration and command line wires them. The default build defaults to `minspec`, and a build with the Cargo feature `performance-cache` defaults to `performance`.
+- The `glyph-cache` key in `vtium.conf`, and `--glyph-cache`, pick `minspec` or `performance` on any build; the work on vtium's configuration and command line wires them. The default build defaults to `minspec`, and a build with the Cargo feature `performance-cache` defaults to `performance`.
+
+> Edited 2026-11-02: the maintainer moved vtium's configuration file to `/etc/vtium/vtium.conf` (ADR-1500 D4), so this record names it `vtium.conf` wherever it read `kmscon.conf` as vtium's file, and `vtium.conf.example` for the example vtium ships. The record's other text is unchanged.
+
 - **Why:** the operator asked for a profile that spends memory on a larger machine and a way for any build to pick minspec. At minspec's counts a pool holds two screens of glyphs, so its byte ceiling only binds when the cell size grows past the font's.
 - **Cost or saving:** on five recorded workloads (bat, git log, grep, ls, markdown) an LRU of 128 glyphs hit 99.76-99.98% (measured), so ordinary screens never fill either profile. The performance profile pays off on screens of many distinct glyphs, CJK or emoji, and costs twice minspec's memory (Memory).
 - **Pixels:** none change; tier 2 draws both profiles.

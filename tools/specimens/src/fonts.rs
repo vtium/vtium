@@ -1,13 +1,15 @@
-//! The outline fonts the desktop frit names, and its glyphs.
+//! The fonts the desktop frit and the tiny5 frit name, and their glyphs.
 //!
-//! vtium ships no third-party font bytes, so the outline profiles' fonts
-//! are pinned here by URL and SHA-256 and fetched into a cache outside the
+//! vtium ships no third-party font bytes, so the profiles' fonts are
+//! pinned here by URL and SHA-256 and fetched into a cache outside the
 //! tree, as tier 3 pins its guest images: `$XDG_CACHE_HOME/vtium/specimens/fonts`.
-//! The glyphs of `frits/desktop.vtfrit` are generated from them by
-//! vtium-vitrify's engine, the one the helper runs, in this process, with
-//! the cache as its only font directory, at each outline profile's cell. A
-//! profile whose glyphs cannot be generated, for want of a font, is
-//! skipped, and says why.
+//! The glyphs of `frits/desktop.vtfrit` are generated from the outline
+//! fonts by vtium-vitrify's engine, the one the helper runs, in this
+//! process, with the cache as its only font directory, at each outline
+//! profile's cell. The glyphs of the shipped frit `tiny5` are generated the
+//! same way from Tiny5 Mono's BDF file in the cache, its `source=` line
+//! pointed there. A profile whose glyphs cannot be generated, for want of
+//! a font, is skipped, and says why.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -47,6 +49,25 @@ pub const FONTS: [Pinned; 3] = [
 /// The desktop set's frit.
 pub const FRIT: &str = include_str!("../frits/desktop.vtfrit");
 
+/// Tiny5 Mono's BDF file, at the commit and with the SHA-256 the shipped
+/// frit `tiny5` names in its comment.
+pub const TINY5: Pinned = Pinned {
+    file: "Tiny5Mono.bdf",
+    url: "https://github.com/Gissio/font_Tiny5Mono/raw/7d30f9e887fdb29e0b951e92493822afba5f70a7/fonts/bdf/Tiny5Mono.bdf",
+    sha256: "33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3",
+};
+
+/// The shipped frit `tiny5`, as vtium-vitrify ships it.
+pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-vitrify/frits/tiny5.vtfrit");
+
+/// The path the shipped frit `tiny5` names its BDF file at.
+const TINY5_SOURCE: &str = "source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf";
+
+/// Every font `fetch` keeps in the cache.
+fn pinned() -> impl Iterator<Item = &'static Pinned> {
+    FONTS.iter().chain(std::iter::once(&TINY5))
+}
+
 /// The cache the pinned fonts are fetched into.
 pub fn cache_dir() -> PathBuf {
     let base = std::env::var_os("XDG_CACHE_HOME")
@@ -74,7 +95,7 @@ fn fault(dir: &Path, font: &Pinned) -> Option<String> {
 /// against its SHA-256; a fetched file that does not match is removed.
 pub fn fetch(dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    for font in &FONTS {
+    for font in pinned() {
         let path = dir.join(font.file);
         if !path.exists() {
             let part = dir.join(format!("{}.part", font.file));
@@ -106,6 +127,28 @@ pub fn desktop(fonts: &Path, cells: &[Cell]) -> Result<Vec<(Cell, Arc<Set>)>, St
         ));
     }
     generate("desktop", FRIT, fonts, cells)
+}
+
+/// The shipped frit `tiny5`'s glyphs at each of `cells`, generated from
+/// Tiny5 Mono's BDF file in `fonts`, or why they are not: the frit's one
+/// `source=` line is pointed at the cache's copy, and nothing else in the
+/// frit changes.
+pub fn tiny5(fonts: &Path, cells: &[Cell]) -> Result<Vec<(Cell, Arc<Set>)>, String> {
+    if let Some(why) = fault(fonts, &TINY5) {
+        return Err(format!(
+            "{why}; `make specimens-fonts` fetches the pinned fonts"
+        ));
+    }
+    if TINY5_FRIT.lines().filter(|l| *l == TINY5_SOURCE).count() != 1 {
+        return Err(format!("the frit tiny5 has no line {TINY5_SOURCE}"));
+    }
+    let here = format!("source=bdf:{}", fonts.join(TINY5.file).display());
+    generate(
+        "tiny5",
+        &TINY5_FRIT.replace(TINY5_SOURCE, &here),
+        fonts,
+        cells,
+    )
 }
 
 /// The glyphs of the frit `name`, `text`, at each of `cells`, as
@@ -164,6 +207,22 @@ mod tests {
         assert_eq!(pins, table);
     }
 
+    // The shipped tiny5 frit names, in its comment, the commit and the
+    // SHA-256 of the BDF file this table fetches, and its one source is the
+    // line `tiny5` points at the cache.
+    #[test]
+    fn the_tiny5_frit_names_the_file_this_table_fetches() {
+        assert!(TINY5_FRIT.contains(&format!("# {}.", TINY5.sha256)));
+        let commit = TINY5.url.split('/').nth(6).unwrap();
+        assert_eq!(commit.len(), 40, "{commit}");
+        assert!(TINY5_FRIT.contains(commit));
+        let sources: Vec<&str> = TINY5_FRIT
+            .lines()
+            .filter(|l| l.starts_with("source="))
+            .collect();
+        assert_eq!(sources, [TINY5_SOURCE]);
+    }
+
     // A cache holding a font of other bytes generates no glyphs, before the
     // engine reads it: the profiles drawn from it go undrawn.
     #[test]
@@ -171,11 +230,13 @@ mod tests {
         let dir =
             std::env::temp_dir().join(format!("vtium-specimens-cache-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for f in &FONTS {
+        for f in pinned() {
             std::fs::write(dir.join(f.file), b"not the font").unwrap();
         }
         let why = desktop(&dir, &[]).unwrap_err();
         assert!(why.contains("has SHA-256"), "{why}");
+        let why = tiny5(&dir, &[]).unwrap_err();
+        assert!(why.contains("Tiny5Mono.bdf has SHA-256"), "{why}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -127,6 +127,19 @@ impl Memory {
 }
 
 impl Memory {
+    /// A new mode in place, `w` by `h`, on the same connector, as a
+    /// modeset that falls back to the display's default mode sets it: the
+    /// display draws into new buffers at the new size, a token lent before
+    /// comes back too late, and the owner is told to redraw.
+    fn set_mode(&mut self, w: u32, h: u32) {
+        (self.w, self.h) = (w, h);
+        self.lease += 1;
+        self.age = 0;
+        self.pixels = vec![0; (w * h * 4) as usize];
+        self.drawn = Arc::new(Mutex::new(self.pixels.clone()));
+        self.events.push(Event::Redraw(ID));
+    }
+
     /// Pays a clear the sleep owed, once no token holds the buffer.
     fn pay_clear(&mut self) {
         if self.clear_owed && Arc::strong_count(&self.drawn) == 1 {
@@ -304,6 +317,78 @@ impl Video for Memory {
 )]
 fn now() -> Instant {
     Instant::now()
+}
+
+/// A gate a head's frames wait at, through the head's draw hook on its
+/// render thread, until the test opens it. It also opens when the test
+/// drops its [`Opens`], so a failing test never leaves a render thread
+/// waiting. A frame waits at most three times [`BOUND`], only so that a
+/// frame the gate never lets through fails the test instead of hanging
+/// it, and the gate records that it gave up.
+struct Gate {
+    open: Mutex<bool>,
+    opened: std::sync::Condvar,
+    expired: std::sync::atomic::AtomicBool,
+}
+
+impl Gate {
+    /// A closed gate, the hook that holds a frame at it, and the guard
+    /// that opens it when dropped.
+    fn closed() -> (Arc<Gate>, vtium::head::DrawHook, Opens) {
+        let gate = Arc::new(Gate {
+            open: Mutex::new(false),
+            opened: std::sync::Condvar::new(),
+            expired: std::sync::atomic::AtomicBool::new(false),
+        });
+        let held = Arc::clone(&gate);
+        let hook: vtium::head::DrawHook = Arc::new(move || {
+            let open = held.open.lock().expect("the gate");
+            let (open, waited) = held
+                .opened
+                .wait_timeout_while(open, 3 * BOUND, |open| !*open)
+                .expect("the gate");
+            drop(open);
+            if waited.timed_out() {
+                held.expired
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+        let opens = Opens(Arc::clone(&gate));
+        (gate, hook, opens)
+    }
+
+    fn open(&self) {
+        *self.open.lock().expect("the gate") = true;
+        self.opened.notify_all();
+    }
+
+    /// Whether a frame gave up waiting before the gate opened.
+    fn expired(&self) -> bool {
+        self.expired.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// Opens its gate when dropped.
+struct Opens(Arc<Gate>);
+
+impl Drop for Opens {
+    fn drop(&mut self) {
+        self.0.open();
+    }
+}
+
+/// Holds every later frame of head `name` at a closed gate, once no frame
+/// of the head is out: a frame composed before the hook went in would come
+/// past the gate. No turn runs between the wait and the hook, so no frame
+/// starts between them.
+fn hold_frames(s: &mut Seat, name: &str) -> (Arc<Gate>, Opens) {
+    assert!(
+        s.until(BOUND, |a| a.head(name).is_some_and(|h| h.frames_out() == 0)),
+        "no frame of head {name} is out"
+    );
+    let (gate, hook, opens) = Gate::closed();
+    s.app.set_draw_hook(name, Some(hook));
+    (gate, opens)
 }
 
 /// No frits and no vconsole font, so the seat draws its built-in font
@@ -770,11 +855,11 @@ fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
 }
 
 /// D3 and D6: the more specific setting wins. A head's profile names its
-/// frit, over kmscon.conf's font; a head with the default profile takes
-/// kmscon.conf's, the built-in font here. A head has no font key of its
+/// frit, over vtium.conf's font; a head with the default profile takes
+/// vtium.conf's, the built-in font here. A head has no font key of its
 /// own.
 #[test]
-fn a_heads_profile_names_its_frit_over_kmscon_confs_font() {
+fn a_heads_profile_names_its_frit_over_vtium_confs_font() {
     let (fonts, starts) = frits("profile", &["t"]);
     let heads = "version = 1
 [head small]
@@ -787,7 +872,7 @@ display card:mem-large -> large
     let mut s = Seat::with_fonts(&[], Some(heads), two_displays(), "read x", fonts);
     assert!(s.until(SECOND, |a| a.cells().len() == 2));
     assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(8, 16)]));
-    // both at kmscon.conf's size, 16
+    // both at vtium.conf's size, 16
     assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(8, 16)]));
     assert_eq!(grid(&s.app, "large"), Some((80, 20)));
     assert_eq!(
@@ -983,16 +1068,192 @@ display card:mem-large -> off
     assert_eq!(dark.dpms, Some(Dpms::Off));
 }
 
-/// D2: one render thread per head. The slow head, first in the file,
-/// takes 3 s to compose each frame once a stand-in slows it; while it
-/// composes a frame, a key reaches the session of the fast head, which
-/// holds the focus, and the fast head's display shows its echo, both
-/// within a second. The slow head's frame comes once it is composed.
+/// The session's script for the tests of vtium/vtium#208: it counts the
+/// SIGWINCHs it gets, and at each line typed prints `got:`, the line, the
+/// count and the pty's size as `stty size` gives it. A read a signal ends
+/// reads again.
+const MODE_SCRIPT: &str = "n=0; trap 'n=$((n+1))' WINCH; echo ready; \
+    while :; do m=$n; \
+    if read x; then echo \"got:$x winch:$n $(stty size)\"; \
+    elif [ $n = $m ]; then exit; fi; done";
+
+/// What the session printed for the last line typed: the line, the
+/// SIGWINCHs it counted, and the pty's rows and columns.
+fn got(app: &App) -> Option<(String, u32, String)> {
+    let line = app
+        .screen_text()
+        .into_iter()
+        .rev()
+        .find(|l| l.starts_with("got:"))?;
+    let mut f = line.split_whitespace();
+    let typed = f.next()?.strip_prefix("got:")?.to_owned();
+    let winch = f.next()?.strip_prefix("winch:")?.parse().ok()?;
+    let size = f.collect::<Vec<_>>().join(" ");
+    Some((typed, winch, size))
+}
+
+/// The last row of the shown screen whose text starts with `start`.
+fn row_of(app: &App, start: &str) -> Option<usize> {
+    app.screen_text().iter().rposition(|l| l.starts_with(start))
+}
+
+/// Whether the display shows a lit pixel on the cell row `row`, 16 pixels
+/// high, right of `x`, on a display `width` pixels wide.
+fn lit_right_of(m: &Memory, width: usize, row: usize, x: usize) -> bool {
+    (row * 16..(row + 1) * 16).any(|y| {
+        (x..width).any(|px| {
+            let i = (y * width + px) * 4;
+            m.pixels
+                .get(i..i + 4)
+                .is_some_and(|p| p.iter().any(|&b| b != 0))
+        })
+    })
+}
+
+/// Types a line of 50 characters, wider than the old grid's 40 columns,
+/// and waits until the session prints it back; then waits until the
+/// display shows the printed line's text right of x = 330, past the old
+/// width of 320, which only a renderer at the new size draws.
+fn shows_a_long_line(s: &mut Seat) -> (u32, String) {
+    let long = "x".repeat(50);
+    s.type_str(&format!("{long}\r"));
+    assert!(
+        s.until(SECOND, |a| got(a).is_some_and(|g| g.0 == long)),
+        "the session prints the long line"
+    );
+    let row = row_of(&s.app, &format!("got:{long}")).expect("the printed line's row");
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| lit_right_of(m, 640, row, 330)),
+        "the long line is drawn past the old width, on row {row}"
+    );
+    let (_, winch, size) = got(&s.app).expect("the printed line");
+    (winch, size)
+}
+
+/// vtium/vtium#208: a display whose mode changes in place while vtium
+/// runs, the same connector at a new size, is laid out again at that size.
+/// The grid grows to fill it, the session gets one SIGWINCH and the new
+/// size, the display's next frame is drawn whole, and its renderer draws
+/// the whole new width.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the stand-in's slow draw is a sleep"
-)]
+fn a_display_whose_mode_changes_in_place_draws_whole_at_its_new_size() {
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "the session runs");
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0),
+        "the display draws"
+    );
+    // 320x160 holds 40x10 cells of 8x16.
+    assert_eq!(s.app.grid(), (40, 10));
+    s.type_str("a\r");
+    assert!(s.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    let (_, winch, size) = got(&s.app).expect("the printed line");
+    assert_eq!(size, "10 40");
+    let (frames, lent) = {
+        let m = s.memory("/dev/mem0");
+        (m.frames, m.ages.len())
+    };
+    s.memory("/dev/mem0").set_mode(640, 320);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws again after its mode changed"
+    );
+    assert_eq!(s.app.grid(), (80, 20), "the grid fills the new size");
+    {
+        let m = s.memory("/dev/mem0");
+        assert_eq!(
+            m.ages.get(lent),
+            Some(&0),
+            "the first frame after is drawn whole"
+        );
+        assert_eq!(m.pixels.len(), 640 * 320 * 4);
+    }
+    let after = shows_a_long_line(&mut s);
+    assert_eq!(
+        after,
+        (winch + 1, "20 80".to_owned()),
+        "one SIGWINCH, and the pty at the new size"
+    );
+}
+
+/// vtium/vtium#208: a frame composing at the old size while the display's
+/// mode changes is dropped when it comes back, and does not bring the old
+/// renderer back: the frames after it draw the whole new width.
+#[test]
+fn a_frame_composing_across_a_mode_change_is_dropped() {
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "the session runs");
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    let (gate, opens) = hold_frames(&mut s, "console");
+    s.memory("/dev/mem0").events.push(Event::Redraw(ID));
+    assert!(
+        s.until(BOUND, |a| a.heads().iter().any(|h| h.frames_out() > 0)),
+        "a frame at the old size is composing"
+    );
+    let (lease, shown) = {
+        let m = s.memory("/dev/mem0");
+        (m.lease, m.shown.len())
+    };
+    let lent = s.memory("/dev/mem0").ages.len();
+    s.memory("/dev/mem0").set_mode(640, 320);
+    assert!(
+        s.until(BOUND, |a| a.grid() == (80, 20)),
+        "the head is laid out again while the old frame is held"
+    );
+    s.app.set_draw_hook("console", None);
+    drop(opens);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.shown.len() > shown),
+        "the display draws again"
+    );
+    {
+        let m = s.memory("/dev/mem0");
+        assert!(
+            m.shown[shown..].iter().all(|&l| l > lease),
+            "no frame from before the mode change is shown: {:?}",
+            m.shown
+        );
+        assert_eq!(m.ages.get(lent), Some(&0), "{:?}", m.ages);
+    }
+    shows_a_long_line(&mut s);
+    assert!(!gate.expired());
+}
+
+/// vtium/vtium#208: a mode smaller than one cell leaves the view at that
+/// size, drawing nothing of the grid, and a mode at a usable size after it
+/// draws the whole new width again.
+#[test]
+fn a_mode_smaller_than_a_cell_and_back_draws_at_the_new_size() {
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "the session runs");
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    let frames = s.memory("/dev/mem0").frames;
+    s.memory("/dev/mem0").set_mode(6, 10);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "a frame at 6x10"
+    );
+    let frames = s.memory("/dev/mem0").frames;
+    s.memory("/dev/mem0").set_mode(640, 320);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws again once its mode is large"
+    );
+    assert_eq!(s.app.grid(), (80, 20));
+    shows_a_long_line(&mut s);
+}
+
+/// D2: one render thread per head. The slow head, first in the file,
+/// composes no frame past a gate the test holds closed; while its frame
+/// waits there, a key reaches the session of the fast head, which holds
+/// the focus, and the fast head's display shows its echo. The slow head's
+/// frame comes once the test opens the gate. The order is set by the
+/// gate, and each wait is bounded only so the test fails instead of
+/// hanging.
+#[test]
 fn a_slow_head_delays_neither_another_heads_frame_nor_input() {
     let heads = "version = 1
 [head slow]
@@ -1013,13 +1274,8 @@ input class:keyboard -> roaming
         s.until(SECOND, |a| a.head("fast").is_some_and(Head::started)),
         "the fast head's session runs"
     );
-    let slow = Duration::from_secs(3);
-    s.app.set_draw_hook(
-        "slow",
-        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
-    );
+    let (gate, _opens) = hold_frames(&mut s, "slow");
     let (slow_before, fast_before) = (s.memory("/dev/mem0").frames, s.memory("/dev/mem1").frames);
-    let started = now();
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
     assert!(
         s.until(BOUND, |a| a
@@ -1036,22 +1292,20 @@ input class:keyboard -> roaming
         s.until_memory("/dev/mem1", SECOND, |m| m.frames > fast_before),
         "the fast head drew"
     );
-    let fast = now() - started;
     assert_eq!(
         s.memory("/dev/mem0").frames,
         slow_before,
-        "the slow head's frame is still composing"
+        "the slow head's frame is still held at the gate"
+    );
+    gate.open();
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > slow_before),
+        "the slow head's frame comes once the gate opens"
     );
     assert!(
-        fast < Duration::from_secs(1),
-        "the key and the fast head's frame waited on the slow head: {fast:?}"
+        !gate.expired(),
+        "a frame of the slow head stopped waiting before the gate opened"
     );
-    assert!(
-        s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.frames
-            > slow_before),
-        "the slow head's frame comes"
-    );
-    assert!(now() - started >= slow, "after its slow compose");
 }
 
 /// Two heads, `desk` on the large display and `panel` on the small one,
@@ -1150,14 +1404,11 @@ fn a_flood_in_the_small_head_leaves_the_large_head_its_keys_and_frames() {
     a_flood_leaves_the_other_head_its_turn("panel", "desk", KBD_LARGE, "/dev/mem1");
 }
 
-/// D2: a frame composing holds up no VT switch. While the slow head's
-/// frame takes 2 s to compose, the VT's release is acknowledged within a
-/// second, the device asleep; the acquire draws the display again.
+/// D2: a frame composing holds up no VT switch. While the head's frame
+/// waits at a gate the test holds closed, the VT's release is
+/// acknowledged and the device sleeps, the frame still waiting; the
+/// acquire draws the display again once the gate opens.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the stand-in's slow draw is a sleep"
-)]
 fn a_frame_composing_holds_up_no_vt_release() {
     let display = (
         "/dev/mem0",
@@ -1165,12 +1416,7 @@ fn a_frame_composing_holds_up_no_vt_release() {
     );
     let mut s = Seat::boot(&[], [display], "read x");
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
-    let slow = Duration::from_secs(2);
-    s.app.set_draw_hook(
-        "console",
-        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
-    );
-    let started = now();
+    let (gate, _opens) = hold_frames(&mut s, "console");
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
     assert!(
         s.until(BOUND, |a| a.heads().iter().any(|h| h.frames_out() > 0)),
@@ -1194,12 +1440,12 @@ fn a_frame_composing_holds_up_no_vt_release() {
         s.until(SECOND, |a| !a.vt.is_active()),
         "the release acknowledged"
     );
-    let released = now() - started;
     assert!(
-        released < Duration::from_secs(1),
-        "the release waited on the frame: {released:?}"
+        s.app.heads().iter().any(|h| h.frames_out() > 0),
+        "the release is acknowledged while the frame still composes"
     );
     s.app.set_draw_hook("console", None);
+    gate.open();
     let before = s.memory("/dev/mem0").frames;
     s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
     assert!(s.until(SECOND, |a| a.vt.is_active()));
@@ -1208,20 +1454,21 @@ fn a_frame_composing_holds_up_no_vt_release() {
             && m.frames > before),
         "the acquire draws the display again"
     );
+    assert!(
+        !gate.expired(),
+        "the frame stopped waiting before the gate opened"
+    );
 }
 
 /// ADR-1401 D2: a frame in flight across a VT release is never shown. On
-/// a seat of two heads, the slow head's frame takes 3 s to compose; the VT
-/// is released while it composes and acquired again before it is done. The
-/// token for that frame comes back with a lease from before the release, so
-/// the display drops it, and the first token lent after the acquire has age
-/// 0, so the frame after the acquire is drawn whole. The fast head's display
-/// draws again too.
+/// a seat of two heads, the slow head's frame waits at a gate the test
+/// holds closed; the VT is released while it waits and acquired again,
+/// and only then does the test open the gate. The token for that frame
+/// comes back with a lease from before the release, so the display drops
+/// it, and the first token lent after the acquire has age 0, so the frame
+/// after the acquire is drawn whole. The fast head's display draws again
+/// too.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the stand-in's slow draw is a sleep"
-)]
 fn a_frame_in_flight_across_a_vt_release_is_dropped_and_the_next_drawn_whole() {
     let heads = "version = 1
 [head slow]
@@ -1237,20 +1484,16 @@ input class:keyboard -> roaming
     assert!(s.until(SECOND, |a| a.cells().len() == 2), "both lit");
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
     assert!(s.until_memory("/dev/mem1", SECOND, |m| m.frames > 0));
-    let slow = Duration::from_secs(3);
-    s.app.set_draw_hook(
-        "slow",
-        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
-    );
+    let (gate, _opens) = hold_frames(&mut s, "slow");
     let (lease, shown) = {
         let m = s.memory("/dev/mem0");
         (m.lease, m.shown.len())
     };
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
-    // The turn that starts the slow head's frame.
-    s.until(Duration::from_millis(30), |_| false);
     assert!(
-        Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
+        s.until(BOUND, |a| a
+            .head("slow")
+            .is_some_and(|h| h.frames_out() > 0)),
         "the slow head's frame is in flight"
     );
     let ctrl_super_f12 = KeyEvent {
@@ -1274,11 +1517,15 @@ input class:keyboard -> roaming
     let fast = s.memory("/dev/mem1").frames;
     s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
     assert!(s.until(SECOND, |a| a.vt.is_active()), "the acquire");
+    // The display lends no token while the frame's is out, so the next
+    // token lent is the first after the acquire.
     assert!(
-        Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
+        s.app.head("slow").is_some_and(|h| h.frames_out() > 0)
+            && Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
         "the frame from before the release is still in flight at the acquire"
     );
     let lent = s.memory("/dev/mem0").ages.len();
+    gate.open();
     assert!(
         s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.shown.len()
             > shown
@@ -1301,6 +1548,10 @@ input class:keyboard -> roaming
     assert!(
         s.until_memory("/dev/mem1", SECOND, |m| m.frames > fast),
         "the fast head's display draws again"
+    );
+    assert!(
+        !gate.expired(),
+        "the frame stopped waiting before the gate opened"
     );
 }
 
@@ -1768,7 +2019,12 @@ fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_
 }
 
 /// D5: closing the console shown closes its pty, so its programs get
-/// SIGHUP, as on a hang-up; the other consoles' sessions run on.
+/// SIGHUP, as on a hang-up; the other consoles' sessions run on. Each
+/// session waits in `read` on its pty. When the pty closes, the kernel
+/// ends that read before it sends its own SIGHUP, so a shell that vtium
+/// did not signal before the close can leave its loop and exit without
+/// ever running its trap. Ids are each head's own, and the large head's
+/// console is 1 too, so each marker names its head.
 // covers: platform.heads
 #[test]
 fn closing_a_console_hangs_up_its_session_alone() {
@@ -1777,8 +2033,8 @@ fn closing_a_console_hangs_up_its_session_alone() {
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).expect("a marker directory");
     let script = format!(
-        "trap 'echo > {d}/hup-$VTIUM_CONSOLE; exit 0' HUP; echo \"is:$VTIUM_CONSOLE\"; \
-         while read a; do echo \"got:$a\"; done",
+        "trap 'echo > {d}/hup-$VTIUM_HEAD-$VTIUM_CONSOLE; exit 0' HUP; \
+         echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\"; done",
         d = d.display()
     );
     let displays = [
@@ -1792,13 +2048,14 @@ fn closing_a_console_hangs_up_its_session_alone() {
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     assert!(s.until(SECOND, |a| told_ids(a, "small").iter().all(Option::is_some)));
     press_chord(&mut s, KBD_SMALL, BACKSPACE);
-    let hup = |id: u32| d.join(format!("hup-{id}")).exists();
+    let hup = |head: &str, id: u32| d.join(format!("hup-{head}-{id}")).exists();
     let end = now() + BOUND;
-    while !hup(1) && now() < end {
+    while !hup("small", 1) && now() < end {
         s.until(Duration::from_millis(20), |_| false);
     }
-    assert!(hup(1), "console 1's session got SIGHUP");
-    assert!(!hup(2), "console 2's runs on");
+    assert!(hup("small", 1), "console 1's session got SIGHUP");
+    assert!(!hup("small", 2), "console 2's runs on");
+    assert!(!hup("large", 1), "the large head's runs on");
     s.type_on(KBD_SMALL, "on\r");
     assert!(s.until(SECOND, |a| head_shows(a, "small", "got:on")));
     let _ = std::fs::remove_dir_all(&d);
@@ -1814,18 +2071,15 @@ fn closing_a_console_hangs_up_its_session_alone() {
 // covers: platform.heads
 #[test]
 fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("vtium-heads-unstartable-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("a scratch directory");
     let login = dir.join("login");
-    std::fs::write(
+    script_file(
         &login,
         "#!/bin/sh\necho ready; while read a; do echo \"got:$a\"; done\n",
-    )
-    .expect("the login");
-    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    );
     let heads = CLAIMED.replace(
         "[head small]\n",
         &format!("[head small]\nlogin = {}\n", login.display()),
@@ -1855,15 +2109,36 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
 /// console's id, then echoes each line it reads through `cat -v`, so a
 /// focus report it was sent shows on its screen.
 fn focus_login(dir: &Path) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let login = dir.join("login");
-    std::fs::write(
+    script_file(
         &login,
         "#!/bin/sh\nprintf '\\033[?1004h'; echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\" | cat -v; done\n",
-    )
-    .expect("the login");
-    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    );
     login
+}
+
+/// Writes `text` as a script at `path` that a head's login starts. This
+/// process writes the text to a file beside it, and `cp` writes the
+/// script, so this process never holds the script open to write. A child
+/// that another test forks while this process holds a file open to write
+/// holds that descriptor until its own exec, and starting the script
+/// while it does fails with ETXTBSY.
+fn script_file(path: &Path, text: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let staged = path.with_extension("text");
+    std::fs::write(&staged, text).expect("the script's text");
+    let copied = std::process::Command::new("cp")
+        .arg(&staged)
+        .arg(path)
+        .status()
+        .expect("cp");
+    assert!(
+        copied.success(),
+        "cp {} {}",
+        staged.display(),
+        path.display()
+    );
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("its mode");
 }
 
 /// A scratch directory for test `name`, on disk under the build's own.
@@ -2070,7 +2345,10 @@ fn under_osd_full_opening_and_closing_a_console_shows_the_new_count() {
 }
 
 /// D5: closing the shown console gives mode 1004's focus to the console
-/// shown next.
+/// shown next. Turning mode 1004 on reports nothing, as in the C
+/// reference, so the keyboard comes, and the switch is pressed, only once
+/// both sessions have printed their ids, which they print after they turn
+/// the mode on: a focus given before then is never reported.
 // covers: platform.heads
 #[test]
 fn closing_a_console_gives_the_console_shown_next_the_focus() {
@@ -2084,6 +2362,10 @@ fn closing_a_console_gives_the_console_shown_next_the_focus() {
         ),
     ];
     let mut s = Seat::with_heads(&[], Some(&claimed_consoles(2)), displays, script);
+    assert!(
+        s.until(SECOND, |a| told_ids(a, "small").iter().all(Option::is_some)),
+        "both sessions turned mode 1004 on"
+    );
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     let (focus_in, focus_out) = ("1b 5b 49", "1b 5b 4f");
     assert!(s.until(SECOND, |a| head_shows(a, "small", focus_in)));
@@ -3964,7 +4246,7 @@ impl Memory {
 
     /// Whether a pixel of the frame is `bgr`.
     fn has(&self, bgr: [u8; 3]) -> bool {
-        self.pixels.chunks_exact(4).any(|p| p[..3] == bgr)
+        self.pixels.as_chunks::<4>().0.iter().any(|p| p[..3] == bgr)
     }
 }
 
@@ -5220,6 +5502,11 @@ fn with_no_keyboard_at_start_the_notice_says_so() {
 /// The operator's answers (2026-10-30) and D7: an ended head's notice
 /// stays and keeps no time, so once 30 s have passed the loop still
 /// sleeps, where a timer left in the past would wake it at once forever.
+/// The loop turns 400 times, 1 ms apart, and is asked when it next wakes
+/// at the instant of its last turn: every timer due by then has fired and
+/// moved on in that turn, so a wake of zero is a timer left in the past.
+/// Asked even 1 ms later, a blink timer that falls due in that gap is
+/// rightly due at once.
 #[test]
 fn an_ended_heads_notice_leaves_the_loop_asleep() {
     let mut s = claimed_with(&["--oneshot"]);
@@ -5227,10 +5514,11 @@ fn an_ended_heads_notice_leaves_the_loop_asleep() {
     assert!(s.until(SECOND, |a| notice(a, "small").as_deref() == Some(ENDED)));
     assert!(s.until_memory("/dev/mem0", SECOND, |m| m.has(PAPER)));
     let t = now() + Duration::from_secs(31);
+    let last = t + Duration::from_millis(399);
     for i in 0..400u64 {
         s.app.turn(t + Duration::from_millis(i));
     }
-    let wake = s.app.next_wake(t + Duration::from_millis(400));
+    let wake = s.app.next_wake(last);
     assert!(wake.is_none_or(|w| w > Duration::ZERO), "spins: {wake:?}");
     assert_eq!(notice(&s.app, "small").as_deref(), Some(ENDED));
 }

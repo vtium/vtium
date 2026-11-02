@@ -106,6 +106,38 @@ impl<'a> Edit<'a> {
         self.store.place(image, place, self.screens, self.cols)
     }
 
+    /// The buffer of the image the store freed last, to fill again, when it
+    /// holds `len` pixels and no frame still holds it, with its charge as a
+    /// reservation for an image of `protocol` with kitty id `id` (0 for
+    /// none): a handler that receives frame after frame of one size, as
+    /// kitty's video does, takes it in place of a new allocation, and the
+    /// kernel neither maps nor zeroes new pages for it. Its contents are the
+    /// old image's. The reservation holds the buffer's bytes, which the
+    /// spare held of the budget, so a handler grows it by what the image
+    /// needs beyond them, and no reservation of its own can evict the
+    /// buffer it is about to fill; like [`reserve`](Self::reserve), it
+    /// holds an image of that id, which a replacement frees.
+    pub fn take_spare(
+        &mut self,
+        protocol: Protocol,
+        id: u32,
+        len: usize,
+    ) -> Option<(Vec<u32>, Reservation)> {
+        if self.store.spare.as_ref()?.as_slice().len() != len {
+            return None;
+        }
+        let bytes = self.store.spare_bytes();
+        let spare = self.store.spare.take()?;
+        let buffer = match spare.into_vec() {
+            Ok(buffer) => buffer,
+            Err(held) => {
+                self.store.spare = Some(held);
+                return None;
+            }
+        };
+        Some((buffer, self.store.spare_reservation(protocol, id, bytes)))
+    }
+
     /// The box of a placement of the buffer in use, in columns and rows,
     /// which the cursor rules after a placement read.
     pub fn extent(&self, placement: PlacementKey) -> Option<(u32, u32)> {

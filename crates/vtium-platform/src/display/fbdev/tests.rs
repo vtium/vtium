@@ -441,6 +441,32 @@ fn sleep_clears_and_unmaps_and_waking_asks_for_a_redraw() {
     assert_eq!(age(&mut v), 0);
 }
 
+// vtium/vtium#208: a framebuffer whose geometry another program changed
+// while the VT was away, as `fbset` does, wakes at its new size and asks
+// for a redraw, and is not announced as added again: its owner reads the
+// new size when it hears `Redraw`.
+#[test]
+fn a_geometry_changed_while_away_asks_for_a_redraw_at_the_new_size() {
+    let mut v = awake(FakeFb::new(32));
+    v.events().for_each(drop);
+    assert_eq!(v.size(DISPLAY), Some((4, 3)));
+    v.sleep();
+    v.events().for_each(drop);
+    {
+        let mut var = v.dev.var.borrow_mut();
+        (var.xres, var.yres) = (8, 5);
+    }
+    v.wake_up().unwrap();
+    assert_eq!(
+        v.events().collect::<Vec<_>>(),
+        [Event::Redraw(DISPLAY), Event::Awake]
+    );
+    assert_eq!(v.size(DISPLAY), Some((8, 5)));
+    let token = v.lend(DISPLAY).unwrap();
+    assert_eq!((token.size(), token.age()), ((8, 5), 0));
+    v.give_back(token);
+}
+
 // A wake-up counts as user activity (the operator's decision on
 // vtium/vtium#18): a blanked display comes on.
 #[test]

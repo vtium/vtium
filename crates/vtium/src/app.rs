@@ -284,6 +284,10 @@ pub struct App {
     /// A frame has been on screen since the start.
     presented: bool,
     timer_due: Option<Instant>,
+    /// What starts each console's image helper; none until the image
+    /// helper is built (ADR-1101), so every terminal is told no helper runs.
+    #[cfg(feature = "images")]
+    image_helpers: Option<crate::head::images::Helpers>,
     /// The displays whose density is assumed, each warned of once.
     assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// Where the font's sets come from.
@@ -459,6 +463,8 @@ impl App {
             wait,
             presented: false,
             timer_due: None,
+            #[cfg(feature = "images")]
+            image_helpers: None,
             exit: None,
             leaving: None,
             inherited,
@@ -535,6 +541,14 @@ impl App {
     /// for PID 1, logind and the kernel.
     pub fn set_power(&mut self, power: Box<dyn Power>) {
         self.power = power;
+    }
+
+    /// Starts each console's image helper with `helpers`, or, with none,
+    /// tells every terminal that no helper runs, from the next turn on
+    /// (ADR-1100 D7). This is where the image helper plugs in.
+    #[cfg(feature = "images")]
+    pub fn set_image_helpers(&mut self, helpers: Option<crate::head::images::Helpers>) {
+        self.image_helpers = helpers;
     }
 
     /// Runs `hook` before each frame of the head `name` is composed, a
@@ -884,10 +898,10 @@ impl App {
                 own
             }
         };
-        if let (Ok(answer), Some(head)) = (own, self.heads.get_mut(h)) {
-            if let Some(font) = &mut head.font {
-                font.set_own_cell(answer, sized);
-            }
+        if let (Ok(answer), Some(head)) = (own, self.heads.get_mut(h))
+            && let Some(font) = &mut head.font
+        {
+            font.set_own_cell(answer, sized);
         }
     }
 
@@ -1083,10 +1097,10 @@ impl App {
     /// announces one ([`open_video`]), a framebuffer does.
     fn darken(&mut self) {
         for (node, id) in self.dark.keys() {
-            if let Some(video) = self.videos.get_mut(node) {
-                if let Err(e) = video.set_dpms(*id, Dpms::Off) {
-                    log::warn!("cannot set display {} off: {e}", video.name(*id));
-                }
+            if let Some(video) = self.videos.get_mut(node)
+                && let Err(e) = video.set_dpms(*id, Dpms::Off)
+            {
+                log::warn!("cannot set display {} off: {e}", video.name(*id));
             }
         }
     }
@@ -1634,10 +1648,8 @@ impl App {
                 if let Err(e) = unblanked {
                     log::warn!("cannot unblank: {e}");
                 }
-                if retake {
-                    if let Err(e) = video.wake_up() {
-                        log::warn!("cannot set up {} again: {e}", node.display());
-                    }
+                if retake && let Err(e) = video.wake_up() {
+                    log::warn!("cannot set up {} again: {e}", node.display());
                 }
             }
             self.darken();
@@ -1740,13 +1752,61 @@ impl App {
                     self.relayout(h);
                 }
             }
+            // A modeset or a wake-up may have given the display a new
+            // mode in place, on the same connector. Its view then draws
+            // with a new renderer at the display's new size, and the head
+            // is laid out again: a view left at the old size never draws,
+            // because every token the display lends has the new size.
             Event::Redraw(id) => {
                 let key = (node.to_owned(), id);
-                for head in &mut self.heads {
-                    if let Some(v) = head.views.get_mut(&key) {
-                        v.lost = true;
-                        head.draw_now = true;
+                let mode = self
+                    .videos
+                    .get(node)
+                    .and_then(|video| Some((video.size(id)?, video.refresh_mhz(id))));
+                let name = self.videos.get(node).map(|video| video.name(id));
+                let App {
+                    heads,
+                    config,
+                    locale,
+                    ..
+                } = self;
+                let mut resized = None;
+                for (h, head) in heads.iter_mut().enumerate() {
+                    let Some(v) = head.views.get(&key) else {
+                        continue;
+                    };
+                    let height = v.height;
+                    let new = mode.filter(|&(size, _)| size != v.size);
+                    let font = new.map(|_| {
+                        head.face(height, locale)
+                            .map(|face| head.font_at(face, config))
+                    });
+                    let render = head.render_config(config);
+                    head.draw_now = true;
+                    let Some(v) = head.views.get_mut(&key) else {
+                        continue;
+                    };
+                    v.lost = true;
+                    match (new, font) {
+                        (Some((size, refresh)), Some(Ok(font))) => {
+                            v.resize(font, size, refresh, render);
+                            resized = Some(h);
+                        }
+                        // With no font at its height the view keeps its
+                        // size and its renderer, so it never draws at a
+                        // size its renderer was not made for; it draws
+                        // nothing until the next set-up.
+                        (Some((size, _)), Some(Err(e))) => log::warn!(
+                            "cannot draw display {} at its new size {}x{}: {e}",
+                            name.as_deref().unwrap_or("?"),
+                            size.0,
+                            size.1
+                        ),
+                        _ => {}
                     }
+                }
+                if let Some(h) = resized {
+                    self.relayout(h);
                 }
             }
             // A frame waiting on this flip is drawn at the turn's end,
@@ -1767,10 +1827,10 @@ impl App {
             // A re-take's set-up keeps the blank and its timer: a retry
             // that lands after the blank powers the displays down again.
             Event::Awake if self.retaking.remove(node) => {
-                if self.blank.blanked() {
-                    if let Some(video) = self.videos.get_mut(node) {
-                        power_down(video.as_mut());
-                    }
+                if self.blank.blanked()
+                    && let Some(video) = self.videos.get_mut(node)
+                {
+                    power_down(video.as_mut());
                 }
             }
             Event::Awake => self.user_input(now),
@@ -1914,10 +1974,10 @@ impl App {
                 }
                 self.dark.remove(&key);
                 self.guard_lit = Some((key.clone(), h));
-                if let Some(video) = self.videos.get_mut(&key.0) {
-                    if let Err(e) = video.set_dpms(key.1, Dpms::On) {
-                        log::warn!("cannot set display {} on: {e}", video.name(key.1));
-                    }
+                if let Some(video) = self.videos.get_mut(&key.0)
+                    && let Err(e) = video.set_dpms(key.1, Dpms::On)
+                {
+                    log::warn!("cannot set display {} on: {e}", video.name(key.1));
                 }
                 self.add_display(&key.0, key.1);
             }
@@ -1934,15 +1994,15 @@ impl App {
                 self.unlight(key);
             }
             self.any_lit.set(!self.lit.is_empty());
-            if let Some(video) = self.videos.get_mut(node) {
-                if video.release_dark(connector) {
-                    log::warn!(
-                        "the display guard asks {} for display {connector} again",
-                        node.display()
-                    );
-                    if let Err(e) = video.hotplug() {
-                        log::warn!("{}: hotplug: {e}", node.display());
-                    }
+            if let Some(video) = self.videos.get_mut(node)
+                && video.release_dark(connector)
+            {
+                log::warn!(
+                    "the display guard asks {} for display {connector} again",
+                    node.display()
+                );
+                if let Err(e) = video.hotplug() {
+                    log::warn!("{}: hotplug: {e}", node.display());
                 }
             }
         }
@@ -2131,10 +2191,10 @@ impl App {
                 DeviceKind::Drm | DeviceKind::Fbdev => self.remove_video(&node),
             },
             DeviceEvent::Hotplug { node, .. } => {
-                if let Some(video) = self.videos.get_mut(&node) {
-                    if let Err(e) = video.hotplug() {
-                        log::warn!("{}: hotplug: {e}", node.display());
-                    }
+                if let Some(video) = self.videos.get_mut(&node)
+                    && let Err(e) = video.hotplug()
+                {
+                    log::warn!("{}: hotplug: {e}", node.display());
                 }
             }
         }
@@ -2160,10 +2220,10 @@ impl App {
     pub fn remove_input(&mut self, node: &Path) {
         self.routes.remove(node);
         self.guard_due = true;
-        if let Some(input) = &mut self.input {
-            if let Some(id) = input.find(node) {
-                input.remove(id);
-            }
+        if let Some(input) = &mut self.input
+            && let Some(id) = input.find(node)
+        {
+            input.remove(id);
         }
         // The keyboard's route is gone before the end of its modifiers is
         // drained, and that event finds no head, so the Ctrl it held is let
@@ -2193,7 +2253,7 @@ impl App {
     /// Natural scrolling, on or off (vtium/vtium#203): the wheel scrolls the
     /// view and reports to a program the other way, and the cursor keys
     /// mode 1007 sends reverse, while Ctrl's zoom keeps the wheel's own
-    /// direction. kmscon.conf's `natural-scrolling` sets it at the start.
+    /// direction. vtium.conf's `natural-scrolling` sets it at the start.
     pub fn set_natural_scrolling(&mut self, on: bool) {
         self.natural_scrolling = on;
     }
@@ -2250,12 +2310,13 @@ impl App {
             return;
         }
         // The shown VT's own key does nothing else (D9).
-        if let (Some(node), InputEvent::Key(key)) = (node, &event) {
-            if !key.repeat && self.vt.is_own_key(key) {
-                self.activity(now);
-                self.rescue(node);
-                return;
-            }
+        if let (Some(node), InputEvent::Key(key)) = (node, &event)
+            && !key.repeat
+            && self.vt.is_own_key(key)
+        {
+            self.activity(now);
+            self.rescue(node);
+            return;
         }
         // The head the device asks: its rule's, or the active head's for a
         // roaming device, which is never isolated (D5).
@@ -2696,12 +2757,12 @@ impl App {
         {
             frit.own.retain(|_, answer| answer.is_ok());
         }
-        if !self.relayout(h) {
-            if let Some(head) = self.heads.get_mut(h) {
-                head.font_size = old;
-                head.auto_size = auto;
-                head.points = points;
-            }
+        if !self.relayout(h)
+            && let Some(head) = self.heads.get_mut(h)
+        {
+            head.font_size = old;
+            head.auto_size = auto;
+            head.points = points;
         }
     }
 
@@ -2820,12 +2881,12 @@ impl App {
         self.guard();
         self.attachment(now);
         self.first_start(now);
-        if let Some(r) = &self.releasing {
-            if r.is_empty() {
-                self.releasing = None;
-                if let Err(e) = self.vt.acknowledge_release() {
-                    log::warn!("cannot let the VT go: {e}");
-                }
+        if let Some(r) = &self.releasing
+            && r.is_empty()
+        {
+            self.releasing = None;
+            if let Err(e) = self.vt.acknowledge_release() {
+                log::warn!("cannot let the VT go: {e}");
             }
         }
         let inputs: Vec<DeviceInput> = match &mut self.input {
@@ -2847,6 +2908,12 @@ impl App {
         }
         if bell && self.bell {
             self.vt.bell();
+        }
+        // After the sessions' turns, whose respawns drop a request out,
+        // and before the draw, which shows what a reply placed.
+        #[cfg(feature = "images")]
+        for head in &mut self.heads {
+            head.image_turn(now, self.image_helpers.as_ref());
         }
         if let Some(order) = self.order.take() {
             self.outside_order(order, now);
@@ -2888,10 +2955,10 @@ impl App {
         // reference's terminals rang it.
         let mut bell = false;
         for console in head.consoles_mut() {
-            if let Some(selection) = console.term.terminal.take_clipboard_write() {
-                if self.clipboard_write {
-                    self.selection = Some(selection);
-                }
+            if let Some(selection) = console.term.terminal.take_clipboard_write()
+                && self.clipboard_write
+            {
+                self.selection = Some(selection);
             }
             bell |= console.term.terminal.take_bell();
         }
@@ -2906,10 +2973,10 @@ impl App {
             .heads
             .get_mut(h)
             .and_then(|head| head.console.term.terminal.take_blank_request());
-        if let Some(request) = request {
-            if self.program_blank {
-                self.blank_request(request, now);
-            }
+        if let Some(request) = request
+            && self.program_blank
+        {
+            self.blank_request(request, now);
         }
         bell
     }
@@ -2995,10 +3062,10 @@ impl App {
                 head.show_osd();
             }
             let shown = mode != osd::Mode::Off && (timeout.is_none() || head.osd_shown);
-            if let Some(time) = timeout.filter(|_| shown && head.osd_due.is_none()) {
-                if !head.views.is_empty() {
-                    head.osd_due = Some(after(now, time));
-                }
+            if let Some(time) = timeout.filter(|_| shown && head.osd_due.is_none())
+                && !head.views.is_empty()
+            {
+                head.osd_due = Some(after(now, time));
             }
             let active = self.focus == Some(h);
             let mark = (shown && mode == osd::Mode::Minimal).then_some(if active {
@@ -3169,6 +3236,8 @@ impl App {
             due.extend(head.notice_due);
             due.extend(head.osd_due);
             due.extend(head.brief_due);
+            #[cfg(feature = "images")]
+            due.extend(head.image_due());
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
@@ -3329,10 +3398,10 @@ fn draw_head(
             }
         }
         if holding && !view.lost {
-            if !view.owed {
-                if let Some(t) = &mut view.timer {
-                    t.held();
-                }
+            if !view.owed
+                && let Some(t) = &mut view.timer
+            {
+                t.held();
             }
             view.owed = true;
             continue;
@@ -3763,7 +3832,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ADR-1401 D3: kmscon.conf's `mouse` off drops the pointer rules from
+    // ADR-1401 D3: vtium.conf's `mouse` off drops the pointer rules from
     // the shipped rules, so a mouse falls to `input * -> ignore` and is
     // never opened; a keyboard still follows the focus.
     #[test]
@@ -3801,7 +3870,7 @@ mod tests {
         );
     }
 
-    // ADR-1401 D3 and D7: kmscon.conf's `mouse` off reaches the shipped
+    // ADR-1401 D3 and D7: vtium.conf's `mouse` off reaches the shipped
     // rules' tail, which a partly broken open file's inputs walk after its
     // surviving rules: a pointer there is never opened, and a keyboard
     // still roams.
@@ -3967,7 +4036,7 @@ mod tests {
         assert_eq!(rang(&mut app), Some(1));
     }
 
-    // ADR-1401 D2, the maintainer's answer of 2026-11-01: kmscon.conf's
+    // ADR-1401 D2, the maintainer's answer of 2026-11-01: vtium.conf's
     // `display-buffers` sets how many buffers each DRM display the seat
     // opens keeps, from the file and from the command line; unset, the
     // build's count
@@ -3978,7 +4047,7 @@ mod tests {
             let args: Vec<OsString> = args.iter().map(OsString::from).collect();
             let loaded = crate::config::load(&args, None, &mut |p: &Path| {
                 Ok(file
-                    .filter(|_| p == Path::new("/etc/kmscon/kmscon.conf"))
+                    .filter(|_| p == Path::new("/etc/vtium/vtium.conf"))
                     .map(<[u8]>::to_vec))
             });
             assert_eq!(loaded.reports, [], "{args:?}");
@@ -4010,7 +4079,7 @@ mod tests {
         );
     }
 
-    // vtium/vtium#203: kmscon.conf's `natural-scrolling`, off by default
+    // vtium/vtium#203: vtium.conf's `natural-scrolling`, off by default
     // as the C reference had it (src/config.c:1386), turns the seat's
     // natural scrolling on, from the file and from the command line
     #[test]
@@ -4019,7 +4088,7 @@ mod tests {
             let args: Vec<OsString> = args.iter().map(OsString::from).collect();
             let loaded = crate::config::load(&args, None, &mut |p: &Path| {
                 Ok(file
-                    .filter(|_| p == Path::new("/etc/kmscon/kmscon.conf"))
+                    .filter(|_| p == Path::new("/etc/vtium/vtium.conf"))
                     .map(<[u8]>::to_vec))
             });
             assert_eq!(loaded.reports, [], "{args:?}");

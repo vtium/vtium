@@ -111,6 +111,7 @@ fn apply(t: &mut Terminal, e: Ev, mode: Mode) {
                 id: 0,
                 number: 0,
                 transient: false,
+                opaque: None,
             };
             if let Ok(k) = t.screen_mut().add_image(new) {
                 let _ = t.screen_mut().place_image(

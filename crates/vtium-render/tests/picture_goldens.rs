@@ -45,6 +45,7 @@ fn placements(cols: usize, rows: usize, pictures: &[Picture]) -> Vec<FramePlacem
             id,
             number: 0,
             transient: false,
+            opaque: None,
         };
         let image = store.add_image(new, None, screens).unwrap();
         store.place(image, place, screens, cols).unwrap();
@@ -67,7 +68,7 @@ fn sunset(x: u32, y: u32) -> u32 {
 
 /// A checker of half-transparent red, premultiplied, and clear squares.
 fn veil(x: u32, y: u32) -> u32 {
-    if (x / 4 + y / 4) % 2 == 0 {
+    if (x / 4 + y / 4).is_multiple_of(2) {
         0x8070_0000
     } else {
         0

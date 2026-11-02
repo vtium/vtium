@@ -1,0 +1,6 @@
+# vtium's own cases: NAME COLS ROWS, as corpus/cases.list.
+sixel-over 16 5
+kit-g14-su-sd 12 4
+kit-g14-margins 12 4
+kit-g14-point-deletes 12 4
+kit-g14-tall-cursor 12 4

@@ -144,6 +144,8 @@ This section describes the design ADR-1200 and ADR-1301 decide (accepted 2026-10
 
 The console parses no font. A **frit** names a font's sources, and the **helper**, vtium-vitrify's serve command in a sandbox, reads them, rasterises them and sends their glyphs at the console's cell, ready-to-draw bitmaps with their map from Unicode characters to glyphs and their metrics. The console checks each answer, holds the glyphs in memory for the boot and draws them. Nothing is prerendered, and no glyph outlives the boot.
 
+[why-vtium.md](why-vtium.md) tells, for a newcomer, why these font terms come from glassmaking.
+
 The figure follows a font from choosing it to the console. Each command is vtium-vitrify's. vtium, `serve` and `set` are built; the rest is proposed and drawn dashed.
 
 ```mermaid
@@ -204,7 +206,7 @@ vtium-clipboard, proposed in vtium/vtium#113, gives scripts the same copy from t
 
 ### Links and prompts
 
-Programs can mark text as a link, and shells can mark their prompts. vtium's terminal keeps the links and the marks. Showing a link's address, copying it for the user to paste, and moving the view from one prompt to the next are decided and not yet wired into the console ([ADR-1002](architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
+Programs can mark text as a link, and shells can mark their prompts. vtium's terminal keeps the links and the marks. Ctrl+click on a link copies its address for the user to paste, and Ctrl+Shift+Up and Ctrl+Shift+Down move the view from one prompt to the next. Showing a link's address on screen is decided and not yet drawn ([ADR-1002](architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
 
 ### Keys
 

@@ -545,6 +545,7 @@ impl Screen {
         for line in &mut main {
             line.paint(cols);
         }
+        main.reserve_exact(rows.saturating_sub(main.len()));
         while main.len() < rows {
             let line = self.new_line(cols, &Style::DEFAULT);
             main.push(line);

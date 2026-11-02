@@ -10,102 +10,43 @@
 *	insert-wide-one-column	departure	crates/vtium-term/README.md	A line keeps 6 bytes of clusters a cell (ADR-1001's cluster budget),
 *	utf8-ill-formed	departure	crates/vtium-parse/README.md	C1 controls do nothing in UTF-8 mode.
 *	host-palette	departure	INTERFACE.md	The C reference erased the screen and reset the current attributes when a palette was chosen; `host-palette` records it, and an implementation may list it as a departure.
-*	host-identify	pending	#48	the sixel test command; the case also differs by DA1 and by XTGETTCAP's uppercase names, crates/vtium-term/README.md
-*	apc-kitty-graphics	pending	#49	kitty graphics
-*	img-alt-1049	pending	#48	sixel
-*	img-alt-47	pending	#48	sixel
-*	img-dch	pending	#48	sixel
-*	img-decsed	pending	#48	sixel
-*	img-decsel	pending	#48	sixel
-*	img-decstr	pending	#48	sixel
-*	img-discard-alt	pending	#48	sixel
-*	img-discard-sb	pending	#48	sixel
-*	img-dl	pending	#48	sixel
-*	img-ech	pending	#48	sixel
-*	img-ed0	pending	#48	sixel
-*	img-ed1	pending	#48	sixel
-*	img-ed2	pending	#48	sixel
-*	img-ed3	pending	#48	sixel
-*	img-el0	pending	#48	sixel
-*	img-el1	pending	#48	sixel
-*	img-el2	pending	#48	sixel
-*	img-ich	pending	#48	sixel
-*	img-il	pending	#48	sixel
-*	img-print	pending	#48	sixel
-*	img-region	pending	#48	sixel
-*	img-resize	pending	#48	sixel
-*	img-resize-shrink	pending	#48	sixel
-*	img-ris	pending	#48	sixel
-*	img-scroll-down	pending	#48	sixel
-*	img-scroll-down-sb	pending	#48	sixel
-*	img-scroll-up	pending	#48	sixel
-*	img-sixel-over	pending	#48	sixel
-*	kit-bands	pending	#49	kitty graphics
-*	kit-cancel	pending	#49	kitty graphics
-*	kit-chunk-abort	pending	#49	kitty graphics
-*	kit-chunked	pending	#49	kitty graphics
-*	kit-chunk-large	pending	#49	kitty graphics
-*	kit-cursor	pending	#49	kitty graphics
-*	kit-delete-a	pending	#49	kitty graphics
-*	kit-delete-c	pending	#49	kitty graphics
-*	kit-delete-f	pending	#49	kitty graphics
-*	kit-delete-i	pending	#49	kitty graphics
-*	kit-delete-n	pending	#49	kitty graphics
-*	kit-delete-p	pending	#49	kitty graphics
-*	kit-delete-q	pending	#49	kitty graphics
-*	kit-delete-r	pending	#49	kitty graphics
-*	kit-delete-sb	pending	#49	kitty graphics
-*	kit-delete-x	pending	#49	kitty graphics
-*	kit-delete-y	pending	#49	kitty graphics
-*	kit-delete-z	pending	#49	kitty graphics
-*	kit-ed2	pending	#49	kitty graphics
-*	kit-evict	pending	#49	kitty graphics
-*	kit-evict-stamp	pending	#49	kitty graphics
-*	kit-host-errors	pending	#49	kitty graphics
-*	kit-host-errors-nohook	pending	#49	kitty graphics
-*	kit-host-icat	pending	#49	kitty graphics
-*	kit-host-icat-gif	pending	#49	kitty graphics
-*	kit-host-icat-gif-nohook	pending	#49	kitty graphics
-*	kit-host-icat-nohook	pending	#49	kitty graphics
-*	kit-host-lengths	pending	#49	kitty graphics
-*	kit-host-lengths-nohook	pending	#49	kitty graphics
-*	kit-host-media	pending	#49	kitty graphics
-*	kit-host-media-nohook	pending	#49	kitty graphics
-*	kit-host-mpv	pending	#49	kitty graphics
-*	kit-host-names	pending	#49	kitty graphics
-*	kit-host-names-nohook	pending	#49	kitty graphics
-*	kit-host-outcomes	pending	#49	kitty graphics
-*	kit-host-outcomes-nohook	pending	#49	kitty graphics
-*	kit-host-pause	pending	#49	kitty graphics
-*	kit-host-pause-nohook	pending	#49	kitty graphics
-*	kit-host-requests	pending	#49	kitty graphics
-*	kit-host-requests-nohook	pending	#49	kitty graphics
-*	kit-ids	pending	#49	kitty graphics
-*	kit-place-size	pending	#49	kitty graphics
-*	kit-query	pending	#49	kitty graphics
-*	kit-query-number	pending	#49	kitty graphics
-*	kit-refused	pending	#49	kitty graphics
-*	kit-replace	pending	#49	kitty graphics
-*	kit-replace-refused	pending	#49	kitty graphics
-*	kit-replies	pending	#49	kitty graphics
-*	kit-transmit	pending	#49	kitty graphics
-*	six-cancel	pending	#48	sixel
-*	six-colours	pending	#48	sixel
-*	six-cursor	pending	#48	sixel
-*	six-cursor-8452	pending	#48	sixel
-*	six-cursor-xterm	pending	#48	sixel
-*	six-decsdm	pending	#48	sixel
-*	six-img2sixel-gradient	pending	#48	sixel
-*	six-img2sixel-highcolor	pending	#48	sixel
-*	six-img2sixel-palette16	pending	#48	sixel
-*	six-max-size	pending	#48	sixel
-*	six-raster	pending	#48	sixel
-*	six-registers	pending	#48	sixel
-*	six-registers-ris	pending	#48	sixel
-*	six-replies	pending	#48	sixel
-*	six-scrollback	pending	#48	sixel
-*	six-scroll-bottom	pending	#48	sixel
-*	six-scroll-region	pending	#48	sixel
-*	six-text	pending	#48	sixel
-*	six-off	pending	#48	sixel
+*	host-identify	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
+*	host-identify	departure	crates/vtium-term/README.md	XTGETTCAP prints each name in uppercase hex from the table.
+*	img-alt-1049	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-alt-47	departure	crates/vtium-term/README.md	`img-alt-47` (an image case): the C reference's alternate screen started with cells of color code 0 on 0, so its golden shows `attr` runs of `fg=0 bg=0` where vtium's untouched cells have the default colors.
+*	img-dch	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-decsed	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-decsel	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-decstr	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-discard-alt	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-discard-sb	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-dl	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-ech	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-ed0	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-ed1	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-el0	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-el1	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-el2	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-ich	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-il	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-print	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-region	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-resize	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+screen	img-resize	departure	INTERFACE.md	In the screen view the C reference printed the ROWS rows of the command line instead, each COLS cells wide, whatever size a `resize` had given the screen since, so that a cell past COLS was not printed there and a row past the screen's height was empty; `img-resize` and `img-resize-shrink` record it, and an implementation may list it as a departure.
+*	img-resize-shrink	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+screen	img-resize-shrink	departure	INTERFACE.md	In the screen view the C reference printed the ROWS rows of the command line instead, each COLS cells wide, whatever size a `resize` had given the screen since, so that a cell past COLS was not printed there and a row past the screen's height was empty; `img-resize` and `img-resize-shrink` record it, and an implementation may list it as a departure.
+*	img-scroll-down	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-scroll-down-sb	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-scroll-up	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	img-sixel-over	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	kit-cursor	departure	crates/vtium-term/README.md	DECSTBM homes the cursor, and an omitted bottom margin is the last row.
+*	kit-evict	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	kit-host-icat	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
+*	kit-host-icat-nohook	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
+*	kit-replace-refused	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	kit-transmit	departure	crates/vtium-image/README.md	A kitty picture whose image has no id goes on top of its stack as it arrives,
+*	six-cancel	departure	crates/vtium-parse/README.md	A string acts only when its terminator completes it.
+*	six-cancel	departure	crates/vtium-term/README.md	DECRQSS for DECSCL reports the level DECSCL set,
+*	six-replies	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
+*	six-off	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
 frame	query-frames	departure	crates/vtium-term/README.md	`query-frames`: columns a widening resize adds are blank in the default style.

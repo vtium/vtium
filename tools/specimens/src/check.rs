@@ -180,17 +180,18 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// The sources a test draws with: no desktop set, so the outline
-    /// profiles are skipped.
+    /// The sources a test draws with: no desktop set and no tiny5 set, so
+    /// the profiles drawn from them are skipped.
     fn sources() -> Sources {
         Sources {
             desktop: Err("not built in this test".to_owned()),
+            tiny5: Err("not built in this test".to_owned()),
         }
     }
 
-    /// The outline profiles as provisional, so a test that does not draw
-    /// them may skip them.
-    const OUTLINE: &str = "1920x1080\tnew\n2560x1440\tnew\n";
+    /// The profiles drawn from fetched fonts as provisional, so a test that
+    /// does not draw them may skip them.
+    const OUTLINE: &str = "320x240-tiny5\tnew\n1920x1080\tnew\n2560x1440\tnew\n";
 
     /// A fresh drawing of the specimens in a directory of this test's own,
     /// with `provisional` as its provisional.tsv.
@@ -267,6 +268,7 @@ mod tests {
         assert_eq!(
             faults.skipped,
             [
+                "320x240-tiny5: not built in this test",
                 "1920x1080: not built in this test",
                 "2560x1440: not built in this test"
             ]
@@ -295,9 +297,15 @@ mod tests {
     // never hides an accepted profile's regression.
     #[test]
     fn an_accepted_profile_not_drawn_here_fails() {
-        let dir = drawn("skip-accepted", "2560x1440\tnew\n");
+        let dir = drawn("skip-accepted", "320x240-tiny5\tnew\n2560x1440\tnew\n");
         let faults = check(&dir, &sources()).unwrap();
-        assert_eq!(faults.skipped, ["2560x1440: not built in this test"]);
+        assert_eq!(
+            faults.skipped,
+            [
+                "320x240-tiny5: not built in this test",
+                "2560x1440: not built in this test"
+            ]
+        );
         assert_eq!(
             faults.goldens,
             ["1920x1080: accepted, and not drawn here: not built in this test"]

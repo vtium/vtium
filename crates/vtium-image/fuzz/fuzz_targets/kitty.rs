@@ -1,13 +1,40 @@
-//! Any input, as the data of an APC `G` string the kitty graphics handler
-//! takes: no panic, and the string cut where the input's first byte says
-//! gives the screen and the replies it gives whole.
+//! Any input, as the data of APC `G` strings the kitty graphics handler
+//! takes: no panic, and the strings cut where the input's first byte says
+//! give the screen and the replies they give whole.
+//!
+//! The input's second byte chooses the host: with its low bit set the
+//! terminal has an image helper, which answers every request at once, by
+//! the request alone, as the replay interface's fixture host answers from
+//! its files: the bytes a raw format needs, a one-pixel picture for PNG,
+//! and OK for a discard. The rest of the input is split at each `|` into
+//! the data of one string each, so chunked uploads, deletes and puts
+//! reach the handler in the order they came.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use vtium_term::images::decode::{Payload, Reply, Request};
 use vtium_term::images::{Kitty, Switches};
 use vtium_term::{ImageString, Terminal};
 
-fn fed(pieces: &[&[u8]]) -> Terminal {
+/// The helper's answer to `request`, from the request alone.
+fn answer(request: &Request) -> Reply {
+    if request.discard {
+        return Reply::Ok(Payload::Bytes(Vec::new()));
+    }
+    if request.png {
+        return Reply::Ok(Payload::Rgba {
+            width: 1,
+            height: 1,
+            data: vec![0x10, 0x20, 0x30, 0x80],
+        });
+    }
+    match usize::try_from(request.min) {
+        Ok(min) if min <= 1 << 20 => Reply::Ok(Payload::Bytes(vec![0x7f; min])),
+        _ => Reply::TooLarge,
+    }
+}
+
+fn fed(pieces: &[&[u8]], helper: bool) -> Terminal {
     let mut t = Terminal::new(20, 6, 16);
     t.screen_mut().set_image_limit(1 << 24);
     t.set_image_switches(Switches {
@@ -15,31 +42,42 @@ fn fed(pieces: &[&[u8]]) -> Terminal {
         kitty: true,
         iterm2: false,
     });
+    t.set_image_helper(helper);
     t.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
     for piece in pieces {
         let mut rest = *piece;
         while !rest.is_empty() {
             let taken = t.input(rest);
-            if taken == 0 {
+            rest = rest.get(taken..).unwrap_or_default();
+            if let Some(request) = t.take_image_request() {
+                t.image_reply(answer(&request));
+            } else if taken == 0 {
                 break;
             }
-            rest = rest.get(taken..).unwrap_or_default();
         }
     }
     t
 }
 
 fuzz_target!(|data: &[u8]| {
-    let [cut, payload @ ..] = data else {
+    let [cut, host, payload @ ..] = data else {
         return;
     };
-    let mut string = b"\x1b_G".to_vec();
-    string.extend_from_slice(payload);
-    string.extend_from_slice(b"\x1b\\");
-    let at = usize::from(*cut).min(string.len());
-    let whole = fed(&[&string]);
-    let (a, b) = string.split_at(at);
-    let cut = fed(&[a, b]);
+    let helper = host & 1 != 0;
+    let mut stream = Vec::new();
+    for string in payload.split(|&b| b == b'|') {
+        stream.extend_from_slice(b"\x1b_G");
+        stream.extend_from_slice(string);
+        stream.extend_from_slice(b"\x1b\\");
+    }
+    let at = usize::from(*cut)
+        .saturating_mul(stream.len())
+        .checked_div(255)
+        .unwrap_or(0)
+        .min(stream.len());
+    let whole = fed(&[&stream], helper);
+    let (a, b) = stream.split_at(at);
+    let cut = fed(&[a, b], helper);
     assert!(whole.screen() == cut.screen());
     assert_eq!(whole.replies(), cut.replies());
 });

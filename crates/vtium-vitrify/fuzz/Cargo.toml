@@ -1,5 +1,7 @@
-# The shaping path's fuzz target, run with cargo-fuzz on nightly:
+# The shaping path's and the BDF reader's fuzz targets, run with
+# cargo-fuzz on nightly:
 #   cargo +nightly fuzz run shape
+#   cargo +nightly fuzz run bdf
 # Its own workspace, so the main workspace and CI do not build it.
 [package]
 name = "vtium-vitrify-fuzz"
@@ -20,6 +22,13 @@ vtium-vitrify = { path = ".." }
 [[bin]]
 name = "shape"
 path = "fuzz_targets/shape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bdf"
+path = "fuzz_targets/bdf.rs"
 test = false
 doc = false
 bench = false

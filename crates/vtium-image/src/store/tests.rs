@@ -58,6 +58,7 @@ fn image(protocol: Protocol, w: u32, h: u32, id: u32) -> NewImage {
         id,
         number: 0,
         transient: false,
+        opaque: None,
     }
 }
 
@@ -146,7 +147,8 @@ fn a_refused_kitty_replacement_keeps_the_old_image() {
     let new = add(&mut s, &f, Protocol::KITTY, 8, 32, 7);
     assert!(s.image(MAIN, old).is_none());
     assert_eq!(s.placement_count(), 0);
-    assert_eq!(s.bytes(), 8 * 32 * 4 + IMAGE_OVERHEAD);
+    // and the old one's pixels stay as the spare buffer, charged
+    assert_eq!(s.bytes(), 8 * 32 * 4 + IMAGE_OVERHEAD + 8 * 16 * 4);
     assert_eq!(s.buffers[MAIN].find_id(7), Some(new));
 }
 
@@ -162,6 +164,7 @@ fn images_go_in_the_eviction_order_rank_by_rank() {
         .add_image(
             NewImage {
                 transient: true,
+                opaque: None,
                 ..image(Protocol::KITTY, 8, 16, 5)
             },
             None,
@@ -695,7 +698,8 @@ fn a_reservation_holds_its_bytes_and_the_image_it_replaces() {
         .add_image(image(Protocol::KITTY, 8, 48, 7), Some(r), f.screens())
         .unwrap();
     assert!(s.image(MAIN, old).is_none());
-    assert_eq!(s.bytes(), 8 * 48 * 4 + IMAGE_OVERHEAD);
+    // and the old one's pixels stay as the spare buffer, charged
+    assert_eq!(s.bytes(), 8 * 48 * 4 + IMAGE_OVERHEAD + 8 * 16 * 4);
     assert_eq!(s.find_image(7, 0), Some(new));
 }
 
@@ -720,6 +724,151 @@ fn a_reservation_given_back_frees_its_bytes_and_its_hold() {
         Err(Refusal::Invalid)
     );
     assert_eq!(s.bytes(), ONE_CELL);
+}
+
+// A handler that gives one reservation back twice, through a copy, gets its
+// bytes and its hold back once: the second copy finds the store's ledger
+// without it and changes nothing.
+// covers: image.pipeline
+#[test]
+fn a_reservation_given_back_twice_gives_its_bytes_and_its_hold_back_once() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    // a sixel of 1024 bytes, as the review of the handler contract stored
+    let _ = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    assert_eq!(s.bytes(), 8 * 16 * 4 + IMAGE_OVERHEAD);
+    let r = s.reserve(Protocol::SIXEL, 0, 4096, f.screens()).unwrap();
+    s.unreserve(r.clone());
+    s.unreserve(r);
+    assert_eq!(
+        s.bytes(),
+        8 * 16 * 4 + IMAGE_OVERHEAD,
+        "the sixel's bytes stay"
+    );
+    // two reservations hold the image of id 7; one given back twice
+    // releases only its own hold
+    let old = add(&mut s, &f, Protocol::KITTY, 8, 16, 7);
+    let before = s.bytes();
+    let first = s.reserve(Protocol::KITTY, 7, 4096, f.screens()).unwrap();
+    let second = s.reserve(Protocol::KITTY, 7, 4096, f.screens()).unwrap();
+    assert_eq!(s.image(MAIN, old).map(|i| i.hold), Some(2));
+    s.unreserve(first.clone());
+    s.unreserve(first);
+    assert_eq!(
+        s.image(MAIN, old).map(|i| i.hold),
+        Some(1),
+        "the second still holds it"
+    );
+    assert_eq!(s.bytes(), before + second.bytes());
+    s.unreserve(second);
+    assert_eq!(s.bytes(), before);
+}
+
+// A copy of a reservation an image already spent pays for no second image:
+// that image reserves its whole cost, which a budget with room for one
+// image refuses.
+// covers: image.pipeline
+#[test]
+fn a_reservation_an_image_spent_pays_for_no_second_image() {
+    let f = Fake::new(4);
+    let mut s = store(ONE_CELL);
+    let r = s
+        .reserve(Protocol::SIXEL, 0, ONE_CELL, f.screens())
+        .unwrap();
+    let a = s
+        .add_image(
+            image(Protocol::SIXEL, 8, 16, 0),
+            Some(r.clone()),
+            f.screens(),
+        )
+        .expect("stored");
+    // a sixel placed on the screen is never evicted
+    put(&mut s, &f, a, 0, 0);
+    assert_eq!(s.bytes(), ONE_CELL);
+    assert_eq!(
+        s.add_image(
+            image(Protocol::SIXEL, 8, 16, 0),
+            Some(r.clone()),
+            f.screens()
+        ),
+        Err(Refusal::NoSpace),
+        "the second image has nothing reserved"
+    );
+    assert_eq!(s.image_count(), 1);
+    assert_eq!(s.bytes(), ONE_CELL);
+    // and the copy given back gives back nothing
+    s.unreserve(r);
+    assert_eq!(s.bytes(), ONE_CELL);
+}
+
+// A copy of a reservation already spent does not grow: the bytes it would
+// reserve would belong to no reservation the store could take them back
+// from.
+// covers: image.pipeline
+#[test]
+fn a_reservation_already_spent_is_refused_growth() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    let r = s.reserve(Protocol::SIXEL, 0, 4096, f.screens()).unwrap();
+    let mut copy = r.clone();
+    s.unreserve(r);
+    assert_eq!(s.bytes(), 0);
+    assert_eq!(s.grow(&mut copy, 4096, f.screens()), Err(Refusal::Invalid));
+    assert_eq!(s.bytes(), 0, "nothing was reserved");
+    assert_eq!(copy.bytes(), 4096, "the copy is as it was");
+    // a live reservation grows, and gives back what it grew by
+    let mut live = s.reserve(Protocol::SIXEL, 0, 4096, f.screens()).unwrap();
+    s.grow(&mut live, 4096, f.screens()).expect("room");
+    assert_eq!(live.bytes(), 8192);
+    assert_eq!(s.bytes(), 8192);
+    s.unreserve(live);
+    assert_eq!(s.bytes(), 0);
+}
+
+// The reservation `kitty_buffer` makes of the spare buffer's charge, grown
+// by the rest of the picture's cost and holding the image of the id the
+// new one replaces, is spent once like any other.
+// covers: image.pipeline
+#[test]
+fn a_spare_buffer_reservation_given_back_twice_gives_back_once() {
+    const LEN: usize = 16 * 32;
+    let cost = 16 * 32 * 4 + IMAGE_OVERHEAD;
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    // the replacement frees the first image, whose pixels stay as the spare
+    let old = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let images = s.bytes() - 16 * 32 * 4;
+    let (buffer, r) = Edit::new(&mut s, f.screens(), COLS)
+        .kitty_buffer(7, LEN, cost)
+        .expect("room");
+    assert_eq!(buffer.len(), LEN, "the buffer is the spare");
+    let other = s.reserve(Protocol::KITTY, 7, cost, f.screens()).unwrap();
+    assert_eq!(s.image(MAIN, old).map(|i| i.hold), Some(2));
+    assert_eq!(s.bytes(), images + r.bytes() + other.bytes());
+    s.unreserve(r.clone());
+    s.unreserve(r);
+    assert_eq!(
+        s.image(MAIN, old).map(|i| i.hold),
+        Some(1),
+        "the other still holds it"
+    );
+    assert_eq!(s.bytes(), images + other.bytes());
+    s.unreserve(other);
+    assert_eq!(s.bytes(), images);
+    // with no image of its id to count, the reservation grows by the 512
+    // bytes beside the pixels, and gives those back too
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let images = s.bytes() - 16 * 32 * 4;
+    let (buffer, r) = Edit::new(&mut s, f.screens(), COLS)
+        .kitty_buffer(0, LEN, cost)
+        .expect("room");
+    assert_eq!(buffer.len(), LEN, "the buffer is the spare");
+    assert_eq!(r.bytes(), cost);
+    assert_eq!(s.bytes(), images + cost);
+    s.unreserve(r.clone());
+    s.unreserve(r);
+    assert_eq!(s.bytes(), images);
 }
 
 #[test]
@@ -873,4 +1022,461 @@ fn a_frame_entry_carries_the_whole_placements_crop_and_drawn_picture() {
     );
     assert_eq!((right.offset_x, right.offset_y), (-16, 0));
     assert_eq!((right.drawn_width, right.drawn_height), (24, 16));
+}
+
+/// A sixel image whose pixels `f(x, y)` gives.
+fn drawn(w: u32, h: u32, f: impl Fn(u32, u32) -> u32) -> NewImage {
+    let pixels = (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .map(|(x, y)| f(x, y));
+    NewImage {
+        pixels: pixels.collect(),
+        ..image(Protocol::SIXEL, w, h, 0)
+    }
+}
+
+/// The placements as (row, col, cols, rows) of each, in draw order.
+fn boxes(s: &Store, f: &Fake) -> Vec<(i64, u32, u32, u32)> {
+    let view = Rows {
+        screen: &f.screen,
+        above: &[],
+    };
+    s.frame(view, COLS)
+        .iter()
+        .map(|p| (p.row, p.col, p.cols, p.rows))
+        .collect()
+}
+
+// fork-perf item 15: the store keeps the buffer the handler filled, and
+// the frame shares it.
+// covers: image.pipeline
+#[test]
+fn an_image_keeps_the_handlers_buffer_without_a_copy() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 20);
+    let new = image(Protocol::SIXEL, 64, 32, 0);
+    let buffer = new.pixels.as_ptr();
+    let key = s.add_image(new, None, f.screens()).expect("stored");
+    s.place(key, Place::default(), f.screens(), COLS)
+        .expect("placed");
+    let view = Rows {
+        screen: &f.screen,
+        above: &[],
+    };
+    let frame = s.frame(view, COLS);
+    assert_eq!(frame[0].pixels.as_slice().as_ptr(), buffer);
+}
+
+// fork-perf item 14: a handler that knows its picture's opacity passes it,
+// and the store reads no pixel for it; one that does not lets the store
+// read them.
+// covers: image.pipeline
+#[test]
+fn opacity_the_handler_passes_spares_the_store_a_read() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 20);
+    let before = s.work();
+    s.add_image(
+        NewImage {
+            opaque: Some(true),
+            ..image(Protocol::SIXEL, 64, 32, 0)
+        },
+        None,
+        f.screens(),
+    )
+    .expect("stored");
+    let given = s.work() - before;
+    let before = s.work();
+    s.add_image(image(Protocol::SIXEL, 64, 32, 0), None, f.screens())
+        .expect("stored");
+    assert_eq!(s.work() - before, given + 64 * 32);
+}
+
+// A build with debug assertions checks the opacity a handler passes.
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic = "the handler's opacity disagrees with the pixels"]
+fn a_handler_that_passes_a_wrong_opacity_is_caught() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 20);
+    let clear = drawn(8, 16, |x, _| if x == 0 { 0 } else { 0xff00_00ff });
+    let _ = s.add_image(
+        NewImage {
+            opaque: Some(true),
+            ..clear
+        },
+        None,
+        f.screens(),
+    );
+}
+
+// ADR-1100 D3, a new picture of the same tag over it, cell by cell: a
+// picture padded with clear cells, as chafa pads its frames, replaces the
+// one under it, and the older picture's pieces in the padding, which hold
+// no pixel set, go with it.
+// covers: image.overlap
+#[test]
+fn a_padded_picture_over_the_last_replaces_it_cell_by_cell() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    // 3 by 3 cells of 8 by 16, its content the top left 2 by 2
+    let frame = || {
+        drawn(
+            24,
+            48,
+            |x, y| if x < 16 && y < 32 { 0xff00_00ff } else { 0 },
+        )
+    };
+    for n in 0..10 {
+        let key = s.add_image(frame(), None, f.screens()).expect("stored");
+        put(&mut s, &f, key, 0, 0);
+        assert_eq!(boxes(&s, &f), [(0, 0, 3, 3)], "after frame {n}");
+        assert_eq!(s.image_count(), 1, "after frame {n}");
+    }
+}
+
+// Under a cell the new picture covers only partly, the older one stays and
+// shows through: a clear pixel in every cell covers none of them.
+// covers: image.overlap
+#[test]
+fn a_picture_with_a_clear_pixel_in_each_cell_cuts_nothing() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let old = s
+        .add_image(image(Protocol::SIXEL, 16, 32, 0), None, f.screens())
+        .expect("stored");
+    put(&mut s, &f, old, 0, 0);
+    let holes = drawn(16, 32, |x, y| {
+        if x % 8 == 3 && y % 16 == 5 {
+            0
+        } else {
+            0xff00_ff00
+        }
+    });
+    let new = s.add_image(holes, None, f.screens()).expect("stored");
+    put(&mut s, &f, new, 0, 0);
+    assert_eq!(boxes(&s, &f), [(0, 0, 2, 2), (0, 0, 2, 2)]);
+}
+
+// An opaque picture whose size is no whole number of cells covers fully
+// only the cells it fills: the older picture keeps its parts under the new
+// one's edge cells.
+// covers: image.overlap
+#[test]
+fn an_opaque_picture_cuts_only_the_cells_it_fills() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let old = s
+        .add_image(image(Protocol::SIXEL, 24, 48, 0), None, f.screens())
+        .expect("stored");
+    put(&mut s, &f, old, 0, 0);
+    // 12 by 20 pixels fill the cell at 0,0 and part of three others
+    let new = s
+        .add_image(image(Protocol::SIXEL, 12, 20, 0), None, f.screens())
+        .expect("stored");
+    put(&mut s, &f, new, 0, 0);
+    let mut shown = boxes(&s, &f);
+    shown.sort_unstable();
+    // the old picture loses cell 0,0: pieces right of it and below it
+    assert_eq!(shown, [(0, 0, 2, 2), (0, 1, 2, 1), (1, 0, 3, 2)]);
+}
+
+// A kitty picture is never cut or dropped by a new sixel, even one that
+// shows nothing, and a sixel never by a kitty one.
+// covers: image.overlap
+#[test]
+fn a_new_picture_cuts_only_older_pictures_of_its_kind() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let clear = NewImage {
+        pixels: vec![0; 16 * 32],
+        ..image(Protocol::KITTY, 16, 32, 7)
+    };
+    let kitty = s.add_image(clear, None, f.screens()).expect("stored");
+    put(&mut s, &f, kitty, 0, 0);
+    let six = add(&mut s, &f, Protocol::SIXEL, 16, 32, 0);
+    put(&mut s, &f, six, 0, 0);
+    let kitty2 = add(&mut s, &f, Protocol::KITTY, 16, 32, 8);
+    put(&mut s, &f, kitty2, 0, 0);
+    assert_eq!(boxes(&s, &f).len(), 3);
+}
+
+// vtium's reading of "a piece that draws nothing": two opaque pictures of
+// the same size that end inside a cell, as most of mpv's frames do. The
+// older picture's pieces in the edge cells lie wholly under the newer
+// one's opaque pixels, so they go, and one picture stays.
+// covers: image.overlap
+#[test]
+fn opaque_frames_that_end_inside_a_cell_leave_one_picture() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    for n in 0..10 {
+        let key = add(&mut s, &f, Protocol::SIXEL, 20, 40, 0);
+        put(&mut s, &f, key, 0, 0);
+        assert_eq!(boxes(&s, &f), [(0, 0, 3, 3)], "after frame {n}");
+        assert_eq!(s.image_count(), 1, "after frame {n}");
+    }
+    // a clear pixel of the newer one in an edge cell, over a set pixel of
+    // the older one, lets the older one show there, so it stays
+    let holed = drawn(
+        20,
+        40,
+        |x, y| if (x, y) == (17, 37) { 0 } else { 0xff00_ff00 },
+    );
+    let key = s.add_image(holed, None, f.screens()).expect("stored");
+    put(&mut s, &f, key, 0, 0);
+    assert_eq!(s.image_count(), 2);
+}
+
+// fork-perf item 16's primitive: the buffer of the image freed last goes
+// back to a handler that asks for one of its size, once no frame holds it.
+// covers: image.pipeline
+#[test]
+fn a_freed_images_buffer_goes_back_to_the_next_picture_of_its_size() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let first = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let buffer = {
+        let view = Rows {
+            screen: &f.screen,
+            above: &[],
+        };
+        put(&mut s, &f, first, 0, 0);
+        s.frame(view, COLS)[0].pixels.as_slice().as_ptr()
+    };
+    // a kitty transmission of the same id replaces it and frees the old
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let mut edit = Edit::new(&mut s, f.screens(), COLS);
+    assert!(
+        edit.take_spare(Protocol::KITTY, 0, 16 * 31).is_none(),
+        "another size"
+    );
+    let (spare, r) = edit
+        .take_spare(Protocol::KITTY, 0, 16 * 32)
+        .expect("the freed buffer");
+    assert_eq!(spare.as_ptr(), buffer);
+    assert_eq!(r.bytes(), 16 * 32 * 4, "its charge comes with it");
+    assert!(
+        edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_none(),
+        "taken once"
+    );
+}
+
+// A frame that still holds the freed image's pixels keeps the buffer from
+// being filled again under it.
+// covers: image.pipeline
+#[test]
+fn a_freed_buffer_a_frame_still_holds_is_not_given_back() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let first = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    put(&mut s, &f, first, 0, 0);
+    let view = Rows {
+        screen: &f.screen,
+        above: &[],
+    };
+    let frame = s.frame(view, COLS);
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let mut edit = Edit::new(&mut s, f.screens(), COLS);
+    assert!(edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_none());
+    drop(frame);
+    assert!(edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_some());
+}
+
+// A reservation still in the ledger at RIS is one a handler dropped
+// without spending, since each handler's reset gives back what it holds
+// before the store resets; a build with debug assertions stops there.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "a handler kept or dropped a reservation past RIS")]
+fn a_reset_with_a_reservation_still_out_fails_a_debug_build() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    // the handler drops the reservation without giving it back
+    let _ = s.reserve(Protocol::KITTY, 0, 4096, f.screens()).unwrap();
+    s.reset();
+}
+
+// The spare buffer is charged to the budget, and a reset frees it.
+// covers: image.pipeline
+#[test]
+fn a_reset_frees_the_spare_buffer_and_its_charge() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let one = s.bytes();
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    assert_eq!(s.bytes(), one + 16 * 32 * 4, "the spare is charged");
+    s.reset();
+    assert_eq!(s.bytes(), 0);
+    let mut edit = Edit::new(&mut s, f.screens(), COLS);
+    assert!(edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_none());
+}
+
+// A reservation that needs room frees the spare buffer before it evicts
+// any image.
+// covers: image.pipeline
+#[test]
+fn a_reservation_that_needs_room_frees_the_spare_before_any_image() {
+    let f = Fake::new(4);
+    let image = 16 * 32 * 4 + IMAGE_OVERHEAD;
+    // room for two images and the spare, and no more
+    let mut s = store(2 * image + 16 * 32 * 4);
+    let a = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    put(&mut s, &f, a, 0, 0);
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 8);
+    assert_eq!(s.image_count(), 2);
+    assert_eq!(s.bytes(), 2 * image + 16 * 32 * 4);
+    // an unplaced image would be the first to go; the spare goes before it
+    let r = s
+        .reserve(Protocol::KITTY, 0, 16 * 32 * 4, f.screens())
+        .expect("room");
+    assert_eq!(s.image_count(), 2, "no image was evicted");
+    s.unreserve(r);
+    let mut edit = Edit::new(&mut s, f.screens(), COLS);
+    assert!(edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_none());
+}
+
+// kitty's case: under a budget that fits the frame shown and the one
+// replacing it, and no more, a handler that takes the spare buffer with
+// its charge, rather than reserving a frame afresh, reuses the buffer
+// every frame: the reservation never needs room, so it never evicts the
+// buffer it is about to fill.
+// covers: image.pipeline
+#[test]
+fn frames_of_one_size_reuse_the_spare_under_a_tight_budget() {
+    const LEN: usize = 16 * 32;
+    let frame = 16 * 32 * 4;
+    let f = Fake::new(4);
+    let mut s = store(2 * (frame + IMAGE_OVERHEAD));
+    let mut buffers = Vec::new();
+    let mut shown: Option<ImageKey> = None;
+    for n in 0..8 {
+        let before = s.bytes();
+        let taken = Edit::new(&mut s, f.screens(), COLS).take_spare(Protocol::KITTY, 0, LEN);
+        // from the third frame on, the frame before the last has been freed
+        // and nothing holds it, so the spare is there to take
+        assert_eq!(taken.is_some(), n >= 2, "frame {n} takes the spare");
+        let (pixels, r) = match taken {
+            Some(spare) => {
+                // the spare's charge moved into the reservation whole
+                assert_eq!(s.bytes(), before, "frame {n}");
+                assert_eq!(spare.1.bytes(), frame, "frame {n}");
+                spare
+            }
+            None => {
+                let r = s
+                    .reserve(Protocol::KITTY, 0, frame, f.screens())
+                    .expect("room for a frame");
+                (vec![0xff00_00ff; LEN], r)
+            }
+        };
+        buffers.push(pixels.as_ptr());
+        let new = NewImage {
+            pixels,
+            ..image(Protocol::KITTY, 16, 32, 0)
+        };
+        let key = s.add_image(new, Some(r), f.screens()).expect("stored");
+        if let Some(old) = shown.replace(key) {
+            s.drop_image(old);
+        }
+        assert_eq!(s.image_count(), 1, "frame {n}");
+        assert!(s.bytes() <= s.limit(), "frame {n}");
+    }
+    for n in 2..buffers.len() {
+        assert_eq!(
+            buffers[n],
+            buffers[n - 2],
+            "frame {n} reuses frame {}'s buffer",
+            n - 2
+        );
+    }
+}
+
+/// Blends the pictures of `frame`'s entries over `out`, a screen of
+/// `COLS` by `rows` cells of 8 by 16 pixels in premultiplied ARGB, each
+/// entry at its pixel size: the compositor's "over" for pictures drawn 1:1.
+fn blend_over(out: &mut [u32], frame: &[FramePlacement], rows: usize) {
+    let (w, h) = (COLS * 8, rows * 16);
+    for p in frame {
+        assert_eq!((p.width, p.height), (p.src_width, p.src_height), "1:1");
+        let px = p.pixels.as_slice();
+        for j in 0..p.height {
+            for i in 0..p.width {
+                let sx = usize::try_from(p.col * 8 + p.x + i).expect("a column");
+                let Ok(sy) = usize::try_from(p.row * 16 + i64::from(p.y + j)) else {
+                    continue;
+                };
+                if sx >= w || sy >= h {
+                    continue;
+                }
+                let src = px[((p.src_y + j) * p.image_width + p.src_x + i) as usize];
+                let d = &mut out[sy * w + sx];
+                let a = src >> 24;
+                let blend = |shift: u32| {
+                    let sc = (src >> shift) & 0xff;
+                    let dc = (*d >> shift) & 0xff;
+                    (sc + (dc * (255 - a) + 127) / 255).min(255) << shift
+                };
+                *d = blend(24) | blend(16) | blend(8) | blend(0);
+            }
+        }
+    }
+}
+
+// D2's per-cell coverage and the hidden piece it drops: placing a sixel over
+// older ones, whatever the store removes, draws exactly what the older
+// pictures with the new one blended over them draw. 3,000 rounds of two to
+// five random sixels, opaque, two-color, with clear or half-clear pixels,
+// at random sizes and cells, from one fixed seed.
+// covers: image.pipeline
+#[test]
+fn hidden_pieces_change_no_composite_pixel() {
+    const ROWS: usize = 6;
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut rnd = move |n: u32| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % u64::from(n)) as u32
+    };
+    let colors = [0xff00_ff00u32, 0xffff_0000, 0x8040_0000, 0];
+    for round in 0..3000 {
+        let f = Fake::new(ROWS as u64);
+        let mut s = store(1 << 30);
+        for n in 0..2 + rnd(4) {
+            let (w, h) = (1 + rnd(40), 1 + rnd(60));
+            let kind = rnd(4);
+            let pixels: Vec<u32> = (0..w * h)
+                .map(|_| match kind {
+                    0 => colors[0],
+                    1 => colors[rnd(2) as usize],
+                    2 => colors[rnd(4) as usize],
+                    _ if rnd(8) == 0 => colors[2],
+                    _ => colors[1],
+                })
+                .collect();
+            let new = NewImage {
+                pixels,
+                ..image(Protocol::SIXEL, w, h, 0)
+            };
+            let (col, row) = (rnd(6), rnd(4));
+            // what the screen showed, with the new picture blended over it
+            let mut want = vec![0u32; COLS * 8 * ROWS * 16];
+            blend_over(&mut want, &s.frame(f.rows(), COLS), ROWS);
+            let mut alone = store(1 << 30);
+            let key = alone
+                .add_image(new.clone(), None, f.screens())
+                .expect("stored");
+            put(&mut alone, &f, key, col, row);
+            blend_over(&mut want, &alone.frame(f.rows(), COLS), ROWS);
+            // what the store shows once it places the new picture
+            let key = s.add_image(new, None, f.screens()).expect("stored");
+            put(&mut s, &f, key, col, row);
+            let mut got = vec![0u32; COLS * 8 * ROWS * 16];
+            blend_over(&mut got, &s.frame(f.rows(), COLS), ROWS);
+            assert!(want == got, "round {round}, picture {n}");
+        }
+    }
 }

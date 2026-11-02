@@ -222,10 +222,10 @@ fn images(term: &Terminal, since: Option<Option<u64>>, out: &mut String) {
         if p.opaque {
             out.push_str(" opaque");
         }
-        if let Some(since) = since {
-            if since.is_none_or(|r| p.revision > r) {
-                out.push_str(" changed");
-            }
+        if let Some(since) = since
+            && since.is_none_or(|r| p.revision > r)
+        {
+            out.push_str(" changed");
         }
         out.push('\n');
     }

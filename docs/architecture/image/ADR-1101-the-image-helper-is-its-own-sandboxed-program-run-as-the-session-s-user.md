@@ -67,7 +67,17 @@ considered:
     said: "The record names three ways to serve a stream of frames: a fresh worker with a fresh reply memfd; a fresh worker writing into a small per-console pool of pre-faulted reply memfds the helper keeps; and the long-lived per-console stream worker, triggered after three matching requests by count, never by time, with the same sandbox and end conditions. The builder measures all three on a real stream (timg-style PNG and raw f=32) at 1366x768 and 7680x2160; if the pool comes close to the stream worker, vtium takes the pool, which is simpler and keeps per-picture isolation; if the stream worker clearly wins, vtium builds it."
     via: the maintainer, 2026-11-02, in the steering session
     paraphrase: true
-status: proposed
+  - operator: Aaron Bockelie
+    said: "quarter, hopefully we can do better"
+    via: steering session, 2026-11-02
+    covers: [stream variants]
+  - operator: Aaron Bockelie
+    said: "3. keep"
+    via: steering session, 2026-11-02, answering whether the helper premultiplies every reply, decoded PNG/JPEG/GIF included
+  - operator: Aaron Bockelie
+    said: "lets mark 1101 accepted. we can start more lanes"
+    via: steering session, 2026-11-02
+status: accepted
 date: 2026-11-01
 deciders:
   - aaronsb
@@ -204,7 +214,9 @@ Every crate that reads a program's bytes in the helper is pure Rust, linked into
 
 ### D8: timeouts, failures and restarts
 
-- **The timer.** vtium-platform holds a 2,000 ms timer on each request while the console's pty is paused (ADR-1100 D7). A reply that passes the checks ends the request and resumes the pty.
+- **The timer.** The binary holds a 2,000 ms timer on each request while the console's pty is paused, in `crates/vtium/src/head/images.rs`. ADR-1100 D7 says how the timer reads the loop's clock and what vtium-platform does with the helper process when the timer fires. A reply that passes the checks ends the request and resumes the pty.
+
+  > Edited 2026-11-02: the steering session placed the timer in the binary, in `crates/vtium/src/head/images.rs`, and left the helper process to vtium-platform. The bullet read: "vtium-platform holds a 2,000 ms timer on each request while the console's pty is paused (ADR-1100 D7)."
 - **A failure.** The timer firing, the socket closing or failing, or a reply that fails a check ends the request. vtium kills the helper's process group, its worker included, before it reaps the helper, which leads the group: through the pidfd with the kernel's process-group flag where the kernel has it, from Linux 6.9, and otherwise by signalling the group's id, which cannot be reused while its leader is not yet reaped. It then reaps the helper, hands the terminal `FAILED`, which the kitty handler answers EBADF, or for a discard answers its own refusal, and resumes the pty. The next request starts a new helper.
 - **Crashes, a bounded number a session.** A worker killed by a signal, a helper that ends or closes its socket while a request is out, and a reply that fails a check each count as a crash; a timeout does not, since a large picture on a slow board can take that long honestly. After `IMAGE_CRASHES_MAX`, 3, crashes on one console, vtium starts no more image helpers for that console until its session ends, logs that once, and answers that console's requests as ADR-1100 D7's "Without a helper" says; other consoles keep theirs (the maintainer, 2026-11-01). Each helper start lays out its address space afresh, so an unbounded count would let a hostile picture retry until a guess at the layout lands, the reason the font helper bounds its restarts (ADR-1200 D15).
 - **The session's end.** A console whose session ends drops its request without a reply, kills its helper, and clears its crash count, and the next session starts with none out.

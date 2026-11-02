@@ -147,7 +147,7 @@ pub struct Inspected {
 /// regular file is refused before it is opened, since opening a FIFO, a
 /// watchdog or a serial port acts on it. It is opened without blocking,
 /// in case it was swapped since, so that a tty never becomes the
-/// controlling one, as the console opens kmscon.conf, and at most
+/// controlling one, as the console opens vtium.conf, and at most
 /// [`FILE_MAX`] bytes and one are read.
 pub fn inspect(path: &Path, trust: &Trust) -> Result<Option<Inspected>, Rejected> {
     use rustix::fs::{Mode, OFlags};

@@ -19,6 +19,7 @@ mod events;
 mod frame;
 pub(crate) mod kitty;
 mod reserve;
+mod sixel;
 #[cfg(test)]
 mod tests;
 
@@ -346,10 +347,24 @@ pub struct Store {
     dying: Option<ImageKey>,
     work: u64,
     changed: Vec<Region>,
+    /// The pixels of the image freed last, for a handler to fill again: one
+    /// buffer at most, charged to the budget at 4 bytes a pixel, freed
+    /// before any image when a reservation needs room, and on a reset or a
+    /// buffer's clearing.
+    spare: Option<Pixels>,
+    /// An image is being evicted for room, so its pixels go.
+    evicting: bool,
+    /// The ledger of the reservations the store granted and has not seen
+    /// spent: each one's number and the bytes it holds of the budget,
+    /// which `used` counts.
+    reservations: BTreeMap<u64, u64>,
+    /// The number the next reservation gets.
+    next_reservation: u64,
 }
 
 /// Two stores compare by what they hold; the work an input call counted
-/// is the call's, and the boxes not yet taken are the terminal's to mark.
+/// is the call's, and the boxes not yet taken are the terminal's to mark;
+/// a spare buffer counts by its size, which its charge follows.
 impl PartialEq for Store {
     fn eq(&self, other: &Self) -> bool {
         self.buffers == other.buffers
@@ -366,6 +381,9 @@ impl PartialEq for Store {
             && self.pending == other.pending
             && self.keep == other.keep
             && self.dying == other.dying
+            && self.spare_bytes() == other.spare_bytes()
+            && self.reservations == other.reservations
+            && self.next_reservation == other.next_reservation
     }
 }
 
@@ -396,6 +414,10 @@ impl Store {
             dying: None,
             work: 0,
             changed: Vec::new(),
+            spare: None,
+            evicting: false,
+            reservations: BTreeMap::new(),
+            next_reservation: 0,
         }
     }
 
@@ -461,8 +483,17 @@ impl Store {
         }
     }
 
-    /// RIS: both buffers are emptied.
+    /// RIS: both buffers are emptied. vtium-term resets each handler first,
+    /// and a handler's reset gives back every reservation it holds, so a
+    /// build with debug assertions checks that the ledger is empty: a
+    /// reservation still in it is one a handler dropped without spending,
+    /// whose bytes the budget would count for the store's whole life.
     pub fn reset(&mut self) {
+        debug_assert!(
+            self.reservations.is_empty(),
+            "a handler kept or dropped a reservation past RIS: {:?}",
+            self.reservations
+        );
         self.clear(MAIN);
         self.clear(ALT);
     }
@@ -570,14 +601,17 @@ impl Store {
     ) -> Result<ImageKey, Refusal> {
         let b = self.active();
         // the image a reservation held for its replacement, when it is
-        // still in the buffer in use with the id; it is held no more
-        let (mut reserved, held) = match reservation {
-            Some(r) => {
+        // still in the buffer in use with the id; it is held no more. A copy
+        // of a reservation already spent holds nothing, so the image
+        // reserves its whole cost
+        let spent = reservation.and_then(|r| self.spend(&r).map(|bytes| (r, bytes)));
+        let (mut reserved, held) = match spent {
+            Some((r, bytes)) => {
                 self.hold(r.buffer, r.old, false);
                 let still = r
                     .old
                     .filter(|&o| r.buffer == b && self.image(b, o).is_some_and(|i| i.id == new.id));
-                (r.bytes, still)
+                (bytes, still)
             }
             None => (0, None),
         };
@@ -625,7 +659,20 @@ impl Store {
         self.next_image = self.next_image.saturating_add(1);
         let stamp = self.tick();
         let revision = self.bump();
-        let opaque = new.pixels.iter().all(|&px| px >> 24 == 0xff);
+        let opaque = match new.opaque {
+            Some(opaque) => {
+                debug_assert_eq!(
+                    opaque,
+                    all_opaque(&new.pixels),
+                    "the handler's opacity disagrees with the pixels"
+                );
+                opaque
+            }
+            None => {
+                self.count(new.pixels.len());
+                all_opaque(&new.pixels)
+            }
+        };
         if let Some(o) = old {
             // the old image's bytes beyond what was reserved pass to the new
             // one; freeing it gives back only what is left
@@ -660,8 +707,11 @@ impl Store {
     /// Places `image` of the buffer in use on its screen, as `place` says,
     /// anchored to the line at `place.row` of `screens`'s rows for that
     /// buffer, on a screen `cols` wide. A new placement past the image's
-    /// first reserves its charge; an opaque picture whose rules say a new
-    /// picture covers older ones cuts them first.
+    /// first reserves its charge. A picture whose rules say a new picture
+    /// covers older ones cell by cell first removes the older pictures of
+    /// its kind under every cell it covers fully with opaque pixels, and
+    /// then those of them under its box left with no pixel set
+    /// (`store/sixel.rs`).
     pub fn place(
         &mut self,
         image: ImageKey,
@@ -673,7 +723,7 @@ impl Store {
         let rows = screens.of(b);
         let (cw, ch) = self.cell;
         let img = self.image(b, image).ok_or(Refusal::NotFound)?;
-        let (protocol, width, height, opaque) = (img.protocol.0, img.width, img.height, img.opaque);
+        let (protocol, width, height) = (img.protocol.0, img.width, img.height);
         let cols_ok = usize::try_from(place.col).is_ok_and(|c| c < cols);
         let row = usize::try_from(place.row).ok();
         let line = row.and_then(|r| rows.screen.get(r)).copied();
@@ -713,17 +763,8 @@ impl Store {
         // the image being placed is held through the cut, so a cut that
         // removes its own last placement leaves it to the new one
         self.hold(b, Some(image), true);
-        if rules(protocol).covered_by_same && opaque {
-            let last = place
-                .row
-                .saturating_add(geometry.rows)
-                .min(u32::try_from(rows.screen.len()).unwrap_or(u32::MAX));
-            let right = place.col.saturating_add(geometry.cols).saturating_sub(1);
-            for r in place.row..last {
-                self.cut_where(r, place.col, right, rows, cols, |p| {
-                    crate::rules::same(p.protocol.0, protocol)
-                });
-            }
+        if rules(protocol).covered_by_same {
+            self.cover(b, image, &place, &geometry, rows, cols);
         }
         self.hold(b, Some(image), false);
         // the cut took the image's other placements: the new one is its
@@ -845,6 +886,10 @@ impl Store {
         self.keep = keep;
         let total = |s: &Self| s.used.saturating_sub(credit).saturating_add(bytes);
         let mut ok = true;
+        // the spare buffer goes before any image
+        if total(self) > self.limit {
+            self.drop_spare();
+        }
         if total(self) > self.limit {
             let room = self
                 .used
@@ -1018,7 +1063,10 @@ impl Store {
     fn evict_one(&mut self, only: Option<usize>, screens: Screens<'_>) -> bool {
         match self.victim(only, screens) {
             Some((b, k)) => {
+                // an image evicted for room keeps no spare buffer
+                self.evicting = true;
                 self.free_image(b, k);
+                self.evicting = false;
                 true
             }
             None => false,
@@ -1127,10 +1175,44 @@ impl Store {
         self.used = self
             .used
             .saturating_sub(image.bytes.saturating_sub(image.owed));
+        self.keep_spare(image.pixels);
+    }
+
+    /// The bytes the spare buffer holds of the budget: its pixels at 4
+    /// bytes each.
+    fn spare_bytes(&self) -> u64 {
+        self.spare.as_ref().map_or(0, |p| {
+            u64::try_from(p.as_slice().len())
+                .unwrap_or(u64::MAX)
+                .saturating_mul(4)
+        })
+    }
+
+    /// Keeps `pixels` as the spare buffer, charged to the budget, in place
+    /// of the one before, when the budget has room for it.
+    fn keep_spare(&mut self, pixels: Pixels) {
+        self.drop_spare();
+        if self.evicting {
+            return;
+        }
+        self.spare = Some(pixels);
+        let bytes = self.spare_bytes();
+        if self.used.saturating_add(bytes) > self.limit {
+            self.spare = None;
+        } else {
+            self.used = self.used.saturating_add(bytes);
+        }
+    }
+
+    /// Frees the spare buffer and gives its bytes back.
+    fn drop_spare(&mut self) {
+        self.used = self.used.saturating_sub(self.spare_bytes());
+        self.spare = None;
     }
 
     /// Empties buffer `b`, giving back every byte its images hold.
     fn clear(&mut self, b: usize) {
+        self.drop_spare();
         let Some(buf) = self.buffers.get_mut(b) else {
             return;
         };
@@ -1275,4 +1357,9 @@ impl Geometry {
             sh,
         })
     }
+}
+
+/// Whether every pixel is opaque: alpha 0xff.
+fn all_opaque(pixels: &[u32]) -> bool {
+    pixels.iter().all(|&px| px >> 24 == 0xff)
 }

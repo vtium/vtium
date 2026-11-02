@@ -149,21 +149,63 @@ fn a_wide_character_moves_whole_and_leaves_a_pad() {
 #[test]
 fn clusters_styles_and_links_move_with_their_cells() {
     let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
-    let mut t = term(4, 3, b"ab\x1b]8;;https://a.example/\x1b\\");
+    let mut t = term(6, 3, b"abc\x1b]8;;https://a.example/\x1b\\");
     let link = t.screen().link();
     assert!(link.is_some());
-    t.input(format!("\x1b[31mc{family}\x1b[m").as_bytes());
-    t.resize(3, 3);
+    t.input(format!("\x1b[31md{family}\x1b[m").as_bytes());
+    t.resize(4, 3);
     let s = t.screen();
-    assert_eq!(rows(s), ["abc", family, ""]);
+    assert_eq!(rows(s), ["abcd", family, ""]);
     let line = s.line(1).unwrap();
     let cell = line.cell(0);
     assert_eq!(line.glyph(cell), Glyph::Cluster(family));
     assert_eq!(line.style(cell).fg, Color::Indexed(1));
     assert_eq!(line.link(cell), link);
     let line = s.line(0).unwrap();
-    assert_eq!(line.link(line.cell(2)), link);
-    assert_eq!(line.link(line.cell(1)), None);
+    assert_eq!(line.link(line.cell(3)), link);
+    assert_eq!(line.link(line.cell(2)), None);
+}
+
+// "Wide characters and clusters": a row that lands on a narrower screen
+// keeps the clusters printing it at that width keeps. The family's 19
+// bytes fit the 24 of a row of 4 cells, and not the 18 of a row of 3, so
+// narrowing to 3 columns keeps its first four codepoints; widening again
+// does not bring the others back. The scrollback keeps its rows' clusters
+// whole.
+#[test]
+fn a_row_narrowed_past_its_budget_keeps_what_printing_there_keeps() {
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    let text = format!("abc{family}\r\n");
+    let mut t = term(5, 3, text.as_bytes());
+    t.resize(3, 3);
+    let printed = term(3, 3, text.as_bytes());
+    assert_eq!(rows(t.screen()), rows(printed.screen()));
+    let line = t.screen().line(1).unwrap();
+    assert_eq!(
+        line.glyph(line.cell(0)),
+        Glyph::Cluster("\u{1F468}\u{200D}\u{1F469}\u{200D}")
+    );
+    assert_eq!(line.cluster_bytes(), 15);
+    t.resize(5, 3);
+    assert_eq!(rows(t.screen())[0], "abc\u{1F468}\u{200D}\u{1F469}\u{200D}");
+
+    // A row in the scrollback keeps the family whole through a narrowing,
+    // and is held to the screen's budget when a taller screen pulls it
+    // back.
+    let mut t = with_scrollback(5, 2, 10, format!("{text}\r\n").as_bytes());
+    assert_eq!(scrollback(t.screen()), [format!("abc{family}")]);
+    t.resize(4, 2);
+    t.screen_mut().rewrap_scrollback();
+    assert_eq!(scrollback(t.screen()), ["abc", family]);
+    t.resize(3, 2);
+    t.screen_mut().rewrap_scrollback();
+    assert_eq!(scrollback(t.screen()), ["abc", family]);
+    t.resize(3, 4);
+    assert!(scrollback(t.screen()).is_empty());
+    assert_eq!(
+        rows(t.screen())[..2],
+        ["abc", "\u{1F468}\u{200D}\u{1F469}\u{200D}"]
+    );
 }
 
 // "The cursor and the saved cursors": the cursor keeps its place in the

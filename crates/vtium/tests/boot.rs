@@ -775,7 +775,11 @@ impl Memory {
 
     /// Whether any pixel is `rgb`; the buffer is XRGB8888, little-endian.
     fn has(&self, [r, g, b]: [u8; 3]) -> bool {
-        self.pixels.chunks_exact(4).any(|p| p[..3] == [b, g, r])
+        self.pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[..3] == [b, g, r])
     }
 }
 

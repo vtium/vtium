@@ -59,16 +59,17 @@ impl WriteQueue {
         if data.is_empty() {
             return;
         }
-        if kind == Kind::Motion && self.bytes.len() >= MOTION_COALESCE_AT {
-            if let Some(last) = self.runs.back_mut() {
-                if last.kind == Kind::Motion && !last.started {
-                    let keep = self.bytes.len().saturating_sub(last.len);
-                    self.bytes.truncate(keep);
-                    self.bytes.extend(data);
-                    last.len = data.len();
-                    return;
-                }
-            }
+        if kind == Kind::Motion
+            && self.bytes.len() >= MOTION_COALESCE_AT
+            && let Some(last) = self.runs.back_mut()
+            && last.kind == Kind::Motion
+            && !last.started
+        {
+            let keep = self.bytes.len().saturating_sub(last.len);
+            self.bytes.truncate(keep);
+            self.bytes.extend(data);
+            last.len = data.len();
+            return;
         }
         self.bytes.extend(data);
         if kind == Kind::Reply {

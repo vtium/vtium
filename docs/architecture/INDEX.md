@@ -29,6 +29,9 @@ _Inline images - sixel and the kitty graphics protocol, storage and placement_
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-1100](./image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md) | One image pipeline: protocol handlers feed a store of placements that travel with lines | accepted |
+| [ADR-1101](./image/ADR-1101-the-image-helper-is-its-own-sandboxed-program-run-as-the-session-s-user.md) | The image helper is its own sandboxed program, run as the session's user | accepted |
+| [ADR-1102](./image/ADR-1102-kitty-animation-frames-are-stored-whole-and-a-clock-outside-the-store-plays-them.md) | Kitty animation frames are stored whole, and a clock outside the store plays them | proposed |
+| [ADR-1103](./image/ADR-1103-iterm2-pictures-are-sized-by-their-keys-and-decoded-in-the-image-helper.md) | iTerm2 pictures are sized by their keys and decoded in the image helper | proposed |
 
 ## Font
 _Font loading, glyph rasterisation, color glyphs and fallback_
@@ -60,4 +63,4 @@ _Process, harness and contributions - how vtium is built, tested and judged_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-1500](./project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-and-lives-beside-the-c-reference-s-package.md) | vtium is packaged from a recipe repo per package manager, and lives beside the C reference's package | proposed |
+| [ADR-1500](./project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-under-names-of-its-own.md) | vtium is packaged from a recipe repo per package manager, under names of its own | accepted |

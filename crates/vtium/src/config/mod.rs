@@ -1,4 +1,4 @@
-//! The configuration: `kmscon.conf` in the C reference's key syntax,
+//! The configuration: `vtium.conf` in the C reference's key syntax,
 //! `<seat>.seat.conf` over it, and the command line over both.
 //!
 //! [`keys`] holds the one table of keys. [`load`] reads every source and
@@ -64,6 +64,8 @@ pub enum Value {
     Chords(Vec<Chord>),
     /// A [`Kind::DecoColor`] value.
     DecoColor(DecoColor),
+    /// A [`Kind::Size`] value: the width and the height.
+    Size(u32, u32),
 }
 
 /// How the font helper hints outline glyphs, `font-hinting`'s value.
@@ -291,10 +293,10 @@ pub(crate) struct Reports {
 
 impl Reports {
     pub(crate) fn push(&mut self, origin: Origin, problem: Problem) {
-        if let Problem::UnknownKey(name) = &problem {
-            if !self.unknown.insert(name.clone()) {
-                return;
-            }
+        if let Problem::UnknownKey(name) = &problem
+            && !self.unknown.insert(name.clone())
+        {
+            return;
         }
         if self.list.len() < REPORTS_MAX {
             self.list.push(Report { origin, problem });
@@ -358,13 +360,13 @@ impl Config {
     /// set: a file's to the files', the command line's to the command
     /// line's, which replace the files'.
     fn set(&mut self, a: Assignment) {
-        if let Value::Modes(new) = &a.value {
-            if let Some((Some(Value::Modes(old)), origin)) = self.values.get_mut(a.key.name) {
-                let cmdline = |o: &Origin| matches!(o, Origin::CommandLine { .. });
-                if cmdline(origin) == cmdline(&a.origin) {
-                    old.extend(new.iter().cloned());
-                    return;
-                }
+        if let Value::Modes(new) = &a.value
+            && let Some((Some(Value::Modes(old)), origin)) = self.values.get_mut(a.key.name)
+        {
+            let cmdline = |o: &Origin| matches!(o, Origin::CommandLine { .. });
+            if cmdline(origin) == cmdline(&a.origin) {
+                old.extend(new.iter().cloned());
+                return;
             }
         }
         self.values.insert(a.key.name, (Some(a.value), a.origin));
@@ -397,6 +399,14 @@ impl Config {
     pub fn text(&self, key: &Key) -> Option<&str> {
         match self.get(key) {
             Some(Value::Text(t)) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// A size key's width and height, if set.
+    pub fn size(&self, key: &Key) -> Option<(u32, u32)> {
+        match self.get(key) {
+            Some(Value::Size(w, h)) => Some((*w, *h)),
             _ => None,
         }
     }
@@ -525,10 +535,11 @@ impl Loaded {
 }
 
 /// The configuration files under `dir`, the lowest precedence first: the
-/// main file, then the seat's. The decision on vtium's own file
-/// (vtium/vtium#21) changes this function and nothing else.
+/// main file, `vtium.conf`, then the seat's. The configuration directory
+/// is `/etc/vtium` unless `--configdir` names another, and vtium never
+/// reads the C reference's `/etc/kmscon` (ADR-1500 D4).
 pub fn files(dir: &Path, seat: Option<&str>) -> Vec<PathBuf> {
-    let mut out = vec![dir.join("kmscon.conf")];
+    let mut out = vec![dir.join("vtium.conf")];
     if let Some(seat) = seat {
         out.push(dir.join(format!("{seat}.seat.conf")));
     }

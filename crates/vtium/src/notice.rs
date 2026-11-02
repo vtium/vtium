@@ -66,7 +66,7 @@ pub fn session_ended_console() -> String {
 /// the closed policy, for as long as vtium runs (ADR-1401 D1).
 pub fn stopped() -> String {
     format!(
-        "A session kept ending as soon as it started, so vtium stopped every screen, and nothing here takes input. Fix the login command in {} or kmscon.conf, then restart vtium or reboot.",
+        "A session kept ending as soon as it started, so vtium stopped every screen, and nothing here takes input. Fix the login command in {} or vtium.conf, then restart vtium or reboot.",
         vtium_config::HEAD_FILE
     )
 }
@@ -149,7 +149,7 @@ pub mod check_config {
     /// The subcommand's help.
     pub const HELP: &str = "Usage: vtium check-config [OPTION]... [FILE]\n\n\
 Reads the configuration as vtium would start with these options:\n\
-kmscon.conf and the seat's file in the configuration directory, then the\n\
+vtium.conf and the seat's file in the configuration directory, then the\n\
 options, and the head file, /etc/vtium/heads.conf, or FILE in its place\n\
 to check it before it is installed. It prints each warning, and each\n\
 of the head file's errors, each followed by what it drops, and its\n\

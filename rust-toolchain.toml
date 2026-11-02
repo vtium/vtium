@@ -1,0 +1,9 @@
+# The toolchain the gates and CI run on. Cargo.toml's rust-version is the
+# oldest Rust vtium builds on, and CI's msrv job checks it. CONTRIBUTING.md
+# says how to move this pin.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+# The ARM targets `make arm` builds minspec for.
+targets = ["aarch64-unknown-linux-gnu", "armv7-unknown-linux-gnueabihf"]

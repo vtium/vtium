@@ -371,11 +371,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// the display at age 0.
     pub fn lend(&mut self, id: DisplayId) -> Option<Token> {
         self.reap();
-        if let Some(o) = self.output_mut(id) {
-            if o.loan.as_ref().is_some_and(|l| !l.out()) {
-                o.loan = None;
-                o.forget();
-            }
+        if let Some(o) = self.output_mut(id)
+            && o.loan.as_ref().is_some_and(|l| !l.out())
+        {
+            o.loan = None;
+            o.forget();
         }
         if !self.ready_for_frame(id) {
             return None;
@@ -400,13 +400,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// owner could not send to the render thread: the buffer holds what it
     /// held, and nothing is presented.
     pub fn give_back(&mut self, token: Token) {
-        if let Some(o) = self.outputs.iter_mut().find(|o| o.id == token.id()) {
-            if o.loan.as_ref().is_some_and(|l| l.lent(&token)) {
-                o.loan = None;
-                if o.clear_owed {
-                    o.clear_owed = false;
-                    lock(token.memory()).as_mut().fill(0);
-                }
+        if let Some(o) = self.outputs.iter_mut().find(|o| o.id == token.id())
+            && o.loan.as_ref().is_some_and(|l| l.lent(&token))
+        {
+            o.loan = None;
+            if o.clear_owed {
+                o.clear_owed = false;
+                lock(token.memory()).as_mut().fill(0);
             }
         }
         drop(token);
@@ -523,38 +523,39 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             // When that takes, the cursor plane is what failed: it is given
             // up, and the owner draws the pointer itself.
             let mut nothing = false;
-            if let Err(e) = &sent {
-                if errno(e) != Some(Errno::BUSY) && o.cursor_shown().is_some() {
-                    if let Some(c) = o.cursor.as_mut() {
-                        c.visible = false;
+            if let Err(e) = &sent
+                && errno(e) != Some(Errno::BUSY)
+                && o.cursor_shown().is_some()
+            {
+                if let Some(c) = o.cursor.as_mut() {
+                    c.visible = false;
+                }
+                // with the plane off already, a cursor-only commit has
+                // nothing left to send
+                nothing = swapped == Swapped::Cursor && o.cursor_set.is_none();
+                let again = if nothing { Ok(()) } else { commit(o) };
+                if again.is_ok() {
+                    log::warn!(
+                        "the cursor plane of {} failed a commit, so the pointer is drawn in software: {e}",
+                        o.name
+                    );
+                    if let Some(c) = o.cursor.take() {
+                        let _ = card.rm_fb(c.fb);
+                        let _ = card.destroy_dumb(c.dumb.handle);
                     }
-                    // with the plane off already, a cursor-only commit has
-                    // nothing left to send
-                    nothing = swapped == Swapped::Cursor && o.cursor_set.is_none();
-                    let again = if nothing { Ok(()) } else { commit(o) };
-                    if again.is_ok() {
-                        log::warn!(
-                            "the cursor plane of {} failed a commit, so the pointer is drawn in software: {e}",
-                            o.name
-                        );
-                        if let Some(c) = o.cursor.take() {
-                            let _ = card.rm_fb(c.fb);
-                            let _ = card.destroy_dumb(c.dumb.handle);
-                        }
-                        o.cursor_set = None;
-                        sent = Ok(());
-                    } else {
-                        nothing = false;
-                        if let Some(c) = o.cursor.as_mut() {
-                            c.visible = true;
-                        }
+                    o.cursor_set = None;
+                    sent = Ok(());
+                } else {
+                    nothing = false;
+                    if let Some(c) = o.cursor.as_mut() {
+                        c.visible = true;
                     }
                 }
             }
-            if let Some(blob) = clips {
-                if let Err(e) = card.destroy_blob(blob) {
-                    log::warn!("cannot destroy the damage blob: {e}");
-                }
+            if let Some(blob) = clips
+                && let Err(e) = card.destroy_blob(blob)
+            {
+                log::warn!("cannot destroy the damage blob: {e}");
             }
             if nothing {
                 return Ok(Swapped::Nothing);
@@ -748,8 +749,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 for y in 0..usize::try_from(height.min(ch)).unwrap_or(0) {
                     let src = pixels.get(y.saturating_mul(src_w)..).unwrap_or_default();
                     let row = dst.get_mut(y.saturating_mul(pitch)..).unwrap_or_default();
-                    for (px, out) in src.iter().take(cols).zip(row.chunks_exact_mut(4)) {
-                        out.copy_from_slice(&px.to_ne_bytes());
+                    for (px, out) in src.iter().take(cols).zip(row.as_chunks_mut::<4>().0) {
+                        *out = px.to_ne_bytes();
                     }
                 }
                 Ok(fb)
@@ -805,20 +806,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Hides the cursor from the next swap.
     pub fn hide_cursor(&mut self, id: DisplayId) {
-        if let Some(o) = self.output_mut(id) {
-            if let Some(c) = o.cursor.as_mut() {
-                c.visible = false;
-            }
+        if let Some(o) = self.output_mut(id)
+            && let Some(c) = o.cursor.as_mut()
+        {
+            c.visible = false;
         }
     }
 
     /// Moves where the cursor's coordinates start, as for a grid placed
     /// away from the display's corner.
     pub fn set_cursor_offset(&mut self, id: DisplayId, x: i32, y: i32) {
-        if let Some(o) = self.output_mut(id) {
-            if let Some(c) = o.cursor.as_mut() {
-                c.offset = (x, y);
-            }
+        if let Some(o) = self.output_mut(id)
+            && let Some(c) = o.cursor.as_mut()
+        {
+            c.offset = (x, y);
         }
     }
 
@@ -947,10 +948,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         if self.master && !self.legacy {
             let mut req = Request::default();
             self.clear_planes(&mut req, &[]);
-            if !req.entries.is_empty() {
-                if let Err(e) = self.card.commit(&req, DRM_MODE_ATOMIC_NONBLOCK) {
-                    log::warn!("cannot hide the cursor and overlay planes: {e}");
-                }
+            if !req.entries.is_empty()
+                && let Err(e) = self.card.commit(&req, DRM_MODE_ATOMIC_NONBLOCK)
+            {
+                log::warn!("cannot hide the cursor and overlay planes: {e}");
             }
         }
         self.release_master();
@@ -1423,10 +1424,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     ) -> Option<(u32, usize)> {
         let free = |crtc: u32| !self.outputs.iter().any(|o| o.crtc == crtc);
         let index = |crtc: u32| res.crtcs.iter().position(|&c| c == crtc);
-        if let Some(enc) = current {
-            if enc.crtc != 0 && free(enc.crtc) {
-                return index(enc.crtc).map(|i| (enc.crtc, i));
-            }
+        if let Some(enc) = current
+            && enc.crtc != 0
+            && free(enc.crtc)
+        {
+            return index(enc.crtc).map(|i| (enc.crtc, i));
         }
         conn.encoders.iter().find_map(|&e| {
             let enc = if e == conn.encoder {
@@ -1967,10 +1969,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             // CRTC a display online drives stays on.
             if o.returning {
                 let on = self.connector_crtc(o.id.0);
-                if let Some(crtc) = on.filter(|c| !driven.contains(c)) {
-                    if let Err(e) = self.card.disable_crtc(crtc) {
-                        log::debug!("cannot turn the CRTC of {} off first: {e}", o.name);
-                    }
+                if let Some(crtc) = on.filter(|c| !driven.contains(c))
+                    && let Err(e) = self.card.disable_crtc(crtc)
+                {
+                    log::debug!("cannot turn the CRTC of {} off first: {e}", o.name);
                 }
             }
             // Another program may have left its cursor on the CRTC.
@@ -2026,10 +2028,10 @@ impl Failure {
 
 impl<K: Kms, S: Source<K>> Drop for Drm2d<K, S> {
     fn drop(&mut self) {
-        if let Some(link) = &self.link {
-            if let Some(token) = self.timers.wake_retry.take() {
-                link.disarm(token);
-            }
+        if let Some(link) = &self.link
+            && let Some(token) = self.timers.wake_retry.take()
+        {
+            link.disarm(token);
         }
         for o in std::mem::take(&mut self.outputs) {
             self.free(o);

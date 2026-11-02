@@ -85,7 +85,9 @@ fn clips(c: &Commit, plane: u32) -> Option<Vec<Rect>> {
     let blob = c.blob(plane, "FB_DAMAGE_CLIPS")?;
     let int = |b: &[u8]| u32::try_from(i32::from_ne_bytes(b.try_into().unwrap())).unwrap();
     Some(
-        blob.chunks_exact(16)
+        blob.as_chunks::<16>()
+            .0
+            .iter()
             .map(|r| {
                 let (x1, y1) = (int(&r[0..4]), int(&r[4..8]));
                 let (x2, y2) = (int(&r[8..12]), int(&r[12..16]));
@@ -428,14 +430,14 @@ fn the_cursor_plane_shows_the_image_set_up() {
     assert_eq!(c.get(cp, "HOTSPOT_Y"), Some(1));
     let bytes = v.card().memory(cursor.dumb.handle).unwrap();
     assert_eq!(bytes.len(), 64 * 64 * 4);
-    for (px, i) in bytes.chunks_exact(4).zip(0u32..) {
+    for (&px, i) in bytes.as_chunks::<4>().0.iter().zip(0u32..) {
         let (x, y) = (i % 64, i / 64);
         let want = if y < 2 && x < 60 {
             0xff00_0000 | (y * 60 + x)
         } else {
             0
         };
-        let got = u32::from_ne_bytes(px.try_into().unwrap());
+        let got = u32::from_ne_bytes(px);
         assert_eq!(got, want, "{x},{y}");
     }
 }
@@ -3782,6 +3784,41 @@ fn new_buffers_from_a_hotplug_drop_a_token_lent_before() {
     assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
     assert!(!v.card().state().dumbs.contains_key(&old));
     assert_eq!(age(&mut v, A), 0);
+}
+
+// vtium/vtium#208: a display online whose mode a modeset changes in place
+// is told to redraw, and is not announced as added again: its owner reads
+// the display's new size and refresh rate when it hears `Redraw`. Here the
+// hotplug that brings B fails its test commit with A's configured mode,
+// so every display falls back to its default mode and A, kept on its
+// connector, goes from 320x240 to 640x480.
+#[test]
+fn a_mode_changed_in_place_asks_for_a_redraw_at_the_new_size() {
+    let policy = ModePolicy {
+        use_original: false,
+        wanted: Some(Box::new(|_: &str| {
+            Some(Wanted {
+                width: 320,
+                height: 240,
+                rate: None,
+            })
+        })),
+    };
+    let mut v = a_then_b(policy);
+    events(&mut v);
+    assert_eq!(v.size(DisplayId(A)), Some((320, 240)));
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "the default mode");
+    assert_eq!(v.refresh_mhz(DisplayId(A)), Some(60_000));
+    flip(&mut v);
+    assert_eq!(token_size(&mut v, A), (640, 480));
+    assert_eq!(age(&mut v, A), 0, "drawn whole");
 }
 
 // With one buffer the sleep's clear finds the buffer lent, and a token

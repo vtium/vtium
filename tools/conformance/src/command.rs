@@ -296,7 +296,7 @@ pub fn number(s: &str, radix: u32, max: u64) -> Option<u64> {
 
 /// The bytes a hex value spells, two digits each, none of them 00.
 pub fn hex_bytes(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 || !s.is_ascii() {
+    if !s.len().is_multiple_of(2) || !s.is_ascii() {
         return None;
     }
     s.as_bytes()

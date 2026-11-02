@@ -7,19 +7,33 @@
 //! a kitty id already in the buffer counts what that image holds and keeps
 //! it from eviction until the new image is stored or the reservation is
 //! given back, so a refused replacement keeps the old image.
+//!
+//! The store keeps a ledger of the reservations it granted and has not
+//! seen spent. Spending one, to store an image or to give it back, takes
+//! it out of the ledger, so a copy of a reservation already spent gives
+//! back nothing, holds nothing and pays for nothing. The C reference's
+//! caller held its reservation in a struct that spending zeroed, so the
+//! same struct spent twice gave back nothing, but a copy of it gave its
+//! bytes back twice.
 
 use super::{Screens, Store};
 use crate::image::{ImageKey, Refusal};
 use crate::rules::{Protocol, rules};
 
 /// Bytes a handler reserved for an image to come. It is spent once, by
-/// [`Store::add_image`] or [`Store::unreserve`], which take it by value. It
-/// is `Clone` only so a handler holding one can be cloned with the
-/// terminal whose store holds its bytes; a clone belongs to the cloned
-/// store, and spending one reservation twice in one store gives back bytes
-/// that store never granted.
+/// [`Store::add_image`] or [`Store::unreserve`], which take it by value.
+///
+/// It is `Clone` so that a handler holding one can be cloned with the
+/// terminal whose store holds its bytes; the clone belongs to the cloned
+/// store, whose ledger the store's clone copied. Within one store, the
+/// ledger spends each reservation once: a second copy given back returns
+/// no bytes and releases no hold, a second copy passed to
+/// [`Store::add_image`] counts as no reservation, so the image reserves its
+/// whole cost, and [`Store::grow`] refuses to grow a copy already spent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reservation {
+    /// The reservation's entry in the store's ledger.
+    pub(super) id: u64,
     pub(super) bytes: u64,
     /// The image of the same kitty id a replacement will free, held.
     pub(super) old: Option<ImageKey>,
@@ -57,11 +71,7 @@ impl Store {
         self.hold(b, old, true);
         self.settle(screens);
         match self.reserve_bytes(bytes, old.map(|o| (b, o)), screens) {
-            Ok(added) => Ok(Reservation {
-                bytes: added,
-                old,
-                buffer: b,
-            }),
+            Ok(added) => Ok(self.grant(added, old, b)),
             Err(why) => {
                 self.hold(b, old, false);
                 Err(why)
@@ -69,24 +79,83 @@ impl Store {
         }
     }
 
-    /// Reserves `more` bytes for a reservation's payload as it grows.
+    /// A reservation of `bytes` the store already holds, as the spare
+    /// buffer's charge passes to a handler: an image of `protocol`'s kitty
+    /// id `id` in the buffer in use is held as [`reserve`](Self::reserve)
+    /// holds it.
+    pub(super) fn spare_reservation(
+        &mut self,
+        protocol: Protocol,
+        id: u32,
+        bytes: u64,
+    ) -> Reservation {
+        let b = self.active();
+        let old = if rules(protocol).ids && id != 0 {
+            self.buffers.get(b).and_then(|buf| buf.find_id(id))
+        } else {
+            None
+        };
+        self.hold(b, old, true);
+        self.grant(bytes, old, b)
+    }
+
+    /// Enters a reservation of `bytes`, which `used` already counts and
+    /// which holds image `old` of buffer `buffer`, in the ledger.
+    fn grant(&mut self, bytes: u64, old: Option<ImageKey>, buffer: usize) -> Reservation {
+        let id = self.next_reservation;
+        self.next_reservation = self.next_reservation.wrapping_add(1);
+        self.reservations.insert(id, bytes);
+        Reservation {
+            id,
+            bytes,
+            old,
+            buffer,
+        }
+    }
+
+    /// Takes `reservation` out of the ledger and returns the bytes it
+    /// holds of the budget, or `None` when the ledger no longer has it
+    /// because a copy of it was already spent.
+    pub(super) fn spend(&mut self, reservation: &Reservation) -> Option<u64> {
+        self.reservations.remove(&reservation.id)
+    }
+
+    /// Adds `added` bytes, which `used` already counts, to a reservation
+    /// the ledger holds.
+    pub(super) fn add_to(&mut self, reservation: &mut Reservation, added: u64) {
+        if let Some(bytes) = self.reservations.get_mut(&reservation.id) {
+            *bytes = bytes.saturating_add(added);
+            reservation.bytes = *bytes;
+        }
+    }
+
+    /// Reserves `more` bytes for a reservation's payload as it grows. A
+    /// copy of a reservation already spent is refused as
+    /// [`Refusal::Invalid`], and nothing is reserved.
     pub fn grow(
         &mut self,
         reservation: &mut Reservation,
         more: u64,
         screens: Screens<'_>,
     ) -> Result<(), Refusal> {
+        if !self.reservations.contains_key(&reservation.id) {
+            return Err(Refusal::Invalid);
+        }
         self.settle(screens);
         let added = self.reserve_bytes(more, None, screens)?;
-        reservation.bytes = reservation.bytes.saturating_add(added);
+        self.add_to(reservation, added);
         Ok(())
     }
 
     /// Gives a reservation back, unused: its bytes return to the budget and
-    /// the image it held may go again.
+    /// the image it held may go again. A copy of a reservation already
+    /// spent gives back nothing.
     pub fn unreserve(&mut self, reservation: Reservation) {
+        let Some(bytes) = self.spend(&reservation) else {
+            return;
+        };
         self.hold(reservation.buffer, reservation.old, false);
-        self.used = self.used.saturating_sub(reservation.bytes);
+        self.used = self.used.saturating_sub(bytes);
     }
 
     /// Frees an image of the buffer in use, with any placements it has, as

@@ -300,10 +300,10 @@ fn named_blocks(text: &str, kind: &str) -> Vec<(String, String)> {
             body.push_str(l);
             body.push('\n');
         }
-        if let [k, name] = info.split_whitespace().collect::<Vec<_>>()[..] {
-            if k == kind {
-                out.push((name.to_owned(), body));
-            }
+        if let [k, name] = info.split_whitespace().collect::<Vec<_>>()[..]
+            && k == kind
+        {
+            out.push((name.to_owned(), body));
         }
     }
     out

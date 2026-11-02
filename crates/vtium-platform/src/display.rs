@@ -156,7 +156,12 @@ pub enum Event {
     /// A display is gone.
     Removed(DisplayId),
     /// The display was set up again, as after a modeset or a wake-up, and
-    /// shows nothing drawn yet: draw it whole.
+    /// shows nothing drawn yet: draw it whole. The set-up may have given
+    /// the display a new mode in place, on the same connector, so its size
+    /// and refresh rate can differ from what they were: a modeset whose
+    /// test commit fails falls back to each display's default mode, and a
+    /// framebuffer wakes at whatever geometry another program set while
+    /// the VT was away. The owner reads both again.
     Redraw(DisplayId),
     /// The last frame swapped is on screen, and the next may be drawn.
     Flipped(DisplayId),

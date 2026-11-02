@@ -109,10 +109,11 @@ impl Glyph {
             return None;
         }
         if format == Format::Rgba
-            && pixels.chunks_exact(4).any(|p| match p {
-                &[r, g, b, a] => r > a || g > a || b > a,
-                _ => true,
-            })
+            && pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|&[r, g, b, a]| r > a || g > a || b > a)
         {
             return None;
         }

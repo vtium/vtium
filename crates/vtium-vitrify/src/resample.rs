@@ -125,10 +125,8 @@ pub fn resize(src: &Image, width: u32, height: u32, method: Method) -> Image {
         Method::Lanczos => lanczos(src, width, height),
         Method::LanczosSharpen => sharpen(lanczos(src, width, height)),
     };
-    for p in out.pixels.chunks_exact_mut(4) {
-        if let [r, g, b, a] = p {
-            (*r, *g, *b) = ((*r).min(*a), (*g).min(*a), (*b).min(*a));
-        }
+    for [r, g, b, a] in out.pixels.as_chunks_mut::<4>().0 {
+        (*r, *g, *b) = ((*r).min(*a), (*g).min(*a), (*b).min(*a));
     }
     out
 }
@@ -197,16 +195,13 @@ fn area(src: &Image, width: u32, height: u32) -> Image {
 /// Every pixel opaque at half alpha or more, its colors divided by its
 /// alpha; clear below.
 fn snap(mut image: Image) -> Image {
-    for p in image.pixels.chunks_exact_mut(4) {
-        if let [r, g, b, a] = p {
-            if *a >= 128 {
-                let full = |c: u8| {
-                    ((u32::from(c) * 255 + u32::from(*a) / 2) / u32::from(*a)).min(255) as u8
-                };
-                (*r, *g, *b, *a) = (full(*r), full(*g), full(*b), 255);
-            } else {
-                (*r, *g, *b, *a) = (0, 0, 0, 0);
-            }
+    for [r, g, b, a] in image.pixels.as_chunks_mut::<4>().0 {
+        if *a >= 128 {
+            let full =
+                |c: u8| ((u32::from(c) * 255 + u32::from(*a) / 2) / u32::from(*a)).min(255) as u8;
+            (*r, *g, *b, *a) = (full(*r), full(*g), full(*b), 255);
+        } else {
+            (*r, *g, *b, *a) = (0, 0, 0, 0);
         }
     }
     image

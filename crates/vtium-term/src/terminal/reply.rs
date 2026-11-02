@@ -12,6 +12,11 @@ use vtium_parse::{Params, StringEnd};
 
 use super::State;
 use crate::bounds::VERSION_MAX;
+
+/// The fewest color registers XTSMGRAPHICS may set, as the C reference's
+/// `TSM_SIXEL_REGISTERS_MIN` and vtium-image's decoder hold it.
+#[cfg(feature = "images")]
+const REGISTERS_MIN: u32 = 2;
 use crate::screen::Extent;
 use crate::style::{Attrs, Color, Rgb, UnderlineStyle};
 
@@ -87,6 +92,9 @@ queries! {
     ColorStack,
     /// OSC 50's query of the font set in use.
     Font,
+    /// XTSMGRAPHICS, `CSI ? Pi ; Pa ; Pv S`: the sixel graphics settings,
+    /// answered in every build.
+    Xtsmgraphics,
     ; images:
     /// The image protocols' replies (ADR-1100, D6): each `ReplyKind` a
     /// handler writes, in a build with images.
@@ -170,10 +178,94 @@ impl State {
         self.reply(Query::Decrqm, reply.as_bytes());
     }
 
-    /// DA1: a VT220 (62), one of xterm's defined levels, with ANSI color
-    /// (22). Attribute 4 joins it when sixel is built (vtium/vtium#48).
+    /// DA1: a VT220 (62), one of xterm's defined levels, with sixel
+    /// graphics (4) while sixel is offered, and ANSI color (22).
     pub(super) fn reply_da1(&mut self) {
-        self.reply(Query::Da1, b"\x1b[?62;22c");
+        let reply: &[u8] = if self.sixel_offered() {
+            b"\x1b[?62;4;22c"
+        } else {
+            b"\x1b[?62;22c"
+        };
+        self.reply(Query::Da1, reply);
+    }
+
+    /// Whether sixel is offered: a build with images, sixel switched on,
+    /// its handler installed and a budget above 0 (ADR-1100, D10).
+    fn sixel_offered(&self) -> bool {
+        #[cfg(feature = "images")]
+        return self.image_offered(super::images::ImageString::Sixel);
+        #[cfg(not(feature = "images"))]
+        false
+    }
+
+    /// XTSMGRAPHICS, `CSI ? Pi ; Pa ; Pv S`: item Pi, action Pa, value Pv.
+    /// Item 1 is the sixel color registers: read (1) the count in force,
+    /// reset (2) it to `num-color-registers`, set (3) it to Pv from 2 up to
+    /// `num-color-registers`, or read the most (4); a changed count takes
+    /// effect at the next picture. Item 2 is the sixel geometry: read (1)
+    /// and read the most (4) both answer `max-graphic-size`, and reset and
+    /// set are refused, as xterm refuses them. The reply is `CSI ? Pi ; Ps
+    /// S` followed by the value or values: status 0 success, 1 an item it
+    /// does not know, 2 an action it does not know, 3 a value it cannot
+    /// take. Every other item, and every item while sixel is not offered or
+    /// in a build without images, answers status 1 with no value (ADR-1100,
+    /// D10). An item the program left out is written as 0.
+    pub(super) fn reply_xtsmgraphics(&mut self, params: &Params) {
+        let item = params.get(0);
+        let action = params.get(1);
+        let value = params.get(2);
+        let (status, values) = self.xtsmgraphics(item, action, value);
+        let mut reply = format!("\x1b[?{};{status}", item.unwrap_or(0));
+        for v in values.into_iter().flatten() {
+            reply += &format!(";{v}");
+        }
+        reply += "S";
+        self.reply(Query::Xtsmgraphics, reply.as_bytes());
+    }
+
+    /// XTSMGRAPHICS's status and values.
+    #[cfg(not(feature = "images"))]
+    fn xtsmgraphics(
+        &mut self,
+        _: Option<u32>,
+        _: Option<u32>,
+        _: Option<u32>,
+    ) -> (u8, [Option<u32>; 2]) {
+        (1, [None, None])
+    }
+
+    /// XTSMGRAPHICS's status and values, with images.
+    #[cfg(feature = "images")]
+    fn xtsmgraphics(
+        &mut self,
+        item: Option<u32>,
+        action: Option<u32>,
+        value: Option<u32>,
+    ) -> (u8, [Option<u32>; 2]) {
+        const NONE: [Option<u32>; 2] = [None, None];
+        if !self.sixel_offered() {
+            return (1, NONE);
+        }
+        let limits = self.image_limits();
+        match (item, action) {
+            (Some(1), Some(1)) => (0, [Some(self.sixel_state().registers), None]),
+            (Some(1), Some(2)) => {
+                self.set_sixel_registers(None);
+                (0, [Some(limits.registers), None])
+            }
+            (Some(1), Some(3)) => match value {
+                Some(n) if (REGISTERS_MIN..=limits.registers).contains(&n) => {
+                    self.set_sixel_registers(Some(n));
+                    (0, [Some(n), None])
+                }
+                _ => (3, NONE),
+            },
+            (Some(1), Some(4)) => (0, [Some(limits.registers), None]),
+            (Some(2), Some(1 | 4)) => (0, [Some(limits.graphic.0), Some(limits.graphic.1)]),
+            (Some(2), Some(2 | 3)) => (3, NONE),
+            (Some(1 | 2), _) => (2, NONE),
+            _ => (1, NONE),
+        }
     }
 
     /// DA2: a VT220, firmware 1, as the C reference answered.
@@ -518,6 +610,20 @@ mod tests {
             }
             // DA3 takes no field but its 0, which its fixed reply holds.
             Query::Da3 => (b"\x1b[=c".to_vec(), vec![], vec![]),
+            // the item is written again; the action and value never are
+            Query::Xtsmgraphics => {
+                let item = u32::try_from(rng.next() % 70_000).expect("small");
+                let n = rng.padded(item);
+                let action = u32::try_from(rng.next() % 5).expect("small");
+                let action = rng.padded(action);
+                let value = u32::try_from(rng.next() % 70_000).expect("small");
+                let value = rng.padded(value);
+                (
+                    cat(&[b"\x1b[?", &n, b";", &action, b";", &value, b"S"]),
+                    vec![],
+                    vec![n, action, value],
+                )
+            }
             Query::Status => {
                 let n = rng.padded(5);
                 (cat(&[b"\x1b[", &n, b"n"]), vec![], vec![n])
@@ -655,7 +761,8 @@ mod tests {
     // covers: query.decrqm, query.da1, query.da2, query.da3, query.dsr, query.xtversion,
     // covers: query.xtgettcap, query.decrqss, color.palette.query, color.dynamic.query,
     // covers: color.dynamic.set, color.pointer, color.selection, color.kitty-protocol,
-    // covers: window.size-report, window.title-report, input.modify-other-keys, color.stack
+    // covers: window.size-report, window.title-report, input.modify-other-keys, color.stack,
+    // covers: query.xtsmgraphics
     #[test]
     fn no_reply_carries_the_requests_bytes() {
         for seed in 0..200 {
@@ -736,6 +843,7 @@ mod tests {
                 Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),
                 Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[?3;3#Q"),
                 Query::Font => (b"\x1b]50;?\x07", b"\x1b]50;unifont\x07"),
+                Query::Xtsmgraphics => (b"\x1b[?1;1S", b"\x1b[?1;1S"),
             };
             let mut t = fixture();
             t.input(request);
