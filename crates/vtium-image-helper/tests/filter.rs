@@ -1,12 +1,17 @@
 //! The second test of ADR-1101 D9: the helper's filter installed in a
 //! child, which then makes calls outside the list and sees each answered
 //! ENOSYS, while a call on the list still works; the worker's second
-//! filter refusing a fork; and the worker's landlock domain, after which
-//! it opens nothing but still reads what it holds.
+//! filter refusing a fork and a memory file, and its third refusing an
+//! open; the worker's landlock domain, after which it opens nothing but
+//! still reads what it holds; and two attacks on a `sleep` process this
+//! test starts, which the filter's conditions and the domain's scope
+//! each stop: pointing a descriptor's signals at it, and changing its
+//! limits.
 //!
 //! It has its own `main`, so the child, this binary run again with
 //! `--child`, has one thread when it installs the filter.
 
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::process::{Command, ExitCode};
 
 use rustix::io::Errno;
@@ -72,8 +77,198 @@ fn child(worker: bool) -> u8 {
         if Command::new("/bin/true").status().is_ok() {
             return 7;
         }
+        // nor make a memory file
+        let memfd = rustix::fs::memfd_create("x", rustix::fs::MemfdFlags::CLOEXEC);
+        if memfd.err() != Some(Errno::PERM) {
+            return 8;
+        }
+        // and once it has opened its source on a kernel without landlock,
+        // its third filter refuses every open
+        if second.install_no_open().is_err() {
+            return 9;
+        }
+        if std::fs::File::open("/etc/passwd").is_ok() {
+            return 10;
+        }
     }
     0
+}
+
+/// `F_SETSIG`, which the libc crate names on some targets only: the
+/// signal sent when a descriptor's owner is told of input.
+const F_SETSIG: i32 = 10;
+
+/// The errno of the last call that failed.
+fn errno() -> i32 {
+    std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+}
+
+/// `fcntl(fd, cmd, arg)` with integer arguments; the errno, 0 when the
+/// call succeeded.
+fn fcntl(fd: &OwnedFd, cmd: i32, arg: i32) -> i32 {
+    // SAFETY: fcntl on a descriptor this process holds, with an integer
+    // argument, touches no memory of this process.
+    let got = unsafe { libc::fcntl(fd.as_raw_fd(), cmd, arg) };
+    if got == -1 { errno() } else { 0 }
+}
+
+/// Points the signals of a socket's descriptor at `victim`, as SIGKILL,
+/// and writes to the other end so the kernel sends one: the attack a
+/// taken-over worker could make on any process its account owns. The
+/// errno of each step, 0 for one that succeeded.
+fn signal_by_descriptor(victim: i32) -> [i32; 3] {
+    let Ok((a, b)) = rustix::net::socketpair(
+        AddressFamily::UNIX,
+        SocketType::STREAM,
+        SocketFlags::CLOEXEC,
+        None,
+    ) else {
+        return [-1; 3];
+    };
+    let steps = [
+        fcntl(&a, libc::F_SETOWN, victim),
+        fcntl(&a, F_SETSIG, libc::SIGKILL),
+        fcntl(&a, libc::F_SETFL, libc::O_ASYNC | libc::O_NONBLOCK),
+    ];
+    let _ = rustix::io::write(&b, b"x");
+    steps
+}
+
+/// The two attacks under the helper's filter: each refused with ENOSYS,
+/// while the forms of the same calls the helper makes still work.
+fn attack(victim: i32) -> u8 {
+    if !vtium_image_helper::fork::one_thread() {
+        return 90;
+    }
+    match vtium_image_helper::sandbox::install_helper_filter() {
+        Ok(true) => {}
+        Ok(false) => return 0,
+        Err(_) => return 91,
+    }
+    let nosys = libc::ENOSYS;
+    let steps = signal_by_descriptor(victim);
+    for (n, errno) in (60u8..).zip(steps) {
+        if errno != nosys {
+            return n;
+        }
+    }
+    let Some(pid) = rustix::process::Pid::from_raw(victim) else {
+        return 63;
+    };
+    let one = rustix::process::Rlimit {
+        current: Some(1),
+        maximum: Some(1),
+    };
+    let changed = rustix::process::prlimit(Some(pid), rustix::process::Resource::Nofile, one);
+    if changed.err() != Some(Errno::NOSYS) {
+        return 64;
+    }
+    // its own limits, its descriptors' flags, duplicates and seals stay
+    let own = rustix::process::getrlimit(rustix::process::Resource::Nofile);
+    if rustix::process::prlimit(None, rustix::process::Resource::Nofile, own).is_err() {
+        return 65;
+    }
+    let Ok(file) = std::fs::File::open("/") else {
+        return 66;
+    };
+    let file = OwnedFd::from(file);
+    if rustix::io::fcntl_getfd(&file).is_err()
+        || rustix::fs::fcntl_getfl(&file).is_err()
+        || rustix::fs::fcntl_setfl(&file, rustix::fs::OFlags::NONBLOCK).is_err()
+        || file.try_clone().is_err()
+    {
+        return 67;
+    }
+    // no memory is made executable, by a mapping or after it
+    use rustix::mm::{MapFlags, MprotectFlags, ProtFlags};
+    // SAFETY: the kernel chooses the address of a new anonymous mapping,
+    // which overlaps nothing this process holds.
+    let exec = unsafe {
+        rustix::mm::mmap_anonymous(
+            std::ptr::null_mut(),
+            4096,
+            ProtFlags::READ | ProtFlags::EXEC,
+            MapFlags::PRIVATE,
+        )
+    };
+    if exec.err() != Some(Errno::NOSYS) {
+        return 68;
+    }
+    // SAFETY: as above.
+    let Ok(page) = (unsafe {
+        rustix::mm::mmap_anonymous(
+            std::ptr::null_mut(),
+            4096,
+            ProtFlags::READ | ProtFlags::WRITE,
+            MapFlags::PRIVATE,
+        )
+    }) else {
+        return 69;
+    };
+    // SAFETY: `page` is the mapping of 4096 bytes made above, which no
+    // Rust value refers to.
+    let to_exec =
+        unsafe { rustix::mm::mprotect(page, 4096, MprotectFlags::READ | MprotectFlags::EXEC) };
+    if to_exec.err() != Some(Errno::NOSYS) {
+        return 70;
+    }
+    // SAFETY: as above.
+    if unsafe { rustix::mm::mprotect(page, 4096, MprotectFlags::READ) }.is_err() {
+        return 71;
+    }
+    0
+}
+
+/// The same signals under the worker's landlock domain alone, as on
+/// armv7: the domain's scope keeps them from a process outside it. A
+/// kernel whose landlock has no scopes, before version 6, passes.
+fn scoped(victim: i32) -> u8 {
+    if vtium_image_helper::sandbox::landlock_version() < 6 {
+        println!("the kernel's landlock has no scopes");
+        return 0;
+    }
+    if vtium_image_helper::sandbox::lock_in() != Ok(true) {
+        return 80;
+    }
+    let Some(pid) = rustix::process::Pid::from_raw(victim) else {
+        return 81;
+    };
+    if rustix::process::kill_process(pid, rustix::process::Signal::KILL).err() != Some(Errno::PERM)
+    {
+        return 82;
+    }
+    let _ = signal_by_descriptor(victim);
+    0
+}
+
+/// Runs this binary again as `role` against a `sleep` it starts, and
+/// checks the `sleep` lives on with its limits unchanged.
+fn against_a_victim(me: &std::path::Path, role: &str) -> Result<(), String> {
+    let mut victim = Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .map_err(|e| format!("no sleep to attack: {e}"))?;
+    let limits =
+        |pid: u32| std::fs::read_to_string(format!("/proc/{pid}/limits")).unwrap_or_default();
+    let before = limits(victim.id());
+    let status = Command::new(me)
+        .args([role, &victim.id().to_string()])
+        .status()
+        .map_err(|e| format!("the child does not start: {e}"))?;
+    let alive = matches!(victim.try_wait(), Ok(None));
+    let after = limits(victim.id());
+    let _ = victim.kill();
+    let _ = victim.wait();
+    if !status.success() {
+        return Err(format!("{status}"));
+    }
+    if !alive {
+        return Err("the sleep was killed".to_owned());
+    }
+    if before != after {
+        return Err("the sleep's limits changed".to_owned());
+    }
+    Ok(())
 }
 
 /// A worker locked in: the descriptor it opened before still reads, and
@@ -114,6 +309,15 @@ fn main() -> ExitCode {
         Some("--child") => return ExitCode::from(child(false)),
         Some("--worker") => return ExitCode::from(child(true)),
         Some("--locked") => return ExitCode::from(locked()),
+        Some(role @ ("--attack" | "--scoped")) => {
+            let victim = args.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
+            let code = if role == "--attack" {
+                attack(victim)
+            } else {
+                scoped(victim)
+            };
+            return ExitCode::from(code);
+        }
         _ => {}
     }
     let me = std::env::current_exe().expect("the test's own path");
@@ -141,6 +345,24 @@ fn main() -> ExitCode {
         };
         println!("test {name} ... {result}");
         failed |= !ok;
+    }
+    for (role, name) in [
+        (
+            "--attack",
+            "the_helpers_filter_keeps_a_worker_from_signalling_or_limiting_another_process",
+        ),
+        (
+            "--scoped",
+            "the_workers_landlock_scope_keeps_its_signals_from_another_process",
+        ),
+    ] {
+        let result = against_a_victim(&me, role);
+        let text = match &result {
+            Ok(()) => "ok".to_owned(),
+            Err(why) => format!("FAILED ({why})"),
+        };
+        println!("test {name} ... {text}");
+        failed |= result.is_err();
     }
     if failed {
         ExitCode::FAILURE
