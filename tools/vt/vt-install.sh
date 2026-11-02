@@ -134,7 +134,8 @@ if [ "$action" = uninstall ]; then
 	was_active=$(manifest_value getty-active)
 	others=$(manifests | grep -vx "tty$vt" || true)
 	[ -z "$dry" ] || echo "vt-uninstall: the commands, none of them run:"
-	as_root "$systemctl" disable --now "$unit"
+	as_root "$systemctl" stop "$unit"
+	as_root "$systemctl" disable "$unit"
 	# A unit that failed stays listed as failed until this clears it.
 	show sudo "$systemctl" reset-failed "$unit" "$fallback"
 	[ -n "$dry" ] || "$sudo" "$systemctl" reset-failed "$unit" "$fallback" 2>/dev/null || true
@@ -257,7 +258,8 @@ for f in vtium@.service vtium-getty@.service; do
 	as_root install -D -m 0644 "${own[@]}" -- "$tmp/$f" "$root$unit_dir/$f"
 done
 as_root "$systemctl" daemon-reload
-as_root "$systemctl" disable --now "$getty"
+as_root "$systemctl" stop "$getty"
+as_root "$systemctl" disable "$getty"
 as_root "$systemctl" enable "$unit"
 as_root "$systemctl" restart "$unit"
 [ -n "$dry" ] || cat <<EOF
