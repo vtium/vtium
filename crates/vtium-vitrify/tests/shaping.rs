@@ -507,6 +507,24 @@ fn a_letter_with_a_joiner_draws_one_cell_wide_and_stretched() {
     assert!(row[5] == 0 && row[6] > 200 && row[11] == 255, "{row:?}");
 }
 
+// A beh with U+FE0F before its joiner, as a program may write after a
+// letter, is still a joining form: U+FE0F is a mark, of General_Category
+// Mn, so the cluster's one letter is the beh, which joins, and the
+// variation selector does not make it an emoji sequence two cells wide.
+// It draws one cell wide, as the beh's initial form keyed alone does
+#[test]
+fn a_letter_with_vs16_and_a_joiner_is_a_joining_form_one_cell_wide() {
+    let key = [BEH, '\u{fe0f}', ZWJ];
+    let asked = vtium_vitrify::shaping::ask(&key.map(u32::from));
+    assert_eq!(asked.kind, Kind::Joining);
+    let bare = vtium_vitrify::shaping::ask(&[BEH, ZWJ].map(u32::from));
+    let o = rasterise(&request(vec![asked, bare])).expect("rasterised");
+    let g = cluster(&o, &key).expect("the beh with U+FE0F and a joiner");
+    assert!(!g.wide && !g.color, "one cell, a mask");
+    let init = cluster(&o, &[BEH, ZWJ]).expect("the initial beh");
+    assert_eq!(g.pixels, init.pixels, "drawn as the initial beh");
+}
+
 // A beh with a fatha (U+064E), keyed with U+200D on either side, is a
 // joining form (review finding 2): the fatha, whose Joining_Type is T,
 // does not make the cluster an emoji sequence, whose one-glyph rule would
