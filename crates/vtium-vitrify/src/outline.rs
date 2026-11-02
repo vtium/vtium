@@ -662,7 +662,15 @@ pub(crate) mod raster {
         context: ScaleContext,
     }
 
-    impl Drawer<'_> {
+    impl<'a> Drawer<'a> {
+        /// A drawer of `font`'s glyphs.
+        pub(crate) fn new(font: FontRef<'a>) -> Self {
+            Self {
+                font,
+                context: ScaleContext::new(),
+            }
+        }
+
         /// Glyph `g` at `ppem`: its color form if it has one, else its
         /// outline as coverage. A color bitmap is scaled from its largest
         /// strike to `ppem`, and further to fit `fit`, by this build's
@@ -873,10 +881,7 @@ pub(crate) mod raster {
         for &(data, family) in faces {
             let (font, _, _) = face(data, family)?;
             let ppem = ppem(&metrics(font)?, height);
-            let mut drawer = Drawer {
-                font,
-                context: ScaleContext::new(),
-            };
+            let mut drawer = Drawer::new(font);
             let width = w_width(&mut drawer, ppem, height);
             widest = Some(widest.map_or(width, |w: u32| w.max(width)));
         }
@@ -923,10 +928,7 @@ pub(crate) mod raster {
         }
         let (font, _, _) = face(font, family)?;
         let metrics = metrics(font)?;
-        let mut drawer = Drawer {
-            font,
-            context: ScaleContext::new(),
-        };
+        let mut drawer = Drawer::new(font);
         Ok(baseline_at(
             &mut drawer,
             &metrics,
@@ -993,10 +995,7 @@ pub(crate) mod raster {
                     .map(|x| x * scale);
                 if xh.is_none() {
                     // the x glyph's top above the baseline, hinted
-                    let mut drawer = Drawer {
-                        font,
-                        context: ScaleContext::new(),
-                    };
+                    let mut drawer = Drawer::new(font);
                     let g = font.charmap().map('x');
                     xh = (g != 0)
                         .then(|| drawer.draw(g, ppem(&m, height), (u32::MAX, u32::MAX)))
@@ -1032,10 +1031,7 @@ pub(crate) mod raster {
         wanted.dedup_by_key(|&mut (c, _)| c);
         let shaped =
             crate::shaping::shape::shape_all(&request.font, index, font, &request.clusters);
-        let mut drawer = Drawer {
-            font,
-            context: ScaleContext::new(),
-        };
+        let mut drawer = Drawer::new(font);
         let mut strikes = Vec::new();
         for (i, &(want_w, h)) in request.cells.iter().enumerate() {
             let ppem = ppem(&metrics, h);

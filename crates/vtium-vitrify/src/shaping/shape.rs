@@ -188,13 +188,9 @@ pub(crate) fn draw_all(
 }
 
 /// The glyphs of a shaped cluster drawn at `ppem` and laid over each other
-/// at their positions, `scale` pixels to a font unit: one image, color when
-/// any glyph is, its placement from the cluster's origin. A mask glyph in
-/// a color cluster takes the text's stand-in color, [`FOREGROUND`]. With
-/// `row`, its top and bottom edges in pixels up from the baseline, the
-/// marks of a mask cluster are fitted to the row first ([`fit_marks`]).
-/// The whole cluster is stretched sideways by `sx`, each outline and each
-/// offset, so a mark stays over its base.
+/// at their positions ([`draw_parts`]): one image, color when any glyph
+/// is, its placement from the cluster's origin. A mask glyph in a color
+/// cluster takes the text's stand-in color, [`FOREGROUND`].
 fn compose(
     drawer: &mut Drawer<'_>,
     glyphs: &[At],
@@ -204,34 +200,9 @@ fn compose(
     row: Option<(i32, i32)>,
     sx: f32,
 ) -> Option<Image> {
-    let mut parts = Vec::new();
-    let mut marks = Vec::new();
-    let mut unplaced = Vec::new();
-    for &At {
-        g,
-        x,
-        y,
-        mark,
-        placed,
-    } in glyphs
-    {
-        let image = drawer.draw_stretched(g, ppem, fit, sx)?;
-        let (dx, dy) = (
-            (x as f32 * scale * sx).round() as i32,
-            (y as f32 * scale).round() as i32,
-        );
-        parts.push((image, dx, dy));
-        marks.push(mark.is_some());
-        unplaced.push(mark.filter(|&side| !placed && side != 0));
-    }
+    let parts = draw_parts(drawer, glyphs, scale, ppem, fit, row, sx)?;
     if let [(image, 0, 0)] = parts.as_slice() {
         return Some(image.clone());
-    }
-    if let Some(row) = row
-        && parts.iter().all(|(i, ..)| i.content != Content::Color)
-    {
-        place_unplaced(&mut parts, &marks, &unplaced);
-        fit_marks(&mut parts, &marks, row);
     }
     let color = parts.iter().any(|(i, _, _)| i.content == Content::Color);
     let edges = |(i, dx, dy): &(Image, i32, i32)| {
@@ -296,6 +267,54 @@ fn compose(
     })
 }
 
+/// Each glyph of a shaped cluster drawn at `ppem`, with its position from
+/// the cluster's origin in pixels, `scale` pixels to a font unit. The
+/// whole cluster is stretched sideways by `sx`, each outline and each
+/// offset, so a mark stays over its base. With `row`, its top and bottom
+/// edges in pixels up from the baseline, the marks of a mask cluster of
+/// more than one glyph are placed and fitted to the row ([`place_unplaced`],
+/// [`fit_marks`]). `None` when a glyph cannot be drawn.
+fn draw_parts(
+    drawer: &mut Drawer<'_>,
+    glyphs: &[At],
+    scale: f32,
+    ppem: f32,
+    fit: (u32, u32),
+    row: Option<(i32, i32)>,
+    sx: f32,
+) -> Option<Vec<(Image, i32, i32)>> {
+    let mut parts = Vec::new();
+    let mut marks = Vec::new();
+    let mut unplaced = Vec::new();
+    for &At {
+        g,
+        x,
+        y,
+        mark,
+        placed,
+    } in glyphs
+    {
+        let image = drawer.draw_stretched(g, ppem, fit, sx)?;
+        let (dx, dy) = (
+            (x as f32 * scale * sx).round() as i32,
+            (y as f32 * scale).round() as i32,
+        );
+        parts.push((image, dx, dy));
+        marks.push(mark.is_some());
+        unplaced.push(mark.filter(|&side| !placed && side != 0));
+    }
+    if let [(_, 0, 0)] = parts.as_slice() {
+        return Some(parts);
+    }
+    if let Some(row) = row
+        && parts.iter().all(|(i, ..)| i.content != Content::Color)
+    {
+        place_unplaced(&mut parts, &marks, &unplaced);
+        fit_marks(&mut parts, &marks, row);
+    }
+    Some(parts)
+}
+
 /// A glyph's ink as placed in a cluster: its top and bottom edges, in
 /// pixels up from the baseline.
 fn span((image, _, dy): &(Image, i32, i32)) -> (i32, i32) {
@@ -346,12 +365,15 @@ fn place_unplaced(parts: &mut [(Image, i32, i32)], marks: &[bool], unplaced: &[O
 /// from the baseline, are fitted to the row. Marks over the middle of the
 /// base letter's ink form one stack and those under it another. A stack
 /// whose ink passes the row's edge moves toward the baseline until it
-/// fits, unless that would lay its ink on the letter's or pass the row's
-/// other edge: there the letter's own ink already reaches the edge the
-/// marks must go past, and the whole cluster, letter and marks together,
-/// is scaled vertically just enough to fit the row, keeping the font's
-/// arrangement. Otherwise base letters never move, and a mark keeps the
-/// sideways place the shaper gave it.
+/// fits, as long as the move lands no more of its ink on the letter's ink
+/// than lies there already and leaves the stack inside the row's other
+/// edge. When the move fails either test, the whole cluster, letter and
+/// marks together, is scaled vertically just enough to fit the row,
+/// keeping the font's arrangement. The letter's own ink need not reach
+/// the row's edge for that: lam with shadda and fatha in DejaVu Sans Mono
+/// has blank rows above the lam, and is scaled because its marks, moved
+/// down, would land on the lam's stem. Otherwise base letters never move,
+/// and a mark keeps the sideways place the shaper gave it.
 fn fit_marks(parts: &mut [(Image, i32, i32)], marks: &[bool], row: (i32, i32)) {
     let (row_top, row_bottom) = row;
     let inked = |p: &(Image, i32, i32)| p.0.placement.height > 0 && p.0.placement.width > 0;
@@ -520,4 +542,110 @@ fn remap(part: &mut (Image, i32, i32), from: i32, to: i32, f: f32) {
     image.data = data;
     image.placement.top = hi - *dy;
     image.placement.height = rows as u32;
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::indexing_slicing,
+    clippy::expect_used,
+    reason = "a test fails by panicking"
+)]
+mod tests {
+    use super::{Ask, Drawer, Kind, draw_parts, shape_all, span};
+
+    /// Each glyph of lam, shadda and fatha (U+0644 U+0651 U+064E) in the
+    /// subset of DejaVu Sans Mono in `tests/fixtures/`, as its glyph id
+    /// and its ink's top and bottom edges in pixels up from the baseline,
+    /// drawn in a 16-pixel cell as `rasterise` draws it: 13.3 pixels to the
+    /// em, the baseline 13 rows down. With `row`, the marks are fitted to it.
+    fn lam_shadda_fatha(row: Option<(i32, i32)>) -> Vec<(u16, (i32, i32))> {
+        let data = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/DejaVuSansMono-lam-shadda-fatha.ttf"),
+        )
+        .expect("the fixture");
+        let font = swash::FontRef::from_index(&data, 0).expect("a font");
+        let m = font.metrics(&[]);
+        // as `ppem` sizes a face to a cell 16 pixels high
+        let ppem = 15.5 * f32::from(m.units_per_em) / (m.ascent + m.descent.abs());
+        let ask = Ask {
+            key: vec![0x644, 0x651, 0x64e],
+            kind: Kind::Marks,
+        };
+        let shaped = shape_all(&data, 0, font, &[ask]);
+        let glyphs = &shaped[0].glyphs;
+        let scale = ppem / f32::from(m.units_per_em);
+        let fit = (u32::MAX, u32::MAX);
+        let parts =
+            draw_parts(&mut Drawer::new(font), glyphs, scale, ppem, fit, row, 1.0).expect("drawn");
+        glyphs
+            .iter()
+            .zip(&parts)
+            .map(|(a, p)| (a.g, span(p)))
+            .collect()
+    }
+
+    // ADR-1302 D3 (the maintainer, 2026-11-01): lam with shadda and fatha
+    // in DejaVu Sans Mono at 16 pixels is scaled to fit the row, though
+    // the lam's own ink stops three rows under the row's top. The shaper
+    // puts both marks at the same offset, the fatha's ink inside the
+    // bottom of the shadda's, and the pair passes the row's top. Moved
+    // down until it fits, the pair would land on the lam's stem, so the
+    // whole stack is scaled instead. This pins today's result: the stack
+    // fits the row, the lam keeps its bottom edge, and the marks keep
+    // their order and stay above the lam
+    // covers: text.overhang
+    #[test]
+    fn lam_shadda_fatha_is_scaled_to_fit_the_row() {
+        let row = (13, -3);
+        let (lam, shadda, fatha) = (1, 3, 2);
+        let edges = |parts: &[(u16, (i32, i32))], g: u16| {
+            parts
+                .iter()
+                .find(|(id, _)| *id == g)
+                .map(|&(_, e)| e)
+                .expect("the glyph")
+        };
+        let shaped = lam_shadda_fatha(None);
+        let fitted = lam_shadda_fatha(Some(row));
+        assert!(edges(&shaped, lam).0 < row.0, "blank rows above the lam");
+        assert!(
+            edges(&shaped, shadda).0 > row.0,
+            "the shadda passes the row's top"
+        );
+        for (g, (top, bottom)) in &fitted {
+            assert!(*top <= row.0 && *bottom >= row.1, "glyph {g} in the row");
+        }
+        assert_eq!(
+            edges(&fitted, lam).1,
+            edges(&shaped, lam).1,
+            "the lam keeps its bottom edge"
+        );
+        assert!(
+            edges(&fitted, lam).0 < edges(&shaped, lam).0,
+            "the lam is scaled, its top lowered"
+        );
+        for mark in [shadda, fatha] {
+            assert!(
+                edges(&fitted, mark).1 >= edges(&fitted, lam).0,
+                "mark {mark} above the lam"
+            );
+        }
+        for parts in [&shaped, &fitted] {
+            assert!(
+                edges(parts, shadda).0 > edges(parts, fatha).0,
+                "the shadda's top over the fatha's"
+            );
+            assert_eq!(
+                edges(parts, shadda).1,
+                edges(parts, fatha).1,
+                "the marks' bottom edges together"
+            );
+        }
+        assert_eq!(
+            fitted,
+            [(fatha, (12, 8)), (shadda, (13, 8)), (lam, (8, -2))],
+            "today's result"
+        );
+    }
 }

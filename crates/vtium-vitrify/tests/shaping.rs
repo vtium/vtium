@@ -287,17 +287,20 @@ fn a_mark_that_passes_the_row_moves_in() {
     }
 }
 
-// ADR-1302 D3 (the maintainer, 2026-11-01): where the letter's own ink
-// already reaches the edge its marks must pass, the whole stack, letter
-// and marks, is scaled vertically just enough to fit the row, keeping the
-// font's arrangement. The alef alone fills rows 0 to 15 of its stem's
+// ADR-1302 D3 (the maintainer, 2026-11-01): where the marks cannot move
+// in without landing more of their ink on the letter's, or cannot fit at
+// all, the whole stack, letter and marks, is scaled vertically just
+// enough to fit the row, keeping the font's arrangement. Here the letter
+// reaches the edge its marks pass, so a move in would land the marks on
+// it (`src/shaping/shape.rs` pins a letter with blank rows above it,
+// lam with shadda and fatha, which is scaled too). The alef alone fills rows 0 to 15 of its stem's
 // columns, 5 and 6; with its damma, columns 4 to 7, the damma takes the top
 // rows and the alef still ends on the baseline. The jeem alone fills rows
 // 8 to 19 of columns 2 to 9; with its kasratan, columns 4 to 7, it keeps
 // its top row and the kasratan takes the bottom rows
 // covers: text.overhang
 #[test]
-fn a_stack_whose_letter_reaches_the_edge_is_scaled_to_fit() {
+fn a_stack_that_cannot_move_in_is_scaled_to_fit() {
     let o = rasterise(&marked(
         &[&['\u{627}', '\u{64f}'], &['\u{62c}', '\u{64d}']],
         20,
