@@ -182,6 +182,14 @@ fn report(dir: &Path) {
             .and_then(|l| l[name.len()..].split_whitespace().next().map(str::to_owned))
             .unwrap_or_default()
     };
+    // the hard limit is the column after the soft one
+    let hard = |name: &str| {
+        limits
+            .lines()
+            .find(|l| l.starts_with(name))
+            .and_then(|l| l[name.len()..].split_whitespace().nth(1).map(str::to_owned))
+            .unwrap_or_default()
+    };
     let mut fds: Vec<i32> = std::fs::read_dir("/proc/self/fd")
         .unwrap()
         .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
@@ -212,6 +220,8 @@ fn report(dir: &Path) {
         format!("as {}", limit("Max address space")),
         format!("core {}", limit("Max core file size")),
         format!("fsize {}", limit("Max file size")),
+        format!("nofile {}", limit("Max open files")),
+        format!("nofile-hard {}", hard("Max open files")),
         format!("argv0 {}", std::env::args().next().unwrap_or_default()),
         format!("exe {exe}"),
     ];
@@ -379,6 +389,11 @@ fn the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else() {
         line("fsize"),
         (1u64 << 20).to_string(),
         "no file larger than the budget, memory files included"
+    );
+    assert_eq!(
+        (line("nofile"), line("nofile-hard")),
+        ("64".to_owned(), "64".to_owned()),
+        "at most 64 descriptors, which it cannot raise"
     );
     assert_eq!(line("argv0"), dir.join("vtium-image").display().to_string());
     println!("test the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else ... ok");

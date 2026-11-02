@@ -1,7 +1,7 @@
 //! The helper's filters (ADR-1101 D9): a seccomp allow-list the helper
 //! installs before it reads its first request; a second filter each
-//! worker adds, which refuses forking, starting a program and making a
-//! memory file; a third, which refuses opening and removing a file, for a
+//! worker adds, which refuses forking, starting a program, making a
+//! memory file and making a socket pair; a third, which refuses opening and removing a file, for a
 //! worker on a kernel without landlock; and the landlock domain each
 //! worker enters once it holds the descriptor it reads.
 //!
@@ -123,12 +123,12 @@ mod filter {
     /// packets with descriptors, memory files and their seals, the memory
     /// calls of the Rust allocator, opening through `openat2` and reading
     /// through `/proc/self/fd`, the `stat` and `statfs` family, reading a
-    /// link, removing a directory entry, closing, forking a worker and
-    /// waiting for it, exiting, signal masks and handlers, limits, random
-    /// bytes, the landlock calls, and the futex and scheduling calls of the
-    /// standard library. `socketpair`, `prctl`, `seccomp`, `fcntl`,
-    /// `prlimit64`, `mmap` and `mprotect` are allowed with the arguments
-    /// [`conditional`] names. Creating any other
+    /// link, removing a directory entry, closing, waiting for a worker,
+    /// exiting, signal masks and handlers, reading limits, random bytes,
+    /// the landlock calls, and the futex and scheduling calls of the
+    /// standard library. `socketpair`, `clone`, `setrlimit`, `prctl`,
+    /// `seccomp`, `fcntl`, `prlimit64`, `mmap` and `mprotect` are allowed
+    /// with the arguments [`conditional`] names. Creating any other
     /// socket or connecting one, starting a program, tracing a process,
     /// signalling another, mounting and every `ioctl` are left out.
     #[cfg(target_arch = "x86_64")]
@@ -165,7 +165,6 @@ mod filter {
         libc::SYS_readlinkat,
         libc::SYS_getcwd,
         libc::SYS_unlinkat,
-        libc::SYS_clone,
         libc::SYS_wait4,
         libc::SYS_waitid,
         libc::SYS_exit,
@@ -182,7 +181,6 @@ mod filter {
         libc::SYS_sigaltstack,
         libc::SYS_restart_syscall,
         libc::SYS_getrlimit,
-        libc::SYS_setrlimit,
         libc::SYS_getrandom,
         libc::SYS_landlock_create_ruleset,
         libc::SYS_landlock_add_rule,
@@ -223,7 +221,6 @@ mod filter {
         libc::SYS_readlinkat,
         libc::SYS_getcwd,
         libc::SYS_unlinkat,
-        libc::SYS_clone,
         libc::SYS_wait4,
         libc::SYS_waitid,
         libc::SYS_exit,
@@ -240,7 +237,6 @@ mod filter {
         libc::SYS_sigaltstack,
         libc::SYS_restart_syscall,
         libc::SYS_getrlimit,
-        libc::SYS_setrlimit,
         libc::SYS_getrandom,
         libc::SYS_landlock_create_ruleset,
         libc::SYS_landlock_add_rule,
@@ -249,6 +245,23 @@ mod filter {
         libc::SYS_sched_yield,
         libc::SYS_clock_gettime,
     ];
+
+    /// The bits of `socketpair`'s type argument that name the type; the
+    /// bits above them are its flags, such as `SOCK_CLOEXEC`.
+    const SOCKET_TYPE: u64 = 0xf;
+
+    /// The `clone` flags no process of the helper may pass: making the
+    /// child its parent's sibling, and every new namespace `clone` can
+    /// make. `CLONE_NEWTIME` is left out, since `clone` reads its bit as
+    /// part of the child's exit signal.
+    const CLONE_REFUSED: i32 = libc::CLONE_PARENT
+        | libc::CLONE_NEWNS
+        | libc::CLONE_NEWCGROUP
+        | libc::CLONE_NEWUTS
+        | libc::CLONE_NEWIPC
+        | libc::CLONE_NEWUSER
+        | libc::CLONE_NEWPID
+        | libc::CLONE_NEWNET;
 
     /// A condition on argument `arg`, compared as the 32-bit integer the
     /// kernel reads it as.
@@ -276,7 +289,16 @@ mod filter {
     /// The calls allowed with some arguments only, each rule one form the
     /// helper makes:
     ///
-    /// - a Unix socket pair for each worker's channel;
+    /// - a Unix socket pair of the sequenced-packet type for each worker's
+    ///   channel, its flags aside, so no process of the helper makes a
+    ///   datagram socket, which could send to any datagram socket its
+    ///   account may write by path, such as `/dev/log`;
+    /// - `clone` without `CLONE_PARENT` or any `CLONE_NEW*` flag, the fork
+    ///   of a worker, so no process of the helper makes a child of vtium's
+    ///   or enters a namespace of its own;
+    /// - `setrlimit` and `prlimit64` setting any limit but the descriptor
+    ///   limit, `RLIMIT_NOFILE`, which vtium set and no process of the
+    ///   helper raises, and reading every limit;
     /// - `prctl` setting no-new-privileges, which landlock and seccompiler
     ///   both make;
     /// - `seccomp` installing a filter, which a worker needs for its own;
@@ -284,19 +306,49 @@ mod filter {
     ///   flags, never with `O_ASYNC`, adding and reading seals, and
     ///   duplicating a descriptor close-on-exec, so no descriptor's
     ///   signals can be pointed at another process (`F_SETOWN`);
-    /// - `prlimit64` on the calling process alone, pid 0, so no other
+    ///   `prlimit64` on the calling process alone, pid 0, so no other
     ///   process's limits change;
     /// - `mmap` and `mprotect` without `PROT_EXEC`, so no memory becomes
     ///   executable.
     fn conditional() -> Result<Vec<(i64, SeccompRule)>, String> {
+        let rule = |conditions| {
+            SeccompRule::new(conditions).map_err(|e| format!("cannot build a seccomp rule: {e}"))
+        };
+        let nofile = i32::try_from(libc::RLIMIT_NOFILE).unwrap_or(7);
         let mut rules = vec![
-            (libc::SYS_socketpair, is(0, libc::AF_UNIX)?),
+            (
+                libc::SYS_socketpair,
+                rule(vec![
+                    on(0, SeccompCmpOp::Eq, libc::AF_UNIX)?,
+                    on(1, SeccompCmpOp::MaskedEq(SOCKET_TYPE), libc::SOCK_SEQPACKET)?,
+                ])?,
+            ),
+            (libc::SYS_clone, rule(vec![without(0, CLONE_REFUSED)?])?),
+            (
+                libc::SYS_setrlimit,
+                rule(vec![on(0, SeccompCmpOp::Ne, nofile)?])?,
+            ),
             (libc::SYS_prctl, is(0, libc::PR_SET_NO_NEW_PRIVS)?),
             (
                 libc::SYS_seccomp,
                 is(0, i32::try_from(libc::SECCOMP_SET_MODE_FILTER).unwrap_or(1))?,
             ),
-            (libc::SYS_prlimit64, is(0, 0)?),
+            (
+                libc::SYS_prlimit64,
+                rule(vec![
+                    on(0, SeccompCmpOp::Eq, 0)?,
+                    on(1, SeccompCmpOp::Ne, nofile)?,
+                ])?,
+            ),
+            // reading a limit, the descriptor limit included: no new limit
+            (
+                libc::SYS_prlimit64,
+                rule(vec![
+                    on(0, SeccompCmpOp::Eq, 0)?,
+                    SeccompCondition::new(2, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, 0)
+                        .map_err(|e| format!("cannot build a seccomp rule: {e}"))?,
+                ])?,
+            ),
         ];
         for cmd in [
             libc::F_GETFD,
@@ -344,8 +396,9 @@ mod filter {
         compile(rules, SeccompAction::Errno(enosys), SeccompAction::Allow)
     }
 
-    /// The worker's second filter: forking and starting a program answer
-    /// EPERM, and every other call is left to the first filter.
+    /// The worker's second filter: forking, starting a program, making a
+    /// memory file and making a socket pair answer EPERM, and every other
+    /// call is left to the first filter.
     pub fn worker() -> Result<BpfProgram, String> {
         #[cfg(target_arch = "x86_64")]
         let refused = [
@@ -356,6 +409,7 @@ mod filter {
             libc::SYS_execve,
             libc::SYS_execveat,
             libc::SYS_memfd_create,
+            libc::SYS_socketpair,
         ];
         #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
         let refused = [
@@ -364,6 +418,7 @@ mod filter {
             libc::SYS_execve,
             libc::SYS_execveat,
             libc::SYS_memfd_create,
+            libc::SYS_socketpair,
         ];
         refuse(&refused)
     }
@@ -417,8 +472,9 @@ pub fn install_helper_filter() -> Result<bool, String> {
     Ok(false)
 }
 
-/// The worker's second filter, which refuses forking and starting a
-/// program, built once by the helper so each worker only installs it.
+/// The worker's second filter, which refuses forking, starting a
+/// program, making a memory file and making a socket pair, built once by
+/// the helper so each worker only installs it.
 #[derive(Clone, Debug)]
 pub struct WorkerFilter {
     #[cfg(any(

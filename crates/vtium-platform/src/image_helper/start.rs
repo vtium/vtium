@@ -13,8 +13,8 @@
 //! session of its own with no controlling terminal; sets every signal to
 //! its default and clears its mask; puts `/dev/null` on descriptors 0 to
 //! 2 and its end of the socket on 3, every other descriptor marked
-//! close-on-exec; sets its memory cap, the largest file it may write and
-//! a core size of 0; empties its capability bounding set; sets its
+//! close-on-exec; sets its memory cap, the largest file it may write, a
+//! core size of 0 and its descriptor limit; empties its capability bounding set; sets its
 //! supplementary groups, its group ids and its user ids and reads them
 //! back; clears every other capability set and sets no-new-privileges;
 //! and starts the program in `/` with an empty environment. A logged-in
@@ -129,6 +129,16 @@ pub(super) fn refusal(kind: FileType, owner: u32, mode: u32, me: u32) -> Option<
     }
     None
 }
+
+/// The most descriptors a helper and each of its workers may hold, soft
+/// and hard: the helper holds about a dozen at its busiest, its four
+/// first ones, a request's inline file, a reply file, a worker's channel
+/// and a stream's channel and pool. A process without
+/// `CAP_SYS_RESOURCE`, which no helper holds, cannot raise a hard limit,
+/// so a worker taken over can hold no more sockets than this, each
+/// buffering what the kernel's socket limits allow outside the memory
+/// cap.
+pub const HELPER_FILES: u64 = 64;
 
 /// The memory cap of a helper started for requests of at most
 /// `max_bytes`: three times them, for what it reads, an inflated copy and
@@ -258,6 +268,7 @@ fn child(
         (Resource::As, cap),
         (Resource::Fsize, largest_file),
         (Resource::Core, 0),
+        (Resource::Nofile, HELPER_FILES),
     ] {
         rustix::process::setrlimit(
             resource,
