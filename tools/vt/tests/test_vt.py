@@ -1537,6 +1537,18 @@ class Install(Case):
         for f in (self.BIN, self.UNIT, self.FALLBACK, self.STATE):
             self.assertFalse(os.path.exists(self.at(f)), f)
 
+    def test_a_reinstall_refuses_a_per_vt_alias_someone_else_made(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # Someone points autovt@tty4 elsewhere after the install.
+        link = self.at("etc/systemd/system/autovt@tty4.service")
+        os.unlink(link)
+        os.symlink("/usr/lib/systemd/system/getty@.service", link)
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "4"),
+                     "/etc/systemd/system/autovt@tty4.service is there already and vt-install did not make it")
+        self.assertEqual(os.readlink(link), "/usr/lib/systemd/system/getty@.service")
+
     def test_a_second_install_keeps_the_first_record_of_the_getty(self):
         p = self.vt_install("install", "4", ACTIVE_UNITS="getty@tty4.service")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
