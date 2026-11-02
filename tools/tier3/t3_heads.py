@@ -5,19 +5,28 @@ device and systemd make of it, which unit tests cannot show.
 A console that gives no login leaves the driver no shell in the guest, so
 these variants run the agent (guest/t3-agent), a root program on the third
 serial port that answers a few fixed requests on that same port, which only
-root can open: the state of VT 2's units and the jobs systemd has queued, the closed policy's getty marker and the programs on tty2,
-the key presses of the kiosk's second keyboard, read from its own evdev
-node, and the failures it can cause vtium, a kill, a crash and a hangup. Each
-check below waits on that state and sleeps no fixed time; the one that must
-see vtium outlast display-wait waits for vtium's age, read in the guest.
+root can open: the state of VT 2's units, what systemd logged of vtium's
+unit and its fallback, and the jobs systemd has queued, the closed policy's
+getty marker and the programs on tty2, the key presses of the kiosk's
+second keyboard, read from its own evdev node, and the failures it can
+cause vtium, a kill, a crash, a hangup and kills past the unit's start
+limit. Each check below waits on that state and sleeps no fixed time; the
+one that must see vtium outlast display-wait waits for vtium's age, read in
+the guest.
 
-The getty fallback (crates/vtium/install/kmsconvt-getty@.service) is the
-part no unit test reaches: when vtium's unit on tty2 fails, its OnFailure= starts the fallback, which starts getty@tty2 unless
-vtium's marker of a closed policy, /run/vtium/tty2.closed, exists. A check
-knows the fallback ran by its condition's timestamp, which systemd sets
-each time it checks the unit's condition, so the getty's absence under
+The getty fallback (crates/vtium/install/kmsconvt-getty@.service) and the
+unit's restarts are the part no unit test reaches. When vtium's unit on
+tty2 fails, systemd starts vtium again after 100 ms (Restart=on-failure),
+up to systemd's default limit of 5 starts in 10 s, and each failure's
+OnFailure= starts the fallback, which starts getty@tty2 unless vtium's
+marker of a closed policy, /run/vtium/tty2.closed, exists (ADR-1401 D9).
+Under open the getty's Conflicts= then stops vtium's unit; under closed
+vtium comes back, and past the limit the unit stays failed. A check knows
+the fallback ran by the journal, which logs each time the fallback skipped
+itself on its condition or started the getty, so the getty's absence under
 closed is read from the condition systemd checked, never from a wait that
-saw nothing.
+saw nothing. The journal also keeps each failure's result, which a restart
+clears from the unit's Result=.
 """
 
 import os
@@ -45,13 +54,35 @@ GETTY_UNIT = "getty@tty2.service"
 GETTY_UNITS = (GETTY_UNIT, "serial-getty@tty2.service")
 
 # The failures the getty-fallback check causes, each the agent's request and
-# the Result= systemd gives vtium's unit for it: a kill, SIGKILL; a crash,
+# the result systemd logs for vtium's unit: a kill, SIGKILL; a crash,
 # SIGABRT, which a panic of vtium's minspec build also ends in, dumped by
 # systemd-coredump where it runs; and a hangup of tty2, after which vtium
 # exits 1 (crates/vtium/src/app.rs, Exit::Hangup).
 FAILURES = {"kill": ("kill KILL", ("signal",)),
             "crash": ("kill ABRT", ("core-dump", "signal")),
             "hangup": ("hangup", ("exit-code",))}
+
+# The first systemd that starts a unit's OnFailure= at each failure that its
+# Restart= restarts, as the default RestartMode=normal passes through the
+# failed state (systemd.service(5), systemd's NEWS for 254). Older ones
+# start it only once the unit stops restarting, which the checks below do
+# not expect, so they refuse a guest older than this.
+SYSTEMD_ONFAILURE_EACH = 254
+# systemd's default start limit, which vtium's unit keeps (ADR-1401 D9):
+# DefaultStartLimitBurst=5 starts in DefaultStartLimitIntervalSec=10s
+# (systemd-system.conf(5)). From a cleared count, the start-limit check
+# kills the running vtium and each of the 5 the unit starts after it, and
+# systemd refuses the sixth start: 6 kills.
+START_LIMIT_BURST = 5
+# Under open the most kills the start-limit check may send: the first, and
+# a second when the unit started vtium again after its 100 ms before the
+# getty's start stopped the unit. A third means the getty did not take the
+# VT at the first failure.
+OPEN_LIMIT_KILLS = 2
+# The kernel console's cell on the guest's 640x480 display, the font the
+# kernel draws a VT in once vtium has left it: past the start limit the VT
+# is blank but for the cursor in its first cell.
+KERNEL_CELL = (8, 16)
 
 # vtium's log line when no display came within display-wait under open
 # (crates/vtium/src/app.rs).
@@ -91,14 +122,28 @@ CHECKS = {
                 "on any keyboard, vtium still running on tty2 and the closed policy's "
                 "marker /run/vtium/tty2.closed written.",
     "getty-fallback": "vtium on tty2 failed by each of the variant's failures (a kill, a "
-                      "crash, a hangup), with vtium started again after each, and the "
-                      "unit's getty fallback read once systemd has checked its condition. "
-                      "Correct under closed: vtium's unit failed, the fallback skipped on "
-                      "its condition, the marker still there, and no getty started on tty2 "
-                      "since boot and no login session on it, read once the fallback ran, "
-                      "again before vtium starts again and once more at the end. Correct "
-                      "under open: the fallback ran, getty@tty2 runs a getty on tty2 and no "
-                      "marker exists. The capture is tty2 after the last failure.",
+                      "crash, a hangup), and the unit's getty fallback read once systemd "
+                      "has checked its condition. Correct under closed: systemd logged the "
+                      "failure's result and started vtium again, which draws its first "
+                      "screen again, the fallback skipped once on its condition, the marker "
+                      "still there, and no getty started on tty2 since boot and no login "
+                      "session on it, read after each failure and once more at the end. "
+                      "Correct under open: the fallback ran, the getty's start stopped "
+                      "vtium's unit, getty@tty2 runs a getty on tty2 and no marker exists; "
+                      "vtium is started again by hand for the next failure. The capture is "
+                      "tty2 after the last failure.",
+    "start-limit": "vtium on tty2 killed by SIGKILL each time its unit starts it, from a "
+                   "cleared start count, until the unit stops restarting, then started once "
+                   "more; then the count cleared and vtium started by hand. Correct under "
+                   "closed: systemd starts vtium 5 times and refuses the sixth start, the "
+                   "unit failed with start-limit-hit and refusing the next start, the "
+                   "fallback skipped on its condition, the marker there, no getty started "
+                   "on tty2 since boot, and the VT blank but for the kernel console's "
+                   "cursor; started by hand, vtium draws its first screen again. Correct "
+                   "under open: at most 2 kills, the first and one more if the unit started "
+                   "vtium again before the getty's start stopped it, as the getty takes the "
+                   "VT at the first failure. The capture is tty2 once the unit "
+                   "stopped restarting (ADR-1401 D9).",
     "display-held": "No display device under a closed policy: vtium on tty2 read past "
                     "display-wait. Correct: the same vtium still running, no line that no "
                     "display appeared, the marker written and no getty on tty2 (ADR-1401 "
@@ -166,23 +211,35 @@ FIRST = {
 
 
 def parse_state(lines):
-    """The agent's answer to `state` (guest/t3-agent) as {"units": {unit:
-    {"active", "result", "condition", "checked"}}, "gettys": {unit: (left
-    inactive at, restarts)}, "queued", "timers": {unit: state}, "sessions":
-    {id: tty}, "marker", "tty2", "logins", "fgconsole", "i8042", "xhci",
-    "kbds", "keys", "vtium": (pid, age) or None}; a field the answer lacks
-    is None, but "kbds", the keyboards the guest lists, which is empty, and
-    the readings by unit or session, which are empty."""
+    """The agent's answer to `state` (guest/t3-agent) as {"systemd": its
+    version, "units": {unit: {"active", "result", "condition", "checked",
+    "sub", "restarts"}}, "journal": [word], "gettys": {unit: (left inactive
+    at, restarts)}, "queued", "timers": {unit: state}, "sessions": {id:
+    tty}, "marker", "tty2", "logins", "fgconsole", "i8042", "xhci", "kbds",
+    "keys", "vtium": (pid, age) or None}; a field the answer lacks is None,
+    but "kbds", the keyboards the guest lists, which is empty, and the
+    readings by unit or session, which are empty. The journal's words, in
+    the order systemd logged them this boot, are failed:RESULT, restart:N,
+    started and stopped for vtium's unit, and skipped and fell-back for its
+    fallback."""
     out = {"units": {}, "gettys": {}, "timers": {}, "sessions": {}, "marker": None,
            "tty2": None, "logins": None, "fgconsole": None, "i8042": None, "xhci": None,
-           "kbds": [], "keys": None, "queued": [], "vtium": None}
+           "kbds": [], "keys": None, "queued": [], "vtium": None, "systemd": None, "journal": None}
     for line in lines:
         f = line.split()
         if not f:
             continue
         if f[0] == "unit" and len(f) == 6:
-            out["units"][f[1]] = {"active": f[2], "result": f[3], "condition": f[4],
-                                  "checked": int(f[5]) if f[5].isdigit() else None}
+            out["units"].setdefault(f[1], {}).update(
+                {"active": f[2], "result": f[3], "condition": f[4],
+                 "checked": int(f[5]) if f[5].isdigit() else None})
+        elif f[0] == "restarts" and len(f) == 4:
+            out["units"].setdefault(f[1], {}).update(
+                {"sub": f[2], "restarts": int(f[3]) if f[3].isdigit() else None})
+        elif f[0] == "journal":
+            out["journal"] = f[1:]
+        elif f[0] == "systemd" and len(f) == 2 and f[1].isdigit():
+            out["systemd"] = int(f[1])
         elif f[0] == "marker" and len(f) == 2:
             out["marker"] = f[1] == "yes"
         elif f[0] == "tty2":
@@ -254,14 +311,6 @@ def judge_no_getty(state, before):
     return None
 
 
-def fallback_ran(state, checked, before):
-    """Whether systemd has checked the fallback's condition since the
-    timestamp `checked`, and has no job queued that came since `before`, so
-    no unit is about to start or stop and the units' states are final."""
-    return (unit(state, FALLBACK_UNIT).get("checked") not in (None, 0, checked)
-            and not new_jobs(state, before))
-
-
 def judge_running(state, closed):
     """Why vtium is not holding tty2 as a console that gives no login
     should: running, on the VT shown, with the marker under `closed`; None
@@ -298,35 +347,175 @@ def judge_no_login(before, after, same_screen, logged_in):
     return None
 
 
-def judge_fallback(closed, failure, before, state):
-    """Why a failure's fallback is wrong (CHECKS "getty-fallback"), from the
-    agent's state before the failure and once the fallback's condition was
-    checked again; None when it is right."""
-    vt, fallback, getty = (unit(state, u) for u in (VTIUM_UNIT, FALLBACK_UNIT, GETTY_UNIT))
-    results = FAILURES[failure][1]
+def journal_since(state, before):
+    """The words of the journal of vtium's unit and its fallback (guest/
+    t3-agent) logged since `before`, or None when `before`'s words are not
+    where `state`'s begin."""
+    old, new = before["journal"] or [], state["journal"] or []
+    return new[len(old):] if new[:len(old)] == old else None
+
+
+def vtium_words(words):
+    """The words of `words` that vtium's unit logged: its failures, restarts,
+    starts and stops, without the fallback's."""
+    return [w for w in words if w not in ("skipped", "fell-back")]
+
+
+def judge_systemd(state):
+    """Why the guest's systemd is not one the checks of vtium's restarts can
+    judge; None when it is."""
+    if state["systemd"] is None:
+        return "the agent gave no version of systemd"
+    if state["systemd"] < SYSTEMD_ONFAILURE_EACH:
+        return ("the guest runs systemd %d, which starts OnFailure= only once a unit stops "
+                "restarting; these checks expect %d or later" % (state["systemd"],
+                                                                 SYSTEMD_ONFAILURE_EACH))
+    return None
+
+
+def restart_settled(state, before):
+    """Whether a failure since `before` has run its course: systemd queues no
+    job that came since, the fallback ran after the failure, and vtium's unit
+    either runs a vtium that was not running before or no longer waits to
+    restart."""
+    words = journal_since(state, before)
+    if words is None:
+        return True
+    failed = [i for i, w in enumerate(words) if w.startswith("failed:")]
+    if new_jobs(state, before) or not failed:
+        return False
+    if not {"skipped", "fell-back"} & set(words[failed[0]:]):
+        return False
+    vt = unit(state, VTIUM_UNIT)
+    back = (vt.get("active") == "active" and "started" in words[failed[0]:]
+            and state["vtium"] is not None
+            and state["vtium"][0] != (before["vtium"] or (None,))[0])
+    return back or vt.get("active") in ("failed", "inactive")
+
+
+def judge_restart(failure, before, state):
+    """Why vtium's unit did not come back from a failure under closed as
+    ADR-1401 D9 says (CHECKS "getty-fallback"), from the agent's state before
+    the failure and once it settled; None when it did."""
+    words = journal_since(state, before)
+    if words is None:
+        return "the journal before the %s is not where the journal after it begins" % failure
     if new_jobs(state, before):
         return "after the %s systemd still has jobs queued: %s" % (
             failure, ", ".join(new_jobs(state, before)))
-    if vt.get("active") != "failed" or vt.get("result") not in results:
-        return "after the %s vtium's unit is %s with result %s, not failed with %s" % (
-            failure, vt.get("active"), vt.get("result"), " or ".join(results))
-    if fallback.get("checked") in (None, 0, unit(before, FALLBACK_UNIT).get("checked")):
-        return "after the %s systemd never checked the fallback's condition" % failure
-    if closed:
-        if fallback.get("condition") != "no":
-            return "after the %s the fallback's condition held, under the closed policy" % failure
-        if state["marker"] is not True:
-            return "after the %s the closed policy's marker is gone" % failure
-        why = judge_no_getty(state, before)
-        return "after the %s %s" % (failure, why) if why else None
-    if fallback.get("condition") != "yes":
+    if "fell-back" in words:
+        return "after the %s the fallback started a getty, under the closed policy" % failure
+    n = (unit(before, VTIUM_UNIT).get("restarts") or 0) + 1
+    wanted = [["failed:" + r, "restart:%d" % n, "started"] for r in FAILURES[failure][1]]
+    if vtium_words(words) not in wanted:
+        return "after the %s systemd logged %s for vtium's unit, not %s" % (
+            failure, " ".join(vtium_words(words)) or "nothing", " or ".join(
+                " ".join(w) for w in wanted))
+    if words.count("skipped") != 1:
+        return "after the %s the fallback skipped itself %d times, not once" % (
+            failure, words.count("skipped"))
+    vt = unit(state, VTIUM_UNIT)
+    if vt.get("active") != "active" or state["vtium"] is None:
+        return "after the %s vtium does not run on tty2: %s, PID %s" % (
+            failure, vt.get("active"), state["vtium"])
+    if unit(state, FALLBACK_UNIT).get("condition") != "no":
+        return "after the %s the fallback's condition held, under the closed policy" % failure
+    if state["marker"] is not True:
+        return "after the %s the closed policy's marker is gone" % failure
+    why = judge_no_getty(state, before)
+    return "after the %s %s" % (failure, why) if why else None
+
+
+def judge_fallback(failure, before, state):
+    """Why a failure's fallback under open is wrong (CHECKS
+    "getty-fallback"), from the agent's state before the failure and once it
+    settled; None when it is right."""
+    words = journal_since(state, before)
+    if words is None:
+        return "the journal before the %s is not where the journal after it begins" % failure
+    if new_jobs(state, before):
+        return "after the %s systemd still has jobs queued: %s" % (
+            failure, ", ".join(new_jobs(state, before)))
+    ours = vtium_words(words)
+    if not ours or ours[0] not in ["failed:" + r for r in FAILURES[failure][1]]:
+        return "after the %s systemd logged %s for vtium's unit, not a failure with %s" % (
+            failure, " ".join(ours) or "nothing", " or ".join(FAILURES[failure][1]))
+    if "skipped" in words or "fell-back" not in words:
         return "after the %s the fallback skipped the getty, under the open policy" % failure
+    vt = unit(state, VTIUM_UNIT)
+    if ours[-1] != "stopped" or vt.get("active") != "inactive" or state["vtium"] is not None:
+        return ("after the %s the getty's start did not stop vtium's unit: it logged %s and "
+                "is %s" % (failure, " ".join(ours), vt.get("active")))
     if state["marker"] is not False:
         return "the closed policy's marker exists under the open policy"
+    getty = unit(state, GETTY_UNIT)
     if getty.get("active") != "active" or not getty_on_tty2(state):
         return "after the %s no getty runs on tty2 under the open policy: %s, %s" % (
             failure, getty.get("active"), " ".join(state["tty2"] or ()) or "nothing")
     return None
+
+
+def judge_limit(closed, answer, before, state):
+    """Why kills of each vtium its unit starts did not end as ADR-1401 D9
+    says (CHECKS "start-limit"), from the agent's answer to `limit`, its
+    state before, with the unit's start count cleared, and once the unit
+    stopped restarting; None when they did."""
+    words = journal_since(state, before)
+    if words is None:
+        return "the journal before the kills is not where the journal after them begins"
+    if new_jobs(state, before):
+        return "after the kills systemd still has jobs queued: %s" % ", ".join(
+            new_jobs(state, before))
+    kills = len([line for line in answer if line.startswith("sent KILL to ")])
+    vt = unit(state, VTIUM_UNIT)
+    ours = vtium_words(words)
+    if not closed:
+        # the getty takes the VT at the first failure and stops vtium's unit
+        if not 1 <= kills <= OPEN_LIMIT_KILLS or "failed:start-limit-hit" in ours:
+            return ("under the open policy the getty did not take the VT at the first failure: "
+                    "%d kills, not 1 or %d, and systemd logged %s" % (
+                        kills, OPEN_LIMIT_KILLS, " ".join(ours)))
+        return judge_fallback("kill", before, state)
+    if kills != START_LIMIT_BURST + 1:
+        return ("vtium's unit stopped restarting after %d kills, not the %d that systemd's "
+                "default limit of %d starts allows" % (kills, START_LIMIT_BURST + 1,
+                                                        START_LIMIT_BURST))
+    wanted = sum((["failed:signal", "restart:%d" % n, "started"]
+                  for n in range(1, START_LIMIT_BURST + 1)), [])
+    wanted += ["failed:signal", "restart:%d" % (START_LIMIT_BURST + 1),
+               "failed:start-limit-hit", "failed:start-limit-hit"]
+    if ours != wanted:
+        return "systemd logged %s for vtium's unit, not %s" % (" ".join(ours), " ".join(wanted))
+    if "start refused" not in answer:
+        return "systemd did not refuse the start that followed the start limit"
+    if (vt.get("active"), vt.get("result")) != ("failed", "start-limit-hit") or state["vtium"]:
+        return "past the start limit vtium's unit is %s with result %s, PID %s" % (
+            vt.get("active"), vt.get("result"), state["vtium"])
+    tripped = words.index("failed:start-limit-hit")
+    if "fell-back" in words or "skipped" not in words[tripped:]:
+        return ("past the start limit the fallback did not skip itself: systemd logged %s"
+                % " ".join(words))
+    if unit(state, FALLBACK_UNIT).get("condition") != "no":
+        return "past the start limit the fallback's condition held, under the closed policy"
+    if state["marker"] is not True:
+        return "past the start limit the closed policy's marker is gone"
+    why = judge_no_getty(state, before)
+    return "past the start limit %s" % why if why else None
+
+
+def kernel_blank(img):
+    """Whether `img` is blank but for the first cell of the kernel console,
+    where it draws the cursor of a VT that runs nothing."""
+    bg = img.data[-3:]
+    w, h = KERNEL_CELL
+    row = img.width * 3
+    for y in range(img.height):
+        line = img.data[y * row:(y + 1) * row]
+        if y < h:
+            line = line[w * 3:]
+        if line.count(bg) * 3 != len(line):
+            return False
+    return True
 
 
 def judge_held(first, state, serial, wait_s):
@@ -346,7 +535,8 @@ def judge_held(first, state, serial, wait_s):
     m = NO_DISPLAY_LINE.search(serial)
     if m:
         return "vtium logged %r under the closed policy" % m.group(0)
-    if unit(state, FALLBACK_UNIT).get("checked"):
+    if (unit(state, FALLBACK_UNIT).get("checked")
+            or {"skipped", "fell-back"} & set(state["journal"] or ())):
         return "the getty fallback ran"
     return None
 
@@ -363,12 +553,19 @@ def judge_exit(first, state, wait_s, logged):
         return "vtium gave up after %s s, not the display-wait of %d s" % (logged, wait_s)
     if new_jobs(state, first):
         return "systemd still has jobs queued: %s" % ", ".join(new_jobs(state, first))
-    vt, fallback, getty = (unit(state, u) for u in (VTIUM_UNIT, FALLBACK_UNIT, GETTY_UNIT))
-    if vt.get("active") != "failed" or vt.get("result") != "exit-code":
-        return "vtium's unit is %s with result %s, not failed with exit-code" % (
-            vt.get("active"), vt.get("result"))
-    if fallback.get("condition") != "yes" or not fallback.get("checked"):
-        return "the fallback did not run: condition %s" % fallback.get("condition")
+    words = journal_since(state, first)
+    if words is None:
+        return "the journal of the boot is not where the journal after the exit begins"
+    ours = vtium_words(words)
+    if ours[:1] != ["failed:exit-code"]:
+        return "systemd logged %s for vtium's unit, not a failure with exit-code" % (
+            " ".join(ours) or "nothing")
+    getty = unit(state, GETTY_UNIT)
+    if "fell-back" not in words:
+        return "the fallback did not start the getty: systemd logged %s" % " ".join(words)
+    if ours[-1] != "stopped" or unit(state, VTIUM_UNIT).get("active") != "inactive":
+        return "the getty's start did not stop vtium's unit: it logged %s and is %s" % (
+            " ".join(ours), unit(state, VTIUM_UNIT).get("active"))
     if state["marker"] is not False:
         return "the closed policy's marker exists under the open policy"
     if getty.get("active") != "active" or not getty_on_tty2(state):
@@ -567,14 +764,36 @@ def check_no_login(variant, vm, work, caps, errors, log):
         errors[case] = str(e)
 
 
+def wait_restarted(variant, vm, work, path, pid, since, what):
+    """vtium on tty2 started again in place of the vtium of PID `pid`, where
+    the variant has a first screen: its log since `since` in the serial file
+    shows the new vtium took its display, and the screen once settled, saved
+    at `path`, is the variant's first screen."""
+    deadline = time.time() + STATE_TIMEOUT
+    while True:
+        lines = re.findall(r"vtium\[(\d+)\]: Display ", serial_after(vm, since))
+        if any(int(p) != pid for p in lines):
+            break
+        if time.time() > deadline:
+            raise RuntimeError("the vtium started again after the %s took no display; see %s"
+                               % (what, rel(vm.serial)))
+        time.sleep(0.2)
+    first = t3img.read(os.path.join(work, variant["first"] + ".ppm"))
+    try:
+        wait_stable(vm, path, want=lambda i: i.data == first.data)
+    except RuntimeError as e:
+        raise RuntimeError("after the %s vtium did not draw its first screen again: %s"
+                           % (what, e))
+
+
 def check_getty_fallback(variant, vm, work, caps, errors, log):
-    """The getty-fallback check (CHECKS): each of the variant's failures
-    in turn, judged by judge_fallback once systemd has checked the
-    fallback's condition again, then vtium started again for the next.
-    Under closed, the agent's readings of the gettys count from boot, so
-    a getty that started and ended between two reads still shows; they
-    are judged again just before vtium starts again after each failure,
-    and once more when vtium runs on tty2 after the last."""
+    """The getty-fallback check (CHECKS): each of the variant's failures in
+    turn, judged once it has run its course. Under closed systemd starts
+    vtium again, judged by judge_restart; the agent's readings of the
+    gettys count from boot, so a getty that started and ended between two
+    reads still shows, and they are judged once more when vtium runs on
+    tty2 after the last failure. Under open, judged by judge_fallback, the
+    agent starts vtium again for the next."""
     case = "getty-fallback"
     closed = variant["policy"] == "closed"
     try:
@@ -582,41 +801,34 @@ def check_getty_fallback(variant, vm, work, caps, errors, log):
         for failure in variant["failures"]:
             before = wait_state(vm, lambda s: judge_running(s, closed) is None,
                                 "vtium running on tty2")
+            why = judge_systemd(before)
+            if why:
+                raise RuntimeError(why)
             first = first or before
-            checked = unit(before, FALLBACK_UNIT).get("checked")
+            since = serial_size(vm)
             answer = vm.ask(FAILURES[failure][0])
             log("%s: %s: %s" % (case, failure, " ".join(answer)))
-
-            # Under open a fallback that ran ends the wait once its getty
-            # runs, and one that skipped itself at once, to be judged.
-            def fell_back(s):
-                done = (unit(s, VTIUM_UNIT).get("active") == "failed"
-                        and fallback_ran(s, checked, before))
-                return done and (closed or getty_on_tty2(s)
-                                 or unit(s, FALLBACK_UNIT).get("condition") == "no")
-
-            state = wait_state(vm, fell_back, "the fallback after the %s" % failure)
-            why = judge_fallback(closed, failure, before, state)
+            state = wait_state(vm, lambda s: restart_settled(s, before) and (
+                closed or getty_on_tty2(s) or "skipped" in (journal_since(s, before) or ())),
+                "the %s running its course" % failure)
+            log("%s: %s: systemd logged %s" % (case, failure,
+                                                " ".join(journal_since(state, before) or ())))
+            if closed:
+                why = judge_restart(failure, before, state)
+            else:
+                why = judge_fallback(failure, before, state)
             log("%s: %s: %s" % (case, failure, why or "as wanted"))
             if why:
                 raise RuntimeError(why)
-            if variant["device"] is not None:
-                path = os.path.join(work, case + ".ppm")
+            path = os.path.join(work, case + ".ppm")
+            if closed and "first" in variant:
+                wait_restarted(variant, vm, work, path, before["vtium"][0], since, failure)
+                caps[case] = path
+            elif variant["device"] is not None:
                 wait_stable(vm, path)
                 caps[case] = path
-            if closed:
-                why = judge_no_getty(ask_state(vm), before)
-                if why:
-                    raise RuntimeError("after the %s, before vtium started again: %s"
-                                       % (failure, why))
-            since = serial_size(vm)
-            vm.ask("start")
-            deadline = time.time() + STATE_TIMEOUT
-            while "vt: using tty /dev/tty2" not in serial_after(vm, since):
-                if time.time() > deadline:
-                    raise RuntimeError("vtium did not start again on tty2 after the %s; see %s"
-                                       % (failure, rel(vm.serial)))
-                time.sleep(0.2)
+            if not closed:
+                start_again(vm, failure)
         if closed:
             end = wait_state(vm, lambda s: judge_running(s, closed) is None,
                              "vtium running on tty2 after the last failure")
@@ -626,6 +838,78 @@ def check_getty_fallback(variant, vm, work, caps, errors, log):
                 raise RuntimeError("at the end: %s" % why)
         if variant["device"] is None:
             caps[case] = None
+    except RuntimeError as e:
+        caps.pop(case, None)
+        errors[case] = str(e)
+
+
+def start_again(vm, what):
+    """vtium's unit on tty2 started again by the agent, once vtium logs that
+    it uses tty2."""
+    since = serial_size(vm)
+    vm.ask("start")
+    deadline = time.time() + STATE_TIMEOUT
+    while "vt: using tty /dev/tty2" not in serial_after(vm, since):
+        if time.time() > deadline:
+            raise RuntimeError("vtium did not start again on tty2 after the %s; see %s"
+                               % (what, rel(vm.serial)))
+        time.sleep(0.2)
+
+
+def check_start_limit(variant, vm, work, caps, errors, log):
+    """The start-limit check (CHECKS): from a cleared start count, the agent
+    kills each vtium the unit starts until the unit stops restarting, judged
+    by judge_limit once that has run its course; then, with the count
+    cleared again, vtium started by hand. The capture is tty2 once the unit
+    stopped restarting."""
+    case = "start-limit"
+    closed = variant["policy"] == "closed"
+    try:
+        # An earlier check that failed may have left vtium's unit failed,
+        # or a getty on tty2: the count is cleared and vtium started first,
+        # so this check judges the limit on its own.
+        log("%s: %s" % (case, " ".join(vm.ask("reset-failed"))))
+        if ask_state(vm)["vtium"] is None:
+            start_again(vm, "earlier checks")
+        first = wait_state(vm, lambda s: judge_running(s, closed) is None,
+                           "vtium running on tty2")
+        why = judge_systemd(first)
+        if why:
+            raise RuntimeError(why)
+        before = wait_state(vm, lambda s: unit(s, VTIUM_UNIT).get("restarts") == 0,
+                            "vtium's start count cleared")
+        answer = vm.ask("limit")
+        log("%s: %s" % (case, " ".join(answer)))
+        state = wait_state(vm, lambda s: restart_settled(s, before) and (
+            closed or getty_on_tty2(s) or "skipped" in (journal_since(s, before) or ())),
+            "the kills running their course")
+        log("%s: systemd logged %s" % (case, " ".join(journal_since(state, before) or ())))
+        why = judge_limit(closed, answer, before, state)
+        log("%s: %s" % (case, why or "as wanted"))
+        if why:
+            raise RuntimeError(why)
+        path = os.path.join(work, case + ".ppm")
+        if closed:
+            try:
+                wait_stable(vm, path, want=kernel_blank)
+            except RuntimeError as e:
+                raise RuntimeError("past the start limit tty2 is not blank: %s" % e)
+        else:
+            wait_stable(vm, path)
+        # Started by hand once its count is cleared, as ADR-1401 D9 tells
+        # the operator, vtium draws its first screen again.
+        vm.ask("reset-failed")
+        since = serial_size(vm)
+        start_again(vm, "start limit")
+        end = wait_state(vm, lambda s: judge_running(s, closed) is None,
+                         "vtium running on tty2 after the start limit")
+        if closed and "first" in variant:
+            wait_restarted(variant, vm, work, os.path.join(work, "start-limit-end.ppm"), -1,
+                           since, "start limit")
+            why = judge_no_getty(end, first)
+            if why:
+                raise RuntimeError("started again by hand: %s" % why)
+        caps[case] = path
     except RuntimeError as e:
         caps.pop(case, None)
         errors[case] = str(e)
@@ -662,8 +946,8 @@ def check_display_exit(variant, vm, work, caps, errors, log):
         first = ask_state(vm)
         line = vm.wait_serial("no display appeared within", timeout=wait_s + STATE_TIMEOUT)
         logged = int(NO_DISPLAY_LINE.search(line).group(1))
-        state = wait_state(vm, lambda s: fallback_ran(s, 0, first) and (
-            getty_on_tty2(s) or unit(s, FALLBACK_UNIT).get("condition") == "no"),
+        state = wait_state(vm, lambda s: restart_settled(s, first) and (
+            getty_on_tty2(s) or "skipped" in (journal_since(s, first) or ())),
             "the fallback's getty on tty2")
         why = judge_exit(first, state, wait_s, logged)
         log("%s: %s" % (case, why or "as wanted"))
@@ -722,6 +1006,7 @@ def second_output(variant):
 
 
 CHECK_RUNS = {"no-login": check_no_login, "getty-fallback": check_getty_fallback,
+              "start-limit": check_start_limit,
               "display-held": check_display_held, "display-exit": check_display_exit,
               "two-heads": check_two_heads, "kiosk": check_kiosk,
               "policy-line": check_policy_line}

@@ -298,7 +298,8 @@ DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
 # screen, judged by vtium's provisional golden ("first"). One whose console
 # gives no login ("login": False) draws no screen and switches no VT; its
 # checks follow the first screen. Each runs the agent (t3_heads), and the
-# getty-fallback check fails vtium in the ways "failures" names.
+# getty-fallback check fails vtium in the ways "failures" names; the
+# start-limit check kills it past its unit's start limit.
 # heads-partly-open is the open control of the closed variants' fallback:
 # there the getty does start. The two without a display device ("device":
 # None) wait for vtium on tty2 with no screen to capture, one under each
@@ -314,11 +315,11 @@ NO_DISPLAY = dict({k: v for k, v in HEAD_VARIANT.items() if k not in ("fonts", "
 VARIANTS.update({
     "heads-partly-open": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/partly-open.conf",
                               policy="open", first="partly-notice", screens=["cjk"],
-                              checks=["getty-fallback"],
+                              checks=["getty-fallback", "start-limit"],
                               failures=["kill", "crash", "hangup"]),
     "heads-closed-broken": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/broken-closed.conf",
                                 policy="closed", first="panic", login=False,
-                                checks=["no-login", "getty-fallback"],
+                                checks=["no-login", "getty-fallback", "start-limit"],
                                 failures=["kill", "crash", "hangup"]),
     "heads-policy-typo": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/policy-typo.conf",
                               policy="closed", policy_line="policy = opne",
