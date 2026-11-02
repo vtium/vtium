@@ -437,7 +437,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             return Err(SwapError::Dropped);
         };
         if !loan.current(&token, o.lease) {
+            // The buffer holds part of a frame nobody counts, over any frame
+            // kept from a failed swap: it goes whole.
             o.forget();
+            o.damage.set_whole();
             if std::mem::take(&mut o.clear_owed) {
                 lock(token.memory()).as_mut().fill(0);
             }

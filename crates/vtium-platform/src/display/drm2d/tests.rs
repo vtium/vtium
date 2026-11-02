@@ -3796,3 +3796,27 @@ fn a_token_given_back_after_the_sleep_clears_its_buffer() {
     v.give_back(token);
     assert!(lock(&map).iter().all(|&b| b == 0));
 }
+
+// A frame kept from a failed swap waits in the back buffer; a token for
+// that buffer drawn over it and dropped as too late leaves the buffer
+// holding neither frame, so the kept frame goes whole, with no clips.
+#[test]
+fn a_late_token_over_a_kept_frame_sends_it_whole() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().no_dpms.push(A);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    for _ in 0..2 {
+        frame(&mut v, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Failed(_))));
+    let mut token = v.lend(DisplayId(A)).unwrap();
+    token.draw(|c| c.pixels.fill(7)).unwrap();
+    v.set_dpms(DisplayId(A), Dpms::Off).unwrap();
+    v.set_dpms(DisplayId(A), Dpms::On).unwrap();
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Frame);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(clips(&c, primary(&v, A)), None, "the whole screen");
+}
