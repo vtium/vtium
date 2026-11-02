@@ -103,6 +103,39 @@ The C reference's first guided run left lessons the guides keep:
 - Turning a monitor off and on is an unplug, which gives FOCUS OUT and then FOCUS IN, not a DPMS blank. A DPMS step needs the terminal's own blank, from `--dpms-timeout`.
 - A probe's times are the times it read the bytes, so a probe reads while it waits.
 
+## Installing vtium on a VT
+
+`make vt-install VT=N` makes vtium the console of VT N of this machine, in place of its getty, and it stays there across reboots until `make vt-uninstall VT=N`. A run of `make vt-check` or `make vt-shell` borrows a VT for one session and gives it back; an installed vtium is the one the maintainer uses every day. Both targets need sudo, which asks for the password in the terminal they run in.
+
+```sh
+make vt-install VT=3 DRY_RUN=1   # print the units it would write and every command; run none
+make vt-install VT=3             # install the minspec build on VT 3, then Ctrl-Alt-F3 shows it
+make vt-install VT=3             # again, after a new build: the binary is replaced and vtium restarts
+make vt-uninstall VT=3 DRY_RUN=1 # print what uninstall would do
+make vt-uninstall VT=3           # VT 3 back as it was
+```
+
+`tools/vt/vt-install.sh` does the work. Install refuses VT 1, a VT outside 2 to 12, the VT on screen and a VT a logind session is on, by the check `run-vt.sh` uses, and a VT where the C reference's `kmsconvt@ttyN` runs. It then:
+
+1. Generates two units from the shipped ones in `crates/vtium/install/`, so the units have one source. `vtium@.service` is `kmsconvt@.service` with three changes: its name, `ExecStart=` running `/usr/local/bin/vtium` in place of `/usr/bin/vtium`, and `OnFailure=` naming `vtium-getty@.service`. It also leaves out `Alias=autovt@.service`, since enabling an alias would take the name `autovt@` from the package that holds it. `vtium-getty@.service` is `kmsconvt-getty@.service` under its new name. Every other line is the shipped unit's, so `Restart=` and its kin come through as the shipped unit has them. The names `kmsconvt@`, `kmsconvt-getty@` and `autovt@` stay the C reference's package's on this machine. Install fails before it changes anything when the shipped unit no longer has the lines it changes.
+2. Refuses when `/usr/local/bin/vtium` or either unit file is there already and no manifest says vt-install wrote it, so it never replaces someone else's file.
+3. Writes the manifest `/var/lib/vtium-vt-install/ttyN` first, so that a run cut short can still be undone. The manifest records whether `getty@ttyN` was enabled and running before. A second install on the same VT keeps the first record.
+4. Copies the binary to `/usr/local/bin/vtium` and the units to `/etc/systemd/system`, all owned by root, then runs `systemctl daemon-reload`, stops and disables `getty@ttyN`, enables `vtium@ttyN` and restarts it, which starts it the first time.
+
+Uninstall reads the manifest and undoes each step: it stops and disables `vtium@ttyN`, clears a failed state of it or its fallback, enables and starts `getty@ttyN` again where the manifest says it was enabled or running, and removes the manifest. It removes the binary, the two units and `/var/lib/vtium-vt-install` only when no other VT's manifest is left, so vtium installed on two VTs keeps its files until both are uninstalled. It refuses a VT that has no manifest, or a logind session on it, such as a login in the installed vtium; log out there first.
+
+The installed vtium runs with the system's configuration, not the review's: it reads `/etc/kmscon/kmscon.conf` and `/etc/vtium/heads.conf`. On this machine the C reference's package may own `/etc/kmscon/kmscon.conf`. Neither target writes, moves or removes either file, so a setting there applies to the installed vtium too.
+
+If uninstall cannot run, VT N goes back by hand:
+
+```sh
+sudo systemctl disable --now vtium@ttyN.service
+sudo systemctl enable --now getty@ttyN.service
+sudo rm /usr/local/bin/vtium /etc/systemd/system/vtium@.service /etc/systemd/system/vtium-getty@.service
+sudo rm -r /var/lib/vtium-vt-install
+sudo systemctl daemon-reload
+```
+
 ## The demo
 
 `tools/vt/demo.sh` shows a title page, then one page per section in `tools/vt/sections/`, in file name order, then a summary. Below each page a footer gives the section's guidance, its `# look-for:` and `# wrong-looks-like:` lines, and one key rates it: 1 right, 2 wrong, 3 unsure, s skip for now, c a comment first, r redraw, b back, q quit. Each answer appends a line to `/tmp/vtium-vt/feedback.tsv` (time, run, label, term, size, section, rating, note), and `tools/vt/feedback.sh` prints the latest run, a run by id (`--run ID`) or the latest run of each label side by side (`--compare`). The demo runs in any terminal: `DEMO_LABEL='name' tools/vt/demo.sh` in another terminal rates the same pages under its own label, for comparison. `DEMO_NOPAGE=1 tools/vt/demo.sh sgr` draws a page and its guidance without waiting for keys.
@@ -111,7 +144,7 @@ A section is one file, `tools/vt/sections/NN-name.sh`: deterministic output, at 
 
 ## Testing the tools
 
-`make test-tools`, part of CI, runs `tools/vt/tests/test_vt.py` and shellcheck. The tests run every path without a VT, sudo or logind: `VTIUM_VT_STANDINS` names a directory of stand-ins for `systemctl`, `loginctl`, `setpriv`, `getent`, `sudo`, `/etc/shells`, `/etc/locale.conf`, `/run/user` and the VT on screen, run from there by full path, and a stand-in vtium that exits, crashes, waits for a signal or runs its session. They check that a VT a session is on is refused, that the shell is the one the password database names and `/etc/shells` lists, that a home directory not the user's and a session as uid 0 are refused, that the shell gets the locale and the user's runtime directory and bus only when they are the user's, that the console unit is restored after a crash, Ctrl-C, SIGTERM and SIGHUP, that a guide failing `--check` stops before sudo, that a `run:` step shows its command, runs it on the guide's terminal and drops a key pressed meanwhile, that a console after the head's first runs a shell in place of the guide, that a guide's steps get `LANG` and `LC_*` from a locale file (`GUIDE_LOCALE_CONF` stands in for `/etc/locale.conf`) only when no `LANG` is set and only as locale names, that the answers log refuses a symlinked or foreign directory, that no tool reaches `chvt` or `fgconsole`, and they run `start.guide`, the demo and a stand-in shell end to end through `make`. As root, `run-vt.sh` refuses `VTIUM_VT_STANDINS`, and `vt.sh` honours it and `VTIUM_VT_DIR` only together, so a stale export cannot choose what runs as root or where the answers are read.
+`make test-tools`, part of CI, runs `tools/vt/tests/test_vt.py` and shellcheck. The tests run every path without a VT, sudo or logind: `VTIUM_VT_STANDINS` names a directory of stand-ins for `systemctl`, `loginctl`, `setpriv`, `getent`, `sudo`, `/etc/shells`, `/etc/locale.conf`, `/run/user` and the VT on screen, run from there by full path, and a stand-in vtium that exits, crashes, waits for a signal or runs its session. They check that a VT a session is on is refused, that the shell is the one the password database names and `/etc/shells` lists, that a home directory not the user's and a session as uid 0 are refused, that the shell gets the locale and the user's runtime directory and bus only when they are the user's, that the console unit is restored after a crash, Ctrl-C, SIGTERM and SIGHUP, that a guide failing `--check` stops before sudo, that a `run:` step shows its command, runs it on the guide's terminal and drops a key pressed meanwhile, that a console after the head's first runs a shell in place of the guide, that `vt-install.sh` generates the units from the shipped ones with only their names, `ExecStart=`'s path and the alias changed, refuses VT 1, the VT on screen, a VT with a session, a VT the C reference's console runs on and a file it did not write, records and restores the getty's state, keeps files another VT still holds, and runs nothing in a dry run, that a guide's steps get `LANG` and `LC_*` from a locale file (`GUIDE_LOCALE_CONF` stands in for `/etc/locale.conf`) only when no `LANG` is set and only as locale names, that the answers log refuses a symlinked or foreign directory, that no tool reaches `chvt` or `fgconsole`, and they run `start.guide`, the demo and a stand-in shell end to end through `make`. As root, `run-vt.sh` refuses `VTIUM_VT_STANDINS`, and `vt.sh` honours it and `VTIUM_VT_DIR` only together, so a stale export cannot choose what runs as root or where the answers are read.
 
 ## Departures from the C reference's review
 

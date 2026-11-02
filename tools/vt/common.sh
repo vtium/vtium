@@ -15,3 +15,24 @@ vt_own_dir() {
 	[ -e "$1" ] || [ -L "$1" ] || mkdir -m 0700 -- "$1" 2>/dev/null || true
 	[ ! -L "$1" ] && [ -d "$1" ] && [ -O "$1" ] && [ "$(stat -c %a -- "$1")" = 700 ]
 }
+
+# vt_sessions LOGINCTL N: prints "ID STATE" for each logind session on VT N,
+# and fails when LOGINCTL cannot list the sessions. A session whose query
+# fails is skipped only when a second list no longer has it, as one that
+# ended between the list and the query; one still listed is a session on an
+# unknown VT, so that fails too. run-vt.sh and vt-install.sh refuse a VT
+# this prints anything for.
+vt_sessions() {
+	local loginctl=$1 vt=$2 list s props
+	list=$("$loginctl" list-sessions --no-legend) || return 1
+	while read -r s _; do
+		[ -n "$s" ] || continue
+		if ! props=$("$loginctl" show-session -p VTNr -p State "$s" 2>/dev/null); then
+			"$loginctl" list-sessions --no-legend | awk -v s="$s" '$1 == s { listed = 1 } END { exit listed }' ||
+				return 1
+			continue
+		fi
+		[ "$(sed -n 's/^VTNr=//p' <<<"$props")" != "$vt" ] ||
+			echo "$s $(sed -n 's/^State=//p' <<<"$props")"
+	done <<<"$list"
+}

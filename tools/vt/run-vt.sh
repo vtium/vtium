@@ -92,6 +92,8 @@ done
 vt=${vt:-3}
 
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+# shellcheck source=tools/vt/common.sh
+. "$here/common.sh"
 checkout=$(readlink -m "$here/../..")
 standins=${VTIUM_VT_STANDINS:-}
 if [ -n "$standins" ]; then
@@ -343,25 +345,6 @@ if [ -z "$dry" ]; then
 	flock -n 9 || die "another VT review run is in progress (it holds $lock); one build on a VT at a time"
 fi
 
-# Prints "ID STATE" for each logind session on VT $vt, and fails when loginctl
-# cannot list the sessions. A session whose query fails is skipped only when a
-# second list no longer has it, as one that ended between the list and the
-# query; one still listed is a session on an unknown VT, so that fails too.
-vt_sessions() {
-	local list s props
-	list=$("$loginctl" list-sessions --no-legend) || return 1
-	while read -r s _; do
-		[ -n "$s" ] || continue
-		if ! props=$("$loginctl" show-session -p VTNr -p State "$s" 2>/dev/null); then
-			"$loginctl" list-sessions --no-legend | awk -v s="$s" '$1 == s { listed = 1 } END { exit listed }' ||
-				return 1
-			continue
-		fi
-		[ "$(sed -n 's/^VTNr=//p' <<<"$props")" != "$vt" ] ||
-			echo "$s $(sed -n 's/^State=//p' <<<"$props")"
-	done <<<"$list"
-}
-
 # Refuse the VT on screen (the one this command was typed on) and any VT a
 # logind session sits on, the graphical one included: stopping the unit there
 # would end that session. When the sessions cannot be listed, refuse too. A
@@ -370,7 +353,7 @@ fg=$(cat "$active_file") || die "cannot read $active_file, so the VT on screen i
 fg=${fg#tty}
 [[ $fg =~ ^[0-9]+$ ]] || die "$active_file reads '$fg', so the VT on screen is unknown"
 [ "$fg" != "$vt" ] || die "VT $vt is on screen now; run this from another VT"
-on_vt=$(vt_sessions) ||
+on_vt=$(vt_sessions "$loginctl" "$vt") ||
 	die "loginctl could not list the sessions or read one of them, so whether a session is on VT $vt is unknown"
 if [ -n "$on_vt" ]; then
 	s=${on_vt%% *}
@@ -573,7 +556,7 @@ if [ -n "$login" ]; then
 	while running; do
 		sleep 1 &
 		wait $! || true
-		if ! now=$(vt_sessions); then
+		if ! now=$(vt_sessions "$loginctl" "$vt"); then
 			failed=$((failed + 1))
 			[ "$failed" -ne 10 ] ||
 				echo "run-vt: loginctl failed 10 polls in a row; until it answers, a logout does not end the run (Ctrl-C here does)" >&2

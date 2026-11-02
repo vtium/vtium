@@ -14,7 +14,8 @@ X86_TARGET := x86_64-unknown-linux-gnu
 # targets build first; another binary is run as it is.
 VTIUM_MINSPEC := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/minspec/vtium
 VT_GOALS := vt-demo vt-login vt-check vt-shell
-ifneq ($(filter $(VT_GOALS),$(MAKECMDGOALS)),)
+VT_INSTALL_GOALS := vt-install vt-uninstall
+ifneq ($(filter $(VT_GOALS) $(VT_INSTALL_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(filter environment%,$(origin VTIUM_BIN)),)
 $(error VTIUM_BIN is set in the environment; the vt targets run it as root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_BIN=PATH)
 endif
@@ -220,6 +221,22 @@ vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
 vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
 	tools/vt/vt.sh
+
+# vtium as the console of one VT, across reboots (docs/vt-review.md,
+# "Installing vtium on a VT"): VT=N names it, and DRY_RUN=1 prints the units
+# and every command without running any. Their variables reach
+# tools/vt/vt-install.sh through the environment, never as recipe text.
+$(VT_INSTALL_GOALS): export VTIUM_VT_BIN = $(value VTIUM_BIN)
+$(VT_INSTALL_GOALS): export VTIUM_VT_NR = $(value VT)
+$(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
+
+.PHONY: vt-install
+vt-install: $(vt_build) ## Install vtium on VT N in place of its getty, started at every boot (VT=N, DRY_RUN=1)
+	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh install "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh install --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
+
+.PHONY: vt-uninstall
+vt-uninstall: ## Undo make vt-install on VT N: its getty back, the files it wrote removed (VT=N, DRY_RUN=1)
+	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 # Tier 2 against vtium's goldens and the C reference's, copied into
 # tools/tier2/reference (provenance.tsv).
