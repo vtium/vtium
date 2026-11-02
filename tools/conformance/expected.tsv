@@ -50,3 +50,4 @@ screen	img-resize-shrink	departure	INTERFACE.md	In the screen view the C referen
 *	six-replies	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
 *	six-off	departure	crates/vtium-term/README.md	DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`.
 frame	query-frames	departure	crates/vtium-term/README.md	`query-frames`: columns a widening resize adds are blank in the default style.
+*	cursor-motion	departure	crates/vtium-term/README.md	SCOSC and SCORC save and restore the cursor as DECSC and DECRC do.
