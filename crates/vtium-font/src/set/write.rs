@@ -489,11 +489,12 @@ fn inks(order: &[&RawStrike], laid: &[Laid]) -> Result<Option<(Vec<u8>, usize)>,
 }
 
 /// Refuses a set whose `GLYF`, `CLUS` and `INKX` chunks, `counts`,
-/// together pass `SET_CHUNKS_MAX`, which the reader holds the whole set to.
-fn chunks_within(counts: &[usize]) -> Result<(), WriteError> {
+/// together pass `max`, `SET_CHUNKS_MAX` in a set [`encode`] writes, which
+/// the reader holds the whole set to.
+fn chunks_within(counts: &[usize], max: u32) -> Result<(), WriteError> {
     let total = counts.iter().try_fold(0usize, |n, &c| n.checked_add(c));
     match total {
-        Some(n) if u32_of(n)? <= SET_CHUNKS_MAX => Ok(()),
+        Some(n) if u32_of(n)? <= max => Ok(()),
         _ => Err("more chunks over GLYF, CLUS and INKX than SET_CHUNKS_MAX"),
     }
 }
@@ -512,6 +513,13 @@ fn put64(out: &mut Vec<u8>, v: u64) {
 
 /// The set's bytes.
 pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
+    encode_within(set, SET_CHUNKS_MAX)
+}
+
+/// [`encode`], the set's chunks over `GLYF`, `CLUS` and `INKX` together
+/// held to `chunks_max`. Only a test asks for a bound under
+/// `SET_CHUNKS_MAX`: a set past that bound holds over 2 GiB of glyphs.
+fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
     let mut meta = String::new();
     for (key, value) in &set.meta {
         if key.is_empty() || key.contains(['=', '\n', '\r']) || value.contains(['\n', '\r']) {
@@ -628,20 +636,20 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
     for (s, l) in order.iter().zip(&laid) {
         all.extend(chunks(&l.stream, s.compress)?.0);
     }
-    if u32_of(all.len())? > SET_CHUNKS_MAX {
-        return Err("more chunks than SET_CHUNKS_MAX");
-    }
     let mut glyf = Vec::new();
     put32(&mut glyf, u32_of(all.len())?);
     put32(&mut glyf, CHUNK_RECORD);
     put_chunks(&mut glyf, &all)?;
     let clus = clusters(&order)?;
     let inkx = inks(&order, &laid)?;
-    chunks_within(&[
-        all.len(),
-        clus.as_ref().map_or(0, |c| c.1),
-        inkx.as_ref().map_or(0, |c| c.1),
-    ])?;
+    chunks_within(
+        &[
+            all.len(),
+            clus.as_ref().map_or(0, |c| c.1),
+            inkx.as_ref().map_or(0, |c| c.1),
+        ],
+        chunks_max,
+    )?;
 
     let mut sections: Vec<([u8; 4], &[u8])> = vec![
         (META, meta.as_bytes()),
@@ -682,23 +690,78 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
 
 #[cfg(test)]
 mod tests {
-    use super::chunks_within;
+    use super::{RawInk, RawSet, RawStrike, chunks_within, encode, encode_within};
     use crate::bounds::SET_CHUNKS_MAX;
+    use crate::set::format::FORMAT_R8;
 
     // the writer holds the set's chunks over its three chunked sections to
     // SET_CHUNKS_MAX, as the reader does (review finding A11)
     #[test]
     fn the_chunks_of_all_sections_together_are_bounded() {
         let max = SET_CHUNKS_MAX as usize;
-        assert!(chunks_within(&[max - 2, 1, 1]).is_ok());
+        assert!(chunks_within(&[max - 2, 1, 1], SET_CHUNKS_MAX).is_ok());
         assert!(
-            chunks_within(&[max - 2, 1, 2]).is_err(),
+            chunks_within(&[max - 2, 1, 2], SET_CHUNKS_MAX).is_err(),
             "INKX past the bound"
         );
-        assert!(chunks_within(&[max, 0, 0]).is_ok());
+        assert!(chunks_within(&[max, 0, 0], SET_CHUNKS_MAX).is_ok());
         assert!(
-            chunks_within(&[usize::MAX, 1, 0]).is_err(),
+            chunks_within(&[usize::MAX, 1, 0], SET_CHUNKS_MAX).is_err(),
             "a count past usize"
+        );
+    }
+
+    /// One R8 strike in a cell 90 pixels wide and 100 high, its glyphs
+    /// 9,000 bytes each, so no two share a 16 KiB chunk: `a`, `b` and `c`
+    /// in three `GLYF` chunks, a cluster drawing `a`'s glyph in one `CLUS`
+    /// chunk, and `b`'s ink box, 100 columns from 10 left of its cell, in
+    /// one `INKX` chunk: five chunks in all.
+    fn five_chunks() -> RawSet {
+        let glyph = |v: u8| (false, vec![v; 90 * 100]);
+        RawSet {
+            meta: Vec::new(),
+            policy: [0; 6],
+            strikes: vec![RawStrike {
+                style: 0,
+                format: FORMAT_R8,
+                cell_width: 90,
+                cell_height: 100,
+                baseline: 80,
+                underline: 90,
+                underline_thickness: 1,
+                strike: 50,
+                strike_thickness: 1,
+                compress: false,
+                glyphs: vec![glyph(1), glyph(2), glyph(3)],
+                map: vec![(0x61, 0), (0x62, 1), (0x63, 2)],
+                clusters: vec![(vec![0x65, 0x301], 0)],
+                inks: vec![(
+                    1,
+                    RawInk {
+                        left: -10,
+                        width: 100,
+                        bytes: vec![2; 100 * 100],
+                    },
+                )],
+            }],
+        }
+    }
+
+    // encode refuses a set whose GLYF, CLUS and INKX chunks together pass
+    // the chunk bound, though GLYF's alone are within it (ADR-1200 D2:
+    // every count is bounded): with the bound at 4, the five chunks are
+    // refused, and with it at 5 they are written. A set past
+    // SET_CHUNKS_MAX itself would hold over 2 GiB of glyphs, so the test
+    // lowers the bound
+    #[test]
+    fn encode_refuses_a_set_whose_sections_together_pass_the_chunk_bound() {
+        let set = five_chunks();
+        assert!(encode(&set).is_ok(), "within SET_CHUNKS_MAX");
+        assert!(encode_within(&set, 5).is_ok(), "five chunks, a bound of 5");
+        assert_eq!(
+            encode_within(&set, 4).err(),
+            Some("more chunks over GLYF, CLUS and INKX than SET_CHUNKS_MAX"),
+            "five chunks, a bound of 4"
         );
     }
 }
