@@ -169,6 +169,10 @@ basis:
     said: "Keep the console: source: the console, which opens the VT as root already, reads the kernel's font once at start (the kernel returns a plain bitmap) and hands the bytes to the helper, which parses them unprivileged. compress= dropped stands."
     via: the team lead's message of 2026-10-28, relaying the operator's answer to the draft ADR-1201's probe on the kernel's font, folded into this record; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    level: directed
+    said: "doesn't look as heavy handed and probably correct"
+    via: "the maintainer in the steering session, 2026-11-02, relayed by the team lead, on light hinting, after looking at the before and after cards of the helper's hinting work; it stands beside the light-by-default decision of 2026-11-01"
   - evidence: "the work that replaces the prerendered store with deferred rendering, Phase 1's measurements (feat/deferred at d075494), accepted by the operator on 2026-10-28: from vtium's start to the helper's first ask 51-55 ms in the tier 3 guest (1 vCPU, 512 MB); first batch 6-18 ms and whole coverage 29-39 ms for DejaVu Sans Mono there, 31-43 ms and 265-276 ms for WenQuanYi Micro Hei; the helper's peak 5.8 MB and 13.8 MB; on the development machine 2 ms and 16-23 ms with a 12 MB peak for DejaVu Sans Mono, 50-61 ms and 409-537 ms with a 43 MB peak for Noto Sans CJK; the first frame drawn in the built-in font 60 ms after start; the console's resident memory from 5.6 MiB to 6.1 MiB with DejaVu's glyphs"
   - upstream: "aaronsb/kmscon b1f7a7c5 and aaronsb/libtsm eeaf293, the C reference's font load, automatic size, resize and zoom, cluster table, glyph cache and damage, each cited by file and line in this record's C notes"
   - precedent: ADR-1301
