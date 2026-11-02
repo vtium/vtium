@@ -225,11 +225,7 @@ fn picture(
 /// the picture needs, and fewer available is `TOO_SHORT` before anything
 /// is read; a decode or an inflate reads all the bounds allow, and more
 /// than `max_bytes` is `OVER_BUDGET` before it is read.
-pub fn read_bounded(
-    request: &Request,
-    file: impl AsFd,
-    size: u64,
-) -> Result<(Vec<u8>, u64), Failure> {
+fn read_bounded(request: &Request, file: impl AsFd, size: u64) -> Result<(Vec<u8>, u64), Failure> {
     let named = !matches!(request.medium, Medium::Direct(_));
     let offset = if named { request.offset } else { 0 };
     if named && offset >= size {

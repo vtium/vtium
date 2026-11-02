@@ -75,12 +75,14 @@ pub fn lock_in() -> Result<bool, String> {
 /// Proof that the calling worker has locked itself in, which only [`lock`]
 /// makes. [`job::finish`], which carries out a request once its source is
 /// open, the inflater and each decoder take `&Locked`, so a worker that
-/// inflates or decodes before its lock does not compile. The token covers
-/// what `job::finish` calls without one too: the bounded read of the
-/// source and vtium-image's conversion of raw pixels, which the console
-/// links as well and so cannot take a token of the helper's. Both run only
-/// inside `job::finish` and the decoders, after the lock. Tests and fuzz
-/// targets, which decode in-process with no sandbox, make one with
+/// inflates or decodes before its lock does not compile. Two steps that
+/// read a program's bytes take no token, and run after the lock all the
+/// same: the bounded read of the source, which is private to `job` and
+/// called only from `job::finish`; and vtium-image's conversion of raw
+/// pixels into the store's format, which the console links too and so
+/// cannot take a token of the helper's, and which the helper calls only
+/// from `job::finish` and the decoders. Tests and fuzz targets, which
+/// decode in-process with no sandbox, make a token with
 /// `Locked::unsandboxed`, which only their builds have.
 ///
 /// [`job::finish`]: crate::job::finish
