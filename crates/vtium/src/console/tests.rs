@@ -825,12 +825,13 @@ fn enable_refuses_a_vt_the_c_references_console_holds() {
 
 #[test]
 fn kmscon_on_one_vt_beside_vtiums_template_keeps_it() {
-    // The README's steps: vtium holds the template, then
-    // systemctl enable kmsconvt@tty3 links that VT's own alias (measured).
-    let mut m = Machine::gettys("kmscon-beside");
+    // The README's steps: vtium holds the template, VT 3's getty is
+    // disabled, and a hand-made autovt@tty3.service links to kmscon, which
+    // systemctl is-enabled reads as disabled (measured). vtium reads the
+    // link itself.
+    let mut m = Machine::new("kmscon-beside");
     assert_eq!(m.console(&["enable", "--all"]).0, 0);
     m.link("autovt@tty3.service", "kmsconvt");
-    m.link("getty.target.wants/kmsconvt@tty3.service", "kmsconvt");
     let (status, _, err) = m.console(&["enable", "3"]);
     assert_eq!(status, 1);
     assert!(err.contains("kmsconvt@tty3.service, holds VT 3"), "{err}");
@@ -843,13 +844,12 @@ fn kmscon_on_one_vt_beside_vtiums_template_keeps_it() {
     let (_, out, _) = m.console(&["status"]);
     assert!(
         out.lines()
-            .any(|l| l.starts_with("3 ") && l.matches("kmsconvt@tty3").count() == 2),
+            .any(|l| l.split_whitespace().collect::<Vec<_>>() == ["3", "-", "kmsconvt@tty3", "-"]),
         "{out}"
     );
     // disable --all leaves kmscon's VT as it is.
     assert_eq!(m.console(&["disable", "--all"]).0, 0);
     assert_eq!(m.links("autovt@tty3.service"), to("kmsconvt"));
-    assert!(m.wanted("kmsconvt@tty3.service"));
 }
 
 #[test]

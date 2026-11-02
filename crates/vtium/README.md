@@ -65,27 +65,40 @@ sudo vtium console disable --all          # every VT goes back as vtium console 
 
 ### Sharing VTs with kmscon
 
-kmscon, the C reference's console, and vtium can run on the same machine, each on VTs of its own. When you switch to a VT that nothing runs on, logind starts the unit `autovt@ttyN.service` there. A VT can have a link of its own by that name, made by enabling one console on that VT, and systemd uses it first. Every other VT falls back to the one template link, `autovt@.service`, and whichever console that link names gets all of those VTs: vtium after `sudo vtium console enable --all`, or kmscon after kmscon's own `systemctl enable kmsconvt@`.
+kmscon, the C reference's console, and vtium can run on one machine, each on VTs of its own. When you switch to a VT that no console runs on, logind starts the unit `autovt@ttyN.service` there, N being the VT's number. systemd looks first for a link of that exact name, `/etc/systemd/system/autovt@ttyN.service`, which gives one VT a console of its own. Every VT without one falls back to the single template link, `/etc/systemd/system/autovt@.service`, so whichever console that link names gets all of those VTs: vtium after `sudo vtium console enable --all`, or kmscon after kmscon's own `sudo systemctl enable kmsconvt@`.
 
-When vtium holds the template link and you want kmscon on one VT, enable kmscon on that VT alone:
+**vtium holds the template link, and you want kmscon on one VT.** Give that VT a link of its own to kmscon. For VT 3:
 
 ```sh
-sudo systemctl enable --now kmsconvt@tty3.service   # kmscon on VT 3; --now starts it, which ends every session on VT 3
+sudo systemctl disable getty@tty3.service    # only where VT 3's getty is enabled at boot
+sudo ln -s /usr/lib/systemd/system/kmsconvt@.service /etc/systemd/system/autovt@tty3.service
+sudo systemctl daemon-reload
 ```
 
-Enabling one VT's instance also makes that VT's own link, `autovt@tty3.service`, which systemd finds before the template, so logind starts kmscon on VT 3 from then on. `vtium console` leaves that VT alone: `enable 3` refuses it, `enable --all` names it and passes it by, and `disable` never touches it. Do not run kmscon's own `systemctl enable kmsconvt@` in this state. It fails on vtium's template link, and it still enables kmscon at boot on VT 1, beside vtium there.
+Nothing starts kmscon at boot or at once. logind starts it the next time you switch to VT 3 while no console runs there. `vtium console` sees the link and leaves VT 3 to kmscon: `enable 3` refuses it, `enable --all` names it and passes it by, and `disable` never touches it. The way back:
 
-When kmscon holds the template link, as on a machine that ran only kmscon until now, `sudo vtium console enable N` gives vtium one VT at a time, and `sudo vtium console enable --all` refuses until kmscon lets go of the template.
+```sh
+sudo systemctl stop kmsconvt@tty3.service    # ends every session on VT 3
+sudo rm /etc/systemd/system/autovt@tty3.service
+sudo systemctl daemon-reload
+sudo systemctl add-wants getty.target getty@tty3.service    # only if you disabled VT 3's getty above
+```
 
-To move from kmscon to vtium entirely:
+Use `add-wants` rather than `systemctl enable getty@tty3.service` there. `enable` also links `autovt@tty3.service` to the getty, and `vtium console enable 3` then refuses VT 3 until that link is gone.
+
+`sudo systemctl enable --now kmsconvt@tty3.service` makes the same link and also starts kmscon on VT 3 at boot and at once. These steps avoid it on purpose: two consoles starting at boot both open the display card, and the second cannot draw while the first holds it. Do not run kmscon's own `systemctl enable kmsconvt@` while vtium holds the template link either. It fails on that link, and it still enables kmscon at boot on VT 1, beside vtium there.
+
+**kmscon holds the template link**, as on a machine that ran only kmscon until now. `sudo vtium console enable N` gives vtium one VT at a time, and `sudo vtium console enable --all` refuses until kmscon lets go of the template.
+
+**Moving from kmscon to vtium entirely:**
 
 ```sh
 sudo systemctl disable kmsconvt@.service   # removes the template link and every VT's kmscon link
-sudo vtium console enable --all            # every VT is vtium's from its next start
+sudo vtium console enable --all            # every VT is vtium's from its next start; it prints the command that starts vtium on VT 1 now
 sudo pacman -R kmscon                      # if you want: removes kmscon itself
 ```
 
-`pacman -R kmscon` leaves the `kmscon-terminfo` package, which holds the terminfo entry named `kmscon`. vtium sets `TERM=xterm-vtium`, whose entry the `vtium-terminfo` package installs, so the console needs no `kmscon` entry. Keep `kmscon-terminfo` while anything runs with `TERM=kmscon`: a vtium started with `--term=kmscon`, and `make vt-login` on a machine without the `xterm-vtium` entry, which then runs vtium with `--term=kmscon`. Once nothing does, you may remove it with `sudo pacman -R kmscon-terminfo`.
+`pacman -R kmscon` leaves the `kmscon-terminfo` package, which holds the terminfo entry named `kmscon`. vtium sets `TERM=xterm-vtium`, whose entry the `vtium-terminfo` package installs, so vtium itself needs no `kmscon` entry. Keep `kmscon-terminfo` while anything still uses `TERM=kmscon`: a vtium run with `--term=kmscon` or `term=kmscon` in its configuration, `make vt-login` on a machine without the `xterm-vtium` entry, which then runs vtium with `--term=kmscon`, and an ssh login to this machine from a kmscon console elsewhere, which arrives with `TERM=kmscon`. Once nothing does, you may remove it with `sudo pacman -R kmscon-terminfo`.
 
 ### ssh from vtium
 
