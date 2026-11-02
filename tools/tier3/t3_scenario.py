@@ -514,7 +514,7 @@ def build_disc(variant, work, impl):
     os.makedirs(disc)
     shutil.copy(impl["tar"], os.path.join(disc, "tree.tar"))
     shutil.copy(os.path.join(GUEST, VARIANTS[variant]["conf"]),
-                os.path.join(disc, "kmscon.conf"))
+                os.path.join(disc, "vtium.conf"))
     shutil.copytree(os.path.join(GUEST, "screens"), os.path.join(disc, "screens"))
     shutil.copy(os.path.join(GUEST, "t3"), disc)
     if VARIANTS[variant].get("guest") == "sysvinit":

@@ -30,7 +30,7 @@
 # enabling vtium-dev@ttyN adds the per-VT alias autovt@ttyN.service ->
 # vtium-dev@.service, so that logind, which starts autovt@ttyN on a VT
 # nothing holds, starts vtium there and never the C reference's console
-# beside it. Neither command touches /etc/kmscon/kmscon.conf, which vtium
+# beside it. Neither command touches /etc/vtium/vtium.conf, which vtium
 # reads.
 #
 # Each command that changes anything runs through sudo and is printed first.

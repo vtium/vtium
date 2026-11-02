@@ -1,6 +1,6 @@
 //! What a check of the head file finds beyond its errors, from what
 //! survives of it (ADR-1401 D3, D5, D7, D9, D10): the warnings that need
-//! kmscon.conf's caps and the frits installed, and the remarks about what
+//! vtium.conf's caps and the frits installed, and the remarks about what
 //! runs on the devices present. `vtium check-config` reports them, and
 //! the start can log the same.
 
@@ -13,7 +13,7 @@ use crate::outcome::Policy;
 use crate::parse::Parsed;
 use crate::place::{By, Place};
 
-/// What the warnings are measured against: kmscon.conf's
+/// What the warnings are measured against: vtium.conf's
 /// `head-consoles-max` and `consoles-max`, and the frits installed.
 pub struct Against<'a> {
     pub head_cap: u32,
@@ -24,7 +24,7 @@ pub struct Against<'a> {
     pub has_frit: &'a dyn Fn(&str) -> bool,
 }
 
-/// The warnings of `parsed` and those measured `against` kmscon.conf and
+/// The warnings of `parsed` and those measured `against` vtium.conf and
 /// the frits, by line: a head's `consoles` past its cap or past the total
 /// (D10), and a profile naming a missing frit (D7). A head past its cap
 /// takes one warning, the cap's, in place of the parser's warning past

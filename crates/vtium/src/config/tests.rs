@@ -18,7 +18,7 @@ fn load_with(args: &[&str], seat: Option<&str>, files: &[(&str, &[u8])]) -> Load
 
 /// The main file alone.
 fn main_file(text: &str) -> Loaded {
-    load_with(&[], None, &[("/etc/kmscon/kmscon.conf", text.as_bytes())])
+    load_with(&[], None, &[("/etc/vtium/vtium.conf", text.as_bytes())])
 }
 
 fn problems(l: &Loaded) -> Vec<&Problem> {
@@ -27,13 +27,13 @@ fn problems(l: &Loaded) -> Vec<&Problem> {
 
 fn line(n: usize) -> Origin {
     Origin::File {
-        path: "/etc/kmscon/kmscon.conf".into(),
+        path: "/etc/vtium/vtium.conf".into(),
         line: n,
     }
 }
 
 // The five guest configurations of tier 3, read from tools/tier3/guest/,
-// which installs each as /etc/kmscon/kmscon.conf.
+// which installs each as /etc/vtium/vtium.conf.
 const TIER3_2D: &str = include_str!("../../../../tools/tier3/guest/kmscon.conf");
 const TIER3_FONT32: &str = include_str!("../../../../tools/tier3/guest/kmscon-font32.conf");
 const TIER3_GL: &str = include_str!("../../../../tools/tier3/guest/kmscon-gl.conf");
@@ -103,7 +103,7 @@ fn tier3_command_lines() {
             "/bin/bash",
         ],
         None,
-        &[("/review/config/kmscon.conf", b"font-size=24\n")],
+        &[("/review/config/vtium.conf", b"font-size=24\n")],
     );
     assert_eq!(l.reports, []);
     let c = &l.config;
@@ -127,7 +127,7 @@ fn tier3_command_lines() {
 #[test]
 fn defaults() {
     let c = Config::default();
-    assert_eq!(c.text(&CONFIGDIR), Some("/etc/kmscon"));
+    assert_eq!(c.text(&CONFIGDIR), Some("/etc/vtium"));
     assert_eq!(c.text(&TERM), Some("xterm-vtium"));
     assert_eq!(c.number(&SB_SIZE), Some(1000));
     assert_eq!(c.number(&SB_SIZE_CAP), None);
@@ -161,13 +161,10 @@ fn command_line_wins_over_the_seat_file_over_the_main_file() {
         Some("seat0"),
         &[
             (
-                "/etc/kmscon/kmscon.conf",
+                "/etc/vtium/vtium.conf",
                 b"sb-size=100\nfont-size=12\nterm=xterm\n",
             ),
-            (
-                "/etc/kmscon/seat0.seat.conf",
-                b"sb-size=200\nfont-size=14\n",
-            ),
+            ("/etc/vtium/seat0.seat.conf", b"sb-size=200\nfont-size=14\n"),
         ],
     );
     assert_eq!(l.reports, []);
@@ -183,6 +180,28 @@ fn command_line_wins_over_the_seat_file_over_the_main_file() {
     );
 }
 
+// ADR-1500 D4: with no `--configdir`, vtium reads `/etc/vtium/vtium.conf`
+// and the seat's file beside it, and never opens the C reference's
+// `/etc/kmscon`, even where a file is there.
+#[test]
+fn the_files_are_read_from_etc_vtium_and_never_from_etc_kmscon() {
+    let mut read = Vec::new();
+    let l = load(&[], Some("seat0"), &mut |p: &Path| {
+        read.push(p.to_owned());
+        Ok(p.starts_with("/etc/kmscon")
+            .then(|| b"sb-size=7\n".to_vec()))
+    });
+    assert_eq!(
+        read,
+        [
+            PathBuf::from("/etc/vtium/vtium.conf"),
+            PathBuf::from("/etc/vtium/seat0.seat.conf")
+        ]
+    );
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.number(&SB_SIZE), Some(1000));
+}
+
 #[test]
 fn configdir_names_the_files_read() {
     let mut read = Vec::new();
@@ -194,7 +213,7 @@ fn configdir_names_the_files_read() {
     assert_eq!(
         read,
         [
-            PathBuf::from("/x/kmscon.conf"),
+            PathBuf::from("/x/vtium.conf"),
             PathBuf::from("/x/seat1.seat.conf")
         ]
     );
@@ -203,7 +222,7 @@ fn configdir_names_the_files_read() {
     // It cannot be set from a file.
     let l = main_file("configdir=/z\n");
     assert_eq!(problems(&l), [&Problem::CommandLineOnly("configdir")]);
-    assert_eq!(l.config.text(&CONFIGDIR), Some("/etc/kmscon"));
+    assert_eq!(l.config.text(&CONFIGDIR), Some("/etc/vtium"));
 }
 
 #[test]
@@ -217,7 +236,7 @@ fn a_seat_name_that_names_no_file_is_not_read() {
             read.push(p.to_owned());
             Ok(None)
         });
-        assert_eq!(read, [PathBuf::from("/etc/kmscon/kmscon.conf")], "{seat}");
+        assert_eq!(read, [PathBuf::from("/etc/vtium/vtium.conf")], "{seat}");
         assert_eq!(problems(&l), [&Problem::BadSeatName(seat.to_owned())]);
     }
     for seat in ["seat0", "seat_1-a", &long[1..]] {
@@ -229,7 +248,7 @@ fn a_seat_name_that_names_no_file_is_not_read() {
         assert_eq!(l.reports, [], "{seat}");
         assert_eq!(
             read.get(1),
-            Some(&PathBuf::from(format!("/etc/kmscon/{seat}.seat.conf")))
+            Some(&PathBuf::from(format!("/etc/vtium/{seat}.seat.conf")))
         );
     }
 }
@@ -240,8 +259,8 @@ fn an_unknown_key_is_reported_once() {
         &["--frobnicate", "--frobnicate"],
         Some("seat0"),
         &[
-            ("/etc/kmscon/kmscon.conf", b"frob=1\nfrob=2\nwarble\n"),
-            ("/etc/kmscon/seat0.seat.conf", b"frob=3\n"),
+            ("/etc/vtium/vtium.conf", b"frob=1\nfrob=2\nwarble\n"),
+            ("/etc/vtium/seat0.seat.conf", b"frob=3\n"),
         ],
     );
     assert_eq!(
@@ -368,7 +387,7 @@ fn a_value_that_cannot_be_read_keeps_the_one_before() {
         &["--font-size=-3", "--render-timer=loud"],
         None,
         &[(
-            "/etc/kmscon/kmscon.conf",
+            "/etc/vtium/vtium.conf",
             b"font-size=12\nfont-size=12px\nfont-size=\nrender-timer=osd\n",
         )],
     );
@@ -535,13 +554,13 @@ fn files_are_bounded() {
         .into_bytes();
     assert_eq!(big.len(), FILE_MAX);
     big.extend_from_slice(b"hwaccel\n");
-    let l = load_with(&[], None, &[("/etc/kmscon/kmscon.conf", &big)]);
+    let l = load_with(&[], None, &[("/etc/vtium/vtium.conf", &big)]);
     assert!(!l.config.switch(&HWACCEL));
     assert_eq!(problems(&l), [&Problem::FileTooLong]);
 
     let mut text = format!("#{}\n", "x".repeat(LINE_MAX)).into_bytes();
     text.extend_from_slice(b"sb-size=7\0\nterm=\xff\n=3\nsb-size=8\n");
-    let l = load_with(&[], None, &[("/etc/kmscon/kmscon.conf", &text)]);
+    let l = load_with(&[], None, &[("/etc/vtium/vtium.conf", &text)]);
     assert_eq!(l.config.number(&SB_SIZE), Some(8));
     assert_eq!(
         problems(&l),
@@ -587,8 +606,8 @@ fn reports_read_as_lines() {
     assert_eq!(
         text,
         [
-            "/etc/kmscon/kmscon.conf:1: font-size=\"9999\" is out of bounds, 2048 used",
-            "/etc/kmscon/kmscon.conf:2: sb-size=\"x\\u{7}y\" is not a whole number, ignored",
+            "/etc/vtium/vtium.conf:1: font-size=\"9999\" is out of bounds, 2048 used",
+            "/etc/vtium/vtium.conf:2: sb-size=\"x\\u{7}y\" is not a whole number, ignored",
         ]
     );
 }
@@ -644,7 +663,7 @@ fn a_palette_vtium_does_not_hold_is_reported_and_leaves_the_value_below() {
     let l = load_with(
         &["--palette=Nord"],
         None,
-        &[("/etc/kmscon/kmscon.conf", b"palette=vga\n")],
+        &[("/etc/vtium/vtium.conf", b"palette=vga\n")],
     );
     assert_eq!(l.reports.len(), 1);
     assert_eq!(Some(l.config.palette()), vtium_term::Palette::named("vga"));
@@ -758,11 +777,11 @@ fn mode_lines_add_up_and_the_command_line_replaces_them() {
         Some("seat0"),
         &[
             (
-                "/etc/kmscon/kmscon.conf",
+                "/etc/vtium/vtium.conf",
                 b"mode=1920x1080\nmode=[HDMI-A-1]3840x2160@60\n",
             ),
             (
-                "/etc/kmscon/seat0.seat.conf",
+                "/etc/vtium/seat0.seat.conf",
                 b"mode=pci-0000:00:02.0[eDP-1]1366x768\n",
             ),
         ],
@@ -779,7 +798,7 @@ fn mode_lines_add_up_and_the_command_line_replaces_them() {
     let l = load_with(
         &["--mode=800x600", "--mode", "[DP-1]1024x768@75"],
         None,
-        &[("/etc/kmscon/kmscon.conf", b"mode=1920x1080\n")],
+        &[("/etc/vtium/vtium.conf", b"mode=1920x1080\n")],
     );
     assert_eq!(
         l.config.modes(&MODE),
@@ -861,7 +880,7 @@ fn the_power_keys_are_unbound_until_set() {
         &["--grab-suspend=<Logo>s"],
         None,
         &[(
-            "/etc/kmscon/kmscon.conf",
+            "/etc/vtium/vtium.conf",
             b"grab-reboot=<Ctrl><Alt>Delete\ngrab-power-off=<Ctrl><Alt>End,<Logo>p\ngrab-suspend=<Logo>z\n",
         )],
     );
@@ -881,10 +900,7 @@ fn the_power_keys_are_unbound_until_set() {
     let l = load_with(
         &["--grab-reboot="],
         None,
-        &[(
-            "/etc/kmscon/kmscon.conf",
-            b"grab-reboot=<Ctrl><Alt>Delete\n",
-        )],
+        &[("/etc/vtium/vtium.conf", b"grab-reboot=<Ctrl><Alt>Delete\n")],
     );
     assert_eq!(l.reports, []);
     assert_eq!(l.config.chords(&GRAB_REBOOT), []);
@@ -904,10 +920,7 @@ fn a_chord_that_does_not_read_is_reported_and_leaves_the_value_below() {
     let l = load_with(
         &["--grab-reboot=<Ctrl><Alt>delete"],
         None,
-        &[(
-            "/etc/kmscon/kmscon.conf",
-            b"grab-reboot=<Ctrl><Alt>Delete\n",
-        )],
+        &[("/etc/vtium/vtium.conf", b"grab-reboot=<Ctrl><Alt>Delete\n")],
     );
     assert_eq!(
         problems(&l),
@@ -937,7 +950,7 @@ fn a_chord_that_does_not_read_is_reported_and_leaves_the_value_below() {
 fn only_a_regular_file_is_read() {
     let dir = std::env::temp_dir().join(format!("vtium-notafile-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a directory");
-    let fifo = dir.join("kmscon.conf");
+    let fifo = dir.join("vtium.conf");
     let made = std::process::Command::new("mkfifo")
         .arg(&fifo)
         .status()
@@ -1098,7 +1111,7 @@ fn blink_text_and_blink_decorations_take_their_values() {
         &["--blink-text=off"],
         None,
         &[(
-            "/etc/kmscon/kmscon.conf",
+            "/etc/vtium/vtium.conf",
             b"blink-text=partial\nblink-decorations\n",
         )],
     );
@@ -1352,14 +1365,14 @@ fn display_buffers_takes_one_two_or_three() {
             .first()
             .map(ToString::to_string)
             .as_deref(),
-        Some("/etc/kmscon/kmscon.conf:1: display-buffers=\"4\" is none of 1, 2, 3, ignored")
+        Some("/etc/vtium/vtium.conf:1: display-buffers=\"4\" is none of 1, 2, 3, ignored")
     );
     // The command line wins over the file, in either form of the option.
     for args in [&["--display-buffers=1"][..], &["--display-buffers", "1"]] {
         let l = load_with(
             args,
             None,
-            &[("/etc/kmscon/kmscon.conf", b"display-buffers=3\n")],
+            &[("/etc/vtium/vtium.conf", b"display-buffers=3\n")],
         );
         assert_eq!(l.config.display_buffers(), Some(1), "{args:?}");
         assert_eq!(l.reports, [], "{args:?}");
@@ -1367,7 +1380,7 @@ fn display_buffers_takes_one_two_or_three() {
     let l = load_with(
         &["--display-buffers=5"],
         None,
-        &[("/etc/kmscon/kmscon.conf", b"display-buffers=3\n")],
+        &[("/etc/vtium/vtium.conf", b"display-buffers=3\n")],
     );
     assert_eq!(l.config.display_buffers(), Some(3), "the file's value kept");
     assert_eq!(l.reports.len(), 1);
@@ -1400,7 +1413,7 @@ fn font_hinting_takes_light_or_full() {
         let l = load_with(
             args,
             None,
-            &[("/etc/kmscon/kmscon.conf", b"font-hinting=full\n")],
+            &[("/etc/vtium/vtium.conf", b"font-hinting=full\n")],
         );
         assert_eq!(l.config.font_hinting(), Some(Hinting::Light), "{args:?}");
         assert_eq!(l.reports, [], "{args:?}");
@@ -1451,7 +1464,7 @@ fn font_line_spacing_is_a_percentage_from_0_to_100() {
         let l = load_with(
             args,
             None,
-            &[("/etc/kmscon/kmscon.conf", b"font-line-spacing=40\n")],
+            &[("/etc/vtium/vtium.conf", b"font-line-spacing=40\n")],
         );
         assert_eq!(l.config.font_line_spacing(), Some(0), "{args:?}");
         assert_eq!(l.reports, [], "{args:?}");

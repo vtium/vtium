@@ -400,7 +400,7 @@ PSF fonts were bounded against crafted files (65535 glyphs, 32 by 256 pixels, 16
 - The cache key is the cluster's codepoints with bold, italic and width, where the C reference's key was the frame's generation-tagged cluster key. It matches what ADR-102 said and what ADR-1001's renumbered indices need. <!-- adr-cite-ignore: kmscon's records -->
 - Bitmap glyphs are stored at scale 1 and scaled while drawing, and masks of only 0 and 255 are stored at 1 bit; the C reference cached every glyph at its drawn size, rotated.
 - A full cache draws the glyph uncached; gltex drew blank.
-- Two cache profiles, minspec and performance, chosen by a new `kmscon.conf` key; the C reference had one size per renderer.
+- Two cache profiles, minspec and performance, chosen by a new key in `vtium.conf`; the C reference had one size per renderer.
 
 ## 9. Images
 

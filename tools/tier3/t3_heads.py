@@ -695,7 +695,7 @@ def check_kiosk(variant, vm, work, caps, errors, log):
 
 
 def display_wait(variant):
-    """The display-wait in seconds `variant`'s kmscon.conf sets."""
+    """The display-wait in seconds `variant`'s configuration sets."""
     with open(os.path.join(GUEST, variant["conf"])) as f:
         m = re.search(r"^display-wait=(\d+)$", f.read(), re.M)
     if not m:

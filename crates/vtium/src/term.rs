@@ -229,7 +229,7 @@ pub struct OverlayColors {
 }
 
 impl OverlayColors {
-    /// The colors kmscon.conf's six color keys set, each unset key at its
+    /// The colors vtium.conf's six color keys set, each unset key at its
     /// default, which is the color vtium draws with none set.
     pub fn configured(config: &Config) -> OverlayColors {
         let [notice, osd] =

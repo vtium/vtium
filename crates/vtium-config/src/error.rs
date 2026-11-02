@@ -364,9 +364,9 @@ pub enum Warning {
     /// device it matches.
     Shadowed { line: usize, by: usize },
     /// The head whose `consoles` is on `line` asks for more consoles than
-    /// `cap`, kmscon.conf's `head-consoles-max`, and gets the cap (D10).
+    /// `cap`, vtium.conf's `head-consoles-max`, and gets the cap (D10).
     PastHeadCap { line: usize, head: Quoted, cap: u32 },
-    /// The heads together ask for more consoles than `total`, kmscon.conf's
+    /// The heads together ask for more consoles than `total`, vtium.conf's
     /// `consoles-max`, so the head whose `consoles` is on `line` gets
     /// `gets` (D10).
     PastTotal {
@@ -493,7 +493,7 @@ impl fmt::Display for Shown<'_> {
 }
 
 /// A finding located in a file: `PATH:LINE: WHAT`, or `PATH: WHAT` for the
-/// file as a whole, as kmscon.conf's reports read and as `vtium
+/// file as a whole, as vtium.conf's reports read and as `vtium
 /// check-config`, the start's log, the notice and `vtiumctl` show the head
 /// file's. The path is shown with every control and format character
 /// escaped, so a newline in it never splits the line.

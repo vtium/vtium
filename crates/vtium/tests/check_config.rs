@@ -12,7 +12,7 @@ const CLEAN_HEADS: &str =
 fn dir(name: &str, conf: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("vtium-check-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&d).expect("a directory");
-    std::fs::write(d.join("kmscon.conf"), conf).expect("a configuration");
+    std::fs::write(d.join("vtium.conf"), conf).expect("a configuration");
     std::fs::write(d.join("heads.conf"), CLEAN_HEADS).expect("a head file");
     d
 }
@@ -51,12 +51,12 @@ fn each_warning_is_printed_and_it_exits_one() {
         "{err}"
     );
     assert!(
-        lines[1].ends_with("kmscon.conf:1: sb-size=\"200000\" is out of bounds, 100000 used"),
+        lines[1].ends_with("vtium.conf:1: sb-size=\"200000\" is out of bounds, 100000 used"),
         "{err}"
     );
     assert!(
         lines[2].ends_with(
-            "kmscon.conf:2: palette=\"frob\" is none of legacy, custom, nord, \
+            "vtium.conf:2: palette=\"frob\" is none of legacy, custom, nord, \
              solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light, \
              vga, ignored"
         ),
@@ -141,7 +141,7 @@ fn it_opens_nothing_under_dev_and_writes_nothing() {
     };
     let calls = calls(&trace);
     let opened = opened(&calls);
-    assert!(opened.iter().any(|p| p.ends_with("kmscon.conf")), "{trace}");
+    assert!(opened.iter().any(|p| p.ends_with("vtium.conf")), "{trace}");
     assert!(opened.iter().any(|p| p.ends_with("heads.conf")), "{trace}");
     assert!(
         calls.iter().any(|(_, path, _)| path.starts_with("/sys/")),
@@ -178,7 +178,7 @@ fn help_lists_no_device() {
     };
     let calls = calls(&trace);
     assert!(
-        opened(&calls).iter().any(|p| p.ends_with("kmscon.conf")),
+        opened(&calls).iter().any(|p| p.ends_with("vtium.conf")),
         "{trace}"
     );
     for (_, path, line) in &calls {
@@ -398,7 +398,7 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
     std::fs::remove_dir_all(d).ok();
 }
 
-// ADR-1401 D9, D10: a head's `consoles` past kmscon.conf's
+// ADR-1401 D9, D10: a head's `consoles` past vtium.conf's
 // `head-consoles-max` counts against the file, so the check exits 1
 // covers: platform.heads.rules
 #[test]
@@ -418,7 +418,7 @@ input * -> roaming
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
         format!(
-            "{}:3: The head \"desk\" asks for more consoles than `head-consoles-max` allows, 4, so it gets 4. Lower its `consoles` to 4 or fewer, or raise `head-consoles-max` in kmscon.conf.\n",
+            "{}:3: The head \"desk\" asks for more consoles than `head-consoles-max` allows, 4, so it gets 4. Lower its `consoles` to 4 or fewer, or raise `head-consoles-max` in vtium.conf.\n",
             file.display()
         )
     );

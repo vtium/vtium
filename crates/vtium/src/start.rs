@@ -191,7 +191,7 @@ mod tests {
             assert_eq!(loaded.reports, []);
             Start::new(&loaded.config, "C".to_owned()).log
         };
-        for file in ["/etc/kmscon/kmscon.conf", "/etc/kmscon/seat0.seat.conf"] {
+        for file in ["/etc/vtium/vtium.conf", "/etc/vtium/seat0.seat.conf"] {
             assert_eq!(from(file, &[]), log::Level::Debug, "{file}");
             assert_eq!(from(file, &["--no-debug"]), log::Level::Info, "{file}");
         }

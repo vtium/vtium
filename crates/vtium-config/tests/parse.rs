@@ -30,7 +30,7 @@ fn a_rule_naming_an_undefined_head_rejects_the_file_at_its_line() {
     );
 }
 
-// ADR-1401 D7's figure: the error at its file and line, as kmscon.conf's
+// ADR-1401 D7's figure: the error at its file and line, as vtium.conf's
 // reports read
 #[test]
 fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {

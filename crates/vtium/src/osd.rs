@@ -1,14 +1,14 @@
 //! The on-screen display, the OSD (ADR-1401 D5): vtium's status at the top
 //! of each head, outside the session's output. It says which head is
 //! active, and in full which console the head shows, for `osd-timeout`
-//! after a change. kmscon.conf's `focus-mark` is read as the older name of
+//! after a change. vtium.conf's `focus-mark` is read as the older name of
 //! `osd` and `osd-timeout`.
 
 use std::time::Duration;
 
 use crate::config::{Config, Origin, keys};
 
-/// What the OSD draws: kmscon.conf's `osd`.
+/// What the OSD draws: vtium.conf's `osd`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// No status.
@@ -19,7 +19,7 @@ pub enum Mode {
     Full,
 }
 
-/// The OSD as kmscon.conf sets it.
+/// The OSD as vtium.conf sets it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Osd {
     pub mode: Mode,

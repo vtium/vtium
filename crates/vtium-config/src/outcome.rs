@@ -253,7 +253,7 @@ closed! {
 closed! {
     /// What vtium does when no display appears at start (ADR-1401 D8).
     pub enum DisplayWait {
-        /// `display-wait` as kmscon.conf sets it: with no display by its end, vtium exits 1 and the unit's `OnFailure=` starts a getty on the VT.
+        /// `display-wait` as vtium.conf sets it: with no display by its end, vtium exits 1 and the unit's `OnFailure=` starts a getty on the VT.
         AsSet = "as-set",
         /// vtium holds the VT and waits for a display however long it takes, as `display-wait = forever` does, so no getty starts on the VT: a closed file never gives up its VT for lack of a display.
         Forever = "forever",

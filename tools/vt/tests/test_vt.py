@@ -2251,11 +2251,11 @@ class Package(Case):
     # Every file make install stages, by its path under DESTDIR with
     # PREFIX=/usr.
     STAGED = sorted([
+        "etc/vtium/vtium.conf.example",
         "usr/bin/vtium",
         "usr/bin/vtium-vitrify",
         "usr/lib/systemd/system/vtium@.service",
         "usr/lib/systemd/system/vtium-getty@.service",
-        "usr/share/doc/vtium/kmscon.conf.example",
         "usr/share/doc/vtium/examples/71-vtium-local.rules",
         "usr/share/doc/vtium/examples/vtium.hwdb",
         "usr/share/licenses/vtium/LICENSE",
@@ -2294,9 +2294,11 @@ class Package(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.staged(), self.STAGED)
         # The C reference's packages own /etc/kmscon/kmscon.conf.example, the
-        # compiled terminfo entry kmscon and the kmsconvt@ units.
+        # compiled terminfo entry kmscon and the kmsconvt@ units. vtium's own
+        # example sits in /etc/vtium, beside the file vtium reads, whatever
+        # PREFIX is.
         for f in self.staged():
-            self.assertFalse(f.startswith(("etc/", "usr/share/terminfo/")) or "kmsconvt" in f, f)
+            self.assertFalse(f.startswith(("etc/kmscon/", "usr/share/terminfo/")) or "kmsconvt" in f, f)
         for f in ("usr/bin/vtium", "usr/bin/vtium-vitrify"):
             self.assertTrue(os.access(os.path.join(self.dest, f), os.X_OK), f)
         unit = read(os.path.join(self.dest, "usr/lib/systemd/system/vtium@.service")).splitlines()
@@ -2325,6 +2327,8 @@ class Package(Case):
                       "CARGO_BUILD_FLAGS=--frozen", "FEATURES=images")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("opt/vt/lib/systemd/system/vtium@.service", self.staged())
+        # vtium reads /etc/vtium whatever PREFIX is, so the example goes there.
+        self.assertIn("etc/vtium/vtium.conf.example", self.staged())
         unit = read(os.path.join(self.dest, "opt/vt/lib/systemd/system/vtium@.service")).splitlines()
         self.assertIn("ExecStart=/opt/vt/bin/vtium --vt=%I --no-switchvt", unit)
         self.assertEqual(self.s.calls_of("cargo"), [

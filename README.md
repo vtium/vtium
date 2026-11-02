@@ -159,7 +159,7 @@ The state vtium shows follows only from the bytes a program sends: the same stre
 
 Building needs Rust and clang, and the first build fetches a Debian sysroot with glibc 2.36 to link against ([tools/arm/README.md](tools/arm/README.md)); `make install-tree` also needs `tic`. On a machine with systemd and logind, `make vt-shell` builds the minspec binary, picks a free VT, asks for sudo, and runs your own shell in vtium there. Exit the shell to end the run, and the VT's own service starts again. [docs/vt-review.md](docs/vt-review.md) describes this and the other VT runs. [crates/vtium/README.md](crates/vtium/README.md#setting-it-up) says how to give an installed vtium a VT, or every VT, and how ssh behaves from it.
 
-`make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-vitrify`, the VT unit and its getty fallback, the terminfo entry and the example configuration. vtium reads the C reference's configuration file, `/etc/kmscon/kmscon.conf`, with its keys, and adds its own ([docs/config.md](docs/config.md)).
+`make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-vitrify`, the VT unit and its getty fallback, the terminfo entry and the example configuration. vtium reads its configuration from `/etc/vtium/vtium.conf`, which takes the C reference's keys and adds vtium's own ([docs/config.md](docs/config.md)).
 
 [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together, and [AGENTS.md](AGENTS.md) gives every gate and test command.
 

@@ -27,7 +27,7 @@ pub enum WhenDisplayLost {
     HangupAfter(u32),
 }
 
-/// The font keys, as kmscon.conf carries them; `None` is a key not set.
+/// The font keys, as vtium.conf carries them; `None` is a key not set.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Font {
     pub name: Option<String>,
@@ -49,7 +49,7 @@ pub struct Head {
     /// The line of its `consoles`, 0 for none.
     pub consoles_line: usize,
     /// The consoles' command as the file gives it, for vtium to read as
-    /// kmscon.conf's `login`; unset, kmscon.conf's.
+    /// vtium.conf's `login`; unset, vtium.conf's.
     pub login: Option<String>,
     pub when_display_lost: WhenDisplayLost,
     /// `isolated` as the file writes it, `None` for unset, which the
@@ -72,7 +72,7 @@ impl Head {
         }
     }
 
-    /// The head's font: kmscon.conf's keys, `base`, with the head's
+    /// The head's font: vtium.conf's keys, `base`, with the head's
     /// profile over them (D3). Until profiles have files, the `default`
     /// profile states nothing and any other profile states only its frit,
     /// the frit of its name.
@@ -125,7 +125,7 @@ pub struct Config {
     pub survivors: bool,
     /// The input rules a device of a partly broken open file walks when no
     /// rule of [`Config::rules`] places it (D7): `None` for the shipped
-    /// rules' own, which kmscon.conf's `mouse` shorthand may change.
+    /// rules' own, which vtium.conf's `mouse` shorthand may change.
     pub tail: Option<Vec<Rule>>,
 }
 

@@ -508,15 +508,22 @@ class ImplementationTest(unittest.TestCase):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
-                                 sorted(["kmscon.conf", "screens", "setup", "t3", "tree.tar"]
+                                 sorted(["vtium.conf", "screens", "setup", "t3", "tree.tar"]
                                         + extra))
-                with open(os.path.join(disc, "kmscon.conf")) as f:
+                with open(os.path.join(disc, "vtium.conf")) as f:
                     self.assertIn("render-timer=log", f.read())
                 if "frits" in extra:
                     self.assertEqual(os.listdir(os.path.join(disc, "frits")),
                                      ["default8x16.vtfrit"])
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
+        # Each guest installs the disc's configuration where vtium reads it,
+        # /etc/vtium/vtium.conf (ADR-1500 D4), and nothing into /etc/kmscon.
+        for guest in (t3_common.GUEST, t3_common.GUEST_SYSVINIT):
+            with self.subTest(guest), open(os.path.join(guest, "setup")) as f:
+                setup = f.read()
+                self.assertIn('install -Dm644 "$disc"/vtium.conf /etc/vtium/vtium.conf\n', setup)
+                self.assertNotIn("/etc/kmscon", setup)
 
     def test_frit_variants(self):
         # A configured frit generated at run time (ADR-1301 D2): two 640x480
@@ -545,7 +552,7 @@ class ImplementationTest(unittest.TestCase):
                                   f.read())
                 t3_scenario.build_disc(name, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
-                                 sorted(["kmscon.conf", "screens", "setup", "t3", "tree.tar",
+                                 sorted(["vtium.conf", "screens", "setup", "t3", "tree.tar",
                                          "deferred-frits"] + (["helper-held"] if held else [])))
                 self.assertEqual(os.listdir(os.path.join(disc, "deferred-frits")),
                                  [font + ".vtfrit"])
@@ -571,7 +578,7 @@ class ImplementationTest(unittest.TestCase):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(os.path.join(disc, "fonts"))),
                                  ["vtium-test-8x16.psf", "vtium-test-8x8.psf"])
-                with open(os.path.join(disc, "kmscon.conf")) as f:
+                with open(os.path.join(disc, "vtium.conf")) as f:
                     self.assertIn("font-name=/usr/local/share/tier3-fonts/%s\n" % conf,
                                   f.read())
         with mock.patch.object(t3_scenario, "make_iso"):
@@ -610,7 +617,7 @@ class ImplementationTest(unittest.TestCase):
                 else:
                     with open(path) as f:
                         self.assertEqual(f.read(), binary)
-                with open(os.path.join(disc, "kmscon.conf")) as f:
+                with open(os.path.join(disc, "vtium.conf")) as f:
                     self.assertIn("grab-reboot=", f.read())
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             text = f.read()
@@ -2065,7 +2072,7 @@ class SysvinitTest(unittest.TestCase):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
-                                 sorted(["kmscon.conf", "screens", "setup", "t3", "t3-console",
+                                 sorted(["vtium.conf", "screens", "setup", "t3", "t3-console",
                                          "tree.tar"] + extra))
                 for name in ("setup", "t3-console"):
                     with open(os.path.join(disc, name)) as f, \

@@ -11,7 +11,7 @@ tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
 if [ -f "$disc"/vtium ]; then
     install -m755 "$disc"/vtium /usr/bin/vtium
 fi
-install -Dm644 "$disc"/kmscon.conf /etc/kmscon/kmscon.conf
+install -Dm644 "$disc"/vtium.conf /etc/vtium/vtium.conf
 # A variant drawing with the test fonts names them in its config.
 if [ -d "$disc"/fonts ]; then
     install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*

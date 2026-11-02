@@ -1,4 +1,4 @@
-# vtium's configuration, installed as /etc/kmscon/kmscon.conf.example.
+# vtium's configuration, installed as /etc/vtium/vtium.conf.example.
 # Generated from crates/vtium/src/config/keys.rs; docs/config.md describes each key.
 #
 # One key a line: key=value, or a switch's key to turn it on and no-key to

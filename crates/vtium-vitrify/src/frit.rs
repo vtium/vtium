@@ -1,5 +1,5 @@
 //! Frits (ADR-1200 D1): `/etc/vtium/fonts/<name>.vtfrit`, in
-//! kmscon.conf's line syntax, read strictly. One `key=value` a line, blanks
+//! vtium.conf's line syntax, read strictly. One `key=value` a line, blanks
 //! around the key and the value dropped, `#` to the line's end a comment.
 //! An unknown key, a malformed line, a value out of range or a key this
 //! build does not build yet refuses the whole frit, naming the file and

@@ -80,9 +80,9 @@ pub mod syntax {
     pub const ISOLATED: &str = "isolated";
     pub const ISOLATED_NO: &str = "isolated = no";
     pub const CONSOLES: &str = "consoles";
-    /// kmscon.conf's key for a head's console cap.
+    /// vtium.conf's key for a head's console cap.
     pub const HEAD_CONSOLES_MAX: &str = "head-consoles-max";
-    /// kmscon.conf's key for the consoles every head holds together.
+    /// vtium.conf's key for the consoles every head holds together.
     pub const CONSOLES_TOTAL_MAX: &str = "consoles-max";
     /// The command that checks the head file, as a next step names it.
     pub const CHECK_CONFIG: &str = "vtium check-config";
@@ -430,7 +430,7 @@ impl fmt::Display for Warning {
             ),
             Warning::PastHeadCap { head, cap, .. } => write!(
                 f,
-                "The head {head} asks for more consoles than `{key}` allows, {cap}, so it gets {cap}. Lower its `{consoles}` to {cap} or fewer, or raise `{key}` in kmscon.conf.",
+                "The head {head} asks for more consoles than `{key}` allows, {cap}, so it gets {cap}. Lower its `{consoles}` to {cap} or fewer, or raise `{key}` in vtium.conf.",
                 key = HEAD_CONSOLES_MAX,
                 consoles = CONSOLES,
             ),
@@ -438,7 +438,7 @@ impl fmt::Display for Warning {
                 head, gets, total, ..
             } => write!(
                 f,
-                "The heads together ask for more consoles than `{key}` allows, {total}, so the head {head} gets {gets}. Lower the heads' `{consoles}`, or raise `{key}` in kmscon.conf.",
+                "The heads together ask for more consoles than `{key}` allows, {total}, so the head {head} gets {gets}. Lower the heads' `{consoles}`, or raise `{key}` in vtium.conf.",
                 key = CONSOLES_TOTAL_MAX,
                 consoles = CONSOLES,
             ),

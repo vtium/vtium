@@ -855,11 +855,11 @@ fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
 }
 
 /// D3 and D6: the more specific setting wins. A head's profile names its
-/// frit, over kmscon.conf's font; a head with the default profile takes
-/// kmscon.conf's, the built-in font here. A head has no font key of its
+/// frit, over vtium.conf's font; a head with the default profile takes
+/// vtium.conf's, the built-in font here. A head has no font key of its
 /// own.
 #[test]
-fn a_heads_profile_names_its_frit_over_kmscon_confs_font() {
+fn a_heads_profile_names_its_frit_over_vtium_confs_font() {
     let (fonts, starts) = frits("profile", &["t"]);
     let heads = "version = 1
 [head small]
@@ -872,7 +872,7 @@ display card:mem-large -> large
     let mut s = Seat::with_fonts(&[], Some(heads), two_displays(), "read x", fonts);
     assert!(s.until(SECOND, |a| a.cells().len() == 2));
     assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(8, 16)]));
-    // both at kmscon.conf's size, 16
+    // both at vtium.conf's size, 16
     assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(8, 16)]));
     assert_eq!(grid(&s.app, "large"), Some((80, 20)));
     assert_eq!(

@@ -124,7 +124,7 @@ pub struct Head {
     /// The consoles the head opens at its start, its file's `consoles`
     /// within the caps.
     pub(crate) wanted: usize,
-    /// The configuration its consoles' command is read from: kmscon.conf's
+    /// The configuration its consoles' command is read from: vtium.conf's
     /// with the head's own `login` over it.
     pub(crate) login: Option<Config>,
     /// What the head shows while its shown console's session has ended,
@@ -161,7 +161,7 @@ pub struct Head {
     /// When the brief line goes, armed at its first frame.
     pub(crate) brief_due: Option<Instant>,
     /// The colors of the notices and the on-screen display, which
-    /// kmscon.conf sets for every head (ADR-1401 D5).
+    /// vtium.conf sets for every head (ADR-1401 D5).
     overlay_colors: crate::term::OverlayColors,
     /// What the head does when it loses its last display (ADR-1401 D8).
     pub(crate) when_display_lost: WhenDisplayLost,
@@ -180,8 +180,8 @@ pub struct Head {
     /// The mouse tracking the program asked for, last seen: a change
     /// clears the selection.
     tracking: MouseTracking,
-    /// The head's font keys, kmscon.conf's with the head file's over them
-    /// (ADR-1401 D3): the name, `None` for kmscon.conf's own choice.
+    /// The head's font keys, vtium.conf's with the head file's over them
+    /// (ADR-1401 D3): the name, `None` for vtium.conf's own choice.
     pub(crate) font_name: Option<String>,
     /// The base font's height; each display may draw larger
     /// ([`crate::layout::layout`]).
@@ -588,7 +588,7 @@ impl Head {
     /// What vtium draws over the head's frames: one box at the top holding
     /// the on-screen display's line and the notices beneath it, a problem
     /// while a notice is in it, and the on-screen display's dot, in the
-    /// colors kmscon.conf sets. The notice screen draws its notice alone,
+    /// colors vtium.conf sets. The notice screen draws its notice alone,
     /// its report as a report.
     pub(crate) fn overlay(&self) -> crate::term::Overlay {
         if let Some(text) = self.notice().filter(|_| self.notice_only) {
@@ -745,7 +745,7 @@ impl Head {
         all
     }
 
-    /// Whether the head's `font-size` is configured, kmscon.conf's or its
+    /// Whether the head's `font-size` is configured, vtium.conf's or its
     /// own, which wins over a frit's cell (ADR-1200 D16); `font-size=0`
     /// is the automatic size.
     pub(crate) fn sized(&self) -> bool {

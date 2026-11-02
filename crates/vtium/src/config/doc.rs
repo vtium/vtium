@@ -1,4 +1,4 @@
-//! `docs/config.md` and `install/kmscon.conf.example`, generated from the
+//! `docs/config.md` and `install/vtium.conf.example`, generated from the
 //! key table.
 
 use std::fmt::Write as _;
@@ -80,13 +80,13 @@ pub(super) fn markdown() -> String {
          \n\
          <!-- Generated from {SOURCE}; do not edit. `{BLESS}` rewrites it. -->\n\
          \n\
-         vtium reads `kmscon.conf` in the configuration directory (`--configdir`, `/etc/kmscon` by default), then `<seat>.seat.conf` there, then its command line. Each wins over the ones before it. A file that does not exist is skipped. The files are read once, at start: a change applies when vtium starts again, as at a restart of its service. `vtium check-config [FILE]` reads them as the start would, with the head file, `/etc/vtium/heads.conf`, or FILE in its place to check it before it is installed, through the start's parser and evaluator (ADR-1401 D7). It applies nothing, exits 1 on any warning and on each of the head file's errors and warnings, each named with its line, and notes on standard output what it does not count: the density points convert at, and of the head file each rule sending input to a head by `id` or `name` alone, where no udev daemon runs, each rule using a key that reads udev's database, each rule using `connector-path:`, which it cannot check against the displays present since it opens no card to read a connector's `PATH`, a head no rule names, every head isolated, and what the devices present find: each rule matching none of them, each device no rule places with what the policy gives it, no head that can be the active head having a display, under a closed policy no keyboard reaching any head, a head claiming pointers while every keyboard is claimed elsewhere, every keyboard ignored, and a head whose only keyboard is one device (ADR-1401 D9). It reads the devices from sysfs and udev's database, `/run/udev/data`, and opens nothing under `/dev`. A FILE that root does not own, or that others can write, is checked all the same, with a note, since installing it makes it root's.\n\
+         vtium reads `vtium.conf` in the configuration directory (`--configdir`, `/etc/vtium` by default), then `<seat>.seat.conf` there, then its command line. Each wins over the ones before it. vtium never reads the C reference's `/etc/kmscon`: a `kmscon.conf` from kmscon is copied to `/etc/vtium/vtium.conf` by hand, and vtium reads its keys as the C reference did, with the departures the vtium crate's README lists. A file that does not exist is skipped. The files are read once, at start: a change applies when vtium starts again, as at a restart of its service. `vtium check-config [FILE]` reads them as the start would, with the head file, `/etc/vtium/heads.conf`, or FILE in its place to check it before it is installed, through the start's parser and evaluator (ADR-1401 D7). It applies nothing, exits 1 on any warning and on each of the head file's errors and warnings, each named with its line, and notes on standard output what it does not count: the density points convert at, and of the head file each rule sending input to a head by `id` or `name` alone, where no udev daemon runs, each rule using a key that reads udev's database, each rule using `connector-path:`, which it cannot check against the displays present since it opens no card to read a connector's `PATH`, a head no rule names, every head isolated, and what the devices present find: each rule matching none of them, each device no rule places with what the policy gives it, no head that can be the active head having a display, under a closed policy no keyboard reaching any head, a head claiming pointers while every keyboard is claimed elsewhere, every keyboard ignored, and a head whose only keyboard is one device (ADR-1401 D9). It reads the devices from sysfs and udev's database, `/run/udev/data`, and opens nothing under `/dev`. A FILE that root does not own, or that others can write, is checked all the same, with a note, since installing it makes it root's.\n\
          \n\
          A file holds one key a line: `key=value`, or a switch's `key` to turn it on and `no-key` to turn it off. `#` starts a comment, except where it opens a `#rrggbb` color value. Spaces and tabs around the key and the value are dropped. On the command line a key is `--key=VALUE` or `--key VALUE`, and a switch `--key` or `--no-key`.\n\
          \n\
          vtium reports, once at start, a key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. It reads at most {FILE_MAX} bytes of a file and {LINE_MAX} of a line.\n\
          \n\
-         `install/kmscon.conf.example` in `crates/vtium` lists the same keys at their defaults. Source cites the C reference, kmscon at `b1f7a7c5` ([c-reference.md](c-reference.md)), or the decision a key comes from.\n\
+         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults. Source cites the C reference, kmscon at `b1f7a7c5` ([c-reference.md](c-reference.md)), or the decision a key comes from.\n\
          \n\
          | Key | Option | Type | Default | Bound | Read by | Set in | What | Source |\n\
          |---|---|---|---|---|---|---|---|---|\n"
@@ -111,7 +111,7 @@ pub(super) fn markdown() -> String {
     }
     out.push_str(
         "\n## Other color schemes for the notices and the on-screen display\n\n\
-         `install/kmscon.conf.example` carries these schemes for the six color keys, commented out, for color blindness and personal preference (ADR-1401 D5). vtium draws whatever colors are set and checks no contrast between a text and its box.\n\n\
+         `install/vtium.conf.example` carries these schemes for the six color keys, commented out, for color blindness and personal preference (ADR-1401 D5). vtium draws whatever colors are set and checks no contrast between a text and its box.\n\n\
          | Scheme | What it is |",
     );
     for key in OVERLAY_COLORS.iter().flatten() {
@@ -145,10 +145,10 @@ fn schemes() -> String {
     out
 }
 
-/// `install/kmscon.conf.example`.
+/// `install/vtium.conf.example`.
 pub(super) fn example() -> String {
     let mut out = format!(
-        "# vtium's configuration, installed as /etc/kmscon/kmscon.conf.example.\n\
+        "# vtium's configuration, installed as /etc/vtium/vtium.conf.example.\n\
          # Generated from {SOURCE}; docs/config.md describes each key.\n\
          #\n\
          # One key a line: key=value, or a switch's key to turn it on and no-key to\n\
@@ -183,7 +183,7 @@ mod tests {
         let root = env!("CARGO_MANIFEST_DIR");
         let files = [
             (format!("{root}/../../docs/config.md"), markdown()),
-            (format!("{root}/install/kmscon.conf.example"), example()),
+            (format!("{root}/install/vtium.conf.example"), example()),
         ];
         let mut stale = Vec::new();
         for (path, want) in files {
@@ -204,7 +204,7 @@ mod tests {
     }
 
     // ADR-1401 D5: each scheme the example carries, its six lines with the
-    // `#` taken off, is a kmscon.conf that draws the scheme's colors.
+    // `#` taken off, is a vtium.conf that draws the scheme's colors.
     #[test]
     fn each_scheme_in_the_example_uncommented_sets_its_colors() {
         let example = example();
