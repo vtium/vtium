@@ -67,6 +67,8 @@ mod damage;
 mod deco;
 mod mono;
 mod notice;
+#[cfg(feature = "images")]
+mod picture;
 mod renderer;
 mod stored;
 mod target;
@@ -74,13 +76,22 @@ mod timer;
 mod trig;
 
 pub use arrow::Arrow;
+#[cfg(feature = "images")]
+pub use bounds::PICTURE_CACHE_SCREENS;
 pub use bounds::{POINTER_SIDE_MAX, POOL_BYTES_PERFORMANCE, RENDER_TIMER_SAMPLES, ROW_SCRATCH_MAX};
 pub use cache::{Budgets, CacheCounts, Profile, Storage};
 pub use mono::Depth;
 pub use notice::{Colors, Mark, Notice, NoticeReport, Surface, quote};
+#[cfg(feature = "images")]
+pub use picture::PictureCounts;
 pub use renderer::{
     BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, PointerShape, Renderer,
     Stats, TextBlink,
 };
 pub use target::{Canvas, Mapped, Orientation, Rect, Target};
 pub use timer::{RenderTimer, Report};
+
+/// Whether this build's renderer draws a frame's image placements: true
+/// with the `images` feature. A head offers sixel and kitty graphics only
+/// while every one of its displays draws them (ADR-1100 D10).
+pub const DRAWS_PLACEMENTS: bool = cfg!(feature = "images");

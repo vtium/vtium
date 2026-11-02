@@ -18,4 +18,7 @@ Each top-level `.rs` file is its own test crate, run by `cargo test -p vtium-ren
 | `memory.rs` | ADR-1300's memory table, from caches filled to their budgets. |
 | `swap_in.rs` | Glyphs that arrive under a renderer: only the cells and rows that show them draw again, the cache keeps every glyph that does not hold an arrived character, and an 80x25 redraw after an arrival, its time printed. |
 | `figures.rs` | The render timer's figures at 1366x768, printed. |
+| `pictures.rs` | With `images`: pictures in the compositor. The layers against text, the cursor, the selection and the pointer; a picture cut at the grid, malformed or huge; scaling and turning; the scaled-copy cache through its own counters; the cells a picture that changes or moves draws again. Every picture is made through the image store. |
+| `picture_goldens.rs`, `pictures/` | With `images`: vtium's own goldens of four frames with pictures, and `provisional.tsv`, which lists those the maintainer has not reviewed; a provisional golden judges nothing. The drawn screens go to `$CARGO_TARGET_TMPDIR/pictures/`. |
+| `picture_figures.rs` | With `images`, by hand and outside the gates: what pictures cost a frame at 1366x768, printed. |
 | `reference/` | The C reference's digests, the screens they draw and the program that takes them. |
