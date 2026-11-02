@@ -2511,7 +2511,8 @@ impl App {
                     (Some(h), HeadChord::CloseConsole) => self
                         .heads
                         .get_mut(h)
-                        .is_some_and(|head| head.close_shown(visible)),
+                        .and_then(|head| head.close_shown(visible))
+                        .is_some(),
                     (h, _) => h
                         .and_then(|h| self.heads.get_mut(h))
                         .is_some_and(|head| head.console_chord(chord, visible)),

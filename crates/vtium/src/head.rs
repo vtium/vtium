@@ -1683,6 +1683,42 @@ mod tests {
         assert_eq!(head.pty_size().cell_width, CELL.0, "the first's own again");
     }
 
+    // ADR-1401 D5, binary-review's finding 3: the console the close chord
+    // closes is told nothing, as the C reference sent a closing session no
+    // focus-out: no focus-out joins what it owed its program, and nothing
+    // it owed is sent; the console shown next gains the focus.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::unwrap_used,
+        reason = "a test's clock is the host's, and a test fails by panicking"
+    )]
+    fn the_console_the_close_chord_closes_is_told_nothing() {
+        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term());
+        head.hidden.push(Console::new(2, term(), head.fresh_fit()));
+        head.focused = true;
+        for console in head.consoles_mut() {
+            console.term.terminal.input(b"\x1b[?1004h");
+        }
+        // a status report the closing console owes its program
+        head.console.term.terminal.input(b"\x1b[5n");
+        let mut closed = head.close_shown(false).unwrap();
+        assert_eq!(closed.id, 1);
+        assert_eq!(
+            closed.term.terminal.take_replies(),
+            b"\x1b[0n",
+            "no focus-out joined, and nothing owed was sent"
+        );
+        // the console shown next is console 2; its focus-in goes to its
+        // pty, which closing_a_console_gives_the_console_shown_next_the_focus
+        // reads through a real session
+        assert_eq!(head.console.id, 2);
+        assert!(head.close_shown(false).is_none(), "the last never closes");
+    }
+
     // A head shows each notice once and the newest NOTICES_MAX; an ended
     // console's notice stands above them and stays when they end.
     #[test]

@@ -220,11 +220,13 @@ impl Head {
 
     /// Closes the console shown (ADR-1401 D5): its pty closes, so its
     /// programs get SIGHUP, and the head shows the console after it, or
-    /// the first when it was the last. The head's last console never
-    /// closes. Returns whether one closed.
-    pub(crate) fn close_shown(&mut self, visible: bool) -> bool {
+    /// the first when it was the last. The console that closes is told
+    /// nothing: no focus-out, and nothing it owed its program is sent.
+    /// Returns it, its pty gone, for the caller to drop; the head's last
+    /// console never closes.
+    pub(crate) fn close_shown(&mut self, visible: bool) -> Option<Console> {
         if self.hidden.is_empty() {
-            return false;
+            return None;
         }
         let (k, to) = if self.at < self.hidden.len() {
             (self.at, self.at)
@@ -237,7 +239,7 @@ impl Head {
         log::info!("head {}: console {} closes", self.name(), closed.id);
         closed.pty = None;
         self.compose_notices();
-        true
+        Some(closed)
     }
 
     /// Hangs up the head's sessions at `since`, as a line losing its
