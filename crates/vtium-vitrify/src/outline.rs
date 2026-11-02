@@ -939,16 +939,19 @@ pub(crate) mod raster {
 
     /// Where the underline and strike-through go in a cell `height` pixels
     /// high whose baseline is row `baseline`, from the face `family` of
-    /// `font` (ADR-1302 D3, ADR-1200 D2), as the C reference took them: the
-    /// underline's thickness and centre from the `post` table, below the
-    /// baseline, its centre the table's position less half its thickness as
-    /// FreeType's `underline_position` gives it, else a fourteenth of the cell at its bottom; the
-    /// strike-through's top and thickness from the `OS/2` table's
-    /// strikeout, above the baseline, when its size is above 0, else as
-    /// thick as the underline and centred on half the x-height, `OS/2`'s
-    /// `sxHeight` or else the `x` glyph's height, or half the baseline; each at least a row thick, at most a quarter of the cell,
-    /// and inside it (`kmscon_font_freetype_get_deco`,
-    /// `kmscon_font_get_deco`).
+    /// `font` (ADR-1302 D3, ADR-1200 D2), as the C reference took them
+    /// (`kmscon_font_freetype_get_deco`, `kmscon_font_get_deco`). The
+    /// underline's thickness comes from the `post` table when the font has
+    /// one and it gives a thickness that rounds above 0, else a fourteenth
+    /// of the cell. Its centre is below the baseline by `post`'s position
+    /// less half its thickness, as FreeType's `underline_position` gave it,
+    /// else a thickness and a half above the cell's bottom. The
+    /// strike-through's top and thickness come from the `OS/2` table's
+    /// strikeout, above the baseline, when its size is above 0. Else it is
+    /// as thick as the underline and centred on half the x-height, which is
+    /// `OS/2`'s `sxHeight`, else the `x` glyph's height, else half the
+    /// baseline. Each line is at least a row thick, at most a quarter of
+    /// the cell, and inside it.
     pub fn decorations(
         font: &[u8],
         family: &str,
@@ -961,28 +964,32 @@ pub(crate) mod raster {
         let scale = f64::from(ppem(&m, height)) / f64::from(m.units_per_em);
         let base = f64::from(baseline);
         let max_thick = (height / 4).max(1);
-        let mut thick = (f64::from(m.stroke_size) * scale).round();
+        // post: underlinePosition, the stroke's top, at byte 8 and
+        // underlineThickness at 10. swash's stroke_size is OS/2's
+        // strikeout size when there is no post, so post is read here
+        let field = |table: &[u8; 4], at: usize| {
+            font.table(swash::tag_from_bytes(table))
+                .and_then(|t| t.get(at..at + 2))
+                .and_then(|b| b.first_chunk::<2>())
+                .map(|&b| f64::from(i16::from_be_bytes(b)))
+        };
+        let (position, size) = (field(b"post", 8), field(b"post", 10));
+        let mut thick = (size.unwrap_or(0.0) * scale).round();
         if thick <= 0.0 {
             thick = (h / 14.0).floor().max(1.0);
         }
-        // swash gives post's underlinePosition, the stroke's top; FreeType's
-        // underline_position, which the C reference took as the stroke's
-        // centre, is that less half the underlineThickness
-        let centre = if m.underline_offset != 0.0 {
-            base - f64::from(m.underline_offset - m.stroke_size / 2.0) * scale
-        } else {
-            h - thick / 2.0 - thick
+        // FreeType's underline_position, which the C reference took as the
+        // stroke's centre, is post's underlinePosition less half its
+        // underlineThickness
+        let centre = match position.filter(|&p| p != 0.0) {
+            Some(p) => base - (p - size.unwrap_or(0.0) / 2.0) * scale,
+            None => h - thick / 2.0 - thick,
         };
         let ul_thick = (thick as u32).clamp(1, max_thick);
         let ul_pos = ((centre - thick / 2.0).round().max(0.0) as u32).min(height - ul_thick);
         // OS/2: yStrikeoutSize at byte 26, yStrikeoutPosition at 28, and
         // from version 2 sxHeight at 86
-        let os2 = font.table(swash::tag_from_bytes(b"OS/2"));
-        let field = |at: usize| {
-            os2.and_then(|t| t.get(at..at + 2))
-                .and_then(|b| b.first_chunk::<2>())
-                .map(|&b| f64::from(i16::from_be_bytes(b)))
-        };
+        let field = |at: usize| field(b"OS/2", at);
         let version = field(0).unwrap_or(0.0);
         let (strike_top, strike_thick) = match (field(26), field(28)) {
             (Some(size), Some(position)) if size > 0.0 => {

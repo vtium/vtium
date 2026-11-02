@@ -467,6 +467,30 @@ fn the_lines_follow_the_font_as_the_c_reference_placed_them() {
     assert_eq!(lines(ttf::test_mono()), (18, 1, 12, 1), "neither");
 }
 
+// A font with no `post` table takes the underline a fourteenth of the
+// cell thick, as the C reference did when FreeType gave it no underline
+// thickness (kmscon_font_freetype_get_deco), whatever the OS/2
+// strikeout's size (review finding 3; swash gives that size as the
+// stroke's when `post` is missing). Test Mono at 20 pixels, baseline 16,
+// with an OS/2 strikeout 100 units thick, 2 rows, and no `post`: the
+// underline floor(20 / 14) = 1 row thick, centred 1.5 rows above the
+// bottom, row 18; the strike-through 2 rows thick from OS/2
+#[test]
+fn a_font_with_no_post_table_takes_the_underline_from_the_cell() {
+    let font = ttf::Font {
+        os2: Some((100, 300, 0)),
+        ..ttf::test_mono()
+    }
+    .build();
+    let d = decorations(&font, "Test Mono", 20, 16).expect("the lines");
+    assert_eq!(
+        (d.underline, d.underline_thickness),
+        (18, 1),
+        "the underline"
+    );
+    assert_eq!(d.strike_thickness, 2, "the strike-through from OS/2");
+}
+
 // The strike-through as the C reference drew it (review finding A3): as
 // thick as OS/2's yStrikeoutSize, when it is above 0; else as thick as the
 // underline, centred on half the x-height, which OS/2's sxHeight gives,
