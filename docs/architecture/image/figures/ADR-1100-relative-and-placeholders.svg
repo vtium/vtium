@@ -1,0 +1,214 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560" font-family="DejaVu Sans, sans-serif">
+<title>A relative placement follows its parent, and a virtual placement draws through placeholder cells</title>
+<rect width="1000" height="560" fill="#ffffff"/>
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#52606d"/></marker></defs>
+<text x="20" y="30" font-size="15" text-anchor="start" fill="#1f2933" font-weight="bold">A: a relative placement follows its parent</text>
+<text x="20" y="58" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">before</text>
+<rect x="20" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="42" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="64" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="86" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="108" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="130" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="152" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="174" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="196" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="218" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="20" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="42" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="64" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="86" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="108" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="130" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="152" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="174" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="196" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="218" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="20" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="42" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="64" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="86" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="108" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="130" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="152" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="174" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="196" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="218" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="20" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="42" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="64" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="86" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="108" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="130" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="152" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="174" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="196" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="218" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="20" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="42" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="64" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="86" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="108" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="130" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="152" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="174" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="196" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="218" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="20" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="42" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="64" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="86" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="108" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="130" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="152" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="174" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="196" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="218" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="86" y="122" width="66" height="52" fill="#d5f0ea" stroke="#2d7d9a" stroke-width="2" opacity="0.95"/>
+<text x="90" y="138" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">parent</text>
+<rect x="174" y="148" width="44" height="52" fill="#fbecd0" stroke="#d97706" stroke-width="2" opacity="0.95"/>
+<text x="178" y="164" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">child</text>
+<circle cx="86" cy="122" r="3.5" fill="#2d7d9a"/>
+<circle cx="174" cy="148" r="3.5" fill="#d97706"/>
+<line x1="86" y1="122" x2="169" y2="146" stroke="#52606d" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#ah)"/>
+<text x="20" y="246" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">The child is made with P and Q naming the parent,</text>
+<text x="20" y="264" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">and H=4, V=1: four columns right and one row down</text>
+<text x="20" y="282" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">from the parent's top left cell.</text>
+<text x="520" y="58" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">after the screen scrolls up two rows</text>
+<rect x="520" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="542" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="564" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="586" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="608" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="630" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="652" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="674" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="696" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="718" y="70" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="520" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="542" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="564" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="586" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="608" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="630" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="652" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="674" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="696" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="718" y="96" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="520" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="542" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="564" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="586" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="608" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="630" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="652" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="674" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="696" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="718" y="122" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="520" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="542" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="564" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="586" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="608" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="630" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="652" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="674" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="696" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="718" y="148" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="520" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="542" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="564" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="586" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="608" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="630" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="652" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="674" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="696" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="718" y="174" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="520" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="542" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="564" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="586" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="608" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="630" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="652" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="674" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="696" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="718" y="200" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="586" y="70" width="66" height="52" fill="#d5f0ea" stroke="#2d7d9a" stroke-width="2" opacity="0.95"/>
+<text x="590" y="86" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">parent</text>
+<rect x="674" y="96" width="44" height="52" fill="#fbecd0" stroke="#d97706" stroke-width="2" opacity="0.95"/>
+<text x="678" y="112" font-size="11" text-anchor="start" fill="#1f2933" font-weight="normal">child</text>
+<circle cx="586" cy="70" r="3.5" fill="#2d7d9a"/>
+<circle cx="674" cy="96" r="3.5" fill="#d97706"/>
+<line x1="586" y1="70" x2="669" y2="94" stroke="#52606d" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#ah)"/>
+<text x="520" y="246" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">Both moved together; the child keeps its offset.</text>
+<text x="520" y="264" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">Deleting the parent deletes the child, and the</text>
+<text x="520" y="282" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">child's image when it has no placement left.</text>
+<text x="20" y="340" font-size="15" text-anchor="start" fill="#1f2933" font-weight="bold">B: a Unicode placeholder draws a virtual placement</text>
+<rect x="20" y="354" width="300" height="46" rx="4" fill="#e4e7eb" stroke="#9aa5b1"/>
+<text x="30" y="373" font-size="12" text-anchor="start" fill="#1f2933" font-weight="normal">virtual placement: image 42, U=1, c=2, r=2</text>
+<text x="30" y="391" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">no position, on no line</text>
+<text x="345" y="360" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the text: U+10EEEE in foreground color 42</text>
+<rect x="345" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="367" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="389" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="411" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="433" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="455" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="345" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="367" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="389" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="411" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="433" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="455" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="367" y="370" width="22" height="26" fill="#dbe7f6" stroke="#2d7d9a" stroke-width="1"/>
+<text x="378.0" y="387" font-size="9" text-anchor="middle" fill="#1f2933" font-weight="normal">0,0</text>
+<rect x="389" y="370" width="22" height="26" fill="#dbe7f6" stroke="#2d7d9a" stroke-width="1"/>
+<text x="400.0" y="387" font-size="9" text-anchor="middle" fill="#1f2933" font-weight="normal">0,1</text>
+<rect x="367" y="396" width="22" height="26" fill="#dbe7f6" stroke="#2d7d9a" stroke-width="1"/>
+<text x="378.0" y="413" font-size="9" text-anchor="middle" fill="#1f2933" font-weight="normal">1,0</text>
+<rect x="389" y="396" width="22" height="26" fill="#dbe7f6" stroke="#2d7d9a" stroke-width="1"/>
+<text x="400.0" y="413" font-size="9" text-anchor="middle" fill="#1f2933" font-weight="normal">1,1</text>
+<text x="345" y="440" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">each cell: a row diacritic, then a column one</text>
+<text x="650" y="360" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">the frame: one entry for each row</text>
+<rect x="650" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="672" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="694" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="716" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="738" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="760" y="370" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="650" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="672" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="694" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="716" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="738" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="760" y="396" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="672" y="370" width="44" height="52" fill="#d5f0ea" stroke="none"/>
+<circle cx="694" cy="396" r="19" fill="#fbecd0" stroke="#d97706" stroke-width="2"/>
+<line x1="672" y1="396" x2="716" y2="396" stroke="#1f2933" stroke-width="1" stroke-dasharray="3 2"/>
+<text x="790" y="387" font-size="11" text-anchor="start" fill="#52606d" font-weight="normal">top half</text>
+<text x="790" y="413" font-size="11" text-anchor="start" fill="#52606d" font-weight="normal">bottom half</text>
+<text x="650" y="460" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">after tmux redraws its pane two columns right</text>
+<rect x="650" y="470" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="672" y="470" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="694" y="470" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="716" y="470" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="738" y="470" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="760" y="470" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="650" y="496" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="672" y="496" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="694" y="496" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="716" y="496" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="738" y="496" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="760" y="496" width="22" height="26" fill="none" stroke="#9aa5b1" stroke-width="0.8"/>
+<rect x="716" y="470" width="44" height="52" fill="#d5f0ea" stroke="none"/>
+<circle cx="738" cy="496" r="19" fill="#fbecd0" stroke="#d97706" stroke-width="2"/>
+<text x="650" y="540" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">The cells moved as text, and the picture with them.</text>
+<text x="20" y="440" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">The picture is fitted to c by r cells with its aspect</text>
+<text x="20" y="458" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">kept. The cell's background shows where the picture</text>
+<text x="20" y="476" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">is transparent, and the cell draws no glyph.</text>
+<text x="20" y="504" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">Diacritics left out are taken from the cell to the left,</text>
+<text x="20" y="522" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">so a cell cut by the line's cluster budget still draws</text>
+<text x="20" y="540" font-size="12" text-anchor="start" fill="#52606d" font-weight="normal">its own part of the picture.</text>
+</svg>

@@ -406,7 +406,7 @@ PSF fonts were bounded against crafted files (65535 glyphs, 32 by 256 pixels, 16
 
 libtsm held, for each screen buffer, a store of images and of the placements that showed them; image keys carried a slot and a generation, and placement keys were never reused (`libtsm/src/tsm/libtsm-int.h:192-317`, `libtsm/src/tsm/tsm-image.c:188-234`).
 
-The stores were bounded: 1024 images and 4096 placements a store, an image side of 65535 pixels, a cell of 1024 pixels, a box of 10,000 cells (`libtsm/src/tsm/libtsm.h:653-687`).
+The stores were bounded: 1024 images and 4096 placements a store, an image side of 65535 pixels, a cell of 1024 pixels, a box of 10,000 cells a side, columns and rows each (`libtsm/src/tsm/libtsm.h:653-687`).
 
 A placement was anchored to the line holding its top row, so it moved with the line into the scrollback and back; a frame walked the visible lines plus as many above as the tallest placement, so a picture whose top had scrolled away still drew (`libtsm/src/tsm/libtsm-int.h:192-203`, `kmscon/docs/architecture/render/ADR-103-images-are-placements-that-travel-with-lines-sixel-and-the-kitty-graphics-protocol-feed-one-store.md:377`). <!-- adr-cite-ignore: kmscon's records -->
 
