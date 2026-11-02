@@ -219,17 +219,17 @@ def logged(fmt, values):
 def generated(src_lines, name, exec_path, conflicts):
     """The shipped kmsconvt@.service's lines as units.sh changes them for
     NAME with EXEC_PATH and each --conflicts unit: ExecStart= and OnFailure=
-    renamed, a Conflicts= and an After= line for each unit below
-    After=getty@%i.service, and DefaultInstance= gone (ADR-1500 D3, D4)."""
+    renamed, a Conflicts= and an After= line for each unit just above
+    OnFailure=, and DefaultInstance= gone (ADR-1500 D3, D4)."""
     out = []
     for line in src_lines:
         if line.startswith("DefaultInstance="):
             continue
-        out.append({"ExecStart=/usr/bin/vtium --vt=%I --no-switchvt": f"ExecStart={exec_path} --vt=%I --no-switchvt",
-                    "OnFailure=kmsconvt-getty@%i.service": f"OnFailure={name}-getty@%i.service"}.get(line, line))
-        if line == "After=getty@%i.service":
+        if line.startswith("OnFailure="):
             for c in conflicts:
                 out += [f"Conflicts={c}", f"After={c}"]
+        out.append({"ExecStart=/usr/bin/vtium --vt=%I --no-switchvt": f"ExecStart={exec_path} --vt=%I --no-switchvt",
+                    "OnFailure=kmsconvt-getty@%i.service": f"OnFailure={name}-getty@%i.service"}.get(line, line))
     return out
 
 

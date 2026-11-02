@@ -12,9 +12,9 @@
 # It writes OUTDIR/NAME@.service, which is kmsconvt@.service with these
 # changes (ADR-1500 D3, D4): its name; ExecStart= running PATH in place of
 # /usr/bin/vtium; OnFailure= naming NAME-getty@.service; for each --conflicts
-# UNIT, a Conflicts=UNIT line and an After=UNIT line below the shipped
-# After=getty@%i.service, so that starting the unit on a VT stops UNIT there
-# first, as it stops the getty; and no DefaultInstance=, so that systemctl
+# UNIT, a Conflicts=UNIT line and an After=UNIT line just above OnFailure=,
+# below the shipped unit's own Conflicts= and After= for the getty, so that
+# starting the unit on a VT stops UNIT there first, as it stops the getty; and no DefaultInstance=, so that systemctl
 # enable NAME@.service with no VT named links nothing. UNIT is an instance
 # unit on the same VT, such as kmsconvt@%i.service. It writes
 # OUTDIR/NAME-getty@.service, which is kmsconvt-getty@.service under its new
@@ -94,16 +94,17 @@ done
 	header crates/vtium/install/kmsconvt@.service "the name, $name@" \
 		"ExecStart runs $exec_path" "the getty fallback, $name-getty@" "${changes[@]}" "no DefaultInstance="
 	# awk puts a Conflicts= and an After= line for each --conflicts unit,
-	# which reach it through the environment, below After=getty@%i.service.
+	# which reach it through the environment, just above OnFailure=. The AUR
+	# recipes put them in the same place.
 	sed -e "s|^ExecStart=/usr/bin/vtium |ExecStart=$exec_path |" \
 		-e "s|^OnFailure=kmsconvt-getty@%i\\.service\$|OnFailure=$name-getty@%i.service|" \
 		-e '/^DefaultInstance=/d' "$src/kmsconvt@.service" |
 		UNITS_CONFLICTS="${conflicts[*]}" awk '
-			{ print }
-			$0 == "After=getty@%i.service" {
+			/^OnFailure=/ {
 				n = split(ENVIRON["UNITS_CONFLICTS"], c, " ")
 				for (i = 1; i <= n; i++) print "Conflicts=" c[i] "\nAfter=" c[i]
-			}'
+			}
+			{ print }'
 } >"$tmp/$unit"
 {
 	header crates/vtium/install/kmsconvt-getty@.service "the name, $name-getty@, which $unit names as its fallback"
@@ -115,8 +116,6 @@ directives() { grep -v '^[[:space:]]*\(#\|$\)' "$1"; }
 	directives "$tmp/$unit" | grep -qF "ExecStart=$exec_path " &&
 	grep -q '^ExecStart=/usr/bin/vtium ' "$src/kmsconvt@.service" ||
 	die "the shipped kmsconvt@.service has no one ExecStart=/usr/bin/vtium line to change"
-[ ${#conflicts[@]} -eq 0 ] || [ "$(directives "$src/kmsconvt@.service" | grep -c '^After=getty@%i\.service$')" = 1 ] ||
-	die "the shipped kmsconvt@.service has no one After=getty@%i.service line to put the --conflicts lines under"
 for c in "${conflicts[@]}"; do
 	directives "$tmp/$unit" | grep -qxF "Conflicts=$c" && directives "$tmp/$unit" | grep -qxF "After=$c" ||
 		die "the generated $unit has no Conflicts= and After= line for $c"
