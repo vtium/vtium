@@ -12,12 +12,14 @@
 
 use crate::bounds::{
     CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX,
-    SET_CLUSTERS_MAX, SET_GLYPHS_MAX, SET_META_BYTES_MAX, SET_RUNS_MAX, SET_STRIKES_MAX,
+    SET_CLUSTERS_MAX, SET_GLYPHS_MAX, SET_INKS_MAX, SET_META_BYTES_MAX, SET_RUNS_MAX,
+    SET_STRIKES_MAX,
 };
 use crate::set::format::{
     CHUNK_DEFLATED, CHUNK_RECORD, CLUS, CLUSTER_RECORD, CMAP, COVERAGE_RECORD, FORMAT_BITS,
-    FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, MINOR, POLY, PRELUDE_BYTES, RUN_RECORD,
-    RUN_WIDE, SECTION_BYTES, SOURCE_AUTO, STRIKE_RECORD, STRK, glyph_bytes,
+    FORMAT_R8, FORMAT_RGBA, GLYF, INK_CLUSTER, INK_GLYPH, INK_RECORD, INKX, MAGIC, MAJOR, META,
+    MINOR, POLY, PRELUDE_BYTES, RUN_RECORD, RUN_WIDE, SECTION_BYTES, SOURCE_AUTO, STRIKE_RECORD,
+    STRK, glyph_bytes, in_reach,
 };
 use crate::set::pack::deflate;
 use std::collections::BTreeMap;
@@ -47,6 +49,18 @@ pub(crate) struct RawStrike {
     /// Each cluster the strike maps, its scalar values, and the glyph it
     /// draws, in any order.
     pub clusters: Vec<(Vec<u32>, u32)>,
+    /// The ink box of each glyph whose ink passes its cells, by the
+    /// glyph's number in `glyphs`, in any order (`INKX`).
+    pub inks: Vec<(u32, RawInk)>,
+}
+
+/// A glyph's ink box: its first column's offset from its first cell's
+/// left edge, 0 or negative, its width, and its bytes in the strike's
+/// format over the cell's height.
+pub(crate) struct RawInk {
+    pub left: i32,
+    pub width: u32,
+    pub bytes: Vec<u8>,
 }
 
 /// A set as the writer takes it.
@@ -74,6 +88,9 @@ struct Run {
 /// range's coverage.
 struct Laid {
     glyph_count: u32,
+    /// Each of the strike's glyphs' number as written, `None` for one the
+    /// map never reaches.
+    renumbered: Vec<Option<u32>>,
     runs: Vec<Run>,
     stream: Vec<Vec<u8>>,
     coverage: [(u32, u32); 6],
@@ -178,6 +195,7 @@ fn lay_out(strike: &RawStrike) -> Result<Laid, WriteError> {
     }
     Ok(Laid {
         glyph_count,
+        renumbered,
         runs,
         stream,
         coverage,
@@ -260,7 +278,7 @@ fn put_chunks(out: &mut Vec<u8>, all: &[Chunk]) -> Result<(), WriteError> {
 
 /// `CLUS`, or `None` when no strike maps a cluster: each strike's clusters
 /// sorted by key, their glyphs stored once each, strike after strike.
-fn clusters(order: &[&RawStrike]) -> Result<Option<Vec<u8>>, WriteError> {
+fn clusters(order: &[&RawStrike]) -> Result<Option<(Vec<u8>, usize)>, WriteError> {
     let mut records = Vec::new();
     let mut pool: Vec<u32> = Vec::new();
     let mut all: Vec<Chunk> = Vec::new();
@@ -353,7 +371,132 @@ fn clusters(order: &[&RawStrike]) -> Result<Option<Vec<u8>>, WriteError> {
         put32(&mut out, c);
     }
     put_chunks(&mut out, &all)?;
-    Ok(Some(out))
+    Ok(Some((out, all.len())))
+}
+
+/// Checks `ink` as the box of a glyph of strike `s`, `wide` or not: in
+/// an R8 or 1-bit strike, its bytes the box's, inside a chunk, spanning
+/// the glyph's cells and reaching past them by at most one cell on each
+/// side, and past them on at least one (ADR-1302 D1, D6).
+fn check_ink(s: &RawStrike, wide: bool, ink: &RawInk) -> Result<(), WriteError> {
+    if s.format == FORMAT_RGBA {
+        return Err("an ink box in a color strike");
+    }
+    let cell = i64::from(s.cell_width);
+    let cells = cell.saturating_mul(if wide { 2 } else { 1 });
+    if !in_reach(i64::from(ink.left), i64::from(ink.width), cell, cells) {
+        return Err("an ink box outside its glyph's reach, or not past its cells");
+    }
+    let want = glyph_bytes(s.format, ink.width, u32::from(s.cell_height), 1)
+        .ok_or("an unknown pixel format")?;
+    if u32_of(ink.bytes.len())? != want {
+        return Err("an ink box whose bytes do not fit its width and format");
+    }
+    if want > SET_CHUNK_BYTES {
+        return Err("an ink box larger than a chunk");
+    }
+    Ok(())
+}
+
+/// `INKX`, or `None` when no glyph holds an ink box: each strike's boxes
+/// stored once each, with a record for each glyph `GLYF` numbers and each
+/// cluster `CLUS` holds that draws a glyph with a box, sorted by strike,
+/// kind and number.
+fn inks(order: &[&RawStrike], laid: &[Laid]) -> Result<Option<(Vec<u8>, usize)>, WriteError> {
+    let mut records: Vec<(u16, u16, u32, i32, u32, u32, u32)> = Vec::new();
+    let mut all: Vec<Chunk> = Vec::new();
+    // the number of the strike's first cluster in `CLUS`
+    let mut cluster_base = 0u32;
+    for (i, (s, l)) in order.iter().zip(laid).enumerate() {
+        let strike = u16::try_from(i).map_err(|_| "a strike past u16")?;
+        let mut sorted: Vec<&(Vec<u32>, u32)> = s.clusters.iter().collect();
+        sorted.sort_unstable();
+        let mut inks: Vec<&(u32, RawInk)> = s.inks.iter().collect();
+        inks.sort_unstable_by_key(|(g, _)| *g);
+        if inks.windows(2).any(|w| matches!(w, [a, b] if a.0 == b.0)) {
+            return Err("a glyph with two ink boxes");
+        }
+        let mut stream: Vec<Vec<u8>> = Vec::new();
+        let mut boxed: Vec<(u32, usize, &RawInk)> = Vec::new();
+        for &&(g, ref ink) in &inks {
+            let gi = usize::try_from(g).map_err(|_| "a glyph index past usize")?;
+            let &(wide, _) = s
+                .glyphs
+                .get(gi)
+                .ok_or("an ink box for a glyph the strike lacks")?;
+            check_ink(s, wide, ink)?;
+            let mapped = l.renumbered.get(gi).copied().flatten().is_some();
+            let clustered = sorted.iter().any(|(_, cg)| *cg == g);
+            if mapped || clustered {
+                boxed.push((g, stream.len(), ink));
+                stream.push(ink.bytes.clone());
+            }
+        }
+        let (chunks, at) = self::chunks(&stream, s.compress)?;
+        let first = u32_of(all.len())?;
+        for &(g, n, ink) in &boxed {
+            let &(chunk, offset) = at.get(n).ok_or("an ink box lost")?;
+            let chunk = checked(first, chunk)?;
+            let gi = usize::try_from(g).map_err(|_| "a glyph index past usize")?;
+            if let Some(index) = l.renumbered.get(gi).copied().flatten() {
+                records.push((strike, INK_GLYPH, index, ink.left, ink.width, chunk, offset));
+            }
+            for (k, (_, cg)) in sorted.iter().enumerate() {
+                if *cg == g {
+                    let index = checked(cluster_base, u32_of(k)?)?;
+                    records.push((
+                        strike,
+                        INK_CLUSTER,
+                        index,
+                        ink.left,
+                        ink.width,
+                        chunk,
+                        offset,
+                    ));
+                }
+            }
+        }
+        all.extend(chunks);
+        cluster_base = checked(cluster_base, u32_of(s.clusters.len())?)?;
+    }
+    if records.is_empty() {
+        return Ok(None);
+    }
+    records.sort_unstable_by_key(|r| (r.0, r.1, r.2));
+    if u32_of(records.len())? > SET_INKS_MAX {
+        return Err("more ink boxes than SET_INKS_MAX");
+    }
+    let mut out = Vec::new();
+    for v in [
+        u32_of(records.len())?,
+        INK_RECORD,
+        u32_of(all.len())?,
+        CHUNK_RECORD,
+    ] {
+        put32(&mut out, v);
+    }
+    for (strike, kind, index, left, width, chunk, offset) in records {
+        put16(&mut out, strike);
+        put16(&mut out, kind);
+        put32(&mut out, index);
+        out.extend_from_slice(&left.to_le_bytes());
+        put32(&mut out, width);
+        put32(&mut out, chunk);
+        put32(&mut out, offset);
+    }
+    put_chunks(&mut out, &all)?;
+    Ok(Some((out, all.len())))
+}
+
+/// Refuses a set whose `GLYF`, `CLUS` and `INKX` chunks, `counts`,
+/// together pass `max`, `SET_CHUNKS_MAX` in a set [`encode`] writes, which
+/// the reader holds the whole set to.
+fn chunks_within(counts: &[usize], max: u32) -> Result<(), WriteError> {
+    let total = counts.iter().try_fold(0usize, |n, &c| n.checked_add(c));
+    match total {
+        Some(n) if u32_of(n)? <= max => Ok(()),
+        _ => Err("more chunks over GLYF, CLUS and INKX than SET_CHUNKS_MAX"),
+    }
 }
 
 fn put16(out: &mut Vec<u8>, v: u16) {
@@ -370,6 +513,13 @@ fn put64(out: &mut Vec<u8>, v: u64) {
 
 /// The set's bytes.
 pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
+    encode_within(set, SET_CHUNKS_MAX)
+}
+
+/// [`encode`], the set's chunks over `GLYF`, `CLUS` and `INKX` together
+/// held to `chunks_max`. Only a test asks for a bound under
+/// `SET_CHUNKS_MAX`: a set past that bound holds over 2 GiB of glyphs.
+fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
     let mut meta = String::new();
     for (key, value) in &set.meta {
         if key.is_empty() || key.contains(['=', '\n', '\r']) || value.contains(['\n', '\r']) {
@@ -486,14 +636,20 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
     for (s, l) in order.iter().zip(&laid) {
         all.extend(chunks(&l.stream, s.compress)?.0);
     }
-    if u32_of(all.len())? > SET_CHUNKS_MAX {
-        return Err("more chunks than SET_CHUNKS_MAX");
-    }
     let mut glyf = Vec::new();
     put32(&mut glyf, u32_of(all.len())?);
     put32(&mut glyf, CHUNK_RECORD);
     put_chunks(&mut glyf, &all)?;
     let clus = clusters(&order)?;
+    let inkx = inks(&order, &laid)?;
+    chunks_within(
+        &[
+            all.len(),
+            clus.as_ref().map_or(0, |c| c.1),
+            inkx.as_ref().map_or(0, |c| c.1),
+        ],
+        chunks_max,
+    )?;
 
     let mut sections: Vec<([u8; 4], &[u8])> = vec![
         (META, meta.as_bytes()),
@@ -502,8 +658,11 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
         (POLY, &poly),
         (GLYF, &glyf),
     ];
-    if let Some(clus) = &clus {
+    if let Some((clus, _)) = &clus {
         sections.push((CLUS, clus));
+    }
+    if let Some((inkx, _)) = &inkx {
+        sections.push((INKX, inkx));
     }
     let mut out = Vec::new();
     out.extend_from_slice(&MAGIC);
@@ -527,4 +686,82 @@ pub(crate) fn encode(set: &RawSet) -> Result<Vec<u8>, WriteError> {
         return Err("a set larger than SET_BYTES_MAX");
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RawInk, RawSet, RawStrike, chunks_within, encode, encode_within};
+    use crate::bounds::SET_CHUNKS_MAX;
+    use crate::set::format::FORMAT_R8;
+
+    // the writer holds the set's chunks over its three chunked sections to
+    // SET_CHUNKS_MAX, as the reader does (review finding A11)
+    #[test]
+    fn the_chunks_of_all_sections_together_are_bounded() {
+        let max = SET_CHUNKS_MAX as usize;
+        assert!(chunks_within(&[max - 2, 1, 1], SET_CHUNKS_MAX).is_ok());
+        assert!(
+            chunks_within(&[max - 2, 1, 2], SET_CHUNKS_MAX).is_err(),
+            "INKX past the bound"
+        );
+        assert!(chunks_within(&[max, 0, 0], SET_CHUNKS_MAX).is_ok());
+        assert!(
+            chunks_within(&[usize::MAX, 1, 0], SET_CHUNKS_MAX).is_err(),
+            "a count past usize"
+        );
+    }
+
+    /// One R8 strike in a cell 90 pixels wide and 100 high, its glyphs
+    /// 9,000 bytes each, so no two share a 16 KiB chunk: `a`, `b` and `c`
+    /// in three `GLYF` chunks, a cluster drawing `a`'s glyph in one `CLUS`
+    /// chunk, and `b`'s ink box, 100 columns from 10 left of its cell, in
+    /// one `INKX` chunk: five chunks in all.
+    fn five_chunks() -> RawSet {
+        let glyph = |v: u8| (false, vec![v; 90 * 100]);
+        RawSet {
+            meta: Vec::new(),
+            policy: [0; 6],
+            strikes: vec![RawStrike {
+                style: 0,
+                format: FORMAT_R8,
+                cell_width: 90,
+                cell_height: 100,
+                baseline: 80,
+                underline: 90,
+                underline_thickness: 1,
+                strike: 50,
+                strike_thickness: 1,
+                compress: false,
+                glyphs: vec![glyph(1), glyph(2), glyph(3)],
+                map: vec![(0x61, 0), (0x62, 1), (0x63, 2)],
+                clusters: vec![(vec![0x65, 0x301], 0)],
+                inks: vec![(
+                    1,
+                    RawInk {
+                        left: -10,
+                        width: 100,
+                        bytes: vec![2; 100 * 100],
+                    },
+                )],
+            }],
+        }
+    }
+
+    // encode refuses a set whose GLYF, CLUS and INKX chunks together pass
+    // the chunk bound, though GLYF's alone are within it (ADR-1200 D2:
+    // every count is bounded): with the bound at 4, the five chunks are
+    // refused, and with it at 5 they are written. A set past
+    // SET_CHUNKS_MAX itself would hold over 2 GiB of glyphs, so the test
+    // lowers the bound
+    #[test]
+    fn encode_refuses_a_set_whose_sections_together_pass_the_chunk_bound() {
+        let set = five_chunks();
+        assert!(encode(&set).is_ok(), "within SET_CHUNKS_MAX");
+        assert!(encode_within(&set, 5).is_ok(), "five chunks, a bound of 5");
+        assert_eq!(
+            encode_within(&set, 4).err(),
+            Some("more chunks over GLYF, CLUS and INKX than SET_CHUNKS_MAX"),
+            "five chunks, a bound of 4"
+        );
+    }
 }

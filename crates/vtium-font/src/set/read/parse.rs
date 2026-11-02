@@ -9,14 +9,14 @@ use super::{
 };
 use crate::bounds::{
     CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX, SET_CLUSTERS_MAX,
-    SET_GLYPHS_MAX, SET_RECORD_BYTES_MAX, SET_RUNS_MAX, SET_STRIKES_MAX,
+    SET_GLYPHS_MAX, SET_INKS_MAX, SET_RECORD_BYTES_MAX, SET_RUNS_MAX, SET_STRIKES_MAX,
 };
 use crate::face::{Cell, Decorations, Style};
 use crate::policy::{Coverage, RangeCoverage, Source, SpritePolicy};
 use crate::set::format::{
-    CHUNK_DEFLATED, CHUNK_RECORD, CLUSTER_RECORD, COVERAGE_RECORD, RUN_RECORD, RUN_WIDE,
-    SOURCE_AUTO, SOURCE_FONT, SOURCE_SPRITES, STRIKE_RECORD, STYLE_BOLD, STYLE_ITALIC,
-    TABLE_HEAD_BYTES, valid_name,
+    CHUNK_DEFLATED, CHUNK_RECORD, CLUSTER_RECORD, COVERAGE_RECORD, INK_CLUSTER, INK_GLYPH,
+    INK_RECORD, RUN_RECORD, RUN_WIDE, SOURCE_AUTO, SOURCE_FONT, SOURCE_SPRITES, STRIKE_RECORD,
+    STYLE_BOLD, STYLE_ITALIC, TABLE_HEAD_BYTES, glyph_bytes, valid_name,
 };
 use crate::sprite::Range;
 
@@ -537,6 +537,7 @@ impl ClusterMap {
                         chunk: self.first.checked_add(chunk)?,
                         offset: offset as u64,
                         wide: flags != 0,
+                        key: (INK_CLUSTER, u32::try_from(mid).ok()?),
                     });
                 }
             }
@@ -628,4 +629,164 @@ impl Strike {
                 .checked_div(size)
                 .is_some_and(|k| k < u64::from(span.len))
     }
+}
+
+/// The length of `INKX`'s fixed head.
+const INK_HEAD_BYTES: usize = 16;
+
+/// `INKX`'s records as stored, checked once and then read in place.
+#[derive(Default)]
+pub(super) struct InkMap {
+    bytes: Box<[u8]>,
+    size: usize,
+    count: usize,
+    /// The set's number for `INKX`'s first chunk.
+    first: usize,
+}
+
+/// Where an ink box lies, and its columns.
+pub(super) struct InkAt {
+    pub chunk: usize,
+    pub offset: u64,
+    pub left: i32,
+    pub width: u32,
+}
+
+impl InkMap {
+    /// Record `i`: its strike, kind and number, its left and width, its
+    /// chunk and its offset.
+    fn record(&self, i: usize) -> Option<(u16, u16, u32, i32, u32, u32, u32)> {
+        let r: &[u8; 24] = self.bytes.get(i.checked_mul(self.size)?..)?.first_chunk()?;
+        let [s0, s1, k0, k1, g @ ..] = *r;
+        let w = |at: usize| -> Option<[u8; 4]> { g.get(at..at.checked_add(4)?)?.try_into().ok() };
+        Some((
+            u16::from_le_bytes([s0, s1]),
+            u16::from_le_bytes([k0, k1]),
+            u32::from_le_bytes(w(0)?),
+            i32::from_le_bytes(w(4)?),
+            u32::from_le_bytes(w(8)?),
+            u32::from_le_bytes(w(12)?),
+            u32::from_le_bytes(w(16)?),
+        ))
+    }
+
+    /// The ink box of strike `strike`'s glyph or cluster `key`.
+    pub(super) fn find(&self, strike: usize, key: (u16, u32)) -> Option<InkAt> {
+        let want = (u16::try_from(strike).ok()?, key.0, key.1);
+        let (mut lo, mut hi) = (0, self.count);
+        while lo < hi {
+            let mid = lo.midpoint(hi);
+            let (s, k, g, left, width, chunk, offset) = self.record(mid)?;
+            match (s, k, g).cmp(&want) {
+                Ordering::Less => lo = mid.checked_add(1)?,
+                Ordering::Greater => hi = mid,
+                Ordering::Equal => {
+                    return Some(InkAt {
+                        chunk: self.first.checked_add(chunk as usize)?,
+                        offset: u64::from(offset),
+                        left,
+                        width,
+                    });
+                }
+            }
+        }
+        None
+    }
+}
+
+/// `INKX` (ADR-1302 D6): its boxes, sorted by strike, kind and number
+/// with none twice, each of a glyph or cluster the set holds in an R8 or
+/// 1-bit strike, spanning its glyph's cells and reaching past them by at
+/// most one cell on each side and past them on one side at least, its
+/// bytes inside one of the section's own chunks, numbered from `first`;
+/// with those chunks.
+pub(super) fn parse_inks(
+    bytes: &[u8],
+    inkx: (u64, u64),
+    strikes: &[Strike],
+    clusters: &ClusterMap,
+    first: usize,
+) -> Result<(InkMap, Vec<Chunk>), SetError> {
+    let head: &[u8; 16] = bytes.first_chunk().ok_or(SetError::Truncated)?;
+    let word = |i: usize| -> u32 {
+        head.chunks_exact(4)
+            .nth(i)
+            .and_then(|w| w.try_into().ok())
+            .map_or(u32::MAX, u32::from_le_bytes)
+    };
+    let (count, size, chunk_count, chunk_size) = (word(0), word(1), word(2), word(3));
+    if count > SET_INKS_MAX {
+        return Err(SetError::Bound("SET_INKS_MAX"));
+    }
+    if chunk_count > SET_CHUNKS_MAX {
+        return Err(SetError::Bound("SET_CHUNKS_MAX"));
+    }
+    if size > SET_RECORD_BYTES_MAX || chunk_size > SET_RECORD_BYTES_MAX {
+        return Err(SetError::Bound("SET_RECORD_BYTES_MAX"));
+    }
+    if size < INK_RECORD || chunk_size < CHUNK_RECORD {
+        return Err(SetError::Malformed("a malformed ink box"));
+    }
+    let (count, size) = (count as usize, size as usize);
+    let records = count.saturating_mul(size);
+    let end = records.saturating_add(INK_HEAD_BYTES);
+    let body = bytes.get(INK_HEAD_BYTES..end).ok_or(SetError::Truncated)?;
+    let mut c = Cursor(bytes.get(end..).ok_or(SetError::Truncated)?);
+    let at = u64::try_from(end)
+        .map_err(|_| SetError::Truncated)?
+        .saturating_add(u64::from(chunk_count).saturating_mul(u64::from(chunk_size)));
+    let chunks = chunk_table(&mut c, (chunk_count, chunk_size as usize), at, inkx)?;
+    let map = InkMap {
+        bytes: body.into(),
+        size,
+        count,
+        first,
+    };
+    let cluster_count = clusters.pool.checked_div(clusters.size).unwrap_or(0);
+    let mut before: Option<(u16, u16, u32)> = None;
+    for i in 0..count {
+        let (strike, kind, glyph, left, width, chunk, offset) =
+            map.record(i).ok_or(SetError::Truncated)?;
+        let s = strikes
+            .get(usize::from(strike))
+            .ok_or(SetError::Malformed("an ink box of a strike the set lacks"))?;
+        if s.info.format == PixelFormat::Rgba {
+            return Err(SetError::Malformed("an ink box in a color strike"));
+        }
+        let wide = match kind {
+            INK_GLYPH if glyph < s.info.glyph_count => s
+                .spans
+                .iter()
+                .find(|sp| glyph.checked_sub(sp.glyph).is_some_and(|k| k < sp.len))
+                .map(|sp| sp.wide),
+            INK_CLUSTER if (glyph as usize) < cluster_count => clusters
+                .record(glyph as usize)
+                .filter(|r| r[0] == usize::from(strike))
+                .map(|r| r[5] != 0),
+            _ => None,
+        }
+        .ok_or(SetError::Malformed(
+            "an ink box of a glyph the strike lacks",
+        ))?;
+        let cell = i64::from(s.info.cell.width);
+        let cells = cell.saturating_mul(if wide { 2 } else { 1 });
+        if !crate::set::format::in_reach(i64::from(left), i64::from(width), cell, cells) {
+            return Err(SetError::Malformed(
+                "an ink box past its glyph's reach, or not past its cells",
+            ));
+        }
+        let n = glyph_bytes(s.info.format.code(), width, s.info.cell.height, 1)
+            .ok_or(SetError::Malformed("an ink box past u32"))?;
+        let fits = chunks.get(chunk as usize).is_some_and(|ch| {
+            u64::from(offset).saturating_add(u64::from(n)) <= u64::from(ch.decoded)
+        });
+        if !fits {
+            return Err(SetError::Malformed("an ink box outside its chunk"));
+        }
+        if before.is_some_and(|b| b >= (strike, kind, glyph)) {
+            return Err(SetError::Malformed("ink boxes out of order, or one twice"));
+        }
+        before = Some((strike, kind, glyph));
+    }
+    Ok((map, chunks))
 }

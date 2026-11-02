@@ -85,11 +85,11 @@ mod unifont;
 pub use bounds::{
     CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, GZIP_BYTES_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX,
     PSF_GLYPHS_MAX, PSF_HEIGHT_MAX, PSF_WIDTH_MAX, RAW_HEIGHT_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES,
-    SET_CHUNKS_MAX, SET_CLUSTERS_MAX, SET_GLYPHS_MAX, SET_META_BYTES_MAX, SET_RECORD_BYTES_MAX,
-    SET_RUNS_MAX, SET_SECTIONS_MAX, SET_STRIKES_MAX,
+    SET_CHUNKS_MAX, SET_CLUSTERS_MAX, SET_GLYPHS_MAX, SET_INKS_MAX, SET_META_BYTES_MAX,
+    SET_RECORD_BYTES_MAX, SET_RUNS_MAX, SET_SECTIONS_MAX, SET_STRIKES_MAX,
 };
 pub use face::{Cell, Decorations, Face, Font, REPLACEMENT, Style, Width};
-pub use glyph::{Format, Glyph};
+pub use glyph::{Format, Glyph, Ink};
 pub use policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 #[cfg(feature = "psf")]
 pub use psf::{Psf, PsfError};

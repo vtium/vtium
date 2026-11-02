@@ -173,6 +173,11 @@ and the devices present from /sys and udev's database, /run/udev/data.\n";
 
     pub const HWACCEL_NOT_BUILT: &str = "hwaccel is not built yet; vtium draws in software";
 
+    /// A key vtium takes and does not act on yet, set by a source.
+    pub fn not_built(key: &str) -> String {
+        format!("{key} is not built yet; vtium ignores it")
+    }
+
     pub const MODE_OVER_ORIGINAL: &str = "mode is set, so use-original-mode is off";
 
     /// `grab-power-off` is bound and PID 1 does not catch the power-off
