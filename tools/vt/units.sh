@@ -2,9 +2,10 @@
 # Generates vtium's VT unit and its getty fallback from the shipped units,
 # crates/vtium/install/kmsconvt@.service and kmsconvt-getty@.service, under a
 # name of the caller's. It is the one place the units are made: make install,
-# which the package build runs, makes vtium@.service and vtium-getty@.service,
-# and make vt-install makes vtium-dev@.service and vtium-dev-getty@.service
-# (docs/vt-review.md, "Installing vtium on a VT").
+# which the package build runs, and make install-tree, the tree tier 3
+# installs, make vtium@.service and vtium-getty@.service, and make vt-install
+# makes vtium-dev@.service and vtium-dev-getty@.service (docs/vt-review.md,
+# "Installing vtium on a VT").
 #
 #   units.sh --name NAME --exec PATH --by WHO [--conflicts UNIT]... [--note LINE]
 #            [--source DIR] OUTDIR
@@ -42,7 +43,7 @@
 set -euo pipefail
 
 usage() {
-	sed -n '9,10s/^# \{0,1\}//p' "$0" >&2
+	sed -n '10,11s/^# \{0,1\}//p' "$0" >&2
 	exit 2
 }
 

@@ -730,8 +730,10 @@ def run_variant(variant, timing, impl, log):
             vm.wait_serial(marker, timeout=120)
         phase("boot")
         # tty1 runs getty. Under systemd, switching to tty2 makes logind
-        # spawn autovt@tty2, which is kmsconvt@tty2, and nothing starts it
-        # earlier: a boot without the keypress has no console on tty2.
+        # spawn autovt@tty2, which is vtium@tty2 through the template link
+        # that the setup's vtium console enable --all makes, and nothing
+        # starts it earlier: a boot without the keypress has no console on
+        # tty2.
         # Under sysvinit, the console the inittab started on tty2 takes it.
         vm.keys("ctrl", "alt", "f2")
         vm.wait_serial(guest["shown"], timeout=60)

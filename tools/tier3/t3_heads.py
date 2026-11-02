@@ -14,10 +14,11 @@ limit. Each check below waits on that state and sleeps no fixed time; the
 one that must see vtium outlast display-wait waits for vtium's age, read in
 the guest.
 
-The getty fallback (crates/vtium/install/kmsconvt-getty@.service) and the
-unit's restarts are the part no unit test reaches. When vtium's unit on
-tty2 fails, systemd starts vtium again after 100 ms (Restart=on-failure),
-up to systemd's default limit of 5 starts in 10 s, and each failure's
+The getty fallback (vtium-getty@.service, which tools/vt/units.sh generates
+from crates/vtium/install/kmsconvt-getty@.service) and the unit's restarts
+are the part no unit test reaches. When vtium's unit on tty2 fails,
+systemd starts vtium again after 100 ms (Restart=on-failure), up to
+systemd's default limit of 5 starts in 10 s, and each failure's
 OnFailure= starts the fallback, which starts getty@tty2 unless vtium's
 marker of a closed policy, /run/vtium/tty2.closed, exists (ADR-1401 D9).
 Under open the getty's Conflicts= then stops vtium's unit; under closed
@@ -44,8 +45,8 @@ HEADS = os.path.join(GUEST, "heads")
 
 # The units of VT 2, as the agent reports them: vtium's, its fallback's and
 # the getty the fallback starts.
-VTIUM_UNIT = "kmsconvt@tty2.service"
-FALLBACK_UNIT = "kmsconvt-getty@tty2.service"
+VTIUM_UNIT = "vtium@tty2.service"
+FALLBACK_UNIT = "vtium-getty@tty2.service"
 GETTY_UNIT = "getty@tty2.service"
 # The gettys the guest could start on tty2, whose last exit from their
 # inactive state and restarts the agent reports: under closed each keeps

@@ -2965,6 +2965,47 @@ class DevicesTest(unittest.TestCase):
                       "crates/vtium/install/examples/71-vtium-local.rules "
                       "crates/vtium/install/examples/vtium.hwdb", lines)
 
+    def test_the_tree_installs_vtiums_own_units(self):
+        # make install-tree generates vtium@.service and vtium-getty@.service
+        # with the generator and the changes make install uses (ADR-1500
+        # D3), with the console at /usr/bin/vtium, and installs no unit
+        # under kmscon's names.
+        def make_n(target, *args):
+            r = subprocess.run(["make", "-n", "--no-print-directory", target, *args],
+                               cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
+            return r.stdout.splitlines()
+        tree = make_n("install-tree", "DESTDIR=/D")
+        units = [l for l in tree if "tools/vt/units.sh" in l]
+        self.assertEqual(units, ["tools/vt/units.sh --name vtium --exec /usr/bin/vtium "
+                                 "--by 'make install-tree' --conflicts 'kmsconvt@%i.service' "
+                                 "/D/usr/lib/systemd/system"])
+        package = [l for l in make_n("install", "DESTDIR=/D", "PREFIX=/usr")
+                   if "tools/vt/units.sh" in l]
+        self.assertEqual([l.replace("'make install'", "'make install-tree'") for l in package],
+                         units)
+        self.assertFalse([l for l in tree if "kmsconvt@.service" in l
+                          or "kmsconvt-getty@" in l], tree)
+        self.assertEqual(t3_impl.VT_UNIT, "usr/lib/systemd/system/vtium@.service")
+
+    def test_the_guest_gives_vtium_its_vts_with_vtium_console(self):
+        # The run's setup links the template back to the getty, as Arch's
+        # systemd package has it, then gives vtium every VT as a user does,
+        # with vtium console enable --all, and fails the install when that
+        # fails. No vtium unit is named for kmscon.
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        getty = ("ln -sfn /usr/lib/systemd/system/getty@.service "
+                 "/etc/systemd/system/autovt@.service\n")
+        self.assertIn(getty, setup)
+        self.assertLess(setup.index(getty), setup.index("vtium console enable --all"))
+        self.assertIn("if ! out=$(vtium console enable --all 2>&1); then\n"
+                      "    printf 'TIER3-INSTALL-FAIL vtium console enable --all: %s\\n' "
+                      "\"$out\" > /dev/ttyS0\n    exit 1\nfi\n", setup)
+        self.assertLess(setup.index("tar -xpf"), setup.index("vtium console enable --all"))
+        self.assertIn("/etc/systemd/system/vtium@.service.d/tier3.conf", setup)
+        self.assertFalse([l for l in setup.splitlines()
+                          if "kmsconvt" in l and not l.lstrip().startswith("#")])
+
     def test_keyboard_hotplug_helpers(self):
         self.assertEqual(t3_devices.key_events(["shift", "a"], True),
                          [{"type": "key", "data": {"down": True,
@@ -3033,10 +3074,10 @@ def agent_state(vtium=("active", "success"), fallback=("inactive", "success", "n
     of vtium's unit and its fallback, or None for no journal line."""
     readings = dict({u: (0, 0) for u in t3_heads.GETTY_UNITS}, **dict(gettys))
     lines = (["systemd %d" % systemd] if systemd else []) + [
-             "unit kmsconvt@tty2.service %s %s yes 6418546" % vtium,
-             "restarts kmsconvt@tty2.service running %d" % restarts,
+             "unit vtium@tty2.service %s %s yes 6418546" % vtium,
+             "restarts vtium@tty2.service running %d" % restarts,
              *(["journal " + " ".join(journal)] if journal is not None else []),
-             "unit kmsconvt-getty@tty2.service %s %s %s %d" % fallback,
+             "unit vtium-getty@tty2.service %s %s %s %d" % fallback,
              "unit getty@tty2.service %s success no 0" % getty,
              *("getty %s %d %d" % (u, *r) for u, r in readings.items() if r is not None),
              *("job %s start waiting" % u for u in BOOT_JOBS + list(queued)),
@@ -3197,14 +3238,14 @@ class HeadsTest(unittest.TestCase):
         # the units the agent reads are the ones the tree installs
         with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
             agent = f.read()
-        self.assertIn('units=("kmsconvt@$vt.service" "kmsconvt-getty@$vt.service" '
+        self.assertIn('units=("vtium@$vt.service" "vtium-getty@$vt.service" '
                       '"getty@$vt.service")', agent)
         self.assertIn('gettys=("%s" "%s")' % tuple(u.replace("tty2", "$vt")
                                                    for u in t3_heads.GETTY_UNITS), agent)
         # the keyboard `watch` reads is the one the kiosk check plugs in
         self.assertIn("second=/dev/input/by-path/%s\n" % t3_heads.KIOSK_SECOND, agent)
         self.assertEqual((t3_heads.VTIUM_UNIT, t3_heads.FALLBACK_UNIT, t3_heads.GETTY_UNIT),
-                         ("kmsconvt@tty2.service", "kmsconvt-getty@tty2.service",
+                         ("vtium@tty2.service", "vtium-getty@tty2.service",
                           "getty@tty2.service"))
         with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
                                "kmsconvt-getty@.service")) as f:
@@ -3288,7 +3329,7 @@ class HeadsTest(unittest.TestCase):
     def test_parse_state(self):
         st = t3_heads.parse_state(agent_state(tty2="agetty", fallback=("inactive", "success",
                                                                        "yes", 99)))
-        self.assertEqual(st["units"]["kmsconvt-getty@tty2.service"],
+        self.assertEqual(st["units"]["vtium-getty@tty2.service"],
                          {"active": "inactive", "result": "success", "condition": "yes",
                           "checked": 99})
         self.assertEqual((len(st["queued"]), st["marker"], st["tty2"], st["logins"], st["fgconsole"],
@@ -3307,9 +3348,9 @@ class HeadsTest(unittest.TestCase):
         st = t3_heads.parse_state(agent_state(restarts=3, journal=(
             "started", "failed:signal", "skipped", "restart:1", "started")))
         self.assertEqual(st["systemd"], 262)
-        self.assertEqual((st["units"]["kmsconvt@tty2.service"]["active"],
-                          st["units"]["kmsconvt@tty2.service"]["sub"],
-                          st["units"]["kmsconvt@tty2.service"]["restarts"]),
+        self.assertEqual((st["units"]["vtium@tty2.service"]["active"],
+                          st["units"]["vtium@tty2.service"]["sub"],
+                          st["units"]["vtium@tty2.service"]["restarts"]),
                          ("active", "running", 3))
         self.assertEqual(st["journal"], ["started", "failed:signal", "skipped", "restart:1",
                                          "started"])

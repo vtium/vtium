@@ -69,9 +69,23 @@ if [ -f "$disc"/t3-agent ]; then
 fi
 # The console's log also goes to the serial console, so the harness can read
 # which video backend and text renderer drew the screens.
-mkdir -p /etc/systemd/system/kmsconvt@.service.d
+mkdir -p /etc/systemd/system/vtium@.service.d
 printf '[Service]\nStandardOutput=journal+console\nStandardError=journal+console\n' \
-    > /etc/systemd/system/kmsconvt@.service.d/tier3.conf
+    > /etc/systemd/system/vtium@.service.d/tier3.conf
+# vtium takes the guest's VTs the way a user gives them to it. The base
+# image, provisioned by the C reference's guest file (user-data.in), links
+# autovt@.service, the unit logind starts on a VT the driver switches to, to
+# kmsconvt@.service, a unit no vtium install has. setup first links it back
+# to getty@.service, where Arch's systemd package links it. vtium console
+# enable --all then links it to vtium@.service, recording the getty. It
+# changes only what starts next, and the boot's units are already queued, so
+# tty1 keeps its getty and logind starts vtium on tty2 at the driver's
+# switch.
+ln -sfn /usr/lib/systemd/system/getty@.service /etc/systemd/system/autovt@.service
+if ! out=$(vtium console enable --all 2>&1); then
+    printf 'TIER3-INSTALL-FAIL vtium console enable --all: %s\n' "$out" > /dev/ttyS0
+    exit 1
+fi
 systemctl daemon-reload
 rm -rf /usr/local/share/tier3
 cp -r "$disc"/screens /usr/local/share/tier3
