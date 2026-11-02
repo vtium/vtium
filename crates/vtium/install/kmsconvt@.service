@@ -23,7 +23,15 @@ After=plymouth-quit-wait.service
 After=rc-local.service
 After=systemd-vconsole-setup.service
 Before=getty.target
+# Conflicts= orders nothing (systemd.unit(5): to have the conflicting unit
+# stopped before this one starts, an After= or Before= is needed, and stop
+# jobs then always run before start jobs). Without it, starting vtium while
+# getty@ runs on the VT stops the getty and starts vtium in parallel, and the
+# getty's TTYVHangup= and TTYVTDisallocate= reset can hang up vtium's tty.
+# With it, the getty has stopped before vtium starts, and in the other
+# direction vtium has stopped before the fallback's getty starts.
 Conflicts=getty@%i.service
+After=getty@%i.service
 OnFailure=kmsconvt-getty@%i.service
 IgnoreOnIsolate=yes
 ConditionPathExists=/dev/tty0

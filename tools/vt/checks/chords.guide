@@ -1,0 +1,81 @@
+# The console chords on a head under the open policy (ADR-1401 D1, D5):
+# Ctrl+Super+Enter opens a console just after the one shown, Ctrl+Super+
+# Backspace closes the one shown and does nothing on the last, a new console
+# never takes an id given before, and the head stops at 4 consoles. Ctrl
+# shows a link's address only while it is held (ADR-1002, section 4). With
+# no head file vtium runs one head, named console. The guide runs in its
+# first console; a console a chord opens gets a shell (guide.sh). --osd=full
+# draws the line at the top of the head that names the console shown.
+#
+#   make vt-check GUIDE=chords DEMO_ARGS='--osd=full'
+
+title: the console chords
+
+intro: Never press Ctrl+Super+Backspace on console 1 unless a step asks:
+intro: this guide runs there. Each step brings you back to console 1.
+
+step: This guide runs in console 1
+run: echo "head $VTIUM_HEAD, console $VTIUM_CONSOLE"
+expect: "head console, console 1": vtium runs one head, named console, and
+expect: this guide runs in its first console.
+
+step: A new console opens and shows
+probe: focus
+do: press Enter to start the probe, then press Ctrl+Super+Enter. Read the
+do: new console's first line, press Ctrl+Super+Left to come back, then q.
+expect: a new console shows at once: "This is console 2 of the head
+expect: console" and the prompt "console-2$ ", under a top line that reads
+expect: "● console · console 2 of 2" for about 3 seconds. Back here the line
+expect: reads "console 1 of 2", and the probe shows FOCUS OUT, then FOCUS
+expect: IN, and no other line: no chord sent this guide a key.
+
+step: A new console opens just after the one shown
+do: here, on console 1 of 2, press Ctrl+Super+Enter and read the new
+do: console's first line. Then press Ctrl+Super+Right twice.
+expect: the new console says "console 3" and its top line reads "console 2
+expect: of 3": it opened between this guide and console 2. The first
+expect: Ctrl+Super+Right shows console 2, "console 3 of 3", and the second
+expect: brings you back here, "console 1 of 3".
+
+step: Closing shows the next console, and an id is never given twice
+do: press Ctrl+Super+Right to show console 3, then Ctrl+Super+Backspace.
+do: Then press Ctrl+Super+Left to come back here, press Ctrl+Super+Enter,
+do: read the new console's first line, and press Ctrl+Super+Left again.
+expect: console 3 closes and console 2 shows at once, "console 2 of 2".
+expect: The console you open after that says "console 4", not 3, and its
+expect: top line reads "console 2 of 3".
+
+step: A head stops at 4 consoles
+do: here, on console 1 of 3, press Ctrl+Super+Enter, then Ctrl+Super+Left
+do: to come back, then Ctrl+Super+Enter once more.
+expect: the first press opens console 5, "console 2 of 4". The second
+expect: opens nothing: you stay here, and a line at the top reads "No more
+expect: consoles: console has 4, its most." for about 3 seconds.
+
+step: The last console stays
+probe: focus
+do: press Enter to start the probe. Press Ctrl+Super+Right once, then
+do: Ctrl+Super+Backspace three times, which closes consoles 5, 4 and 2 and
+do: brings you back here. Then press Ctrl+Super+Backspace here, and q.
+expect: each press closes the console shown and shows the next, and the
+expect: third shows this probe again, "console 1 of 1", with FOCUS OUT and
+expect: FOCUS IN in it. The last press closes nothing and prints no line,
+expect: and the probe stays. If the guide vanishes instead, the check has
+expect: failed: Ctrl-C in the desktop terminal that started the run ends it.
+
+step: Ctrl shows a link's address only while it is held
+run: printf '\e]8;;https://example.com/vtium-chords\e\\a link to hover\e]8;;\e\\\n'
+do: rest the pointer on "a link to hover", hold Ctrl for a second, then
+do: let go of Ctrl and keep the pointer still.
+expect: the pointer over the link underlines all of it with dashes. While
+expect: Ctrl is held, https://example.com/vtium-chords shows in inverted
+expect: colors at the start of the bottom row. It goes the moment Ctrl is
+expect: let go, with the pointer still and no other key pressed.
+
+step: A console chord leaves no address behind
+do: keep the pointer on the link. Press Ctrl+Super+Enter and let go of
+do: every key; then press Ctrl+Super+Left and let go. Then press
+do: Ctrl+Super+Right, then Ctrl+Super+Backspace, to close the new console.
+expect: the new console shows no address. Back here the address shows
+expect: while Ctrl is down and goes as soon as you let go, and the link
+expect: stays underlined. The close brings you back here, "console 1 of 1".
