@@ -33,7 +33,7 @@ use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
 
 use crate::config::keys::{
-    FONT_ENGINE, FONT_NAME, GLYPH_SOURCE, GLYPH_SOURCE_BLOCK, GLYPH_SOURCE_BOX,
+    FONT_ENGINE, FONT_FRITS, FONT_NAME, GLYPH_SOURCE, GLYPH_SOURCE_BLOCK, GLYPH_SOURCE_BOX,
     GLYPH_SOURCE_BRAILLE, GLYPH_SOURCE_LEGACY, GLYPH_SOURCE_OCTANTS, GLYPH_SOURCE_SEXTANTS, Key,
     MISSING,
 };
@@ -145,10 +145,16 @@ pub fn auto_size(width: u32, height: u32, smallest: u32) -> u32 {
     }
 }
 
-/// The frits' directory, set at build time with `VTIUM_FONT_FRITS` as
-/// vtium-vitrify's is.
-pub fn default_frits() -> PathBuf {
-    PathBuf::from(option_env!("VTIUM_FONT_FRITS").unwrap_or("/etc/vtium/fonts"))
+/// The frits' directory vtium is built with, `font-frits`'s default: set
+/// at build time with `VTIUM_FONT_FRITS`, as vtium-vitrify's is.
+pub const FRITS: &str = match option_env!("VTIUM_FONT_FRITS") {
+    Some(dir) => dir,
+    None => "/etc/vtium/fonts",
+};
+
+/// The frits' directory `config` names, `font-frits`.
+pub fn frits(config: &Config) -> PathBuf {
+    PathBuf::from(config.text(&FONT_FRITS).unwrap_or(FRITS))
 }
 
 /// Whether `name` is a frit's name (ADR-1200 D1): 1 to 64 characters of
@@ -393,18 +399,32 @@ fn builtin_in(cell: Cell, locale: &str) -> Option<DisplayFace> {
 #[derive(Clone, Debug)]
 pub struct Sources {
     pub frits: PathBuf,
-    /// The helper; `None` for the system's, [`helper::Command::system`].
+    /// The helper; `None` for the one `font-helper` names
+    /// ([`helper::Launcher::configured`]).
     pub helper: Option<helper::Command>,
     pub vconsole_conf: PathBuf,
     pub kernel_cmdline: PathBuf,
 }
 
+impl Sources {
+    /// The system's, as `config` names them: the frits' directory,
+    /// `font-frits`; the helper `font-helper` names; `/etc/vconsole.conf`
+    /// and `/proc/cmdline`.
+    pub fn configured(config: &Config) -> Sources {
+        Sources {
+            frits: frits(config),
+            ..Sources::default()
+        }
+    }
+}
+
 impl Default for Sources {
-    /// The system's: the frits' directory, the installed helper,
+    /// The system's with every key at its default: the frits' directory
+    /// vtium is built with, the helper `font-helper` names,
     /// `/etc/vconsole.conf` and `/proc/cmdline`.
     fn default() -> Sources {
         Sources {
-            frits: default_frits(),
+            frits: PathBuf::from(FRITS),
             helper: None,
             vconsole_conf: PathBuf::from("/etc/vconsole.conf"),
             kernel_cmdline: PathBuf::from("/proc/cmdline"),
@@ -894,6 +914,16 @@ mod tests {
     fn config(args: &[&str]) -> Config {
         let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
         crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+    }
+
+    // font-frits names the frits' directory, its default the one vtium is
+    // built with
+    #[test]
+    fn font_frits_names_the_frits_directory() {
+        assert_eq!(Sources::configured(&config(&[])).frits, Path::new(FRITS));
+        let sources = Sources::configured(&config(&["--font-frits=/srv/frits"]));
+        assert_eq!(sources.frits, Path::new("/srv/frits"));
+        assert!(sources.helper.is_none(), "the helper font-helper names");
     }
 
     #[test]

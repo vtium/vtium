@@ -79,8 +79,8 @@
 #osd-background=11,42,91
 #osd-border=100,143,255
 
-## `TERM` in the session's environment.
-#term=kmscon
+## `TERM` in the session's environment. The default names vtium's own terminfo entry, and vtium answers XTGETTCAP only under that name; under another, such as `kmscon` for the C reference's entry, every name XTGETTCAP asks for is unknown.
+#term=xterm-vtium
 
 ## Start the session with an empty environment and the variables vtium sets; off, with vtium's own environment as well.
 #reset-env
@@ -261,6 +261,12 @@
 
 ## The font: a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the helper generates at run time; a kbd font's name, or with `font-engine=psf` a PSF font's path, that no frit bears becomes a one-source frit. Unset, vconsole's font; with none, or a name that is neither, vtium draws its built-in fonts and logs the name and why.
 #font-name=monospace
+
+## The directory of the frits, the `NAME.vtfrit` files that `font-name` and a head's profile name. The default is the directory vtium was built with.
+#font-frits=/etc/vtium/fonts
+
+## The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again. vtium refuses a path that is not absolute, a file that is not a regular file, and a file that another account than root, or the one vtium runs as, owns or may write; it logs why and draws its built-in font. The default is the path vtium was built with.
+#font-helper=/usr/bin/vtium-vitrify
 
 ## The font's size in points, 1/72 inch, drawn at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and over a frit's `cell=`; 0 picks one from the display's size.
 #font-size=0

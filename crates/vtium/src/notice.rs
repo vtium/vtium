@@ -166,9 +166,11 @@ can be the active head, under closed no keyboard reaching any head, a\n\
 head claiming pointers while every keyboard is claimed elsewhere, every\n\
 keyboard ignored, and a head whose only keyboard is one device. Its\n\
 notes end with what a start does with the file, and the file's policy.\n\
-It only checks: it opens nothing under /dev, writes nothing and applies\n\
-nothing. It reads the configuration files, the frit font-name names,\n\
-and the devices present from /sys and udev's database, /run/udev/data.\n";
+It also notes when vtium would refuse the glyph helper font-helper\n\
+names. It only checks: it opens nothing under /dev, writes nothing and\n\
+applies nothing. It reads the configuration files, the frit font-name\n\
+names, the helper's owner and mode, and the devices present from /sys\n\
+and udev's database, /run/udev/data.\n";
 
     /// The frit `font-name` names could not be read.
     pub fn frit_unreadable(name: &str, why: &str) -> String {
@@ -222,6 +224,15 @@ and the devices present from /sys and udev's database, /run/udev/data.\n";
     }
 
     pub const MEASURED_DENSITY: &str = "each display converts points at the density it measures from its physical size, else at 96 DPI with a warning naming it; the start logs which";
+
+    /// The helper `font-helper` names is one vtium refuses, `why`, for the
+    /// account the check runs as; the start, which may run as another,
+    /// checks it again.
+    pub fn helper_refused(why: &str) -> String {
+        format!(
+            "font-helper: {why}; vtium would draw its built-in font, and the start checks again for the account it runs as"
+        )
+    }
 
     /// A candidate head file that is not there.
     pub const NO_SUCH_FILE: &str = "does not exist";

@@ -239,7 +239,8 @@ pub(crate) fn terminal(
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
-    if let Ok(table) = crate::termcap::termcap() {
+    if let Some(Ok(table)) = crate::termcap::for_term(config.text(&keys::TERM).unwrap_or_default())
+    {
         terminal.set_termcap(table);
     }
     let timeout = Duration::from_millis(config.number(&keys::SYNC_TIMEOUT).unwrap_or(200));

@@ -61,7 +61,7 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as Process, ExitStatus, Stdio};
@@ -69,6 +69,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use rustix::fs::{FileType, Mode, OFlags};
 use rustix::process::{
     Pid, PidfdFlags, Signal, WaitId, WaitIdOptions, kill_process_group, pidfd_open,
     pidfd_send_signal, waitid,
@@ -77,6 +78,8 @@ use vtium_font::Cell;
 use vtium_font::set::{Set, SetFace};
 use vtium_platform::vt::font::ConsoleFont;
 
+use crate::config::Config;
+use crate::config::keys::FONT_HELPER;
 use crate::deferred::{Shared, Shown, Text};
 
 /// How long the helper may take for each answer while work is
@@ -137,10 +140,12 @@ const FRAME_OUTLINE_CELL: u32 = 10;
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
 
-/// The helper's program, set at build time with `VTIUM_VITRIFY`.
-pub fn default_program() -> PathBuf {
-    PathBuf::from(option_env!("VTIUM_VITRIFY").unwrap_or("/usr/bin/vtium-vitrify"))
-}
+/// The helper's program vtium is built with, `font-helper`'s default: set
+/// at build time with `VTIUM_VITRIFY`.
+pub const PROGRAM: &str = match option_env!("VTIUM_VITRIFY") {
+    Some(path) => path,
+    None => "/usr/bin/vtium-vitrify",
+};
 
 /// The account the helper runs as when the console is root: `nobody`,
 /// its uid and gid read from `passwd`.
@@ -165,10 +170,10 @@ pub struct Command {
 }
 
 impl Command {
-    /// `vtium-vitrify serve`, as `nobody` when the console is root; an
-    /// error as root with no `nobody` in `/etc/passwd`, since the helper
-    /// never runs as root.
-    pub fn system() -> Result<Command, String> {
+    /// `program serve`, as `nobody` when the console is root; an error as
+    /// root with no `nobody` in `/etc/passwd`, since the helper never runs
+    /// as root.
+    pub fn system(program: &Path) -> Result<Command, String> {
         let account = if rustix::process::geteuid().is_root() {
             let passwd = std::fs::read_to_string("/etc/passwd")
                 .map_err(|e| format!("cannot read /etc/passwd for the helper's account: {e}"))?;
@@ -177,11 +182,113 @@ impl Command {
             None
         };
         Ok(Command {
-            program: default_program(),
+            program: program.to_owned(),
             args: vec!["serve".into()],
             account,
         })
     }
+}
+
+/// The helper's program, opened once, and the command each start runs it
+/// with. Every helper starts from the opened file, so a package upgrade
+/// that renames a new program into place reaches a console only when the
+/// console starts again, and an old console never talks to a new helper.
+#[derive(Clone, Debug)]
+pub struct Launcher {
+    command: Command,
+    program: Arc<OwnedFd>,
+}
+
+impl Launcher {
+    /// Opens `command`'s program ([`open_program`]), for the account vtium
+    /// runs as.
+    pub fn open(command: Command) -> Result<Launcher, String> {
+        let me = rustix::process::geteuid().as_raw();
+        let program = open_program(&command.program, me)?;
+        Ok(Launcher {
+            command,
+            program: Arc::new(program),
+        })
+    }
+
+    /// The helper `config` names, `font-helper`, opened.
+    pub fn configured(config: &Config) -> Result<Launcher, String> {
+        Launcher::open(Command::system(&program(config))?)
+    }
+
+    /// The process that starts a helper: the opened program, through
+    /// `/proc/self/fd`, which the kernel lets a process read as any
+    /// account, with the program's path as its name.
+    fn process(&self) -> Process {
+        let c = &self.command;
+        let mut process = Process::new(format!("/proc/self/fd/{}", self.program.as_raw_fd()));
+        process
+            .arg0(&c.program)
+            .args(&c.args)
+            .env_clear()
+            .current_dir("/")
+            .process_group(0);
+        if let Some((uid, gid)) = c.account {
+            // std drops the supplementary groups before setuid when root
+            process.uid(uid).gid(gid);
+        }
+        process
+    }
+}
+
+/// The helper's program `config` names, `font-helper`.
+pub fn program(config: &Config) -> PathBuf {
+    PathBuf::from(config.text(&FONT_HELPER).unwrap_or(PROGRAM))
+}
+
+/// Opens the helper's program at `path` to start it from, close-on-exec
+/// so no child keeps it, and checks the opened file, so the file checked
+/// is the file that runs. It refuses a path that is not absolute, a file
+/// that is not a regular file, and a file an account other than root or
+/// `me`, the account vtium runs as, could change: one another account
+/// owns, or that its group or others may write.
+pub fn open_program(path: &Path, me: u32) -> Result<OwnedFd, String> {
+    let name = path.display();
+    if !path.is_absolute() {
+        return Err(format!(
+            "the helper's path {name} is not absolute, so vtium does not start it"
+        ));
+    }
+    let file = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())
+        .map_err(|e| format!("cannot open the helper {name}: {e}"))?;
+    let stat = rustix::fs::fstat(&file)
+        .map_err(|e| format!("cannot read the helper {name}'s owner and mode: {e}"))?;
+    match refusal(
+        FileType::from_raw_mode(stat.st_mode),
+        stat.st_uid,
+        stat.st_mode,
+        me,
+    ) {
+        None => Ok(file),
+        Some(why) => Err(format!(
+            "the helper {name} {why}, so vtium does not start it"
+        )),
+    }
+}
+
+/// Why vtium refuses a helper program of `kind`, owned by `owner`, with
+/// `mode`, when it runs as `me`; `None` when it does not.
+fn refusal(kind: FileType, owner: u32, mode: u32, me: u32) -> Option<String> {
+    if kind != FileType::RegularFile {
+        return Some("is not a regular file".to_owned());
+    }
+    if owner != 0 && owner != me {
+        return Some(format!(
+            "is owned by uid {owner}, which is neither root nor the account vtium runs as"
+        ));
+    }
+    if mode & 0o022 != 0 {
+        return Some(format!(
+            "may be written by its group or by others (mode {:o})",
+            mode & 0o7777
+        ));
+    }
+    None
 }
 
 fn put32(out: &mut Vec<u8>, v: u32) {
@@ -653,7 +760,7 @@ struct Ask {
 
 /// The helper as the console sees it.
 pub struct Helper {
-    command: Command,
+    launcher: Launcher,
     /// Wakes the loop: called by the reader thread after each frame.
     wake: Arc<dyn Fn() + Send + Sync>,
     frit: FritText,
@@ -688,12 +795,12 @@ pub struct Helper {
 }
 
 impl Helper {
-    /// The helper `command` starts for `frit`, handing it the kernel's
+    /// The helper `launcher` starts for `frit`, handing it the kernel's
     /// `console` font, whose glyphs go into `store` up to `limit` bytes;
     /// its reader calls `wake` after each answer, in a vtium started at
     /// `epoch`.
     pub fn new(
-        command: Command,
+        launcher: Launcher,
         wake: Arc<dyn Fn() + Send + Sync>,
         epoch: Instant,
         frit: FritText,
@@ -702,7 +809,7 @@ impl Helper {
         limit: u64,
     ) -> Helper {
         Helper {
-            command,
+            launcher,
             wake,
             frit,
             console,
@@ -971,27 +1078,23 @@ impl Helper {
     }
 
     fn start(&self) -> Result<Running, String> {
-        let c = &self.command;
         // a descriptor the console holds, the VT's and the display's among
         // them, would otherwise reach the helper
         vtium_platform::cloexec_above_stdio()
             .map_err(|e| format!("cannot keep the console's descriptors from it: {e}"))?;
-        let mut process = Process::new(&c.program);
-        process
-            .args(&c.args)
-            .env_clear()
-            .current_dir("/")
-            .process_group(0)
+        let mut child = self
+            .launcher
+            .process()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        if let Some((uid, gid)) = c.account {
-            // std drops the supplementary groups before setuid when root
-            process.uid(uid).gid(gid);
-        }
-        let mut child = process
+            .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("cannot start {}: {e}", c.program.display()))?;
+            .map_err(|e| {
+                format!(
+                    "cannot start {}: {e}",
+                    self.launcher.command.program.display()
+                )
+            })?;
         // a pidfd names this child alone, even once the reaper has reaped it
         let pidfd = i32::try_from(child.id())
             .ok()
@@ -1637,7 +1740,7 @@ mod tests {
             });
             StandIn {
                 helper: Helper::new(
-                    command,
+                    Launcher::open(command).unwrap(),
                     wake,
                     t0(),
                     frit("source=builtin:unscii-8\n"),
@@ -1934,11 +2037,13 @@ mod tests {
     #[test]
     fn a_cluster_past_its_bound_is_not_asked_for() {
         let mut helper = Helper::new(
-            Command {
-                program: PathBuf::from("/nonexistent"),
+            // never started: nothing is asked
+            Launcher::open(Command {
+                program: PathBuf::from("/bin/sh"),
                 args: Vec::new(),
                 account: None,
-            },
+            })
+            .unwrap(),
             Arc::new(|| {}),
             t0(),
             frit("source=builtin:unscii-8\n"),
@@ -2837,23 +2942,226 @@ mod tests {
         assert!(s.helper.failed().unwrap().contains("a cell query not made"));
     }
 
+    /// A directory of its own for a test of the helper's program, empty.
+    fn program_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("vtium-program-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A copy of `from` at `to`, with `mode`.
+    fn program_copy(from: &str, to: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::copy(from, to).unwrap();
+        std::fs::set_permissions(to, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// What `ls -l /proc/self/fd` lists in a process `launcher` starts: its
+    /// descriptors and what each names.
+    fn descriptors_of(launcher: &Launcher) -> String {
+        let out = launcher.process().output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    fn sh(program: &Path, script: &str) -> Command {
+        Command {
+            program: program.to_owned(),
+            args: vec!["-c".into(), script.into()],
+            account: None,
+        }
+    }
+
+    // the checks, on what fstat gives: root's file, or the account vtium
+    // runs as, and written by its owner alone
     #[test]
-    fn a_missing_helper_is_given_up() {
-        let mut h = Helper::new(
-            Command {
-                program: Path::new("/nonexistent/vtium-vitrify").to_owned(),
-                args: Vec::new(),
-                account: None,
-            },
-            Arc::new(|| {}),
-            t0(),
-            frit(""),
-            None,
-            Shared::default(),
-            1 << 20,
+    fn a_program_root_or_vtium_owns_and_alone_writes_is_taken() {
+        let me = 1000;
+        assert_eq!(refusal(FileType::RegularFile, 0, 0o100_755, me), None);
+        assert_eq!(refusal(FileType::RegularFile, me, 0o100_700, me), None);
+        assert_eq!(refusal(FileType::RegularFile, 0, 0o104_755, 0), None);
+        for kind in [
+            FileType::Directory,
+            FileType::Fifo,
+            FileType::Symlink,
+            FileType::CharacterDevice,
+        ] {
+            assert_eq!(
+                refusal(kind, 0, 0o755, me).as_deref(),
+                Some("is not a regular file"),
+                "{kind:?}"
+            );
+        }
+        assert_eq!(
+            refusal(FileType::RegularFile, 1001, 0o100_755, me).as_deref(),
+            Some("is owned by uid 1001, which is neither root nor the account vtium runs as")
         );
-        h.ask(CELL, &shown(&['A']), t0());
-        assert!(h.failed().unwrap().contains("cannot start"));
+        // as root, only root's file
+        assert!(refusal(FileType::RegularFile, me, 0o100_755, 0).is_some());
+        for mode in [0o100_775, 0o100_757, 0o100_777, 0o100_765] {
+            assert!(
+                refusal(FileType::RegularFile, 0, mode, me)
+                    .is_some_and(|why| why.starts_with("may be written by its group or by others")),
+                "{mode:o}"
+            );
+        }
+    }
+
+    // each refusal on a real file, checked on the file opened
+    #[test]
+    fn the_helpers_program_is_refused_unless_absolute_regular_and_kept_from_others() {
+        let me = rustix::process::geteuid().as_raw();
+        let dir = program_dir("refused");
+        let refused = |path: &Path, me: u32| open_program(path, me).unwrap_err();
+        let why = refused(Path::new("usr/bin/vtium-vitrify"), me);
+        assert_eq!(
+            why,
+            "the helper's path usr/bin/vtium-vitrify is not absolute, so vtium does not start it"
+        );
+        let why = refused(&dir, me);
+        assert!(
+            why.ends_with("is not a regular file, so vtium does not start it"),
+            "{why}"
+        );
+        let fifo = dir.join("fifo");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &fifo,
+            FileType::Fifo,
+            Mode::from_raw_mode(0o600),
+            0,
+        )
+        .unwrap();
+        let why = refused(&fifo, me);
+        assert!(
+            why.ends_with("is not a regular file, so vtium does not start it"),
+            "{why}"
+        );
+        let program = dir.join("vtium-vitrify");
+        program_copy("/bin/true", &program, 0o755);
+        assert!(open_program(&program, me).is_ok());
+        let why = refused(&program, me.wrapping_add(1));
+        assert!(
+            why.contains(&format!("is owned by uid {me}, which is neither root")),
+            "{why}"
+        );
+        for (mode, shown) in [(0o775, "775"), (0o757, "757")] {
+            program_copy("/bin/true", &program, mode);
+            let why = refused(&program, me);
+            assert_eq!(
+                why,
+                format!(
+                    "the helper {} may be written by its group or by others (mode {shown}), so vtium does not start it",
+                    program.display()
+                )
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // a package upgrade renames a new program into place; a console that
+    // opened the old one goes on starting the old one
+    #[test]
+    fn a_helper_started_after_an_upgrade_is_the_program_opened_at_start() {
+        let dir = program_dir("upgrade");
+        let program = dir.join("vtium-vitrify");
+        program_copy("/bin/sh", &program, 0o755);
+        let launcher = Launcher::open(sh(&program, "echo the old one")).unwrap();
+        let new = dir.join("vtium-vitrify.new");
+        program_copy("/bin/false", &new, 0o755);
+        std::fs::rename(&new, &program).unwrap();
+        let out = launcher.process().output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "the old one\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // the opened program reaches no program vtium starts: not the helper
+    // started from it, nor the session's shell on its pty
+    #[test]
+    fn no_child_holds_the_helpers_program() {
+        let dir = program_dir("descriptor");
+        let program = dir.join("vtium-vitrify");
+        program_copy("/bin/sh", &program, 0o755);
+        let name = program.display().to_string();
+        let launcher = Launcher::open(sh(&program, "ls -l /proc/self/fd/")).unwrap();
+        let listed = descriptors_of(&launcher);
+        assert!(
+            listed.contains("pipe:"),
+            "the listing is the helper's: {listed}"
+        );
+        assert!(!listed.contains(&name), "{listed}");
+
+        // the session writes its listing into a FIFO the test reads
+        let out = dir.join("session");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &out,
+            FileType::Fifo,
+            Mode::from_raw_mode(0o600),
+            0,
+        )
+        .unwrap();
+        let (tx, listing) = mpsc::channel();
+        let fifo = out.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(std::fs::read_to_string(fifo));
+        });
+        let mut shell = Process::new("/bin/sh");
+        shell.args(["-c", "ls -l /proc/self/fd/ >\"$0\""]).arg(&out);
+        let size = vtium_platform::pty::Size {
+            cols: 80,
+            rows: 24,
+            cell_width: 8,
+            cell_height: 16,
+        };
+        let _pty = vtium_platform::pty::Pty::spawn(shell, size, vtium_platform::pty::Erase::Delete)
+            .unwrap();
+        // bounded so the test fails instead of hanging
+        let listed = listing
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap()
+            .unwrap();
+        assert!(
+            listed.contains("/dev/pts/"),
+            "the listing is the session's: {listed}"
+        );
+        assert!(!listed.contains(&name), "{listed}");
+        drop(launcher);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // font-helper names the program, its default the one vtium is built
+    // with
+    #[test]
+    fn font_helper_names_the_program_vtium_opens() {
+        let config = |args: &[&str]| {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            crate::config::load(&args, None, &mut |_: &Path| Ok(None)).config
+        };
+        assert_eq!(program(&config(&[])), Path::new(PROGRAM));
+        let sh = config(&["--font-helper=/bin/sh"]);
+        assert_eq!(program(&sh), Path::new("/bin/sh"));
+        let opened = Launcher::configured(&sh).unwrap();
+        assert_eq!(opened.command.program, Path::new("/bin/sh"));
+        assert_eq!(opened.command.args, ["serve"]);
+        let why = Launcher::configured(&config(&["--font-helper=sh"])).unwrap_err();
+        assert!(why.contains("is not absolute"), "{why}");
+    }
+
+    #[test]
+    fn a_missing_helper_is_not_opened() {
+        let why = Launcher::open(Command {
+            program: Path::new("/nonexistent/vtium-vitrify").to_owned(),
+            args: Vec::new(),
+            account: None,
+        })
+        .unwrap_err();
+        assert!(
+            why.starts_with("cannot open the helper /nonexistent/vtium-vitrify"),
+            "{why}"
+        );
     }
 
     #[test]
