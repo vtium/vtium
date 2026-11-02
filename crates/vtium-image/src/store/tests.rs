@@ -1071,7 +1071,11 @@ fn opaque_frames_that_end_inside_a_cell_leave_one_picture() {
     }
     // a clear pixel of the newer one in an edge cell, over a set pixel of
     // the older one, lets the older one show there, so it stays
-    let holed = drawn(20, 40, |x, y| if (x, y) == (17, 37) { 0 } else { 0xff00_ff00 });
+    let holed = drawn(
+        20,
+        40,
+        |x, y| if (x, y) == (17, 37) { 0 } else { 0xff00_ff00 },
+    );
     let key = s.add_image(holed, None, f.screens()).expect("stored");
     put(&mut s, &f, key, 0, 0);
     assert_eq!(s.image_count(), 2);
