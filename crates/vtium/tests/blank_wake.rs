@@ -34,18 +34,36 @@ const ID: DisplayId = DisplayId(7);
 struct Memory {
     /// What the display shows: the buffer lent, as the last swap left it.
     pixels: Vec<u8>,
-    /// The buffer each token lends, drawn into on the render thread, one
-    /// token at a time. boot.rs's display holds the seat to the rest of
-    /// what a framebuffer does with its token.
+    /// The buffer each token lends, drawn into on the render thread. As a
+    /// framebuffer's one buffer, it is lent to one token at a time, a token
+    /// from before a sleep, a wake-up or a blank comes back too late, a
+    /// dropped token leaves it at age 0, and a sleep with it lent clears
+    /// it when the token comes back.
     drawn: Arc<Mutex<Vec<u8>>>,
     /// The buffer's age: 1 once it holds a frame, 0 when unknown.
     age: u32,
+    /// Taken anew at each sleep, wake-up and blank.
+    lease: u64,
+    /// A token was lent and not given back since.
+    lent: bool,
+    /// The sleep found the buffer lent.
+    clear_owed: bool,
     events: Vec<Event>,
     awake: bool,
     dpms: Option<Dpms>,
     unblanks: u32,
     /// Each DPMS state set, in order.
     dpms_sets: Vec<Dpms>,
+}
+
+impl Memory {
+    /// Pays a clear the sleep owed, once no token holds the buffer.
+    fn pay_clear(&mut self) {
+        if self.clear_owed && Arc::strong_count(&self.drawn) == 1 {
+            self.clear_owed = false;
+            self.drawn.lock().unwrap().fill(0);
+        }
+    }
 }
 
 impl Video for Memory {
@@ -80,13 +98,28 @@ impl Video for Memory {
         if !self.ready_for_frame(id) {
             return None;
         }
+        if std::mem::take(&mut self.lent) {
+            // dropped without being given back
+            self.age = 0;
+        }
+        self.lent = true;
         let memory: Arc<Shared> = self.drawn.clone();
-        Some(Token::new(id, (W, H), W * 4, self.age, memory))
+        Some(Token::new(id, (W, H), W * 4, self.age, memory).leased(self.lease))
     }
-    fn give_back(&mut self, _: Token) {}
+    fn give_back(&mut self, token: Token) {
+        self.lent = false;
+        drop(token);
+        self.pay_clear();
+    }
     fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
         let id = token.id();
-        drop(token);
+        self.lent = false;
+        if token.lease() != self.lease {
+            drop(token);
+            self.pay_clear();
+            self.age = 0;
+            return Err(SwapError::Dropped);
+        }
         if damage.is_empty() && self.dpms == Some(Dpms::On) {
             return Ok(Swapped::Nothing);
         }
@@ -110,6 +143,9 @@ impl Video for Memory {
         if !self.awake {
             return Err(io::Error::other("the device sleeps"));
         }
+        if dpms != Dpms::On && self.dpms == Some(Dpms::On) {
+            self.lease += 1;
+        }
         self.dpms = Some(dpms);
         if dpms == Dpms::On {
             self.age = 0;
@@ -118,14 +154,26 @@ impl Video for Memory {
         Ok(())
     }
     fn sleep(&mut self) {
+        self.lease += 1;
         self.awake = false;
+        if Arc::strong_count(&self.drawn) > 1 {
+            self.clear_owed = true;
+        } else {
+            self.drawn.lock().unwrap().fill(0);
+        }
         self.events.push(Event::Asleep);
     }
     fn wake_up(&mut self) -> io::Result<()> {
+        self.lease += 1;
         self.age = 0;
+        self.clear_owed = false;
         let first = self.pixels.is_empty();
         self.pixels = vec![0; (W * H * 4) as usize];
-        *self.drawn.lock().unwrap() = self.pixels.clone();
+        // A token from before still holds the buffer, which the next frame
+        // after it comes back draws whole.
+        if Arc::strong_count(&self.drawn) == 1 {
+            *self.drawn.lock().unwrap() = self.pixels.clone();
+        }
         self.awake = true;
         self.dpms = Some(Dpms::On);
         self.events.push(if first {

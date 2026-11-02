@@ -49,12 +49,24 @@ struct Memory {
     released: bool,
     /// What the display shows: the buffer lent, as the last swap left it.
     pixels: Vec<u8>,
-    /// The buffer each token lends, drawn into on the render thread, one
-    /// token at a time. boot.rs's display holds the seat to the rest of
-    /// what a framebuffer does with its token.
+    /// The buffer each token lends, drawn into on the render thread. As a
+    /// framebuffer's one buffer, it is lent to one token at a time, a token
+    /// from before a sleep, a wake-up or a blank comes back too late, a
+    /// dropped token leaves it at age 0, and a sleep with it lent clears
+    /// it when the token comes back.
     drawn: Arc<Mutex<Vec<u8>>>,
     /// The buffer's age: 1 once it holds a frame, 0 when unknown.
     age: u32,
+    /// Taken anew at each sleep, wake-up and blank.
+    lease: u64,
+    /// A token was lent and not given back since.
+    lent: bool,
+    /// The sleep found the buffer lent.
+    clear_owed: bool,
+    /// The age of each token lent, in order.
+    ages: Vec<u32>,
+    /// The lease of each frame shown, in order.
+    shown: Vec<u64>,
     events: Vec<Event>,
     awake: bool,
     dpms: Option<Dpms>,
@@ -80,6 +92,11 @@ impl Memory {
             pixels: Vec::new(),
             drawn: Arc::default(),
             age: 0,
+            lease: 0,
+            lent: false,
+            clear_owed: false,
+            ages: Vec::new(),
+            shown: Vec::new(),
             events: Vec::new(),
             awake: false,
             dpms: None,
@@ -102,6 +119,16 @@ impl Memory {
     /// This display, left dark at its bind.
     fn held(self) -> Memory {
         Memory { held: true, ..self }
+    }
+}
+
+impl Memory {
+    /// Pays a clear the sleep owed, once no token holds the buffer.
+    fn pay_clear(&mut self) {
+        if self.clear_owed && Arc::strong_count(&self.drawn) == 1 {
+            self.clear_owed = false;
+            self.drawn.lock().unwrap().fill(0);
+        }
     }
 }
 
@@ -147,19 +174,29 @@ impl Video for Memory {
         if !self.ready_for_frame(id) {
             return None;
         }
+        if std::mem::take(&mut self.lent) {
+            // dropped without being given back
+            self.age = 0;
+        }
+        self.lent = true;
+        self.ages.push(self.age);
         let memory: Arc<Shared> = self.drawn.clone();
-        Some(Token::new(
-            id,
-            (self.w, self.h),
-            self.w * 4,
-            self.age,
-            memory,
-        ))
+        Some(Token::new(id, (self.w, self.h), self.w * 4, self.age, memory).leased(self.lease))
     }
-    fn give_back(&mut self, _: Token) {}
+    fn give_back(&mut self, token: Token) {
+        self.lent = false;
+        drop(token);
+        self.pay_clear();
+    }
     fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
         let id = token.id();
-        drop(token);
+        self.lent = false;
+        if token.lease() != self.lease {
+            drop(token);
+            self.pay_clear();
+            self.age = 0;
+            return Err(SwapError::Dropped);
+        }
         if damage.is_empty() && self.dpms == Some(Dpms::On) {
             return Ok(Swapped::Nothing);
         }
@@ -168,6 +205,7 @@ impl Video for Memory {
         }
         self.age = 1;
         self.frames += 1;
+        self.shown.push(token.lease());
         // The display shows the buffer the frame was drawn into.
         self.pixels.clone_from(&self.drawn.lock().unwrap());
         self.events.push(Event::Flipped(id));
@@ -180,6 +218,9 @@ impl Video for Memory {
         self.awake && self.dpms == Some(Dpms::On) && Arc::strong_count(&self.drawn) == 1
     }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
+        if dpms != Dpms::On && self.dpms == Some(Dpms::On) {
+            self.lease += 1;
+        }
         if dpms == Dpms::On && self.dpms != Some(Dpms::On) {
             self.age = 0;
         }
@@ -188,14 +229,26 @@ impl Video for Memory {
         Ok(())
     }
     fn sleep(&mut self) {
+        self.lease += 1;
         self.awake = false;
+        if Arc::strong_count(&self.drawn) > 1 {
+            self.clear_owed = true;
+        } else {
+            self.drawn.lock().unwrap().fill(0);
+        }
         self.events.push(Event::Asleep);
     }
     fn wake_up(&mut self) -> io::Result<()> {
+        self.lease += 1;
         self.age = 0;
+        self.clear_owed = false;
         let first = self.pixels.is_empty();
         self.pixels = vec![0; (self.w * self.h * 4) as usize];
-        *self.drawn.lock().unwrap() = self.pixels.clone();
+        // A token from before still holds the buffer, which the next frame
+        // after it comes back draws whole.
+        if Arc::strong_count(&self.drawn) == 1 {
+            *self.drawn.lock().unwrap() = self.pixels.clone();
+        }
         self.awake = true;
         self.dpms = Some(Dpms::On);
         if !self.held {
@@ -1068,6 +1121,100 @@ fn a_frame_composing_holds_up_no_vt_release() {
         s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.awake
             && m.frames > before),
         "the acquire draws the display again"
+    );
+}
+
+/// ADR-1401 D2: a frame in flight across a VT release is never shown. On
+/// a seat of two heads, the slow head's frame takes 3 s to compose; the VT
+/// is released while it composes and acquired again before it is done. The
+/// token for that frame comes back with a lease from before the release, so
+/// the display drops it, and the first token lent after the acquire has age
+/// 0, so the frame after the acquire is drawn whole. The fast head's display
+/// draws again too.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the stand-in's slow draw is a sleep"
+)]
+fn a_frame_in_flight_across_a_vt_release_is_dropped_and_the_next_drawn_whole() {
+    let heads = "version = 1
+[head slow]
+[head fast]
+[rules]
+display card:mem-small -> slow
+display card:mem-large -> fast
+input class:keyboard -> roaming
+";
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
+    assert!(s.until(SECOND, |a| a.cells().len() == 2), "both lit");
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    assert!(s.until_memory("/dev/mem1", SECOND, |m| m.frames > 0));
+    let slow = Duration::from_secs(3);
+    s.app.set_draw_hook(
+        "slow",
+        Some(std::sync::Arc::new(move || std::thread::sleep(slow))),
+    );
+    let (lease, shown) = {
+        let m = s.memory("/dev/mem0");
+        (m.lease, m.shown.len())
+    };
+    s.memory("/dev/mem0").events.push(Event::Redraw(ID));
+    // The turn that starts the slow head's frame.
+    s.until(Duration::from_millis(30), |_| false);
+    assert!(
+        Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
+        "the slow head's frame is in flight"
+    );
+    let ctrl_super_f12 = KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        mods: Mods::CTRL.union(Mods::LOGO),
+        keysyms: vec![0xffc9],
+        codepoints: vec![None],
+        repeat: false,
+    };
+    s.app
+        .input_event(InputEvent::Key(ctrl_super_f12.clone()), now());
+    // The turn that puts both devices to sleep acknowledges the release.
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| !m.awake),
+        "the slow head's display asleep for the release"
+    );
+    assert!(!s.memory("/dev/mem1").awake, "both asleep");
+    assert!(!s.app.vt.is_active(), "the release acknowledged");
+    s.app.set_draw_hook("slow", None);
+    let fast = s.memory("/dev/mem1").frames;
+    s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
+    assert!(s.until(SECOND, |a| a.vt.is_active()), "the acquire");
+    assert!(
+        Arc::strong_count(&s.memory("/dev/mem0").drawn) > 1,
+        "the frame from before the release is still in flight at the acquire"
+    );
+    let lent = s.memory("/dev/mem0").ages.len();
+    assert!(
+        s.until_memory("/dev/mem0", Duration::from_secs(5), |m| m.shown.len()
+            > shown
+            && m.ages.len() > lent),
+        "the slow head's display draws after the acquire"
+    );
+    let m = s.memory("/dev/mem0");
+    let stale: Vec<u64> = m.shown[shown..]
+        .iter()
+        .copied()
+        .filter(|l| *l <= lease)
+        .collect();
+    assert_eq!(stale, [], "a frame from before the release was shown");
+    assert_eq!(
+        m.ages.get(lent),
+        Some(&0),
+        "the first token after the acquire draws whole: {:?}",
+        m.ages
+    );
+    assert!(
+        s.until_memory("/dev/mem1", SECOND, |m| m.frames > fast),
+        "the fast head's display draws again"
     );
 }
 
