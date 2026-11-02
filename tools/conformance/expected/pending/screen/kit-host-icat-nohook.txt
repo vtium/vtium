@@ -1,7 +1,7 @@
 size 12x4
 cursor 0,0
 flags AUTO_WRAP
-reply 1b5b3f36323b323263
+reply 1b5b3f36323b343b323263
 row 0 ||
 row 1 ||
 row 2 ||

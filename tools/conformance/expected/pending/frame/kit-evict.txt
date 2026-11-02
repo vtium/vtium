@@ -8,3 +8,5 @@ row 0 ||
 row 1 ||
 row 2 ||
 row 3 ||
+placement 0 row 1 col 2 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text sixel image 0 opaque changed
+image 0 8x16 digest da180ec5
