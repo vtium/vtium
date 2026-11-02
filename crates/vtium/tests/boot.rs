@@ -30,11 +30,13 @@ const W: u32 = 320;
 const H: u32 = 160;
 const ID: DisplayId = DisplayId(7);
 
-/// A device with one display, its frame buffer in memory. It checks what
-/// a framebuffer checks of its one buffer's token: one token out at a time,
-/// a token from before a sleep, a wake-up or a blank comes back too late,
-/// a dropped token leaves the buffer at age 0, and a sleep with the buffer
-/// lent clears it when the token comes back.
+/// A device with one display, its frame buffer in memory. It holds the
+/// seat to what a framebuffer holds it to with its one buffer's token: a
+/// second token is refused while one is out, a token from
+/// before a sleep, a wake-up or a blank comes back too late and is
+/// dropped, a dropped token leaves the buffer at age 0, a failed swap still
+/// leaves the frame in the buffer, and a sleep that finds the buffer lent
+/// reports `Asleep` only once the token comes back.
 struct Memory {
     w: u32,
     h: u32,
@@ -58,8 +60,11 @@ struct Memory {
     lease: u64,
     /// A token was lent and not given back since.
     lent: bool,
-    /// The sleep found the buffer lent.
-    clear_owed: bool,
+    /// Tokens asked for and refused while one was out.
+    refused_while_out: u32,
+    /// The sleep found the buffer lent: it clears the buffer and reports
+    /// `Asleep` when the token comes back.
+    asleep_owed: bool,
     refresh_mhz: u32,
     /// Every swap fails, as on a display announced and never shown.
     refuses: bool,
@@ -93,7 +98,8 @@ impl Memory {
             ages: Vec::new(),
             lease: 0,
             lent: false,
-            clear_owed: false,
+            refused_while_out: 0,
+            asleep_owed: false,
             refresh_mhz: 60_000,
             refuses: false,
             // the C reference's fixed density, where a point is a pixel
@@ -103,11 +109,13 @@ impl Memory {
 }
 
 impl Memory {
-    /// Pays a clear the sleep owed, once no token holds the buffer.
+    /// Ends a sleep the token held, once no token holds the buffer: clears
+    /// it and reports `Asleep`.
     fn pay_clear(&mut self) {
-        if self.clear_owed && Arc::strong_count(&self.drawn) == 1 {
-            self.clear_owed = false;
+        if self.asleep_owed && Arc::strong_count(&self.drawn) == 1 {
+            self.asleep_owed = false;
             self.drawn.lock().unwrap().fill(0);
+            self.events.push(Event::Asleep);
         }
     }
 }
@@ -135,6 +143,14 @@ impl Video for Memory {
         self.dpi
     }
     fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        // One token at a time: the seat asks again while one is out when
+        // a new renderer, as a zoom or a font switch makes, draws before
+        // the old one's frame comes back, and is refused, as a display
+        // refuses.
+        if Arc::strong_count(&self.drawn) > 1 {
+            self.refused_while_out += 1;
+            return None;
+        }
         if !self.ready_for_frame(id) {
             return None;
         }
@@ -202,16 +218,19 @@ impl Video for Memory {
         self.lease += 1;
         self.awake = false;
         if Arc::strong_count(&self.drawn) > 1 {
-            self.clear_owed = true;
+            self.asleep_owed = true;
         } else {
             self.drawn.lock().unwrap().fill(0);
+            self.events.push(Event::Asleep);
         }
-        self.events.push(Event::Asleep);
     }
     fn wake_up(&mut self) -> io::Result<()> {
         self.wake_ups += 1;
         self.lease += 1;
-        self.clear_owed = false;
+        // A sleep the token still holds ends now.
+        if std::mem::take(&mut self.asleep_owed) {
+            self.events.push(Event::Asleep);
+        }
         let first = self.pixels.is_empty();
         self.pixels = vec![0; (self.w * self.h * 4) as usize];
         // A token from before still holds the buffer, which the next frame
@@ -5763,4 +5782,131 @@ fn a_frits_glyph_source_sets_the_policy_and_the_keys_override_it() {
     );
     let want = SpritePolicy::all(Source::Font).with(Range::Braille, Source::Auto);
     assert_eq!(h.app.font_policy(), Some((want, Missing::Replacement)));
+}
+
+/// A release that finds a frame composing waits for it, as a framebuffer's
+/// sleep waits for its token: the display reports `Asleep` once the
+/// frame's token comes back, on a later turn, so the release is
+/// acknowledged then. The frame is not shown, and the first frame after
+/// the acquire is drawn whole, into a buffer of age 0.
+#[test]
+fn a_release_waits_for_the_frame_composing() {
+    let mut h = Harness::with_vt(
+        &[
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read x; echo got; read y",
+        ],
+        ScriptedVt::default(),
+    );
+    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    h.shown();
+    h.settled();
+    let (entered, composing) = std::sync::mpsc::channel();
+    let (go, gone) = std::sync::mpsc::channel::<()>();
+    let gate = Mutex::new((entered, gone));
+    h.app.set_draw_hook(
+        "console",
+        Some(Arc::new(move || {
+            let gate = gate.lock().unwrap();
+            gate.0.send(()).ok();
+            gate.1.recv().ok();
+        })),
+    );
+    h.type_str("\r");
+    assert!(
+        h.eventually(BOUND, |_| composing.try_recv().is_ok()),
+        "a frame composing"
+    );
+    let frames = h.memory().frames;
+    h.scripted().events.push(VtEvent::Release);
+    assert!(
+        h.until_memory(BOUND, |m| m.sleeps == 1),
+        "the device sleeps"
+    );
+    h.until(Duration::from_millis(20), |_| false);
+    assert!(
+        h.app.vt.is_active(),
+        "not acknowledged while the frame composes"
+    );
+    h.app.set_draw_hook("console", None);
+    go.send(()).unwrap();
+    assert!(
+        h.until(BOUND, |a| !a.vt.is_active()),
+        "acknowledged once the token came back"
+    );
+    assert_eq!(h.memory().frames, frames, "the frame is not shown");
+    let lent = h.memory().ages.len();
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    assert!(
+        h.until_memory(BOUND, |m| m.frames > frames),
+        "drawn after the acquire"
+    );
+    assert_eq!(h.memory().ages.get(lent), Some(&0));
+}
+
+/// A display whose swaps fail still holds each frame in its buffer, so the
+/// seat draws the next frame at age 1, the cells that changed, and not
+/// the whole screen again.
+#[test]
+fn a_frame_after_a_failed_swap_is_drawn_at_age_1() {
+    let memory = Memory {
+        refuses: true,
+        ..Memory::default()
+    };
+    let mut h = Harness::build(
+        &["--no-blink", "--login", "--", "/bin/sh", "-c", "read x"],
+        ScriptedVt::default(),
+        Box::new(memory),
+    );
+    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    h.type_str("ab");
+    assert!(
+        h.until_memory(BOUND, |m| m.ages.contains(&1)),
+        "a frame drawn into the buffer the failed swap left: {:?}",
+        h.memory().ages
+    );
+}
+
+/// A zoom while a frame composes makes a new renderer, whose first frame
+/// asks for a token while the old frame's is still out: the display
+/// refuses it, and the new frame is drawn once the old token comes back.
+#[test]
+fn a_zoom_while_a_frame_composes_waits_for_its_token() {
+    let mut h = Harness::new(&["--no-blink", "--login", "--", "/bin/sh", "-c", "read x"]);
+    h.shown();
+    h.settled();
+    let (entered, composing) = std::sync::mpsc::channel();
+    let (go, gone) = std::sync::mpsc::channel::<()>();
+    let gate = Mutex::new((entered, gone));
+    h.app.set_draw_hook(
+        "console",
+        Some(Arc::new(move || {
+            let gate = gate.lock().unwrap();
+            gate.0.send(()).ok();
+            gate.1.recv().ok();
+        })),
+    );
+    h.type_str("x");
+    assert!(
+        h.eventually(BOUND, |_| composing.try_recv().is_ok()),
+        "a frame composing"
+    );
+    let (lent, frames) = (h.memory().ages.len(), h.memory().frames);
+    h.app.input_event(key(Mods::CTRL, 0x3d), now());
+    assert!(
+        h.until_memory(BOUND, |m| m.refused_while_out > 0),
+        "the new renderer's frame asks while the old token is out"
+    );
+    assert_eq!(h.memory().ages.len(), lent, "no second token lent");
+    h.app.set_draw_hook("console", None);
+    go.send(()).unwrap();
+    assert!(
+        h.until_memory(BOUND, |m| m.frames > frames && m.ages.len() > lent),
+        "the new renderer's frame drawn once the old token came back"
+    );
 }
