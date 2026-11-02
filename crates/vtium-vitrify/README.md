@@ -131,6 +131,7 @@ The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency; bzip2 an
 ## What this slice leaves for later
 
 - Styles other than regular (an outline font's bold and italic faces, ADR-1000's `text.outline`) are refused by name. So the W rule's cell takes only the first source's face today; ADR-1200 D17 has it take the bold face too, the wider of the two, once `style=` names one, and `outline::cell_width` already takes the widest of the faces it is given.
+- kmscon.conf's `font-hinting`, and a profile's, over the frit's `hinting=` (ADR-1200 D1): the helper hints as the frit says, since no request carries the console's setting yet.
 - ADR-1300's subpixel strikes, and shaping across cells (ligatures, Arabic joining forms, syllabic scripts): the helper shapes the clusters the terminal segments, one at a time (#144).
 - A collection matched by family needs a file named for that family; a collection of several families is named with `outline:`.
 - COLR version 1 glyphs, such as `Noto-COLRv1.ttf`'s, are not drawn in color: swash reads version 0. A COLR layer in the text's color takes swash's mid grey, since a set cannot know the text's color.
