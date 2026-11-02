@@ -2568,18 +2568,39 @@ class SerialTest(unittest.TestCase):
         def poll(self):
             return None
 
-    def wait(self, chunks, marker="TIER3-INSTALL-OK", timeout=180):
+    def wait(self, chunks, marker="TIER3-INSTALL-OK", timeout=180, how=None):
+        """Runs `how(vm)`, by default the wait for `marker`, while the guest
+        writes `chunks`, and returns its result and the stand-in clock's
+        time when it returned or raised."""
         with tempfile.TemporaryDirectory() as d:
             vm = t3_qemu.Qemu.__new__(t3_qemu.Qemu)
             vm.serial, vm.proc = os.path.join(d, "serial.log"), self.Proc()
             with open(vm.serial, "wb") as f:
                 f.write(b"[  OK  ] Started \x1b[0;1;39mUser Login Management\x1b[0m.\r\r\n")
             saved = t3_qemu.time
-            t3_qemu.time = self.Clock(vm.serial, chunks)
+            clock = t3_qemu.time = self.Clock(vm.serial, chunks)
             try:
-                return vm.wait_serial(marker, timeout)
+                if how is None:
+                    return vm.wait_serial(marker, timeout)
+                return how(vm)
             finally:
                 t3_qemu.time = saved
+                self.ended = clock.now
+
+    def test_install_failure_ends_the_wait(self):
+        # guest/setup writes TIER3-INSTALL-FAIL and stops when vtium console
+        # enable --all fails. The wait for the install returns at once with
+        # that line's text, where waiting for TIER3-INSTALL-OK would time out
+        # after 180 s.
+        fail = b"[  20.1] TIER3-INSTALL-FAIL vtium console enable --all: VT 1 is held\r\r\n"
+        with self.assertRaisesRegex(RuntimeError, "the guest reported a failure: .*"
+                                    "TIER3-INSTALL-FAIL vtium console enable --all: VT 1 is held"):
+            self.wait([b"[  19.0] setup: installing\r\r\n", fail], how=t3_scenario.wait_install)
+        self.assertLess(self.ended, 1.0)
+
+    def test_install_ok_is_returned(self):
+        self.assertEqual(self.wait([self.LINE + b"\r\r\n"], how=t3_scenario.wait_install),
+                         self.LINE.decode())
 
     def test_two_chunks(self):
         cut = self.LINE.index(b" tree: ")

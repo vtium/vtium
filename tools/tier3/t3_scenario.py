@@ -452,6 +452,14 @@ def evaluate_variant(variant, caps, meta, log):
             for case in variant_cases(variant)]
 
 
+def wait_install(vm):
+    """The guest's TIER3-INSTALL-OK line, which its setup writes once the
+    install is done. A setup step that fails writes a TIER3-INSTALL-FAIL
+    line instead and stops, so that line ends the wait at once with its
+    text, where waiting on would only time out."""
+    return vm.wait_serial("TIER3-INSTALL-OK", timeout=180, fail="TIER3-INSTALL-FAIL")
+
+
 def check_install(line, impl):
     """The guest's account of what it installed (the TIER3-INSTALL-OK line
     of guest/setup or guest-sysvinit/setup), as metadata: the tree, the
@@ -721,7 +729,7 @@ def run_variant(variant, timing, impl, log):
               agent=v.get("agent", False))
     caps, errors, notes, error, installed = {}, {}, {}, None, None
     try:
-        line = vm.wait_serial("TIER3-INSTALL-OK", timeout=180)
+        line = wait_install(vm)
         log(line)
         installed = check_install(line, impl)
         check_guest(variant, installed)
