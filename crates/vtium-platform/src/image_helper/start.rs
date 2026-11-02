@@ -319,7 +319,7 @@ const CAPABILITY_LAST: libc::c_ulong = 63;
 /// since it holds no capability to grant; for a helper that will run as
 /// uid 0, `required`, that fails the start. Makes raw calls only, so it
 /// may run between fork and exec.
-pub fn drop_bounding_set(required: bool) -> std::io::Result<()> {
+fn drop_bounding_set(required: bool) -> std::io::Result<()> {
     for capability in 0..=CAPABILITY_LAST {
         #[expect(unsafe_code, reason = "prctl(2) with PR_CAPBSET_DROP")]
         // SAFETY: PR_CAPBSET_DROP reads its integer argument and touches no
@@ -342,7 +342,7 @@ pub fn drop_bounding_set(required: bool) -> std::io::Result<()> {
 /// Clears the calling thread's permitted, effective, inheritable and
 /// ambient capability sets, which no process needs leave to do. Makes raw
 /// calls only, so it may run between fork and exec.
-pub fn clear_capabilities() -> std::io::Result<()> {
+fn clear_capabilities() -> std::io::Result<()> {
     use rustix::thread::{CapabilitySet, CapabilitySets};
     rustix::thread::clear_ambient_capability_set()?;
     rustix::thread::set_capabilities(

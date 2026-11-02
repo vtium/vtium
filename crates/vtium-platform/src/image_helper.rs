@@ -62,9 +62,7 @@ pub use identity::{
     Account, Facts, LOGIN_CLASSES, LoginSession, Me, PRELOGIN_ACCOUNTS, Prelogin, Refusal, Session,
     System, holds_group_zero, resolve,
 };
-pub use start::{
-    PROGRAM, Program, clear_capabilities, drop_bounding_set, memory_cap, open_program,
-};
+pub use start::{PROGRAM, Program, memory_cap, open_program};
 
 use crate::bounds::IMAGE_CRASHES_MAX;
 use start::Started;

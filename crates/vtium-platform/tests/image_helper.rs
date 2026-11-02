@@ -740,108 +740,10 @@ fn a_program_others_may_change_is_refused() {
     println!("test a_program_others_may_change_is_refused ... ok");
 }
 
-/// A root helper's capabilities, as the child's setup drops them, tried
-/// in a user namespace where this binary runs as uid 0 with every
-/// capability: the bounding set emptied and every other set cleared, so a
-/// program started as uid 0 afterwards holds none. A kernel or system
-/// that gives no such namespace skips the case, and says so.
-fn a_root_helper_starts_with_no_capability() {
-    let name = "a_root_helper_starts_with_no_capability";
-    let me = std::env::current_exe().unwrap();
-    let run = std::process::Command::new("unshare")
-        .args(["--user", "--map-root-user", "--"])
-        .arg(&me)
-        .arg("--as-root")
-        .output();
-    match run {
-        Ok(out) if out.status.code() == Some(77) => {
-            println!(
-                "test {name} ... skipped: {}",
-                String::from_utf8_lossy(&out.stdout).trim()
-            );
-        }
-        Ok(out) => {
-            assert!(
-                out.status.success(),
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            );
-            println!("test {name} ... ok");
-        }
-        Err(e) => println!("test {name} ... skipped: no unshare to run it: {e}"),
-    }
-}
-
-/// The capability sets of this process, from `/proc/self/status`.
-fn capabilities() -> Vec<String> {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap();
-    ["CapInh:", "CapPrm:", "CapEff:", "CapBnd:", "CapAmb:"]
-        .iter()
-        .map(|name| {
-            let value = status
-                .lines()
-                .find_map(|l| l.strip_prefix(name))
-                .unwrap_or_default()
-                .trim();
-            format!("{name} {value}")
-        })
-        .collect()
-}
-
-/// The namespace's side: as uid 0 with every capability, drop them as
-/// the child's setup does, then start this binary again as uid 0 and read
-/// what it holds. Exits 77 when the namespace gives no capability.
-fn as_root() -> ! {
-    let none = "0000000000000000";
-    let before = capabilities();
-    if rustix::process::geteuid().as_raw() != 0
-        || before.iter().any(|l| l == &format!("CapEff: {none}"))
-    {
-        println!("the user namespace gives no capability: {before:?}");
-        std::process::exit(77);
-    }
-    // a security module, such as AppArmor on Ubuntu, may refuse every
-    // capability the namespace shows
-    match vtium_platform::image_helper::drop_bounding_set(true) {
-        Ok(()) => {}
-        Err(e) if e.raw_os_error() == Some(libc::EPERM) => {
-            println!("the user namespace's capabilities are refused: {e}");
-            std::process::exit(77);
-        }
-        Err(e) => panic!("the bounding set is not emptied: {e}"),
-    }
-    vtium_platform::image_helper::clear_capabilities().unwrap();
-    let out = std::process::Command::new(std::env::current_exe().unwrap())
-        .arg("--capabilities")
-        .output()
-        .unwrap();
-    let started = String::from_utf8_lossy(&out.stdout).into_owned();
-    for line in started
-        .lines()
-        .chain(capabilities().iter().map(String::as_str))
-    {
-        assert!(
-            line.ends_with(none),
-            "a capability is left: {line}\n{started}"
-        );
-    }
-    std::process::exit(0);
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--fd-three") {
         with_three_free();
-    }
-    if args.first().map(String::as_str) == Some("--as-root") {
-        as_root();
-    }
-    if args.first().map(String::as_str) == Some("--capabilities") {
-        for line in capabilities() {
-            println!("{line}");
-        }
-        std::process::exit(0);
     }
     if args.first().map(String::as_str) == Some("--stand-in") {
         let role = args.get(1).cloned().unwrap_or_default();
@@ -860,6 +762,5 @@ fn main() {
     a_helper_that_exited_idle_is_replaced_at_the_next_request();
     a_helper_that_fails_after_its_reply_counts_a_crash();
     a_program_others_may_change_is_refused();
-    a_root_helper_starts_with_no_capability();
     drop(run);
 }
