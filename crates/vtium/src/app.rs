@@ -839,7 +839,10 @@ impl App {
         let Some(name) = head.frit().map(str::to_owned) else {
             return;
         };
-        let known = self.frits.get(&name).and_then(|f| f.answer_at(height));
+        let known = self
+            .frits
+            .get(&name)
+            .and_then(|f| f.answer_at(height, outline));
         let own = match known {
             Some(own) => own,
             None => {

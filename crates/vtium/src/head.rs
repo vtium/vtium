@@ -1226,14 +1226,23 @@ pub(crate) struct Frit {
 }
 
 impl Frit {
-    /// The answer that holds at `height`: a bitmap first source's own
-    /// cell, which holds at every height, else the answer at `height`.
-    pub(crate) fn answer_at(&self, height: u32) -> Option<Result<crate::helper::OwnCell, String>> {
-        self.own
+    /// The answer that holds at `height` for a frit that is `outline`, by
+    /// what the console knows of it now. A bitmap first source's own cell
+    /// holds at every height. So does any answer to a bitmap frit's query,
+    /// a failure included, since a bitmap frit asks, and may wait, only at
+    /// its first frame and at an OSC 50 switch (ADR-1200 D17). An outline
+    /// frit's answer holds at the height it was asked at alone.
+    pub(crate) fn answer_at(
+        &self,
+        height: u32,
+        outline: bool,
+    ) -> Option<Result<crate::helper::OwnCell, String>> {
+        let bitmap = self
+            .own
             .values()
-            .find(|a| matches!(a, Ok(crate::helper::OwnCell::Bitmap(_))))
-            .or_else(|| self.own.get(&height))
-            .cloned()
+            .find(|a| matches!(a, Ok(crate::helper::OwnCell::Bitmap(_))));
+        let any = (!outline).then(|| self.own.values().next()).flatten();
+        bitmap.or(any).or_else(|| self.own.get(&height)).cloned()
     }
 }
 

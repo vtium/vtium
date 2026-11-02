@@ -5149,6 +5149,30 @@ fn a_late_outline_cell_is_dropped_and_the_next_zoom_asks_again() {
     );
 }
 
+// ADR-1200 D17 and the operator's decision on #145, 2026-10-28: a bitmap
+// frit asks for its fonts' own cell, and may wait, only at the first frame
+// and at an OSC 50 switch. Once that ask failed, the failure holds at
+// every height, as an answer does, so a zoom neither asks nor waits again
+// and logs no second line (binary-review, finding 1).
+#[test]
+fn a_bitmap_frits_failed_cell_is_not_asked_again_at_a_zoom() {
+    let (_dir, fonts, _go) =
+        frit_fonts_of("own-none-zoom", "source=kbd:x\n", b"", "cat >/dev/null");
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    let unknown = |lines: &[String]| {
+        lines
+            .iter()
+            .filter(|l| l.contains("own cell is not known"))
+            .count()
+    };
+    assert_eq!(unknown(&logged()), 1, "the first frame asked once");
+    assert_eq!(h.app.cells(), [(8, 8)]);
+    h.app.input_event(key(Mods::CTRL, 0x3d), now());
+    assert_eq!(h.app.cells(), [(8, 16)], "zoomed");
+    assert_eq!(unknown(&logged()), 0, "the zoom asked nothing");
+}
+
 // #145, ADR-1200 D9: a frit whose cell= is unreadable is not drawn; the
 // built-in font is, with one line naming the font and why, and no command
 #[test]
