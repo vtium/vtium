@@ -20,6 +20,7 @@
 //! keeps the longest run of its first codepoints that fits, and at least
 //! its first codepoint.
 
+use core::mem;
 use core::ops::Range;
 use std::collections::BTreeMap;
 
@@ -182,11 +183,7 @@ impl Tables {
 
     /// The cluster at byte `offset` of the arena.
     fn cluster(&self, offset: u32) -> Option<&str> {
-        let at = usize::try_from(offset).ok()?;
-        let len = usize::from(*self.clusters.get(at)?);
-        let start = at.checked_add(1)?;
-        let bytes = self.clusters.get(start..start.checked_add(len)?)?;
-        core::str::from_utf8(bytes).ok()
+        cluster_at(&self.clusters, offset)
     }
 
     /// The arena bytes the cluster at `offset` takes, its length byte
@@ -223,11 +220,17 @@ pub struct Line {
     /// made exact when the line is trimmed, so a rewrap's count reads the
     /// lengths of lines without one (ADR-1003, "Cost").
     wide: bool,
+    /// The width, in cells, whose cluster budget the clusters the line's
+    /// cells name were written within: the width the line was written at,
+    /// or the widest of the rows a rewrap built it from. A row that lands
+    /// on a narrower screen is held to that screen's budget
+    /// ([`paint`](Self::paint)).
+    written_at: u16,
 }
 
 // The Vec and the Box are four pointer-sized words, so a Line is 48 bytes
-// on 64-bit targets and 32 on armv7; the fill and the wide mark take 3
-// bytes of the padding.
+// on 64-bit targets and 32 on armv7; the fill, the wide mark and the width
+// the line was written at take 5 bytes of the padding.
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<Line>() == 48);
 #[cfg(target_pointer_width = "32")]
@@ -243,6 +246,7 @@ impl Line {
             flags: LineFlags::empty(),
             fill: 0,
             wide: false,
+            written_at: width_of(cols),
         }
     }
 
@@ -280,6 +284,7 @@ impl Line {
             flags,
             fill: 0,
             wide: false,
+            written_at: width_of(cols),
         }
     }
 
@@ -551,8 +556,10 @@ impl Line {
     /// Makes the line `cols` cells long, at most [`COLUMNS_MAX`]: cells
     /// past the new end are dropped, a wide character the new end cuts
     /// becomes an empty cell, and new cells are empty in the line's fill.
-    /// Shrinking compacts the tables, so they hold no more than the shorter
-    /// line can name.
+    /// Shrinking holds the clusters the cells left name to the budget of
+    /// the shorter line, as writing it at that width would
+    /// ([`hold_to_budget`](Self::hold_to_budget)), and compacts the tables,
+    /// so they hold no more than the shorter line can name.
     pub fn resize(&mut self, cols: usize) {
         let cols = cols.min(COLUMNS_MAX);
         let shrinking = cols < self.cells.len();
@@ -575,8 +582,11 @@ impl Line {
                 self.unwrap();
             }
             self.cells.shrink_to_fit();
+            self.hold_to_budget();
             self.compact();
             self.shrink_tables();
+        } else {
+            self.written_at = self.written_at.max(width_of(cols));
         }
     }
 
@@ -630,13 +640,16 @@ impl Line {
     }
 
     /// Paints the line to `cols` cells, the cells past its text in its
-    /// fill, as a rewrapped line takes its place on the screen.
+    /// fill, as a line takes its place on a screen `cols` wide from a
+    /// rewrap or the scrollback. A line written at a wider width is held
+    /// to the budget of the screen's, as writing it there would
+    /// ([`hold_to_budget`](Self::hold_to_budget)), so no screen row names
+    /// more than a row written at the screen's width.
     pub(crate) fn paint(&mut self, cols: usize) {
-        let fill = self.fill_cell();
-        let cols = cols.min(COLUMNS_MAX);
-        self.cells
-            .reserve_exact(cols.saturating_sub(self.cells.len()));
-        self.cells.resize(cols, fill);
+        self.resize(cols);
+        if usize::from(self.written_at) > self.cells.len() {
+            self.hold_to_budget();
+        }
     }
 
     /// Appends `cell` of `src`, its style, link and cluster copied into
@@ -644,7 +657,10 @@ impl Line {
     /// copied from `src` into this line; `width` replaces its width, and
     /// `empty` its content. A cluster is copied whole, past this line's
     /// own budget if need be: a rewrap keeps a logical line's clusters,
-    /// and a later write is held to the line's budget.
+    /// and the line counts as written at the wider of its own width and
+    /// the width `src` was written at. A later write is held to the line's
+    /// budget, and the line to its screen's when it lands on a narrower
+    /// one ([`paint`](Self::paint)).
     pub(crate) fn push_from(
         &mut self,
         src: &Line,
@@ -656,12 +672,14 @@ impl Line {
         let (style, link) = self.map_indices(src, cell.style(), cell.link(), map);
         let content = match cell.content() {
             _ if empty => Content::Empty,
-            Content::Cluster(ClusterOffset(o)) => src
-                .tables
-                .as_ref()
-                .and_then(|t| t.cluster(o))
-                .and_then(|s| self.copy_cluster(s))
-                .unwrap_or(Content::Empty),
+            Content::Cluster(ClusterOffset(o)) => {
+                self.written_at = self.written_at.max(src.written_at);
+                src.tables
+                    .as_ref()
+                    .and_then(|t| t.cluster(o))
+                    .and_then(|s| self.copy_cluster(s))
+                    .unwrap_or(Content::Empty)
+            }
             other => other,
         };
         if self.cells.len() < COLUMNS_MAX {
@@ -719,13 +737,10 @@ impl Line {
     fn copy_cluster(&mut self, s: &str) -> Option<Content> {
         let (_, arena) = self.limits();
         let t = self.tables.get_or_insert_default();
-        let len = u8::try_from(s.len()).ok()?;
-        let offset = u32::try_from(t.clusters.len()).ok()?;
         reserve_within(&mut t.clusters, s.len().saturating_add(1), arena);
-        t.clusters.push(len);
-        t.clusters.extend_from_slice(s.as_bytes());
+        let content = append_cluster(&mut t.clusters, s)?;
         t.live = t.live.saturating_add(s.len()).saturating_add(1);
-        Some(Content::Cluster(ClusterOffset(offset)))
+        Some(content)
     }
 
     /// Splits the line after its first `at` cells, for a rewrap that takes
@@ -897,43 +912,105 @@ impl Line {
 
     /// Stores the cluster `s`, as much of it as the budget allows.
     fn push_cluster(&mut self, s: &str) -> Content {
-        let budget = self.cluster_budget();
-        let mut chars = s.chars();
-        let Some(first) = chars.next() else {
+        let Some(first) = s.chars().next() else {
             return Content::Empty;
         };
         let live = self.tables.as_ref().map_or(0, |t| t.live);
-        let room = budget.saturating_sub(live);
-        // The longest run of whole codepoints, at most CLUSTER_MAX, that
-        // fits with its length byte.
-        let mut end = first.len_utf8();
-        let mut count = 1usize;
-        for c in chars.take(CLUSTER_MAX.saturating_sub(1)) {
-            let next = end.saturating_add(c.len_utf8());
-            if next.saturating_add(1) > room {
-                break;
-            }
-            end = next;
-            count = count.saturating_add(1);
-        }
-        if count < 2 {
-            return Content::Char(first);
-        }
-        let (_, arena) = self.limits();
-        let t = self.tables.get_or_insert_default();
-        let (Some(bytes), Ok(len), Ok(offset)) = (
-            s.as_bytes().get(..end),
-            u8::try_from(end),
-            u32::try_from(t.clusters.len()),
-        ) else {
+        let room = self.cluster_budget().saturating_sub(live);
+        let Some(kept) = fit(s, room) else {
             return Content::Char(first);
         };
-        reserve_within(&mut t.clusters, end.saturating_add(1), arena);
-        t.clusters.push(len);
-        t.clusters.extend_from_slice(bytes);
-        t.live = t.live.saturating_add(end).saturating_add(1);
-        Content::Cluster(ClusterOffset(offset))
+        let (_, arena) = self.limits();
+        let t = self.tables.get_or_insert_default();
+        reserve_within(&mut t.clusters, kept.len().saturating_add(1), arena);
+        let Some(content) = append_cluster(&mut t.clusters, kept) else {
+            return Content::Char(first);
+        };
+        t.live = t.live.saturating_add(kept.len()).saturating_add(1);
+        content
     }
+
+    /// Holds the clusters the line's cells name to the budget of its
+    /// width, as writing the line at that width keeps them: from the first
+    /// cell on, a cluster that would pass what is left of the budget keeps
+    /// the longest run of its first codepoints that fits, and at least its
+    /// first codepoint. The line then counts as written at its width. A
+    /// line inside its budget is left as it is; one past it has its arena
+    /// rebuilt, in time linear in its width.
+    fn hold_to_budget(&mut self) {
+        self.written_at = width_of(self.cells.len());
+        let budget = self.cluster_budget();
+        if self.tables.as_ref().is_none_or(|t| t.live <= budget) {
+            return;
+        }
+        let Some(mut t) = self.tables.take() else {
+            return;
+        };
+        let old = mem::take(&mut t.clusters);
+        let mut kept = Vec::with_capacity(budget);
+        for cell in &mut self.cells {
+            let Content::Cluster(ClusterOffset(o)) = cell.content() else {
+                continue;
+            };
+            let room = budget.saturating_sub(kept.len());
+            let content = cluster_at(&old, o).map_or(Content::Empty, |s| {
+                let first = s.chars().next().map_or(Content::Empty, Content::Char);
+                fit(s, room)
+                    .and_then(|s| append_cluster(&mut kept, s))
+                    .unwrap_or(first)
+            });
+            *cell = Cell::new(content, cell.width(), cell.style(), cell.link());
+        }
+        kept.shrink_to_fit();
+        t.live = kept.len();
+        t.clusters = kept;
+        if !t.is_empty() {
+            self.tables = Some(t);
+        }
+    }
+}
+
+/// `cols` as a line records the width it was written at.
+fn width_of(cols: usize) -> u16 {
+    u16::try_from(cols.min(COLUMNS_MAX)).unwrap_or(u16::MAX)
+}
+
+/// The cluster at byte `offset` of `arena`.
+fn cluster_at(arena: &[u8], offset: u32) -> Option<&str> {
+    let at = usize::try_from(offset).ok()?;
+    let len = usize::from(*arena.get(at)?);
+    let start = at.checked_add(1)?;
+    let bytes = arena.get(start..start.checked_add(len)?)?;
+    core::str::from_utf8(bytes).ok()
+}
+
+/// What a line's budget keeps of the cluster `s` with `room` bytes left:
+/// the longest run of its first codepoints, at most [`CLUSTER_MAX`], that
+/// fits with its length byte, or `None` when that is less than two
+/// codepoints, as the line then stores only the first.
+fn fit(s: &str, room: usize) -> Option<&str> {
+    let mut chars = s.chars();
+    let mut end = chars.next()?.len_utf8();
+    let mut count = 1usize;
+    for c in chars.take(CLUSTER_MAX.saturating_sub(1)) {
+        let next = end.saturating_add(c.len_utf8());
+        if next.saturating_add(1) > room {
+            break;
+        }
+        end = next;
+        count = count.saturating_add(1);
+    }
+    s.get(..end).filter(|_| count >= 2)
+}
+
+/// Appends the cluster `s` to `arena` as its length byte and its bytes,
+/// and returns the content that names it.
+fn append_cluster(arena: &mut Vec<u8>, s: &str) -> Option<Content> {
+    let len = u8::try_from(s.len()).ok()?;
+    let offset = u32::try_from(arena.len()).ok()?;
+    arena.push(len);
+    arena.extend_from_slice(s.as_bytes());
+    Some(Content::Cluster(ClusterOffset(offset)))
 }
 
 /// The indices a rewrap has copied from one source line's tables into the

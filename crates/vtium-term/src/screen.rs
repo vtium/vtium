@@ -673,7 +673,7 @@ impl Screen {
                 return;
             };
             self.images_dropped();
-            line.resize(cols);
+            line.paint(cols);
             // The line replaced is one `rotate_down` just made, which holds
             // no selection and no placement; with images it goes as every
             // replaced line does, so the store hears of it.

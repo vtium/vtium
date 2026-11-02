@@ -389,6 +389,186 @@ fn a_rewrapped_screen_row_costs_at_most_its_bound() {
     }
 }
 
+/// A cell printed in a truecolor style and an OSC 8 link of its own,
+/// numbered `n`, holding a cluster of 125 bytes, `e` and 31 marks, or a
+/// plain `x` when it is not `heavy`.
+fn dense_cell(n: u32, heavy: bool) -> String {
+    let [a, b, c, d] = n.to_le_bytes();
+    let glyph = if heavy { cluster_of(125) } else { "x".into() };
+    format!("\x1b[38;2;{a};{b};{c};48;2;{d};1;0m\x1b]8;;http://x/{n}\x1b\\{glyph}")
+}
+
+/// `cells` cells, numbered on from `n`, the first `heavy` of them holding
+/// a long cluster, then the style and the link closed.
+fn dense_run(n: &mut u32, cells: usize, heavy: usize) -> String {
+    let mut s = String::new();
+    for i in 0..cells {
+        *n += 1;
+        s.push_str(&dense_cell(*n, i < heavy));
+    }
+    s.push_str("\x1b]8;;\x1b\\\x1b[m");
+    s
+}
+
+/// What each row of a screen shows, cell by cell, and the cluster bytes it
+/// names.
+fn shown(screen: &Screen) -> Vec<(Vec<String>, usize)> {
+    screen
+        .lines()
+        .iter()
+        .map(|line| {
+            let cells = line
+                .cells()
+                .iter()
+                .map(|&c| match line.glyph(c) {
+                    Glyph::Empty => String::new(),
+                    Glyph::Char(c) => c.to_string(),
+                    Glyph::Cluster(s) => s.to_string(),
+                })
+                .collect();
+            (cells, line.cluster_bytes())
+        })
+        .collect()
+}
+
+/// Holds every row of `screen`, `cols` wide, to `Line::bytes_max`, and the
+/// screen to its share of `screens_bytes_max`.
+fn check_rows(screen: &Screen, cols: usize, what: &str) {
+    let mut total = 0;
+    for (y, line) in screen.lines().iter().enumerate() {
+        let bytes = line_bytes_as_is(line);
+        assert!(
+            bytes <= Line::bytes_max(cols),
+            "{what}, row {y}: {bytes} bytes, bound {}",
+            Line::bytes_max(cols)
+        );
+        total += bytes;
+    }
+    assert!(
+        total <= screen.rows() * Line::bytes_max(cols),
+        "{what}: {total} bytes"
+    );
+}
+
+// A row narrowed from a much wider grid keeps the clusters writing it at
+// the new width keeps, so it costs no more than `Line::bytes_max`: on the
+// main screen, which rewraps, and on the alternate screen, which cuts its
+// rows. Each narrowed screen shows what the same text printed at the
+// narrow width shows.
+#[test]
+fn a_screen_narrowed_from_a_wide_grid_holds_its_rows_to_their_bound() {
+    let (cols, rows) = MINSPEC_GRID;
+    // Lines of 170 long clusters on a grid 4,000 wide, each its own row,
+    // and lines as wide as a grid 1,300 wide, which rewrap onto eight rows
+    // each: their 61 long clusters fit the wide line's budget and land on
+    // its first row.
+    for (wide, cells, heavy, lines) in [(4000, 170, 170, rows + 4), (1300, 1300, 61, 7)] {
+        let mut n = 0;
+        let text: String = (0..lines)
+            .map(|_| dense_run(&mut n, cells, heavy) + "\r\n")
+            .collect();
+        let mut t = Terminal::new(wide, rows, 1000);
+        t.input(text.as_bytes());
+        t.screen_mut().resize(cols, rows);
+        check_rows(t.screen(), cols, &format!("main, from {wide}"));
+        let mut narrow = Terminal::new(cols, rows, 1000);
+        narrow.input(text.as_bytes());
+        assert!(
+            shown(t.screen()) == shown(narrow.screen()),
+            "main, from {wide}"
+        );
+    }
+    for wide in [4000, 1300] {
+        let mut n = 0;
+        let text: String = std::iter::once("\x1b[?1049h".to_string())
+            .chain((1..=rows).map(|row| format!("\x1b[{row};1H{}", dense_run(&mut n, cols, cols))))
+            .collect();
+        let mut t = Terminal::new(wide, rows, 1000);
+        t.input(text.as_bytes());
+        t.screen_mut().resize(cols, rows);
+        check_rows(t.screen(), cols, &format!("alternate, from {wide}"));
+        let mut narrow = Terminal::new(cols, rows, 1000);
+        narrow.input(text.as_bytes());
+        assert!(
+            shown(t.screen()) == shown(narrow.screen()),
+            "alternate, from {wide}"
+        );
+    }
+}
+
+// Rows edited, cut and widened at random hold to `Line::bytes_max` after
+// every step: one row on its own, and the rows of both screens of a
+// terminal whose grid grows and shrinks, with the scrollback's rows
+// pulled back onto a taller screen.
+#[test]
+fn rows_hold_to_their_bound_through_random_edits_and_resizes() {
+    let mut rng = common::Rng(0x0fee_d213);
+    for trial in 0..150 {
+        let cols = 1 + rng.below(120);
+        let mut line = Line::new(LineId::new(1), cols);
+        for n in 0..20 * u32::try_from(cols).unwrap() {
+            let len = line.len().max(1);
+            match rng.below(10) {
+                0..=5 => {
+                    let bytes = match rng.below(4) {
+                        0 => 2 + rng.below(127),
+                        _ => 2 + rng.below(8),
+                    };
+                    let c = cluster_of(bytes);
+                    let glyph = match rng.below(5) {
+                        0 => Glyph::Char('x'),
+                        _ => Glyph::Cluster(&c),
+                    };
+                    let width = match rng.below(8) {
+                        0 => Width::Wide,
+                        _ => Width::Narrow,
+                    };
+                    let link = (rng.below(3) != 0).then(|| LinkId::new(n));
+                    line.write(rng.below(len), glyph, width, &style_of(n), link);
+                }
+                6 => {
+                    let at = rng.below(len);
+                    line.erase(at..at + rng.below(len), &style_of(n));
+                }
+                7 => line.insert_cells(rng.below(len), 1 + rng.below(4), len, &style_of(n)),
+                8 => line.delete_cells(rng.below(len), 1 + rng.below(4), len, &style_of(n)),
+                _ if rng.below(10) == 0 => line.resize(1 + rng.below(200)),
+                _ => {}
+            }
+            let bytes = line_bytes_as_is(&line);
+            assert!(
+                bytes <= Line::bytes_max(line.len()),
+                "trial {trial}: a row of {} cells holds {bytes} bytes, bound {}",
+                line.len(),
+                Line::bytes_max(line.len())
+            );
+        }
+    }
+
+    let mut t = Terminal::new(30, 6, 200);
+    t.screen_mut().set_scrollback_max(200);
+    let mut n = 0;
+    for step in 0..1500 {
+        let cells = 1 + rng.below(40);
+        let heavy = rng.below(cells + 1);
+        let mut s = dense_run(&mut n, cells, heavy);
+        if rng.below(3) == 0 {
+            s.push_str("\r\n");
+        }
+        t.input(s.as_bytes());
+        match rng.below(12) {
+            0..=2 => t.screen_mut().resize(1 + rng.below(90), 1 + rng.below(10)),
+            3 => {
+                let on = rng.below(2) == 0;
+                t.input(if on { b"\x1b[?1049h" } else { b"\x1b[?1049l" });
+            }
+            _ => {}
+        }
+        let cols = t.screen().cols();
+        check_rows(t.screen(), cols, &format!("step {step}"));
+    }
+}
+
 // The worst default scrollback, every row at the bound a rewrap allows,
 // the two screens every row at its worst and the link store full, stays
 // inside the minspec peak on each of minspec's grids, taking the rest of vtium's
