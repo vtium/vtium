@@ -127,6 +127,19 @@ impl Memory {
 }
 
 impl Memory {
+    /// A new mode in place, `w` by `h`, on the same connector, as a
+    /// modeset that falls back to the display's default mode sets it: the
+    /// display draws into new buffers at the new size, a token lent before
+    /// comes back too late, and the owner is told to redraw.
+    fn set_mode(&mut self, w: u32, h: u32) {
+        (self.w, self.h) = (w, h);
+        self.lease += 1;
+        self.age = 0;
+        self.pixels = vec![0; (w * h * 4) as usize];
+        self.drawn = Arc::new(Mutex::new(self.pixels.clone()));
+        self.events.push(Event::Redraw(ID));
+    }
+
     /// Pays a clear the sleep owed, once no token holds the buffer.
     fn pay_clear(&mut self) {
         if self.clear_owed && Arc::strong_count(&self.drawn) == 1 {
@@ -1053,6 +1066,184 @@ display card:mem-large -> off
         dark.dpms_sets
     );
     assert_eq!(dark.dpms, Some(Dpms::Off));
+}
+
+/// The session's script for the tests of vtium/vtium#208: it counts the
+/// SIGWINCHs it gets, and at each line typed prints `got:`, the line, the
+/// count and the pty's size as `stty size` gives it. A read a signal ends
+/// reads again.
+const MODE_SCRIPT: &str = "n=0; trap 'n=$((n+1))' WINCH; echo ready; \
+    while :; do m=$n; \
+    if read x; then echo \"got:$x winch:$n $(stty size)\"; \
+    elif [ $n = $m ]; then exit; fi; done";
+
+/// What the session printed for the last line typed: the line, the
+/// SIGWINCHs it counted, and the pty's rows and columns.
+fn got(app: &App) -> Option<(String, u32, String)> {
+    let line = app
+        .screen_text()
+        .into_iter()
+        .rev()
+        .find(|l| l.starts_with("got:"))?;
+    let mut f = line.split_whitespace();
+    let typed = f.next()?.strip_prefix("got:")?.to_owned();
+    let winch = f.next()?.strip_prefix("winch:")?.parse().ok()?;
+    let size = f.collect::<Vec<_>>().join(" ");
+    Some((typed, winch, size))
+}
+
+/// The last row of the shown screen whose text starts with `start`.
+fn row_of(app: &App, start: &str) -> Option<usize> {
+    app.screen_text().iter().rposition(|l| l.starts_with(start))
+}
+
+/// Whether the display shows a lit pixel on the cell row `row`, 16 pixels
+/// high, right of `x`, on a display `width` pixels wide.
+fn lit_right_of(m: &Memory, width: usize, row: usize, x: usize) -> bool {
+    (row * 16..(row + 1) * 16).any(|y| {
+        (x..width).any(|px| {
+            let i = (y * width + px) * 4;
+            m.pixels
+                .get(i..i + 4)
+                .is_some_and(|p| p.iter().any(|&b| b != 0))
+        })
+    })
+}
+
+/// Types a line of 50 characters, wider than the old grid's 40 columns,
+/// and waits until the session prints it back; then waits until the
+/// display shows the printed line's text right of x = 330, past the old
+/// width of 320, which only a renderer at the new size draws.
+fn shows_a_long_line(s: &mut Seat) -> (u32, String) {
+    let long = "x".repeat(50);
+    s.type_str(&format!("{long}\r"));
+    assert!(
+        s.until(SECOND, |a| got(a).is_some_and(|g| g.0 == long)),
+        "the session prints the long line"
+    );
+    let row = row_of(&s.app, &format!("got:{long}")).expect("the printed line's row");
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| lit_right_of(m, 640, row, 330)),
+        "the long line is drawn past the old width, on row {row}"
+    );
+    let (_, winch, size) = got(&s.app).expect("the printed line");
+    (winch, size)
+}
+
+/// vtium/vtium#208: a display whose mode changes in place while vtium
+/// runs, the same connector at a new size, is laid out again at that size.
+/// The grid grows to fill it, the session gets one SIGWINCH and the new
+/// size, the display's next frame is drawn whole, and its renderer draws
+/// the whole new width.
+#[test]
+fn a_display_whose_mode_changes_in_place_draws_whole_at_its_new_size() {
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "the session runs");
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0),
+        "the display draws"
+    );
+    // 320x160 holds 40x10 cells of 8x16.
+    assert_eq!(s.app.grid(), (40, 10));
+    s.type_str("a\r");
+    assert!(s.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    let (_, winch, size) = got(&s.app).expect("the printed line");
+    assert_eq!(size, "10 40");
+    let (frames, lent) = {
+        let m = s.memory("/dev/mem0");
+        (m.frames, m.ages.len())
+    };
+    s.memory("/dev/mem0").set_mode(640, 320);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws again after its mode changed"
+    );
+    assert_eq!(s.app.grid(), (80, 20), "the grid fills the new size");
+    {
+        let m = s.memory("/dev/mem0");
+        assert_eq!(
+            m.ages.get(lent),
+            Some(&0),
+            "the first frame after is drawn whole"
+        );
+        assert_eq!(m.pixels.len(), 640 * 320 * 4);
+    }
+    let after = shows_a_long_line(&mut s);
+    assert_eq!(
+        after,
+        (winch + 1, "20 80".to_owned()),
+        "one SIGWINCH, and the pty at the new size"
+    );
+}
+
+/// vtium/vtium#208: a frame composing at the old size while the display's
+/// mode changes is dropped when it comes back, and does not bring the old
+/// renderer back: the frames after it draw the whole new width.
+#[test]
+fn a_frame_composing_across_a_mode_change_is_dropped() {
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "the session runs");
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    let (gate, opens) = hold_frames(&mut s, "console");
+    s.memory("/dev/mem0").events.push(Event::Redraw(ID));
+    assert!(
+        s.until(BOUND, |a| a.heads().iter().any(|h| h.frames_out() > 0)),
+        "a frame at the old size is composing"
+    );
+    let (lease, shown) = {
+        let m = s.memory("/dev/mem0");
+        (m.lease, m.shown.len())
+    };
+    let lent = s.memory("/dev/mem0").ages.len();
+    s.memory("/dev/mem0").set_mode(640, 320);
+    assert!(
+        s.until(BOUND, |a| a.grid() == (80, 20)),
+        "the head is laid out again while the old frame is held"
+    );
+    s.app.set_draw_hook("console", None);
+    drop(opens);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.shown.len() > shown),
+        "the display draws again"
+    );
+    {
+        let m = s.memory("/dev/mem0");
+        assert!(
+            m.shown[shown..].iter().all(|&l| l > lease),
+            "no frame from before the mode change is shown: {:?}",
+            m.shown
+        );
+        assert_eq!(m.ages.get(lent), Some(&0), "{:?}", m.ages);
+    }
+    shows_a_long_line(&mut s);
+    assert!(!gate.expired());
+}
+
+/// vtium/vtium#208: a mode smaller than one cell leaves the view at that
+/// size, drawing nothing of the grid, and a mode at a usable size after it
+/// draws the whole new width again.
+#[test]
+fn a_mode_smaller_than_a_cell_and_back_draws_at_the_new_size() {
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "the session runs");
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    let frames = s.memory("/dev/mem0").frames;
+    s.memory("/dev/mem0").set_mode(6, 10);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "a frame at 6x10"
+    );
+    let frames = s.memory("/dev/mem0").frames;
+    s.memory("/dev/mem0").set_mode(640, 320);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws again once its mode is large"
+    );
+    assert_eq!(s.app.grid(), (80, 20));
+    shows_a_long_line(&mut s);
 }
 
 /// D2: one render thread per head. The slow head, first in the file,
