@@ -227,12 +227,7 @@ fn root_case(path: Option<&std::ffi::OsStr>) -> RootCase {
     command
         .args(["--user", "--map-root-user", "--"])
         .arg(std::env::current_exe().unwrap())
-        .args([
-            ROOT_CASE,
-            "--exact",
-            "--nocapture",
-            "--test-threads=1",
-        ])
+        .args([ROOT_CASE, "--exact", "--nocapture", "--test-threads=1"])
         .env(AS_ROOT, "1");
     if let Some(path) = path {
         command.env("PATH", path);
@@ -244,8 +239,10 @@ fn root_case(path: Option<&std::ffi::OsStr>) -> RootCase {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     if out.status.code() == Some(77) {
-        let line = stdout.lines().find(|l| l.starts_with("skip:"));
-        return RootCase::Skipped(line.unwrap_or_default().to_owned());
+        // the harness prints "test <case> ... " before the case's own
+        // "skip: <why>", on the same line
+        let why = stdout.lines().find_map(|l| l.split_once("skip: "));
+        return RootCase::Skipped(why.map(|(_, why)| why).unwrap_or_default().to_owned());
     }
     if out.status.success() {
         let ran = format!("test {ROOT_CASE} ... ok");
@@ -279,7 +276,8 @@ fn root_case(path: Option<&std::ffi::OsStr>) -> RootCase {
 /// any other failure, of `unshare` or of the case, fails. An exit status
 /// of 0 passes only with the test harness's line saying the case ran and
 /// passed, so a run that matched no test, which the harness also ends
-/// with 0, fails.
+/// with 0, fails. The case's own skip, exit status 77, keeps its reason,
+/// which the harness prints after its `test <case> ... ` on the same line.
 #[test]
 fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
     use std::os::unix::fs::PermissionsExt;
@@ -323,6 +321,11 @@ fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
     );
     let silent = run("", 0);
     let none_ran = run_saying("running 0 tests", "", 0);
+    let skipped = run_saying(
+        "test image_helper::tests::a_root_helper_starts_with_no_capability ... skip: the user namespace gives no capability",
+        "",
+        77,
+    );
     let _ = std::fs::remove_dir_all(&dir);
     for (got, map) in [(uid, "uid_map"), (gid, "gid_map")] {
         match got {
@@ -335,6 +338,10 @@ fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
     assert_eq!(passed, RootCase::Passed);
     assert!(matches!(silent, RootCase::Failed(_)), "{silent:?}");
     assert!(matches!(none_ran, RootCase::Failed(_)), "{none_ran:?}");
+    assert_eq!(
+        skipped,
+        RootCase::Skipped("the user namespace gives no capability".to_owned())
+    );
 }
 
 /// The namespace's side: as uid 0 with every capability, the inheritable
