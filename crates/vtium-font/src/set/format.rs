@@ -28,14 +28,37 @@
 //!            flags u32
 //!          then each scalar value of the key pool u32, then each chunk as
 //!          GLYF's, its offset from CLUS's start, then the chunks' bytes
+//! INKX     optional: box count u32, record size u32, chunk count u32,
+//!          chunk record size u32, then each ink box, sorted by strike,
+//!          then kind, then glyph:
+//!            strike u16, kind u16 (0 a glyph of GLYF, by its number in its
+//!            strike; 1 a cluster of CLUS, by its record's number), glyph
+//!            u32, left i32, width u32, chunk u32, offset u32
+//!          then each chunk as GLYF's, its offset from INKX's start, then
+//!          the chunks' bytes
 //! ```
+//!
+//! `INKX` holds the ink box of each glyph whose ink passes its cells
+//! (ADR-1200 D2, ADR-1302 D6). A box is `width` columns across from
+//! `left`, the offset of its first column from the left edge of the
+//! glyph's first cell, which is 0 or negative, over the cell's full
+//! height, in its strike's pixel format. A box spans its glyph's cells and
+//! the ink past them, and stays inside the glyph's reach, its cells and
+//! one cell more on each side: `left` is at least minus one cell's width,
+//! and the box ends no further than one cell past the glyph's last cell.
+//! A glyph keeps its pixels cut to its cells in `GLYF` or `CLUS` as before
+//! and its whole box in an `INKX` chunk, so a reader that does not know
+//! `INKX` skips it and draws every glyph cut to its cells. Only R8 and
+//! 1-bit strikes hold boxes; a color strike's glyphs fit their cells. A
+//! glyph whose box would pass `SET_CHUNK_BYTES` holds none, and is drawn
+//! cut to its cells.
 //!
 //! `CLUS` maps clusters, short sequences of scalar values, to glyphs drawn
 //! for them whole: a cluster's key is `key length` scalars of the pool
 //! from `key`, and its glyph lies `offset` bytes into its chunk, one or two
 //! cells wide by `RUN_WIDE`, in its strike's cell and pixel format. A set
 //! with no cluster has no `CLUS`, and a reader that does not know the
-//! section skips it, so the format stays 2.0.
+//! section skips it, so the format stays 2.0, as it does for `INKX`.
 //!
 //! `STRK`'s strikes are sorted by cell height, width, style and format,
 //! no two alike, so one cell may hold a 1-bit, an R8 and an RGBA strike
@@ -63,6 +86,7 @@ pub(crate) const CMAP: [u8; 4] = *b"CMAP";
 pub(crate) const POLY: [u8; 4] = *b"POLY";
 pub(crate) const GLYF: [u8; 4] = *b"GLYF";
 pub(crate) const CLUS: [u8; 4] = *b"CLUS";
+pub(crate) const INKX: [u8; 4] = *b"INKX";
 
 /// The magic, the two versions and the section count.
 pub(crate) const PRELUDE_BYTES: u32 = 16;
@@ -77,6 +101,11 @@ pub(crate) const RUN_RECORD: u32 = 16;
 pub(crate) const COVERAGE_RECORD: u32 = 48;
 pub(crate) const CHUNK_RECORD: u32 = 20;
 pub(crate) const CLUSTER_RECORD: u32 = 20;
+pub(crate) const INK_RECORD: u32 = 24;
+
+/// An ink box's kind: a glyph of `GLYF`, or a cluster of `CLUS`.
+pub(crate) const INK_GLYPH: u16 = 0;
+pub(crate) const INK_CLUSTER: u16 = 1;
 
 /// A run's flag: its glyphs are two cells wide.
 pub(crate) const RUN_WIDE: u32 = 1;
@@ -111,6 +140,18 @@ pub(crate) fn glyph_bytes(format: u8, width: u32, height: u32, cells: u32) -> Op
         _ => return None,
     };
     row.checked_mul(height)
+}
+
+/// Whether a box `width` columns from `left` spans a glyph `span` pixels
+/// wide, of cells `cell` pixels wide, passes it on one side at least, and
+/// reaches no further than one cell past it on either side (ADR-1302 D1).
+pub(crate) fn in_reach(left: i64, width: i64, cell: i64, span: i64) -> bool {
+    let right = left.saturating_add(width);
+    left <= 0
+        && left.saturating_add(cell) >= 0
+        && right >= span
+        && right <= span.saturating_add(cell)
+        && (left, right) != (0, span)
 }
 
 /// Whether `name` is a set name ADR-1200 D1 admits: 1 to 64 characters of

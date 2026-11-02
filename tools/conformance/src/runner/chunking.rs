@@ -62,10 +62,11 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
-/// What chunking must not change: the last block without its replies and
-/// its `changed` count, the replies of the whole replay, and every test
-/// line in order. A block's `changed` count is the cells changed since the
-/// block before, so an extra block moves it.
+/// What chunking must not change: the last block without its replies, its
+/// `changed` count and its placements' `changed` flags, the replies of the
+/// whole replay, and every test line in order. A block's `changed` count
+/// and a placement's flag say what changed since the block before, so an
+/// extra block moves them.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Outcome {
     pub last: Vec<String>,
@@ -87,7 +88,10 @@ pub fn outcome(out: &str) -> Outcome {
                 .iter()
                 .any(|p| l.starts_with(p))
         })
-        .map(|l| (*l).to_owned())
+        .map(|l| match l.strip_prefix("placement ") {
+            Some(_) => l.strip_suffix(" changed").unwrap_or(l).to_owned(),
+            None => (*l).to_owned(),
+        })
         .collect();
     let replies = lines
         .iter()
@@ -152,5 +156,9 @@ mod tests {
         let one = "size 2x1\nreply 1b\nrow 0 |a|\n";
         let two = "checkpoint 1\nsize 2x1\nreply 1b\nrow 0 ||\ncheckpoint 2\nsize 2x1\nrow 0 |a|\n";
         assert_eq!(outcome(one), outcome(two));
+        let p = "placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 0";
+        let first = format!("size 2x1\n{p} changed\n");
+        let later = format!("checkpoint 1\nsize 2x1\n{p} changed\ncheckpoint 2\nsize 2x1\n{p}\n");
+        assert_eq!(outcome(&first), outcome(&later));
     }
 }

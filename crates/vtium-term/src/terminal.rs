@@ -21,6 +21,8 @@ mod charset;
 mod clipboard;
 mod color;
 mod font;
+#[cfg(feature = "images")]
+mod images;
 mod inband;
 mod input;
 mod modes;
@@ -46,6 +48,9 @@ use charset::{Charset, Charsets};
 use inband::Inband;
 use modes::{Modes, SavedModes};
 use reply::Query;
+
+#[cfg(feature = "images")]
+pub use images::ImageString;
 
 /// DECSCUSR's cursor styles: the host's default, or a shape that blinks or
 /// stays steady.
@@ -171,6 +176,9 @@ enum Dcs {
     },
     /// `DCS = Ps s`, a synchronized update's begin (1) or end (2).
     SyncUpdate(u32),
+    /// A string the image router sent to a handler.
+    #[cfg(feature = "images")]
+    Image,
 }
 
 /// What the parser drives: the screen, the bytes waiting for the program,
@@ -225,6 +233,9 @@ struct State {
     /// XTPUSHSGR's pens, and the palettes XTPUSHCOLORS and OSC 30001 keep.
     sgr_stack: sgr::Stack,
     color_stack: color::Stack,
+    /// The image protocols' router (ADR-1100).
+    #[cfg(feature = "images")]
+    images: images::Router,
     /// The queries answered, in order, for the reply rule's test.
     #[cfg(test)]
     answered: Vec<Query>,
@@ -272,6 +283,8 @@ impl Terminal {
             inband: Inband::new(cols, rows),
             sgr_stack: sgr::Stack::default(),
             color_stack: color::Stack::default(),
+            #[cfg(feature = "images")]
+            images: images::Router::default(),
             #[cfg(test)]
             answered: Vec::new(),
         };
@@ -287,12 +300,21 @@ impl Terminal {
     /// byte that ended it, so the host can present the frame; and while
     /// the replies waiting for the host reach
     /// [`REPLIES_PENDING_MAX`](crate::REPLIES_PENDING_MAX), until it takes
-    /// them: at the bound it takes nothing.
+    /// them: at the bound it takes nothing. In a build with images it also
+    /// stops right after a string whose handler asked the image helper,
+    /// taking nothing until the reply is handed back, and once the call's
+    /// image work reaches its bound (ADR-1100, D5 and D7).
     pub fn input(&mut self, bytes: &[u8]) -> usize {
         if self.state.out.len() >= REPLIES_PENDING_MAX {
             return 0;
         }
+        #[cfg(feature = "images")]
+        if self.image_request_pending() {
+            return 0;
+        }
         self.state.pause = false;
+        #[cfg(feature = "images")]
+        self.state.screen.take_image_work();
         let taken = self.parser.advance(&mut self.state, bytes);
         self.state.screen.refresh_hover();
         taken
@@ -621,6 +643,8 @@ impl State {
         self.color_stack = color::Stack::default();
         self.screen.erase_screen(Erase::All);
         self.screen.clear_scrollback();
+        #[cfg(feature = "images")]
+        self.screen.reset_images();
         self.screen
             .set_attribute_extent(crate::screen::Extent::Stream);
         modes::reset(self, true);
@@ -956,6 +980,10 @@ impl Consumer for State {
         } else if let Some(pt) = data.strip_prefix(b"50;") {
             self.osc_font(pt, end);
         } else {
+            #[cfg(feature = "images")]
+            if self.image_osc(data) {
+                return;
+            }
             let scheme = self.scheme();
             self.osc_color(data, end);
             self.report_scheme_change(scheme);
@@ -963,6 +991,11 @@ impl Consumer for State {
     }
 
     fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8) {
+        #[cfg(feature = "images")]
+        if self.image_dcs_hook(params, intermediates, final_byte) {
+            self.dcs = Dcs::Image;
+            return;
+        }
         self.dcs = match (params.marker(), intermediates.as_bytes(), final_byte) {
             (None, [b'$'], b'q') if params.count() == 1 && params.get(0).is_none() => {
                 Dcs::Decrqss {
@@ -980,6 +1013,11 @@ impl Consumer for State {
     }
 
     fn dcs_put(&mut self, data: Chunk<'_>) {
+        #[cfg(feature = "images")]
+        if self.dcs == Dcs::Image {
+            self.image_put(data);
+            return;
+        }
         if let Dcs::Decrqss { text, len, over } = &mut self.dcs {
             match data {
                 Chunk::Bytes(bytes) => {
@@ -1000,6 +1038,11 @@ impl Consumer for State {
 
     fn dcs_unhook(&mut self, end: StringEnd) {
         let dcs = core::mem::replace(&mut self.dcs, Dcs::Ignored);
+        #[cfg(feature = "images")]
+        if dcs == Dcs::Image {
+            self.image_end(end);
+            return;
+        }
         if !end.is_complete() {
             return;
         }
@@ -1011,14 +1054,29 @@ impl Consumer for State {
             // The same hold as mode 2026, through the mode table.
             Dcs::SyncUpdate(n) => modes::set(self, true, 2026, n == 1),
             Dcs::Ignored => {}
+            #[cfg(feature = "images")]
+            Dcs::Image => {}
         }
     }
 
-    fn apc_start(&mut self) {}
+    fn apc_start(&mut self) {
+        #[cfg(feature = "images")]
+        self.image_apc_start();
+    }
 
-    fn apc_put(&mut self, _: Chunk<'_>) {}
+    fn apc_put(&mut self, data: Chunk<'_>) {
+        #[cfg(feature = "images")]
+        self.image_apc_put(data);
+        #[cfg(not(feature = "images"))]
+        let _ = data;
+    }
 
-    fn apc_end(&mut self, _: StringEnd) {}
+    fn apc_end(&mut self, end: StringEnd) {
+        #[cfg(feature = "images")]
+        self.image_apc_end(end);
+        #[cfg(not(feature = "images"))]
+        let _ = end;
+    }
 
     fn xtgettcap(&mut self, payload: Option<&[u8]>) {
         let reply = self.host.termcap.answer(payload);
@@ -1030,6 +1088,10 @@ impl Consumer for State {
     }
 
     fn paused(&self) -> bool {
+        #[cfg(feature = "images")]
+        if self.images_paused() {
+            return true;
+        }
         self.pause || self.out.len() >= REPLIES_PENDING_MAX
     }
 }

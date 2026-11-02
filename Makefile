@@ -134,12 +134,12 @@ arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qem
 # tools/conformance/, copied from the C reference (provenance.tsv).
 .PHONY: conformance
 conformance: ## Judge vtium against tier 1's goldens
-	cargo build --release -p vtium-conformance --bins
+	cargo build --release -p vtium-conformance --features images --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance run
 
 .PHONY: conformance-probes
 conformance-probes: ## Run the capability probes through vtium-replay
-	cargo build --release -p vtium-conformance --bins
+	cargo build --release -p vtium-conformance --features images --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance probes
 
 # Records real programs through a pty with this machine's bash, less, vim

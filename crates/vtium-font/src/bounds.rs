@@ -94,7 +94,7 @@ const SET_SECTIONS: Bound = Bound {
     value: 16,
     what: "Sections a set's header lists",
     past: "The set is refused",
-    cite: "vtium's own: format 2.0 writes five (ADR-1200 D2), and a minor version adds sections a reader skips",
+    cite: "vtium's own: format 2.0 writes at most seven (ADR-1200 D2), and a minor version adds sections a reader skips",
 };
 
 const SET_META: Bound = Bound {
@@ -161,6 +161,14 @@ const SET_CLUSTERS: Bound = Bound {
     cite: "vtium's own: Unicode 18.0's RGI emoji sequences other than single emoji are 2,563, or 3,536 with each keyed again without its U+FE0F; canonical decompositions 1,349 keys; a screen of 320 by 100 cells shows at most 32,000 clusters. A cluster takes 20 bytes in memory and its key at most 64, so the map holds at most 5.25 MiB",
 };
 
+const SET_INKS: Bound = Bound {
+    name: "SET_INKS_MAX",
+    value: 1 << 18,
+    what: "Ink boxes a set's `INKX` holds, over every strike: one for each glyph and each cluster whose ink passes its cells",
+    past: "The set is refused",
+    cite: "vtium's own, as `SET_CHUNKS_MAX` is: a box is a glyph's, and a strike's glyphs that reach past their cells are its italic and symbol glyphs. A box's record takes 24 bytes in memory, so the boxes hold at most 6 MiB",
+};
+
 const CLUSTER_SCALARS: Bound = Bound {
     name: "CLUSTER_SCALARS_MAX",
     value: 16,
@@ -171,7 +179,7 @@ const CLUSTER_SCALARS: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 19] = [
+pub(crate) const BOUNDS: [Bound; 20] = [
     GLYPHS,
     WIDTH,
     HEIGHT,
@@ -190,6 +198,7 @@ pub(crate) const BOUNDS: [Bound; 19] = [
     SET_CHUNK,
     SET_RECORD,
     SET_CLUSTERS,
+    SET_INKS,
     CLUSTER_SCALARS,
 ];
 
@@ -252,6 +261,9 @@ pub const SET_RECORD_BYTES_MAX: u32 = SET_RECORD.value;
 /// Clusters a set's `CLUS` maps over every strike; a set with more is
 /// refused.
 pub const SET_CLUSTERS_MAX: u32 = SET_CLUSTERS.value;
+
+/// Ink boxes a set's `INKX` holds; a set with more is refused.
+pub const SET_INKS_MAX: u32 = SET_INKS.value;
 
 /// Scalar values in a cluster's key; a set with a longer key is refused,
 /// and a longer cluster is looked up as none.

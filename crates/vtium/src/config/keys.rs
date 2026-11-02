@@ -549,6 +549,17 @@ pub const DISPLAY_WAIT: Key = Key {
     cite: "the operator on vtium/vtium#21",
 };
 
+pub const DISPLAY_BUFFERS: Key = Key {
+    name: "display-buffers",
+    short: None,
+    kind: Kind::Choice(&["1", "2", "3"]),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "How many buffers each DRM display keeps, the same for every display: `3`, triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p); `2`, double buffering; `1`, single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn. A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec.",
+    cite: "ADR-1401 D2; the C reference's drm2d kept 2, src/video/drm2d_internal.h:49",
+};
+
 pub const HWACCEL: Key = Key {
     name: "hwaccel",
     short: None,
@@ -1042,6 +1053,33 @@ pub const FONT_SIZE: Key = Key {
     cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`; the operator on vtium/vtium#145",
 };
 
+pub const FONT_HINTING: Key = Key {
+    name: "font-hinting",
+    short: None,
+    kind: Kind::Choice(&["light", "full"]),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "How the font helper hints outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits it both ways. Bitmap fonts take no hinting. Unset, the frit's `hinting=` decides, `light` where it states none.",
+    cite: "ADR-1200 D1; the C reference hinted every glyph lightly, src/font/font_freetype.c:119",
+};
+
+pub const FONT_LINE_SPACING: Key = Key {
+    name: "font-line-spacing",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 100,
+        unit: "%",
+        word: None,
+    },
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "Height added to each row, over a frit's `line-spacing=`: a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=` decides, 0 where it states none.",
+    cite: "ADR-1302 D13; ADR-1200 D1",
+};
+
 pub const ALLOW_FONT_OPS: Key = Key {
     name: "allow-font-ops",
     short: None,
@@ -1236,7 +1274,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 92] = [
+pub const KEYS: [Key; 95] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1270,6 +1308,7 @@ pub const KEYS: [Key; 92] = [
     DPMS_TIMEOUT,
     PROGRAM_BLANK,
     DISPLAY_WAIT,
+    DISPLAY_BUFFERS,
     HWACCEL,
     USE_ORIGINAL_MODE,
     MODE,
@@ -1316,6 +1355,8 @@ pub const KEYS: [Key; 92] = [
     FONT_ENGINE,
     FONT_NAME,
     FONT_SIZE,
+    FONT_HINTING,
+    FONT_LINE_SPACING,
     ALLOW_FONT_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
@@ -1334,7 +1375,12 @@ pub const KEYS: [Key; 92] = [
 /// The keys vtium takes and does not act on yet, which the crate
 /// README's "Not yet built" lists; `check::semantics` warns when one is
 /// set.
-pub const NOT_BUILT: [&Key; 1] = [&HWACCEL];
+pub const NOT_BUILT: [&Key; 4] = [
+    &HWACCEL,
+    &DISPLAY_BUFFERS,
+    &FONT_HINTING,
+    &FONT_LINE_SPACING,
+];
 
 /// The key named `name`.
 pub fn find(name: &str) -> Option<&'static Key> {

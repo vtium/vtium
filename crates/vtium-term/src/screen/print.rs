@@ -245,6 +245,12 @@ impl Screen {
         let next = x.saturating_add(1);
         if next < self.cols {
             let cols = self.cols;
+            let last = if self.flags.insert {
+                cols.saturating_sub(1)
+            } else {
+                next
+            };
+            self.images_cut(y, next, last);
             if self.flags.insert {
                 // The rest of the line moves right one cell, as for an
                 // inserted wide character; a wide character the margin
@@ -345,6 +351,14 @@ impl Screen {
             return;
         }
         let end = x.saturating_add(len);
+        // text written over a picture text cuts removes the part it
+        // covers; in insert mode the rest of the row shifts, as ICH does
+        let last = if self.flags.insert {
+            cols.saturating_sub(1)
+        } else {
+            end.saturating_sub(1)
+        };
+        self.images_cut(y, x, last);
         self.split_wide(y, x);
         if self.flags.insert {
             if len < cols {

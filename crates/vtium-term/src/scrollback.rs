@@ -5,6 +5,8 @@
 use core::mem;
 use core::ops::Range;
 use std::collections::VecDeque;
+#[cfg(feature = "images")]
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::bounds::{
     LINKS_BYTES_MAX, SB_MEMORY_MAX, SB_MEMORY_MIN, SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM,
@@ -111,6 +113,16 @@ pub(crate) struct Scrollback {
     /// The rewrapped row at the top of the view, or `None` while the view
     /// shows the screen.
     view: Option<usize>,
+    /// What happened to rows image placements may be anchored on, in order,
+    /// since the screen last took it: rows dropped from the oldest end, and
+    /// anchors a rewrap of waiting rows carried to their new rows.
+    #[cfg(feature = "images")]
+    log: Vec<Change>,
+    /// The columns image placements are anchored at, by row, for the next
+    /// [`take_for_reflow`](Self::take_for_reflow) to carry; that call
+    /// empties it.
+    #[cfg(feature = "images")]
+    anchors: BTreeMap<LineId, Vec<u32>>,
 }
 
 /// The scrollback's oldest rows, waiting to be rewrapped at `width`.
@@ -128,6 +140,13 @@ struct Waiting {
     /// line's first, in order: the oldest line takes them from the start,
     /// the newest from the end.
     ids: Range<u64>,
+    /// The first rows of the logical lines held already rewrapped at
+    /// `width`, by id. An image placement anchored on a waiting line keeps
+    /// it rewrapped at each width, as a rewrap at each resize would, and
+    /// something that reaches such a line takes its rows as they are
+    /// (ADR-1003, "Images").
+    #[cfg(feature = "images")]
+    fresh: BTreeSet<LineId>,
 }
 
 impl Waiting {
@@ -183,6 +202,154 @@ impl Waiting {
         self.count = count;
         self.ids = *next_id..next_id.wrapping_add(extra);
         *next_id = self.ids.end;
+    }
+
+    /// Whether the logical line that starts at row `at` is held rewrapped
+    /// at `width`; it is then no longer recorded as held so.
+    fn take_fresh(&mut self, at: usize) -> bool {
+        #[cfg(feature = "images")]
+        {
+            let Some(id) = self.rows.get(at).map(Line::id) else {
+                return false;
+            };
+            self.fresh.remove(&id)
+        }
+        #[cfg(not(feature = "images"))]
+        {
+            let _ = at;
+            false
+        }
+    }
+
+    /// Rewraps the logical line that starts at row `at` in place at
+    /// `width`, the rows after its first taking their ids from `next_id`,
+    /// and records it as held rewrapped. Each anchor `cols` gives for one
+    /// of its rows is carried. Returns the index of the row after the line,
+    /// and where each anchor went.
+    #[cfg(feature = "images")]
+    fn rewrap_at(
+        &mut self,
+        at: usize,
+        width: usize,
+        next_id: &mut u64,
+        cols: impl Fn(LineId) -> Vec<u32>,
+    ) -> (usize, Vec<Move>) {
+        let len = line_len(self.rows.range(at..));
+        let end = at.saturating_add(len);
+        let (mut places, from) = anchor_places(self.rows.range(at..end), cols);
+        let mut made = Vec::with_capacity(len);
+        reflow::rewrap_line(
+            self.rows.drain(at..end),
+            width,
+            next_id,
+            &mut places,
+            &mut made,
+        );
+        let moves = moves(&places, &from, &made);
+        if let Some(first) = made.first() {
+            self.fresh.insert(first.id());
+        }
+        let end = at.saturating_add(made.len());
+        for (i, row) in made.into_iter().enumerate() {
+            self.rows.insert(at.saturating_add(i), row);
+        }
+        (end, moves)
+    }
+}
+
+/// What happened to rows an image placement may be anchored on.
+#[cfg(feature = "images")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Change {
+    /// Row `line` left the scrollback's oldest end, standing for `rows`
+    /// rows at the width: a waiting line dropped whole as it was held
+    /// stands for the rows it takes at the width, and every other row for
+    /// one. The placements anchored on it lose that many of their rows and
+    /// go on from `next`, the oldest row left after it, or the line a push
+    /// appends after it; with neither, from the screen's first row.
+    Dropped {
+        line: LineId,
+        rows: usize,
+        next: Option<LineId>,
+    },
+    /// A rewrap of waiting rows carried these anchors, all at once.
+    Carried(Vec<Move>),
+}
+
+/// A rewrap carried the cell at `col` of row `from` to `to_col` of row
+/// `to`.
+#[cfg(feature = "images")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Move {
+    pub(crate) from: LineId,
+    pub(crate) col: u32,
+    pub(crate) to: LineId,
+    pub(crate) to_col: u32,
+}
+
+/// The places of the anchors `cols` gives on `rows`, which are about to
+/// rewrap, each with the row and column it starts from.
+#[cfg(feature = "images")]
+fn anchor_places<'a>(
+    rows: impl Iterator<Item = &'a Line>,
+    cols: impl Fn(LineId) -> Vec<u32>,
+) -> (Vec<reflow::Place>, Vec<(LineId, u32)>) {
+    let mut places = Vec::new();
+    let mut from = Vec::new();
+    for (i, row) in rows.enumerate() {
+        for col in cols(row.id()) {
+            places.push(reflow::Place::at(
+                i,
+                usize::try_from(col).unwrap_or(usize::MAX),
+            ));
+            from.push((row.id(), col));
+        }
+    }
+    (places, from)
+}
+
+/// Where the rewrap that made `made` carried each anchor of `from`.
+#[cfg(feature = "images")]
+fn moves(places: &[reflow::Place], from: &[(LineId, u32)], made: &[Line]) -> Vec<Move> {
+    places
+        .iter()
+        .zip(from)
+        .filter_map(|(place, &(id, col))| {
+            let row = made.get(place.row)?;
+            Some(Move {
+                from: id,
+                col,
+                to: row.id(),
+                to_col: u32::try_from(place.col).unwrap_or(u32::MAX),
+            })
+        })
+        .collect()
+}
+
+/// Logs the rows `ids` dropped from the oldest end, `next` being the
+/// oldest row left. Rows already rewrapped (`line` false) each stand for
+/// one row and go on to the next of them. The rows of one logical line
+/// held as it was (`line` true) go on to `next` together, its first row
+/// standing for the `rows` rows the line takes at the width.
+#[cfg(feature = "images")]
+fn log_dropped(
+    log: &mut Vec<Change>,
+    ids: &[LineId],
+    line: bool,
+    rows: usize,
+    next: Option<LineId>,
+) {
+    for (i, &id) in ids.iter().enumerate() {
+        let (rows, next) = match line {
+            true if i == 0 => (rows, next),
+            true => (1, next),
+            false => (1, ids.get(i.saturating_add(1)).copied().or(next)),
+        };
+        log.push(Change::Dropped {
+            line: id,
+            rows,
+            next,
+        });
     }
 }
 
@@ -252,6 +419,10 @@ impl Scrollback {
             bytes: 0,
             bytes_max: SB_MEMORY_DEFAULT,
             view: None,
+            #[cfg(feature = "images")]
+            log: Vec::new(),
+            #[cfg(feature = "images")]
+            anchors: BTreeMap::new(),
         }
     }
 
@@ -370,11 +541,23 @@ impl Scrollback {
         if c > self.bytes_max {
             return Some(line);
         }
+        #[cfg(feature = "images")]
+        let logged = self.log.len();
         if self.total() >= self.max {
             self.drop_oldest(1);
         }
         while self.bytes.saturating_add(c) > self.bytes_max && self.total() > 0 {
             self.drop_oldest(1);
+        }
+        // A row dropped with no row after it is followed by this line.
+        #[cfg(feature = "images")]
+        for change in self.log.iter_mut().skip(logged) {
+            if let Change::Dropped {
+                next: next @ None, ..
+            } = change
+            {
+                *next = Some(line.id());
+            }
         }
         self.bytes = self.bytes.saturating_add(c);
         self.lines.push_back(line);
@@ -458,13 +641,27 @@ impl Scrollback {
         while n > 0 && w.count > 0 {
             if w.ready == 0 {
                 let (len, rows) = w.oldest();
+                let extra = u64::try_from(rows.saturating_sub(1)).unwrap_or(0);
+                if w.take_fresh(0) {
+                    // Held rewrapped already: its rows are ready as they
+                    // are, and the ids reserved for them go unused.
+                    w.ready = len;
+                    w.ids.start = w.ids.start.saturating_add(extra).min(w.ids.end);
+                    continue;
+                }
                 gone = gone.saturating_add(charge(w.rows.range(..len)));
                 if rows <= n {
+                    #[cfg(feature = "images")]
+                    let dropped: Vec<LineId> = w.rows.range(..len).map(Line::id).collect();
                     w.rows.drain(..len);
                     w.count = w.count.saturating_sub(rows);
-                    let extra = u64::try_from(rows.saturating_sub(1)).unwrap_or(0);
                     w.ids.start = w.ids.start.saturating_add(extra).min(w.ids.end);
                     n = n.saturating_sub(rows);
+                    #[cfg(feature = "images")]
+                    {
+                        let next = w.rows.front().or(self.lines.front()).map(Line::id);
+                        log_dropped(&mut self.log, &dropped, true, rows, next);
+                    }
                     continue;
                 }
                 if reflow::breaks_by_length(w.rows.range(..len)) {
@@ -473,6 +670,8 @@ impl Scrollback {
                     // with the row the n-th id was reserved for, and its
                     // marks went with the first row.
                     let (at, inserted) = split_line(&mut w.rows, 0, n.saturating_mul(w.width));
+                    #[cfg(feature = "images")]
+                    let dropped: Vec<LineId> = w.rows.range(..at).map(Line::id).collect();
                     w.rows.drain(..at);
                     let kept = len.saturating_add(usize::from(inserted)).saturating_sub(at);
                     made_bytes = made_bytes.saturating_add(charge(w.rows.range(..kept)));
@@ -488,6 +687,11 @@ impl Scrollback {
                     }
                     w.ids.start = w.ids.start.saturating_add(skipped).min(w.ids.end);
                     w.count = w.count.saturating_sub(n);
+                    #[cfg(feature = "images")]
+                    {
+                        let next = w.rows.front().map(Line::id);
+                        log_dropped(&mut self.log, &dropped, true, n, next);
+                    }
                     n = 0;
                     continue;
                 }
@@ -509,17 +713,31 @@ impl Scrollback {
             }
             let k = n.min(w.ready);
             gone = gone.saturating_add(charge(w.rows.range(..k)));
+            #[cfg(feature = "images")]
+            let dropped: Vec<LineId> = w.rows.range(..k).map(Line::id).collect();
             w.rows.drain(..k);
             w.ready = w.ready.saturating_sub(k);
             w.count = w.count.saturating_sub(k);
             n = n.saturating_sub(k);
+            #[cfg(feature = "images")]
+            {
+                let next = w.rows.front().or(self.lines.front()).map(Line::id);
+                log_dropped(&mut self.log, &dropped, false, 1, next);
+            }
         }
         if w.rows.is_empty() {
             *w = Waiting::default();
         }
         let k = n.min(self.lines.len());
         gone = gone.saturating_add(charge(self.lines.range(..k)));
+        #[cfg(feature = "images")]
+        let dropped: Vec<LineId> = self.lines.range(..k).map(Line::id).collect();
         self.lines.drain(..k);
+        #[cfg(feature = "images")]
+        {
+            let next = self.lines.front().map(Line::id);
+            log_dropped(&mut self.log, &dropped, false, 1, next);
+        }
         self.bytes = self.bytes.saturating_add(made_bytes).saturating_sub(gone);
         self.view = self.view.map(|i| i.saturating_sub(k));
     }
@@ -543,15 +761,21 @@ impl Scrollback {
             let extra = u64::try_from(rows.saturating_sub(1)).unwrap_or(0);
             let mut next_id = w.ids.end.saturating_sub(extra).max(w.ids.start);
             w.ids.end = next_id;
-            let mut made = Vec::with_capacity(rows);
-            reflow::rewrap_line(
-                w.rows.drain(from..),
-                w.width,
-                &mut next_id,
-                &mut [],
-                &mut made,
-            );
-            made
+            if w.take_fresh(from) {
+                // Held rewrapped already: its rows are taken as they are,
+                // and the ids reserved for them go unused.
+                w.rows.drain(from..).collect()
+            } else {
+                let mut made = Vec::with_capacity(rows);
+                reflow::rewrap_line(
+                    w.rows.drain(from..),
+                    w.width,
+                    &mut next_id,
+                    &mut [],
+                    &mut made,
+                );
+                made
+            }
         };
         w.count = w.count.saturating_sub(made.len());
         if w.rows.is_empty() {
@@ -585,6 +809,14 @@ impl Scrollback {
     /// with their ids reserved from `next_id`. At a width of one column,
     /// where a wide character becomes an empty cell, every row is taken, as
     /// one that waited would keep it.
+    ///
+    /// A logical line an image placement is anchored on, by the anchors
+    /// [`set_anchors`](Self::set_anchors) gave, is taken whole or left to
+    /// wait whole, and one left to wait is rewrapped at `width` at once,
+    /// its anchors carried. An anchor past a row's text or on a row that
+    /// does not rewrap lands where each width in turn puts it, so carrying
+    /// it straight from an older width to the newest could land it
+    /// elsewhere (ADR-1003, "Images").
     pub(crate) fn take_for_reflow(
         &mut self,
         width: usize,
@@ -599,6 +831,8 @@ impl Scrollback {
             let older = self.lines.len().saturating_sub(before);
             let rows = mem::take(&mut self.lines);
             self.bytes = 0;
+            #[cfg(feature = "images")]
+            self.anchors.clear();
             return Taken {
                 rows: rows.into(),
                 offset: (older, 0),
@@ -633,7 +867,14 @@ impl Scrollback {
                 });
                 margin.saturating_sub(taken).max(by_reach)
             };
-            if need < rows && reflow::breaks_by_length(w.rows.range(start..end)) {
+            #[cfg(feature = "images")]
+            let anchored = w
+                .rows
+                .range(start..end)
+                .any(|l| self.anchors.contains_key(&l.id()));
+            #[cfg(not(feature = "images"))]
+            let anchored = false;
+            if need < rows && !anchored && reflow::breaks_by_length(w.rows.range(start..end)) {
                 let head = rows.saturating_sub(need).saturating_mul(width);
                 let (at, inserted) = split_line(&mut w.rows, start, head);
                 from = at;
@@ -645,6 +886,33 @@ impl Scrollback {
             taken = taken.saturating_add(rows);
         }
         let rows: Vec<Line> = w.rows.drain(from..).collect();
+        #[cfg(feature = "images")]
+        {
+            w.fresh.clear();
+            let anchors = mem::take(&mut self.anchors);
+            // The rows anchors are on that wait: the search ends once it
+            // has found them all, or at the newest row when one is on no
+            // row left.
+            let held = |l: &Line| anchors.contains_key(&l.id());
+            let mut left = anchors
+                .len()
+                .saturating_sub(rows.iter().filter(|l| held(l)).count());
+            let mut at = 0;
+            while left > 0 && at < w.rows.len() {
+                let len = line_len(w.rows.range(at..));
+                let end = at.saturating_add(len.max(1));
+                let found = w.rows.range(at..end).filter(|l| held(l)).count();
+                if found == 0 {
+                    at = end;
+                    continue;
+                }
+                left = left.saturating_sub(found);
+                let cols = |id| anchors.get(&id).cloned().unwrap_or_default();
+                let (end, moves) = w.rewrap_at(at, width, next_id, cols);
+                self.log.push(Change::Carried(moves));
+                at = end;
+            }
+        }
         w.count(width, next_id);
         if w.rows.is_empty() {
             *w = Waiting::default();
@@ -688,6 +956,69 @@ impl Scrollback {
             self.view = None;
         }
         Some(line)
+    }
+
+    /// What happened to rows since the last call, in order.
+    #[cfg(feature = "images")]
+    pub(crate) fn take_changes(&mut self) -> Vec<Change> {
+        mem::take(&mut self.log)
+    }
+
+    /// Gives the columns image placements are anchored at, by scrollback
+    /// row, for the next [`take_for_reflow`](Self::take_for_reflow) to
+    /// carry; it stops looking once it has found every row given.
+    #[cfg(feature = "images")]
+    pub(crate) fn set_anchors(&mut self, anchors: BTreeMap<LineId, Vec<u32>>) {
+        self.anchors = anchors;
+    }
+
+    /// Image placements, anchored at columns `cols`, went on to row `id`
+    /// as the rows above it dropped. When `id` waits on a logical line not
+    /// held rewrapped, that line is rewrapped at the width now, as a
+    /// rewrap at each resize would have it, and held so. The line's first
+    /// row keeps its id and the placements on it their column; anchors on
+    /// a later row are carried. Returns where each carried anchor went.
+    #[cfg(feature = "images")]
+    pub(crate) fn note_anchor(&mut self, id: LineId, cols: &[u32], next_id: &mut u64) -> Vec<Move> {
+        let w = &mut self.waiting;
+        let Some(i) = w.rows.range(w.ready..).position(|l| l.id() == id) else {
+            return Vec::new();
+        };
+        let i = i.saturating_add(w.ready);
+        let mut at = i;
+        while at > w.ready
+            && at
+                .checked_sub(1)
+                .and_then(|b| w.rows.get(b))
+                .zip(w.rows.get(at))
+                .is_some_and(|(before, row)| reflow::joins(before, row))
+        {
+            at = at.saturating_sub(1);
+        }
+        if w.rows.get(at).is_some_and(|l| w.fresh.contains(&l.id())) {
+            return Vec::new();
+        }
+        let len = line_len(w.rows.range(at..));
+        let before = charge(w.rows.range(at..at.saturating_add(len)));
+        let first = i == at;
+        let carry = |row| {
+            if row == id && !first {
+                cols.to_vec()
+            } else {
+                Vec::new()
+            }
+        };
+        let (end, moves) = w.rewrap_at(at, w.width, next_id, carry);
+        self.bytes = self
+            .bytes
+            .saturating_sub(before)
+            .saturating_add(charge(w.rows.range(at..end)));
+        moves
+    }
+
+    /// Whether a line leaving the screen's top enters the scrollback.
+    pub(crate) fn keeps_lines(&self) -> bool {
+        self.max > 0
     }
 
     pub(crate) fn clear(&mut self) {
@@ -757,6 +1088,188 @@ mod tests {
 
     fn ids(sb: &Scrollback) -> Vec<u64> {
         sb.lines().map(|l| l.id().get()).collect()
+    }
+
+    /// A row of `len` cells of text, its id `id`, marked wrapped.
+    #[cfg(feature = "images")]
+    fn wrapped(id: u64, len: usize) -> Line {
+        let mut line = text(id, len);
+        line.flags_mut().insert(LineFlags::WRAPPED);
+        line
+    }
+
+    /// Every row's id, waiting and rewrapped, oldest first.
+    #[cfg(feature = "images")]
+    fn all_ids(sb: &Scrollback) -> Vec<u64> {
+        sb.all_rows().map(|l| l.id().get()).collect()
+    }
+
+    #[cfg(feature = "images")]
+    fn dropped(line: u64, rows: usize, next: Option<u64>) -> Change {
+        Change::Dropped {
+            line: LineId::new(line),
+            rows,
+            next: next.map(LineId::new),
+        }
+    }
+
+    /// A scrollback of 100 rows holding `lines`, then left to wait at
+    /// `width` with nothing taken, the anchors `anchors` given; its log is
+    /// taken first.
+    #[cfg(feature = "images")]
+    fn waiting_at(
+        lines: Vec<Line>,
+        width: usize,
+        anchors: &[(u64, u32)],
+        next: &mut u64,
+    ) -> Scrollback {
+        let mut sb = Scrollback::new(100);
+        sb.set_max(100);
+        for line in lines {
+            sb.push(line);
+        }
+        let mut given: BTreeMap<LineId, Vec<u32>> = BTreeMap::new();
+        for &(id, col) in anchors {
+            given.entry(LineId::new(id)).or_default().push(col);
+        }
+        sb.set_anchors(given);
+        let taken = sb.take_for_reflow(width, 0, None, next);
+        assert!(taken.rows.is_empty());
+        sb
+    }
+
+    // Rows already rewrapped drop one by one, each going on to the next;
+    // the newest dropped goes on to the oldest row left.
+    #[cfg(feature = "images")]
+    #[test]
+    fn rewrapped_rows_drop_one_by_one_onto_the_next() {
+        let mut sb = Scrollback::new(100);
+        sb.set_max(100);
+        for id in 1..=5 {
+            sb.push(text(id, 3));
+        }
+        let _ = sb.take_changes();
+        sb.set_max(2);
+        let want = [
+            dropped(1, 1, Some(2)),
+            dropped(2, 1, Some(3)),
+            dropped(3, 1, Some(4)),
+        ];
+        assert_eq!(sb.take_changes(), want);
+        sb.set_max(0);
+        assert_eq!(
+            sb.take_changes(),
+            [dropped(4, 1, Some(5)), dropped(5, 1, None)]
+        );
+    }
+
+    // A push into a full scrollback drops the oldest row, which goes on to
+    // the line pushed when nothing else is left.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_row_dropped_by_a_push_goes_on_to_the_line_pushed() {
+        let mut sb = Scrollback::new(100);
+        sb.set_max(1);
+        sb.push(text(1, 3));
+        sb.push(text(2, 3));
+        assert_eq!(sb.take_changes(), [dropped(1, 1, Some(2))]);
+    }
+
+    // A waiting line dropped whole stands for the rows it takes at the
+    // width, 3 here, and each row of it goes on to the line after it.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_waiting_line_dropped_whole_stands_for_its_rows_at_the_width() {
+        let mut next = 100;
+        let lines = vec![wrapped(1, 6), text(2, 6), text(3, 2)];
+        let mut sb = waiting_at(lines, 4, &[], &mut next);
+        assert_eq!(sb.total(), 4);
+        let _ = sb.take_changes();
+        sb.set_max(1);
+        assert_eq!(
+            sb.take_changes(),
+            [dropped(1, 3, Some(3)), dropped(2, 1, Some(3))]
+        );
+        assert_eq!(all_ids(&sb), [3]);
+    }
+
+    // A resize rewraps a waiting line an anchor is on at once, carrying the
+    // anchor, and later takes its rows as they are: their ids stay.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_waiting_anchored_line_rewraps_at_once_and_is_then_taken_as_it_is() {
+        let mut next = 100;
+        // one logical line of 8 cells, its anchor at the 6th
+        let lines = vec![wrapped(1, 4), text(2, 4), text(3, 2)];
+        let mut sb = waiting_at(lines, 3, &[(2, 1)], &mut next);
+        assert_eq!(
+            all_ids(&sb),
+            [1, 100, 101, 3],
+            "8 cells at 3: rows of 3, 3 and 2"
+        );
+        let carried = Move {
+            from: LineId::new(2),
+            col: 1,
+            to: LineId::new(100),
+            to_col: 2,
+        };
+        assert_eq!(sb.take_changes(), [Change::Carried(vec![carried])]);
+        sb.rewrap_all();
+        assert_eq!(ids(&sb), [1, 100, 101, 3], "taken as they are");
+        assert_eq!(sb.bytes(), charge(sb.lines()));
+    }
+
+    // Two waiting lines with anchors, a line without one between them: the
+    // resize's search finds and rewraps both, and only then stops.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_resize_rewraps_every_anchored_waiting_line_before_its_search_stops() {
+        let mut next = 100;
+        // 8 cells held as 2 rows, its anchor at the 6th; 2 cells; 6 cells,
+        // its anchor at the 3rd; 2 cells
+        let lines = vec![
+            wrapped(1, 4),
+            text(2, 4),
+            text(3, 2),
+            text(4, 6),
+            text(5, 2),
+        ];
+        let mut sb = waiting_at(lines, 3, &[(2, 1), (4, 2)], &mut next);
+        assert_eq!(all_ids(&sb), [1, 100, 101, 3, 4, 102, 5]);
+        let first = Move {
+            from: LineId::new(2),
+            col: 1,
+            to: LineId::new(100),
+            to_col: 2,
+        };
+        let second = Move {
+            from: LineId::new(4),
+            col: 2,
+            to: LineId::new(4),
+            to_col: 2,
+        };
+        let want = [Change::Carried(vec![first]), Change::Carried(vec![second])];
+        assert_eq!(sb.take_changes(), want);
+    }
+
+    // A placement a drop moves onto a waiting line has that line rewrapped
+    // at the width then, and the byte count follows the rows it now holds.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_waiting_line_a_placement_moves_onto_rewraps_and_is_counted_exactly() {
+        let mut next = 100;
+        let lines = vec![text(1, 2), text(2, 12), text(3, 2)];
+        let mut sb = waiting_at(lines, 4, &[], &mut next);
+        let moved = sb.note_anchor(LineId::new(2), &[5], &mut next);
+        assert_eq!(moved, [], "a placement on the line's first row stays there");
+        // the resize reserved 100 and 101 for the line's rows to come, so
+        // this rewrap takes new ids, and the reserved ones go unused
+        assert_eq!(all_ids(&sb), [1, 2, 102, 103, 3]);
+        assert_eq!(sb.bytes(), charge(sb.all_rows()), "the byte count is exact");
+        assert_eq!(sb.total(), 5);
+        // held rewrapped, a second placement there rewraps nothing
+        assert_eq!(sb.note_anchor(LineId::new(2), &[0], &mut next), []);
+        assert_eq!(all_ids(&sb), [1, 2, 102, 103, 3]);
     }
 
     // The operator's fence (vtium/vtium#131): from 1 MiB to the lesser of
