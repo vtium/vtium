@@ -1139,6 +1139,40 @@ fn a_cropped_picture_never_shows_the_pixels_past_its_crop() {
             }
         }
     }
+    // the reviewer's picture: 32 wide, the left half red and the right
+    // half blue, cropped from x 16, so only blue may show
+    let halves = |x: u32, _: u32| if x < 16 { RED } else { BLUE };
+    for font in [32u32, 24] {
+        let mut con = Console::new(10, 4, 0);
+        let img = con.image(Protocol::KITTY, 1, (32, 16), halves);
+        con.place(
+            img,
+            Place {
+                col: 1,
+                row: 0,
+                src_x: 16,
+                ..Place::default()
+            },
+        );
+        let (c, (cw, ch)) = if font == 24 {
+            let (c, _) = draw_with(psf(12, 24), &s, con.frame(0), (120, 96), Config::default());
+            (c, (12, 24))
+        } else {
+            let f = vtium_font::Font::new(vtium_font::Unifont::new(32));
+            let (c, _) = draw_with(f, &s, con.frame(0), (160, 128), Config::default());
+            (c, (16, 32))
+        };
+        // the 16 pixels shown are two 8-pixel cells at columns 1 and 2
+        for y in 0..ch {
+            for x in cw..3 * cw {
+                assert_eq!(
+                    c.pixel(x, y),
+                    Some(BLUE & 0xff_ffff),
+                    "src_x 16 at {font}: {x},{y}"
+                );
+            }
+        }
+    }
 }
 
 // A picture that an opaque picture over it hides wholly is never scaled,
