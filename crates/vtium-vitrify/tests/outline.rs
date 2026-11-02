@@ -142,7 +142,11 @@ fn inked_columns(rows: &[Vec<u8>]) -> Vec<usize> {
 // underscore lies in the cell's bottom row. Full hinting runs the font's
 // own instructions at a whole 13 pixels to the em, as TrueType hinting
 // does: T's bar is fitted 9 rows high, the underscore lies in the cell at
-// the ascent's baseline, and H covers 7 columns
+// the ascent's baseline, and H covers 7 columns. Light hinting keeps every
+// glyph in the columns its unhinted outline covers: `!` and `.` in columns
+// 3 and 4, `*` in 1 to 6, `1` in 1 to 7 and `+` in 0 to 7. A light hinter
+// that also fitted stems sideways, as the automatic hinter does at full
+// strength, moves each of them by a column
 #[test]
 fn light_hinting_fits_rows_only_and_full_hinting_both_ways() {
     let font = dejavu_ascii();
@@ -181,6 +185,19 @@ fn light_hinting_fits_rows_only_and_full_hinting_both_ways() {
         (0..8).collect::<Vec<_>>()
     );
     assert_eq!(inked_columns(&rows(&full, 'H')), (0..7).collect::<Vec<_>>());
+    for (c, from, to) in [
+        ('!', 3, 4),
+        ('.', 3, 4),
+        ('*', 1, 6),
+        ('1', 1, 7),
+        ('+', 0, 7),
+    ] {
+        assert_eq!(
+            inked_columns(&rows(&light, c)),
+            (from..=to).collect::<Vec<_>>(),
+            "light: {c}'s columns are its outline's"
+        );
+    }
 }
 
 // A face with no W takes M's width, then 0's, then half the height. At 16
