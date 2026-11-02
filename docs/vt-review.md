@@ -149,7 +149,7 @@ The binaries and the units are shared by every VT that holds vtium-dev. When `ls
 
 ### What the package ships
 
-`make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly what a package ships, so that a package's build is one call; packaging/arch's PKGBUILD runs it. It needs DESTDIR named, so it never installs onto this machine. It builds with the host's toolchain, as a distribution's package build does, in the target directory `target/install`, and `CARGO_BUILD_FLAGS='--frozen'` passes a flag to each cargo call. It stages:
+`make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly what a package ships, so that a package's build can be one call. The AUR packages in packaging/arch build from what GitHub's main holds, which has no `make install` yet, so their `package()` does the same steps itself; they move to `make install` once it is on main. It needs DESTDIR named, so it never installs onto this machine. It builds with the host's toolchain, as a distribution's package build does, in the target directory `target/install`, and `CARGO_BUILD_FLAGS='--frozen'` passes a flag to each cargo call. It stages:
 
 | File | What it is |
 |---|---|
