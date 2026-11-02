@@ -128,7 +128,7 @@ fn tier3_command_lines() {
 fn defaults() {
     let c = Config::default();
     assert_eq!(c.text(&CONFIGDIR), Some("/etc/kmscon"));
-    assert_eq!(c.text(&TERM), Some("kmscon"));
+    assert_eq!(c.text(&TERM), Some("xterm-vtium"));
     assert_eq!(c.number(&SB_SIZE), Some(1000));
     assert_eq!(c.number(&SB_SIZE_CAP), None);
     assert_eq!(c.number(&SYNC_TIMEOUT), Some(200));
@@ -524,7 +524,7 @@ fn text_is_bounded() {
     assert_eq!(l.reports, []);
     let l = load_with(&["--term=x\u{1b}[2J"], None, &[]);
     assert_eq!(problems(&l), [&Problem::ControlCharacter("term")]);
-    assert_eq!(l.config.text(&TERM), Some("kmscon"));
+    assert_eq!(l.config.text(&TERM), Some("xterm-vtium"));
 }
 
 #[test]

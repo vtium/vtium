@@ -6,16 +6,17 @@
 //! with the introducer, `feed` with the data, then `finish` when the
 //! string ended with its terminator or `cancel` when it was cancelled. A
 //! handler that asked the helper for something (D7) gets the answer in
-//! `decoded`. Every method gets the [`Context`] vtium-term implements; a
-//! handler never reaches the screen's lines itself, so every scroll it
-//! causes passes through the screen and the store's events.
+//! `decoded`, and RIS reaches it in `reset`. Every method gets the
+//! [`Context`] vtium-term implements; a handler never reaches the screen's
+//! lines itself, so every scroll it causes passes through the screen and
+//! the store's events, and it changes the store only through an [`Edit`].
 
 use vtium_parse::{Chunk, Params};
 
 use crate::decode::{Reply, Request};
 use crate::image::{ImageKey, NewImage, Place, PlacementKey, Refusal};
 use crate::rules::Protocol;
-use crate::store::{Reservation, Store};
+use crate::store::{Edit, Reservation, Store};
 
 /// A control string's introducer.
 #[derive(Clone, Copy, Debug)]
@@ -65,36 +66,52 @@ impl Default for Limits {
     }
 }
 
+/// The scroll region's first and last rows, as DECSTBM set them, both
+/// included. vtium has no left and right margins (DECSLRM), so the region
+/// spans every column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Margins {
+    pub top: usize,
+    pub bottom: usize,
+}
+
+/// The sixel state a handler reads, which vtium-term holds (D1): the
+/// three sixel modes in its mode table, and the color register count in
+/// force.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SixelState {
+    /// Mode 80, DECSDM, is set: sixel scrolling is off, so a picture sits
+    /// at the screen's top left, cut to the screen, and the cursor stays
+    /// where it is. Reset, the picture's top left is the cursor's cell.
+    pub display: bool,
+    /// Mode 1070 is set: each picture gets its own color registers, where
+    /// reset the pictures share one set. Its state at reset is
+    /// [`Limits::private_registers`].
+    pub private_registers: bool,
+    /// Mode 8452 is set: after a picture the cursor goes to the column
+    /// after its right edge, where reset it goes to the picture's left
+    /// column.
+    pub cursor_right: bool,
+    /// How many color registers a new picture gets: the count XTSMGRAPHICS
+    /// set, or [`Limits::registers`] when it set none.
+    pub registers: u32,
+}
+
 /// What a handler reaches, which vtium-term implements over one terminal.
+///
+/// A handler changes the store only through
+/// [`edit_store`](Self::edit_store), which it usually calls through
+/// `dyn Context`'s `edit` method and the shorthand methods beside it. It
+/// reaches the screen only through the cursor, the index and the scroll
+/// here, so every scroll it causes passes through the screen and the
+/// store's events.
 pub trait Context {
     /// The store, to read.
     fn store(&self) -> &Store;
-    /// Reserves `bytes` of the budget before they are allocated, for an
-    /// image of `protocol` with kitty id `id` (0 for none) to come; an image
-    /// of that id is held until the reservation is used or given back (D5).
-    fn reserve(&mut self, protocol: Protocol, id: u32, bytes: u64) -> Result<Reservation, Refusal>;
-    /// Reserves `more` as a buffered payload grows.
-    fn grow(&mut self, reservation: &mut Reservation, more: u64) -> Result<(), Refusal>;
-    /// Gives a reservation back unused.
-    fn unreserve(&mut self, reservation: Reservation);
-    /// Stores an image in the buffer in use, taking what `reservation`
-    /// holds toward its cost.
-    fn add_image(
-        &mut self,
-        image: NewImage,
-        reservation: Option<Reservation>,
-    ) -> Result<ImageKey, Refusal>;
-    /// Frees an image of the buffer in use, as a picture that could not be
-    /// placed is.
-    fn drop_image(&mut self, image: ImageKey);
-    /// The image a kitty command names: by its id, or by its number.
-    fn find_image(&mut self, id: u32, number: u32) -> Option<ImageKey>;
-    /// A command named an existing image: the use clock moves (D5).
-    fn touch(&mut self, image: ImageKey);
-    /// The lowest kitty id no image of the buffer in use has.
-    fn free_id(&mut self) -> u32;
-    /// Places an image of the buffer in use on its screen.
-    fn place(&mut self, image: ImageKey, place: Place) -> Result<PlacementKey, Refusal>;
+    /// Runs `f` once over an [`Edit`] of the store, which binds both
+    /// buffers' screen rows, then settles the store and marks the cells
+    /// under every box the edit changed, as a screen event does.
+    fn edit_store(&mut self, f: &mut dyn FnMut(&mut Edit<'_>));
     /// Whether the host has an image helper to answer requests. Without
     /// one, a handler answers what only the helper reads as its protocol
     /// says (D7, "Without a helper").
@@ -106,19 +123,103 @@ pub trait Context {
     fn cell_size(&self) -> (u32, u32);
     /// The grid's columns and rows.
     fn grid(&self) -> (usize, usize);
-    /// The cursor's column and row.
+    /// The cursor's column and row. The column equals the grid's width
+    /// while a wrap is pending.
     fn cursor(&self) -> (usize, usize);
     /// Moves the cursor, within the screen.
     fn move_cursor(&mut self, col: usize, row: usize);
-    /// The index the screen does at the bottom margin, which a sixel uses
-    /// to scroll.
-    fn index(&mut self);
+    /// The scroll region's margins.
+    fn margins(&self) -> Margins;
+    /// Moves the cursor `n` rows down as `n` line feeds do, scrolling the
+    /// region up at the bottom margin by what is left.
+    fn index(&mut self, n: usize);
+    /// Scrolls the region up `n` rows, as SU does, leaving the cursor
+    /// where it is.
+    fn scroll_up(&mut self, n: usize);
+    /// The sixel modes and the register count.
+    fn sixel(&self) -> SixelState;
     /// Writes a reply to the program.
     fn reply(&mut self, kind: ReplyKind, bytes: &[u8]);
     fn switches(&self) -> Switches;
     fn limits(&self) -> Limits;
     /// Adds what the handler did to the input call's work (D5).
     fn add_work(&mut self, work: u64);
+}
+
+/// The store edits a handler makes, each through one
+/// [`edit_store`](Context::edit_store).
+impl dyn Context + '_ {
+    /// Runs `f` over an [`Edit`] of the store and returns what it returned,
+    /// or `None` when the context did not run it. vtium-term's context
+    /// always runs it, so there the result is never `None`.
+    pub fn edit<R>(&mut self, f: impl FnOnce(&mut Edit<'_>) -> R) -> Option<R> {
+        let mut f = Some(f);
+        let mut out = None;
+        self.edit_store(&mut |edit| {
+            if let Some(f) = f.take() {
+                out = Some(f(edit));
+            }
+        });
+        out
+    }
+
+    /// [`Edit::reserve`].
+    pub fn reserve(
+        &mut self,
+        protocol: Protocol,
+        id: u32,
+        bytes: u64,
+    ) -> Result<Reservation, Refusal> {
+        self.edit(|e| e.reserve(protocol, id, bytes))
+            .unwrap_or(Err(Refusal::NoSpace))
+    }
+
+    /// [`Edit::grow`].
+    pub fn grow(&mut self, reservation: &mut Reservation, more: u64) -> Result<(), Refusal> {
+        self.edit(|e| e.grow(reservation, more))
+            .unwrap_or(Err(Refusal::NoSpace))
+    }
+
+    /// [`Edit::unreserve`].
+    pub fn unreserve(&mut self, reservation: Reservation) {
+        self.edit(|e| e.unreserve(reservation));
+    }
+
+    /// [`Edit::add_image`].
+    pub fn add_image(
+        &mut self,
+        image: NewImage,
+        reservation: Option<Reservation>,
+    ) -> Result<ImageKey, Refusal> {
+        self.edit(|e| e.add_image(image, reservation))
+            .unwrap_or(Err(Refusal::NoSpace))
+    }
+
+    /// [`Edit::drop_image`].
+    pub fn drop_image(&mut self, image: ImageKey) {
+        self.edit(|e| e.drop_image(image));
+    }
+
+    /// [`Edit::find_image`].
+    pub fn find_image(&mut self, id: u32, number: u32) -> Option<ImageKey> {
+        self.edit(|e| e.find_image(id, number)).flatten()
+    }
+
+    /// [`Edit::touch`].
+    pub fn touch(&mut self, image: ImageKey) {
+        self.edit(|e| e.touch(image));
+    }
+
+    /// [`Edit::free_id`].
+    pub fn free_id(&mut self) -> u32 {
+        self.edit(|e| e.free_id()).unwrap_or(1)
+    }
+
+    /// [`Edit::place`].
+    pub fn place(&mut self, image: ImageKey, place: Place) -> Result<PlacementKey, Refusal> {
+        self.edit(|e| e.place(image, place))
+            .unwrap_or(Err(Refusal::NoSpace))
+    }
 }
 
 /// One protocol's front end.
@@ -136,6 +237,12 @@ pub trait Handler: core::fmt::Debug {
     fn cancel(&mut self, ctx: &mut dyn Context);
     /// The helper's answer to the handler's request.
     fn decoded(&mut self, ctx: &mut dyn Context, reply: Reply);
+    /// RIS: the handler returns to its state at start, giving back what it
+    /// reserved. It runs before the store empties both buffers. A string
+    /// it was being fed has already been cancelled.
+    fn reset(&mut self, ctx: &mut dyn Context) {
+        let _ = ctx;
+    }
     /// A copy of the handler, for a terminal that is cloned.
     fn clone_box(&self) -> Box<dyn Handler>;
     /// The handler as `Any`, so [`same`](Self::same) can compare it.

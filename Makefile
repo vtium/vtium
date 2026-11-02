@@ -113,6 +113,7 @@ install-tree: minspec vitrify-release ## Stage vtium's install tree under DESTDI
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt@.service
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt-getty@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt-getty@.service
 	install -dm755 $(DESTDIR)/usr/share/terminfo
+	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/xterm-vtium.ti
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/kmscon.conf.example $(DESTDIR)/etc/kmscon/kmscon.conf.example
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
