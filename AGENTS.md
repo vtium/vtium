@@ -118,11 +118,12 @@ Tier 3 needs `qemu-system-x86_64` with KVM, `qemu-img`, `xorriso`, `gpg`, `curl`
 
 ### The VT review
 
-In the VT review, the maintainer checks a build by eye on a real VT. The review runs one build at a time and starts it from one place, so that no other vtium build is left running on a VT:
+In the VT review, the maintainer checks a build by eye on a real VT. The review runs one build at a time and starts it from one place, so that no other vtium build is left running on a VT. [docs/vt-review.md](docs/vt-review.md#this-machines-vts) describes this machine's VTs, the development VT that each run borrows, and how the development VT is refreshed after a merge.
 
-- The steering session starts the run on a free VT with `make vt-check GUIDE=...` without asking first, and tells the maintainer which VT to switch to. A delegated agent never starts a run.
+- The steering session starts the run with `make vt-check GUIDE=...` without asking first, and tells the maintainer which VT to switch to. A delegated agent never starts a run.
 - The maintainer switches to that VT (Ctrl-Alt-F<n>), follows each step of the guide, and answers y, n or skip, with a note. Sudo asks for its password in the terminal where the run started.
-- When the run ends, the console comes back on that VT, and the steering session reads the answers from the log.
+- When the run ends, the steering session reads the answers from the log.
+- The steering session refreshes the development VT after each merge to `integration`, and a delegated agent never does. The steering session cannot type a password, so sudo's credentials must already be cached in its terminal; when they are not, it asks the maintainer to run `sudo -v` there first.
 
 A delegated agent proves its branch with the gates and tiers 1 to 3 in its own worktree, and stops there. This machine is the maintainer's live desktop, so an agent on it never takes DRM master, never sets a display mode, never switches VT, never opens a `/dev/tty<N>` console and never runs sudo. An agent may create GL contexts on a render node, use its own ptys and run the tier 3 VM. A render node refuses dumb buffers, the plain memory buffers that the CPU draws into, with `EACCES`, so only tier 3 can prove the dumb-buffer path.
 

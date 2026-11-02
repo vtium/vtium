@@ -25,13 +25,14 @@
 # looks for its helper at the path it was built with, so install refuses a
 # binary that does not name /usr/local/bin/vtium-dev-vitrify, and make
 # vt-install builds one that does. The names kmsconvt@ and kmsconvt-getty@
-# are left alone: the C reference's package owns them on this machine. Its
-# template alias /etc/systemd/system/autovt@.service is left alone too;
-# enabling vtium-dev@ttyN adds the per-VT alias autovt@ttyN.service ->
-# vtium-dev@.service, so that logind, which starts autovt@ttyN on a VT
-# nothing holds, starts vtium there and never the C reference's console
-# beside it. Neither command touches /etc/vtium/vtium.conf, which vtium
-# reads.
+# are left alone: they belong to the C reference's package. The template
+# alias /etc/systemd/system/autovt@.service is left alone too, whichever
+# console it names: a getty, the C reference's console, or the packaged vtium
+# after vtium console enable --all. Enabling vtium-dev@ttyN adds the per-VT
+# alias autovt@ttyN.service -> vtium-dev@.service, so that logind, which
+# starts autovt@ttyN on a VT nothing holds, starts vtium-dev there and never
+# the console the template names. The review runs borrow that VT (vt.sh).
+# Neither command touches /etc/vtium/vtium.conf, which vtium reads.
 #
 # Each command that changes anything runs through sudo and is printed first.
 # --dry-run (make DRY_RUN=1) asks what it would ask and prints the units and
