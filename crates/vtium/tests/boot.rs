@@ -26,6 +26,10 @@ use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods, PointerEvent};
 use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 
+#[path = "common/helper.rs"]
+mod stand_in;
+use stand_in::real_helper;
+
 const W: u32 = 320;
 const H: u32 = 160;
 const ID: DisplayId = DisplayId(7);
@@ -1166,7 +1170,7 @@ fn a_respawned_session_blanks_after_dpms_timeout() {
     let marker = std::env::temp_dir().join(format!("vtium-blank-respawn-{}", std::process::id()));
     let _ = std::fs::remove_file(&marker);
     let script = format!(
-        "if [ -e {m} ]; then read x; else : > {m}; printf '\\033[9;0]'; sleep 2.5; fi",
+        "if [ -e {m} ]; then read x; else : > {m}; printf '\\033[9;0]'; fi",
         m = marker.display()
     );
     let mut h = program_blank(&[], &script);
@@ -2292,6 +2296,84 @@ fn the_wheel_sends_cursor_keys_on_the_alternate_screen_under_mode_1007() {
     }
 }
 
+/// #203: natural scrolling reverses the wheel, as the C reference's
+/// `natural-scrolling` did (`src/terminal.c:1474-1476, 1646` at kmscon
+/// origin/main): a step up scrolls the view down and a step down scrolls
+/// it back, the cursor keys mode 1007 sends on the alternate screen
+/// reverse, and a program tracking the pointer reads the other wheel
+/// button. Ctrl's zoom keeps the wheel's own direction.
+#[test]
+fn natural_scrolling_reverses_the_wheel_but_not_its_zoom() {
+    let back = |h: &Harness| {
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .scrolled_back()
+    };
+    // the scrollback
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; echo ready; read x",
+    ]);
+    h.app.set_natural_scrolling(true);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point([PointerEvent::Wheel(1)], Mods::empty());
+    assert_eq!(back(&h), 0, "a step up scrolls down, at the bottom already");
+    h.point([PointerEvent::Wheel(-1)], Mods::empty());
+    assert_eq!(back(&h), 3, "a step down scrolls back");
+    h.point([PointerEvent::Wheel(1)], Mods::empty());
+    assert_eq!(back(&h), 0);
+    // Ctrl's zoom
+    let before = h.app.cells();
+    h.point([PointerEvent::Wheel(1)], Mods::CTRL);
+    assert!(
+        h.app.cells().first().map(|c| c.1) > before.first().map(|c| c.1),
+        "a step up with Ctrl zooms in: {before:?} to {:?}",
+        h.app.cells()
+    );
+    // mode 1007's cursor keys
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf '\\033[?1049hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
+    ]);
+    h.app.set_natural_scrolling(true);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point([PointerEvent::Wheel(1)], Mods::empty());
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "[E[BE[BE[B]")),
+        "a step up sends the down key: {:?}",
+        h.app.screen_text()
+    );
+    // the report to a program tracking the pointer
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
+    ]);
+    h.app.set_natural_scrolling(true);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point([over(0, 0, None), PointerEvent::Wheel(1)], Mods::empty());
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "[E[<65;1;1M]")),
+        "a step up reports the wheel's down button: {:?}",
+        h.app.screen_text()
+    );
+}
+
 /// XTSHIFTESCAPE 1: a program that asks for Shift gets it in its reports,
 /// so Shift neither selects nor scrolls back while it tracks the pointer.
 // covers: input.xtshiftescape
@@ -2352,6 +2434,43 @@ fn bell_rings_the_vt_at_a_bel_while_mode_1042_lets_it_through() {
         assert!(h.until(SECOND, |a| shows(a, "two")));
         assert_eq!(h.scripted().bells, want, "{args:?}: mode 1042 reset");
     }
+}
+
+/// ADR-1002, "What a link does": a rotation puts a cell under a still
+/// pointer that was past the grid, and the hover follows it as at a zoom.
+/// On the 320 by 160 display the pointer is 200 pixels down, below the
+/// grid's 10 rows of 16; turned a quarter the grid is 20 rows, the line of
+/// 240 A's and 8 B's rewraps to 20 columns, and the second link starts at
+/// row 12, under the pointer.
+// covers: osc.8
+#[test]
+fn a_rotation_moves_the_hover_to_the_link_now_under_the_pointer() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf '\\033]8;;https://a.example/\\007'; printf '%0240d' 0 | tr 0 A; \
+         printf '\\033]8;;https://b.example/\\007BBBBBBBB\\033]8;;\\007\\n'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| {
+        a.screen_text().iter().any(|l| l.ends_with("BBBBBBBB"))
+    }));
+    let still = PointerEvent::Moved {
+        x: 4,
+        y: 200,
+        held: None,
+    };
+    h.point([still], Mods::empty());
+    assert_eq!(links(&h.app).0, None, "below the grid, over no cell");
+    h.app.input_event(key(Mods::LOGO, 0x3d), now());
+    assert_eq!(h.app.grid(), (20, 20), "turned a quarter");
+    assert_eq!(
+        links(&h.app).0.as_deref(),
+        Some("https://b.example/"),
+        "the second link, rewrapped under the pointer"
+    );
 }
 
 /// ADR-1002, "What a link does": a zoom puts another cell under a still
@@ -3333,7 +3452,7 @@ fn a_flip_draws_only_its_own_display() {
     h.app
         .add_video(PathBuf::from("/dev/mem1"), Box::new(Memory::default()));
     assert!(h.until(SECOND, |a| a.cells().len() == 2));
-    h.until(Duration::from_millis(200), |_| false);
+    h.settled();
     fn gated(h: &mut Harness) -> &mut Gate {
         h.app
             .videos
@@ -3357,6 +3476,7 @@ fn a_flip_draws_only_its_own_display() {
         h.eventually(BOUND, |h| other(h).inked(1, 1..3)),
         "the other display drawn"
     );
+    h.settled();
     let (frames, lent) = (gated(&mut h).memory.frames, other(&mut h).ages.len());
     let g = gated(&mut h);
     g.flipping = false;
@@ -4923,6 +5043,173 @@ fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
         ],
         "{lines:?}"
     );
+}
+
+/// The outline font fixture vtium-vitrify's tests measure: a subset of
+/// DejaVu Sans Mono whose W rule gives 9 columns at 16 pixels and 12 at
+/// 22.
+fn dejavu() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vtium-vitrify/tests/fixtures/DejaVuSansMono-W-M-0.ttf")
+}
+
+/// The fonts of an outline frit `t` drawing [`dejavu`], served by
+/// [`real_helper`], its answers held until the test opens the go FIFO
+/// when `held`; the directory, the fonts, the kinds file and the go FIFO.
+fn outline_frit(name: &str, held: bool) -> (Scratch, Sources, PathBuf, PathBuf) {
+    let scratch = Scratch::new(&format!("vtium-boot-outline-{name}"));
+    let dir = scratch.path().to_owned();
+    std::fs::write(
+        dir.join("t.vtfrit"),
+        format!("source=outline:{}\n", dejavu().display()),
+    )
+    .expect("the frit");
+    let (kinds, go) = (dir.join("kinds"), dir.join("go"));
+    if held {
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &go,
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+            0,
+        )
+        .expect("the go FIFO");
+    }
+    let fonts = Sources {
+        frits: dir,
+        helper: Some(real_helper(&kinds, held.then_some(go.as_path()))),
+        ..no_fonts()
+    };
+    (scratch, fonts, kinds, go)
+}
+
+/// The kind of each frame the stand-in sent so far.
+fn kinds_sent(kinds: &Path) -> Vec<u32> {
+    std::fs::read_to_string(kinds)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| l.parse().ok())
+        .collect()
+}
+
+/// Frame 10, an outline cell, and frame 7, no cell: the answers to a cell
+/// query.
+fn cell_answers(kinds: &Path) -> usize {
+    kinds_sent(kinds)
+        .iter()
+        .filter(|&&k| matches!(k, 6 | 7 | 10))
+        .count()
+}
+
+// overhang part 1 (the maintainer, 2026-11-01): an outline frit that
+// states no cell asks the helper for its cell at the height it draws at,
+// here font-size=16 at 72 DPI, and takes the W rule's 9 columns, where the
+// built-in font's are 8. Each zoom asks again at the new height, and a
+// height asked before is not asked again.
+#[test]
+fn an_outline_frit_draws_in_the_helpers_cell_at_each_height() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let (_dir, fonts, kinds, _go) = outline_frit("each", false);
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=16"], fonts);
+    assert_eq!(h.app.cells(), vec![(9, 16)]);
+    assert_eq!(
+        (h.app.grid().0, h.app.grid().1),
+        (W as usize / 9, H as usize / 16)
+    );
+    assert!(
+        logged()
+            .iter()
+            .any(|l| l == "the frit t draws in its outline font's 9x16 cell at 16 pixels"),
+    );
+    assert_eq!(cell_answers(&kinds), 1, "the first frame asked once");
+    for _ in 16..22 {
+        h.app.input_event(key(Mods::CTRL, equal), now());
+    }
+    assert_eq!(h.app.cells(), vec![(12, 22)]);
+    assert_eq!(cell_answers(&kinds), 7, "each zoom asked at its height");
+    for _ in 16..22 {
+        h.app.input_event(key(Mods::CTRL, minus), now());
+    }
+    assert_eq!(h.app.cells(), vec![(9, 16)]);
+    assert_eq!(cell_answers(&kinds), 7, "each height asked once");
+    assert_eq!(
+        kinds_sent(&kinds).iter().filter(|&&k| k == 10).count(),
+        7,
+        "every answer was an outline cell: {:?}",
+        kinds_sent(&kinds)
+    );
+}
+
+// overhang part 1: an outline cell that comes after the console's wait
+// is dropped, the built-in font's width draws, and the next zoom asks
+// again, its answer taken, a height that failed before included
+#[test]
+fn a_late_outline_cell_is_dropped_and_the_next_zoom_asks_again() {
+    let (equal, minus) = (0x3d, 0x2d);
+    let (_dir, fonts, kinds, go) = outline_frit("late", true);
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=22"], fonts);
+    assert_eq!(h.app.cells(), vec![(8, 22)], "the built-in font's width");
+    let lines = logged();
+    assert!(
+        lines.iter().any(|l| l
+            == "the frit t's cell at 22 pixels is not known (the helper gave no answer in 100 ms): it draws as wide as the built-in font"),
+        "{lines:?}"
+    );
+    // opening the FIFO to write lets the stand-in's answers go
+    let _go = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&go)
+        .expect("the go FIFO");
+    // the late answer arrives, and is dropped with no failure
+    assert!(h.until(SECOND, |_| cell_answers(&kinds) == 1));
+    assert_eq!(
+        h.app.cells(),
+        vec![(8, 22)],
+        "the late answer changes nothing"
+    );
+    // The zoom's ask at 21 finds the late answer at 22 first, whichever
+    // turn reads it, and takes the answer at 21 behind it.
+    h.app.input_event(key(Mods::CTRL, minus), now());
+    let at21 = h.app.cells();
+    assert!(
+        at21.first().is_some_and(|c| c.1 == 21 && c.0 != 8),
+        "the helper's cell at 21, not the built-in font's: {at21:?}"
+    );
+    h.app.input_event(key(Mods::CTRL, equal), now());
+    assert_eq!(h.app.cells(), vec![(12, 22)], "asked again at 22");
+    let lines = logged();
+    assert!(
+        lines
+            .iter()
+            .all(|l| !l.contains("cell query not made") && !l.contains("gives up")),
+        "{lines:?}"
+    );
+}
+
+// ADR-1200 D17 and the operator's decision on #145, 2026-10-28: a bitmap
+// frit asks for its fonts' own cell, and may wait, only at the first frame
+// and at an OSC 50 switch. Once that ask failed, the failure holds at
+// every height, as an answer does, so a zoom neither asks nor waits again
+// and logs no second line (binary-review, finding 1).
+#[test]
+fn a_bitmap_frits_failed_cell_is_not_asked_again_at_a_zoom() {
+    let (_dir, fonts, _go) =
+        frit_fonts_of("own-none-zoom", "source=kbd:x\n", b"", "cat >/dev/null");
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    let unknown = |lines: &[String]| {
+        lines
+            .iter()
+            .filter(|l| l.contains("own cell is not known"))
+            .count()
+    };
+    assert_eq!(unknown(&logged()), 1, "the first frame asked once");
+    assert_eq!(h.app.cells(), [(8, 8)]);
+    h.app.input_event(key(Mods::CTRL, 0x3d), now());
+    assert_eq!(h.app.cells(), [(8, 16)], "zoomed");
+    assert_eq!(unknown(&logged()), 0, "the zoom asked nothing");
 }
 
 // #145, ADR-1200 D9: a frit whose cell= is unreadable is not drawn; the

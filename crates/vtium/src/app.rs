@@ -133,6 +133,10 @@ use crate::wait::Wait;
 /// (`src/main.c:203-209` at kmscon b1f7a7c5).
 pub const LEAVE_WAIT: Duration = Duration::from_millis(100);
 
+/// How long the on-screen display's brief line shows where `osd-timeout`
+/// is `never` (ADR-1401 D5): it answers one press, so it still goes.
+const BRIEF_NEVER: Duration = Duration::from_secs(3);
+
 /// Why vtium ends, and its exit status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exit {
@@ -322,6 +326,8 @@ pub struct App {
     paste_keys: Vec<Chord>,
     /// `pointer-hide-while-typing`.
     hide_while_typing: bool,
+    /// The wheel scrolls and reports the other way (vtium/vtium#203).
+    natural_scrolling: bool,
     /// The power keys the configuration binds, and what they act through.
     power_keys: Vec<(PowerKey, Vec<Chord>)>,
     power: Box<dyn Power>,
@@ -397,13 +403,14 @@ impl App {
             selection: None,
             paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
             hide_while_typing: config.switch(&keys::POINTER_HIDE_WHILE_TYPING),
+            natural_scrolling: config.switch(&keys::NATURAL_SCROLLING),
             power_keys,
             power: Box::new(power::System),
             sleeping: Rc::default(),
             modes,
             use_original,
             // kmscon.conf's `display-buffers` goes in here.
-            display_buffers: crate::video::display_buffers(None),
+            display_buffers: crate::video::display_buffers(config.display_buffers()),
             vt,
             videos: BTreeMap::new(),
             input: None,
@@ -703,10 +710,21 @@ impl App {
     }
 
     /// Starts the session of head `h`'s console `id`, unless a crash loop
-    /// stopped every head under the closed policy (ADR-1401 D1).
+    /// stopped every head under the closed policy (ADR-1401 D1). A session
+    /// that cannot start ends vtium, so the unit's getty fallback takes the
+    /// VT.
     fn spawn(&mut self, h: usize, id: u64) {
+        if let Err(why) = self.start_session(h, id) {
+            log::error!("{why}");
+            self.request_exit(Exit::Spawn);
+        }
+    }
+
+    /// Starts the session of head `h`'s console `id`, as [`App::spawn`]
+    /// does; the error is why it cannot start, for the caller to act on.
+    fn start_session(&mut self, h: usize, id: u64) -> Result<(), String> {
         if self.stopped {
-            return;
+            return Ok(());
         }
         let config = self
             .heads
@@ -714,39 +732,26 @@ impl App {
             .and_then(|head| head.login.as_ref())
             .unwrap_or(&self.config);
         let spec = child::child(config, &self.place(h, id), self.inherited.clone());
-        let Some(command) = spec.command() else {
-            log::error!("no command to run");
-            self.request_exit(Exit::Spawn);
-            return;
-        };
+        let command = spec.command().ok_or("no command to run")?;
         let erase = if self.config.switch(&keys::BACKSPACE_DELETE) {
             Erase::Delete
         } else {
             Erase::Backspace
         };
         let Some(size) = self.heads.get(h).and_then(|head| head.console_pty_size(id)) else {
-            return;
+            return Ok(());
         };
-        let mut pty = match Pty::spawn(command, size, erase) {
-            Ok(pty) => pty,
-            Err(e) => {
-                log::error!("cannot start the session: {e}");
-                self.request_exit(Exit::Spawn);
-                return;
-            }
-        };
-        let inserted = pty.insert(&self.handle, move |app: &mut App| {
+        let mut pty = Pty::spawn(command, size, erase)
+            .map_err(|e| format!("cannot start the session: {e}"))?;
+        pty.insert(&self.handle, move |app: &mut App| {
             let Console { pty, term, .. } = app.heads.get_mut(h)?.console_mut(id)?;
             pty.as_mut().map(|p| (p, term))
-        });
-        if let Err(e) = inserted {
-            log::error!("cannot watch the session's pty: {e}");
-            self.request_exit(Exit::Spawn);
-            return;
-        }
+        })
+        .map_err(|e| format!("cannot watch the session's pty: {e}"))?;
         if let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) {
             console.pty = Some(pty);
         }
+        Ok(())
     }
 
     /// Chooses head `h`'s font once, at its first display (ADR-1200 D9,
@@ -802,7 +807,6 @@ impl App {
                         head.font = Some(chosen);
                     }
                     self.share(h);
-                    self.own_cell(h);
                     return;
                 }
             },
@@ -812,51 +816,72 @@ impl App {
         }
     }
 
-    /// A frit of bitmap sources that states no cell, with no `font-size`
-    /// configured, takes its fonts' own cell, as the C reference drew a
-    /// PSF font at its own size (the operator, 2026-10-28): the helper is
-    /// asked for it before the first frame and waited for at most
-    /// [`helper::OWN_CELL_MS`], the one wait on the helper before a frame.
-    /// A refusal, or no answer in time, leaves the display's cell, with
-    /// one line saying why.
-    fn own_cell(&mut self, h: usize) {
-        let wants = self.heads.get(h).is_some_and(|head| {
-            !head.sized() && head.font.as_ref().is_some_and(Chosen::wants_own_cell)
-        });
-        let Some(name) = self.heads.get(h).and_then(Head::frit).map(str::to_owned) else {
+    /// A frit that states no cell takes the cell its first source gives at
+    /// `height`, the height head `h` draws at, which the helper is asked
+    /// for and waited for at most [`helper::OWN_CELL_MS`], the one wait on
+    /// the helper (ADR-1200 D17): a bitmap source's own cell, where no
+    /// `font-size` is configured, as the C reference drew a PSF font at its
+    /// own size (the operator, 2026-10-28), or an outline source's cell at
+    /// `height` (the maintainer, 2026-11-01). Each answer is kept for the
+    /// frit, by the height asked at, for every head drawing it. A refusal,
+    /// or no answer in time, leaves the display's cell, or for an outline
+    /// frit the built-in font's width, with one line saying why.
+    fn own_cell(&mut self, h: usize, height: u32) {
+        let Some(head) = self.heads.get(h) else {
             return;
         };
-        if !wants {
+        let sized = head.sized();
+        if !head
+            .font
+            .as_ref()
+            .is_some_and(|f| f.wants_own_cell(height, sized))
+        {
             return;
         }
-        let known = self.frits.get(&name).and_then(|f| f.own.clone());
+        let outline = head.chosen().outline();
+        let Some(name) = head.frit().map(str::to_owned) else {
+            return;
+        };
+        let known = self
+            .frits
+            .get(&name)
+            .and_then(|f| f.answer_at(height, outline));
         let own = match known {
             Some(own) => own,
             None => {
-                let now = (self.clock)();
+                let clock = Rc::clone(&self.clock);
                 let Some(helper) = self.helper(&name) else {
                     return;
                 };
-                let own = helper.own_cell(Duration::from_millis(helper::OWN_CELL_MS), now);
-                match &own {
-                    Ok(cell) => log::info!(
+                let wait = Duration::from_millis(helper::OWN_CELL_MS);
+                let own = helper.own_cell(height, wait, &*clock);
+                match (&own, outline) {
+                    (Ok(helper::OwnCell::Bitmap(cell)), _) => log::info!(
                         "the frit {name} draws in its fonts' own {}x{} cell",
                         cell.width,
                         cell.height
                     ),
-                    Err(why) => log::warn!(
+                    (Ok(helper::OwnCell::Outline(cell)), _) => log::info!(
+                        "the frit {name} draws in its outline font's {}x{} cell at {height} pixels",
+                        cell.width,
+                        cell.height
+                    ),
+                    (Err(why), false) => log::warn!(
                         "the frit {name}'s own cell is not known ({why}): it draws in the display's cell"
+                    ),
+                    (Err(why), true) => log::warn!(
+                        "the frit {name}'s cell at {height} pixels is not known ({why}): it draws as wide as the built-in font"
                     ),
                 }
                 if let Some(frit) = self.frits.get_mut(&name) {
-                    frit.own = Some(own.clone());
+                    frit.own.insert(height, own.clone());
                 }
                 own
             }
         };
-        if let (Ok(cell), Some(head)) = (own, self.heads.get_mut(h)) {
+        if let (Ok(answer), Some(head)) = (own, self.heads.get_mut(h)) {
             if let Some(font) = &mut head.font {
-                font.set_own_cell(cell);
+                font.set_own_cell(answer, sized);
             }
         }
     }
@@ -885,7 +910,7 @@ impl App {
                         helper: None,
                         refused: false,
                         asked: Vec::new(),
-                        own: None,
+                        own: BTreeMap::new(),
                     },
                 );
             }
@@ -943,7 +968,18 @@ impl App {
             };
             let old = head.font.replace(new);
             self.share(h);
-            self.own_cell(h);
+            // A switch asks the helper for the cell again where the last
+            // ask had no answer in time, even while another head draws the
+            // frit; a refusal holds (ADR-1200 D17).
+            if let Some(frit) = self
+                .heads
+                .get(h)
+                .and_then(Head::frit)
+                .and_then(|name| self.frits.get_mut(name))
+            {
+                frit.own
+                    .retain(|_, answer| !answer.as_ref().is_err_and(|no| no.late));
+            }
             if let Some(head) = self.heads.get_mut(h) {
                 head.refont = true;
             }
@@ -1133,6 +1169,13 @@ impl App {
         }
         self.choose_font(h);
         let dpi = self.dpi(h);
+        if let Some(height) = self
+            .heads
+            .get(h)
+            .map(|head| draw_height(head, dpi, &self.locale))
+        {
+            self.own_cell(h, height);
+        }
         let App {
             heads,
             config,
@@ -1144,14 +1187,7 @@ impl App {
         };
         let locale = locale.as_str();
         let sizes: Vec<(u32, u32)> = head.views.values().map(|v| v.size).collect();
-        if let Some(points) = head.points {
-            head.font_size = font::points_to_pixels(points, dpi);
-        } else if head.auto_size {
-            let w = sizes.iter().map(|s| s.0).min().unwrap_or(0);
-            let ht = sizes.iter().map(|s| s.1).min().unwrap_or(0);
-            head.font_size = head.chosen().auto_height(w, ht, locale, dpi);
-        }
-        head.font_size = head.chosen().snap(head.font_size);
+        head.font_size = draw_height(head, dpi, locale);
         let selected = font::select(head.font_size, head.has_font, |x| head.face(x, locale));
         let base = match selected {
             Ok((face, base)) => {
@@ -1630,6 +1666,9 @@ impl App {
                 if let Some(input) = &mut self.input {
                     input.wake_up();
                 }
+                // The keyboards start afresh, holding no modifier, so a
+                // Ctrl held before the switch shows no overlay now.
+                self.rehover();
                 for (node, video) in &mut self.videos {
                     if let Err(e) = video.wake_up() {
                         log::warn!("cannot wake {}: {e}", node.display());
@@ -1769,6 +1808,7 @@ impl App {
         let lit: Vec<vtium_config::Identity> = self.start_lit.values().cloned().collect();
         self.focus = head_index(self.rules.place(&lit, None).focus);
         self.bound_pointers();
+        self.rehover();
     }
 
     /// The guards (ADR-1401 D9), after a device came or went: every device
@@ -1930,6 +1970,8 @@ impl App {
         self.locked_out = placement.anti_lockout;
         self.any_lit.set(!self.lit.is_empty());
         self.bound_pointers();
+        // The guard may have sent a keyboard to another head.
+        self.rehover();
     }
 
     /// What the screen the display guard lights for a notice alone shows
@@ -2122,6 +2164,37 @@ impl App {
                 input.remove(id);
             }
         }
+        // The keyboard's route is gone before the end of its modifiers is
+        // drained, and that event finds no head, so the Ctrl it held is let
+        // go here.
+        self.rehover();
+    }
+
+    /// Each head hovers what its pointer is over with Ctrl as the
+    /// keyboards delivering to it hold it now (ADR-1002, "What a link
+    /// does"). The seat reads the keyboards, since a release sends no key,
+    /// a keyboard that goes sends its modifiers' end after its route has
+    /// gone, and a keyboard following the focus sends nothing as the focus
+    /// moves.
+    fn rehover(&mut self) {
+        for h in 0..self.heads.len() {
+            let ctrl = self.input.as_ref().is_some_and(|input| {
+                input
+                    .mods_of(&self.routes.devices_of(h, self.focus))
+                    .contains(InputMods::CTRL)
+            });
+            if let Some(head) = self.heads.get_mut(h) {
+                head.rehover(ctrl);
+            }
+        }
+    }
+
+    /// Natural scrolling, on or off (vtium/vtium#203): the wheel scrolls the
+    /// view and reports to a program the other way, and the cursor keys
+    /// mode 1007 sends reverse, while Ctrl's zoom keeps the wheel's own
+    /// direction. kmscon.conf's `natural-scrolling` sets it at the start.
+    pub fn set_natural_scrolling(&mut self, on: bool) {
+        self.natural_scrolling = on;
     }
 
     /// The name of the head holding the focus.
@@ -2214,7 +2287,10 @@ impl App {
                 };
                 self.pointer_to(h, p, mods, now);
             }
-            InputEvent::Mods(_) => {}
+            // A keyboard's modifiers changed. Only the overlay follows
+            // them, read from each head's own keyboards, and a modifier is
+            // not the user's activity.
+            InputEvent::Mods(_) => self.rehover(),
         }
     }
 
@@ -2270,7 +2346,7 @@ impl App {
             // comes from no one device.
             PointerEvent::Hide => {
                 for head in &mut self.heads {
-                    head.pointer_event(event, Mods::empty(), &mut self.selection);
+                    head.pointer_event(event, Mods::empty(), false, &mut self.selection);
                 }
                 return;
             }
@@ -2281,7 +2357,12 @@ impl App {
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
-        let zoom = head.pointer_event(event, Mods::from_bits(mods.bits()), &mut self.selection);
+        let zoom = head.pointer_event(
+            event,
+            Mods::from_bits(mods.bits()),
+            self.natural_scrolling,
+            &mut self.selection,
+        );
         if let Some(dir) = zoom {
             self.zoom(h, dir);
         }
@@ -2335,13 +2416,12 @@ impl App {
             }
             return;
         }
-        let chord = chord::chord(bits, &key.keysyms).filter(|&chord| {
-            from.roaming || matches!(chord, HeadChord::NextConsole | HeadChord::PreviousConsole)
-        });
+        let chord =
+            chord::chord(bits, &key.keysyms).filter(|&chord| from.roaming || chord.is_console());
         if let Some(chord) = chord {
             // One action a press, as the power keys.
             if !key.repeat {
-                self.chord(h, chord, key.mods.contains(InputMods::CTRL));
+                self.chord(h, chord, key.mods.contains(InputMods::CTRL), now);
             }
             return;
         }
@@ -2424,20 +2504,39 @@ impl App {
         head.draw_now = true;
     }
 
-    /// A head's chord (ADR-1401 D5): a console chord shows another of
-    /// head `h`'s consoles, the head the key's device delivers to; the
-    /// focus chord moves the focus to the next or the previous head with a
-    /// lit display. A console chord leaves the console it shows hovering
-    /// what the pointer is over, with `ctrl` as held now.
-    fn chord(&mut self, h: Option<usize>, chord: HeadChord, ctrl: bool) {
+    /// A head's chord (ADR-1401 D1, D5): a console chord shows another of
+    /// head `h`'s consoles, the head the key's device delivers to, and
+    /// under an open policy opens or closes one at `now`; the focus chord
+    /// moves the focus to the next or the previous head with a lit
+    /// display. A console chord leaves the console it shows hovering what
+    /// the pointer is over, with `ctrl` as held now.
+    fn chord(&mut self, h: Option<usize>, chord: HeadChord, ctrl: bool, now: Instant) {
         let visible = self.awake;
         let back = match chord {
             HeadChord::NextHead => false,
             HeadChord::PreviousHead => true,
-            HeadChord::NextConsole | HeadChord::PreviousConsole => {
-                let changed = h
-                    .and_then(|h| self.heads.get_mut(h))
-                    .is_some_and(|head| head.console_chord(chord, visible));
+            HeadChord::NextConsole
+            | HeadChord::PreviousConsole
+            | HeadChord::OpenConsole
+            | HeadChord::CloseConsole => {
+                let changed = match (h, chord) {
+                    // Under closed the count is fixed: the chord is taken,
+                    // and does nothing (D1, D5).
+                    (_, HeadChord::OpenConsole | HeadChord::CloseConsole)
+                        if self.rules.policy == Policy::Closed =>
+                    {
+                        false
+                    }
+                    (Some(h), HeadChord::OpenConsole) => self.open_console(h, now),
+                    (Some(h), HeadChord::CloseConsole) => self
+                        .heads
+                        .get_mut(h)
+                        .and_then(|head| head.close_shown(visible))
+                        .is_some(),
+                    (h, _) => h
+                        .and_then(|h| self.heads.get_mut(h))
+                        .is_some_and(|head| head.console_chord(chord, visible)),
+                };
                 if let Some(h) = h.filter(|_| changed) {
                     self.relayout(h);
                     if let Some(head) = self.heads.get_mut(h) {
@@ -2455,22 +2554,98 @@ impl App {
         };
         if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
             self.move_focus(to);
+            // The keyboard that pressed the chord follows the focus, with
+            // the Ctrl it holds for the chord.
+            if let Some(head) = self.heads.get_mut(to).filter(|_| ctrl) {
+                head.rehover(true);
+            }
         }
+    }
+
+    /// Opens a console on head `h` at `now`, after the console it shows,
+    /// and starts the head's login in it (ADR-1401 D1, D5), unless the head
+    /// has `head-consoles-max` consoles or every head together has
+    /// `consoles-max`: then nothing opens, and vtium logs a line and shows
+    /// a brief line on the head's on-screen display. Returns whether one
+    /// opened.
+    fn open_console(&mut self, h: usize, now: Instant) -> bool {
+        let total: usize = self
+            .heads
+            .iter()
+            .filter(|head| !head.notice_only)
+            .map(Head::console_count)
+            .sum();
+        let caps = self.caps;
+        let App {
+            heads,
+            config,
+            scrollback,
+            scrollback_bytes,
+            clock,
+            ..
+        } = self;
+        let Some(head) = heads.get_mut(h) else {
+            return false;
+        };
+        let n = head.console_count();
+        let full = if n >= caps.head {
+            log::warn!(
+                "head {}: no console opens: the head has {n}, head-consoles-max",
+                head.name()
+            );
+            Some(crate::notice::no_more_consoles(head.name(), n))
+        } else if total >= caps.total {
+            log::warn!(
+                "head {}: no console opens: every head together has {total}, consoles-max",
+                head.name()
+            );
+            Some(crate::notice::no_more_consoles_together(total))
+        } else {
+            None
+        };
+        if let Some(line) = full {
+            head.brief = Some(line);
+            head.brief_due = None;
+            head.draw_now = true;
+            return false;
+        }
+        let term = crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock));
+        let since = now.saturating_duration_since(self.epoch);
+        let (id, at) = head.open_console(term, since);
+        log::info!("head {}: console {id} opens", head.name());
+        // The session starts while the console is hidden, so a session that
+        // cannot start leaves the console shown before told nothing. That
+        // leaves the run alive: the console leaves, and the head says so.
+        // The C reference kept such a session and tried to open its
+        // terminal again at each activation (`src/terminal.c:1771-1772` at
+        // kmscon b1f7a7c5), a departure the crate's README lists.
+        if let Err(why) = self.start_session(h, id) {
+            if let Some(head) = self.heads.get_mut(h) {
+                log::warn!("head {}: console {id} does not open: {why}", head.name());
+                head.drop_hidden(id);
+                head.brief = Some(crate::notice::NO_CONSOLE_OPENED.to_owned());
+                head.brief_due = None;
+            }
+            return false;
+        }
+        let visible = self.awake;
+        if let Some(head) = self.heads.get_mut(h) {
+            head.show(at, visible);
+        }
+        // The head lays the console it shows out on its displays.
+        self.relayout(h);
+        true
     }
 
     /// The focus moves to head `h`, by the focus chord or the anti-lockout
     /// guard, the only moves after its start (ADR-1401 D5): every head's
     /// on-screen display shows.
     fn move_focus(&mut self, h: usize) {
-        // Ctrl's overlay is the focus's: the head losing it keeps the
-        // hover its pointer shows, with Ctrl let go, since no release
-        // reaches vtium.
-        if let Some(old) = self.focus.filter(|&old| old != h) {
-            if let Some(head) = self.heads.get_mut(old) {
-                head.hover(false);
-            }
-        }
         self.focus = Some(h);
+        // The keyboards following the focus now reach head `h`, and no
+        // longer the head that lost it, which keeps the hover its pointer
+        // shows with Ctrl as its own keyboards hold it.
+        self.rehover();
         self.focus_move = Some(h);
         if self.osd.shows_on_change() {
             for head in self
@@ -2506,10 +2681,20 @@ impl App {
             }
             return;
         };
+        let outline = chosen.outline();
         let (old, auto, points) = (head.font_size, head.auto_size, head.points);
         head.auto_size = false;
         head.points = None;
         head.font_size = size;
+        // An outline frit asks the helper again at each zoom, a height
+        // whose answer failed before included.
+        if let Some(frit) = head
+            .frit()
+            .filter(|_| outline)
+            .and_then(|n| self.frits.get_mut(n))
+        {
+            frit.own.retain(|_, answer| answer.is_ok());
+        }
         if !self.relayout(h) {
             if let Some(head) = self.heads.get_mut(h) {
                 head.font_size = old;
@@ -2738,6 +2923,10 @@ impl App {
                 head.osd_due = None;
                 head.osd_shown = false;
             }
+            if head.brief_due.is_some_and(|d| d <= now) {
+                head.brief_due = None;
+                head.brief = None;
+            }
             if let Some(due) = head.text_due.filter(|&d| d <= now) {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
@@ -2816,10 +3005,20 @@ impl App {
             } else {
                 vtium_render::Mark::NoFocus
             });
-            let status = (shown && mode == osd::Mode::Full).then(|| {
+            let full = (shown && mode == osd::Mode::Full).then(|| {
                 let at = head.shown_console().saturating_add(1);
                 crate::notice::osd_line(active, head.name(), at, head.console_count())
             });
+            // The brief line answers one press at a cap: for `osd-timeout`,
+            // or 3 s under `never`, from its first frame, in place of the
+            // full line, and never under `off`.
+            if mode == osd::Mode::Off {
+                head.brief = None;
+            }
+            if head.brief.is_some() && head.brief_due.is_none() && !head.views.is_empty() {
+                head.brief_due = Some(after(now, timeout.unwrap_or(BRIEF_NEVER)));
+            }
+            let status = head.brief.clone().or(full);
             if head.mark != mark || head.status != status {
                 head.mark = mark;
                 head.status = status;
@@ -2968,6 +3167,7 @@ impl App {
             due.extend(head.hangup_due);
             due.extend(head.notice_due);
             due.extend(head.osd_due);
+            due.extend(head.brief_due);
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
@@ -3057,6 +3257,23 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Show
     all.clusters.sort_unstable();
     all.clusters.dedup();
     all
+}
+
+/// The height `head` draws at with its display's density `dpi`: the
+/// configured `font-size` in points, else the automatic rule, else the
+/// height it has, as a bitmap frit's whole multiples snap it.
+fn draw_height(head: &Head, dpi: f64, locale: &str) -> u32 {
+    let height = if let Some(points) = head.points {
+        font::points_to_pixels(points, dpi)
+    } else if head.auto_size {
+        let sizes = head.views.values().map(|v| v.size);
+        let w = sizes.clone().map(|s| s.0).min().unwrap_or(0);
+        let ht = sizes.map(|s| s.1).min().unwrap_or(0);
+        head.chosen().auto_height(w, ht, locale, dpi)
+    } else {
+        head.font_size
+    };
+    head.chosen().snap(height)
 }
 
 /// Draws each of `head`'s displays that something asks to: its render
@@ -3710,6 +3927,118 @@ mod tests {
         assert_eq!(rang(&mut app), Some(1));
         app.turn(Instant::now());
         assert_eq!(rang(&mut app), Some(1), "no BEL, no ring");
+    }
+
+    // `bell`, the maintainer's answer of 2026-11-01: a BEL from a console
+    // the head does not show rings the VT too, as the C reference rang it
+    // from every session's terminal.
+    #[test]
+    fn a_hidden_consoles_bel_rings_the_vt() {
+        let args: Vec<OsString> = ["--bell"].iter().map(OsString::from).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(Bells::default()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        app.set_heads(start("version = 1\n[head one]\nconsoles = 2\n"));
+        let App {
+            heads,
+            config,
+            scrollback,
+            scrollback_bytes,
+            clock,
+            ..
+        } = &mut app;
+        let head = heads.first_mut().unwrap();
+        head.open_wanted(|| {
+            crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
+        });
+        assert_eq!(head.console_count(), 2);
+        let shown = head.console.id;
+        let hidden = head.consoles_mut().find(|c| c.id != shown).unwrap();
+        hidden.term.terminal.input(b"\x07");
+        let rang = |app: &mut App| app.vt.get::<Bells>().map(|v| v.rang);
+        app.turn(Instant::now());
+        assert_eq!(rang(&mut app), Some(1));
+    }
+
+    // ADR-1401 D2, the maintainer's answer of 2026-11-01: kmscon.conf's
+    // `display-buffers` sets how many buffers each DRM display the seat
+    // opens keeps, from the file and from the command line; unset, the
+    // build's count
+    #[test]
+    fn display_buffers_reaches_the_count_each_display_keeps() {
+        use vtium_platform::display::Buffers;
+        let count = |args: &[&str], file: Option<&[u8]>| {
+            let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+            let loaded = crate::config::load(&args, None, &mut |p: &Path| {
+                Ok(file
+                    .filter(|_| p == Path::new("/etc/kmscon/kmscon.conf"))
+                    .map(<[u8]>::to_vec))
+            });
+            assert_eq!(loaded.reports, [], "{args:?}");
+            let lp: Loop<App> = Loop::new().unwrap();
+            let app = App::new(
+                loaded.config,
+                Box::new(FakeVt::new()),
+                lp.handle(),
+                Rc::new(Instant::now),
+                Vec::new(),
+            );
+            app.display_buffers
+        };
+        assert_eq!(count(&[], None), crate::video::BUILD_BUFFERS, "unset");
+        assert_eq!(
+            count(&[], Some(b"display-buffers=1\n")),
+            Buffers::One,
+            "the file"
+        );
+        assert_eq!(
+            count(&["--display-buffers=3"], None),
+            Buffers::Three,
+            "the command line"
+        );
+        assert_eq!(
+            count(&["--display-buffers=2"], Some(b"display-buffers=1\n")),
+            Buffers::Two,
+            "the command line over the file"
+        );
+    }
+
+    // vtium/vtium#203: kmscon.conf's `natural-scrolling`, off by default
+    // as the C reference had it (src/config.c:1386), turns the seat's
+    // natural scrolling on, from the file and from the command line
+    #[test]
+    fn natural_scrolling_comes_from_the_file_and_the_command_line() {
+        let natural = |args: &[&str], file: Option<&[u8]>| {
+            let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+            let loaded = crate::config::load(&args, None, &mut |p: &Path| {
+                Ok(file
+                    .filter(|_| p == Path::new("/etc/kmscon/kmscon.conf"))
+                    .map(<[u8]>::to_vec))
+            });
+            assert_eq!(loaded.reports, [], "{args:?}");
+            let lp: Loop<App> = Loop::new().unwrap();
+            let app = App::new(
+                loaded.config,
+                Box::new(FakeVt::new()),
+                lp.handle(),
+                Rc::new(Instant::now),
+                Vec::new(),
+            );
+            app.natural_scrolling
+        };
+        assert!(!natural(&[], None), "off by default");
+        assert!(natural(&[], Some(b"natural-scrolling\n")), "the file");
+        assert!(natural(&["--natural-scrolling"], None), "the command line");
+        assert!(
+            !natural(&["--no-natural-scrolling"], Some(b"natural-scrolling\n")),
+            "the command line over the file"
+        );
     }
 
     // ADR-1401 D8: the loop wakes when a head's `when-display-lost` time runs out.

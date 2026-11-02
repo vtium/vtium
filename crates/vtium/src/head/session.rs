@@ -3,8 +3,10 @@
 //! within the caps, the console chords, what a console's exit does, and
 //! when vtium ends.
 //!
-//! A head keeps the consoles its `consoles` gives it from its start to
-//! its end: no chord opens or closes one, and a console whose program
+//! A head starts with the consoles its `consoles` gives it. Under a
+//! closed policy it keeps them to its end; under an open one the console
+//! chords open a console after the one shown and close the one shown,
+//! within the caps, and never the head's last. A console whose program
 //! exits keeps its place among them (ADR-1401 D1, D5). Each console
 //! counts its own quick exits and follows the respawn policy on its own.
 //! Under respawn its program starts again in the same console, which
@@ -20,8 +22,9 @@
 //! counted its own quick exits (`src/misc/pty.c:737-768`,
 //! `src/terminal.c:1711-1748, 1856-1868` at kmscon b1f7a7c5). Under
 //! `oneshot` it ended the whole process at the first exit, where vtium
-//! ends that console alone, and its seat's chords opened and closed
-//! sessions (`src/seat.c:584-640`), which no chord of vtium's does.
+//! ends that console alone. Its seat's chords opened a session next to
+//! the current one and showed it, and closed the current one, showing the
+//! next and refusing the last (`src/seat.c:584-640, 1165-1236`).
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -170,14 +173,12 @@ impl Head {
     }
 
     /// A console chord (ADR-1401 D5): the next or the previous console
-    /// shown, wrapping. The chords never open or close a console, since a
-    /// head has the consoles its `consoles` gives it (D1). Returns whether
-    /// the shown console changed.
+    /// shown, wrapping. Returns whether the shown console changed.
     pub(crate) fn console_chord(&mut self, chord: HeadChord, visible: bool) -> bool {
         let back = match chord {
             HeadChord::NextConsole => false,
             HeadChord::PreviousConsole => true,
-            HeadChord::NextHead | HeadChord::PreviousHead => return false,
+            _ => return false,
         };
         if self.console_count() < 2 {
             return false;
@@ -185,6 +186,52 @@ impl Head {
         let to = console::step(self.at, self.console_count(), back);
         self.show(to, visible);
         true
+    }
+
+    /// Opens a console on a terminal `term` makes, just after the console
+    /// shown, and leaves it hidden until its session starts (ADR-1401 D5),
+    /// its count of starts and quick exits begun at `since`. It takes the
+    /// shown console's grid at the configured font size, as a head's
+    /// consoles do at its start. Returns its id and its ring position, where
+    /// [`Head::show`] shows it.
+    pub(crate) fn open_console(&mut self, term: Term, since: Duration) -> (u64, usize) {
+        let id = self.next_id();
+        let mut console = Console::new(id, term, self.fresh_fit());
+        console.respawn = Some(Respawn::new(since));
+        self.hidden.insert(self.at.min(self.hidden.len()), console);
+        (id, self.at.saturating_add(1))
+    }
+
+    /// Takes back the hidden console `id`, the open chord's, whose session
+    /// could not start: it leaves the head, which never showed it, and its
+    /// id stays given.
+    pub(crate) fn drop_hidden(&mut self, id: u64) {
+        self.hidden.retain(|c| c.id != id);
+        self.compose_notices();
+    }
+
+    /// Closes the console shown (ADR-1401 D5): its pty closes, so its
+    /// programs get SIGHUP, and the head shows the console after it, or
+    /// the first when it was the last. The console that closes is told
+    /// nothing: no focus-out, and nothing it owed its program is sent.
+    /// Returns it, its pty gone, for the caller to drop; the head's last
+    /// console never closes.
+    pub(crate) fn close_shown(&mut self, visible: bool) -> Option<Console> {
+        if self.hidden.is_empty() {
+            return None;
+        }
+        let (k, to) = if self.at < self.hidden.len() {
+            (self.at, self.at)
+        } else {
+            (0, 0)
+        };
+        let next = self.hidden.remove(k);
+        let mut closed = self.swap_shown(next, visible, true);
+        self.at = to;
+        log::info!("head {}: console {} closes", self.name(), closed.id);
+        closed.pty = None;
+        self.compose_notices();
+        Some(closed)
     }
 
     /// Hangs up the head's sessions at `since`, as a line losing its

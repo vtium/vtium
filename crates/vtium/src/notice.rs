@@ -114,6 +114,22 @@ pub fn more_errors(n: usize) -> String {
     format!("{MORE_ERRORS} {n}")
 }
 
+/// The on-screen display's brief line when the session of a console the
+/// open chord opened cannot start, and the console leaves (ADR-1401 D5).
+pub const NO_CONSOLE_OPENED: &str = "No console opened: its login could not start.";
+
+/// The on-screen display's brief line on head `head` when the open chord
+/// finds it at `head-consoles-max`, its `n` consoles (ADR-1401 D5).
+pub fn no_more_consoles(head: &str, n: usize) -> String {
+    format!("No more consoles: {head} has {n}, its most.")
+}
+
+/// The on-screen display's brief line when the open chord finds every head
+/// together at `consoles-max`, their `n` consoles (ADR-1401 D5).
+pub fn no_more_consoles_together(n: usize) -> String {
+    format!("No more consoles: every head together has {n}, the most.")
+}
+
 /// The on-screen display's full line on a head (ADR-1401 D5), such as
 /// `● desk · console 2 of 3`: a filled dot on the `active` head and a
 /// hollow one on the others, the head's name, and the shown console's
