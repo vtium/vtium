@@ -129,6 +129,9 @@ impl Screen {
             }
             runs.push(run..end.saturating_add(1));
             for cols in runs {
+                if let Some(last) = cols.end.checked_sub(1).filter(|&l| l >= cols.start) {
+                    self.images_cut(y, cols.start, last);
+                }
                 self.erase_cells(y, cols);
             }
             x = 0;
@@ -157,6 +160,7 @@ impl Screen {
             return;
         }
         let padded = self.scrollback.unwrap_newest();
+        self.images_dropped();
         // The newest scrollback row is on the screen only while the view is
         // scrolled back.
         if padded && self.scrollback.offset() != 0 {
@@ -232,6 +236,9 @@ impl Screen {
     /// marks (ADR-1002, "Prompt marks").
     pub fn erase_screen(&mut self, which: Erase) {
         let whole = self.erase_region((0, 0), (self.cols, self.rows), which);
+        if which == Erase::All {
+            self.images_erase_screen();
+        }
         for &y in &whole {
             if let Some(line) = self.line_mut(y) {
                 line.flags_mut().remove(LineFlags::MARKS);
@@ -252,6 +259,9 @@ impl Screen {
         let (x, y, cols) = (self.cursor_x, self.cursor_y, self.cols);
         let n = n.min(cols.saturating_sub(x));
         let kept = cols.saturating_sub(x).saturating_sub(n);
+        // a picture text cuts loses the row from the cursor on: shifting
+        // part of it by whole cells would tear it
+        self.images_cut(y, x, cols.saturating_sub(1));
         // A wide character at the insertion point, where the margin cuts
         // the moved cells, or across the margin itself goes whole.
         self.split_wide(y, x);
@@ -274,6 +284,7 @@ impl Screen {
         self.cursor_x = self.erase_column();
         let (x, y, cols) = (self.cursor_x, self.cursor_y, self.cols);
         let n = n.min(cols.saturating_sub(x));
+        self.images_cut(y, x, cols.saturating_sub(1));
         // A wide character at either end of the deleted cells, or across
         // the margin, goes whole.
         self.split_wide(y, x);
@@ -298,11 +309,13 @@ impl Screen {
         self.segment = None;
         let rows = y..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
+        let took = self.images_scroll((y, self.bottom), n, false, false);
         let gone = self.replace_lines(rows.end.saturating_sub(n)..rows.end);
         self.discard_lines(gone);
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_right(n);
         }
+        self.images_scrolled(took);
         self.unwrap_shifted(y);
         self.mark_rows(rows);
         self.cursor_x = 0;
@@ -320,11 +333,13 @@ impl Screen {
         self.segment = None;
         let rows = y..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
+        let took = self.images_scroll((y, self.bottom), n, true, false);
         let gone = self.replace_lines(y..y.saturating_add(n));
         self.discard_lines(gone);
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_left(n);
         }
+        self.images_scrolled(took);
         self.unwrap_shifted(y);
         self.mark_rows(rows);
         self.cursor_x = 0;
@@ -342,6 +357,8 @@ impl Screen {
         self.segment = None;
         let rows = self.top..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
+        let into = !self.flags.alternate && self.scrollback.keeps_lines();
+        let took = self.images_scroll((self.top, self.bottom), n, true, into);
         let gone = self.replace_lines(rows.start..rows.start.saturating_add(n));
         let gone = if self.flags.alternate {
             gone
@@ -361,6 +378,7 @@ impl Screen {
         if let Some(region) = self.active_mut().get_mut(rows.clone()) {
             region.rotate_left(n);
         }
+        self.images_scrolled(took);
         if let Some(above) = rows.start.checked_sub(1) {
             self.unwrap_rows(above..rows.start);
         }
@@ -373,7 +391,9 @@ impl Screen {
         if n == 0 {
             return;
         }
+        let took = self.images_scroll((self.top, self.bottom), n, false, false);
         self.rotate_down(n);
+        self.images_scrolled(took);
         self.unwrap_shifted(self.top);
     }
 

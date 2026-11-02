@@ -107,6 +107,10 @@ pub struct Frame<'a> {
     selection: Vec<Range<usize>>,
     hovered: Option<LinkId>,
     overlay: Option<Overlay<'a>>,
+    /// The image placements with a row in view, in draw order (ADR-1100,
+    /// D9).
+    #[cfg(feature = "images")]
+    placements: Vec<vtium_image::FramePlacement>,
 }
 
 impl<'a> Frame<'a> {
@@ -130,7 +134,23 @@ impl<'a> Frame<'a> {
             selection: Vec::new(),
             hovered: None,
             overlay: None,
+            #[cfg(feature = "images")]
+            placements: Vec::new(),
         }
+    }
+
+    /// The frame with the image placements the view shows, in draw order.
+    #[cfg(feature = "images")]
+    pub fn with_placements(mut self, placements: Vec<vtium_image::FramePlacement>) -> Self {
+        self.placements = placements;
+        self
+    }
+
+    /// The image placements with a row in view, in the order the frame
+    /// draws them, each with its image's pixels shared (ADR-1100, D9).
+    #[cfg(feature = "images")]
+    pub fn placements(&self) -> &[vtium_image::FramePlacement] {
+        &self.placements
     }
 
     /// The frame with the columns of each row, top to bottom, that the
