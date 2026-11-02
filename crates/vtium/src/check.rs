@@ -139,11 +139,25 @@ pub fn notes(config: &Config) -> Vec<String> {
         Some(dpi) => check_config::display_dpi(dpi),
         None => check_config::MEASURED_DENSITY.to_owned(),
     };
-    let me = rustix::process::geteuid().as_raw();
-    let refused = helper::open_program(&helper::program(config), me).err();
     std::iter::once(density)
-        .chain(refused.map(|why| check_config::helper_refused(&why)))
+        .chain(helper_note(
+            &helper::program(config),
+            rustix::process::geteuid().as_raw(),
+        ))
         .collect()
+}
+
+/// What check-config notes of the helper at `program` when it runs as
+/// `me`: a refusal for that account, else, when `me` is not root, the
+/// refusal of the start as root, which takes only root's file.
+fn helper_note(program: &Path, me: u32) -> Option<String> {
+    match helper::open_program(program, me) {
+        Err(why) => Some(check_config::helper_refused(&why)),
+        Ok(_) if me != 0 => helper::open_program(program, 0)
+            .err()
+            .map(|why| check_config::helper_refused_as_root(&why)),
+        Ok(_) => None,
+    }
 }
 
 /// The subcommand on the configuration `loaded`, which the command line
@@ -868,6 +882,39 @@ mod tests {
             run_with(&["--font-helper=bin/vtium-vitrify"], ""),
             (Vec::new(), 0)
         );
+    }
+
+    // check-config run as another account notes a helper the root start
+    // refuses
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_helper_the_root_start_refuses_is_noted() {
+        let dir = std::env::temp_dir().join(format!("vtium-check-helper-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let program = dir.join("vtium-vitrify");
+        std::fs::write(&program, "").unwrap();
+        // owned by the test's account, as a build is
+        let owner = std::fs::metadata(&program)
+            .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
+            .unwrap();
+        assert_eq!(helper_note(Path::new("/bin/sh"), 1000), None);
+        assert_eq!(helper_note(Path::new("/bin/sh"), 0), None);
+        let note = helper_note(&program, owner);
+        if owner == 0 {
+            assert_eq!(note, None, "root's file");
+        } else {
+            assert_eq!(
+                note.unwrap(),
+                format!(
+                    "font-helper: started as root, vtium refuses it: the helper {} is owned by uid {owner}, which is neither root nor the account vtium runs as, so vtium does not start it; the root start draws its built-in font",
+                    program.display()
+                )
+            );
+            let other = helper_note(&program, owner.wrapping_add(1)).unwrap();
+            assert!(other.starts_with("font-helper: the helper"), "{other}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // font-frits names the directory check-config finds a profile's frit in

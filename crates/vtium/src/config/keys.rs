@@ -1066,7 +1066,7 @@ pub const FONT_HELPER: Key = Key {
     default: Default::Text(crate::helper::PROGRAM),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again. vtium refuses a path that is not absolute, a file that is not a regular file, and a file that another account than root, or the one vtium runs as, owns or may write; it logs why and draws its built-in font. The default is the path vtium was built with.",
+    what: "The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why and draws its built-in font. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with.",
     cite: "ADR-1200 (D15); the maintainer's decision of 2026-11-01",
 };
 

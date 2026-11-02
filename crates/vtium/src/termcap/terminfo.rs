@@ -11,7 +11,7 @@
 
 /// One capability: a boolean, a number or a string.
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum Cap {
+pub(super) enum Cap {
     Bool,
     Num(u32),
     Str(Vec<u8>),
@@ -44,7 +44,7 @@ fn fields(src: &str) -> Vec<String> {
 }
 
 /// The entry's primary name and its capabilities in order.
-fn parse(src: &str) -> (String, Vec<(String, Cap)>) {
+pub(super) fn parse(src: &str) -> (String, Vec<(String, Cap)>) {
     let mut fields = fields(src).into_iter();
     let names = fields.next().expect("an entry starts with its names");
     let name = names.split('|').next().unwrap_or_default().to_owned();
@@ -194,9 +194,9 @@ fn render() -> String {
 }
 
 /// vtium's entry, `xterm-vtium`.
-const ENTRY: &str = include_str!("../../install/xterm-vtium.ti");
+pub(super) const ENTRY: &str = include_str!("../../install/xterm-vtium.ti");
 /// The C reference's entry, `kmscon`, with `Ms`.
-const KMSCON: &str = include_str!("../../install/kmscon.ti");
+pub(super) const KMSCON: &str = include_str!("../../install/kmscon.ti");
 
 /// Each table's constant, the file it is generated from and that file's
 /// text.
@@ -255,12 +255,12 @@ fn the_entry_reads() {
         get("Ms"),
         Some(Cap::Str(b"\x1b]52;%p1%s;%p2%s\x07".to_vec()))
     );
-    // 182 capabilities, each once, as infocmp -x lists the compiled entry.
-    assert_eq!(caps.len(), 182);
+    // 181 capabilities, each once, as infocmp -x lists the compiled entry.
+    assert_eq!(caps.len(), 181);
     let mut names: Vec<_> = caps.iter().map(|(n, _)| n.as_str()).collect();
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), 182);
+    assert_eq!(names.len(), 181);
     // the C reference's 136 and Ms
     let (name, caps) = parse(KMSCON);
     assert_eq!(name, super::KMSCON);
@@ -278,7 +278,7 @@ fn the_table_adds_xterms_names_and_drops_the_size() {
     assert_eq!(get("Tc"), Some(None));
     assert_eq!(get("cols"), None);
     assert_eq!(get("lines"), None);
-    assert_eq!(t.len(), 182 - 2 + 3);
+    assert_eq!(t.len(), 181 - 2 + 3);
     assert!(t.windows(2).all(|w| w[0].0 < w[1].0), "sorted");
     let t = table(KMSCON);
     let get = |n: &str| t.iter().find(|(c, _)| c == n).map(|(_, v)| v.clone());

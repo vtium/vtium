@@ -24,6 +24,8 @@
 //! `TERM` the session finds an entry neither table describes, and every
 //! name is unknown.
 
+#[cfg(test)]
+mod effects;
 mod table;
 #[cfg(test)]
 mod terminfo;

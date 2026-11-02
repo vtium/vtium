@@ -234,6 +234,17 @@ impl Launcher {
         }
         process
     }
+
+    /// Why a start failed with `e`. vtium starts the helper from the file it
+    /// opened, through `/proc/self/fd`, so the message names that path: with
+    /// `/proc` unmounted the start fails there, not at the program's path.
+    fn failed(&self, e: &std::io::Error) -> String {
+        format!(
+            "cannot start {} through /proc/self/fd/{}: {e}; vtium starts the helper from the file it opened, through /proc/self/fd, so /proc must be mounted",
+            self.command.program.display(),
+            self.program.as_raw_fd()
+        )
+    }
 }
 
 /// The helper's program `config` names, `font-helper`.
@@ -242,11 +253,12 @@ pub fn program(config: &Config) -> PathBuf {
 }
 
 /// Opens the helper's program at `path` to start it from, close-on-exec
-/// so no child keeps it, and checks the opened file, so the file checked
-/// is the file that runs. It refuses a path that is not absolute, a file
+/// so no child keeps it and above stdio so no child's stdio replaces it,
+/// and checks the opened file, so the file checked is the file that runs. It refuses a path that is not absolute, a file
 /// that is not a regular file, and a file an account other than root or
 /// `me`, the account vtium runs as, could change: one another account
-/// owns, or that its group or others may write.
+/// owns, or that its group or others may write; and a setuid or setgid
+/// file, which would run with its owner's or group's rights.
 pub fn open_program(path: &Path, me: u32) -> Result<OwnedFd, String> {
     let name = path.display();
     if !path.is_absolute() {
@@ -254,8 +266,15 @@ pub fn open_program(path: &Path, me: u32) -> Result<OwnedFd, String> {
             "the helper's path {name} is not absolute, so vtium does not start it"
         ));
     }
-    let file = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())
+    let opened = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())
         .map_err(|e| format!("cannot open the helper {name}: {e}"))?;
+    // A descriptor from 0 to 2 would be replaced by a child's stdio before
+    // its exec. Rust's runtime opens /dev/null on each of them that vtium
+    // starts with closed, so this keeps that from mattering to the helper
+    // if it ever stops.
+    let file = rustix::io::fcntl_dupfd_cloexec(&opened, 3)
+        .map_err(|e| format!("cannot move the helper {name}'s descriptor above stdio: {e}"))?;
+    drop(opened);
     let stat = rustix::fs::fstat(&file)
         .map_err(|e| format!("cannot read the helper {name}'s owner and mode: {e}"))?;
     match refusal(
@@ -276,6 +295,11 @@ pub fn open_program(path: &Path, me: u32) -> Result<OwnedFd, String> {
 fn refusal(kind: FileType, owner: u32, mode: u32, me: u32) -> Option<String> {
     if kind != FileType::RegularFile {
         return Some("is not a regular file".to_owned());
+    }
+    if mode & 0o6000 != 0 {
+        // vtium drops to nobody before the exec, and the helper sets
+        // no_new_privs only after it, so a setuid root helper runs as root
+        return Some(format!("is setuid or setgid (mode {:o})", mode & 0o7777));
     }
     if owner != 0 && owner != me {
         return Some(format!(
@@ -1089,12 +1113,7 @@ impl Helper {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| {
-                format!(
-                    "cannot start {}: {e}",
-                    self.launcher.command.program.display()
-                )
-            })?;
+            .map_err(|e| self.launcher.failed(&e))?;
         // a pidfd names this child alone, even once the reaper has reaped it
         let pidfd = i32::try_from(child.id())
             .ok()
@@ -2984,7 +3003,13 @@ mod tests {
         let me = 1000;
         assert_eq!(refusal(FileType::RegularFile, 0, 0o100_755, me), None);
         assert_eq!(refusal(FileType::RegularFile, me, 0o100_700, me), None);
-        assert_eq!(refusal(FileType::RegularFile, 0, 0o104_755, 0), None);
+        for mode in [0o104_755, 0o102_755, 0o106_755] {
+            assert_eq!(
+                refusal(FileType::RegularFile, 0, mode, 0),
+                Some(format!("is setuid or setgid (mode {:o})", mode & 0o7777)),
+                "{mode:o}"
+            );
+        }
         for kind in [
             FileType::Directory,
             FileType::Fifo,
@@ -3050,6 +3075,9 @@ mod tests {
             why.contains(&format!("is owned by uid {me}, which is neither root")),
             "{why}"
         );
+        program_copy("/bin/true", &program, 0o4755);
+        let why = refused(&program, me);
+        assert!(why.contains("is setuid or setgid (mode 4755)"), "{why}");
         for (mode, shown) in [(0o775, "775"), (0o757, "757")] {
             program_copy("/bin/true", &program, mode);
             let why = refused(&program, me);
@@ -3152,6 +3180,28 @@ mod tests {
         assert_eq!(opened.command.args, ["serve"]);
         let why = Launcher::configured(&config(&["--font-helper=sh"])).unwrap_err();
         assert!(why.contains("is not absolute"), "{why}");
+    }
+
+    // a start that fails names /proc/self/fd, which a start without /proc
+    // mounted fails at
+    #[test]
+    fn a_failed_start_names_proc_self_fd() {
+        let dir = program_dir("unstartable");
+        let program = dir.join("vtium-vitrify");
+        // no one may execute it
+        program_copy("/bin/true", &program, 0o644);
+        let launcher = Launcher::open(sh(&program, "")).unwrap();
+        let e = launcher.process().spawn().unwrap_err();
+        let why = launcher.failed(&e);
+        let fd = launcher.program.as_raw_fd();
+        assert_eq!(
+            why,
+            format!(
+                "cannot start {} through /proc/self/fd/{fd}: {e}; vtium starts the helper from the file it opened, through /proc/self/fd, so /proc must be mounted",
+                program.display()
+            )
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

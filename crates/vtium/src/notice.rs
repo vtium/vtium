@@ -234,6 +234,14 @@ and udev's database, /run/udev/data.\n";
         )
     }
 
+    /// The helper `font-helper` names is one a start as root refuses,
+    /// `why`, though the account the check runs as takes it.
+    pub fn helper_refused_as_root(why: &str) -> String {
+        format!(
+            "font-helper: started as root, vtium refuses it: {why}; the root start draws its built-in font"
+        )
+    }
+
     /// A candidate head file that is not there.
     pub const NO_SUCH_FILE: &str = "does not exist";
 
