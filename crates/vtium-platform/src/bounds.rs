@@ -197,7 +197,7 @@ const PROPERTY: Bound = Bound {
 const IMAGE_CRASHES: Bound = Bound {
     name: "IMAGE_CRASHES_MAX",
     value: 3,
-    what: "Image helper crashes one console's session takes: a worker killed by a signal, a helper that ends while a request is out, or a reply that fails a check",
+    what: "Image helper crashes one console's session takes: a worker killed by a signal, a helper that ends with an exit status other than 0, or a reply that fails a check; a helper that idles out as a request goes out fails that request and counts nothing",
     past: "That console starts no more image helpers until its session ends, logs it once, and answers as with no helper; other consoles keep theirs",
     cite: "ADR-1101 D8, the maintainer (2026-11-01); the C reference restarted its helper after every failure",
 };
