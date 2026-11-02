@@ -16,17 +16,24 @@ use crate::screen::Extent;
 use crate::style::{Attrs, Color, Rgb, UnderlineStyle};
 
 macro_rules! queries {
-    ($($(#[$doc:meta])* $name:ident,)*) => {
+    (
+        $($(#[$doc:meta])* $name:ident,)*
+        ; images: $($(#[$idoc:meta])* $iname:ident,)*
+    ) => {
         /// Every query vtium answers.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub(super) enum Query {
             $($(#[$doc])* $name,)*
+            $(#[cfg(feature = "images")] $(#[$idoc])* $iname,)*
         }
 
         impl Query {
             /// Every query, for the reply rule's test.
             #[cfg(test)]
-            pub(super) const ALL: &[Query] = &[$(Query::$name,)*];
+            pub(super) const ALL: &[Query] = &[
+                $(Query::$name,)*
+                $(#[cfg(feature = "images")] Query::$iname,)*
+            ];
         }
     };
 }
@@ -80,6 +87,10 @@ queries! {
     ColorStack,
     /// OSC 50's query of the font set in use.
     Font,
+    ; images:
+    /// The image protocols' replies (ADR-1100, D6): each `ReplyKind` a
+    /// handler writes, in a build with images.
+    ImageGraphics,
 }
 
 /// XTVERSION's text until the host sets one.
@@ -391,6 +402,54 @@ mod tests {
     }
 
     /// The terminal every reply test starts from.
+    /// A stand-in kitty handler that answers each string with its image
+    /// number, read and written again, as the kitty handler's replies do.
+    #[cfg(feature = "images")]
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct Answer {
+        keys: Vec<u8>,
+        done: bool,
+    }
+
+    #[cfg(feature = "images")]
+    impl vtium_image::Handler for Answer {
+        fn start(&mut self, _: &mut dyn vtium_image::Context, _: vtium_image::Intro<'_>) {
+            *self = Self::default();
+        }
+        fn feed(&mut self, _: &mut dyn vtium_image::Context, data: vtium_parse::Chunk<'_>) {
+            if let vtium_parse::Chunk::Bytes(bytes) = data {
+                for &b in bytes {
+                    self.done |= b == b';';
+                    if !self.done {
+                        self.keys.push(b);
+                    }
+                }
+            }
+        }
+        fn finish(&mut self, ctx: &mut dyn vtium_image::Context) {
+            let id = self
+                .keys
+                .split(|&b| b == b',')
+                .find_map(|k| k.strip_prefix(b"i="))
+                .and_then(|v| core::str::from_utf8(v).ok()?.parse::<u32>().ok());
+            if let Some(id) = id {
+                let reply = format!("\x1b_Gi={id};OK\x1b\\");
+                ctx.reply(vtium_image::ReplyKind::KittyGraphics, reply.as_bytes());
+            }
+        }
+        fn cancel(&mut self, _: &mut dyn vtium_image::Context) {}
+        fn decoded(&mut self, _: &mut dyn vtium_image::Context, _: vtium_image::decode::Reply) {}
+        fn clone_box(&self) -> Box<dyn vtium_image::Handler> {
+            Box::new(self.clone())
+        }
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+        fn same(&self, other: &dyn vtium_image::Handler) -> bool {
+            other.as_any().downcast_ref::<Self>() == Some(self)
+        }
+    }
+
     fn fixture() -> Terminal {
         let mut t = Terminal::new(10, 5, 10);
         let caps: [(&[u8], Option<&[u8]>); 3] = [
@@ -406,6 +465,16 @@ mod tests {
         assert!(t.set_font_name("unifont"));
         t.input(b"\x1b[3;5H\x1b[1;31m");
         t.take_replies();
+        #[cfg(feature = "images")]
+        {
+            t.screen_mut().set_image_limit(1 << 20);
+            t.set_image_switches(vtium_image::Switches {
+                sixel: false,
+                kitty: true,
+                iterm2: false,
+            });
+            t.set_image_handler(crate::ImageString::Kitty, Some(Box::new(Answer::default())));
+        }
         t
     }
 
@@ -422,6 +491,18 @@ mod tests {
         let tok = rng.token();
         let cat = |parts: &[&[u8]]| parts.concat();
         let (request, text, numbers) = match query {
+            #[cfg(feature = "images")]
+            Query::ImageGraphics => {
+                // a kitty string to the stand-in handler, which re-encodes
+                // its image number
+                let id = u32::try_from(rng.next() % 70_000).expect("small");
+                let n = rng.padded(id);
+                (
+                    cat(&[b"\x1b_Gi=", &n, b",x=", &tok, b";", &tok, b"\x1b\\"]),
+                    vec![tok],
+                    vec![n],
+                )
+            }
             Query::Decrqm => {
                 let number = u32::try_from(rng.next() % 70_000).expect("small");
                 let n = rng.padded(number);
@@ -620,6 +701,8 @@ mod tests {
     fn each_reply_is_pinned() {
         for &query in Query::ALL {
             let (request, want): (&[u8], &[u8]) = match query {
+                #[cfg(feature = "images")]
+                Query::ImageGraphics => (b"\x1b_Gi=31;AAAA\x1b\\", b"\x1b_Gi=31;OK\x1b\\"),
                 Query::Decrqm => (b"\x1b[?25$p", b"\x1b[?25;1$y"),
                 Query::Da1 => (b"\x1b[c", b"\x1b[?62;22c"),
                 Query::Da2 => (b"\x1b[>c", b"\x1b[>1;1;0c"),

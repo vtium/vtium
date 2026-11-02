@@ -608,6 +608,7 @@ dependencies = [
 name = "vtium-term"
 version = "0.0.0"
 dependencies = [
+ "vtium-image",
  "vtium-parse",
 ]
 

@@ -118,8 +118,9 @@ fn replies_and_test_lines_are_judged_in_order() {
 
 #[test]
 fn a_probe_is_absent_without_its_feature_and_a_placeholder_fails() {
-    let sixel = "probe s\nsize 4 1\nneeds sixel\nsend \"x\"\ncheck\nwant row 0 |x|\n";
-    assert!(matches!(outcome(sixel), Outcome::Fail(why) if why.starts_with("absent: ")));
+    // damage-exact, which vtium-replay declines in every build
+    let exact = "probe s\nsize 4 1\nneeds damage-exact\nsend \"x\"\ncheck\nwant row 0 |x|\n";
+    assert!(matches!(outcome(exact), Outcome::Fail(why) if why.starts_with("absent: ")));
     assert!(matches!(
         outcome("probe p\nplaceholder none yet\n"),
         Outcome::Fail(_)

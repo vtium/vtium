@@ -27,8 +27,12 @@ const COPIED: [&str; 3] = [
     "tools/conformance/generator",
 ];
 const OWN: [&str; 1] = ["tools/conformance/probes/vtium.replay"];
-/// The build features the capability list names: vtium is built without
-/// images until vtium-image lands (#48, #49).
+/// The build features the capability list names. Its `-Dimages` is the
+/// C reference's build option, which built the sixel and kitty handlers
+/// with the image pipeline. vtium-replay built with images has the
+/// pipeline, and the handlers arrive with the sixel and kitty graphics
+/// work (#48, #49), so until then the probes that need them fail as
+/// absent.
 const BUILD: [(&str, bool); 1] = [("images", false)];
 /// Features interface 1 lets an implementation without images, or
 /// without the draw2 view, leave out.
@@ -214,6 +218,13 @@ fn interface() -> Result<bool, String> {
 }
 
 fn run(o: &Options) -> Result<bool, String> {
+    // expected.tsv lists what vtium-replay built with images prints
+    if !vtium_conformance::command::IMAGES {
+        return Err(
+            "conformance run judges vtium-replay built with images: build with --features images, as make conformance does"
+                .to_owned(),
+        );
+    }
     let copies = copies()?;
     let corpus = corpus()?;
     let expected = expectations(&corpus, &o.without)?;

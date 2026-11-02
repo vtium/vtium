@@ -11,6 +11,8 @@ use vtium_term::{
 };
 
 use crate::command::{self, Button, Command, END, Event, INTRO};
+#[cfg(feature = "images")]
+mod images;
 use crate::view::{self, FrameState, View};
 use crate::{Failure, internal, usage};
 
@@ -100,14 +102,25 @@ fn check_cut(data: &[u8], cut: usize) -> Result<(), Failure> {
     Ok(())
 }
 
+/// What a block prints among its replies: the bytes the terminal wrote
+/// back, and a `host:` line at each point a request was made.
+#[derive(Clone, Debug)]
+enum Reply {
+    Bytes(Vec<u8>),
+    #[cfg_attr(not(feature = "images"), allow(dead_code))]
+    Host(String),
+}
+
 struct Replay<'a> {
     term: Terminal,
     view: View,
     out: String,
-    replies: Vec<u8>,
+    replies: Vec<Reply>,
     fixtures: &'a Path,
     frame: FrameState,
     callers: [Option<Age>; 8],
+    #[cfg(feature = "images")]
+    images: images::Images,
 }
 
 impl<'a> Replay<'a> {
@@ -119,6 +132,8 @@ impl<'a> Replay<'a> {
         term.set_cell_size(8, 16);
         term.set_cursor_blink(true);
         term.set_backspace_sends_delete(false);
+        #[cfg(feature = "images")]
+        let images = images::Images::new(&mut term, &input.fixtures);
         Self {
             term,
             view: input.view,
@@ -127,6 +142,19 @@ impl<'a> Replay<'a> {
             fixtures: &input.fixtures,
             frame: FrameState::new(DEFAULT_PALETTE),
             callers: [None; 8],
+            #[cfg(feature = "images")]
+            images,
+        }
+    }
+
+    /// Keeps bytes the terminal wrote back, after those before them.
+    fn keep_replies(&mut self, bytes: Vec<u8>) {
+        if bytes.is_empty() {
+            return;
+        }
+        match self.replies.last_mut() {
+            Some(Reply::Bytes(last)) => last.extend(bytes),
+            _ => self.replies.push(Reply::Bytes(bytes)),
         }
     }
 
@@ -164,18 +192,39 @@ impl<'a> Replay<'a> {
         self.input(data)
     }
 
-    /// Feeds bytes to the terminal, taking its replies as it goes.
+    /// Feeds bytes to the terminal, taking its replies as it goes, and with
+    /// images answering each request the fixture host takes.
     fn input(&mut self, mut data: &[u8]) -> Result<(), Failure> {
         while !data.is_empty() {
             let taken = self.term.input(data);
             let replies = self.term.take_replies();
-            if taken == 0 && replies.is_empty() {
-                return Err(internal("input stopped with no reply to take"));
+            let replied = !replies.is_empty();
+            self.keep_replies(replies);
+            let answered = self.answer();
+            if taken == 0 && !replied && !answered {
+                return Err(internal("input stopped with no host request out"));
             }
-            self.replies.extend(replies);
             data = data.get(taken..).unwrap_or_default();
         }
         Ok(())
+    }
+
+    /// Answers the request out, if the fixture host is installed: its
+    /// `host:` line goes among the replies at the point it was made, then
+    /// what the answer made the terminal write. Returns whether it did.
+    #[cfg(feature = "images")]
+    fn answer(&mut self) -> bool {
+        let Some((line, replies)) = self.images.answer(&mut self.term) else {
+            return false;
+        };
+        self.replies.push(Reply::Host(line));
+        self.keep_replies(replies);
+        true
+    }
+
+    #[cfg(not(feature = "images"))]
+    fn answer(&mut self) -> bool {
+        false
     }
 
     fn command(&mut self, cmd: Command) -> Result<(), Failure> {
@@ -267,15 +316,25 @@ impl<'a> Replay<'a> {
                     let _ = writeln!(self.out, "test frame-since {caller} changed {n}");
                 }
             }
+            #[cfg(feature = "images")]
+            image => {
+                if let Some(line) = self.images.command(&mut self.term, image) {
+                    self.out.push_str(&line);
+                }
+            }
+            #[cfg(not(feature = "images"))]
+            _ => return Err(usage("an image command in a build without images")),
         }
-        self.replies.extend(self.term.take_replies());
+        let replies = self.term.take_replies();
+        self.keep_replies(replies);
         Ok(())
     }
 
     /// Prints a block: the head, the replies since the last block, then
     /// the view.
     fn block(&mut self) {
-        self.replies.extend(self.term.take_replies());
+        let replies = self.term.take_replies();
+        self.keep_replies(replies);
         let screen = self.term.screen();
         let (x, y) = screen.cursor();
         let _ = writeln!(self.out, "size {}x{}", screen.cols(), screen.rows());
@@ -297,12 +356,20 @@ impl<'a> Replay<'a> {
             flags.join("|")
         };
         let _ = writeln!(self.out, "flags {flags}");
-        if !self.replies.is_empty() {
-            self.out.push_str("reply ");
-            for b in self.replies.drain(..) {
-                let _ = write!(self.out, "{b:02x}");
+        for reply in self.replies.drain(..) {
+            match reply {
+                Reply::Bytes(bytes) => {
+                    self.out.push_str("reply ");
+                    for b in bytes {
+                        let _ = write!(self.out, "{b:02x}");
+                    }
+                    self.out.push('\n');
+                }
+                Reply::Host(line) => {
+                    self.out.push_str(&line);
+                    self.out.push('\n');
+                }
             }
-            self.out.push('\n');
         }
         match self.view {
             View::Screen => view::screen(&self.term, &mut self.out),

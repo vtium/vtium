@@ -1,1 +1,8 @@
-exit 2: test command cell needs feature images, which vtium lacks
+size 12x4
+cursor 0,2
+flags AUTO_WRAP
+reply 1b5b323b3752
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
