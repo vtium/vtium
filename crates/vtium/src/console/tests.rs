@@ -1650,16 +1650,30 @@ fn a_login_on_loginds_reserved_vt_is_refused() {
     }
     assert!(m.changes().is_empty(), "{:?}", m.changes());
     assert_eq!(m.snapshot(), before);
-    // A login on another VT is safe: logind starts nothing on a busy VT.
+    // With no one logged in, the getty running on VT 6 is still refused:
+    // the switch would stop it through vtium's Conflicts=.
     m.fake.sessions = vec![["carol", "3", "login", "tty", "user"]];
+    let (status, _, err) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("getty@tty6.service runs on VT 6, logind's reserved VT"),
+        "{err}"
+    );
+    assert!(err.contains("systemctl stop getty@tty6.service"), "{err}");
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
+    assert_eq!(m.snapshot(), before);
+    // enable 6 goes ahead, and says that the next switch stops the getty.
+    let (status, out, _) = m.console(&["enable", "6"]);
+    assert_eq!(status, 0, "{out}");
+    assert!(out.contains("which stops a getty that runs there"), "{out}");
+    assert_eq!(m.console(&["disable", "6"]).0, 0);
+    // Once the getty has stopped, enable --all goes ahead. A login on
+    // another VT is safe: logind starts nothing on a busy VT.
+    m.fake.running.clear();
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
-    // A getty at its login prompt on VT 6 ends nothing when it stops, and
-    // vtium says that the first switch stops it.
     assert!(
-        out.contains(
-            "on VT 6, logind's reserved VT, logind starts vtium at the first switch to it"
-        ),
+        out.contains("A getty running now on VTs 2 to 5 keeps its VT"),
         "{out}"
     );
 }
