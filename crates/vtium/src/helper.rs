@@ -2950,10 +2950,14 @@ mod tests {
         dir
     }
 
-    /// A copy of `from` at `to`, with `mode`.
+    /// A copy of `from` at `to`, with `mode`. `cp` writes it, so this
+    /// process never holds the file open to write: a child another test
+    /// forks meanwhile would hold that descriptor until its exec, and
+    /// starting the copy then fails with ETXTBSY.
     fn program_copy(from: &str, to: &Path, mode: u32) {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::copy(from, to).unwrap();
+        let copied = Process::new("cp").arg(from).arg(to).status().unwrap();
+        assert!(copied.success(), "cp {from} {}", to.display());
         std::fs::set_permissions(to, std::fs::Permissions::from_mode(mode)).unwrap();
     }
 
