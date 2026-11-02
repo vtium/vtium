@@ -175,6 +175,22 @@ impl Store {
 }
 
 impl Edit<'_> {
+    /// An empty buffer to decode a picture of `len` pixels into, with room
+    /// for them: the buffer of the image the store freed last, when it held
+    /// `len` pixels and no frame holds it, else a new one. The players that
+    /// send video as kitty pictures replace a frame with one of the same
+    /// size: timg's two ids alternate, so each frame's transmission frees
+    /// the frame before the last; ncplayer deletes the previous frame's id
+    /// after placing each new one; and mpv's frames, which have no id, are
+    /// evicted oldest first when the next one reserves its bytes. In each
+    /// case the frame freed last is free again when the next frame begins,
+    /// so its memory, already mapped, serves that frame, and the kernel
+    /// neither maps nor zeroes fresh pages for it. Which buffer is reused
+    /// changes no pixel and nothing the store compares.
+    pub(crate) fn kitty_buffer(&mut self, len: usize) -> Vec<u32> {
+        self.take_spare(len).unwrap_or_default()
+    }
+
     /// Runs a kitty delete on the buffer in use.
     pub(crate) fn kitty_delete(&mut self, delete: Delete) {
         self.store.kitty_delete(delete, self.screens);

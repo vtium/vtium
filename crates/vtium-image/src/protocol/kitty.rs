@@ -369,7 +369,7 @@ impl Kitty {
             return;
         };
         self.upload.mode = Mode::Raw {
-            raw: Raw::new(cmd.bpp(), count),
+            raw: Raw::new(cmd.bpp(), count, buffer(ctx, count)),
             reservation,
         };
     }
@@ -408,8 +408,9 @@ impl Kitty {
                     return;
                 }
                 ctx.add_work(cmd.pixels());
-                let pixels = raw.into_pixels();
-                store(ctx, &cmd, (cmd.width, cmd.height), pixels, reservation);
+                let (pixels, opaque) = raw.into_pixels();
+                let picture = (cmd.width, cmd.height, pixels, opaque);
+                store(ctx, &cmd, picture, reservation);
             }
         }
     }
@@ -608,13 +609,13 @@ impl Kitty {
     }
 }
 
-/// Stores `cmd`'s transmitted picture of `size` pixels, whose bytes
-/// `reservation` holds, places it for `a=T`, and answers.
+/// Stores `cmd`'s transmitted picture, its width, height, pixels and
+/// whether every pixel is opaque, whose bytes `reservation` holds, places
+/// it for `a=T`, and answers.
 fn store(
     ctx: &mut dyn Context,
     cmd: &Command,
-    (width, height): (u32, u32),
-    pixels: Vec<u32>,
+    (width, height, pixels, opaque): (u32, u32, Vec<u32>, bool),
     reservation: Reservation,
 ) {
     let mut id = cmd.id;
@@ -630,7 +631,7 @@ fn store(
         id,
         number: cmd.number,
         transient: cmd.hints & 1 != 0,
-        opaque: None,
+        opaque: Some(opaque),
     };
     let key = match ctx.add_image(image, Some(reservation)) {
         Ok(key) => key,
@@ -643,6 +644,12 @@ fn store(
         Ok(())
     };
     reply(ctx, cmd, id, answer);
+}
+
+/// An empty buffer for a picture of `count` pixels: the spare one the
+/// store's last freed image left when it is that size, else a new one.
+fn buffer(ctx: &mut dyn Context, count: usize) -> Vec<u32> {
+    ctx.edit(|e| e.kitty_buffer(count)).unwrap_or_default()
 }
 
 /// Places image `key`, of kitty id `id`, at the cursor as `cmd`'s keys say,
@@ -849,9 +856,10 @@ impl Handler for Kitty {
         let want = usize::try_from(count)
             .unwrap_or(usize::MAX)
             .saturating_mul(bpp);
-        let pixels = raw::convert(data.get(..want).unwrap_or_default(), bpp);
+        let into = buffer(ctx, usize::try_from(count).unwrap_or(usize::MAX));
+        let (pixels, opaque) = raw::convert(data.get(..want).unwrap_or_default(), bpp, into);
         ctx.add_work(count);
-        store(ctx, &cmd, size, pixels, reservation);
+        store(ctx, &cmd, (size.0, size.1, pixels, opaque), reservation);
     }
 
     fn reset(&mut self, ctx: &mut dyn Context) {

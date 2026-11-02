@@ -878,3 +878,59 @@ fn a_run_fed_a_few_bytes_of_work_at_a_time_stores_what_it_stores_whole() {
         assert!(h.store == whole.1, "{left} left");
     }
 }
+
+impl Host {
+    /// The address of the pixels of the topmost picture placed at column
+    /// `col`.
+    fn pixels_at(&self, col: u32) -> *const u32 {
+        let view = Rows {
+            screen: &self.screen,
+            above: &[],
+        };
+        let frame = self.store.frame(view, self.cols);
+        frame
+            .iter()
+            .rfind(|p| p.col == col)
+            .map(|p| p.pixels.as_slice().as_ptr())
+            .unwrap()
+    }
+}
+
+// fork-perf's buffer reuse: a frame that replaces one of its size fills the
+// buffer the store freed last instead of fresh memory, in timg's pattern of
+// two alternating ids and in ncplayer's of a new id and a delete each frame
+// covers: image.kitty
+#[test]
+fn replaced_frames_of_one_size_reuse_the_buffer_freed_last() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    let frame = |k: &mut Kitty, h: &mut Host, id: u32, col: usize| {
+        h.cursor = (col, 0);
+        send(k, h, &format!("a=T,s=4,v=4,i={id},q=2,C=1;{}", red(16)));
+        h.pixels_at(u32::try_from(col).unwrap())
+    };
+    let a1 = frame(&mut k, &mut h, 1, 0);
+    let b1 = frame(&mut k, &mut h, 2, 6);
+    // frame 3 replaces id 1: nothing is free yet, and it frees a1
+    let _a2 = frame(&mut k, &mut h, 1, 0);
+    assert_eq!(frame(&mut k, &mut h, 2, 6), a1, "b2 fills a1's buffer");
+    assert_eq!(frame(&mut k, &mut h, 1, 0), b1, "a3 fills b1's buffer");
+    // ncplayer: transmit a new id, place it, delete the previous id
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    let mut ptrs: Vec<*const u32> = Vec::new();
+    for id in 10..15u32 {
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=t,s=4,v=4,i={id},p=1,q=2;{}", red(16)),
+        );
+        send(&mut k, &mut h, &format!("a=p,i={id},p=1,q=2,C=1"));
+        ptrs.push(h.pixels_at(0));
+        send(&mut k, &mut h, &format!("a=d,d=I,i={},q=2", id - 1));
+    }
+    // each frame fills the buffer of the frame deleted while it was placed,
+    // the one before the last
+    for i in 2..ptrs.len() {
+        assert_eq!(ptrs[i], ptrs[i - 2], "frame {}", 10 + i);
+    }
+    assert!(h.take().is_empty());
+}
