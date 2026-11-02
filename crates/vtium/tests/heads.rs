@@ -1479,12 +1479,10 @@ input class:keyboard -> roaming
     assert_eq!(hovered(&s.app), Some(vec![uri(), None]));
 }
 
-/// ADR-1002, "What a link does", across the focus chord: Ctrl's overlay
-/// is the focus's. The head losing the focus shows no overlay, though the
-/// Ctrl the chord held was never let go as far as vtium knows.
-// covers: osc.8
-#[test]
-fn the_head_losing_the_focus_shows_no_overlay() {
+/// The seat of [`the_head_losing_the_focus_shows_no_overlay`] and the
+/// tests after it: two heads, each printing a link at columns 4 to 7 of
+/// its first row, the focus on `large` and [`KBD_FOCUS`] following it.
+fn linked_heads() -> Seat {
     let [small, (node, large)] = two_displays();
     let displays = [small, (node, large.lit())];
     let script = "printf 'see \\033]8;;file://pixie/a.md\\007link\\033]8;;\\007\\n'; read x";
@@ -1493,29 +1491,118 @@ fn the_head_losing_the_focus_shows_no_overlay() {
     assert!(s.until(SECOND, |a| head_shows(a, "small", "see link")
         && head_shows(a, "large", "see link")));
     assert_eq!(s.app.focus_head(), Some("large"));
+    s
+}
+
+/// A pointer move to column `col` of the first row of head `name`.
+fn over_cell(s: &Seat, name: &str, col: u32) -> vtium_platform::input::PointerEvent {
     let (cw, ch) = *s
         .app
-        .head("large")
+        .head(name)
         .map(Head::cells)
         .unwrap_or_default()
         .first()
         .expect("a cell");
-    let over = |col: u32| vtium_platform::input::PointerEvent::Moved {
+    vtium_platform::input::PointerEvent::Moved {
         x: i32::try_from(col * cw + 1).expect("a pixel"),
         y: i32::try_from(ch / 2).expect("a pixel"),
         held: None,
-    };
-    s.app.pointer_event(over(5), Mods::CTRL, now());
-    let overlay = |a: &App, name: &str| a.head(name).and_then(Head::link_overlay);
-    assert_eq!(
-        overlay(&s.app, "large").as_deref(),
-        Some("file://pixie/a.md")
-    );
+    }
+}
+
+/// The URI the overlay of head `name` shows.
+fn overlay_of(app: &App, name: &str) -> Option<String> {
+    app.head(name).and_then(Head::link_overlay)
+}
+
+/// The URI of the link head `name`'s shown console hovers, which it draws
+/// underlined.
+fn hovered_on(app: &App, name: &str) -> Option<String> {
+    app.head(name)
+        .and_then(|h| h.consoles_hovered().into_iter().flatten().next())
+}
+
+const A_MD: &str = "file://pixie/a.md";
+
+/// ADR-1002, "What a link does", across the focus chord: Ctrl's overlay
+/// is the focus's. The head losing the focus shows no overlay, though the
+/// Ctrl the chord held was never let go as far as vtium knows; it still
+/// underlines the link under its pointer and still draws its pointer.
+/// The head taking the focus shows the overlay of the link under its own
+/// pointer at once, since the keyboard that holds Ctrl now reaches it.
+// covers: osc.8
+#[test]
+fn the_head_losing_the_focus_shows_no_overlay() {
+    let mut s = linked_heads();
+    // small's pointer rests over its link, with no Ctrl held.
     s.app
         .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
     assert_eq!(s.app.focus_head(), Some("small"));
-    s.app.pointer_event(over(0), Mods::empty(), now());
-    assert_eq!(overlay(&s.app, "large"), None);
+    let over = over_cell(&s, "small", 5);
+    s.app.pointer_event(over, Mods::empty(), now());
+    assert_eq!(hovered_on(&s.app, "small").as_deref(), Some(A_MD));
+    assert_eq!(overlay_of(&s.app, "small"), None);
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    assert_eq!(s.app.focus_head(), Some("large"));
+    let over = over_cell(&s, "large", 5);
+    s.app.pointer_event(over, Mods::CTRL, now());
+    assert_eq!(overlay_of(&s.app, "large").as_deref(), Some(A_MD));
+    s.app
+        .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+    assert_eq!(s.app.focus_head(), Some("small"));
+    assert_eq!(overlay_of(&s.app, "large"), None, "large lost the focus");
+    assert_eq!(
+        hovered_on(&s.app, "large").as_deref(),
+        Some(A_MD),
+        "large still underlines the link under its pointer"
+    );
+    assert!(
+        s.app.head("large").and_then(Head::pointer).is_some(),
+        "large still draws its pointer"
+    );
+    assert_eq!(
+        overlay_of(&s.app, "small").as_deref(),
+        Some(A_MD),
+        "small took the focus with Ctrl held"
+    );
+    s.app
+        .pointer_event(over_cell(&s, "small", 0), Mods::empty(), now());
+    assert_eq!(overlay_of(&s.app, "large"), None);
+}
+
+/// ADR-1002, "What a link does": letting go of Ctrl over a link ends its
+/// overlay. A release sends no key, so the seat reads the modifiers the
+/// head's own keyboards hold when they change.
+// covers: osc.8
+#[test]
+fn releasing_ctrl_over_a_link_hides_its_overlay() {
+    let mut s = linked_heads();
+    let over = over_cell(&s, "large", 5);
+    s.app.pointer_event(over, Mods::CTRL, now());
+    assert_eq!(overlay_of(&s.app, "large").as_deref(), Some(A_MD));
+    s.app
+        .device_input(Path::new(KBD_FOCUS), InputEvent::Mods(Mods::empty()), now());
+    assert_eq!(overlay_of(&s.app, "large"), None);
+    assert_eq!(
+        hovered_on(&s.app, "large").as_deref(),
+        Some(A_MD),
+        "the link stays underlined"
+    );
+}
+
+/// ADR-1002, "What a link does": unplugging the keyboard that holds Ctrl
+/// ends the overlay. Its route goes before its modifiers' end is queued,
+/// so the seat reads the head's keyboards again as the device goes.
+// covers: osc.8
+#[test]
+fn unplugging_the_keyboard_that_holds_ctrl_hides_the_overlay() {
+    let mut s = linked_heads();
+    let over = over_cell(&s, "large", 5);
+    s.app.pointer_event(over, Mods::CTRL, now());
+    assert_eq!(overlay_of(&s.app, "large").as_deref(), Some(A_MD));
+    s.app.remove_input(Path::new(KBD_FOCUS));
+    assert_eq!(overlay_of(&s.app, "large"), None);
 }
 
 /// The key events xkb makes of a chord pressed as a keyboard sends it:

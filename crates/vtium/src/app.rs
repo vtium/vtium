@@ -1764,6 +1764,7 @@ impl App {
         let lit: Vec<vtium_config::Identity> = self.start_lit.values().cloned().collect();
         self.focus = head_index(self.rules.place(&lit, None).focus);
         self.bound_pointers();
+        self.rehover();
     }
 
     /// The guards (ADR-1401 D9), after a device came or went: every device
@@ -1925,6 +1926,8 @@ impl App {
         self.locked_out = placement.anti_lockout;
         self.any_lit.set(!self.lit.is_empty());
         self.bound_pointers();
+        // The guard may have sent a keyboard to another head.
+        self.rehover();
     }
 
     /// What the screen the display guard lights for a notice alone shows
@@ -2117,6 +2120,29 @@ impl App {
                 input.remove(id);
             }
         }
+        // The keyboard's route is gone before the end of its modifiers is
+        // drained, and that event finds no head, so the Ctrl it held is let
+        // go here.
+        self.rehover();
+    }
+
+    /// Each head hovers what its pointer is over with Ctrl as the
+    /// keyboards delivering to it hold it now (ADR-1002, "What a link
+    /// does"). The seat reads the keyboards, since a release sends no key,
+    /// a keyboard that goes sends its modifiers' end after its route has
+    /// gone, and a keyboard following the focus sends nothing as the focus
+    /// moves.
+    fn rehover(&mut self) {
+        for h in 0..self.heads.len() {
+            let ctrl = self.input.as_ref().is_some_and(|input| {
+                input
+                    .mods_of(&self.routes.devices_of(h, self.focus))
+                    .contains(InputMods::CTRL)
+            });
+            if let Some(head) = self.heads.get_mut(h) {
+                head.rehover(ctrl);
+            }
+        }
     }
 
     /// The name of the head holding the focus.
@@ -2209,7 +2235,10 @@ impl App {
                 };
                 self.pointer_to(h, p, mods, now);
             }
-            InputEvent::Mods(_) => {}
+            // A keyboard's modifiers changed. Only the overlay follows
+            // them, read from each head's own keyboards, and a modifier is
+            // not the user's activity.
+            InputEvent::Mods(_) => self.rehover(),
         }
     }
 
@@ -2450,6 +2479,11 @@ impl App {
         };
         if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
             self.move_focus(to);
+            // The keyboard that pressed the chord follows the focus, with
+            // the Ctrl it holds for the chord.
+            if let Some(head) = self.heads.get_mut(to).filter(|_| ctrl) {
+                head.rehover(true);
+            }
         }
     }
 
@@ -2457,15 +2491,11 @@ impl App {
     /// guard, the only moves after its start (ADR-1401 D5): every head's
     /// on-screen display shows.
     fn move_focus(&mut self, h: usize) {
-        // Ctrl's overlay is the focus's: the head losing it keeps the
-        // hover its pointer shows, with Ctrl let go, since no release
-        // reaches vtium.
-        if let Some(old) = self.focus.filter(|&old| old != h) {
-            if let Some(head) = self.heads.get_mut(old) {
-                head.hover(false);
-            }
-        }
         self.focus = Some(h);
+        // The keyboards following the focus now reach head `h`, and no
+        // longer the head that lost it, which keeps the hover its pointer
+        // shows with Ctrl as its own keyboards hold it.
+        self.rehover();
         self.focus_move = Some(h);
         if self.osd.shows_on_change() {
             for head in self

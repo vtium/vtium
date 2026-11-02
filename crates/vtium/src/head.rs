@@ -1031,6 +1031,13 @@ impl Head {
             .set_pointer(at, ctrl);
     }
 
+    /// [`Head::hover`] with `ctrl` as the head's keyboards hold it now,
+    /// drawing the head again when that shows or hides the overlay.
+    pub(crate) fn rehover(&mut self, ctrl: bool) {
+        self.draw_now |= ctrl != self.pointer.ctrl;
+        self.hover(ctrl);
+    }
+
     /// Hides the pointer, as `pointer-hide-while-typing` does at a key:
     /// it hovers nothing from then on.
     pub(crate) fn hide_pointer(&mut self) {
