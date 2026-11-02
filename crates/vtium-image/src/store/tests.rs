@@ -843,4 +843,34 @@ fn a_frame_entry_carries_the_whole_placements_crop_and_drawn_picture() {
     );
     assert_eq!((below.offset_x, below.offset_y), (0, -16));
     assert_eq!((below.drawn_width, below.drawn_height), (16, 48));
+
+    // a cut through the middle column of a 24x16 sixel: the piece to its
+    // right shows the picture's last 8 columns, drawn from 16 pixels left
+    // of its box
+    let wide = add(&mut s, &f, Protocol::SIXEL, 24, 16, 0);
+    put(&mut s, &f, wide, 14, 7);
+    s.cut(7, 15, 15, f.rows(), COLS);
+    let right = s
+        .frame(f.rows(), COLS)
+        .into_iter()
+        .find(|p| p.image == wide && p.col == 16)
+        .expect("the piece right of the cut");
+    assert_eq!((right.cols, right.rows), (1, 1));
+    assert_eq!(
+        (right.x, right.width, right.src_x, right.src_width),
+        (0, 8, 16, 8),
+        "the visible part"
+    );
+    assert_eq!(
+        (
+            right.crop_x,
+            right.crop_y,
+            right.crop_width,
+            right.crop_height
+        ),
+        (0, 0, 24, 16),
+        "the whole crop"
+    );
+    assert_eq!((right.offset_x, right.offset_y), (-16, 0));
+    assert_eq!((right.drawn_width, right.drawn_height), (24, 16));
 }
