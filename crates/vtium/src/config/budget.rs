@@ -65,13 +65,15 @@ pub fn sb_memory_set(config: &Config) -> bool {
 /// as set, inside its cap; or, left to its default, the cap, the most the
 /// budget that follows each console's grid may be.
 pub fn sb_memory(config: &Config) -> usize {
-    if !sb_memory_set(config) {
-        return usize::try_from(sb_memory_cap()).unwrap_or(usize::MAX);
-    }
     let asked = config
         .number(&keys::SB_MEMORY)
         .unwrap_or(vtium_term::SB_MEMORY_DEFAULT as u64);
-    usize::try_from(asked.min(sb_memory_cap())).unwrap_or(usize::MAX)
+    let most = if sb_memory_set(config) {
+        asked.min(sb_memory_cap())
+    } else {
+        sb_memory_cap()
+    };
+    usize::try_from(most).unwrap_or(usize::MAX)
 }
 
 /// The warning when the machine's memory cannot be read, which holds
