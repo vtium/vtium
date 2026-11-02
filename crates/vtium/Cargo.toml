@@ -43,6 +43,9 @@ rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"
 xkbcommon = { version = "=0.9.0", default-features = false }
 
 [dev-dependencies]
+# A timer source in the loop that bounds a wait in `tests/images.rs`;
+# vtium-platform builds the same version.
+calloop = { version = "=0.14.4", default-features = false }
 # The glyph helper's serve mode, which `tests/boot.rs` runs in a process of
 # its own as the helper an outline frit asks, so the console's tests meet
 # the checks the real helper makes.

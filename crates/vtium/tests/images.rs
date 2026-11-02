@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 use vtium::app::App;
 use vtium::config;
 use vtium::font::Sources;
-use vtium::head::Start;
 use vtium::head::images::Helper;
+use vtium::head::{Head, Start};
 use vtium::video::Video;
 use vtium_image::decode::{Medium, Payload, Reply, Request};
 use vtium_platform::display::{
@@ -207,12 +207,14 @@ impl Video for Memory {
 
 /// What a stand-in image helper was asked and answers: the requests it
 /// was sent, the reply the test gives it, the helpers started and the
-/// helpers stopped. Like the real helper it answers one request at a time,
-/// and like the real one it answers only once the console asks.
+/// helpers stopped. Like the real helper it serves every request of its
+/// console, one at a time, and answers only once the console asks.
 #[derive(Default)]
 struct Asked {
     sent: Vec<Request>,
     reply: Option<Reply>,
+    /// A request was sent and not yet answered.
+    out: bool,
     started: u32,
     stopped: u32,
 }
@@ -222,21 +224,36 @@ struct StandIn(Rc<RefCell<Asked>>);
 impl Helper for StandIn {
     fn send(&mut self, request: Request) {
         let mut asked = self.0.borrow_mut();
-        assert!(
-            asked.reply.is_none() && asked.sent.len() == asked.started as usize - 1,
-            "one request out at a time, to a helper started for it"
-        );
+        assert!(!asked.out, "one request out at a time");
+        asked.out = true;
         asked.sent.push(request);
     }
     fn reply(&mut self) -> Option<Reply> {
-        self.0.borrow_mut().reply.take()
+        let mut asked = self.0.borrow_mut();
+        if !asked.out {
+            return None;
+        }
+        let reply = asked.reply.take();
+        asked.out = reply.is_none();
+        reply
     }
 }
 
 impl Drop for StandIn {
     fn drop(&mut self) {
-        self.0.borrow_mut().stopped += 1;
+        let mut asked = self.0.borrow_mut();
+        asked.stopped += 1;
+        asked.out = false;
     }
+}
+
+/// A picture of 8x6 pixels in pure red, as the helper decodes it.
+fn red_picture() -> Reply {
+    Reply::Ok(Payload::Rgba {
+        width: 8,
+        height: 6,
+        data: [255, 0, 0, 255].repeat(48),
+    })
 }
 
 #[expect(
@@ -485,6 +502,18 @@ fn a_sixel_is_placed_in_its_consoles_cell_and_scaled_by_a_zoom() {
     assert!(s.until(|s| s.shows("ready1")), "{:?}", s.app.screen_text());
     s.app.input_event(zoom_in(), s.at());
     assert_eq!(s.app.cells(), [(16, 32)]);
+    // The resize gives the store the new cell with the terminal's, before
+    // any turn.
+    let cell = |s: &Seat| {
+        s.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .images()
+            .cell()
+    };
+    assert_eq!(cell(&s), (16, 32));
     s.app.input_event(char_key('g'), s.at());
     assert!(s.until(|s| s.placements() == 1));
     assert!(
@@ -758,4 +787,159 @@ fn a_session_ending_with_a_request_out_drops_it_and_the_next_starts_clean() {
     assert!(!main(&s, "first"), "the reset took");
     assert_eq!(asked.borrow().stopped, 1);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ADR-1101 D8: any failure stops the helper, not the timer alone. A
+/// FAILED reply, as from a lost socket, stops it, and so does a reply
+/// that fails its checks, here a 2x2 picture holding one pixel's bytes;
+/// each is answered EBADF and the console reads on. The next request
+/// starts another helper.
+#[test]
+fn a_failed_reply_or_one_that_fails_its_checks_stops_the_helper() {
+    let script = format!(
+        "stty -echo -icanon min 1 time 0; \
+         printf '\\033[?25l\\033_Ga=t,t=f,f=100,i=7;L3gucG5n\\033\\\\\\033_Ga=t,t=f,f=100,i=8;L3gucG5n\\033\\\\after\\n'; \
+         {}{}read x",
+        read_reply("\\"),
+        read_reply("\\")
+    );
+    let asked = Rc::new(RefCell::new(Asked::default()));
+    let mut s = Seat::boot(
+        &[],
+        None,
+        Memory::new(320, 160, "mem"),
+        &script,
+        Some(&asked),
+    );
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 1),
+        "the first request"
+    );
+    asked.borrow_mut().reply = Some(Reply::Failed);
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 2),
+        "the second request"
+    );
+    assert_eq!((asked.borrow().started, asked.borrow().stopped), (2, 1));
+    asked.borrow_mut().reply = Some(Reply::Ok(Payload::Rgba {
+        width: 2,
+        height: 2,
+        data: vec![255, 0, 0, 255],
+    }));
+    assert!(
+        s.until(|s| s.shows("after") && s.shows("E_Gi=8;EBADF:Failed to read image file")),
+        "{:?}",
+        s.app.screen_text()
+    );
+    assert!(s.shows("E_Gi=7;EBADF:Failed to read image file"));
+    assert_eq!((asked.borrow().started, asked.borrow().stopped), (2, 2));
+    assert_eq!(s.placements(), 0);
+}
+
+/// The script of console 2 sends a quiet kitty file, `q=2`, which gets no
+/// reply, then `after`; console 1's waits silent.
+const HIDDEN_REQUEST: &str = "stty -echo -icanon min 1 time 0; \
+     if [ \"$VTIUM_CONSOLE\" = 2 ]; then \
+     printf '\\033_Ga=T,t=f,f=100,i=7,q=2;L3gucG5n\\033\\\\after\\n'; fi; read x";
+
+/// D7: a hidden console's request goes to its own helper while another
+/// console is shown, and its pty is paused meanwhile, so the reply's
+/// resume wakes the loop: the bytes after the string are read in the
+/// first wake after the reply, with no other source waking it. A timer
+/// in the loop, due after [`BOUND`], only bounds the wait and marks that
+/// nothing else woke it.
+#[test]
+fn a_hidden_consoles_request_is_answered_and_the_resume_wakes_the_loop() {
+    let heads = "version = 1\n[head main]\nconsoles = 2\n[rules]\ndisplay card:mem -> main\n";
+    let asked = Rc::new(RefCell::new(Asked::default()));
+    let mut s = Seat::boot(
+        &["--no-blink"],
+        Some(heads),
+        Memory::new(320, 160, "mem"),
+        HIDDEN_REQUEST,
+        Some(&asked),
+    );
+    let hidden = |s: &Seat, text: &str| {
+        s.app.head("main").is_some_and(|h| {
+            h.shown_console() == 0 && h.consoles_text()[1].iter().any(|l| l.contains(text))
+        })
+    };
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 1),
+        "a request was sent"
+    );
+    for _ in 0..20 {
+        s.turn();
+    }
+    assert!(!hidden(&s, "after"));
+    assert!(s.until(|s| s.app.head("main").is_some_and(|h| h.frames_out() == 0)));
+    asked.borrow_mut().reply = Some(red_picture());
+    // The turn that hands the reply back, then the loop's next wake.
+    s.app.turn(s.at());
+    let bounded = Rc::new(Cell::new(false));
+    let fired = Rc::clone(&bounded);
+    let timer =
+        s.lp.handle()
+            .insert_source(
+                calloop::timer::Timer::from_duration(BOUND),
+                move |_, _, _| {
+                    fired.set(true);
+                    calloop::timer::TimeoutAction::Drop
+                },
+            )
+            .expect("a timer");
+    s.lp.dispatch(None, &mut s.app).expect("dispatch");
+    s.app.turn(s.at());
+    s.lp.handle().remove(timer);
+    assert!(!bounded.get(), "the resume woke the loop");
+    assert!(
+        hidden(&s, "after"),
+        "{:?}",
+        s.app.head("main").map(Head::consoles_text)
+    );
+    assert_eq!((asked.borrow().started, asked.borrow().stopped), (1, 0));
+}
+
+/// The image turn comes before the draw: the turn that hands a reply back
+/// draws the picture it placed, so the first frame after it shows all 48
+/// of the picture's red pixels.
+#[test]
+fn the_turn_that_hands_a_reply_back_draws_its_picture() {
+    let asked = Rc::new(RefCell::new(Asked::default()));
+    let mut s = Seat::boot(
+        &["--no-blink"],
+        None,
+        Memory::new(320, 160, "mem"),
+        &kitty_file(),
+        Some(&asked),
+    );
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 1),
+        "a request was sent"
+    );
+    let quiet = |s: &mut Seat| {
+        let frames = s.memory("/dev/mem0").frames;
+        s.app.heads()[0].frames_out() == 0
+            && (0..5).all(|_| {
+                s.turn();
+                s.app.heads()[0].frames_out() == 0 && s.memory("/dev/mem0").frames == frames
+            })
+    };
+    assert!(s.until(quiet), "the display settles");
+    let frames = s.memory("/dev/mem0").frames;
+    asked.borrow_mut().reply = Some(red_picture());
+    s.app.turn(s.at());
+    assert!(
+        s.app.heads()[0].frames_out() > 0 || s.memory("/dev/mem0").frames > frames,
+        "the reply's turn draws"
+    );
+    // Turns with no dispatch, so the loop reads nothing more of the
+    // child's output while the frame composes and comes back.
+    let end = now() + BOUND;
+    while s.app.heads()[0].frames_out() > 0 && now() < end {
+        std::thread::yield_now();
+        s.app.turn(s.at());
+    }
+    assert_eq!(s.memory("/dev/mem0").frames, frames + 1);
+    assert_eq!(s.memory("/dev/mem0").count(RED), 48);
 }

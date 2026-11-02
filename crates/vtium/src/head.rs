@@ -840,6 +840,12 @@ impl Head {
         let (cw, ch) = self.cell;
         let (w, h) = self.pixels(grid);
         self.console.term.terminal.set_cell_size(cw, ch);
+        // The cell pictures are placed in too, so a picture that arrives
+        // before the next image turn takes the new cell.
+        #[cfg(feature = "images")]
+        self.console
+            .pictures
+            .give_cell(&mut self.console.term, (cw, ch));
         self.console.term.terminal.set_display_size(w, h);
         for v in self.views.values_mut() {
             v.lost = true;

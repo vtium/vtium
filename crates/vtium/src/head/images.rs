@@ -34,9 +34,11 @@
 //! memory, PNG or zlib, leaves a request on its terminal, and the input
 //! call stops after the string that made it. The head then takes the
 //! request, sends it to the console's [`Helper`], pauses the console's
-//! pty, and starts the reply timer, [`REPLY_TIMEOUT`]. The reply, or
-//! `FAILED` once the timer fires, goes back to the terminal, the replies
-//! it writes go to the program, and the pty resumes. The C reference did
+//! pty, and starts the reply timer, [`REPLY_TIMEOUT`]. The reply, its
+//! sizes checked against the request, or `FAILED` once the timer fires,
+//! goes back to the terminal, the replies it writes go to the program,
+//! and the pty resumes. Any failure, the timer, a `FAILED` reply or one
+//! that fails its checks, stops the helper (ADR-1101 D8). The C reference did
 //! the same: it paused the pty when it sent a request and resumed it after
 //! the reply (`src/terminal_image.c:58-92, 100-122`).
 //!
@@ -186,11 +188,19 @@ mod built {
     pub(crate) struct Pictures {
         given: Option<Given>,
         helper: Option<Box<dyn Helper>>,
-        /// When the request out fails unanswered.
-        due: Option<Instant>,
+        /// The request out, and when it fails unanswered.
+        out: Option<(Request, Instant)>,
     }
 
     impl Pictures {
+        /// Gives `term` the cell `cell` for its pictures at once, as a
+        /// resize gives the cell size, before the next image turn.
+        pub(crate) fn give_cell(&mut self, term: &mut Term, cell: (u32, u32)) {
+            if let Some(given) = self.given {
+                self.give(term, Given { cell, ..given });
+            }
+        }
+
         /// Gives `term` what `given` holds, where it changed.
         pub(crate) fn give(&mut self, term: &mut Term, given: Given) {
             let old = self.given.replace(given);
@@ -234,32 +244,35 @@ mod built {
                     // A terminal told no helper runs makes no request.
                     return self.answer(term, pty, Reply::Failed);
                 };
-                helper.send(request);
-                self.due = Some(now.checked_add(REPLY_TIMEOUT).unwrap_or(now));
+                helper.send(request.clone());
+                self.out = Some((request, now.checked_add(REPLY_TIMEOUT).unwrap_or(now)));
                 if let Some(pty) = pty.as_deref_mut() {
                     pty.pause();
                 }
             }
-            let Some(due) = self.due else {
+            let Some((request, due)) = &self.out else {
                 return false;
             };
             let reply = match self.helper.as_mut().and_then(|h| h.reply()) {
-                Some(reply) => reply,
-                None if now >= due => {
-                    // The helper is stopped; the next request starts
-                    // another (ADR-1101 D8).
-                    self.helper = None;
-                    Reply::Failed
-                }
+                // Its sizes checked against the request, as the terminal
+                // checks them again.
+                Some(reply) => reply.checked(request),
+                None if now >= *due => Reply::Failed,
                 None => return false,
             };
+            if reply == Reply::Failed {
+                // Any failure stops the helper: the timer, a lost or
+                // failing socket, or a reply that fails its checks. The
+                // next request starts another (ADR-1101 D8).
+                self.helper = None;
+            }
             self.answer(term, pty, reply)
         }
 
         /// Hands `reply` to `term`, writes the replies it makes to the
         /// program and resumes `pty`.
         fn answer(&mut self, term: &mut Term, pty: Option<&mut Pty>, reply: Reply) -> bool {
-            self.due = None;
+            self.out = None;
             term.terminal.image_reply(reply);
             let bytes = term.terminal.take_replies();
             if let Some(pty) = pty {
@@ -277,7 +290,7 @@ mod built {
         /// parser and cancelled the request (`src/terminal_image.c:172-178`).
         pub(crate) fn end_session(&mut self, term: &mut Term) {
             self.helper = None;
-            if self.due.take().is_some() {
+            if self.out.take().is_some() {
                 term.terminal.image_reply(Reply::Failed);
                 term.terminal.take_replies();
             }
@@ -285,7 +298,7 @@ mod built {
 
         /// When the request out fails unanswered.
         pub(crate) fn due(&self) -> Option<Instant> {
-            self.due
+            self.out.as_ref().map(|(_, due)| *due)
         }
     }
 

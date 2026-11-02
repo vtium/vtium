@@ -285,7 +285,6 @@ pub(super) fn parse_deco_color(text: &str) -> Result<DecoColor, &'static str> {
 /// C reference's buffers less their NUL.
 const MODE_NAME_MAX: usize = 63;
 
-/// A mode line, `[GPU][CONNECTOR]WxH[@RATE]` (`src/config.c:564-617`).
 /// A size, `WxH`, each side a whole number from 1 to `max`.
 fn parse_size(text: &str, max: u32) -> Result<(u32, u32), &'static str> {
     let side = |s: &str| {
@@ -298,6 +297,7 @@ fn parse_size(text: &str, max: u32) -> Result<(u32, u32), &'static str> {
         .ok_or("a size is WxH, each side a whole number from 1 to its most")
 }
 
+/// A mode line, `[GPU][CONNECTOR]WxH[@RATE]` (`src/config.c:564-617`).
 pub(super) fn parse_mode(text: &str) -> Result<ModeSpec, &'static str> {
     let name = |s: &str| -> Result<Option<String>, &'static str> {
         if s.is_empty() {
