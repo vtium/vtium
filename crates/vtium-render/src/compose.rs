@@ -397,11 +397,10 @@ fn pictured(
     if meeting.is_empty() {
         return false;
     }
-    for &i in meeting.iter() {
-        pictures.ready(i);
-    }
     // the last opaque picture over the whole cell hides what lies under it,
-    // but for one below backgrounds that the cell's own background hides
+    // but for one below backgrounds that the cell's own background hides;
+    // finding it needs no pixels, and only it and what lies over it are
+    // made ready, so a hidden picture is never scaled
     let top = meeting.iter().rposition(|&i| {
         pictures.pic(i).is_some_and(|p| {
             p.opaque()
@@ -409,6 +408,9 @@ fn pictured(
                 && (p.layer() != Layer::BelowBackground || job.under.default_bg)
         })
     });
+    for &i in meeting.get(top.unwrap_or(0)..).unwrap_or_default() {
+        pictures.ready(i);
+    }
     let x0 = job.r.x;
     // an opaque picture over the whole cell with nothing drawn over it, as
     // a sixel over blank cells is: the cell is the picture's pixels

@@ -1130,3 +1130,46 @@ fn a_cropped_picture_never_shows_the_pixels_past_its_crop() {
         }
     }
 }
+
+// A picture that an opaque picture over it hides wholly is never scaled,
+// so its copy cannot fill the cache and push the visible one out
+// covers: image.compositor
+#[test]
+fn only_the_picture_that_shows_gets_a_scaled_copy() {
+    let s = screen();
+    let mut con = Console::new(10, 4, 0);
+    // three kitty pictures fitted to the same 4x2 box, ids 1 to 3, so the
+    // opaque one with id 3 lies on top
+    for id in 1..=3u32 {
+        let img = con.image(Protocol::KITTY, id, (8, 8), move |x, y| ramp(x + id, y));
+        con.place(
+            img,
+            Place {
+                col: 2,
+                row: 1,
+                cols: 4,
+                rows: 2,
+                ..Place::default()
+            },
+        );
+    }
+    let (c, counts) = draw_with(unifont(), &s, con.frame(0), (80, 64), Config::default());
+    assert_eq!((counts.scaled, counts.kept, counts.copies), (1, 1, 1));
+    // and the top one is what shows
+    let mut top = Console::new(10, 4, 0);
+    let img = top.image(Protocol::KITTY, 3, (8, 8), move |x, y| ramp(x + 3, y));
+    top.place(
+        img,
+        Place {
+            col: 2,
+            row: 1,
+            cols: 4,
+            rows: 2,
+            ..Place::default()
+        },
+    );
+    assert_eq!(
+        c,
+        draw_with(unifont(), &s, top.frame(0), (80, 64), Config::default()).0
+    );
+}
