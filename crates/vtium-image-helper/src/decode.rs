@@ -175,21 +175,18 @@ fn expand(rgba: &mut [u8], channels: usize) {
 }
 
 /// A palette picture's palette checked before the decoder expands it:
-/// whole entries of three bytes, at most 256 of them, and transparency for
-/// no more entries than the palette has. `png` 0.18.1 builds its table of
-/// colors without these checks and slices past a palette whose length is
-/// not a multiple of three, a panic a hostile file can cause.
+/// whole entries of three bytes, at most 256 of them. `png` 0.18.1 builds
+/// its table of colors without these checks and slices past a palette
+/// whose length is not a multiple of three, a panic a hostile file can
+/// cause. A transparency chunk with more entries than the palette is no
+/// such danger: `png` ignores the chunk and decodes the picture opaque,
+/// and the C reference showed such files too.
 fn palette_whole(info: &png::Info<'_>) -> Result<(), Failure> {
     if info.color_type != png::ColorType::Indexed {
         return Ok(());
     }
     let entries = info.palette.as_ref().map_or(0, |p| p.len());
-    let alphas = info.trns.as_ref().map_or(0, |t| t.len());
-    if entries == 0
-        || entries.checked_rem(3) != Some(0)
-        || entries > 256 * 3
-        || alphas > entries / 3
-    {
+    if entries == 0 || entries.checked_rem(3) != Some(0) || entries > 256 * 3 {
         return Err(Failure::new(Status::Corrupt, "a PNG palette cut short"));
     }
     Ok(())
@@ -471,6 +468,30 @@ pub(crate) mod tests {
     /// 74), a panic in every build, which a palette PNG can cause. The
     /// fixture is the png fuzz target's crash input, minimized;
     /// `tests/fixtures/png/README.md` gives its origin.
+    /// A palette picture of two colors whose transparency chunk has four
+    /// entries, more than the palette, decodes: `png` ignores the chunk,
+    /// so the colors come out opaque.
+    #[test]
+    fn a_palette_png_whose_transparency_outruns_its_palette_decodes() {
+        let mut file = Vec::new();
+        let mut enc = png::Encoder::new(&mut file, 2, 1);
+        enc.set_color(png::ColorType::Indexed);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.set_palette(vec![10, 20, 30, 40, 50, 60]);
+        enc.set_trns(vec![0, 0x80, 0x40, 0x20]);
+        let mut w = enc.write_header().unwrap();
+        w.write_image_data(&[1, 0]).unwrap();
+        w.finish().unwrap();
+        for decoded in [
+            png(&file, WIDE, &Locked::unsandboxed()),
+            any(&file, WIDE, &Locked::unsandboxed()),
+        ] {
+            let pic = decoded.unwrap();
+            assert_eq!((pic.width, pic.height), (2, 1));
+            assert_eq!(pic.rgba, [40, 50, 60, 0xff, 10, 20, 30, 0xff]);
+        }
+    }
+
     #[test]
     fn a_palette_png_whose_palette_is_cut_short_is_corrupt_and_does_not_panic() {
         let file = include_bytes!("../tests/fixtures/png/palette-remainder.png");
