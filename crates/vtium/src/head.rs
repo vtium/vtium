@@ -1961,12 +1961,13 @@ mod tests {
     #[test]
     fn the_memory_of_every_console_and_frit_together_is_bounded() {
         const MIB: u64 = 1 << 20;
-        // 512 MiB: `sb-memory` may be 128 MiB. The default, 5,963,776
-        // bytes, fits 8 times; 50 consoles take 2,684,354 bytes each.
-        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 8, 1), 5_963_776);
-        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 50, 1), 2_684_354);
+        // 512 MiB: `sb-memory` may be 128 MiB. The default at the minspec
+        // grid, 5,242,880 bytes, fits 8 times; 50 consoles take 2,684,354
+        // bytes each.
+        assert_eq!(console_scrollback(5_242_880, 128 * MIB, 8, 1), 5_242_880);
+        assert_eq!(console_scrollback(5_242_880, 128 * MIB, 50, 1), 2_684_354);
         assert_eq!(console_scrollback(64 << 20, 128 * MIB, 8, 1), 16 << 20);
-        assert_eq!(console_scrollback(5_963_776, 128 * MIB, 0, 0), 5_963_776);
+        assert_eq!(console_scrollback(5_242_880, 128 * MIB, 0, 0), 5_242_880);
         // 9 heads past `consoles-max`'s 8 each keep a console: 9 shares.
         assert_eq!(console_scrollback(64 << 20, 128 * MIB, 8, 9), 14_913_080);
         assert_eq!(frit_store(16 * MIB, 1), 16 * MIB);
