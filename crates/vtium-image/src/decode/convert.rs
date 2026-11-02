@@ -122,8 +122,8 @@ pub fn into_reply(
     match layout {
         Layout::Rgba => {
             data.truncate(len);
-            for group in data.chunks_exact_mut(4) {
-                let px = reply_bytes(pixel(layout, alpha, group));
+            for group in data.as_chunks_mut::<4>().0 {
+                let px = reply_bytes(pixel(layout, alpha, group.as_slice()));
                 group.copy_from_slice(&px);
             }
         }
@@ -152,11 +152,9 @@ pub fn into_reply(
 /// `rgba` is premultiplied where it lies, so a decoder's buffer becomes the
 /// reply with no second buffer.
 pub fn premultiply_in_place(rgba: &mut [u8]) {
-    for group in rgba.chunks_exact_mut(4) {
-        if let [r, g, b, a] = group {
-            let [pr, pg, pb, pa] = reply_bytes(premultiply(*r, *g, *b, *a));
-            (*r, *g, *b, *a) = (pr, pg, pb, pa);
-        }
+    for [r, g, b, a] in rgba.as_chunks_mut::<4>().0 {
+        let [pr, pg, pb, pa] = reply_bytes(premultiply(*r, *g, *b, *a));
+        (*r, *g, *b, *a) = (pr, pg, pb, pa);
     }
 }
 
@@ -169,12 +167,9 @@ pub fn from_reply(bytes: &[u8], mut out: Vec<u32>) -> (Vec<u32>, bool) {
     out.clear();
     out.reserve_exact(bytes.len().checked_div(4).unwrap_or(0));
     let mut alphas = 0xffu8;
-    out.extend(bytes.chunks_exact(4).map(|group| match *group {
-        [r, g, b, a] => {
-            alphas &= a;
-            clamped(r, g, b, a)
-        }
-        _ => 0,
+    out.extend(bytes.as_chunks::<4>().0.iter().map(|&[r, g, b, a]| {
+        alphas &= a;
+        clamped(r, g, b, a)
     }));
     (out, alphas == 0xff)
 }
