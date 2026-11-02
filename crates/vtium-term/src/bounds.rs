@@ -189,7 +189,7 @@ const INPUT_WORK: Bound = Bound {
     name: "INPUT_WORK_MAX",
     value: 1 << 24,
     what: "Image work one input call does, in a build with images: each placement or image a scroll, an ED 2, an eviction or a handler's search visits, and each pixel a handler decodes",
-    past: "The input call stops after the byte that passed it, which may lie inside a run of sixel or kitty string data, since an image handler takes a run only as far as the bound allows, and returns what it took; the next call takes the rest, and the state that results does not change",
+    past: "The input call stops after the byte that passed the bound and returns how many bytes it took; the next call takes the rest, and the resulting state is the same. That byte may lie inside a run of sixel or kitty string data, because an image handler takes a run only as far as the bound allows",
     cite: "The C reference's `VTE_INPUT_WORK`, 2^24 a call; ADR-1100, D5",
 };
 
