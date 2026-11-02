@@ -493,10 +493,7 @@ fn main() -> ExitCode {
             "--worker",
             "a_worker_under_its_second_filter_starts_no_process",
         ),
-        (
-            "--last",
-            "a_worker_past_its_last_filter_adds_no_filter",
-        ),
+        ("--last", "a_worker_past_its_last_filter_adds_no_filter"),
         (
             "--locked",
             "a_locked_in_worker_reads_what_it_holds_and_opens_nothing",

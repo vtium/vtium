@@ -573,8 +573,7 @@ fn sandboxed(served: &Served, settings: &Settings) -> bool {
         n.checked_add(settings.filter.added())
             .is_some_and(|want| served.filters == Some(want))
     });
-    let locked =
-        served.outcome.locked || (settings.filter.landlock() == 0 && !sandbox::SECCOMP);
+    let locked = served.outcome.locked || (settings.filter.landlock() == 0 && !sandbox::SECCOMP);
     filters && locked
 }
 
