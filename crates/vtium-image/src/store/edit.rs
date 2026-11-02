@@ -110,17 +110,20 @@ impl<'a> Edit<'a> {
     /// holds `len` pixels and no frame still holds it: a handler that
     /// receives frame after frame of one size, as kitty's video does, takes
     /// it in place of a new allocation, and the kernel neither maps nor
-    /// zeroes new pages for it. Its contents are the old image's. It counts
-    /// toward nothing until the handler stores it again, after reserving
-    /// its bytes as for any image (D5).
+    /// zeroes new pages for it. Its contents are the old image's. The
+    /// store gives its charge back as it hands it over, and the handler
+    /// reserves its bytes again as for any image before it stores it (D5).
     pub fn take_spare(&mut self, len: usize) -> Option<Vec<u32>> {
-        let spare = self.store.spare.take()?;
-        if spare.as_slice().len() != len {
-            self.store.spare = Some(spare);
+        if self.store.spare.as_ref()?.as_slice().len() != len {
             return None;
         }
+        let bytes = self.store.spare_bytes();
+        let spare = self.store.spare.take()?;
         match spare.into_vec() {
-            Ok(buffer) => Some(buffer),
+            Ok(buffer) => {
+                self.store.used = self.store.used.saturating_sub(bytes);
+                Some(buffer)
+            }
             Err(held) => {
                 self.store.spare = Some(held);
                 None
