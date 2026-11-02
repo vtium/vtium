@@ -151,6 +151,10 @@ While Ctrl is held over a link, the renderer draws an overlay on the bottom row,
  file://pixie/home/aaron/Projects/vtium/README.md            <- the overlay, inverted
 ```
 
+A hidden pointer hovers nothing. The pointer hides when its hide timer, `pointer-hide-timeout`, runs out, and at a key that reaches the program when `pointer-hide-while-typing` is on. A hidden pointer is over no cell, so the link it was over loses its dashed underline and the overlay goes, even while Ctrl is held (`crates/vtium/src/head.rs`, `Head::hover`). The next movement shows the pointer again, and it hovers the link under it from then on. A console that is switched away hovers nothing either: vtium clears its hover as it switches, and the shown console's hover is set again once its grid is laid out.
+
+> Edited 2026-11-01: the steering session's brief for the second wave of records, checked against the code (`crates/vtium/src/head.rs`, `Head::hover`, `Head::hide_pointer` and `Head::swap_shown`; `crates/vtium/tests/boot.rs`, `typing_that_hides_the_pointer_ends_the_hover`): a hidden pointer hovers nothing. The section did not say what a hidden pointer or a hidden console hovers; the earlier text is in git at 725c369.
+
 A hover change, the pointer entering, leaving or crossing between links or a link arriving under a still pointer, marks the visible rows whose link tables hold the old or the new link; finding them reads one small table per visible row. A move within one link marks nothing. The overlay marks its row as it appears, moves or goes. A hover over one `ls` row redraws that row and the overlay's, where a selection change marks the whole screen.
 
 | Option | Cost | Who does it | Verdict |

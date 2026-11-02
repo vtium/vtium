@@ -1551,6 +1551,18 @@ exec "$@"
             self.skipTest("no systemd-analyze")
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # systemd-analyze verify builds a start job for each unit. Every
+        # service gets Requires=sysinit.target from its default dependencies,
+        # and the root holds only the units seed() writes, which leave out
+        # sysinit.target, so systemd 255 fails the job with "Unit
+        # sysinit.target not found", where systemd 262 passes. This stand-in
+        # sysinit.target lets the job resolve on both. The other units named
+        # through After=, Before= and Conflicts=, by the generated units or by
+        # the default dependencies (basic.target, shutdown.target), need no
+        # stand-in, because systemd fails no job when a unit named only in
+        # those lines is missing.
+        write(self.at("usr/lib/systemd/system/sysinit.target"),
+              "[Unit]\nDescription=Stand-in for systemd's own sysinit.target\n", 0o644)
         for unit in ("vtium-dev@tty4.service", "vtium-dev-getty@tty4.service"):
             with self.subTest(unit=unit):
                 v = subprocess.run([REAL_ANALYZE, "verify", "--man=no", f"--root={self.root}",
@@ -2061,6 +2073,10 @@ class Package(Case):
         for prog in ("usr/bin/vtium", "usr/bin/systemctl"):
             os.makedirs(os.path.dirname(os.path.join(root, prog)), exist_ok=True)
             write(os.path.join(root, prog), "#!/bin/sh\n")
+        # The stand-in sysinit.target that Install's analyze test explains:
+        # systemd 255 fails the start job without one.
+        write(os.path.join(unit_dir, "sysinit.target"),
+              "[Unit]\nDescription=Stand-in for systemd's own sysinit.target\n", 0o644)
         for unit in ("vtium@tty4.service", "vtium-getty@tty4.service"):
             with self.subTest(unit=unit):
                 v = subprocess.run([REAL_ANALYZE, "verify", "--man=no", f"--root={root}", os.path.join(unit_dir, unit)],
