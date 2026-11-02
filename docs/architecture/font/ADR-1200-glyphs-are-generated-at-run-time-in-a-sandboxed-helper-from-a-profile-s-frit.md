@@ -285,6 +285,10 @@ considered:
     said: "Just as a frit assigns sets of characters to fonts, each set also carries how its glyphs use the row's height: not stretch emojis, but allow arabic extra room, leave roman chars normal, keep numbering normal, and let text character drawings stretch."
     via: the maintainer's answers in the steering session's interview, 2026-11-01
     paraphrase: true
+  - operator: aaronsb
+    said: "The glyph helper's path and the frits' folder become run-time settings, with the build-time values as their defaults; the helper runs as nobody and the configuration is root-owned, so the keys add no new way in, but vtium refuses a helper that is not absolute, not a regular file, or writable by anyone other than root, and logs why. A running console keeps the helper it started with across a package upgrade: it opens the helper once at start and starts every later helper from that open file, because an old console and a new helper could disagree on how they talk; a fix to the helper reaches a console when the console restarts, as a fix to vtium does."
+    via: the maintainer's decisions in the steering session, 2026-11-01, relayed by the team lead in the brief for the helper-path work; the wording is the team lead's
+    paraphrase: true
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
@@ -347,7 +351,7 @@ The figure follows a glyph from the profile to the frame: the profile's cell and
 
 ### D1: the frit
 
-A frit is a file `/etc/vtium/fonts/<name>.vtfrit`, the definition the helper draws from, in kmscon.conf's line syntax: one `key=value` a line, `#` comments, every line and the file bounded. An unknown key or a malformed line refuses the whole frit, naming the file and line. A frit written by hand, by `new` (D4) and from a `new --template` file are the same format.
+A frit is a file `<name>.vtfrit` in the frits' directory, `/etc/vtium/fonts` unless the `font-frits` key names another, the definition the helper draws from, in kmscon.conf's line syntax: one `key=value` a line, `#` comments, every line and the file bounded. An unknown key or a malformed line refuses the whole frit, naming the file and line. A frit written by hand, by `new` (D4) and from a `new --template` file are the same format.
 
 | Key | Meaning |
 |---|---|
@@ -492,8 +496,12 @@ The helper is `vtium-vitrify serve`, a separate process the console starts, runn
 - **Started on the first need, exited when idle.** The console starts it on its first ask or fill. It exits after `HELPER_IDLE_MS`, 60,000 ms, with no request and no fill, or when the console closes its end and its work is done; the next need starts a fresh one (ADR-1301 D2).
 - **Not persisted.** No state a hostile font plants survives the process, and its CPU and memory budgets reset with each start. A restart narrows the window; the console's checks and the sandbox are what contain a vulnerability.
 - **Restarted after a failure, a bounded number of times a boot.** One that crashes, reaches its CPU limit, gives no answer for `ANSWER_MS` (10,000 ms) while work is outstanding, leaves an ask unanswered for `REQUEST_MS` (60,000 ms), or exits with work outstanding is started again with its asks and fills sent again, at most `RESTARTS_MAX` times a boot. Each start re-randomizes its address layout, so an unbounded count would let an exploit retry until its guess lands. `RESTARTS_MAX` is 3.
+- **Started from the program vtium opened at start.** The `font-helper` key names the helper's program, `/usr/bin/vtium-vitrify` unless vtium was built with another path, as `font-frits`'s default is the directory vtium was built with. vtium opens the program once when it starts and starts every helper from that open file. A package upgrade replaces the program by renaming a new file into place, so the open file stays the old program, and a running console goes on starting the helper it started with. An old console and a new helper could disagree on how they talk over the pipe; a fix to the helper reaches a console when the console starts again, as a fix to vtium does (the maintainer, 2026-11-01).
+- **Refused unless only root can change it.** vtium refuses a program path that is not absolute, a file that is not a regular file, and a file owned by an account other than root, or than the account vtium runs as, or that its group or others may write. It checks the file it opened, so the file checked is the file that runs, logs why it refused, and draws the built-in font (D7). The configuration files are root's, so the two keys give no other account a way to choose the program; `check-config` notes a program vtium would refuse.
 - **Given up for the boot on garbage.** A helper that answers what is not a frame, what was not asked, or a failure is given up for the boot, logged once, and the built-in font goes on drawing (D7).
 - **Checked, never trusted.** Each frame is checked before anything is allocated for it: its length against `FRAME_BYTES_MAX` (16 MiB), its glyphs through vtium-font's bounded reader, each at a cell asked for, an ask's glyphs among those asked for and not yet sent, a fill's among those the cell does not hold, and each glyph's ink box within its reach: a box that passes more than one cell beyond the glyph's own cells, on either side, is refused (ADR-1302 D1, D6). A thread writes the requests and another reads the answers, so neither a slow nor a hung helper stalls the console's loop.
+
+> Edited 2026-11-01: the maintainer's decision on the helper's path (`considered`, 2026-11-01) adds the bullets "Started from the program vtium opened at start" and "Refused unless only root can change it", and D1 names the frits' directory by its key. Until then both paths were fixed when vtium was built, and each start ran the program found at its path then.
 
 > Edited 2026-11-01: glyph ink reaches one cell past its own on each side (ADR-1302, accepted 2026-11-01), so the console's check of an answer also refuses an ink box past that reach (ADR-1302 D6). The bullet ended: "a fill's among those the cell does not hold." The earlier text is in git at 1d51e46.
 
