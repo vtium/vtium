@@ -110,6 +110,9 @@ considered:
     said: "A running console keeps the helper it started with: vtium opens the helper's program at start and starts each helper from that open file, as ADR-1200 D15 records. Review runs use their own built helper through the run-time key font-helper, copied by run-vt.sh into a root-owned directory under /run. vtium-git's history is published as it is, and the Maintainer: line carries the plain email."
     via: the maintainer, 2026-11-01, in the steering session
     paraphrase: true
+  - operator: aaronsb
+    said: "the adr seems fine"
+    via: chat with the steering session, 2026-11-02
 observable:
   - "Installing vtium-git on this machine beside kmscon and kmscon-terminfo reports no conflicting file, and `pacman -Qo` on each file the package lists names vtium-git alone"
   - "Following vtium-arch's README for every VT on a machine with no C reference console gives vtium on VT 1 and on each VT logind spawns, and its way back leaves autovt@.service linked to getty@.service and getty@tty1 enabled, as the preset made them"

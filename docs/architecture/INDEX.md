@@ -63,4 +63,4 @@ _Process, harness and contributions - how vtium is built, tested and judged_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-1500](./project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-under-names-of-its-own.md) | vtium is packaged from a recipe repo per package manager, under names of its own | proposed |
+| [ADR-1500](./project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-under-names-of-its-own.md) | vtium is packaged from a recipe repo per package manager, under names of its own | accepted |
