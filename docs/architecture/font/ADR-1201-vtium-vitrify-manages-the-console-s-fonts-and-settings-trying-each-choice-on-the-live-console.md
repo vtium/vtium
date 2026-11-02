@@ -40,12 +40,32 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "No size suffix on OSC 50. The TUI previews a font at each size as a picture, drawn through kitty graphics, without changing the console's font: the glyph engine renders a specimen of the frit at that size into RGBA, and the TUI shows it with kitty graphics' raw-pixel direct transmission (f=32, t=d), which vtium decodes without the image helper. Live font switching stays OSC 50 with a name only. Where the console draws no kitty graphics, as a build without images, the TUI previews fonts live by OSC 50 and sizes only by saving. preview becomes the same picture renderer. Outside vtium the TUI sends no OSC 50, and shows pictures only where the terminal answers the kitty graphics query."
+    via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
+    covers: [live sizes]
+  - operator: aaronsb
+    said: "Live switches take effect at once. When a console's session ends, vtium returns that console to the configured font, font-name and font-size from vtium.conf including anything the TUI saved, so the next login starts with the permanent choices."
+    via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The command names stay: fonts, check, config, remove-frit and apply DIR, beside set, preview, new, and the TUI with no command."
+    via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Profiles move from vtiumctl to vtium-vitrify, writing and choosing them. vtiumctl keeps controlling a running console, and heads.conf."
+    via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next switches the whole console to that frit, and the TUI's own screen redraws at the console's new grid"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"
   - "Run in a terminal that is not vtium, the TUI writes no OSC 50 byte, says live preview is off and why, and still saves"
   - "Saving a new font-size into the shipped vtium.conf.example changes one line and leaves every other byte of the file as it was"
   - "Saving asks for the sudo password once, for one command the TUI shows first, and a write that fails leaves each file it did not finish exactly as it was"
+  - "In a vtium built with `images`, highlighting a size shows a specimen picture of the frit at that size and leaves the console's font and grid as they were"
+  - "After the TUI switches a console's font and the session in that console ends, the next login prompt draws in the font and size vtium.conf names, a font the TUI saved included"
 status: proposed
 date: 2026-11-02
 deciders:
@@ -57,13 +77,16 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium-vitrify becomes the one tool that manages the console's fonts and settings for as long as they exist: it lists, checks, previews, switches, writes and removes frits (font set files, `NAME.vtfrit` in `/etc/vtium/fonts`), and reads and edits `/etc/vtium/vtium.conf`. Run with no command at a terminal, it opens a TUI, a full-screen program drawn in the terminal's text cells. When the TUI runs inside a vtium console with `allow-font-ops` on, each font the user highlights switches the live console to it through OSC 50, the sequence `vtium-vitrify set` sends, so the user judges the real console in the real font; leaving without saving puts the console back in the font it had at the start. In any other terminal the TUI sends no OSC 50 and previews without switching. Every action the TUI offers is also a non-interactive command, and the TUI does its writing through one of them, `apply`: the TUI runs as the user, gathers what the user saved into a draft directory, and runs `sudo vtium-vitrify apply DIR` once. `apply` checks every file, edits vtium.conf line by line so that comments and order stay, and replaces each file in one rename. The TUI is built from rustix, which the tool already links, with no TUI library. The head file stays vtiumctl's.
-- **Trades away:** vtium-vitrify ships on every install as the glyph helper, so the TUI's code lands on minspec boards too, outside the console's size budget but inside the install tree tier 3 measures. The TUI cannot put the font back after SIGKILL or once its terminal is gone, and the console then keeps the previewed font until the next switch or start. Live size preview needs the console to take a size over OSC 50, which it does not do yet. Inside tmux or screen, or over ssh from another terminal, there is no live preview.
+- **Decided:** vtium-vitrify becomes the one tool that manages the console's fonts and settings for as long as they exist: it lists, checks, previews, switches, writes and removes frits (font set files, `NAME.vtfrit` in `/etc/vtium/fonts`), and reads and edits `/etc/vtium/vtium.conf`. Run with no command at a terminal, it opens a TUI, a full-screen program drawn in the terminal's text cells. When the TUI runs inside a vtium console with `allow-font-ops` on, each font the user highlights switches the live console to it through OSC 50, the sequence `vtium-vitrify set` sends, so the user judges the real console in the real font; leaving without saving puts the console back in the font it had at the start. Sizes are previewed as pictures: the glyph engine draws a specimen of the frit at each size, and the TUI shows it through kitty graphics' raw pixels, which vtium decodes in the console, without changing the console's font. Where the console draws no kitty graphics, as in a build without `images`, sizes take effect only when saved. In a terminal that is not vtium the TUI sends no OSC 50, and shows pictures only where the terminal answers kitty's graphics query. When a console's session ends, vtium returns it to the font and size vtium.conf names, so the next login starts with the saved choices. Every action the TUI offers is also a non-interactive command, and the TUI does its writing through one of them, `apply`: the TUI runs as the user, gathers what the user saved into a draft directory, and runs `sudo vtium-vitrify apply DIR` once. `apply` checks every file, edits vtium.conf line by line so that comments and order stay, and replaces each file in one rename. The TUI is built from rustix, which the tool already links, with no TUI library. Profiles are vtium-vitrify's to write and choose; the head file and the running console's controls stay vtiumctl's.
+- **Trades away:** vtium-vitrify ships on every install as the glyph helper, so the TUI's code lands on minspec boards too, outside the console's size budget but inside the install tree tier 3 measures. The TUI cannot put the font back after SIGKILL or once its terminal is gone, and the console then keeps the previewed font until that session ends. Sizes are never tried on the live console, and a build without `images` cannot preview them at all. At a session's end vtium reads vtium.conf's font keys again, the one time it reads its configuration after start. Inside tmux or screen, or over ssh from another terminal, there is no live preview.
 - **One-way?** No. The tool and its commands change in a session. The command names become expensive to change once scripts and packages call them.
 - **Probes:**
   - *Confident (the TUI and the commands):* every choice the TUI offers is also a command a script can run, and the TUI saves through the same command a script uses (`apply`). The earlier decision that vtium supplies a scriptable tool and leaves the wrappers to others stands, and the TUI is the one guided face vtium ships on top of it. Is that the shape you want?
   - *Confident (the head file):* the TUI does not edit `heads.conf`, the file that places displays and keyboards into heads. vtiumctl keeps it, and vtium-vitrify keeps the fonts and vtium.conf. Should the head file stay out?
-  - *Not confident (live sizes):* you asked for sizes to switch live as fonts do. Today the console takes only a font's name over OSC 50, so live sizes need the console to take a size too, in a form only vtium reads, such as `monoid:size=12`, the way fontconfig writes a size. Until that lands, the TUI shows what grid each size gives and applies the size only when it is saved. Is a vtium-only form acceptable, or should sizes stay applied on save?
+  - *Not confident (live sizes):* you asked for sizes to switch live as fonts do. Today the console takes only a font's name over OSC 50, so live sizes need the console to take a size too, in a form only vtium reads, such as `monoid:size=12`, the way fontconfig writes a size. Until that lands, the TUI shows what grid each size gives and applies the size only when it is saved. Is a vtium-only form acceptable, or should sizes stay applied on save? (Answered 2026-11-02: no size suffix, sizes as pictures; see `considered`.)
+  - *Not confident (consoles that share a head):* you decided that a console goes back to the configured font when its session ends. vtium keeps one font for a whole head, and a head may hold several consoles, each with its own login. So vtium returns the head's font when the session ends in the console that last switched it, or in a head's only console, and leaves it when someone else's session on the same head ends. Is that the rule you want, or should each console keep a font of its own?
+  - *Confident (zoom at logout):* the return sets the size from vtium.conf too, so a zoom made with the zoom keys is undone at the same moment, and the next login starts at the saved size. Is that right?
+  - *Confident (choosing a profile):* vtium-vitrify is where a user builds a profile (its frit, its cell and its options), checks it against a display and picks it. Which profile a head uses stays a line in `heads.conf`, which vtiumctl writes. Is that the split you meant?
 - **Inversion:** Between "vtium supplies only non-interactive commands, and any interactive front end is someone else's", ADR-1200's earlier stance, and "an interactive program is the way to configure the console", as a desktop's settings panel is. vtium keeps every action scriptable and ships one interactive front end on top. The one thing the TUI adds, switching the live console, rests on OSC 50, which any program may send.
 
 ## Context
@@ -83,7 +106,9 @@ Terms used below: a *frit* is a font set file, `NAME.vtfrit`, in the frits' dire
 - **Frits.** vtium-vitrify lists the frits and the built-in fonts, checks a frit as the helper reads it, previews it, switches the console to it, writes a new or changed frit, and removes one.
 - **vtium.conf.** vtium-vitrify shows each key of `/etc/vtium/vtium.conf` with its value, its default and its description, and changes keys. The font keys come first (`font-name`, `font-size`, `font-frits`, `font-hinting`, `font-line-spacing`, `allow-font-ops`, `display-dpi` and the sprite policy's keys), and every other key is listed after them. A key's description, type and bounds come from vtium's own key table, `crates/vtium/src/config/keys.rs`, which moves into vtium-config, the configuration crate vtium already links (ADR-1401 D12), so the console and the tool read one table.
 - **Not the head file,** `/etc/vtium/heads.conf`, which stays vtiumctl's (D6).
-- **Profiles,** once they have a file of their own (ADR-1200 D16), are a frit, a cell and font options, and are vtium-vitrify's to write. Until then a frit's `cell=` line carries the cell, and the TUI edits it as part of the frit.
+- **Profiles** are a frit, a cell and font options (ADR-1200 D16), and are vtium-vitrify's to write and to choose (the maintainer, 2026-11-02): the TUI is where a user builds a profile, checks it against a display (the rule checker, ADR-1200 D4) and picks among the profiles. Until profiles have a file of their own, a frit's `cell=` line carries the cell, and the TUI edits it as part of the frit. vtiumctl keeps controlling a running console (`status`, the trial and the overlay) and the head file, in which a head names its profile (ADR-1401 D12).
+
+> Edited 2026-11-02: the maintainer moved profiles from vtiumctl to vtium-vitrify, writing and choosing them (`considered`). The bullet read: "Profiles, once they have a file of their own (ADR-1200 D16), are a frit, a cell and font options, and are vtium-vitrify's to write.", and the record left the move to the maintainer's check.
 
 ### D2: one tool, and its commands
 
@@ -127,14 +152,16 @@ An example of the font view at 40 columns, to show that it fits; its layout is t
 
 ### D4: live preview, and giving the console back
 
-- **Finding out what the terminal is.** At start the TUI writes three requests at once: XTVERSION (`CSI > q`), the OSC 50 query (`OSC 50 ; ? ST`) and DA1 (`CSI c`). Every terminal of the VT100 line answers DA1, and terminals answer requests in the order they arrive, so a reply that has not come before DA1's will not come. The TUI waits for DA1's reply at most one second, `set`'s wait, for a terminal that answers nothing.
-  - XTVERSION names vtium (`vtium(VERSION)`) and the query is answered: live preview is on, and the query's answer is the font to give back.
-  - XTVERSION names vtium and the query is not answered: `allow-font-ops` is off. Live preview is off, the TUI says so and names the key, and offers to turn it on as a change saved like any other.
-  - Anything else, another terminal, a multiplexer such as tmux, an ssh client's terminal or a serial line: the TUI never sends OSC 50, since xterm, for one, would look for an X font of that name. It previews with `preview`'s pictures where the terminal draws kitty graphics or sixel, and with a text summary otherwise (the coverage, the cell, the grid it gives).
+- **Finding out what the terminal is.** At start the TUI writes four requests at once: XTVERSION (`CSI > q`), the OSC 50 query (`OSC 50 ; ? ST`), kitty's graphics query (`APC G i=N,s=1,v=1,a=q,t=d,f=24;AAAA ST`, a one-pixel image the terminal checks and does not keep) and DA1 (`CSI c`). Every terminal of the VT100 line answers DA1, and terminals answer requests in the order they arrive, so a reply that has not come before DA1's will not come. The TUI waits for DA1's reply at most one second, `set`'s wait, for a terminal that answers nothing.
+  - XTVERSION names vtium (`vtium(VERSION)`) and the OSC 50 query is answered: fonts are previewed live, and the query's answer is the font to give back.
+  - XTVERSION names vtium and the OSC 50 query is not answered: `allow-font-ops` is off. Fonts are not previewed live; the TUI says so, names the key, and offers to turn it on as a change saved like any other.
+  - Anything else, another terminal, a multiplexer such as tmux, an ssh client's terminal or a serial line: the TUI never sends OSC 50, since xterm, for one, would look for an X font of that name.
+  - Separately, the kitty graphics query answered before DA1 means the terminal draws kitty graphics, and the TUI previews sizes, and fonts it cannot switch to live, as pictures. vtium answers it only when built with `images` (ADR-1100), which the packaged build is not today. With no answer, the TUI shows a text summary instead: the coverage, the cell and the grid each size gives.
   - `set` makes the same check before it writes, and sends nothing to a terminal that is not vtium. Today it writes OSC 50 to any terminal and only reads the reply.
 - **While the user browses.** Each font the user highlights is sent as `OSC 50 ; NAME ST` followed by the query, the bytes `set` sends. At most one switch is outstanding: the next is sent when the query's reply to the last comes back, and it names whatever is highlighted then, so holding an arrow key sends one switch per reply and never a queue of stale ones. A reply that names another font means the console refused the switch; the TUI marks that font "kept by the console, see its log" and goes on. There is no countdown that reverts a font the user has not confirmed: the TUI stays in control, and leaving it gives the font back.
-- **Sizes.** The console ignores every OSC 50 form but a frit's name (`crates/vtium-term/src/terminal/font.rs`), so until it takes a size the TUI shows what grid each size gives and applies a size only when it is saved. Live sizes need a change to the console, made with ADR-1200 D5 and ADR-1000's `text.font-change` row and their own tests: OSC 50 takes a name with a size, and the query reports both. This record recommends `NAME:size=POINTS`, the way fontconfig writes a size in a font's name, which no frit's name can be mistaken for, since a frit's name holds no colon (ADR-1200 D1). The query's reply to `set` stays the name alone, so `set` keeps working. That change must also let the TUI give back exactly what it found, which the name alone cannot do in one case: when the console draws a built-in font it chose by height, the query answers `unscii-8` or `unifont`, and switching back to that name fixes the built-in font, so a later zoom across 16 pixels would not change it as the automatic choice does.
-- **Giving the console back.** Leaving without saving switches the console back to the font the start query named, and then asks the query to check it. The TUI does this on its quit key; on Ctrl-C, which arrives as a byte in raw mode; on SIGINT, SIGTERM, SIGQUIT and SIGHUP, which it holds while the terminal is raw, as `set` does, and handles in its loop; and on a panic, from the guard that puts the terminal's mode back. It cannot after SIGKILL, or once its terminal is gone, as when the console's session ends: the console then keeps the previewed font until the next switch or start, since an OSC 50 switch changes only the live console and `font-name` decides the font at start (ADR-1200 D5).
+- **Sizes, as pictures.** Live switching stays OSC 50 with a frit's name alone, and the TUI never changes the console's size. For each size of the highlighted frit, the glyph engine the helper runs (ADR-1200 D14, D15) draws a specimen, a few lines of Latin, box drawing and the locale's script, at the pixel height that size gives, into an RGBA picture. The engine runs in the sandboxed child, never in the TUI's process. The pixel height comes from the density the console uses, in ADR-1200 D17's order: vtium.conf's `display-dpi` where it is set, else the density the TUI reads from the displays' EDID in sysfs, else 96, and the TUI says which it used. The TUI sends the picture with kitty graphics' direct transmission of raw pixels (`a=T`, `f=32`, `t=d`, its width and height in `s` and `v`, the base64 split into chunks with `m=1`), which vtium decodes in the console without the image helper (ADR-1100 D7), shows it in its preview area at its own pixel size, and deletes it (`a=d`) when the highlight moves and when the TUI leaves. Where the terminal draws no kitty graphics, a size takes effect only when it is saved.
+  > Edited 2026-11-02: the maintainer answered the live-sizes probe (`considered`): no size suffix on OSC 50, and sizes are previewed as pictures. The bullet recommended that the console take `NAME:size=POINTS` over OSC 50 and report the size in its query, and had the TUI apply sizes only when saved until then.
+- **Giving the console back.** Leaving without saving switches the console back to the font the start query named, and then asks the query to check it. The TUI does this on its quit key; on Ctrl-C, which arrives as a byte in raw mode; on SIGINT, SIGTERM, SIGQUIT and SIGHUP, which it holds while the terminal is raw, as `set` does, and handles in its loop; and on a panic, from the guard that puts the terminal's mode back. It cannot after SIGKILL, or once its terminal is gone: the console then keeps the previewed font until that console's session ends, when vtium returns it to the configured font (D11). One case the name alone cannot give back exactly: when the console draws a built-in font it chose by height, the query answers `unscii-8` or `unifont`, and switching back to that name fixes that built-in font, so a later zoom across 16 pixels does not change it as the automatic choice would. The session's end clears it (D11).
 - **After saving,** the console stays in the saved font, which is the font the saved vtium.conf names for the next start.
 
 ### D5: writing
@@ -168,38 +195,54 @@ The TUI does not read or edit `heads.conf`. vtiumctl keeps the head file and the
 ### D8: how it is judged
 
 - **The state machine,** driven by events in unit tests: every view, the one-switch-outstanding rule, the refusal mark, the size list, and the save view's list of changes.
-- **The real binary on a pty,** with vtium-term's terminal answering on the other side, as `tests/switch.rs` drives `set`: the test types keys into the pty, reads the terminal's screen as text, and records every byte the TUI writes. It checks the exact bytes: the three requests at start; `OSC 50 ; NAME ST` and the query for each switch, and no second switch before the first's reply; and the switch back to the start font and its query when the TUI leaves by its quit key, by the Ctrl-C byte, and by SIGTERM. Against a stand-in terminal that answers only DA1, and against vtium-term with font operations off, it checks that the TUI writes no OSC 50 byte. Screen captures at 40 by 30 and 80 by 25 are vtium's own goldens, provisional until the maintainer reviews the layout.
+- **The real binary on a pty,** with vtium-term's terminal answering on the other side, as `tests/switch.rs` drives `set`: the test types keys into the pty, reads the terminal's screen as text, and records every byte the TUI writes. It checks the exact bytes: the four requests at start; `OSC 50 ; NAME ST` and the query for each switch, and no second switch before the first's reply; and the switch back to the start font and its query when the TUI leaves by its quit key, by the Ctrl-C byte, and by SIGTERM. Against a stand-in terminal that answers only DA1, and against vtium-term with font operations off, it checks that the TUI writes no OSC 50 byte. With vtium-term built with `images`, it checks each size picture's bytes, `a=T,f=32,t=d` with the specimen's width and height and its chunks, and its `a=d` when the highlight moves and when the TUI leaves; without `images`, it checks that the TUI sends no picture after the unanswered query.
+- **The session's end,** in the console's own tests, as `tests/heads.rs` drives heads: after an OSC 50 switch and a zoom, the console's program exits, and the next frame draws in the font and size vtium.conf names, a vtium.conf changed since the start included; in a head of two consoles, a session ending in the console that did not switch leaves the font. Screen captures at 40 by 30 and 80 by 25 are vtium's own goldens, provisional until the maintainer reviews the layout.
 - **Writing,** in a temporary directory standing in for `/etc/vtium` through the tool's path options, never as root: the shipped `vtium.conf.example` with one key changed differs in that one line, and with no change is byte-identical; each placement rule of D5 has its test; a draft whose target changed is refused with nothing written; a check that fails writes nothing; a write that fails before its rename, planted with a directory the test makes read-only, leaves the old file whole. The command the TUI runs for privilege is a seam whose default is `sudo`; the stand-in a test puts in its place runs `apply` with the same path options, so it checks what `apply` checks, and no test runs sudo.
 - **Tier 3:** in the guest, on a real VT, a screenshot of the console in the font the TUI previews, and a screenshot after the TUI leaves without saving, which must match the screenshot taken before the TUI started.
 - **The VT review:** a guide step, run with `make vt-check`, in which the maintainer opens the TUI, moves through three fonts and sees the console change with each, presses Ctrl-C and sees the start font come back, then saves a font, gives the sudo password once, and reads the one changed line of vtium.conf.
 
 ### D9: `new`, `preview` and the TUI
 
-The TUI is where `new` and `preview` live when a person runs them at a terminal. `new`'s guided flow is the TUI's new-frit view, and it ends in a draft and `apply`, which replaces ADR-1200 D4's "one command, run with `sudo`, that writes the frit". `preview`'s pictures are what the TUI shows where live preview is off. Both keep their non-interactive forms as commands, for scripts and packages.
+The TUI is where `new` and `preview` live when a person runs them at a terminal. `new`'s guided flow is the TUI's new-frit view, and it ends in a draft and `apply`, which replaces ADR-1200 D4's "one command, run with `sudo`, that writes the frit". `preview` becomes the same picture renderer the TUI uses for sizes (D4): `preview FONT...` draws the engine's specimen of each font through kitty graphics' raw pixels where the terminal answers the graphics query, and a text summary otherwise. It takes kitty graphics alone, and the sixel fallback that the preview work planned is not part of this record. Both keep their non-interactive forms as commands, for scripts and packages.
+
+> Edited 2026-11-02: the maintainer made `preview` the TUI's picture renderer (`considered`). The paragraph read: "`preview`'s pictures are what the TUI shows where live preview is off."
 
 ### D10: the banner's tagline
 
 The tagline under the tool's banner says what the tool is for now: the console's fonts and settings, tried on the live console. "vitrified font sets" names the store of prerendered sets that ADR-1200 retired. This record recommends "fonts and settings for the vtium console" for the wide banner and "the console's fonts" for the narrow one. The build that adds the TUI changes both taglines in `src/banner.rs` and their test, the crate's description in `Cargo.toml`, and the usage text's summary line. The tool keeps its name.
+
+### D11: a session's end returns its console to the configured font
+
+- **A switch lasts for the session.** An OSC 50 switch, from the TUI, `set` or any program, takes effect at once (the maintainer, 2026-11-02). When the session in a console ends, the program vtium started there exiting (`child_exited` in `crates/vtium/src/app.rs`), vtium returns that console to its configured font before the next login starts there, so the next login starts with the permanent choices.
+- **The configured font is read again.** vtium reads vtium.conf's font keys again, `font-name`, `font-size` and `font-engine`, which ranks with `font-name` (ADR-1200 D16), with the reader it starts with, and takes the font that ADR-1200 D9's chain gives the head, at the size `font-size` gives. A font the TUI saved is therefore the font the next login draws. A key that does not read is reported and dropped as it is at start. Every other key still applies at the next start, as docs/config.md says.
+- **The size comes back with it,** so a zoom made since is undone at the same moment.
+- **One font for a head.** vtium holds the font for a whole head, and every console of the head draws in it (`Head::font` in `crates/vtium/src/head.rs`). A switch records the console it came from, and vtium returns the head's font when the session ends in that console, or in a head's only console. A session ending in another console of the same head leaves the font, so it never changes under another person's session.
+- **Not built yet.** Today a switch lasts until the next switch or until vtium starts again.
+- The C reference had no OSC 50 and kept its font for the life of its process, changed only by its zoom keys (`src/terminal.c` at kmscon `b1f7a7c5`, `zoom_in`, `zoom_out`), and a session's end left the size where the zoom put it. vtium returns the size at a session's end, a listed departure in the vtium crate's README once built.
 
 ### Passages this record changes
 
 These change when this record is accepted, in their owners' changes; this record edits none of them.
 
 - **ADR-1200 D4:** "Each command is non-interactive where it writes" becomes: each command but the TUI is non-interactive, and the TUI writes only through `apply`. The table gains D2's rows, and `new`'s row ends in a draft and `apply` (D9). The basis entry that leaves "the wrappers" to "other people's choice" stands as said; vtium-vitrify ships one wrapper of its own.
-- **ADR-1200 D5:** `set` checks the terminal before it writes (D4). The size form, once the console takes it, is that decision's to add.
+- **ADR-1200 D5:** `set` checks the terminal before it writes (D4). "A switch changes the live console only; `font-name` in the configuration is what persists" gains: until the session that switched ends, when vtium returns the head to its configured font (D11). docs/config.md's `allow-font-ops` row says the same.
+- **ADR-1200 D4's `preview` row** draws the engine's specimen through kitty graphics (D9).
 - **ADR-1401 D12:** vtiumctl's drafts and `install DIR` of frits move to vtium-vitrify's `apply`; vtiumctl keeps the head file. `vtiumctl check` still checks frits through vtium-vitrify's frit reader. The minspec bullet's "a frit is previewed by trying it on the live console through OSC 50 under the same countdown" becomes the TUI's live preview, with no countdown (D4). "`vtium-vitrify` keeps the fonts" gains vtium.conf.
-- **ADR-1200 D16:** "`vtiumctl` writes them when asked" of profile files becomes vtium-vitrify (D1).
+- **ADR-1200 D16:** "`vtiumctl` writes them when asked" of profile files becomes vtium-vitrify, which writes and chooses them (D1).
+- **ADR-1401 D12's `setup`,** which asks "which profile and frit" for each display, asks which profile, among those vtium-vitrify wrote.
 - **The tracker issue for vtium-vitrify** lists this work.
 
 ### For the maintainer's check
 
-These are agent calls the maintainer has not looked at: the command names `fonts`, `config`, `remove-frit` and `apply`; profiles written by vtium-vitrify rather than vtiumctl (D1); and whether the console should put a head back in its configured font when the session that switched it ends, which would close the case D4 cannot.
+The maintainer decided on 2026-11-02 the three calls this section listed (`considered`): the command names stay as D2 has them; profiles move to vtium-vitrify (D1); and a session's end returns its console to the configured font (D11).
 
 ## Consequences
 
 ### Positive
 
-- A user chooses a font by seeing the real console in it, on every build, minspec included, where `preview` can show no picture because the console there draws none.
+- A user chooses a font by seeing the real console in it, on every build, minspec included, where the console draws no pictures.
+- A size is judged from a picture drawn by the same engine at the same pixel height, without the console's grid moving.
+- A session never inherits the previous session's switched font or zoom.
 - Everything the TUI does, a script or a package can do with the same commands, and the TUI's writes go through the same checked path as theirs.
 - vtium.conf keeps its comments and order, so a file a person wrote stays theirs after the tool has changed it.
 - One sudo prompt, for a command shown first, and no step of browsing or previewing runs as root.
@@ -207,8 +250,10 @@ These are agent calls the maintainer has not looked at: the command names `fonts
 
 ### Negative
 
-- The console keeps a previewed font when the TUI is killed with SIGKILL or its terminal goes away.
-- Live sizes wait for a change to the console's OSC 50, which departs from xterm's form.
+- The console keeps a previewed font until the session ends when the TUI is killed with SIGKILL or its terminal goes away.
+- Sizes are never tried on the live console, and where the console draws no kitty graphics, the packaged build today included, a size is seen only after it is saved.
+- vtium reads vtium.conf's font keys again at each session's end, the one time it reads its configuration after start.
+- A zoom no longer outlives the session it was made in.
 - No live preview inside tmux or screen, over ssh from another terminal, or with `allow-font-ops` off.
 - vtium-vitrify grows on every install by the TUI and its screen layer.
 - Checking vtium.conf needs the `vtium` binary installed beside the tool, which the install tree always has.
@@ -217,14 +262,18 @@ These are agent calls the maintainer has not looked at: the command names `fonts
 
 - vtium's key table moves into vtium-config, which the console already links.
 - `set` stops writing OSC 50 to terminals that are not vtium.
-- Profiles, once they have a file, are written by vtium-vitrify.
+- Profiles are written and chosen in vtium-vitrify.
+- `preview` and the TUI share one picture renderer.
 
 ## Alternatives Considered
 
 - **The TUI in vtiumctl, or as a third binary.** Not taken, by the maintainer: it stays one tool, vtium-vitrify.
 - **ratatui, with crossterm or termion beneath it.** Not taken: a widget and layout framework and a second terminal layer beside the raw-mode and signal handling `set` already has, for a screen of lists, on every install including minspec boards.
 - **ncurses, or dialog and whiptail.** Not taken: ncurses is a C library, against vtium's rule that its code is Rust with C only at a boundary it must cross; dialog and whiptail are C programs that minspec images may lack, and the tool cannot send OSC 50 between their prompts.
-- **Preview by pictures alone,** as `preview` plans. Not taken as the main path: a picture is not the console, and the minspec console draws no pictures. It stays the preview where live preview is off.
+- **Preview by pictures alone,** as `preview` plans. Not taken as the main path for fonts: a picture is not the console, and the minspec console draws no pictures. Pictures serve sizes, and fonts where live preview is off.
+- **A size suffix on OSC 50,** `NAME:size=POINTS` as fontconfig writes a size. Not taken, by the maintainer: live switching stays a name only, and sizes are previewed as pictures.
+- **Keeping a switched font after its session ends.** Not taken, by the maintainer: the next login starts with the permanent choices.
+- **Sixel pictures where kitty graphics are not drawn.** Not taken here: inside vtium both need `images`, so sixel would help only other terminals that draw sixel and not kitty graphics, such as foot or xterm, at the cost of a second encoder; the preview work may add it later.
 - **Preview by writing vtium.conf and restarting the console.** Not taken: each step would need root and a restart, which ends the user's session.
 - **Sending OSC 50 to any terminal,** as `set` does today. Not taken: another terminal may act on it, as xterm looks for an X font of that name.
 - **A countdown that reverts an unconfirmed font,** as a desktop's display settings do and as ADR-1401 D12 planned for vtiumctl on minspec. Not taken: the TUI stays in control and gives the font back when it leaves, and a countdown would take away a font the user is still looking at.
