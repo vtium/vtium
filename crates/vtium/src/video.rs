@@ -18,14 +18,34 @@ use crate::pointer::Plane;
 /// build smaller than minspec, which none is yet; [`Buffers::One`] reaches
 /// it through the setting.
 ///
-/// The features named here are all of crates/vtium's features but
-/// `default`. A test holds the two lists equal, so a feature added to
-/// Cargo.toml fails it until it is named here too.
-pub const BUILD_BUFFERS: Buffers = if cfg!(any(feature = "images", feature = "logind")) {
+/// The build adds features on top of minspec when any of
+/// [`FEATURES_ON_TOP`] is on.
+pub const BUILD_BUFFERS: Buffers = if any_on(&FEATURES_ON_TOP) {
     Buffers::Three
 } else {
     Buffers::Two
 };
+
+/// Each of crates/vtium's features but `default`, the features a build
+/// adds on top of minspec, and whether this build has it on. A test holds
+/// the names equal to Cargo.toml's, so a feature added there fails it
+/// until it is named here too.
+pub const FEATURES_ON_TOP: [(&str, bool); 2] = [
+    ("images", cfg!(feature = "images")),
+    ("logind", cfg!(feature = "logind")),
+];
+
+/// Whether any of `features` is on.
+const fn any_on(features: &[(&str, bool)]) -> bool {
+    let mut i = 0;
+    while i < features.len() {
+        if features[i].1 {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
 
 /// The buffers each DRM display keeps: `configured`, kmscon.conf's
 /// `display-buffers` as its accessor reads it, where it is 1, 2 or 3, and
@@ -309,7 +329,7 @@ mod tests {
 
     // ADR-1401 D2: the minspec build, vtium's default build, keeps two
     // buffers a DRM display.
-    #[cfg(not(any(feature = "images", feature = "logind")))]
+    #[cfg(not(feature = "images"))]
     #[test]
     fn the_minspec_build_keeps_two_buffers() {
         assert_eq!(BUILD_BUFFERS, Buffers::Two);
@@ -328,14 +348,13 @@ mod tests {
         assert_eq!(display_buffers(Some(4)), BUILD_BUFFERS);
     }
 
-    /// The features BUILD_BUFFERS names as added on top of minspec.
-    const ON_TOP: [&str; 2] = ["images", "logind"];
-
     // Every feature of the crate but `default` adds to minspec, so each is
-    // one BUILD_BUFFERS gives three buffers for: a new feature fails this
-    // test until it is named in BUILD_BUFFERS and here.
+    // one BUILD_BUFFERS gives three buffers for: a feature in Cargo.toml
+    // missing from FEATURES_ON_TOP, or one there Cargo.toml lacks, fails
+    // this test. Each entry's flag reads its own feature: the gates build
+    // with every feature and with none, and in each the flags agree.
     #[test]
-    fn build_buffers_names_every_feature_on_top_of_minspec() {
+    fn build_buffers_counts_every_feature_on_top_of_minspec() {
         let manifest = include_str!("../Cargo.toml");
         let mut features: Vec<&str> = manifest
             .lines()
@@ -346,12 +365,30 @@ mod tests {
             .filter(|name| !name.starts_with('#') && *name != "default")
             .collect();
         features.sort_unstable();
-        assert_eq!(features, ON_TOP);
+        let mut named: Vec<&str> = FEATURES_ON_TOP.iter().map(|(name, _)| *name).collect();
+        named.sort_unstable();
+        assert_eq!(features, named);
+        let on: Vec<bool> = FEATURES_ON_TOP.iter().map(|(_, on)| *on).collect();
+        assert!(on.iter().all(|&o| o == on[0]), "{FEATURES_ON_TOP:?}");
+    }
+
+    // Each flag of FEATURES_ON_TOP reads its own feature, checked against
+    // the feature itself in each build the tests run in.
+    #[test]
+    fn each_feature_flag_reads_its_own_feature() {
+        let on = |name: &str| {
+            FEATURES_ON_TOP
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, o)| *o)
+        };
+        assert_eq!(on("images"), Some(cfg!(feature = "images")));
+        assert_eq!(on("logind"), Some(cfg!(feature = "logind")));
     }
 
     // ADR-1401 D2: a build that adds features on top of minspec keeps
     // three.
-    #[cfg(any(feature = "images", feature = "logind"))]
+    #[cfg(feature = "images")]
     #[test]
     fn a_build_with_features_keeps_three_buffers() {
         assert_eq!(BUILD_BUFFERS, Buffers::Three);
