@@ -209,6 +209,9 @@ impl Composer {
         while top < area.bottom() {
             let lines_here = int(band).min(area.bottom().saturating_sub(top));
             let bottom = top.saturating_add(lines_here);
+            // the run of cells under one opaque picture being gathered
+            #[cfg(feature = "images")]
+            let mut covered: Option<Cover> = None;
             for job in run {
                 let glyph = glyph(cache, font, text, job);
                 let dx = usize::try_from(job.r.x.saturating_sub(area.x)).unwrap_or(0);
@@ -227,7 +230,7 @@ impl Composer {
                     continue;
                 };
                 #[cfg(feature = "images")]
-                if pictured(
+                match pictured(
                     (pictures, meeting),
                     job,
                     glyph,
@@ -235,7 +238,28 @@ impl Composer {
                     (y0, w, jw),
                     out,
                 ) {
-                    continue;
+                    Pictured::No => {}
+                    Pictured::Drawn => continue,
+                    Pictured::Covered(pic) => {
+                        let cell = Cover {
+                            pic,
+                            x: job.r.x,
+                            end: job.r.x.saturating_add(job.r.w),
+                            y0,
+                            lines: n,
+                            at,
+                        };
+                        covered = match covered {
+                            Some(c) if c.joins(&cell) => Some(Cover { end: cell.end, ..c }),
+                            other => {
+                                if let Some(c) = other {
+                                    c.draw(pictures, scratch, w);
+                                }
+                                Some(cell)
+                            }
+                        };
+                        continue;
+                    }
                 }
                 match glyph {
                     // the common cell, a bitmap glyph on its background
@@ -258,6 +282,10 @@ impl Composer {
                         }
                     }
                 }
+            }
+            #[cfg(feature = "images")]
+            if let Some(c) = covered.take() {
+                c.draw(pictures, scratch, w);
             }
             for (i, y) in (top..bottom).enumerate() {
                 let at = i.saturating_mul(w);
@@ -374,8 +402,56 @@ fn cell_line(
     }
 }
 
+/// What [`pictured`] did with a cell.
+#[cfg(feature = "images")]
+enum Pictured {
+    /// No picture reaches it, or its mark covers them: it draws as any cell.
+    No,
+    /// It is drawn, with its pictures.
+    Drawn,
+    /// It is wholly under the opaque picture `0`, with nothing drawn over
+    /// it: the cell is that picture's pixels, which its run draws.
+    Covered(usize),
+}
+
+/// Cells side by side under one opaque picture, whose every display line
+/// is copied from the picture at once, as the C reference sent such a run
+/// as one request: picture `pic` from display column `x` to `end`, its
+/// `lines` lines from `y0`, the first at `at` in the row scratch.
+#[cfg(feature = "images")]
+#[derive(Clone, Copy)]
+struct Cover {
+    pic: usize,
+    x: i64,
+    end: i64,
+    y0: i64,
+    lines: usize,
+    at: usize,
+}
+
+#[cfg(feature = "images")]
+impl Cover {
+    /// Whether `next` continues this run on the same lines.
+    fn joins(&self, next: &Cover) -> bool {
+        self.pic == next.pic && self.end == next.x && self.y0 == next.y0 && self.lines == next.lines
+    }
+
+    /// The run's lines from its picture, into the row scratch whose lines
+    /// are `w` apart.
+    fn draw(&self, pictures: &mut Pictures, scratch: &mut [u32], w: usize) {
+        let len = usize::try_from(self.end.saturating_sub(self.x)).unwrap_or(0);
+        for k in 0..self.lines {
+            let at = self.at.saturating_add(k.saturating_mul(w));
+            if let Some(line) = scratch.get_mut(at..at.saturating_add(len)) {
+                let y = self.y0.saturating_add(i64::try_from(k).unwrap_or(i64::MAX));
+                pictures.over(self.pic, y, self.x, line);
+            }
+        }
+    }
+}
+
 /// Draws `job`'s lines from `y0` into `out`, lines `w` apart and `jw`
-/// wide, where any of the frame's pictures reach it: whether it did. A
+/// wide, where any of the frame's pictures reach it. A
 /// cell under a block cursor, which covers every picture, draws as any
 /// other cell does; a selected cell is tinted with the selection's color
 /// over its pictures.
@@ -388,14 +464,14 @@ fn pictured(
     (sprites, lines): (&Sprites, &mut Lines),
     (y0, w, jw): (i64, usize, usize),
     out: &mut [u32],
-) -> bool {
+) -> Pictured {
     use vtium_image::Layer;
     if job.under.mark == Mark::Opaque {
-        return false;
+        return Pictured::No;
     }
     pictures.meeting(&job.r, meeting);
     if meeting.is_empty() {
-        return false;
+        return Pictured::No;
     }
     // the last opaque picture over the whole cell hides what lies under it,
     // but for one below backgrounds that the cell's own background hides;
@@ -421,12 +497,7 @@ fn pictured(
             .is_some_and(|p| p.layer() == Layer::AboveText);
         let plain = job.under.mark == Mark::None && !job.under.selected;
         if plain && (hides_text || !job.draws_text(glyph.is_some())) {
-            for (y, line) in (y0..).zip(out.chunks_mut(w.max(1))) {
-                if let Some(line) = line.get_mut(..jw) {
-                    pictures.over(i, y, x0, line);
-                }
-            }
-            return true;
+            return Pictured::Covered(i);
         }
     }
     for (y, line) in (y0..).zip(out.chunks_mut(w.max(1))) {
@@ -474,7 +545,7 @@ fn pictured(
         }
         mark_over(job, glyph, sprites, lines, y, line);
     }
-    true
+    Pictured::Drawn
 }
 
 /// `kind` tinted `c` over the premultiplied line `prem`, across the job's

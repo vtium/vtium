@@ -212,7 +212,13 @@ fn a_picture_at_its_own_size_draws_its_own_pixels_and_nothing_else() {
         }
     }
     // read straight from the image: nothing scaled, nothing kept
-    assert_eq!(counts, PictureCounts::default());
+    assert_eq!(
+        counts,
+        PictureCounts {
+            lines: counts.lines,
+            ..PictureCounts::default()
+        }
+    );
 }
 
 // ADR-1100 D4: from the bottom, the layer below backgrounds, the cell
@@ -1176,4 +1182,33 @@ fn only_the_picture_that_shows_gets_a_scaled_copy() {
         c,
         draw_with(unifont(), &s, top.frame(0), (80, 64), Config::default()).0
     );
+}
+
+// The C reference sent a run of cells under one opaque picture as one
+// request; vtium writes each display line of such a run as one copy
+// covers: image.compositor
+#[test]
+fn a_run_of_cells_under_one_picture_is_written_a_display_line_at_a_time() {
+    // ten blank cells of 8x16 under a sixel that covers the whole row
+    let s = Screen::new(10, 4, rgb("c0c0c0"), rgb("000000"));
+    let mut con = Console::new(10, 4, 0);
+    let img = con.image(Protocol::SIXEL, 0, (80, 16), ramp);
+    con.place(
+        img,
+        Place {
+            col: 0,
+            row: 2,
+            ..Place::default()
+        },
+    );
+    let (c, counts) = draw_with(unifont(), &s, con.frame(0), (80, 64), Config::default());
+    assert_eq!(
+        counts.lines, 16,
+        "one copy for each of the row's 16 display lines"
+    );
+    for y in 32..48 {
+        for x in 0..80 {
+            assert_eq!(c.pixel(x, y), Some(ramp(x, y - 32) & 0xff_ffff));
+        }
+    }
 }

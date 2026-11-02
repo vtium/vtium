@@ -283,6 +283,8 @@ pub(crate) struct Pictures {
     last: BTreeMap<PlacementKey, Drawn>,
     /// A line of a picture scaled for one frame.
     line: Vec<u32>,
+    /// Runs of display pixels drawn, for [`PictureCounts::lines`].
+    lines: u64,
 }
 
 impl Pictures {
@@ -297,6 +299,7 @@ impl Pictures {
             row: 0,
             last: BTreeMap::new(),
             line: Vec::new(),
+            lines: 0,
         }
     }
 
@@ -314,7 +317,10 @@ impl Pictures {
     }
 
     pub(crate) fn counts(&self) -> PictureCounts {
-        self.copies.counts()
+        PictureCounts {
+            lines: self.lines,
+            ..self.copies.counts()
+        }
     }
 
     /// The cells whose pictures changed since the last frame: each cell,
@@ -564,25 +570,37 @@ impl Pictures {
                     .unwrap_or_default()
             }
             How::Direct => {
-                // turned: each display pixel's crop pixel, read where the
-                // turn puts it, with no copy made
+                // turned: the crop's pixels under the display line, read
+                // where the turn puts them, with no copy made. Along a
+                // display line the image index moves by one fixed step: a
+                // quarter turn right walks up a column of the image, a
+                // quarter turn left down one, half a turn back along a row
                 let px = pic.pixels.as_slice();
-                let iw = usize::try_from(pic.key.image_size.0).unwrap_or(0);
-                let (cx, cy) = (pic.key.src.0, pic.key.src.1);
+                let iw = i64::from(pic.key.image_size.0);
+                let (cx, cy) = (i64::from(pic.key.src.0), i64::from(pic.key.src.1));
                 let oy = u32::try_from(dy).unwrap_or(0);
                 let ox = u32::try_from(dx).unwrap_or(0);
+                let (u, v) = scale::uv(self.orientation, pic.key.size, (ox, oy));
+                let step = match self.orientation {
+                    Orientation::Right => iw.saturating_neg(),
+                    Orientation::Left => iw,
+                    Orientation::UpsideDown => -1,
+                    Orientation::Normal => 1,
+                };
+                let first = cy
+                    .saturating_add(i64::from(v))
+                    .saturating_mul(iw)
+                    .saturating_add(cx)
+                    .saturating_add(i64::from(u));
                 self.line.clear();
-                for k in (0u32..).take(n) {
-                    let (u, v) =
-                        scale::uv(self.orientation, pic.key.size, (ox.saturating_add(k), oy));
-                    let i = usize::try_from(cy.saturating_add(v))
-                        .unwrap_or(usize::MAX)
-                        .saturating_mul(iw)
-                        .saturating_add(
-                            usize::try_from(cx.saturating_add(u)).unwrap_or(usize::MAX),
-                        );
-                    self.line.push(px.get(i).copied().unwrap_or(0));
-                }
+                self.line.extend((0..).take(n).map(|k: i64| {
+                    let i = first.saturating_add(k.saturating_mul(step));
+                    usize::try_from(i)
+                        .ok()
+                        .and_then(|i| px.get(i))
+                        .copied()
+                        .unwrap_or(0)
+                }));
                 &self.line
             }
             How::Copy => {
@@ -614,6 +632,7 @@ impl Pictures {
         if src.len() != n {
             return;
         }
+        self.lines = self.lines.saturating_add(1);
         if pic.opaque {
             // a display pixel is 0x00RRGGBB
             for (d, &s) in dst.iter_mut().zip(src) {

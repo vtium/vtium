@@ -45,6 +45,9 @@ pub struct PictureCounts {
     pub uncached: u64,
     /// Copies evicted to make room for another.
     pub evicted: u64,
+    /// Runs of display pixels a picture was drawn in, each one display
+    /// line of one picture across the cells drawn there together.
+    pub lines: u64,
     /// Bytes the kept copies hold.
     pub bytes: u64,
     /// Copies kept.

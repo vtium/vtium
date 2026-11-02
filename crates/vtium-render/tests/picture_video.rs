@@ -19,7 +19,7 @@ use vtium_image::{LineKey, NewImage, Place, Protocol, Rows, Screens, Store};
 use vtium_render::{Canvas, Config, DrawState, Orientation, Renderer};
 use vtium_term::Age;
 
-const FRAMES: usize = 7;
+const FRAMES: usize = 13;
 
 fn median(mut t: Vec<Duration>) -> f64 {
     t.sort();
