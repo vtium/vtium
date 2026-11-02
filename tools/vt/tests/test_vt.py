@@ -57,6 +57,28 @@ if [ "$1" = is-active ]; then
 	case " ${ACTIVE_UNITS-} " in *" $3 "*) exit 0 ;; esac
 	exit 3
 fi
+# show -p Id --value autovt@ttyN.service prints the unit the alias names:
+# N=UNIT in $AUTOVT_IS, else the name itself, as for a unit with no alias.
+if [ "$1" = show ]; then
+	for u; do :; done
+	n=${u#autovt@tty}; n=${n%.service}
+	for e in ${AUTOVT_IS-}; do
+		[ "${e%%=*}" != "$n" ] || { echo "${e#*=}"; exit 0; }
+	done
+	echo "$u"
+	exit 0
+fi
+# Each stop and start appends to $HOLDS whether the caller holds a stand-in
+# VT (a file ttyN among the stand-ins) open at that moment: "stop held" or
+# "start free".
+case $1 in
+stop | start)
+	h=free
+	for f in /proc/$PPID/fd/*; do
+		case $(readlink "$f") in "$VTIUM_VT_STANDINS"/tty[0-9]*) h=held ;; esac
+	done
+	echo "$1 $h" >>"${HOLDS:-/dev/null}" ;;
+esac
 # The verb $FAIL_VERB fails.
 [ "$1" != "${FAIL_VERB-}" ] || exit 1
 # The verbs that read and write unit links run the real systemctl offline,
@@ -147,6 +169,13 @@ read -r line || true
 printf 'read: %s\\n' "$line"
 """
 
+# cat-config systemd/logind.conf prints $LOGIND_CONF: none, by default, so
+# logind's ReserveVT= is its default, 6.
+ANALYZE = "#!/bin/bash\n" + RECORD + """
+[ "$1 $2" = "cat-config systemd/logind.conf" ] || exit 2
+printf '%b' "${LOGIND_CONF-}"
+"""
+
 SUDO = "#!/bin/bash\n" + RECORD + """
 [ "$1" != -v ] || exit "${SUDO_STATUS:-0}"
 exec "$@"
@@ -168,8 +197,18 @@ echo $$ >"$BIN_PID"
 # The run's lock is root's; vtium, and the login and shell it starts, never
 # hold it.
 for f in /proc/$$/fd/*; do
-	case $(readlink "$f") in *vt.lock) echo "vtium inherited the lock" >&2; exit 97 ;; esac
+	case $(readlink "$f") in
+	*vt.lock) echo "vtium inherited the lock" >&2; exit 97 ;;
+	"$VTIUM_VT_STANDINS"/tty[0-9]*) echo "vtium inherited the run's hold on its VT" >&2; exit 97 ;;
+	esac
 done
+# Whether the run that started it holds its VT open: "held" or "free" in
+# $BIN_HOLD.
+h=free
+for f in /proc/$PPID/fd/*; do
+	case $(readlink "$f") in "$VTIUM_VT_STANDINS"/tty[0-9]*) h=held ;; esac
+done
+echo "$h" >"${BIN_HOLD:-/dev/null}"
 printf '%s\\n' "$@" >"$BIN_ARGS"
 printf '%b' "${BIN_LOG:-}"
 case ${BIN_MODE:-exit} in
@@ -277,7 +316,8 @@ class Stage:
         self.standins = os.path.join(tmp, "standins")
         os.mkdir(self.standins)
         for name, text in (("systemctl", SYSTEMCTL), ("loginctl", LOGINCTL), ("setpriv", SETPRIV),
-                           ("getent", GETENT), ("sudo", SUDO), ("cargo", "#!/bin/bash\n" + RECORD),
+                           ("getent", GETENT), ("sudo", SUDO), ("systemd-analyze", ANALYZE),
+                           ("cargo", "#!/bin/bash\n" + RECORD),
                            ("readelf", READELF),
                            ("chvt", FORBIDDEN), ("fgconsole", FORBIDDEN)):
             write(os.path.join(self.standins, name), text)
@@ -297,6 +337,8 @@ class Stage:
         self.calls = os.path.join(tmp, "calls")
         self.bin_args = os.path.join(tmp, "bin-args")
         self.signals = os.path.join(tmp, "signals")
+        self.holds = os.path.join(tmp, "holds")
+        self.bin_hold = os.path.join(tmp, "bin-hold")
 
     def env(self, **extra):
         env = dict(os.environ)
@@ -316,6 +358,8 @@ class Stage:
             BIN_ARGS=self.bin_args,
             BIN_SIGNALS=self.signals,
             BIN_PID=os.path.join(self.tmp, "bin-pid"),
+            HOLDS=self.holds,
+            BIN_HOLD=self.bin_hold,
             ACTIVE_UNITS="kmsconvt@tty8.service",
             REAL_SYSTEMCTL=REAL_SYSTEMCTL or "/nonexistent/systemctl",
             SYSTEMD_ROOT=os.path.join(self.standins, "root"),
@@ -359,8 +403,8 @@ class Stage:
                 if l.split(" ", 1)[0] == name]
 
     def changes(self):
-        """systemctl's calls that change anything: all but is-active and is-enabled."""
-        return [c for c in self.calls_of("systemctl") if not c.startswith(("is-active", "is-enabled"))]
+        """systemctl's calls that change anything: all but is-active, is-enabled and show."""
+        return [c for c in self.calls_of("systemctl") if not c.startswith(("is-active", "is-enabled", "show"))]
 
 
 class Case(unittest.TestCase):
@@ -417,7 +461,7 @@ class RunVt(Case):
                     if os.path.exists(path):
                         os.unlink(path)
                 p = self.run_vt("8", SEQ=seq)
-                self.refused(p, "is on VT 8; pick another VT")
+                self.refused(p, "is on VT 8; log out there, or pick another VT")
                 self.assertEqual(self.s.changes(), [])
                 self.assertFalse(os.path.exists(self.s.bin_args))
 
@@ -444,11 +488,96 @@ class RunVt(Case):
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
 
     def test_the_unit_comes_back_after_a_normal_end(self):
-        p = self.run_vt("8", ACTIVE_UNITS="getty@tty8.service autovt@tty8.service")
+        p = self.run_vt("8", ACTIVE_UNITS="getty@tty8.service")
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertEqual(self.s.changes(), ["stop getty@tty8.service autovt@tty8.service",
-                                            "start getty@tty8.service autovt@tty8.service"])
-        self.assertIn("manual restore: sudo systemctl start getty@tty8.service autovt@tty8.service", p.stdout)
+        self.assertEqual(self.s.changes(), ["stop getty@tty8.service", "start getty@tty8.service"])
+        self.assertIn("manual restore: sudo systemctl start getty@tty8.service", p.stdout)
+
+    def test_autovt_is_stopped_and_started_as_the_unit_it_names(self):
+        # logind's autovt@tty8 is the getty there, or a unit no other name
+        # covers: each is stopped and started once, under its own name.
+        for active, autovt, want in (("getty@tty8.service autovt@tty8.service", "8=getty@tty8.service",
+                                      "getty@tty8.service"),
+                                     ("autovt@tty8.service", "8=console@tty8.service", "console@tty8.service")):
+            with self.subTest(autovt=autovt):
+                open(self.s.calls, "w").close()
+                p = self.run_vt("8", ACTIVE_UNITS=active, AUTOVT_IS=autovt)
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertEqual(self.s.changes(), [f"stop {want}", f"start {want}"])
+                self.assertIn(f"manual restore: sudo systemctl start {want}\n", p.stdout)
+
+    def test_the_development_vt_is_borrowed_and_given_back_as_it_was(self):
+        if not REAL_SYSTEMCTL:
+            self.skipTest("no systemctl: is-enabled reads the links through systemctl --root")
+        VtSh.installed(self, 8)
+        VtSh.enabled(self, "vtium-dev", 8)
+        write(os.path.join(self.s.standins, "root", "usr", "lib", "systemd", "system", "getty@.service"),
+              "[Service]\nExecStart=-/sbin/agetty %I\n", 0o644)
+        dev = {"AUTOVT_IS": "8=vtium-dev@tty8.service"}
+        # vtium-dev runs: it is stopped, and started again after a normal end
+        # and after a crash. The getty its fallback started instead: only the
+        # getty. Nothing runs: nothing is stopped or started.
+        for active, status, want in (("vtium-dev@tty8.service autovt@tty8.service", "0", ["vtium-dev@tty8.service"]),
+                                     ("vtium-dev@tty8.service autovt@tty8.service", "134", ["vtium-dev@tty8.service"]),
+                                     ("getty@tty8.service", "0", ["getty@tty8.service"]),
+                                     ("", "0", [])):
+            with self.subTest(active=active, status=status):
+                open(self.s.calls, "w").close()
+                p = self.run_vt("8", ACTIVE_UNITS=active, BIN_STATUS=status, **dev)
+                self.assertEqual(p.returncode, int(status), p.stdout + p.stderr)
+                self.assertTrue(os.path.exists(self.s.bin_args), "vtium did not run")
+                self.assertEqual(self.s.changes(), [f"{v} {u}" for v in ("stop", "start") for u in want])
+                if want:
+                    self.assertIn(f"manual restore: sudo systemctl start {want[0]}\n", p.stdout)
+                    self.assertIn(f"when the demo ends, {want[0]} is started again on VT 8", p.stdout)
+                else:
+                    self.assertIn("nothing to restore afterwards", p.stdout)
+
+    def test_a_login_inside_the_development_vtium_is_refused(self):
+        VtSh.installed(self, 8)
+        p = self.run_vt("8", SEQ="8", ACTIVE_UNITS="vtium-dev@tty8.service autovt@tty8.service",
+                        AUTOVT_IS="8=vtium-dev@tty8.service")
+        self.refused(p, "is on VT 8; log out there, or pick another VT")
+        self.assertEqual(self.s.changes(), [])
+        self.assertFalse(os.path.exists(self.s.bin_args))
+
+    def test_the_vt_is_held_open_from_the_stop_until_the_units_start_again(self):
+        # logind starts autovt@tty8 at a switch to VT 8 only while nothing
+        # holds the VT open, so the run holds it from the moment its units have
+        # stopped, and lets go before they start again, whose start hangs the
+        # VT up and may give it back to the kernel. vtium does not inherit it.
+        for status in ("0", "134"):
+            with self.subTest(status=status):
+                for f in (self.s.holds, self.s.bin_hold):
+                    open(f, "w").close()
+                p = self.run_vt("8", BIN_STATUS=status)
+                self.assertEqual(p.returncode, int(status), p.stdout + p.stderr)
+                self.assertEqual(read(self.s.holds), "stop free\nstart free\n")
+                self.assertEqual(read(self.s.bin_hold), "held\n")
+        for f in (self.s.calls, self.s.holds):
+            open(f, "w").close()
+        os.unlink(self.s.bin_args)
+        self.interrupted(signal.SIGTERM, 143)
+        self.assertEqual(read(self.s.holds), "stop free\nstart free\n")
+        p = self.run_vt("--dry-run", "8")
+        self.assertIn(f"(run-vt.sh holds {self.s.standins}/tty8 open from here until the units start again,", p.stdout)
+
+    def test_loginds_reserved_vt_is_refused(self):
+        # logind starts autovt@ttyN on its reserved VT at every switch to it,
+        # even while the VT is held open, and that console would take the VT
+        # from the run.
+        why = "VT {0} refused: it is logind's reserved VT (ReserveVT= in logind.conf)"
+        for vt, conf, refused in (("6", "", True), ("6", "[Login]\n#ReserveVT=6\n", True),
+                                  ("6", "[Login]\nReserveVT=0\n", False), ("8", "[Login]\nReserveVT = 8\n", True),
+                                  ("8", "[Login]\nReserveVT=8\n[Login]\nReserveVT=2\n", False)):
+            with self.subTest(vt=vt, conf=conf):
+                open(self.s.calls, "w").close()
+                p = self.run_vt("--dry-run", vt, LOGIND_CONF=conf)
+                if refused:
+                    self.refused(p, why.format(vt))
+                else:
+                    self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertEqual(self.s.changes(), [])
 
     def test_the_unit_comes_back_after_a_crash(self):
         p = self.run_vt("8", BIN_STATUS="134")
@@ -552,14 +681,13 @@ class RunVt(Case):
                 self.refused(self.run_vt("--dry-run", "8", "--", f"--image-storage-limit={size}"),
                              "takes auto or a size up to 4G")
 
-    def test_a_vt_vtium_is_installed_or_running_on_is_refused(self):
-        dev = "make vt-install installed vtium-dev@tty8 there; make vt-uninstall VT=8 frees it"
+    def test_a_vt_the_packaged_vtium_holds_is_refused(self):
         packaged = "the packaged vtium@tty8 holds it; sudo systemctl disable --now vtium@tty8 frees it"
-        for setup, env, why in ((lambda: VtSh.installed(self, 8), {}, dev),
-                                (lambda: None, {"ACTIVE_UNITS": "vtium-dev@tty8.service"}, dev),
-                                (lambda: None, {"ACTIVE_UNITS": "vtium@tty8.service"}, packaged),
+        switched = ("logind starts the packaged vtium@tty8 there when the VT is switched to "
+                    "(autovt@tty8 is vtium@tty8); vtium console status shows what holds each VT")
+        for setup, env, why in ((lambda: None, {"ACTIVE_UNITS": "vtium@tty8.service"}, packaged),
                                 (lambda: VtSh.enabled(self, "vtium", 8), {}, packaged),
-                                (lambda: VtSh.enabled(self, "vtium-dev", 8), {}, dev)):
+                                (lambda: None, {"AUTOVT_IS": "8=vtium@tty8.service"}, switched)):
             with self.subTest(env=env, why=why):
                 shutil.rmtree(os.path.join(self.s.standins, "root"), ignore_errors=True)
                 setup()
@@ -977,20 +1105,24 @@ class VtSh(Case):
         return words[words.index("--") - 1] if "--" in words else None
 
     def test_the_first_free_vt_is_picked(self):
-        for active, seq, want in (("tty7", "-", "5"), ("tty5", "-", "6"), ("tty5", "6", "4"),
-                                  ("tty7", "5,6,4", "3"), ("tty3", "5,6,4", "2"), ("tty1", "2,7", "5")):
-            with self.subTest(active=active, seq=seq):
+        # VT 6 is logind's reserved VT by default, which no run takes.
+        for active, seq, conf, want in (("tty7", "-", "", "5"), ("tty5", "-", "", "4"),
+                                        ("tty5", "-", "[Login]\nReserveVT=0\n", "6"), ("tty5", "6", "", "4"),
+                                        ("tty7", "5,6,4", "", "3"), ("tty3", "5,6,4", "", "2"),
+                                        ("tty1", "2,7", "", "5")):
+            with self.subTest(active=active, seq=seq, conf=conf):
                 self.s.active(active)
                 if os.path.exists(os.path.join(self.s.tmp, "count")):
                     os.unlink(os.path.join(self.s.tmp, "count"))
-                p = self.vt_sh(VTIUM_VT_DRY_RUN="1", SEQ=seq)
+                p = self.vt_sh(VTIUM_VT_DRY_RUN="1", SEQ=seq, LOGIND_CONF=conf)
                 self.assertEqual(self.picked(p), want, p.stdout + p.stderr)
 
     def test_every_vt_busy_names_each_and_why(self):
         self.s.active("tty5")
         p = self.vt_sh(VTIUM_VT_DRY_RUN="1", SEQ="6,4,3,2")
         self.refused(p, "no free VT")
-        for want in ["VT 5: it is on screen"] + [f"VT {v}: logind session c{v}_active" for v in (6, 4, 3, 2)]:
+        for want in ["VT 5: it is on screen", "VT 6: it is logind's reserved VT"] + \
+                [f"VT {v}: logind session c{v}_active" for v in (4, 3, 2)]:
             self.assertIn(want, p.stderr)
 
     def installed(self, vt):
@@ -1012,12 +1144,45 @@ class VtSh(Case):
               "[Service]\nExecStart=/usr/bin/vtium --vt=%I\n\n[Install]\nWantedBy=getty.target\n", 0o644)
         os.symlink(f"/usr/lib/systemd/system/{name}@.service", os.path.join(wants, f"{name}@tty{vt}.service"))
 
-    def test_a_vt_vtium_is_installed_on_is_never_borrowed(self):
-        self.installed(5)
+    def test_the_development_vt_is_picked(self):
+        if not REAL_SYSTEMCTL:
+            self.skipTest("no systemctl: is-enabled reads the links through systemctl --root")
+        # The development VT is the one with a manifest of make vt-install's
+        # whose vtium-dev@ttyN is enabled; with only one of the two, the run
+        # takes the first free VT.
+        self.installed(3)
         p = self.vt_sh(VTIUM_VT_DRY_RUN="1")
-        self.assertEqual(self.picked(p), "6", p.stdout + p.stderr)
-        self.refused(self.vt_sh(VTIUM_VT_NR="5"),
-                     "VT 5 refused: make vt-install installed vtium-dev@tty5 there; make vt-uninstall VT=5 frees it")
+        self.assertEqual(self.picked(p), "5", p.stdout + p.stderr)
+        shutil.rmtree(os.path.join(self.s.standins, "root"))
+        self.enabled("vtium-dev", 3)
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(self.picked(p), "5", p.stdout + p.stderr)
+        self.installed(3)
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", ACTIVE_UNITS="vtium-dev@tty3.service autovt@tty3.service",
+                       AUTOVT_IS="3=vtium-dev@tty3.service")
+        self.assertEqual(self.picked(p), "3", p.stdout + p.stderr)
+        self.assertIn("vt: VT 3 is the development VT (make vt-install VT=3); the run borrows it and gives it "
+                      "back as it found it", p.stdout)
+        self.assertIn(" stop vtium-dev@tty3.service", p.stdout)
+        self.assertIn(" start vtium-dev@tty3.service", p.stdout)
+        # VT= still names another; two development VTs: the first.
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", VTIUM_VT_NR="4")
+        self.assertEqual(self.picked(p), "4", p.stdout + p.stderr)
+        self.installed(2)
+        self.enabled("vtium-dev", 2)
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(self.picked(p), "2", p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        self.assertEqual(self.s.changes(), [])
+
+    def test_a_development_vt_with_a_login_is_refused(self):
+        if not REAL_SYSTEMCTL:
+            self.skipTest("no systemctl: is-enabled reads the links through systemctl --root")
+        self.installed(3)
+        self.enabled("vtium-dev", 3)
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", SEQ="3")
+        self.refused(p, "the development VT 3 is refused: logind session c3_active (tester tty) is on it; "
+                        "log out there, or name another VT with VT=N")
         self.assertEqual(self.s.calls_of("sudo"), [])
 
     def test_a_vt_the_packaged_vtium_holds_is_never_borrowed(self):
@@ -1025,17 +1190,26 @@ class VtSh(Case):
             self.skipTest("no systemctl: is-enabled reads the links through systemctl --root")
         why = "VT 5 refused: the packaged vtium@tty5 holds it; sudo systemctl disable --now vtium@tty5 frees it"
         # Enabled, it holds the VT at the VT's next start; running, it holds
-        # it now.
+        # it now; named by autovt@tty5, logind starts it at a switch to VT 5.
         self.enabled("vtium", 5)
         p = self.vt_sh(VTIUM_VT_DRY_RUN="1")
-        self.assertEqual(self.picked(p), "6", p.stdout + p.stderr)
+        self.assertEqual(self.picked(p), "4", p.stdout + p.stderr)
         self.refused(self.vt_sh(VTIUM_VT_NR="5"), why)
         shutil.rmtree(os.path.join(self.s.standins, "root"))
         p = self.vt_sh(VTIUM_VT_DRY_RUN="1", ACTIVE_UNITS="vtium@tty5.service")
-        self.assertEqual(self.picked(p), "6", p.stdout + p.stderr)
+        self.assertEqual(self.picked(p), "4", p.stdout + p.stderr)
         self.refused(self.vt_sh(VTIUM_VT_NR="5", ACTIVE_UNITS="vtium@tty5.service"), why)
-        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", ACTIVE_UNITS="vtium-dev@tty5.service")
-        self.assertEqual(self.picked(p), "6", p.stdout + p.stderr)
+        switched = {"AUTOVT_IS": "5=vtium@tty5.service 4=vtium@tty4.service 3=vtium-dev@tty3.service"}
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", **switched)
+        self.assertEqual(self.picked(p), "3", p.stdout + p.stderr)
+        self.refused(self.vt_sh(VTIUM_VT_NR="5", **switched),
+                     "VT 5 refused: logind starts the packaged vtium@tty5 there when the VT is switched to "
+                     "(autovt@tty5 is vtium@tty5); vtium console status shows what holds each VT")
+        # Every VT the packaged vtium's: no free VT, each named.
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", AUTOVT_IS=" ".join(f"{v}=vtium@tty{v}.service" for v in (2, 3, 4, 5)))
+        self.refused(p, "no free VT")
+        for v in (2, 3, 4, 5):
+            self.assertIn(f"VT {v}: logind starts the packaged vtium@tty{v} there", p.stderr)
         self.assertEqual(self.s.calls_of("sudo"), [])
 
     def test_vt_given_is_refused_when_busy(self):
@@ -1180,8 +1354,8 @@ class VtSh(Case):
         answers = os.path.join(self.s.tmp, "answers")
         write(answers, "\n\ny" "all drawn\n" "\necho hello vtium\nexit\n" "n\n" "\n", 0o644)
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-check", "GUIDE=start",
-                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=6"],
-                           env=self.s.env(BIN_MODE="session", BIN_STDIN=answers, ACTIVE_UNITS="getty@tty6.service"),
+                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=4"],
+                           env=self.s.env(BIN_MODE="session", BIN_STDIN=answers, ACTIVE_UNITS="getty@tty4.service"),
                            capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         log = read(os.path.join(self.s.dir, "vt-check.log"))
@@ -1191,7 +1365,7 @@ class VtSh(Case):
         # The caller prints what the run added, and where the log is.
         self.assertIn("  answer: yes  note: all drawn", p.stdout)
         self.assertIn("results: " + os.path.join(self.s.dir, "vt-check.log"), p.stdout)
-        self.assertEqual(self.s.changes(), ["stop getty@tty6.service", "start getty@tty6.service"])
+        self.assertEqual(self.s.changes(), ["stop getty@tty4.service", "start getty@tty4.service"])
 
     def test_the_demo_runs_and_its_answers_reach_the_caller(self):
         # demo.sh reads its keys from the terminal make runs in.
@@ -1220,12 +1394,12 @@ class VtSh(Case):
         self.s.locale("LANG=de_DE.UTF-8\n")
         self.s.runtime_dir_path = self.s.runtime_dir()
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-shell", f"VTIUM_BIN={self.s.bin}",
-                            f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=6"],
+                            f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=4"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell,
-                                          ACTIVE_UNITS="getty@tty6.service"),
+                                          ACTIVE_UNITS="getty@tty4.service"),
                            capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        log = os.path.join(self.s.dir, "vt-") + r"[0-9T]+-tty6-\w{6}"
+        log = os.path.join(self.s.dir, "vt-") + r"[0-9T]+-tty4-\w{6}"
         self.assertRegex(p.stdout, r"health: 0 'panicked at' lines in vtium's log\n"
                                    f"vtium log: {log}\\.log\ntranscript: {log}\\.transcript\n")
         transcript = p.stdout.split("transcript: ")[1].split("\n")[0]
@@ -1242,7 +1416,7 @@ class VtSh(Case):
         # checkout, as the package ships it.
         self.assertIn("terminfo: xterm-vtium\n", text)
         self.assertEqual(self.s.calls_of("sudo")[0], "-v")
-        self.assertEqual(self.s.changes(), ["stop getty@tty6.service", "start getty@tty6.service"])
+        self.assertEqual(self.s.changes(), ["stop getty@tty4.service", "start getty@tty4.service"])
 
 
 class Make(Case):

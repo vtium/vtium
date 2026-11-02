@@ -43,10 +43,18 @@ vt_sessions() {
 # touches.
 vt_install_state=/var/lib/vtium-dev-install
 
-# vt_installed ROOT N: whether make vt-install holds VT N, which its manifest
-# under ROOT (empty for the machine itself) says.
-vt_installed() {
-	[ -f "$1$vt_install_state/tty$2" ]
+# vt_dev_vts SYSTEMCTL ROOT: the development VTs, one number a line, lowest
+# first. A development VT has a manifest of make vt-install's under ROOT
+# (empty for the machine itself), and its vtium-dev@ttyN is enabled. The
+# review runs borrow the first one when no VT is named.
+vt_dev_vts() {
+	local m n
+	for m in "$2$vt_install_state"/tty*; do
+		[ -f "$m" ] || continue
+		n=${m##*/tty}
+		[[ $n =~ ^[1-9][0-9]*$ ]] || continue
+		[ "$("$1" is-enabled "vtium-dev@tty$n.service" 2>/dev/null)" != enabled ] || echo "$n"
+	done | sort -n
 }
 
 # vt_unit_held SYSTEMCTL UNIT: whether UNIT runs or is enabled, so that it
@@ -61,15 +69,34 @@ vt_packaged() {
 		echo "the packaged vtium@tty$2 holds it; sudo systemctl disable --now vtium@tty$2 frees it"
 }
 
-# vt_held SYSTEMCTL ROOT N: why an installed vtium holds VT N, the
-# development install or the packaged one, or nothing when neither does. A
-# review run never borrows such a VT: it is the maintainer's everyday
-# console, which a review run would stop, and a start limit or a failed
-# restore would leave without one.
-vt_held() {
-	if vt_installed "$2" "$3" || vt_unit_held "$1" "vtium-dev@tty$3.service"; then
-		echo "make vt-install installed vtium-dev@tty$3 there; make vt-uninstall VT=$3 frees it"
-	else
-		vt_packaged "$1" "$3"
+# vt_borrowable SYSTEMCTL ANALYZE N: why a review run cannot borrow VT N, or
+# nothing when it can. The packaged vtium's VT is the maintainer's everyday
+# console: a review run would stop it, and a start limit or a failed restore
+# would leave it without one. That covers a VT where logind starts the
+# packaged vtium at a switch, which vtium console enable --all gives every VT
+# without a link of its own. A review run cannot keep logind's reserved VT
+# either: logind starts autovt@ttyN there at every switch to it, even while
+# the run holds the VT, and that console takes the VT from the run's vtium.
+# The development VT, vtium-dev@ttyN, is borrowed: run-vt.sh stops it and
+# starts it again.
+vt_borrowable() {
+	local why
+	why=$(vt_packaged "$1" "$3")
+	if [ -z "$why" ] && [ "$("$1" show -p Id --value "autovt@tty$3.service" 2>/dev/null)" = "vtium@tty$3.service" ]; then
+		why="logind starts the packaged vtium@tty$3 there when the VT is switched to (autovt@tty$3 is vtium@tty$3); vtium console status shows what holds each VT"
 	fi
+	if [ -z "$why" ] && [ "$3" = "$(vt_reserved "$2")" ]; then
+		why="it is logind's reserved VT (ReserveVT= in logind.conf), where logind starts a console at every switch, even during a run"
+	fi
+	[ -z "$why" ] || echo "$why"
+}
+
+# vt_reserved ANALYZE: logind's reserved VT, the last ReserveVT= among
+# logind.conf and its drop-ins, as systemd-analyze cat-config prints them; 0
+# is none. logind's default, 6, when none sets it or the files cannot be read.
+vt_reserved() {
+	local v
+	v=$("$1" cat-config systemd/logind.conf 2>/dev/null |
+		sed -n 's/^[[:space:]]*ReserveVT[[:space:]]*=[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' | tail -n 1) || v=
+	echo "${v:-6}"
 }
