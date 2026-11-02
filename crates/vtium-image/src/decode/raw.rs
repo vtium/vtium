@@ -142,6 +142,8 @@ mod tests {
         assert_eq!(premultiply(0xff, 0xff, 0xff, 0x80), 0x8080_8080);
         // (0x80 × 0x80 + 127) / 255 = 64.75, down to 0x40
         assert_eq!(premultiply(0x80, 0x80, 0x80, 0x80), 0x8040_4040);
+        // 3 x 0x80 / 255 is 1.5: 2 rounded, where truncation gives 1
+        assert_eq!(premultiply(3, 3, 3, 0x80), 0x8002_0202);
         assert_eq!(premultiply(0xff, 0xff, 0xff, 0), 0);
     }
 

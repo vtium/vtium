@@ -308,7 +308,9 @@ impl Kitty {
             self.target = Target::Upload;
             return;
         }
-        // any other graphics command ends the pending upload (spec)
+        // any other graphics command ends the pending upload: the spec asks
+        // it of a delete, and vtium, as the C reference did, asks it of
+        // every command that does not continue the upload
         abort(&mut self.upload.mode, ctx);
         if !cmd.transmits() {
             return;

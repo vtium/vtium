@@ -827,3 +827,19 @@ fn point_deletes_take_kitty_placements_and_leave_a_sixel_beside_them() {
     // the puts are answered, and no delete is
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\".repeat(3));
 }
+
+#[test]
+fn a_cancelled_string_whose_keys_passed_1_kib_still_ends_an_upload() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=2,v=2,i=1,m=1;{}", red(1)));
+    assert_eq!(h.store.bytes(), 16 + IMAGE_OVERHEAD);
+    // a string whose key section passes 1 KiB, cut off by CAN or SUB
+    k.start(&mut h, Intro::String);
+    k.feed(&mut h, Chunk::Bytes(",N=0".repeat(300).as_bytes()));
+    k.cancel(&mut h);
+    assert_eq!(h.store.bytes(), 0, "the upload gave its reservation back");
+    // its last chunk is no continuation now, and is refused unanswered
+    send(&mut k, &mut h, &format!("m=0;{}", red(3)));
+    assert_eq!(h.take(), "");
+    assert!(h.store.is_empty());
+}
