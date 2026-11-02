@@ -1,0 +1,706 @@
+//! The image helper's host (ADR-1101): it starts `vtium-image` as the
+//! session's user, sends it one request at a time, checks each reply
+//! before it reads a pixel, and bounds both the helper's time and its
+//! crashes.
+//!
+//! Each console has one [`ImageHost`]. The binary hands it each request
+//! the terminal makes, with the console's [`Session`]: [`ImageHost::send`]
+//! either answers at once, without a helper, or sends the request and
+//! returns. While the request is out, the binary pauses the console's
+//! pty, watches [`ImageHost::socket`] for input and wakes at
+//! [`ImageHost::deadline`], a calloop timer's deadline;
+//! [`ImageHost::readable`] and
+//! [`ImageHost::expired`] give the reply, which the binary hands back to
+//! the terminal before it resumes the pty. The deadline is the one place
+//! time enters: a request not answered in [`IMAGE_REPLY_MS`] fails and
+//! the helper is killed.
+//!
+//! - **Whose account.** [`identity`] finds the session's user again
+//!   before each request, and a running helper whose account differs is
+//!   stopped.
+//! - **The start.** [`Program`] is the program, opened once and checked;
+//!   each helper starts from it as `start.rs` describes.
+//! - **The reply.** Every packet is checked in the C reference's order:
+//!   a request out, the exact length, the version, id and status, the
+//!   bytes ignored, the one descriptor of a picture, a regular file whose
+//!   seals hold before its size is read, the exact size. Then the console
+//!   copies the pixels once into memory only it holds: out of a read-only
+//!   mapping of a sealed file, or with `pread` from a pooled one.
+//! - **Failures.** The deadline passing, the socket closing or failing,
+//!   or a reply that fails a check ends the request with
+//!   [`Reply::Failed`], kills the helper's process group and reaps it. All
+//!   but the deadline count as crashes, and after [`IMAGE_CRASHES_MAX`] the
+//!   console starts no more helpers until its session ends.
+
+mod identity;
+#[cfg(feature = "logind")]
+mod login;
+mod start;
+#[cfg(test)]
+mod tests;
+
+use std::io::IoSliceMut;
+use std::mem::MaybeUninit;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+use rustix::fs::{FileType, SealFlags};
+use rustix::net::{
+    RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags, SendAncillaryBuffer,
+    SendAncillaryMessage, SendFlags,
+};
+use vtium_image::decode::wire::{self, Hello, REASON_MAX, REPLY_FIXED, ReplyHeader, Status};
+use vtium_image::decode::{Medium, Payload, Reply, Request};
+
+pub use identity::{
+    Account, Facts, LOGIN_CLASSES, LoginSession, Me, PRELOGIN_ACCOUNTS, Prelogin, Refusal, Session,
+    System, holds_group_zero, resolve,
+};
+pub use start::{PROGRAM, Program, memory_cap, open_program};
+
+use crate::bounds::{IMAGE_CRASHES_MAX, IMAGE_REPLY_MS};
+use start::Started;
+
+/// The most descriptors a reply is read with, so every one a helper sends
+/// is received and closed, and one too many is seen.
+const REPLY_FDS: usize = 8;
+
+/// Each of these is logged once a boot.
+static NO_SECCOMP: AtomicBool = AtomicBool::new(false);
+static NO_LANDLOCK: AtomicBool = AtomicBool::new(false);
+
+/// A running helper and what it was started for.
+#[derive(Debug)]
+struct Running {
+    started: Started,
+    account: Account,
+    /// Its memory cap was set from this.
+    max_bytes: u64,
+    /// Its hello, once it has arrived.
+    hello: Option<Hello>,
+}
+
+/// The request out.
+#[derive(Debug)]
+struct Out {
+    id: u64,
+    /// The request, its inline bytes dropped.
+    request: Request,
+    deadline: Instant,
+}
+
+/// One console's image helper host.
+pub struct ImageHost {
+    program: Option<Program>,
+    tmpdir: Option<PathBuf>,
+    facts: Box<dyn Facts>,
+    prelogin: Prelogin,
+    running: Option<Running>,
+    out: Option<Out>,
+    crashes: usize,
+    next_id: u64,
+    /// The last disagreement between the pty's owner and logind logged.
+    disagreement: Option<(u32, u32)>,
+}
+
+impl std::fmt::Debug for ImageHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageHost")
+            .field("program", &self.program)
+            .field("running", &self.running)
+            .field("out", &self.out)
+            .field("crashes", &self.crashes)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ImageHost {
+    /// A host that starts helpers from `program`, or answers every request
+    /// as ADR-1100 D7's "Without a helper" says when there is none; a
+    /// temporary file may also lie in `tmpdir`, vtium's own `TMPDIR`.
+    pub fn new(program: Option<Program>, tmpdir: Option<PathBuf>) -> Self {
+        Self::with_facts(program, tmpdir, Box::new(System))
+    }
+
+    /// [`ImageHost::new`] reading the system through `facts`.
+    pub fn with_facts(
+        program: Option<Program>,
+        tmpdir: Option<PathBuf>,
+        facts: Box<dyn Facts>,
+    ) -> Self {
+        Self {
+            program,
+            tmpdir,
+            facts,
+            prelogin: Prelogin::default(),
+            running: None,
+            out: None,
+            crashes: 0,
+            next_id: 1,
+            disagreement: None,
+        }
+    }
+
+    /// Whether this console can start a helper: it has a program and has
+    /// not reached the crash limit. While it cannot, the binary tells the
+    /// terminal there is no helper, so the kitty handler answers itself.
+    pub fn available(&self) -> bool {
+        self.program.is_some() && self.crashes < IMAGE_CRASHES_MAX
+    }
+
+    /// Crashes this console's session has counted.
+    pub fn crashes(&self) -> usize {
+        self.crashes
+    }
+
+    /// Whether a request is out.
+    pub fn busy(&self) -> bool {
+        self.out.is_some()
+    }
+
+    /// The running helper's pid, while one runs.
+    pub fn pid(&self) -> Option<u32> {
+        self.running
+            .as_ref()
+            .and_then(|r| u32::try_from(r.started.pid.as_raw_nonzero().get()).ok())
+    }
+
+    /// The running helper's hello, once it has arrived: the landlock
+    /// version its kernel offers and whether its seccomp filter is in
+    /// force.
+    pub fn hello(&self) -> Option<Hello> {
+        self.running.as_ref().and_then(|r| r.hello)
+    }
+
+    /// The socket to watch for input while a request is out.
+    pub fn socket(&self) -> Option<BorrowedFd<'_>> {
+        self.out.as_ref()?;
+        self.running.as_ref().map(|r| r.started.socket.as_fd())
+    }
+
+    /// When the request out fails unanswered.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.out.as_ref().map(|o| o.deadline)
+    }
+
+    /// Sends `request` for the console whose session is `session`; `Err`
+    /// holds the reply when it is answered at once: with no helper, past
+    /// the crash limit, with no account that may read it, or when the
+    /// helper cannot be started or sent the request. The request's
+    /// deadline starts now.
+    pub fn send(&mut self, request: &Request, session: &Session) -> Result<(), Reply> {
+        if self.out.is_some() {
+            return Err(Reply::Failed);
+        }
+        if !self.available() {
+            return Err(without_helper(request));
+        }
+        // more bytes needed than the budget is answered without the helper,
+        // which would exit on it, as the C reference did
+        if !request.discard && request.min > request.largest_bytes {
+            return Err(Reply::OverBudget);
+        }
+        let file = !matches!(request.medium, Medium::Direct(_));
+        let (account, disagree) = resolve(&*self.facts, &mut self.prelogin, session, file);
+        if let Some(pair) = disagree.filter(|&p| self.disagreement != Some(p)) {
+            self.disagreement = Some(pair);
+            log::warn!(
+                "the pty belongs to uid {}, but logind's session is uid {}'s; the image helper runs as {}",
+                pair.0,
+                pair.1,
+                pair.1
+            );
+        }
+        let account = account.map_err(|why| {
+            log::debug!("an image request refused: {why:?}");
+            Reply::Unreadable
+        })?;
+        self.ensure(&account, request.largest_bytes)?;
+        let id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1).max(1);
+        let packet = wire::encode_request(id, request).map_err(|why| {
+            log::warn!("an image request vtium would not send: {why}");
+            Reply::Failed
+        })?;
+        let inline = match &request.medium {
+            Medium::Direct(bytes) => Some(inline_file(bytes).map_err(|e| {
+                log::warn!("cannot hand inline bytes to the image helper: {e}");
+                Reply::Unreadable
+            })?),
+            _ => None,
+        };
+        let Some(running) = &self.running else {
+            return Err(Reply::Unreadable);
+        };
+        if let Err(e) = send_packet(&running.started.socket, &packet, inline.as_ref()) {
+            log::warn!("cannot send image request {id}: {e}");
+            self.stop();
+            return Err(Reply::Unreadable);
+        }
+        let mut kept = request.clone();
+        if let Medium::Direct(bytes) = &mut kept.medium {
+            *bytes = Vec::new();
+        }
+        let ms = u64::try_from(IMAGE_REPLY_MS).unwrap_or(u64::MAX);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the request's deadline, where time enters the image helper's host"
+        )]
+        let now = Instant::now();
+        self.out = Some(Out {
+            id,
+            request: kept,
+            deadline: now.checked_add(Duration::from_millis(ms)).unwrap_or(now),
+        });
+        Ok(())
+    }
+
+    /// A helper running as `account` for requests of up to `max_bytes`:
+    /// the one running, unless its account differs, its cap was set from
+    /// fewer bytes or it has exited, else a new one.
+    fn ensure(&mut self, account: &Account, max_bytes: u64) -> Result<(), Reply> {
+        let stale = self.running.as_ref().is_some_and(|r| {
+            r.account != *account || max_bytes > r.max_bytes || start::reap(&r.started, false)
+        });
+        if stale {
+            self.stop();
+        }
+        if self.running.is_some() {
+            return Ok(());
+        }
+        let program = self.program.as_ref().ok_or(Reply::Unreadable)?;
+        let started =
+            start::start(program, account, max_bytes, self.tmpdir.as_deref()).map_err(|why| {
+                log::warn!("{why}");
+                Reply::Unreadable
+            })?;
+        log::debug!(
+            "image helper {} started as uid {}",
+            started.pid.as_raw_nonzero(),
+            account.uid
+        );
+        self.running = Some(Running {
+            started,
+            account: account.clone(),
+            max_bytes,
+            hello: None,
+        });
+        Ok(())
+    }
+
+    /// Kills the helper's process group and reaps the helper.
+    fn stop(&mut self) {
+        if let Some(r) = self.running.take() {
+            start::kill_group(&r.started);
+            if !start::reap(&r.started, false) {
+                // a process killed is gone in a moment; this thread waits
+                // for it so no zombie stays behind
+                std::thread::spawn(move || start::reap(&r.started, true));
+            }
+        }
+    }
+
+    /// The request out fails with `why`: the helper is stopped and the
+    /// crash counted.
+    fn crash(&mut self, why: &str) -> Reply {
+        log::warn!("image helper: {why}; stopping it");
+        self.stop();
+        self.out = None;
+        self.crashes = self.crashes.saturating_add(1);
+        if self.crashes == IMAGE_CRASHES_MAX {
+            log::warn!(
+                "the image helper crashed {IMAGE_CRASHES_MAX} times on this console; it starts no more until the console's session ends"
+            );
+        }
+        Reply::Failed
+    }
+
+    /// The deadline has passed: the request fails and the helper is
+    /// stopped, with no crash counted, since a large picture on a slow
+    /// board can take that long honestly. `None` before the deadline.
+    pub fn expired(&mut self) -> Option<Reply> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the request's deadline, where time enters the image helper's host"
+        )]
+        self.expired_at(Instant::now())
+    }
+
+    /// [`ImageHost::expired`] at `now`.
+    pub(crate) fn expired_at(&mut self, now: Instant) -> Option<Reply> {
+        let out = self.out.as_ref()?;
+        if now < out.deadline {
+            return None;
+        }
+        log::warn!(
+            "image request {} had no reply in time; stopping the helper",
+            out.id
+        );
+        self.out = None;
+        self.stop();
+        Some(Reply::Failed)
+    }
+
+    /// The console's session has ended: the request out is dropped with no
+    /// reply, the helper stopped, and the crash count cleared.
+    pub fn session_ended(&mut self) {
+        self.out = None;
+        self.stop();
+        self.crashes = 0;
+        self.disagreement = None;
+    }
+
+    /// The socket has input: the reply to the request out once it has
+    /// arrived and passed every check, or [`Reply::Failed`] when it has
+    /// not; `None` while there is nothing more to read.
+    pub fn readable(&mut self) -> Option<Reply> {
+        loop {
+            let running = self.running.as_ref()?;
+            let packet = match receive(&running.started.socket) {
+                Ok(Some(p)) => p,
+                Ok(None) => return None,
+                Err(why) => {
+                    if self.out.is_none() && why == Broken::Closed {
+                        // a helper that idled out with nothing asked of it
+                        self.stop();
+                        return None;
+                    }
+                    return Some(self.crash(why.text()));
+                }
+            };
+            if running.hello.is_none() {
+                match wire::decode_hello(&packet.bytes) {
+                    Ok(hello) if packet.fds.is_empty() => {
+                        note(&hello);
+                        if let Some(r) = self.running.as_mut() {
+                            r.hello = Some(hello);
+                        }
+                        continue;
+                    }
+                    _ => return Some(self.crash("its first packet is no hello")),
+                }
+            }
+            return Some(match self.check(packet) {
+                Ok(reply) => {
+                    self.out = None;
+                    reply
+                }
+                Err(why) => self.crash(why),
+            });
+        }
+    }
+
+    /// One reply packet checked against the request out, before any byte
+    /// of a picture is read, and its pixels copied.
+    fn check(&mut self, mut packet: Packet) -> Result<Reply, &'static str> {
+        let out = self.out.as_ref().ok_or("a reply with no request out")?;
+        let header = wire::decode_reply(&packet.bytes).map_err(|m| m.0)?;
+        let request = &out.request;
+        if header.ignored != 0
+            && (header.status != Status::Ok
+                || request.discard
+                || (request.max != 0 && u64::from(header.ignored) > request.max))
+        {
+            return Err("a reply whose ignored count is out of bounds");
+        }
+        if header.id != out.id {
+            return Err("a reply to another request");
+        }
+        let picture = header.status == Status::Ok && !request.discard;
+        if packet.fds.len() != usize::from(picture) {
+            return Err(if picture {
+                "a reply without exactly one descriptor"
+            } else {
+                "a reply with a descriptor it should not carry"
+            });
+        }
+        log_reason(out.id, &header);
+        if let Some(failure) = header.status.failure() {
+            return Ok(failure);
+        }
+        if request.discard {
+            return Ok(Reply::Ok(Payload::Discarded));
+        }
+        let fd = packet
+            .fds
+            .pop()
+            .ok_or("a reply without exactly one descriptor")?;
+        let data = pixels(&fd, &header, request)?;
+        if header.ignored != 0 {
+            log::debug!(
+                "image request {}, t={}: {} bytes past what was used ignored",
+                out.id,
+                request.medium.letter(),
+                header.ignored
+            );
+        }
+        Ok(Reply::Ok(Payload::Rgba {
+            width: header.width,
+            height: header.height,
+            data,
+        }))
+    }
+}
+
+impl Drop for ImageHost {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// The answer to `request` with no helper (ADR-1100 D7): file media are
+/// unreadable, which the kitty handler answers EBADF; PNG and zlib do not
+/// decode, which it answers EINVAL.
+pub fn without_helper(request: &Request) -> Reply {
+    match request.medium {
+        Medium::Direct(_) => Reply::Corrupt,
+        _ => Reply::Unreadable,
+    }
+}
+
+/// Logs once a boot what the helper's hello says it lacks.
+fn note(hello: &Hello) {
+    if !hello.seccomp && !NO_SECCOMP.swap(true, Ordering::Relaxed) {
+        log::warn!("the image helper runs without its seccomp filter on this architecture");
+    }
+    if hello.landlock == 0 && !NO_LANDLOCK.swap(true, Ordering::Relaxed) {
+        log::warn!("the kernel offers no landlock, so the image helper's workers run without it");
+    }
+}
+
+/// The helper's reason, every byte outside printable ASCII as `?`, at
+/// debug level: a program can make a failure on every command.
+fn log_reason(id: u64, header: &ReplyHeader) {
+    if header.reason.is_empty() {
+        return;
+    }
+    let text: String = header
+        .reason
+        .iter()
+        .map(|&b| {
+            if (0x20..=0x7e).contains(&b) {
+                char::from(b)
+            } else {
+                '?'
+            }
+        })
+        .collect();
+    log::debug!("image request {id}: {:?}: {text}", header.status);
+}
+
+/// The inline bytes in a memory file sealed against shrinking, growing,
+/// writing and further seals, which the helper reads.
+fn inline_file(bytes: &[u8]) -> std::io::Result<OwnedFd> {
+    use rustix::fs::MemfdFlags;
+    let flags = MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING;
+    let fd = match rustix::fs::memfd_create("vtium-image-data", flags | MemfdFlags::NOEXEC_SEAL) {
+        Err(rustix::io::Errno::INVAL) => rustix::fs::memfd_create("vtium-image-data", flags)?,
+        other => other?,
+    };
+    let mut done = 0usize;
+    while done < bytes.len() {
+        match rustix::io::write(&fd, bytes.get(done..).unwrap_or_default()) {
+            Ok(0) => return Err(std::io::Error::other("no space for the inline bytes")),
+            Ok(n) => done = done.saturating_add(n),
+            Err(rustix::io::Errno::INTR) => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    rustix::fs::fcntl_add_seals(
+        &fd,
+        SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL,
+    )?;
+    Ok(fd)
+}
+
+fn send_packet(socket: impl AsFd, packet: &[u8], fd: Option<&OwnedFd>) -> std::io::Result<()> {
+    let mut space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
+    let mut control = SendAncillaryBuffer::new(&mut space);
+    let fds: Vec<BorrowedFd<'_>> = fd.iter().map(|f| f.as_fd()).collect();
+    if !fds.is_empty() && !control.push(SendAncillaryMessage::ScmRights(&fds)) {
+        return Err(std::io::Error::other("no room for the descriptor"));
+    }
+    let sent = rustix::net::sendmsg(
+        socket,
+        &[std::io::IoSlice::new(packet)],
+        &mut control,
+        SendFlags::NOSIGNAL | SendFlags::DONTWAIT,
+    )?;
+    if sent != packet.len() {
+        return Err(std::io::Error::other("the request was sent in part"));
+    }
+    Ok(())
+}
+
+/// One packet from the helper, its descriptors already close-on-exec.
+#[derive(Debug)]
+struct Packet {
+    bytes: Vec<u8>,
+    fds: Vec<OwnedFd>,
+}
+
+/// Why no packet could be read.
+#[derive(Debug, PartialEq, Eq)]
+enum Broken {
+    Closed,
+    Failed,
+    Truncated,
+    Foreign,
+}
+
+impl Broken {
+    fn text(&self) -> &'static str {
+        match self {
+            Self::Closed => "it closed its socket",
+            Self::Failed => "its socket failed",
+            Self::Truncated => "a truncated reply",
+            Self::Foreign => "a reply with a control message other than descriptors",
+        }
+    }
+}
+
+/// The next packet, `None` while none is waiting. Every descriptor that
+/// arrives is received, so any it should not carry is closed with it.
+fn receive(socket: impl AsFd) -> Result<Option<Packet>, Broken> {
+    let mut bytes = vec![0u8; REPLY_FIXED.saturating_add(REASON_MAX).saturating_add(1)];
+    let mut space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(REPLY_FDS))];
+    let mut control = RecvAncillaryBuffer::new(&mut space);
+    let got = loop {
+        match rustix::net::recvmsg(
+            &socket,
+            &mut [IoSliceMut::new(&mut bytes)],
+            &mut control,
+            RecvFlags::DONTWAIT | RecvFlags::CMSG_CLOEXEC,
+        ) {
+            Ok(got) => break got,
+            Err(rustix::io::Errno::INTR) => {}
+            Err(rustix::io::Errno::AGAIN) => return Ok(None),
+            Err(_) => return Err(Broken::Failed),
+        }
+    };
+    let mut fds = Vec::new();
+    let mut foreign = false;
+    for message in control.drain() {
+        match message {
+            RecvAncillaryMessage::ScmRights(received) => fds.extend(received),
+            _ => foreign = true,
+        }
+    }
+    if got
+        .flags
+        .intersects(ReturnFlags::TRUNC | ReturnFlags::CTRUNC)
+    {
+        return Err(Broken::Truncated);
+    }
+    if foreign {
+        return Err(Broken::Foreign);
+    }
+    if got.bytes == 0 && fds.is_empty() {
+        return Err(Broken::Closed);
+    }
+    bytes.truncate(got.bytes);
+    Ok(Some(Packet { bytes, fds }))
+}
+
+/// The pixels of an OK reply in `fd`, checked before any is read: a size
+/// within `max-graphic-size` and the budget, and the size the request
+/// described if it did; a regular file; its seals, before its size, since
+/// until the shrink seal holds the helper could cut the file under a
+/// mapping and fault the root process; then exactly that size. A sealed
+/// file is copied out of a read-only mapping and a pooled one read with
+/// `pread`, each byte once, into memory only the console holds.
+fn pixels(fd: &OwnedFd, header: &ReplyHeader, request: &Request) -> Result<Vec<u8>, &'static str> {
+    let (w, h) = (header.width, header.height);
+    if w == 0 || h == 0 || w > request.largest.0 || h > request.largest.1 {
+        return Err("a reply's size is outside max-graphic-size");
+    }
+    if request
+        .pixels
+        .is_some_and(|d| (d.width, d.height) != (w, h))
+    {
+        return Err("a reply of another size than the pixels the request described");
+    }
+    if !(request.png || request.any_image || request.pixels.is_some()) {
+        return Err("a picture the request did not ask for");
+    }
+    let bytes = u64::from(w)
+        .checked_mul(u64::from(h))
+        .and_then(|n| n.checked_mul(4))
+        .filter(|&n| n <= request.largest_bytes)
+        .ok_or("a reply larger than the budget")?;
+    let len = usize::try_from(bytes).map_err(|_| "a reply larger than the budget")?;
+    let st = rustix::fs::fstat(fd).map_err(|_| "a reply's descriptor cannot be read")?;
+    if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile {
+        return Err("a reply's descriptor is not a regular file");
+    }
+    let seals = rustix::fs::fcntl_get_seals(fd).map_err(|_| "a reply's file is no memory file")?;
+    let mut need = SealFlags::SHRINK | SealFlags::GROW;
+    if !header.pooled {
+        // F_SEAL_FUTURE_WRITE does not stand in for F_SEAL_WRITE
+        need |= SealFlags::WRITE;
+    }
+    if !seals.contains(need) {
+        return Err("a reply's memory file is not sealed");
+    }
+    let st = rustix::fs::fstat(fd).map_err(|_| "a reply's descriptor cannot be read")?;
+    if u64::try_from(st.st_size).ok() != Some(bytes) {
+        return Err("a reply's memory file is not exactly the size asked for");
+    }
+    let data = if header.pooled {
+        read_all(fd, len)
+    } else {
+        copy_mapped(fd, len)
+    };
+    data.map_err(|_| "a reply's memory file cannot be read whole")
+}
+
+/// `len` bytes of `fd` from its start, with `pread`; fewer fails.
+fn read_all(fd: &OwnedFd, len: usize) -> std::io::Result<Vec<u8>> {
+    let mut out = vec![0u8; len];
+    let mut done = 0usize;
+    while done < len {
+        let at = u64::try_from(done).unwrap_or(u64::MAX);
+        match rustix::io::pread(fd, out.get_mut(done..).unwrap_or_default(), at) {
+            Ok(0) => return Err(std::io::Error::other("a short read")),
+            Ok(n) => done = done.saturating_add(n),
+            Err(rustix::io::Errno::INTR) => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(out)
+}
+
+/// `len` bytes of the sealed memory file `fd`, copied out of a private,
+/// read-only mapping of it.
+fn copy_mapped(fd: &OwnedFd, len: usize) -> std::io::Result<Vec<u8>> {
+    use rustix::mm::{MapFlags, ProtFlags};
+    #[expect(
+        unsafe_code,
+        reason = "a read-only mapping of a sealed memory file, to copy it"
+    )]
+    // SAFETY: the kernel chooses the address, so the mapping overlaps no
+    // memory Rust owns; the file is sealed against shrinking, which was
+    // checked before its size, so every byte of the `len` mapped stays
+    // backed until the mapping is undone below.
+    let ptr = unsafe {
+        rustix::mm::mmap(
+            std::ptr::null_mut(),
+            len,
+            ProtFlags::READ,
+            MapFlags::PRIVATE,
+            fd,
+            0,
+        )?
+    };
+    #[expect(unsafe_code, reason = "the mapped bytes, read once")]
+    // SAFETY: `ptr` starts a readable mapping of `len` bytes, alive until
+    // the munmap below, and nothing writes through it.
+    let copy = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) }.to_vec();
+    #[expect(unsafe_code, reason = "undoing the mapping made above")]
+    // SAFETY: `ptr` and `len` are the mapping made above, and the slice
+    // of it has been dropped.
+    let _ = unsafe { rustix::mm::munmap(ptr, len) };
+    Ok(copy)
+}
