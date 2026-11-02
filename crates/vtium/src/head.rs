@@ -151,8 +151,14 @@ pub struct Head {
     pub(crate) osd_seen: Option<(u64, usize)>,
     /// The on-screen display's dot, while it shows under `osd = minimal`.
     pub(crate) mark: Option<vtium_render::Mark>,
-    /// The on-screen display's line, while it shows under `osd = full`.
+    /// The on-screen display's line, while it shows under `osd = full`,
+    /// or its brief line while that shows.
     pub(crate) status: Option<String>,
+    /// The on-screen display's brief line, which answers one press of the
+    /// open chord at a cap, until `brief_due` (ADR-1401 D5).
+    pub(crate) brief: Option<String>,
+    /// When the brief line goes, armed at its first frame.
+    pub(crate) brief_due: Option<Instant>,
     /// The colors of the notices and the on-screen display, which
     /// kmscon.conf sets for every head (ADR-1401 D5).
     overlay_colors: crate::term::OverlayColors,
@@ -341,6 +347,8 @@ impl Head {
             osd_seen: None,
             mark: None,
             status: None,
+            brief: None,
+            brief_due: None,
             overlay_colors: crate::term::OverlayColors::configured(config),
             when_display_lost: WhenDisplayLost::Keep,
             hangup_due: None,
@@ -618,11 +626,12 @@ impl Head {
     /// head takes `new`'s fit, and the old keeps the head's. While
     /// `visible`, the new one is potentially visible (mode 2033), and it
     /// takes mode 1004's focus from the old while a keyboard delivers to
-    /// the head. Every display draws the new one whole, as the C reference
+    /// the head; an old console that is `closing` is told nothing, as the
+    /// C reference sent a closing session no focus-out. Every display draws the new one whole, as the C reference
     /// redrew a session's displays at its activation
     /// (`src/terminal.c:1750-1762` at kmscon b1f7a7c5), each drawing kept
     /// per session there and per head here.
-    fn swap_shown(&mut self, new: Console, visible: bool) -> Console {
+    fn swap_shown(&mut self, new: Console, visible: bool, closing: bool) -> Console {
         let fit = self.fit();
         self.grid = new.fit.grid;
         self.font_size = new.fit.font_size;
@@ -631,13 +640,17 @@ impl Head {
         self.auto_size = new.fit.auto_size;
         let mut old = std::mem::replace(&mut self.console, new);
         old.fit = fit;
-        old.term.terminal.set_visible(false);
         self.console.term.terminal.set_visible(visible);
         if self.focused {
-            old.term.terminal.focus(false);
             self.console.term.terminal.focus(true);
         }
-        old.send_replies();
+        if !closing {
+            old.term.terminal.set_visible(false);
+            if self.focused {
+                old.term.terminal.focus(false);
+            }
+            old.send_replies();
+        }
         self.send_user_bytes();
         self.pointer.drag = None;
         // The pointer is over the shown console alone: the hidden one
@@ -658,7 +671,7 @@ impl Head {
             return;
         }
         let new = self.hidden.remove(k);
-        let old = self.swap_shown(new, visible);
+        let old = self.swap_shown(new, visible, false);
         let back = console::hidden_index(self.at, to).min(self.hidden.len());
         self.hidden.insert(back, old);
         self.at = to;

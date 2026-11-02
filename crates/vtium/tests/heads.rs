@@ -1358,15 +1358,13 @@ fn consoles(app: &App, name: &str) -> Option<(usize, usize)> {
         .map(|h| (h.console_count(), h.shown_console()))
 }
 
-/// #82, D1 and D5: a head has the consoles its `consoles` gives it from
-/// its start. Ctrl-Super-Right and Ctrl-Super-Left show the next and the
-/// previous, wrapping, each console a session with its own screen, and no
-/// chord opens or closes one: Ctrl-Super-Return and Ctrl-Super-Backspace
-/// reach the shown console's session as the keys Return and Backspace.
-/// The other head's console stays as it was.
+/// #82, D1 and D5: a head starts with the consoles its `consoles` gives
+/// it. Ctrl-Super-Right and Ctrl-Super-Left show the next and the
+/// previous, wrapping, each console a session with its own screen. The
+/// other head's console stays as it was.
 // covers: platform.heads
 #[test]
-fn the_console_chords_switch_a_heads_consoles_and_open_or_close_none() {
+fn the_console_chords_switch_a_heads_consoles() {
     let mut s = claimed_on(&[], &claimed_consoles(3));
     assert_eq!(
         consoles(&s.app, "small"),
@@ -1383,23 +1381,12 @@ fn the_console_chords_switch_a_heads_consoles_and_open_or_close_none() {
     chord(&mut s, RIGHT);
     assert_eq!(consoles(&s.app, "small"), Some((3, 1)));
     assert!(!head_shows(&s.app, "small", "got:one"), "its own screen");
-    s.type_on(KBD_SMALL, "two");
-    chord(&mut s, RETURN);
-    assert!(
-        s.until(SECOND, |a| head_shows(a, "small", "got:two")),
-        "Return reached the session"
-    );
-    assert_eq!(consoles(&s.app, "small"), Some((3, 1)), "none opened");
-    s.type_on(KBD_SMALL, "threx");
-    chord(&mut s, BACKSPACE);
-    s.type_on(KBD_SMALL, "e\r");
-    assert!(
-        s.until(SECOND, |a| head_shows(a, "small", "got:three")),
-        "Backspace reached the session"
-    );
-    assert_eq!(consoles(&s.app, "small"), Some((3, 1)), "none closed");
+    s.type_on(KBD_SMALL, "two\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:two")));
     chord(&mut s, RIGHT);
     assert_eq!(consoles(&s.app, "small"), Some((3, 2)));
+    s.type_on(KBD_SMALL, "three\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:three")));
     chord(&mut s, RIGHT);
     assert_eq!(
         consoles(&s.app, "small"),
@@ -1409,9 +1396,272 @@ fn the_console_chords_switch_a_heads_consoles_and_open_or_close_none() {
     assert!(head_shows(&s.app, "small", "got:one"));
     chord(&mut s, LEFT);
     assert_eq!(consoles(&s.app, "small"), Some((3, 2)), "wraps to the last");
-    chord(&mut s, LEFT);
     assert!(head_shows(&s.app, "small", "got:three"));
+    chord(&mut s, LEFT);
+    assert!(head_shows(&s.app, "small", "got:two"));
     assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
+}
+
+/// A session that prints its console's id, then echoes each line it
+/// reads.
+const TOLD: &str = "echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\"; done";
+
+/// The ids of head `name`'s consoles in the ring's order, as each
+/// console's session printed it, `None` where it has not yet.
+fn told_ids(app: &App, name: &str) -> Vec<Option<String>> {
+    console_lines(app, name, "is:")
+}
+
+/// Presses the chord `keysym` on the keyboard at `node`.
+fn press_chord(s: &mut Seat, node: &str, keysym: u32) {
+    s.app
+        .device_input(Path::new(node), ctrl_super(keysym), now());
+}
+
+/// D1 and D5 under an open policy, the maintainer's answers of
+/// 2026-11-01: Ctrl-Super-Return opens a console just after the one the
+/// head shows, starts the head's login in it and shows it; the new
+/// console takes the next id the head has not given, and an id is never
+/// given twice. Ctrl-Super-Backspace closes the console the head shows
+/// and shows the console after it, or the first when it was the last.
+/// Neither chord reaches a session, and the other head is untouched.
+// covers: platform.heads
+#[test]
+fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_one() {
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let mut s = Seat::with_heads(&[], Some(&claimed_consoles(3)), displays, TOLD);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    let is = |ids: &[&str]| -> Vec<Option<String>> {
+        ids.iter().map(|id| Some(format!("is:{id}"))).collect()
+    };
+    assert!(s.until(SECOND, |a| told_ids(a, "small") == is(&["1", "2", "3"])));
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert_eq!(consoles(&s.app, "small"), Some((3, 1)));
+    press_chord(&mut s, KBD_SMALL, RETURN);
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((4, 2)),
+        "opened after the shown console, and shown"
+    );
+    assert!(
+        s.until(SECOND, |a| told_ids(a, "small")
+            == is(&["1", "2", "4", "3"])),
+        "the new console runs the login as console 4: {:?}",
+        told_ids(&s.app, "small")
+    );
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((3, 2)),
+        "closed, showing the console after it"
+    );
+    assert_eq!(told_ids(&s.app, "small"), is(&["1", "2", "3"]));
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((2, 0)),
+        "the last closed, showing the first"
+    );
+    assert_eq!(told_ids(&s.app, "small"), is(&["1", "2"]));
+    press_chord(&mut s, KBD_SMALL, RETURN);
+    assert_eq!(consoles(&s.app, "small"), Some((3, 1)));
+    assert!(
+        s.until(SECOND, |a| told_ids(a, "small") == is(&["1", "5", "2"])),
+        "no id is given twice: {:?}",
+        told_ids(&s.app, "small")
+    );
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(
+        every_console(&s.app, "small")
+            .iter()
+            .flatten()
+            .all(|l| !l.starts_with("got:")),
+        "no chord reached a session: {:?}",
+        every_console(&s.app, "small")
+    );
+    assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
+}
+
+/// D5: closing the console shown closes its pty, so its programs get
+/// SIGHUP, as on a hang-up; the other consoles' sessions run on.
+// covers: platform.heads
+#[test]
+fn closing_a_console_hangs_up_its_session_alone() {
+    let d = std::env::temp_dir().join(format!("vtium-heads-close-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).expect("a marker directory");
+    let script = format!(
+        "trap 'echo > {d}/hup-$VTIUM_CONSOLE; exit 0' HUP; echo \"is:$VTIUM_CONSOLE\"; \
+         while read a; do echo \"got:$a\"; done",
+        d = d.display()
+    );
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let mut s = Seat::with_heads(&[], Some(&claimed_consoles(2)), displays, &script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    assert!(s.until(SECOND, |a| told_ids(a, "small").iter().all(Option::is_some)));
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    let hup = |id: u32| d.join(format!("hup-{id}")).exists();
+    let end = now() + BOUND;
+    while !hup(1) && now() < end {
+        s.until(Duration::from_millis(20), |_| false);
+    }
+    assert!(hup(1), "console 1's session got SIGHUP");
+    assert!(!hup(2), "console 2's runs on");
+    s.type_on(KBD_SMALL, "on\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:on")));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// D5, the maintainer's answer of 2026-11-01: on a head's last console
+/// Ctrl-Super-Backspace closes nothing and reaches no session.
+// covers: platform.heads
+#[test]
+fn the_close_chord_on_a_heads_last_console_does_nothing() {
+    let mut s = claimed();
+    s.type_on(KBD_SMALL, "xy");
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    s.type_on(KBD_SMALL, "z\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:xyz")),
+        "the session runs on, and the chord reached it as no Backspace: {:?}",
+        s.app.head("small").map(Head::screen_text)
+    );
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)));
+    assert!(
+        s.app.head("small").is_some_and(|h| h.pty().is_some()),
+        "its pty is open"
+    );
+}
+
+/// D1 and D5: under `policy = closed` a head keeps the consoles it started
+/// with. vtium takes the open and close chords and does nothing with
+/// them, so neither reaches the session as Return or Backspace.
+// covers: platform.heads.policy
+#[test]
+fn under_closed_the_open_and_close_chords_do_nothing_and_reach_no_session() {
+    let heads = claimed_consoles(2)
+        .replace("version = 1\n", "version = 1\npolicy = closed\n")
+        .replace("input class:keyboard -> roaming\n", "");
+    let mut s = claimed_on(&[], &heads);
+    s.type_on(KBD_SMALL, "ab");
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    press_chord(&mut s, KBD_SMALL, RETURN);
+    assert_eq!(
+        consoles(&s.app, "small"),
+        Some((2, 0)),
+        "none opened or closed"
+    );
+    s.type_on(KBD_SMALL, "c\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:abc")),
+        "neither chord reached the session: {:?}",
+        s.app.head("small").map(Head::screen_text)
+    );
+}
+
+/// D5 and D10, the maintainer's answers of 2026-11-01: where the head has
+/// `head-consoles-max` consoles, or every head together `consoles-max`,
+/// Ctrl-Super-Return opens nothing, and the OSD shows a brief line at the
+/// top of the head naming the cap, under `osd = minimal`; under
+/// `osd = off` it shows nothing.
+// covers: platform.heads
+#[test]
+fn the_open_chord_at_a_cap_opens_nothing_and_says_so_on_the_osd() {
+    let cases = [
+        (
+            &["--head-consoles-max=2"][..],
+            Some("No more consoles: small has 2, its most."),
+        ),
+        (
+            &["--consoles-max=3"][..],
+            Some("No more consoles: every head together has 3, the most."),
+        ),
+        (&["--head-consoles-max=2", "--osd=off"][..], None),
+    ];
+    for (args, line) in cases {
+        let mut s = claimed_on(args, &claimed_consoles(2));
+        assert_eq!(consoles(&s.app, "small"), Some((2, 0)), "{args:?}");
+        press_chord(&mut s, KBD_SMALL, RETURN);
+        assert_eq!(consoles(&s.app, "small"), Some((2, 0)), "{args:?}");
+        assert!(
+            s.until(SECOND, |a| a.head("small").and_then(Head::status) == line),
+            "{args:?}: {:?}",
+            s.app.head("small").and_then(Head::status)
+        );
+        assert_eq!(s.app.head("large").and_then(Head::status), None, "{args:?}");
+    }
+}
+
+/// D5, the maintainer's answer of 2026-11-01: under `osd = full`, opening
+/// or closing a console shows the full line with the new count.
+// covers: platform.heads
+#[test]
+fn under_osd_full_opening_and_closing_a_console_shows_the_new_count() {
+    let mut s = claimed_with(&["--osd=full"]);
+    let status = |a: &App| a.head("small").and_then(Head::status).map(str::to_owned);
+    // The start's OSD, if any, runs out first.
+    assert!(s.until(BOUND, |a| status(a).is_none()));
+    press_chord(&mut s, KBD_SMALL, RETURN);
+    assert!(
+        s.until(SECOND, |a| status(a).as_deref()
+            == Some("\u{25cb} small \u{b7} console 2 of 2")),
+        "{:?}",
+        status(&s.app)
+    );
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    assert!(
+        s.until(SECOND, |a| status(a).as_deref()
+            == Some("\u{25cb} small \u{b7} console 1 of 1")),
+        "{:?}",
+        status(&s.app)
+    );
+}
+
+/// D5: closing the shown console gives mode 1004's focus to the console
+/// shown next.
+// covers: platform.heads
+#[test]
+fn closing_a_console_gives_the_console_shown_next_the_focus() {
+    let script = "stty -icanon -echo; printf '\\033[?1004h'; echo \"is:$VTIUM_CONSOLE\"; \
+                  while :; do echo \"k:$(head -c 3 | od -An -tx1)\"; done";
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let mut s = Seat::with_heads(&[], Some(&claimed_consoles(2)), displays, script);
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    let (focus_in, focus_out) = ("1b 5b 49", "1b 5b 4f");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", focus_in)));
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert!(s.until(SECOND, |a| head_shows(a, "small", focus_in)
+        && head_shows(a, "small", "is:2")));
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)));
+    assert!(
+        s.until(SECOND, |a| {
+            let text = a.head("small").map(Head::screen_text).unwrap_or_default();
+            let lines: Vec<&String> = text.iter().filter(|l| l.starts_with("k:")).collect();
+            lines.len() == 3 && lines.last().is_some_and(|l| l.contains(focus_in))
+        }),
+        "console 1 lost the focus at the switch and gains it at the close: {:?}",
+        s.app.head("small").map(Head::screen_text)
+    );
+    assert!(head_shows(&s.app, "small", focus_out));
 }
 
 /// ADR-1002, "What a link does", across ADR-1401 D5's console chords: the

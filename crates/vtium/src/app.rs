@@ -133,6 +133,10 @@ use crate::wait::Wait;
 /// (`src/main.c:203-209` at kmscon b1f7a7c5).
 pub const LEAVE_WAIT: Duration = Duration::from_millis(100);
 
+/// How long the on-screen display's brief line shows where `osd-timeout`
+/// is `never` (ADR-1401 D5): it answers one press, so it still goes.
+const BRIEF_NEVER: Duration = Duration::from_secs(3);
+
 /// Why vtium ends, and its exit status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exit {
@@ -2359,13 +2363,12 @@ impl App {
             }
             return;
         }
-        let chord = chord::chord(bits, &key.keysyms).filter(|&chord| {
-            from.roaming || matches!(chord, HeadChord::NextConsole | HeadChord::PreviousConsole)
-        });
+        let chord =
+            chord::chord(bits, &key.keysyms).filter(|&chord| from.roaming || chord.is_console());
         if let Some(chord) = chord {
             // One action a press, as the power keys.
             if !key.repeat {
-                self.chord(h, chord, key.mods.contains(InputMods::CTRL));
+                self.chord(h, chord, key.mods.contains(InputMods::CTRL), now);
             }
             return;
         }
@@ -2448,20 +2451,38 @@ impl App {
         head.draw_now = true;
     }
 
-    /// A head's chord (ADR-1401 D5): a console chord shows another of
-    /// head `h`'s consoles, the head the key's device delivers to; the
-    /// focus chord moves the focus to the next or the previous head with a
-    /// lit display. A console chord leaves the console it shows hovering
-    /// what the pointer is over, with `ctrl` as held now.
-    fn chord(&mut self, h: Option<usize>, chord: HeadChord, ctrl: bool) {
+    /// A head's chord (ADR-1401 D1, D5): a console chord shows another of
+    /// head `h`'s consoles, the head the key's device delivers to, and
+    /// under an open policy opens or closes one at `now`; the focus chord
+    /// moves the focus to the next or the previous head with a lit
+    /// display. A console chord leaves the console it shows hovering what
+    /// the pointer is over, with `ctrl` as held now.
+    fn chord(&mut self, h: Option<usize>, chord: HeadChord, ctrl: bool, now: Instant) {
         let visible = self.awake;
         let back = match chord {
             HeadChord::NextHead => false,
             HeadChord::PreviousHead => true,
-            HeadChord::NextConsole | HeadChord::PreviousConsole => {
-                let changed = h
-                    .and_then(|h| self.heads.get_mut(h))
-                    .is_some_and(|head| head.console_chord(chord, visible));
+            HeadChord::NextConsole
+            | HeadChord::PreviousConsole
+            | HeadChord::OpenConsole
+            | HeadChord::CloseConsole => {
+                let changed = match (h, chord) {
+                    // Under closed the count is fixed: the chord is taken,
+                    // and does nothing (D1, D5).
+                    (_, HeadChord::OpenConsole | HeadChord::CloseConsole)
+                        if self.rules.policy == Policy::Closed =>
+                    {
+                        false
+                    }
+                    (Some(h), HeadChord::OpenConsole) => self.open_console(h, now),
+                    (Some(h), HeadChord::CloseConsole) => self
+                        .heads
+                        .get_mut(h)
+                        .is_some_and(|head| head.close_shown(visible)),
+                    (h, _) => h
+                        .and_then(|h| self.heads.get_mut(h))
+                        .is_some_and(|head| head.console_chord(chord, visible)),
+                };
                 if let Some(h) = h.filter(|_| changed) {
                     self.relayout(h);
                     if let Some(head) = self.heads.get_mut(h) {
@@ -2485,6 +2506,63 @@ impl App {
                 head.rehover(true);
             }
         }
+    }
+
+    /// Opens a console on head `h` at `now`, after the console it shows,
+    /// and starts the head's login in it (ADR-1401 D1, D5), unless the head
+    /// has `head-consoles-max` consoles or every head together has
+    /// `consoles-max`: then nothing opens, and vtium logs a line and shows
+    /// a brief line on the head's on-screen display. Returns whether one
+    /// opened.
+    fn open_console(&mut self, h: usize, now: Instant) -> bool {
+        let total: usize = self
+            .heads
+            .iter()
+            .filter(|head| !head.notice_only)
+            .map(Head::console_count)
+            .sum();
+        let caps = self.caps;
+        let App {
+            heads,
+            config,
+            scrollback,
+            scrollback_bytes,
+            clock,
+            ..
+        } = self;
+        let Some(head) = heads.get_mut(h) else {
+            return false;
+        };
+        let n = head.console_count();
+        let full = if n >= caps.head {
+            log::warn!(
+                "head {}: no console opens: the head has {n}, head-consoles-max",
+                head.name()
+            );
+            Some(crate::notice::no_more_consoles(head.name(), n))
+        } else if total >= caps.total {
+            log::warn!(
+                "head {}: no console opens: every head together has {total}, consoles-max",
+                head.name()
+            );
+            Some(crate::notice::no_more_consoles_together(total))
+        } else {
+            None
+        };
+        if let Some(line) = full {
+            head.brief = Some(line);
+            head.brief_due = None;
+            head.draw_now = true;
+            return false;
+        }
+        let term = crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock));
+        let since = now.saturating_duration_since(self.epoch);
+        let id = head.open_console(term, since, self.awake);
+        log::info!("head {}: console {id} opens", head.name());
+        // The new console's program starts on the grid the layout gives it.
+        self.relayout(h);
+        self.spawn(h, id);
+        true
     }
 
     /// The focus moves to head `h`, by the focus chord or the anti-lockout
@@ -2763,6 +2841,10 @@ impl App {
                 head.osd_due = None;
                 head.osd_shown = false;
             }
+            if head.brief_due.is_some_and(|d| d <= now) {
+                head.brief_due = None;
+                head.brief = None;
+            }
             if let Some(due) = head.text_due.filter(|&d| d <= now) {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
@@ -2841,10 +2923,20 @@ impl App {
             } else {
                 vtium_render::Mark::NoFocus
             });
-            let status = (shown && mode == osd::Mode::Full).then(|| {
+            let full = (shown && mode == osd::Mode::Full).then(|| {
                 let at = head.shown_console().saturating_add(1);
                 crate::notice::osd_line(active, head.name(), at, head.console_count())
             });
+            // The brief line answers one press at a cap: for `osd-timeout`,
+            // or 3 s under `never`, from its first frame, in place of the
+            // full line, and never under `off`.
+            if mode == osd::Mode::Off {
+                head.brief = None;
+            }
+            if head.brief.is_some() && head.brief_due.is_none() && !head.views.is_empty() {
+                head.brief_due = Some(after(now, timeout.unwrap_or(BRIEF_NEVER)));
+            }
+            let status = head.brief.clone().or(full);
             if head.mark != mark || head.status != status {
                 head.mark = mark;
                 head.status = status;
@@ -2993,6 +3085,7 @@ impl App {
             due.extend(head.hangup_due);
             due.extend(head.notice_due);
             due.extend(head.osd_due);
+            due.extend(head.brief_due);
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
