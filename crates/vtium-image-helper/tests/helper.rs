@@ -121,6 +121,7 @@ fn png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
 const STRAIGHT: [u8; 8] = [0xff, 0x80, 0, 0xff, 0xff, 0xff, 0xff, 0x80];
 const PREMULTIPLIED: [u8; 8] = [0xff, 0x80, 0, 0xff, 0x80, 0x80, 0x80, 0x80];
 
+// covers: image.helper
 #[test]
 fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
     let dir = scratch("kinds");
@@ -303,6 +304,7 @@ fn pools(host: &ImageHost) -> usize {
     inodes.len()
 }
 
+// covers: image.helper
 #[test]
 fn a_stream_of_frames_is_served_from_pooled_files_and_a_new_size_ends_it() {
     let mut host = ImageHost::new(Some(program()), None);

@@ -425,6 +425,7 @@ mod tests {
         groups: Some(Vec::new()),
     });
 
+    // covers: image.helper
     #[test]
     fn a_logind_login_is_the_sessions_user_root_included() {
         for class in LOGIN_CLASSES {
@@ -449,6 +450,7 @@ mod tests {
         assert_eq!((got, disagree), (user(1000), Some((1001, 1000))));
     }
 
+    // covers: image.helper
     #[test]
     fn before_login_files_are_refused_and_inline_bytes_take_the_prelogin_account() {
         // a greeter's class, a session shared with vtium, and none at all
