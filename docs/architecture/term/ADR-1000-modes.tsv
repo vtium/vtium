@@ -110,7 +110,7 @@ DEC-1052	DEC	1052	HP function keys	ctlseqs	absent	yes	no	unverified	unverified	u
 DEC-1053	DEC	1053	SCO function keys	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-1060	DEC	1060	legacy X11R6 keyboard	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-1061	DEC	1061	VT220 keyboard	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
-DEC-1070	DEC	1070	private sixel color registers	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48	crates/vtium-term/tests/sixel.rs::mode_1070_gives_each_picture_its_own_registers, crates/vtium-term/tests/sixel.rs::the_sixel_modes_are_offered_while_sixel_is
+DEC-1070	DEC	1070	private sixel color registers	ctlseqs	SUPPORTED, offered while sixel was on	yes	yes	unverified	unverified	unverified	supported		images	#48	crates/vtium-term/tests/sixel.rs::mode_1070_gives_each_picture_its_own_registers, crates/vtium-term/tests/sixel.rs::the_shared_registers_start_again_after_each_change_of_their_settings, crates/vtium-term/tests/sixel.rs::the_sixel_modes_are_offered_while_sixel_is
 DEC-2001	DEC	2001	readline mouse button 1	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-2002	DEC	2002	readline mouse button 2	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
 DEC-2003	DEC	2003	readline mouse button 3	ctlseqs	absent	yes	no	unverified	unverified	unverified	no row		minspec	#12	
