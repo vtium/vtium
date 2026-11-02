@@ -63,6 +63,7 @@ fn picture(
         id: 0,
         number: 0,
         transient: false,
+        opaque: None,
     };
     let image = store.add_image(new, None, screens).unwrap();
     let place = Place {

@@ -45,6 +45,7 @@ fn placements(cols: usize, rows: usize, pictures: &[Picture]) -> Vec<FramePlacem
             id,
             number: 0,
             transient: false,
+            opaque: None,
         };
         let image = store.add_image(new, None, screens).unwrap();
         store.place(image, place, screens, cols).unwrap();

@@ -331,6 +331,33 @@ mod images {
         assert_eq!(first_pixel(&t), GRAY);
     }
 
+    /// A frame as chafa sends one: P2 1, raster attributes of 3 by 3 cells,
+    /// and dots set only in the top left 2 by 2, so the padding is clear.
+    fn padded_frame() -> Vec<u8> {
+        let mut data = String::from("\"1;1;24;48#1;2;0;0;100#1");
+        data += &"!16~-".repeat(5);
+        data += "!16B";
+        let mut s = b"\x1b[H".to_vec();
+        s.extend(sixel("0;1;0", &data));
+        s
+    }
+
+    // libtsm#49's case: chafa's frames, padded with clear pixels, stacked on
+    // each other until the budget refused the next. Each frame removes the
+    // last under every cell it covers fully, and the last's pieces in the
+    // padding hold no pixel set and go too, so one picture stays.
+    // covers: image.sixel, image.overlap
+    #[test]
+    fn padded_frames_played_over_each_other_leave_one_picture() {
+        let mut t = term(12, 4);
+        for n in 0..30 {
+            t.input(&padded_frame());
+            assert_eq!(shown(&t), [(0, 0, 3, 3, 0, 48)], "after frame {n}");
+        }
+        assert_eq!(t.screen().images().image_count(), 1);
+        assert_eq!(t.screen().images().bytes(), 24 * 48 * 4 + 512);
+    }
+
     // covers: image.sixel
     #[test]
     fn a_cancelled_string_places_nothing_and_gives_its_bytes_back() {

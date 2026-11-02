@@ -262,12 +262,11 @@ impl Handler for Sixel {
             id: 0,
             number: 0,
             transient: false,
+            // register 0 filled every pixel no dot set, and registers are
+            // opaque; with P2 1 the store reads the pixels to find out
+            opaque: (!transparent).then_some(true),
         };
         let stored = ctx.add_image(image, self.held.take());
-        // a picture with clear pixels is read once more for its opacity
-        if transparent {
-            ctx.add_work(u64::from(width).saturating_mul(u64::from(height)));
-        }
         if let Ok(key) = stored {
             place(ctx, key, width, height);
         }

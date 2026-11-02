@@ -627,6 +627,7 @@ mod tests {
                     id: 0,
                     number: 0,
                     transient: false,
+                    opaque: None,
                 };
                 let key = e.add_image(image, Some(r))?;
                 let p = e.place(key, at)?;

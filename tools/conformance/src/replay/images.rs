@@ -129,6 +129,7 @@ impl Images {
             id: if i.kitty { i.id } else { 0 },
             number: 0,
             transient: i.transient,
+            opaque: None,
         };
         let key = term.screen_mut().add_image(image).map_err(|e| e.errno())?;
         if let Some(slot) = self.made.get_mut(n) {

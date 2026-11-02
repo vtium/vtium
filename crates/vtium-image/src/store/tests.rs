@@ -58,6 +58,7 @@ fn image(protocol: Protocol, w: u32, h: u32, id: u32) -> NewImage {
         id,
         number: 0,
         transient: false,
+        opaque: None,
     }
 }
 
@@ -162,6 +163,7 @@ fn images_go_in_the_eviction_order_rank_by_rank() {
         .add_image(
             NewImage {
                 transient: true,
+                opaque: None,
                 ..image(Protocol::KITTY, 8, 16, 5)
             },
             None,
@@ -873,4 +875,204 @@ fn a_frame_entry_carries_the_whole_placements_crop_and_drawn_picture() {
     );
     assert_eq!((right.offset_x, right.offset_y), (-16, 0));
     assert_eq!((right.drawn_width, right.drawn_height), (24, 16));
+}
+
+/// A sixel image whose pixels `f(x, y)` gives.
+fn drawn(w: u32, h: u32, f: impl Fn(u32, u32) -> u32) -> NewImage {
+    let pixels = (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .map(|(x, y)| f(x, y));
+    NewImage {
+        pixels: pixels.collect(),
+        ..image(Protocol::SIXEL, w, h, 0)
+    }
+}
+
+/// The placements as (row, col, cols, rows) of each, in draw order.
+fn boxes(s: &Store, f: &Fake) -> Vec<(i64, u32, u32, u32)> {
+    let view = Rows {
+        screen: &f.screen,
+        above: &[],
+    };
+    s.frame(view, COLS)
+        .iter()
+        .map(|p| (p.row, p.col, p.cols, p.rows))
+        .collect()
+}
+
+// fork-perf item 15: the store keeps the buffer the handler filled, and
+// the frame shares it.
+// covers: image.pipeline
+#[test]
+fn an_image_keeps_the_handlers_buffer_without_a_copy() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 20);
+    let new = image(Protocol::SIXEL, 64, 32, 0);
+    let buffer = new.pixels.as_ptr();
+    let key = s.add_image(new, None, f.screens()).expect("stored");
+    s.place(key, Place::default(), f.screens(), COLS)
+        .expect("placed");
+    let view = Rows {
+        screen: &f.screen,
+        above: &[],
+    };
+    let frame = s.frame(view, COLS);
+    assert_eq!(frame[0].pixels.as_slice().as_ptr(), buffer);
+}
+
+// fork-perf item 14: a handler that knows its picture's opacity passes it,
+// and the store reads no pixel for it; one that does not lets the store
+// read them.
+// covers: image.pipeline
+#[test]
+fn opacity_the_handler_passes_spares_the_store_a_read() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 20);
+    let before = s.work();
+    s.add_image(
+        NewImage {
+            opaque: Some(true),
+            ..image(Protocol::SIXEL, 64, 32, 0)
+        },
+        None,
+        f.screens(),
+    )
+    .expect("stored");
+    let given = s.work() - before;
+    let before = s.work();
+    s.add_image(image(Protocol::SIXEL, 64, 32, 0), None, f.screens())
+        .expect("stored");
+    assert_eq!(s.work() - before, given + 64 * 32);
+}
+
+// A build with debug assertions checks the opacity a handler passes.
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic = "the handler's opacity disagrees with the pixels"]
+fn a_handler_that_passes_a_wrong_opacity_is_caught() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 20);
+    let clear = drawn(8, 16, |x, _| if x == 0 { 0 } else { 0xff00_00ff });
+    let _ = s.add_image(
+        NewImage {
+            opaque: Some(true),
+            ..clear
+        },
+        None,
+        f.screens(),
+    );
+}
+
+// ADR-1100 D3, a new picture of the same tag over it, cell by cell: a
+// picture padded with clear cells, as chafa pads its frames, replaces the
+// one under it, and the older picture's pieces in the padding, which hold
+// no pixel set, go with it.
+// covers: image.overlap
+#[test]
+fn a_padded_picture_over_the_last_replaces_it_cell_by_cell() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    // 3 by 3 cells of 8 by 16, its content the top left 2 by 2
+    let frame = || {
+        drawn(
+            24,
+            48,
+            |x, y| if x < 16 && y < 32 { 0xff00_00ff } else { 0 },
+        )
+    };
+    for n in 0..10 {
+        let key = s.add_image(frame(), None, f.screens()).expect("stored");
+        put(&mut s, &f, key, 0, 0);
+        assert_eq!(boxes(&s, &f), [(0, 0, 3, 3)], "after frame {n}");
+        assert_eq!(s.image_count(), 1, "after frame {n}");
+    }
+}
+
+// Under a cell the new picture covers only partly, the older one stays and
+// shows through: a clear pixel in every cell covers none of them.
+// covers: image.overlap
+#[test]
+fn a_picture_with_a_clear_pixel_in_each_cell_cuts_nothing() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let old = s
+        .add_image(image(Protocol::SIXEL, 16, 32, 0), None, f.screens())
+        .expect("stored");
+    put(&mut s, &f, old, 0, 0);
+    let holes = drawn(16, 32, |x, y| {
+        if x % 8 == 3 && y % 16 == 5 {
+            0
+        } else {
+            0xff00_ff00
+        }
+    });
+    let new = s.add_image(holes, None, f.screens()).expect("stored");
+    put(&mut s, &f, new, 0, 0);
+    assert_eq!(boxes(&s, &f), [(0, 0, 2, 2), (0, 0, 2, 2)]);
+}
+
+// An opaque picture whose size is no whole number of cells covers fully
+// only the cells it fills: the older picture keeps its parts under the new
+// one's edge cells.
+// covers: image.overlap
+#[test]
+fn an_opaque_picture_cuts_only_the_cells_it_fills() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let old = s
+        .add_image(image(Protocol::SIXEL, 24, 48, 0), None, f.screens())
+        .expect("stored");
+    put(&mut s, &f, old, 0, 0);
+    // 12 by 20 pixels fill the cell at 0,0 and part of three others
+    let new = s
+        .add_image(image(Protocol::SIXEL, 12, 20, 0), None, f.screens())
+        .expect("stored");
+    put(&mut s, &f, new, 0, 0);
+    let mut shown = boxes(&s, &f);
+    shown.sort_unstable();
+    // the old picture loses cell 0,0: pieces right of it and below it
+    assert_eq!(shown, [(0, 0, 2, 2), (0, 1, 2, 1), (1, 0, 3, 2)]);
+}
+
+// A kitty picture is never cut or dropped by a new sixel, even one that
+// shows nothing, and a sixel never by a kitty one.
+// covers: image.overlap
+#[test]
+fn a_new_picture_cuts_only_older_pictures_of_its_kind() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let clear = NewImage {
+        pixels: vec![0; 16 * 32],
+        ..image(Protocol::KITTY, 16, 32, 7)
+    };
+    let kitty = s.add_image(clear, None, f.screens()).expect("stored");
+    put(&mut s, &f, kitty, 0, 0);
+    let six = add(&mut s, &f, Protocol::SIXEL, 16, 32, 0);
+    put(&mut s, &f, six, 0, 0);
+    let kitty2 = add(&mut s, &f, Protocol::KITTY, 16, 32, 8);
+    put(&mut s, &f, kitty2, 0, 0);
+    assert_eq!(boxes(&s, &f).len(), 3);
+}
+
+// vtium's reading of "a piece that draws nothing": two opaque pictures of
+// the same size that end inside a cell, as most of mpv's frames do. The
+// older picture's pieces in the edge cells lie wholly under the newer
+// one's opaque pixels, so they go, and one picture stays.
+// covers: image.overlap
+#[test]
+fn opaque_frames_that_end_inside_a_cell_leave_one_picture() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    for n in 0..10 {
+        let key = add(&mut s, &f, Protocol::SIXEL, 20, 40, 0);
+        put(&mut s, &f, key, 0, 0);
+        assert_eq!(boxes(&s, &f), [(0, 0, 3, 3)], "after frame {n}");
+        assert_eq!(s.image_count(), 1, "after frame {n}");
+    }
+    // a clear pixel of the newer one in an edge cell, over a set pixel of
+    // the older one, lets the older one show there, so it stays
+    let holed = drawn(20, 40, |x, y| if (x, y) == (17, 37) { 0 } else { 0xff00_ff00 });
+    let key = s.add_image(holed, None, f.screens()).expect("stored");
+    put(&mut s, &f, key, 0, 0);
+    assert_eq!(s.image_count(), 2);
 }

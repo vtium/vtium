@@ -46,11 +46,13 @@ impl PlacementKey {
 /// `0xAARRGGBB`, rows top to bottom, the color glyph format of ADR-1300,
 /// for every protocol. Shared, so a frame holds them without a copy.
 #[derive(Clone)]
-pub struct Pixels(Arc<[u32]>);
+pub struct Pixels(Arc<Vec<u32>>);
 
 impl Pixels {
+    /// Takes the buffer a decoder filled as it is: the image's pixels are
+    /// that allocation, with nothing copied.
     pub fn new(pixels: Vec<u32>) -> Self {
-        Self(pixels.into())
+        Self(Arc::new(pixels))
     }
 
     pub fn as_slice(&self) -> &[u32] {
@@ -81,8 +83,14 @@ pub struct NewImage {
     pub protocol: Protocol,
     pub width: u32,
     pub height: u32,
-    /// `width` times `height` pixels, premultiplied ARGB.
+    /// `width` times `height` pixels, premultiplied ARGB. The store keeps
+    /// this buffer as it is, without a copy.
     pub pixels: Vec<u32>,
+    /// Whether every pixel is opaque, alpha 0xff, as the handler found it
+    /// while it decoded or converted the pixels; `None` when it does not
+    /// know, and the store then reads every pixel to find out. A build
+    /// with debug assertions checks a given value against the pixels.
+    pub opaque: Option<bool>,
     /// Kitty's image id `i`, 1 to 2^32-1, or 0 for none. An image of an id
     /// already in the buffer in use replaces it, once the new one has its
     /// bytes.
