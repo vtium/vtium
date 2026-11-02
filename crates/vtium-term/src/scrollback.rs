@@ -1219,6 +1219,39 @@ mod tests {
         assert_eq!(sb.bytes(), charge(sb.lines()));
     }
 
+    // Two waiting lines with anchors, a line without one between them: the
+    // resize's search finds and rewraps both, and only then stops.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_resize_rewraps_every_anchored_waiting_line_before_its_search_stops() {
+        let mut next = 100;
+        // 8 cells held as 2 rows, its anchor at the 6th; 2 cells; 6 cells,
+        // its anchor at the 3rd; 2 cells
+        let lines = vec![
+            wrapped(1, 4),
+            text(2, 4),
+            text(3, 2),
+            text(4, 6),
+            text(5, 2),
+        ];
+        let mut sb = waiting_at(lines, 3, &[(2, 1), (4, 2)], &mut next);
+        assert_eq!(all_ids(&sb), [1, 100, 101, 3, 4, 102, 5]);
+        let first = Move {
+            from: LineId::new(2),
+            col: 1,
+            to: LineId::new(100),
+            to_col: 2,
+        };
+        let second = Move {
+            from: LineId::new(4),
+            col: 2,
+            to: LineId::new(4),
+            to_col: 2,
+        };
+        let want = [Change::Carried(vec![first]), Change::Carried(vec![second])];
+        assert_eq!(sb.take_changes(), want);
+    }
+
     // A placement a drop moves onto a waiting line has that line rewrapped
     // at the width then, and the byte count follows the rows it now holds.
     #[cfg(feature = "images")]
