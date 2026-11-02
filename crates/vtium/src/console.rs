@@ -10,7 +10,7 @@
 //! gettys on VTs 2 to 6, which logind then fills with vtium. Before vtium
 //! disables a getty or moves the template link, it writes a record of
 //! what was there under `/var/lib/vtium/console/`, and `disable` puts back
-//! what the records say.
+//! what the records say. A display manager keeps VT 1.
 //!
 //! The subcommand starts and stops nothing, since either ends every
 //! session on the VT, and masks nothing, since a mask is the
@@ -21,8 +21,9 @@
 //! [`Systemctl`], which runs `systemctl` on the running system and is a
 //! stand-in in the tests. It reads systemd's links itself, and changes them
 //! through `systemctl enable`, `disable`, `add-wants` and `daemon-reload`,
-//! but for the two links no systemctl verb makes or removes: the template
-//! link, and a VT's `autovt@ttyN.service` link that `disable` leaves.
+//! but for the links no systemctl verb makes or removes as they were: the
+//! template link, a VT's `autovt@ttyN.service` link that `disable` leaves,
+//! and a getty's want restored to the unit file it linked to.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -49,13 +50,18 @@ const GETTY: &str = "getty";
 /// The C reference's console.
 const KMSCON: &str = "kmsconvt";
 
-/// systemd's system unit directories that a package or the administrator
-/// installs into, in the order systemd reads them (systemd.unit(5)),
-/// relative to the root.
-const UNIT_DIRS: [&str; 3] = [
+/// systemd's system unit directories that the administrator, the running
+/// system or a package installs into, in the order systemd's unit search
+/// path reads them (systemd.unit(5)), relative to the root.
+/// `lib/systemd/system` is a split-usr host's vendor directory, as on
+/// Debian, and on a merged-usr host the same directory as
+/// `usr/lib/systemd/system`.
+const UNIT_DIRS: [&str; 5] = [
     "etc/systemd/system",
+    "run/systemd/system",
     "usr/local/lib/systemd/system",
     "usr/lib/systemd/system",
+    "lib/systemd/system",
 ];
 /// Where `systemctl enable` makes its links.
 const ETC: &str = "etc/systemd/system";
@@ -63,6 +69,10 @@ const ETC: &str = "etc/systemd/system";
 const WANTS: &str = "etc/systemd/system/getty.target.wants";
 /// The template link's name.
 const TEMPLATE: &str = "autovt@.service";
+/// The alias a display manager's unit takes when it is enabled.
+const DISPLAY_MANAGER: &str = "display-manager.service";
+/// What masks a unit.
+const MASK: &str = "/dev/null";
 /// vtium's records of what it changed.
 const RECORDS: &str = "var/lib/vtium/console";
 /// A directory only a host booted with systemd has (sd_booted(3)).
@@ -161,10 +171,14 @@ fn which(word: &str) -> Result<Which, String> {
         .ok_or_else(|| text::not_a_vt(word))
 }
 
-/// `N` or `ttyN`, for N from 1 to [`LAST_VT`], written as the kernel and
-/// systemd name the VT: no sign and no leading zero.
+/// `N` or `ttyN`, for N from 1 to [`LAST_VT`].
 fn vt_number(value: &str) -> Option<u16> {
-    let digits = value.strip_prefix("tty").unwrap_or(value);
+    vt_digits(value.strip_prefix("tty").unwrap_or(value))
+}
+
+/// N from 1 to [`LAST_VT`], written as the kernel and systemd name the VT:
+/// digits only, with no sign and no leading zero.
+fn vt_digits(digits: &str) -> Option<u16> {
     if digits.is_empty() || digits.starts_with('0') || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
@@ -248,6 +262,51 @@ impl Link {
     fn names(&self, prefix: &str) -> bool {
         self.unit() == Some(prefix)
     }
+
+    fn masks(&self) -> bool {
+        *self == Link::To(MASK.to_owned())
+    }
+
+    /// The name of the file the link names: `sddm.service`.
+    fn file_name(&self) -> Option<&str> {
+        match self {
+            Link::To(to) => Path::new(to).file_name()?.to_str(),
+            _ => None,
+        }
+    }
+}
+
+/// Where a template's unit file is, as systemd finds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum UnitFile {
+    /// At this path on the running system.
+    At(String),
+    /// Masked: the first directory that has it links it to `/dev/null`.
+    Masked,
+    Missing,
+}
+
+/// What a VT's record says the VT had before `enable` took it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Record {
+    /// No getty was enabled.
+    NoGetty,
+    /// `getty@ttyN` was enabled, its want linked to this path.
+    Getty(String),
+    /// The record holds neither, and is taken as no record.
+    Unreadable,
+}
+
+impl Record {
+    fn parse(text: &str) -> Record {
+        match text.strip_suffix('\n').unwrap_or(text) {
+            "" => Record::NoGetty,
+            path if !path.contains('\n') && template_prefix(path) == Some(GETTY) => {
+                Record::Getty(path.to_owned())
+            }
+            _ => Record::Unreadable,
+        }
+    }
 }
 
 /// `PREFIX` of a path whose file name is `PREFIX@.service`.
@@ -262,25 +321,35 @@ fn template_prefix(path: &str) -> Option<&str> {
 /// `(PREFIX, N)` of a unit named `PREFIX@ttyN.service`.
 fn instance(name: &str) -> Option<(&str, u16)> {
     let (prefix, inst) = name.strip_suffix(".service")?.split_once('@')?;
-    let n = vt_number(inst.strip_prefix("tty")?)?;
+    let n = vt_digits(inst.strip_prefix("tty")?)?;
     (!prefix.is_empty()).then_some((prefix, n))
 }
 
 /// What vtium reads of systemd's state and its own records.
 #[derive(Debug, Default)]
 struct State {
-    /// The template link, `autovt@.service`.
+    /// The template link in force: `autovt@.service` in the first unit
+    /// directory that has it.
     template: Link,
-    /// The units `getty.target` wants on each VT, by prefix.
-    wants: BTreeMap<u16, BTreeSet<String>>,
+    /// The template link that vtium manages, in `/etc/systemd/system`.
+    template_etc: Link,
+    /// Whether a unit directory after `/etc/systemd/system` has the
+    /// template link, which is in force without the one in `/etc`.
+    template_below: bool,
+    /// The units `getty.target` wants on each VT, by prefix, and what each
+    /// want links to.
+    wants: BTreeMap<u16, BTreeMap<String, Link>>,
+    /// The display manager's unit, when `display-manager.service` is
+    /// linked or there: it starts on VT 1 at boot.
+    display_manager: Option<String>,
     /// Each VT's own `autovt@ttyN.service` link.
     own: BTreeMap<u16, Link>,
     /// The VTs whose `vtium@ttyN` is masked.
     masked: BTreeSet<u16>,
     /// The units running on each VT, by prefix.
     running: BTreeMap<u16, BTreeSet<String>>,
-    /// The VTs whose getty vtium recorded as enabled.
-    records: BTreeSet<u16>,
+    /// What each VT had before `enable` took it.
+    records: BTreeMap<u16, Record>,
     /// The template record: `None` with none; `Some(None)` for a template
     /// that linked nowhere; `Some(Some(path))` for one that linked to path.
     template_record: Option<Option<String>>,
@@ -292,7 +361,7 @@ impl State {
     }
 
     fn wanted(&self, n: u16, prefix: &str) -> bool {
-        self.wants.get(&n).is_some_and(|w| w.contains(prefix))
+        self.wants.get(&n).is_some_and(|w| w.contains_key(prefix))
     }
 
     fn own(&self, n: u16) -> &Link {
@@ -315,7 +384,7 @@ impl State {
 
     /// Whether anything of `enable N`'s is on VT `n`.
     fn vtium_on(&self, n: u16) -> bool {
-        self.wanted(n, VTIUM) || self.own(n).names(VTIUM) || self.records.contains(&n)
+        self.wanted(n, VTIUM) || self.own(n).names(VTIUM) || self.records.contains_key(&n)
     }
 
     /// Every VT anything is enabled, linked, running or recorded on.
@@ -323,7 +392,7 @@ impl State {
         let mut vts: BTreeSet<u16> = self.wants.keys().copied().collect();
         vts.extend(self.own.keys());
         vts.extend(self.running.keys());
-        vts.extend(&self.records);
+        vts.extend(self.records.keys());
         vts.extend(&self.masked);
         vts
     }
@@ -386,18 +455,28 @@ impl Run<'_, '_, '_> {
         }
         let unit = self.unit_file(VTIUM);
         let mut state = self.read()?;
+        let problem = match unit {
+            UnitFile::At(_) => None,
+            UnitFile::Masked => Some(text::TEMPLATE_MASKED),
+            UnitFile::Missing => Some(text::NOT_INSTALLED),
+        };
         if verb == Verb::Status {
-            if unit.is_none() {
-                self.say(text::NOT_INSTALLED);
+            if let Some(problem) = problem {
+                self.say(problem);
             }
             self.status(&state);
             return Ok(0);
         }
-        let unit = unit.ok_or(Stop(text::NOT_INSTALLED.to_owned()))?;
+        let UnitFile::At(unit) = unit else {
+            return Err(Stop(problem.unwrap_or_default().to_owned()));
+        };
         match verb {
             Verb::Status => Ok(0),
             Verb::Enable(Which::Vt(n)) => {
                 self.refuse_kmscon(&state, n)?;
+                if let Some(dm) = state.display_manager.as_deref().filter(|_| n == 1) {
+                    return Err(Stop(text::display_manager_holds(dm)));
+                }
                 self.refuse_vt(&state, n)?;
                 if state.given(n) {
                     self.say(&text::already_given(n));
@@ -413,8 +492,8 @@ impl Run<'_, '_, '_> {
                     self.say(&text::not_given(n));
                     return Ok(0);
                 }
-                let removed = self.disable_vt(&mut state, n)?;
-                if removed {
+                let by_hand = self.disable_vt(&mut state, n)?;
+                if by_hand {
                     self.reload()?;
                 }
                 self.say(&text::taken_back(n, state.runs(n, VTIUM)));
@@ -427,35 +506,65 @@ impl Run<'_, '_, '_> {
         }
     }
 
-    /// The path, as on the running system, of `PREFIX@.service` in the
-    /// first unit directory that has it.
-    fn unit_file(&self, prefix: &str) -> Option<String> {
+    /// Where systemd finds `PREFIX@.service`: in the first unit directory
+    /// that has it, unless that directory masks it.
+    fn unit_file(&self, prefix: &str) -> UnitFile {
         let file = format!("{prefix}@.service");
+        for dir in UNIT_DIRS {
+            let path = self.path(dir).join(&file);
+            match Link::read(&path) {
+                Link::Absent => {}
+                link if link.masks() => return UnitFile::Masked,
+                _ if path.is_file() => return UnitFile::At(format!("/{dir}/{file}")),
+                _ => {}
+            }
+        }
+        UnitFile::Missing
+    }
+
+    /// The template link in each unit directory that has one, in the
+    /// search path's order.
+    fn templates(&self) -> Vec<Link> {
         UNIT_DIRS
             .iter()
-            .find(|dir| self.path(dir).join(&file).is_file())
-            .map(|dir| format!("/{dir}/{file}"))
+            .map(|dir| Link::read(&self.path(dir).join(TEMPLATE)))
+            .filter(|link| *link != Link::Absent)
+            .collect()
     }
 
     fn read(&mut self) -> Step<State> {
+        let etc = self.path(ETC);
+        let template_etc = Link::read(&etc.join(TEMPLATE));
+        let templates = self.templates();
+        let below = usize::from(template_etc != Link::Absent);
         let mut state = State {
-            template: Link::read(&self.path(ETC).join(TEMPLATE)),
+            template: templates.first().cloned().unwrap_or_default(),
+            template_below: templates.len() > below,
+            template_etc,
             ..State::default()
         };
-        for name in names(&self.path(WANTS)) {
+        let wants = self.path(WANTS);
+        for name in names(&wants) {
             if let Some((prefix, n)) = instance(&name) {
-                state.wants.entry(n).or_default().insert(prefix.to_owned());
+                let link = Link::read(&wants.join(&name));
+                state
+                    .wants
+                    .entry(n)
+                    .or_default()
+                    .insert(prefix.to_owned(), link);
             }
         }
-        let etc = self.path(ETC);
+        state.display_manager = match Link::read(&etc.join(DISPLAY_MANAGER)) {
+            Link::Absent => None,
+            link if link.masks() => None,
+            link => Some(link.file_name().unwrap_or(DISPLAY_MANAGER).to_owned()),
+        };
         for name in names(&etc) {
             match instance(&name) {
                 Some(("autovt", n)) => {
                     state.own.insert(n, Link::read(&etc.join(&name)));
                 }
-                Some((VTIUM, n))
-                    if Link::read(&etc.join(&name)) == Link::To("/dev/null".into()) =>
-                {
+                Some((VTIUM, n)) if Link::read(&etc.join(&name)).masks() => {
                     state.masked.insert(n);
                 }
                 _ => {}
@@ -463,8 +572,9 @@ impl Run<'_, '_, '_> {
         }
         let records = self.path(RECORDS);
         for name in names(&records) {
-            if let Some(n) = name.strip_prefix("tty").and_then(vt_number) {
-                state.records.insert(n);
+            if let Some(n) = name.strip_prefix("tty").and_then(vt_digits) {
+                let text = std::fs::read_to_string(records.join(&name)).unwrap_or_default();
+                state.records.insert(n, Record::parse(&text));
             }
         }
         state.template_record = std::fs::read_to_string(records.join(TEMPLATE))
@@ -589,18 +699,20 @@ impl Run<'_, '_, '_> {
         }
     }
 
-    /// Links `ETC/name` to `to`, by a link under a temporary name renamed
+    /// Links `dir/name` to `to`, by a link under a temporary name renamed
     /// into place, or removes it when `to` is `None`.
-    fn link(&mut self, name: &str, to: Option<&str>) -> Step {
-        let etc = self.path(ETC);
-        let path = etc.join(name);
-        let shown = format!("/{ETC}/{name}");
+    fn link(&mut self, dir: &str, name: &str, to: Option<&str>) -> Step {
+        let dir_path = self.path(dir);
+        let path = dir_path.join(name);
+        let shown = format!("/{dir}/{name}");
         match to {
             Some(to) => {
                 self.say(&text::linking(&shown, to));
-                let tmp = etc.join(format!(".{name}.vtium-new"));
+                let tmp = dir_path.join(format!(".{name}.vtium-new"));
                 let _ = std::fs::remove_file(&tmp);
-                let made = symlink(to, &tmp).and_then(|()| std::fs::rename(&tmp, &path));
+                let made = std::fs::create_dir_all(&dir_path)
+                    .and_then(|()| symlink(to, &tmp))
+                    .and_then(|()| std::fs::rename(&tmp, &path));
                 if let Err(e) = made {
                     let _ = std::fs::remove_file(&tmp);
                     return Err(Stop(text::cannot_write(&shown, &e.to_string())));
@@ -620,20 +732,38 @@ impl Run<'_, '_, '_> {
     /// skipped when done.
     fn enable_vt(&mut self, state: &mut State, n: u16) -> Step {
         let getty = state.wanted(n, GETTY);
-        if getty && !state.records.contains(&n) {
-            self.record(
-                &format!("tty{n}"),
-                &text::getty_record(n),
-                &text::getty_unit(n),
-            )?;
-            state.records.insert(n);
-        }
+        self.record_vt(state, n)?;
         if !(state.wanted(n, VTIUM) && state.own(n).names(VTIUM)) {
             self.systemctl(&["enable", &format!("vtium@tty{n}.service")])?;
         }
         if getty {
             self.disable_getty(state, n)?;
         }
+        Ok(())
+    }
+
+    /// Writes VT `n`'s record, unless one is there: the path its getty's
+    /// want links to, or nothing when no getty is enabled there.
+    fn record_vt(&mut self, state: &mut State, n: u16) -> Step {
+        if state.records.contains_key(&n) {
+            return Ok(());
+        }
+        let record = match state.wants.get(&n).and_then(|w| w.get(GETTY)) {
+            None => Record::NoGetty,
+            Some(Link::To(to)) if template_prefix(to) == Some(GETTY) => Record::Getty(to.clone()),
+            // A want that is no link to a getty's unit file: the file
+            // systemd finds stands for it.
+            Some(_) => match self.unit_file(GETTY) {
+                UnitFile::At(path) => Record::Getty(path),
+                _ => Record::NoGetty,
+            },
+        };
+        let (body, what) = match &record {
+            Record::Getty(to) => (format!("{to}\n"), text::getty_unit(n, to)),
+            _ => (String::new(), text::no_getty(n)),
+        };
+        self.record(&format!("tty{n}"), &body, &what)?;
+        state.records.insert(n, record);
         Ok(())
     }
 
@@ -645,30 +775,40 @@ impl Run<'_, '_, '_> {
         Ok(())
     }
 
-    /// `disable N`'s changes on VT `n`: the getty back, vtium's disable,
-    /// the VT's leftover link, then the record. Returns whether a link was
-    /// removed by hand, which the manager has yet to read.
+    /// `disable N`'s changes on VT `n`: the getty back as the record
+    /// found it, vtium's disable, the VT's leftover link, then the record.
+    /// Returns whether a link was changed by hand, which the manager has
+    /// yet to read.
     fn disable_vt(&mut self, state: &mut State, n: u16) -> Step<bool> {
-        let recorded = state.records.contains(&n);
-        if (recorded || n == 1) && !state.wanted(n, GETTY) {
-            self.systemctl(&[
-                "add-wants",
-                "getty.target",
-                &format!("getty@tty{n}.service"),
-            ])?;
-            state.wants.entry(n).or_default().insert(GETTY.to_owned());
+        let record = state.records.get(&n).cloned();
+        let getty = format!("getty@tty{n}.service");
+        let mut by_hand = false;
+        if !state.wanted(n, GETTY) {
+            match &record {
+                Some(Record::Getty(to)) => {
+                    self.link(WANTS, &getty, Some(to))?;
+                    by_hand = true;
+                }
+                Some(Record::NoGetty) => {}
+                // No record, as the earlier hand-typed steps left VT 1:
+                // without its getty VT 1 has no login at boot.
+                None | Some(Record::Unreadable) if n == 1 => {
+                    self.systemctl(&["add-wants", "getty.target", &getty])?;
+                }
+                None | Some(Record::Unreadable) => {}
+            }
         }
         if state.wanted(n, VTIUM) {
             self.systemctl(&["disable", &format!("vtium@tty{n}.service")])?;
         }
-        let removed = state.own(n).names(VTIUM);
-        if removed {
-            self.link(&format!("autovt@tty{n}.service"), None)?;
+        if state.own(n).names(VTIUM) {
+            self.link(ETC, &format!("autovt@tty{n}.service"), None)?;
+            by_hand = true;
         }
-        if recorded {
+        if record.is_some() {
             self.forget(&format!("tty{n}"))?;
         }
-        Ok(removed)
+        Ok(by_hand)
     }
 
     fn enable_all(&mut self, state: &mut State, unit: &str) -> Step<i32> {
@@ -683,11 +823,15 @@ impl Run<'_, '_, '_> {
         if !kmscon.is_empty() {
             return Err(Stop(text::kmscon_holds_vts(&kmscon)));
         }
-        if *state.template() == Link::Other {
+        if state.template_etc == Link::Other {
             return Err(Stop(text::TEMPLATE_NOT_LINK.to_owned()));
         }
         // What each VT keeps, and the VTs whose gettys go.
         let mut kept: Vec<String> = Vec::new();
+        let dm = state.display_manager.clone();
+        if let Some(dm) = &dm {
+            kept.push(text::kept_display_manager(dm));
+        }
         let mut gettys: Vec<u16> = Vec::new();
         for n in state.vts() {
             if state.holds(n, DEV) {
@@ -707,12 +851,14 @@ impl Run<'_, '_, '_> {
                 }
             }
         }
-        // VT 1 gets `enable N`, so it is refused as `enable N` would be.
-        if !state.holds(1, DEV) {
+        // VT 1 gets `enable N` unless the development install or a display
+        // manager holds it, so it is refused as `enable N` would be.
+        let vt1_kept = state.holds(1, DEV) || dm.is_some();
+        if !vt1_kept {
             self.refuse_vt(state, 1)?;
         }
-        let template_done = state.template().names(VTIUM);
-        let vt1_done = state.holds(1, DEV) || state.given(1);
+        let template_done = state.template_etc.names(VTIUM);
+        let vt1_done = vt1_kept || state.given(1);
         if template_done && vt1_done && gettys.is_empty() {
             self.say(text::ALREADY_ALL);
             for line in &kept {
@@ -722,30 +868,23 @@ impl Run<'_, '_, '_> {
         }
         if !template_done {
             if state.template_record.is_none() {
-                let body = match state.template() {
+                let body = match &state.template_etc {
                     Link::To(to) => format!("{to}\n"),
                     _ => String::new(),
                 };
                 self.record(TEMPLATE, &body, text::TEMPLATE_WHAT)?;
             }
-            self.link(TEMPLATE, Some(unit))?;
+            self.link(ETC, TEMPLATE, Some(unit))?;
         }
         if !vt1_done {
             self.enable_vt(state, 1)?;
         }
         for n in gettys {
-            if !state.records.contains(&n) {
-                self.record(
-                    &format!("tty{n}"),
-                    &text::getty_record(n),
-                    &text::getty_unit(n),
-                )?;
-                state.records.insert(n);
-            }
+            self.record_vt(state, n)?;
             self.disable_getty(state, n)?;
         }
         self.reload()?;
-        self.say(text::GIVEN_ALL);
+        self.say(&text::given_all(!vt1_kept));
         for line in &kept {
             self.say(line);
         }
@@ -758,7 +897,7 @@ impl Run<'_, '_, '_> {
             .into_iter()
             .filter(|&n| state.vtium_on(n))
             .collect();
-        let template = state.template().names(VTIUM);
+        let template = state.template_etc.names(VTIUM);
         if vts.is_empty() && !template && state.template_record.is_none() {
             self.say(text::NOT_GIVEN_ANY);
             return Ok(0);
@@ -771,11 +910,19 @@ impl Run<'_, '_, '_> {
             }
         }
         if template {
+            // With no record, as after the earlier hand-typed steps, a
+            // template link further down the search path, such as Debian's
+            // in /lib, is in force once vtium's goes; with none, the getty's
+            // is made, as systemd's preset makes it.
             let back = match &state.template_record {
                 Some(back) => back.clone(),
-                None => self.unit_file(GETTY),
+                None if state.template_below => None,
+                None => match self.unit_file(GETTY) {
+                    UnitFile::At(path) => Some(path),
+                    _ => None,
+                },
             };
-            self.link(TEMPLATE, back.as_deref())?;
+            self.link(ETC, TEMPLATE, back.as_deref())?;
         }
         self.forget(TEMPLATE)?;
         self.reload()?;
@@ -797,12 +944,22 @@ impl Run<'_, '_, '_> {
             link => text::template_names(link.unit().unwrap_or("?")),
         };
         self.say(&template);
+        if let Some(dm) = &state.display_manager {
+            self.say(&text::status_display_manager(dm));
+        }
         let mut vts: BTreeSet<u16> = (1..=LOGIND_VTS).collect();
         vts.extend(state.vts());
         let rows: Vec<[String; 4]> = vts
             .into_iter()
             .map(|n| {
-                let at_boot = state.wants.get(&n).map(|w| units(w, n)).unwrap_or_default();
+                let mut at_boot = state
+                    .wants
+                    .get(&n)
+                    .map(|w| units(w.keys(), n))
+                    .unwrap_or_default();
+                if let Some(dm) = state.display_manager.as_deref().filter(|_| n == 1) {
+                    at_boot = join(&at_boot, &text::display_manager_cell(dm));
+                }
                 let switched = match state.own(n) {
                     Link::Absent => state.template().unit().map(|u| format!("{u}@tty{n}")),
                     Link::Other => Some(format!("autovt@tty{n}")),
@@ -811,14 +968,14 @@ impl Run<'_, '_, '_> {
                 let running = state
                     .running
                     .get(&n)
-                    .map(|r| units(r, n))
+                    .map(|r| units(r.iter(), n))
                     .unwrap_or_default();
                 let mut boot = at_boot;
                 if state.masked.contains(&n) {
                     boot = join(&boot, &text::masked_cell(n));
                 }
-                if state.records.contains(&n) {
-                    boot = join(&boot, text::RECORDED_CELL);
+                if let Some(record) = state.records.get(&n) {
+                    boot = join(&boot, text::recorded_cell(record));
                 }
                 [n.to_string(), boot, switched.unwrap_or_default(), running]
                     .map(|c| if c.is_empty() { "-".to_owned() } else { c })
@@ -845,9 +1002,8 @@ impl Run<'_, '_, '_> {
     }
 }
 
-fn units(prefixes: &BTreeSet<String>, n: u16) -> String {
+fn units<'p>(prefixes: impl Iterator<Item = &'p String>, n: u16) -> String {
     prefixes
-        .iter()
         .map(|p| format!("{p}@tty{n}"))
         .collect::<Vec<_>>()
         .join(", ")

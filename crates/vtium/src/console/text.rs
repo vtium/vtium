@@ -41,7 +41,7 @@ pub fn needs_root(words: &str) -> String {
     )
 }
 
-pub const NOT_INSTALLED: &str = "vtium@.service is not installed in /etc/systemd/system, /usr/local/lib/systemd/system or /usr/lib/systemd/system. The vtium package installs it.";
+pub const NOT_INSTALLED: &str = "vtium@.service is in none of systemd's unit directories. The vtium package installs it in /usr/lib/systemd/system.";
 
 pub fn cannot_run(line: &str, why: &str) -> String {
     format!("cannot run systemctl {line}: {why}")
@@ -79,14 +79,12 @@ pub fn cannot_remove(path: &str, why: &str) -> String {
     format!("cannot remove {path}: {why}")
 }
 
-pub fn getty_unit(n: u16) -> String {
-    format!("that getty@tty{n}.service was enabled")
+pub fn getty_unit(n: u16, to: &str) -> String {
+    format!("that getty@tty{n}.service was enabled, linked to {to},")
 }
 
-pub fn getty_record(n: u16) -> String {
-    format!(
-        "getty@tty{n}.service was enabled before vtium console took VT {n}; vtium console disable gives it back.\n"
-    )
+pub fn no_getty(n: u16) -> String {
+    format!("that no getty was enabled on VT {n}")
 }
 
 pub const TEMPLATE_WHAT: &str = "where autovt@.service linked";
@@ -102,7 +100,7 @@ pub fn kmscon_holds(n: u16, own_link: bool) -> String {
     )
 }
 
-pub const KMSCON_TEMPLATE: &str = "the C reference's console holds every VT: /etc/systemd/system/autovt@.service links to kmsconvt@.service. vtium on every VT is for a machine without it; systemctl disable kmsconvt@.service removes its links. vtium console enable N gives one VT to vtium beside it.";
+pub const KMSCON_TEMPLATE: &str = "the C reference's console holds every VT: autovt@.service links to kmsconvt@.service. vtium on every VT is for a machine without it; systemctl disable kmsconvt@.service removes its links. vtium console enable N gives one VT to vtium beside it.";
 
 pub fn kmscon_holds_vts(vts: &[u16]) -> String {
     let list = vts
@@ -174,7 +172,45 @@ pub fn template_still_vtium(n: u16) -> String {
 
 pub const ALREADY_ALL: &str = "Every VT is vtium's already: nothing changed.";
 
-pub const GIVEN_ALL: &str = "Every VT is vtium's from its next start: systemd starts vtium@tty1 at the next boot, and logind starts vtium on each other VT when you switch to it while nothing runs there. A getty running now keeps its VT until it stops. To start vtium on VT 1 now, which ends every session there: systemctl start vtium@tty1.service";
+pub fn given_all(vt1: bool) -> String {
+    let boot = if vt1 {
+        "systemd starts vtium@tty1 at the next boot, and logind starts vtium on each other VT"
+    } else {
+        "logind starts vtium on each VT but VT 1"
+    };
+    let now = if vt1 {
+        " To start vtium on VT 1 now, which ends every session there: systemctl start vtium@tty1.service"
+    } else {
+        ""
+    };
+    format!(
+        "Every VT is vtium's from its next start: {boot} when you switch to it while nothing runs there. A getty running now keeps its VT until it stops.{now}"
+    )
+}
+
+pub const TEMPLATE_MASKED: &str = "vtium@.service is masked. A mask is the administrator's choice; systemctl unmask vtium@.service lifts it.";
+
+pub fn display_manager_holds(dm: &str) -> String {
+    format!(
+        "the display manager, {dm}, starts on VT 1 at boot (/etc/systemd/system/display-manager.service links to it), and a vtium started there at boot would race it for the display. vtium console leaves VT 1 to it; give vtium another VT."
+    )
+}
+
+pub fn kept_display_manager(dm: &str) -> String {
+    format!(
+        "VT 1 keeps the display manager, {dm}, and its getty as they are: /etc/systemd/system/display-manager.service links to it, and it starts on VT 1 at boot."
+    )
+}
+
+pub fn status_display_manager(dm: &str) -> String {
+    format!(
+        "The display manager, {dm}, starts on VT 1 at boot: /etc/systemd/system/display-manager.service links to it."
+    )
+}
+
+pub fn display_manager_cell(dm: &str) -> String {
+    format!("{dm} (display manager)")
+}
 
 pub fn kept_dev(n: u16) -> String {
     format!(
@@ -210,11 +246,13 @@ pub fn still_running(vts: &[u16]) -> String {
 }
 
 pub fn template_none() -> String {
-    "On a VT with no link of its own, logind starts nothing: /etc/systemd/system/autovt@.service does not exist.".to_owned()
+    "On a VT with no link of its own, logind starts nothing: no unit directory has autovt@.service."
+        .to_owned()
 }
 
 pub fn template_not_link() -> String {
-    "On a VT with no link of its own, logind starts the unit in /etc/systemd/system/autovt@.service, a file of its own.".to_owned()
+    "On a VT with no link of its own, logind starts autovt@.service, a unit file of its own."
+        .to_owned()
 }
 
 pub fn template_names(unit: &str) -> String {
@@ -226,7 +264,7 @@ pub fn template_names(unit: &str) -> String {
         _ => "another console",
     };
     format!(
-        "On a VT with no link of its own, logind starts {who}: /etc/systemd/system/autovt@.service links to {unit}@.service."
+        "On a VT with no link of its own, logind starts {who}: autovt@.service links to {unit}@.service."
     )
 }
 
@@ -236,4 +274,9 @@ pub fn masked_cell(n: u16) -> String {
     format!("vtium@tty{n} masked")
 }
 
-pub const RECORDED_CELL: &str = "getty recorded";
+pub fn recorded_cell(record: &super::Record) -> &'static str {
+    match record {
+        super::Record::NoGetty => "no getty recorded",
+        _ => "getty recorded",
+    }
+}
