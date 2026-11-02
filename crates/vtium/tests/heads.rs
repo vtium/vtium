@@ -864,8 +864,12 @@ input class:keyboard -> roaming
     let (slow_before, fast_before) = (s.memory("/dev/mem0").frames, s.memory("/dev/mem1").frames);
     let started = now();
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
-    // The turn that starts the slow head's frame.
-    s.until(Duration::from_millis(30), |_| false);
+    assert!(
+        s.until(BOUND, |a| a
+            .head("slow")
+            .is_some_and(|h| h.frames_out() > 0)),
+        "the slow head's frame is composing"
+    );
     s.type_str("x\r");
     assert!(
         s.until(SECOND, |a| head_shows(a, "fast", "got:x")),
@@ -927,8 +931,10 @@ input path:kbd-panel -> panel
 /// D2: a flood in one head's pty takes a bounded share of each turn.
 /// While head `flood`'s program writes as fast as it can, a key typed on
 /// head `quiet`'s keyboard `kbd` reaches quiet's session, and quiet's
-/// display `node` draws the echo, within 12 turns; no turn parses more
-/// than 64 KiB of flood's output, and flood's output keeps coming.
+/// display `node` has a frame of the echo on its way, within 12 turns;
+/// no turn parses more than 64 KiB of flood's output, and flood's output
+/// keeps coming. The frame then comes however long it takes to compose,
+/// since a loaded machine composes slowly, and the share is in turns.
 fn a_flood_leaves_the_other_head_its_turn(flood: &str, quiet: &str, kbd: &str, node: &str) {
     let mut s = flooding(flood);
     let parsed = |a: &App| a.head(flood).map_or(0, |h| h.term().parsed);
@@ -953,19 +959,23 @@ fn a_flood_leaves_the_other_head_its_turn(flood: &str, quiet: &str, kbd: &str, n
             "turn {turns} parsed {share} bytes of {flood}'s output"
         );
         let frames = s.memory(node).frames;
+        let out = s.app.head(quiet).map_or(0, Head::frames_out);
         match echoed {
             None if head_shows(&s.app, quiet, "got:k") => echoed = Some(frames),
-            Some(at) if frames > at => break,
+            Some(at) if frames > at || out > 0 => break,
             _ => {}
         }
     }
-    assert!(
-        echoed.is_some(),
-        "the key's echo reached {quiet}'s screen within 12 turns"
-    );
+    let Some(at) = echoed else {
+        panic!("the key's echo reached {quiet}'s screen within 12 turns");
+    };
     assert!(
         turns < 12,
-        "{quiet}'s display drew the echo within 12 turns"
+        "{quiet}'s display had the echo's frame on its way within 12 turns"
+    );
+    assert!(
+        s.until_memory(node, BOUND, |m| m.frames > at),
+        "{quiet}'s display draws the echo"
     );
     assert!(parsed(&s.app) > flooded, "{flood}'s output keeps coming");
 }
@@ -1005,8 +1015,10 @@ fn a_frame_composing_holds_up_no_vt_release() {
     );
     let started = now();
     s.memory("/dev/mem0").events.push(Event::Redraw(ID));
-    // The turn that starts the slow frame.
-    s.until(Duration::from_millis(30), |_| false);
+    assert!(
+        s.until(BOUND, |a| a.heads().iter().any(|h| h.frames_out() > 0)),
+        "the slow frame is composing"
+    );
     let ctrl_super_f12 = KeyEvent {
         keycode: 0,
         ascii: 0,
@@ -2001,10 +2013,48 @@ fn the_console_chords_draw_the_console_they_show() {
     assert!(drawn_now(&mut s) == two, "the second console");
     let (state, frame) = chord(&mut s, 106, RIGHT);
     assert_eq!(state, Some((2, 0)), "Right wraps to the first");
-    assert!(frame == one, "Right's frame draws the first console");
+    assert!(
+        frame == one,
+        "Right's frame draws the first console: {}; the screen {:?}",
+        apart(&frame, &one),
+        s.app.screen_text()
+    );
     let (state, frame) = chord(&mut s, 105, LEFT);
     assert_eq!(state, Some((2, 1)), "Left wraps to the second");
-    assert!(frame == two, "Left's frame draws the second console");
+    assert!(
+        frame == two,
+        "Left's frame draws the second console: {}; the screen {:?}",
+        apart(&frame, &two),
+        s.app.screen_text()
+    );
+}
+
+/// Where two displays' pictures differ, for a failure's message: for each
+/// display, the pixels that differ and the box that holds them.
+fn apart(got: &[Vec<u8>; 2], want: &[Vec<u8>; 2]) -> String {
+    let widths = [320usize, 640];
+    got.iter()
+        .zip(want)
+        .zip(widths)
+        .map(|((g, w), width)| {
+            let px: Vec<usize> = (0..g.len().min(w.len()) / 4)
+                .filter(|i| g.get(i * 4..i * 4 + 4) != w.get(i * 4..i * 4 + 4))
+                .collect();
+            let (xs, ys): (Vec<usize>, Vec<usize>) =
+                px.iter().map(|i| (i % width, i / width)).unzip();
+            format!(
+                "{} pixels differ in x {:?}..={:?}, y {:?}..={:?} (lengths {} and {})",
+                px.len(),
+                xs.iter().min(),
+                xs.iter().max(),
+                ys.iter().min(),
+                ys.iter().max(),
+                g.len(),
+                w.len()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// D3 and D10: a head starts the consoles its file asks for, at most 4 a
@@ -3193,7 +3243,12 @@ fn a_display_flapping_under_hangup_brings_the_login_back_each_time() {
         let _ = std::fs::remove_file(&f.mark);
         assert!(s.until(SECOND, |_| f.starts() == n + 1), "start {}", n + 1);
         s.plug("/dev/mem0", now());
-        s.until(Duration::from_millis(50), |_| false);
+        assert!(
+            s.until(SECOND, |a| a
+                .head("small")
+                .is_some_and(|h| !h.cells().is_empty())),
+            "the display is back on its head"
+        );
     }
     assert_eq!(s.app.head("small").and_then(Head::notice), None);
     assert!(s.app.head("small").and_then(Head::pty).is_some());
@@ -3220,7 +3275,12 @@ fn an_exit_read_before_a_hang_up_is_the_hung_up_sessions() {
         s.unplug("/dev/mem0", now());
         assert!(s.until(SECOND, |a| head_shows(a, "small", "ready")));
         s.plug("/dev/mem0", now());
-        s.until(Duration::from_millis(50), |_| false);
+        assert!(
+            s.until(SECOND, |a| a
+                .head("small")
+                .is_some_and(|h| !h.cells().is_empty())),
+            "the display is back on its head"
+        );
     }
     assert_eq!(s.app.head("small").and_then(Head::notice), None);
     assert!(s.app.head("small").and_then(Head::pty).is_some());
@@ -4387,6 +4447,12 @@ fn under_osd_off_a_move_composes_no_frame() {
         assert!(
             s.until_memory("/dev/mem1", BOUND, |m| m.inked(0, 1..5)),
             "the start drawn"
+        );
+        assert!(
+            s.until(BOUND, |a| a
+                .head("large")
+                .is_some_and(|h| h.frames_out() == 0)),
+            "no frame of the start composing"
         );
         let composed = Arc::new(AtomicUsize::new(0));
         let count = Arc::clone(&composed);

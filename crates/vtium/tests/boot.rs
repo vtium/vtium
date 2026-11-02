@@ -1081,7 +1081,7 @@ fn a_respawned_session_blanks_after_dpms_timeout() {
     let marker = std::env::temp_dir().join(format!("vtium-blank-respawn-{}", std::process::id()));
     let _ = std::fs::remove_file(&marker);
     let script = format!(
-        "if [ -e {m} ]; then read x; else : > {m}; printf '\\033[9;0]'; sleep 2.5; fi",
+        "if [ -e {m} ]; then read x; else : > {m}; printf '\\033[9;0]'; fi",
         m = marker.display()
     );
     let mut h = program_blank(&[], &script);
@@ -2340,6 +2340,43 @@ fn bell_rings_the_vt_at_a_bel_while_mode_1042_lets_it_through() {
     }
 }
 
+/// ADR-1002, "What a link does": a rotation puts a cell under a still
+/// pointer that was past the grid, and the hover follows it as at a zoom.
+/// On the 320 by 160 display the pointer is 200 pixels down, below the
+/// grid's 10 rows of 16; turned a quarter the grid is 20 rows, the line of
+/// 240 A's and 8 B's rewraps to 20 columns, and the second link starts at
+/// row 12, under the pointer.
+// covers: osc.8
+#[test]
+fn a_rotation_moves_the_hover_to_the_link_now_under_the_pointer() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf '\\033]8;;https://a.example/\\007'; printf '%0240d' 0 | tr 0 A; \
+         printf '\\033]8;;https://b.example/\\007BBBBBBBB\\033]8;;\\007\\n'; read x",
+    ]);
+    assert!(h.until(SECOND, |a| {
+        a.screen_text().iter().any(|l| l.ends_with("BBBBBBBB"))
+    }));
+    let still = PointerEvent::Moved {
+        x: 4,
+        y: 200,
+        held: None,
+    };
+    h.point([still], Mods::empty());
+    assert_eq!(links(&h.app).0, None, "below the grid, over no cell");
+    h.app.input_event(key(Mods::LOGO, 0x3d), now());
+    assert_eq!(h.app.grid(), (20, 20), "turned a quarter");
+    assert_eq!(
+        links(&h.app).0.as_deref(),
+        Some("https://b.example/"),
+        "the second link, rewrapped under the pointer"
+    );
+}
+
 /// ADR-1002, "What a link does": a zoom puts another cell under a still
 /// pointer, and the hover follows it, so the URI the overlay shows is the
 /// URI Ctrl+click copies. The pointer rests on the second of two links,
@@ -3298,7 +3335,7 @@ fn a_flip_draws_only_its_own_display() {
     h.app
         .add_video(PathBuf::from("/dev/mem1"), Box::new(Memory::default()));
     assert!(h.until(SECOND, |a| a.cells().len() == 2));
-    h.until(Duration::from_millis(200), |_| false);
+    h.settled();
     fn gated(h: &mut Harness) -> &mut Gate {
         h.app
             .videos
@@ -3322,6 +3359,7 @@ fn a_flip_draws_only_its_own_display() {
         h.eventually(BOUND, |h| other(h).inked(1, 1..3)),
         "the other display drawn"
     );
+    h.settled();
     let (frames, lent) = (gated(&mut h).memory.frames, other(&mut h).ages.len());
     let g = gated(&mut h);
     g.flipping = false;
@@ -5066,7 +5104,6 @@ fn an_outline_frit_draws_in_the_helpers_cell_at_each_height() {
     }
     assert_eq!(h.app.cells(), vec![(9, 16)]);
     assert_eq!(cell_answers(&kinds), 7, "each height asked once");
-    h.until(Duration::from_millis(50), |_| false);
     assert_eq!(
         kinds_sent(&kinds).iter().filter(|&&k| k == 10).count(),
         7,

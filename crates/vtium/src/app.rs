@@ -3892,6 +3892,43 @@ mod tests {
         assert_eq!(rang(&mut app), Some(1), "no BEL, no ring");
     }
 
+    // `bell`, the maintainer's answer of 2026-11-01: a BEL from a console
+    // the head does not show rings the VT too, as the C reference rang it
+    // from every session's terminal.
+    #[test]
+    fn a_hidden_consoles_bel_rings_the_vt() {
+        let args: Vec<OsString> = ["--bell"].iter().map(OsString::from).collect();
+        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(Bells::default()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        app.set_heads(start("version = 1\n[head one]\nconsoles = 2\n"));
+        let App {
+            heads,
+            config,
+            scrollback,
+            scrollback_bytes,
+            clock,
+            ..
+        } = &mut app;
+        let head = heads.first_mut().unwrap();
+        head.open_wanted(|| {
+            crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
+        });
+        assert_eq!(head.console_count(), 2);
+        let shown = head.console.id;
+        let hidden = head.consoles_mut().find(|c| c.id != shown).unwrap();
+        hidden.term.terminal.input(b"\x07");
+        let rang = |app: &mut App| app.vt.get::<Bells>().map(|v| v.rang);
+        app.turn(Instant::now());
+        assert_eq!(rang(&mut app), Some(1));
+    }
+
     // ADR-1401 D8: the loop wakes when a head's `when-display-lost` time runs out.
     #[test]
     fn the_loop_wakes_when_a_heads_hangup_falls_due() {
