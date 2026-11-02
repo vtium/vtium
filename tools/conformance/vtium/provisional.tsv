@@ -6,3 +6,4 @@ kit-g14-point-deletes	#49's Ghostty 1.4 gate: d=p, d=q, d=x and d=y take kitty p
 kit-g14-tall-cursor	#49's Ghostty 1.4 gate: the cursor after an image taller than the screen, and after one as wide as it; not reviewed yet
 kit-relative	#49: a kitty relative placement follows its parent through a region scroll, a replacement and a whole-screen scroll, a part left of the screen cut off, and goes with its parent, taking its image; not reviewed yet
 kit-relative-refusals	#49: a chain of eight relative placements, ENOPARENT, ECYCLE, ETOODEEP, and U=1 alone and with P; not reviewed yet
+chafa-grid	chafa 1.18.3 on a terminal it does not know by name: its probes (OSC 10 and 11, XTWINOPS 18, 14 and 16, DA1) get vtium's replies, DA1's 4 leads it to sixel, and its labelled grid places each picture and label from a cursor saved with SCOSC and restored with SCORC; its link targets are shortened to file://host/pictures/; not reviewed yet

@@ -555,6 +555,33 @@ fn decsc_saves_and_decrc_restores_the_cursor_state() {
     assert_eq!(t.screen().cursor(), (4, 3));
 }
 
+// ctlseqs, SCOSC and SCORC: `CSI s` with no parameter saves the cursor, as
+// it does while DECLRMM is reset, and `CSI u` with no parameter restores it,
+// in DECSC's slot. A program that lays pictures out in a grid saves the
+// cursor this way before each picture and returns to it after.
+// covers: ctl.decslrm
+#[test]
+fn scosc_and_scorc_save_and_restore_the_cursor_as_decsc_and_decrc_do() {
+    let mut t = term(6, 4, b"\x1b[2;3H\x1b[1m\x1b[s\x1b[H\x1b[m\x1b[u");
+    assert_eq!(t.screen().cursor(), (2, 1));
+    assert!(t.screen().pen().attrs.contains(Attrs::BOLD));
+    // DECSC and SCOSC write one slot, which DECRC and SCORC both read.
+    t.input(b"\x1b[3;4H\x1b7\x1b[H\x1b[u");
+    assert_eq!(t.screen().cursor(), (3, 2));
+    t.input(b"\x1b[4;5H\x1b[s\x1b[H\x1b8");
+    assert_eq!(t.screen().cursor(), (4, 3));
+    // With any parameter, even 0 or an empty list, neither saves nor
+    // restores: each leaves the slot and the cursor as they were.
+    let mut t = term(6, 4, b"\x1b[2;2H\x1b[s\x1b[3;3H\x1b[0s\x1b[H\x1b[u");
+    assert_eq!(t.screen().cursor(), (1, 1));
+    t.input(b"\x1b[3;3H\x1b[;s\x1b[H\x1b[u");
+    assert_eq!(t.screen().cursor(), (1, 1));
+    t.input(b"\x1b[4;4H\x1b[5u");
+    assert_eq!(t.screen().cursor(), (3, 3));
+    t.input(b"\x1b[0u");
+    assert_eq!(t.screen().cursor(), (3, 3));
+}
+
 // ctlseqs, DECKPAM and DECKPNM: the keypad sends application sequences, or
 // its characters.
 // covers: ctl.deckpam
