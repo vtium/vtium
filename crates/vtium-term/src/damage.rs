@@ -73,6 +73,20 @@ impl Damage {
         }
     }
 
+    /// The bytes [`new`](Self::new)`(cols, rows)` holds on the heap, as
+    /// [`heap_bytes`](Self::heap_bytes) counts them; a resize holds the
+    /// same for its new size.
+    pub const fn heap_bytes_for(cols: usize, rows: usize) -> usize {
+        let cols = if cols < COLUMNS_MAX {
+            cols
+        } else {
+            COLUMNS_MAX
+        };
+        let rows = if rows < ROWS_MAX { rows } else { ROWS_MAX };
+        let row_ages = rows.saturating_mul(size_of::<RowAge>());
+        row_ages.saturating_add(cols.saturating_mul(rows).saturating_mul(size_of::<u64>()))
+    }
+
     pub fn cols(&self) -> usize {
         self.cols
     }

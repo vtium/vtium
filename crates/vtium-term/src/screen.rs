@@ -32,13 +32,13 @@ mod selection;
 use core::ops::Range;
 
 use crate::Cell;
-use crate::bounds::{COLUMNS_MAX, ROWS_MAX};
+use crate::bounds::{COLUMNS_MAX, ROWS_MAX, SB_MEMORY_MAX, SB_MEMORY_MIN};
 use crate::damage::{Age, Damage};
 use crate::frame::{Cursor, CursorShape, Frame};
 use crate::line::{Line, LineFlags, LineId, LinkId};
 use crate::links::LinkStore;
 use crate::palette::Palette;
-use crate::scrollback::Scrollback;
+use crate::scrollback::{Scrollback, lines_bytes_max, sb_memory_left};
 use crate::style::Style;
 use crate::unicode::Segmenter;
 
@@ -115,6 +115,9 @@ pub struct Screen {
     bottom: usize,
     tabs: Vec<bool>,
     scrollback: Scrollback,
+    /// While `sb-memory` follows the grid, the most it may be; `None` once
+    /// [`set_scrollback_memory`](Self::set_scrollback_memory) fixes it.
+    sb_memory_cap: Option<usize>,
     damage: Damage,
     pen: Style,
     /// The open OSC 8 link printed text takes.
@@ -159,6 +162,7 @@ impl Screen {
             bottom: rows.saturating_sub(1),
             tabs: default_tabs(cols),
             scrollback: Scrollback::new(scrollback_cap),
+            sb_memory_cap: Some(SB_MEMORY_MAX),
             damage: Damage::new(cols, rows),
             pen: Style::DEFAULT,
             link: None,
@@ -181,6 +185,7 @@ impl Screen {
             let line = screen.new_line(cols, &Style::DEFAULT);
             screen.alt.push(line);
         }
+        screen.follow_grid();
         screen
     }
 
@@ -486,11 +491,51 @@ impl Screen {
 
     /// Sets the most bytes the scrollback holds, `sb-memory`, which
     /// [`sb_memory`](crate::sb_memory) fences; the oldest lines past it go.
-    /// A line that alone passes it does not enter.
+    /// A line that alone passes it does not enter. The budget stays fixed
+    /// through every resize, as a configured `sb-memory` is.
     pub fn set_scrollback_memory(&mut self, bytes: usize) {
+        self.sb_memory_cap = None;
+        self.apply_scrollback_memory(bytes);
+    }
+
+    /// Makes `sb-memory` follow the grid, as it does when the configuration
+    /// does not set it, and as a new screen starts: the budget is what the
+    /// minspec peak leaves after the rest of the process, the rows the two
+    /// screens hold at their worst and a full link store
+    /// ([`sb_memory_default`](crate::sb_memory_default)), at least
+    /// [`SB_MEMORY_MIN`] and at most `cap`. Each resize works it out again,
+    /// and the oldest lines past a lower budget go.
+    pub fn set_scrollback_memory_from_grid(&mut self, cap: usize) {
+        self.sb_memory_cap = Some(cap);
+        self.follow_grid();
+    }
+
+    /// The scrollback's budget for the grid, while it follows the grid.
+    /// The rows priced are those the screens hold: each screen holds at
+    /// least its rows, and keeps lines below them after it shrank.
+    fn follow_grid(&mut self) {
+        let Some(cap) = self.sb_memory_cap else {
+            return;
+        };
+        let lines = self
+            .main
+            .len()
+            .max(self.rows)
+            .saturating_add(self.alt.len().max(self.rows));
+        let screens = lines_bytes_max(self.cols, self.rows, lines);
+        self.apply_scrollback_memory(sb_memory_left(screens).max(SB_MEMORY_MIN).min(cap));
+    }
+
+    fn apply_scrollback_memory(&mut self, bytes: usize) {
         self.scrollback.set_bytes_max(bytes);
         self.images_dropped();
         self.damage.mark_all();
+    }
+
+    /// The most bytes the scrollback holds, `sb-memory`: as set, or as the
+    /// grid gives it while it follows the grid.
+    pub fn scrollback_memory(&self) -> usize {
+        self.scrollback.bytes_max()
     }
 
     /// The bytes the scrollback's lines hold: each line's struct and its
@@ -567,6 +612,9 @@ impl Screen {
         if cols != self.cols {
             self.rewrap(cols, saved);
         }
+        self.main
+            .reserve_exact(rows.saturating_sub(self.main.len()));
+        self.alt.reserve_exact(rows.saturating_sub(self.alt.len()));
         while self.main.len() < rows {
             let line = self.new_line(cols, &Style::DEFAULT);
             self.main.push(line);
@@ -606,6 +654,7 @@ impl Screen {
         if self.cursor_y >= rows {
             self.move_cursor(self.cursor_x, rows.saturating_sub(1));
         }
+        self.follow_grid();
         self.refresh_hover();
     }
 

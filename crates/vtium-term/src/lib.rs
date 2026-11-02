@@ -93,8 +93,8 @@ pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 pub use palette::{PALETTE_NAMES, Palette, Special};
 pub use screen::{Erase, Screen, WidthMethod};
 pub use scrollback::{
-    MINSPEC_FIRST_SCREEN, MINSPEC_PEAK, SB_MEMORY_DEFAULT, SB_SIZE_DEFAULT, sb_memory,
-    sb_memory_cap, sb_size, sb_size_cap,
+    MINSPEC_GRID, MINSPEC_PEAK, MINSPEC_REST, SB_MEMORY_DEFAULT, SB_SIZE_DEFAULT, sb_memory,
+    sb_memory_cap, sb_memory_default, sb_size, sb_size_cap, screens_bytes_max,
 };
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
 pub use termcap::{Termcap, TermcapError};

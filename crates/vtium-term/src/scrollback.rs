@@ -9,9 +9,10 @@ use std::collections::VecDeque;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::bounds::{
-    LINKS_BYTES_MAX, SB_MEMORY_MAX, SB_MEMORY_MIN, SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM,
-    SB_SIZE_CAP_SMALL, SB_SIZE_MAX,
+    COLUMNS_MAX, LINKS_BYTES_MAX, ROWS_MAX, SB_MEMORY_MAX, SB_MEMORY_MIN, SB_SIZE_CAP_LARGE,
+    SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_MAX,
 };
+use crate::damage::Damage;
 use crate::line::{Line, LineFlags, LineId};
 use crate::screen::reflow;
 
@@ -46,17 +47,74 @@ pub fn sb_size(requested: usize, ram: u64, cap: Option<usize>) -> usize {
 /// the C reference measured 15.7 MiB with its 1,000 lines.
 pub const MINSPEC_PEAK: usize = 16 << 20;
 
-/// vtium's resident size after the first screen on the minspec machine,
-/// rounded up to a KiB: the C reference's measured 10.3 MiB less its two
-/// screens, with vtium's two screens in their place (ADR-1001, "Memory";
-/// `tests/memory.rs` derives it).
-pub const MINSPEC_FIRST_SCREEN: usize = 10_299 << 10;
+/// The minspec machine's grid: its 1366x768 display in unifont's 8x16
+/// cells, 170 columns by 48 rows.
+pub const MINSPEC_GRID: (usize, usize) = (170, 48);
 
-/// `sb-memory` when the configuration does not set it: what
-/// [`MINSPEC_PEAK`] leaves after [`MINSPEC_FIRST_SCREEN`] and a full link
-/// store, rounded down to 64 KiB.
-pub const SB_MEMORY_DEFAULT: usize =
-    (MINSPEC_PEAK - MINSPEC_FIRST_SCREEN - LINKS_BYTES_MAX) / (64 << 10) * (64 << 10);
+/// What vtium's process holds on the minspec machine outside one console's
+/// two screens, its scrollback and its link store, rounded up to a KiB:
+/// the C reference's measured 10.3 MiB after its first screen, less its
+/// two screens of 32-byte cells at [`MINSPEC_GRID`] (ADR-1001, "Memory";
+/// `tests/memory.rs` derives it).
+pub const MINSPEC_REST: usize = 10_038 << 10;
+
+/// The most bytes a console's main and alternate screens hold at `cols`
+/// by `rows`, with their change ages: every row at
+/// [`Line::bytes_max`], each screen `rows` rows, inside the screen's own
+/// bounds.
+pub const fn screens_bytes_max(cols: usize, rows: usize) -> usize {
+    let rows = if rows == 0 {
+        1
+    } else if rows > ROWS_MAX {
+        ROWS_MAX
+    } else {
+        rows
+    };
+    lines_bytes_max(cols, rows, rows.saturating_mul(2))
+}
+
+/// The most bytes `lines` rows of `cols` cells hold, with the change ages
+/// of a screen of `cols` by `rows`.
+pub(crate) const fn lines_bytes_max(cols: usize, rows: usize, lines: usize) -> usize {
+    let cols = if cols == 0 {
+        1
+    } else if cols > COLUMNS_MAX {
+        COLUMNS_MAX
+    } else {
+        cols
+    };
+    lines
+        .saturating_mul(Line::bytes_max(cols))
+        .saturating_add(Damage::heap_bytes_for(cols, rows))
+}
+
+/// `sb-memory` when the configuration does not set it, for a console whose
+/// screens hold at most `screens` bytes: what [`MINSPEC_PEAK`] leaves
+/// after [`MINSPEC_REST`], those screens and a full link store, rounded
+/// down to 64 KiB. The fence, [`sb_memory`], applies on top.
+pub(crate) const fn sb_memory_left(screens: usize) -> usize {
+    let left = MINSPEC_PEAK
+        .saturating_sub(MINSPEC_REST)
+        .saturating_sub(screens)
+        .saturating_sub(LINKS_BYTES_MAX);
+    left.saturating_sub(left % (64 << 10))
+}
+
+/// `sb-memory` when the configuration does not set it, for a console of
+/// `cols` by `rows`: what [`MINSPEC_PEAK`] leaves after [`MINSPEC_REST`],
+/// the two screens at their worst ([`screens_bytes_max`]) and a full link
+/// store, rounded down to 64 KiB, so the worst a program can write into
+/// the console stays inside the peak. The fence, [`sb_memory`], applies on
+/// top. A screen follows its grid through
+/// [`Screen::set_scrollback_memory_from_grid`](crate::Screen::set_scrollback_memory_from_grid).
+pub const fn sb_memory_default(cols: usize, rows: usize) -> usize {
+    sb_memory_left(screens_bytes_max(cols, rows))
+}
+
+/// [`sb_memory_default`] at [`MINSPEC_GRID`]: the budget a scrollback
+/// starts with, and the most `sb-memory` may be when the machine's memory
+/// cannot be read.
+pub const SB_MEMORY_DEFAULT: usize = sb_memory_default(MINSPEC_GRID.0, MINSPEC_GRID.1);
 
 const _: () = assert!(SB_MEMORY_MIN <= SB_MEMORY_DEFAULT && SB_MEMORY_DEFAULT <= SB_MEMORY_MAX);
 
@@ -524,6 +582,10 @@ impl Scrollback {
     }
 
     /// Keeps at most `bytes`; the oldest rows past it go.
+    pub(crate) fn bytes_max(&self) -> usize {
+        self.bytes_max
+    }
+
     pub(crate) fn set_bytes_max(&mut self, bytes: usize) {
         self.bytes_max = bytes;
         self.enforce_max();
@@ -1292,13 +1354,18 @@ mod tests {
         assert_eq!(sb_memory(usize::MAX, 8 << 30), SB_MEMORY_MAX);
     }
 
-    // What 16 MiB leaves after the minspec first screen and a full link
-    // store, about 5.69 MiB.
+    // What 16 MiB leaves after the rest of the process, the minspec grid's
+    // two screens at their worst and a full link store, 5 MiB; a smaller
+    // grid leaves more.
     #[test]
     fn the_default_budget_is_what_the_minspec_peak_leaves() {
-        assert_eq!(SB_MEMORY_DEFAULT, 5_963_776);
-        let rest = MINSPEC_PEAK - MINSPEC_FIRST_SCREEN - LINKS_BYTES_MAX;
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(SB_MEMORY_DEFAULT, 5_242_880);
+        let screens = screens_bytes_max(MINSPEC_GRID.0, MINSPEC_GRID.1);
+        let rest = MINSPEC_PEAK - MINSPEC_REST - screens - LINKS_BYTES_MAX;
         assert!((SB_MEMORY_DEFAULT..SB_MEMORY_DEFAULT + (64 << 10)).contains(&rest));
+        assert!(sb_memory_default(80, 30) > SB_MEMORY_DEFAULT);
+        assert!(sb_memory_default(40, 30) > sb_memory_default(80, 30));
     }
 
     #[test]
