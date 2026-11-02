@@ -44,6 +44,16 @@ impl Mapping {
     }
 }
 
+#[expect(
+    unsafe_code,
+    reason = "a mapping moves to the render thread inside a display's token"
+)]
+// SAFETY: a `Mapping` owns its mapping alone: nothing else holds `ptr`,
+// its bytes are reached only through `as_mut`, which borrows the value
+// mutably, and the munmap in `drop` runs once, on whichever thread drops
+// it. The kernel's mapping belongs to the process, not to a thread.
+unsafe impl Send for Mapping {}
+
 impl AsMut<[u8]> for Mapping {
     fn as_mut(&mut self) -> &mut [u8] {
         #[expect(

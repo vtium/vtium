@@ -12,6 +12,7 @@ use calloop::{Interest, LoopHandle, Mode as Trigger, PostAction, RegistrationTok
 use super::super::card::Card;
 use super::super::kms::Kms;
 use super::super::mode::ModePolicy;
+use super::super::token::Buffers;
 use super::Drm2d;
 use super::buffers::Source;
 
@@ -47,9 +48,11 @@ pub(super) trait Link {
 
 impl Drm2d<Card> {
     /// Takes a card, asleep: [`Drm2d::wake_up`] takes DRM master and sets
-    /// the displays up.
-    pub fn new(card: Card, policy: ModePolicy) -> io::Result<Drm2d<Card>> {
-        Drm2d::with(card, policy)
+    /// the displays up, each with `buffers` buffers.
+    pub fn new(card: Card, policy: ModePolicy, buffers: Buffers) -> io::Result<Drm2d<Card>> {
+        let mut drm = Drm2d::with(card, policy)?;
+        drm.buffers = buffers;
+        Ok(drm)
     }
 }
 

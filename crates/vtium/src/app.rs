@@ -95,7 +95,7 @@ use std::time::{Duration, Instant};
 
 use vtium_config::{Policy, WhenDisplayLost};
 use vtium_platform::calloop::LoopHandle;
-use vtium_platform::display::{Blank, DPI_ASSUMED, DisplayId, Dpms, Event};
+use vtium_platform::display::{Blank, Buffers, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
     DeviceId, DeviceInput, InputEvent, KeyEvent, Mods as InputMods, PointerEvent,
 };
@@ -302,6 +302,9 @@ pub struct App {
     modes: Vec<ModeSpec>,
     /// `use-original-mode`, off when a mode is set.
     use_original: bool,
+    /// The buffers each DRM display keeps (ADR-1401 D2): the build's
+    /// default until kmscon.conf's `display-buffers` sets it here.
+    display_buffers: Buffers,
     /// `clipboard-write`: OSC 52's selection is taken.
     clipboard_write: bool,
     /// `program-blank`: a program's blank sequences are taken.
@@ -399,6 +402,8 @@ impl App {
             sleeping: Rc::default(),
             modes,
             use_original,
+            // kmscon.conf's `display-buffers` goes in here.
+            display_buffers: crate::video::display_buffers(None),
             vt,
             videos: BTreeMap::new(),
             input: None,
@@ -2887,8 +2892,8 @@ impl App {
                     *awake,
                     &**clock,
                 );
-                if let Some(copy) = shown.copy {
-                    head.figures.frame(compose, copy, now);
+                if shown.queued {
+                    head.figures.frame(compose, now);
                 }
             }
         }
@@ -3090,7 +3095,7 @@ fn draw_head(
         }
         let owed = view.owed && !holding;
         // A pending view waits for its display to take a frame, so a
-        // display that lends no canvas never turns the loop.
+        // display that lends no token never turns the loop.
         let wants =
             now_all || view.lost || owed || due || (view.pending && video.ready_for_frame(view.id));
         if !wants {
@@ -3138,16 +3143,16 @@ fn draw_head(
         };
         match &head.painter {
             Some(painter) => {
-                if let Some(job) = painter.send(job) {
-                    view.refused(job);
+                if let Some(job) = painter.send(*job) {
+                    view.refused(job, video.as_mut());
                 }
             }
             None => {
                 let composed = job.compose();
                 let compose = composed.stats.cpu;
                 let shown = view.present(composed, term, video.as_mut(), true, clock);
-                if let Some(copy) = shown.copy {
-                    head.figures.frame(compose, copy, now);
+                if shown.queued {
+                    head.figures.frame(compose, now);
                 }
             }
         }
@@ -3231,7 +3236,7 @@ pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> i
                     }) as Box<ModeLookup>
                 }),
             };
-            let mut drm = Drm2d::new(Drm::new(fd)?, policy)?;
+            let mut drm = Drm2d::new(Drm::new(fd)?, policy, app.display_buffers)?;
             drm.set_card_path(card.id_path.clone());
             // A display the rules leave dark is set off before it is
             // announced, a frame another master left included (D3).
@@ -3298,7 +3303,9 @@ fn depth(config: &Config, levels: Option<u8>) -> Depth {
 mod tests {
     use std::any::Any;
 
-    use vtium_platform::display::{Canvas, Identity, Rect, SwapError, Swapped};
+    use std::sync::{Arc, Mutex};
+
+    use vtium_platform::display::{Identity, Memory, Rect, SwapError, Swapped, Token};
     use vtium_platform::event_loop::Loop;
     use vtium_platform::vt::FakeVt;
 
@@ -3309,7 +3316,7 @@ mod tests {
     /// card `mem`.
     struct Still {
         ids: Vec<(DisplayId, &'static str)>,
-        pixels: Vec<u8>,
+        pixels: Arc<Mutex<Vec<u8>>>,
         events: Vec<Event>,
         awake: bool,
     }
@@ -3321,7 +3328,7 @@ mod tests {
                     .iter()
                     .map(|&(id, name)| (DisplayId(id), name))
                     .collect(),
-                pixels: vec![0; 320 * 160 * 4],
+                pixels: Arc::new(Mutex::new(vec![0; 320 * 160 * 4])),
                 events: Vec::new(),
                 awake: false,
             }
@@ -3367,16 +3374,12 @@ mod tests {
                 lit_at_start: false,
             })
         }
-        fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
-            Some(Canvas {
-                pixels: &mut self.pixels,
-                width: 320,
-                height: 160,
-                stride: 320 * 4,
-                age: 0,
-            })
+        fn lend(&mut self, id: DisplayId) -> Option<Token> {
+            let memory: Arc<Memory> = self.pixels.clone();
+            Some(Token::new(id, (320, 160), 320 * 4, 0, memory))
         }
-        fn swap(&mut self, _: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+        fn give_back(&mut self, _: Token) {}
+        fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
             Ok(Swapped::Frame)
         }
         fn is_flipping(&self, _: DisplayId) -> bool {

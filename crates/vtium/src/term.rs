@@ -3,11 +3,13 @@
 //! phases, and a [`View`] per display of the head that draws it.
 //!
 //! A view's frame is drawn in three steps (ADR-1401 D2): the loop takes
-//! it ([`View::prepare`]), the head's render thread composes it into the
-//! display's shadow buffer ([`Job::compose`]), and the loop copies what
-//! changed into the display's buffer and presents it
+//! it, with the buffer token the display lends ([`View::prepare`]); the
+//! head's render thread composes it straight into that buffer, writing
+//! only ([`Job::compose`]); and the loop gives the token back to the
+//! display, which presents the buffer with the frame's damage
 //! ([`View::present`]). The display's device, its buffers, its cursor
-//! plane and its flips stay with the loop.
+//! plane and its flips stay with the loop, and no view keeps a copy of
+//! its display's frame.
 
 use std::ops::Range;
 use std::path::PathBuf;
@@ -17,7 +19,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use vtium_font::{Face, Font, Missing, SpritePolicy};
-use vtium_platform::display::{DisplayId, Rect as DisplayRect, SwapError, Swapped};
+use vtium_platform::display::{DisplayId, Rect as DisplayRect, SwapError, Swapped, Token};
 use vtium_platform::pty::{Consumer, Replies};
 use vtium_render::{
     Arrow, Canvas, Colors, Config as RenderConfig, Depth, DrawState, Mapped, Mark, Notice,
@@ -120,15 +122,6 @@ pub enum Reason {
     Now,
 }
 
-/// The damage of the frames last drawn into a display's buffers that the
-/// view keeps, newest first: a buffer older than that takes the whole
-/// shadow.
-pub const AGES_KEPT: usize = 3;
-
-/// The rectangles of damage a view gathers before it copies the whole
-/// shadow in their place.
-pub const RECTS_MAX: usize = 64;
-
 /// The screen as a head's frame shows it, owned, so the head's render
 /// thread reads it while the session runs on: the visible lines, their
 /// change ages, the palette, the cursor, the selection and the hovered
@@ -201,14 +194,20 @@ impl Snapshot {
     }
 }
 
-/// What a display's frames are drawn with: its renderer, and the shadow
-/// buffer the renderer composes into. The view holds it between frames,
-/// and the head's render thread while it composes one.
+/// What a display's frames are drawn with: its renderer, which keeps the
+/// history of each cell, so it knows what a buffer of any age lacks. The
+/// view holds it between frames, and the head's render thread while it
+/// composes one.
 pub struct Drawing {
     pub renderer: Renderer<DisplayFace>,
-    /// The display's last frame, made at the first compose and again when
-    /// the display's size changes.
-    shadow: Option<Canvas>,
+}
+
+impl Drawing {
+    /// The bytes the drawing holds for its display's frames beyond the
+    /// glyph cache: the row scratch. No drawing holds a whole frame.
+    pub fn frame_bytes(&self) -> usize {
+        self.renderer.row_scratch_bytes()
+    }
 }
 
 /// The colors of what vtium draws of its own (ADR-1401 D5): a notice's
@@ -314,10 +313,24 @@ impl Overlay {
         orientation: Orientation,
         target: &mut Canvas,
     ) -> Vec<DisplayRect> {
+        let size = (target.width(), target.height());
+        self.draw_into(renderer, grid, orientation, size, target)
+    }
+
+    /// Draws the overlay into `target`, a display buffer of `size` that is
+    /// only written, as [`Overlay::draw`] does.
+    pub fn draw_into<F: Face>(
+        &self,
+        renderer: &Renderer<F>,
+        grid: (usize, usize),
+        orientation: Orientation,
+        (width, height): (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
         let font = renderer.font();
         let surface = Surface {
-            width: target.width(),
-            height: target.height(),
+            width,
+            height,
             orientation,
             depth: renderer.depth(),
         };
@@ -386,68 +399,89 @@ fn top_right(surface: Surface, grid: (usize, usize), cell: vtium_font::Cell) -> 
 }
 
 /// A frame for a head's render thread to compose: a display's drawing,
-/// the screen and what the frame shows beyond it.
+/// the token of the display's buffer it is drawn into, the screen and what
+/// the frame shows beyond it.
 pub struct Job {
     pub key: (PathBuf, DisplayId),
     generation: u64,
     drawing: Box<Drawing>,
+    token: Token,
     snapshot: Arc<Snapshot>,
     since: Age,
-    size: (u32, u32),
     state: DrawState,
     /// The pointer's tip, wherever it is drawn.
     tip: Option<(u32, u32)>,
     hook: Option<DrawHook>,
     overlay: Overlay,
     orientation: Orientation,
-    /// The overlay changed: the frame is drawn whole beneath it.
-    redraw: bool,
+    /// The areas the overlay last covered, where it changed since: the
+    /// renderer draws them again in every buffer.
+    gone: Vec<DisplayRect>,
+    /// The display lost its picture: the frame is drawn whole, whatever
+    /// the buffer's age.
+    whole: bool,
 }
 
 impl Job {
-    /// Composes the frame into the drawing's shadow, which the renderer
-    /// draws whole when the shadow is new and else from the frame before.
+    /// Composes the frame straight into the token's buffer, writing only:
+    /// the renderer draws the cells the buffer lacks at its age, the whole
+    /// picture at age 0, and the overlay goes over them.
     pub fn compose(self) -> Composed {
         if let Some(hook) = &self.hook {
             hook();
         }
         let mut drawing = self.drawing;
-        let (w, h) = self.size;
-        let kept = drawing
-            .shadow
-            .take()
-            .filter(|c| (c.width(), c.height()) == (w, h));
-        let whole = kept.is_none() || self.redraw;
-        let mut shadow = kept.unwrap_or_else(|| Canvas::new(w, h, 0));
-        let frame = self.snapshot.frame(self.since);
-        let grid = (frame.cols(), frame.rows());
-        let age = u32::from(!whole);
-        let drawn = drawing.renderer.draw(&frame, &mut shadow, age, &self.state);
-        let stats = drawn.stats;
-        let mut damage: Vec<DisplayRect> = drawn
-            .damage
-            .iter()
-            .map(|r| DisplayRect {
+        let mut token = self.token;
+        for r in &self.gone {
+            drawing.renderer.redraw_area(RenderRect {
                 x: r.x,
                 y: r.y,
                 width: r.width,
                 height: r.height,
+            });
+        }
+        let frame = self.snapshot.frame(self.since);
+        let grid = (frame.cols(), frame.rows());
+        let size = token.size();
+        let drawn = token
+            .draw(|canvas| {
+                let stride = usize::try_from(canvas.stride).ok()?;
+                let mut target = Mapped::new(canvas.pixels, size.0, size.1, stride)?;
+                let age = if self.whole { 0 } else { canvas.age };
+                let drawn = drawing.renderer.draw(&frame, &mut target, age, &self.state);
+                let stats = drawn.stats;
+                let mut damage: Vec<DisplayRect> = drawn
+                    .damage
+                    .iter()
+                    .map(|r| DisplayRect {
+                        x: r.x,
+                        y: r.y,
+                        width: r.width,
+                        height: r.height,
+                    })
+                    .collect();
+                let (most_cols, most_rows) = drawing.renderer.grid_size();
+                let grid = (grid.0.min(most_cols), grid.1.min(most_rows));
+                let overlaid = self.overlay.draw_into(
+                    &drawing.renderer,
+                    grid,
+                    self.orientation,
+                    size,
+                    &mut target,
+                );
+                damage.extend_from_slice(&overlaid);
+                Some((damage, overlaid, stats))
             })
-            .collect();
-        let (most_cols, most_rows) = drawing.renderer.grid_size();
-        let grid = (grid.0.min(most_cols), grid.1.min(most_rows));
-        damage.extend(
-            self.overlay
-                .draw(&drawing.renderer, grid, self.orientation, &mut shadow),
-        );
+            .flatten();
+        let (damage, overlaid, stats) = drawn.unwrap_or_default();
         let at = self.tip.and_then(|t| drawing.renderer.pointer_at(t));
-        drawing.shadow = Some(shadow);
         Composed {
             key: self.key,
             generation: self.generation,
             drawing,
+            token,
             damage,
-            whole,
+            overlaid,
             stats,
             at,
             tip: self.tip,
@@ -455,14 +489,15 @@ impl Job {
     }
 }
 
-/// A frame composed, back from the render thread.
+/// A frame composed, back from the render thread with its token.
 pub struct Composed {
     pub key: (PathBuf, DisplayId),
     generation: u64,
     drawing: Box<Drawing>,
+    token: Token,
     damage: Vec<DisplayRect>,
-    /// The shadow was drawn whole.
-    whole: bool,
+    /// The areas the overlay drew over.
+    overlaid: Vec<DisplayRect>,
     pub stats: Stats,
     /// Where the display's cursor plane shows the pointer's tip.
     at: Option<(i32, i32)>,
@@ -471,11 +506,12 @@ pub struct Composed {
 
 /// What [`View::prepare`] made of a draw.
 pub enum Prepared {
-    /// A hold, a flip or a frame in flight keeps it for later.
+    /// A hold, a display that lends no token now or a frame in flight
+    /// keeps it for later.
     Later,
-    /// The display lends no buffer.
+    /// The display's buffer does not fit the view, which is made again.
     Nothing,
-    Job(Job),
+    Job(Box<Job>),
 }
 
 /// What [`View::present`] did with a frame composed.
@@ -483,9 +519,6 @@ pub enum Prepared {
 pub struct Presented {
     /// A frame or a cursor change was queued.
     pub queued: bool,
-    /// The time the copy into the display's buffer took, when it copied
-    /// anything.
-    pub copy: Option<std::time::Duration>,
 }
 
 /// One display drawing the terminal.
@@ -524,13 +557,8 @@ pub struct View {
     /// was away.
     forgotten: Vec<char>,
     arrived: Vec<char>,
-    /// What changed in the shadow since its last copy into a buffer; the
-    /// whole shadow when `fresh_whole`.
-    fresh: Vec<DisplayRect>,
-    fresh_whole: bool,
-    /// What each of the last frames drawn into a buffer changed, newest
-    /// first, at most [`AGES_KEPT`].
-    history: Vec<Vec<DisplayRect>>,
+    /// The areas the overlay covered in the last frame composed.
+    overlaid: Vec<DisplayRect>,
     /// When the frame composing was taken.
     sent: Option<Instant>,
     /// What vtium draws over the next frame.
@@ -573,9 +601,7 @@ impl View {
             pointer: Pointer::default(),
             forgotten: Vec::new(),
             arrived: Vec::new(),
-            fresh: Vec::new(),
-            fresh_whole: true,
-            history: Vec::new(),
+            overlaid: Vec::new(),
             sent: None,
             overlay: Overlay::default(),
             overlay_sent: None,
@@ -590,15 +616,12 @@ impl View {
         self.arrow = renderer.arrow().clone();
         self.depth = renderer.depth();
         self.policy = (renderer.font().policy(), renderer.font().missing());
-        self.drawing = Some(Box::new(Drawing {
-            renderer,
-            shadow: None,
-        }));
+        self.drawing = Some(Box::new(Drawing { renderer }));
         self.generation = self.generation.wrapping_add(1);
         self.forgotten.clear();
         self.arrived.clear();
-        self.fresh.clear();
-        self.fresh_whole = true;
+        self.overlaid.clear();
+        self.overlay_sent = None;
     }
 
     /// Draws with `font`, asked for at `height`, turned as `config` says,
@@ -619,7 +642,7 @@ impl View {
 
     /// Draws another screen from the next frame, as a console switch
     /// shows: the checkpoint the view kept is the other screen's history,
-    /// so the next frame draws every cell and copies the whole picture.
+    /// so the next frame draws every cell, in every buffer.
     pub fn show_another(&mut self) {
         self.since = Age::NEVER;
         self.lost = true;
@@ -667,10 +690,12 @@ impl View {
         }
     }
 
-    /// Takes a frame of `term` for the render thread, unless a hold keeps
-    /// the last frame, a flip is in flight or a frame is composing. The
-    /// pointer goes on the display's cursor plane where it has one. The
-    /// head's frames share `snapshot`, taken at the first that needs it.
+    /// The prepare step: takes a frame of `term` for the render thread,
+    /// with the token of the display's buffer it is drawn into, unless a
+    /// hold keeps the last frame, the display takes no frame now or a frame
+    /// is composing. The pointer goes on the display's cursor plane where
+    /// it has one. The head's frames share `snapshot`, taken at the first
+    /// that needs it.
     #[expect(clippy::too_many_arguments, reason = "a frame's parts")]
     pub fn prepare(
         &mut self,
@@ -686,9 +711,21 @@ impl View {
             self.owed = true;
             return Prepared::Later;
         }
-        if self.away() || video.is_flipping(self.id) {
+        if self.away() {
             self.pending = true;
             return Prepared::Later;
+        }
+        // The display lends a token only while it is ready for a frame.
+        let Some(token) = video.lend(self.id) else {
+            self.pending = true;
+            return Prepared::Later;
+        };
+        if token.size() != self.size {
+            // The view is made again at the display's new size.
+            video.give_back(token);
+            self.lost = true;
+            self.pending = true;
+            return Prepared::Nothing;
         }
         let tip = state.pointer;
         let state = DrawState {
@@ -696,6 +733,7 @@ impl View {
             ..*state
         };
         let Some(drawing) = self.drawing.take() else {
+            video.give_back(token);
             return Prepared::Nothing;
         };
         let (snapshot, upto) = snapshot.get_or_insert_with(|| {
@@ -703,48 +741,57 @@ impl View {
             (Arc::new(taken), term.terminal.screen_mut().checkpoint())
         });
         let since = std::mem::replace(&mut self.since, *upto);
-        // a display that lost its picture takes the whole shadow
-        self.fresh_whole |= self.lost;
+        let whole = self.lost;
         self.pending = false;
         self.owed = false;
         self.lost = false;
         self.sent = Some(clock());
-        let redraw = self.overlay_sent.as_ref() != Some(&self.overlay);
+        // An overlay that changed leaves its old areas to the renderer.
+        let gone = if self.overlay_sent.as_ref() == Some(&self.overlay) {
+            Vec::new()
+        } else {
+            std::mem::take(&mut self.overlaid)
+        };
         self.overlay_sent = Some(self.overlay.clone());
-        Prepared::Job(Job {
+        Prepared::Job(Box::new(Job {
             key: key.clone(),
             generation: self.generation,
             drawing,
+            token,
             snapshot: Arc::clone(snapshot),
             since,
-            size: self.size,
             state,
             tip,
             hook: hook.cloned(),
             overlay: self.overlay.clone(),
             orientation: self.orientation,
-            redraw,
-        })
+            gone,
+            whole,
+        }))
     }
 
-    /// A job the render thread could not take: its drawing comes back,
-    /// and the frame waits for the next draw.
-    pub fn refused(&mut self, job: Job) {
+    /// A job the render thread could not take: its token goes back to
+    /// `video` unused, its drawing comes back, and the frame waits for the
+    /// next draw.
+    pub fn refused(&mut self, job: Job, video: &mut dyn Video) {
+        video.give_back(job.token);
         if job.generation == self.generation {
             self.drawing = Some(job.drawing);
             self.since = job.since;
             self.pending = true;
+            self.lost |= job.whole;
+            self.overlaid.extend(job.gone);
             self.overlay_sent = None;
         }
     }
 
-    /// Takes back the drawing of `composed`, and, while `awake`, copies
-    /// what changed into `video`'s buffer and presents it: what the frame
-    /// changed, with what the frames before it changed where the buffer
-    /// is older, and the whole shadow where the buffer is new or the
-    /// shadow is. A frame composed with a drawing the view no longer
-    /// uses is dropped. The cursor plane follows the pointer, and a
-    /// frame that changed nothing is still presented when the plane did.
+    /// The swap: takes back the drawing of `composed` and gives its token
+    /// back to `video` with the frame's damage, so the display presents
+    /// the buffer the frame was drawn into. A frame composed with a drawing
+    /// the view no longer uses goes back unshown, and so does one that
+    /// comes back after the VT was let go (`awake` false), which the
+    /// display drops. The cursor plane follows the pointer, and a frame
+    /// that changed nothing is still presented when the plane did.
     pub fn present(
         &mut self,
         composed: Composed,
@@ -753,10 +800,23 @@ impl View {
         awake: bool,
         clock: &dyn Fn() -> Instant,
     ) -> Presented {
-        if composed.generation != self.generation {
+        let Composed {
+            generation,
+            mut drawing,
+            token,
+            damage,
+            overlaid,
+            stats,
+            at,
+            tip,
+            ..
+        } = composed;
+        if generation != self.generation {
+            // A new renderer draws every buffer whole at first, so the
+            // buffer the old one drew into needs no damage.
+            video.give_back(token);
             return Presented::default();
         }
-        let mut drawing = composed.drawing;
         if !self.forgotten.is_empty() {
             drawing
                 .renderer
@@ -767,112 +827,42 @@ impl View {
                 .renderer
                 .glyphs_changed(&std::mem::take(&mut self.arrived));
         }
-        self.fresh_whole |= composed.whole;
-        self.fresh.extend(composed.damage);
-        if self.fresh.len() > RECTS_MAX {
-            self.fresh_whole = true;
-            self.fresh.clear();
-        }
-        let shadow = drawing.shadow.as_ref().map(|s| (s.width(), s.height()));
-        let drawing = &**self.drawing.insert(drawing);
+        self.drawing = Some(drawing);
+        self.overlaid = overlaid;
         if !awake {
             self.lost = true;
+            let _ = video.swap(token, &damage);
             return Presented::default();
         }
-        let start = clock();
-        let Some(canvas) = video.canvas(self.id) else {
-            // A display that takes no frame now, as while a modeset waits
-            // for another display's flip, gets this one once it does.
-            self.pending |= !video.ready_for_frame(self.id);
-            return Presented::default();
-        };
-        let (width, height, stride, age) = (canvas.width, canvas.height, canvas.stride, canvas.age);
-        if shadow != Some((width, height)) {
-            self.lost = true;
-            self.pending = true;
-            return Presented::default();
-        }
-        let whole_rect = DisplayRect {
-            x: 0,
-            y: 0,
-            width,
-            height,
-        };
-        let older = usize::try_from(age).unwrap_or(usize::MAX).saturating_sub(1);
-        let changed = self.fresh_whole || !self.fresh.is_empty();
-        let rects: Vec<DisplayRect> = if !changed {
-            Vec::new()
-        } else if self.fresh_whole || age == 0 || older > self.history.len() {
-            vec![whole_rect]
-        } else {
-            self.fresh
-                .iter()
-                .chain(self.history.iter().take(older).flatten())
-                .copied()
-                .collect()
-        };
-        let stride = usize::try_from(stride).unwrap_or(0);
-        let copied = match (
-            Mapped::new(canvas.pixels, width, height, stride),
-            &drawing.shadow,
-        ) {
-            (Some(mut target), Some(shadow)) => {
-                copy(shadow, &mut target, &rects);
-                true
+        self.pointer.after_draw(video, self.id, tip, at);
+        let queued = match video.swap(token, &damage) {
+            Ok(Swapped::Frame | Swapped::Cursor) => true,
+            Ok(Swapped::Nothing) => false,
+            // The display draws the frame after the flip, or whole once it
+            // is ready again.
+            Err(SwapError::Busy | SwapError::Dropped) => {
+                self.pending = true;
+                false
             }
-            _ => false,
-        };
-        if !copied {
-            return Presented::default();
-        }
-        if changed {
-            let fresh = if self.fresh_whole {
-                vec![whole_rect]
-            } else {
-                std::mem::take(&mut self.fresh)
-            };
-            self.fresh.clear();
-            self.fresh_whole = false;
-            self.history.insert(0, fresh);
-            self.history.truncate(AGES_KEPT);
-        }
-        let copy = clock().saturating_duration_since(start);
-        self.pointer
-            .after_draw(video, self.id, composed.tip, composed.at);
-        let queued = if rects.is_empty() && !video.need_commit(self.id) {
-            false
-        } else {
-            match video.swap(self.id, &rects) {
-                Ok(Swapped::Frame | Swapped::Cursor) => true,
-                Ok(Swapped::Nothing) => false,
-                Err(SwapError::Busy) => {
-                    self.pending = true;
-                    false
-                }
-                Err(SwapError::Off) => false,
-                Err(SwapError::Failed(e)) => {
-                    log::warn!("cannot swap display {}: {e}", self.id.0);
-                    false
-                }
+            Err(SwapError::Off) => false,
+            Err(SwapError::Failed(e)) => {
+                log::warn!("cannot swap display {}: {e}", self.id.0);
+                false
             }
         };
         // the display gave the plane up: the renderer draws the pointer
         self.pending |= self.pointer.after_swap(video, self.id);
-        let stats = composed.stats;
         if let Some(timer) = &mut self.timer {
             timer.frame(stats.cpu, queued, stats.damage_px, stats.misses);
         }
         let end = clock();
-        let start = self.sent.take().unwrap_or(start);
+        let start = self.sent.take().unwrap_or(end);
         term.coalesce.drawn(&mut self.wait, start, end, queued);
-        Presented {
-            queued,
-            copy: (!rects.is_empty()).then_some(copy),
-        }
+        Presented { queued }
     }
 
-    /// Draws `term` into `video`'s canvas and presents it at once, the
-    /// frame composed on the calling thread: [`View::prepare`],
+    /// Draws `term` into the buffer `video` lends and presents it at once,
+    /// the frame composed on the calling thread: [`View::prepare`],
     /// [`Job::compose`] and [`View::present`] in a row. Returns whether a
     /// frame was queued.
     pub fn draw(
@@ -891,28 +881,6 @@ impl View {
     }
 }
 
-/// Copies `rects` of `shadow` into `target`, each clipped to the shadow.
-fn copy(shadow: &Canvas, target: &mut impl Target, rects: &[DisplayRect]) {
-    let (w, h) = (shadow.width(), shadow.height());
-    let pixels = shadow.pixels();
-    let width = usize::try_from(w).unwrap_or(0);
-    for r in rects {
-        let x0 = r.x.min(w);
-        let x1 = r.x.saturating_add(r.width).min(w);
-        let y1 = r.y.saturating_add(r.height).min(h);
-        let (from, to) = (
-            usize::try_from(x0).unwrap_or(0),
-            usize::try_from(x1).unwrap_or(0),
-        );
-        for y in r.y.min(h)..y1 {
-            let row = usize::try_from(y).unwrap_or(0).saturating_mul(width);
-            if let Some(run) = pixels.get(row.saturating_add(from)..row.saturating_add(to)) {
-                target.write(x0, y, run);
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 #[expect(
     clippy::arithmetic_side_effects,
@@ -927,8 +895,10 @@ mod tests {
     use std::io;
     use std::time::Duration;
 
+    use std::sync::Mutex;
+
     use vtium_font::Unifont;
-    use vtium_platform::display::{Canvas, Dpms, Event};
+    use vtium_platform::display::{Dpms, Event, Memory};
     use vtium_render::Arrow;
 
     use super::*;
@@ -940,8 +910,12 @@ mod tests {
     /// carried, and where the plane shows the pointer.
     struct Plane {
         has_plane: bool,
-        pixels: Vec<u8>,
+        pixels: Arc<Mutex<Vec<u8>>>,
         age: u32,
+        /// A token is out.
+        out: bool,
+        /// The VT was let go: a token back now is dropped.
+        asleep: bool,
         arrow: Option<Arrow>,
         shown: Option<(i32, i32)>,
         /// The plane's state the last swap sent.
@@ -957,8 +931,10 @@ mod tests {
         fn new(has_plane: bool) -> Plane {
             Plane {
                 has_plane,
-                pixels: vec![0; (SIZE.0 * SIZE.1 * 4) as usize],
+                pixels: Arc::new(Mutex::new(vec![0; (SIZE.0 * SIZE.1 * 4) as usize])),
                 age: 0,
+                out: false,
+                asleep: false,
                 arrow: None,
                 shown: None,
                 sent: None,
@@ -970,8 +946,14 @@ mod tests {
         /// The pixel at `x`, `y`.
         fn pixel(&self, x: u32, y: u32) -> u32 {
             let i = ((y * SIZE.0 + x) * 4) as usize;
-            u32::from_ne_bytes(self.pixels[i..i + 4].try_into().unwrap())
+            u32::from_ne_bytes(self.pixels.lock().unwrap()[i..i + 4].try_into().unwrap())
         }
+    }
+
+    /// A token for `memory`, a buffer of `SIZE` at `age`.
+    fn token(memory: &Arc<Mutex<Vec<u8>>>, age: u32) -> Token {
+        let memory: Arc<Memory> = memory.clone();
+        Token::new(ID, SIZE, SIZE.0 * 4, age, memory)
     }
 
     impl Video for Plane {
@@ -993,16 +975,24 @@ mod tests {
         fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
             None
         }
-        fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
-            Some(Canvas {
-                pixels: &mut self.pixels,
-                width: SIZE.0,
-                height: SIZE.1,
-                stride: SIZE.0 * 4,
-                age: self.age,
-            })
+        fn lend(&mut self, _: DisplayId) -> Option<Token> {
+            if std::mem::replace(&mut self.out, true) {
+                return None;
+            }
+            Some(token(&self.pixels, self.age))
         }
-        fn swap(&mut self, _: DisplayId, damage: &[DisplayRect]) -> Result<Swapped, SwapError> {
+        fn give_back(&mut self, _: Token) {
+            self.out = false;
+        }
+        fn swap(&mut self, _: Token, damage: &[DisplayRect]) -> Result<Swapped, SwapError> {
+            self.out = false;
+            if self.asleep {
+                self.age = 0;
+                return Err(SwapError::Dropped);
+            }
+            if damage.is_empty() && !self.need_commit(ID) {
+                return Ok(Swapped::Nothing);
+            }
             self.swaps.push(damage.len());
             if self.fails_with_cursor && self.shown.is_some() {
                 self.arrow = None;
@@ -1019,12 +1009,14 @@ mod tests {
             false
         }
         fn ready_for_frame(&self, id: DisplayId) -> bool {
-            !self.is_flipping(id)
+            !self.is_flipping(id) && !self.out
         }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())
         }
-        fn sleep(&mut self) {}
+        fn sleep(&mut self) {
+            self.asleep = true;
+        }
         fn wake_up(&mut self) -> io::Result<()> {
             Ok(())
         }
@@ -1169,24 +1161,35 @@ mod tests {
         view.draw(term, video, &state, &Instant::now);
     }
 
-    /// A display with two buffers, flipped at each swap: the buffer lent
-    /// is the back one, its age the frames drawn since it was last.
+    /// A display with `n` buffers, taking turns at each swap: the buffer
+    /// lent is the back one, its age the frames drawn since it was last.
     struct Flip {
-        bufs: [Vec<u8>; 2],
+        bufs: Vec<Arc<Mutex<Vec<u8>>>>,
         back: usize,
-        drawn: [Option<u32>; 2],
+        drawn: Vec<Option<u32>>,
         count: u32,
+        out: bool,
     }
 
     impl Flip {
         fn new() -> Flip {
-            let n = (SIZE.0 * SIZE.1 * 4) as usize;
+            Flip::with(2)
+        }
+
+        fn with(n: usize) -> Flip {
+            let len = (SIZE.0 * SIZE.1 * 4) as usize;
             Flip {
-                bufs: [vec![0; n], vec![0; n]],
+                bufs: (0..n).map(|_| Arc::new(Mutex::new(vec![0; len]))).collect(),
                 back: 0,
-                drawn: [None, None],
+                drawn: vec![None; n],
                 count: 0,
+                out: false,
             }
+        }
+
+        /// Buffer `b`'s pixels.
+        fn pixels(&self, b: usize) -> Vec<u8> {
+            self.bufs[b].lock().unwrap().clone()
         }
 
         /// Whether buffer `b` shows anything in the grid's cell `col` of
@@ -1195,7 +1198,9 @@ mod tests {
             (1..17).any(|y| {
                 (2 + col * 8..10 + col * 8).any(|x| {
                     let i = ((y * SIZE.0 + x) * 4) as usize;
-                    self.bufs[b][i..i + 3].iter().any(|&p| p != 0)
+                    self.bufs[b].lock().unwrap()[i..i + 3]
+                        .iter()
+                        .any(|&p| p != 0)
                 })
             })
         }
@@ -1220,30 +1225,31 @@ mod tests {
         fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
             None
         }
-        fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
+        fn lend(&mut self, _: DisplayId) -> Option<Token> {
+            if std::mem::replace(&mut self.out, true) {
+                return None;
+            }
             let age = self.drawn[self.back].map_or(0, |d| self.count - d + 1);
-            Some(Canvas {
-                pixels: &mut self.bufs[self.back],
-                width: SIZE.0,
-                height: SIZE.1,
-                stride: SIZE.0 * 4,
-                age,
-            })
+            Some(token(&self.bufs[self.back], age))
         }
-        fn swap(&mut self, _: DisplayId, damage: &[DisplayRect]) -> Result<Swapped, SwapError> {
+        fn give_back(&mut self, _: Token) {
+            self.out = false;
+        }
+        fn swap(&mut self, _: Token, damage: &[DisplayRect]) -> Result<Swapped, SwapError> {
+            self.out = false;
             if damage.is_empty() {
                 return Ok(Swapped::Nothing);
             }
             self.count += 1;
             self.drawn[self.back] = Some(self.count);
-            self.back ^= 1;
+            self.back = (self.back + 1) % self.bufs.len();
             Ok(Swapped::Frame)
         }
         fn is_flipping(&self, _: DisplayId) -> bool {
             false
         }
         fn ready_for_frame(&self, id: DisplayId) -> bool {
-            !self.is_flipping(id)
+            !self.is_flipping(id) && !self.out
         }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())
@@ -1266,9 +1272,9 @@ mod tests {
         }
     }
 
-    // The shadow's copy into a buffer two frames old carries what the
-    // frame before changed too: A goes into one buffer, B into the other,
-    // and C's buffer, which last held A, shows A, B and C.
+    // A buffer two frames old is drawn with what the frame before changed
+    // too: A goes into one buffer, B into the other, and C's buffer, which
+    // last held A, shows A, B and C.
     #[test]
     fn a_buffer_two_frames_old_takes_the_frame_befores_change_too() {
         let (mut term, mut view) = view();
@@ -1282,6 +1288,252 @@ mod tests {
         assert_eq!(shown, [true, true, true], "the buffer two frames old");
         let shown: Vec<bool> = (0..3).map(|col| video.shows(1, col)).collect();
         assert_eq!(shown, [true, true, false], "the buffer before");
+    }
+
+    // ADR-1401 D2: the renderer draws into the token's buffer what it lacks
+    // at its age. With three buffers D's buffer, which last held A, shows
+    // A to D; with one, every frame draws into the buffer shown.
+    #[test]
+    fn each_buffer_is_drawn_what_it_lacks_at_its_age() {
+        for (n, want) in [
+            (1, vec![vec![true, true, true, true]]),
+            (
+                3,
+                vec![
+                    vec![true, true, true, true],
+                    vec![true, true, false, false],
+                    vec![true, true, true, false],
+                ],
+            ),
+        ] {
+            let (mut term, mut view) = view();
+            let mut video = Flip::with(n);
+            for text in [b"A", b"B", b"C", b"D"] {
+                term.terminal.input(text);
+                draw(&mut term, &mut view, &mut video, None);
+            }
+            let shown: Vec<Vec<bool>> = (0..n)
+                .map(|b| (0..4).map(|col| video.shows(b, col)).collect())
+                .collect();
+            assert_eq!(shown, want, "{n} buffers");
+        }
+    }
+
+    // A notice drawn over the frame and gone is gone from every buffer: the
+    // renderer draws the cells under it again in the buffer two frames old
+    // too, so both equal a display that never showed it.
+    #[test]
+    fn a_notice_gone_leaves_no_buffer_showing_it() {
+        let (mut plain_term, mut plain) = view();
+        let mut never = Flip::new();
+        plain_term.terminal.input(b"AB");
+        draw(&mut plain_term, &mut plain, &mut never, None);
+        let notice = Overlay::new(None, &["a notice"], None, OverlayColors::default());
+        let (mut term, mut view) = view();
+        let mut video = Flip::new();
+        term.terminal.input(b"AB");
+        view.overlay = notice;
+        for _ in 0..2 {
+            draw(&mut term, &mut view, &mut video, None);
+        }
+        assert_ne!(video.pixels(0), never.pixels(0), "the notice shows");
+        assert_ne!(video.pixels(1), never.pixels(0), "in both buffers");
+        view.overlay = Overlay::default();
+        for _ in 0..2 {
+            draw(&mut term, &mut view, &mut video, None);
+        }
+        assert_eq!(video.pixels(0), never.pixels(0), "the buffer drawn first");
+        assert_eq!(
+            video.pixels(1),
+            never.pixels(0),
+            "the buffer two frames old"
+        );
+    }
+
+    // ADR-1300 D5: the token's buffer is only written. Drawn into a buffer
+    // full of garbage at age 0, the frame equals one drawn into zeros.
+    #[test]
+    fn what_is_drawn_does_not_depend_on_what_the_buffer_held() {
+        let mut shown = Vec::new();
+        for fill in [0x00, 0xa5] {
+            let (mut term, mut view) = view();
+            let mut video = Plane::new(false);
+            video.pixels.lock().unwrap().fill(fill);
+            term.terminal.input(b"\x1b[4;31mA\x1b[mB");
+            draw(&mut term, &mut view, &mut video, Some((5, 6)));
+            shown.push(video.pixels.lock().unwrap().clone());
+        }
+        assert_eq!(shown[0], shown[1]);
+    }
+
+    // ADR-1401 D2: no view keeps a copy of its display's frame. At
+    // 1920x1080 the frame is 8,294,400 bytes; the drawing holds the row
+    // scratch alone.
+    #[test]
+    fn a_views_drawing_holds_no_whole_frame() {
+        let face: DisplayFace = Box::new(Unifont::new(16));
+        let size = (1920, 1080);
+        let mut view = View::new(
+            ID,
+            Font::new(face),
+            size,
+            None,
+            RenderConfig::default(),
+            false,
+        );
+        let clock: Clock = Rc::new(Instant::now);
+        let mut term = Term::new(
+            Terminal::new(240, 67, 0),
+            Sync::new(Duration::ZERO, 0),
+            Blink::new(false),
+            clock,
+        );
+        let memory = Arc::new(Mutex::new(vec![0u8; 1920 * 1080 * 4]));
+        let mut video = Large(memory, 0);
+        term.terminal.input(b"a full screen");
+        assert!(view.draw(&mut term, &mut video, &DrawState::default(), &Instant::now));
+        let held = view.drawing.as_ref().unwrap().frame_bytes();
+        assert!(held < 1920 * 1080 * 4 / 16, "{held} bytes");
+    }
+
+    /// A display of 1920x1080 in memory.
+    struct Large(Arc<Mutex<Vec<u8>>>, u32);
+
+    impl Video for Large {
+        fn backend(&self) -> &'static str {
+            "large"
+        }
+        fn events(&mut self) -> Vec<Event> {
+            Vec::new()
+        }
+        fn displays(&self) -> Vec<DisplayId> {
+            vec![ID]
+        }
+        fn name(&self, _: DisplayId) -> String {
+            "LARGE-1".into()
+        }
+        fn size(&self, _: DisplayId) -> Option<(u32, u32)> {
+            Some((1920, 1080))
+        }
+        fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
+            None
+        }
+        fn lend(&mut self, id: DisplayId) -> Option<Token> {
+            let memory: Arc<Memory> = self.0.clone();
+            Some(Token::new(id, (1920, 1080), 1920 * 4, 0, memory))
+        }
+        fn give_back(&mut self, _: Token) {}
+        fn swap(&mut self, _: Token, damage: &[DisplayRect]) -> Result<Swapped, SwapError> {
+            self.1 += u32::from(!damage.is_empty());
+            Ok(Swapped::Frame)
+        }
+        fn is_flipping(&self, _: DisplayId) -> bool {
+            false
+        }
+        fn ready_for_frame(&self, _: DisplayId) -> bool {
+            true
+        }
+        fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
+            Ok(())
+        }
+        fn sleep(&mut self) {}
+        fn wake_up(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn unblank(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn input(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn hotplug(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn as_any(&mut self) -> &mut dyn Any {
+            self
+        }
+    }
+
+    // A frame composed with a renderer the view has since replaced, as a
+    // zoom replaces it, is not shown, and its token goes back to the
+    // display, which then lends again.
+    #[test]
+    fn a_frame_of_an_older_renderer_gives_its_token_back() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(false);
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let Prepared::Job(job) = view.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &DrawState::default(),
+            None,
+            &Instant::now,
+        ) else {
+            panic!("a job");
+        };
+        let face: DisplayFace = Box::new(Unifont::new(16));
+        view.rebuild(Font::new(face), 32, RenderConfig::default());
+        let shown = view.present(job.compose(), &mut term, &mut video, true, &Instant::now);
+        assert_eq!(shown, Presented::default());
+        assert_eq!(video.swaps, [], "not shown");
+        assert!(!video.out, "the token went back");
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(video.swaps, [1], "the display lends again");
+    }
+
+    // A job refused for a display that lost its picture keeps it lost, so
+    // the frame drawn at the next turn is drawn whole and through a hold.
+    #[test]
+    fn a_job_refused_keeps_its_display_lost() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(false);
+        assert!(view.lost, "a new view draws whole");
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let Prepared::Job(job) = view.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &DrawState::default(),
+            None,
+            &Instant::now,
+        ) else {
+            panic!("a job");
+        };
+        assert!(!view.lost);
+        view.refused(*job, &mut video);
+        assert!(view.lost, "still lost");
+    }
+
+    // A job the render thread could not take gives its token back, so the
+    // display lends again at the next draw.
+    #[test]
+    fn a_job_refused_gives_its_token_back() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(false);
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let state = DrawState::default();
+        let Prepared::Job(job) = view.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &state,
+            None,
+            &Instant::now,
+        ) else {
+            panic!("a job");
+        };
+        assert!(video.out && !video.ready_for_frame(ID), "one token out");
+        view.refused(*job, &mut video);
+        assert!(!video.out && !view.away() && view.pending);
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(video.swaps, [1], "the next draw lends and shows");
     }
 
     /// Whether the display shows anything but black.
@@ -1311,9 +1563,9 @@ mod tests {
     }
 
     // A frame composed while the VT was ours that comes back after its
-    // release, or after the blank, is not shown, on a device that would
-    // still lend its buffer: nothing is swapped, and the display draws
-    // whole at the next frame.
+    // release is not shown: its token goes back to the display, which
+    // drops it, nothing is swapped, and the display draws whole at the next
+    // frame.
     #[test]
     fn a_frame_back_once_asleep_is_not_shown() {
         let (mut term, mut view) = view();
@@ -1332,18 +1584,20 @@ mod tests {
         ) else {
             panic!("a job");
         };
+        video.sleep();
         let shown = view.present(job.compose(), &mut term, &mut video, false, &Instant::now);
         assert_eq!(shown, Presented::default());
         assert_eq!(video.swaps, [], "nothing swapped");
-        assert!(!lit(&video), "nothing copied");
+        assert_eq!(video.age, 0, "the display drew its next frame whole");
+        assert!(!video.out, "the token went back");
         assert!(view.lost, "drawn whole at the next frame");
         assert!(!view.away(), "the drawing is back");
     }
 
-    // A frame that changed nothing copies nothing, and the frame figures
-    // count no copy for it.
+    // A frame that changed nothing presents nothing, and its token goes
+    // back.
     #[test]
-    fn a_frame_that_changed_nothing_copies_nothing() {
+    fn a_frame_that_changed_nothing_presents_nothing() {
         let (mut term, mut view) = view();
         let mut video = Plane::new(false);
         draw(&mut term, &mut view, &mut video, None);
@@ -1364,6 +1618,7 @@ mod tests {
         let shown = view.present(job.compose(), &mut term, &mut video, true, &Instant::now);
         assert_eq!(shown, Presented::default());
         assert_eq!(video.swaps, [1], "the first frame alone");
+        assert!(!video.out);
     }
 
     // A zoom or a rotation keeps the display's depth, which the device

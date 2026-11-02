@@ -383,6 +383,9 @@ pub struct Renderer<F> {
     /// Characters the font draws differently since the last frame, sorted:
     /// the cells showing one draw again ([`Renderer::glyphs_changed`]).
     changed: Vec<char>,
+    /// Display areas something other than the renderer drew over since the
+    /// last frame ([`Renderer::redraw_area`]).
+    touched: Vec<Rect>,
 }
 
 /// The pointer's image for cells `cell_height` tall: the arrow, or the
@@ -501,6 +504,7 @@ impl<F: Face> Renderer<F> {
             mono_line: Vec::new(),
             deco: (None, None),
             changed: Vec::new(),
+            touched: Vec::new(),
         }
     }
 
@@ -516,6 +520,16 @@ impl<F: Face> Renderer<F> {
         self.changed.extend_from_slice(&arrived);
         self.changed.sort_unstable();
         self.changed.dedup();
+    }
+
+    /// Something other than the renderer drew over the display area `area`
+    /// in the buffers it drew before, as vtium's overlay, a notice box,
+    /// does. The next frame draws again every cell `area` touches and the
+    /// border inside it, and so does each later frame drawn into a buffer
+    /// older than the next one, so every buffer loses what was drawn over
+    /// it whatever order the buffers come in.
+    pub fn redraw_area(&mut self, area: Rect) {
+        self.touched.push(area);
     }
 
     /// The font now draws each of `chars` differently, and no cell shows
@@ -622,6 +636,9 @@ impl<F: Face> Renderer<F> {
                 self.stamp_pointer(&p);
             }
             self.pointer = pointer;
+        }
+        for area in core::mem::take(&mut self.touched) {
+            self.stamp_area(&grid, area);
         }
         let full = self.cells.border_stale();
         let border: Vec<Rect> = if full {
@@ -1135,6 +1152,25 @@ impl<F: Face> Renderer<F> {
         );
         let outside = b.x < 0 || b.y < 0 || b.x.saturating_add(b.w) > gw || b.bottom() > gh;
         Some(Pointer { at, cells, outside })
+    }
+
+    /// The cells `area` touches changed on this frame, and the border
+    /// inside it.
+    fn stamp_area(&mut self, g: &Grid, area: Rect) {
+        let meets = |r: Rect| {
+            r.x < area.x.saturating_add(area.width)
+                && area.x < r.x.saturating_add(r.width)
+                && r.y < area.y.saturating_add(area.height)
+                && area.y < r.y.saturating_add(r.height)
+        };
+        for row in 0..g.rows {
+            for col in 0..g.cols {
+                if meets(self.layout.cell_rect(g, col, row)) {
+                    self.cells.stamp(col, row);
+                }
+            }
+        }
+        self.cells.stamp_border_area(area);
     }
 
     /// The cells under `p` changed on this frame, and the border inside

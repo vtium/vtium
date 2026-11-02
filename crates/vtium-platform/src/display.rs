@@ -4,13 +4,16 @@
 //! ([`Fbdev`]), opened by the seat and handed over as a descriptor. Each
 //! offers its displays the same way:
 //!
-//! - [`Drm2d::canvas`] lends the back buffer as a [`Canvas`] in XRGB8888,
-//!   with its age, so the compositor redraws only what the buffer lacks;
-//! - [`Drm2d::swap`] presents it with the frame's damage, and a
-//!   [`Event::Flipped`] tells when the frame is on screen and the next may
-//!   be drawn, so frames are paced by the display. Damage is rectangles,
-//!   the whole screen one rectangle covering it; a swap with nothing to
-//!   send commits nothing and says so ([`Swapped::Nothing`]);
+//! - [`Drm2d::lend`] lends the buffer the next frame is drawn into as a
+//!   [`Token`], an owned value with the buffer's age, which the head's
+//!   render thread draws into as a [`Canvas`] in XRGB8888, so the
+//!   compositor redraws only what the buffer lacks (ADR-1401 D2);
+//! - [`Drm2d::swap`] takes the token back and presents its buffer with the
+//!   frame's damage, and a [`Event::Flipped`] tells when the frame is on
+//!   screen and the next may be drawn, so frames are paced by the display.
+//!   Damage is rectangles, the whole screen one rectangle covering it; a
+//!   swap with nothing to send commits nothing and says so
+//!   ([`Swapped::Nothing`]);
 //! - [`Drm2d::sleep`] and [`Drm2d::wake_up`] give the display up and take
 //!   it back across a VT switch, and [`Event::Asleep`] tells when the
 //!   release may be acknowledged.
@@ -34,6 +37,7 @@ mod fbdev;
 mod kms;
 mod mode;
 mod path;
+mod token;
 
 pub use blank::{Blank, DPMS_TIMEOUT};
 pub use card::Card;
@@ -43,6 +47,8 @@ pub(crate) use edid::Edid;
 pub use edid::{EdidId, Serial};
 pub use fbdev::{Fb, Fbdev};
 pub use mode::{Mode, ModeLookup, ModePolicy, Wanted};
+pub use token::{Buffers, Memory, Token};
+pub(crate) use token::{Loan, lock, try_lock};
 
 use std::io;
 
@@ -129,7 +135,8 @@ pub enum Dpms {
     Off,
 }
 
-/// The back buffer, lent for one frame: XRGB8888, `stride` bytes a line.
+/// A token's buffer, as the render thread draws into it ([`Token::draw`]):
+/// XRGB8888, `stride` bytes a line.
 pub struct Canvas<'a> {
     pub pixels: &'a mut [u8],
     pub width: u32,
@@ -167,8 +174,8 @@ pub enum Event {
 /// What a swap sent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Swapped {
-    /// The frame drawn into the canvas, with its damage and the cursor's
-    /// state. [`Event::Flipped`] follows.
+    /// The frame drawn into the token's buffer, with its damage and the
+    /// cursor's state. [`Event::Flipped`] follows.
     Frame,
     /// The cursor plane's state alone; the front buffer stays on screen.
     /// [`Event::Flipped`] follows.
@@ -198,6 +205,11 @@ pub enum SwapError {
     Off,
     /// The device refused the frame.
     Failed(io::Error),
+    /// The token came back too late, to a display that has gone, has been
+    /// set up again with new buffers, or was let go for a VT release or
+    /// powered down while the frame was drawn; or it was not the display's.
+    /// The frame is not shown, and the display draws its next frame whole.
+    Dropped,
 }
 
 impl From<io::Error> for SwapError {
@@ -262,13 +274,14 @@ impl Damage {
     }
 }
 
-/// Which frame each of a display's buffers holds, for [`Canvas::age`].
+/// Which frame each of a display's buffers holds, for [`Token::age`].
+/// Each display counts its own frames.
 #[derive(Debug, Default)]
 struct Ages {
     /// Frames drawn since the buffers were set up.
     frame: u64,
     /// The frame each buffer holds, 0 when its contents are unknown.
-    held: [u64; 2],
+    held: [u64; 3],
 }
 
 impl Ages {
@@ -340,5 +353,7 @@ mod tests {
         a.drawn(1);
         assert_eq!(a.age(0), 2);
         assert_eq!(a.age(1), 1);
+        a.drawn(2);
+        assert_eq!([a.age(0), a.age(1), a.age(2)], [3, 2, 1]);
     }
 }
