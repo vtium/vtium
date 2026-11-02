@@ -34,14 +34,25 @@ use P::N;
 /// The string `cap` expanded with `params`, as ncurses' `tparm` expands it
 /// for the `%` operations the entries use; `$<..>` padding is dropped, as
 /// `tputs` drops it.
+///
+/// A string with no `%p` is in termcap's form, and ncurses expands it in
+/// two ways a terminfo string never is. Before it starts, it pushes the
+/// parameters the string's operations take ([`termcap_params`]), the last
+/// first, so the first `%d` pops the first parameter. And `%i`, which
+/// adds one to the first two parameters, also writes them into the bottom
+/// two places of the stack, the first parameter into the bottom one,
+/// which is where it pushed the second: `\E[%i%d;%dR` with 2 and 3 gives
+/// `\E[4;3R`. `tput` and python's `curses.tparm` both give that.
 fn tparm(cap: &[u8], params: &[P]) -> Vec<u8> {
     let mut params: Vec<P> = params.to_vec();
     params.resize(9, N(0));
     let mut stack: Vec<P> = Vec::new();
-    // with no %p, ncurses pushes the parameters, the first on top
-    if !cap.windows(2).any(|w| w == b"%p") {
-        stack.extend(params.iter().rev().cloned());
+    let termcap = !cap.windows(2).any(|w| w == b"%p");
+    if termcap {
+        stack.extend(params[..termcap_params(cap)].iter().rev().cloned());
     }
+    // ncurses adds one for the first %i only
+    let mut incremented = false;
     let num = |p: Option<P>| match p {
         Some(N(n)) => n,
         Some(P::S(_)) | None => 0,
@@ -67,7 +78,12 @@ fn tparm(cap: &[u8], params: &[P]) -> Vec<u8> {
         i += 1;
         match op {
             b'%' => out.push(b'%'),
-            b'c' => out.push(u8::try_from(num(stack.pop())).expect("a byte")),
+            // ncurses sends a zero as 0x80, so that no NUL goes out, and
+            // keeps the low byte of anything else
+            b'c' => match num(stack.pop()) {
+                0 => out.push(0x80),
+                n => out.push(u8::try_from(n & 0xff).expect("a byte")),
+            },
             b's' => match stack.pop() {
                 Some(P::S(s)) => out.extend(s),
                 Some(N(n)) => out.extend(n.to_string().bytes()),
@@ -115,18 +131,18 @@ fn tparm(cap: &[u8], params: &[P]) -> Vec<u8> {
                 stack.push(N(i64::from(cap[i])));
                 i += 2;
             }
-            b'i' => {
-                for p in params.iter_mut().take(2) {
+            b'i' if !incremented => {
+                incremented = true;
+                for (k, p) in params.iter_mut().take(2).enumerate() {
                     if let N(n) = p {
                         *n += 1;
-                    }
-                }
-                for p in stack.iter_mut().rev().take(2) {
-                    if let N(n) = p {
-                        *n += 1;
+                        if termcap && let Some(place) = stack.get_mut(k) {
+                            *place = N(*n);
+                        }
                     }
                 }
             }
+            b'i' => {}
             b'+' | b'-' | b'*' | b'/' | b'm' | b'&' | b'|' | b'^' | b'=' | b'<' | b'>' | b'A'
             | b'O' => {
                 let (y, x) = (num(stack.pop()), num(stack.pop()));
@@ -188,10 +204,65 @@ fn skip(cap: &[u8], mut i: usize, to_else: bool) -> usize {
     cap.len()
 }
 
+/// How many parameters ncurses pushes before it expands `cap`, a string
+/// with no `%p`, as ncurses' `_nc_tparm_analyze` counts them: it follows
+/// how deep the stack would be, starting one below empty, and counts each
+/// operation that pops while the stack is below empty, at most two.
+fn termcap_params(cap: &[u8]) -> usize {
+    let (mut level, mut number) = (-1_i32, 0_usize);
+    let mut i = 0;
+    while i < cap.len() {
+        if cap[i] != b'%' {
+            i += 1;
+            continue;
+        }
+        i += 1;
+        // a printf form's flags, width and precision, as in %:-3d or %2.2X
+        if cap.get(i) == Some(&b':') {
+            i += 1;
+            while matches!(cap.get(i), Some(b'-' | b'+' | b'#' | b' ')) {
+                i += 1;
+            }
+        }
+        while matches!(cap.get(i), Some(b'0'..=b'9' | b'.')) {
+            i += 1;
+        }
+        let Some(&op) = cap.get(i) else { break };
+        let pops = level < 0 && number < 2;
+        match op {
+            b'd' | b'o' | b'x' | b'X' | b'c' | b'+' | b'-' | b'*' | b'/' | b'm' | b'A' | b'O'
+            | b'&' | b'|' | b'^' | b'=' | b'<' | b'>' => {
+                number += usize::from(pops);
+                level -= 1;
+            }
+            b'l' | b's' | b'!' | b'~' => number += usize::from(pops),
+            b'g' => {
+                level += 1;
+                i += 1;
+            }
+            b'P' => i += 1,
+            b'\'' => {
+                level += 1;
+                i += 2;
+            }
+            b'{' => {
+                level += 1;
+                i += 1;
+                while cap.get(i).is_some_and(u8::is_ascii_digit) {
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    number
+}
+
 #[test]
 fn tparm_expands_as_ncurses_does() {
-    // each checked against `tput` under vtium's entry
-    let cases: [(&[u8], &[P], &[u8]); 7] = [
+    // each checked against `tput` and python's `curses.tparm`
+    let cases: [(&[u8], &[P], &[u8]); 14] = [
         (b"\x1b[%i%p1%d;%p2%dH", &[N(4), N(9)], b"\x1b[5;10H"),
         (
             b"\x1b[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38;5;%p1%d%;m",
@@ -206,7 +277,15 @@ fn tparm_expands_as_ncurses_does() {
         (b"\x1b[?2026%?%p1%{1}%-%tl%eh%;", &[N(1)], b"\x1b[?2026h"),
         (b"\x1b[?2026%?%p1%{1}%-%tl%eh%;", &[N(2)], b"\x1b[?2026l"),
         (b"%p1%c\x1b[%p2%{1}%-%db", &[N(120), N(5)], b"x\x1b[4b"),
-        (b"\x1b[%i%d;%dR", &[N(2), N(3)], b"\x1b[3;4R"),
+        (b"%p1%c", &[N(0)], b"\x80"),
+        (b"%p1%c", &[N(1000)], b"\xe8"),
+        // termcap's form, with no %p
+        (b"\x1b[%i%d;%dR", &[N(2), N(3)], b"\x1b[4;3R"),
+        (b"%d;%d", &[N(2), N(3)], b"2;3"),
+        (b"%d;%d;%d", &[N(1), N(2), N(3)], b"1;2;0"),
+        (b"%i%d", &[N(2), N(3)], b"3"),
+        (b"%d;%i%d", &[N(2), N(3)], b"2;3"),
+        (b"%i%d;%d;%d", &[N(1), N(2), N(3)], b"3;2;0"),
     ];
     for (cap, params, want) in cases {
         assert_eq!(
@@ -214,6 +293,108 @@ fn tparm_expands_as_ncurses_does() {
             String::from_utf8_lossy(want)
         );
     }
+}
+
+// This file's tparm expands every capability of both entries that takes
+// parameters as ncurses' own tparm does, with each of several parameter
+// lists, so the checks below feed the terminal what a program would send.
+// ncurses is what `tput` runs; without `tput` and `tic` the test says it
+// skipped and passes.
+#[test]
+fn tparm_matches_tput_for_each_capability_with_parameters() {
+    let found = |tool: &str| {
+        std::process::Command::new(tool)
+            .arg("-V")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    };
+    if !found("tput") || !found("tic") {
+        eprintln!(
+            "SKIPPED tparm_matches_tput_for_each_capability_with_parameters: tput or tic (ncurses) is not installed"
+        );
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("vtium-termcap-tput-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory");
+    // each list reaches other branches of setaf's, setab's and sgr's
+    // conditions, and rep's %c of 0 and of more than a byte
+    let lists: [[i64; 9]; 4] = [
+        [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        [0; 9],
+        [9, 15, 200, 255, 1000, 7, 3, 1, 2],
+        [65, 66, 67, 68, 69, 70, 71, 72, 73],
+    ];
+    let mut compared = 0;
+    for (term, source) in [(super::NAME, ENTRY), (super::KMSCON, KMSCON)] {
+        let ti = dir.join(format!("{term}.ti"));
+        std::fs::write(&ti, source).expect("the entry written");
+        let tic = std::process::Command::new("tic")
+            .arg("-x")
+            .arg("-o")
+            .arg(&dir)
+            .arg(&ti)
+            .output()
+            .expect("tic runs");
+        assert!(tic.status.success(), "tic {term}: {tic:?}");
+        let (_, caps) = parse(source);
+        for (name, cap) in &caps {
+            let Cap::Str(value) = cap else { continue };
+            // u8 is a pattern a program matches a reply against, which
+            // tparm does not expand
+            if !value.contains(&b'%') || value.windows(2).any(|w| w == b"%[") {
+                continue;
+            }
+            // tput takes as many parameters as the string uses, and reads
+            // any after them as further capabilities to send
+            let used = (1..=9)
+                .rev()
+                .find(|k| value.windows(3).any(|w| w == format!("%p{k}").as_bytes()))
+                .unwrap_or_else(|| termcap_params(value));
+            for list in &lists {
+                // a parameter the string prints with %s is a string
+                let params: Vec<P> = (1..=used)
+                    .zip(list)
+                    .map(|(k, &n)| {
+                        if value.windows(5).any(|w| w == format!("%p{k}%s").as_bytes()) {
+                            P::S(format!("s{k}").into_bytes())
+                        } else {
+                            N(n)
+                        }
+                    })
+                    .collect();
+                let args: Vec<String> = params
+                    .iter()
+                    .map(|p| match p {
+                        N(n) => n.to_string(),
+                        P::S(s) => String::from_utf8_lossy(s).into_owned(),
+                    })
+                    .collect();
+                let tput = std::process::Command::new("tput")
+                    .env("TERMINFO", &dir)
+                    .arg("-T")
+                    .arg(term)
+                    .arg(name)
+                    .args(&args)
+                    .output()
+                    .expect("tput runs");
+                assert!(tput.status.success(), "tput {term} {name}: {tput:?}");
+                let have = tparm(value, &params);
+                assert_eq!(
+                    have,
+                    tput.stdout,
+                    "{term} {name} {args:?}: {} where tput gives {}",
+                    have.escape_ascii(),
+                    tput.stdout.escape_ascii()
+                );
+                compared += 1;
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    // both entries' capabilities with parameters, u8 aside, four lists
+    // each
+    assert_eq!(compared, (30 + 28) * 4, "the capabilities compared");
 }
 
 fn terminal() -> Terminal {
@@ -393,6 +574,23 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
         t.input(&s(params));
         let have: Vec<String> = (0..5).map(|r| text(&t, r)).collect();
         assert_eq!(have, want, "{name}");
+    };
+    // the rows and the cursor after five lines "a" to "e" on a 5-row
+    // terminal, then `before`, which places the cursor and may set a
+    // scroll region, and this capability
+    let scrolls = |before: &[u8], want: [&str; 5], cursor: (usize, usize)| {
+        let mut t = Terminal::new(10, 5, 0);
+        t.input(b"a\r\nb\r\nc\r\nd\r\ne");
+        t.input(before);
+        t.input(&s(&[]));
+        let have: Vec<String> = (0..5).map(|r| text(&t, r)).collect();
+        assert_eq!(
+            have,
+            want,
+            "{name} after {:?}",
+            String::from_utf8_lossy(before)
+        );
+        assert_eq!(t.screen().cursor(), cursor, "{name}: the cursor");
     };
     if let Some((sym, mods)) = key(name) {
         t.key(sym, 0, mods, None);
@@ -599,8 +797,19 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
         ("cub1", _) => moves(b"\x1b[3;5H", &[], (3, 2)),
         ("cuf1", _) => moves(b"\x1b[3;5H", &[], (5, 2)),
         ("cuu1", _) => moves(b"\x1b[3;5H", &[], (4, 1)),
-        ("cud1", _) => moves(b"\x1b[3;5H", &[], (4, 3)),
-        ("ind", _) => moves(b"\x1b[3;5H", &[], (4, 3)),
+        // terminfo leaves cud1 undefined on the bottom row, where a program
+        // sends ind instead; vtium's cud1, a newline, scrolls there as
+        // xterm's does. Above it, cud1 moves down and changes no row.
+        ("cud1", _) => {
+            scrolls(b"\x1b[3;5H", ["a", "b", "c", "d", "e"], (4, 3));
+            scrolls(b"\x1b[2;4r\x1b[2;5H", ["a", "b", "c", "d", "e"], (4, 2));
+        }
+        // ind is defined on the bottom row, of the screen or of the scroll
+        // region csr sets, where it scrolls the rows up and keeps the cursor
+        ("ind", _) => {
+            scrolls(b"\x1b[5;1H", ["b", "c", "d", "e", ""], (0, 4));
+            scrolls(b"\x1b[2;4r\x1b[4;1H", ["a", "c", "d", "", "e"], (0, 3));
+        }
         ("cub", _) => moves(b"\x1b[3;5H", &[N(3)], (1, 2)),
         ("cuf", _) => moves(b"\x1b[3;5H", &[N(3)], (7, 2)),
         ("cuu", _) => moves(b"\x1b[3;5H", &[N(2)], (4, 0)),
@@ -635,7 +844,12 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
             t.input(&s(&[N(2), N(10)]));
             assert_eq!(t.screen().margins(), (2, 10));
         }
-        ("ri", _) => rows(&[], ["a", "b", "c", "d", "e"]),
+        // ri is defined on the top row, of the screen or of the scroll
+        // region, where it scrolls the rows down and keeps the cursor
+        ("ri", _) => {
+            scrolls(b"\x1b[1;1H", ["", "a", "b", "c", "d"], (0, 0));
+            scrolls(b"\x1b[2;4r\x1b[2;1H", ["a", "", "b", "c", "e"], (0, 1));
+        }
         // editing
         ("clear", _) => {
             t.input(b"abc\r\ndef\x1b[3;5H");
@@ -765,9 +979,15 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
             assert_eq!(t.take_replies(), b"\x1b[3;4R");
         }
         ("u6", _) => {
-            // the report u7 asks for, as u6 reads it
+            // the report u7 asks for, as u6 reads it: the row, then the
+            // column, each counted from 1. u6 is in termcap's form, where
+            // ncurses' %i hands the first two parameters out the other way
+            // round (see tparm), so the column from 0 goes first to have
+            // it expand to row 3, column 4.
             t.input(b"\x1b[3;4H\x1b[6n");
-            assert_eq!(t.take_replies(), s(&[N(2), N(3)]));
+            let reply = t.take_replies();
+            assert_eq!(reply, b"\x1b[3;4R", "row 3, column 4");
+            assert_eq!(reply, s(&[N(3), N(2)]), "u6");
         }
         ("u9", _) => {
             t.input(&s(&[]));

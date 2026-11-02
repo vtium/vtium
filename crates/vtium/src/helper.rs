@@ -3183,7 +3183,9 @@ mod tests {
     }
 
     // a start that fails names /proc/self/fd, which a start without /proc
-    // mounted fails at
+    // mounted fails at: the console asks for a glyph, the helper's start
+    // fails, and the reason the console gives the helper up for is that
+    // message
     #[test]
     fn a_failed_start_names_proc_self_fd() {
         let dir = program_dir("unstartable");
@@ -3191,16 +3193,30 @@ mod tests {
         // no one may execute it
         program_copy("/bin/true", &program, 0o644);
         let launcher = Launcher::open(sh(&program, "")).unwrap();
-        let e = launcher.process().spawn().unwrap_err();
-        let why = launcher.failed(&e);
         let fd = launcher.program.as_raw_fd();
+        // the error the kernel gives this start, for the message's text
+        let e = launcher.process().spawn().unwrap_err();
+        let mut helper = Helper::new(
+            launcher,
+            Arc::new(|| {}),
+            t0(),
+            frit("source=builtin:unscii-8\n"),
+            None,
+            Shared::default(),
+            1 << 20,
+        );
+        helper.ask(CELL, &shown(&['A']), t0());
         assert_eq!(
-            why,
-            format!(
-                "cannot start {} through /proc/self/fd/{fd}: {e}; vtium starts the helper from the file it opened, through /proc/self/fd, so /proc must be mounted",
-                program.display()
+            helper.failed(),
+            Some(
+                format!(
+                    "cannot start {} through /proc/self/fd/{fd}: {e}; vtium starts the helper from the file it opened, through /proc/self/fd, so /proc must be mounted",
+                    program.display()
+                )
+                .as_str()
             )
         );
+        assert!(helper.running.is_none(), "nothing started");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
