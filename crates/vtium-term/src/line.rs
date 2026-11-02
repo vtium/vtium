@@ -643,11 +643,14 @@ impl Line {
     /// fill, as a line takes its place on a screen `cols` wide from a
     /// rewrap or the scrollback. A line written at a wider width is held
     /// to the budget of the screen's, as writing it there would
-    /// ([`hold_to_budget`](Self::hold_to_budget)). A line a rewrap built
-    /// at the screen's width or a narrower one may gather more than one
-    /// source row's budget, and it is held to its arena's limit, twice its
-    /// budget, with the same cut ([`hold_to`](Self::hold_to)). So no
-    /// screen row holds more than [`bytes_max`](Self::bytes_max).
+    /// ([`hold_to_budget`](Self::hold_to_budget)). A line whose clusters
+    /// were written at the screen's width or a narrower one may still name
+    /// more than its budget, since a widening by a factor that is not a
+    /// whole number can gather onto one row the end of one source row, the
+    /// whole of the next and the start of the one after; it is held to its
+    /// arena's limit, twice its budget, with the same cut
+    /// ([`hold_to`](Self::hold_to)). So no screen row holds more than
+    /// [`bytes_max`](Self::bytes_max).
     pub(crate) fn paint(&mut self, cols: usize) {
         self.resize(cols);
         if usize::from(self.written_at) > self.cells.len() {
@@ -665,8 +668,8 @@ impl Line {
     /// own budget if need be: a rewrap keeps a logical line's clusters,
     /// and the line counts as written at the wider of its own width and
     /// the width `src` was written at. A later write is held to the line's
-    /// budget, and the line to its screen's when it lands on a narrower
-    /// one ([`paint`](Self::paint)).
+    /// budget, and the line itself is held where it lands on a screen
+    /// ([`paint`](Self::paint)).
     pub(crate) fn push_from(
         &mut self,
         src: &Line,
