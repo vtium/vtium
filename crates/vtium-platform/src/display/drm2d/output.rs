@@ -11,7 +11,7 @@ use drm_ffi::{
 
 use super::super::kms::{Dumb, Property, Request};
 use super::super::mode::{Choice, Mode};
-use super::super::{Ages, Damage, DisplayId, Dpms, Rect};
+use super::super::{Ages, Damage, DisplayId, Dpms, Loan, Rect, try_lock};
 use super::buffers::Buffer;
 
 /// A DRM fourcc code.
@@ -209,12 +209,23 @@ pub(super) struct Output<M> {
     /// The connector's physical size in millimetres, 0 where it has none.
     pub(super) mm: (u32, u32),
     pub(super) mode_blob: u32,
+    /// One, two or three buffers, as the card's [`super::Buffers`] says.
     pub(super) buffers: Vec<Buffer<M>>,
+    /// The buffer the next frame is drawn into. The buffers take turns,
+    /// so the one before it is the last committed, which is on screen or
+    /// flipping to it.
     pub(super) back: usize,
     pub(super) ages: Ages,
     pub(super) damage: Damage,
-    /// The canvas was lent since the last swap.
-    pub(super) lent: bool,
+    /// The token lent for the back buffer, until it comes back.
+    pub(super) loan: Option<Loan>,
+    /// Taken anew whenever what the buffers mean changes under a token
+    /// lent: new buffers, a VT release, a blank. A token of an older lease
+    /// comes back too late.
+    pub(super) lease: u64,
+    /// The sleep found the buffer it clears lent, so the token's memory is
+    /// cleared when it comes back.
+    pub(super) clear_owed: bool,
     /// The back buffer holds a frame drawn with damage and not presented.
     pub(super) fresh: bool,
     pub(super) cursor: Option<Cursor>,
@@ -263,8 +274,45 @@ impl<M: AsMut<[u8]>> Output<M> {
         self.buffers.get(self.back).map_or(0, |b| b.fb)
     }
 
+    /// The buffer last committed: on screen, or flipping to it.
     pub(super) fn front(&self) -> usize {
-        self.back ^ 1
+        let n = self.buffers.len();
+        self.back
+            .saturating_add(n)
+            .saturating_sub(1)
+            .checked_rem(n)
+            .unwrap_or(0)
+    }
+
+    /// The buffer after the back one, which the frame after a committed
+    /// frame is drawn into: the other of two, the third of three while the
+    /// second flips to screen, and with one the buffer shown.
+    pub(super) fn after_back(&self) -> usize {
+        self.back
+            .saturating_add(1)
+            .checked_rem(self.buffers.len())
+            .unwrap_or(0)
+    }
+
+    /// Whether a token lent is still out.
+    pub(super) fn lent(&self) -> bool {
+        self.loan.as_ref().is_some_and(Loan::out)
+    }
+
+    /// A token for the back buffer is free to draw into: no token is out,
+    /// and no flip waits for that buffer. With two buffers the back one is
+    /// on screen until the flip in flight completes; with one, it is the
+    /// buffer shown, which vtium draws into whatever flips; with three,
+    /// the third is free while the second flips. A frame drawn and kept
+    /// from a failed swap waits for its flip whatever the buffers.
+    pub(super) fn buffer_free(&self) -> bool {
+        !self.lent() && (!self.flipping || (self.buffers.len() != 2 && !self.fresh))
+    }
+
+    /// What the buffers held is unknown, as after a token came back too
+    /// late or was dropped: every buffer is age 0.
+    pub(super) fn forget(&mut self) {
+        self.ages = Ages::default();
     }
 
     /// A flip is in flight, to be bounded by its own timer.
@@ -298,11 +346,17 @@ impl<M: AsMut<[u8]>> Output<M> {
         self.redraw = true;
     }
 
-    /// Clears the front buffer, which the display shows or flips to.
+    /// Clears the front buffer, which the display shows or flips to. A
+    /// token lent for it, as with one buffer, may be drawing into it, so its
+    /// memory is cleared when the token comes back.
     pub(super) fn clear_front(&mut self) {
         let front = self.front();
-        if let Some(b) = self.buffers.get_mut(front) {
-            b.map.as_mut().fill(0);
+        let lent = self.lent() && self.loan.as_ref().is_some_and(|l| l.buffer == front);
+        if let Some(b) = self.buffers.get(front) {
+            match try_lock(&b.map).filter(|_| !lent) {
+                Some(mut memory) => memory.as_mut().fill(0),
+                None => self.clear_owed = true,
+            }
         }
         if let Some(held) = self.ages.held.get_mut(front) {
             *held = 0;

@@ -128,7 +128,7 @@ fn tier3_command_lines() {
 fn defaults() {
     let c = Config::default();
     assert_eq!(c.text(&CONFIGDIR), Some("/etc/kmscon"));
-    assert_eq!(c.text(&TERM), Some("kmscon"));
+    assert_eq!(c.text(&TERM), Some("xterm-vtium"));
     assert_eq!(c.number(&SB_SIZE), Some(1000));
     assert_eq!(c.number(&SB_SIZE_CAP), None);
     assert_eq!(c.number(&SYNC_TIMEOUT), Some(200));
@@ -524,7 +524,7 @@ fn text_is_bounded() {
     assert_eq!(l.reports, []);
     let l = load_with(&["--term=x\u{1b}[2J"], None, &[]);
     assert_eq!(problems(&l), [&Problem::ControlCharacter("term")]);
-    assert_eq!(l.config.text(&TERM), Some("kmscon"));
+    assert_eq!(l.config.text(&TERM), Some("xterm-vtium"));
 }
 
 #[test]
@@ -1320,4 +1320,140 @@ fn sb_memory_past_the_machines_quarter_is_reported_once() {
         Some(vtium_term::SB_MEMORY_DEFAULT as u64)
     );
     assert_eq!(crate::check::warnings(&l).len(), 2);
+}
+
+/// `display-buffers` takes `1`, `2` or `3` and nothing else: a value
+/// outside them is reported and ignored, keeping the value the sources
+/// before it gave, never clamped into range. Unset, the build decides, so
+/// the accessor gives none (ADR-1401 D2).
+#[test]
+fn display_buffers_takes_one_two_or_three() {
+    assert_eq!(Config::default().display_buffers(), None);
+    for (text, n) in [("1", 1), ("2", 2), ("3", 3)] {
+        let l = main_file(&format!("display-buffers={text}\n"));
+        assert_eq!(l.config.display_buffers(), Some(n), "{text}");
+        assert_eq!(l.reports, [], "{text}");
+    }
+    for bad in ["0", "4", "02", "two", "", "-1"] {
+        let l = main_file(&format!("display-buffers=2\ndisplay-buffers={bad}\n"));
+        assert_eq!(l.config.display_buffers(), Some(2), "{bad:?}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::NotAChoice {
+                key: "display-buffers",
+                value: bad.into()
+            }],
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        main_file("display-buffers=4\n")
+            .reports
+            .first()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("/etc/kmscon/kmscon.conf:1: display-buffers=\"4\" is none of 1, 2, 3, ignored")
+    );
+    // The command line wins over the file, in either form of the option.
+    for args in [&["--display-buffers=1"][..], &["--display-buffers", "1"]] {
+        let l = load_with(
+            args,
+            None,
+            &[("/etc/kmscon/kmscon.conf", b"display-buffers=3\n")],
+        );
+        assert_eq!(l.config.display_buffers(), Some(1), "{args:?}");
+        assert_eq!(l.reports, [], "{args:?}");
+    }
+    let l = load_with(
+        &["--display-buffers=5"],
+        None,
+        &[("/etc/kmscon/kmscon.conf", b"display-buffers=3\n")],
+    );
+    assert_eq!(l.config.display_buffers(), Some(3), "the file's value kept");
+    assert_eq!(l.reports.len(), 1);
+}
+
+/// `font-hinting` takes `light` or `full` as written, any other value
+/// reported and ignored. Unset, the accessor gives none and the frit's
+/// `hinting=` decides, `light` where it says nothing (ADR-1200 D1).
+#[test]
+fn font_hinting_takes_light_or_full() {
+    assert_eq!(Config::default().font_hinting(), None);
+    for (text, h) in [("light", Hinting::Light), ("full", Hinting::Full)] {
+        let l = main_file(&format!("font-hinting={text}\n"));
+        assert_eq!(l.config.font_hinting(), Some(h), "{text}");
+        assert_eq!(l.reports, [], "{text}");
+    }
+    for bad in ["Light", "FULL", "none", "slight", "", "1"] {
+        let l = main_file(&format!("font-hinting=full\nfont-hinting={bad}\n"));
+        assert_eq!(l.config.font_hinting(), Some(Hinting::Full), "{bad:?}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::NotAChoice {
+                key: "font-hinting",
+                value: bad.into()
+            }],
+            "{bad:?}"
+        );
+    }
+    for args in [&["--font-hinting=light"][..], &["--font-hinting", "light"]] {
+        let l = load_with(
+            args,
+            None,
+            &[("/etc/kmscon/kmscon.conf", b"font-hinting=full\n")],
+        );
+        assert_eq!(l.config.font_hinting(), Some(Hinting::Light), "{args:?}");
+        assert_eq!(l.reports, [], "{args:?}");
+    }
+}
+
+/// `font-line-spacing` is a whole percentage of the text's height from 0
+/// to 100: past 100 it is clamped and reported, as every number key is,
+/// and a value that is no whole number is reported and ignored. Unset,
+/// the accessor gives none and the frit's `line-spacing=` decides, 0
+/// where it states none (ADR-1302 D13).
+#[test]
+fn font_line_spacing_is_a_percentage_from_0_to_100() {
+    assert_eq!(Config::default().font_line_spacing(), None);
+    for n in [0, 1, 25, 100] {
+        let l = main_file(&format!("font-line-spacing={n}\n"));
+        assert_eq!(l.config.font_line_spacing(), Some(n), "{n}");
+        assert_eq!(l.reports, [], "{n}");
+    }
+    let l = main_file("font-line-spacing=101\n");
+    assert_eq!(l.config.font_line_spacing(), Some(100));
+    assert_eq!(
+        problems(&l),
+        [&Problem::Clamped {
+            key: "font-line-spacing",
+            value: "101".into(),
+            used: 100
+        }]
+    );
+    let l = main_file("font-line-spacing=99999999999999999999999\n");
+    assert_eq!(l.config.font_line_spacing(), Some(100));
+    for bad in ["-1", "12%", "1.5", "", "none"] {
+        let l = main_file(&format!("font-line-spacing=20\nfont-line-spacing={bad}\n"));
+        assert_eq!(l.config.font_line_spacing(), Some(20), "{bad:?}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::NotANumber {
+                key: "font-line-spacing",
+                value: bad.into()
+            }],
+            "{bad:?}"
+        );
+    }
+    for args in [
+        &["--font-line-spacing=0"][..],
+        &["--font-line-spacing", "0"],
+    ] {
+        let l = load_with(
+            args,
+            None,
+            &[("/etc/kmscon/kmscon.conf", b"font-line-spacing=40\n")],
+        );
+        assert_eq!(l.config.font_line_spacing(), Some(0), "{args:?}");
+        assert_eq!(l.reports, [], "{args:?}");
+    }
 }

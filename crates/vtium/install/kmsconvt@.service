@@ -2,9 +2,14 @@
 # as getty@.service's is. Enabled, the unit's alias makes logind start it
 # for each VT it spawns:
 #   systemctl enable kmsconvt@.service
-# It conflicts with getty@ on the same VT, and when vtium fails, its failure
-# starts kmsconvt-getty@, which starts getty@ there instead unless the head
-# file's policy is closed (ADR-1401 D9). Without VTs it starts nothing.
+# It conflicts with getty@ on the same VT. When vtium fails, systemd starts
+# it again after 100 ms, up to systemd's default limit of 5 starts in 10 s,
+# and from systemd 254 on each failure also starts kmsconvt-getty@, which
+# starts getty@ on the VT unless the head file's policy is closed (ADR-1401
+# D9). So under an open policy the getty takes the VT at the first failure,
+# and starting it stops this unit; under a closed one vtium comes back, and
+# past the limit the unit stays failed with no login on the VT. Without VTs
+# it starts nothing.
 #
 # The name, the ordering and the TTY settings are getty's and the C
 # reference's, so tier 3's guest, whose autovt@.service links here, starts
@@ -18,7 +23,15 @@ After=plymouth-quit-wait.service
 After=rc-local.service
 After=systemd-vconsole-setup.service
 Before=getty.target
+# Conflicts= orders nothing (systemd.unit(5): to have the conflicting unit
+# stopped before this one starts, an After= or Before= is needed, and stop
+# jobs then always run before start jobs). Without it, starting vtium while
+# getty@ runs on the VT stops the getty and starts vtium in parallel, and the
+# getty's TTYVHangup= and TTYVTDisallocate= reset can hang up vtium's tty.
+# With it, the getty has stopped before vtium starts, and in the other
+# direction vtium has stopped before the fallback's getty starts.
 Conflicts=getty@%i.service
+After=getty@%i.service
 OnFailure=kmsconvt-getty@%i.service
 IgnoreOnIsolate=yes
 ConditionPathExists=/dev/tty0
@@ -30,6 +43,7 @@ TTYPath=/dev/%I
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
+Restart=on-failure
 
 [Install]
 Alias=autovt@.service

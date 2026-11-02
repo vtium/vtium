@@ -151,8 +151,14 @@ pub struct Head {
     pub(crate) osd_seen: Option<(u64, usize)>,
     /// The on-screen display's dot, while it shows under `osd = minimal`.
     pub(crate) mark: Option<vtium_render::Mark>,
-    /// The on-screen display's line, while it shows under `osd = full`.
+    /// The on-screen display's line, while it shows under `osd = full`,
+    /// or its brief line while that shows.
     pub(crate) status: Option<String>,
+    /// The on-screen display's brief line, which answers one press of the
+    /// open chord at a cap, until `brief_due` (ADR-1401 D5).
+    pub(crate) brief: Option<String>,
+    /// When the brief line goes, armed at its first frame.
+    pub(crate) brief_due: Option<Instant>,
     /// The colors of the notices and the on-screen display, which
     /// kmscon.conf sets for every head (ADR-1401 D5).
     overlay_colors: crate::term::OverlayColors,
@@ -233,7 +239,8 @@ pub(crate) fn terminal(
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
-    if let Ok(table) = crate::termcap::termcap() {
+    if let Some(Ok(table)) = crate::termcap::for_term(config.text(&keys::TERM).unwrap_or_default())
+    {
         terminal.set_termcap(table);
     }
     let timeout = Duration::from_millis(config.number(&keys::SYNC_TIMEOUT).unwrap_or(200));
@@ -341,6 +348,8 @@ impl Head {
             osd_seen: None,
             mark: None,
             status: None,
+            brief: None,
+            brief_due: None,
             overlay_colors: crate::term::OverlayColors::configured(config),
             when_display_lost: WhenDisplayLost::Keep,
             hangup_due: None,
@@ -618,11 +627,12 @@ impl Head {
     /// head takes `new`'s fit, and the old keeps the head's. While
     /// `visible`, the new one is potentially visible (mode 2033), and it
     /// takes mode 1004's focus from the old while a keyboard delivers to
-    /// the head. Every display draws the new one whole, as the C reference
+    /// the head; an old console that is `closing` is told nothing, as the
+    /// C reference sent a closing session no focus-out. Every display draws the new one whole, as the C reference
     /// redrew a session's displays at its activation
     /// (`src/terminal.c:1750-1762` at kmscon b1f7a7c5), each drawing kept
     /// per session there and per head here.
-    fn swap_shown(&mut self, new: Console, visible: bool) -> Console {
+    fn swap_shown(&mut self, new: Console, visible: bool, closing: bool) -> Console {
         let fit = self.fit();
         self.grid = new.fit.grid;
         self.font_size = new.fit.font_size;
@@ -631,13 +641,17 @@ impl Head {
         self.auto_size = new.fit.auto_size;
         let mut old = std::mem::replace(&mut self.console, new);
         old.fit = fit;
-        old.term.terminal.set_visible(false);
         self.console.term.terminal.set_visible(visible);
         if self.focused {
-            old.term.terminal.focus(false);
             self.console.term.terminal.focus(true);
         }
-        old.send_replies();
+        if !closing {
+            old.term.terminal.set_visible(false);
+            if self.focused {
+                old.term.terminal.focus(false);
+            }
+            old.send_replies();
+        }
         self.send_user_bytes();
         self.pointer.drag = None;
         // The pointer is over the shown console alone: the hidden one
@@ -658,7 +672,7 @@ impl Head {
             return;
         }
         let new = self.hidden.remove(k);
-        let old = self.swap_shown(new, visible);
+        let old = self.swap_shown(new, visible, false);
         let back = console::hidden_index(self.at, to).min(self.hidden.len());
         self.hidden.insert(back, old);
         self.at = to;
@@ -889,11 +903,13 @@ impl Head {
     /// not report goes to the program as cursor keys while mode 1007 asks
     /// on the alternate screen, and scrolls the view otherwise. A button keeps
     /// to the side its press took until its release, whatever Shift does
-    /// meanwhile. Returns the zoom a wheel with Ctrl asks for.
+    /// meanwhile. Under `natural` scrolling the wheel scrolls and reports
+    /// the other way. Returns the zoom a wheel with Ctrl asks for.
     pub(crate) fn pointer_event(
         &mut self,
         event: PointerEvent,
         mods: Mods,
+        natural: bool,
         selection: &mut Option<Vec<u8>>,
     ) -> Option<Zoom> {
         let tracking = self.console.term.terminal.mouse_tracking() != MouseTracking::Off;
@@ -950,7 +966,7 @@ impl Head {
             }
             PointerEvent::Wheel(steps) => {
                 let ctrl = mods.contains(Mods::CTRL);
-                match wheel(steps, tracking && !shift, ctrl) {
+                match wheel(steps, natural, tracking && !shift, ctrl) {
                     Wheel::Report(button) => self.report_pointer(button, MouseEvent::Press, mods),
                     Wheel::Zoom(dir) => zoom = Some(dir),
                     Wheel::Scroll { up } => {
@@ -1029,6 +1045,13 @@ impl Head {
             .terminal
             .screen_mut()
             .set_pointer(at, ctrl);
+    }
+
+    /// [`Head::hover`] with `ctrl` as the head's keyboards hold it now,
+    /// drawing the head again when that shows or hides the overlay.
+    pub(crate) fn rehover(&mut self, ctrl: bool) {
+        self.draw_now |= ctrl != self.pointer.ctrl;
+        self.hover(ctrl);
     }
 
     /// Hides the pointer, as `pointer-hide-while-typing` does at a key:
@@ -1198,8 +1221,30 @@ pub(crate) struct Frit {
     /// The cells whose glyphs the helper was asked for, over every head
     /// drawing the frit.
     pub(crate) asked: Vec<vtium_font::Cell>,
-    /// The fonts' own cell, or why it is not known, once asked.
-    pub(crate) own: Option<Result<vtium_font::Cell, String>>,
+    /// The helper's answer to each cell query, or why there was none, by
+    /// the height asked at.
+    pub(crate) own: BTreeMap<u32, Result<crate::helper::OwnCell, crate::helper::NoCell>>,
+}
+
+impl Frit {
+    /// The answer that holds at `height` for a frit that is `outline`, by
+    /// what the console knows of it now. A bitmap first source's own cell
+    /// holds at every height. So does any answer to a bitmap frit's query,
+    /// a failure included, since a bitmap frit asks, and may wait, only at
+    /// its first frame and at an OSC 50 switch (ADR-1200 D17). An outline
+    /// frit's answer holds at the height it was asked at alone.
+    pub(crate) fn answer_at(
+        &self,
+        height: u32,
+        outline: bool,
+    ) -> Option<Result<crate::helper::OwnCell, crate::helper::NoCell>> {
+        let bitmap = self
+            .own
+            .values()
+            .find(|a| matches!(a, Ok(crate::helper::OwnCell::Bitmap(_))));
+        let any = (!outline).then(|| self.own.values().next()).flatten();
+        bitmap.or(any).or_else(|| self.own.get(&height)).cloned()
+    }
 }
 
 impl Head {
@@ -1392,9 +1437,11 @@ enum Wheel {
 /// What a wheel event of `steps` does: one report while the program
 /// tracks the pointer, else a zoom with Ctrl, else a scroll, whatever
 /// the number of steps (`src/terminal.c:1492-1497, 1639-1650` at kmscon
-/// b1f7a7c5).
-fn wheel(steps: i32, tracking: bool, ctrl: bool) -> Wheel {
-    let up = steps > 0;
+/// b1f7a7c5). Under `natural` scrolling the report and the scroll go the
+/// other way, and the zoom keeps the wheel's own direction, as the C
+/// reference's `natural-scrolling` did (`src/terminal.c:1474-1476, 1646`).
+fn wheel(steps: i32, natural: bool, tracking: bool, ctrl: bool) -> Wheel {
+    let up = (steps > 0) != natural;
     if tracking {
         Wheel::Report(if up {
             MouseButton::WheelUp
@@ -1402,7 +1449,7 @@ fn wheel(steps: i32, tracking: bool, ctrl: bool) -> Wheel {
             MouseButton::WheelDown
         })
     } else if ctrl {
-        Wheel::Zoom(if up { Zoom::In } else { Zoom::Out })
+        Wheel::Zoom(if steps > 0 { Zoom::In } else { Zoom::Out })
     } else {
         Wheel::Scroll { up }
     }
@@ -1637,6 +1684,42 @@ mod tests {
         assert_eq!(head.pty_size().cell_width, CELL.0, "the first's own again");
     }
 
+    // ADR-1401 D5, binary-review's finding 3: the console the close chord
+    // closes is told nothing, as the C reference sent a closing session no
+    // focus-out: no focus-out joins what it owed its program, and nothing
+    // it owed is sent; the console shown next gains the focus.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::unwrap_used,
+        reason = "a test's clock is the host's, and a test fails by panicking"
+    )]
+    fn the_console_the_close_chord_closes_is_told_nothing() {
+        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term());
+        head.hidden.push(Console::new(2, term(), head.fresh_fit()));
+        head.focused = true;
+        for console in head.consoles_mut() {
+            console.term.terminal.input(b"\x1b[?1004h");
+        }
+        // a status report the closing console owes its program
+        head.console.term.terminal.input(b"\x1b[5n");
+        let mut closed = head.close_shown(false).unwrap();
+        assert_eq!(closed.id, 1);
+        assert_eq!(
+            closed.term.terminal.take_replies(),
+            b"\x1b[0n",
+            "no focus-out joined, and nothing owed was sent"
+        );
+        // the console shown next is console 2; its focus-in goes to its
+        // pty, which closing_a_console_gives_the_console_shown_next_the_focus
+        // reads through a real session
+        assert_eq!(head.console.id, 2);
+        assert!(head.close_shown(false).is_none(), "the last never closes");
+    }
+
     // A head shows each notice once and the newest NOTICES_MAX; an ended
     // console's notice stands above them and stays when they end.
     #[test]
@@ -1827,19 +1910,43 @@ mod tests {
     fn a_wheel_event_is_one_report_a_zoom_or_a_scroll_whatever_its_steps() {
         for steps in [1, 7, i32::MAX] {
             assert_eq!(
-                wheel(steps, true, true),
+                wheel(steps, false, true, true),
                 Wheel::Report(MouseButton::WheelUp)
             );
-            assert_eq!(wheel(steps, false, true), Wheel::Zoom(Zoom::In));
-            assert_eq!(wheel(steps, false, false), Wheel::Scroll { up: true });
+            assert_eq!(wheel(steps, false, false, true), Wheel::Zoom(Zoom::In));
+            assert_eq!(
+                wheel(steps, false, false, false),
+                Wheel::Scroll { up: true }
+            );
         }
         for steps in [-1, -7, i32::MIN] {
             assert_eq!(
-                wheel(steps, true, false),
+                wheel(steps, false, true, false),
                 Wheel::Report(MouseButton::WheelDown)
             );
-            assert_eq!(wheel(steps, false, true), Wheel::Zoom(Zoom::Out));
-            assert_eq!(wheel(steps, false, false), Wheel::Scroll { up: false });
+            assert_eq!(wheel(steps, false, false, true), Wheel::Zoom(Zoom::Out));
+            assert_eq!(
+                wheel(steps, false, false, false),
+                Wheel::Scroll { up: false }
+            );
         }
+    }
+
+    // vtium/vtium#203: natural scrolling turns the report and the scroll
+    // around, and leaves the zoom as the wheel turns
+    #[test]
+    fn natural_scrolling_turns_the_report_and_the_scroll_but_not_the_zoom() {
+        assert_eq!(
+            wheel(1, true, true, false),
+            Wheel::Report(MouseButton::WheelDown)
+        );
+        assert_eq!(
+            wheel(-1, true, true, false),
+            Wheel::Report(MouseButton::WheelUp)
+        );
+        assert_eq!(wheel(1, true, false, false), Wheel::Scroll { up: false });
+        assert_eq!(wheel(-1, true, false, false), Wheel::Scroll { up: true });
+        assert_eq!(wheel(1, true, false, true), Wheel::Zoom(Zoom::In));
+        assert_eq!(wheel(-1, true, false, true), Wheel::Zoom(Zoom::Out));
     }
 }

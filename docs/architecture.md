@@ -8,16 +8,18 @@ vtium (binary)
 ├── vtium-config     the head file: its reader, parser and rules, and the guards
 ├── vtium-render     frames to pixels: CPU compositor; GPU path behind a feature
 │   ├── vtium-term   screen, cells, lines, scrollback, modes, SGR, replies
-│   │   └── vtium-parse   bytes to actions: the bounded escape-sequence parser
+│   │   ├── vtium-parse   bytes to actions: the bounded escape-sequence parser
+│   │   └── vtium-image   the image store, its rules, the handler trait, the decode types (feature `images`)
+│   │       └── vtium-parse
 │   └── vtium-font   glyphs: the built-in Unifont and Unscii-8, the glyph chunk format, sprites
-└── vtium-image      sixel and kitty graphics, the image store (feature `images`)
+└── vtium-image      (feature `images`; not used by the binary yet)
 
 vtium-vitrify (binary)   the glyph helper: every font decoder, the outline rasterizer and shaping
 ├── vtium-font
 └── vtium-platform
 ```
 
-The tree is the workspace as built today. ADR-1100 moves vtium-image under vtium-term when the image build lands: vtium-term then takes it as an optional dependency behind an `images` feature, vtium-image depends on vtium-parse alone, naming a line by an opaque key, so it never depends on vtium-term (ADR-1100 D1, D10), vtium-render reaches the image types through vtium-term's frame, and the binary uses vtium-image directly to send the image helper its requests and to compute the `auto` budget. The minspec build links none of it.
+The tree is the workspace as built today. vtium-term takes vtium-image as an optional dependency, behind vtium-term's `images` feature. vtium-image depends on vtium-parse alone and names a line by an opaque key, so it never needs vtium-term (ADR-1100 D1, D10). The binary also lists vtium-image as an optional dependency, behind the binary's own `images` feature, and is to use it to send the image helper its requests and to work out the `auto` budget; no code in the binary uses it yet. Once a renderer draws placements, vtium-render is to reach the image types through vtium-term's frame. The minspec build links none of the image code.
 
 vtium-vitrify is a binary of its own. The install tree carries it beside the console, outside the console's binary and outside the minspec size budget, which judges the console alone. The console starts it as its glyph helper, which reads a frit's fonts and sends their glyphs to the console (ADR-1200), so the font decoders and the rasterizer stay out of the console.
 

@@ -5,15 +5,54 @@ use std::any::Any;
 use std::io;
 
 use vtium_platform::display::{
-    Canvas, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Identity, Rect, SwapError,
-    Swapped,
+    Buffers, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Identity, Rect, SwapError,
+    Swapped, Token,
 };
 use vtium_render::Arrow;
 
 use crate::pointer::Plane;
 
-/// A video device: its displays, each lending a canvas for a frame and
-/// presenting it, and its sleep, wake-up and power.
+/// How many buffers a DRM display keeps when kmscon.conf does not say
+/// (ADR-1401 D2): three in a build that adds features on top of minspec,
+/// two in the minspec build, vtium's default build. One buffer is for a
+/// build smaller than minspec, which none is yet; [`Buffers::One`] reaches
+/// it through the setting.
+///
+/// The build adds features on top of minspec when any of
+/// [`FEATURES_ON_TOP`] is on.
+pub const BUILD_BUFFERS: Buffers = if any_on(&FEATURES_ON_TOP) {
+    Buffers::Three
+} else {
+    Buffers::Two
+};
+
+/// Each of crates/vtium's features but `default`, the features a build
+/// adds on top of minspec, and whether this build has it on. A test holds
+/// the names equal to Cargo.toml's, so a feature added there fails it
+/// until it is named here too.
+pub const FEATURES_ON_TOP: [(&str, bool); 2] = [
+    ("images", cfg!(feature = "images")),
+    ("logind", cfg!(feature = "logind")),
+];
+
+/// Whether any of `features` is on.
+const fn any_on(features: &[(&str, bool)]) -> bool {
+    match features {
+        [] => false,
+        [(_, on), rest @ ..] => *on || any_on(rest),
+    }
+}
+
+/// The buffers each DRM display keeps: `configured`, kmscon.conf's
+/// `display-buffers` as its accessor reads it, where it is 1, 2 or 3, and
+/// else the build's [`BUILD_BUFFERS`]. A value outside 1 to 3 never
+/// reaches here, since the configuration refuses it.
+pub fn display_buffers(configured: Option<u8>) -> Buffers {
+    configured.and_then(Buffers::new).unwrap_or(BUILD_BUFFERS)
+}
+
+/// A video device: its displays, each lending a buffer token for a frame
+/// and presenting it, and its sleep, wake-up and power.
 pub trait Video: Any {
     /// The backend's name in the display's log line.
     fn backend(&self) -> &'static str;
@@ -27,15 +66,19 @@ pub trait Video: Any {
     fn size(&self, id: DisplayId) -> Option<(u32, u32)>;
     /// A display's refresh in millihertz, if it reports one.
     fn refresh_mhz(&self, id: DisplayId) -> Option<u32>;
-    /// The back buffer, lent for one frame.
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>>;
-    /// Presents the frame drawn into the canvas with its damage.
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError>;
+    /// The prepare step: the buffer the next frame is drawn into, lent as
+    /// a token with its age while the display is ready for a frame.
+    fn lend(&mut self, id: DisplayId) -> Option<Token>;
+    /// The swap: takes the token back and presents the frame drawn into
+    /// its buffer with its damage, or a cursor change alone where the
+    /// damage is empty. A token back too late is dropped.
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError>;
+    /// Takes a token back with nothing drawn into it.
+    fn give_back(&mut self, token: Token);
     /// Whether a frame swapped is still on its way to the screen.
     fn is_flipping(&self, id: DisplayId) -> bool;
-    /// Whether the display takes a frame now. On the CPU path a frame is
-    /// the canvas the display lends. A frame the display does not take
-    /// waits until the display is ready.
+    /// Whether the display takes a frame now: it would lend a token. A
+    /// frame the display does not take waits until the display is ready.
     fn ready_for_frame(&self, id: DisplayId) -> bool;
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()>;
     fn sleep(&mut self);
@@ -115,6 +158,9 @@ impl Plane for dyn Video {
     fn holds(&self, id: DisplayId) -> bool {
         self.hardware_cursor(id)
     }
+    fn display_name(&self, id: DisplayId) -> String {
+        self.name(id)
+    }
 }
 
 impl Video for Drm2d<Card> {
@@ -147,11 +193,14 @@ impl Video for Drm2d<Card> {
     fn identity(&self, id: DisplayId) -> Option<Identity> {
         Drm2d::identity(self, id).cloned()
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        Drm2d::canvas(self, id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        Drm2d::lend(self, id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        Drm2d::swap(self, id, damage)
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        Drm2d::swap(self, token, damage)
+    }
+    fn give_back(&mut self, token: Token) {
+        Drm2d::give_back(self, token);
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         Drm2d::is_flipping(self, id)
@@ -235,11 +284,14 @@ impl Video for Fbdev<Fb> {
             .filter(Density::measured)
             .map(|d| d.dpi())
     }
-    fn canvas(&mut self, id: DisplayId) -> Option<Canvas<'_>> {
-        Fbdev::canvas(self, id)
+    fn lend(&mut self, id: DisplayId) -> Option<Token> {
+        Fbdev::lend(self, id)
     }
-    fn swap(&mut self, id: DisplayId, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        Fbdev::swap(self, id, damage)
+    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+        Fbdev::swap(self, token, damage)
+    }
+    fn give_back(&mut self, token: Token) {
+        Fbdev::give_back(self, token);
     }
     fn is_flipping(&self, id: DisplayId) -> bool {
         Fbdev::is_flipping(self, id)
@@ -267,5 +319,79 @@ impl Video for Fbdev<Fb> {
     }
     fn as_any(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ADR-1401 D2: the minspec build, vtium's default build, keeps two
+    // buffers a DRM display.
+    #[cfg(not(any(feature = "images", feature = "logind")))]
+    #[test]
+    fn the_minspec_build_keeps_two_buffers() {
+        assert_eq!(BUILD_BUFFERS, Buffers::Two);
+    }
+
+    // ADR-1401 D2: `display-buffers` set gives its count, and unset or out
+    // of range the build's.
+    #[test]
+    fn the_setting_chooses_the_buffers_and_the_build_fills_in() {
+        let counts: Vec<Buffers> = [Some(1), Some(2), Some(3)]
+            .into_iter()
+            .map(display_buffers)
+            .collect();
+        assert_eq!(counts, [Buffers::One, Buffers::Two, Buffers::Three]);
+        assert_eq!(display_buffers(None), BUILD_BUFFERS);
+        assert_eq!(display_buffers(Some(4)), BUILD_BUFFERS);
+    }
+
+    // Every feature of the crate but `default` adds to minspec, so each is
+    // one BUILD_BUFFERS gives three buffers for: a feature in Cargo.toml
+    // missing from FEATURES_ON_TOP, or one there Cargo.toml lacks, fails
+    // this test. BUILD_BUFFERS is three exactly when any flag is on.
+    #[test]
+    fn build_buffers_counts_every_feature_on_top_of_minspec() {
+        let manifest = include_str!("../Cargo.toml");
+        let mut features: Vec<&str> = manifest
+            .lines()
+            .skip_while(|l| l.trim() != "[features]")
+            .skip(1)
+            .take_while(|l| !l.trim_start().starts_with('['))
+            .filter_map(|l| l.split_once('=').map(|(name, _)| name.trim()))
+            .filter(|name| !name.starts_with('#') && *name != "default")
+            .collect();
+        features.sort_unstable();
+        let mut named: Vec<&str> = FEATURES_ON_TOP.iter().map(|(name, _)| *name).collect();
+        named.sort_unstable();
+        assert_eq!(features, named);
+        let any = FEATURES_ON_TOP.iter().any(|(_, on)| *on);
+        assert_eq!(BUILD_BUFFERS == Buffers::Three, any, "{FEATURES_ON_TOP:?}");
+    }
+
+    // Each flag of FEATURES_ON_TOP reads its own feature, checked against
+    // the feature itself in each build the tests run in. A flag that reads
+    // another feature agrees with it in the build with every feature and in
+    // the build with none, so only a single-feature build catches it:
+    // `cargo test -p vtium --features images`, and the same with `logind`.
+    #[test]
+    fn each_feature_flag_reads_its_own_feature() {
+        let on = |name: &str| {
+            FEATURES_ON_TOP
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, o)| *o)
+        };
+        assert_eq!(on("images"), Some(cfg!(feature = "images")));
+        assert_eq!(on("logind"), Some(cfg!(feature = "logind")));
+    }
+
+    // ADR-1401 D2: a build that adds features on top of minspec keeps
+    // three.
+    #[cfg(any(feature = "images", feature = "logind"))]
+    #[test]
+    fn a_build_with_features_keeps_three_buffers() {
+        assert_eq!(BUILD_BUFFERS, Buffers::Three);
     }
 }

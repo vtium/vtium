@@ -14,6 +14,8 @@ use crate::compose::{Area, Composer, Job, int};
 use crate::damage::Cells;
 use crate::deco::{Kind, Sprites};
 use crate::mono::{self, Depth, Fallback, Ink, Threshold};
+#[cfg(feature = "images")]
+use crate::picture::{Mark, PictureCounts, Under};
 use crate::target::{Orientation, Rect, Target};
 
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
@@ -383,6 +385,9 @@ pub struct Renderer<F> {
     /// Characters the font draws differently since the last frame, sorted:
     /// the cells showing one draw again ([`Renderer::glyphs_changed`]).
     changed: Vec<char>,
+    /// Display areas something other than the renderer drew over since the
+    /// last frame ([`Renderer::redraw_area`]).
+    touched: Vec<Rect>,
 }
 
 /// The pointer's image for cells `cell_height` tall: the arrow, or the
@@ -501,6 +506,7 @@ impl<F: Face> Renderer<F> {
             mono_line: Vec::new(),
             deco: (None, None),
             changed: Vec::new(),
+            touched: Vec::new(),
         }
     }
 
@@ -516,6 +522,16 @@ impl<F: Face> Renderer<F> {
         self.changed.extend_from_slice(&arrived);
         self.changed.sort_unstable();
         self.changed.dedup();
+    }
+
+    /// Something other than the renderer drew over the display area `area`
+    /// in the buffers it drew before, as vtium's overlay, a notice box,
+    /// does. The next frame draws again every cell `area` touches and the
+    /// border inside it, and so does each later frame drawn into a buffer
+    /// older than the next one, so every buffer loses what was drawn over
+    /// it whatever order the buffers come in.
+    pub fn redraw_area(&mut self, area: Rect) {
+        self.touched.push(area);
     }
 
     /// The font now draws each of `chars` differently, and no cell shows
@@ -564,6 +580,14 @@ impl<F: Face> Renderer<F> {
     /// Bytes of glyph pixels the cache holds.
     pub fn cache_bytes(&self) -> u64 {
         self.compose.cache.pixel_bytes()
+    }
+
+    /// What this display's scaled copies of pictures did and hold: the
+    /// times a picture was scaled, the copies kept, evicted or not kept,
+    /// and their bytes, at most [`crate::PICTURE_CACHE_SCREENS`] screens.
+    #[cfg(feature = "images")]
+    pub fn picture_counts(&self) -> PictureCounts {
+        self.compose.pictures.counts()
     }
 
     /// Bytes the row scratch holds once a row is drawn: one row of cells
@@ -623,6 +647,11 @@ impl<F: Face> Renderer<F> {
             }
             self.pointer = pointer;
         }
+        for area in core::mem::take(&mut self.touched) {
+            self.stamp_area(&grid, area);
+        }
+        #[cfg(feature = "images")]
+        self.plan_pictures(frame, &grid);
         let full = self.cells.border_stale();
         let border: Vec<Rect> = if full {
             Vec::new()
@@ -646,6 +675,8 @@ impl<F: Face> Renderer<F> {
             self.fill_border(&grid, &mut out, bg, *r);
         }
         let (cells, rows) = self.draw_cells(&grid, frame, &mut out, state);
+        #[cfg(feature = "images")]
+        self.compose.pictures.end_frame();
         self.changed.clear();
         self.arrow = arrow;
         self.pointer_line = line;
@@ -673,6 +704,33 @@ impl<F: Face> Renderer<F> {
                 cpu: start.elapsed(),
             },
         }
+    }
+
+    /// The frame's pictures: the cells of each one that moved or changed
+    /// since the last frame are stamped, and each one's place on the
+    /// display is planned for the rows to draw.
+    #[cfg(feature = "images")]
+    fn plan_pictures(&mut self, frame: &Frame<'_>, g: &Grid) {
+        let placements = frame.placements();
+        let cells = &mut self.cells;
+        self.compose
+            .pictures
+            .damage(placements, (g.cols, g.rows), |c, r| cells.stamp(c, r));
+        let l = self.layout;
+        let grid_px = (
+            int(g.cols).saturating_mul(l.cw),
+            int(g.rows).saturating_mul(l.ch),
+        );
+        let cell = (
+            u32::try_from(l.cw).unwrap_or(1),
+            u32::try_from(l.ch).unwrap_or(1),
+        );
+        let g = *g;
+        let pictures = &mut self.compose.pictures;
+        pictures.display(l.width, l.height, l.orientation);
+        pictures.plan(placements, cell, grid_px, g.rows, |a| {
+            l.area(&g, a.x, a.y, a.w, a.h)
+        });
     }
 
     /// Fills the border's pixels inside the display area `r` with `bg`.
@@ -836,6 +894,10 @@ impl<F: Face> Renderer<F> {
             );
         }
         self.widen_to_span(p, row);
+        #[cfg(feature = "images")]
+        {
+            self.compose.pictures.row = row;
+        }
         self.compose.draw(&self.font, self.layout.strip(), target);
         count
     }
@@ -972,6 +1034,13 @@ impl<F: Face> Renderer<F> {
         };
         let len = text.len().saturating_sub(start);
         let text = (len > 0).then_some((start, len, width, style));
+        // vtium's mark, which draws above every picture (ADR-1100 D4)
+        #[cfg(feature = "images")]
+        let under = |mark: Mark| Under {
+            default_bg: fc.default_bg,
+            selected: fc.selected,
+            mark,
+        };
         let mut at = at;
         if bar && at.ncells == 2 {
             // the bar takes the left half; the right is the cell without it
@@ -989,6 +1058,11 @@ impl<F: Face> Renderer<F> {
                 lit,
             };
             let job = self.job(g, tail, 1, paint);
+            #[cfg(feature = "images")]
+            let job = Job {
+                under: under(Mark::None),
+                ..job
+            };
             self.compose.jobs.push(job);
             at.ncells = 1;
         }
@@ -1003,6 +1077,16 @@ impl<F: Face> Renderer<F> {
             lit: cell_lit,
         };
         let job = self.job(g, at, glyph_cells, paint);
+        #[cfg(feature = "images")]
+        let job = Job {
+            under: under(match cursor.map(|c| c.shape) {
+                Some(CursorShape::Block) => Mark::Opaque,
+                Some(CursorShape::Bar) => Mark::Bar,
+                Some(CursorShape::Underline) => Mark::Underline,
+                None => Mark::None,
+            }),
+            ..job
+        };
         self.compose.jobs.push(job);
     }
 
@@ -1028,6 +1112,8 @@ impl<F: Face> Renderer<F> {
             strike: paint.strike.map(|c| ink.fg(c)),
             text: paint.text,
             silhouette: depth == Depth::One,
+            #[cfg(feature = "images")]
+            under: Under::default(),
         }
     }
 
@@ -1135,6 +1221,25 @@ impl<F: Face> Renderer<F> {
         );
         let outside = b.x < 0 || b.y < 0 || b.x.saturating_add(b.w) > gw || b.bottom() > gh;
         Some(Pointer { at, cells, outside })
+    }
+
+    /// The cells `area` touches changed on this frame, and the border
+    /// inside it.
+    fn stamp_area(&mut self, g: &Grid, area: Rect) {
+        let meets = |r: Rect| {
+            r.x < area.x.saturating_add(area.width)
+                && area.x < r.x.saturating_add(r.width)
+                && r.y < area.y.saturating_add(area.height)
+                && area.y < r.y.saturating_add(r.height)
+        };
+        for row in 0..g.rows {
+            for col in 0..g.cols {
+                if meets(self.layout.cell_rect(g, col, row)) {
+                    self.cells.stamp(col, row);
+                }
+            }
+        }
+        self.cells.stamp_border_area(area);
     }
 
     /// The cells under `p` changed on this frame, and the border inside

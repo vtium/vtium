@@ -1,5 +1,6 @@
 //! A head's render thread (ADR-1401 D2): it composes the head's frames,
-//! each into its display's shadow buffer, so one head's redraw delays
+//! each straight into the buffer its display lent in a token, so one head's
+//! redraw delays
 //! neither another head's frames nor the loop, which keeps the input, the
 //! ptys, the devices and their flips. A frame depends only on its head's
 //! screen and drawing, so the frames are what one thread would draw.
@@ -14,8 +15,8 @@
 //! view, which draws at the next turn, and the thread waits while the
 //! loop has not taken what it composed.
 //!
-//! Each head's frame times, the compose's and the copy's, are logged at
-//! debug level once a second while it draws ([`Figures`]).
+//! Each head's compose times are logged at debug level once a second while
+//! it draws ([`Figures`]).
 //!
 //! The thread's stack is [`STACK`]; it ends, and is joined, when its head
 //! is dropped, as at a new head file and at the exit. A panic on it ends
@@ -110,25 +111,23 @@ impl Drop for Painter {
 }
 
 /// A head's frame times since its last line: the frames presented, and
-/// the time each took to compose and to copy into its display's buffer,
-/// logged at debug level at most once a second while the head draws.
+/// the time each took to compose into its display's buffer, logged at
+/// debug level at most once a second while the head draws.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Figures {
     frames: u32,
     compose: (Duration, Duration),
-    copy: (Duration, Duration),
     /// When the next line is due, once a frame came since the last.
     pub due: Option<Instant>,
 }
 
 impl Figures {
-    /// A frame presented at `now`, which took `compose` and `copy`.
-    pub fn frame(&mut self, compose: Duration, copy: Duration, now: Instant) {
+    /// A frame presented at `now`, which took `compose`.
+    pub fn frame(&mut self, compose: Duration, now: Instant) {
         self.frames = self.frames.saturating_add(1);
-        for ((sum, max), took) in [(&mut self.compose, compose), (&mut self.copy, copy)] {
-            *sum = sum.saturating_add(took);
-            *max = (*max).max(took);
-        }
+        let (sum, max) = &mut self.compose;
+        *sum = sum.saturating_add(compose);
+        *max = (*max).max(compose);
         if self.due.is_none() && log::log_enabled!(target: "render", log::Level::Debug) {
             self.due = now.checked_add(Duration::from_secs(1));
         }
@@ -141,12 +140,10 @@ impl Figures {
         let f = std::mem::take(self);
         let mean = |sum: Duration| sum.checked_div(f.frames.max(1)).unwrap_or_default();
         Some(format!(
-            "head {name}: {} frames, compose mean {} max {} us, copy mean {} max {} us",
+            "head {name}: {} frames, compose mean {} max {} us",
             f.frames,
             mean(f.compose.0).as_micros(),
             f.compose.1.as_micros(),
-            mean(f.copy.0).as_micros(),
-            f.copy.1.as_micros(),
         ))
     }
 }
@@ -168,7 +165,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use vtium_font::{Font, Unifont};
-    use vtium_platform::display::{Canvas, DisplayId, Dpms, Event, Rect, SwapError, Swapped};
+    use vtium_platform::display::{
+        DisplayId, Dpms, Event, Memory, Rect, SwapError, Swapped, Token,
+    };
     use vtium_render::{Config, DrawState};
     use vtium_term::Terminal;
 
@@ -180,7 +179,7 @@ mod tests {
     use crate::video::Video;
 
     /// A display of 32 by 16 pixels in memory.
-    struct Small(Vec<u8>);
+    struct Small(Arc<Mutex<Vec<u8>>>);
 
     impl Video for Small {
         fn backend(&self) -> &'static str {
@@ -201,16 +200,12 @@ mod tests {
         fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
             None
         }
-        fn canvas(&mut self, _: DisplayId) -> Option<Canvas<'_>> {
-            Some(Canvas {
-                pixels: &mut self.0,
-                width: 32,
-                height: 16,
-                stride: 128,
-                age: 0,
-            })
+        fn lend(&mut self, id: DisplayId) -> Option<Token> {
+            let memory: Arc<Memory> = self.0.clone();
+            Some(Token::new(id, (32, 16), 128, 0, memory))
         }
-        fn swap(&mut self, _: DisplayId, _: &[Rect]) -> Result<Swapped, SwapError> {
+        fn give_back(&mut self, _: Token) {}
+        fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
             Ok(Swapped::Frame)
         }
         fn is_flipping(&self, _: DisplayId) -> bool {
@@ -249,7 +244,7 @@ mod tests {
             Blink::new(false),
             Rc::new(Instant::now),
         );
-        let mut video = Small(vec![0; 32 * 16 * 4]);
+        let mut video = Small(Arc::new(Mutex::new(vec![0; 32 * 16 * 4])));
         let mut snapshot = None;
         (0..n)
             .map(|i| {
@@ -273,7 +268,7 @@ mod tests {
                     Some(hook),
                     &Instant::now,
                 ) {
-                    Prepared::Job(job) => job,
+                    Prepared::Job(job) => *job,
                     Prepared::Later | Prepared::Nothing => panic!("a job"),
                 }
             })
@@ -334,8 +329,8 @@ mod tests {
         assert!(composed.load(Ordering::SeqCst), "joined after its frame");
     }
 
-    // The frame figures: a line once due, with the frames, the compose's
-    // and the copy's mean and largest time, and the figures start again.
+    // The frame figures: a line once due, with the frames and the
+    // compose's mean and largest time, and the figures start again.
     #[test]
     fn the_figures_line_comes_once_due_and_starts_again() {
         let t0 = Instant::now();
@@ -344,12 +339,12 @@ mod tests {
             due: Some(t0 + Duration::from_secs(1)),
             ..Figures::default()
         };
-        f.frame(ms(2), ms(1), t0);
-        f.frame(ms(4), ms(3), t0);
+        f.frame(ms(2), t0);
+        f.frame(ms(4), t0);
         assert_eq!(f.line("desk", t0), None, "not due");
         assert_eq!(
             f.line("desk", t0 + Duration::from_secs(1)).as_deref(),
-            Some("head desk: 2 frames, compose mean 3000 max 4000 us, copy mean 2000 max 3000 us")
+            Some("head desk: 2 frames, compose mean 3000 max 4000 us")
         );
         assert_eq!(f, Figures::default());
     }

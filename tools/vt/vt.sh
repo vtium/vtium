@@ -8,6 +8,8 @@
 #
 # make passes its variables in the environment, so none is ever recipe text:
 #   VTIUM_VT_BIN      the vtium binary, which run-vt.sh runs as root
+#   VTIUM_VT_HELPER   the glyph helper built with it, which run-vt.sh copies
+#                     into /run/vtium-vt/ and names with --font-helper
 #   VTIUM_VT_NR       the VT (VT=); without it, the first free one of 5, 6, 4,
 #                     3 and 2. A VT is free when it is not on screen and no
 #                     logind session is on it; run-vt.sh checks again before
@@ -99,6 +101,13 @@ bin=${VTIUM_VT_BIN:-}
 [ -n "$bin" ] || die "VTIUM_VT_BIN names the vtium binary; make vt-demo sets it"
 bin=$(readlink -m -- "$bin")
 [ -f "$bin" ] && [ -x "$bin" ] || die "no vtium binary at $bin: build it first (make minspec)"
+helper=${VTIUM_VT_HELPER:-}
+helper_arg=()
+if [ -n "$helper" ]; then
+	helper=$(readlink -m -- "$helper")
+	[ -f "$helper" ] && [ -x "$helper" ] || die "no glyph helper at $helper: build it first (make vitrify-release)"
+	helper_arg=(--helper="$helper")
+fi
 
 dry=${VTIUM_VT_DRY_RUN:-}
 case $dry in '' | 1) ;; *) die "VTIUM_VT_DRY_RUN=$dry: 1 or nothing" ;; esac
@@ -112,6 +121,7 @@ if [ -n "$standins" ]; then
 	[ -x "$sudo" ] || die "VTIUM_VT_STANDINS has no stand-in sudo"
 fi
 loginctl=${standins:+$standins/}loginctl
+systemctl=${standins:+$standins/}systemctl
 feedback=$vt_dir/feedback.tsv
 checklog=$vt_dir/vt-check.log
 
@@ -135,6 +145,8 @@ done <<<"$list"
 why_busy() {
 	local e
 	[ "$1" != "$active" ] || { echo "it is on screen"; return; }
+	e=$(vt_held "$systemctl" "${standins:+$standins/root}" "$1")
+	[ -z "$e" ] || { echo "$e"; return; }
 	for e in "${sessions[@]}"; do
 		[ "${e%% *}" != "$1" ] || { echo "logind session ${e#* } is on it"; return; }
 	done
@@ -172,7 +184,7 @@ build_cmd() {
 	local record=() state=()
 	[ -z "$transcript" ] || record=(--transcript="$transcript")
 	[ -z "$drm" ] || state=(--debug="$drm")
-	cmd=("$here/run-vt.sh" --bin="$bin" --label="dev build ${label:-unknown}" "${state[@]}" "${session[@]}"
+	cmd=("$here/run-vt.sh" --bin="$bin" "${helper_arg[@]}" --label="dev build ${label:-unknown}" "${state[@]}" "${session[@]}"
 		"${record[@]}" "$vt" -- "${extra[@]}")
 }
 

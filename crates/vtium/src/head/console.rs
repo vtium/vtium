@@ -1,7 +1,9 @@
 //! A head's consoles (ADR-1401 D1): each a session with its own pty,
 //! screen, scrollback and grid, one shown at a time on every display of
-//! the head. The consoles keep the order they were opened in, a ring the
-//! console chords walk, and none opens or closes while the head runs.
+//! the head. The consoles keep their order, a ring the console chords
+//! walk; under an open policy a console the chord opens joins the ring
+//! just after the one shown, and the one shown leaves it when the chord
+//! closes it.
 
 use vtium_platform::pty::Pty;
 

@@ -522,6 +522,7 @@ dependencies = [
  "vtium-platform",
  "vtium-render",
  "vtium-term",
+ "vtium-vitrify",
  "xkbcommon",
 ]
 
@@ -588,6 +589,7 @@ name = "vtium-render"
 version = "0.0.0"
 dependencies = [
  "vtium-font",
+ "vtium-image",
  "vtium-term",
 ]
 
@@ -607,6 +609,7 @@ dependencies = [
 name = "vtium-term"
 version = "0.0.0"
 dependencies = [
+ "vtium-image",
  "vtium-parse",
 ]
 
@@ -641,6 +644,7 @@ dependencies = [
  "miniz_oxide",
  "rustix",
  "ruzstd",
+ "skrifa",
  "swash",
  "vtium-font",
  "vtium-platform",

@@ -369,11 +369,11 @@ pub const TERM: Key = Key {
     name: "term",
     short: Some('t'),
     kind: Kind::Text,
-    default: Default::Text("kmscon"),
+    default: Default::Text(crate::termcap::NAME),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "`TERM` in the session's environment.",
-    cite: "src/config.c:1368; meson.options:51-52",
+    what: "`TERM` in the session's environment. The default names vtium's own terminfo entry, and XTGETTCAP answers from that entry's capabilities; `kmscon` names the C reference's entry, and XTGETTCAP answers from the C reference's. Under any other name every name XTGETTCAP asks for is unknown.",
+    cite: "src/config.c:1368; meson.options:51-52; src/terminal_vte.c:36-56; ADR-1000, \"The terminfo entry and TERM\"",
 };
 
 pub const RESET_ENV: Key = Key {
@@ -547,6 +547,17 @@ pub const DISPLAY_WAIT: Key = Key {
     reader: "vtium",
     what: "At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a head file whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8). 0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.",
     cite: "the operator on vtium/vtium#21",
+};
+
+pub const DISPLAY_BUFFERS: Key = Key {
+    name: "display-buffers",
+    short: None,
+    kind: Kind::Choice(&["1", "2", "3"]),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-platform",
+    what: "How many buffers each DRM display keeps, the same for every display: `3`, triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p); `2`, double buffering; `1`, single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn. A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec.",
+    cite: "ADR-1401 D2; the C reference's drm2d kept 2, src/video/drm2d_internal.h:49",
 };
 
 pub const HWACCEL: Key = Key {
@@ -955,6 +966,17 @@ pub const MOUSE: Key = Key {
     cite: "src/config.c:1385",
 };
 
+pub const NATURAL_SCROLLING: Key = Key {
+    name: "natural-scrolling",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Invert the mouse wheel: it scrolls the view and reports to a program the other way, and so do the cursor keys it sends on the alternate screen under mode 1007. Ctrl and the wheel still zoom in when the wheel turns up.",
+    cite: "src/config.c:149-150, 1386; src/terminal.c:1474-1476, 1646",
+};
+
 pub const POINTER_CHAR: Key = Key {
     name: "pointer-char",
     short: None,
@@ -1026,6 +1048,28 @@ pub const FONT_NAME: Key = Key {
     cite: "src/config.c:1424; ADR-1200 (D9); vtium/vtium#126",
 };
 
+pub const FONT_FRITS: Key = Key {
+    name: "font-frits",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Text(crate::font::FRITS),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The directory of the frits, the `NAME.vtfrit` files that `font-name` and a head's profile name. The default is the directory vtium was built with.",
+    cite: "ADR-1200 (D1, D15); the maintainer's decision of 2026-11-01",
+};
+
+pub const FONT_HELPER: Key = Key {
+    name: "font-helper",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Text(crate::helper::PROGRAM),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why and draws its built-in font. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with.",
+    cite: "ADR-1200 (D15); the maintainer's decision of 2026-11-01",
+};
+
 pub const FONT_SIZE: Key = Key {
     name: "font-size",
     short: None,
@@ -1040,6 +1084,33 @@ pub const FONT_SIZE: Key = Key {
     reader: "vtium-font",
     what: "The font's size in points, 1/72 inch, drawn at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and over a frit's `cell=`; 0 picks one from the display's size.",
     cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`; the operator on vtium/vtium#145",
+};
+
+pub const FONT_HINTING: Key = Key {
+    name: "font-hinting",
+    short: None,
+    kind: Kind::Choice(&["light", "full"]),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "How the font helper is to hint outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits a TrueType font both ways, and draws a CFF font as `light` does. Bitmap fonts take no hinting. vtium does not yet hand this key to the helper, so for now each frit's `hinting=` decides, `light` where it states none.",
+    cite: "ADR-1200 D1; the C reference hinted every glyph lightly, src/font/font_freetype.c:119",
+};
+
+pub const FONT_LINE_SPACING: Key = Key {
+    name: "font-line-spacing",
+    short: None,
+    kind: Kind::Number {
+        min: 0,
+        max: 100,
+        unit: "%",
+        word: None,
+    },
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    reader: "vtium-font",
+    what: "Height added to each row, over a frit's `line-spacing=`: a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=` decides, 0 where it states none.",
+    cite: "ADR-1302 D13; ADR-1200 D1",
 };
 
 pub const ALLOW_FONT_OPS: Key = Key {
@@ -1236,7 +1307,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 92] = [
+pub const KEYS: [Key; 98] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1270,6 +1341,7 @@ pub const KEYS: [Key; 92] = [
     DPMS_TIMEOUT,
     PROGRAM_BLANK,
     DISPLAY_WAIT,
+    DISPLAY_BUFFERS,
     HWACCEL,
     USE_ORIGINAL_MODE,
     MODE,
@@ -1305,6 +1377,7 @@ pub const KEYS: [Key; 92] = [
     XKB_REPEAT_DELAY,
     XKB_REPEAT_RATE,
     MOUSE,
+    NATURAL_SCROLLING,
     SOFT_CURSOR,
     POINTER_CHAR,
     POINTER_HIDE_TIMEOUT,
@@ -1315,7 +1388,11 @@ pub const KEYS: [Key; 92] = [
     GRAB_SUSPEND,
     FONT_ENGINE,
     FONT_NAME,
+    FONT_FRITS,
+    FONT_HELPER,
     FONT_SIZE,
+    FONT_HINTING,
+    FONT_LINE_SPACING,
     ALLOW_FONT_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
@@ -1334,7 +1411,7 @@ pub const KEYS: [Key; 92] = [
 /// The keys vtium takes and does not act on yet, which the crate
 /// README's "Not yet built" lists; `check::semantics` warns when one is
 /// set.
-pub const NOT_BUILT: [&Key; 1] = [&HWACCEL];
+pub const NOT_BUILT: [&Key; 3] = [&HWACCEL, &FONT_HINTING, &FONT_LINE_SPACING];
 
 /// The key named `name`.
 pub fn find(name: &str) -> Option<&'static Key> {

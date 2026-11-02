@@ -51,6 +51,8 @@ pub fn screen(term: &Terminal, out: &mut String) {
             },
         );
     }
+    #[cfg(feature = "images")]
+    images(term, None, out);
 }
 
 /// A screen-view cell: its text (`None` when it prints as empty), its
@@ -162,6 +164,10 @@ fn runs<T>(cells: &[T], desc: impl Fn(&T) -> &str, mut emit: impl FnMut(usize, u
 pub struct FrameState {
     pub palette: &'static str,
     since: Option<Age>,
+    /// The image store's revision at the view's previous block, which a
+    /// placement's `changed` flag is judged from.
+    #[cfg(feature = "images")]
+    revision: Option<u64>,
 }
 
 impl FrameState {
@@ -169,7 +175,73 @@ impl FrameState {
         Self {
             palette,
             since: None,
+            #[cfg(feature = "images")]
+            revision: None,
         }
+    }
+}
+
+/// The `placement` lines of the view's placements, in draw order, then an
+/// `image` line for each image they show, numbered as placements first
+/// show them. With `since`, the frame view's: each placement carries its
+/// `changed` flag when it changed after the store's revision `since`
+/// names, every one in the first block.
+#[cfg(feature = "images")]
+fn images(term: &Terminal, since: Option<Option<u64>>, out: &mut String) {
+    let placements = term.screen().placements();
+    let mut shown: Vec<&vtium_term::images::FramePlacement> = Vec::new();
+    for (i, p) in placements.iter().enumerate() {
+        let n = match shown.iter().position(|q| q.image == p.image) {
+            Some(n) => n,
+            None => {
+                shown.push(p);
+                shown.len().saturating_sub(1)
+            }
+        };
+        let _ = write!(
+            out,
+            "placement {i} row {} col {} box {}x{} at {},{} size {}x{} src {},{} {}x{} cell {}x{} z {} {} {} image {n}",
+            p.row,
+            p.col,
+            p.cols,
+            p.rows,
+            p.x,
+            p.y,
+            p.width,
+            p.height,
+            p.src_x,
+            p.src_y,
+            p.src_width,
+            p.src_height,
+            p.cell_width,
+            p.cell_height,
+            p.z,
+            p.layer.name(),
+            p.kind,
+        );
+        if p.opaque {
+            out.push_str(" opaque");
+        }
+        if let Some(since) = since {
+            if since.is_none_or(|r| p.revision > r) {
+                out.push_str(" changed");
+            }
+        }
+        out.push('\n');
+    }
+    for (n, p) in shown.iter().enumerate() {
+        // FNV-1a over each pixel's A, R, G, B bytes, rows top to bottom
+        let mut h: u32 = 2_166_136_261;
+        for &px in p.pixels.as_slice() {
+            for byte in px.to_be_bytes() {
+                h = (h ^ u32::from(byte)).wrapping_mul(16_777_619);
+            }
+        }
+        let _ = writeln!(
+            out,
+            "image {n} {}x{} digest {h:08x}",
+            p.image_width, p.image_height
+        );
     }
 }
 
@@ -268,6 +340,11 @@ pub fn frame(term: &mut Terminal, state: &mut FrameState, out: &mut String) {
                 }
             },
         );
+    }
+    #[cfg(feature = "images")]
+    {
+        images(term, Some(state.revision), out);
+        state.revision = Some(term.screen().images().revision());
     }
 }
 

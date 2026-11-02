@@ -114,6 +114,22 @@ pub fn more_errors(n: usize) -> String {
     format!("{MORE_ERRORS} {n}")
 }
 
+/// The on-screen display's brief line when the session of a console the
+/// open chord opened cannot start, and the console leaves (ADR-1401 D5).
+pub const NO_CONSOLE_OPENED: &str = "No console opened: its login could not start.";
+
+/// The on-screen display's brief line on head `head` when the open chord
+/// finds it at `head-consoles-max`, its `n` consoles (ADR-1401 D5).
+pub fn no_more_consoles(head: &str, n: usize) -> String {
+    format!("No more consoles: {head} has {n}, its most.")
+}
+
+/// The on-screen display's brief line when the open chord finds every head
+/// together at `consoles-max`, their `n` consoles (ADR-1401 D5).
+pub fn no_more_consoles_together(n: usize) -> String {
+    format!("No more consoles: every head together has {n}, the most.")
+}
+
 /// The on-screen display's full line on a head (ADR-1401 D5), such as
 /// `● desk · console 2 of 3`: a filled dot on the `active` head and a
 /// hollow one on the others, the head's name, and the shown console's
@@ -150,9 +166,11 @@ can be the active head, under closed no keyboard reaching any head, a\n\
 head claiming pointers while every keyboard is claimed elsewhere, every\n\
 keyboard ignored, and a head whose only keyboard is one device. Its\n\
 notes end with what a start does with the file, and the file's policy.\n\
-It only checks: it opens nothing under /dev, writes nothing and applies\n\
-nothing. It reads the configuration files, the frit font-name names,\n\
-and the devices present from /sys and udev's database, /run/udev/data.\n";
+It also notes when vtium would refuse the glyph helper font-helper\n\
+names. It only checks: it opens nothing under /dev, writes nothing and\n\
+applies nothing. It reads the configuration files, the frit font-name\n\
+names, the helper's owner and mode, and the devices present from /sys\n\
+and udev's database, /run/udev/data.\n";
 
     /// The frit `font-name` names could not be read.
     pub fn frit_unreadable(name: &str, why: &str) -> String {
@@ -160,6 +178,11 @@ and the devices present from /sys and udev's database, /run/udev/data.\n";
     }
 
     pub const HWACCEL_NOT_BUILT: &str = "hwaccel is not built yet; vtium draws in software";
+
+    /// A key vtium takes and does not act on yet, set by a source.
+    pub fn not_built(key: &str) -> String {
+        format!("{key} is not built yet; vtium ignores it")
+    }
 
     pub const MODE_OVER_ORIGINAL: &str = "mode is set, so use-original-mode is off";
 
@@ -201,6 +224,23 @@ and the devices present from /sys and udev's database, /run/udev/data.\n";
     }
 
     pub const MEASURED_DENSITY: &str = "each display converts points at the density it measures from its physical size, else at 96 DPI with a warning naming it; the start logs which";
+
+    /// The helper `font-helper` names is one vtium refuses, `why`, for the
+    /// account the check runs as; the start, which may run as another,
+    /// checks it again.
+    pub fn helper_refused(why: &str) -> String {
+        format!(
+            "font-helper: {why}; vtium would draw its built-in font, and the start checks again for the account it runs as"
+        )
+    }
+
+    /// The helper `font-helper` names is one a start as root refuses,
+    /// `why`, though the account the check runs as takes it.
+    pub fn helper_refused_as_root(why: &str) -> String {
+        format!(
+            "font-helper: started as root, vtium refuses it: {why}; the root start draws its built-in font"
+        )
+    }
 
     /// A candidate head file that is not there.
     pub const NO_SUCH_FILE: &str = "does not exist";

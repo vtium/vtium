@@ -11,9 +11,12 @@ stand-ins also lead PATH, so a command the tools reach by name finds one.
 """
 
 import fcntl
+import hashlib
+import itertools
 import os
 import pty
 import select
+import shutil
 import signal
 import socket
 import stat
@@ -28,10 +31,15 @@ import unittest
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 VT = os.path.join(ROOT, "tools", "vt")
 RUN_VT = os.path.join(VT, "run-vt.sh")
+VT_INSTALL = os.path.join(VT, "vt-install.sh")
 VT_SH = os.path.join(VT, "vt.sh")
+UNITS_SH = os.path.join(VT, "units.sh")
 GUIDE_SH = os.path.join(VT, "checks", "guide.sh")
 DEMO_SH = os.path.join(VT, "demo.sh")
 FEEDBACK_SH = os.path.join(VT, "feedback.sh")
+# The real systemctl, outside the stand-ins, for the links under a root.
+REAL_SYSTEMCTL = shutil.which("systemctl")
+REAL_ANALYZE = shutil.which("systemd-analyze")
 USER = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
 # script(1) as run-vt.sh finds it, on the PATH it pins.
 SCRIPT = next(os.path.join(d, "script") for d in ("/usr/sbin", "/usr/bin", "/sbin", "/bin")
@@ -48,6 +56,25 @@ SYSTEMCTL = "#!/bin/bash\n" + RECORD + """
 if [ "$1" = is-active ]; then
 	case " ${ACTIVE_UNITS-} " in *" $3 "*) exit 0 ;; esac
 	exit 3
+fi
+# The verb $FAIL_VERB fails.
+[ "$1" != "${FAIL_VERB-}" ] || exit 1
+# The verbs that read and write unit links run the real systemctl offline,
+# on the tree under $SYSTEMD_ROOT, as it would on the machine's /etc.
+case $1 in
+enable | disable | add-wants | is-enabled) exec "$REAL_SYSTEMCTL" --root="$SYSTEMD_ROOT" "$@" ;;
+esac
+# Under a seeded root, stop, start and restart fail for a unit with no unit
+# file there, as the real systemctl does ("Unit ... not found").
+if [ -d "$SYSTEMD_ROOT/etc/systemd/system" ]; then
+	case $1 in
+	stop | start | restart)
+		for u in "${@:2}"; do
+			f=$u; [[ $u != *@*.service ]] || f=${u%%@*}@.service
+			[ -e "$SYSTEMD_ROOT/etc/systemd/system/$f" ] || [ -e "$SYSTEMD_ROOT/usr/lib/systemd/system/$f" ] ||
+				{ echo "Failed to $1 $u: Unit $u not found." >&2; exit 5; }
+		done ;;
+	esac
 fi
 [ "$1" != start ] || exit "${START_STATUS:-${SYSTEMCTL_STATUS:-0}}"
 exit "${SYSTEMCTL_STATUS:-0}"
@@ -110,6 +137,9 @@ printf '%s:x:%s:%s::%s:%s\\n' "$2" "$(id -u)" "$(id -g)" "$LOGIN_HOME" "$LOGIN_S
 # shows each.
 LOGIN_SHELL = """#!/bin/bash
 printf 'login shell: %s as %s in %s\\n' "$*" "$(id -un)" "$PWD"
+printf 'terminfo: %s\\n' "$([ -f "${TERMINFO-}/x/xterm-vtium" ] && echo xterm-vtium || echo none)"
+[ ! -f "${TERMINFO-}/x/xterm-vtium" ] ||
+	printf 'terminfo modes: %s\\n' "$(stat -c %a "$TERMINFO" "$TERMINFO/x" "$TERMINFO/x/xterm-vtium" | paste -sd' ')"
 printf 'env: %s\\n' "LANG=${LANG-}" "LC_TIME=${LC_TIME-}" "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR-}" \\
 	"DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS-}" "VTIUM_HEAD=${VTIUM_HEAD-}" \\
 	"VTIUM_CONSOLE=${VTIUM_CONSOLE-}"
@@ -132,6 +162,8 @@ FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
 # VTIUM_CONSOLE=1 in its environment, and a word that is $VTIUM_HEAD or
 # $VTIUM_CONSOLE replaced by its value).
 BIN = """#!/bin/bash
+# Built to start its glyph helper at /usr/local/bin/vtium-dev-vitrify, as make
+# vt-install builds it.
 echo $$ >"$BIN_PID"
 # The run's lock is root's; vtium, and the login and shell it starts, never
 # hold it.
@@ -187,6 +219,34 @@ def logged(fmt, values):
     return "".join(parts[i] if i % 2 == 0 else values[i // 2] for i in range(len(parts)))
 
 
+def body(lines):
+    """A shipped unit's lines from its first section on: the generated unit
+    replaces the opening comment, which names the C reference's units."""
+    i = next(i for i, l in enumerate(lines) if l.startswith("["))
+    return lines[i:]
+
+
+def generated(src_lines, name, exec_path, conflicts):
+    """The shipped kmsconvt@.service's lines as units.sh changes them for
+    NAME with EXEC_PATH and each --conflicts unit: ExecStart= and OnFailure=
+    renamed, a Conflicts= and an After= line for each unit just above
+    OnFailure=, and the shipped DefaultInstance= replaced, at the end of
+    [Install], by one that names no VT, which systemctl refuses (ADR-1500 D3,
+    D4)."""
+    out = []
+    for line in body(src_lines):
+        if line.startswith("DefaultInstance="):
+            continue
+        if line.startswith("OnFailure="):
+            for c in conflicts:
+                out += [f"Conflicts={c}", f"After={c}"]
+        out.append({"ExecStart=/usr/bin/vtium --vt=%I --no-switchvt": f"ExecStart={exec_path} --vt=%I --no-switchvt",
+                    "OnFailure=kmsconvt-getty@%i.service": f"OnFailure={name}-getty@%i.service"}.get(line, line))
+    return out + [f"# No VT: systemctl refuses it, so enabling {name}@.service with no VT",
+                  f"# named fails and links nothing. Name the VT: {name}@tty3.service.",
+                  f"DefaultInstance=name-a-VT/{name}@ttyN"]
+
+
 def write(path, text, mode=0o755):
     with open(path, "w") as f:
         f.write(text)
@@ -230,6 +290,9 @@ class Stage:
               f"# Pathnames of valid login shells.\n/bin/sh\n/bin/bash\n{self.login_shell}\n", 0o644)
         self.bin = os.path.join(tmp, "vtium")
         write(self.bin, BIN)
+        # The stand-in glyph helper, which vt-install copies and never runs.
+        self.helper = os.path.join(tmp, "vtium-vitrify")
+        write(self.helper, "#!/bin/sh\n# the stand-in vtium-vitrify\n")
         self.dir = os.path.join(tmp, "vt")
         self.calls = os.path.join(tmp, "calls")
         self.bin_args = os.path.join(tmp, "bin-args")
@@ -254,6 +317,8 @@ class Stage:
             BIN_SIGNALS=self.signals,
             BIN_PID=os.path.join(self.tmp, "bin-pid"),
             ACTIVE_UNITS="kmsconvt@tty8.service",
+            REAL_SYSTEMCTL=REAL_SYSTEMCTL or "/nonexistent/systemctl",
+            SYSTEMD_ROOT=os.path.join(self.standins, "root"),
             LOGIN_HOME=self.home,
             LOGIN_SHELL="/bin/bash",
             SHELL="/bin/bash",
@@ -294,8 +359,8 @@ class Stage:
                 if l.split(" ", 1)[0] == name]
 
     def changes(self):
-        """systemctl's calls that change anything: stop and start."""
-        return [c for c in self.calls_of("systemctl") if not c.startswith("is-active")]
+        """systemctl's calls that change anything: all but is-active and is-enabled."""
+        return [c for c in self.calls_of("systemctl") if not c.startswith(("is-active", "is-enabled"))]
 
 
 class Case(unittest.TestCase):
@@ -487,6 +552,22 @@ class RunVt(Case):
                 self.refused(self.run_vt("--dry-run", "8", "--", f"--image-storage-limit={size}"),
                              "takes auto or a size up to 4G")
 
+    def test_a_vt_vtium_is_installed_or_running_on_is_refused(self):
+        dev = "make vt-install installed vtium-dev@tty8 there; make vt-uninstall VT=8 frees it"
+        packaged = "the packaged vtium@tty8 holds it; sudo systemctl disable --now vtium@tty8 frees it"
+        for setup, env, why in ((lambda: VtSh.installed(self, 8), {}, dev),
+                                (lambda: None, {"ACTIVE_UNITS": "vtium-dev@tty8.service"}, dev),
+                                (lambda: None, {"ACTIVE_UNITS": "vtium@tty8.service"}, packaged),
+                                (lambda: VtSh.enabled(self, "vtium", 8), {}, packaged),
+                                (lambda: VtSh.enabled(self, "vtium-dev", 8), {}, dev)):
+            with self.subTest(env=env, why=why):
+                shutil.rmtree(os.path.join(self.s.standins, "root"), ignore_errors=True)
+                setup()
+                open(self.s.calls, "w").close()
+                p = self.run_vt("--dry-run", "8", **env)
+                self.refused(p, f"VT 8 refused: {why}")
+                self.assertEqual(self.s.changes(), [])
+
     def test_the_operators_options_are_taken(self):
         opts = ["--font-name=Monoid Nerd Font Mono", "--font-size=30", "--mode=7680x2160",
                 "--no-use-original-mode", "--hwaccel", "--image-storage-limit=4G",
@@ -494,9 +575,17 @@ class RunVt(Case):
                 "--grab-paste=<Ctrl><Shift>V", "--pointer-hide-timeout=5",
                 "--pointer-hide-while-typing", "--no-pointer-hide-while-typing",
                 "--pointer-char=+", "--osd=full", "--osd-timeout=never", "--osd-timeout=10",
-                "--focus-mark=always"]
+                "--focus-mark=always", "--display-buffers=1", "--display-buffers=2", "--display-buffers=3"]
         p = self.run_vt("--dry-run", "8", "--", *opts)
         self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_display_buffers_takes_one_two_or_three(self):
+        # vtium runs as root here, so a value it would refuse stops the run
+        # before any unit is stopped.
+        for value in ("0", "4", "two", "", "3x"):
+            with self.subTest(value=value):
+                self.refused(self.run_vt("--dry-run", "8", "--", f"--display-buffers={value}"),
+                             "--display-buffers takes 1, 2 or 3 here")
 
     def test_the_binary_must_be_safe_to_run_as_root(self):
         os.chmod(self.s.bin, 0o775)
@@ -547,8 +636,71 @@ class RunVt(Case):
         uid, gid = os.getuid(), os.getgid()
         self.assertEqual(argv[at + 1:], [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}",
                                          "--init-groups", "--inh-caps=-all", "--reset-env", "--", *CARRY,
-                                         "/usr/bin/env", "DEMO_LABEL=vtium dev build abc", "/bin/bash",
+                                         "/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
+                                         "DEMO_LABEL=vtium dev build abc", "/bin/bash",
                                          os.path.join(VT, "demo.sh")])
+
+    def test_a_run_starts_the_helper_built_with_it_from_a_copy_of_roots(self):
+        helper = self.s.helper
+        p = self.run_vt(f"--helper={helper}", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        stage = os.path.join(self.s.standins, "run-vtium-vt")
+        for line in (f"+ rm -rf -- {stage}", f"+ install -d -m 0755 -- {stage} {stage}/terminfo",
+                     f"+ install -m 0755 -- {helper} {stage}/vtium-vitrify"):
+            self.assertIn(line, p.stdout)
+        self.assertIn(f" --font-helper={stage}/vtium-vitrify ", p.stdout)
+        self.assertFalse(os.path.exists(stage))
+        # A real run: vtium gets the copy's path, and the copy, the compiled
+        # entry and their directory are gone once the run ends.
+        p = self.run_vt(f"--helper={helper}", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        self.assertIn(f"--font-helper={stage}/vtium-vitrify", argv)
+        self.assertNotIn("--term=kmscon", argv)
+        self.assertFalse(os.path.exists(stage))
+        # Without --helper, vtium starts the helper it was built with.
+        p = self.run_vt("8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse([a for a in read(self.s.bin_args).splitlines() if a.startswith("--font-helper")])
+
+    def test_a_helper_another_user_could_have_written_is_refused(self):
+        for mode in (0o775, 0o757):
+            with self.subTest(mode=oct(mode)):
+                os.chmod(self.s.helper, mode)
+                self.refused(self.run_vt(f"--helper={self.s.helper}", "--dry-run", "8"),
+                             "is writable by group or others")
+        os.chmod(self.s.helper, 0o755)
+        self.refused(self.run_vt(f"--helper={self.s.helper}-missing", "--dry-run", "8"), "no glyph helper at")
+
+    def test_the_staged_files_are_readable_whatever_the_umask(self):
+        # The run stages as root under the caller's umask; the session, which
+        # runs as the user, must read the entry even when that umask is 077.
+        t = os.path.join(self.s.tmp, "shell.transcript")
+        typed = os.path.join(self.s.tmp, "typed")
+        write(typed, "\n", 0o644)
+        env = self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell)
+        p = subprocess.run(["bash", "-c", 'umask 077; exec bash "$@"', "bash", RUN_VT, f"--bin={self.s.bin}",
+                            f"--helper={self.s.helper}", "--shell", f"--transcript={t}", "8"],
+                           env=env, capture_output=True, text=True, timeout=30, cwd=self.s.tmp, start_new_session=True)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        text = read(t).replace("\r", "")
+        self.assertIn("terminfo: xterm-vtium\n", text)
+        self.assertIn("terminfo modes: 755 755 644\n", text)
+
+    def test_a_login_reads_the_systems_entry_or_runs_as_kmscon(self):
+        # /bin/login passes no TERMINFO, so with no xterm-vtium entry in the
+        # system's terminfo the run names TERM=kmscon and says why.
+        p = self.run_vt("--login", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(" --term=kmscon ", p.stdout)
+        self.assertIn("The system has no xterm-vtium terminfo entry", p.stdout)
+        entry = os.path.join(self.s.standins, "terminfo", "x")
+        os.makedirs(entry)
+        write(os.path.join(entry, "xterm-vtium"), "", 0o644)
+        p = self.run_vt("--login", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("--term=kmscon", p.stdout)
+        self.assertNotIn("The system has no xterm-vtium terminfo entry", p.stdout)
 
     def test_a_guide_runs_as_the_user_with_its_vt_and_steps(self):
         guide = os.path.join(VT, "checks", "start.guide")
@@ -557,7 +709,8 @@ class RunVt(Case):
         argv = read(self.s.bin_args).splitlines()
         self.assertIn("--oneshot", argv)
         self.assertEqual(argv[argv.index("/usr/bin/env"):],
-                         ["/usr/bin/env", "GUIDE_VT=8", "GUIDE_DESKTOP=7", "GUIDE_STEPS=2,1",
+                         ["/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
+                          "GUIDE_VT=8", "GUIDE_DESKTOP=7", "GUIDE_STEPS=2,1",
                           "/bin/bash",
                           os.path.join(VT, "checks", "guide.sh"), guide])
         for opts, why in ((["--steps=1;2"], "--steps takes step numbers"),
@@ -594,7 +747,8 @@ class RunVt(Case):
         self.assertEqual(argv[argv.index("--") + 1:],
                          [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}", "--init-groups",
                           "--inh-caps=-all", "--reset-env", "--", *CARRY, "/usr/bin/env",
-                          "-C", self.s.home, SCRIPT, "-q", "-f", "-c", f"exec {self.s.login_shell} -l", t])
+                          "-C", self.s.home, f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
+                          SCRIPT, "-q", "-f", "-c", f"exec {self.s.login_shell} -l", t])
         self.assertIn(f"with {USER}'s shell", p.stdout)
         self.assertEqual(self.s.calls_of("getent"), [f"passwd {USER}"])
         # Without a transcript, the shell is the session itself.
@@ -602,14 +756,15 @@ class RunVt(Case):
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
         self.assertEqual(argv[argv.index("/usr/bin/env"):],
-                         ["/usr/bin/env", "-C", self.s.home, "/bin/bash", "-l"])
+                         ["/usr/bin/env", "-C", self.s.home, f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
+                          "/bin/bash", "-l"])
 
     def shell_env(self, **env):
         """The words between the shell's env and the shell itself."""
         p = self.run_vt("--shell", "8", **env)
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
-        return argv[argv.index(self.s.home) + 1:-2]
+        return argv[argv.index(self.s.home) + 1:-3]
 
     def test_a_shell_gets_the_locale_and_the_users_runtime_directory(self):
         self.assertEqual(self.shell_env(), [])
@@ -838,6 +993,51 @@ class VtSh(Case):
         for want in ["VT 5: it is on screen"] + [f"VT {v}: logind session c{v}_active" for v in (6, 4, 3, 2)]:
             self.assertIn(want, p.stderr)
 
+    def installed(self, vt):
+        """The stand-in manifest make vt-install writes for VT vt."""
+        state = os.path.join(self.s.standins, "root", "var", "lib", "vtium-dev-install")
+        os.makedirs(state, exist_ok=True)
+        write(os.path.join(state, f"tty{vt}"), f"vt={vt}\ngetty-enabled=yes\ngetty-active=yes\n", 0o644)
+
+    def enabled(self, name, vt):
+        """NAME@ttyVT enabled under the stand-ins' root, as systemctl enable
+        leaves it: the unit file in /usr/lib and its link in getty.target's
+        wants."""
+        root = os.path.join(self.s.standins, "root")
+        lib = os.path.join(root, "usr", "lib", "systemd", "system")
+        wants = os.path.join(root, "etc", "systemd", "system", "getty.target.wants")
+        os.makedirs(lib, exist_ok=True)
+        os.makedirs(wants, exist_ok=True)
+        write(os.path.join(lib, f"{name}@.service"),
+              "[Service]\nExecStart=/usr/bin/vtium --vt=%I\n\n[Install]\nWantedBy=getty.target\n", 0o644)
+        os.symlink(f"/usr/lib/systemd/system/{name}@.service", os.path.join(wants, f"{name}@tty{vt}.service"))
+
+    def test_a_vt_vtium_is_installed_on_is_never_borrowed(self):
+        self.installed(5)
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(self.picked(p), "6", p.stdout + p.stderr)
+        self.refused(self.vt_sh(VTIUM_VT_NR="5"),
+                     "VT 5 refused: make vt-install installed vtium-dev@tty5 there; make vt-uninstall VT=5 frees it")
+        self.assertEqual(self.s.calls_of("sudo"), [])
+
+    def test_a_vt_the_packaged_vtium_holds_is_never_borrowed(self):
+        if not REAL_SYSTEMCTL:
+            self.skipTest("no systemctl: is-enabled reads the links through systemctl --root")
+        why = "VT 5 refused: the packaged vtium@tty5 holds it; sudo systemctl disable --now vtium@tty5 frees it"
+        # Enabled, it holds the VT at the VT's next start; running, it holds
+        # it now.
+        self.enabled("vtium", 5)
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(self.picked(p), "6", p.stdout + p.stderr)
+        self.refused(self.vt_sh(VTIUM_VT_NR="5"), why)
+        shutil.rmtree(os.path.join(self.s.standins, "root"))
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", ACTIVE_UNITS="vtium@tty5.service")
+        self.assertEqual(self.picked(p), "6", p.stdout + p.stderr)
+        self.refused(self.vt_sh(VTIUM_VT_NR="5", ACTIVE_UNITS="vtium@tty5.service"), why)
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1", ACTIVE_UNITS="vtium-dev@tty5.service")
+        self.assertEqual(self.picked(p), "6", p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+
     def test_vt_given_is_refused_when_busy(self):
         self.refused(self.vt_sh("7"), "VT 7 refused: it is on screen")
         self.refused(self.vt_sh(SEQ="4", VTIUM_VT_NR="4"), "VT 4 refused: logind session c4_active")
@@ -871,7 +1071,7 @@ class VtSh(Case):
                 self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE=bad), "is refused (above)")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_STEPS="3"),
                      "is refused (above)")
-        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank start vt wave-a")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank chords daily restart start token vt wave-a")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide"), "GUIDE=NAME names the guide")
         self.assertEqual(self.s.calls_of("sudo"), [])
         self.assertEqual(self.s.changes(), [])
@@ -980,7 +1180,7 @@ class VtSh(Case):
         answers = os.path.join(self.s.tmp, "answers")
         write(answers, "\n\ny" "all drawn\n" "\necho hello vtium\nexit\n" "n\n" "\n", 0o644)
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-check", "GUIDE=start",
-                            f"VTIUM_BIN={self.s.bin}", "VT=6"],
+                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=6"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=answers, ACTIVE_UNITS="getty@tty6.service"),
                            capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -996,7 +1196,8 @@ class VtSh(Case):
     def test_the_demo_runs_and_its_answers_reach_the_caller(self):
         # demo.sh reads its keys from the terminal make runs in.
         env = self.s.env(BIN_MODE="session", BIN_STDIN="/dev/null", TERM="linux", ACTIVE_UNITS="kmsconvt@tty5.service")
-        d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-demo", f"VTIUM_BIN={self.s.bin}"], env)
+        d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-demo", f"VTIUM_BIN={self.s.bin}",
+                 f"VTIUM_VITRIFY_BIN={self.s.helper}"], env)
         d.wait_for(b"Switch to VT 5 now")
         d.wait_for(b"press a key for the first section", timeout=20)
         d.send(b" ")
@@ -1018,7 +1219,8 @@ class VtSh(Case):
         write(typed, "ls -l\n", 0o644)
         self.s.locale("LANG=de_DE.UTF-8\n")
         self.s.runtime_dir_path = self.s.runtime_dir()
-        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-shell", f"VTIUM_BIN={self.s.bin}", "VT=6"],
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-shell", f"VTIUM_BIN={self.s.bin}",
+                            f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=6"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell,
                                           ACTIVE_UNITS="getty@tty6.service"),
                            capture_output=True, text=True, timeout=30)
@@ -1036,6 +1238,9 @@ class VtSh(Case):
         # vtium's variables cross setpriv's reset of the environment.
         self.assertIn("env: VTIUM_HEAD=console\n", text)
         self.assertIn("env: VTIUM_CONSOLE=1\n", text)
+        # The shell reads the xterm-vtium entry the run compiled from the
+        # checkout, as the package ships it.
+        self.assertIn("terminfo: xterm-vtium\n", text)
         self.assertEqual(self.s.calls_of("sudo")[0], "-v")
         self.assertEqual(self.s.changes(), ["stop getty@tty6.service", "start getty@tty6.service"])
 
@@ -1044,6 +1249,10 @@ class Make(Case):
     """The Makefile's guards, which act before anything is built."""
 
     def make(self, *args, **env):
+        # The review targets build the helper unless one is named; these
+        # tests name the stand-in's, as they name the binary.
+        if not any(a.startswith(("VTIUM_VITRIFY_BIN=", "VITRIFY_RELEASE=")) for a in args) and "VTIUM_VITRIFY_BIN" not in env:
+            args = (*args, f"VTIUM_VITRIFY_BIN={self.s.helper}")
         return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
                               capture_output=True, text=True, timeout=30, start_new_session=True)
 
@@ -1065,6 +1274,19 @@ class Make(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu -- -C link-arg=-Wl,-z,pack-relative-relocs"])
         self.assertIn(f"--bin={self.s.bin} ", p.stdout)
+        self.assertIn(f"--helper={self.s.helper} ", p.stdout)
+
+    def test_the_default_helper_is_the_release_build(self):
+        # VITRIFY_RELEASE points the default helper at the stand-in, which the
+        # stand-in cargo "builds"; run-vt.sh runs vtium with the copy it makes.
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"VITRIFY_RELEASE={self.s.helper}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("cargo"), ["build --release -p vtium-vitrify --target x86_64-unknown-linux-gnu"])
+        self.assertIn(f"--helper={self.s.helper} ", p.stdout)
+        self.assertIn(f"--font-helper={self.s.standins}/run-vtium-vt/vtium-vitrify ", p.stdout)
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", VTIUM_VITRIFY_BIN=self.s.helper)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("VTIUM_VITRIFY_BIN is set in the environment", p.stderr)
 
     def test_another_binary_is_run_as_it_is(self):
         p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
@@ -1074,7 +1296,7 @@ class Make(Case):
     def test_vt_check_without_a_guide_fails_before_the_build(self):
         p = self.make("vt-check")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank start vt wave-a.", p.stderr)
+        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank chords daily restart start token vt wave-a.", p.stderr)
         self.assertNotIn("cargo", p.stdout)
 
     def test_vt_debug_reaches_every_vt_target(self):
@@ -1098,6 +1320,1023 @@ class Make(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f"--guide={os.path.join(VT, 'checks', 'start.guide')} --steps=2 5 --", p.stdout)
         self.assertEqual(self.s.calls_of("sudo"), [])
+
+
+
+class Install(Case):
+    maxDiff = None
+    """vt-install.sh, make vt-install and make vt-uninstall, with the installed
+    paths under the stand-ins' root."""
+
+    UNIT = "etc/systemd/system/vtium-dev@.service"
+    FALLBACK = "etc/systemd/system/vtium-dev-getty@.service"
+    BIN = "usr/local/bin/vtium-dev"
+    HELPER = "usr/local/bin/vtium-dev-vitrify"
+    STATE = "var/lib/vtium-dev-install"
+    # Every file vt-install writes, by its path under the root.
+    FILES = (BIN, HELPER, UNIT, FALLBACK)
+
+    def setUp(self):
+        super().setUp()
+        if not REAL_SYSTEMCTL:
+            self.skipTest("no systemctl: the unit links are read and written through systemctl --root")
+        self.root = os.path.join(self.s.standins, "root")
+        self.seed()
+
+    def seed(self):
+        """The root as this machine has it: getty@.service with its alias
+        autovt@, the C reference's kmsconvt@.service, the template alias
+        autovt@.service pointing at kmsconvt@, a getty enabled on VTs 1 to 6,
+        and the programs the units run."""
+        lib = self.at("usr/lib/systemd/system")
+        etc = self.at("etc/systemd/system")
+        os.makedirs(lib)
+        os.makedirs(os.path.join(etc, "getty.target.wants"))
+        write(os.path.join(lib, "getty.target"), "[Unit]\nDescription=Login Prompts\n", 0o644)
+        write(os.path.join(lib, "getty@.service"),
+              "[Unit]\nDescription=Getty on %I\nConflicts=rescue.service\n\n[Service]\n"
+              "ExecStart=-/sbin/agetty --noclear - ${TERM}\nType=idle\n\n"
+              "[Install]\nAlias=autovt@.service\nWantedBy=getty.target\nDefaultInstance=tty1\n", 0o644)
+        write(os.path.join(lib, "kmsconvt@.service"),
+              "[Unit]\nDescription=KMS System Console on %I\nConflicts=getty@%i.service\n"
+              "OnFailure=getty@%i.service\n\n[Service]\nExecStart=/usr/bin/kmscon --vt=%I --seats=seat0\n\n"
+              "[Install]\nAlias=autovt@.service\nWantedBy=getty.target\nDefaultInstance=tty1\n", 0o644)
+        os.symlink("/usr/lib/systemd/system/kmsconvt@.service", os.path.join(etc, "autovt@.service"))
+        for n in range(1, 7):
+            os.symlink("/usr/lib/systemd/system/getty@.service",
+                       os.path.join(etc, "getty.target.wants", f"getty@tty{n}.service"))
+        for prog in ("sbin/agetty", "usr/bin/kmscon", "usr/bin/systemctl"):
+            os.makedirs(os.path.dirname(self.at(prog)), exist_ok=True)
+            write(self.at(prog), "#!/bin/sh\n")
+
+    def links(self):
+        """Every symlink under the root's /etc/systemd/system, with its target."""
+        etc = self.at("etc/systemd/system")
+        out = {}
+        for d, _, names in os.walk(etc):
+            for n in names:
+                path = os.path.join(d, n)
+                if os.path.islink(path):
+                    out[os.path.relpath(path, etc)] = os.readlink(path)
+        return out
+
+    def vt_install(self, *args, **env):
+        env = dict(dict(VTIUM_VT_BIN=self.s.bin, VTIUM_VT_VITRIFY=self.s.helper), **env)
+        return subprocess.run(["bash", VT_INSTALL, *args], env=self.s.env(**env),
+                              capture_output=True, text=True, timeout=20, cwd=self.s.tmp)
+
+    def at(self, path):
+        return os.path.join(self.root, path)
+
+    def shipped(self, unit_lines=None):
+        """The stand-in crates/vtium/install: the shipped units, the main
+        one's lines passed through unit_lines."""
+        src = os.path.join(ROOT, "crates", "vtium", "install")
+        dst = os.path.join(self.s.standins, "install")
+        os.mkdir(dst)
+        for f in ("kmsconvt@.service", "kmsconvt-getty@.service"):
+            text = read(os.path.join(src, f))
+            if f == "kmsconvt@.service" and unit_lines:
+                text = "\n".join(unit_lines(text.splitlines())) + "\n"
+            write(os.path.join(dst, f), text, 0o644)
+
+    def refused(self, p, why):
+        super().refused(p, why)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        self.assertEqual(self.s.changes(), [])
+
+    def test_install_writes_the_binary_the_units_and_the_manifest_and_swaps_the_getty(self):
+        p = self.vt_install("install", "4", ACTIVE_UNITS="getty@tty4.service")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(read(self.at(self.BIN)), read(self.s.bin))
+        self.assertTrue(os.access(self.at(self.BIN), os.X_OK))
+        self.assertEqual(read(self.at(self.HELPER)), read(self.s.helper))
+        self.assertTrue(os.access(self.at(self.HELPER), os.X_OK))
+        unit = read(self.at(self.UNIT)).splitlines()
+        self.assertIn("ExecStart=/usr/local/bin/vtium-dev --vt=%I --no-switchvt", unit)
+        self.assertIn("OnFailure=vtium-dev-getty@%i.service", unit)
+        self.assertIn("Conflicts=getty@%i.service", unit)
+        # Conflicts= sets no order, so vtium starts only once the getty, whose
+        # stop hangs up and resets the VT, has stopped.
+        self.assertIn("After=getty@%i.service", unit)
+        # It stops the packaged vtium and the C reference's console on its
+        # VT before it starts, as it stops the getty (ADR-1500 D4).
+        for other in ("vtium@%i.service", "kmsconvt@%i.service"):
+            self.assertIn(f"Conflicts={other}", unit)
+            self.assertIn(f"After={other}", unit)
+        self.assertEqual([l for l in unit if l.startswith("DefaultInstance=")], ["DefaultInstance=name-a-VT/vtium-dev@ttyN"])
+        self.assertIn("WantedBy=getty.target", unit)
+        directives = [l for l in unit if l and not l.startswith("#")]
+        ordering = {f"{k}={u}" for k in ("Conflicts", "After") for u in ("vtium@%i.service", "kmsconvt@%i.service")}
+        self.assertFalse([l for l in directives if l not in ordering and ("kmsconvt" in l or "/usr/bin/vtium" in l
+                          or ("vtium@" in l and "vtium-dev" not in l))], directives)
+        # The alias stays, so logind's autovt@tty4 on a switch to VT 4 is
+        # vtium and never the C reference's console beside it.
+        self.assertIn("Alias=autovt@.service", unit)
+        links = self.links()
+        self.assertEqual(links["autovt@tty4.service"], "/etc/systemd/system/vtium-dev@.service")
+        self.assertEqual(links["autovt@.service"], "/usr/lib/systemd/system/kmsconvt@.service")
+        fallback = read(self.at(self.FALLBACK)).splitlines()
+        self.assertIn("ConditionPathExists=!/run/vtium/%i.closed", fallback)
+        self.assertIn("ExecStart=systemctl --no-block start getty@%i.service", fallback)
+        manifest = read(self.at(self.STATE + "/tty4")).splitlines()
+        self.assertEqual([l for l in manifest if not l.startswith("#")],
+                         ["vt=4", "getty-enabled=yes", "getty-active=yes"])
+        # vtium starts first, and its Conflicts= stops the getty, so the VT is
+        # never left with neither; the getty is disabled after.
+        self.assertEqual(self.s.changes(), ["daemon-reload", "enable vtium-dev@tty4.service",
+                                            "restart vtium-dev@tty4.service", "disable getty@tty4.service"])
+        self.assertIn("-v", self.s.calls_of("sudo"))
+        self.assertIn("vtium-dev runs on VT 4", p.stdout)
+        self.assertIn("make vt-uninstall VT=4", p.stdout)
+
+    def sha(self, path):
+        with open(self.at(path), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+
+    def test_install_records_a_checksum_for_each_file_it_writes(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in self.FILES))
+        # A new build is installed over the one the record names, and the
+        # record follows it.
+        write(self.s.bin, read(self.s.bin) + "# a newer build\n")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"{self.sha(self.BIN)}  /{self.BIN}", read(self.at(self.STATE + "/files")).splitlines())
+
+    def test_a_reinstall_leaves_only_the_new_builds_checksums(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        old_build = read(self.at(self.BIN))
+        old_sha = self.sha(self.BIN)
+        write(self.s.bin, read(self.s.bin) + "# a newer build\n")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in self.FILES))
+        self.assertNotIn(f"{old_sha}  /{self.BIN}", record)
+        # The old build put back is not the file vt-install wrote, so neither
+        # an install on another VT nor uninstall touches it.
+        write(self.at(self.BIN), old_build)
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "5"), "/usr/local/bin/vtium-dev changed since vt-install wrote it")
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("kept /usr/local/bin/vtium-dev: it changed since vt-install wrote it", p.stdout)
+        self.assertEqual(read(self.at(self.BIN)), old_build)
+
+    def test_a_checksum_counts_only_for_the_path_it_was_recorded_for(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # vtium-dev@.service now holds what vtium-dev-getty@.service holds, whose
+        # checksum the record has, but under the fallback's path.
+        write(self.at(self.UNIT), read(self.at(self.FALLBACK)), 0o644)
+        changed = read(self.at(self.UNIT))
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "5"), "/etc/systemd/system/vtium-dev@.service changed since vt-install wrote it")
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("kept /etc/systemd/system/vtium-dev@.service: it changed since vt-install wrote it", p.stdout)
+        self.assertEqual(read(self.at(self.UNIT)), changed)
+
+    def test_a_symlink_at_a_files_path_is_not_the_file_install_wrote(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # A symlink to a file that holds the same bytes as the binary
+        # install wrote: its checksum matches, but install wrote no symlink.
+        elsewhere = os.path.join(self.s.tmp, "vtium-elsewhere")
+        shutil.copy(self.at(self.BIN), elsewhere)
+        os.unlink(self.at(self.BIN))
+        os.symlink(elsewhere, self.at(self.BIN))
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "5"), "/usr/local/bin/vtium-dev changed since vt-install wrote it")
+        self.assertEqual(os.readlink(self.at(self.BIN)), elsewhere)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("kept /usr/local/bin/vtium-dev: it changed since vt-install wrote it", p.stdout)
+        self.assertEqual(os.readlink(self.at(self.BIN)), elsewhere)
+
+    def test_a_file_changed_since_install_wrote_it_is_neither_replaced_nor_removed(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        with open(self.at(self.UNIT), "a") as f:
+            f.write("# a line the maintainer added\n")
+        changed = read(self.at(self.UNIT))
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "5"), "/etc/systemd/system/vtium-dev@.service changed since vt-install wrote it")
+        self.assertEqual(read(self.at(self.UNIT)), changed)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("kept /etc/systemd/system/vtium-dev@.service: it changed since vt-install wrote it", p.stdout)
+        self.assertEqual(read(self.at(self.UNIT)), changed)
+        for f in (self.BIN, self.HELPER, self.FALLBACK, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
+
+    # A stand-in sudo whose install fails the $FAIL_NTH copy (the first when
+    # it is unset) to $FAIL_COPY as GNU install does on a full disk: it writes
+    # half the file at the path it was given, then fails. The copy may go to
+    # $FAIL_COPY itself or to the temporary name vt-install writes it under,
+    # .NAME.vt-install-new in the same directory. $FAIL_COUNT counts the
+    # copies to $FAIL_COPY.
+    HALF_WRITING_SUDO = "#!/bin/bash\n" + RECORD + r"""
+[ "$1" != -v ] || exit 0
+if [ -n "${FAIL_COPY-}" ] && [ "$1" = install ]; then
+	dst=${*: -1}
+	if [ "$dst" = "$FAIL_COPY" ] || [ "$dst" = "${FAIL_COPY%/*}/.${FAIL_COPY##*/}.vt-install-new" ]; then
+		n=$(( $(cat "$FAIL_COUNT" 2>/dev/null || echo 0) + 1 ))
+		echo "$n" >"$FAIL_COUNT"
+		if [ "$n" = "${FAIL_NTH:-1}" ]; then
+			src=${*: -2:1}
+			mkdir -p "${dst%/*}"
+			rm -f "$dst"
+			head -c $(( $(stat -c %s "$src") / 2 )) "$src" >"$dst"
+			echo "install: error writing '$dst': No space left on device" >&2
+			exit 1
+		fi
+	fi
+fi
+exec "$@"
+"""
+
+    def reseed(self):
+        """The root as seed() makes it, the stand-in binary as Stage wrote it,
+        and no calls recorded."""
+        shutil.rmtree(self.root)
+        self.seed()
+        write(self.s.bin, BIN)
+        open(self.s.calls, "w").close()
+
+    def left(self):
+        """What vt-install writes that is under the root: its files, its
+        state directory, and any file at one of its temporary names."""
+        out = [f for f in (*self.FILES, self.STATE) if os.path.lexists(self.at(f))]
+        for d, _, names in os.walk(self.root):
+            out += [os.path.relpath(os.path.join(d, n), self.root) for n in names if n.endswith(".vt-install-new")]
+        return out
+
+    def fail_copy(self, vt, target, nth=1):
+        """Runs install on VT vt with the copy to target failing halfway."""
+        count = os.path.join(self.s.tmp, "fail-count")
+        if os.path.exists(count):
+            os.unlink(count)
+        p = self.vt_install("install", vt, FAIL_COPY=self.at(target), FAIL_NTH=str(nth), FAIL_COUNT=count)
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        # The stand-in failed it, and no step before it did.
+        self.assertIn("No space left on device", p.stderr)
+        return p
+
+    def test_a_copy_that_fails_halfway_can_be_undone_or_tried_again(self):
+        write(os.path.join(self.s.standins, "sudo"), self.HALF_WRITING_SUDO)
+        record = self.STATE + "/files"
+        # Each copy, by its target and which copy to that target it is: the
+        # record is written before the other copies and again after them.
+        copies = ((record, 1), (self.HELPER, 1), (self.BIN, 1), (self.UNIT, 1), (self.FALLBACK, 1), (record, 2))
+        for (target, nth), case, way in itertools.product(
+                copies, ("first install", "reinstall", "a second VT"), ("uninstall", "install again")):
+            with self.subTest(target=target, nth=nth, case=case, way=way):
+                self.reseed()
+                seeded = self.links()
+                if case != "first install":
+                    p = self.vt_install("install", "3" if case == "a second VT" else "4")
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    write(self.s.bin, read(self.s.bin) + "# a newer build\n")
+                self.fail_copy("4", target, nth)
+                if way == "uninstall":
+                    # Uninstall undoes the failed run whole, and keeps no
+                    # half-written file as changed.
+                    p = self.vt_install("uninstall", "4")
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    self.assertNotIn("changed since", p.stdout)
+                    if case != "a second VT":
+                        self.assertEqual(self.links(), seeded)
+                        self.assertEqual(self.left(), [])
+                # A run after it installs: after uninstall, or straight
+                # after the failed run, as the failure message says.
+                p = self.vt_install("install", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(read(self.at(self.BIN)), read(self.s.bin))
+                for vt in ("4", "3") if case == "a second VT" else ("4",):
+                    p = self.vt_install("uninstall", vt)
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    self.assertNotIn("changed since", p.stdout)
+                self.assertEqual(self.links(), seeded)
+                self.assertEqual(self.left(), [])
+
+    def test_uninstall_clears_the_temporary_files_a_run_cut_short_left(self):
+        # A run killed in the middle of its copies leaves a file at each
+        # temporary name it was writing.
+        for vt in ("3", "4"):
+            p = self.vt_install("install", vt)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        temps = []
+        for f in (*self.FILES, self.STATE + "/files", self.STATE + "/tty4"):
+            d, name = os.path.split(f)
+            temps.append(os.path.join(d, f".{name}.vt-install-new"))
+            write(self.at(temps[-1]), "half a file", 0o600)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual([t for t in temps if os.path.lexists(self.at(t))], [])
+        for f in (*self.FILES, self.STATE + "/tty3"):
+            self.assertTrue(os.path.exists(self.at(f)), f)
+        p = self.vt_install("uninstall", "3")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+
+    def test_a_failed_step_names_the_way_back(self):
+        for verb in ("daemon-reload", "enable", "restart", "disable"):
+            with self.subTest(verb=verb):
+                p = self.vt_install("install", "4", FAIL_VERB=verb)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("make vt-uninstall VT=4 undoes what this run did", p.stderr)
+                self.assertNotIn("vtium-dev runs on VT 4", p.stdout)
+                p = self.vt_install("uninstall", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # A refusal before anything changed names no way back.
+        p = self.vt_install("install", "1")
+        self.assertNotIn("make vt-uninstall", p.stderr)
+
+    def test_the_way_back_fits_what_the_failed_run_changed(self):
+        write(os.path.join(self.s.standins, "sudo"), self.HALF_WRITING_SUDO)
+        # Before the manifest is written, nothing was installed: a manifest
+        # written halfway leaves no manifest, and no part of one.
+        p = self.fail_copy("4", self.STATE + "/tty4")
+        self.assertIn("vt-install: a step failed before anything was installed", p.stderr)
+        self.assertNotIn("make vt-uninstall", p.stderr)
+        self.assertEqual(self.left(), [self.STATE])
+        # On a reinstall, uninstall removes the earlier install too.
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        p = self.vt_install("install", "4", FAIL_VERB="restart")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("make vt-uninstall VT=4 removes the whole install on VT 4, the earlier one too", p.stderr)
+
+    def test_systemd_analyze_verifies_the_generated_units(self):
+        if not REAL_ANALYZE:
+            self.skipTest("no systemd-analyze")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # systemd-analyze verify builds a start job for each unit. Every
+        # service gets Requires=sysinit.target from its default dependencies,
+        # and the root holds only the units seed() writes, which leave out
+        # sysinit.target, so systemd 255 fails the job with "Unit
+        # sysinit.target not found", where systemd 262 passes. This stand-in
+        # sysinit.target lets the job resolve on both. The other units named
+        # through After=, Before= and Conflicts=, by the generated units or by
+        # the default dependencies (basic.target, shutdown.target), need no
+        # stand-in, because systemd fails no job when a unit named only in
+        # those lines is missing.
+        write(self.at("usr/lib/systemd/system/sysinit.target"),
+              "[Unit]\nDescription=Stand-in for systemd's own sysinit.target\n", 0o644)
+        for unit in ("vtium-dev@tty4.service", "vtium-dev-getty@tty4.service"):
+            with self.subTest(unit=unit):
+                v = subprocess.run([REAL_ANALYZE, "verify", "--man=no", f"--root={self.root}",
+                                    os.path.join(self.root, "etc/systemd/system", unit)],
+                                   capture_output=True, text=True, timeout=60)
+                self.assertEqual((v.returncode, v.stdout + v.stderr), (0, ""))
+
+    def test_the_units_keep_every_shipped_line_but_the_ones_it_renames(self):
+        # The Restart= lines a later shipped unit holds come through as they are.
+        def restart(lines):
+            i = lines.index("TTYVTDisallocate=yes")
+            return lines[:i + 1] + ["Restart=on-failure", "RestartSec=2s"] + lines[i + 1:]
+        self.shipped(restart)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        src = read(os.path.join(self.s.standins, "install", "kmsconvt@.service")).splitlines()
+        want = generated(src, "vtium-dev", "/usr/local/bin/vtium-dev", ("vtium@%i.service", "kmsconvt@%i.service"))
+        unit = read(self.at(self.UNIT)).splitlines()
+        # The generated unit is its header, then the shipped unit so changed.
+        self.assertTrue(unit[0].startswith("# Generated by make vt-install from crates/vtium/install/kmsconvt@.service"))
+        self.assertEqual(unit[-len(want):], want)
+        self.assertTrue(all(l.startswith("#") or l == "" for l in unit[:-len(want)]))
+        self.assertIn("Restart=on-failure", unit)
+        self.assertIn("RestartSec=2s", unit)
+        fallback_src = read(os.path.join(self.s.standins, "install", "kmsconvt-getty@.service")).splitlines()
+        fallback = read(self.at(self.FALLBACK)).splitlines()
+        self.assertEqual(fallback[-len(body(fallback_src)):], body(fallback_src))
+
+    def test_a_shipped_unit_of_another_shape_is_refused(self):
+        for change, why in (
+                (lambda l: "ExecStart=/usr/sbin/vtium --vt=%I" if l.startswith("ExecStart=") else l,
+                 "no one ExecStart=/usr/bin/vtium line to change"),
+                (lambda l: "OnFailure=getty@%i.service" if l.startswith("OnFailure=") else l,
+                 "no OnFailure=kmsconvt-getty@%i.service line to change"),
+                (lambda l: "Alias=autovt@.service kmsconvt@.service" if l.startswith("Alias=") else l,
+                 "still names kmsconvt")):
+            with self.subTest(why=why):
+                shutil.rmtree(os.path.join(self.s.standins, "install"), ignore_errors=True)
+                self.shipped(lambda lines: [change(l) for l in lines])
+                self.refused(self.vt_install("install", "4"), why)
+                for f in (*self.FILES, self.STATE):
+                    self.assertFalse(os.path.exists(self.at(f)), f)
+
+    def test_a_vt_that_cannot_be_taken_is_refused(self):
+        for args, env, why in ((["1"], {}, "VT 1 is refused"),
+                               (["13"], {}, "VT must be a number from 2 to 12"),
+                               (["x"], {}, "VT must be a number from 2 to 12"),
+                               ([], {}, "VT=N names the VT"),
+                               (["7"], {}, "VT 7 is on screen now"),
+                               (["4"], {"SEQ": "4"}, "logind session c4_active is on VT 4"),
+                               (["4"], {"SEQ": "F"}, "loginctl could not list the sessions"),
+                               (["4"], {"ACTIVE_UNITS": "kmsconvt@tty4.service"}, "kmsconvt@tty4 is running on VT 4")):
+            with self.subTest(why=why):
+                open(self.s.calls, "w").close()
+                self.refused(self.vt_install("install", *args, **env), why)
+        # A per-VT autovt@ link that vt-install did not make is someone else's.
+        open(self.s.calls, "w").close()
+        link = self.at("etc/systemd/system/autovt@tty4.service")
+        os.symlink("/usr/lib/systemd/system/getty@.service", link)
+        self.refused(self.vt_install("install", "4"), "/etc/systemd/system/autovt@tty4.service is there already")
+        os.unlink(link)
+        # A binary that vt-install did not write is someone else's.
+        open(self.s.calls, "w").close()
+        os.makedirs(os.path.dirname(self.at(self.BIN)))
+        write(self.at(self.BIN), "#!/bin/sh\n")
+        self.refused(self.vt_install("install", "4"), "/usr/local/bin/vtium-dev is there already")
+        self.assertEqual(read(self.at(self.BIN)), "#!/bin/sh\n")
+
+    def test_a_binary_another_user_could_have_written_is_refused(self):
+        # It runs as root once installed, so only root or the user may own it,
+        # and only they may write it.
+        for mode in (0o775, 0o757, 0o777):
+            with self.subTest(mode=oct(mode)):
+                os.chmod(self.s.bin, mode)
+                open(self.s.calls, "w").close()
+                self.refused(self.vt_install("install", "4"), "is writable by group or others")
+        os.chmod(self.s.bin, 0o755)
+        # A stand-in stat says another uid owns the binary, since only root
+        # could make that so.
+        write(os.path.join(self.s.standins, "stat"), "#!/bin/bash\n"
+              f'if [ "${{*: -1}}" = {self.s.bin!r} ]; then echo "4242 755"; exit; fi\n'
+              f'exec {shutil.which("stat")!r} "$@"\n')
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "4"), "belongs to uid 4242, neither root nor you")
+        for f in (*self.FILES, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
+
+    def test_a_dry_run_shows_the_units_and_the_commands_and_runs_none(self):
+        p = self.vt_install("install", "--dry-run", "4", ACTIVE_UNITS="getty@tty4.service")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("--- /etc/systemd/system/vtium-dev@.service", p.stdout)
+        self.assertIn("ExecStart=/usr/local/bin/vtium-dev --vt=%I --no-switchvt", p.stdout)
+        self.assertIn("--- /var/lib/vtium-dev-install/tty4", p.stdout)
+        self.assertIn("getty-active=yes", p.stdout)
+        commands = [l for l in p.stdout.splitlines() if l.startswith("+ sudo ")]
+        self.assertEqual([c.split()[-2:] for c in commands[-4:]],
+                         [[f"{self.s.standins}/systemctl", "daemon-reload"], ["enable", "vtium-dev@tty4.service"],
+                          ["restart", "vtium-dev@tty4.service"], ["disable", "getty@tty4.service"]])
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        self.assertEqual(self.s.changes(), [])
+        for f in (*self.FILES, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
+
+    def test_uninstall_puts_the_getty_back_as_it_was_and_removes_what_install_wrote(self):
+        wants = self.at("etc/systemd/system/getty.target.wants/getty@tty4.service")
+        for enabled, active, back in ((True, "getty@tty4.service",
+                                       ["add-wants getty.target getty@tty4.service", "start getty@tty4.service"]),
+                                      (False, "getty@tty4.service", ["start getty@tty4.service"]),
+                                      (False, "", [])):
+            with self.subTest(enabled=enabled, active=active):
+                if os.path.lexists(wants):
+                    os.unlink(wants)
+                if enabled:
+                    os.symlink("/usr/lib/systemd/system/getty@.service", wants)
+                before = self.links()
+                p = self.vt_install("install", "4", ACTIVE_UNITS=active)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                open(self.s.calls, "w").close()
+                # The getty is off now, as install left it.
+                p = self.vt_install("uninstall", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(self.s.changes(), ["stop vtium-dev@tty4.service", "disable vtium-dev@tty4.service",
+                                                    "reset-failed vtium-dev@tty4.service vtium-dev-getty@tty4.service",
+                                                    *back, "daemon-reload"])
+                for f in (*self.FILES, self.STATE):
+                    self.assertFalse(os.path.exists(self.at(f)), f)
+                # Every unit link is as it was before install: vtium's per-VT
+                # alias gone, the getty wanted again where it was, and no
+                # autovt@tty4 of the getty's own.
+                self.assertEqual(self.links(), before)
+                # What install did not write stays.
+                self.assertTrue(os.path.isfile(self.at("usr/lib/systemd/system/getty@.service")))
+                self.assertTrue(os.path.isfile(self.at("usr/bin/kmscon")))
+
+    def test_uninstall_keeps_the_files_another_vt_still_holds(self):
+        for vt in ("4", "5"):
+            p = self.vt_install("install", vt)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("vt-install holds tty5 as well", p.stdout)
+        for f in (*self.FILES, self.STATE + "/tty5"):
+            self.assertTrue(os.path.exists(self.at(f)), f)
+        self.assertFalse(os.path.exists(self.at(self.STATE + "/tty4")))
+        p = self.vt_install("uninstall", "5")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in (*self.FILES, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
+
+    def test_uninstall_names_a_template_alias_to_vtium_dev(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # Someone ran systemctl enable vtium-dev@.service with no VT named on
+        # a machine with no template alias of its own.
+        template = self.at("etc/systemd/system/autovt@.service")
+        os.unlink(template)
+        os.symlink("/etc/systemd/system/vtium-dev@.service", template)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("/etc/systemd/system/autovt@.service points at vtium-dev@.service", p.stdout)
+        self.assertEqual(os.readlink(template), "/etc/systemd/system/vtium-dev@.service")
+        # The C reference's template alias is named by nobody.
+        os.unlink(template)
+        os.symlink("/usr/lib/systemd/system/kmsconvt@.service", template)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        p = self.vt_install("uninstall", "4")
+        self.assertNotIn("autovt@.service points at", p.stdout)
+
+    def test_a_reinstall_refuses_a_per_vt_alias_someone_else_made(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # Someone points autovt@tty4 elsewhere after the install.
+        link = self.at("etc/systemd/system/autovt@tty4.service")
+        os.unlink(link)
+        os.symlink("/usr/lib/systemd/system/getty@.service", link)
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "4"),
+                     "/etc/systemd/system/autovt@tty4.service is there already and vt-install did not make it")
+        self.assertEqual(os.readlink(link), "/usr/lib/systemd/system/getty@.service")
+
+    def test_a_second_install_keeps_the_first_record_of_the_getty(self):
+        p = self.vt_install("install", "4", ACTIVE_UNITS="getty@tty4.service")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        write(self.s.bin, read(self.s.bin) + "# a newer build\n")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("VT 4 holds vtium-dev already", p.stdout)
+        self.assertEqual(read(self.at(self.BIN)), read(self.s.bin))
+        manifest = read(self.at(self.STATE + "/tty4")).splitlines()
+        self.assertIn("getty-active=yes", manifest)
+
+    def test_uninstall_needs_the_manifest_and_a_vt_that_can_be_taken(self):
+        self.refused(self.vt_install("uninstall", "4"), "no /var/lib/vtium-dev-install/tty4")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for env, why in (({"SEQ": "4"}, "logind session c4_active is on VT 4; log out there first"),):
+            open(self.s.calls, "w").close()
+            self.refused(self.vt_install("uninstall", "4", **env), why)
+        write(self.at(self.STATE + "/tty4"), "vt=4\ngetty-enabled=maybe\ngetty-active=no\n", 0o644)
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("uninstall", "4"), "has no getty-enabled=yes or getty-enabled=no line")
+        write(self.at(self.STATE + "/tty4"), "vt=4\ngetty-enabled=no\ngetty-active=no\n", 0o644)
+        open(self.s.calls, "w").close()
+        p = self.vt_install("uninstall", "--dry-run", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("+ sudo " + self.s.standins + "/systemctl disable vtium-dev@tty4.service", p.stdout)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        self.assertEqual(self.s.changes(), [])
+        self.assertTrue(os.path.exists(self.at(self.BIN)))
+
+    def as_root(self):
+        """A stand-in id that says uid 0 for -u, as under sudo, and a stand-in
+        stat that says the binary is root's, as a run as root would make it.
+        The stand-ins' directory is open to its owner alone, as vt-install
+        asks of it under root."""
+        write(os.path.join(self.s.standins, "id"), "#!/bin/bash\n"
+              f'[ "$1" != -u ] || {{ echo 0; exit; }}\nexec {shutil.which("id")!r} "$@"\n')
+        write(os.path.join(self.s.standins, "stat"), "#!/bin/bash\n"
+              f'case "${{*: -1}}" in {self.s.bin!r} | {self.s.helper!r}) echo "0 755"; exit ;; esac\n'
+              f'exec {shutil.which("stat")!r} "$@"\n')
+        os.chmod(self.s.standins, 0o755)
+        # sudo names the user who ran it.
+        return {"SUDO_UID": str(os.getuid())}
+
+    def test_root_is_refused_before_the_build(self):
+        sudo_uid = self.as_root()
+        # On the machine itself, with no stand-ins named, make and the script
+        # refuse root before they do anything.
+        real = self.s.env()
+        del real["VTIUM_VT_STANDINS"]
+        for target in ("vt-install", "vt-uninstall"):
+            with self.subTest(target=target):
+                open(self.s.calls, "w").close()
+                p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, target, "VT=4", "DRY_RUN=1"],
+                                   env=real, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(f"{target}: run it as yourself, not as root", p.stderr)
+                self.assertEqual(self.s.calls_of("cargo"), [])
+                self.assertEqual(self.s.calls_of("sudo"), [])
+        p = subprocess.run(["bash", VT_INSTALL, "install", "--dry-run", "4"],
+                           env=dict(real, VTIUM_VT_BIN=self.s.bin, VTIUM_VT_VITRIFY=self.s.helper),
+                           capture_output=True, text=True, timeout=20, cwd=self.s.tmp)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("run it as yourself, not as root", p.stderr)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        # With the stand-ins, which write only under their own root, a test
+        # run as root goes through.
+        p = self.vt_install("install", "--dry-run", "4", **sudo_uid)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}"], env=self.s.env(**sudo_uid),
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+    def test_make_as_root_under_the_stand_ins_builds_nothing(self):
+        sudo_uid = self.as_root()
+        # make -n prints each recipe it would run and runs none, so a build
+        # that make does not refuse shows in its output.
+        p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1"],
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("vt-install: as root under the tests' stand-ins, name the binary and the helper with VTIUM_BIN=PATH VTIUM_VITRIFY_BIN=PATH", p.stderr)
+        self.assertNotIn("cargo", p.stdout)
+        self.assertNotIn("sysroot", p.stdout)
+        # Naming one of the two still leaves the other to build.
+        for named in (f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}"):
+            with self.subTest(named=named):
+                p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                                    named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertIn("name the binary and the helper", p.stderr)
+                self.assertNotIn("cargo", p.stdout)
+        # vt-uninstall builds nothing, so it reaches the script.
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-uninstall", "VT=4", "DRY_RUN=1"],
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("make vt-install did not install vtium on VT 4", p.stderr)
+
+    def test_root_runs_only_stand_ins_root_or_the_sudo_user_wrote(self):
+        sudo_uid = self.as_root()
+        uid = os.getuid()
+        sudo = os.path.join(self.s.standins, "sudo")
+        for why, env, standins_mode, sudo_mode in (
+                (f"{self.s.standins} belongs to uid {uid}, neither root nor the user who ran sudo", {}, 0o755, 0o755),
+                (f"{self.s.standins} belongs to uid {uid}, neither root nor the user who ran sudo",
+                 {"SUDO_UID": str(uid + 1)}, 0o755, 0o755),
+                (f"{self.s.standins} is writable by group or others (mode 775)", sudo_uid, 0o775, 0o755),
+                (f"{sudo} is writable by group or others (mode 777)", sudo_uid, 0o755, 0o777)):
+            with self.subTest(why=why, env=env):
+                os.chmod(self.s.standins, standins_mode)
+                os.chmod(sudo, sudo_mode)
+                open(self.s.calls, "w").close()
+                self.refused(self.vt_install("install", "4", **env), why)
+                self.refused(self.vt_install("uninstall", "4", **env), why)
+        os.chmod(self.s.standins, 0o755)
+        os.chmod(sudo, 0o755)
+        p = self.vt_install("install", "4", **sudo_uid)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+    def test_make_runs_it_with_the_binary_named_and_no_build(self):
+        make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, *a],
+                                              env=self.s.env(**e), capture_output=True, text=True, timeout=30)
+        p = make("vt-install", "VT=4", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("restart vtium-dev@tty4.service", p.stdout)
+        self.assertEqual(self.s.calls_of("cargo"), [])
+        self.assertEqual(self.s.calls_of("sudo"), [])
+        p = make("vt-uninstall", "DRY_RUN=1")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("VT=N names the VT", p.stderr)
+        p = make("vt-install", "VT=4", "DRY_RUN=yes", f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("DRY_RUN=yes: 1 or nothing", p.stderr)
+        p = make("vt-install", "VT=4", "DRY_RUN=1", VTIUM_BIN=self.s.bin)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("VTIUM_BIN is set in the environment", p.stderr)
+        p = make("vt-install", "VT=4", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", VTIUM_VITRIFY_BIN=self.s.helper)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("VTIUM_VITRIFY_BIN is set in the environment", p.stderr)
+        self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
+
+    # A stand-in cargo that records, beside its arguments, the helper path
+    # the build bakes in.
+    CARGO_ENV = "#!/bin/bash\n" + 'printf "%s\\n" "cargo VTIUM_VITRIFY=${VTIUM_VITRIFY-unset} $*" >>"$CALLS"\n'
+
+    def test_make_builds_the_development_console_and_its_helper_by_default(self):
+        write(os.path.join(self.s.standins, "cargo"), self.CARGO_ENV)
+        # VTIUM_DEV and VITRIFY_RELEASE point the defaults at the stand-ins,
+        # which the stand-in cargo "builds".
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                            f"VTIUM_DEV={self.s.bin}", f"VITRIFY_RELEASE={self.s.helper}"],
+                           env=self.s.env(), capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        builds = self.s.calls_of("cargo")
+        # The console starts its helper at the installed helper's path, and
+        # builds in a target directory of its own, so the minspec build that
+        # the review runs use is never replaced.
+        self.assertIn("VTIUM_VITRIFY=/usr/local/bin/vtium-dev-vitrify rustc --profile minspec -p vtium --bin vtium "
+                      "--target x86_64-unknown-linux-gnu --target-dir target/vt-dev -- -C link-arg=-Wl,-z,pack-relative-relocs",
+                      builds)
+        self.assertIn("VTIUM_VITRIFY=unset build --release -p vtium-vitrify --target x86_64-unknown-linux-gnu", builds)
+        self.assertEqual(len(builds), 2, builds)
+        self.assertIn("+ sudo " + self.s.standins + "/systemctl restart vtium-dev@tty4.service", p.stdout)
+
+    def test_a_binary_that_starts_another_helper_is_refused(self):
+        # The minspec build starts /usr/bin/vtium-vitrify, the packaged
+        # helper.
+        write(self.s.bin, BIN.replace("/usr/local/bin/vtium-dev-vitrify", "/usr/bin/vtium-vitrify"))
+        self.refused(self.vt_install("install", "4"),
+                     "does not look for its glyph helper at /usr/local/bin/vtium-dev-vitrify")
+        for f in (*self.FILES, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
+
+    def test_a_helper_another_user_could_have_written_is_refused(self):
+        os.chmod(self.s.helper, 0o775)
+        self.refused(self.vt_install("install", "4"),
+                     f"{self.s.helper} is writable by group or others (mode 775); vtium, as root, would start it")
+        os.chmod(self.s.helper, 0o755)
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "4", VTIUM_VT_VITRIFY=""), "VTIUM_VT_VITRIFY names glyph helper")
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "4", VTIUM_VT_VITRIFY=self.s.helper + "-missing"), "no glyph helper at")
+
+    def test_a_vt_the_packaged_vtium_holds_is_refused(self):
+        why = "VT 4 refused: the packaged vtium@tty4 holds it; sudo systemctl disable --now vtium@tty4 frees it"
+        self.refused(self.vt_install("install", "4", ACTIVE_UNITS="vtium@tty4.service"), why)
+        # Enabled, it starts there at the VT's next start.
+        lib = self.at("usr/lib/systemd/system")
+        write(os.path.join(lib, "vtium@.service"),
+              "[Service]\nExecStart=/usr/bin/vtium --vt=%I\n\n[Install]\nAlias=autovt@.service\nWantedBy=getty.target\n",
+              0o644)
+        os.symlink("/usr/lib/systemd/system/vtium@.service",
+                   self.at("etc/systemd/system/getty.target.wants/vtium@tty4.service"))
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "4"), why)
+        for f in (*self.FILES, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
+        # Another VT is the development install's to take, beside it.
+        p = self.vt_install("install", "5", ACTIVE_UNITS="vtium@tty4.service")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+class Package(Case):
+    """make install, which a package's build runs, and units.sh, which makes
+    the units for it and for make vt-install."""
+    maxDiff = None
+
+    # Every file make install stages, by its path under DESTDIR with
+    # PREFIX=/usr.
+    STAGED = sorted([
+        "usr/bin/vtium",
+        "usr/bin/vtium-vitrify",
+        "usr/lib/systemd/system/vtium@.service",
+        "usr/lib/systemd/system/vtium-getty@.service",
+        "usr/share/doc/vtium/kmscon.conf.example",
+        "usr/share/doc/vtium/examples/71-vtium-local.rules",
+        "usr/share/doc/vtium/examples/vtium.hwdb",
+        "usr/share/licenses/vtium/LICENSE",
+    ])
+
+    # A stand-in cargo that records the helper path each build bakes in.
+    CARGO = "#!/bin/bash\n" + 'printf "%s\\n" "cargo VTIUM_VITRIFY=${VTIUM_VITRIFY-unset} $*" >>"$CALLS"\n'
+
+    def setUp(self):
+        super().setUp()
+        write(os.path.join(self.s.standins, "cargo"), self.CARGO)
+        self.build = os.path.join(self.s.tmp, "build")
+        self.dest = os.path.join(self.s.tmp, "stage")
+
+    def built(self, helper):
+        """The stand-in builds in INSTALL_TARGET_DIR: a console that starts
+        its helper at helper, and the helper."""
+        for path, text in (("minspec/vtium", f"#!/bin/sh\n# starts {helper}\n"),
+                           ("release/vtium-vitrify", "#!/bin/sh\n# the helper\n")):
+            os.makedirs(os.path.dirname(os.path.join(self.build, path)), exist_ok=True)
+            write(os.path.join(self.build, path), text)
+
+    def make(self, *args, **env):
+        return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
+                              capture_output=True, text=True, timeout=60, start_new_session=True)
+
+    def staged(self):
+        out = []
+        for d, _, names in os.walk(self.dest):
+            out += [os.path.relpath(os.path.join(d, n), self.dest) for n in names]
+        return sorted(out)
+
+    def test_install_stages_what_the_package_ships_and_nothing_the_c_references_packages_own(self):
+        self.built("/usr/bin/vtium-vitrify")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.staged(), self.STAGED)
+        # The C reference's packages own /etc/kmscon/kmscon.conf.example, the
+        # compiled terminfo entry kmscon and the kmsconvt@ units.
+        for f in self.staged():
+            self.assertFalse(f.startswith(("etc/", "usr/share/terminfo/")) or "kmsconvt" in f, f)
+        for f in ("usr/bin/vtium", "usr/bin/vtium-vitrify"):
+            self.assertTrue(os.access(os.path.join(self.dest, f), os.X_OK), f)
+        unit = read(os.path.join(self.dest, "usr/lib/systemd/system/vtium@.service")).splitlines()
+        self.assertTrue(unit[0].startswith("# Generated by make install from crates/vtium/install/kmsconvt@.service"))
+        for line in ("ExecStart=/usr/bin/vtium --vt=%I --no-switchvt", "OnFailure=vtium-getty@%i.service",
+                     "Alias=autovt@.service", "WantedBy=getty.target", "Restart=on-failure",
+                     "Conflicts=getty@%i.service", "After=getty@%i.service",
+                     "Conflicts=kmsconvt@%i.service", "After=kmsconvt@%i.service"):
+            self.assertIn(line, unit)
+        self.assertEqual([l for l in unit if l.startswith("DefaultInstance=")], ["DefaultInstance=name-a-VT/vtium@ttyN"], unit)
+        directives = [l for l in unit if l and not l.startswith("#")]
+        self.assertFalse([l for l in directives if ("kmsconvt" in l and l not in ("Conflicts=kmsconvt@%i.service",
+                                                                                "After=kmsconvt@%i.service"))
+                          or "vtium-dev" in l], directives)
+        # The console starts its helper where the package puts it, and both
+        # build in a target directory of their own with the host's toolchain.
+        builds = self.s.calls_of("cargo")
+        self.assertEqual(builds, [
+            f"VTIUM_VITRIFY=/usr/bin/vtium-vitrify rustc --profile minspec -p vtium --bin vtium --target-dir {self.build} "
+            "-- -C link-arg=-Wl,-z,pack-relative-relocs",
+            f"VTIUM_VITRIFY=unset build --release -p vtium-vitrify --target-dir {self.build}"])
+
+    def test_install_passes_the_prefix_and_the_package_builds_flags_through(self):
+        self.built("/opt/vt/bin/vtium-vitrify")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/opt/vt", f"INSTALL_TARGET_DIR={self.build}",
+                      "CARGO_BUILD_FLAGS=--frozen", "FEATURES=images")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("opt/vt/lib/systemd/system/vtium@.service", self.staged())
+        unit = read(os.path.join(self.dest, "opt/vt/lib/systemd/system/vtium@.service")).splitlines()
+        self.assertIn("ExecStart=/opt/vt/bin/vtium --vt=%I --no-switchvt", unit)
+        self.assertEqual(self.s.calls_of("cargo"), [
+            f"VTIUM_VITRIFY=/opt/vt/bin/vtium-vitrify rustc --frozen --profile minspec -p vtium --bin vtium "
+            f"--target-dir {self.build} --features images -- -C link-arg=-Wl,-z,pack-relative-relocs",
+            f"VTIUM_VITRIFY=unset build --frozen --release -p vtium-vitrify --target-dir {self.build}"])
+
+    def test_install_refuses_a_console_that_starts_another_helper(self):
+        self.built("/usr/local/bin/vtium-dev-vitrify")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("does not start its helper at /usr/bin/vtium-vitrify", p.stderr)
+        self.assertEqual(self.staged(), [])
+
+    def test_install_needs_destdir_named(self):
+        # It never installs onto the machine, nor into install-tree's default:
+        # an empty DESTDIR, or one that is the root, would write
+        # /usr/local/lib/systemd/system/vtium@.service over the packaged unit.
+        for target in ("install", "install-terminfo"):
+            for args, why in (([], f"{target}: name DESTDIR=DIR"),
+                              (["DESTDIR="], f"{target}: DESTDIR is empty"),
+                              (["DESTDIR=/"], f"{target}: DESTDIR=/ is this machine's root"),
+                              (["DESTDIR=//."], f"{target}: DESTDIR=//. is this machine's root"),
+                              (["DESTDIR=/usr/.."], f"{target}: DESTDIR=/usr/.. is this machine's root")):
+                with self.subTest(target=target, args=args):
+                    p = self.make(target, "PREFIX=/usr", *args)
+                    self.assertNotEqual(p.returncode, 0)
+                    self.assertIn(why, p.stderr)
+                    self.assertEqual(self.s.calls_of("cargo"), [])
+
+    def test_install_names_the_license_for_the_package(self):
+        self.built("/usr/bin/vtium-vitrify")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "PKGNAME=vtium-git")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("usr/share/licenses/vtium-git/LICENSE", self.staged())
+        self.assertNotIn("usr/share/licenses/vtium/LICENSE", self.staged())
+
+    def test_enabling_the_packaged_template_with_no_vt_links_nothing(self):
+        # Enabling the template with no VT named must link nothing on every
+        # machine (ADR-1500 D3). With DefaultInstance=tty1 it would enable VT
+        # 1. With no DefaultInstance=, systemctl links Alias=autovt@.service
+        # before it refuses the template, so on a machine with no
+        # /etc/systemd/system/autovt@.service yet, logind would start vtium
+        # on every VT it spawns. Each root: none, the getty's link, which
+        # systemd's preset makes, and the C reference's.
+        if not REAL_SYSTEMCTL:
+            self.skipTest("no systemctl")
+        for holder in (None, "getty@.service", "kmsconvt@.service"):
+            with self.subTest(autovt=holder):
+                root = os.path.join(self.s.tmp, f"root-{holder}")
+                unit_dir = os.path.join(root, "usr/lib/systemd/system")
+                _, p = self.units("--name", "vtium", "--exec", "/usr/bin/vtium", "--by", "a test",
+                                  "--conflicts", "kmsconvt@%i.service", out=unit_dir)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                write(os.path.join(unit_dir, "getty.target"), "[Unit]\nDescription=Login Prompts\n", 0o644)
+                etc = os.path.join(root, "etc/systemd/system")
+                os.makedirs(etc)
+                before = []
+                if holder:
+                    os.symlink(f"/usr/lib/systemd/system/{holder}", os.path.join(etc, "autovt@.service"))
+                    before = ["autovt@.service"]
+                e = subprocess.run([REAL_SYSTEMCTL, f"--root={root}", "enable", "vtium@.service"],
+                                   capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(e.returncode, 0, e.stdout + e.stderr)
+                links = sorted(os.path.relpath(os.path.join(d, n), etc) for d, _, ns in os.walk(etc) for n in ns)
+                self.assertEqual(links, before)
+                # One VT named is enabled as before: its wants and its own
+                # autovt link, which points at vtium@.
+                e = subprocess.run([REAL_SYSTEMCTL, f"--root={root}", "enable", "vtium@tty3.service"],
+                                   capture_output=True, text=True, timeout=30)
+                self.assertEqual(e.returncode, 0, e.stdout + e.stderr)
+                links = sorted(os.path.relpath(os.path.join(d, n), etc) for d, _, ns in os.walk(etc) for n in ns)
+                self.assertEqual(links, sorted(before + ["autovt@tty3.service", "getty.target.wants/vtium@tty3.service"]))
+                self.assertEqual(os.readlink(os.path.join(etc, "autovt@tty3.service")), "/usr/lib/systemd/system/vtium@.service")
+
+    # A small entry under vtium's terminfo name, as the test's stand-in for
+    # crates/vtium/install/xterm-vtium.ti.
+    TERMINFO = "xterm-vtium|a stand-in for vtium's entry,\n\tam, cols#80, lines#24, bel=^G, clear=\\E[H\\E[2J,\n"
+
+    def test_install_terminfo_stages_xterm_vtium_alone(self):
+        if not shutil.which("tic"):
+            self.skipTest("no tic")
+        src = os.path.join(self.s.tmp, "xterm-vtium.ti")
+        write(src, self.TERMINFO, 0o644)
+        p = self.make("install-terminfo", f"DESTDIR={self.dest}", "PREFIX=/usr", f"TERMINFO_SRC={src}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.staged(), ["usr/share/licenses/vtium-terminfo/LICENSE", "usr/share/terminfo/x/xterm-vtium"])
+        p = self.make("install-terminfo", f"DESTDIR={self.dest}-git", "PREFIX=/usr", f"TERMINFO_SRC={src}",
+                      "PKGNAME=vtium-terminfo-git")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.dest + "-git", "usr/share/licenses/vtium-terminfo-git/LICENSE")))
+        # Without the entry's source it stops, and stages nothing.
+        shutil.rmtree(self.dest)
+        p = self.make("install-terminfo", f"DESTDIR={self.dest}", "PREFIX=/usr", f"TERMINFO_SRC={src}.missing")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("install-terminfo: no", p.stderr)
+        self.assertEqual(self.staged(), [])
+
+    def units(self, *args, out=None):
+        out = out or os.path.join(self.s.tmp, "units")
+        return out, subprocess.run(["bash", UNITS_SH, *args, out], capture_output=True, text=True, timeout=20,
+                                   env=self.s.env())
+
+    def test_units_makes_the_packaged_and_the_development_units_from_one_source(self):
+        src = read(os.path.join(ROOT, "crates/vtium/install/kmsconvt@.service")).splitlines()
+        for name, exec_path, conflicts in (("vtium", "/usr/bin/vtium", ("kmsconvt@%i.service",)),
+                                           ("vtium-dev", "/usr/local/bin/vtium-dev", ("vtium@%i.service", "kmsconvt@%i.service")),
+                                           ("vtium", "/usr/bin/vtium", ())):
+            with self.subTest(name=name, conflicts=conflicts):
+                out, p = self.units("--name", name, "--exec", exec_path, "--by", "a test",
+                                    *[a for c in conflicts for a in ("--conflicts", c)],
+                                    out=os.path.join(self.s.tmp, f"units-{name}-{len(conflicts)}"))
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(sorted(os.listdir(out)), [f"{name}-getty@.service", f"{name}@.service"])
+                unit = read(os.path.join(out, f"{name}@.service")).splitlines()
+                want = generated(src, name, exec_path, conflicts)
+                self.assertEqual(unit[-len(want):], want)
+                self.assertTrue(all(l.startswith("#") or l == "" for l in unit[:-len(want)]))
+                self.assertIn(f"#   ExecStart runs {exec_path}", unit)
+                fallback_src = read(os.path.join(ROOT, "crates/vtium/install/kmsconvt-getty@.service")).splitlines()
+                fallback = read(os.path.join(out, f"{name}-getty@.service")).splitlines()
+                self.assertEqual(fallback[-len(body(fallback_src)):], body(fallback_src))
+
+    def test_the_units_comments_name_their_own_units(self):
+        # The shipped units' opening comments are the C reference's names
+        # (systemctl enable kmsconvt@.service, kmsconvt-getty@); the
+        # generated units carry their own. A comment may name kmsconvt only
+        # where the header says what the unit was made from, or a
+        # Conflicts= unit.
+        for name, exec_path, conflicts in (("vtium", "/usr/bin/vtium", ("kmsconvt@%i.service",)),
+                                           ("vtium-dev", "/usr/local/bin/vtium-dev",
+                                            ("vtium@%i.service", "kmsconvt@%i.service"))):
+            with self.subTest(name=name):
+                out, p = self.units("--name", name, "--exec", exec_path, "--by", "a test",
+                                    *[a for c in conflicts for a in ("--conflicts", c)],
+                                    out=os.path.join(self.s.tmp, f"comments-{name}"))
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                for f in (f"{name}@.service", f"{name}-getty@.service"):
+                    lines = read(os.path.join(out, f)).splitlines()
+                    stray = [l for l in lines if "kmsconvt" in l and not l.startswith("# Generated by ")
+                             and "kmsconvt@%i.service" not in l]
+                    self.assertEqual(stray, [], f)
+                unit = read(os.path.join(out, f"{name}@.service"))
+                self.assertIn(f"#   systemctl enable {name}@tty3.service", unit)
+                self.assertIn(f"{name}-getty@", unit.split("[Unit]")[0])
+
+    def test_units_refuses_a_name_or_a_path_it_cannot_put_in_a_unit(self):
+        for args, why in ((["--name", "Vtium", "--exec", "/usr/bin/vtium"], "is not a unit name"),
+                          (["--name", "vtium|x", "--exec", "/usr/bin/vtium"], "is not a unit name"),
+                          (["--name", "vtium", "--exec", "usr/bin/vtium"], "is not an absolute path"),
+                          (["--name", "vtium", "--exec", "/usr/bin/vt ium"], "is not an absolute path"),
+                          (["--name", "vtium", "--exec", "/usr/bin/vtium|&"], "is not an absolute path"),
+                          (["--name", "vtium", "--exec", "/usr/bin/vtium", "--conflicts", "getty@tty1.service"],
+                           "is not an instance unit on the same VT"),
+                          (["--name", "vtium", "--exec", "/usr/bin/vtium", "--conflicts", "kmsconvt@%i.service;x"],
+                           "is not an instance unit on the same VT"),
+                          (["--name", "vtium", "--exec", "/usr/bin/vtium", "--conflicts", "vtium@%i.service"],
+                           "names the unit itself")):
+            with self.subTest(args=args):
+                out, p = self.units(*args, "--by", "a test")
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(why, p.stderr)
+                self.assertFalse(os.path.exists(out))
+
+    def test_systemd_analyze_verifies_the_packaged_units(self):
+        if not REAL_ANALYZE:
+            self.skipTest("no systemd-analyze")
+        root = os.path.join(self.s.tmp, "root")
+        unit_dir = os.path.join(root, "usr/lib/systemd/system")
+        _, p = self.units("--name", "vtium", "--exec", "/usr/bin/vtium", "--by", "a test", out=unit_dir)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for prog in ("usr/bin/vtium", "usr/bin/systemctl"):
+            os.makedirs(os.path.dirname(os.path.join(root, prog)), exist_ok=True)
+            write(os.path.join(root, prog), "#!/bin/sh\n")
+        # The stand-in sysinit.target that Install's analyze test explains:
+        # systemd 255 fails the start job without one.
+        write(os.path.join(unit_dir, "sysinit.target"),
+              "[Unit]\nDescription=Stand-in for systemd's own sysinit.target\n", 0o644)
+        for unit in ("vtium@tty4.service", "vtium-getty@tty4.service"):
+            with self.subTest(unit=unit):
+                v = subprocess.run([REAL_ANALYZE, "verify", "--man=no", f"--root={root}", os.path.join(unit_dir, unit)],
+                                   capture_output=True, text=True, timeout=60)
+                self.assertEqual((v.returncode, v.stdout + v.stderr), (0, ""))
 
 
 class Pty:
@@ -1222,7 +2461,7 @@ class Guide(Case):
                 g.wait_for(b"Press Enter to end.")
                 g.send(b"\r")
                 self.assertEqual(g.finish(), 1)
-        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vt", "open", "home", "login-shell"]))
+        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vtium-vitrify", "vt", "open", "home", "login-shell"]))
         self.assertEqual(os.listdir(open_dir), [])
 
     def test_a_run_on_a_terminal(self):
@@ -1362,6 +2601,89 @@ class Guide(Case):
                                      "  command exited with status 131", "  answer: no  note: cut short"])
         self.assertRegex(log[16], r"^=== done ")
 
+
+    def test_a_console_after_the_first_runs_a_shell_in_place_of_the_guide(self):
+        # Ctrl+Super+Enter starts the head's command, the guide, again in the
+        # new console (ADR-1401 D5); one run asks each step once.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Console guide\nstep: Look\ndo: look\nexpect: it is there\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(VTIUM_HEAD="desk", VTIUM_CONSOLE="2"))
+        g.wait_for(b"This is console 2 of the head desk. The guide runs in console 1.")
+        g.wait_for(b"console-2$ ")
+        g.send(b"echo shell $((6 * 7))\r")
+        g.wait_for(b"shell 42")
+        g.wait_for(b"console-2$ ")
+        g.send(b"exit\r")
+        self.assertEqual(g.finish(), 0)
+        self.assertNotIn(b"Console guide", g.seen)
+        self.assertFalse(os.path.exists(os.path.join(self.s.dir, "vt-check.log")))
+        # The first console, and a value that is no console id, run the guide.
+        for console in ("1", "x2", ""):
+            with self.subTest(console=console):
+                g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(VTIUM_HEAD="desk", VTIUM_CONSOLE=console))
+                g.wait_for(b"Console guide")
+                g.wait_for(b"Press Enter to begin.")
+                g.send(b"q\r")
+                g.wait_for(b"Step 1 of 1: Look")
+                g.send(b"q\r")
+                self.assertEqual(g.finish(), 0)
+                self.assertNotIn(b"This is console", g.seen)
+
+    def test_the_closing_lines_fit_a_run_in_vtium_and_one_by_hand(self):
+        # In vtium (VTIUM_CONSOLE set) the run ends with vtium; by hand in a
+        # desktop terminal, as restart.guide runs, it ends in that terminal.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Closing guide\nstep: Look\ndo: look\nexpect: it is there\n", 0o644)
+        log = os.path.join(self.s.dir, "vt-check.log")
+        for env, start, end, absent in (
+                ({"VTIUM_CONSOLE": "1"}, b"After the last step vtium exits and VT 6 gets its console back",
+                 b"vtium exits and VT 6 gets its console back. Ctrl+Alt+F7 is your desktop.", b"in this terminal"),
+                ({}, b"After the last step the checks end here, in this terminal.",
+                 b"The answers are in " + log.encode() + b".", b"vtium exits")):
+            with self.subTest(env=env):
+                g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(**env))
+                g.wait_for(start)
+                g.wait_for(b"Press Enter to begin.")
+                g.send(b"\r")
+                g.wait_for(b"Press Enter when done")
+                g.send(b"\r")
+                g.wait_for(b"[y]es [n]o [s]kip: ")
+                g.send(b"y")
+                g.wait_for(b"Note (Enter for none): ")
+                g.send(b"\r")
+                g.wait_for(b"Press Enter to end the run.")
+                g.wait_for(end)
+                g.send(b"\r")
+                self.assertEqual(g.finish(), 0)
+                self.assertNotIn(absent, g.seen)
+
+    def test_the_steps_get_the_systems_locale_when_no_lang_is_set(self):
+        conf = os.path.join(self.s.tmp, "locale.conf")
+        write(conf, '# a comment\nLANG="de_DE.UTF-8"\nLC_TIME=en_GB.UTF-8\nLC_ALL=$(touch pwned)\n'
+                    'LC_PAPER=de DE\nTZ=UTC\n', 0o644)
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Locale guide\nstep: Locale\n"
+                     "run: echo \"got LANG=$LANG LC_TIME=$LC_TIME LC_ALL=${LC_ALL-unset} "
+                     "LC_PAPER=${LC_PAPER-unset} TZ=${TZ-unset}.\"\nexpect: e\n", 0o644)
+        for env, want in (({}, b"got LANG=de_DE.UTF-8 LC_TIME=en_GB.UTF-8 LC_ALL=unset LC_PAPER=unset TZ=unset."),
+                          ({"LANG": "C.UTF-8"}, b"got LANG=C.UTF-8 LC_TIME= LC_ALL=unset LC_PAPER=unset TZ=unset.")):
+            with self.subTest(env=env):
+                g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(GUIDE_LOCALE_CONF=conf, **env))
+                g.wait_for(b"Press Enter to begin.")
+                g.send(b"\r")
+                g.wait_for(b"Press Enter to run it (")
+                g.send(b"\r")
+                g.wait_for(b"vtium-check$ echo")
+                g.wait_for(want)
+                g.wait_for(b"[y]es [n]o [s]kip: ")
+                g.send(b"y")
+                g.wait_for(b"Note (Enter for none): ")
+                g.send(b"\r")
+                g.wait_for(b"Press Enter to end the run.")
+                g.send(b"\r")
+                self.assertEqual(g.finish(), 0)
+        self.assertFalse(os.path.exists("pwned"))
+        self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "pwned")))
 
 class Demo(Case):
     """demo.sh and feedback.sh on a pseudo-terminal."""

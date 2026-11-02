@@ -46,11 +46,14 @@
 //! that exits 0 with nothing outstanding left at its idle interval, and
 //! the next need starts another.
 //!
-//! A frit of bitmap sources that states no cell takes its fonts' own cell
-//! (the operator, 2026-10-28), which the console asks the helper for
-//! before its first frame ([`Helper::own_cell`]): the one wait on the
-//! helper, at most [`OWN_CELL_MS`]. An answer that comes after it is
-//! dropped.
+//! A frit that states no cell takes the cell its first source gives
+//! (the operator, 2026-10-28; the maintainer, 2026-11-01), which the
+//! console asks the helper for at the height it draws at
+//! ([`Helper::own_cell`]): a bitmap source's own cell, whatever the
+//! height, or an outline source's cell at that height. The console waits
+//! for the answer at most [`OWN_CELL_MS`], the one wait on the helper,
+//! before the first frame and at a zoom of an outline frit. An answer that
+//! comes after the wait is dropped.
 //!
 //! The wire format is `vtium-vitrify`'s serve mode's (`serve.rs`), whose
 //! constants this module repeats.
@@ -58,7 +61,7 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as Process, ExitStatus, Stdio};
@@ -66,6 +69,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use rustix::fs::{FileType, Mode, OFlags};
 use rustix::process::{
     Pid, PidfdFlags, Signal, WaitId, WaitIdOptions, kill_process_group, pidfd_open,
     pidfd_send_signal, waitid,
@@ -74,6 +78,8 @@ use vtium_font::Cell;
 use vtium_font::set::{Set, SetFace};
 use vtium_platform::vt::font::ConsoleFont;
 
+use crate::config::Config;
+use crate::config::keys::FONT_HELPER;
 use crate::deferred::{Shared, Shown, Text};
 
 /// How long the helper may take for each answer while work is
@@ -129,14 +135,17 @@ const FRAME_OWN_CELL: u32 = 6;
 const FRAME_NO_OWN_CELL: u32 = 7;
 const FRAME_STOPPED: u32 = 8;
 const FRAME_WARNING: u32 = 9;
+const FRAME_OUTLINE_CELL: u32 = 10;
 
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
 
-/// The helper's program, set at build time with `VTIUM_VITRIFY`.
-pub fn default_program() -> PathBuf {
-    PathBuf::from(option_env!("VTIUM_VITRIFY").unwrap_or("/usr/bin/vtium-vitrify"))
-}
+/// The helper's program vtium is built with, `font-helper`'s default: set
+/// at build time with `VTIUM_VITRIFY`.
+pub const PROGRAM: &str = match option_env!("VTIUM_VITRIFY") {
+    Some(path) => path,
+    None => "/usr/bin/vtium-vitrify",
+};
 
 /// The account the helper runs as when the console is root: `nobody`,
 /// its uid and gid read from `passwd`.
@@ -161,10 +170,10 @@ pub struct Command {
 }
 
 impl Command {
-    /// `vtium-vitrify serve`, as `nobody` when the console is root; an
-    /// error as root with no `nobody` in `/etc/passwd`, since the helper
-    /// never runs as root.
-    pub fn system() -> Result<Command, String> {
+    /// `program serve`, as `nobody` when the console is root; an error as
+    /// root with no `nobody` in `/etc/passwd`, since the helper never runs
+    /// as root.
+    pub fn system(program: &Path) -> Result<Command, String> {
         let account = if rustix::process::geteuid().is_root() {
             let passwd = std::fs::read_to_string("/etc/passwd")
                 .map_err(|e| format!("cannot read /etc/passwd for the helper's account: {e}"))?;
@@ -173,11 +182,137 @@ impl Command {
             None
         };
         Ok(Command {
-            program: default_program(),
+            program: program.to_owned(),
             args: vec!["serve".into()],
             account,
         })
     }
+}
+
+/// The helper's program, opened once, and the command each start runs it
+/// with. Every helper starts from the opened file, so a package upgrade
+/// that renames a new program into place reaches a console only when the
+/// console starts again, and an old console never talks to a new helper.
+#[derive(Clone, Debug)]
+pub struct Launcher {
+    command: Command,
+    program: Arc<OwnedFd>,
+}
+
+impl Launcher {
+    /// Opens `command`'s program ([`open_program`]), for the account vtium
+    /// runs as.
+    pub fn open(command: Command) -> Result<Launcher, String> {
+        let me = rustix::process::geteuid().as_raw();
+        let program = open_program(&command.program, me)?;
+        Ok(Launcher {
+            command,
+            program: Arc::new(program),
+        })
+    }
+
+    /// The helper `config` names, `font-helper`, opened.
+    pub fn configured(config: &Config) -> Result<Launcher, String> {
+        Launcher::open(Command::system(&program(config))?)
+    }
+
+    /// The process that starts a helper: the opened program, through
+    /// `/proc/self/fd`, which the kernel lets a process read as any
+    /// account, with the program's path as its name.
+    fn process(&self) -> Process {
+        let c = &self.command;
+        let mut process = Process::new(format!("/proc/self/fd/{}", self.program.as_raw_fd()));
+        process
+            .arg0(&c.program)
+            .args(&c.args)
+            .env_clear()
+            .current_dir("/")
+            .process_group(0);
+        if let Some((uid, gid)) = c.account {
+            // std drops the supplementary groups before setuid when root
+            process.uid(uid).gid(gid);
+        }
+        process
+    }
+
+    /// Why a start failed with `e`. vtium starts the helper from the file it
+    /// opened, through `/proc/self/fd`, so the message names that path: with
+    /// `/proc` unmounted the start fails there, not at the program's path.
+    fn failed(&self, e: &std::io::Error) -> String {
+        format!(
+            "cannot start {} through /proc/self/fd/{}: {e}; vtium starts the helper from the file it opened, through /proc/self/fd, so /proc must be mounted",
+            self.command.program.display(),
+            self.program.as_raw_fd()
+        )
+    }
+}
+
+/// The helper's program `config` names, `font-helper`.
+pub fn program(config: &Config) -> PathBuf {
+    PathBuf::from(config.text(&FONT_HELPER).unwrap_or(PROGRAM))
+}
+
+/// Opens the helper's program at `path` to start it from, close-on-exec
+/// so no child keeps it and above stdio so no child's stdio replaces it,
+/// and checks the opened file, so the file checked is the file that runs. It refuses a path that is not absolute, a file
+/// that is not a regular file, and a file an account other than root or
+/// `me`, the account vtium runs as, could change: one another account
+/// owns, or that its group or others may write; and a setuid or setgid
+/// file, which would run with its owner's or group's rights.
+pub fn open_program(path: &Path, me: u32) -> Result<OwnedFd, String> {
+    let name = path.display();
+    if !path.is_absolute() {
+        return Err(format!(
+            "the helper's path {name} is not absolute, so vtium does not start it"
+        ));
+    }
+    let opened = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())
+        .map_err(|e| format!("cannot open the helper {name}: {e}"))?;
+    // A descriptor from 0 to 2 would be replaced by a child's stdio before
+    // its exec. Rust's runtime opens /dev/null on each of them that vtium
+    // starts with closed, so this keeps that from mattering to the helper
+    // if it ever stops.
+    let file = rustix::io::fcntl_dupfd_cloexec(&opened, 3)
+        .map_err(|e| format!("cannot move the helper {name}'s descriptor above stdio: {e}"))?;
+    drop(opened);
+    let stat = rustix::fs::fstat(&file)
+        .map_err(|e| format!("cannot read the helper {name}'s owner and mode: {e}"))?;
+    match refusal(
+        FileType::from_raw_mode(stat.st_mode),
+        stat.st_uid,
+        stat.st_mode,
+        me,
+    ) {
+        None => Ok(file),
+        Some(why) => Err(format!(
+            "the helper {name} {why}, so vtium does not start it"
+        )),
+    }
+}
+
+/// Why vtium refuses a helper program of `kind`, owned by `owner`, with
+/// `mode`, when it runs as `me`; `None` when it does not.
+fn refusal(kind: FileType, owner: u32, mode: u32, me: u32) -> Option<String> {
+    if kind != FileType::RegularFile {
+        return Some("is not a regular file".to_owned());
+    }
+    if mode & 0o6000 != 0 {
+        // vtium drops to nobody before the exec, and the helper sets
+        // no_new_privs only after it, so a setuid root helper runs as root
+        return Some(format!("is setuid or setgid (mode {:o})", mode & 0o7777));
+    }
+    if owner != 0 && owner != me {
+        return Some(format!(
+            "is owned by uid {owner}, which is neither root nor the account vtium runs as"
+        ));
+    }
+    if mode & 0o022 != 0 {
+        return Some(format!(
+            "may be written by its group or by others (mode {:o})",
+            mode & 0o7777
+        ));
+    }
+    None
 }
 
 fn put32(out: &mut Vec<u8>, v: u32) {
@@ -271,6 +406,37 @@ fn encode(
     out
 }
 
+/// The cell a frit's first source gives, a cell query's answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnCell {
+    /// A bitmap source's own cell, which the console takes at the largest
+    /// whole multiple not over the height it draws at.
+    Bitmap(Cell),
+    /// An outline source's cell at the height asked, taken as it is.
+    Outline(Cell),
+}
+
+/// Why a cell query has no answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NoCell {
+    pub why: String,
+    /// No answer came in time, as opposed to an answer that says there is
+    /// none, which the frit's text decides and asking again cannot change.
+    pub late: bool,
+}
+
+impl NoCell {
+    fn refused(why: String) -> NoCell {
+        NoCell { why, late: false }
+    }
+}
+
+impl std::fmt::Display for NoCell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)
+    }
+}
+
 /// What the reader thread saw.
 #[derive(Debug)]
 enum Event {
@@ -289,8 +455,10 @@ enum Event {
     /// A stop at a cell is taken: the frames of the fill it ended are all
     /// sent.
     Stopped(Cell),
-    /// The frit's own cell, a cell query's answer.
+    /// A bitmap frit's own cell, a cell query's answer.
     OwnCell(Cell),
+    /// An outline frit's cell at the height asked, a cell query's answer.
+    OutlineCell(Cell),
     /// The frit has no own cell: why.
     NoOwnCell(String),
     /// A warning the frit's text gave as the helper read it.
@@ -396,7 +564,7 @@ fn frame(r: &mut impl Read) -> Option<Event> {
     let max = match kind {
         FRAME_GLYPHS | FRAME_FILL => FRAME_BYTES_MAX,
         FRAME_DONE => 0,
-        FRAME_FILLED | FRAME_OWN_CELL | FRAME_STOPPED => 8,
+        FRAME_FILLED | FRAME_OWN_CELL | FRAME_OUTLINE_CELL | FRAME_STOPPED => 8,
         FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
@@ -437,17 +605,19 @@ fn frame(r: &mut impl Read) -> Option<Event> {
             }
             _ => Event::Malformed("a fill's end without its cell".to_owned()),
         },
-        FRAME_OWN_CELL => match *payload.as_slice() {
+        FRAME_OWN_CELL | FRAME_OUTLINE_CELL => match *payload.as_slice() {
             [w0, w1, w2, w3, h0, h1, h2, h3] => {
                 let cell = Cell {
                     width: u32::from_le_bytes([w0, w1, w2, w3]),
                     height: u32::from_le_bytes([h0, h1, h2, h3]),
                 };
                 let side = 1..=vtium_font::CELL_SIDE_MAX;
-                if side.contains(&cell.width) && side.contains(&cell.height) {
+                if !(side.contains(&cell.width) && side.contains(&cell.height)) {
+                    Event::Malformed("an own cell past CELL_SIDE_MAX".to_owned())
+                } else if kind == FRAME_OWN_CELL {
                     Event::OwnCell(cell)
                 } else {
-                    Event::Malformed("an own cell past CELL_SIDE_MAX".to_owned())
+                    Event::OutlineCell(cell)
                 }
             }
             _ => Event::Malformed("an own cell without its size".to_owned()),
@@ -614,7 +784,7 @@ struct Ask {
 
 /// The helper as the console sees it.
 pub struct Helper {
-    command: Command,
+    launcher: Launcher,
     /// Wakes the loop: called by the reader thread after each frame.
     wake: Arc<dyn Fn() + Send + Sync>,
     frit: FritText,
@@ -628,11 +798,12 @@ pub struct Helper {
     /// the fill stopped, however soon the cell is filled again.
     stopped: Vec<Cell>,
     asks: VecDeque<Ask>,
-    /// A cell query is unanswered: its late answer is dropped.
-    querying: bool,
+    /// The cell queries left unanswered past their wait: each one's late
+    /// answer is dropped.
+    querying: u32,
     /// What the helper sent while the console waited for its own cell,
     /// for the next [`Helper::poll`].
-    early: Option<Event>,
+    early: VecDeque<Event>,
     /// When the next answer is due, while work is outstanding.
     due: Option<Instant>,
     restarts: u32,
@@ -648,12 +819,12 @@ pub struct Helper {
 }
 
 impl Helper {
-    /// The helper `command` starts for `frit`, handing it the kernel's
+    /// The helper `launcher` starts for `frit`, handing it the kernel's
     /// `console` font, whose glyphs go into `store` up to `limit` bytes;
     /// its reader calls `wake` after each answer, in a vtium started at
     /// `epoch`.
     pub fn new(
-        command: Command,
+        launcher: Launcher,
         wake: Arc<dyn Fn() + Send + Sync>,
         epoch: Instant,
         frit: FritText,
@@ -662,7 +833,7 @@ impl Helper {
         limit: u64,
     ) -> Helper {
         Helper {
-            command,
+            launcher,
             wake,
             frit,
             console,
@@ -673,8 +844,8 @@ impl Helper {
             cells: Vec::new(),
             stopped: Vec::new(),
             asks: VecDeque::new(),
-            querying: false,
-            early: None,
+            querying: 0,
+            early: VecDeque::new(),
             due: None,
             restarts: 0,
             full: false,
@@ -787,42 +958,91 @@ impl Helper {
         self.send(ASK, cell, (&codepoints, &texts), &[], now);
     }
 
-    /// The frit's own cell, asked of the helper and waited for at most
-    /// `wait`, the one wait on the helper before a frame (the operator,
-    /// 2026-10-28). The error is why there is none: the helper's refusal,
-    /// a helper that cannot start or ends first, or no answer in time,
-    /// whose late answer is dropped.
-    pub fn own_cell(&mut self, wait: Duration, now: Instant) -> Result<Cell, String> {
-        let none = Cell {
-            width: 0,
-            height: 0,
-        };
+    /// The cell the frit's first source gives at `height`, the height the
+    /// console draws at, asked of the helper and waited for at most `wait`
+    /// (the operator, 2026-10-28; the maintainer, 2026-11-01): a bitmap
+    /// source's own cell, whatever `height` is, or an outline source's
+    /// cell `height` pixels high. A warning the frit's text gives as the
+    /// helper reads it is logged, and what else the helper sends meanwhile,
+    /// such as a fill's glyphs, is kept for the next [`Helper::poll`]
+    /// while the wait goes on, as is the late answer to an earlier query,
+    /// which is dropped. The error is why there is none: the helper's
+    /// refusal, a helper that cannot start or ends first, no answer in
+    /// time, whose late answer is dropped, or an outline cell of another
+    /// height, which is refused as malformed. `clock` tells the time as
+    /// the wait goes on.
+    pub fn own_cell(
+        &mut self,
+        height: u32,
+        wait: Duration,
+        clock: &dyn Fn() -> Instant,
+    ) -> Result<OwnCell, NoCell> {
+        let now = clock();
+        let query = Cell { width: 0, height };
         if self.failed.is_none() {
-            self.send(OWN_CELL, none, (&[], &[]), &[], now);
+            self.send(OWN_CELL, query, (&[], &[]), &[], now);
         }
         if let Some(why) = &self.failed {
-            return Err(why.clone());
+            return Err(NoCell::refused(why.clone()));
         }
-        let event = self
-            .running
-            .as_ref()
-            .ok_or("the helper is not running")?
-            .events
-            .recv_timeout(wait);
-        match event {
-            Ok(Event::OwnCell(cell)) => Ok(cell),
-            Ok(Event::NoOwnCell(why)) => Err(why.trim().to_owned()),
-            Ok(other) => {
-                self.early = Some(other);
-                Err("the helper answered something else first".to_owned())
-            }
-            Err(_) => {
-                self.querying = true;
-                Err(format!(
-                    "the helper gave no answer in {} ms",
-                    wait.as_millis()
-                ))
-            }
+        let end = after(now, wait);
+        loop {
+            let left = end.saturating_duration_since(clock());
+            let event = self
+                .running
+                .as_ref()
+                .ok_or_else(|| NoCell::refused("the helper is not running".to_owned()))?
+                .events
+                .recv_timeout(left);
+            return match event {
+                // the late answer to a query that stopped waiting
+                Ok(Event::OwnCell(_) | Event::OutlineCell(_) | Event::NoOwnCell(_))
+                    if self.querying > 0 =>
+                {
+                    self.querying = self.querying.saturating_sub(1);
+                    continue;
+                }
+                Ok(Event::OwnCell(cell)) => Ok(OwnCell::Bitmap(cell)),
+                Ok(Event::OutlineCell(cell)) if cell.height == height => Ok(OwnCell::Outline(cell)),
+                Ok(Event::OutlineCell(cell)) => {
+                    let why = format!(
+                        "an outline cell {} pixels high, where {height} was asked",
+                        cell.height
+                    );
+                    self.early.push_back(Event::Malformed(why.clone()));
+                    Err(NoCell::refused(why))
+                }
+                Ok(Event::NoOwnCell(why)) => Err(NoCell::refused(why.trim().to_owned())),
+                Ok(Event::Warning(why)) => {
+                    self.warn(why.trim());
+                    continue;
+                }
+                Ok(
+                    other @ (Event::Glyphs { .. }
+                    | Event::Done
+                    | Event::Filled(_)
+                    | Event::Stopped(_)),
+                ) => {
+                    self.early.push_back(other);
+                    continue;
+                }
+                Ok(other) => {
+                    let why = match &other {
+                        Event::Failed(why) => format!("the helper failed: {}", why.trim()),
+                        Event::Malformed(why) => format!("the helper's answer was refused: {why}"),
+                        _ => "the helper ended".to_owned(),
+                    };
+                    self.early.push_back(other);
+                    Err(NoCell::refused(why))
+                }
+                Err(_) => {
+                    self.querying = self.querying.saturating_add(1);
+                    Err(NoCell {
+                        why: format!("the helper gave no answer in {} ms", wait.as_millis()),
+                        late: true,
+                    })
+                }
+            };
         }
     }
 
@@ -882,27 +1102,18 @@ impl Helper {
     }
 
     fn start(&self) -> Result<Running, String> {
-        let c = &self.command;
         // a descriptor the console holds, the VT's and the display's among
         // them, would otherwise reach the helper
         vtium_platform::cloexec_above_stdio()
             .map_err(|e| format!("cannot keep the console's descriptors from it: {e}"))?;
-        let mut process = Process::new(&c.program);
-        process
-            .args(&c.args)
-            .env_clear()
-            .current_dir("/")
-            .process_group(0)
+        let mut child = self
+            .launcher
+            .process()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        if let Some((uid, gid)) = c.account {
-            // std drops the supplementary groups before setuid when root
-            process.uid(uid).gid(gid);
-        }
-        let mut child = process
+            .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("cannot start {}: {e}", c.program.display()))?;
+            .map_err(|e| self.launcher.failed(&e))?;
         // a pidfd names this child alone, even once the reaper has reaped it
         let pidfd = i32::try_from(child.id())
             .ok()
@@ -998,7 +1209,7 @@ impl Helper {
     /// started and reaps it, and nothing it sent is taken.
     fn stop(&mut self) {
         self.stopped.clear();
-        self.querying = false;
+        self.querying = 0;
         if let Some(fd) = self.running.take().and_then(|r| r.pidfd) {
             let _ = pidfd_send_signal(&fd, Signal::KILL);
         }
@@ -1052,7 +1263,7 @@ impl Helper {
     pub fn poll(&mut self, now: Instant) -> Vec<Answer> {
         let mut out = Vec::new();
         while self.failed.is_none() {
-            let early = self.early.take();
+            let early = self.early.pop_front();
             let Some(event) =
                 early.or_else(|| self.running.as_ref().and_then(|r| r.events.try_recv().ok()))
             else {
@@ -1071,11 +1282,13 @@ impl Helper {
                 Event::Filled(cell) => self.filled(cell, now),
                 Event::Stopped(cell) => self.stop_taken(cell),
                 // a cell query's answer after the console stopped waiting
-                Event::OwnCell(_) | Event::NoOwnCell(_) if self.querying => {
-                    self.querying = false;
+                Event::OwnCell(_) | Event::OutlineCell(_) | Event::NoOwnCell(_)
+                    if self.querying > 0 =>
+                {
+                    self.querying = self.querying.saturating_sub(1);
                     Ok(())
                 }
-                Event::OwnCell(_) | Event::NoOwnCell(_) => {
+                Event::OwnCell(_) | Event::OutlineCell(_) | Event::NoOwnCell(_) => {
                     Err("the helper answered a cell query not made".to_owned())
                 }
                 // a warning answers nothing, so the answer is still due
@@ -1384,7 +1597,7 @@ impl Helper {
     fn closed(&mut self, status: Option<ExitStatus>, now: Instant) {
         self.running = None;
         self.stopped.clear();
-        self.querying = false;
+        self.querying = 0;
         let clean = status.is_some_and(|s| s.success());
         let why = match status.and_then(|s| s.signal()) {
             Some(SIGXCPU | 9) => "reached its CPU limit".to_owned(),
@@ -1546,7 +1759,7 @@ mod tests {
             });
             StandIn {
                 helper: Helper::new(
-                    command,
+                    Launcher::open(command).unwrap(),
                     wake,
                     t0(),
                     frit("source=builtin:unscii-8\n"),
@@ -1843,11 +2056,13 @@ mod tests {
     #[test]
     fn a_cluster_past_its_bound_is_not_asked_for() {
         let mut helper = Helper::new(
-            Command {
-                program: PathBuf::from("/nonexistent"),
+            // never started: nothing is asked
+            Launcher::open(Command {
+                program: PathBuf::from("/bin/sh"),
                 args: Vec::new(),
                 account: None,
-            },
+            })
+            .unwrap(),
             Arc::new(|| {}),
             t0(),
             frit("source=builtin:unscii-8\n"),
@@ -2595,9 +2810,116 @@ mod tests {
     }
 
     fn own_cell_frame(width: u32, height: u32) -> Vec<u8> {
+        cell_frame(FRAME_OWN_CELL, width, height)
+    }
+
+    fn cell_frame(kind: u32, width: u32, height: u32) -> Vec<u8> {
         let mut c = width.to_le_bytes().to_vec();
         c.extend_from_slice(&height.to_le_bytes());
-        frame_bytes(FRAME_OWN_CELL, &c)
+        frame_bytes(kind, &c)
+    }
+
+    // overhang part 1 (the maintainer, 2026-11-01): an outline first source
+    // answers frame 10 with its cell at the height asked, which the query
+    // names; a cell of another height is refused as malformed, a warning
+    // before the answer is logged and the wait goes on, and a bitmap
+    // source's frame 6 answers a query at any height
+    #[test]
+    fn an_outline_frits_cell_is_asked_at_a_height_and_taken_only_at_it() {
+        let wait = Duration::from_secs(10);
+        let nine = Cell {
+            width: 9,
+            height: 16,
+        };
+        let mut s = StandIn::new(
+            "outline-cell",
+            ANSWERS,
+            &cell_frame(FRAME_OUTLINE_CELL, 9, 16),
+        );
+        assert_eq!(s.helper.own_cell(16, wait, &t0), Ok(OwnCell::Outline(nine)));
+        let mut s = StandIn::new("outline-cell-bitmap", ANSWERS, &own_cell_frame(8, 16));
+        assert_eq!(s.helper.own_cell(22, wait, &t0), Ok(OwnCell::Bitmap(CELL)));
+        let mut warned = frame_bytes(FRAME_WARNING, b"t: line 2: an unknown key");
+        warned.extend(cell_frame(FRAME_OUTLINE_CELL, 12, 22));
+        let mut s = StandIn::new("outline-cell-warned", ANSWERS, &warned);
+        assert_eq!(
+            s.helper.own_cell(22, wait, &t0),
+            Ok(OwnCell::Outline(Cell {
+                width: 12,
+                height: 22
+            }))
+        );
+        let mut s = StandIn::new(
+            "outline-cell-taller",
+            ANSWERS,
+            &cell_frame(FRAME_OUTLINE_CELL, 9, 17),
+        );
+        let why = s.helper.own_cell(16, wait, &t0).unwrap_err().to_string();
+        assert_eq!(why, "an outline cell 17 pixels high, where 16 was asked");
+        s.run(t0());
+        assert!(
+            s.helper.failed().unwrap().contains("17 pixels high"),
+            "{:?}",
+            s.helper.failed()
+        );
+    }
+
+    // overhang part 1: a cell query made while the helper is busy waits
+    // past the frames sent before its answer, which the next poll takes,
+    // and past the late answer to an earlier query, which is dropped
+    #[test]
+    fn a_cell_answer_is_found_behind_other_frames_and_a_late_answer() {
+        let wait = Duration::from_secs(10);
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &['A']));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        fixture.extend(cell_frame(FRAME_OUTLINE_CELL, 9, 16));
+        let mut s = StandIn::new("cell-behind", ANSWERS, &fixture);
+        s.helper.ask(CELL, &shown(&['A']), t0());
+        let nine = Cell {
+            width: 9,
+            height: 16,
+        };
+        assert_eq!(s.helper.own_cell(16, wait, &t0), Ok(OwnCell::Outline(nine)));
+        assert_eq!(s.run(t0()).len(), 1, "the ask's answer is kept");
+        assert_eq!(s.helper.failed(), None);
+        let mut two = cell_frame(FRAME_OUTLINE_CELL, 9, 16);
+        two.extend(cell_frame(FRAME_OUTLINE_CELL, 12, 22));
+        let held =
+            "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
+        let mut s = StandIn::new("cell-late-then-now", held, &two);
+        assert!(
+            s.helper
+                .own_cell(16, Duration::from_millis(20), &t0)
+                .is_err()
+        );
+        std::fs::write(s.dir.join("answer.go"), b"").unwrap();
+        assert_eq!(
+            s.helper.own_cell(22, wait, &t0),
+            Ok(OwnCell::Outline(Cell {
+                width: 12,
+                height: 22
+            }))
+        );
+        s.until_gone(t0());
+        assert_eq!(s.helper.failed(), None);
+    }
+
+    // overhang part 1: each query left unanswered past its wait drops its
+    // own late answer, so two late answers are both dropped and the helper
+    // is not given up
+    #[test]
+    fn each_late_cell_answer_is_dropped() {
+        let mut two = cell_frame(FRAME_OUTLINE_CELL, 9, 16);
+        two.extend(cell_frame(FRAME_OUTLINE_CELL, 12, 22));
+        let held =
+            "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
+        let mut s = StandIn::new("cell-late-twice", held, &two);
+        let short = Duration::from_millis(20);
+        assert!(s.helper.own_cell(16, short, &t0).is_err());
+        assert!(s.helper.own_cell(22, short, &t0).is_err());
+        std::fs::write(s.dir.join("answer.go"), b"").unwrap();
+        s.until_gone(t0());
+        assert_eq!(s.helper.failed(), None);
     }
 
     // the operator's decision on #145, 2026-10-28: the console asks the
@@ -2607,13 +2929,13 @@ mod tests {
     fn a_frits_own_cell_is_asked_and_waited_for_a_bounded_time() {
         let wait = Duration::from_secs(10);
         let mut s = StandIn::new("own-cell", ANSWERS, &own_cell_frame(8, 16));
-        assert_eq!(s.helper.own_cell(wait, t0()), Ok(CELL));
+        assert_eq!(s.helper.own_cell(16, wait, &t0), Ok(OwnCell::Bitmap(CELL)));
         let refusal = frame_bytes(
             FRAME_NO_OWN_CELL,
             b"source=outline:/f.ttf is an outline font",
         );
         let mut s = StandIn::new("own-cell-refused", ANSWERS, &refusal);
-        let why = s.helper.own_cell(wait, t0()).unwrap_err();
+        let why = s.helper.own_cell(16, wait, &t0).unwrap_err().to_string();
         assert!(why.contains("is an outline font"), "{why}");
         s.until_gone(t0());
         assert_eq!(s.helper.failed(), None);
@@ -2622,14 +2944,15 @@ mod tests {
         let mut s = StandIn::new("own-cell-late", late, &own_cell_frame(8, 16));
         let why = s
             .helper
-            .own_cell(Duration::from_millis(50), t0())
-            .unwrap_err();
+            .own_cell(16, Duration::from_millis(50), &t0)
+            .unwrap_err()
+            .to_string();
         assert_eq!(why, "the helper gave no answer in 50 ms");
         s.until_gone(t0());
         assert_eq!(s.helper.failed(), None);
         // past the cell's bound, or never asked: given up
         let mut s = StandIn::new("own-cell-huge", ANSWERS, &own_cell_frame(8, 4096));
-        assert!(s.helper.own_cell(wait, t0()).is_err());
+        assert!(s.helper.own_cell(16, wait, &t0).is_err());
         s.run(t0());
         assert!(s.helper.failed().unwrap().contains("past CELL_SIDE_MAX"));
         let mut s = StandIn::new("own-cell-unasked", ANSWERS, &own_cell_frame(8, 16));
@@ -2638,23 +2961,277 @@ mod tests {
         assert!(s.helper.failed().unwrap().contains("a cell query not made"));
     }
 
+    /// A directory of its own for a test of the helper's program, empty.
+    fn program_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("vtium-program-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A copy of `from` at `to`, with `mode`. `cp` writes it, so this
+    /// process never holds the file open to write: a child another test
+    /// forks meanwhile would hold that descriptor until its exec, and
+    /// starting the copy then fails with ETXTBSY.
+    fn program_copy(from: &str, to: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        let copied = Process::new("cp").arg(from).arg(to).status().unwrap();
+        assert!(copied.success(), "cp {from} {}", to.display());
+        std::fs::set_permissions(to, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// What `ls -l /proc/self/fd` lists in a process `launcher` starts: its
+    /// descriptors and what each names.
+    fn descriptors_of(launcher: &Launcher) -> String {
+        let out = launcher.process().output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    fn sh(program: &Path, script: &str) -> Command {
+        Command {
+            program: program.to_owned(),
+            args: vec!["-c".into(), script.into()],
+            account: None,
+        }
+    }
+
+    // the checks, on what fstat gives: root's file, or the account vtium
+    // runs as, and written by its owner alone
     #[test]
-    fn a_missing_helper_is_given_up() {
-        let mut h = Helper::new(
-            Command {
-                program: Path::new("/nonexistent/vtium-vitrify").to_owned(),
-                args: Vec::new(),
-                account: None,
-            },
+    fn a_program_root_or_vtium_owns_and_alone_writes_is_taken() {
+        let me = 1000;
+        assert_eq!(refusal(FileType::RegularFile, 0, 0o100_755, me), None);
+        assert_eq!(refusal(FileType::RegularFile, me, 0o100_700, me), None);
+        for mode in [0o104_755, 0o102_755, 0o106_755] {
+            assert_eq!(
+                refusal(FileType::RegularFile, 0, mode, 0),
+                Some(format!("is setuid or setgid (mode {:o})", mode & 0o7777)),
+                "{mode:o}"
+            );
+        }
+        for kind in [
+            FileType::Directory,
+            FileType::Fifo,
+            FileType::Symlink,
+            FileType::CharacterDevice,
+        ] {
+            assert_eq!(
+                refusal(kind, 0, 0o755, me).as_deref(),
+                Some("is not a regular file"),
+                "{kind:?}"
+            );
+        }
+        assert_eq!(
+            refusal(FileType::RegularFile, 1001, 0o100_755, me).as_deref(),
+            Some("is owned by uid 1001, which is neither root nor the account vtium runs as")
+        );
+        // as root, only root's file
+        assert!(refusal(FileType::RegularFile, me, 0o100_755, 0).is_some());
+        for mode in [0o100_775, 0o100_757, 0o100_777, 0o100_765] {
+            assert!(
+                refusal(FileType::RegularFile, 0, mode, me)
+                    .is_some_and(|why| why.starts_with("may be written by its group or by others")),
+                "{mode:o}"
+            );
+        }
+    }
+
+    // each refusal on a real file, checked on the file opened
+    #[test]
+    fn the_helpers_program_is_refused_unless_absolute_regular_and_kept_from_others() {
+        let me = rustix::process::geteuid().as_raw();
+        let dir = program_dir("refused");
+        let refused = |path: &Path, me: u32| open_program(path, me).unwrap_err();
+        let why = refused(Path::new("usr/bin/vtium-vitrify"), me);
+        assert_eq!(
+            why,
+            "the helper's path usr/bin/vtium-vitrify is not absolute, so vtium does not start it"
+        );
+        let why = refused(&dir, me);
+        assert!(
+            why.ends_with("is not a regular file, so vtium does not start it"),
+            "{why}"
+        );
+        let fifo = dir.join("fifo");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &fifo,
+            FileType::Fifo,
+            Mode::from_raw_mode(0o600),
+            0,
+        )
+        .unwrap();
+        let why = refused(&fifo, me);
+        assert!(
+            why.ends_with("is not a regular file, so vtium does not start it"),
+            "{why}"
+        );
+        let program = dir.join("vtium-vitrify");
+        program_copy("/bin/true", &program, 0o755);
+        assert!(open_program(&program, me).is_ok());
+        let why = refused(&program, me.wrapping_add(1));
+        assert!(
+            why.contains(&format!("is owned by uid {me}, which is neither root")),
+            "{why}"
+        );
+        program_copy("/bin/true", &program, 0o4755);
+        let why = refused(&program, me);
+        assert!(why.contains("is setuid or setgid (mode 4755)"), "{why}");
+        for (mode, shown) in [(0o775, "775"), (0o757, "757")] {
+            program_copy("/bin/true", &program, mode);
+            let why = refused(&program, me);
+            assert_eq!(
+                why,
+                format!(
+                    "the helper {} may be written by its group or by others (mode {shown}), so vtium does not start it",
+                    program.display()
+                )
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // a package upgrade renames a new program into place; a console that
+    // opened the old one goes on starting the old one
+    #[test]
+    fn a_helper_started_after_an_upgrade_is_the_program_opened_at_start() {
+        let dir = program_dir("upgrade");
+        let program = dir.join("vtium-vitrify");
+        program_copy("/bin/sh", &program, 0o755);
+        let launcher = Launcher::open(sh(&program, "echo the old one")).unwrap();
+        let new = dir.join("vtium-vitrify.new");
+        program_copy("/bin/false", &new, 0o755);
+        std::fs::rename(&new, &program).unwrap();
+        let out = launcher.process().output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "the old one\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // the opened program reaches no program vtium starts: not the helper
+    // started from it, nor the session's shell on its pty
+    #[test]
+    fn no_child_holds_the_helpers_program() {
+        let dir = program_dir("descriptor");
+        let program = dir.join("vtium-vitrify");
+        program_copy("/bin/sh", &program, 0o755);
+        let name = program.display().to_string();
+        let launcher = Launcher::open(sh(&program, "ls -l /proc/self/fd/")).unwrap();
+        let listed = descriptors_of(&launcher);
+        assert!(
+            listed.contains("pipe:"),
+            "the listing is the helper's: {listed}"
+        );
+        assert!(!listed.contains(&name), "{listed}");
+
+        // the session writes its listing into a FIFO the test reads
+        let out = dir.join("session");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &out,
+            FileType::Fifo,
+            Mode::from_raw_mode(0o600),
+            0,
+        )
+        .unwrap();
+        let (tx, listing) = mpsc::channel();
+        let fifo = out.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(std::fs::read_to_string(fifo));
+        });
+        let mut shell = Process::new("/bin/sh");
+        shell.args(["-c", "ls -l /proc/self/fd/ >\"$0\""]).arg(&out);
+        let size = vtium_platform::pty::Size {
+            cols: 80,
+            rows: 24,
+            cell_width: 8,
+            cell_height: 16,
+        };
+        let _pty = vtium_platform::pty::Pty::spawn(shell, size, vtium_platform::pty::Erase::Delete)
+            .unwrap();
+        // bounded so the test fails instead of hanging
+        let listed = listing
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap()
+            .unwrap();
+        assert!(
+            listed.contains("/dev/pts/"),
+            "the listing is the session's: {listed}"
+        );
+        assert!(!listed.contains(&name), "{listed}");
+        drop(launcher);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // font-helper names the program, its default the one vtium is built
+    // with
+    #[test]
+    fn font_helper_names_the_program_vtium_opens() {
+        let config = |args: &[&str]| {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            crate::config::load(&args, None, &mut |_: &Path| Ok(None)).config
+        };
+        assert_eq!(program(&config(&[])), Path::new(PROGRAM));
+        let sh = config(&["--font-helper=/bin/sh"]);
+        assert_eq!(program(&sh), Path::new("/bin/sh"));
+        let opened = Launcher::configured(&sh).unwrap();
+        assert_eq!(opened.command.program, Path::new("/bin/sh"));
+        assert_eq!(opened.command.args, ["serve"]);
+        let why = Launcher::configured(&config(&["--font-helper=sh"])).unwrap_err();
+        assert!(why.contains("is not absolute"), "{why}");
+    }
+
+    // a start that fails names /proc/self/fd, which a start without /proc
+    // mounted fails at: the console asks for a glyph, the helper's start
+    // fails, and the reason the console gives the helper up for is that
+    // message
+    #[test]
+    fn a_failed_start_names_proc_self_fd() {
+        let dir = program_dir("unstartable");
+        let program = dir.join("vtium-vitrify");
+        // no one may execute it
+        program_copy("/bin/true", &program, 0o644);
+        let launcher = Launcher::open(sh(&program, "")).unwrap();
+        let fd = launcher.program.as_raw_fd();
+        // the error the kernel gives this start, for the message's text
+        let e = launcher.process().spawn().unwrap_err();
+        let mut helper = Helper::new(
+            launcher,
             Arc::new(|| {}),
             t0(),
-            frit(""),
+            frit("source=builtin:unscii-8\n"),
             None,
             Shared::default(),
             1 << 20,
         );
-        h.ask(CELL, &shown(&['A']), t0());
-        assert!(h.failed().unwrap().contains("cannot start"));
+        helper.ask(CELL, &shown(&['A']), t0());
+        assert_eq!(
+            helper.failed(),
+            Some(
+                format!(
+                    "cannot start {} through /proc/self/fd/{fd}: {e}; vtium starts the helper from the file it opened, through /proc/self/fd, so /proc must be mounted",
+                    program.display()
+                )
+                .as_str()
+            )
+        );
+        assert!(helper.running.is_none(), "nothing started");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_helper_is_not_opened() {
+        let why = Launcher::open(Command {
+            program: Path::new("/nonexistent/vtium-vitrify").to_owned(),
+            args: Vec::new(),
+            account: None,
+        })
+        .unwrap_err();
+        assert!(
+            why.starts_with("cannot open the helper /nonexistent/vtium-vitrify"),
+            "{why}"
+        );
     }
 
     #[test]

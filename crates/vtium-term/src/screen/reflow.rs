@@ -50,7 +50,7 @@ pub(crate) struct Place {
 }
 
 impl Place {
-    fn at(row: usize, col: usize) -> Self {
+    pub(crate) fn at(row: usize, col: usize) -> Self {
         Self {
             row,
             col,
@@ -388,16 +388,22 @@ struct Carried {
     saved: Option<Place>,
     view: Option<Place>,
     selection: Vec<(Anchor, Place)>,
+    /// Each image placement's anchor, its line's top cell (ADR-1003,
+    /// "Images").
+    #[cfg(feature = "images")]
+    images: Vec<(vtium_image::PlacementKey, Place)>,
 }
 
 impl Carried {
     fn places(&self) -> Vec<Place> {
-        [self.anchor, self.top]
+        let places = [self.anchor, self.top]
             .into_iter()
             .chain(self.saved)
             .chain(self.view)
-            .chain(self.selection.iter().map(|&(_, p)| p))
-            .collect()
+            .chain(self.selection.iter().map(|&(_, p)| p));
+        #[cfg(feature = "images")]
+        let places = places.chain(self.images.iter().map(|&(_, p)| p));
+        places.collect()
     }
 
     fn update(&mut self, places: &[Place]) {
@@ -416,6 +422,10 @@ impl Carried {
             next(p);
         }
         for (_, p) in &mut self.selection {
+            next(p);
+        }
+        #[cfg(feature = "images")]
+        for (_, p) in &mut self.images {
             next(p);
         }
     }
@@ -450,9 +460,16 @@ impl Screen {
             .filter_map(|a| self.scrollback.lines().position(|l| l.id() == a.line))
             .chain(view)
             .min();
+        // and the rows a placement above the screen reaches down from
+        #[cfg(feature = "images")]
+        let margin = rows.saturating_add(self.images_reach());
+        #[cfg(not(feature = "images"))]
+        let margin = rows;
+        #[cfg(feature = "images")]
+        self.images_give_anchors();
         let taken = self
             .scrollback
-            .take_for_reflow(cols, rows, reach, &mut self.next_id);
+            .take_for_reflow(cols, margin, reach, &mut self.next_id);
         let (older, split) = taken.offset;
         let continues = taken.continues;
         let mut run = taken.rows;
@@ -483,6 +500,20 @@ impl Screen {
                 .filter_map(|a| {
                     let row = run.iter().position(|l| l.id() == a.line)?;
                     Some((*a, Place::at(row, a.x)))
+                })
+                .collect(),
+            #[cfg(feature = "images")]
+            images: run
+                .iter()
+                .enumerate()
+                .flat_map(|(row, line)| {
+                    let anchors = self.images_anchors(line.id());
+                    anchors.into_iter().map(move |(p, col)| {
+                        (
+                            p,
+                            Place::at(row, usize::try_from(col).unwrap_or(usize::MAX)),
+                        )
+                    })
                 })
                 .collect(),
         };
@@ -522,6 +553,7 @@ impl Screen {
         self.cols = cols;
         self.land(&carried, Landing { top, kept, base }, saved);
         self.scrollback.enforce_max();
+        self.images_dropped();
         self.discard_lines(gone);
     }
 
@@ -565,6 +597,18 @@ impl Screen {
             })
             .collect();
         self.selection.carry(&moved);
+        #[cfg(feature = "images")]
+        {
+            let moved: Vec<_> = carried
+                .images
+                .iter()
+                .map(|&(p, place)| {
+                    let col = u32::try_from(place.col).unwrap_or(u32::MAX);
+                    (p, line(place.row).map(|line| (line, col)))
+                })
+                .collect();
+            self.images_carry(&moved);
+        }
         let view = carried
             .view
             .filter(|p| p.row < top)
@@ -704,6 +748,36 @@ mod tests {
             (places[3].row, places[3].col, places[3].after),
             (0, 5, false)
         );
+    }
+
+    // A place past the text, or on a row that does not rewrap, is kept
+    // inside the row at each width it passes, so a narrower width on the way
+    // moves it for good: this is why a waiting line an image is anchored on
+    // rewraps at every width (ADR-1003, "Images").
+    #[test]
+    fn a_place_past_the_text_is_kept_inside_the_row_at_each_width() {
+        let mut through = [Place::at(0, 7)];
+        let out = rewrap(vec![row(1, "abc", false)], 5, &mut through);
+        assert_eq!(through, [Place::at(0, 4)], "inside a row of 5");
+        rewrap(out, 10, &mut through);
+        assert_eq!(through, [Place::at(0, 4)], "and there at 10");
+        let mut once = [Place::at(0, 7)];
+        rewrap(vec![row(1, "abc", false)], 10, &mut once);
+        assert_eq!(once, [Place::at(0, 7)], "rewrapped once at 10");
+
+        let mut wrapped = [Place::at(1, 3)];
+        let rows = vec![row(1, "abcd", true), row(2, "ef", false)];
+        let out = rewrap(rows, 3, &mut wrapped);
+        assert_eq!(out.iter().map(text_of).collect::<Vec<_>>(), ["abc", "def"]);
+        // a cell past "ef", kept inside a last row already full
+        assert_eq!(wrapped, [Place::at(1, 2)]);
+
+        let mut fixed = row(1, "abcdef", false);
+        fixed.flags_mut().insert(LineFlags::FIXED);
+        let mut cut = [Place::at(0, 5)];
+        let out = rewrap(vec![fixed], 4, &mut cut);
+        assert_eq!(out.iter().map(text_of).collect::<Vec<_>>(), ["abcd"]);
+        assert_eq!(cut, [Place::at(0, 3)], "the cut row's last column");
     }
 
     // A row of double size, or one written with mode 2028 reset, joins

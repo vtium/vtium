@@ -12,7 +12,9 @@
 # vt-check.log in /tmp/vtium-vt (VTIUM_VT_DIR) under a header line for the run.
 # GUIDE_STEPS="4 8 9" (or 4,8,9) runs only those steps. In the guide's text,
 # {vt} is GUIDE_VT and {desktop} GUIDE_DESKTOP, the VT of the run and the
-# desktop's, as run-vt.sh sets them.
+# desktop's, as run-vt.sh sets them. The steps run with the system's locale
+# when no LANG is set. In a console that vtium opens after the first
+# (VTIUM_CONSOLE past 1), guide.sh runs a shell in place of the guide.
 #
 # --check reads the guide, checks it and the step list, prints the steps and
 # exits, without a terminal.
@@ -134,6 +136,33 @@ if [ -n "$check" ]; then
 	exit 0
 fi
 
+# A console that the open chord, Ctrl+Super+Enter, adds to the head starts
+# the head's command again, which is this guide (ADR-1401 D5). The guide
+# runs in the head's first console alone, so that one run asks each step
+# once and writes one set of answers; any later console gets a shell
+# instead, which says so.
+if [[ ${VTIUM_CONSOLE:-} =~ ^[0-9]+$ ]] && [ "$VTIUM_CONSOLE" != 1 ]; then
+	printf 'This is console %s of the head %s. The guide runs in console 1.\n' \
+		"$VTIUM_CONSOLE" "${VTIUM_HEAD:-}"
+	printf 'Ctrl+Super+Left and Ctrl+Super+Right switch between the consoles.\n\n'
+	PS1="console-$VTIUM_CONSOLE\$ " exec /bin/bash --noprofile --norc -i
+fi
+
+# run-vt.sh clears the session's environment, so the steps' commands and
+# shells get the system's locale here, as make vt-shell's shell does: LANG
+# and LC_* from /etc/locale.conf, each a value of locale-name characters.
+# A guide run by hand in a terminal that has a LANG keeps that terminal's.
+# GUIDE_LOCALE_CONF names another file in its place, for the tests.
+locale_conf=${GUIDE_LOCALE_CONF:-/etc/locale.conf}
+if [ -z "${LANG:-}" ] && [ -f "$locale_conf" ]; then
+	assignment='^(LANG|LC_[A-Z]+)="?([[:alnum:]_.@-]+)"?$'
+	while IFS= read -r line || [ -n "$line" ]; do
+		if [[ $line =~ $assignment ]]; then
+			export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+		fi
+	done <"$locale_conf"
+fi
+
 log=$vt_dir/vt-check.log
 # Stops the run before anything is asked, saying why on the screen.
 refuse() {
@@ -219,6 +248,18 @@ run() {
 
 note "=== $title, $(date -Is), guide $(readlink -f "$guide"), tty $(tty), steps ${only[*]:-all}"
 
+# How the run ends: as vtium's session (VTIUM_CONSOLE set), vtium exits with
+# the guide; run by hand in a terminal, as restart.guide is, the guide ends
+# there and nothing else does.
+if [ -n "${VTIUM_CONSOLE:-}" ]; then
+	start_end="After the last step vtium exits and VT $vt gets its console back;
+Ctrl+Alt+F$desktop is your desktop."
+	last_end="vtium exits and VT $vt gets its console back. Ctrl+Alt+F$desktop is your desktop."
+else
+	start_end="After the last step the checks end here, in this terminal."
+	last_end="The answers are in $log."
+fi
+
 clear_screen
 printf '%s\n\n' "$title"
 [ ${#intro[@]} -eq 0 ] || printf '%s\n' "${intro[@]}" ""
@@ -230,8 +271,7 @@ s, with a note if something looked off. A probe prints each sequence the
 terminal sends, with the time it read it. At a step's first prompt, s skips
 the step and q ends the checks.
 
-After the last step vtium exits and VT $vt gets its console back;
-Ctrl+Alt+F$desktop is your desktop.
+$start_end
 
 Press Enter to begin.
 EOF
@@ -276,6 +316,6 @@ note "=== done $(date -Is)"
 clear_screen
 cat <<EOF
 All steps done; the answers are saved. Press Enter to end the run.
-vtium exits and VT $vt gets its console back. Ctrl+Alt+F$desktop is your desktop.
+$last_end
 EOF
 read -r _ || true

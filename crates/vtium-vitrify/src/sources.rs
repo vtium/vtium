@@ -13,7 +13,7 @@ use vtium_platform::vt::font::ConsoleFont;
 
 use crate::child::Request;
 use crate::font::Font;
-use crate::frit::{Origin, Source};
+use crate::frit::{Hinting, Origin, Source};
 use crate::outline::{OUTLINE_BYTES_MAX, OutlineRequest, family_key as outline_key};
 
 /// The kbd data directories the build names, in the order they are
@@ -551,6 +551,8 @@ fn outline(font: Vec<u8>, family: &str) -> Input {
         cells: Vec::new(),
         cover: Vec::new(),
         clusters: Vec::new(),
+        baselines: Vec::new(),
+        hinting: Hinting::default(),
     })
 }
 

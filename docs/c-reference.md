@@ -406,7 +406,7 @@ PSF fonts were bounded against crafted files (65535 glyphs, 32 by 256 pixels, 16
 
 libtsm held, for each screen buffer, a store of images and of the placements that showed them; image keys carried a slot and a generation, and placement keys were never reused (`libtsm/src/tsm/libtsm-int.h:192-317`, `libtsm/src/tsm/tsm-image.c:188-234`).
 
-The stores were bounded: 1024 images and 4096 placements a store, an image side of 65535 pixels, a cell of 1024 pixels, a box of 10,000 cells (`libtsm/src/tsm/libtsm.h:653-687`).
+The stores were bounded: 1024 images and 4096 placements a store, an image side of 65535 pixels, a cell of 1024 pixels, a box of 10,000 cells a side, columns and rows each (`libtsm/src/tsm/libtsm.h:653-687`).
 
 A placement was anchored to the line holding its top row, so it moved with the line into the scrollback and back; a frame walked the visible lines plus as many above as the tallest placement, so a picture whose top had scrolled away still drew (`libtsm/src/tsm/libtsm-int.h:192-203`, `kmscon/docs/architecture/render/ADR-103-images-are-placements-that-travel-with-lines-sixel-and-the-kitty-graphics-protocol-feed-one-store.md:377`). <!-- adr-cite-ignore: kmscon's records -->
 
@@ -470,7 +470,7 @@ Optional backends were modules loaded at start: drm3d, gltex, FreeType, Pango, P
 
 **In vtium:** the binary's configuration, command line, terminfo entry and XTGETTCAP table are vtium/vtium#21 (`vtium`), keeping the `kmscon.conf` keys and options tier 3 uses (kmscon `ADR-304` §1); the minspec build is `cargo build --profile minspec` with images, outline fonts and the GPU path as Cargo features (`docs/architecture.md`, "The minspec build"). <!-- adr-cite-ignore: kmscon's records -->
 
-**Verdict: follows.** Cargo features replace meson options and loadable modules, a Rust shape for the same choice. #21 carries the drift test for the terminfo entry. #5 changes the default of `use-original-mode` (see part 3 for what the C default was).
+**Verdict: follows.** Cargo features replace meson options and loadable modules, a Rust shape for the same choice. #21 carries the drift test for the terminfo entry. vtium departs in the default `TERM`: its own entry, `xterm-vtium`. Under `kmscon` it answers XTGETTCAP from the C reference's table, as the C reference did (ADR-1000, "The terminfo entry and TERM"). #5 changes the default of `use-original-mode` (see part 3 for what the C default was).
 
 **Not planned:** the seat's own `<seat>.seat.conf`, the command line's precedence over the file, and the PAM file are named in no issue. vtium installs `kmsconvt@.service` (`crates/vtium/install/`), which tier 3's guest starts (#22); `kmscon.service`, for a system with no VTs, has no counterpart yet.
 

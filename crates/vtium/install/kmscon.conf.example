@@ -79,8 +79,8 @@
 #osd-background=11,42,91
 #osd-border=100,143,255
 
-## `TERM` in the session's environment.
-#term=kmscon
+## `TERM` in the session's environment. The default names vtium's own terminfo entry, and XTGETTCAP answers from that entry's capabilities; `kmscon` names the C reference's entry, and XTGETTCAP answers from the C reference's. Under any other name every name XTGETTCAP asks for is unknown.
+#term=xterm-vtium
 
 ## Start the session with an empty environment and the variables vtium sets; off, with vtium's own environment as well.
 #reset-env
@@ -120,6 +120,9 @@
 
 ## At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a head file whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8). 0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.
 #display-wait=10
+
+## How many buffers each DRM display keeps, the same for every display: `3`, triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p); `2`, double buffering; `1`, single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn. A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec.
+#display-buffers=
 
 ## Draw through the GPU, in a build that has it.
 #no-hwaccel
@@ -226,6 +229,9 @@
 ## Take pointers: mice, touchpads and touchscreens.
 #mouse
 
+## Invert the mouse wheel: it scrolls the view and reports to a program the other way, and so do the cursor keys it sends on the alternate screen under mode 1007. Ctrl and the wheel still zoom in when the wheel turns up.
+#no-natural-scrolling
+
 ## Draw the pointer in software on every display, never on a display's cursor plane.
 #no-soft-cursor
 
@@ -256,8 +262,20 @@
 ## The font: a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the helper generates at run time; a kbd font's name, or with `font-engine=psf` a PSF font's path, that no frit bears becomes a one-source frit. Unset, vconsole's font; with none, or a name that is neither, vtium draws its built-in fonts and logs the name and why.
 #font-name=monospace
 
+## The directory of the frits, the `NAME.vtfrit` files that `font-name` and a head's profile name. The default is the directory vtium was built with.
+#font-frits=/etc/vtium/fonts
+
+## The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why and draws its built-in font. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with.
+#font-helper=/usr/bin/vtium-vitrify
+
 ## The font's size in points, 1/72 inch, drawn at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and over a frit's `cell=`; 0 picks one from the display's size.
 #font-size=0
+
+## How the font helper is to hint outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits a TrueType font both ways, and draws a CFF font as `light` does. Bitmap fonts take no hinting. vtium does not yet hand this key to the helper, so for now each frit's `hinting=` decides, `light` where it states none.
+#font-hinting=
+
+## Height added to each row, over a frit's `line-spacing=`: a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=` decides, 0 where it states none.
+#font-line-spacing=
 
 ## Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.
 #allow-font-ops

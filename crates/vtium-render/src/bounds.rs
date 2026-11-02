@@ -48,9 +48,23 @@ const POINTER_SIDE: Bound = Bound {
     cite: "`VIDEO_CURSOR_MAX_SIZE` (video.h:172), the C reference's largest hardware cursor and I-beam",
 };
 
+const PICTURE_SCREENS: Bound = Bound {
+    name: "PICTURE_CACHE_SCREENS",
+    value: 2,
+    what: "Screens of the display, in 4-byte pixels, that its scaled and turned copies of pictures hold, in a build with `images`",
+    past: "The copy no placement of the frame shows that was placed longest ago is evicted; a copy that still does not fit is scaled for each frame it draws and not kept",
+    cite: "`image_budget_cache_limit` (image_budget.c:105-110) and bbulk's pictures (bbulk.c:71); ADR-1100 D5",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 4] = [POOL_BYTES, ROW_SCRATCH, TIMER_SAMPLES, POINTER_SIDE];
+pub(crate) const BOUNDS: [Bound; 5] = [
+    POOL_BYTES,
+    ROW_SCRATCH,
+    TIMER_SAMPLES,
+    POINTER_SIDE,
+    PICTURE_SCREENS,
+];
 
 /// Bytes each glyph pool may hold in the performance profile.
 pub const POOL_BYTES_PERFORMANCE: u64 = POOL_BYTES.value as u64;
@@ -60,6 +74,10 @@ pub const ROW_SCRATCH_MAX: usize = ROW_SCRATCH.value;
 
 /// Frames whose time an interval keeps for its percentiles.
 pub const RENDER_TIMER_SAMPLES: usize = TIMER_SAMPLES.value;
+
+/// Screens of 4-byte pixels a display's copies of pictures hold.
+#[cfg(feature = "images")]
+pub const PICTURE_CACHE_SCREENS: usize = PICTURE_SCREENS.value;
 
 /// The pointer's longest side in pixels.
 #[expect(clippy::cast_possible_truncation, reason = "the bound is 64")]

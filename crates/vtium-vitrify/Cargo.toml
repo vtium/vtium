@@ -37,6 +37,10 @@ ruzstd = "=0.8.2"
 # parser's child; MIT or Apache-2.0, as are skrifa, read-fonts, zeno and
 # yazi under it. The README says why this one.
 swash = "=0.2.10"
+# swash's own outline reader, which the rasteriser calls itself to hint in
+# the mode a frit's `hinting=` names (ADR-1200 D1), since swash's scaler
+# hints in one fixed mode; the version and features swash already builds.
+skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
 # The shaper ADR-1200's glyph engine takes for clusters (vtium/vtium#144):
 # HarfRust, the HarfBuzz project's Rust port, MIT, with no unsafe code of
 # its own; run only in the helper and the parser's child, never in the

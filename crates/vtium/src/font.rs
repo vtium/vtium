@@ -6,9 +6,12 @@
 //! frit's (`NAME.vtfrit` in the frits' directory), else a kbd name, a path
 //! or vconsole's font becomes a one-source frit made on the fly
 //! ([`frit_named`]). A frit is generated at run time (ADR-1301 D2), in
-//! the cell it states ([`frit_cell`], #145), else for a frit of bitmap
-//! sources its fonts' own cell, which the helper tells before the first
-//! frame (the operator, 2026-10-28), else the display's: the
+//! the cell it states ([`frit_cell`], #145), else the cell its first
+//! source gives, which the helper tells at the height the console draws
+//! at, before the first frame and at each zoom of an outline frit: a
+//! bitmap source's own cell (the operator, 2026-10-28), or an outline
+//! source's cell at that height (the maintainer, 2026-11-01); else the
+//! display's: the
 //! built-in font draws in that cell at once, and the helper's glyphs
 //! replace it, character by character, as they arrive ([`Chosen::Frit`],
 //! [`crate::deferred`], [`crate::helper`]). The built-ins are Unscii-8
@@ -30,13 +33,13 @@ use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
 
 use crate::config::keys::{
-    FONT_ENGINE, FONT_NAME, GLYPH_SOURCE, GLYPH_SOURCE_BLOCK, GLYPH_SOURCE_BOX,
+    FONT_ENGINE, FONT_FRITS, FONT_NAME, GLYPH_SOURCE, GLYPH_SOURCE_BLOCK, GLYPH_SOURCE_BOX,
     GLYPH_SOURCE_BRAILLE, GLYPH_SOURCE_LEGACY, GLYPH_SOURCE_OCTANTS, GLYPH_SOURCE_SEXTANTS, Key,
     MISSING,
 };
 use crate::config::{Config, Origin};
 use crate::deferred::{DeferredFace, Shared};
-use crate::helper::{self, FritText};
+use crate::helper::{self, FritText, OwnCell};
 use crate::layout::Zoom;
 
 /// Each sprite range and the key that sets its source alone.
@@ -142,10 +145,16 @@ pub fn auto_size(width: u32, height: u32, smallest: u32) -> u32 {
     }
 }
 
-/// The frits' directory, set at build time with `VTIUM_FONT_FRITS` as
-/// vtium-vitrify's is.
-pub fn default_frits() -> PathBuf {
-    PathBuf::from(option_env!("VTIUM_FONT_FRITS").unwrap_or("/etc/vtium/fonts"))
+/// The frits' directory vtium is built with, `font-frits`'s default: set
+/// at build time with `VTIUM_FONT_FRITS`, as vtium-vitrify's is.
+pub const FRITS: &str = match option_env!("VTIUM_FONT_FRITS") {
+    Some(dir) => dir,
+    None => "/etc/vtium/fonts",
+};
+
+/// The frits' directory `config` names, `font-frits`.
+pub fn frits(config: &Config) -> PathBuf {
+    PathBuf::from(config.text(&FONT_FRITS).unwrap_or(FRITS))
 }
 
 /// Whether `name` is a frit's name (ADR-1200 D1): 1 to 64 characters of
@@ -390,18 +399,32 @@ fn builtin_in(cell: Cell, locale: &str) -> Option<DisplayFace> {
 #[derive(Clone, Debug)]
 pub struct Sources {
     pub frits: PathBuf,
-    /// The helper; `None` for the system's, [`helper::Command::system`].
+    /// The helper; `None` for the one `font-helper` names
+    /// ([`helper::Launcher::configured`]).
     pub helper: Option<helper::Command>,
     pub vconsole_conf: PathBuf,
     pub kernel_cmdline: PathBuf,
 }
 
+impl Sources {
+    /// The system's, as `config` names them: the frits' directory,
+    /// `font-frits`; the helper `font-helper` names; `/etc/vconsole.conf`
+    /// and `/proc/cmdline`.
+    pub fn configured(config: &Config) -> Sources {
+        Sources {
+            frits: frits(config),
+            ..Sources::default()
+        }
+    }
+}
+
 impl Default for Sources {
-    /// The system's: the frits' directory, the installed helper,
+    /// The system's with every key at its default: the frits' directory
+    /// vtium is built with, the helper `font-helper` names,
     /// `/etc/vconsole.conf` and `/proc/cmdline`.
     fn default() -> Sources {
         Sources {
-            frits: default_frits(),
+            frits: PathBuf::from(FRITS),
             helper: None,
             vconsole_conf: PathBuf::from("/etc/vconsole.conf"),
             kernel_cmdline: PathBuf::from("/proc/cmdline"),
@@ -556,10 +579,14 @@ pub enum Chosen {
         cell: Option<Cell>,
         /// `size=`, unless `font-size` is configured.
         size: Option<u32>,
-        /// Its fonts' own cell, as the helper tells it for a frit of
-        /// bitmap sources that states no cell or size.
+        /// Its bitmap first source's own cell, as the helper tells it for a
+        /// frit that states no cell, with no `font-size` configured.
         own: Option<Cell>,
-        /// A source is an outline font, so a zoom steps by 1 pixel.
+        /// Its outline first source's cell at each height the helper was
+        /// asked at, for a frit that states no cell.
+        heights: std::collections::BTreeMap<u32, Cell>,
+        /// Its first source is an outline font, so a zoom steps by 1
+        /// pixel: guessed from its text until the helper's answer says.
         outline: bool,
         generated: Shared,
     },
@@ -595,6 +622,7 @@ impl Chosen {
             cell: cell.filter(|_| !sized),
             size: size.filter(|_| !sized && outline),
             own: None,
+            heights: std::collections::BTreeMap::new(),
             generated: Shared::default(),
         })
     }
@@ -607,30 +635,60 @@ impl Chosen {
         }
     }
 
-    /// Whether the font is a frit that takes its fonts' own cell, asked of
-    /// the helper (the operator, 2026-10-28): its sources bitmap, by its
-    /// text, and no cell stated or size configured.
-    pub fn wants_own_cell(&self) -> bool {
-        matches!(
-            self,
+    /// Whether the font is a frit that asks the helper for its first
+    /// source's cell at `height`: one that states no cell, and either an
+    /// outline frit with no answer at `height` yet (the maintainer,
+    /// 2026-11-01), or a bitmap frit with no answer yet and no `font-size`
+    /// configured, which `sized` says (the operator, 2026-10-28).
+    pub fn wants_own_cell(&self, height: u32, sized: bool) -> bool {
+        match self {
+            Chosen::Frit {
+                cell: None,
+                outline: true,
+                heights,
+                ..
+            } => !heights.contains_key(&height),
             Chosen::Frit {
                 cell: None,
                 own: None,
                 outline: false,
                 ..
-            }
-        )
-    }
-
-    /// Takes `cell`, the frit's fonts' own, as the helper told it.
-    pub fn set_own_cell(&mut self, cell: Cell) {
-        if let Chosen::Frit { own, .. } = self {
-            *own = Some(cell);
+            } => !sized,
+            _ => false,
         }
     }
 
-    /// The cell a bitmap frit's heights are whole multiples of: the one it
-    /// states, else its fonts' own.
+    /// Takes `answer`, the cell the helper told for the frit's first
+    /// source, which also says whether that source is a bitmap or an
+    /// outline font, whatever the frit's text suggested. A bitmap source's
+    /// own cell counts only where no `font-size` is configured, as
+    /// `sized` says.
+    pub fn set_own_cell(&mut self, answer: OwnCell, sized: bool) {
+        if let Chosen::Frit {
+            own,
+            heights,
+            outline,
+            ..
+        } = self
+        {
+            match answer {
+                OwnCell::Bitmap(cell) => {
+                    *outline = false;
+                    if !sized {
+                        *own = Some(cell);
+                    }
+                }
+                OwnCell::Outline(cell) => {
+                    *outline = true;
+                    heights.insert(cell.height, cell);
+                }
+            }
+        }
+    }
+
+    /// The cell a bitmap frit's heights are whole multiples of, and the
+    /// cell an outline frit states: the one it states, else a bitmap first
+    /// source's own.
     fn base_cell(&self) -> Option<Cell> {
         match self {
             Chosen::Frit { own, .. } => self.stated().or(*own),
@@ -638,8 +696,9 @@ impl Chosen {
         }
     }
 
-    /// Whether the font is a frit a zoom steps by 1 pixel.
-    fn outline(&self) -> bool {
+    /// Whether the font is a frit a zoom steps by 1 pixel, whose first
+    /// source is an outline font.
+    pub fn outline(&self) -> bool {
         matches!(self, Chosen::Frit { outline: true, .. })
     }
 
@@ -666,14 +725,21 @@ impl Chosen {
     /// by the largest whole factor that fits. The built-in unifont draws
     /// through its own face.
     pub fn face(&self, height: u32, locale: &str) -> Option<DisplayFace> {
-        if let Chosen::Frit { generated, .. } = self {
+        if let Chosen::Frit {
+            generated, heights, ..
+        } = self
+        {
             let at = Chosen::Builtin(None).face(height, locale)?;
             let stated = self.base_cell();
             let (cell, step) = match (stated, self.outline()) {
                 // D17, the C reference's outline increase_step of 1: the
-                // stated cell at its own height, else D17's width
+                // stated cell at its own height, else the helper's answer
+                // at this height, else the built-in font's width
                 (Some(c), true) if c.height == height => (c, 1),
-                (_, true) => (frit_cell_at(None, height, at.cell()), 1),
+                (_, true) => match heights.get(&height) {
+                    Some(c) => (*c, 1),
+                    None => (frit_cell_at(None, height, at.cell()), 1),
+                },
                 // D17, the C reference's PSF increase_step of the font's
                 // height: the stated or own cell's whole multiples
                 (Some(c), false) => (frit_cell_at(Some(c), height, at.cell()), c.height),
@@ -848,6 +914,16 @@ mod tests {
     fn config(args: &[&str]) -> Config {
         let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
         crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+    }
+
+    // font-frits names the frits' directory, its default the one vtium is
+    // built with
+    #[test]
+    fn font_frits_names_the_frits_directory() {
+        assert_eq!(Sources::configured(&config(&[])).frits, Path::new(FRITS));
+        let sources = Sources::configured(&config(&["--font-frits=/srv/frits"]));
+        assert_eq!(sources.frits, Path::new("/srv/frits"));
+        assert!(sources.helper.is_none(), "the helper font-helper names");
     }
 
     #[test]
@@ -1038,18 +1114,13 @@ mod tests {
     #[test]
     fn a_frits_own_cell_scales_by_whole_factors_under_the_automatic_height() {
         for text in ["source=kbd:x\n", "source=kbd:x\nsize=16\n"] {
-            assert!(frit_of(text, false).wants_own_cell(), "{text}");
+            assert!(frit_of(text, false).wants_own_cell(16, false), "{text}");
+            assert!(!frit_of(text, true).wants_own_cell(16, true), "{text}");
         }
-        for text in [
-            "source=kbd:x\ncell=8x16\n",
-            "source=outline:/f.ttf\n",
-            "source=kbd:x\nsource=font:Mono\n",
-        ] {
-            assert!(!frit_of(text, false).wants_own_cell(), "{text}");
-        }
+        assert!(!frit_of("source=kbd:x\ncell=8x16\n", false).wants_own_cell(16, false));
         let mut f = frit_of("source=kbd:x\n", false);
-        f.set_own_cell(cell(8, 16));
-        assert!(!f.wants_own_cell());
+        f.set_own_cell(OwnCell::Bitmap(cell(8, 16)), false);
+        assert!(!f.wants_own_cell(16, false));
         // 1366x768's automatic 19, 1920x1080's 27 and 3840x2160's 54
         assert_eq!(f.auto_height(1366, 768, "C", 96.0), 16);
         assert_eq!(f.auto_height(1920, 1080, "C", 96.0), 16);
@@ -1061,10 +1132,65 @@ mod tests {
         assert_eq!(zoom(&f.rungs("C"), 16, Zoom::In), Some(32));
         assert_eq!(zoom(&f.rungs("C"), 16, Zoom::Out), None);
         let mut f = frit_of("source=kbd:x\n", false);
-        f.set_own_cell(cell(8, 8));
+        f.set_own_cell(OwnCell::Bitmap(cell(8, 8)), false);
         assert_eq!(f.auto_height(320, 240, "C", 96.0), 8);
         assert_eq!(f.auto_height(640, 480, "C", 96.0), 16);
         assert_eq!(f.face(16, "C").expect("a face").cell(), cell(16, 16));
+    }
+
+    // overhang part 1 (the maintainer, 2026-11-01): an outline frit with
+    // no cell stated asks the helper at each height it draws at, a
+    // configured font-size included, and takes each answer at its own
+    // height alone; at a height with no answer it is as wide as the
+    // built-in font, and it zooms by 1 pixel
+    #[test]
+    fn an_outline_frit_takes_the_helpers_cell_at_each_height_asked() {
+        let mut f = frit_of("source=outline:/f.ttf\n", true);
+        assert!(f.outline());
+        assert!(f.wants_own_cell(16, true), "a configured size asks too");
+        f.set_own_cell(OwnCell::Outline(cell(9, 16)), true);
+        assert!(!f.wants_own_cell(16, true));
+        assert!(f.wants_own_cell(17, true), "another height asks again");
+        assert_eq!(f.face(16, "C").expect("a face").cell(), cell(9, 16));
+        assert_eq!(f.face(17, "C").expect("a face").cell(), cell(8, 17));
+        f.set_own_cell(OwnCell::Outline(cell(12, 22)), true);
+        assert_eq!(f.face(22, "C").expect("a face").cell(), cell(12, 22));
+        assert_eq!(f.face(16, "C").expect("a face").cell(), cell(9, 16));
+        assert_eq!(f.snap(17), 17, "no whole multiples");
+        // an outline frit that states a cell asks nothing
+        let stated = frit_of("source=outline:/f.ttf\ncell=10x20\n", false);
+        assert!(!stated.wants_own_cell(20, false));
+    }
+
+    // overhang part 1: the helper's answer, not the frit's text, says what
+    // kind of font the first source is. A font: source the text reads as
+    // an outline font that resolves to a bitmap font answers with its own
+    // cell, and the frit then zooms by that cell's height; a source the
+    // text reads as a bitmap font answered as an outline font zooms by 1
+    #[test]
+    fn the_helpers_answer_decides_whether_a_frit_is_outline() {
+        let mut f = frit_of("source=font:Terminus\n", false);
+        assert!(f.outline(), "the text's guess");
+        assert!(f.wants_own_cell(16, false));
+        f.set_own_cell(OwnCell::Bitmap(cell(8, 16)), false);
+        assert!(!f.outline());
+        assert!(!f.wants_own_cell(16, false));
+        assert_eq!(f.face(32, "C").expect("a face").cell(), cell(16, 32));
+        assert_eq!(zoom(&f.rungs("C"), 16, Zoom::In), Some(32));
+        // with font-size configured the bitmap answer's cell does not count
+        let mut f = frit_of("source=font:Terminus\n", true);
+        f.set_own_cell(OwnCell::Bitmap(cell(8, 16)), true);
+        assert!(!f.outline());
+        assert!(!f.wants_own_cell(19, true));
+        assert_eq!(f.face(19, "C").expect("a face").cell(), cell(8, 19));
+        let mut f = frit_of("source=kbd:missing\nsource=outline:/f.ttf\n", false);
+        assert!(f.outline(), "the text names an outline source");
+        let mut f2 = frit_of("source=kbd:missing\n", false);
+        f2.set_own_cell(OwnCell::Outline(cell(9, 16)), false);
+        assert!(f2.outline());
+        assert_eq!(f2.face(16, "C").expect("a face").cell(), cell(9, 16));
+        f.set_own_cell(OwnCell::Outline(cell(9, 16)), false);
+        assert_eq!(f.face(16, "C").expect("a face").cell(), cell(9, 16));
     }
 
     // ADR-1200 D1, D17: an outline frit's size= alone is its starting
@@ -1140,7 +1266,7 @@ mod tests {
         let b = Chosen::Builtin(None);
         assert_eq!(b.zoom(16, Zoom::In, "C", 300.0), Some(32));
         let mut k = frit_of("source=kbd:x\n", false);
-        k.set_own_cell(cell(8, 16));
+        k.set_own_cell(OwnCell::Bitmap(cell(8, 16)), false);
         assert_eq!(k.zoom(16, Zoom::In, "C", 300.0), Some(32));
     }
 
