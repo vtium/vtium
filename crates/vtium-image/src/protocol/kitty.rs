@@ -34,12 +34,20 @@
 //! - **The cursor.** After a placement the cursor goes down one row fewer
 //!   than the box has rows, then to the column after the box; when that
 //!   reaches the right edge it goes down once more, to column 0. `C=1`
-//!   leaves it where it is.
+//!   leaves it where it is, and so does every relative or virtual
+//!   placement, whatever `C` says, as the spec asks.
+//! - **Relative and virtual placements** (D13). A put with `P` makes a
+//!   relative placement of the placement that `P`, the parent's image id,
+//!   and `Q`, its placement id, name, offset `H` columns and `V` rows from
+//!   the parent's origin. A missing parent answers ENOPARENT, a placement
+//!   that would follow itself ECYCLE, and a chain deeper than
+//!   `RELATIVE_DEPTH_MAX` ETOODEEP. A put with `U=1` makes a virtual
+//!   placement, which lies on no line; the placeholder cells that show it
+//!   are vtium-term's to read.
 //!
-//! Relative placements (`P`, `Q`, `H`, `V`), Unicode placeholders (`U`) and
-//! animation (`a=f`, `a=a`, `a=c`) are answered EINVAL until their own work
-//! builds them (D13, and kitty animation's record); `Command::later` is the one place that
-//! refuses them. A delete of animation frames (`d=f`, `d=F`) deletes
+//! Animation (`a=f`, `a=a`, `a=c`) is answered EINVAL until its own work
+//! builds it (kitty animation's record); `Command::later` is the one place
+//! that refuses it. A delete of animation frames (`d=f`, `d=F`) deletes
 //! nothing.
 
 use vtium_parse::Chunk;
@@ -53,8 +61,8 @@ use crate::handler::{Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place, Refusal};
 use crate::protocol::chunk_work;
 use crate::rules::Protocol;
-use crate::store::Reservation;
 use crate::store::kitty::{Delete, Select};
+use crate::store::{Link, Placing, Reservation};
 
 mod command;
 #[cfg(test)]
@@ -676,7 +684,8 @@ fn buffer(
 }
 
 /// Places image `key`, of kitty id `id`, at the cursor as `cmd`'s keys say,
-/// and moves the cursor after it unless `C=1`.
+/// and moves the cursor after it unless `C=1`; or makes a relative or a
+/// virtual placement of it, which leaves the cursor where it is.
 fn place(ctx: &mut dyn Context, cmd: &Command, key: ImageKey, id: u32) -> Answer {
     let (cols, rows) = ctx.grid();
     let (cx, cy) = ctx.cursor();
@@ -697,18 +706,33 @@ fn place(ctx: &mut dyn Context, cmd: &Command, key: ImageKey, id: u32) -> Answer
         // a placement id on an image without an id is ignored (spec)
         id: if id != 0 { cmd.placement } else { 0 },
     };
+    let link = if cmd.virtual_placement() {
+        Link::Virtual
+    } else if cmd.relative() {
+        Link::Parent {
+            image: cmd.parent,
+            placement: cmd.parent_placement,
+            cols: cmd.offset_cols,
+            rows: cmd.offset_rows,
+        }
+    } else {
+        Link::Cell
+    };
     let placed = ctx
         .edit(|e| {
-            let p = e.place(key, at)?;
-            e.extent(p).ok_or(Refusal::NotFound)
+            let p = e.kitty_place(key, at, link)?;
+            e.extent(p).ok_or(Placing::Refused(Refusal::NotFound))
         })
-        .unwrap_or(Err(Refusal::NoSpace));
+        .unwrap_or(Err(Placing::Refused(Refusal::NoSpace)));
     let (box_cols, box_rows) = match placed {
         Ok(extent) => extent,
-        Err(Refusal::NoSpace) => return Err(Error::NoSpace),
-        Err(_) => return Err(Error::Invalid),
+        Err(Placing::Refused(Refusal::NoSpace)) => return Err(Error::NoSpace),
+        Err(Placing::NoParent) => return Err(Error::NoParent),
+        Err(Placing::Cycle) => return Err(Error::Cycle),
+        Err(Placing::TooDeep) => return Err(Error::TooDeep),
+        Err(Placing::Refused(_)) => return Err(Error::Invalid),
     };
-    if cmd.cursor == 1 {
+    if cmd.cursor == 1 || link != Link::Cell {
         return Ok(());
     }
     // down one row fewer than the box's rows, then the column after the

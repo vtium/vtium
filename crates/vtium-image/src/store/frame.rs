@@ -2,8 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use super::{Rows, Store};
-use crate::image::{ImageKey, Pixels, PlacementKey};
+use super::{Located, Placement, Rows, Store};
+use crate::image::{ImageKey, LineKey, Pixels, PlacementKey};
 use crate::rules::{Layer, rules};
 
 /// A placement as a frame shows it: what the rules resolved, so the
@@ -68,8 +68,11 @@ impl Store {
     /// order (D4): by layer, then z, then their place in the stack at that
     /// depth. `view.screen` is the view's lines top to bottom and
     /// `view.above` the lines above its top, newest first, as many as
-    /// [`reach`](Self::reach); `cols` is the screen's width. A drawn frame
-    /// moves no clock.
+    /// [`reach`](Self::reach); `cols` is the screen's width. A relative
+    /// placement draws where its parent's origin and its offset put it,
+    /// cut at the screen's left edge, and draws nothing while it follows a
+    /// virtual placement (D13); a virtual placement draws nothing itself.
+    /// A drawn frame moves no clock.
     pub fn frame(&self, view: Rows<'_>, cols: usize) -> Vec<FramePlacement> {
         let Some(buf) = self.buffers.get(self.active()) else {
             return Vec::new();
@@ -87,7 +90,11 @@ impl Store {
         let screen = view.screen.iter().zip(0i64..);
         let above = view.above.iter().zip((1i64..).map(i64::wrapping_neg));
         let mut found: Vec<(usize, i64, PlacementKey)> = Vec::new();
+        let mut line_rows: BTreeMap<LineKey, i64> = BTreeMap::new();
         for (line, row) in screen.chain(above) {
+            if !buf.children.is_empty() {
+                line_rows.insert(*line, row);
+            }
             for &k in buf.by_line.get(line).into_iter().flatten() {
                 let Some(p) = buf.placements.get(&k) else {
                     continue;
@@ -98,24 +105,79 @@ impl Store {
                 }
             }
         }
+        let height = i64::try_from(view.screen.len()).unwrap_or(i64::MAX);
+        let width = i64::try_from(cols).unwrap_or(i64::MAX);
+        let mut moved: BTreeMap<PlacementKey, (Placement, u64)> = BTreeMap::new();
+        for &k in buf.children.values().flatten() {
+            let (
+                Some(p),
+                Some(Located::At {
+                    line,
+                    row,
+                    col,
+                    revision,
+                    ..
+                }),
+            ) = (buf.placements.get(&k), buf.locate(k))
+            else {
+                continue;
+            };
+            let Some(top) = line_rows.get(&line).map(|r| r.saturating_add(row)) else {
+                continue;
+            };
+            let shows = top.saturating_add(i64::from(p.rows)) > 0 && top < height && col < width;
+            let Some(placed) = shows.then(|| at_column(p, col)).flatten() else {
+                continue;
+            };
+            found.push((order.get(&k).copied().unwrap_or(usize::MAX), top, k));
+            moved.insert(k, (placed, revision));
+        }
         found.sort_unstable();
         found
             .into_iter()
             .filter_map(|(_, row, k)| {
-                let p = buf.placements.get(&k)?;
+                let (p, revision) = match moved.get(&k) {
+                    Some((p, revision)) => (p, *revision),
+                    None => {
+                        let p = buf.placements.get(&k)?;
+                        (p, p.revision)
+                    }
+                };
                 let image = buf.images.get(&p.image)?;
-                Some(entry(k, p, image, row))
+                Some(entry(k, p, image, row, revision))
             })
             .collect()
     }
 }
 
-/// `p`'s frame entry, its top at view row `row`.
+/// Relative placement `p` with its box's left edge at column `col`: a part
+/// left of the screen is cut off, as a cut piece's is, and `None` when no
+/// part of its picture is left.
+fn at_column(p: &Placement, col: i64) -> Option<Placement> {
+    let left = col.min(0).unsigned_abs();
+    let cut = u32::try_from(left).ok().filter(|&c| c < p.cols)?;
+    let ox =
+        p.ox.saturating_sub(i64::from(cut).saturating_mul(i64::from(p.cw)));
+    let dw = i64::try_from(p.dw).unwrap_or(i64::MAX);
+    if ox.saturating_add(dw) <= 0 {
+        return None;
+    }
+    Some(Placement {
+        col: u32::try_from(col.max(0)).unwrap_or(u32::MAX),
+        cols: p.cols.saturating_sub(cut),
+        ox,
+        ..p.clone()
+    })
+}
+
+/// `p`'s frame entry, its top at view row `row`, stamped with `revision`,
+/// the latest of its own and its parents'.
 fn entry(
     key: PlacementKey,
-    p: &super::Placement,
+    p: &Placement,
     image: &super::Image,
     row: i64,
+    revision: u64,
 ) -> FramePlacement {
     let dw = i64::try_from(p.dw).unwrap_or(i64::MAX).max(1);
     let dh = i64::try_from(p.dh).unwrap_or(i64::MAX).max(1);
@@ -181,6 +243,6 @@ fn entry(
         image_height: image.height,
         opaque: image.opaque,
         pixels: image.pixels.clone(),
-        revision: p.revision.max(image.revision),
+        revision: revision.max(image.revision),
     }
 }

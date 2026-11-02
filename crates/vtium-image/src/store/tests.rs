@@ -83,7 +83,12 @@ fn check_heights(s: &Store) {
     for buf in &s.buffers {
         let mut all: BTreeMap<u32, u32> = BTreeMap::new();
         let mut cut: BTreeMap<u32, u32> = BTreeMap::new();
-        for p in buf.placements.values() {
+        // only a placement on a line is counted
+        for p in buf
+            .placements
+            .values()
+            .filter(|p| matches!(p.spot, Spot::Line(_)))
+        {
             *all.entry(p.rows).or_insert(0) += 1;
             if rules(p.protocol.0).cut_by_text {
                 *cut.entry(p.rows).or_insert(0) += 1;
@@ -1479,4 +1484,148 @@ fn hidden_pieces_change_no_composite_pixel() {
             assert!(want == got, "round {round}, picture {n}");
         }
     }
+}
+
+/// Places `img` as `link` says, with the box `cols` by `rows` (0 for the
+/// picture's own size) and kitty placement id `id`.
+fn link(
+    s: &mut Store,
+    f: &Fake,
+    img: ImageKey,
+    link: Link,
+    (cols, rows): (u32, u32),
+    id: u32,
+) -> PlacementKey {
+    let place = Place {
+        cols,
+        rows,
+        id,
+        ..Place::default()
+    };
+    s.place_at(img, place, link, f.screens(), COLS)
+        .expect("placed")
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_reports_its_box_from_its_roots_line() {
+    let f = Fake::new(6);
+    let mut s = store(1 << 30);
+    let parent = add(&mut s, &f, Protocol::KITTY, 16, 16, 1);
+    let child = add(&mut s, &f, Protocol::KITTY, 16, 16, 2);
+    let place = Place {
+        col: 1,
+        row: 2,
+        id: 1,
+        ..Place::default()
+    };
+    s.place(parent, place, f.screens(), COLS).unwrap();
+    let _ = s.take_changed();
+    let at = |cols, rows| Link::Parent {
+        image: 1,
+        placement: 1,
+        cols,
+        rows,
+    };
+    link(&mut s, &f, child, at(3, -1), (0, 0), 1);
+    let line = LineKey::new(2);
+    assert_eq!(
+        s.take_changed(),
+        [Region {
+            line,
+            row: -1,
+            col: 4,
+            cols: 2,
+            rows: 1
+        }]
+    );
+    // a box that starts left of the screen reports only its part on it
+    link(&mut s, &f, child, at(-2, 2), (0, 0), 2);
+    assert_eq!(
+        s.take_changed(),
+        [Region {
+            line,
+            row: 2,
+            col: 0,
+            cols: 1,
+            rows: 1
+        }]
+    );
+    // moving the parent reports every child's old and new box
+    s.move_anchor(PlacementKey(0), Some((LineKey::new(4), 1)));
+    let changed = s.take_changed();
+    assert!(
+        changed.contains(&Region {
+            line,
+            row: -1,
+            col: 4,
+            cols: 2,
+            rows: 1
+        }),
+        "{changed:?}"
+    );
+    let moved = LineKey::new(4);
+    assert!(
+        changed.contains(&Region {
+            line: moved,
+            row: -1,
+            col: 4,
+            cols: 2,
+            rows: 1
+        }),
+        "{changed:?}"
+    );
+    assert_eq!(
+        s.reach(),
+        2,
+        "a child two rows below its root's line reaches two rows"
+    );
+}
+
+// covers: image.kitty-placeholders
+#[test]
+fn a_virtual_placement_has_its_size_in_cells_and_no_line() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    // 24 by 40 pixels: three cells wide and three high at 8 by 16
+    let img = add(&mut s, &f, Protocol::KITTY, 24, 40, 1);
+    let sized = link(&mut s, &f, img, Link::Virtual, (5, 2), 1);
+    let own = link(&mut s, &f, img, Link::Virtual, (0, 0), 2);
+    let buf = &s.buffers[MAIN];
+    for (k, size) in [(sized, (5, 2)), (own, (3, 3))] {
+        let p = &buf.placements[&k];
+        assert_eq!(p.spot, Spot::Virtual);
+        assert!(!p.attached);
+        assert_eq!((p.cols, p.rows), size);
+    }
+    assert!(
+        buf.by_line.is_empty(),
+        "a virtual placement lies on no line"
+    );
+    assert!(buf.heights.is_empty());
+    assert_eq!(s.reach(), 0);
+    assert_eq!(s.placement_count(), 2);
+    check_heights(&s);
+    assert!(s.take_changed().is_empty(), "it covers no cell");
+}
+
+// covers: image.kitty-placeholders
+#[test]
+fn an_image_shown_only_by_a_virtual_placement_is_evicted_as_one_on_the_screen() {
+    let mut f = Fake::new(2);
+    let mut s = store(3 * ONE_CELL);
+    // the virtual placement's image is used first, then one placed on a
+    // line that leaves for the scrollback
+    let shown = add(&mut s, &f, Protocol::KITTY, 8, 16, 1);
+    link(&mut s, &f, shown, Link::Virtual, (1, 1), 1);
+    let scrolled = add(&mut s, &f, Protocol::KITTY, 8, 16, 2);
+    put(&mut s, &f, scrolled, 0, 0);
+    f.screen = vec![LineKey::new(7), LineKey::new(8)];
+    let third = add(&mut s, &f, Protocol::KITTY, 8, 16, 3);
+    put(&mut s, &f, third, 0, 0);
+    // a fourth image needs room: the one placed only in the scrollback goes
+    // before the one a virtual placement shows, however recently used
+    add(&mut s, &f, Protocol::KITTY, 8, 16, 4);
+    assert!(s.image(MAIN, shown).is_some());
+    assert!(s.image(MAIN, scrolled).is_none());
 }
