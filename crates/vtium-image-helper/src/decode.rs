@@ -113,6 +113,7 @@ pub fn png(data: &[u8], bounds: Bounds, _: &Locked) -> Result<Picture, Failure> 
     let (width, height) = (header.width, header.height);
     let len = bounds.check(width, height)?;
     let mut reader = decoder.read_info().map_err(|e| png_failure(&e))?;
+    palette_whole(reader.info())?;
     let mut rgba = zeroed(len)?;
     let info = reader.next_frame(&mut rgba).map_err(|e| png_failure(&e))?;
     if (info.width, info.height) != (width, height) || info.bit_depth != png::BitDepth::Eight {
@@ -171,6 +172,27 @@ fn expand(rgba: &mut [u8], channels: usize) {
             slot.copy_from_slice(&px);
         }
     }
+}
+
+/// A palette picture's palette checked before the decoder expands it:
+/// whole entries of three bytes, at most 256 of them, and transparency for
+/// no more entries than the palette has. `png` 0.18.1 builds its table of
+/// colors without these checks and slices past a palette whose length is
+/// not a multiple of three, a panic a hostile file can cause.
+fn palette_whole(info: &png::Info<'_>) -> Result<(), Failure> {
+    if info.color_type != png::ColorType::Indexed {
+        return Ok(());
+    }
+    let entries = info.palette.as_ref().map_or(0, |p| p.len());
+    let alphas = info.trns.as_ref().map_or(0, |t| t.len());
+    if entries == 0
+        || entries.checked_rem(3) != Some(0)
+        || entries > 256 * 3
+        || alphas > entries / 3
+    {
+        return Err(Failure::new(Status::Corrupt, "a PNG palette cut short"));
+    }
+    Ok(())
 }
 
 /// A JPEG decoded to 8-bit RGB, opaque, its orientation tag not read.
@@ -441,5 +463,22 @@ pub(crate) mod tests {
     #[test]
     fn a_jpeg_whose_subsampling_contradicts_its_buffers_does_not_panic() {
         decodes_or_refuses(include_bytes!("../tests/fixtures/jpeg/upsample-assert.jpg"));
+    }
+
+    /// `png` 0.18.1 builds its palette table by copying the palette three
+    /// bytes at a time and slices past its end when the palette's length
+    /// is not a multiple of three (`src/decoder/transform/palette.rs` line
+    /// 74), a panic in every build, which a palette PNG can cause. The
+    /// fixture is the png fuzz target's crash input, minimized;
+    /// `tests/fixtures/png/README.md` gives its origin.
+    #[test]
+    fn a_palette_png_whose_palette_is_cut_short_is_corrupt_and_does_not_panic() {
+        let file = include_bytes!("../tests/fixtures/png/palette-remainder.png");
+        for decoded in [
+            png(file, FUZZ, &Locked::unsandboxed()),
+            any(file, FUZZ, &Locked::unsandboxed()),
+        ] {
+            assert_eq!(decoded.unwrap_err().status, Status::Corrupt);
+        }
     }
 }
