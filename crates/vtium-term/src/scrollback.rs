@@ -890,14 +890,23 @@ impl Scrollback {
         {
             w.fresh.clear();
             let anchors = mem::take(&mut self.anchors);
+            // The rows anchors are on that wait: the search ends once it
+            // has found them all, or at the newest row when one is on no
+            // row left.
+            let held = |l: &Line| anchors.contains_key(&l.id());
+            let mut left = anchors
+                .len()
+                .saturating_sub(rows.iter().filter(|l| held(l)).count());
             let mut at = 0;
-            while !anchors.is_empty() && at < w.rows.len() {
+            while left > 0 && at < w.rows.len() {
                 let len = line_len(w.rows.range(at..));
                 let end = at.saturating_add(len.max(1));
-                if !w.rows.range(at..end).any(|l| anchors.contains_key(&l.id())) {
+                let found = w.rows.range(at..end).filter(|l| held(l)).count();
+                if found == 0 {
                     at = end;
                     continue;
                 }
+                left = left.saturating_sub(found);
                 let cols = |id| anchors.get(&id).cloned().unwrap_or_default();
                 let (end, moves) = w.rewrap_at(at, width, next_id, cols);
                 self.log.push(Change::Carried(moves));
@@ -955,8 +964,9 @@ impl Scrollback {
         mem::take(&mut self.log)
     }
 
-    /// Gives the columns image placements are anchored at, by row, for the
-    /// next [`take_for_reflow`](Self::take_for_reflow) to carry.
+    /// Gives the columns image placements are anchored at, by scrollback
+    /// row, for the next [`take_for_reflow`](Self::take_for_reflow) to
+    /// carry; it stops looking once it has found every row given.
     #[cfg(feature = "images")]
     pub(crate) fn set_anchors(&mut self, anchors: BTreeMap<LineId, Vec<u32>>) {
         self.anchors = anchors;

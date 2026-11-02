@@ -245,17 +245,20 @@ mod with {
             }
         }
 
-        /// Before a resize: the anchors of the main buffer's placements, for
-        /// the scrollback to carry on the rows it leaves to wait.
+        /// Before a resize: the anchors of the main buffer's placements on
+        /// scrollback rows, for the scrollback to carry on the rows it
+        /// leaves to wait.
         pub(in crate::screen) fn images_give_anchors(&mut self) {
             if !self.images.main_has_placements() {
                 return;
             }
+            let screen: Vec<LineId> = self.main.iter().map(Line::id).collect();
             let anchors = self
                 .images
                 .main_anchor_lines()
                 .into_iter()
                 .map(|(line, cols)| (LineId::new(line.get()), cols))
+                .filter(|(line, _)| !screen.contains(line))
                 .collect();
             self.scrollback.set_anchors(anchors);
         }
