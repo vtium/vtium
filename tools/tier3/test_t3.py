@@ -3025,12 +3025,17 @@ BOOT_TIMERS = ["systemd-tmpfiles-clean.timer"]
 
 def agent_state(vtium=("active", "success"), fallback=("inactive", "success", "no", 0),
                 getty="inactive", queued=(), marker=True, tty2="", logins=0, fg=2, i8042=15,
-                pid=(410, 3.0), gettys=(), timers=(), sessions=(("1", "tty1"),)):
+                pid=(410, 3.0), gettys=(), timers=(), sessions=(("1", "tty1"),),
+                journal=("started",), restarts=0, systemd=262):
     """The agent's answer to `state` (guest/t3-agent), as lines. `gettys`
     gives a getty unit's (left inactive at, restarts) in place of (0, 0),
-    or None for no reading of it."""
+    or None for no reading of it; `journal` gives the words systemd logged
+    of vtium's unit and its fallback, or None for no journal line."""
     readings = dict({u: (0, 0) for u in t3_heads.GETTY_UNITS}, **dict(gettys))
-    lines = ["unit kmsconvt@tty2.service %s %s yes 6418546" % vtium,
+    lines = (["systemd %d" % systemd] if systemd else []) + [
+             "unit kmsconvt@tty2.service %s %s yes 6418546" % vtium,
+             "restarts kmsconvt@tty2.service running %d" % restarts,
+             *(["journal " + " ".join(journal)] if journal is not None else []),
              "unit kmsconvt-getty@tty2.service %s %s %s %d" % fallback,
              "unit getty@tty2.service %s success no 0" % getty,
              *("getty %s %d %d" % (u, *r) for u, r in readings.items() if r is not None),
@@ -3050,8 +3055,8 @@ class HeadsTest(unittest.TestCase):
     CASES = {
         "heads-two-heads": ["cjk", "vt-switch", "vt-restore", "two-heads"],
         "heads-partly-open": ["partly-notice", "cjk", "vt-switch", "vt-restore",
-                              "getty-fallback"],
-        "heads-closed-broken": ["panic", "no-login", "getty-fallback"],
+                              "getty-fallback", "start-limit"],
+        "heads-closed-broken": ["panic", "no-login", "getty-fallback", "start-limit"],
         "heads-policy-typo": ["policy-panic", "policy-line", "no-login", "getty-fallback"],
         "heads-closed-unmatched": ["no-display-notice", "no-login", "getty-fallback"],
         "heads-off": ["no-login", "getty-fallback"],
@@ -3265,7 +3270,8 @@ class HeadsTest(unittest.TestCase):
         self.addCleanup(agent.kill)
         requests = ["kill TERM", "kill KILL; touch pwned", "$(touch %s/pwned-sub)" % d.name,
                     "`touch %s/pwned-tick`" % d.name, "state ", "start now", "Start",
-                    "hangup && touch pwned-and", "watch /dev/input/event0", "Watch"]
+                    "hangup && touch pwned-and", "watch /dev/input/event0", "Watch",
+                    "limit 99", "Limit", "reset-failed getty@tty2.service", "reset-failed;id"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -3296,9 +3302,22 @@ class HeadsTest(unittest.TestCase):
         self.assertEqual((st["xhci"], st["kbds"], st["keys"], st["sessions"], st["gettys"]),
                          (7, ["a-event-kbd", "b-event-kbd"], 7, {"3": ""},
                           {"getty@tty2.service": (4100200, 1)}))
+        # the version, the unit's sub-state and restarts beside its unit
+        # line, and the journal's words in the order logged
+        st = t3_heads.parse_state(agent_state(restarts=3, journal=(
+            "started", "failed:signal", "skipped", "restart:1", "started")))
+        self.assertEqual(st["systemd"], 262)
+        self.assertEqual((st["units"]["kmsconvt@tty2.service"]["active"],
+                          st["units"]["kmsconvt@tty2.service"]["sub"],
+                          st["units"]["kmsconvt@tty2.service"]["restarts"]),
+                         ("active", "running", 3))
+        self.assertEqual(st["journal"], ["started", "failed:signal", "skipped", "restart:1",
+                                         "started"])
+        self.assertEqual(t3_heads.parse_state(["journal"])["journal"], [])
         empty = t3_heads.parse_state([])
         self.assertEqual((empty["units"], empty["gettys"], empty["marker"], empty["keys"],
-                          empty["vtium"]), ({}, {}, None, None, None))
+                          empty["vtium"], empty["systemd"], empty["journal"]),
+                         ({}, {}, None, None, None, None, None))
 
     def test_no_login(self):
         before = t3_heads.parse_state(agent_state())
@@ -3325,78 +3344,285 @@ class HeadsTest(unittest.TestCase):
                 self.assertTrue(got.startswith(why), got)
 
     def test_fallback_under_closed(self):
-        before = t3_heads.parse_state(agent_state(fallback=("inactive", "success", "no", 50)))
+        # Under closed each failure is logged with its result, the fallback
+        # skips itself once, and systemd starts vtium again.
+        before = t3_heads.parse_state(agent_state(fallback=("inactive", "success", "no", 50),
+                                                  restarts=1, pid=(410, 3.0)))
+        boot = list(before["journal"])
         for failure, result in (("kill", "signal"), ("crash", "core-dump"), ("crash", "signal"),
                                 ("hangup", "exit-code")):
-            with self.subTest(failure, result=result):
-                after = t3_heads.parse_state(agent_state(
-                    vtium=("failed", result), fallback=("inactive", "success", "no", 90),
-                    pid=None))
-                self.assertIsNone(t3_heads.judge_fallback(True, failure, before, after))
-        failed = dict(vtium=("failed", "signal"), pid=None)
+            for words in (["failed:" + result, "skipped", "restart:2", "started"],
+                          ["failed:" + result, "restart:2", "skipped", "started"]):
+                with self.subTest(failure, result=result, words=words):
+                    after = t3_heads.parse_state(agent_state(
+                        fallback=("inactive", "success", "no", 90), restarts=2,
+                        pid=(700, 0.2), journal=boot + words))
+                    self.assertTrue(t3_heads.restart_settled(after, before))
+                    self.assertIsNone(t3_heads.judge_restart(failure, before, after))
+        back = dict(fallback=("inactive", "success", "no", 90), restarts=2, pid=(700, 0.2),
+                    journal=boot + ["failed:signal", "skipped", "restart:2", "started"])
         wrong = {
-            "still running": (dict(vtium=("active", "success")), "after the kill vtium's unit"),
-            "another result": (dict(failed, vtium=("failed", "exit-code")),
-                               "after the kill vtium's unit is failed with result exit-code"),
-            "never checked": (dict(failed, fallback=("inactive", "success", "no", 50)),
-                              "after the kill systemd never checked"),
+            # a unit with no Restart= stays failed
+            "no restart": (dict(back, vtium=("failed", "signal"), pid=None,
+                                journal=boot + ["failed:signal", "skipped"]),
+                           "after the kill systemd logged failed:signal for vtium's unit, not "
+                           "failed:signal restart:2 started"),
+            "another result": (dict(back, journal=boot + ["failed:exit-code", "skipped",
+                                                          "restart:2", "started"]),
+                               "after the kill systemd logged failed:exit-code"),
+            "the count": (dict(back, journal=boot + ["failed:signal", "skipped", "restart:1",
+                                                     "started"]),
+                          "after the kill systemd logged failed:signal restart:1 started"),
+            "a getty": (dict(back, journal=boot + ["failed:signal", "fell-back", "stopped"],
+                             vtium=("inactive", "success"), pid=None),
+                        "after the kill the fallback started a getty"),
+            "no skip": (dict(back, journal=boot + ["failed:signal", "restart:2", "started"]),
+                        "after the kill the fallback skipped itself 0 times"),
+            "two skips": (dict(back, journal=boot + ["failed:signal", "skipped", "skipped",
+                                                     "restart:2", "started"]),
+                          "after the kill the fallback skipped itself 2 times"),
+            "journal moved": (dict(back, journal=["failed:signal", "skipped", "restart:2",
+                                                  "started"]),
+                              "the journal before the kill is not where"),
             # a getty's start still queued reads inactive until it runs
-            "a job queued": (dict(failed, fallback=("inactive", "success", "no", 90),
-                                  queued=["t3-plant@tty2.service"]),
+            "a job queued": (dict(back, queued=["t3-plant@tty2.service"]),
                              "after the kill systemd still has jobs queued: "
                              "t3-plant@tty2.service start waiting"),
-            "condition held": (dict(failed, fallback=("inactive", "success", "yes", 90)),
+            "not running": (dict(back, vtium=("activating", "success"), pid=None),
+                            "after the kill vtium does not run on tty2"),
+            "condition held": (dict(back, fallback=("inactive", "success", "yes", 90)),
                                "after the kill the fallback's condition held"),
-            "marker gone": (dict(failed, fallback=("inactive", "success", "no", 90),
-                                 marker=False), "after the kill the closed policy's marker"),
-            "a getty": (dict(failed, fallback=("inactive", "success", "no", 90),
-                             getty="active", tty2="agetty"), "after the kill a getty runs"),
+            "marker gone": (dict(back, marker=False), "after the kill the closed policy's marker"),
+            "a getty runs": (dict(back, getty="active", tty2="agetty"),
+                             "after the kill a getty runs"),
             # a getty that failed, or started and ended between two reads
-            "a getty failed": (dict(failed, fallback=("inactive", "success", "no", 90),
-                                    getty="failed"), "after the kill a getty runs"),
-            "a getty came and went": (dict(failed, fallback=("inactive", "success", "no", 90),
-                                           gettys=[("getty@tty2.service", (9100000, 0))]),
+            "a getty failed": (dict(back, getty="failed"), "after the kill a getty runs"),
+            "a getty came and went": (dict(back, gettys=[("getty@tty2.service", (9100000, 0))]),
                                       "after the kill getty@tty2.service started under the "
                                       "closed policy: it left its inactive state at 9.1 s"),
-            "a serial getty": (dict(failed, fallback=("inactive", "success", "no", 90),
-                                    gettys=[("serial-getty@tty2.service", (0, 2))]),
+            "a serial getty": (dict(back, gettys=[("serial-getty@tty2.service", (0, 2))]),
                                "after the kill serial-getty@tty2.service started"),
-            "no reading": (dict(failed, fallback=("inactive", "success", "no", 90),
-                                gettys=[("getty@tty2.service", None)]),
+            "no reading": (dict(back, gettys=[("getty@tty2.service", None)]),
                            "after the kill the agent gave no reading of getty@tty2.service"),
-            "a session": (dict(failed, fallback=("inactive", "success", "no", 90),
-                               sessions=[("1", "tty1"), ("4", "tty2")]),
+            "a session": (dict(back, sessions=[("1", "tty1"), ("4", "tty2")]),
                           "after the kill login session 4 is on tty2"),
             # a getty's start delayed by a timer waits in no job
-            "a timer": (dict(failed, fallback=("inactive", "success", "no", 90),
-                             timers=["run-u12.timer"]),
+            "a timer": (dict(back, timers=["run-u12.timer"]),
                         "after the kill a timer waits to start a unit: run-u12.timer"),
         }
         for name, (change, why) in wrong.items():
             with self.subTest(name):
-                got = t3_heads.judge_fallback(True, "kill", before,
-                                              t3_heads.parse_state(agent_state(**change)))
+                got = t3_heads.judge_restart("kill", before,
+                                             t3_heads.parse_state(agent_state(**change)))
                 self.assertIsNotNone(got)
                 self.assertTrue(got.startswith(why), got)
 
+    def test_a_failure_settles(self):
+        # The wait after a failure ends once the fallback ran after it, no
+        # new job is queued, and vtium's unit runs a new vtium it logged as
+        # started, or waits to restart no longer; the boot's own jobs,
+        # queued throughout, are no reason to wait.
+        before = t3_heads.parse_state(agent_state())
+        boot = list(before["journal"])
+
+        def settled(**change):
+            return t3_heads.restart_settled(t3_heads.parse_state(agent_state(**change)), before)
+
+        self.assertTrue(settled(pid=(700, 0.2), journal=boot + ["failed:signal", "skipped",
+                                                                "restart:1", "started"]))
+        # still waiting out its 100 ms, or the new vtium not yet logged
+        self.assertFalse(settled(vtium=("activating", "success"), pid=None,
+                                 journal=boot + ["failed:signal", "skipped", "restart:1"]))
+        self.assertFalse(settled(pid=(700, 0.2), journal=boot + ["failed:signal", "skipped",
+                                                                 "restart:1"]))
+        # the old vtium, before systemd saw it end
+        self.assertFalse(settled(journal=boot))
+        # the fallback not yet run
+        self.assertFalse(settled(pid=(700, 0.2), journal=boot + ["failed:signal", "restart:1",
+                                                                 "started"]))
+        # a job still queued
+        self.assertFalse(settled(pid=(700, 0.2), queued=["getty@tty2.service"],
+                                 journal=boot + ["failed:signal", "skipped", "restart:1",
+                                                 "started"]))
+        # stopped by the getty, or failed for good: settled, to be judged
+        self.assertTrue(settled(vtium=("inactive", "success"), pid=None,
+                                journal=boot + ["failed:signal", "fell-back", "stopped"]))
+        self.assertTrue(settled(vtium=("failed", "signal"), pid=None,
+                                journal=boot + ["failed:signal", "skipped"]))
+        # a journal that moved ends the wait, so the judge says so
+        self.assertTrue(settled(journal=["failed:signal"]))
+
     def test_fallback_under_open(self):
+        # Under open the fallback starts the getty, whose Conflicts= stops
+        # vtium's unit, waiting to restart or restarted.
         before = t3_heads.parse_state(agent_state(marker=False))
-        ran = dict(vtium=("failed", "signal"), fallback=("inactive", "success", "yes", 90),
-                   getty="active", tty2="agetty", marker=False, pid=None)
-        self.assertIsNone(t3_heads.judge_fallback(False, "kill", before,
-                                                  t3_heads.parse_state(agent_state(**ran))))
+        boot = list(before["journal"])
+        ran = dict(vtium=("inactive", "success"), fallback=("inactive", "success", "yes", 90),
+                   getty="active", tty2="agetty", marker=False, pid=None,
+                   journal=boot + ["failed:signal", "fell-back", "stopped"])
+        for words in (["failed:signal", "fell-back", "stopped"],
+                      ["failed:signal", "stopped", "fell-back"],
+                      ["failed:signal", "restart:1", "stopped", "fell-back"],
+                      ["failed:signal", "restart:1", "started", "fell-back", "stopped"]):
+            with self.subTest(words=words):
+                self.assertIsNone(t3_heads.judge_fallback("kill", before, t3_heads.parse_state(
+                    agent_state(**dict(ran, journal=boot + words)))))
         wrong = {
-            "skipped": (dict(ran, fallback=("inactive", "success", "no", 90)),
+            "skipped": (dict(ran, fallback=("inactive", "success", "no", 90),
+                             journal=boot + ["failed:signal", "skipped", "restart:1",
+                                             "started"]),
                         "after the kill the fallback skipped the getty"),
+            "another result": (dict(ran, journal=boot + ["failed:exit-code", "fell-back",
+                                                         "stopped"]),
+                               "after the kill systemd logged failed:exit-code stopped for "
+                               "vtium's unit, not a failure with signal"),
+            # with no Restart=, the getty finds vtium's unit failed already
+            "not stopped": (dict(ran, vtium=("failed", "signal"),
+                                 journal=boot + ["failed:signal", "fell-back"]),
+                            "after the kill the getty's start did not stop vtium's unit"),
             "a marker": (dict(ran, marker=True), "the closed policy's marker exists"),
             "no getty": (dict(ran, getty="inactive", tty2=""), "after the kill no getty runs"),
         }
         for name, (change, why) in wrong.items():
             with self.subTest(name):
-                got = t3_heads.judge_fallback(False, "kill", before,
+                got = t3_heads.judge_fallback("kill", before,
                                               t3_heads.parse_state(agent_state(**change)))
                 self.assertIsNotNone(got)
                 self.assertTrue(got.startswith(why), got)
+
+    def test_start_limit(self):
+        # From a cleared count, 6 kills: systemd starts vtium 5 times,
+        # refuses the sixth start and the one that follows, and the fallback
+        # skips itself after each failure.
+        before = t3_heads.parse_state(agent_state())
+        boot = list(before["journal"])
+        burst = t3_heads.START_LIMIT_BURST
+        self.assertEqual(burst, 5)
+        words = sum((["failed:signal", "skipped", "restart:%d" % n, "started"]
+                     for n in range(1, burst + 1)), [])
+        words += ["failed:signal", "skipped", "restart:6", "failed:start-limit-hit", "skipped",
+                  "failed:start-limit-hit"]
+        answer = ["sent KILL to %d" % (900 + n) for n in range(burst + 1)] + [
+            "stopped failed failed start-limit-hit after 6 kills", "start refused"]
+        hit = dict(vtium=("failed", "start-limit-hit"), pid=None, journal=boot + words,
+                   fallback=("inactive", "success", "no", 90))
+        self.assertIsNone(t3_heads.judge_limit(True, answer, before, t3_heads.parse_state(
+            agent_state(**hit))))
+        # a unit with StartLimitBurst=3 stops after 4 kills
+        four = sum((["failed:signal", "skipped", "restart:%d" % n, "started"]
+                    for n in range(1, 4)), []) + ["failed:signal", "skipped", "restart:4",
+                                                  "failed:start-limit-hit", "skipped",
+                                                  "failed:start-limit-hit"]
+        wrong = {
+            "fewer kills": (answer[2:], dict(hit, journal=boot + four),
+                            "vtium's unit stopped restarting after 4 kills, not the 6"),
+            # with no Restart=, the first kill leaves the unit failed
+            "no restart": (answer[:1] + ["stopped failed failed signal after 1 kills"],
+                           dict(hit, vtium=("failed", "signal"),
+                                journal=boot + ["failed:signal", "skipped"]),
+                           "vtium's unit stopped restarting after 1 kills"),
+            "the start ran": (answer[:-1] + ["start ran"], hit,
+                              "systemd did not refuse the start"),
+            "another word": (answer, dict(hit, journal=boot + words[:-1]),
+                             "systemd logged failed:signal restart:1"),
+            "running": (answer, dict(hit, vtium=("active", "success"), pid=(990, 0.1)),
+                        "past the start limit vtium's unit is active"),
+            "no skip at the limit": (answer, dict(hit, journal=boot + [
+                w for i, w in enumerate(words) if i != len(words) - 2]),
+                "past the start limit the fallback did not skip itself"),
+            "condition held": (answer, dict(hit, fallback=("inactive", "success", "yes", 90)),
+                               "past the start limit the fallback's condition held"),
+            "marker gone": (answer, dict(hit, marker=False),
+                            "past the start limit the closed policy's marker"),
+            "a getty": (answer, dict(hit, gettys=[("getty@tty2.service", (9100000, 0))]),
+                        "past the start limit getty@tty2.service started"),
+        }
+        for name, (got_answer, change, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_limit(True, got_answer, before,
+                                           t3_heads.parse_state(agent_state(**change)))
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+        # Under open the first kill hands the VT to the getty, and the
+        # kills never reach the limit.
+        before = t3_heads.parse_state(agent_state(marker=False))
+        opened = dict(vtium=("inactive", "success"), fallback=("inactive", "success", "yes", 90),
+                      getty="active", tty2="agetty", marker=False, pid=None,
+                      journal=boot + ["failed:signal", "fell-back", "stopped"])
+        one = ["sent KILL to 900", "stopped inactive dead success after 1 kills"]
+        self.assertIsNone(t3_heads.judge_limit(False, one, before, t3_heads.parse_state(
+            agent_state(**opened))))
+        # a second kill, when the unit started vtium again before the
+        # getty's start stopped it
+        two = ["sent KILL to 900", "sent KILL to 901",
+               "stopped inactive dead success after 2 kills"]
+        self.assertIsNone(t3_heads.judge_limit(False, two, before, t3_heads.parse_state(
+            agent_state(**dict(opened, journal=boot + [
+                "failed:signal", "restart:1", "started", "failed:signal", "fell-back",
+                "fell-back", "stopped"])))))
+        three = ["sent KILL to %d" % n for n in (900, 901, 902)] + [
+            "stopped inactive dead success after 3 kills"]
+        got = t3_heads.judge_limit(False, three, before, t3_heads.parse_state(agent_state(
+            **dict(opened, journal=boot + ["failed:signal", "restart:1", "started"] * 2 + [
+                "failed:signal", "fell-back", "stopped"]))))
+        self.assertTrue(got.startswith("under the open policy the getty did not take the VT "
+                                       "at the first failure: 3 kills"), got)
+        got = t3_heads.judge_limit(False, answer, before, t3_heads.parse_state(agent_state(
+            **dict(opened, journal=boot + words))))
+        self.assertTrue(got.startswith("under the open policy the getty did not take"), got)
+        got = t3_heads.judge_limit(False, one, before, t3_heads.parse_state(agent_state(
+            **dict(opened, getty="inactive", tty2=""))))
+        self.assertTrue(got.startswith("after the kill no getty runs"), got)
+
+    def test_an_older_systemd_is_refused(self):
+        self.assertIsNone(t3_heads.judge_systemd(t3_heads.parse_state(agent_state())))
+        self.assertIsNone(t3_heads.judge_systemd(t3_heads.parse_state(agent_state(
+            systemd=254))))
+        self.assertRegex(t3_heads.judge_systemd(t3_heads.parse_state(agent_state(
+            systemd=253))), "systemd 253, which starts OnFailure= only once")
+        self.assertRegex(t3_heads.judge_systemd(t3_heads.parse_state(agent_state(
+            systemd=None))), "no version of systemd")
+
+    def test_the_kernel_console_past_the_limit(self):
+        # Blank but for the cursor in the kernel console's first cell.
+        def screen(*lit):
+            data = bytearray(640 * 480 * 3)
+            for x, y in lit:
+                data[(y * 640 + x) * 3:(y * 640 + x) * 3 + 3] = b"\xaa\xaa\xaa"
+            return t3img.Image(640, 480, bytes(data))
+
+        self.assertTrue(t3_heads.kernel_blank(screen()))
+        self.assertTrue(t3_heads.kernel_blank(screen(*[(x, y) for x in range(8)
+                                                         for y in (14, 15)])))
+        for name, lit in {"a prompt": [(8, 15)], "below the cell": [(0, 16)],
+                          "far off": [(639, 479)]}.items():
+            with self.subTest(name):
+                self.assertFalse(t3_heads.kernel_blank(screen(*lit)))
+
+    def test_the_unit_keeps_systemds_restart_defaults(self):
+        # vtium's unit restarts on failure with systemd's defaults
+        # (ADR-1401 D9): no delay or start limit of its own.
+        with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
+                               "kmsconvt@.service")) as f:
+            text = f.read()
+        # systemd strips the space around each key and value, and reads a
+        # line that starts with # or ; as a comment (systemd.syntax(7))
+        settings = [tuple(part.strip() for part in line.split("=", 1))
+                    for line in map(str.strip, text.splitlines())
+                    if line and line[0] not in "#;" and "=" in line]
+        self.assertEqual([v for k, v in settings if k == "Restart"], ["on-failure"])
+        # No other key that changes when or how often systemd restarts it:
+        # every Restart*= but Restart= itself (RestartSec=, RestartMode=,
+        # RestartSteps=, RestartMaxDelaySec=, RestartPreventExitStatus=,
+        # RestartForceExitStatus=), every StartLimit*= (StartLimitInterval=
+        # is the older spelling of StartLimitIntervalSec=, which systemd
+        # still reads), and every *ExitStatus=, as SuccessExitStatus= turns a
+        # failure into a success that starts nothing.
+        for key in (k for k, _ in settings):
+            with self.subTest(key):
+                self.assertFalse(key.startswith("Restart") and key != "Restart", key)
+                self.assertFalse(key.startswith("StartLimit"), key)
+                self.assertFalse(key.endswith("ExitStatus"), key)
 
     def test_held_and_exit(self):
         first = t3_heads.parse_state(agent_state(pid=(400, 1.0)))
@@ -3411,46 +3637,46 @@ class HeadsTest(unittest.TestCase):
                        "vtium does not run"),
             "fallback ran": (agent_state(pid=(400, 7.5), fallback=("inactive", "success", "no",
                                                                   9)), "", "the getty fallback"),
+            # a fallback that ran and was unloaded since reads no timestamp
+            "fallback logged": (agent_state(pid=(400, 7.5), journal=("started", "skipped")), "",
+                                "the getty fallback"),
         }
         for name, (lines, serial, why) in wrong.items():
             with self.subTest(name):
                 got = t3_heads.judge_held(first, t3_heads.parse_state(lines), serial, 5)
                 self.assertIsNotNone(got)
                 self.assertTrue(got.startswith(why), got)
-        ran = dict(vtium=("failed", "exit-code"), fallback=("inactive", "success", "yes", 90),
-                   getty="active", tty2="agetty", marker=False, pid=None)
         boot = t3_heads.parse_state(agent_state())
+        ran = dict(vtium=("inactive", "success"), fallback=("inactive", "success", "yes", 90),
+                   getty="active", tty2="agetty", marker=False, pid=None,
+                   journal=boot["journal"] + ["failed:exit-code", "fell-back", "stopped"])
         self.assertIsNone(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(**ran)),
                                               5, 5))
         self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(**ran)), 5,
                                             10).startswith("vtium gave up after 10 s"))
         self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
             **dict(ran, getty="inactive", tty2=""))), 5, 5).startswith("no getty runs"))
+        # vtium back for a moment before the getty's start stops it
+        self.assertIsNone(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
+            **dict(ran, journal=boot["journal"] + ["failed:exit-code", "restart:1", "started",
+                                                   "fell-back", "stopped"]))), 5, 5))
+        self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
+            **dict(ran, journal=boot["journal"] + ["failed:exit-code", "skipped", "stopped"]))),
+            5, 5).startswith("the fallback did not start the getty"))
         self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
             **dict(ran, queued=["getty@tty2.service"]))), 5, 5)
             .startswith("systemd still has jobs queued: getty@tty2.service"))
+        self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
+            **dict(ran, journal=boot["journal"] + ["failed:signal", "fell-back", "stopped"]))),
+            5, 5).startswith("systemd logged failed:signal stopped for vtium's unit"))
+        self.assertTrue(t3_heads.judge_exit(boot, t3_heads.parse_state(agent_state(
+            **dict(ran, vtium=("failed", "exit-code"), journal=boot["journal"] + [
+                "failed:exit-code", "fell-back"]))), 5, 5)
+            .startswith("the getty's start did not stop vtium's unit"))
         # the boot's jobs were read once vtium had already ended
         self.assertTrue(t3_heads.judge_exit(t3_heads.parse_state(agent_state(pid=None)),
                                             t3_heads.parse_state(agent_state(**ran)), 5, 5)
                         .startswith("vtium was not running when the check read"))
-
-    def test_the_fallback_waits_end_on_a_skip_and_on_no_jobs(self):
-        # The wait after a failure ends once the fallback ran and systemd
-        # queues nothing; under open a fallback that skipped itself ends it
-        # too, so its verdict says why rather than a timeout.
-        skipped = t3_heads.parse_state(agent_state(
-            vtium=("failed", "signal"), fallback=("inactive", "success", "no", 90), pid=None))
-        before = t3_heads.parse_state(agent_state(fallback=("inactive", "success", "no", 50),
-                                                  marker=False))
-        # the boot's own jobs, queued throughout, are no reason to wait
-        self.assertTrue(t3_heads.fallback_ran(skipped, 50, before))
-        self.assertFalse(t3_heads.fallback_ran(skipped, 90, before))
-        queued = t3_heads.parse_state(agent_state(
-            vtium=("failed", "signal"), fallback=("inactive", "success", "no", 90),
-            queued=["getty@tty2.service"], pid=None))
-        self.assertFalse(t3_heads.fallback_ran(queued, 50, before))
-        self.assertTrue(t3_heads.judge_fallback(False, "kill", before, skipped)
-                        .startswith("after the kill the fallback skipped the getty"))
 
     def test_kiosk(self):
         def st(xhci, keys=None, **kw):

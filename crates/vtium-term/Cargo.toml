@@ -13,3 +13,10 @@ workspace = true
 
 [dependencies]
 vtium-parse.workspace = true
+vtium-image = { workspace = true, optional = true }
+
+[features]
+# The image pipeline (ADR-1100): the store on every screen event, the
+# router to the protocol handlers, and the frame's placement list. The
+# minspec build carries none of it.
+images = ["dep:vtium-image"]

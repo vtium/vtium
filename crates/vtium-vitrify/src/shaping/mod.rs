@@ -24,8 +24,9 @@ pub enum Kind {
     /// shapes to, one or two cells wide by its advance.
     Marks = 2,
     /// A joining form: a letter keyed with U+200D on each side it joins,
-    /// or lam and alef as their ligature. Kept only when the font shapes
-    /// it to one glyph that none of its scalar values draws alone, placed
+    /// or lam and alef as their ligature, with any marks on it. Kept only
+    /// when the font shapes its letters to one glyph that none of its
+    /// scalar values draws alone, and holds the glyph of each mark, placed
     /// a cell wide for each letter.
     Joining = 3,
 }
@@ -68,11 +69,18 @@ const TAGS: std::ops::RangeInclusive<u32> = 0xe0020..=0xe007f;
 /// COMBINING ENCLOSING KEYCAP.
 const KEYCAP: u32 = 0x20e3;
 
-/// How the cluster `key` is judged and placed: an emoji sequence when
-/// Unicode lists it as one or it holds U+200D, U+FE0F, a regional
-/// indicator, an emoji modifier, a tag or the keycap mark; else a letter
-/// and its marks.
+/// How the cluster `key` is judged and placed: a joining form when it
+/// holds U+200D and a letter, and every letter joins ([`joins`]), as a
+/// letter keyed with the joiner on the side it joins; the marks on a
+/// letter, such as a fatha, are not letters here ([`mark_side`]). Else an
+/// emoji sequence when Unicode lists it as one or it holds U+200D, U+FE0F,
+/// a regional indicator, an emoji modifier, a tag or the keycap mark; else
+/// a letter and its marks.
 pub fn kind(key: &[u32]) -> Kind {
+    let letters = key.iter().filter(|&&c| c != ZWJ && mark_side(c).is_none());
+    if key.contains(&ZWJ) && letters.clone().count() > 0 && letters.clone().all(|&c| joins(c)) {
+        return Kind::Joining;
+    }
     let emoji = key.iter().any(|c| {
         matches!(*c, ZWJ | VS16 | KEYCAP)
             || REGIONAL.contains(c)
@@ -84,6 +92,30 @@ pub fn kind(key: &[u32]) -> Kind {
     } else {
         Kind::Marks
     }
+}
+
+/// Whether `c` joins to its neighbours: Joining_Type D, R, L or C in any
+/// script (ADR-1302 D2), the characters whose outline glyphs are stretched
+/// to their cells. U+200D, which is join-causing, draws nothing.
+pub fn joins(c: u32) -> bool {
+    let after = data::JOINS.partition_point(|&(a, _)| a <= c);
+    after
+        .checked_sub(1)
+        .and_then(|i| data::JOINS.get(i))
+        .is_some_and(|&(_, b)| c <= b)
+}
+
+/// Where `c` goes on its base when it is a mark (ADR-1302 D3): a character
+/// of General_Category Mn or Me, or of a combining class other than 0; 1
+/// above, 2 below, by its class, else 0. `None` for a character that is no
+/// mark.
+pub fn mark_side(c: u32) -> Option<u8> {
+    let after = data::MARKS.partition_point(|&(a, _, _)| a <= c);
+    after
+        .checked_sub(1)
+        .and_then(|i| data::MARKS.get(i))
+        .filter(|&&(_, b, _)| c <= b)
+        .map(|&(_, _, side)| side)
 }
 
 /// `key` as the engine asks a source for it.
@@ -98,6 +130,50 @@ pub fn ask(key: &[u32]) -> Ask {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+
+    // ADR-1302 D2 names every joining script: Arabic and its tatweel,
+    // Syriac, N'Ko, Mongolian, Mandaic, Adlam and the rest, of Joining_Type
+    // D, R, L or C; a letter that does not join and a mark do not
+    // a letter keyed with U+200D is a joining form, not an emoji sequence
+    // (review finding B4); a ZWJ sequence of emoji, or a letter that does
+    // not join beside a joiner, is judged as before
+    #[test]
+    fn a_letter_with_a_joiner_is_a_joining_form() {
+        assert_eq!(kind(&[0x628, ZWJ]), Kind::Joining);
+        assert_eq!(kind(&[ZWJ, 0x628, ZWJ]), Kind::Joining);
+        assert_eq!(kind(&[ZWJ, 0x7ca]), Kind::Joining, "N'Ko");
+        assert_eq!(kind(&[0x1f468, ZWJ, 0x1f469]), Kind::Emoji);
+        assert_eq!(kind(&[0x41, ZWJ]), Kind::Emoji);
+        assert_eq!(kind(&[0x628, 0x64e]), Kind::Marks);
+        // a mark on the letter, of Joining_Type T, leaves it a joining
+        // form in either order (review finding 2); a joiner with marks
+        // alone has no letter to join
+        assert_eq!(kind(&[0x628, 0x64e, ZWJ]), Kind::Joining);
+        assert_eq!(kind(&[ZWJ, 0x628, 0x64e]), Kind::Joining);
+        assert_eq!(kind(&[ZWJ, 0x628, 0x651, 0x64e, ZWJ]), Kind::Joining);
+        assert_ne!(kind(&[ZWJ, 0x64e]), Kind::Joining);
+    }
+
+    #[test]
+    fn the_letters_of_every_joining_script_join() {
+        for (c, what) in [
+            (0x628, "Arabic beh, dual-joining"),
+            (0x627, "Arabic alef, right-joining"),
+            (0x640, "the tatweel, join-causing"),
+            (0x710, "Syriac alaph"),
+            (0x7ca, "N'Ko a"),
+            (0x1820, "Mongolian a"),
+            (0x841, "Mandaic ab"),
+            (0x1e900, "Adlam capital alif"),
+            (0xa840, "Phags-pa ka"),
+            (0xa872, "Phags-pa superfixed ra, left-joining"),
+        ] {
+            assert!(joins(c), "{what}");
+        }
+        for c in [0x41, 0x5d0, 0x64e, 0x300] {
+            assert!(!joins(c), "{c:#x}");
+        }
+    }
 
     // PROVENANCE names the HarfRust the manifest pins and the Unicode the
     // tables were generated from

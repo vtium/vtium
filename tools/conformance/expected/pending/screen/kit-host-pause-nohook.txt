@@ -1,1 +1,8 @@
-exit 2: test command host needs feature image-host, which vtium lacks
+size 12x4
+cursor 2,0
+flags AUTO_WRAP
+reply 1b5b313b3352
+row 0 |ab|
+row 1 ||
+row 2 ||
+row 3 ||

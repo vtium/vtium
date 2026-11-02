@@ -20,7 +20,7 @@ use vtium_config::{
 
 use vtium_platform::listing::{self, Listing, Roots};
 
-use crate::config::{Config, Loaded, keys};
+use crate::config::{Config, Loaded, Origin, keys};
 use crate::font;
 use crate::head::identity;
 use crate::notice::check_config;
@@ -88,8 +88,16 @@ fn init_catches(status: &str, signal: i32) -> Result<bool, String> {
 /// text, or the error's message) and `signal` is the power-off signal.
 fn semantics_under(config: &Config, status: &Result<String, String>, signal: i32) -> Vec<String> {
     let mut out = Vec::new();
-    if config.switch(&keys::HWACCEL) {
-        out.push(check_config::HWACCEL_NOT_BUILT.to_owned());
+    // A key not built yet warns once a source sets it; `hwaccel` warns
+    // only when it is on, since off is what vtium does.
+    for key in keys::NOT_BUILT {
+        if key.name == keys::HWACCEL.name {
+            if config.switch(key) {
+                out.push(check_config::HWACCEL_NOT_BUILT.to_owned());
+            }
+        } else if config.origin(key).is_some_and(|o| *o != Origin::Default) {
+            out.push(check_config::not_built(key.name));
+        }
     }
     if config.switch(&keys::USE_ORIGINAL_MODE) && !config.modes(&keys::MODE).is_empty() {
         out.push(check_config::MODE_OVER_ORIGINAL.to_owned());
@@ -646,6 +654,40 @@ mod tests {
         assert_eq!(status, 1);
         assert_eq!(lines, ["hwaccel is not built yet; vtium draws in software"]);
         assert_eq!(run_with(&[], "no-hwaccel\n"), (Vec::new(), 0));
+        // Every other key not built yet warns once a source sets it, to
+        // any value it takes, in the file or on the command line.
+        let (lines, status) = run_with(
+            &["--font-line-spacing=0"],
+            "hwaccel\ndisplay-buffers=3\nfont-hinting=light\n",
+        );
+        assert_eq!(status, 1);
+        assert_eq!(
+            lines,
+            [
+                "hwaccel is not built yet; vtium draws in software",
+                "display-buffers is not built yet; vtium ignores it",
+                "font-hinting is not built yet; vtium ignores it",
+                "font-line-spacing is not built yet; vtium ignores it",
+            ]
+        );
+        for (arg, key) in [
+            ("--display-buffers=1", "display-buffers"),
+            ("--font-hinting=full", "font-hinting"),
+            ("--font-line-spacing=20", "font-line-spacing"),
+        ] {
+            assert_eq!(
+                run_with(&[arg], ""),
+                (vec![format!("{key} is not built yet; vtium ignores it")], 1),
+                "{arg}"
+            );
+        }
+        // A value vtium cannot take leaves the key unset: its report
+        // alone.
+        let (lines, _) = run_with(&[], "display-buffers=4\n");
+        assert_eq!(
+            lines,
+            ["/etc/kmscon/kmscon.conf:1: display-buffers=\"4\" is none of 1, 2, 3, ignored"]
+        );
     }
 
     fn status(cgt: &str) -> Result<String, String> {

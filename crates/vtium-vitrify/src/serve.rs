@@ -96,7 +96,7 @@ use std::time::Duration;
 
 use rustix::process::{Resource, Rlimit, Uid, geteuid, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
-use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Style, Width};
+use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Style, Width};
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
 
 use crate::child::PARSER_MEMORY;
@@ -515,6 +515,11 @@ pub struct Engine {
     failed: RefCell<BTreeMap<usize, String>>,
     /// What the frit's text gave as warnings, each naming its line.
     warnings: Vec<String>,
+    /// Each outline source's baseline at a cell's height, by its place in
+    /// `sources` and the height (ADR-1302 D3): found once, from the
+    /// source's printable ASCII, so every request draws it on one
+    /// baseline whatever the request holds.
+    baselines: RefCell<BTreeMap<(usize, u32), u32>>,
 }
 
 /// The codepoints `font` maps in the face of `family` (its first face for
@@ -670,6 +675,7 @@ impl Engine {
             coverage,
             failed: RefCell::default(),
             warnings,
+            baselines: RefCell::default(),
         })
     }
 
@@ -751,6 +757,40 @@ impl Engine {
         Ok(OwnCell::Bitmap(cell))
     }
 
+    /// Source `i`'s baseline in a cell `height` pixels high, found once
+    /// for the engine's life (ADR-1302 D3); `None` for a bitmap source or
+    /// one whose font cannot be read, which the rasteriser then refuses.
+    fn baseline(&self, i: usize, height: u32) -> Option<u32> {
+        if let Some(&b) = self.baselines.borrow().get(&(i, height)) {
+            return Some(b);
+        }
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
+            return None;
+        };
+        let b = crate::outline::baseline(font, family, height).ok()?;
+        self.baselines.borrow_mut().insert((i, height), b);
+        Some(b)
+    }
+
+    /// The baseline and the underline and strike-through a strike at
+    /// `cell` reports (ADR-1302 D3, ADR-1200 D2): those of the frit's
+    /// first source, the font that sets the cell, for an outline font, so
+    /// every answer at one cell reports the same ones even after that
+    /// source fails as it draws; else, for a bitmap first source or one
+    /// whose font cannot be read, the cell's bottom row and the lines of a
+    /// face with no metrics of its own.
+    fn metrics_at(&self, cell: Cell) -> (u32, Decorations) {
+        let plain = (cell.height, Decorations::for_height(cell.height));
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.first() else {
+            return plain;
+        };
+        let Some(base) = self.baseline(0, cell.height) else {
+            return plain;
+        };
+        let lines = crate::outline::decorations(font, family, cell.height, base).unwrap_or(plain.1);
+        (base, lines)
+    }
+
     /// Why no source gives a glyph at `cell`: each bitmap source whose own
     /// cell does not fit it, and each source that failed as it drew.
     pub fn none_at(&self, cell: Cell) -> String {
@@ -809,9 +849,11 @@ impl Engine {
         want: &[u32],
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
+        let (base, lines) = self.metrics_at(cell);
         let strike = |format| {
             StrikeBuilder::new(format, cell, Style::default())
-                .baseline(cell.height)
+                .baseline(base)
+                .decorations(lines)
                 .compress(false)
         };
         let (mut bits, mut r8, mut rgba) = (
@@ -883,6 +925,7 @@ impl Engine {
                         cells: vec![(cell.width, cell.height)],
                         cover: ranges(&cover),
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
+                        baselines: self.baseline(i, cell.height).into_iter().collect(),
                     };
                     let outline = match rasterise(&request) {
                         Ok(outline) => outline,
@@ -902,7 +945,11 @@ impl Engine {
                             } else {
                                 Width::Narrow
                             };
-                            target.glyph(width, glyph.pixels.clone())
+                            let at = target.glyph(width, glyph.pixels.clone());
+                            if let Some(ink) = &glyph.ink {
+                                target.ink(at, ink.left, ink.width, ink.pixels.clone());
+                            }
+                            at
                         })
                     };
                     for &(c, g) in &s.map {
@@ -1923,6 +1970,143 @@ mod tests {
             why.contains("failed as it drew") && why.contains("no source left"),
             "{why}"
         );
+    }
+
+    // ADR-1302 D6: the helper sends a glyph's ink box in the set beside its
+    // pixels cut to its cell, and the console's reader gives it back. Test
+    // Mono's L here spans -2.9 to 8.8 pixels of a 12-pixel cell
+    // covers: text.overhang
+    #[test]
+    fn an_asks_glyph_carries_its_ink_box() {
+        let mut font = super::ttf::test_mono();
+        font.glyphs
+            .push(super::ttf::Glyph::rect(600, -150, 0, 450, 700));
+        font.cmap.push((0x4c, 8));
+        font.cmap.sort_unstable();
+        let (frit, dir) = outline_frit("ink", "", &[Ok(font)]);
+        let cell = Cell {
+            width: 12,
+            height: 20,
+        };
+        let frames = run(&[ServeRequest {
+            cell,
+            ..request(ASK, frit, &['L', 'A'])
+        }]);
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(frames[0].0, FRAME_GLYPHS);
+        let set = Arc::new(Set::from_bytes(frames[0].1.clone()).unwrap());
+        let face = SetFace::new(set, 20).unwrap();
+        let l = face.draw(&['L'], Style::default()).unwrap();
+        let ink = l.ink().unwrap();
+        assert_eq!((ink.left(), ink.width()), (-3, 15));
+        assert!(face.draw(&['A'], Style::default()).unwrap().ink().is_none());
+    }
+
+    // ADR-1302 D3: every request draws a font on one baseline, found from
+    // its printable ASCII, whatever the request holds, and the strike
+    // reports it with lines that follow it. Test Mono's underscore passes
+    // a 12-pixel cell by a row, so its baseline rises from 10 to 9
+    // covers: text.overhang
+    #[test]
+    fn every_request_draws_a_font_on_one_baseline() {
+        let mut font = super::ttf::test_mono();
+        font.glyphs
+            .push(super::ttf::Glyph::rect(600, 0, -200, 600, -100));
+        font.glyphs
+            .push(super::ttf::Glyph::rect(600, 100, 0, 500, 500));
+        font.cmap.push((0x5f, 8));
+        font.cmap.push((0x61, 9));
+        font.cmap.sort_unstable();
+        let (frit, dir) = outline_frit("baseline", "", &[Ok(font)]);
+        let cell = Cell {
+            width: 7,
+            height: 12,
+        };
+        let ask = |c: char| ServeRequest {
+            cell,
+            ..request(ASK, frit.clone(), &[c])
+        };
+        // each in a helper of its own, so no earlier request found it
+        let sets: Vec<Set> = ['a', '_', '\u{4e00}']
+            .iter()
+            .map(|&c| Set::from_bytes(run(&[ask(c)])[0].1.clone()).unwrap())
+            .collect();
+        let _ = std::fs::remove_dir_all(dir);
+        for set in &sets {
+            let strike = set.strikes().next().unwrap();
+            assert_eq!(strike.baseline, 9, "{:?}", set.clusters().count());
+            let d = strike.decorations;
+            assert!(
+                d.underline > strike.baseline,
+                "the underline below the baseline"
+            );
+            assert!(d.strike < strike.baseline, "the strike-through above it");
+        }
+        let face = SetFace::new(Arc::new(sets.into_iter().next().unwrap()), 12).unwrap();
+        let a = face.draw(&['a'], Style::default()).unwrap();
+        let inked = |y: usize| a.pixels()[y * 7..(y + 1) * 7].iter().any(|&p| p > 0);
+        assert!(inked(8) && !inked(9), "a stands on row 9 asked alone");
+    }
+
+    // one helper keeps a source's baseline for each height apart (review
+    // finding A7): Test Mono's underscore leaves its baseline at 8 in a
+    // 10-pixel cell and raises it from 10 to 9 in a 12-pixel one
+    #[test]
+    fn the_baseline_is_kept_for_each_height() {
+        let mut font = super::ttf::test_mono();
+        font.glyphs
+            .push(super::ttf::Glyph::rect(600, 0, -200, 600, -100));
+        font.cmap.push((0x5f, 8));
+        font.cmap.sort_unstable();
+        let (frit, dir) = outline_frit("two-heights", "", &[Ok(font)]);
+        let at = |h| ServeRequest {
+            cell: Cell {
+                width: 7,
+                height: h,
+            },
+            ..request(ASK, frit.clone(), &['A'])
+        };
+        let frames = run(&[at(10), at(12), at(10)]);
+        let _ = std::fs::remove_dir_all(dir);
+        let bases: Vec<u32> = frames
+            .iter()
+            .filter(|f| f.0 == FRAME_GLYPHS)
+            .map(|f| {
+                Set::from_bytes(f.1.clone())
+                    .unwrap()
+                    .strikes()
+                    .next()
+                    .unwrap()
+                    .baseline
+            })
+            .collect();
+        assert_eq!(bases, [8, 9, 8]);
+    }
+
+    // a strike reports its frit's first source's baseline even once that
+    // source has failed as it drew, so the answers at one cell never change
+    // mid-session (review finding A6): Test Mono with an underscore that
+    // raises its baseline at 12 pixels from 10 to 9
+    #[test]
+    fn a_strike_keeps_its_first_sources_baseline_after_it_fails() {
+        let mut font = super::ttf::test_mono();
+        font.glyphs
+            .push(super::ttf::Glyph::rect(600, 0, -200, 600, -100));
+        font.cmap.push((0x5f, 8));
+        font.cmap.sort_unstable();
+        let (frit, dir) = outline_frit("first-baseline", "", &[Ok(font), Err("builtin:unscii-8")]);
+        let engine = Engine::load(&frit, &Paths::default(), None).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+        let cell = Cell {
+            width: 7,
+            height: 12,
+        };
+        assert_eq!(engine.metrics_at(cell).0, 9);
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        assert_eq!(engine.metrics_at(cell).0, 9, "after the source fails");
     }
 
     // ADR-1200 D17: a frit that states its cell is drawn at it, the W

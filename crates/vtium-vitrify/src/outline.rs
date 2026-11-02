@@ -9,16 +9,19 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT2\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT3\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
-//!          u8, length u8 and scalar values u32
-//! answer   magic "VTVOUTL2", family length u32, the family, format length
+//!          u8, length u8 and scalar values u32, baseline count u32 (0, or
+//!          the cell count), each baseline u32
+//! answer   magic "VTVOUTL3", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
 //!          u32, glyph count u32, map length u32, cluster count u32, each
-//!          glyph's flags u8 (1 two cells wide, 2 RGBA) and its rows, then
+//!          glyph's flags u8 (1 two cells wide, 2 RGBA, 4 an ink box) and
+//!          its rows, cut to its cells, then for an ink box its left i32,
+//!          width u32 and R8 rows, then
 //!          the map: each (codepoint u32, glyph u32), sorted, then the
 //!          clusters: each length u8, scalar values u32 and glyph u32,
 //!          sorted
@@ -29,10 +32,15 @@
 //! Each cell's font size follows the C reference's flow (`font_freetype.c`,
 //! a cell request for half a pixel under the height): the font's ascent
 //! and descent span the cell's height less half a pixel, the baseline sits
-//! the ascent below the top, and the font that sets the cell sets its width
+//! the ascent below the top, rounded up, and rises by what the lowest ink
+//! of the font's printable ASCII passes the cell's bottom (ADR-1302 D3),
+//! and the font that sets the cell sets its width
 //! from `W`'s advance or ink, whichever is wider. A glyph is placed by its
-//! own bearing on the baseline, moved left by half of what passes the
-//! cell's right edge and cut at the cell's edges. A glyph advancing more
+//! font (ADR-1302 D2): its pen at the cell's left edge, moved by half of
+//! what its cells exceed its advance rounded, rounded down, and its ink at
+//! its bearing from the pen on the baseline; its pixels are cut at its
+//! cells' edges, and the ink past them goes to its ink box, cut one cell
+//! past its cells. A glyph advancing more
 //! than one and a half cells is two cells wide. A color glyph larger than
 //! its cells is drawn again at the size that fits them, centred across
 //! them and kept inside the cell's height. Outlines are hinted; color
@@ -71,11 +79,14 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT2\0";
-const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL2";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT3\0";
+const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL3";
 
 const GLYPH_WIDE: u8 = 1;
 const GLYPH_COLOR: u8 = 2;
+/// The glyph's ink box follows its pixels: its left i32, its width u32
+/// and its R8 pixels.
+const GLYPH_INK: u8 = 4;
 
 /// What the parser is given to rasterise an outline font.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -94,15 +105,47 @@ pub struct OutlineRequest {
     pub cover: Vec<Cover>,
     /// The clusters to shape and draw whole.
     pub clusters: Vec<Ask>,
+    /// The baseline to draw each cell's glyphs on, one for each cell, as
+    /// [`baseline`] gives it and the helper keeps it for the source and the
+    /// cell's height; empty, the rasteriser finds each itself.
+    pub baselines: Vec<u32>,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
-/// by row.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// by row, cut to its cells, and the ink box of an R8 glyph whose ink
+/// passes them.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Placed {
     pub wide: bool,
     pub color: bool,
     pub pixels: Vec<u8>,
+    pub ink: Option<InkBox>,
+}
+
+/// The columns an R8 glyph's ink covers past its cells (ADR-1302 D1,
+/// D6): `width` columns from `left`, the offset of the box's first column
+/// from the left edge of the glyph's first cell, 0 or negative, over the
+/// cell's height, R8. The box spans the glyph's cells and its ink, cut to
+/// its reach, one cell past its cells on each side.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct InkBox {
+    pub left: i32,
+    pub width: u32,
+    pub pixels: Vec<u8>,
+}
+
+/// Whether a box `width` columns from `left` spans a glyph `span` pixels
+/// wide in cells `cell` pixels wide, passes it on one side at least, and
+/// reaches no further than one cell past it on either side: the rule
+/// vtium-font's reader holds a set's boxes to.
+pub fn in_reach(left: i32, width: u32, cell: u32, span: u32) -> bool {
+    let (left, cell, span) = (i64::from(left), i64::from(cell), i64::from(span));
+    let right = left.saturating_add(i64::from(width));
+    left <= 0
+        && left.saturating_add(cell) >= 0
+        && right >= span
+        && right <= span.saturating_add(cell)
+        && (left, right) != (0, span)
 }
 
 /// An outline font's glyphs at one cell.
@@ -239,6 +282,10 @@ impl OutlineRequest {
             out.push(ask.kind.code());
             put_key(&mut out, &ask.key);
         }
+        put32(&mut out, len32(self.baselines.len()));
+        for &b in &self.baselines {
+            put32(&mut out, b);
+        }
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -270,6 +317,16 @@ impl OutlineRequest {
                 kind,
             });
         }
+        let mut baselines = Vec::new();
+        for _ in 0..r.count(OUTLINE_CELLS_MAX)? {
+            baselines.push(r.u32()?);
+        }
+        if !baselines.is_empty()
+            && (baselines.len() != cells.len()
+                || baselines.iter().zip(&cells).any(|(&b, &(_, h))| b > h))
+        {
+            return Err("a baseline for no cell, or below its cell");
+        }
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -279,6 +336,7 @@ impl OutlineRequest {
             cells,
             cover,
             clusters,
+            baselines,
         })
     }
 
@@ -318,10 +376,16 @@ impl Outline {
                 put32(&mut out, v);
             }
             for g in &s.glyphs {
-                let flags =
-                    if g.wide { GLYPH_WIDE } else { 0 } | if g.color { GLYPH_COLOR } else { 0 };
+                let flags = if g.wide { GLYPH_WIDE } else { 0 }
+                    | if g.color { GLYPH_COLOR } else { 0 }
+                    | if g.ink.is_some() { GLYPH_INK } else { 0 };
                 out.push(flags);
                 out.extend_from_slice(&g.pixels);
+                if let Some(ink) = &g.ink {
+                    out.extend_from_slice(&ink.left.to_le_bytes());
+                    put32(&mut out, ink.width);
+                    out.extend_from_slice(&ink.pixels);
+                }
             }
             for &(c, g) in &s.map {
                 put32(&mut out, c);
@@ -383,7 +447,7 @@ impl Outline {
             let mut glyphs = Vec::new();
             for _ in 0..glyph_count {
                 let flags = r.u8()?;
-                if flags & !(GLYPH_WIDE | GLYPH_COLOR) != 0 {
+                if flags & !(GLYPH_WIDE | GLYPH_COLOR | GLYPH_INK) != 0 {
                     return Err("an unknown glyph flag");
                 }
                 let (wide, color) = (flags & GLYPH_WIDE != 0, flags & GLYPH_COLOR != 0);
@@ -400,10 +464,34 @@ impl Outline {
                 {
                     return Err("an RGBA glyph that is not premultiplied");
                 }
+                let ink = if flags & GLYPH_INK == 0 {
+                    None
+                } else {
+                    if color {
+                        return Err("an ink box on a color glyph");
+                    }
+                    let left = i32::from_le_bytes(r.take(4)?.try_into().map_err(|_| "cut short")?);
+                    let box_width = r.u32()?;
+                    let span = if wide { width.saturating_mul(2) } else { width };
+                    if !in_reach(left, box_width, width, span) {
+                        return Err("an ink box past its glyph's reach, or not past its cells");
+                    }
+                    let n = Placed::bytes(false, false, box_width, height)
+                        .ok_or("an ink box past usize")?;
+                    if n > usize::try_from(SET_CHUNK_BYTES).unwrap_or(0) {
+                        return Err("an ink box larger than a set's chunk");
+                    }
+                    Some(InkBox {
+                        left,
+                        width: box_width,
+                        pixels: r.take(n)?.to_vec(),
+                    })
+                };
                 glyphs.push(Placed {
                     wide,
                     color,
                     pixels,
+                    ink,
                 });
             }
             if map_len > r.0.len() / 8 {
@@ -475,13 +563,13 @@ pub fn family_key(name: &str) -> String {
         .collect()
 }
 
-pub use raster::{cell_width, rasterise};
+pub use raster::{baseline, cell_width, decorations, rasterise};
 
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 pub(crate) mod raster {
     use super::{
-        LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike, family_key,
+        InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike, family_key,
     };
     use swash::scale::image::{Content, Image};
     use swash::scale::{Render, ScaleContext, Source, StrikeWith};
@@ -574,12 +662,33 @@ pub(crate) mod raster {
         context: ScaleContext,
     }
 
-    impl Drawer<'_> {
+    impl<'a> Drawer<'a> {
+        /// A drawer of `font`'s glyphs.
+        pub(crate) fn new(font: FontRef<'a>) -> Self {
+            Self {
+                font,
+                context: ScaleContext::new(),
+            }
+        }
+
         /// Glyph `g` at `ppem`: its color form if it has one, else its
         /// outline as coverage. A color bitmap is scaled from its largest
         /// strike to `ppem`, and further to fit `fit`, by this build's
         /// [`METHOD`].
         pub(crate) fn draw(&mut self, g: u16, ppem: f32, fit: (u32, u32)) -> Option<Image> {
+            self.draw_stretched(g, ppem, fit, 1.0)
+        }
+
+        /// [`Drawer::draw`], an outline scaled sideways by `sx` about its
+        /// origin before it is rasterised (ADR-1302 D2's joining stretch);
+        /// a color glyph is drawn as it is.
+        pub(crate) fn draw_stretched(
+            &mut self,
+            g: u16,
+            ppem: f32,
+            fit: (u32, u32),
+            sx: f32,
+        ) -> Option<Image> {
             let mut scaler = self.context.builder(self.font).size(ppem).build();
             if scaler.has_color_outlines() {
                 if let Some(layers) = scaler.scale_color_outline(g) {
@@ -597,7 +706,10 @@ pub(crate) mod raster {
                 .size(ppem)
                 .hint(true)
                 .build();
-            Render::new(&[Source::Outline]).render(&mut scaler, g)
+            let stretch = (sx != 1.0).then(|| swash::zeno::Transform::scale(sx, 1.0));
+            Render::new(&[Source::Outline])
+                .transform(stretch)
+                .render(&mut scaler, g)
         }
 
         /// A color bitmap from the font's largest strike holding `g`, its
@@ -769,14 +881,146 @@ pub(crate) mod raster {
         for &(data, family) in faces {
             let (font, _, _) = face(data, family)?;
             let ppem = ppem(&metrics(font)?, height);
-            let mut drawer = Drawer {
-                font,
-                context: ScaleContext::new(),
-            };
+            let mut drawer = Drawer::new(font);
             let width = w_width(&mut drawer, ppem, height);
             widest = Some(widest.map_or(width, |w: u32| w.max(width)));
         }
         widest.ok_or_else(|| "no face to take the cell from".to_owned())
+    }
+
+    /// The baseline of a face in a cell `h` pixels high, drawn at `ppem`
+    /// (ADR-1302 D3): its ascent below the cell's top, rounded up, raised by
+    /// the whole pixels that the lowest ink of the face's printable ASCII,
+    /// U+0021 to U+007E, hinted as it is drawn, passes the cell's bottom
+    /// edge, so the underscore and the descenders end in the cell's bottom
+    /// rows. Every glyph of the face is drawn on it, whatever a request
+    /// holds. A face with no printable ASCII, or only color glyphs there,
+    /// keeps its ascent.
+    fn baseline_at(drawer: &mut Drawer<'_>, metrics: &swash::Metrics, ppem: f32, h: u32) -> u32 {
+        let scale = ppem / f32::from(metrics.units_per_em);
+        let base = ((metrics.ascent * scale).ceil() as u32).min(h);
+        let charmap = drawer.font.charmap();
+        let lowest = (0x21u32..=0x7e)
+            .filter_map(char::from_u32)
+            .map(|c| charmap.map(c))
+            .filter(|&g| g != 0)
+            .filter_map(|g| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
+            .filter(|i| i.content != Content::Color && i.placement.height > 0)
+            // the image's box: swash keeps no row in it whose coverage
+            // rounds to 0, so its bottom is the ink's; an underscore
+            // dipping 0.0005 of a pixel into a row raises nothing
+            // (tests/outline.rs, the_lowest_ink_is_measured_on_the_pixels)
+            .map(|i| i64::from(base) - i64::from(i.placement.top) + i64::from(i.placement.height))
+            .max();
+        match lowest {
+            Some(bottom) if bottom > i64::from(h) => {
+                base.saturating_sub(u32::try_from(bottom - i64::from(h)).unwrap_or(u32::MAX))
+            }
+            _ => base,
+        }
+    }
+
+    /// The baseline of the face `family` of `font` in a cell `height`
+    /// pixels high, as [`rasterise`] draws it (ADR-1302 D3).
+    pub fn baseline(font: &[u8], family: &str, height: u32) -> Result<u32, String> {
+        if !(1..=vtium_font::CELL_SIDE_MAX).contains(&height) {
+            return Err(format!("a cell {height} pixels high, past CELL_SIDE_MAX"));
+        }
+        let (font, _, _) = face(font, family)?;
+        let metrics = metrics(font)?;
+        let mut drawer = Drawer::new(font);
+        Ok(baseline_at(
+            &mut drawer,
+            &metrics,
+            ppem(&metrics, height),
+            height,
+        ))
+    }
+
+    /// Where the underline and strike-through go in a cell `height` pixels
+    /// high whose baseline is row `baseline`, from the face `family` of
+    /// `font` (ADR-1302 D3, ADR-1200 D2), as the C reference took them
+    /// (`kmscon_font_freetype_get_deco`, `kmscon_font_get_deco`). The
+    /// underline's thickness comes from the `post` table when the font has
+    /// one and it gives a thickness that rounds above 0, else a fourteenth
+    /// of the cell. Its centre is below the baseline by `post`'s position
+    /// less half its thickness, as FreeType's `underline_position` gave it,
+    /// else a thickness and a half above the cell's bottom. The
+    /// strike-through's top and thickness come from the `OS/2` table's
+    /// strikeout, above the baseline, when its size is above 0. Else it is
+    /// as thick as the underline and centred on half the x-height, which is
+    /// `OS/2`'s `sxHeight`, else the `x` glyph's height, else half the
+    /// baseline. Each line is at least a row thick, at most a quarter of
+    /// the cell, and inside it.
+    pub fn decorations(
+        font: &[u8],
+        family: &str,
+        height: u32,
+        baseline: u32,
+    ) -> Result<vtium_font::Decorations, String> {
+        let (font, _, _) = face(font, family)?;
+        let m = metrics(font)?;
+        let h = f64::from(height.max(1));
+        let scale = f64::from(ppem(&m, height)) / f64::from(m.units_per_em);
+        let base = f64::from(baseline);
+        let max_thick = (height / 4).max(1);
+        // post: underlinePosition, the stroke's top, at byte 8 and
+        // underlineThickness at 10. swash's stroke_size is OS/2's
+        // strikeout size when there is no post, so post is read here
+        let field = |table: &[u8; 4], at: usize| {
+            font.table(swash::tag_from_bytes(table))
+                .and_then(|t| t.get(at..at + 2))
+                .and_then(|b| b.first_chunk::<2>())
+                .map(|&b| f64::from(i16::from_be_bytes(b)))
+        };
+        let (position, size) = (field(b"post", 8), field(b"post", 10));
+        let mut thick = (size.unwrap_or(0.0) * scale).round();
+        if thick <= 0.0 {
+            thick = (h / 14.0).floor().max(1.0);
+        }
+        // FreeType's underline_position, which the C reference took as the
+        // stroke's centre, is post's underlinePosition less half its
+        // underlineThickness
+        let centre = match position.filter(|&p| p != 0.0) {
+            Some(p) => base - (p - size.unwrap_or(0.0) / 2.0) * scale,
+            None => h - thick / 2.0 - thick,
+        };
+        let ul_thick = (thick as u32).clamp(1, max_thick);
+        let ul_pos = ((centre - thick / 2.0).round().max(0.0) as u32).min(height - ul_thick);
+        // OS/2: yStrikeoutSize at byte 26, yStrikeoutPosition at 28, and
+        // from version 2 sxHeight at 86
+        let field = |at: usize| field(b"OS/2", at);
+        let version = field(0).unwrap_or(0.0);
+        let (strike_top, strike_thick) = match (field(26), field(28)) {
+            (Some(size), Some(position)) if size > 0.0 => {
+                let t = ((size * scale).round() as u32).clamp(1, max_thick);
+                (base - position * scale, t)
+            }
+            _ => {
+                let mut xh = field(86)
+                    .filter(|&x| version >= 2.0 && x > 0.0)
+                    .map(|x| x * scale);
+                if xh.is_none() {
+                    // the x glyph's top above the baseline, hinted
+                    let mut drawer = Drawer::new(font);
+                    let g = font.charmap().map('x');
+                    xh = (g != 0)
+                        .then(|| drawer.draw(g, ppem(&m, height), (u32::MAX, u32::MAX)))
+                        .flatten()
+                        .map(|i| f64::from(i.placement.top))
+                        .filter(|&t| t > 0.0);
+                }
+                let xh = xh.unwrap_or(base / 2.0);
+                (base - xh / 2.0 - f64::from(ul_thick) / 2.0, ul_thick)
+            }
+        };
+        let strike_pos = (strike_top.round().max(0.0) as u32).min(height - strike_thick);
+        Ok(vtium_font::Decorations {
+            underline: ul_pos,
+            underline_thickness: ul_thick,
+            strike: strike_pos,
+            strike_thickness: strike_thick,
+        })
     }
 
     pub fn rasterise(request: &OutlineRequest) -> Result<Outline, String> {
@@ -794,15 +1038,14 @@ pub(crate) mod raster {
         wanted.dedup_by_key(|&mut (c, _)| c);
         let shaped =
             crate::shaping::shape::shape_all(&request.font, index, font, &request.clusters);
-        let mut drawer = Drawer {
-            font,
-            context: ScaleContext::new(),
-        };
+        let mut drawer = Drawer::new(font);
         let mut strikes = Vec::new();
-        for &(want_w, h) in &request.cells {
+        for (i, &(want_w, h)) in request.cells.iter().enumerate() {
             let ppem = ppem(&metrics, h);
-            let scale = ppem / f32::from(metrics.units_per_em);
-            let baseline = ((metrics.ascent * scale).ceil() as u32).min(h);
+            let baseline = match request.baselines.get(i) {
+                Some(&b) => b,
+                None => baseline_at(&mut drawer, &metrics, ppem, h),
+            };
             let advances = font.glyph_metrics(&[]).scale(ppem);
             let width = if want_w != 0 {
                 want_w
@@ -825,7 +1068,8 @@ pub(crate) mod raster {
                         let advance = advances.advance_width(g);
                         // a glyph larger than a set's chunk cannot be stored:
                         // a color glyph two cells wide past about 64 pixels
-                        let Some(placed) = place(&mut drawer, g, advance, &cell)
+                        let joins = crate::shaping::joins(c);
+                        let Some(placed) = place(&mut drawer, g, advance, joins, &cell)
                             .filter(|p| p.pixels.len() <= SET_CHUNK_BYTES as usize)
                         else {
                             continue;
@@ -875,26 +1119,58 @@ pub(crate) mod raster {
     pub(crate) struct Cell {
         pub(crate) width: u32,
         pub(crate) height: u32,
-        baseline: u32,
+        pub(crate) baseline: u32,
         pub(crate) ppem: f32,
     }
 
     /// Glyph `g`, advancing `advance` pixels, placed in `cell`, one or two
     /// cells wide by its advance; `None` when the font draws nothing for
-    /// it.
-    fn place(drawer: &mut Drawer<'_>, g: u16, advance: f32, cell: &Cell) -> Option<Placed> {
+    /// it. A glyph of a character that joins (ADR-1302 D2, `joins`) is
+    /// stretched sideways before it is rasterised, by its cells' width over
+    /// its advance, unrounded, its pen on its cell's left edge, so its
+    /// advance fills its cells and its joining strokes meet the next
+    /// letter's.
+    fn place(
+        drawer: &mut Drawer<'_>,
+        g: u16,
+        advance: f32,
+        joins: bool,
+        cell: &Cell,
+    ) -> Option<Placed> {
         let wide = advance > cell.width as f32 * 1.5;
-        place_drawn(&mut |ppem, fit| drawer.draw(g, ppem, fit), wide, cell)
+        let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
+        if joins && advance > 0.0 {
+            let sx = span / advance;
+            return place_drawn(
+                &mut |ppem, fit| drawer.draw_stretched(g, ppem, fit, sx),
+                wide,
+                None,
+                cell,
+            );
+        }
+        place_drawn(
+            &mut |ppem, fit| drawer.draw(g, ppem, fit),
+            wide,
+            Some(advance),
+            cell,
+        )
     }
 
     /// What `draw` draws at a size and within a box, placed in `cell`, two
-    /// cells wide when `wide`: a mask by its own bearing on the baseline,
-    /// moved left by half of what passes the cell's right edge, a color
-    /// image larger than its cells drawn again at the size that fits them
-    /// and centred across them.
+    /// cells wide when `wide`. A mask is placed by the font (ADR-1302 D2):
+    /// its pen starts at the cell's left edge, moved right by half of what
+    /// its cells' width exceeds its advance rounded to the nearest pixel,
+    /// rounded down, which is a move left when the advance is wider, and
+    /// its ink lies at its bearing from the pen; with no advance, as for a
+    /// ligature shaping places, the pen stays on the left edge. Nothing
+    /// moves it to keep its ink inside its cells: the ink past them goes
+    /// to its ink box, cut at its reach. A color image larger than its
+    /// cells is drawn again at the size that fits them and centred across
+    /// them.
     pub(crate) fn place_drawn(
         draw: &mut dyn FnMut(f32, (u32, u32)) -> Option<Image>,
         wide: bool,
+        advance: Option<f32>,
         cell: &Cell,
     ) -> Option<Placed> {
         let h = cell.height;
@@ -913,16 +1189,112 @@ pub(crate) mod raster {
             let top = (base - image.placement.top).clamp(0, (h_i - ih).max(0));
             ((bw_i - iw) / 2, top)
         } else {
-            let mut left = image.placement.left;
-            if left + iw > bw_i {
-                left -= (left + iw - bw_i) / 2;
-            }
-            (left, base - image.placement.top)
+            // the C reference's `centre_dx` rounded the advance, (adv + 32) >> 6
+            // a negative advance counts as none, as centre_dx clamped it at 0
+            let pen = advance.map_or(0, |a| (bw_i - a.max(0.0).round() as i32).div_euclid(2));
+            (pen + image.placement.left, base - image.placement.top)
+        };
+        let ink = if color {
+            None
+        } else {
+            ink_box(&image, cell.width, bw, h, left, top)
         };
         Some(Placed {
             wide,
             color,
             pixels: copy(&image, color, bw, h, left, top),
+            ink,
         })
+    }
+
+    /// The ink box of a mask placed at `left`, `top` of a glyph `bw`
+    /// pixels wide in cells `cell` pixels wide and `h` high (ADR-1302 D1,
+    /// D6): its ink copied into its reach, one cell past its cells on each
+    /// side, and cut to the columns that span its cells and its ink;
+    /// `None` when its ink lies inside its cells, or when the box would
+    /// pass a set's chunk, where the glyph is cut to its cells.
+    fn ink_box(image: &Image, cell: u32, bw: u32, h: u32, left: i32, top: i32) -> Option<InkBox> {
+        let reach = bw.checked_add(cell.checked_mul(2)?)?;
+        let all = copy(
+            image,
+            false,
+            reach,
+            h,
+            left.checked_add(i32::try_from(cell).ok()?)?,
+            top,
+        );
+        let inked =
+            |x: u32| (0..h).any(|y| all.get((y * reach + x) as usize).is_some_and(|&p| p != 0));
+        let first = (0..reach).find(|&x| inked(x))?;
+        let last = (0..reach).rev().find(|&x| inked(x))?;
+        let from = first.min(cell);
+        let to = (last + 1).max(cell + bw);
+        if from == cell && to == cell + bw {
+            return None;
+        }
+        let width = to - from;
+        if u64::from(width) * u64::from(h) > u64::from(SET_CHUNK_BYTES) {
+            return None;
+        }
+        let pixels = (0..h)
+            .flat_map(|y| {
+                let row = (y * reach) as usize;
+                all.get(row + from as usize..row + to as usize)
+                    .unwrap_or_default()
+                    .iter()
+                    .copied()
+            })
+            .collect();
+        Some(InkBox {
+            left: i32::try_from(from).ok()? - i32::try_from(cell).ok()?,
+            width,
+            pixels,
+        })
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::indexing_slicing,
+    clippy::expect_used,
+    reason = "a test fails by panicking"
+)]
+mod tests {
+    use super::raster::{Cell, place_drawn};
+    use swash::scale::Source;
+    use swash::scale::image::{Content, Image};
+    use swash::zeno::Placement;
+
+    /// A mask one pixel wide and the cell's height, at its pen.
+    fn bar(h: u32) -> Image {
+        Image {
+            source: Source::Outline,
+            content: Content::Mask,
+            placement: Placement {
+                left: 0,
+                top: 10,
+                width: 1,
+                height: h,
+            },
+            data: vec![255; h as usize],
+        }
+    }
+
+    // a negative advance, which a shaped cluster's pen sum can give, is
+    // taken as 0, as the C reference's centre_dx clamped it (review finding
+    // A9): in a 12-pixel cell the pen goes half the cell in, column 6,
+    // where an unclamped advance of -10 would put it at column 11
+    #[test]
+    fn a_negative_advance_is_taken_as_none() {
+        let cell = Cell {
+            width: 12,
+            height: 10,
+            baseline: 10,
+            ppem: 10.0,
+        };
+        let placed =
+            place_drawn(&mut |_, _| Some(bar(10)), false, Some(-10.0), &cell).expect("placed");
+        let row: Vec<usize> = (0..12).filter(|&x| placed.pixels[x] > 0).collect();
+        assert_eq!(row, [6]);
     }
 }

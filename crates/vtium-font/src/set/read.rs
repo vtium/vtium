@@ -13,15 +13,16 @@ use crate::face::{Cell, Decorations, Style, Width};
 use crate::glyph::{Format, Glyph};
 use crate::policy::{Coverage, RangeCoverage, SpritePolicy};
 use crate::set::format::{
-    CHUNK_RECORD, CLUS, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, MAGIC, MAJOR, META, POLY,
-    PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
+    CHUNK_RECORD, CLUS, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, INK_GLYPH, INKX, MAGIC,
+    MAJOR, META, POLY, PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
 };
 use crate::sprite::Range;
 
 mod parse;
 
 use parse::{
-    ClusterMap, parse_clusters, parse_cmap, parse_index, parse_meta, parse_poly, parse_strikes,
+    ClusterMap, InkMap, parse_clusters, parse_cmap, parse_index, parse_inks, parse_meta,
+    parse_poly, parse_strikes,
 };
 
 /// Why a set was refused, or a chunk of it.
@@ -172,6 +173,7 @@ pub struct Set {
     strikes: Vec<Strike>,
     chunks: Vec<Chunk>,
     clusters: ClusterMap,
+    inks: InkMap,
     bytes: Bytes,
     loaded: Box<[Loaded]>,
     fault: OnceLock<SetError>,
@@ -359,6 +361,9 @@ struct Parts<'a> {
     /// `CLUS` but its chunks' bytes, and where it lies, when the set has
     /// one.
     clus: Option<(&'a [u8], (u64, u64))>,
+    /// `INKX` but its chunks' bytes, and where it lies, when the set has
+    /// one.
+    inkx: Option<(&'a [u8], (u64, u64))>,
 }
 
 /// The length of `GLYF`'s head and index, from its first 8 bytes.
@@ -425,6 +430,10 @@ impl Set {
                 Ok(at) => Some((get(CLUS)?, at)),
                 Err(_) => None,
             },
+            inkx: match header.section(INKX) {
+                Ok(at) => Some((get(INKX)?, at)),
+                Err(_) => None,
+            },
         })
     }
 
@@ -449,6 +458,17 @@ impl Set {
             }
             None => ClusterMap::default(),
         };
+        let inks = match parts.inkx {
+            Some((bytes, at)) => {
+                let (map, more) = parse_inks(bytes, at, &strikes, &clusters, chunks.len())?;
+                chunks.extend(more);
+                if u32::try_from(chunks.len()).map_or(true, |n| n > SET_CHUNKS_MAX) {
+                    return Err(SetError::Bound("SET_CHUNKS_MAX"));
+                }
+                map
+            }
+            None => InkMap::default(),
+        };
         let loaded = chunks.iter().map(|_| OnceLock::new()).collect();
         Ok(Set {
             version: parts.version,
@@ -457,6 +477,7 @@ impl Set {
             strikes,
             chunks,
             clusters,
+            inks,
             bytes: Bytes::Static(&[]),
             loaded,
             fault: OnceLock::new(),
@@ -695,63 +716,119 @@ impl Set {
     }
 
     /// The glyph of `strike` that lies `at`, drawn as
-    /// [`Set::draw_index`] draws one.
+    /// [`Set::draw_index`] draws one, with its ink box when `INKX` gives
+    /// it one (ADR-1302 D6), drawn at the same scale and widened inside
+    /// the box.
     fn draw_at(&self, strike: &Strike, at: &Located, widen: bool, scale: u32) -> Option<Glyph> {
-        let chunk = self.chunk(at.chunk)?;
-        let start = usize_of(at.offset).ok()?;
         let info = strike.info;
         let cells = if at.wide { 2 } else { 1 };
         let w = info.cell.width.checked_mul(cells)?;
-        let h = info.cell.height;
         let len = usize_of(strike.size(at.wide)?).ok()?;
+        let chunk = self.chunk(at.chunk)?;
+        let start = usize_of(at.offset).ok()?;
         let src = chunk.get(start..start.checked_add(len)?)?;
-        let row = len.checked_div(usize_of(h).ok()?)?;
         let scale = scale.max(1);
-        let out_w = w.checked_mul(scale)?;
-        let out_h = h.checked_mul(scale)?;
-        let format = match info.format {
-            PixelFormat::Rgba => Format::Rgba,
-            PixelFormat::Bits | PixelFormat::R8 => Format::Mask,
+        let (format, pixels) = paint(info, src, w, Some(info.cell.width), widen, scale)?;
+        let glyph = Glyph::from_pixels(
+            w.checked_mul(scale)?,
+            info.cell.height.checked_mul(scale)?,
+            format,
+            pixels,
+        )?
+        .with_cells(if at.wide { Width::Wide } else { Width::Narrow });
+        let number = self.strikes.iter().position(|k| std::ptr::eq(k, strike))?;
+        let Some(ink) = self.inks.find(number, at.key) else {
+            return Some(glyph);
         };
-        // the pixel at `x` of `line` in the strike's format, as mask or RGBA
-        // bytes
-        let pixel = |line: &[u8], x: u32| -> Option<[u8; 4]> {
-            let x = usize_of(x).ok()?;
-            match info.format {
-                PixelFormat::Bits => {
-                    let byte = line.get(x / 8)?;
-                    let on = byte >> 7usize.saturating_sub(x % 8) & 1 != 0;
-                    Some([if on { 0xff } else { 0 }; 4])
-                }
-                PixelFormat::R8 => Some([*line.get(x)?; 4]),
-                PixelFormat::Rgba => line.get(x.checked_mul(4)?..)?.first_chunk().copied(),
+        let ink_src = (|| {
+            let n = usize_of(glyph_bytes(
+                info.format.code(),
+                ink.width,
+                info.cell.height,
+                1,
+            )?)
+            .ok()?;
+            let chunk = self.chunk(ink.chunk)?;
+            let start = usize_of(ink.offset).ok()?;
+            chunk.get(start..start.checked_add(n)?)
+        })();
+        // a box that does not decode leaves the glyph cut to its cells
+        let Some((_, box_pixels)) =
+            ink_src.and_then(|src| paint(info, src, ink.width, None, widen, scale))
+        else {
+            return Some(glyph);
+        };
+        let left = ink.left.checked_mul(i32::try_from(scale).ok()?)?;
+        let width = ink.width.checked_mul(scale)?;
+        glyph
+            .clone()
+            .with_ink(left, width, box_pixels)
+            .or(Some(glyph))
+    }
+}
+
+/// The pixels of `src`, `w` pixels of `info`'s format a row over its
+/// cell's height, drawn at `scale` as a mask or RGBA: a 1-bit pixel
+/// expanded to 0 or 255 (ADR-1200 D13), and bold widened when `widen`
+/// asks, a pixel set when it or its left neighbour is, within each cell
+/// of `cell` pixels when `cell` is given, else within the whole row.
+fn paint(
+    info: StrikeInfo,
+    src: &[u8],
+    w: u32,
+    cell: Option<u32>,
+    widen: bool,
+    scale: u32,
+) -> Option<(Format, Vec<u8>)> {
+    let h = info.cell.height;
+    let row = src.len().checked_div(usize_of(h).ok()?)?;
+    let out_w = w.checked_mul(scale)?;
+    let out_h = h.checked_mul(scale)?;
+    let format = match info.format {
+        PixelFormat::Rgba => Format::Rgba,
+        PixelFormat::Bits | PixelFormat::R8 => Format::Mask,
+    };
+    // the pixel at `x` of `line` in the strike's format, as mask or RGBA
+    // bytes
+    let pixel = |line: &[u8], x: u32| -> Option<[u8; 4]> {
+        let x = usize_of(x).ok()?;
+        match info.format {
+            PixelFormat::Bits => {
+                let byte = line.get(x / 8)?;
+                let on = byte >> 7usize.saturating_sub(x % 8) & 1 != 0;
+                Some([if on { 0xff } else { 0 }; 4])
             }
-        };
-        let bpp = usize_of(format.bytes_per_pixel()).ok()?;
-        let mut pixels = Vec::with_capacity(
-            usize_of(out_w.saturating_mul(out_h))
-                .ok()?
-                .saturating_mul(bpp),
-        );
-        for y in 0..out_h {
-            let sy = usize_of(y.checked_div(scale)?).ok()?;
-            let line = src.get(sy.checked_mul(row)?..)?.get(..row)?;
-            for x in 0..out_w {
-                let sx = x.checked_div(scale)?;
-                let p = pixel(line, sx)?;
-                if format == Format::Mask {
-                    let left = (widen && sx.checked_rem(info.cell.width)? != 0)
-                        .then(|| pixel(line, sx.checked_sub(1)?))
-                        .flatten();
-                    pixels.push(left.map_or(p[0], |l| p[0].max(l[0])));
-                } else {
-                    pixels.extend_from_slice(&p);
-                }
+            PixelFormat::R8 => Some([*line.get(x)?; 4]),
+            PixelFormat::Rgba => line.get(x.checked_mul(4)?..)?.first_chunk().copied(),
+        }
+    };
+    let bpp = usize_of(format.bytes_per_pixel()).ok()?;
+    let mut pixels = Vec::with_capacity(
+        usize_of(out_w.saturating_mul(out_h))
+            .ok()?
+            .saturating_mul(bpp),
+    );
+    for y in 0..out_h {
+        let sy = usize_of(y.checked_div(scale)?).ok()?;
+        let line = src.get(sy.checked_mul(row)?..)?.get(..row)?;
+        for x in 0..out_w {
+            let sx = x.checked_div(scale)?;
+            let p = pixel(line, sx)?;
+            if format == Format::Mask {
+                let inside = match cell {
+                    Some(cw) => sx.checked_rem(cw)? != 0,
+                    None => sx != 0,
+                };
+                let left = (widen && inside)
+                    .then(|| pixel(line, sx.checked_sub(1)?))
+                    .flatten();
+                pixels.push(left.map_or(p[0], |l| p[0].max(l[0])));
+            } else {
+                pixels.extend_from_slice(&p);
             }
         }
-        let glyph = Glyph::from_pixels(out_w, out_h, format, pixels)?;
-        Some(glyph.with_cells(if at.wide { Width::Wide } else { Width::Narrow }))
     }
+    Some((format, pixels))
 }
 
 /// Where a glyph lies: its chunk and its offset in the chunk.
@@ -759,6 +836,9 @@ struct Located {
     chunk: usize,
     offset: u64,
     wide: bool,
+    /// The kind and number `INKX` finds its ink box by: a glyph of
+    /// `GLYF`, or a cluster of `CLUS`.
+    key: (u16, u32),
 }
 
 impl Strike {
@@ -800,6 +880,7 @@ impl Strike {
             chunk: first.checked_add(c)?,
             offset: at.checked_sub(chunk.start)?,
             wide: span.wide,
+            key: (INK_GLYPH, glyph),
         })
     }
 
