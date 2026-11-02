@@ -902,11 +902,13 @@ impl Head {
     /// not report goes to the program as cursor keys while mode 1007 asks
     /// on the alternate screen, and scrolls the view otherwise. A button keeps
     /// to the side its press took until its release, whatever Shift does
-    /// meanwhile. Returns the zoom a wheel with Ctrl asks for.
+    /// meanwhile. Under `natural` scrolling the wheel scrolls and reports
+    /// the other way. Returns the zoom a wheel with Ctrl asks for.
     pub(crate) fn pointer_event(
         &mut self,
         event: PointerEvent,
         mods: Mods,
+        natural: bool,
         selection: &mut Option<Vec<u8>>,
     ) -> Option<Zoom> {
         let tracking = self.console.term.terminal.mouse_tracking() != MouseTracking::Off;
@@ -963,7 +965,7 @@ impl Head {
             }
             PointerEvent::Wheel(steps) => {
                 let ctrl = mods.contains(Mods::CTRL);
-                match wheel(steps, tracking && !shift, ctrl) {
+                match wheel(steps, natural, tracking && !shift, ctrl) {
                     Wheel::Report(button) => self.report_pointer(button, MouseEvent::Press, mods),
                     Wheel::Zoom(dir) => zoom = Some(dir),
                     Wheel::Scroll { up } => {
@@ -1425,9 +1427,11 @@ enum Wheel {
 /// What a wheel event of `steps` does: one report while the program
 /// tracks the pointer, else a zoom with Ctrl, else a scroll, whatever
 /// the number of steps (`src/terminal.c:1492-1497, 1639-1650` at kmscon
-/// b1f7a7c5).
-fn wheel(steps: i32, tracking: bool, ctrl: bool) -> Wheel {
-    let up = steps > 0;
+/// b1f7a7c5). Under `natural` scrolling the report and the scroll go the
+/// other way, and the zoom keeps the wheel's own direction, as the C
+/// reference's `natural-scrolling` did (`src/terminal.c:1474-1476, 1646`).
+fn wheel(steps: i32, natural: bool, tracking: bool, ctrl: bool) -> Wheel {
+    let up = (steps > 0) != natural;
     if tracking {
         Wheel::Report(if up {
             MouseButton::WheelUp
@@ -1435,7 +1439,7 @@ fn wheel(steps: i32, tracking: bool, ctrl: bool) -> Wheel {
             MouseButton::WheelDown
         })
     } else if ctrl {
-        Wheel::Zoom(if up { Zoom::In } else { Zoom::Out })
+        Wheel::Zoom(if steps > 0 { Zoom::In } else { Zoom::Out })
     } else {
         Wheel::Scroll { up }
     }
@@ -1860,19 +1864,43 @@ mod tests {
     fn a_wheel_event_is_one_report_a_zoom_or_a_scroll_whatever_its_steps() {
         for steps in [1, 7, i32::MAX] {
             assert_eq!(
-                wheel(steps, true, true),
+                wheel(steps, false, true, true),
                 Wheel::Report(MouseButton::WheelUp)
             );
-            assert_eq!(wheel(steps, false, true), Wheel::Zoom(Zoom::In));
-            assert_eq!(wheel(steps, false, false), Wheel::Scroll { up: true });
+            assert_eq!(wheel(steps, false, false, true), Wheel::Zoom(Zoom::In));
+            assert_eq!(
+                wheel(steps, false, false, false),
+                Wheel::Scroll { up: true }
+            );
         }
         for steps in [-1, -7, i32::MIN] {
             assert_eq!(
-                wheel(steps, true, false),
+                wheel(steps, false, true, false),
                 Wheel::Report(MouseButton::WheelDown)
             );
-            assert_eq!(wheel(steps, false, true), Wheel::Zoom(Zoom::Out));
-            assert_eq!(wheel(steps, false, false), Wheel::Scroll { up: false });
+            assert_eq!(wheel(steps, false, false, true), Wheel::Zoom(Zoom::Out));
+            assert_eq!(
+                wheel(steps, false, false, false),
+                Wheel::Scroll { up: false }
+            );
         }
+    }
+
+    // vtium/vtium#203: natural scrolling turns the report and the scroll
+    // around, and leaves the zoom as the wheel turns
+    #[test]
+    fn natural_scrolling_turns_the_report_and_the_scroll_but_not_the_zoom() {
+        assert_eq!(
+            wheel(1, true, true, false),
+            Wheel::Report(MouseButton::WheelDown)
+        );
+        assert_eq!(
+            wheel(-1, true, true, false),
+            Wheel::Report(MouseButton::WheelUp)
+        );
+        assert_eq!(wheel(1, true, false, false), Wheel::Scroll { up: false });
+        assert_eq!(wheel(-1, true, false, false), Wheel::Scroll { up: true });
+        assert_eq!(wheel(1, true, false, true), Wheel::Zoom(Zoom::In));
+        assert_eq!(wheel(-1, true, false, true), Wheel::Zoom(Zoom::Out));
     }
 }

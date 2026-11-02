@@ -323,6 +323,8 @@ pub struct App {
     paste_keys: Vec<Chord>,
     /// `pointer-hide-while-typing`.
     hide_while_typing: bool,
+    /// The wheel scrolls and reports the other way (vtium/vtium#203).
+    natural_scrolling: bool,
     /// The power keys the configuration binds, and what they act through.
     power_keys: Vec<(PowerKey, Vec<Chord>)>,
     power: Box<dyn Power>,
@@ -398,6 +400,7 @@ impl App {
             selection: None,
             paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
             hide_while_typing: config.switch(&keys::POINTER_HIDE_WHILE_TYPING),
+            natural_scrolling: false,
             power_keys,
             power: Box::new(power::System),
             sleeping: Rc::default(),
@@ -2165,6 +2168,15 @@ impl App {
         }
     }
 
+    /// Natural scrolling, on or off (vtium/vtium#203): the wheel scrolls the
+    /// view and reports to a program the other way, and the cursor keys
+    /// mode 1007 sends reverse, while Ctrl's zoom keeps the wheel's own
+    /// direction. kmscon.conf's `natural-scrolling` sets it once the key
+    /// is in the key table.
+    pub fn set_natural_scrolling(&mut self, on: bool) {
+        self.natural_scrolling = on;
+    }
+
     /// The name of the head holding the focus.
     pub fn focus_head(&self) -> Option<&str> {
         self.heads.get(self.focus?).map(Head::name)
@@ -2314,7 +2326,7 @@ impl App {
             // comes from no one device.
             PointerEvent::Hide => {
                 for head in &mut self.heads {
-                    head.pointer_event(event, Mods::empty(), &mut self.selection);
+                    head.pointer_event(event, Mods::empty(), false, &mut self.selection);
                 }
                 return;
             }
@@ -2325,7 +2337,12 @@ impl App {
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
-        let zoom = head.pointer_event(event, Mods::from_bits(mods.bits()), &mut self.selection);
+        let zoom = head.pointer_event(
+            event,
+            Mods::from_bits(mods.bits()),
+            self.natural_scrolling,
+            &mut self.selection,
+        );
         if let Some(dir) = zoom {
             self.zoom(h, dir);
         }

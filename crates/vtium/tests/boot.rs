@@ -2200,6 +2200,84 @@ fn the_wheel_sends_cursor_keys_on_the_alternate_screen_under_mode_1007() {
     }
 }
 
+/// #203: natural scrolling reverses the wheel, as the C reference's
+/// `natural-scrolling` did (`src/terminal.c:1474-1476, 1646` at kmscon
+/// origin/main): a step up scrolls the view down and a step down scrolls
+/// it back, the cursor keys mode 1007 sends on the alternate screen
+/// reverse, and a program tracking the pointer reads the other wheel
+/// button. Ctrl's zoom keeps the wheel's own direction.
+#[test]
+fn natural_scrolling_reverses_the_wheel_but_not_its_zoom() {
+    let back = |h: &Harness| {
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .scrolled_back()
+    };
+    // the scrollback
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; echo ready; read x",
+    ]);
+    h.app.set_natural_scrolling(true);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point([PointerEvent::Wheel(1)], Mods::empty());
+    assert_eq!(back(&h), 0, "a step up scrolls down, at the bottom already");
+    h.point([PointerEvent::Wheel(-1)], Mods::empty());
+    assert_eq!(back(&h), 3, "a step down scrolls back");
+    h.point([PointerEvent::Wheel(1)], Mods::empty());
+    assert_eq!(back(&h), 0);
+    // Ctrl's zoom
+    let before = h.app.cells();
+    h.point([PointerEvent::Wheel(1)], Mods::CTRL);
+    assert!(
+        h.app.cells().first().map(|c| c.1) > before.first().map(|c| c.1),
+        "a step up with Ctrl zooms in: {before:?} to {:?}",
+        h.app.cells()
+    );
+    // mode 1007's cursor keys
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf '\\033[?1049hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
+    ]);
+    h.app.set_natural_scrolling(true);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point([PointerEvent::Wheel(1)], Mods::empty());
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "[E[BE[BE[B]")),
+        "a step up sends the down key: {:?}",
+        h.app.screen_text()
+    );
+    // the report to a program tracking the pointer
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
+    ]);
+    h.app.set_natural_scrolling(true);
+    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    h.point([over(0, 0, None), PointerEvent::Wheel(1)], Mods::empty());
+    h.type_str("q");
+    assert!(
+        h.until(SECOND, |a| shows(a, "[E[<65;1;1M]")),
+        "a step up reports the wheel's down button: {:?}",
+        h.app.screen_text()
+    );
+}
+
 /// XTSHIFTESCAPE 1: a program that asks for Shift gets it in its reports,
 /// so Shift neither selects nor scrolls back while it tracks the pointer.
 // covers: input.xtshiftescape
