@@ -1247,6 +1247,9 @@ class Install(Case):
         self.assertIn("ExecStart=/usr/local/bin/vtium --vt=%I --no-switchvt", unit)
         self.assertIn("OnFailure=vtium-getty@%i.service", unit)
         self.assertIn("Conflicts=getty@%i.service", unit)
+        # Conflicts= sets no order, so vtium starts only once the getty, whose
+        # stop hangs up and resets the VT, has stopped.
+        self.assertIn("After=getty@%i.service", unit)
         self.assertIn("WantedBy=getty.target", unit)
         directives = [l for l in unit if l and not l.startswith("#")]
         self.assertFalse([l for l in directives if "kmsconvt" in l or "/usr/bin/vtium" in l], directives)

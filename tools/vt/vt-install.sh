@@ -338,8 +338,10 @@ done
 # The copies are done, so the record holds only what is there now.
 as_root install -m 0644 "${own[@]}" -- "$tmp/files" "$root$record"
 as_root "$systemctl" daemon-reload
-# vtium starts first: its Conflicts=getty@%i stops the getty as it starts,
-# so the VT always has one of them. The getty is disabled once vtium runs.
+# vtium starts first. Its Conflicts=getty@%i stops the getty, and its
+# After=getty@%i makes that stop finish before vtium starts, so the getty's
+# hangup of the VT cannot reach vtium and the VT is never left with neither.
+# The getty is disabled once vtium runs.
 as_root "$systemctl" enable "$unit"
 as_root "$systemctl" restart "$unit"
 as_root "$systemctl" disable "$getty"
