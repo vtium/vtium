@@ -846,7 +846,7 @@ impl View {
             }
             Err(SwapError::Off) => false,
             Err(SwapError::Failed(e)) => {
-                log::warn!("cannot swap display {}: {e}", self.id.0);
+                log::warn!("cannot swap display {}: {e}", video.name(self.id));
                 false
             }
         };
@@ -1654,6 +1654,53 @@ mod tests {
         assert_eq!(video.arrow, Some(turned));
         // turned right, the grid's pixel 5,6 lands at 2 + 32 - 1 - 6, 1 + 5
         assert_eq!(video.sent, Some((27, 6)));
+    }
+
+    // The pointer's log line names the display as the video device names
+    // it, by its connector.
+    #[test]
+    fn the_pointer_line_names_the_display_by_its_connector() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(true);
+        crate::pointer::said();
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        assert_eq!(
+            crate::pointer::said(),
+            [(
+                log::Level::Info,
+                "display PLANE-1 shows it on its cursor plane".to_owned()
+            )]
+        );
+    }
+
+    // Each zoom rebuilds the view, and the next draw offers the new arrow
+    // to the plane again. The decision, the same each time, is logged at
+    // info level once and after that at debug level.
+    #[test]
+    fn a_zoom_twice_logs_the_pointers_route_at_info_once() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(true);
+        crate::pointer::said();
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        for height in [32, 16] {
+            let face: DisplayFace = Box::new(Unifont::new(height));
+            view.rebuild(Font::new(face), height, RenderConfig::default());
+            draw(&mut term, &mut view, &mut video, Some((5, 6)));
+            assert_eq!(
+                video.arrow.as_ref(),
+                Some(view.arrow()),
+                "the plane took the new arrow"
+            );
+        }
+        let line = "display PLANE-1 shows it on its cursor plane".to_owned();
+        assert_eq!(
+            crate::pointer::said(),
+            [
+                (log::Level::Info, line.clone()),
+                (log::Level::Debug, line.clone()),
+                (log::Level::Debug, line),
+            ]
+        );
     }
 
     // A plane the display gave up after a failed commit: the view asks to
