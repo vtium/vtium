@@ -19,6 +19,9 @@ fn child(worker: bool) -> u8 {
     if !vtium_image_helper::fork::one_thread() {
         return 90;
     }
+    let Ok(second) = vtium_image_helper::sandbox::WorkerFilter::build() else {
+        return 92;
+    };
     match vtium_image_helper::sandbox::install_helper_filter() {
         Ok(true) => {}
         Ok(false) => return 0,
@@ -62,7 +65,7 @@ fn child(worker: bool) -> u8 {
         return 5;
     }
     if worker {
-        if vtium_image_helper::sandbox::install_worker_filter().is_err() {
+        if second.install().is_err() {
             return 6;
         }
         // a worker can start no process

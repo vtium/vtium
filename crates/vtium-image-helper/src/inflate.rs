@@ -56,8 +56,13 @@ pub fn inflate_bounded(input: &[u8], goal: Goal) -> Result<Inflated, Failure> {
         Goal::Budget { min, max } => (min, max),
     };
     let limit = usize::try_from(limit).map_err(|_| over(format!("{limit} bytes to inflate")))?;
-    // the C reference's first guess: four times the input, at least 4 KiB
-    let first = input.len().saturating_mul(4).max(4096).min(limit);
+    // raw pixels need exactly their bytes, which are allocated at once;
+    // a PNG takes the C reference's first guess, four times the input and
+    // at least 4 KiB, and grows toward the budget
+    let first = match goal {
+        Goal::Stop(_) | Goal::Exact(_) => limit,
+        Goal::Budget { .. } => input.len().saturating_mul(4).max(4096).min(limit),
+    };
     let mut out = Vec::new();
     grow(&mut out, first)?;
     let mut state = InflateState::new_boxed(DataFormat::Zlib);

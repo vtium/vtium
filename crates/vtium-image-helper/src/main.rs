@@ -30,7 +30,8 @@ fn settings(args: &[std::ffi::OsString]) -> Result<Settings, ()> {
         .filter(|d| d.is_absolute())
         .and_then(|d| std::fs::canonicalize(d).ok())
         .filter(|d| d != Path::new("/"));
-    Ok(Settings { tmpdir })
+    let filter = sandbox::WorkerFilter::build().map_err(|_| ())?;
+    Ok(Settings { tmpdir, filter })
 }
 
 fn main() -> ExitCode {

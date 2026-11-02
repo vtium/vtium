@@ -285,6 +285,81 @@ fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The pooled reply files the running helper holds open: the distinct
+/// memory files of that name, since a reply's copy of one may still be
+/// open beside it.
+fn pools(host: &ImageHost) -> usize {
+    use std::os::unix::fs::MetadataExt;
+    let pid = host.pid().unwrap();
+    let inodes: std::collections::BTreeSet<u64> = std::fs::read_dir(format!("/proc/{pid}/fd"))
+        .unwrap()
+        .filter_map(|e| {
+            let path = e.ok()?.path();
+            let link = std::fs::read_link(&path).ok()?;
+            link.to_str()?.contains("vtium-image-pool").then_some(())?;
+            Some(std::fs::metadata(&path).ok()?.ino())
+        })
+        .collect();
+    inodes.len()
+}
+
+#[test]
+fn a_stream_of_frames_is_served_from_pooled_files_and_a_new_size_ends_it() {
+    let mut host = ImageHost::new(Some(program()), None);
+    let name = format!("vtium-image-stream-{}", std::process::id());
+    let shm = Path::new("/dev/shm").join(&name);
+    for n in 0..6u8 {
+        std::fs::write(&shm, [n, 2, 3, 0xff, 4, 5, 6, 0xff]).unwrap();
+        let r = raw(
+            Medium::SharedMemory(name.clone().into_bytes()),
+            Layout::Rgba,
+            2,
+            1,
+            false,
+        );
+        assert_eq!(
+            picture(ask(&mut host, &r)).2,
+            [n, 2, 3, 0xff, 4, 5, 6, 0xff],
+            "frame {n}"
+        );
+        assert!(!shm.exists(), "frame {n}'s object is removed");
+        let pools = pools(&host);
+        let want = if n + 1 >= 3 { 2 } else { 0 };
+        assert_eq!(pools, want, "after frame {n}");
+    }
+    // inline PNG frames, then one that decodes to another size
+    let frames = [
+        png(2, 1, &STRAIGHT),
+        png(2, 1, &STRAIGHT),
+        png(2, 1, &STRAIGHT),
+        png(2, 1, &STRAIGHT),
+    ];
+    for file in &frames {
+        let r = Request {
+            png: true,
+            ..base(Medium::Direct(file.clone()))
+        };
+        assert_eq!(picture(ask(&mut host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
+    }
+    // a frame of more bytes than the stream's does not fit its pooled
+    // file, so it runs again as a one-off with a fresh one
+    let four = [STRAIGHT, STRAIGHT].concat();
+    let r = Request {
+        png: true,
+        ..base(Medium::Direct(png(2, 2, &four)))
+    };
+    let both = [PREMULTIPLIED, PREMULTIPLIED].concat();
+    assert_eq!(
+        picture(ask(&mut host, &r)),
+        (2, 2, both),
+        "run again as a one-off"
+    );
+    let pools = pools(&host);
+    assert_eq!(pools, 0, "the stream ended");
+    assert_eq!(host.crashes(), 0);
+    let _ = std::fs::remove_file(&shm);
+}
+
 #[test]
 fn a_helper_started_for_a_larger_budget_replaces_the_smaller_one() {
     let mut host = ImageHost::new(Some(program()), None);

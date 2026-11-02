@@ -320,24 +320,49 @@ pub fn install_helper_filter() -> Result<bool, String> {
     Ok(false)
 }
 
-/// Adds the worker's second filter, which refuses forking; `Ok(false)`
-/// where no filter is built.
-pub fn install_worker_filter() -> Result<bool, String> {
+/// The worker's second filter, which refuses forking and starting a
+/// program, built once by the helper so each worker only installs it.
+#[derive(Clone, Debug)]
+pub struct WorkerFilter {
     #[cfg(any(
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "riscv64"
     ))]
-    {
-        filter::install(&filter::worker()?)?;
-        Ok(true)
+    program: seccompiler::BpfProgram,
+}
+
+impl WorkerFilter {
+    pub fn build() -> Result<Self, String> {
+        Ok(Self {
+            #[cfg(any(
+                target_arch = "x86_64",
+                target_arch = "aarch64",
+                target_arch = "riscv64"
+            ))]
+            program: filter::worker()?,
+        })
     }
-    #[cfg(not(any(
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "riscv64"
-    )))]
-    Ok(false)
+
+    /// Adds the filter to the calling worker; `Ok(false)` where no filter
+    /// is built.
+    pub fn install(&self) -> Result<bool, String> {
+        #[cfg(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64"
+        ))]
+        {
+            filter::install(&self.program)?;
+            Ok(true)
+        }
+        #[cfg(not(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64"
+        )))]
+        Ok(false)
+    }
 }
 
 #[cfg(test)]

@@ -104,6 +104,50 @@ pub fn to_reply(layout: Layout, alpha: Alpha, src: &[u8], out: &mut Vec<u8>) {
     }
 }
 
+/// [`to_reply`] in place: the first `pixels` pixels of `data`, in `layout`
+/// with `alpha`, turned into the reply's bytes in the same buffer, grown
+/// for RGB, which is spread from the last pixel back so nothing is
+/// overwritten before it is read. `None` when `data` holds fewer pixels or
+/// the buffer cannot grow.
+pub fn into_reply(
+    layout: Layout,
+    alpha: Alpha,
+    mut data: Vec<u8>,
+    pixels: usize,
+) -> Option<Vec<u8>> {
+    let len = pixels.checked_mul(4)?;
+    if data.len() < pixels.checked_mul(layout.bytes())? {
+        return None;
+    }
+    match layout {
+        Layout::Rgba => {
+            data.truncate(len);
+            for group in data.chunks_exact_mut(4) {
+                let px = reply_bytes(pixel(layout, alpha, group));
+                group.copy_from_slice(&px);
+            }
+        }
+        Layout::Rgb => {
+            data.truncate(pixels.checked_mul(3)?);
+            data.try_reserve_exact(len.saturating_sub(data.len()))
+                .ok()?;
+            data.resize(len, 0);
+            for i in (0..pixels).rev() {
+                let from = i.checked_mul(3)?;
+                let rgb = [
+                    *data.get(from)?,
+                    *data.get(from.checked_add(1)?)?,
+                    *data.get(from.checked_add(2)?)?,
+                ];
+                let px = reply_bytes(pixel(layout, alpha, &rgb));
+                let to = i.checked_mul(4)?;
+                data.get_mut(to..to.checked_add(4)?)?.copy_from_slice(&px);
+            }
+        }
+    }
+    Some(data)
+}
+
 /// [`to_reply`] for straight R, G, B, A bytes in place: each pixel of
 /// `rgba` is premultiplied where it lies, so a decoder's buffer becomes the
 /// reply with no second buffer.
@@ -183,6 +227,32 @@ mod tests {
         let mut straight = [0xff, 0x80, 0, 0xff, 0xff, 0xff, 0xff, 0x80];
         premultiply_in_place(&mut straight);
         assert_eq!(straight, [0xff, 0x80, 0, 0xff, 0x80, 0x80, 0x80, 0x80]);
+    }
+
+    #[test]
+    fn in_place_conversion_is_the_borrowed_one() {
+        let rgb: Vec<u8> = (0..30u8).collect();
+        let mut want = Vec::new();
+        to_reply(Layout::Rgb, Alpha::Straight, &rgb, &mut want);
+        assert_eq!(
+            into_reply(Layout::Rgb, Alpha::Straight, rgb.clone(), 10),
+            Some(want)
+        );
+        let rgba: Vec<u8> = (0..40u8).map(|b| b.wrapping_mul(37)).collect();
+        for alpha in [Alpha::Straight, Alpha::Premultiplied] {
+            let mut want = Vec::new();
+            to_reply(Layout::Rgba, alpha, &rgba, &mut want);
+            assert_eq!(
+                into_reply(Layout::Rgba, alpha, rgba.clone(), 10),
+                Some(want)
+            );
+        }
+        // bytes past the pixels are dropped; too few is none
+        assert_eq!(
+            into_reply(Layout::Rgb, Alpha::Straight, rgb.clone(), 2).map(|v| v.len()),
+            Some(8)
+        );
+        assert_eq!(into_reply(Layout::Rgb, Alpha::Straight, rgb, 11), None);
     }
 
     #[test]

@@ -192,22 +192,8 @@ fn picture(
     };
     if let Some(d) = request.pixels {
         let len = bounds.check(d.width, d.height)?;
-        let mut rgba = Vec::new();
-        rgba.try_reserve_exact(len)
-            .map_err(|_| Failure::new(Status::OverBudget, "cannot allocate the picture"))?;
-        let need = usize::try_from(request.min).unwrap_or(usize::MAX);
-        convert::to_reply(
-            d.layout,
-            d.alpha,
-            data.get(..need).unwrap_or_default(),
-            &mut rgba,
-        );
-        if rgba.len() != len {
-            return Err(Failure::new(
-                Status::TooShort,
-                "fewer bytes than the picture needs",
-            ));
-        }
+        let rgba = convert::into_reply(d.layout, d.alpha, data, len / 4)
+            .ok_or_else(|| Failure::new(Status::TooShort, "fewer bytes than the picture needs"))?;
         return Ok((d.width, d.height, rgba, ignored));
     }
     let pic = if request.png {
