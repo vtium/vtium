@@ -144,6 +144,8 @@ This section describes the design ADR-1200 and ADR-1301 decide (accepted 2026-10
 
 The console parses no font. A **frit** names a font's sources, and the **helper**, vtium-vitrify's serve command in a sandbox, reads them, rasterises them and sends their glyphs at the console's cell, ready-to-draw bitmaps with their map from Unicode characters to glyphs and their metrics. The console checks each answer, holds the glyphs in memory for the boot and draws them. Nothing is prerendered, and no glyph outlives the boot.
 
+[why-vtium.md](why-vtium.md) tells, for a newcomer, why these font terms come from glassmaking.
+
 The figure follows a font from choosing it to the console. Each command is vtium-vitrify's. vtium, `serve` and `set` are built; the rest is proposed and drawn dashed.
 
 ```mermaid
