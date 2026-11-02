@@ -1210,7 +1210,7 @@ mod tests {
     }
 
     // A placement a drop moves onto a waiting line has that line rewrapped
-    // at the width then.
+    // at the width then, and the byte count follows the rows it now holds.
     #[cfg(feature = "images")]
     #[test]
     fn a_waiting_line_a_placement_moves_onto_rewraps_and_is_counted_exactly() {
@@ -1222,6 +1222,7 @@ mod tests {
         // the resize reserved 100 and 101 for the line's rows to come, so
         // this rewrap takes new ids, and the reserved ones go unused
         assert_eq!(all_ids(&sb), [1, 2, 102, 103, 3]);
+        assert_eq!(sb.bytes(), charge(sb.all_rows()), "the byte count is exact");
         assert_eq!(sb.total(), 5);
         // held rewrapped, a second placement there rewraps nothing
         assert_eq!(sb.note_anchor(LineId::new(2), &[0], &mut next), []);
