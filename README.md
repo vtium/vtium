@@ -4,6 +4,8 @@ vtium is a terminal for the Linux virtual console. It runs on a VT, one of the f
 
 It is written in Rust. Its behaviour is judged against the C reference, the maintainer's forks of the C terminal `kmscon` and its library `libtsm`: tests compare vtium's screens and replies with the C reference's saved results, as text and pixel for pixel.
 
+If you are new to vtium, [docs/why-vtium.md](docs/why-vtium.md) says why you might choose it over the kernel's console, `kmscon` or a desktop terminal, and why its font tools take their names from glass; [docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together.
+
 ![vtium on a 640x480 display: the labels fg30 to fg97 in their own colors and bg40 to bg107 on their own backgrounds, each set wrapped over two rows, with fg30 and bg40 drawn black on black; the words bold, underline, reverse, bold-underline-red, faint and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green to red, and a shell prompt with a block cursor](tools/tier3/goldens/2d-640x480-psf16/sgr.png)
 
 *vtium's own output: the minspec build running on a VT of a QEMU/KVM guest with 1 vCPU and 512 MB, on a virtio-vga display at 640x480, in vtium's 8x16 PSF test font, made from Unifont's glyphs (80 by 30 cells). Tier 3 captured it from the guest's screen. The maintainer reviewed and accepted it as a golden on 2026-10-28, and a run at commit `c107f9a` matched it to the pixel. The font has no italic face, so `italic` draws upright.*
@@ -16,7 +18,7 @@ It is written in Rust. Its behaviour is judged against the C reference, the main
 
 vtium's first release is the pre-release v0.1.0-alpha.1. A checkout builds and runs everything on this page except these, which are designed and landing:
 
-- **Pictures:** sixel, kitty graphics and iTerm2 inline images, decided in [ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md). In a build with the `images` feature, the `vtium-image` crate decodes sixel and kitty graphics sent as pixels, its handlers place them in each console's store, and the CPU compositor draws them. The image helper, the separate program that decodes files, shared memory, PNG and zlib ([ADR-1101](docs/architecture/image/ADR-1101-the-image-helper-is-its-own-sandboxed-program-run-as-the-session-s-user.md)), is not built yet, so vtium answers each such request as it would with no helper running. iTerm2 inline images have no handler yet.
+- **Pictures from files and shared memory, and iTerm2's inline images.** The image helper, the separate program that is to decode files, shared memory, PNG and zlib as the session's user and never as root ([ADR-1101](docs/architecture/image/ADR-1101-the-image-helper-is-its-own-sandboxed-program-run-as-the-session-s-user.md)), is not built yet, so vtium answers each such request as it would with no helper running. iTerm2's inline images have no handler yet; the design gives them one that decodes each picture on the kitty path and places it under sixel's rules ([ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md)).
 - **The GPU renderer,** on glow over EGL and GBM ([the GPU path's issue](https://github.com/vtium/vtium/issues/33)). Today every build draws on the CPU.
 - **libseat,** for seat access through seatd or logind ([the libseat issue](https://github.com/vtium/vtium/issues/34)). Today vtium opens the VT, the cards and the input devices itself, as root.
 - **Handing the display back without a VT switch,** through the `setBackground` sequence ([the hand-back issue](https://github.com/vtium/vtium/issues/36)).
@@ -73,7 +75,7 @@ The console parses no font file. A frit (a font set file, `/etc/vtium/fonts/NAME
 
 ### Pictures
 
-vtium shows pictures that programs send with sixel and the kitty graphics protocol. iTerm2's inline images reach the same pipeline through a compatibility handler, which decodes each picture on the kitty path and places it under sixel's rules ([ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md)). Each console keeps one store of pictures and their placements, bounded in memory. A placement is anchored to the line holding its top row, so it moves with the text, and each protocol's own rules decide what erases it and how it scrolls. Image files are decoded in a sandboxed helper process that runs as the session's user and never as root ([ADR-1400](docs/architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md)). Pictures are a build feature outside minspec. Landing; see [Status](#status).
+vtium draws pictures today in a build with the `images` feature, which minspec leaves out. It decodes the pictures programs send with sixel, and those they send as pixels with the kitty graphics protocol, keeps each console's pictures and their placements in one store, bounded in memory, and draws them with the CPU compositor ([ADR-1100](docs/architecture/image/ADR-1100-one-image-pipeline-protocol-handlers-feed-a-store-of-placements-that-travel-with-lines.md)). A placement is anchored to the line holding its top row, so it moves with the text, and each protocol's own rules decide what erases it and how it scrolls. [Status](#status) says what is still to come.
 
 ### The terminal
 
@@ -121,7 +123,7 @@ These are the other ways to get a terminal on a Linux console without a display 
 | fbterm 1.7 | fbdev, or a VESA video card | 256, through its own private sequences under `TERM=fbterm` | fontconfig and FreeType | none listed | 1.7, 2010-10-06 |
 | yaft 0.2.9 | fbdev at 8 to 32 bits per pixel, on Linux and FreeBSD, and on NetBSD and OpenBSD as experimental | 256 | BDF fonts converted into its source when it is built | sixel and DRCS, marked experimental | tag v0.2.9; last commit 2018-11-14 |
 | fbpad | Linux fbdev | 256 | its own tinyfont format and PSF2 | none listed | last commit 2026-10-23 |
-| vtium | KMS/DRM dumb buffers on the CPU or through the GPU, or fbdev | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | sixel, kitty graphics and iTerm2 inline images | 0.1.0-alpha.1, a pre-release |
+| vtium | KMS/DRM dumb buffers on the CPU or through the GPU, or fbdev | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | sixel and kitty graphics; iTerm2 inline images to come | 0.1.0-alpha.1, a pre-release |
 
 Sources, one per row:
 
@@ -157,13 +159,11 @@ The state vtium shows follows only from the bytes a program sends: the same stre
 
 ## Trying it
 
-Building needs Rust and clang, and the first build fetches a Debian sysroot with glibc 2.36 to link against ([tools/arm/README.md](tools/arm/README.md)); `make install-tree` also needs `tic`. On a machine with systemd and logind, `make vt-shell` builds the minspec binary, picks a free VT, asks for sudo, and runs your own shell in vtium there. Exit the shell to end the run, and the VT's own service starts again. [docs/vt-review.md](docs/vt-review.md) describes this and the other VT runs. [crates/vtium/README.md](crates/vtium/README.md#setting-it-up) says how to give an installed vtium a VT, or every VT, and how ssh behaves from it.
+Building needs Rust 1.87 or later and clang, and the first build fetches a Debian sysroot with glibc 2.36 to link against ([tools/arm/README.md](tools/arm/README.md)); `make install-tree` also needs `tic`. On a machine with systemd and logind, `make vt-shell` builds the minspec binary, picks a free VT, asks for sudo, and runs your own shell in vtium there. Exit the shell to end the run, and the VT's own service starts again. [docs/vt-review.md](docs/vt-review.md) describes this and the other VT runs. [crates/vtium/README.md](crates/vtium/README.md#setting-it-up) says how to give an installed vtium a VT, or every VT, and how ssh behaves from it.
 
 `make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-vitrify`, the VT unit and its getty fallback, the terminfo entry and the example configuration. vtium reads its configuration from `/etc/vtium/vtium.conf`, which takes the C reference's keys and adds vtium's own ([docs/config.md](docs/config.md)).
 
-[docs/concepts.md](docs/concepts.md) introduces vtium's pieces and how they fit together, and [AGENTS.md](AGENTS.md) gives every gate and test command.
-
-[docs/why-vtium.md](docs/why-vtium.md) tells a newcomer why to choose vtium over the kernel's console, `kmscon` or a desktop terminal, why it suits the console on small and large machines alike, and why its font tools are named for glass.
+[AGENTS.md](AGENTS.md) gives every gate and test command.
 
 ## Provenance
 
