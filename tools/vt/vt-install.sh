@@ -89,7 +89,7 @@ else
 fi
 bin_path=/usr/local/bin/vtium
 unit_dir=/etc/systemd/system
-state_dir=/var/lib/vtium-vt-install
+state_dir=$vt_install_state
 unit=vtium@tty$vt.service
 fallback=vtium-getty@tty$vt.service
 getty=getty@tty$vt.service

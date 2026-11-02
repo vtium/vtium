@@ -502,6 +502,16 @@ class RunVt(Case):
                 self.refused(self.run_vt("--dry-run", "8", "--", f"--image-storage-limit={size}"),
                              "takes auto or a size up to 4G")
 
+    def test_a_vt_vtium_is_installed_or_running_on_is_refused(self):
+        for setup, env in ((lambda: VtSh.installed(self, 8), {}), (lambda: None, {"ACTIVE_UNITS": "vtium@tty8.service"})):
+            with self.subTest(env=env):
+                shutil.rmtree(os.path.join(self.s.standins, "root"), ignore_errors=True)
+                setup()
+                open(self.s.calls, "w").close()
+                p = self.run_vt("--dry-run", "8", **env)
+                self.refused(p, "make vt-uninstall VT=8 frees it")
+                self.assertEqual(self.s.changes(), [])
+
     def test_the_operators_options_are_taken(self):
         opts = ["--font-name=Monoid Nerd Font Mono", "--font-size=30", "--mode=7680x2160",
                 "--no-use-original-mode", "--hwaccel", "--image-storage-limit=4G",
@@ -860,6 +870,20 @@ class VtSh(Case):
         self.refused(p, "no free VT")
         for want in ["VT 5: it is on screen"] + [f"VT {v}: logind session c{v}_active" for v in (6, 4, 3, 2)]:
             self.assertIn(want, p.stderr)
+
+    def installed(self, vt):
+        """The stand-in manifest make vt-install writes for VT vt."""
+        state = os.path.join(self.s.standins, "root", "var", "lib", "vtium-vt-install")
+        os.makedirs(state, exist_ok=True)
+        write(os.path.join(state, f"tty{vt}"), f"vt={vt}\ngetty-enabled=yes\ngetty-active=yes\n", 0o644)
+
+    def test_a_vt_vtium_is_installed_on_is_never_borrowed(self):
+        self.installed(5)
+        p = self.vt_sh(VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(self.picked(p), "6", p.stdout + p.stderr)
+        self.refused(self.vt_sh(VTIUM_VT_NR="5"),
+                     "VT 5 refused: make vt-install installed vtium there; make vt-uninstall VT=5 frees it")
+        self.assertEqual(self.s.calls_of("sudo"), [])
 
     def test_vt_given_is_refused_when_busy(self):
         self.refused(self.vt_sh("7"), "VT 7 refused: it is on screen")

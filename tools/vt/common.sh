@@ -36,3 +36,14 @@ vt_sessions() {
 			echo "$s $(sed -n 's/^State=//p' <<<"$props")"
 	done <<<"$list"
 }
+
+# Where make vt-install keeps its manifests, one a VT it holds
+# (tools/vt/vt-install.sh).
+vt_install_state=/var/lib/vtium-vt-install
+
+# vt_installed ROOT N: whether make vt-install holds VT N, which its manifest
+# under ROOT (empty for the machine itself) says. A review run never borrows
+# such a VT.
+vt_installed() {
+	[ -f "$1$vt_install_state/tty$2" ]
+}

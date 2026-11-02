@@ -122,9 +122,10 @@ else
 	run_user=/run/user
 	dri=/sys/kernel/debug/dri
 fi
-# The units that may hold the VT: the stock kmscon, a getty, and autovt@,
-# which logind starts on a switch to the VT and which is one of the other two.
-units=("kmsconvt@tty$vt.service" "getty@tty$vt.service" "autovt@tty$vt.service")
+# The units that may hold the VT: the stock kmscon, a getty, vtium as make
+# vt-install installs it, and autovt@, which logind starts on a switch to the
+# VT and which is one of the others. A VT vtium@ holds is refused below.
+units=("kmsconvt@tty$vt.service" "getty@tty$vt.service" "vtium@tty$vt.service" "autovt@tty$vt.service")
 
 # show prints a command as it would be typed; act shows it, then runs it unless
 # this is a dry run.
@@ -364,6 +365,15 @@ on_vt=$(vt_sessions "$loginctl" "$vt") ||
 if [ -n "$on_vt" ]; then
 	s=${on_vt%% *}
 	die "logind session $s ($("$loginctl" show-session -p Name -p Type --value "$s" | paste -sd' ')) is on VT $vt; pick another VT"
+fi
+
+# A VT make vt-install holds is the maintainer's everyday console: a review
+# run would stop it, and a start limit or a failed restore would leave it
+# without one. It is never borrowed, installed or running.
+installed_root=
+[ -z "$standins" ] || installed_root=$standins/root
+if vt_installed "$installed_root" "$vt" || "$systemctl" is-active --quiet "vtium@tty$vt.service"; then
+	die "VT $vt holds vtium@tty$vt, which make vt-install installed; make vt-uninstall VT=$vt frees it, or pick another VT"
 fi
 
 # The VT's units that run now: each is stopped below and started again on
