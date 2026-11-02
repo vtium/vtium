@@ -1642,10 +1642,22 @@ exec "$@"
         self.assertEqual(self.s.changes(), [])
         self.assertTrue(os.path.exists(self.at(self.BIN)))
 
-    def test_root_is_refused_before_the_build(self):
-        # A stand-in id says uid 0 for -u, as under sudo.
+    def as_root(self):
+        """A stand-in id that says uid 0 for -u, as under sudo, and a stand-in
+        stat that says the binary is root's, as a run as root would make it.
+        The stand-ins' directory is open to its owner alone, as vt-install
+        asks of it under root."""
         write(os.path.join(self.s.standins, "id"), "#!/bin/bash\n"
               f'[ "$1" != -u ] || {{ echo 0; exit; }}\nexec {shutil.which("id")!r} "$@"\n')
+        write(os.path.join(self.s.standins, "stat"), "#!/bin/bash\n"
+              f'if [ "${{*: -1}}" = {self.s.bin!r} ]; then echo "0 755"; exit; fi\n'
+              f'exec {shutil.which("stat")!r} "$@"\n')
+        os.chmod(self.s.standins, 0o755)
+        # sudo names the user who ran it.
+        return {"SUDO_UID": str(os.getuid())}
+
+    def test_root_is_refused_before_the_build(self):
+        sudo_uid = self.as_root()
         # On the machine itself, with no stand-ins named, make and the script
         # refuse root before they do anything.
         real = self.s.env()
@@ -1666,15 +1678,48 @@ exec "$@"
         self.assertEqual(self.s.calls_of("sudo"), [])
         # With the stand-ins, which write only under their own root, a test
         # run as root goes through.
-        # A test run as root makes its files as root, which a stand-in stat
-        # says of the binary here.
-        write(os.path.join(self.s.standins, "stat"), "#!/bin/bash\n"
-              f'if [ "${{*: -1}}" = {self.s.bin!r} ]; then echo "0 755"; exit; fi\n'
-              f'exec {shutil.which("stat")!r} "$@"\n')
-        p = self.vt_install("install", "--dry-run", "4")
+        p = self.vt_install("install", "--dry-run", "4", **sudo_uid)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
-                            f"VTIUM_BIN={self.s.bin}"], env=self.s.env(), capture_output=True, text=True, timeout=30)
+                            f"VTIUM_BIN={self.s.bin}"], env=self.s.env(**sudo_uid),
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+    def test_make_as_root_under_the_stand_ins_builds_nothing(self):
+        sudo_uid = self.as_root()
+        # make -n prints each recipe it would run and runs none, so a build
+        # that make does not refuse shows in its output.
+        p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1"],
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("vt-install: as root under the tests' stand-ins, name the binary with VTIUM_BIN=PATH", p.stderr)
+        self.assertNotIn("cargo", p.stdout)
+        self.assertNotIn("sysroot", p.stdout)
+        # vt-uninstall builds nothing, so it reaches the script.
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-uninstall", "VT=4", "DRY_RUN=1"],
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("make vt-install did not install vtium on VT 4", p.stderr)
+
+    def test_root_runs_only_stand_ins_root_or_the_sudo_user_wrote(self):
+        sudo_uid = self.as_root()
+        uid = os.getuid()
+        sudo = os.path.join(self.s.standins, "sudo")
+        for why, env, standins_mode, sudo_mode in (
+                (f"{self.s.standins} belongs to uid {uid}, neither root nor the user who ran sudo", {}, 0o755, 0o755),
+                (f"{self.s.standins} belongs to uid {uid}, neither root nor the user who ran sudo",
+                 {"SUDO_UID": str(uid + 1)}, 0o755, 0o755),
+                (f"{self.s.standins} is writable by group or others (mode 775)", sudo_uid, 0o775, 0o755),
+                (f"{sudo} is writable by group or others (mode 777)", sudo_uid, 0o755, 0o777)):
+            with self.subTest(why=why, env=env):
+                os.chmod(self.s.standins, standins_mode)
+                os.chmod(sudo, sudo_mode)
+                open(self.s.calls, "w").close()
+                self.refused(self.vt_install("install", "4", **env), why)
+                self.refused(self.vt_install("uninstall", "4", **env), why)
+        os.chmod(self.s.standins, 0o755)
+        os.chmod(sudo, 0o755)
+        p = self.vt_install("install", "4", **sudo_uid)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
     def test_make_runs_it_with_the_binary_named_and_no_build(self):

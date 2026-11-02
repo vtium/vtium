@@ -70,6 +70,19 @@ standins=${VTIUM_VT_STANDINS:-}
 # run as root goes through.
 [ -n "$standins" ] || [ "$(id -u)" -ne 0 ] ||
 	die "run it as yourself, not as root or under sudo; it asks sudo for each step that needs root"
+# As root, the script runs the stand-ins as root, so only root or the user
+# who ran sudo may have written them, as run-vt.sh asks of the binary.
+if [ -n "$standins" ] && [ "$(id -u)" -eq 0 ]; then
+	sudo_uid=${SUDO_UID:-0}
+	[[ $sudo_uid =~ ^[0-9]+$ ]] || die "SUDO_UID is '$sudo_uid', not a uid"
+	for f in "$standins" "$standins/sudo" "$standins/systemctl" "$standins/loginctl"; do
+		read -r owner mode < <(stat -c '%u %a' -- "$f") || die "cannot read the owner of $f"
+		[ "$owner" -eq 0 ] || [ "$owner" -eq "$sudo_uid" ] ||
+			die "$f belongs to uid $owner, neither root nor the user who ran sudo; as root, vt-install runs the stand-ins as root"
+		(( (8#$mode & 8#022) == 0 )) ||
+			die "$f is writable by group or others (mode $mode); as root, vt-install runs the stand-ins as root"
+	done
+fi
 src=$checkout/crates/vtium/install
 if [ -n "$standins" ]; then
 	sudo=$standins/sudo
