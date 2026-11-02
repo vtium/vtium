@@ -730,7 +730,9 @@ fn a_reservation_for_an_id_keeps_the_old_image_when_the_new_one_is_refused() {
     send(&mut k, &mut h, &format!("a=t,s=10,v=10,i=1;{}", red(100)));
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     assert!(h.boxes().is_empty());
-    assert_eq!(h.store.bytes(), 400 + IMAGE_OVERHEAD);
+    // the replaced image's 16 bytes of pixels stay as the store's spare
+    // buffer, charged to the budget, which had room for them
+    assert_eq!(h.store.bytes(), 400 + IMAGE_OVERHEAD + 16);
 }
 
 // covers: image.kitty
@@ -914,23 +916,46 @@ fn replaced_frames_of_one_size_reuse_the_buffer_freed_last() {
     let _a2 = frame(&mut k, &mut h, 1, 0);
     assert_eq!(frame(&mut k, &mut h, 2, 6), a1, "b2 fills a1's buffer");
     assert_eq!(frame(&mut k, &mut h, 1, 0), b1, "a3 fills b1's buffer");
-    // ncplayer: transmit a new id, place it, delete the previous id
-    let (mut k, mut h) = (Kitty::default(), Host::new());
-    let mut ptrs: Vec<*const u32> = Vec::new();
-    for id in 10..15u32 {
-        send(
-            &mut k,
-            &mut h,
-            &format!("a=t,s=4,v=4,i={id},p=1,q=2;{}", red(16)),
+    // ncplayer: transmit a new id, place it, delete the previous id, under
+    // a roomy budget and under one of two frames, where the reservation
+    // could only fit by freeing the spare had it not taken it first
+    let frame_bytes = 16 * 4 + IMAGE_OVERHEAD;
+    for limit in [1 << 20, 2 * frame_bytes] {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        h.store.set_limit(limit);
+        let mut ptrs: Vec<*const u32> = Vec::new();
+        for id in 10..16u32 {
+            send(
+                &mut k,
+                &mut h,
+                &format!("a=t,s=4,v=4,i={id},p=1;{}", red(16)),
+            );
+            send(&mut k, &mut h, &format!("a=p,i={id},p=1,q=1,C=1"));
+            ptrs.push(h.pixels_at(0));
+            send(&mut k, &mut h, &format!("a=d,d=I,i={},q=2", id - 1));
+            assert!(h.store.bytes() <= limit, "frame {id} at {limit}");
+        }
+        assert_eq!(
+            h.take(),
+            (10..16)
+                .map(|i| format!("\x1b_Gi={i},p=1;OK\x1b\\"))
+                .collect::<String>()
         );
-        send(&mut k, &mut h, &format!("a=p,i={id},p=1,q=2,C=1"));
-        ptrs.push(h.pixels_at(0));
-        send(&mut k, &mut h, &format!("a=d,d=I,i={},q=2", id - 1));
+        // each frame fills the buffer of the frame deleted while it was
+        // placed, the one before the last
+        for i in 2..ptrs.len() {
+            assert_eq!(ptrs[i], ptrs[i - 2], "frame {} at {limit}", 10 + i);
+        }
+        // the next frame's buffer is the spare, still holding frame 14's
+        // pixels, with the whole charge reserved: under the tight budget a
+        // reservation made before taking it would have freed it for room
+        let ctx: &mut dyn Context = &mut h;
+        let taken = ctx.edit(|e| e.kitty_buffer(16, 16, frame_bytes));
+        let Some(Ok((buffer, reservation))) = taken else {
+            panic!("no room for a frame at {limit}");
+        };
+        assert_eq!(buffer.len(), 16, "the spare, at {limit}");
+        assert_eq!(reservation.bytes(), frame_bytes);
+        ctx.unreserve(reservation);
     }
-    // each frame fills the buffer of the frame deleted while it was placed,
-    // the one before the last
-    for i in 2..ptrs.len() {
-        assert_eq!(ptrs[i], ptrs[i - 2], "frame {}", 10 + i);
-    }
-    assert!(h.take().is_empty());
 }

@@ -361,15 +361,15 @@ impl Kitty {
             self.upload.mode = Mode::Count { len: 0, want };
             return;
         }
-        let (Ok(count), Ok(reservation)) = (
-            usize::try_from(pixels),
-            ctx.reserve(Protocol::KITTY, cmd.id, charge(pixels)),
-        ) else {
+        let Some((count, (buffer, reservation))) = usize::try_from(pixels)
+            .ok()
+            .and_then(|count| Some((count, buffer(ctx, cmd.id, count, charge(pixels))?)))
+        else {
             self.upload.mode = Mode::Skip(Err(Error::NoSpace));
             return;
         };
         self.upload.mode = Mode::Raw {
-            raw: Raw::new(cmd.bpp(), count, buffer(ctx, count)),
+            raw: Raw::new(cmd.bpp(), count, buffer),
             reservation,
         };
     }
@@ -646,10 +646,17 @@ fn store(
     reply(ctx, cmd, id, answer);
 }
 
-/// An empty buffer for a picture of `count` pixels: the spare one the
-/// store's last freed image left when it is that size, else a new one.
-fn buffer(ctx: &mut dyn Context, count: usize) -> Vec<u32> {
-    ctx.edit(|e| e.kitty_buffer(count)).unwrap_or_default()
+/// An empty buffer for a picture of `count` pixels and the reservation of
+/// its charge `bytes` for an image of kitty id `id`, or `None` when the
+/// budget refuses: see [`Edit::kitty_buffer`](crate::Edit).
+fn buffer(
+    ctx: &mut dyn Context,
+    id: u32,
+    count: usize,
+    bytes: u64,
+) -> Option<(Vec<u32>, Reservation)> {
+    ctx.edit(|e| e.kitty_buffer(id, count, bytes))
+        .and_then(Result::ok)
 }
 
 /// Places image `key`, of kitty id `id`, at the cursor as `cmd`'s keys say,
@@ -850,13 +857,13 @@ impl Handler for Kitty {
             return reply(ctx, &cmd, cmd.id, Ok(()));
         }
         let count = u64::from(size.0).saturating_mul(u64::from(size.1));
-        let Ok(reservation) = ctx.reserve(Protocol::KITTY, cmd.id, charge(count)) else {
+        let len = usize::try_from(count).unwrap_or(usize::MAX);
+        let Some((into, reservation)) = buffer(ctx, cmd.id, len, charge(count)) else {
             return reply(ctx, &cmd, cmd.id, Err(Error::NoSpace));
         };
         let want = usize::try_from(count)
             .unwrap_or(usize::MAX)
             .saturating_mul(bpp);
-        let into = buffer(ctx, usize::try_from(count).unwrap_or(usize::MAX));
         let (pixels, opaque) = raw::convert(data.get(..want).unwrap_or_default(), bpp, into);
         ctx.add_work(count);
         store(ctx, &cmd, (size.0, size.1, pixels, opaque), reservation);

@@ -347,15 +347,18 @@ pub struct Store {
     dying: Option<ImageKey>,
     work: u64,
     changed: Vec<Region>,
-    /// The pixels of the image freed last, kept outside the budget for a
-    /// handler to fill again: one buffer at most, given back to the next
-    /// handler that asks for one of its size once no frame holds it.
+    /// The pixels of the image freed last, for a handler to fill again: one
+    /// buffer at most, charged to the budget at 4 bytes a pixel, freed
+    /// before any image when a reservation needs room, and on a reset or a
+    /// buffer's clearing.
     spare: Option<Pixels>,
+    /// An image is being evicted for room, so its pixels go.
+    evicting: bool,
 }
 
 /// Two stores compare by what they hold; the work an input call counted
-/// is the call's, the boxes not yet taken are the terminal's to mark, and
-/// a spare buffer holds nothing the store shows.
+/// is the call's, and the boxes not yet taken are the terminal's to mark;
+/// a spare buffer counts by its size, which its charge follows.
 impl PartialEq for Store {
     fn eq(&self, other: &Self) -> bool {
         self.buffers == other.buffers
@@ -372,6 +375,7 @@ impl PartialEq for Store {
             && self.pending == other.pending
             && self.keep == other.keep
             && self.dying == other.dying
+            && self.spare_bytes() == other.spare_bytes()
     }
 }
 
@@ -403,6 +407,7 @@ impl Store {
             work: 0,
             changed: Vec::new(),
             spare: None,
+            evicting: false,
         }
     }
 
@@ -859,6 +864,10 @@ impl Store {
         self.keep = keep;
         let total = |s: &Self| s.used.saturating_sub(credit).saturating_add(bytes);
         let mut ok = true;
+        // the spare buffer goes before any image
+        if total(self) > self.limit {
+            self.drop_spare();
+        }
         if total(self) > self.limit {
             let room = self
                 .used
@@ -1032,7 +1041,10 @@ impl Store {
     fn evict_one(&mut self, only: Option<usize>, screens: Screens<'_>) -> bool {
         match self.victim(only, screens) {
             Some((b, k)) => {
+                // an image evicted for room keeps no spare buffer
+                self.evicting = true;
                 self.free_image(b, k);
+                self.evicting = false;
                 true
             }
             None => false,
@@ -1141,11 +1153,44 @@ impl Store {
         self.used = self
             .used
             .saturating_sub(image.bytes.saturating_sub(image.owed));
-        self.spare = Some(image.pixels);
+        self.keep_spare(image.pixels);
+    }
+
+    /// The bytes the spare buffer holds of the budget: its pixels at 4
+    /// bytes each.
+    fn spare_bytes(&self) -> u64 {
+        self.spare.as_ref().map_or(0, |p| {
+            u64::try_from(p.as_slice().len())
+                .unwrap_or(u64::MAX)
+                .saturating_mul(4)
+        })
+    }
+
+    /// Keeps `pixels` as the spare buffer, charged to the budget, in place
+    /// of the one before, when the budget has room for it.
+    fn keep_spare(&mut self, pixels: Pixels) {
+        self.drop_spare();
+        if self.evicting {
+            return;
+        }
+        self.spare = Some(pixels);
+        let bytes = self.spare_bytes();
+        if self.used.saturating_add(bytes) > self.limit {
+            self.spare = None;
+        } else {
+            self.used = self.used.saturating_add(bytes);
+        }
+    }
+
+    /// Frees the spare buffer and gives its bytes back.
+    fn drop_spare(&mut self) {
+        self.used = self.used.saturating_sub(self.spare_bytes());
+        self.spare = None;
     }
 
     /// Empties buffer `b`, giving back every byte its images hold.
     fn clear(&mut self, b: usize) {
+        self.drop_spare();
         let Some(buf) = self.buffers.get_mut(b) else {
             return;
         };

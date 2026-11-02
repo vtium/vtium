@@ -18,8 +18,9 @@
 
 use std::collections::BTreeSet;
 
-use super::{Edit, Screens, Store};
-use crate::image::{ImageKey, PlacementKey};
+use super::{Edit, Reservation, Screens, Store};
+use crate::image::{ImageKey, PlacementKey, Refusal};
+use crate::rules::Protocol;
 use crate::rules::rules;
 
 /// What a delete chooses, from kitty's `d` key and the keys it reads.
@@ -175,20 +176,37 @@ impl Store {
 }
 
 impl Edit<'_> {
-    /// An empty buffer to decode a picture of `len` pixels into, with room
-    /// for them: the buffer of the image the store freed last, when it held
-    /// `len` pixels and no frame holds it, else a new one. The players that
-    /// send video as kitty pictures replace a frame with one of the same
-    /// size: timg's two ids alternate, so each frame's transmission frees
-    /// the frame before the last; ncplayer deletes the previous frame's id
-    /// after placing each new one; and mpv's frames, which have no id, are
-    /// evicted oldest first when the next one reserves its bytes. In each
-    /// case the frame freed last is free again when the next frame begins,
-    /// so its memory, already mapped, serves that frame, and the kernel
-    /// neither maps nor zeroes fresh pages for it. Which buffer is reused
-    /// changes no pixel and nothing the store compares.
-    pub(crate) fn kitty_buffer(&mut self, len: usize) -> Vec<u32> {
-        self.take_spare(len).unwrap_or_default()
+    /// A buffer to decode a kitty picture of `len` pixels into, and the
+    /// reservation of its whole charge, `bytes`, for an image of kitty id
+    /// `id` (D5). When the store's spare buffer, the one the image it freed
+    /// last left, holds `len` pixels and no frame holds it, the buffer comes
+    /// still holding that image's pixels, which the caller overwrites, with
+    /// its charge as the reservation, grown by the rest of `bytes`, so no reservation of the handler's own can evict the
+    /// buffer it is about to fill; otherwise the buffer is new and the whole
+    /// charge is reserved. The players that send video as kitty pictures
+    /// replace each frame with one of its size: ncplayer deletes the
+    /// previous frame's id after placing the new one, and timg's two ids
+    /// alternate, so the frame freed last is the spare when the next frame
+    /// begins, and its memory, already mapped, serves that frame where the
+    /// budget has room for the spare. Which buffer is reused changes no
+    /// pixel and nothing the store compares.
+    pub(crate) fn kitty_buffer(
+        &mut self,
+        id: u32,
+        len: usize,
+        bytes: u64,
+    ) -> Result<(Vec<u32>, Reservation), Refusal> {
+        if let Some((buffer, mut reservation)) = self.take_spare(Protocol::KITTY, id, len) {
+            let more = bytes.saturating_sub(reservation.bytes());
+            if self.grow(&mut reservation, more).is_ok() {
+                return Ok((buffer, reservation));
+            }
+            // the buffer goes with its charge, and a reservation of the
+            // whole cost may still fit where the growth did not
+            self.unreserve(reservation);
+        }
+        let reservation = self.reserve(Protocol::KITTY, id, bytes)?;
+        Ok((Vec::new(), reservation))
     }
 
     /// Runs a kitty delete on the buffer in use.

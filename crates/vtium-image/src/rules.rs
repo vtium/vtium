@@ -111,8 +111,10 @@ pub struct Rules {
     /// destination, ICH, DCH and insert-mode printing cut the part under
     /// those cells.
     pub cut_by_text: bool,
-    /// A new opaque picture of the same tag over it removes the parts under
-    /// the cells the new picture covers.
+    /// A new picture of the same tag over it removes, cell by cell, the
+    /// parts under each cell the new picture covers fully with opaque
+    /// pixels, and then each piece under it that draws nothing
+    /// (`store/sixel.rs`).
     pub covered_by_same: bool,
     /// ED 2 removes it from the screen's own lines, as kitty's spec asks
     /// of the clear screen code. A placement text cuts loses those cells to
