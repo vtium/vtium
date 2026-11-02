@@ -11,11 +11,13 @@ Inline images: the one pipeline sixel and the kitty graphics protocol feed (ADR-
 | `src/store/events.rs` | What each screen event does to placements: cuts, scrolls, the scrollback's oldest line dropped, freed lines, ED 2, and the anchors a rewrap carries (D3, D8). |
 | `src/store/frame.rs` | The frame's placement list, in draw order (D9). |
 | `src/store/edit.rs` | `Edit`, the one way a handler changes the store: the store's own operations for a handler, with both buffers' screen rows bound, and none of the screen events (D6). |
-| `src/store/kitty.rs` | Empty for now. The kitty graphics handler's work fills it with the store operations only kitty makes: its delete selectors and the lookup of a placement by its id. |
+| `src/store/kitty.rs` | The store operation only kitty makes: its delete command with every selector, and an image's kitty id for a put's reply. |
 | `src/handler.rs` | The handler trait and the context vtium-term implements: the store to read and to edit, the cursor, the margins, the index and the scroll, the sixel modes, the reply sink, the switches and the limits (D6). |
-| `src/protocol/sixel.rs`, `src/protocol/kitty.rs` | The sixel and kitty graphics handlers. For now each reads its strings, counts the bytes as input work and changes nothing. |
+| `src/protocol/sixel.rs` | The sixel handler. For now it reads its strings, counts the bytes as input work and changes nothing. |
+| `src/protocol/kitty.rs`, `src/protocol/kitty/command.rs` | The kitty graphics handler: chunked uploads, the actions, requests to the image helper, placement and the cursor after it; and a command's keys, the refusals made before any data is read, and its reply. |
 | `src/decode.rs` | The decode request and reply types, and the check of a reply's sizes against its request (D7). |
-| `src/decode/sixel.rs`, `src/decode/base64.rs`, `src/decode/raw.rs` | Empty for now. The sixel handler's work fills `sixel.rs` with the sixel decoder, and the kitty graphics handler's work fills `base64.rs` and `raw.rs` with the base64 decoder and the raw RGB and RGBA conversion (D7). |
+| `src/decode/sixel.rs` | Empty for now. The sixel handler's work fills it with the sixel decoder (D7). |
+| `src/decode/base64.rs`, `src/decode/raw.rs` | The base64 decoder a kitty payload goes through as it streams, and the conversion of raw RGB and RGBA into premultiplied pixels as they arrive (D7). |
 | `fuzz/` | The handlers' cargo-fuzz targets, in their own workspace ([fuzz/README.md](fuzz/README.md)). |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source, and the `auto` budget's rule. |
 
@@ -40,6 +42,7 @@ The placements at one layer and z form a stack, kept as placements arrive: a lat
 - **A kitty placement that replaces one with the same image and placement id is a new arrival** in its stack, where the C reference kept the replaced placement's place (ADR-1100, D4). Test: `a_replacement_is_a_new_arrival_in_its_stack`.
 - **The charges of the pieces a screen event cuts are settled when the event ends.** The C reference settled them at the end of an input call, or before the next reservation, so when the budget refused them, which pieces went depended on how the input was chunked. Tests: `pieces_the_budget_refuses_go_smallest_first`, and vtium-term's `the_charges_of_cut_pieces_settle_per_event_however_the_input_is_cut`.
 - **A placement's change marks the cells under its old and new boxes,** which vtium-term does from the regions the store reports, where the C reference left each renderer to damage placement rectangles itself (ADR-1001).
+- **A cancelled kitty string ends an upload in chunks, whatever it held.** A string cut off by CAN, SUB or another control, or a kitty handler cancelled because kitty graphics went off, gives back the reservation of an upload in chunks and drops a request out. The handler's one `cancel` serves both, so a cancelled string whose keys passed 1 KiB also ends the upload, where the C reference kept the upload open for a cancelled string it was already ignoring. The upload's next chunk then starts a new command, which a program sending chunks never meets, since every chunk's keys are short.
 
 ## Readings of the record
 
@@ -49,6 +52,8 @@ These follow ADR-1100 where its literal text leaves room, and each is the C refe
 - **An opaque sixel cuts the older sixels under its whole box.** D2 gives a new picture of the same tag the cells it covers fully; until a picture over a picture (ADR-1000's `image.overlap`) records which cells each picture covers, an opaque sixel cuts every cell of its box and a sixel with any clear pixel cuts nothing.
 
 ## Bounds
+
+The kitty handler's two bounds live in `src/protocol/kitty.rs`, not yet in this table: `KEYS_MAX`, 1024 bytes of control keys, past which the whole string is ignored, and `NAME_MAX`, 4095 bytes of a decoded file or shared-memory name, past which the command answers EBADF. They are the C reference's `KITTY_KEYS_MAX` and `KITTY_NAME_MAX`.
 
 <!-- bounds:begin -->
 | Bound | Value | What it bounds | Past it | Source |
