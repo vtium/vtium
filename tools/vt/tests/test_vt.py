@@ -502,9 +502,17 @@ class RunVt(Case):
                 "--grab-paste=<Ctrl><Shift>V", "--pointer-hide-timeout=5",
                 "--pointer-hide-while-typing", "--no-pointer-hide-while-typing",
                 "--pointer-char=+", "--osd=full", "--osd-timeout=never", "--osd-timeout=10",
-                "--focus-mark=always"]
+                "--focus-mark=always", "--display-buffers=1", "--display-buffers=2", "--display-buffers=3"]
         p = self.run_vt("--dry-run", "8", "--", *opts)
         self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_display_buffers_takes_one_two_or_three(self):
+        # vtium runs as root here, so a value it would refuse stops the run
+        # before any unit is stopped.
+        for value in ("0", "4", "two", "", "3x"):
+            with self.subTest(value=value):
+                self.refused(self.run_vt("--dry-run", "8", "--", f"--display-buffers={value}"),
+                             "--display-buffers takes 1, 2 or 3 here")
 
     def test_the_binary_must_be_safe_to_run_as_root(self):
         os.chmod(self.s.bin, 0o775)

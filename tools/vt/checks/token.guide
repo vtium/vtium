@@ -6,6 +6,7 @@
 # buffers a display. The unplug step needs a machine with two displays.
 #
 #   make vt-check GUIDE=token
+#   make vt-check GUIDE=token DEMO_ARGS='--display-buffers=1'   # or =3
 
 title: frames drawn straight into the display's buffer
 

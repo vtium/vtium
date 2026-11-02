@@ -151,7 +151,8 @@ act() {
 # session options, --login, --configdir, --oneshot, the grabs but grab-paste
 # (one reboots), and options naming files (asciicast, issue-path, xkb-keymap,
 # xkb-compose-file). The on-screen display's osd, osd-timeout and focus-mark
-# are choices that name no file.
+# are choices that name no file, and display-buffers, 1, 2 or 3, how many
+# buffers each display draws into (ADR-1401 D2).
 valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette palette-black palette-red palette-green palette-yellow palette-blue
 	palette-magenta palette-cyan palette-light-grey palette-dark-grey
@@ -160,7 +161,8 @@ valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette-background underline-color strike-color grapheme-width xkb-model
 	xkb-layout xkb-variant xkb-options xkb-repeat-delay xkb-repeat-rate
 	dpms-timeout render-timer image-storage-limit sync-timeout blink-text
-	grab-paste pointer-hide-timeout pointer-char osd osd-timeout focus-mark "
+	grab-paste pointer-hide-timeout pointer-char osd osd-timeout focus-mark
+	display-buffers "
 switches=" drm hwaccel use-original-mode blink bell soft-cursor mouse
 	natural-scrolling force-decoration-colors backspace-delete verbose debug silent
 	blink-decorations program-blank pointer-hide-while-typing "
@@ -176,6 +178,10 @@ for o in "${extra[@]}"; do
 			(( 10#${BASH_REMATCH[1]} > (4 << 30) >> ${unit_shift[${BASH_REMATCH[2]:-B}]} )); then
 			die "--image-storage-limit takes auto or a size up to 4G here, not '$size'"
 		fi
+	fi
+	# vtium would refuse any other count, once the console units are stopped.
+	if [[ $o == --display-buffers=* ]] && ! [[ ${o#*=} =~ ^[123]$ ]]; then
+		die "--display-buffers takes 1, 2 or 3 here, not '${o#*=}'"
 	fi
 	# A name is lower-case letters and dashes, so no two names of a list,
 	# joined by a space, pass as one.
