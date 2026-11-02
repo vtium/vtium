@@ -329,6 +329,50 @@ fn an_sb_size_of_0_moves_a_placement_onto_the_screens_first_line() {
 }
 
 #[test]
+fn su_4_into_a_scrollback_of_2_moves_a_placement_down_one_line_per_drop() {
+    // lines 0 and 1 drop, each onto the line after it, and the placement
+    // keeps 2 of its 4 rows on line 2, the view's top row
+    let mut t = tall_at_the_top(2);
+    t.input(b"\x1b[4S");
+    t.screen_mut().scroll_view_up(2);
+    assert_eq!(shown(&t), [(0, 0, 1, 2, "kitty")]);
+}
+
+#[test]
+fn an_sb_size_of_0_set_on_the_alternate_screen_moves_a_main_placement_onto_its_first_line() {
+    let mut t = tall_at_the_top(10);
+    t.input(b"\x1b[4;1H\n\x1b[?1049h");
+    t.screen_mut().set_scrollback_max(0);
+    t.input(b"\x1b[?1049l");
+    assert_eq!(shown(&t), [(0, 0, 1, 3, "kitty")], "it lost its top row");
+}
+
+#[test]
+fn a_resize_that_empties_the_scrollback_moves_a_placement_onto_the_screens_first_line() {
+    // narrowed to 3 columns, "a" and the first row of "bbbbbb" leave the
+    // screen for a scrollback whose sb-memory holds neither, so both drop,
+    // the second with nothing after it in the scrollback
+    let mut t = Terminal::new(6, 3, 100);
+    t.screen_mut().set_image_limit(1 << 30);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"a\r\nbbbbbb\r\ncccccc");
+    let k = image(&mut t, Protocol::KITTY, 8, 48, 1);
+    place(&mut t, k, 0, 0);
+    t.screen_mut().set_scrollback_memory(1);
+    t.resize(3, 3);
+    let rows: Vec<String> = common::rows(t.screen())
+        .iter()
+        .map(|r| r.trim_end().to_string())
+        .collect();
+    assert_eq!(rows, ["bbb", "ccc", "ccc"]);
+    assert_eq!(
+        shown(&t),
+        [(0, 0, 1, 1, "kitty")],
+        "it lost 2 of its 3 rows"
+    );
+}
+
+#[test]
 fn a_line_dropped_from_the_scrollback_clips_the_placements_on_it() {
     let mut t = term();
     t.screen_mut().set_scrollback_max(2);
