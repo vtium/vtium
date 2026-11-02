@@ -104,7 +104,7 @@ use crate::font::Font;
 use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Hinting, Source, valid_name};
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
-use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, resolve};
+use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, SourceError, resolve};
 
 /// The command that makes the binary the helper.
 pub const SERVE_ARG: &str = "serve";
@@ -606,8 +606,11 @@ fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32) -> Vec<
 impl Engine {
     /// Parses `frit` and reads each source it names, as this process's
     /// account; a source missing or unreadable is left out, and the frit
-    /// fails only when none is left. Its messages name the frit by its
-    /// name.
+    /// fails only when none is left. A source that is on this machine and
+    /// is refused, such as a BDF file the reader refuses, is also a
+    /// warning when the frit loads without it, so the console logs it; a
+    /// source this machine does not have is left out quietly. Its messages
+    /// name the frit by its name.
     pub fn load(
         frit: &FritText,
         paths: &Paths,
@@ -627,31 +630,49 @@ impl Engine {
         };
         let mut sources = Vec::new();
         let mut why = Vec::new();
+        let mut refused = Vec::new();
         for source in &frit.sources {
             let loaded = resolve(source, &host)
-                .map_err(|e| e.to_string())
-                .and_then(|input| match input {
-                    Input::Bitmap(font) => Ok(Loaded::Bitmap(font)),
-                    Input::Bdf(bytes) => crate::bdf::font(&bytes).map(Loaded::Bitmap),
-                    Input::Font(req) => crate::decode::font(
-                        &req.font,
-                        req.unimap.as_deref(),
-                        req.def_uni.as_deref(),
-                    )
-                    .map(|g| Loaded::Bitmap(Font::from_glyphs(g))),
-                    Input::Outline(req) => {
-                        outline_coverage(&req.font, &req.family).map(|mapped| Loaded::Outline {
-                            font: req.font,
-                            family: req.family,
-                            mapped,
-                        })
+                .map_err(|e| match e {
+                    SourceError::Missing(why) => (why, false),
+                    SourceError::Failed(why) => (why, true),
+                })
+                .and_then(|input| {
+                    match input {
+                        Input::Bitmap(font) => Ok(Loaded::Bitmap(font)),
+                        Input::Bdf(bytes) => crate::bdf::font(&bytes).map(Loaded::Bitmap),
+                        Input::Font(req) => crate::decode::font(
+                            &req.font,
+                            req.unimap.as_deref(),
+                            req.def_uni.as_deref(),
+                        )
+                        .map(|g| Loaded::Bitmap(Font::from_glyphs(g))),
+                        Input::Outline(req) => {
+                            outline_coverage(&req.font, &req.family).map(|mapped| Loaded::Outline {
+                                font: req.font,
+                                family: req.family,
+                                mapped,
+                            })
+                        }
                     }
+                    .map_err(|e| (e, true))
                 });
             match loaded {
                 Ok(l) => sources.push((source.clone(), l)),
-                Err(e) => why.push(format!("source={}: {e}", source.spelling)),
+                Err((e, present)) => {
+                    let line = format!("source={}: {e}", source.spelling);
+                    if present {
+                        refused.push(format!(
+                            "{}:{}: {line}; the source is left out",
+                            frit.name, source.line
+                        ));
+                    }
+                    why.push(line);
+                }
             }
         }
+        let mut warnings = warnings;
+        warnings.extend(refused);
         if sources.is_empty() {
             return Err(if why.is_empty() {
                 format!("{}: the frit names no source", file.display())
@@ -1677,6 +1698,41 @@ mod tests {
         assert!(good.unwrap().coverage().contains(&0x41));
         let e = bad.err().unwrap();
         assert!(e.contains("CHARSET_REGISTRY"), "{e}");
+    }
+
+    // a source on this machine that the helper refuses, such as a BDF
+    // file its reader refuses, is a warning the console logs when the
+    // frit loads without it; a source this machine does not have is left
+    // out quietly, as a frit names fonts a machine may not install
+    #[test]
+    fn a_source_refused_is_a_warning_and_a_missing_one_is_not() {
+        let dir = std::env::temp_dir().join(format!("vtium-serve-refused-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bad = dir.join("bad.bdf");
+        std::fs::write(&bad, "STARTFONT 2.1\nCHARS 1\n").unwrap();
+        let text = format!(
+            "source=builtin:unifont\nsource=bdf:{}\nsource=bdf:{}\n",
+            bad.display(),
+            dir.join("missing.bdf").display()
+        );
+        let engine = Engine::load(&frit(&text), &Paths::default(), None);
+        let frames = run(&[request(ASK, frit(&text), &['A'])]);
+        let _ = std::fs::remove_dir_all(&dir);
+        let warnings = engine.unwrap().warnings().to_vec();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        let w = &warnings[0];
+        assert!(
+            w.starts_with(&format!("t:2: source=bdf:{}: ", bad.display())),
+            "{w}"
+        );
+        assert!(w.contains("CHARSET_REGISTRY"), "{w}");
+        assert!(w.ends_with("; the source is left out"), "{w}");
+        let sent: Vec<String> = frames
+            .iter()
+            .filter(|(k, _)| *k == FRAME_WARNING)
+            .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
+            .collect();
+        assert_eq!(sent, warnings, "sent to the console as the frit loads");
     }
 
     // `Frit::parse` refuses a name that is not valid, so no engine is
