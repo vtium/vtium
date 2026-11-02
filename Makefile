@@ -11,20 +11,38 @@ X86_TARGET := x86_64-unknown-linux-gnu
 # The binary the VT review runs. It runs as root, so it is named in this file
 # or on make's command line (make vt-demo VTIUM_BIN=PATH), never taken from a
 # stale export in the shell. The default is the minspec build, which the vt
-# targets build first; another binary is run as it is.
+# targets build first; another binary is run as it is. make vt-install's
+# default is the development console, the minspec build made to start its
+# glyph helper at VTIUM_DEV_HELPER, in a target directory of its own so that
+# it never replaces the minspec build. The helper, VTIUM_VITRIFY_BIN, is the
+# release build of vtium-vitrify unless named: make vt-install installs it,
+# and the review runs copy it into /run/vtium-vt/ and run vtium with
+# --font-helper naming the copy, so each run starts the helper built with it.
 VTIUM_MINSPEC := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/minspec/vtium
+VTIUM_DEV_DIR := $(or $(CARGO_TARGET_DIR),target)/vt-dev
+VTIUM_DEV := $(VTIUM_DEV_DIR)/$(X86_TARGET)/minspec/vtium
+VTIUM_DEV_HELPER := /usr/local/bin/vtium-dev-vitrify
+VITRIFY_RELEASE := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-vitrify
 VT_GOALS := vt-demo vt-login vt-check vt-shell
 VT_INSTALL_GOALS := vt-install vt-uninstall
 ifneq ($(filter $(VT_GOALS) $(VT_INSTALL_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(filter environment%,$(origin VTIUM_BIN)),)
 $(error VTIUM_BIN is set in the environment; the vt targets run it as root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_BIN=PATH)
 endif
+ifneq ($(filter environment%,$(origin VTIUM_VITRIFY_BIN)),)
+$(error VTIUM_VITRIFY_BIN is set in the environment; the vt targets give it to vtium, which starts it from root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_VITRIFY_BIN=PATH)
+endif
 endif
 # Simply expanded, so the recipes' $(value VTIUM_BIN) is the path itself.
 ifeq ($(origin VTIUM_BIN),undefined)
-VTIUM_BIN := $(VTIUM_MINSPEC)
+VTIUM_BIN := $(if $(filter vt-install,$(MAKECMDGOALS)),$(VTIUM_DEV),$(VTIUM_MINSPEC))
+endif
+ifeq ($(origin VTIUM_VITRIFY_BIN),undefined)
+VTIUM_VITRIFY_BIN := $(VITRIFY_RELEASE)
 endif
 vt_build := $(if $(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),minspec)
+vt_helper_build := $(if $(filter $(VITRIFY_RELEASE),$(VTIUM_VITRIFY_BIN)),vitrify-release)
+vt_dev_build := $(if $(filter $(VTIUM_DEV),$(VTIUM_BIN)),vt-dev-console) $(vt_helper_build)
 
 .PHONY: help
 help: ## Show this help
@@ -57,8 +75,8 @@ endef
 # sysroot, as the ARM targets do; the wrappers are named for these targets
 # alone, so the default build and cargo test use the host's toolchain.
 ARM_WRAP := $(CURDIR)/tools/arm
-minspec install-tree: export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/$(X86_TARGET)-cc
-minspec install-tree: export PKG_CONFIG_x86_64_unknown_linux_gnu = $(ARM_WRAP)/$(X86_TARGET)-pkg-config
+minspec install-tree vt-dev-console vitrify-release: export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/$(X86_TARGET)-cc
+minspec install-tree vt-dev-console vitrify-release: export PKG_CONFIG_x86_64_unknown_linux_gnu = $(ARM_WRAP)/$(X86_TARGET)-pkg-config
 
 # The vtium crate's features the console binary is built with, named on
 # make's command line (make install-tree FEATURES='images logind'). None, the
@@ -79,17 +97,21 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # configuration and the example udev rules and hwdb fragment, which are
 # documentation and never active (ADR-1401 D4). Tier 3 installs this tree in
 # its guest.
+# DESTDIR's default is install-tree's alone: make install refuses it below.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
-VTIUM_VITRIFY := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-vitrify
+
+.PHONY: vitrify-release
+vitrify-release: ## Build the glyph helper vtium-vitrify for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/release/vtium-vitrify
+	cargo build --release -p vtium-vitrify --target $(X86_TARGET)
+	$(call check-glibc,$(VITRIFY_RELEASE))
 
 .PHONY: install-tree
-install-tree: minspec ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' when named (needs tic)
+install-tree: minspec vitrify-release ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' when named (needs tic)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
 	$(call check-relr,$(DESTDIR)/usr/bin/vtium)
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium)
-	cargo build --release -p vtium-vitrify --target $(X86_TARGET)
-	install -Dm755 $(VTIUM_VITRIFY) $(DESTDIR)/usr/bin/vtium-vitrify
+	install -Dm755 $(VITRIFY_RELEASE) $(DESTDIR)/usr/bin/vtium-vitrify
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-vitrify)
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt@.service
 	install -Dm644 $(VTIUM_INSTALL)/kmsconvt-getty@.service $(DESTDIR)/usr/lib/systemd/system/kmsconvt-getty@.service
@@ -98,6 +120,67 @@ install-tree: minspec ## Stage vtium's install tree under DESTDIR (default targe
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/kmscon.conf.example $(DESTDIR)/etc/kmscon/kmscon.conf.example
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
+
+# vtium as a package ships it, staged under DESTDIR with PREFIX, so that a
+# package's build can be one call: make install DESTDIR="$pkgdir" PREFIX=/usr
+# PKGNAME="$pkgname" (ADR-1500 D1, D3). packaging/arch's AUR packages do the
+# same steps in their PKGBUILDs until this target is on main. make install
+# stages the console, built with the minspec profile and FEATURES and made to
+# start its glyph helper at PREFIX/bin/vtium-vitrify, the helper, the VT unit
+# vtium@.service and its getty fallback vtium-getty@.service, generated by
+# tools/vt/units.sh, the example configuration and the example udev rules and
+# hwdb fragment as documentation, and the license under PKGNAME's name. make
+# install-terminfo stages vtium's terminfo entry, compiled under its name
+# xterm-vtium, for the package that holds it alone. Neither stages a file the
+# C reference's packages own: no /etc/kmscon/kmscon.conf.example, no terminfo
+# entry named kmscon and no kmsconvt@ unit. The builds use the host's
+# toolchain, as a distribution's package builds do, in a target directory of
+# their own, INSTALL_TARGET_DIR. CARGO_BUILD_FLAGS goes to each cargo call,
+# as --frozen for a package build that fetched its crates first.
+PREFIX := /usr/local
+PKGNAME := vtium
+INSTALL_TARGET_DIR := $(or $(CARGO_TARGET_DIR),target)/install
+CARGO_BUILD_FLAGS :=
+UNITDIR := $(PREFIX)/lib/systemd/system
+TERMINFO_SRC := $(VTIUM_INSTALL)/xterm-vtium.ti
+# Both stage under DESTDIR alone: DESTDIR is named, not empty, and not the
+# machine's own root, so neither writes a file over the packaged vtium's or
+# beside it in /usr/local.
+ifneq ($(filter install install-terminfo,$(MAKECMDGOALS)),)
+ifeq ($(origin DESTDIR),file)
+$(error $(firstword $(filter install install-terminfo,$(MAKECMDGOALS))): name DESTDIR=DIR, the directory it stages the files under; it never installs onto this machine)
+endif
+ifeq ($(strip $(DESTDIR)),)
+$(error $(firstword $(filter install install-terminfo,$(MAKECMDGOALS))): DESTDIR is empty, which would install onto this machine; name the directory it stages the files under)
+endif
+ifeq ($(shell readlink -m -- '$(DESTDIR)'),/)
+$(error $(firstword $(filter install install-terminfo,$(MAKECMDGOALS))): DESTDIR=$(DESTDIR) is this machine's root; name the directory it stages the files under)
+endif
+endif
+
+.PHONY: install-build
+install-build: ## Build what make install stages, for PREFIX (default /usr/local), with FEATURES='...' and CARGO_BUILD_FLAGS='...' when named
+	VTIUM_VITRIFY=$(PREFIX)/bin/vtium-vitrify VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc $(CARGO_BUILD_FLAGS) --profile minspec -p vtium --bin vtium --target-dir $(INSTALL_TARGET_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(call check-relr,$(INSTALL_TARGET_DIR)/minspec/vtium)
+	grep -qaF '$(PREFIX)/bin/vtium-vitrify' $(INSTALL_TARGET_DIR)/minspec/vtium || { echo "$(INSTALL_TARGET_DIR)/minspec/vtium does not start its helper at $(PREFIX)/bin/vtium-vitrify" >&2; exit 1; }
+	cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-vitrify --target-dir $(INSTALL_TARGET_DIR)
+
+.PHONY: install
+install: install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local) and PKGNAME (default vtium): make install DESTDIR=DIR PREFIX=/usr
+	install -Dm755 $(INSTALL_TARGET_DIR)/minspec/vtium $(DESTDIR)$(PREFIX)/bin/vtium
+	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-vitrify $(DESTDIR)$(PREFIX)/bin/vtium-vitrify
+	tools/vt/units.sh --name vtium --exec $(PREFIX)/bin/vtium --by 'make install' --conflicts 'kmsconvt@%i.service' $(DESTDIR)$(UNITDIR)
+	install -Dm644 $(VTIUM_INSTALL)/kmscon.conf.example $(DESTDIR)$(PREFIX)/share/doc/vtium/kmscon.conf.example
+	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
+	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME)/LICENSE
+
+.PHONY: install-terminfo
+install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
+	@[ -f '$(TERMINFO_SRC)' ] || { echo "install-terminfo: no $(TERMINFO_SRC), the entry it compiles" >&2; exit 1; }
+	install -dm755 $(DESTDIR)$(PREFIX)/share/terminfo
+	tic -x -e xterm-vtium -o $(DESTDIR)$(PREFIX)/share/terminfo $(TERMINFO_SRC)
+	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium alone" >&2; exit 1; }
+	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo)/LICENSE
 
 # The ARM single-board computers minspec is judged against
 # (docs/architecture.md): each target links against a pinned Debian sysroot
@@ -186,6 +269,7 @@ test-tools: ## Test the VT review tools and the tier 3 harness without a VT, sud
 # commands without running them, and VT_DEBUG=1 runs vtium with --debug and
 # copies the kernel's DRM state beside the log.
 $(VT_GOALS): export VTIUM_VT_BIN = $(value VTIUM_BIN)
+$(VT_GOALS): export VTIUM_VT_HELPER = $(value VTIUM_VITRIFY_BIN)
 $(VT_GOALS): export VTIUM_VT_NR = $(value VT)
 $(VT_GOALS): export VTIUM_VT_ARGS = $(value DEMO_ARGS)
 $(VT_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
@@ -197,17 +281,17 @@ $(VT_GOALS): export VTIUM_VT_STEPS =
 
 .PHONY: vt-demo
 vt-demo: export VTIUM_VT_SESSION = demo
-vt-demo: $(vt_build) ## Run vtium with the demo on a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
+vt-demo: $(vt_build) $(vt_helper_build) ## Run vtium with the demo on a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-login
 vt-login: export VTIUM_VT_SESSION = login
-vt-login: $(vt_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-login: $(vt_build) $(vt_helper_build) ## Run vtium with a login prompt on a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-shell
 vt-shell: export VTIUM_VT_SESSION = shell
-vt-shell: $(vt_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-shell: $(vt_build) $(vt_helper_build) ## Run your login shell, as you, in vtium on a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # Without GUIDE it fails before the build, naming the guides.
@@ -220,38 +304,50 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
+vt-check: $(vt_build) $(vt_helper_build) ## Run a guide's checks on a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
 	tools/vt/vt.sh
 
-# vtium as the console of one VT, across reboots (docs/vt-review.md,
-# "Installing vtium on a VT"): VT=N names it, and DRY_RUN=1 prints the units
-# and every command without running any. Their variables reach
-# tools/vt/vt-install.sh through the environment, never as recipe text.
-# Run as root, the build would leave root's files in target/, and the
-# script asks sudo for each step that needs root, so root is refused before
-# anything is built. The tests, whose stand-ins write only under their own
-# root (VTIUM_VT_STANDINS), may run as root, but make vt-install then needs
-# the binary named with VTIUM_BIN, so that no build runs as root.
+# A development build of vtium as the console of one VT, across reboots,
+# under names of its own, vtium-dev@ and /usr/local/bin/vtium-dev, beside the
+# packaged vtium (docs/vt-review.md, "Installing vtium on a VT"): VT=N names
+# it, and DRY_RUN=1 prints the units and every command without running any.
+# Their variables reach tools/vt/vt-install.sh through the environment, never
+# as recipe text. Run as root, the build would leave root's files in target/,
+# and the script asks sudo for each step that needs root, so root is refused
+# before anything is built. The tests, whose stand-ins write only under their
+# own root (VTIUM_VT_STANDINS), may run as root, but make vt-install then
+# needs the binary and the helper named with VTIUM_BIN and VTIUM_VITRIFY_BIN,
+# so that no build runs as root.
 ifneq ($(filter $(VT_INSTALL_GOALS),$(MAKECMDGOALS)),)
 ifeq ($(shell id -u),0)
 ifeq ($(VTIUM_VT_STANDINS),)
 $(error $(firstword $(filter $(VT_INSTALL_GOALS),$(MAKECMDGOALS))): run it as yourself, not as root or under sudo; it asks sudo for each step that needs root)
 endif
-ifneq ($(and $(filter vt-install,$(MAKECMDGOALS)),$(vt_build)),)
-$(error vt-install: as root under the tests' stand-ins, name the binary with VTIUM_BIN=PATH, so that no build runs as root and leaves root's files in target/)
+ifneq ($(and $(filter vt-install,$(MAKECMDGOALS)),$(strip $(vt_build) $(vt_dev_build))),)
+$(error vt-install: as root under the tests' stand-ins, name the binary and the helper with VTIUM_BIN=PATH VTIUM_VITRIFY_BIN=PATH, so that no build runs as root and leaves root's files in target/)
 endif
 endif
 endif
 $(VT_INSTALL_GOALS): export VTIUM_VT_BIN = $(value VTIUM_BIN)
 $(VT_INSTALL_GOALS): export VTIUM_VT_NR = $(value VT)
+$(VT_INSTALL_GOALS): export VTIUM_VT_VITRIFY = $(value VTIUM_VITRIFY_BIN)
 $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 
+# The development console: the minspec build, with FEATURES, made to start
+# its helper at VTIUM_DEV_HELPER, which vt-install installs.
+.PHONY: vt-dev-console
+vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
+	tools/arm/sysroot fetch amd64
+	VTIUM_VITRIFY=$(VTIUM_DEV_HELPER) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(call check-relr,$(VTIUM_DEV))
+	$(call check-glibc,$(VTIUM_DEV))
+
 .PHONY: vt-install
-vt-install: $(vt_build) ## Install vtium on VT N in place of its getty, started at every boot (VT=N, DRY_RUN=1)
+vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-dev on VT N in place of its getty, started at every boot (VT=N, DRY_RUN=1, FEATURES='...')
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh install "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh install --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 .PHONY: vt-uninstall
-vt-uninstall: ## Undo make vt-install on VT N: its getty back, the files it wrote removed (VT=N, DRY_RUN=1)
+vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, the files it wrote removed (VT=N, DRY_RUN=1)
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 # Tier 2 against vtium's goldens and the C reference's, copied into
