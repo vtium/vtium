@@ -1,6 +1,6 @@
 //! The kitty graphics handler, which takes APC `G` strings (ADR-1100, D6).
 //!
-//! It reads each string and changes nothing yet: it counts the bytes it
+//! For now it reads each string and changes nothing: it counts the bytes it
 //! reads as input work and places no picture.
 
 use vtium_parse::Chunk;

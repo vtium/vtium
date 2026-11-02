@@ -8,7 +8,8 @@
 //! (a cut, a scroll, a line dropped, an anchor carried, a reset), which
 //! only the screen sends. A protocol module adds the operations of its own
 //! in its own file, as `impl Edit<'_>` blocks beside the store code they
-//! need.
+//! need. The fields are visible only under `store`, so a handler outside
+//! it never reaches the store itself.
 //!
 //! The terminal makes an `Edit` for each call of
 //! [`Context::edit_store`](crate::Context::edit_store) and, once the
@@ -23,9 +24,9 @@ use crate::store::Reservation;
 /// The store, with the screen's rows, for one edit.
 #[derive(Debug)]
 pub struct Edit<'a> {
-    pub(crate) store: &'a mut Store,
-    pub(crate) screens: Screens<'a>,
-    pub(crate) cols: usize,
+    pub(super) store: &'a mut Store,
+    pub(super) screens: Screens<'a>,
+    pub(super) cols: usize,
 }
 
 impl<'a> Edit<'a> {

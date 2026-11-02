@@ -32,8 +32,8 @@
 //! - Its bounds, named constants from the C reference's values, and the
 //!   `auto` budget's rule, [`auto_limit`].
 //!
-//! Not part of the minspec build: vtium-term takes it behind its `images`
-//! feature.
+//! The crate is not part of the minspec build: vtium-term takes it behind
+//! its `images` feature.
 
 mod bounds;
 pub mod decode;

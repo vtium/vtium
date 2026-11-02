@@ -17,7 +17,7 @@
 mod edit;
 mod events;
 mod frame;
-mod kitty;
+pub(crate) mod kitty;
 mod reserve;
 #[cfg(test)]
 mod tests;

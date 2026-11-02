@@ -150,8 +150,8 @@ pub trait Context {
 /// [`edit_store`](Context::edit_store).
 impl dyn Context + '_ {
     /// Runs `f` over an [`Edit`] of the store and returns what it returned,
-    /// or `None` when the context did not run it, which vtium-term's
-    /// context always does.
+    /// or `None` when the context did not run it. vtium-term's context
+    /// always runs it, so there the result is never `None`.
     pub fn edit<R>(&mut self, f: impl FnOnce(&mut Edit<'_>) -> R) -> Option<R> {
         let mut f = Some(f);
         let mut out = None;

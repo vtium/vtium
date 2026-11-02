@@ -11,11 +11,11 @@ Inline images: the one pipeline sixel and the kitty graphics protocol feed (ADR-
 | `src/store/events.rs` | What each screen event does to placements: cuts, scrolls, the scrollback's oldest line dropped, freed lines, ED 2, and the anchors a rewrap carries (D3, D8). |
 | `src/store/frame.rs` | The frame's placement list, in draw order (D9). |
 | `src/store/edit.rs` | `Edit`, the one way a handler changes the store: the store's own operations for a handler, with both buffers' screen rows bound, and none of the screen events (D6). |
-| `src/store/kitty.rs` | The store operations only kitty makes: its delete selectors and the lookup of a placement by its id. |
+| `src/store/kitty.rs` | Empty for now. The kitty graphics handler's work fills it with the store operations only kitty makes: its delete selectors and the lookup of a placement by its id. |
 | `src/handler.rs` | The handler trait and the context vtium-term implements: the store to read and to edit, the cursor, the margins, the index and the scroll, the sixel modes, the reply sink, the switches and the limits (D6). |
-| `src/protocol/sixel.rs`, `src/protocol/kitty.rs` | The sixel and kitty graphics handlers. |
+| `src/protocol/sixel.rs`, `src/protocol/kitty.rs` | The sixel and kitty graphics handlers. For now each reads its strings, counts the bytes as input work and changes nothing. |
 | `src/decode.rs` | The decode request and reply types, and the check of a reply's sizes against its request (D7). |
-| `src/decode/sixel.rs`, `src/decode/base64.rs`, `src/decode/raw.rs` | The decoders that run in the console: sixel, base64, and kitty's raw RGB and RGBA (D7). |
+| `src/decode/sixel.rs`, `src/decode/base64.rs`, `src/decode/raw.rs` | Empty for now. The sixel handler's work fills `sixel.rs` with the sixel decoder, and the kitty graphics handler's work fills `base64.rs` and `raw.rs` with the base64 decoder and the raw RGB and RGBA conversion (D7). |
 | `fuzz/` | The handlers' cargo-fuzz targets, in their own workspace ([fuzz/README.md](fuzz/README.md)). |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source, and the `auto` budget's rule. |
 

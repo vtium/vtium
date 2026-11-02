@@ -9,12 +9,13 @@
 //! outcome into its protocol's reply. The console checks a reply's sizes
 //! against its request, [`Reply::checked`], before it uses anything.
 //!
-//! Its submodules are the decoders that run in the console, which take
-//! whatever a program writes: sixel, base64, and raw RGB and RGBA.
+//! Its submodules will hold the decoders that run in the console, which
+//! take whatever a program writes: sixel, base64, and raw RGB and RGBA.
+//! The protocol handlers reach them inside the crate.
 
-mod base64;
-mod raw;
-mod sixel;
+pub(crate) mod base64;
+pub(crate) mod raw;
+pub(crate) mod sixel;
 
 /// What a request reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
