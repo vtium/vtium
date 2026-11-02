@@ -398,10 +398,11 @@ fn read_reply(end: &str) -> String {
 }
 
 /// The child asks DA1, prints the answer, then draws [`SIXEL`] below it,
-/// with the cursor hidden so that no cursor covers the picture.
+/// with the cursor hidden so that no cursor covers the picture, and prints
+/// `drawn` after it.
 fn da1_then_sixel() -> String {
     format!(
-        "stty -echo -icanon min 1 time 0; printf '\\033[?25l\\033[c'; {}printf '{SIXEL}'; read x",
+        "stty -echo -icanon min 1 time 0; printf '\\033[?25l\\033[c'; {}printf '{SIXEL}\\ndrawn'; read x",
         read_reply("c")
     )
 }
@@ -562,14 +563,14 @@ fn no_sixel_and_a_limit_of_0_offer_no_sixel_and_draw_no_picture() {
             "{args:?}: {:?}",
             s.app.screen_text()
         );
-        // The sixel follows the reply's line in the same write's order:
-        // the frame showing the line comes no earlier than the string.
-        assert!(s.until(|s| s.memory("/dev/mem0").frames > 0));
+        // `drawn` follows the sixel in the stream, so once it shows the
+        // string has been read, and the store holds no picture of it.
+        assert!(s.until(|s| s.shows("drawn") && s.memory("/dev/mem0").frames > 0));
+        assert_eq!(s.placements(), 0, "{args:?}");
         for _ in 0..20 {
             s.turn();
         }
         assert_eq!(s.memory("/dev/mem0").count(RED), 0, "{args:?}");
-        assert_eq!(s.placements(), 0, "{args:?}");
     }
 }
 

@@ -14,12 +14,13 @@
 //! - **The budget.** `image-storage-limit`, or under `auto` four frames
 //!   of the head's displays, which the head works out again whenever a
 //!   display joins or leaves it or changes size.
-//! - **The offering rule.** A head offers sixel and kitty graphics while
-//!   the budget is above 0, the protocol's key is on, and every display of
-//!   the head draws pictures, as the C reference turned both off while any
-//!   display of a terminal could not draw them
-//!   (`src/render/image_budget.c:449-457, 505-514`). A head with no display
-//!   yet offers them, as the C reference's did.
+//! - **The offering rule.** A head switches sixel and kitty graphics on
+//!   while the protocol's key is on and every display of the head draws
+//!   pictures, as the C reference turned both off while any display of a
+//!   terminal could not draw them (`src/render/image_budget.c:449-457,
+//!   505-514`). A head with no display yet switches them on, as the C
+//!   reference's did. vtium-term offers a protocol switched on only while
+//!   the budget is above 0, so a budget of 0 turns both off.
 //! - **The cell size** the console's pictures are placed in: the shown
 //!   console's is the head's cell, and a hidden console keeps its own, as
 //!   the C reference gave libtsm the font's cell whenever it changed
@@ -161,7 +162,8 @@ mod built {
 
     /// The budget and switches `settings` give a head whose displays are
     /// `sizes` in pixels and which `draw` pictures, every one of them
-    /// (ADR-1100 D5, D10).
+    /// (ADR-1100 D5, D10). vtium-term offers no protocol while the budget
+    /// is 0, whatever its switch says.
     pub(crate) fn offer(
         settings: &Settings,
         sizes: impl IntoIterator<Item = (u32, u32)>,
@@ -170,10 +172,9 @@ mod built {
         let limit = settings
             .limit
             .unwrap_or_else(|| vtium_image::auto_limit(sizes));
-        let on = limit > 0 && draw;
         let switches = Switches {
-            sixel: settings.sixel && on,
-            kitty: settings.kitty && on,
+            sixel: settings.sixel && draw,
+            kitty: settings.kitty && draw,
             iterm2: false,
         };
         (limit, switches)
@@ -358,7 +359,7 @@ mod built {
         }
 
         #[test]
-        fn a_head_offers_nothing_at_0_bytes_or_with_a_display_that_draws_no_picture() {
+        fn a_head_switches_nothing_on_with_a_display_that_draws_no_picture() {
             let set = |limit| Settings {
                 limit: Some(limit),
                 ..settings()
@@ -368,7 +369,6 @@ mod built {
                 kitty: false,
                 iterm2: false,
             };
-            assert_eq!(offer(&set(0), [(640, 480)], true), (0, off));
             assert_eq!(offer(&set(1 << 20), [(640, 480)], false), (1 << 20, off));
             let (_, on) = offer(&set(1 << 20), [(640, 480)], true);
             assert!(on.sixel && on.kitty);
