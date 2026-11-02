@@ -3784,6 +3784,41 @@ fn new_buffers_from_a_hotplug_drop_a_token_lent_before() {
     assert_eq!(age(&mut v, A), 0);
 }
 
+// vtium/vtium#208: a display online whose mode a modeset changes in place
+// is told to redraw, and is not announced as added again: its owner reads
+// the display's new size and refresh rate when it hears `Redraw`. Here the
+// hotplug that brings B fails its test commit with A's configured mode,
+// so every display falls back to its default mode and A, kept on its
+// connector, goes from 320x240 to 640x480.
+#[test]
+fn a_mode_changed_in_place_asks_for_a_redraw_at_the_new_size() {
+    let policy = ModePolicy {
+        use_original: false,
+        wanted: Some(Box::new(|_: &str| {
+            Some(Wanted {
+                width: 320,
+                height: 240,
+                rate: None,
+            })
+        })),
+    };
+    let mut v = a_then_b(policy);
+    events(&mut v);
+    assert_eq!(v.size(DisplayId(A)), Some((320, 240)));
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "the default mode");
+    assert_eq!(v.refresh_mhz(DisplayId(A)), Some(60_000));
+    flip(&mut v);
+    assert_eq!(token_size(&mut v, A), (640, 480));
+    assert_eq!(age(&mut v, A), 0, "drawn whole");
+}
+
 // With one buffer the sleep's clear finds the buffer lent, and a token
 // given back unused pays the clear it owes, as a late swap does.
 #[test]
