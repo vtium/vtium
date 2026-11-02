@@ -966,6 +966,17 @@ pub const MOUSE: Key = Key {
     cite: "src/config.c:1385",
 };
 
+pub const NATURAL_SCROLLING: Key = Key {
+    name: "natural-scrolling",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "Invert the mouse wheel: it scrolls the view and reports to a program the other way, and so do the cursor keys it sends on the alternate screen under mode 1007. Ctrl and the wheel still zoom in when the wheel turns up.",
+    cite: "src/config.c:149-150, 1386; src/terminal.c:1474-1476, 1646",
+};
+
 pub const POINTER_CHAR: Key = Key {
     name: "pointer-char",
     short: None,
@@ -1060,7 +1071,7 @@ pub const FONT_HINTING: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "How the font helper hints outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits it both ways. Bitmap fonts take no hinting. Unset, the frit's `hinting=` decides, `light` where it states none.",
+    what: "How the font helper is to hint outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits a TrueType font both ways, and draws a CFF font as `light` does. Bitmap fonts take no hinting. vtium does not yet hand this key to the helper, so for now each frit's `hinting=` decides, `light` where it states none.",
     cite: "ADR-1200 D1; the C reference hinted every glyph lightly, src/font/font_freetype.c:119",
 };
 
@@ -1274,7 +1285,7 @@ pub const GRAB_SUSPEND: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 95] = [
+pub const KEYS: [Key; 96] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1344,6 +1355,7 @@ pub const KEYS: [Key; 95] = [
     XKB_REPEAT_DELAY,
     XKB_REPEAT_RATE,
     MOUSE,
+    NATURAL_SCROLLING,
     SOFT_CURSOR,
     POINTER_CHAR,
     POINTER_HIDE_TIMEOUT,
@@ -1375,12 +1387,7 @@ pub const KEYS: [Key; 95] = [
 /// The keys vtium takes and does not act on yet, which the crate
 /// README's "Not yet built" lists; `check::semantics` warns when one is
 /// set.
-pub const NOT_BUILT: [&Key; 4] = [
-    &HWACCEL,
-    &DISPLAY_BUFFERS,
-    &FONT_HINTING,
-    &FONT_LINE_SPACING,
-];
+pub const NOT_BUILT: [&Key; 3] = [&HWACCEL, &FONT_HINTING, &FONT_LINE_SPACING];
 
 /// The key named `name`.
 pub fn find(name: &str) -> Option<&'static Key> {

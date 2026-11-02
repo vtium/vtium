@@ -522,6 +522,7 @@ dependencies = [
  "vtium-platform",
  "vtium-render",
  "vtium-term",
+ "vtium-vitrify",
  "xkbcommon",
 ]
 

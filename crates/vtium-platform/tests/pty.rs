@@ -11,7 +11,7 @@ use std::cell::Cell;
 use std::fs;
 use std::io::{Read, Write};
 use std::os::fd::AsFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::rc::Rc;
 use std::time::Duration;
@@ -289,13 +289,16 @@ fn env_path(name: &str) -> PathBuf {
 }
 
 /// A scratch directory for one case, removed when the case ends, whether
-/// it passes or fails.
+/// it passes or fails. It is under the build's own directory on disk, and
+/// not in `/tmp`, a RAM-backed tmpfs with a quota for each user that every
+/// process of the machine shares: a child that cannot write its record
+/// there exits with a failure that says nothing of the pty.
 struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(case: &str) -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("vtium-platform-pty-{}-{case}", std::process::id()));
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("vtium-platform-pty-{}-{case}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("scratch dir");
         Scratch(dir)
