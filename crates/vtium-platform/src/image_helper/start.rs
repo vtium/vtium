@@ -13,10 +13,12 @@
 //! session of its own with no controlling terminal; sets every signal to
 //! its default and clears its mask; puts `/dev/null` on descriptors 0 to
 //! 2 and its end of the socket on 3, every other descriptor marked
-//! close-on-exec; sets its memory cap and a core size of 0; sets its
+//! close-on-exec; sets its memory cap, the largest file it may write and
+//! a core size of 0; empties its capability bounding set; sets its
 //! supplementary groups, its group ids and its user ids and reads them
-//! back; clears its ambient capabilities and sets no-new-privileges; and
-//! starts the program in `/` with an empty environment.
+//! back; clears every other capability set and sets no-new-privileges;
+//! and starts the program in `/` with an empty environment. A logged-in
+//! root's helper therefore runs as uid 0 with no capability.
 
 use std::ffi::OsString;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
@@ -181,6 +183,9 @@ pub fn start(
         command.arg(arg);
     }
     let cap = memory_cap(max_bytes);
+    // the largest memory file the helper fills is a reply of `max_bytes`,
+    // and the memory cap counts no memory file's pages
+    let largest_file = max_bytes;
     // built here, before the fork, so the child allocates nothing
     let groups: Option<Vec<Gid>> = account
         .groups
@@ -199,7 +204,7 @@ pub fn start(
     // and allocates nothing. The child has one thread, as
     // `default_signals` requires.
     unsafe {
-        command.pre_exec(move || child(socket, cap, ids, groups.as_deref()));
+        command.pre_exec(move || child(socket, (cap, largest_file), ids, groups.as_deref()));
     }
     crate::fds::cloexec_before_spawn()
         .map_err(|e| format!("cannot start the image helper: {e}"))?;
@@ -223,10 +228,11 @@ pub fn start(
     })
 }
 
-/// The child's setup between fork and exec, in ADR-1101 D3's order.
+/// The child's setup between fork and exec, in ADR-1101 D3's order: `cap`
+/// is its memory cap and `largest_file` the largest file it may write.
 fn child(
     socket: i32,
-    cap: u64,
+    (cap, largest_file): (u64, u64),
     (uid, gid): (u32, u32),
     groups: Option<&[Gid]>,
 ) -> std::io::Result<()> {
@@ -248,7 +254,11 @@ fn child(
         return Err(std::io::Error::last_os_error());
     }
     mark_cloexec_above(4);
-    for (resource, limit) in [(Resource::As, cap), (Resource::Core, 0)] {
+    for (resource, limit) in [
+        (Resource::As, cap),
+        (Resource::Fsize, largest_file),
+        (Resource::Core, 0),
+    ] {
         rustix::process::setrlimit(
             resource,
             Rlimit {
@@ -257,6 +267,8 @@ fn child(
             },
         )?;
     }
+    // while a vtium running as root still holds the capability to
+    drop_bounding_set(uid == 0)?;
     if let Some(groups) = groups {
         rustix::thread::set_thread_groups(groups)?;
     }
@@ -277,10 +289,59 @@ fn child(
     };
     let ids = [r, e, s].iter().all(|&v| v == uid) && [rg, eg, sg].iter().all(|&v| v == gid);
     if !read || !ids {
-        return Err(std::io::Error::other("the ids read back are not those set"));
+        // an error that allocates nothing, after the fork
+        return Err(std::io::Error::from_raw_os_error(libc::EPERM));
     }
-    rustix::thread::clear_ambient_capability_set()?;
+    clear_capabilities()?;
     rustix::thread::set_no_new_privs(true)?;
+    Ok(())
+}
+
+/// The highest capability number the bounding set is emptied up to; a
+/// kernel that knows fewer answers EINVAL past its last, which ends the
+/// loop.
+const CAPABILITY_LAST: libc::c_ulong = 63;
+
+/// Removes every capability from the calling thread's bounding set, so a
+/// later start of a program as uid 0 grants it none. A process without
+/// `CAP_SETPCAP`, a vtium not running as root, cannot and has no need to,
+/// since it holds no capability to grant; for a helper that will run as
+/// uid 0, `required`, that fails the start. Makes raw calls only, so it
+/// may run between fork and exec.
+pub fn drop_bounding_set(required: bool) -> std::io::Result<()> {
+    for capability in 0..=CAPABILITY_LAST {
+        #[expect(unsafe_code, reason = "prctl(2) with PR_CAPBSET_DROP")]
+        // SAFETY: PR_CAPBSET_DROP reads its integer argument and touches no
+        // memory of this process.
+        let dropped = unsafe { libc::prctl(libc::PR_CAPBSET_DROP, capability, 0, 0, 0) };
+        if dropped == 0 {
+            continue;
+        }
+        let errno = std::io::Error::last_os_error();
+        return match errno.raw_os_error() {
+            // past the kernel's last capability
+            Some(libc::EINVAL) if capability > 0 => Ok(()),
+            Some(libc::EPERM) if !required => Ok(()),
+            _ => Err(errno),
+        };
+    }
+    Ok(())
+}
+
+/// Clears the calling thread's permitted, effective, inheritable and
+/// ambient capability sets, which no process needs leave to do. Makes raw
+/// calls only, so it may run between fork and exec.
+pub fn clear_capabilities() -> std::io::Result<()> {
+    use rustix::thread::{CapabilitySet, CapabilitySets};
+    rustix::thread::clear_ambient_capability_set()?;
+    rustix::thread::set_capabilities(
+        None,
+        CapabilitySets {
+            effective: CapabilitySet::empty(),
+            permitted: CapabilitySet::empty(),
+            inheritable: CapabilitySet::empty(),
+        },
+    )?;
     Ok(())
 }
 

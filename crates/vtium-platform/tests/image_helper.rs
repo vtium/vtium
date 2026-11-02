@@ -200,6 +200,9 @@ fn report(dir: &Path) {
         format!("gid {}", field("Gid:")),
         format!("nnp {}", field("NoNewPrivs:")),
         format!("capamb {}", field("CapAmb:")),
+        format!("capprm {}", field("CapPrm:")),
+        format!("capeff {}", field("CapEff:")),
+        format!("capinh {}", field("CapInh:")),
         format!("sigblk {}", field("SigBlk:")),
         format!("leader {}", pid == sid),
         format!("tty {tty}"),
@@ -208,6 +211,7 @@ fn report(dir: &Path) {
         format!("fds {fds:?}"),
         format!("as {}", limit("Max address space")),
         format!("core {}", limit("Max core file size")),
+        format!("fsize {}", limit("Max file size")),
         format!("argv0 {}", std::env::args().next().unwrap_or_default()),
         format!("exe {exe}"),
     ];
@@ -217,9 +221,19 @@ fn report(dir: &Path) {
 // ---- the host's side ----
 
 /// This run's scratch: under the build's own temporary directory, on disk,
-/// since each case copies this binary, and removed once every case passes.
+/// since each case copies this binary, and removed when the run ends.
 fn run_dir() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("vtium-image-host-{}", std::process::id()))
+}
+
+/// Removes this run's scratch when the run ends, whether every case
+/// passes or one panics.
+struct RunDir;
+
+impl Drop for RunDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(run_dir());
+    }
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -346,11 +360,9 @@ fn the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else() {
     let gid = rustix::process::getegid().as_raw().to_string();
     assert_eq!(line("gid"), [gid.as_str(); 4].join(" "));
     assert_eq!(line("nnp"), "1", "no new privileges");
-    assert_eq!(
-        line("capamb"),
-        "0000000000000000",
-        "no ambient capabilities"
-    );
+    for set in ["capamb", "capprm", "capeff", "capinh"] {
+        assert_eq!(line(set), "0000000000000000", "no capability in {set}");
+    }
     assert_eq!(line("sigblk"), "0000000000000000", "no blocked signal");
     assert_eq!(line("leader"), "true", "a session of its own");
     assert_eq!(line("tty"), "false", "no controlling terminal");
@@ -363,6 +375,11 @@ fn the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else() {
         "its memory cap"
     );
     assert_eq!(line("core"), "0");
+    assert_eq!(
+        line("fsize"),
+        (1u64 << 20).to_string(),
+        "no file larger than the budget, memory files included"
+    );
     assert_eq!(line("argv0"), dir.join("vtium-image").display().to_string());
     println!("test the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else ... ok");
 }
@@ -589,6 +606,7 @@ fn the_program_never_lies_on_the_childs_socket_descriptor() {
 /// The run with descriptor 3 free and stdin closed, so the program's
 /// first descriptor takes 0 and its move above stdio could land on 3.
 fn with_three_free() -> ! {
+    let run = RunDir;
     let dir = scratch("three");
     let path = dir.join("vtium-image");
     std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
@@ -614,7 +632,7 @@ fn with_three_free() -> ! {
     let reply = ask(&mut host, &file());
     assert!(matches!(reply, Reply::Ok(_)), "{reply:?}");
     drop(host);
-    let _ = std::fs::remove_dir_all(run_dir());
+    drop(run);
     std::process::exit(0);
 }
 
@@ -660,16 +678,106 @@ fn a_program_others_may_change_is_refused() {
     println!("test a_program_others_may_change_is_refused ... ok");
 }
 
+/// A root helper's capabilities, as the child's setup drops them, tried
+/// in a user namespace where this binary runs as uid 0 with every
+/// capability: the bounding set emptied and every other set cleared, so a
+/// program started as uid 0 afterwards holds none. A kernel or system
+/// that gives no such namespace skips the case, and says so.
+fn a_root_helper_starts_with_no_capability() {
+    let name = "a_root_helper_starts_with_no_capability";
+    let me = std::env::current_exe().unwrap();
+    let run = std::process::Command::new("unshare")
+        .args(["--user", "--map-root-user", "--"])
+        .arg(&me)
+        .arg("--as-root")
+        .output();
+    match run {
+        Ok(out) if out.status.code() == Some(77) => {
+            println!(
+                "test {name} ... skipped: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            );
+        }
+        Ok(out) => {
+            assert!(
+                out.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            println!("test {name} ... ok");
+        }
+        Err(e) => println!("test {name} ... skipped: no unshare to run it: {e}"),
+    }
+}
+
+/// The capability sets of this process, from `/proc/self/status`.
+fn capabilities() -> Vec<String> {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+    ["CapInh:", "CapPrm:", "CapEff:", "CapBnd:", "CapAmb:"]
+        .iter()
+        .map(|name| {
+            let value = status
+                .lines()
+                .find_map(|l| l.strip_prefix(name))
+                .unwrap_or_default()
+                .trim();
+            format!("{name} {value}")
+        })
+        .collect()
+}
+
+/// The namespace's side: as uid 0 with every capability, drop them as
+/// the child's setup does, then start this binary again as uid 0 and read
+/// what it holds. Exits 77 when the namespace gives no capability.
+fn as_root() -> ! {
+    let none = "0000000000000000";
+    let before = capabilities();
+    if rustix::process::geteuid().as_raw() != 0
+        || before.iter().any(|l| l == &format!("CapEff: {none}"))
+    {
+        println!("the user namespace gives no capability: {before:?}");
+        std::process::exit(77);
+    }
+    vtium_platform::image_helper::drop_bounding_set(true).unwrap();
+    vtium_platform::image_helper::clear_capabilities().unwrap();
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("--capabilities")
+        .output()
+        .unwrap();
+    let started = String::from_utf8_lossy(&out.stdout).into_owned();
+    for line in started
+        .lines()
+        .chain(capabilities().iter().map(String::as_str))
+    {
+        assert!(
+            line.ends_with(none),
+            "a capability is left: {line}\n{started}"
+        );
+    }
+    std::process::exit(0);
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--fd-three") {
         with_three_free();
+    }
+    if args.first().map(String::as_str) == Some("--as-root") {
+        as_root();
+    }
+    if args.first().map(String::as_str) == Some("--capabilities") {
+        for line in capabilities() {
+            println!("{line}");
+        }
+        std::process::exit(0);
     }
     if args.first().map(String::as_str) == Some("--stand-in") {
         let role = args.get(1).cloned().unwrap_or_default();
         let tmpdir = args.iter().find_map(|a| a.strip_prefix("--tmpdir="));
         stand_in(&role, tmpdir);
     }
+    let run = RunDir;
     the_program_never_lies_on_the_childs_socket_descriptor();
     the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else();
     every_helper_starts_from_the_program_opened_at_start();
@@ -680,5 +788,6 @@ fn main() {
     a_session_that_ends_drops_its_request_and_its_helper();
     a_helper_that_exited_idle_is_replaced_at_the_next_request();
     a_program_others_may_change_is_refused();
-    let _ = std::fs::remove_dir_all(run_dir());
+    a_root_helper_starts_with_no_capability();
+    drop(run);
 }

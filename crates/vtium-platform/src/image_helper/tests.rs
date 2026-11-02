@@ -3,11 +3,12 @@
 
 #![expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 
-use rustix::fs::{FileType, SealFlags};
+use rustix::fs::{FileType, MemfdFlags, SealFlags};
+use vtium_image::decode::wire::{ReplyHeader, Status};
 use vtium_image::decode::{Medium, Reply, Request};
 
 use super::start::refusal;
-use super::{inline_file, memory_cap, without_helper};
+use super::{inline_file, memory_cap, pixels, without_helper};
 
 fn request(medium: Medium) -> Request {
     Request {
@@ -87,4 +88,57 @@ fn inline_bytes_travel_in_a_file_sealed_against_every_change() {
     rustix::io::pread(&fd, &mut out, 0).unwrap();
     assert_eq!(&out, b"abc");
     assert!(rustix::io::pwrite(&fd, b"x", 0).is_err());
+}
+
+/// A stand-in reply's memory file of `len` bytes with `seals`.
+fn reply_file(len: u64, seals: SealFlags) -> std::os::fd::OwnedFd {
+    let fd =
+        rustix::fs::memfd_create("reply", MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING).unwrap();
+    rustix::fs::ftruncate(&fd, len).unwrap();
+    if !seals.is_empty() {
+        rustix::fs::fcntl_add_seals(&fd, seals).unwrap();
+    }
+    fd
+}
+
+fn header(pooled: bool) -> ReplyHeader {
+    ReplyHeader {
+        status: Status::Ok,
+        id: 1,
+        width: 1,
+        height: 1,
+        ignored: 0,
+        pooled,
+        reason: Vec::new(),
+    }
+}
+
+#[test]
+fn a_replys_seals_are_checked_before_its_size() {
+    let r = request(Medium::Direct(Vec::new()));
+    let sealed = SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE;
+    // unsealed and of the wrong size: the seals fail it first, since until
+    // the shrink seal holds the size could change under a mapping
+    let both = reply_file(5, SealFlags::empty());
+    assert_eq!(
+        pixels(&both, &header(false), &r),
+        Err("a reply's memory file is not sealed")
+    );
+    let pooled_both = reply_file(5, SealFlags::SHRINK);
+    assert_eq!(
+        pixels(&pooled_both, &header(true), &r),
+        Err("a reply's memory file is not sealed")
+    );
+    // sealed, the size is read next
+    let wrong = reply_file(5, sealed);
+    assert_eq!(
+        pixels(&wrong, &header(false), &r),
+        Err("a reply's memory file is not exactly the size asked for")
+    );
+    assert_eq!(
+        pixels(&reply_file(4, sealed), &header(false), &r),
+        Ok(vec![0; 4])
+    );
+    let pooled = reply_file(4, SealFlags::SHRINK | SealFlags::GROW);
+    assert_eq!(pixels(&pooled, &header(true), &r), Ok(vec![0; 4]));
 }
