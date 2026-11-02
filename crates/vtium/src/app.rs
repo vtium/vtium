@@ -284,6 +284,10 @@ pub struct App {
     /// A frame has been on screen since the start.
     presented: bool,
     timer_due: Option<Instant>,
+    /// What starts each console's image helper; none until the image
+    /// helper is built (ADR-1101), so every terminal is told no helper runs.
+    #[cfg(feature = "images")]
+    image_helpers: Option<crate::head::images::Helpers>,
     /// The displays whose density is assumed, each warned of once.
     assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// Where the font's sets come from.
@@ -459,6 +463,8 @@ impl App {
             wait,
             presented: false,
             timer_due: None,
+            #[cfg(feature = "images")]
+            image_helpers: None,
             exit: None,
             leaving: None,
             inherited,
@@ -535,6 +541,14 @@ impl App {
     /// for PID 1, logind and the kernel.
     pub fn set_power(&mut self, power: Box<dyn Power>) {
         self.power = power;
+    }
+
+    /// Starts each console's image helper with `helpers`, or, with none,
+    /// tells every terminal that no helper runs, from the next turn on
+    /// (ADR-1100 D7). This is where the image helper plugs in.
+    #[cfg(feature = "images")]
+    pub fn set_image_helpers(&mut self, helpers: Option<crate::head::images::Helpers>) {
+        self.image_helpers = helpers;
     }
 
     /// Runs `hook` before each frame of the head `name` is composed, a
@@ -2896,6 +2910,12 @@ impl App {
         if bell && self.bell {
             self.vt.bell();
         }
+        // After the sessions' turns, whose respawns drop a request out,
+        // and before the draw, which shows what a reply placed.
+        #[cfg(feature = "images")]
+        for head in &mut self.heads {
+            head.image_turn(now, self.image_helpers.as_ref());
+        }
         if let Some(order) = self.order.take() {
             self.outside_order(order, now);
         }
@@ -3217,6 +3237,8 @@ impl App {
             due.extend(head.notice_due);
             due.extend(head.osd_due);
             due.extend(head.brief_due);
+            #[cfg(feature = "images")]
+            due.extend(head.image_due());
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));

@@ -301,6 +301,10 @@ impl Head {
         let Some(console) = self.console_mut(id) else {
             return after;
         };
+        // The session's request to the image helper goes with it, so the
+        // reset below finds the terminal taking input.
+        #[cfg(feature = "images")]
+        console.pictures.end_session(&mut console.term);
         if after == AfterExit::Restart {
             // A new session starts from a hard reset (RIS), with nothing of
             // the last session's output left (`terminal_close` at kmscon
