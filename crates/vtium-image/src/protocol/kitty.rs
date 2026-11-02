@@ -54,9 +54,9 @@ use vtium_parse::Chunk;
 
 use crate::bounds::IMAGE_OVERHEAD;
 use crate::decode::base64::{Base64, Sink};
-use crate::decode::convert::{self, Alpha, Layout};
+use crate::decode::convert::{Alpha, Layout};
 use crate::decode::raw::Raw;
-use crate::decode::{Description, Medium, Payload, Reply, Request};
+use crate::decode::{Description, Medium, Reply, Request};
 use crate::handler::{Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place, Refusal};
 use crate::protocol::chunk_work;
@@ -876,12 +876,11 @@ impl Handler for Kitty {
         let inflate = cmd.compression == b'z';
         // every picture comes back premultiplied, decoded or converted
         // from the pixels the request described (ADR-1101 D7)
-        let (size, data) = match answer {
-            Reply::Ok(Payload::Rgba {
-                width,
-                height,
-                data,
-            }) => ((width, height), data),
+        let (payload, size) = match answer {
+            Reply::Ok(payload) => match payload.size() {
+                Some(size) => (payload, size),
+                None => return reply(ctx, &cmd, cmd.id, Err(Error::BadFile)),
+            },
             other => {
                 let e = outcome(&other, named, inflate);
                 return reply(ctx, &cmd, cmd.id, Err(e));
@@ -897,13 +896,17 @@ impl Handler for Kitty {
         }
         let count = u64::from(size.0).saturating_mul(u64::from(size.1));
         let len = usize::try_from(count).unwrap_or(usize::MAX);
+        // the budget refuses before a byte of the picture is copied
         let Some((into, reservation)) = buffer(ctx, cmd.id, len, charge(count)) else {
             return reply(ctx, &cmd, cmd.id, Err(Error::NoSpace));
         };
-        // the one copy into memory only the console holds clamps each
-        // color to its alpha and finds the opacity, before the store sees
-        // a pixel
-        let (pixels, opaque) = convert::from_reply(&data, into);
+        // the one copy into memory only the console holds, into the buffer
+        // just reserved, clamps each color to its alpha and finds the
+        // opacity, before the store sees a pixel
+        let Some((pixels, opaque)) = payload.copy_into(into) else {
+            ctx.unreserve(reservation);
+            return reply(ctx, &cmd, cmd.id, Err(Error::BadFile));
+        };
         ctx.add_work(count);
         store(ctx, &cmd, (size.0, size.1, pixels, opaque), reservation);
     }

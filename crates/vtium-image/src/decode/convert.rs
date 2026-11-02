@@ -167,11 +167,19 @@ pub fn from_reply(bytes: &[u8], mut out: Vec<u32>) -> (Vec<u32>, bool) {
     out.clear();
     out.reserve_exact(bytes.len().checked_div(4).unwrap_or(0));
     let mut alphas = 0xffu8;
+    extend_from_reply(bytes, &mut out, &mut alphas);
+    (out, alphas == 0xff)
+}
+
+/// [`from_reply`] for one run of a reply's bytes: their pixels, clamped,
+/// appended to `out`, and their alphas ANDed into `alphas`. A reply read in
+/// runs goes through here run by run, so it is copied and clamped once, as
+/// a reply read whole is.
+pub fn extend_from_reply(bytes: &[u8], out: &mut Vec<u32>, alphas: &mut u8) {
     out.extend(bytes.as_chunks::<4>().0.iter().map(|&[r, g, b, a]| {
-        alphas &= a;
+        *alphas &= a;
         clamped(r, g, b, a)
     }));
-    (out, alphas == 0xff)
 }
 
 #[cfg(test)]
