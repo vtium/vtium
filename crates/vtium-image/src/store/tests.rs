@@ -1283,6 +1283,20 @@ fn a_freed_buffer_a_frame_still_holds_is_not_given_back() {
     assert!(edit.take_spare(Protocol::KITTY, 0, 16 * 32).is_some());
 }
 
+// A reservation still in the ledger at RIS is one a handler dropped
+// without spending, since each handler's reset gives back what it holds
+// before the store resets; a build with debug assertions stops there.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "a handler kept or dropped a reservation past RIS")]
+fn a_reset_with_a_reservation_still_out_fails_a_debug_build() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    // the handler drops the reservation without giving it back
+    let _ = s.reserve(Protocol::KITTY, 0, 4096, f.screens()).unwrap();
+    s.reset();
+}
+
 // The spare buffer is charged to the budget, and a reset frees it.
 // covers: image.pipeline
 #[test]

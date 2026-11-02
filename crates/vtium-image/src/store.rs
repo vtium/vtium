@@ -483,8 +483,17 @@ impl Store {
         }
     }
 
-    /// RIS: both buffers are emptied.
+    /// RIS: both buffers are emptied. vtium-term resets each handler first,
+    /// and a handler's reset gives back every reservation it holds, so a
+    /// build with debug assertions checks that the ledger is empty: a
+    /// reservation still in it is one a handler dropped without spending,
+    /// whose bytes the budget would count for the store's whole life.
     pub fn reset(&mut self) {
+        debug_assert!(
+            self.reservations.is_empty(),
+            "a handler kept or dropped a reservation past RIS: {:?}",
+            self.reservations
+        );
         self.clear(MAIN);
         self.clear(ALT);
     }
