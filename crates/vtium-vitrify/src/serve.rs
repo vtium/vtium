@@ -619,7 +619,7 @@ impl Engine {
         let file = Path::new(&frit.name);
         let frit =
             Frit::parse(frit.text.as_bytes(), file, &frit.name).map_err(|e| e.to_string())?;
-        let warnings: Vec<String> = frit.warnings.iter().map(ToString::to_string).collect();
+        let mut warnings: Vec<String> = frit.warnings.iter().map(ToString::to_string).collect();
         let handed = Handed(console);
         let host = Host {
             kbd_dirs: paths.kbd_dirs.clone(),
@@ -630,49 +630,42 @@ impl Engine {
         };
         let mut sources = Vec::new();
         let mut why = Vec::new();
-        let mut refused = Vec::new();
         for source in &frit.sources {
-            let loaded = resolve(source, &host)
-                .map_err(|e| match e {
-                    SourceError::Missing(why) => (why, false),
-                    SourceError::Failed(why) => (why, true),
-                })
-                .and_then(|input| {
-                    match input {
-                        Input::Bitmap(font) => Ok(Loaded::Bitmap(font)),
-                        Input::Bdf(bytes) => crate::bdf::font(&bytes).map(Loaded::Bitmap),
-                        Input::Font(req) => crate::decode::font(
-                            &req.font,
-                            req.unimap.as_deref(),
-                            req.def_uni.as_deref(),
-                        )
-                        .map(|g| Loaded::Bitmap(Font::from_glyphs(g))),
-                        Input::Outline(req) => {
-                            outline_coverage(&req.font, &req.family).map(|mapped| Loaded::Outline {
-                                font: req.font,
-                                family: req.family,
-                                mapped,
-                            })
-                        }
+            let loaded = resolve(source, &host).and_then(|input| {
+                match input {
+                    Input::Bitmap(font) => Ok(Loaded::Bitmap(font)),
+                    Input::Bdf(bytes) => crate::bdf::font(&bytes).map(Loaded::Bitmap),
+                    Input::Font(req) => crate::decode::font(
+                        &req.font,
+                        req.unimap.as_deref(),
+                        req.def_uni.as_deref(),
+                    )
+                    .map(|g| Loaded::Bitmap(Font::from_glyphs(g))),
+                    Input::Outline(req) => {
+                        outline_coverage(&req.font, &req.family).map(|mapped| Loaded::Outline {
+                            font: req.font,
+                            family: req.family,
+                            mapped,
+                        })
                     }
-                    .map_err(|e| (e, true))
-                });
+                }
+                .map_err(SourceError::Failed)
+            });
             match loaded {
                 Ok(l) => sources.push((source.clone(), l)),
-                Err((e, present)) => {
+                Err(SourceError::Missing(e)) => {
+                    why.push(format!("source={}: {e}", source.spelling))
+                }
+                Err(SourceError::Failed(e)) => {
                     let line = format!("source={}: {e}", source.spelling);
-                    if present {
-                        refused.push(format!(
-                            "{}:{}: {line}; the source is left out",
-                            frit.name, source.line
-                        ));
-                    }
+                    warnings.push(format!(
+                        "{}:{}: {line}; the source is left out",
+                        frit.name, source.line
+                    ));
                     why.push(line);
                 }
             }
         }
-        let mut warnings = warnings;
-        warnings.extend(refused);
         if sources.is_empty() {
             return Err(if why.is_empty() {
                 format!("{}: the frit names no source", file.display())
@@ -704,7 +697,8 @@ impl Engine {
         })
     }
 
-    /// The warnings the frit's text gave, each naming its line.
+    /// The frit text's warnings and one for each source the helper
+    /// refused, each naming its line.
     pub fn warnings(&self) -> &[String] {
         &self.warnings
     }

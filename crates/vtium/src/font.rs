@@ -1294,12 +1294,12 @@ mod tests {
     }
 
     // ADR-1200 D7: Tiny5 Mono's 6x9 cell is narrower than Unscii-8's
-    // 8x8, so the built-in glyph is centred and cut evenly, a column off
+    // 8x8, so the built-in glyph is centered and cut evenly, a column off
     // each side, as the C reference's fit_glyph cut a glyph wider than
     // its cells; it is never scaled. It sits in the top 8 rows, its
     // baseline on Tiny5 Mono's, and the 9th row is blank.
     #[test]
-    fn unscii_8_in_a_narrower_cell_is_centred_and_cut_evenly() {
+    fn unscii_8_in_a_narrower_cell_is_centered_and_cut_evenly() {
         let f = frit_font(Some(cell(6, 9)));
         let face = f.face(9, "C").expect("a face");
         assert_eq!(face.cell(), cell(6, 9));
