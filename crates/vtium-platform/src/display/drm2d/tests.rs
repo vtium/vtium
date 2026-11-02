@@ -3751,3 +3751,35 @@ fn a_token_back_after_a_retake_is_dropped() {
     }
     assert_eq!(age(&mut v, A), 2);
 }
+
+// A hotplug's modeset that gives a display new buffers, with no wake-up
+// around it, takes a new lease: a token lent for an old buffer comes back
+// too late, and its buffer is freed then. Here the modeset with the
+// configured mode fails its test commit, so every display falls back to
+// its default mode, which needs new buffers for A.
+#[test]
+fn new_buffers_from_a_hotplug_drop_a_token_lent_before() {
+    let policy = ModePolicy {
+        use_original: false,
+        wanted: Some(Box::new(|_: &str| {
+            Some(Wanted {
+                width: 320,
+                height: 240,
+                rate: None,
+            })
+        })),
+    };
+    let mut v = a_then_b(policy);
+    assert_eq!(v.size(DisplayId(A)), Some((320, 240)));
+    let token = v.lend(DisplayId(A)).unwrap();
+    let old = v.outputs[0].buffers[token.buffer()].handle;
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "the default mode");
+    assert!(v.outputs[0].buffers.iter().all(|b| b.handle != old));
+    assert!(matches!(v.swap(token, &[DOT]), Err(SwapError::Dropped)));
+    assert!(!v.card().state().dumbs.contains_key(&old));
+    assert_eq!(age(&mut v, A), 0);
+}
