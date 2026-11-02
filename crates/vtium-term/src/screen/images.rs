@@ -86,7 +86,11 @@ mod with {
             self.with_images(|store, screens, cols| store.place(image, place, screens, cols))
         }
 
-        /// The placements the view shows, in draw order (D9).
+        /// The placements the view shows, in draw order (D9). The store is
+        /// given the lines below the view as well, as many as a relative
+        /// placement starts above its root, so a child whose root has left
+        /// the bottom of a view moved back into the scrollback still draws
+        /// (D13).
         pub fn placements(&self) -> Vec<FramePlacement> {
             if !self.images.has_placements() {
                 return Vec::new();
@@ -111,7 +115,30 @@ mod with {
                 screen: &screen,
                 above: &above,
             };
-            self.images.frame(rows, self.cols)
+            let below = self.below_view(self.images.reach_below());
+            self.images.frame_with_below(rows, &below, self.cols)
+        }
+
+        /// The keys of the `n` lines below the view's bottom, top to
+        /// bottom: the newer scrollback rows and then the screen's own,
+        /// none while the view is the screen.
+        fn below_view(&self, n: usize) -> Vec<LineKey> {
+            let Some(top) = self.scrollback.view_index() else {
+                return Vec::new();
+            };
+            if n == 0 || self.flags.alternate {
+                return Vec::new();
+            }
+            let len = self.scrollback.len();
+            let first = top.saturating_add(self.rows);
+            let from_scrollback = (first..len).filter_map(|i| self.scrollback.get(i).map(key));
+            let from_screen = self
+                .main
+                .iter()
+                .take(self.rows)
+                .skip(first.saturating_sub(len))
+                .map(key);
+            from_scrollback.chain(from_screen).take(n).collect()
         }
 
         /// The keys of the main (`alt` false) or the alternate buffer's
@@ -357,7 +384,9 @@ mod with {
                 i64::try_from(k).ok()?.checked_add(1)?.checked_neg()
             };
             for region in changed {
-                let Some(top) = row_of(region.line) else {
+                // a relative placement's box starts `row` rows below the
+                // line its root is anchored on, above it when negative
+                let Some(top) = row_of(region.line).map(|y| y.saturating_add(region.row)) else {
                     continue;
                 };
                 let first = usize::try_from(top.max(0)).unwrap_or(0);
