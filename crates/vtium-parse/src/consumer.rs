@@ -146,8 +146,8 @@ pub trait Consumer {
     /// decoder stopped at its input call's work bound (tsm-sixel.c,
     /// `tsm_sixel_feed_some`); it then reports [`paused`](Self::paused),
     /// and the parser returns with the rest of the run not consumed, to be
-    /// passed again with the rest of the input. A consumer that takes none,
-    /// or is not paused, has taken them all.
+    /// passed again with the rest of the input. A consumer that takes fewer
+    /// and is not paused breaks this contract, which a debug build asserts.
     fn dcs_put_run(&mut self, run: &[u8]) -> usize {
         self.dcs_put(Chunk::Bytes(run));
         run.len()

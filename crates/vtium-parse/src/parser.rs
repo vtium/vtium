@@ -432,10 +432,15 @@ impl Parser {
                     let (run, after) = rest.split_at_checked(n).unwrap_or((rest, &[]));
                     if self.state == State::DcsPass {
                         let taken = self.dcs_collect_run(consumer, run);
-                        if taken > 0 && taken < run.len() && consumer.paused() {
+                        if taken < run.len() && consumer.paused() {
                             rest = rest.get(taken..).unwrap_or_default();
                             break;
                         }
+                        debug_assert_eq!(
+                            taken,
+                            run.len(),
+                            "a consumer that takes part of a run is paused"
+                        );
                     } else {
                         consumer.apc_put(Chunk::Bytes(run));
                     }
@@ -767,6 +772,67 @@ mod tests {
         hooks: usize,
         bytes: Vec<u8>,
         chars: Vec<char>,
+    }
+
+    /// Takes at most `room` bytes of DCS data, then pauses until `room`
+    /// is given again.
+    struct Limited {
+        room: usize,
+        bytes: Vec<u8>,
+        ends: usize,
+    }
+
+    impl Consumer for Limited {
+        fn print(&mut self, _: char) {}
+        fn execute(&mut self, _: u8) {}
+        fn esc_dispatch(&mut self, _: Intermediates, _: u8) {}
+        fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {}
+        fn osc_end(&mut self, _: &[u8], _: bool, _: StringEnd) {}
+        fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: u8) {}
+        fn dcs_put(&mut self, _: Chunk<'_>) {}
+        fn dcs_put_run(&mut self, run: &[u8]) -> usize {
+            let taken = run.len().min(self.room);
+            self.room = self.room.saturating_sub(taken);
+            self.bytes
+                .extend_from_slice(run.get(..taken).unwrap_or_default());
+            taken
+        }
+        fn dcs_unhook(&mut self, _: StringEnd) {
+            self.ends = self.ends.saturating_add(1);
+        }
+        fn apc_start(&mut self) {}
+        fn apc_put(&mut self, _: Chunk<'_>) {}
+        fn apc_end(&mut self, _: StringEnd) {}
+        fn xtgettcap(&mut self, _: Option<&[u8]>) {}
+        fn paused(&self) -> bool {
+            self.room == 0
+        }
+    }
+
+    // A consumer that takes part of a run of DCS data and pauses stops the
+    // parser there, and the rest of the run comes in the next call, the
+    // string's data whole and in order.
+    #[test]
+    fn a_consumer_that_takes_part_of_a_run_resumes_where_it_stopped() {
+        let mut parser = Parser::new();
+        let mut c = Limited {
+            room: 3,
+            bytes: Vec::new(),
+            ends: 0,
+        };
+        let input = b"\x1bPqabcdefgh\x1b\\";
+        let mut rest: &[u8] = input;
+        let mut calls = 0;
+        while !rest.is_empty() {
+            let taken = parser.advance(&mut c, rest);
+            rest = rest.get(taken..).unwrap_or_default();
+            c.room = 3;
+            calls += 1;
+            assert!(calls < 10, "the parser made no progress");
+        }
+        assert_eq!(c.bytes, b"abcdefgh");
+        assert_eq!(c.ends, 1);
+        assert_eq!(calls, 3);
     }
 
     impl Consumer for Count {
