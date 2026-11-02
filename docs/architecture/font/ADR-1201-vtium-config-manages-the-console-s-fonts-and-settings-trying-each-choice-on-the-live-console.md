@@ -77,6 +77,10 @@ considered:
     said: "Pin D6: the heads.conf writer is a module of vtium-config and stays the one writer for good. vtium-vitrify, vtiumctl and vtium check-config all link it, and no tool shells out to another to edit heads.conf. The only subprocess boundary in this design is the privilege step, sudo vtium-vitrify apply DIR, which keeps the code that runs as root small."
     via: the maintainer, in the steering session, 2026-11-02, relayed by the team lead; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "vitrify is an unusual word. Users type vtium config, a subcommand of the console binary that hands off to a separate binary, vtium-config, so the TUI's code never enters the console binary; vtium-config also works directly, and every command becomes vtium config COMMAND or vtium-config COMMAND. The binary stays the console's glyph helper, vtium-config serve, at /usr/bin/vtium-config. The library crate vtium-config is renamed vtium-settings. The banner keeps the glass logo and titles the tool VTium Vitrifier; vitrify stays for the glass theme, not for anything a user types. The rename happens now, in one branch, before the TUI is built, and ships in the next release."
+    via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next switches the whole console to that frit, and the TUI's own screen redraws at the console's new grid"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"
@@ -92,41 +96,41 @@ deciders:
 related: []
 ---
 
-# ADR-1201: vtium-vitrify manages the console's fonts and settings, trying each choice on the live console
+# ADR-1201: vtium config manages the console's fonts and settings, trying each choice on the live console
 
 ## Summary
 
-- **Decided:** vtium-vitrify becomes the one tool that manages the console's fonts and settings for as long as they exist: it lists, checks, previews, switches, writes and removes frits (font set files, `NAME.vtfrit` in `/etc/vtium/fonts`), and reads and edits `/etc/vtium/vtium.conf`. Run with no command at a terminal, it opens a TUI, a full-screen program drawn in the terminal's text cells. When the TUI runs inside a vtium console with `allow-font-ops` on, each font the user highlights switches the live console to it through OSC 50, the sequence `vtium-vitrify set` sends, so the user judges the real console in the real font; leaving without saving puts the console back in the font it had at the start. Sizes are previewed as pictures: the glyph engine draws a specimen of the frit at each size, and the TUI shows it through kitty graphics' raw pixels, which vtium decodes in the console, without changing the console's font. Where the console draws no kitty graphics, as in a build without `images`, sizes take effect only when saved. In a terminal that is not vtium the TUI sends no OSC 50, and shows pictures only where the terminal answers kitty's graphics query. When a console's session ends, vtium returns it to the font and size vtium.conf names, so the next login starts with the saved choices. Every action the TUI offers is also a non-interactive command, and the TUI does its writing through one of them, `apply`: the TUI runs as the user, gathers what the user saved into a draft directory, and runs `sudo vtium-vitrify apply DIR` once. `apply` checks every file, edits vtium.conf line by line so that comments and order stay, and replaces each file in one rename. The TUI is built from rustix, which the tool already links, with no TUI library. Profiles are vtium-vitrify's to write, choose and assign to a head; it changes a head's `profile =` line through the one head-file writer vtiumctl also uses, and the rest of the head file and the running console's controls stay vtiumctl's.
-- **Trades away:** vtium-vitrify ships on every install as the glyph helper, so the TUI's code lands on minspec boards too, outside the console's size budget but inside the install tree tier 3 measures. The TUI cannot put the font back after SIGKILL or once its terminal is gone, and the console then keeps the previewed font until that session ends. Sizes are never tried on the live console, and a build without `images` cannot preview them at all. At a session's end vtium reads vtium.conf's font keys again, the one time it reads its configuration after start. Inside tmux or screen, or over ssh from another terminal, there is no live preview.
+- **Decided:** The tool, until now vtium-vitrify, is renamed: users type `vtium config`, which hands off to the separate binary `vtium-config`, and the configuration library takes the name vtium-settings. vtium-config becomes the one tool that manages the console's fonts and settings for as long as they exist: it lists, checks, previews, switches, writes and removes frits (font set files, `NAME.vtfrit` in `/etc/vtium/fonts`), and reads and edits `/etc/vtium/vtium.conf`. Run as `vtium config` with no command at a terminal, it opens a TUI, a full-screen program drawn in the terminal's text cells. When the TUI runs inside a vtium console with `allow-font-ops` on, each font the user highlights switches the live console to it through OSC 50, the sequence `vtium-config set` sends, so the user judges the real console in the real font; leaving without saving puts the console back in the font it had at the start. Sizes are previewed as pictures: the glyph engine draws a specimen of the frit at each size, and the TUI shows it through kitty graphics' raw pixels, which vtium decodes in the console, without changing the console's font. Where the console draws no kitty graphics, as in a build without `images`, sizes take effect only when saved. In a terminal that is not vtium the TUI sends no OSC 50, and shows pictures only where the terminal answers kitty's graphics query. When a console's session ends, vtium returns it to the font and size vtium.conf names, so the next login starts with the saved choices. Every action the TUI offers is also a non-interactive command, and the TUI does its writing through one of them, `apply`: the TUI runs as the user, gathers what the user saved into a draft directory, and runs `sudo vtium-config apply DIR` once. `apply` checks every file, edits vtium.conf line by line so that comments and order stay, and replaces each file in one rename. The TUI is built from rustix, which the tool already links, with no TUI library. Profiles are vtium-config's to write, choose and assign to a head; it changes a head's `profile =` line through the one head-file writer vtiumctl also uses, and the rest of the head file and the running console's controls stay vtiumctl's.
+- **Trades away:** vtium-config ships on every install as the glyph helper, so the TUI's code lands on minspec boards too, outside the console's size budget but inside the install tree tier 3 measures. The TUI cannot put the font back after SIGKILL or once its terminal is gone, and the console then keeps the previewed font until that session ends. Sizes are never tried on the live console, and a build without `images` cannot preview them at all. At a session's end vtium reads vtium.conf's font keys again, the one time it reads its configuration after start. Inside tmux or screen, or over ssh from another terminal, there is no live preview.
 - **One-way?** No. The tool and its commands change in a session. The command names become expensive to change once scripts and packages call them.
 - **Probes:**
   - *Confident (the TUI and the commands):* every choice the TUI offers is also a command a script can run, and the TUI saves through the same command a script uses (`apply`). The earlier decision that vtium supplies a scriptable tool and leaves the wrappers to others stands, and the TUI is the one guided face vtium ships on top of it. Is that the shape you want?
-  - *Confident (the head file):* the TUI does not edit `heads.conf`, the file that places displays and keyboards into heads. vtiumctl keeps it, and vtium-vitrify keeps the fonts and vtium.conf. Should the head file stay out?
+  - *Confident (the head file):* the TUI does not edit `heads.conf`, the file that places displays and keyboards into heads. vtiumctl keeps it, and vtium-config keeps the fonts and vtium.conf. Should the head file stay out?
   - *Not confident (live sizes):* you asked for sizes to switch live as fonts do. Today the console takes only a font's name over OSC 50, so live sizes need the console to take a size too, in a form only vtium reads, such as `monoid:size=12`, the way fontconfig writes a size. Until that lands, the TUI shows what grid each size gives and applies the size only when it is saved. Is a vtium-only form acceptable, or should sizes stay applied on save? (Answered 2026-11-02: no size suffix, sizes as pictures; see `considered`.)
   - *Not confident (consoles that share a head):* you decided that a console goes back to the configured font when its session ends. vtium keeps one font for a whole head, and a head may hold several consoles, each with its own login. So vtium returns the head's font when the session ends in the console that last switched it, or in a head's only console, and leaves it when someone else's session on the same head ends. Is that the rule you want, or should each console keep a font of its own? (Answered 2026-11-02: as proposed; see `considered`.)
   - *Confident (zoom at logout):* the return sets the size from vtium.conf too, so a zoom made with the zoom keys is undone at the same moment, and the next login starts at the saved size. Is that right? (Answered 2026-11-02: yes; see `considered`.)
-  - *Confident (choosing a profile):* vtium-vitrify is where a user builds a profile (its frit, its cell and its options), checks it against a display and picks it. Which profile a head uses stays a line in `heads.conf`, which vtiumctl writes. Is that the split you meant? (Answered 2026-11-02: vtium-vitrify also assigns the profile, through vtiumctl's head-file writer; see `considered`.)
+  - *Confident (choosing a profile):* vtium-config is where a user builds a profile (its frit, its cell and its options), checks it against a display and picks it. Which profile a head uses stays a line in `heads.conf`, which vtiumctl writes. Is that the split you meant? (Answered 2026-11-02: vtium-config also assigns the profile, through vtiumctl's head-file writer; see `considered`.)
 - **Inversion:** Between "vtium supplies only non-interactive commands, and any interactive front end is someone else's", ADR-1200's earlier stance, and "an interactive program is the way to configure the console", as a desktop's settings panel is. vtium keeps every action scriptable and ships one interactive front end on top. The one thing the TUI adds, switching the live console, rests on OSC 50, which any program may send.
 
 ## Context
 
-vtium-vitrify is vtium's font tool, a binary of its own outside the console (ADR-1200 D4, D6). It serves the console as its glyph helper (`serve`, ADR-1200 D15) and switches the running console's frit (`set`, ADR-1200 D5). ADR-1200 plans two more commands, `preview` and the guided builder `new`, and states that each command is non-interactive where it writes. ADR-1401 D12 makes `vtiumctl` the configuration tool for the head file, and has it write and install frits too.
+vtium-config is vtium's font tool, a binary of its own outside the console (ADR-1200 D4, D6). It serves the console as its glyph helper (`serve`, ADR-1200 D15) and switches the running console's frit (`set`, ADR-1200 D5). ADR-1200 plans two more commands, `preview` and the guided builder `new`, and states that each command is non-interactive where it writes. ADR-1401 D12 makes `vtiumctl` the configuration tool for the head file, and has it write and install frits too. The tool was named vtium-vitrify until this record renamed it (D12); the records before this one, and this record's dated notes, use that name.
 
-The maintainer tried `vtium-vitrify set monoid` on a VT, and the console changed font at once, as `setfont` changes a Linux console's font. The maintainer decided that vtium-vitrify grows from that into an interactive tool for the console's fonts and its configuration file, whose TUI switches the live console as the user browses.
+The maintainer tried `vtium-vitrify set monoid`, the tool's name then, on a VT, and the console changed font at once, as `setfont` changes a Linux console's font. The maintainer decided that vtium-config grows from that into an interactive tool for the console's fonts and its configuration file, whose TUI switches the live console as the user browses.
 
 The C reference had no such tool. It read its font from kmscon.conf at start, and while it ran only the zoom keys changed the font, by its size; it had no OSC 50 (`src/terminal.c` at kmscon `b1f7a7c5`, `font_set`, `zoom_in`, `osc_event`). vtium's OSC 50 and its query already exist, behind `allow-font-ops`, which is on by default.
 
 ## Decision
 
-Terms used below: a *frit* is a font set file, `NAME.vtfrit`, in the frits' directory, `/etc/vtium/fonts` unless `font-frits` names another (ADR-1200 D1). The *TUI* is vtium-vitrify's full-screen interactive mode. *Live preview* is the TUI switching the console it runs in to the highlighted choice. A *draft* is a directory of files the user saved but that are not installed yet. None of this is built yet, apart from `set` and `serve`.
+Terms used below: a *frit* is a font set file, `NAME.vtfrit`, in the frits' directory, `/etc/vtium/fonts` unless `font-frits` names another (ADR-1200 D1). The *TUI* is vtium-config's full-screen interactive mode. *Live preview* is the TUI switching the console it runs in to the highlighted choice. A *draft* is a directory of files the user saved but that are not installed yet. None of this is built yet, apart from `set` and `serve`.
 
 ### D1: what the tool manages
 
-- **Frits.** vtium-vitrify lists the frits and the built-in fonts, checks a frit as the helper reads it, previews it, switches the console to it, writes a new or changed frit, and removes one.
-- **vtium.conf.** vtium-vitrify shows each key of `/etc/vtium/vtium.conf` with its value, its default and its description, and changes keys. The font keys come first (`font-name`, `font-size`, `font-frits`, `font-hinting`, `font-line-spacing`, `allow-font-ops`, `display-dpi` and the sprite policy's keys), and every other key is listed after them. A key's description, type and bounds come from vtium's own key table, `crates/vtium/src/config/keys.rs`, which moves into vtium-config, the configuration crate vtium already links (ADR-1401 D12), so the console and the tool read one table.
+- **Frits.** vtium-config lists the frits and the built-in fonts, checks a frit as the helper reads it, previews it, switches the console to it, writes a new or changed frit, and removes one.
+- **vtium.conf.** vtium-config shows each key of `/etc/vtium/vtium.conf` with its value, its default and its description, and changes keys. The font keys come first (`font-name`, `font-size`, `font-frits`, `font-hinting`, `font-line-spacing`, `allow-font-ops`, `display-dpi` and the sprite policy's keys), and every other key is listed after them. A key's description, type and bounds come from vtium's own key table, `crates/vtium/src/config/keys.rs`, which moves into vtium-settings, the configuration crate vtium already links (ADR-1401 D12), so the console and the tool read one table.
 - **One line of the head file,** `/etc/vtium/heads.conf`: a head's `profile =` line, which assigns the head its profile, written through the head-file writer vtiumctl uses (D6). The rest of the head file stays vtiumctl's.
-- **Profiles** are a frit, a cell and font options (ADR-1200 D16), and are vtium-vitrify's to write and to choose (the maintainer, 2026-11-02): the TUI is where a user builds a profile, checks it against a display (the rule checker, ADR-1200 D4) and picks among the profiles. Until profiles have a file of their own, a frit's `cell=` line carries the cell, and the TUI edits it as part of the frit. vtiumctl keeps controlling a running console (`status`, the trial and the overlay) and the head file (ADR-1401 D12).
-- **Assigning a profile to a head** (the maintainer, 2026-11-02). The TUI lists the heads `heads.conf` declares, read with vtium-config's parser, and the user picks the profile each head draws with. The change is a head's `profile =` line, as in `[head desk]` with `profile = desk`, and it is written as D6 says, in the apply step under sudo. A head names a profile only once profiles have a file of their own, so the assignment is built with them.
+- **Profiles** are a frit, a cell and font options (ADR-1200 D16), and are vtium-config's to write and to choose (the maintainer, 2026-11-02): the TUI is where a user builds a profile, checks it against a display (the rule checker, ADR-1200 D4) and picks among the profiles. Until profiles have a file of their own, a frit's `cell=` line carries the cell, and the TUI edits it as part of the frit. vtiumctl keeps controlling a running console (`status`, the trial and the overlay) and the head file (ADR-1401 D12).
+- **Assigning a profile to a head** (the maintainer, 2026-11-02). The TUI lists the heads `heads.conf` declares, read with vtium-settings's parser, and the user picks the profile each head draws with. The change is a head's `profile =` line, as in `[head desk]` with `profile = desk`, and it is written as D6 says, in the apply step under sudo. A head names a profile only once profiles have a file of their own, so the assignment is built with them.
 
 > Edited 2026-11-02: the maintainer had vtium-vitrify also assign a profile to a head, through the head-file writer vtiumctl uses (`considered`). The head-file bullet read: "Not the head file, `/etc/vtium/heads.conf`, which stays vtiumctl's (D6).", and the profiles bullet ended "and the head file, in which a head names its profile (ADR-1401 D12)."
 
@@ -134,11 +138,11 @@ Terms used below: a *frit* is a font set file, `NAME.vtfrit`, in the frits' dire
 
 ### D2: one tool, and its commands
 
-vtium-vitrify stays one binary, apart from vtiumctl. Every action the TUI offers is also one of these commands, and each command but the TUI is non-interactive, prints one line a result, and exits 0 on success, 1 on a failure and 2 on a usage error, as ADR-1200 D4 has it:
+vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vtium config COMMAND`, or as `vtium-config COMMAND` (D12). Every action the TUI offers is also one of these commands, and each command but the TUI is non-interactive, prints one line a result, and exits 0 on success, 1 on a failure and 2 on a usage error, as ADR-1200 D4 has it:
 
 | Command | Runs as | Does |
 |---|---|---|
-| none, at a terminal | the user | Opens the TUI. With no command and stdin or stdout not a terminal, it says that no command was given and exits 2, as it does today. |
+| none (`vtium config`), at a terminal | the user | Opens the TUI. With no command and stdin or stdout not a terminal, it says that no command was given and exits 2, as it does today. |
 | `fonts` | any user | Lists the frits and the built-in fonts, one line each, tab-separated: the name, whether the frit reads, and the sources this machine lacks, found through the sandboxed child (D3). |
 | `check FILE` | any user | Checks a frit with the helper's frit reader, or a vtium.conf with `vtium check-config`, the console's own reader (D5). Writes nothing. |
 | `config KEY`, `config KEY VALUE`, `config --unset KEY` | the user; root to install | Prints a key's value; with a value or `--unset`, makes that one change (D5). |
@@ -147,7 +151,7 @@ vtium-vitrify stays one binary, apart from vtiumctl. Every action the TUI offers
 | `apply DIR` | root | Checks and installs a draft (D5). |
 | `preview`, `set`, `serve` | as ADR-1200 D4 | Unchanged, except that `set` checks the terminal first (D4). |
 
-- **Run as a user,** a command that writes makes a draft under `$XDG_STATE_HOME/vtium/drafts/<time>/`, the directory ADR-1401 D12 gives vtiumctl's drafts, and prints the draft's path and the command that installs it, `sudo vtium-vitrify apply DIR`. **Run as root,** it installs at once through the same steps `apply` takes. A script therefore never needs the TUI.
+- **Run as a user,** a command that writes makes a draft under `$XDG_STATE_HOME/vtium/drafts/<time>/`, the directory ADR-1401 D12 gives vtiumctl's drafts, and prints the draft's path and the command that installs it, `sudo vtium-config apply DIR`. **Run as root,** it installs at once through the same steps `apply` takes. A script therefore never needs the TUI.
 - The names `fonts` and `remove-frit` differ from the retired store's `list` and `remove` (ADR-1200 D3), which stay unknown commands, so an old command never does a new thing.
 
 ### D3: the TUI
@@ -188,7 +192,7 @@ An example of the font view at 40 columns, to show that it fits; its layout is t
 
 ### D5: writing
 
-- **Sudo once, at the moment of writing.** The TUI runs as the user from start to end and never as root, so no font is parsed and nothing is written into the user's home as root. When the user saves, it writes the draft, shows the command, `sudo vtium-vitrify apply DIR`, and runs it. sudo asks for the password once, in the TUI's terminal. The TUI leaves its alternate screen while sudo asks, and comes back after. Nothing else in the TUI needs privilege.
+- **Sudo once, at the moment of writing.** The TUI runs as the user from start to end and never as root, so no font is parsed and nothing is written into the user's home as root. When the user saves, it writes the draft, shows the command, `sudo vtium-config apply DIR`, and runs it. sudo asks for the password once, in the TUI's terminal. The TUI leaves its alternate screen while sudo asks, and comes back after. Nothing else in the TUI needs privilege.
 - **What a draft holds.** Each frit to write, each frit to remove, and for vtium.conf and `heads.conf` the whole edited file, with the SHA-256 of each file it replaces as that file was when the draft was made.
 - **What `apply` does,** as root:
   1. It reads the draft without following a link, takes only regular files, and bounds each file's size, since root is reading a directory the user owns.
@@ -206,10 +210,10 @@ An example of the font view at 40 columns, to show that it fits; its layout is t
 
 ### D6: the head file has one writer
 
-- **vtiumctl keeps the head file and the devices:** detecting them, setting up heads, rules, policy, the trial, and installing the head file (ADR-1401 D12). vtium-vitrify changes one thing in it, a head's `profile =` line (D1).
-- **One writer, a library.** vtium-vitrify never writes `heads.conf` text of its own. The head file's writer is a module of vtium-config, the configuration crate that already holds the head file's parser and evaluator, and it stays the one writer for good (the maintainer, 2026-11-02). vtium-vitrify, vtiumctl and `vtium check-config` all link it, and no tool runs another to edit the head file. The writer edits line by line as D5's vtium.conf rules do, setting a head's `profile =` line in its section and keeping every other byte.
-- **Why a library.** The three tools are Rust crates in one workspace, built and shipped together. Linking one module gives them one parser, one check, one rule for editing without losing comments, and one wording of each error, fixed when they are compiled. Nothing parses another program's text output, a development build and a packaged one cannot disagree about the file, and vtium-vitrify does not need vtiumctl to be built. A shared piece that shows a change and asks to confirm it keeps the two tools' screens alike.
-- **The one process boundary** in this design is the privilege step, `sudo vtium-vitrify apply DIR` (D5), which keeps the code that runs as root small.
+- **vtiumctl keeps the head file and the devices:** detecting them, setting up heads, rules, policy, the trial, and installing the head file (ADR-1401 D12). vtium-config changes one thing in it, a head's `profile =` line (D1).
+- **One writer, a library.** vtium-config never writes `heads.conf` text of its own. The head file's writer is a module of vtium-settings, the configuration crate that already holds the head file's parser and evaluator, and it stays the one writer for good (the maintainer, 2026-11-02). vtium-config, vtiumctl and `vtium check-config` all link it, and no tool runs another to edit the head file. The writer edits line by line as D5's vtium.conf rules do, setting a head's `profile =` line in its section and keeping every other byte.
+- **Why a library.** The three tools are Rust crates in one workspace, built and shipped together. Linking one module gives them one parser, one check, one rule for editing without losing comments, and one wording of each error, fixed when they are compiled. Nothing parses another program's text output, a development build and a packaged one cannot disagree about the file, and vtium-config does not need vtiumctl to be built. A shared piece that shows a change and asks to confirm it keeps the two tools' screens alike.
+- **The one process boundary** in this design is the privilege step, `sudo vtium-config apply DIR` (D5), which keeps the code that runs as root small.
 - **Checked before it is written.** The TUI writes the edited head file into the draft as the user, and `apply`, under sudo, checks it with `vtium check-config FILE` before it writes it, as it checks every file (D5). Once profiles have a file and a head names a profile with its own font, a profile wins over vtium.conf's `font-name` for that head (ADR-1200 D16), so the TUI's save view then says which heads the saved font does not reach.
 
 > Edited 2026-11-02: the maintainer pinned the head file's writer to a module of vtium-config for good, linked by every tool, with no tool running another to edit the file (`considered`). The bullet said that vtiumctl, once built, would link the module, and that whether vtium-vitrify kept linking it or ran `vtiumctl` was the vtiumctl work's choice.
@@ -218,9 +222,9 @@ An example of the font view at 40 columns, to show that it fits; its layout is t
 
 ### D7: what the TUI is built with
 
-- **No TUI library.** The TUI is a small screen layer in vtium-vitrify over rustix's terminal calls, which the crate already links with the features it needs, and the raw-mode guard and signal holding that `set` already has (`src/switch.rs`). It draws with ECMA-48's cursor position, erase and SGR sequences and DEC modes 25 and 1049, which vtium supports and every terminal of the VT100 line has, and decodes keys from the bytes a terminal sends for them, as vtium-term encodes them.
+- **No TUI library.** The TUI is a small screen layer in vtium-config over rustix's terminal calls, which the crate already links with the features it needs, and the raw-mode guard and signal holding that `set` already has (`src/switch.rs`). It draws with ECMA-48's cursor position, erase and SGR sequences and DEC modes 25 and 1049, which vtium supports and every terminal of the VT100 line has, and decodes keys from the bytes a terminal sends for them, as vtium-term encodes them.
 - **The TUI is a state machine apart from its terminal.** Its state takes events (a key, a reply, a resize, a signal) and returns effects (bytes to write, a command to run, a draft to write), so tests drive it without a terminal (D8), and the loop around it does the reading and writing.
-- vtium-vitrify is not part of the minspec console binary and is outside its size budget. It ships on every install as the glyph helper, so the TUI's size counts in the install tree that tier 3 measures; a library would add more than the screen layer does.
+- vtium-config is not part of the minspec console binary and is outside its size budget. It ships on every install as the glyph helper, so the TUI's size counts in the install tree that tier 3 measures; a library would add more than the screen layer does.
 
 ### D8: how it is judged
 
@@ -239,7 +243,9 @@ The TUI is where `new` and `preview` live when a person runs them at a terminal.
 
 ### D10: the banner's tagline
 
-The tagline under the tool's banner says what the tool is for now: the console's fonts and settings, tried on the live console. "vitrified font sets" names the store of prerendered sets that ADR-1200 retired. This record recommends "fonts and settings for the vtium console" for the wide banner and "the console's fonts" for the narrow one. The build that adds the TUI changes both taglines in `src/banner.rs` and their test, the crate's description in `Cargo.toml`, and the usage text's summary line. The tool keeps its name.
+The tagline under the tool's banner says what the tool is for now: the console's fonts and settings, tried on the live console. "vitrified font sets" names the store of prerendered sets that ADR-1200 retired. This record recommends "fonts and settings for the vtium console" for the wide banner and "the console's fonts" for the narrow one. The banner keeps its glass logo and titles the tool "VTium Vitrifier", while the command is `vtium config` (D12). The build that adds the TUI changes both taglines in `src/banner.rs` and their test, the crate's description in `Cargo.toml`, and the usage text's summary line.
+
+> Edited 2026-11-02: the maintainer renamed the tool (`considered`, D12). The paragraph ended "The tool keeps its name."
 
 ### D11: a session's end returns its console to the configured font
 
@@ -250,21 +256,32 @@ The tagline under the tool's banner says what the tool is for now: the console's
 - **Not built yet.** Today a switch lasts until the next switch or until vtium starts again.
 - The C reference had no OSC 50 and kept its font for the life of its process, changed only by its zoom keys (`src/terminal.c` at kmscon `b1f7a7c5`, `zoom_in`, `zoom_out`), and a session's end left the size where the zoom put it. vtium returns the size at a session's end, a listed departure in the vtium crate's README once built.
 
+### D12: the tool's name, and how users reach it
+
+- **`vtium config`.** "vitrify" is an unusual word (the maintainer, 2026-11-02), so nothing a user types carries it. A user types `vtium config`, a subcommand of the console binary that replaces itself with the separate binary `vtium-config` by exec, passing on its arguments, as git runs its subcommands. The console binary holds only that hand-off, so the TUI's code never enters it or its minspec size budget. vtium finds `vtium-config` at the path it was built with, `/usr/bin/vtium-config` by default, as it finds the glyph helper.
+- **`vtium-config` also works directly,** with the same commands (D2). The privilege step is written `sudo vtium-config apply DIR`, so root runs the small tool alone and never the console binary first.
+- **The same binary is the glyph helper,** `vtium-config serve` (ADR-1200 D15), installed at `/usr/bin/vtium-config`, and the default of the `font-helper` key follows.
+- **The library crate is renamed.** The crate now named vtium-config, which reads vtium.conf and the head file and holds the one head-file writer (D6), becomes vtium-settings, so the binary and the library never share a name.
+- **"Vitrify" stays for the glass theme:** the banner's logo and its title, "VTium Vitrifier" (D10), and "vitrified" in prose where it means glyphs the engine draws. No command, path or crate a user meets is named for it.
+- **When.** The rename lands now, in one branch, before the TUI is built, and the next release ships it. The AUR package's `/usr/bin/vtium-vitrify` becomes `/usr/bin/vtium-config` with that release.
+
 ### Passages this record changes
 
 These change when this record is accepted, in their owners' changes; this record edits none of them.
 
-- **ADR-1200 D4:** "Each command is non-interactive where it writes" becomes: each command but the TUI is non-interactive, and the TUI writes only through `apply`. The table gains D2's rows, and `new`'s row ends in a draft and `apply` (D9). The basis entry that leaves "the wrappers" to "other people's choice" stands as said; vtium-vitrify ships one wrapper of its own.
+- **ADR-1200 D4:** "Each command is non-interactive where it writes" becomes: each command but the TUI is non-interactive, and the TUI writes only through `apply`. The table gains D2's rows, and `new`'s row ends in a draft and `apply` (D9). The basis entry that leaves "the wrappers" to "other people's choice" stands as said; vtium-config ships one wrapper of its own.
 - **ADR-1200 D5:** `set` checks the terminal before it writes (D4). "A switch changes the live console only; `font-name` in the configuration is what persists" gains: until the session that switched ends, when vtium returns the head to its configured font (D11). docs/config.md's `allow-font-ops` row says the same.
 - **ADR-1200 D4's `preview` row** draws the engine's specimen through kitty graphics (D9).
-- **ADR-1401 D12:** vtiumctl's drafts and `install DIR` of frits move to vtium-vitrify's `apply`; vtiumctl keeps the head file, but for a head's `profile =` line, which vtium-vitrify's `apply` also writes, through the same writer (D6). `vtiumctl check` still checks frits through vtium-vitrify's frit reader. The minspec bullet's "a frit is previewed by trying it on the live console through OSC 50 under the same countdown" becomes the TUI's live preview, with no countdown (D4). "`vtium-vitrify` keeps the fonts" gains vtium.conf.
-- **ADR-1200 D16:** "`vtiumctl` writes them when asked" of profile files becomes vtium-vitrify, which writes and chooses them (D1).
-- **ADR-1401 D12's `setup`,** which asks "which profile and frit" for each display, asks which profile, among those vtium-vitrify wrote. vtium-vitrify also sets a head's profile (D1). Both write through one head-file writer, a module of vtium-config that `vtium check-config` also links, and no tool runs another to edit the file; D12's "Detection and setup live only in `vtiumctl`" and its "one crate parses and evaluates the configuration" gain (D6).
-- **The tracker issue for vtium-vitrify** lists this work.
+- **ADR-1401 D12:** vtiumctl's drafts and `install DIR` of frits move to vtium-config's `apply`; vtiumctl keeps the head file, but for a head's `profile =` line, which vtium-config's `apply` also writes, through the same writer (D6). `vtiumctl check` still checks frits through vtium-config's frit reader. The minspec bullet's "a frit is previewed by trying it on the live console through OSC 50 under the same countdown" becomes the TUI's live preview, with no countdown (D4). "`vtium-config` keeps the fonts" gains vtium.conf.
+- **ADR-1200 D16:** "`vtiumctl` writes them when asked" of profile files becomes vtium-config, which writes and chooses them (D1).
+- **ADR-1401 D12's `setup`,** which asks "which profile and frit" for each display, asks which profile, among those vtium-config wrote. vtium-config also sets a head's profile (D1). Both write through one head-file writer, a module of vtium-settings that `vtium check-config` also links, and no tool runs another to edit the file; D12's "Detection and setup live only in `vtiumctl`" and its "one crate parses and evaluates the configuration" gain (D6).
+- **The tool's name throughout ADR-1200 and ADR-1401.** Every `vtium-vitrify` command they name, `serve`, `set`, `preview` and `new` among them, becomes `vtium-config` (`vtium config` as a user types it), the helper's program path `/usr/bin/vtium-vitrify` becomes `/usr/bin/vtium-config`, and the crate those records call vtium-config is vtium-settings (D12). ADR-1200 and ADR-1401 take a dated note naming the rename where their text changes; this record edits neither.
+- **docs/config.md's `font-helper` row,** `crates/vtium/README.md`, `crates/vtium-vitrify/README.md` and the install tree change with the rename (D12).
+- **The tracker issue for the tool** lists this work.
 
 ### For the maintainer's check
 
-The maintainer decided on 2026-11-02 the three calls this section listed (`considered`): the command names stay as D2 has them; profiles move to vtium-vitrify (D1); and a session's end returns its console to the configured font (D11).
+The maintainer decided on 2026-11-02 the three calls this section listed (`considered`): the command names stay as D2 has them; profiles move to vtium-config (D1); and a session's end returns its console to the configured font (D11).
 
 ## Consequences
 
@@ -285,20 +302,23 @@ The maintainer decided on 2026-11-02 the three calls this section listed (`consi
 - vtium reads vtium.conf's font keys again at each session's end, the one time it reads its configuration after start.
 - A zoom no longer outlives the session it was made in.
 - No live preview inside tmux or screen, over ssh from another terminal, or with `allow-font-ops` off.
-- vtium-vitrify grows on every install by the TUI and its screen layer.
+- vtium-config grows on every install by the TUI and its screen layer.
 - Checking vtium.conf needs the `vtium` binary installed beside the tool, which the install tree always has.
 
 ### Neutral
 
-- vtium's key table moves into vtium-config, which the console already links.
+- vtium's key table moves into vtium-settings, which the console already links.
+- The tool, its helper path, its crate and the configuration library are renamed in one branch before the TUI is built (D12).
 - `set` stops writing OSC 50 to terminals that are not vtium.
-- Profiles are written, chosen and assigned to heads in vtium-vitrify.
-- The head file's writer is a module of vtium-config, which every tool that touches the head file links.
+- Profiles are written, chosen and assigned to heads in vtium-config.
+- The head file's writer is a module of vtium-settings, which every tool that touches the head file links.
 - `preview` and the TUI share one picture renderer.
 
 ## Alternatives Considered
 
-- **The TUI in vtiumctl, or as a third binary.** Not taken, by the maintainer: it stays one tool, vtium-vitrify.
+- **The TUI in vtiumctl, or as a third binary.** Not taken, by the maintainer: it stays one tool, vtium-config.
+- **Keeping the name vtium-vitrify.** Not taken, by the maintainer: the word is unusual for a command people type, and `vtium config` says what the tool does.
+- **Building the tool into the console binary as a subcommand.** Not taken: the TUI's code would count against the minspec budget; `vtium config` hands off by exec instead.
 - **ratatui, with crossterm or termion beneath it.** Not taken: a widget and layout framework and a second terminal layer beside the raw-mode and signal handling `set` already has, for a screen of lists, on every install including minspec boards.
 - **ncurses, or dialog and whiptail.** Not taken: ncurses is a C library, against vtium's rule that its code is Rust with C only at a boundary it must cross; dialog and whiptail are C programs that minspec images may lack, and the tool cannot send OSC 50 between their prompts.
 - **Preview by pictures alone,** as `preview` plans. Not taken as the main path for fonts: a picture is not the console, and the minspec console draws no pictures. Pictures serve sizes, and fonts where live preview is off.
@@ -311,5 +331,5 @@ The maintainer decided on 2026-11-02 the three calls this section listed (`consi
 - **Rewriting vtium.conf from its parsed keys.** Not taken: it would lose every comment and the file's order.
 - **Running the whole TUI as root, or asking sudo at each step.** Not taken: the first parses fonts and writes into the user's home as root, against ADR-1200 D14 and ADR-1401 D12; the second asks for a password many times.
 - **Editing the head file in the TUI beyond a head's profile.** Not taken: vtiumctl keeps it (D6).
-- **A head-file writer of vtium-vitrify's own.** Not taken, by the maintainer: two writers of one file would drift, so vtium-vitrify uses vtiumctl's (D6).
+- **A head-file writer of vtium-config's own.** Not taken, by the maintainer: two writers of one file would drift, so vtium-config uses vtiumctl's (D6).
 - **Running `vtiumctl` to edit the head file.** Not taken, by the maintainer: it would parse text across a process boundary, let a development build and a packaged one disagree, and need vtiumctl built; the tools link one module instead (D6).
