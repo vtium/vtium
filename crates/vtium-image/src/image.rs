@@ -59,6 +59,12 @@ impl Pixels {
         &self.0
     }
 
+    /// The buffer itself, when nothing else holds these pixels, such as a
+    /// frame a display still draws; otherwise the pixels as they were.
+    pub fn into_vec(self) -> Result<Vec<u32>, Self> {
+        Arc::try_unwrap(self.0).map_err(Self)
+    }
+
     /// Whether `other` shares these pixels, as a frame's do.
     pub fn same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)

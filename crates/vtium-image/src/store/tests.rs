@@ -1080,3 +1080,49 @@ fn opaque_frames_that_end_inside_a_cell_leave_one_picture() {
     put(&mut s, &f, key, 0, 0);
     assert_eq!(s.image_count(), 2);
 }
+
+// fork-perf item 16's primitive: the buffer of the image freed last goes
+// back to a handler that asks for one of its size, once no frame holds it.
+// covers: image.pipeline
+#[test]
+fn a_freed_images_buffer_goes_back_to_the_next_picture_of_its_size() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let first = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let buffer = {
+        let view = Rows {
+            screen: &f.screen,
+            above: &[],
+        };
+        put(&mut s, &f, first, 0, 0);
+        s.frame(view, COLS)[0].pixels.as_slice().as_ptr()
+    };
+    // a kitty transmission of the same id replaces it and frees the old
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let mut edit = Edit::new(&mut s, f.screens(), COLS);
+    assert!(edit.take_spare(16 * 31).is_none(), "another size");
+    let spare = edit.take_spare(16 * 32).expect("the freed buffer");
+    assert_eq!(spare.as_ptr(), buffer);
+    assert!(edit.take_spare(16 * 32).is_none(), "taken once");
+}
+
+// A frame that still holds the freed image's pixels keeps the buffer from
+// being filled again under it.
+// covers: image.pipeline
+#[test]
+fn a_freed_buffer_a_frame_still_holds_is_not_given_back() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 24);
+    let first = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    put(&mut s, &f, first, 0, 0);
+    let view = Rows {
+        screen: &f.screen,
+        above: &[],
+    };
+    let frame = s.frame(view, COLS);
+    let _ = add(&mut s, &f, Protocol::KITTY, 16, 32, 7);
+    let mut edit = Edit::new(&mut s, f.screens(), COLS);
+    assert!(edit.take_spare(16 * 32).is_none());
+    drop(frame);
+    assert!(edit.take_spare(16 * 32).is_some());
+}

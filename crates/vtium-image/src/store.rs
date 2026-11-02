@@ -347,10 +347,15 @@ pub struct Store {
     dying: Option<ImageKey>,
     work: u64,
     changed: Vec<Region>,
+    /// The pixels of the image freed last, kept outside the budget for a
+    /// handler to fill again: one buffer at most, given back to the next
+    /// handler that asks for one of its size once no frame holds it.
+    spare: Option<Pixels>,
 }
 
 /// Two stores compare by what they hold; the work an input call counted
-/// is the call's, and the boxes not yet taken are the terminal's to mark.
+/// is the call's, the boxes not yet taken are the terminal's to mark, and
+/// a spare buffer holds nothing the store shows.
 impl PartialEq for Store {
     fn eq(&self, other: &Self) -> bool {
         self.buffers == other.buffers
@@ -397,6 +402,7 @@ impl Store {
             dying: None,
             work: 0,
             changed: Vec::new(),
+            spare: None,
         }
     }
 
@@ -1135,6 +1141,7 @@ impl Store {
         self.used = self
             .used
             .saturating_sub(image.bytes.saturating_sub(image.owed));
+        self.spare = Some(image.pixels);
     }
 
     /// Empties buffer `b`, giving back every byte its images hold.
