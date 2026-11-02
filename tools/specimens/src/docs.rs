@@ -143,6 +143,10 @@ fn font_cell(p: &Profile) -> String {
             "`desktop`, the frit [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit)"
                 .to_owned()
         }
+        Glyphs::Tiny5 { .. } => {
+            "`tiny5`, the frit [`tiny5.vtfrit`](../../../crates/vtium-vitrify/frits/tiny5.vtfrit)"
+                .to_owned()
+        }
     }
 }
 
@@ -172,10 +176,10 @@ fn row(p: &Profile, provisional: bool) -> Result<String, String> {
 
 fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
     let l = p.layout()?;
-    let card = if l.pages == 1 {
-        "the whole card on one screen".to_owned()
-    } else {
-        format!("the card on {} screens", l.pages)
+    let card = match (l.pages, l.slices) {
+        (1, _) => "the whole card on one screen".to_owned(),
+        (pages, 1) => format!("the card on {pages} screens"),
+        (pages, slices) => format!("the card on {pages} screens, each block on {slices},"),
     };
     let bars = match p.bar_screens {
         1 => "vtium's message bars on one more",
@@ -188,6 +192,9 @@ fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
         }
         Glyphs::Desktop { .. } => {
             "The console loads a set by name from #126. The screens here draw the glyphs vtium-vitrify's engine, the one the helper runs (ADR-1301 D2), generates from the frit and the pinned fonts `make specimens-fonts` fetches, in the profile's cell (`tools/specimens/README.md`); where those fonts are absent the check skips this profile while it is provisional, and fails it once accepted."
+        }
+        Glyphs::Tiny5 { .. } => {
+            "The screens here draw the glyphs vtium-vitrify's engine, the one the helper runs (ADR-1301 D2), generates from the shipped frit and Tiny5 Mono's BDF file, pinned by commit and SHA-256, which `make specimens-fonts` fetches, with the frit's `source=` line pointed at the fetched copy (`tools/specimens/README.md`); where that file is absent the check skips this profile while it is provisional, and fails it once accepted."
         }
     };
     let images = names
@@ -248,6 +255,7 @@ fn index(rows: &[String], simulated: &[String]) -> String {
          | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |\n\
          |---|---|---|---|---|---|---|---|\n\
          {rows}\n\n\
+         `320x240-tiny5` shows an example frit, `tiny5`, the smallest font, which vtium does not use by default; vtium's own choice at 320x240 is the profile `320x240`.\n\n\
          A provisional profile waits on the operator's review, and `provisional.tsv` lists it: a drawing that moves it is reported as drift and fails nothing. An accepted profile fails on a moved pixel.\n\n\
          ## Gray panels, simulated\n\n\
          vtium draws a gray panel exactly as a color display, and the panel's driver converts each pixel (#135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing of vtium's drawing; a stale one is reported as its own kind of fault.\n\n\
@@ -255,7 +263,7 @@ fn index(rows: &[String], simulated: &[String]) -> String {
          |---|---|---|---|---|---|---|---|\n\
          {simulated}\n\n\
          ## The card\n\n\
-         The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered:\n\n\
+         The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered. A grid shorter than a block, such as the 53x26 that 6x9 cells give at 320x240, shows each block over more than one screen: the rows that fit, then the block's title again and the rows after them:\n\n\
          {titles}\n\n\
          `tools/specimens/README.md` lists what the card leaves out and why.\n\n\
          ## The message bars\n\n\

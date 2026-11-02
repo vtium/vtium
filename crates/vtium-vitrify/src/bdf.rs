@@ -38,8 +38,13 @@ struct Char {
 /// A BDF font's bytes as its glyphs at its own cell: decompressed, every
 /// glyph whose advance is the cell's width or twice it, and whose
 /// encoding is a Unicode scalar value, placed on the baseline at its own
-/// offsets and cut at its cells' edges. A font whose `CHARSET_REGISTRY`
-/// is not `ISO10646` is refused, since its encodings are not codepoints.
+/// offsets and cut at its cells' edges. A font whose character set is not
+/// ISO 10646-1 is refused, since its encodings are not codepoints. The
+/// set is read from the `CHARSET_REGISTRY` and `CHARSET_ENCODING`
+/// properties, and where a property is missing, from the last two fields
+/// of the XLFD name on the `FONT` line. A glyph of `ENCODING -1`, which
+/// has no place in the font's character set, is left out and is not
+/// counted against `CHARS`.
 pub fn font(bytes: &[u8]) -> Result<Font, String> {
     let (plain, compression) = crate::decode::decompress(bytes)?;
     let mut lines = plain
@@ -68,6 +73,7 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
         let (line, n) = next()?.ok_or("a BDF font cut short before CHARS")?;
         let err = |why: &str| format!("BDF line {n}: {why}");
         match word(line, 0) {
+            Some("FONT") => header.xlfd = xlfd(line),
             Some("FONTBOUNDINGBOX") => {
                 header.bbx =
                     Some(numbers(line).ok_or_else(|| err("FONTBOUNDINGBOX is four numbers"))?);
@@ -88,13 +94,18 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
                         header.descent =
                             Some(number(line).ok_or_else(|| err("FONT_DESCENT is a number"))?);
                     }
-                    Some("CHARSET_REGISTRY") => {
-                        header.registry = Some(
-                            line.trim_start_matches("CHARSET_REGISTRY")
-                                .trim()
-                                .trim_matches('"')
-                                .to_owned(),
-                        );
+                    Some(key @ ("CHARSET_REGISTRY" | "CHARSET_ENCODING")) => {
+                        let value = line
+                            .get(key.len()..)
+                            .unwrap_or_default()
+                            .trim()
+                            .trim_matches('"')
+                            .to_owned();
+                        if key == "CHARSET_REGISTRY" {
+                            header.registry = Some(value);
+                        } else {
+                            header.encoding = Some(value);
+                        }
                     }
                     _ => {}
                 }
@@ -112,20 +123,7 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
             _ => {}
         }
     };
-    match header.registry.as_deref() {
-        Some(r) if r.eq_ignore_ascii_case("ISO10646") => {}
-        Some(r) => {
-            return Err(format!(
-                "a BDF font of CHARSET_REGISTRY {r}, whose encodings are not Unicode's: vtium-vitrify reads ISO10646"
-            ));
-        }
-        None => {
-            return Err(
-                "a BDF font with no CHARSET_REGISTRY, so its encodings are not known to be Unicode's"
-                    .to_owned(),
-            );
-        }
-    }
+    header.charset()?;
     // the glyphs
     let mut chars = Vec::new();
     let mut seen = 0u32;
@@ -134,13 +132,17 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
         match word(line, 0) {
             Some("ENDFONT") => break,
             Some("STARTCHAR") => {
+                // the rows read are bounded by the file's own bytes; what
+                // they are placed into is bounded in place()
+                let parsed = glyph(&mut next, n, header.advance)?;
+                if matches!(parsed, Parsed::Unencoded) {
+                    continue;
+                }
                 if seen >= count {
                     return Err(format!("BDF line {n}: more glyphs than CHARS names"));
                 }
                 seen += 1;
-                // the rows read are bounded by the file's own bytes; what
-                // they are placed into is bounded in place()
-                if let Some(c) = glyph(&mut next, n, header.advance)? {
+                if let Parsed::Kept(c) = parsed {
                     chars.push(c);
                 }
             }
@@ -158,6 +160,54 @@ struct Header {
     ascent: Option<i32>,
     descent: Option<i32>,
     registry: Option<String>,
+    encoding: Option<String>,
+    /// The registry and encoding the XLFD name on the `FONT` line ends
+    /// with, where that name is an XLFD name.
+    xlfd: Option<(String, String)>,
+}
+
+impl Header {
+    /// Refuses a font whose character set is not ISO 10646-1: each of the
+    /// registry and the encoding is the property's, else the XLFD name's.
+    /// A font that gives an ISO10646 registry and no encoding is read, as
+    /// the registry alone says its encodings are Unicode's.
+    fn charset(&self) -> Result<(), String> {
+        let (xlfd_registry, xlfd_encoding) = match &self.xlfd {
+            Some((r, e)) => (Some(r.as_str()), Some(e.as_str())),
+            None => (None, None),
+        };
+        let registry = self.registry.as_deref().or(xlfd_registry);
+        let encoding = self.encoding.as_deref().or(xlfd_encoding);
+        match (registry, encoding) {
+            (Some(r), None) if r.eq_ignore_ascii_case("ISO10646") => Ok(()),
+            (Some(r), Some("1")) if r.eq_ignore_ascii_case("ISO10646") => Ok(()),
+            (Some(r), Some(e)) if r.eq_ignore_ascii_case("ISO10646") => Err(format!(
+                "a BDF font of ISO10646 CHARSET_ENCODING {e}, whose encodings are not Unicode's: vtium-vitrify reads ISO10646-1"
+            )),
+            (Some(r), _) => Err(format!(
+                "a BDF font of CHARSET_REGISTRY {r}, whose encodings are not Unicode's: vtium-vitrify reads ISO10646"
+            )),
+            (None, _) => Err(
+                "a BDF font with no CHARSET_REGISTRY, in its properties or its XLFD name, so its encodings are not known to be Unicode's"
+                    .to_owned(),
+            ),
+        }
+    }
+}
+
+/// The registry and the encoding an XLFD name gives, its last two of 14
+/// fields: `FONT -foundry-family-...-iso10646-1` gives `iso10646` and
+/// `1`. A field may hold blanks, as a family's name does, but not a `-`.
+/// `None` for a name that is not 14 fields after a leading `-`.
+fn xlfd(line: &str) -> Option<(String, String)> {
+    let name = line.get("FONT".len()..)?.trim();
+    let fields: Vec<&str> = name.strip_prefix('-')?.split('-').collect();
+    match fields.as_slice() {
+        [_, _, _, _, _, _, _, _, _, _, _, _, registry, encoding] => {
+            Some(((*registry).to_owned(), (*encoding).to_owned()))
+        }
+        _ => None,
+    }
 }
 
 /// The `i`th blank-separated word of `line`.
@@ -207,13 +257,24 @@ fn advance(line: &str) -> Option<u32> {
     u32::try_from(dx).ok().filter(|&v| v <= BDF_BITMAP_MAX)
 }
 
-/// The glyph after `STARTCHAR` on line `start`, through `ENDCHAR`; `None`
-/// for one with no Unicode scalar value for its encoding, or no advance.
+/// What a glyph read gives the font.
+enum Parsed {
+    /// A glyph of a Unicode scalar value with an advance.
+    Kept(Char),
+    /// A glyph of `ENCODING -1`, outside the font's character set, which
+    /// `CHARS` need not count.
+    Unencoded,
+    /// A glyph of another encoding that is no Unicode scalar value, or
+    /// of no advance.
+    Dropped,
+}
+
+/// The glyph after `STARTCHAR` on line `start`, through `ENDCHAR`.
 fn glyph<'a>(
     next: &mut impl FnMut() -> Result<Option<(&'a str, usize)>, String>,
     start: usize,
     font_advance: Option<u32>,
-) -> Result<Option<Char>, String> {
+) -> Result<Parsed, String> {
     let (mut encoding, mut advance_x, mut bbx) = (None, font_advance, None);
     loop {
         let (line, n) = next()?.ok_or_else(|| format!("BDF line {start}: a glyph cut short"))?;
@@ -266,18 +327,21 @@ fn glyph<'a>(
                 }
                 let encoding = encoding
                     .ok_or_else(|| format!("BDF line {start}: a glyph with no ENCODING"))?;
+                if encoding == -1 {
+                    return Ok(Parsed::Unencoded);
+                }
                 let scalar = u32::try_from(encoding)
                     .ok()
                     .filter(|&c| char::from_u32(c).is_some());
                 return Ok(match (scalar, advance_x) {
-                    (Some(encoding), Some(advance)) if advance > 0 => Some(Char {
+                    (Some(encoding), Some(advance)) if advance > 0 => Parsed::Kept(Char {
                         line: start,
                         encoding,
                         advance,
                         bbx: (w, h, x, y),
                         rows,
                     }),
-                    _ => None,
+                    _ => Parsed::Dropped,
                 });
             }
             Some("ENDCHAR") => return Err(err("ENDCHAR before BITMAP")),
@@ -575,6 +639,74 @@ pub(crate) mod tests {
         assert_eq!(tie.cell.width, 4);
     }
 
+    // the published Tiny5 Mono gives its character set only in its XLFD
+    // name: the registry and the encoding are read from there when the
+    // properties leave them out, and a property says it over the name
+    #[test]
+    fn the_character_set_comes_from_the_xlfd_name_where_no_property_gives_it() {
+        let a = bdf("");
+        let named = |xlfd: &str, properties: &str| {
+            a.replace("FONT -test-", &format!("FONT {xlfd}"))
+                .replace("CHARSET_REGISTRY \"ISO10646\"\n", properties)
+        };
+        let tiny5 = "-Stefan Schmidt Art-Tiny5 Mono-Regular-R-Regular--9-9-75-75-c-80-iso10646-1";
+        let f = font(named(tiny5, "").as_bytes()).expect("the XLFD name's iso10646-1");
+        assert_eq!(f.map.len(), 2);
+        // a property wins over the name
+        let e = font(named(tiny5, "CHARSET_REGISTRY \"JISX0208.1983\"\n").as_bytes())
+            .expect_err("the property's registry");
+        assert!(e.contains("CHARSET_REGISTRY JISX0208.1983"), "{e}");
+        let e = font(named(tiny5, "CHARSET_ENCODING \"0\"\n").as_bytes())
+            .expect_err("the property's encoding");
+        assert!(e.contains("CHARSET_ENCODING 0"), "{e}");
+        let good = font(
+            named(
+                "-x-y-medium-r-normal--9-90-75-75-c-60-jisx0208.1983-0",
+                "CHARSET_REGISTRY \"ISO10646\"\nCHARSET_ENCODING \"1\"\n",
+            )
+            .as_bytes(),
+        );
+        assert!(good.is_ok(), "the properties over the name");
+        // the name's own registry and encoding are checked as a property's
+        let e = font(named("-x-y-medium-r-normal--9-90-75-75-c-60-iso8859-1", "").as_bytes())
+            .expect_err("the name's iso8859");
+        assert!(e.contains("CHARSET_REGISTRY iso8859"), "{e}");
+        let e = font(named("-x-y-medium-r-normal--9-90-75-75-c-60-iso10646-2", "").as_bytes())
+            .expect_err("the name's encoding 2");
+        assert!(e.contains("CHARSET_ENCODING 2"), "{e}");
+        // a name that is not 14 fields gives nothing
+        for not_xlfd in [
+            "fixed",
+            "-iso10646-1",
+            "-a-b-c-d-e-f-g-h-i-j-k-l-m-iso10646-1",
+        ] {
+            let e = font(named(not_xlfd, "").as_bytes()).expect_err(not_xlfd);
+            assert!(e.contains("no CHARSET_REGISTRY"), "{not_xlfd}: {e}");
+        }
+    }
+
+    // the published Tiny5 Mono's CHARS leaves out its 73 glyphs of
+    // ENCODING -1: such a glyph is not counted, and not drawn
+    #[test]
+    fn a_glyph_of_encoding_minus_one_is_left_out_and_not_counted() {
+        let unencoded = "STARTCHAR a.sc\nENCODING -1\nDWIDTH 4 0\nBBX 1 1 0 0\nBITMAP\n80\nENDCHAR\n\
+                         STARTCHAR b.sc\nENCODING -1 7\nDWIDTH 4 0\nBBX 1 1 0 0\nBITMAP\n80\nENDCHAR\n";
+        let text = bdf(&format!(
+            "{unencoded}STARTCHAR B\nENCODING 66\nDWIDTH 4 0\nBBX 1 1 0 0\nBITMAP\n80\nENDCHAR\n{unencoded}"
+        ));
+        let f = font(text.replace("CHARS 99", "CHARS 3").as_bytes()).expect("CHARS counts 3");
+        let keys: Vec<u32> = f.map.keys().copied().collect();
+        assert_eq!(keys, [0x41, 0x42, 0x4e2d]);
+        assert_eq!(f.glyphs.len(), 3);
+        // the glyphs CHARS counts are still held to it
+        let e = font(text.replace("CHARS 99", "CHARS 2").as_bytes()).expect_err("CHARS 2");
+        assert!(e.contains("more glyphs than CHARS"), "{e}");
+        // an unencoded glyph is read as any other, so a malformed one refuses
+        let e = font(bdf(&unencoded.replace("BBX 1 1 0 0", "BBX 1 1 0")).as_bytes())
+            .expect_err("a malformed BBX");
+        assert!(e.contains("BBX is four numbers"), "{e}");
+    }
+
     #[test]
     fn each_malformed_bdf_is_refused_naming_its_line() {
         let a = bdf("");
@@ -610,7 +742,7 @@ pub(crate) mod tests {
             ),
             (
                 a.replace("CHARSET_REGISTRY \"ISO10646\"\n", ""),
-                "no CHARSET_REGISTRY",
+                "no CHARSET_REGISTRY, in its properties or its XLFD name",
             ),
             (
                 a.replace("FONT_ASCENT 5", "FONT_ASCENT 500"),

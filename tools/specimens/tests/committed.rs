@@ -1,8 +1,9 @@
 //! The committed specimens against a fresh drawing of them, so `cargo test`
 //! fails on a change that moves an accepted profile until the moved files
 //! are committed. A provisional profile's drift is printed and fails
-//! nothing. No outline glyphs are generated here, so the outline profiles
-//! are skipped; `make specimens-check` draws them.
+//! nothing. No glyphs are generated here from fetched fonts, so the outline
+//! profiles and the tiny5 profile are skipped; `make specimens-check` draws
+//! them.
 
 use std::path::Path;
 
@@ -14,6 +15,10 @@ fn every_accepted_specimen_matches_its_drawing() {
     let sources = Sources {
         desktop: Err(
             "cargo test generates no outline glyphs; `make specimens-check` does".to_owned(),
+        ),
+        tiny5: Err(
+            "cargo test generates no glyphs from Tiny5 Mono; `make specimens-check` does"
+                .to_owned(),
         ),
     };
     let faults = vtium_specimens::check::check(&dir, &sources).unwrap();

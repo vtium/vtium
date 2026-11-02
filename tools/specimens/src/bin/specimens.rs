@@ -12,9 +12,10 @@
 //! `--review` copies each drawn profile's collage, or its one screen, to
 //! `DIR/PROFILE.png`. `check` draws the same files and compares them with
 //! what is committed; it exits 0 when no accepted profile moved, 1 when
-//! one did, and 2 when it cannot run. Both generate the desktop frit's
-//! glyphs through vtium-vitrify's engine from the fonts `fetch-fonts` keeps
-//! in the cache, and skip the outline profiles, saying why, without them.
+//! one did, and 2 when it cannot run. Both generate the desktop frit's and
+//! the tiny5 frit's glyphs through vtium-vitrify's engine from the fonts
+//! `fetch-fonts` keeps in the cache, and skip the profiles drawn from them,
+//! saying why, without them.
 //! Both still take `--vitrify PATH`, which the Makefile passes, and ignore
 //! it. `card`
 //! writes a page of the card's bytes to standard output, for `cat` on a VT
@@ -66,16 +67,21 @@ fn options(args: &[String]) -> Option<Options> {
 }
 
 fn sources() -> Sources {
-    let cells: Vec<Cell> = PROFILES
-        .iter()
-        .filter(|p| matches!(p.glyphs, Glyphs::Desktop { .. }))
-        .map(|p| Cell {
-            width: p.cell.0,
-            height: p.cell.1,
-        })
-        .collect();
+    let cells = |pick: fn(Glyphs) -> bool| -> Vec<Cell> {
+        PROFILES
+            .iter()
+            .filter(|p| pick(p.glyphs))
+            .map(|p| Cell {
+                width: p.cell.0,
+                height: p.cell.1,
+            })
+            .collect()
+    };
+    let desktop = cells(|g| matches!(g, Glyphs::Desktop { .. }));
+    let tiny5 = cells(|g| matches!(g, Glyphs::Tiny5 { .. }));
     Sources {
-        desktop: fonts::desktop(&fonts::cache_dir(), &cells),
+        desktop: fonts::desktop(&fonts::cache_dir(), &desktop),
+        tiny5: fonts::tiny5(&fonts::cache_dir(), &tiny5),
     }
 }
 

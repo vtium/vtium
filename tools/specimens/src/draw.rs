@@ -47,17 +47,32 @@ impl Image {
 }
 
 /// What the profiles draw from beyond the built-in sets: the desktop
-/// frit's glyphs at each outline profile's cell, or why they could not be
-/// generated (`crate::fonts`).
+/// frit's glyphs at each outline profile's cell, and the tiny5 frit's at
+/// its own, each or why they could not be generated (`crate::fonts`).
 pub struct Sources {
-    pub desktop: Result<Vec<(Cell, Arc<Set>)>, String>,
+    pub desktop: Generated,
+    pub tiny5: Generated,
+}
+
+/// A frit's glyphs, one set at each cell, or why they were not generated.
+pub type Generated = Result<Vec<(Cell, Arc<Set>)>, String>;
+
+impl Sources {
+    /// The generated glyphs `glyphs` draws from, if it draws from any.
+    fn generated(&self, glyphs: Glyphs) -> Option<&Generated> {
+        match glyphs {
+            Glyphs::Builtin { .. } => None,
+            Glyphs::Desktop { .. } => Some(&self.desktop),
+            Glyphs::Tiny5 { .. } => Some(&self.tiny5),
+        }
+    }
 }
 
 /// Why `profile` cannot be drawn here, if it cannot: the set it needs was
 /// not built. Such a profile is skipped, never failed.
 pub fn skipped<'a>(profile: &Profile, sources: &'a Sources) -> Option<&'a str> {
-    match (profile.glyphs, &sources.desktop) {
-        (Glyphs::Desktop { .. }, Err(why)) => Some(why),
+    match sources.generated(profile.glyphs) {
+        Some(Err(why)) => Some(why),
         _ => None,
     }
 }
@@ -68,13 +83,22 @@ pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<SetFace>, Strin
         Glyphs::Builtin { set, .. } => {
             builtin(set).ok_or_else(|| format!("no built-in set {set} in this build"))?
         }
-        Glyphs::Desktop { .. } => {
+        glyphs @ (Glyphs::Desktop { .. } | Glyphs::Tiny5 { .. }) => {
             let (width, height) = profile.cell;
-            let sets = sources.desktop.as_ref().map_err(Clone::clone)?;
+            let sets = sources
+                .generated(glyphs)
+                .ok_or("no generated glyphs")?
+                .as_ref()
+                .map_err(Clone::clone)?;
             sets.iter()
                 .find(|(c, _)| *c == Cell { width, height })
                 .map(|(_, set)| Arc::clone(set))
-                .ok_or_else(|| format!("the desktop frit has no glyphs at {width}x{height}"))?
+                .ok_or_else(|| {
+                    format!(
+                        "the {} frit has no glyphs at {width}x{height}",
+                        glyphs.set()
+                    )
+                })?
         }
     };
     let face = SetFace::new(set, profile.glyphs.height())
@@ -231,8 +255,9 @@ mod tests {
                 let wrapped = l
                     .blocks(page)
                     .last()
-                    .map(|(_, top, _)| top + BLOCK_ROWS - 1);
-                for (n, top, left) in l.blocks(page) {
+                    .and_then(|b| l.row(b.slice, BLOCK_ROWS - 1).map(|r| b.top + r));
+                for b in l.blocks(page) {
+                    let (n, left) = (b.block, b.left);
                     let own = cells(&terminal(&alone, &card::page(p, &alone, n)).unwrap());
                     let rows = if n == card::BLOCKS - 1 {
                         28
@@ -240,13 +265,16 @@ mod tests {
                         BLOCK_ROWS
                     };
                     for row in (0..rows).filter(|&r| n != 0 || !(1..=3).contains(&r)) {
-                        let from = if Some(top + row) == wrapped && left == 0 {
+                        let Some(at) = l.row(b.slice, row).map(|r| b.top + r) else {
+                            continue;
+                        };
+                        let from = if Some(at) == wrapped && left == 0 {
                             2
                         } else {
                             0
                         };
                         assert_eq!(
-                            placed[top + row][left + from..left + BLOCK_COLS],
+                            placed[at][left + from..left + BLOCK_COLS],
                             own[row][from..],
                             "{} block {n} row {row}",
                             p.name
@@ -265,11 +293,12 @@ mod tests {
         for p in PROFILES {
             let l = p.layout().unwrap();
             let page = l.pages - 1;
-            let (_, top, _) = l.blocks(page).last().unwrap();
+            let b = l.blocks(page).last().unwrap();
+            let at = |row| b.top + l.row(b.slice, row).unwrap();
             let grid = cells(&terminal(&l, &card::page(p, &l, page)).unwrap());
-            assert_eq!(grid[top + 28][l.cols - 1], "", "{}", p.name);
-            assert_eq!(grid[top + 28][l.cols - 2], "·", "{}", p.name);
-            assert_eq!(grid[top + 29][0], "界", "{}", p.name);
+            assert_eq!(grid[at(28)][l.cols - 1], "", "{}", p.name);
+            assert_eq!(grid[at(28)][l.cols - 2], "·", "{}", p.name);
+            assert_eq!(grid[at(29)][0], "界", "{}", p.name);
         }
     }
 

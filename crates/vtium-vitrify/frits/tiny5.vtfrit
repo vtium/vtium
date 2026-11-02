@@ -1,0 +1,56 @@
+# tiny5: an example frit of the smallest font vtium draws, Tiny5 Mono at
+# its own 6x9 cell, 6 pixels wide being the narrowest cell a frit may
+# state. It is never a default, and vtium names it nowhere: a person who
+# wants it installs this frit and the font by hand. The sizes below were
+# measured for vtium/vtium#197.
+# Tiny5 Mono is a pixel font whose capitals are 5 pixels tall, drawn on a
+# 6-pixel advance with 7 rows above the baseline and 2 below. At 6x9 a
+# 320x240 panel holds 53x26 cells and a 640x480 one 106x53, where the
+# built-in Unscii-8's 8x8 gives 40x30 and 80x60. It holds all of ASCII,
+# Latin-1, code page 437, Greek, Armenian, box drawing, blocks and
+# Braille, most of Cyrillic and of Symbols for Legacy Computing, 4,882
+# characters in all, each one cell wide. vtium ships this frit, never the
+# font: the helper draws from the BDF file the machine holds, and leaves
+# the source out when the file is missing.
+#
+# The frit has one source. The console draws a character Tiny5 Mono
+# lacks in the built-in font for the cell (ADR-1200 D7), Unscii-8 here,
+# centered in the 6x9 cell with a column cut off each side, so the frit
+# names no builtin: line. Unscii-8 could not be a second source anyway:
+# its 8x8 cell does not fit in Tiny5 Mono's 6x9, and the helper refuses a
+# bitmap source whose cell does not fit the first source's.
+#
+# Box drawing, blocks, Braille, sextants, octants and Legacy Computing
+# draw as vtium's sprites, the default glyph-source, which line up across
+# cells. Tiny5 Mono's own box and block glyphs fill the cell too;
+# glyph-source=font draws them instead.
+#
+# Bold is weak at this size: vtium draws bitmap bold by widening each row
+# by a pixel, and with 5-pixel glyphs and a 1-pixel gap that fills the
+# counters of letters such as x and 0.
+#
+# Licences, as each source's documentation gives them:
+# - Tiny5 Mono: SIL OFL 1.1, "Copyright 2026 The Tiny5 Mono Project
+#   Authors (https://github.com/Gissio/font_Tiny5Mono)", as the BDF's
+#   COPYRIGHT property gives it; it names no Reserved Font Name. The
+#   repository's OFL.txt still carries its template's placeholder
+#   copyright line.
+
+name=tiny5
+cell=6x9
+license=OFL-1.1
+
+# Tiny5 Mono's BDF, the font at its own cell. Written against
+# github.com/Gissio/font_Tiny5Mono at 7d30f9e887fdb29e0b951e92493822afba5f70a7
+# (version 3.000), file fonts/bdf/Tiny5Mono.bdf, SHA-256
+# 33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3.
+# No Arch or AUR package installs it: download that file from the
+# repository at that commit, check its SHA-256, and copy it to the path
+# below, readable by every account, since the helper reads it as nobody
+# before login. vtium-vitrify reads the file as published: it takes the
+# character set from the XLFD name, as the file has no CHARSET_REGISTRY
+# property, and leaves out the 73 small capitals of ENCODING -1, which the
+# file's CHARS line does not count.
+# No cover= line: every glyph the file holds is one cell wide and drawn in
+# the cell, and the frit has no other source to share codepoints with.
+source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf
