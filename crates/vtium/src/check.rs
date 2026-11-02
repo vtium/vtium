@@ -665,13 +665,11 @@ mod tests {
             lines,
             [
                 "hwaccel is not built yet; vtium draws in software",
-                "display-buffers is not built yet; vtium ignores it",
                 "font-hinting is not built yet; vtium ignores it",
                 "font-line-spacing is not built yet; vtium ignores it",
             ]
         );
         for (arg, key) in [
-            ("--display-buffers=1", "display-buffers"),
             ("--font-hinting=full", "font-hinting"),
             ("--font-line-spacing=20", "font-line-spacing"),
         ] {

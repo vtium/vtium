@@ -410,7 +410,7 @@ impl App {
             modes,
             use_original,
             // kmscon.conf's `display-buffers` goes in here.
-            display_buffers: crate::video::display_buffers(None),
+            display_buffers: crate::video::display_buffers(config.display_buffers()),
             vt,
             videos: BTreeMap::new(),
             input: None,
@@ -3964,6 +3964,49 @@ mod tests {
         let rang = |app: &mut App| app.vt.get::<Bells>().map(|v| v.rang);
         app.turn(Instant::now());
         assert_eq!(rang(&mut app), Some(1));
+    }
+
+    // ADR-1401 D2, the maintainer's answer of 2026-11-01: kmscon.conf's
+    // `display-buffers` sets how many buffers each DRM display the seat
+    // opens keeps, from the file and from the command line; unset, the
+    // build's count
+    #[test]
+    fn display_buffers_reaches_the_count_each_display_keeps() {
+        use vtium_platform::display::Buffers;
+        let count = |args: &[&str], file: Option<&[u8]>| {
+            let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+            let loaded = crate::config::load(&args, None, &mut |p: &Path| {
+                Ok(file
+                    .filter(|_| p == Path::new("/etc/kmscon/kmscon.conf"))
+                    .map(<[u8]>::to_vec))
+            });
+            assert_eq!(loaded.reports, [], "{args:?}");
+            let lp: Loop<App> = Loop::new().unwrap();
+            let app = App::new(
+                loaded.config,
+                Box::new(FakeVt::new()),
+                lp.handle(),
+                Rc::new(Instant::now),
+                Vec::new(),
+            );
+            app.display_buffers
+        };
+        assert_eq!(count(&[], None), crate::video::BUILD_BUFFERS, "unset");
+        assert_eq!(
+            count(&[], Some(b"display-buffers=1\n")),
+            Buffers::One,
+            "the file"
+        );
+        assert_eq!(
+            count(&["--display-buffers=3"], None),
+            Buffers::Three,
+            "the command line"
+        );
+        assert_eq!(
+            count(&["--display-buffers=2"], Some(b"display-buffers=1\n")),
+            Buffers::Two,
+            "the command line over the file"
+        );
     }
 
     // vtium/vtium#203: kmscon.conf's `natural-scrolling`, off by default
