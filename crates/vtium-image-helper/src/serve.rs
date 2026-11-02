@@ -306,6 +306,9 @@ pub fn serve(socket: &OwnedFd, settings: &Settings) -> u8 {
         let Ok((outcome, reply, pooled, worker)) = served else {
             return EXIT_FAILED;
         };
+        if !sandboxed(&outcome, settings) {
+            return EXIT_FAILED;
+        }
         let outcome = remove_shm(&request, outcome);
         if answer(socket, id, &request, &outcome, reply.as_ref(), pooled).is_err() {
             return EXIT_FAILED;
@@ -505,19 +508,49 @@ fn one_off(
 
 /// A worker's first steps, before it reads anything: vtium's socket,
 /// descriptor 3, is closed in it, and it adds its second filter and then
-/// runs under one more seccomp filter than the helper. `false` when any
-/// of these is wrong, and the worker exits without an outcome.
-fn confined(settings: &Settings) -> bool {
+/// runs under one more seccomp filter than the helper. The seccomp filters
+/// it runs under, 0 where none is built or the kernel does not count
+/// them; `None` when any of these is wrong, and the worker exits without
+/// an outcome.
+fn confined(settings: &Settings) -> Option<u32> {
     if fork::is_open(SOCKET_FD) {
-        return false;
+        return None;
     }
     match settings.filter.install() {
-        Ok(true) => settings
-            .filters
-            .is_none_or(|n| sandbox::seccomp_filters() == n.checked_add(1)),
-        Ok(false) => true,
-        Err(_) => false,
+        Ok(true) => {
+            let filters = sandbox::seccomp_filters();
+            let expected = settings.filters.and_then(|n| n.checked_add(1));
+            if settings.filters.is_some() && filters != expected {
+                return None;
+            }
+            Some(filters.unwrap_or(0))
+        }
+        Ok(false) => Some(0),
+        Err(_) => None,
     }
+}
+
+/// `outcome` with what the worker found of its sandbox as it answers: the
+/// seccomp filters `confined` counted, and whether it can open a
+/// directory, probed now, apart from the lock, so the helper sees a worker
+/// whose lock was skipped.
+fn attested(mut outcome: Outcome, filters: u32) -> Outcome {
+    outcome.filters = filters;
+    outcome.locked = !sandbox::can_open_root();
+    outcome
+}
+
+/// Whether a worker's outcome shows the sandbox the helper expects: one
+/// more seccomp filter than the helper's, where the kernel counts them,
+/// and a worker that could open no directory, wherever the kernel offers
+/// landlock or the third filter is built. A worker that shows otherwise
+/// fails the request as a crash.
+fn sandboxed(outcome: &Outcome, settings: &Settings) -> bool {
+    let filters = settings
+        .filters
+        .is_none_or(|n| n.checked_add(1) == Some(outcome.filters));
+    let locked = outcome.locked || (settings.landlock == 0 && !sandbox::SECCOMP);
+    filters && locked
 }
 
 /// The worker locks itself in: its landlock domain, or on a kernel
@@ -546,9 +579,9 @@ fn locked(settings: &Settings) -> bool {
 /// request it is sent carried out and answered. The exit status: 0 once
 /// the request is answered, 1 on a failure.
 pub fn worker(channel: &OwnedFd, settings: &Settings) -> i32 {
-    if !confined(settings) {
+    let Some(filters) = confined(settings) else {
         return 1;
-    }
+    };
     let packet = match channel::receive(channel, PACKET_MAX.saturating_add(1)) {
         Ok(p) => p,
         Err(_) => return 1,
@@ -577,6 +610,7 @@ pub fn worker(channel: &OwnedFd, settings: &Settings) -> i32 {
         Ok(source) => job::finish(&request, source, reply.as_ref()),
         Err(f) => Outcome::failed(f.status, f.reason),
     };
+    let outcome = attested(outcome, filters);
     if channel::send(channel, &channel::encode_outcome(&outcome), &[]).is_err() {
         return 1;
     }
@@ -589,7 +623,10 @@ pub fn worker(channel: &OwnedFd, settings: &Settings) -> i32 {
 /// closes the channel. The exit status: 0 when the channel closes, 1 on a
 /// failure, such as a job that is no inline frame with a pooled file.
 pub fn stream_worker(channel: &OwnedFd, settings: &Settings) -> i32 {
-    if !confined(settings) || !locked(settings) {
+    let Some(filters) = confined(settings) else {
+        return 1;
+    };
+    if !locked(settings) {
         return 1;
     }
     loop {
@@ -613,6 +650,7 @@ pub fn stream_worker(channel: &OwnedFd, settings: &Settings) -> i32 {
         };
         let reply = ReplyFile::Pooled(reply);
         let outcome = job::finish(&request, Source::Inline(inline), Some(&reply));
+        let outcome = attested(outcome, filters);
         if channel::send(channel, &channel::encode_outcome(&outcome), &[]).is_err() {
             return 1;
         }

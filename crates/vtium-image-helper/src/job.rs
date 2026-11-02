@@ -147,6 +147,8 @@ pub fn finish(request: &Request, source: Source, reply: Option<&ReplyFile>) -> O
                 ignored,
                 shm,
                 mismatch: false,
+                locked: false,
+                filters: 0,
                 reason: String::new(),
             },
             Ok(false) => Outcome {

@@ -6,7 +6,8 @@
 //! worker answers with its [`Outcome`]: the status, the picture's size,
 //! the bytes ignored, the reason, and, for a shared-memory object it read
 //! a valid picture from, the object's device and inode, which the helper
-//! needs to remove it.
+//! needs to remove it. The outcome also says what the worker found of its
+//! own sandbox, which the helper checks (ADR-1101 D9).
 
 use std::io::{IoSlice, IoSliceMut};
 use std::mem::MaybeUninit;
@@ -124,6 +125,12 @@ pub struct Outcome {
     /// A pooled reply file was of another size than the picture, so the
     /// worker wrote nothing (ADR-1101 D4).
     pub mismatch: bool,
+    /// The worker could open no directory when it answered: its landlock
+    /// domain or its third filter was in force.
+    pub locked: bool,
+    /// The seccomp filters the worker ran under once its second was in,
+    /// 0 where the kernel does not count them or none is built.
+    pub filters: u32,
     pub reason: String,
 }
 
@@ -137,6 +144,8 @@ impl Outcome {
             ignored: 0,
             shm: None,
             mismatch: false,
+            locked: false,
+            filters: 0,
             reason: reason.into(),
         }
     }
@@ -156,7 +165,9 @@ pub fn encode_outcome(o: &Outcome) -> Vec<u8> {
     }
     let reason = o.reason.get(..end).unwrap_or_default();
     let (dev, ino) = o.shm.map_or((0, 0), |id| (id.dev, id.ino));
-    let flags = u32::from(o.shm.is_some()) | u32::from(o.mismatch).wrapping_shl(1);
+    let flags = u32::from(o.shm.is_some())
+        | u32::from(o.mismatch).wrapping_shl(1)
+        | u32::from(o.locked).wrapping_shl(2);
     let mut out = Vec::with_capacity(OUTCOME_FIXED.saturating_add(reason.len()));
     for v in [
         o.status as u32,
@@ -170,7 +181,7 @@ pub fn encode_outcome(o: &Outcome) -> Vec<u8> {
         out.extend_from_slice(&v.to_le_bytes());
     }
     out.extend_from_slice(&flags.to_le_bytes());
-    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&o.filters.to_le_bytes());
     out.extend_from_slice(reason.as_bytes());
     out
 }
@@ -195,7 +206,7 @@ pub fn decode_outcome(packet: &[u8]) -> Option<Outcome> {
         return None;
     }
     let flags = u32_at(40)?;
-    if flags & !3 != 0 || u32_at(44)? != 0 {
+    if flags & !7 != 0 {
         return None;
     }
     let shm = (flags & 1 != 0).then(|| Identity {
@@ -209,6 +220,8 @@ pub fn decode_outcome(packet: &[u8]) -> Option<Outcome> {
         ignored: u64_at(16)?,
         shm,
         mismatch: flags & 2 != 0,
+        locked: flags & 4 != 0,
+        filters: u32_at(44)?,
         reason: String::from_utf8_lossy(packet.get(OUTCOME_FIXED..)?).into_owned(),
     })
 }
@@ -257,6 +270,8 @@ mod tests {
             ignored: 5,
             shm: Some(Identity { dev: 6, ino: 7 }),
             mismatch: true,
+            locked: true,
+            filters: 2,
             reason: "é".repeat(200),
         };
         let packet = encode_outcome(&o);
@@ -271,7 +286,7 @@ mod tests {
         );
         assert_eq!(decode_outcome(&packet[..packet.len() - 1]), None);
         let mut bad = packet.clone();
-        bad[40] = 4;
+        bad[40] = 8;
         assert_eq!(decode_outcome(&bad), None);
     }
 }
