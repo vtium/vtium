@@ -860,3 +860,38 @@ fn a_sleep_after_a_retake_to_a_copy_waits_for_the_old_token() {
     assert!(matches!(v.swap(token, &[WHOLE]), Err(SwapError::Dropped)));
     assert_eq!(v.events().collect::<Vec<_>>(), [Event::Asleep]);
 }
+
+/// A framebuffer in a real loop, awake.
+struct Looped(Fbdev<FakeFb>);
+
+fn looped() -> (crate::event_loop::Loop<Looped>, Looped) {
+    let lp: crate::event_loop::Loop<Looped> = crate::event_loop::Loop::new().unwrap();
+    let mut app = Looped(Fbdev::with(FakeFb::new(32)));
+    app.0
+        .insert(&lp.handle(), |app: &mut Looped| Some(&mut app.0));
+    app.0.wake_up().unwrap();
+    app.0.events().for_each(drop);
+    (lp, app)
+}
+
+// A sleep that comes during the stand-in flip, with its timer of one
+// refresh armed, bounds its wait for the token by FLIP_WAIT_MS: it arms
+// the timer anew for that.
+#[test]
+fn a_sleep_during_the_stand_in_flip_waits_its_own_bound() {
+    let (_lp, mut app) = looped();
+    draw(&mut app.0, &[WHOLE], |_| ()).unwrap();
+    assert_eq!(app.0.timer.map(|(_, d)| d), Some(app.0.interval));
+    let (go, thread) = drawing(&mut app.0);
+    app.0.sleep();
+    let bound = Duration::from_millis(u64::try_from(crate::FLIP_WAIT_MS).unwrap());
+    assert_eq!(app.0.timer.map(|(_, d)| d), Some(bound));
+    go.send(()).unwrap();
+    let token = thread.join().unwrap();
+    assert!(matches!(
+        app.0.swap(token, &[WHOLE]),
+        Err(SwapError::Dropped)
+    ));
+    assert_eq!(app.0.events().collect::<Vec<_>>(), [Event::Asleep]);
+    assert!(app.0.timer.is_none());
+}

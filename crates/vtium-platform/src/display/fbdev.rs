@@ -230,7 +230,8 @@ pub struct Fbdev<F: Framebuffer> {
     /// not come on since: the next input tries again.
     wake_failed: bool,
     events: Vec<Event>,
-    timer: Option<RegistrationToken>,
+    /// The timer armed, and the time it was armed for.
+    timer: Option<(RegistrationToken, Duration)>,
     link: Option<Box<dyn Link>>,
 }
 
@@ -606,8 +607,8 @@ impl<F: Framebuffer> Fbdev<F> {
         self.settle();
     }
 
-    /// Arms and disarms the timer to match what waits: the stand-in flip
-    /// event, else an unblank's retry.
+    /// Arms and disarms the timer to match what waits: a sleep's wait for
+    /// a token, else the stand-in flip event, else an unblank's retry.
     fn settle(&mut self) {
         let Some(link) = &self.link else {
             return;
@@ -621,10 +622,18 @@ impl<F: Framebuffer> Fbdev<F> {
         } else {
             self.retries.map(|_| Duration::from_millis(retry))
         };
+        // A timer armed for another wait, as the stand-in flip's when a
+        // sleep starts waiting for a token, is armed anew for this one.
         match (after, self.timer.take()) {
-            (Some(after), None) => self.timer = link.arm(after),
-            (None, Some(t)) => link.disarm(t),
-            (_, t) => self.timer = t,
+            (Some(after), Some((t, armed))) if armed == after => self.timer = Some((t, armed)),
+            (Some(after), armed) => {
+                if let Some((t, _)) = armed {
+                    link.disarm(t);
+                }
+                self.timer = link.arm(after).map(|t| (t, after));
+            }
+            (None, Some((t, _))) => link.disarm(t),
+            (None, None) => {}
         }
     }
 
@@ -888,7 +897,7 @@ impl<F: Framebuffer + 'static> Fbdev<F> {
 
 impl<F: Framebuffer> Drop for Fbdev<F> {
     fn drop(&mut self) {
-        if let (Some(link), Some(token)) = (&self.link, self.timer.take()) {
+        if let (Some(link), Some((token, _))) = (&self.link, self.timer.take()) {
             link.disarm(token);
         }
     }
