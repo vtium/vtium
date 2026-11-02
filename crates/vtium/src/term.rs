@@ -521,6 +521,15 @@ pub struct Presented {
     pub queued: bool,
 }
 
+/// The interval between a display's refreshes at `refresh_mhz`, `None`
+/// where the display reports no rate.
+fn refresh(refresh_mhz: Option<u32>) -> Option<std::time::Duration> {
+    refresh_mhz
+        .filter(|&m| m > 0)
+        .and_then(|m| 1_000_000_000_000_u64.checked_div(u64::from(m)))
+        .map(std::time::Duration::from_nanos)
+}
+
 /// One display drawing the terminal.
 pub struct View {
     pub id: DisplayId,
@@ -594,10 +603,7 @@ impl View {
             lost: true,
             timer: measure.then(RenderTimer::new),
             size,
-            refresh: refresh_mhz
-                .filter(|&m| m > 0)
-                .and_then(|m| 1_000_000_000_000_u64.checked_div(u64::from(m)))
-                .map(std::time::Duration::from_nanos),
+            refresh: refresh(refresh_mhz),
             pointer: Pointer::default(),
             forgotten: Vec::new(),
             arrived: Vec::new(),
@@ -638,6 +644,23 @@ impl View {
         self.since = Age::NEVER;
         self.lost = true;
         self.pointer.reset();
+    }
+
+    /// The display's new mode, which a modeset set in place on the same
+    /// connector: the view takes `size` and `refresh_mhz` and draws from
+    /// here on with a new renderer at that size, with `font` at the height
+    /// it had, so the next frame is drawn whole. The view's size is always
+    /// its renderer's: it changes only with the renderer.
+    pub fn resize(
+        &mut self,
+        font: Font<DisplayFace>,
+        size: (u32, u32),
+        refresh_mhz: Option<u32>,
+        config: RenderConfig,
+    ) {
+        self.size = size;
+        self.refresh = refresh(refresh_mhz);
+        self.rebuild(font, self.height, config);
     }
 
     /// Draws another screen from the next frame, as a console switch
