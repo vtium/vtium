@@ -325,7 +325,7 @@ mod tests {
 
     // ADR-1401 D2: the minspec build, vtium's default build, keeps two
     // buffers a DRM display.
-    #[cfg(not(feature = "images"))]
+    #[cfg(not(any(feature = "images", feature = "logind")))]
     #[test]
     fn the_minspec_build_keeps_two_buffers() {
         assert_eq!(BUILD_BUFFERS, Buffers::Two);
@@ -347,8 +347,7 @@ mod tests {
     // Every feature of the crate but `default` adds to minspec, so each is
     // one BUILD_BUFFERS gives three buffers for: a feature in Cargo.toml
     // missing from FEATURES_ON_TOP, or one there Cargo.toml lacks, fails
-    // this test. Each entry's flag reads its own feature: the gates build
-    // with every feature and with none, and in each the flags agree.
+    // this test. BUILD_BUFFERS is three exactly when any flag is on.
     #[test]
     fn build_buffers_counts_every_feature_on_top_of_minspec() {
         let manifest = include_str!("../Cargo.toml");
@@ -364,15 +363,15 @@ mod tests {
         let mut named: Vec<&str> = FEATURES_ON_TOP.iter().map(|(name, _)| *name).collect();
         named.sort_unstable();
         assert_eq!(features, named);
-        let on: Vec<bool> = FEATURES_ON_TOP.iter().map(|(_, on)| *on).collect();
-        assert!(
-            on.windows(2).all(|w| w.first() == w.last()),
-            "{FEATURES_ON_TOP:?}"
-        );
+        let any = FEATURES_ON_TOP.iter().any(|(_, on)| *on);
+        assert_eq!(BUILD_BUFFERS == Buffers::Three, any, "{FEATURES_ON_TOP:?}");
     }
 
     // Each flag of FEATURES_ON_TOP reads its own feature, checked against
-    // the feature itself in each build the tests run in.
+    // the feature itself in each build the tests run in. A flag that reads
+    // another feature agrees with it in the build with every feature and in
+    // the build with none, so only a single-feature build catches it:
+    // `cargo test -p vtium --features images`, and the same with `logind`.
     #[test]
     fn each_feature_flag_reads_its_own_feature() {
         let on = |name: &str| {
@@ -387,7 +386,7 @@ mod tests {
 
     // ADR-1401 D2: a build that adds features on top of minspec keeps
     // three.
-    #[cfg(feature = "images")]
+    #[cfg(any(feature = "images", feature = "logind"))]
     #[test]
     fn a_build_with_features_keeps_three_buffers() {
         assert_eq!(BUILD_BUFFERS, Buffers::Three);
