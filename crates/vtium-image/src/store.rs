@@ -14,8 +14,10 @@
 //! hash. Every walk over placements adds what it visits to the store's
 //! work count, which the terminal adds to its input call's work.
 
+mod edit;
 mod events;
 mod frame;
+mod kitty;
 mod reserve;
 #[cfg(test)]
 mod tests;
@@ -29,6 +31,7 @@ use crate::bounds::{
 use crate::image::{ImageKey, LineKey, NewImage, Pixels, Place, PlacementKey, Refusal};
 use crate::rules::{Kept, Layer, rules};
 
+pub use edit::Edit;
 pub use frame::FramePlacement;
 pub use reserve::Reservation;
 

@@ -13,13 +13,12 @@ use core::fmt;
 
 use vtium_image::decode::{Reply, Request};
 use vtium_image::{
-    Context, Handler, ImageKey, Intro, Limits, NewImage, Place, PlacementKey, Protocol, Refusal,
-    ReplyKind, Reservation, Store, Switches,
+    Context, Edit, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Store, Switches,
 };
 use vtium_parse::{Chunk, Intermediates, Params, StringEnd};
 
 use super::reply::Query;
-use super::{State, Terminal};
+use super::{State, Terminal, modes};
 use crate::bounds::INPUT_WORK_MAX;
 
 /// The control strings the router sends to a handler.
@@ -46,6 +45,8 @@ pub(super) struct Router {
     apc_open: bool,
     switches: Switches,
     limits: Limits,
+    /// The color register count XTSMGRAPHICS set, for the next sixel.
+    registers: Option<u32>,
     /// The host has an image helper.
     helper: bool,
     /// The request out, the handler it answers, and whether the host has
@@ -67,6 +68,7 @@ impl Default for Router {
                 iterm2: false,
             },
             limits: Limits::default(),
+            registers: None,
             helper: false,
             awaiting: None,
         }
@@ -82,6 +84,7 @@ impl fmt::Debug for Router {
             .field("active", &self.active)
             .field("switches", &self.switches)
             .field("limits", &self.limits)
+            .field("registers", &self.registers)
             .field("helper", &self.helper)
             .field("awaiting", &self.awaiting)
             .finish()
@@ -104,6 +107,7 @@ impl PartialEq for Router {
             && self.apc_open == other.apc_open
             && self.switches == other.switches
             && self.limits == other.limits
+            && self.registers == other.registers
             && self.helper == other.helper
             && self.awaiting == other.awaiting
     }
@@ -144,58 +148,10 @@ impl Context for Ctx<'_> {
         self.state.screen.images()
     }
 
-    fn reserve(&mut self, protocol: Protocol, id: u32, bytes: u64) -> Result<Reservation, Refusal> {
-        self.state
-            .screen
-            .with_images(|store, screens, _| store.reserve(protocol, id, bytes, screens))
-    }
-
-    fn grow(&mut self, reservation: &mut Reservation, more: u64) -> Result<(), Refusal> {
-        self.state
-            .screen
-            .with_images(|store, screens, _| store.grow(reservation, more, screens))
-    }
-
-    fn unreserve(&mut self, reservation: Reservation) {
-        self.state
-            .screen
-            .with_images(|store, _, _| store.unreserve(reservation));
-    }
-
-    fn add_image(
-        &mut self,
-        image: NewImage,
-        reservation: Option<Reservation>,
-    ) -> Result<ImageKey, Refusal> {
-        self.state
-            .screen
-            .with_images(|store, screens, _| store.add_image(image, reservation, screens))
-    }
-
-    fn drop_image(&mut self, image: ImageKey) {
-        self.state
-            .screen
-            .with_images(|store, _, _| store.drop_image(image));
-    }
-
-    fn find_image(&mut self, id: u32, number: u32) -> Option<ImageKey> {
-        self.state
-            .screen
-            .with_images(|store, _, _| store.find_image(id, number))
-    }
-
-    fn touch(&mut self, image: ImageKey) {
-        self.state
-            .screen
-            .with_images(|store, _, _| store.touch(image));
-    }
-
-    fn free_id(&mut self) -> u32 {
-        self.state.screen.with_images(|store, _, _| store.free_id())
-    }
-
-    fn place(&mut self, image: ImageKey, place: Place) -> Result<PlacementKey, Refusal> {
-        self.state.screen.place_image(image, place)
+    fn edit_store(&mut self, f: &mut dyn FnMut(&mut Edit<'_>)) {
+        self.state.screen.with_images(|store, screens, cols| {
+            f(&mut Edit::new(store, screens, cols));
+        });
     }
 
     fn helper(&self) -> bool {
@@ -222,8 +178,21 @@ impl Context for Ctx<'_> {
         self.state.screen.restore_cursor(col, row);
     }
 
-    fn index(&mut self) {
-        self.state.screen.move_down(1, true);
+    fn margins(&self) -> Margins {
+        let (top, bottom) = self.state.screen.margins();
+        Margins { top, bottom }
+    }
+
+    fn index(&mut self, n: usize) {
+        self.state.screen.move_down(n, true);
+    }
+
+    fn scroll_up(&mut self, n: usize) {
+        self.state.screen.scroll_up(n);
+    }
+
+    fn sixel(&self) -> SixelState {
+        self.state.sixel_state()
     }
 
     fn reply(&mut self, kind: ReplyKind, bytes: &[u8]) {
@@ -268,6 +237,49 @@ impl State {
     /// switched on, a handler is installed, and the budget is above 0.
     fn image_offered(&self, which: ImageString) -> bool {
         self.images.on(which) && self.screen.images().limit() > 0
+    }
+
+    /// The sixel modes as the mode table holds them, and the register count
+    /// in force. A mode the table has no row for reads as its state at
+    /// reset: 80 and 8452 reset, 1070 as `private-color-registers` says.
+    fn sixel_state(&self) -> SixelState {
+        // DECRQM's report: 1 or 3 set, 2 or 4 reset, 0 no row
+        let mode = |number: u32, otherwise: bool| match modes::report(self, true, number) {
+            1 | 3 => true,
+            2 | 4 => false,
+            _ => otherwise,
+        };
+        let limits = self.images.limits;
+        SixelState {
+            display: mode(80, false),
+            private_registers: mode(1070, limits.private_registers),
+            cursor_right: mode(8452, false),
+            registers: self
+                .images
+                .registers
+                .map_or(limits.registers, |n| n.min(limits.registers)),
+        }
+    }
+
+    /// Sets the color register count XTSMGRAPHICS asks for, or with `None`
+    /// returns it to `num-color-registers`; the next sixel takes it.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "XTSMGRAPHICS, which the sixel handler's build adds, calls it"
+        )
+    )]
+    pub(super) fn set_sixel_registers(&mut self, count: Option<u32>) {
+        self.images.registers = count;
+    }
+
+    /// RIS: each handler returns to its state at start, before the store
+    /// empties.
+    pub(super) fn images_reset(&mut self) {
+        for which in [ImageString::Sixel, ImageString::Kitty, ImageString::Iterm2] {
+            self.with_handler(which, |h, ctx| h.reset(ctx));
+        }
     }
 
     /// DCS `q` with no intermediate goes to the sixel handler while sixel
@@ -377,6 +389,16 @@ impl Terminal {
         *self.state.images.slot(which) = handler;
     }
 
+    /// The handler the router sends `which` to, if one is installed.
+    pub fn image_handler(&self, which: ImageString) -> Option<&dyn Handler> {
+        let slot = match which {
+            ImageString::Sixel => &self.state.images.sixel,
+            ImageString::Kitty => &self.state.images.kitty,
+            ImageString::Iterm2 => &self.state.images.iterm2,
+        };
+        slot.as_deref()
+    }
+
     /// Turns the image protocols on or off: an off protocol's strings are
     /// ignored as every string vtium does not take is.
     pub fn set_image_switches(&mut self, switches: Switches) {
@@ -433,6 +455,8 @@ impl Terminal {
 
 #[cfg(test)]
 mod tests {
+    use vtium_image::{NewImage, Place, Protocol, Refusal};
+
     use super::*;
 
     /// A handler that keeps the bytes it was fed.
@@ -471,6 +495,248 @@ mod tests {
         t.set_image_handler(ImageString::Kitty, Some(Box::new(Keep::default())));
         let _ = t.input(bytes);
         t
+    }
+
+    /// A handler that, at each string's start, notes what the context
+    /// reports, and at its finish stores and places an 8 by 16 sixel at
+    /// the cursor through one store edit, reserving part of its cost first
+    /// and growing the reservation once.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct Probe {
+        margins: Option<Margins>,
+        sixel: Option<SixelState>,
+        placed: Option<Result<(u32, u32), Refusal>>,
+    }
+
+    impl Handler for Probe {
+        fn start(&mut self, ctx: &mut dyn Context, _: Intro<'_>) {
+            self.margins = Some(ctx.margins());
+            self.sixel = Some(ctx.sixel());
+        }
+        fn feed(&mut self, _: &mut dyn Context, _: Chunk<'_>) {}
+        fn finish(&mut self, ctx: &mut dyn Context) {
+            let (col, row) = ctx.cursor();
+            let at = Place {
+                col: u32::try_from(col).unwrap_or(0),
+                row: u32::try_from(row).unwrap_or(0),
+                ..Place::default()
+            };
+            self.placed = ctx.edit(|e| {
+                let mut r = e.reserve(Protocol::SIXEL, 0, 100)?;
+                e.grow(&mut r, 400)?;
+                let image = NewImage {
+                    protocol: Protocol::SIXEL,
+                    width: 8,
+                    height: 16,
+                    pixels: vec![0xffff_ffff; 128],
+                    id: 0,
+                    number: 0,
+                    transient: false,
+                };
+                let key = e.add_image(image, Some(r))?;
+                let p = e.place(key, at)?;
+                e.extent(p).ok_or(Refusal::NotFound)
+            });
+        }
+        fn cancel(&mut self, _: &mut dyn Context) {}
+        fn decoded(&mut self, _: &mut dyn Context, _: Reply) {}
+        fn clone_box(&self) -> Box<dyn Handler> {
+            Box::new(self.clone())
+        }
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+        fn same(&self, other: &dyn Handler) -> bool {
+            other.as_any().downcast_ref::<Self>() == Some(self)
+        }
+    }
+
+    /// An 8 by 4 terminal, its cell 8 by 16 pixels, with `limit` bytes for
+    /// images and the probe as its sixel handler.
+    fn probed(limit: u64) -> Terminal {
+        let mut t = Terminal::new(8, 4, 16);
+        t.screen_mut().set_image_limit(limit);
+        t.set_image_switches(Switches {
+            sixel: true,
+            kitty: false,
+            iterm2: false,
+        });
+        t.set_image_handler(ImageString::Sixel, Some(Box::new(Probe::default())));
+        t
+    }
+
+    fn probe(t: &Terminal) -> Probe {
+        t.image_handler(ImageString::Sixel)
+            .and_then(|h| h.as_any().downcast_ref::<Probe>())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// DECRQM's answer for DEC mode `n`.
+    fn decrqm(t: &mut Terminal, n: u32) -> u8 {
+        let _ = t.take_replies();
+        let _ = t.input(format!("\x1b[?{n}$p").as_bytes());
+        let reply = String::from_utf8(t.take_replies()).unwrap_or_default();
+        let prefix = format!("\x1b[?{n};");
+        reply
+            .strip_prefix(&prefix)
+            .and_then(|r| r.strip_suffix("$y"))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(u8::MAX)
+    }
+
+    #[test]
+    fn the_context_reports_the_scroll_regions_margins() {
+        let mut t = probed(1 << 20);
+        let _ = t.input(b"\x1bPq\x1b\\");
+        assert_eq!(probe(&t).margins, Some(Margins { top: 0, bottom: 3 }));
+        let _ = t.input(b"\x1b[2;3r\x1bPq\x1b\\");
+        assert_eq!(probe(&t).margins, Some(Margins { top: 1, bottom: 2 }));
+        let _ = t.input(b"\x1b[r\x1bPq\x1b\\");
+        assert_eq!(probe(&t).margins, Some(Margins { top: 0, bottom: 3 }));
+    }
+
+    #[test]
+    fn the_context_reports_the_sixel_modes_as_decrqm_does() {
+        for private in [true, false] {
+            let mut t = probed(1 << 20);
+            t.set_image_limits(Limits {
+                private_registers: private,
+                ..Limits::default()
+            });
+            for set in [true, false] {
+                let verb = if set { 'h' } else { 'l' };
+                let _ =
+                    t.input(format!("\x1b[?80{verb}\x1b[?1070{verb}\x1b[?8452{verb}").as_bytes());
+                let _ = t.input(b"\x1bPq\x1b\\");
+                let got = probe(&t).sixel;
+                // a mode the table has no row for reads as its state at
+                // reset; one it has reads as DECRQM reports it
+                let expect = |t: &mut Terminal, n: u32, reset: bool| match decrqm(t, n) {
+                    1 | 3 => Some(true),
+                    2 | 4 => Some(false),
+                    0 => Some(reset),
+                    _ => None,
+                };
+                let display = expect(&mut t, 80, false);
+                let private_registers = expect(&mut t, 1070, private);
+                let cursor_right = expect(&mut t, 8452, false);
+                assert!(display.is_some() && private_registers.is_some() && cursor_right.is_some());
+                assert_eq!(got.map(|s| s.display), display, "mode 80");
+                assert_eq!(
+                    got.map(|s| s.private_registers),
+                    private_registers,
+                    "mode 1070"
+                );
+                assert_eq!(got.map(|s| s.cursor_right), cursor_right, "mode 8452");
+            }
+        }
+    }
+
+    #[test]
+    fn the_context_reports_the_register_count_in_force() {
+        let mut t = probed(1 << 20);
+        let count = |t: &mut Terminal| {
+            let _ = t.input(b"\x1bPq\x1b\\");
+            probe(t).sixel.map(|s| s.registers)
+        };
+        assert_eq!(count(&mut t), Some(1024), "num-color-registers");
+        t.state.set_sixel_registers(Some(16));
+        assert_eq!(count(&mut t), Some(16));
+        t.state.set_sixel_registers(Some(5000));
+        assert_eq!(count(&mut t), Some(1024), "never past num-color-registers");
+        t.set_image_limits(Limits {
+            registers: 256,
+            ..Limits::default()
+        });
+        t.state.set_sixel_registers(None);
+        assert_eq!(count(&mut t), Some(256));
+    }
+
+    #[test]
+    fn a_store_edit_charges_the_budget_once_and_anchors_to_the_line() {
+        // 8 by 16 pixels at 4 bytes, and the image's own charge
+        let cost = 8 * 16 * 4 + vtium_image::IMAGE_OVERHEAD;
+        let mut t = probed(1 << 20);
+        let _ = t.input(b"\x1b[3;2H\x1bPq\x1b\\");
+        assert_eq!(probe(&t).placed, Some(Ok((1, 1))));
+        assert_eq!(
+            t.screen().images().bytes(),
+            cost,
+            "the reservation counts toward the image's cost, once"
+        );
+        let at = |t: &Terminal| -> Vec<(i64, u32)> {
+            t.screen()
+                .placements()
+                .iter()
+                .map(|p| (p.row, p.col))
+                .collect()
+        };
+        assert_eq!(at(&t), [(2, 1)]);
+        // a line feed on the bottom row scrolls the screen up one row: the
+        // placement moves with the line that holds it
+        let _ = t.input(b"\x1b[4;1H\n");
+        assert_eq!(at(&t), [(1, 1)]);
+        // RIS empties the store and gives every byte back
+        let _ = t.input(b"\x1bc");
+        assert_eq!(t.screen().images().bytes(), 0);
+
+        // a budget below the cost refuses it, and the reservation goes back
+        let mut t = probed(cost - 1);
+        let _ = t.input(b"\x1bPq\x1b\\");
+        assert_eq!(probe(&t).placed, Some(Err(Refusal::NoSpace)));
+        assert_eq!(t.screen().images().bytes(), 0);
+        assert_eq!(t.screen().images().image_count(), 0);
+    }
+
+    /// A handler that keeps a reservation from a string's finish until RIS,
+    /// as a kitty upload in chunks keeps one between its strings.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct Holding(Option<vtium_image::Reservation>);
+
+    impl Handler for Holding {
+        fn start(&mut self, _: &mut dyn Context, _: Intro<'_>) {}
+        fn feed(&mut self, _: &mut dyn Context, _: Chunk<'_>) {}
+        fn finish(&mut self, ctx: &mut dyn Context) {
+            self.0 = ctx.reserve(Protocol::KITTY, 0, 4096).ok();
+        }
+        fn cancel(&mut self, _: &mut dyn Context) {}
+        fn decoded(&mut self, _: &mut dyn Context, _: Reply) {}
+        fn reset(&mut self, ctx: &mut dyn Context) {
+            if let Some(r) = self.0.take() {
+                ctx.unreserve(r);
+            }
+        }
+        fn clone_box(&self) -> Box<dyn Handler> {
+            Box::new(self.clone())
+        }
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+        fn same(&self, other: &dyn Handler) -> bool {
+            other.as_any().downcast_ref::<Self>() == Some(self)
+        }
+    }
+
+    #[test]
+    fn ris_resets_each_handler_so_it_gives_back_what_it_holds() {
+        let mut t = Terminal::new(8, 4, 16);
+        t.screen_mut().set_image_limit(1 << 20);
+        t.set_image_switches(Switches {
+            sixel: false,
+            kitty: true,
+            iterm2: false,
+        });
+        t.set_image_handler(ImageString::Kitty, Some(Box::new(Holding::default())));
+        let _ = t.input(b"\x1b_Gx\x1b\\");
+        assert_eq!(t.screen().images().bytes(), 4096);
+        let _ = t.input(b"\x1bc");
+        assert_eq!(t.screen().images().bytes(), 0);
+        let held = t
+            .image_handler(ImageString::Kitty)
+            .and_then(|h| h.as_any().downcast_ref::<Holding>())
+            .map(|h| h.0.is_some());
+        assert_eq!(held, Some(false));
     }
 
     #[test]

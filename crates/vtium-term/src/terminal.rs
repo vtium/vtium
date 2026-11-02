@@ -644,7 +644,10 @@ impl State {
         self.screen.erase_screen(Erase::All);
         self.screen.clear_scrollback();
         #[cfg(feature = "images")]
-        self.screen.reset_images();
+        {
+            self.images_reset();
+            self.screen.reset_images();
+        }
         self.screen
             .set_attribute_extent(crate::screen::Extent::Stream);
         modes::reset(self, true);

@@ -23,21 +23,23 @@
 //!   this crate never depends on vtium-term.
 //! - The [protocol tag](Protocol) and the [rules] function, the one place
 //!   each protocol's rules live.
-//! - The [handler trait](Handler) the protocol front ends implement, and
-//!   the [context](Context) vtium-term gives them.
+//! - The [handler trait](Handler) the protocol front ends implement, the
+//!   [context](Context) vtium-term gives them, and the [store edit](Edit)
+//!   through which a handler changes the store.
+//! - The two [protocol] handlers, [`Sixel`] and [`Kitty`].
 //! - The [decode request and reply types](decode), which the image helper
 //!   answers.
 //! - Its bounds, named constants from the C reference's values, and the
 //!   `auto` budget's rule, [`auto_limit`].
 //!
-//! The sixel and kitty graphics handlers, and the decoders that run in the
-//! console, build on this. Not part of the minspec build: vtium-term takes
-//! it behind its `images` feature.
+//! Not part of the minspec build: vtium-term takes it behind its `images`
+//! feature.
 
 mod bounds;
 pub mod decode;
 mod handler;
 mod image;
+pub mod protocol;
 mod rules;
 mod store;
 
@@ -45,7 +47,9 @@ pub use bounds::{
     AUTO_CAP, AUTO_FLOOR, AUTO_FRAMES, BOX_CELLS_MAX, CELL_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX,
     IMAGES_PER_BUFFER, PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER, auto_limit,
 };
-pub use handler::{Context, Handler, Intro, Limits, ReplyKind, Switches};
+pub use handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
 pub use image::{ImageKey, LineKey, NewImage, Pixels, Place, PlacementKey, Refusal};
+pub use protocol::kitty::Kitty;
+pub use protocol::sixel::Sixel;
 pub use rules::{Layer, Protocol, RegionScroll, Rules, rules};
-pub use store::{FramePlacement, Region, Reservation, Rows, Screens, Store};
+pub use store::{Edit, FramePlacement, Region, Reservation, Rows, Screens, Store};

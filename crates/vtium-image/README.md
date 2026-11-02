@@ -10,8 +10,13 @@ Inline images: the one pipeline sixel and the kitty graphics protocol feed (ADR-
 | `src/store.rs` | The store: two buffers, the stack at each depth (D4), the budget and the eviction order (D5), and storing and placing an image. |
 | `src/store/events.rs` | What each screen event does to placements: cuts, scrolls, the scrollback's oldest line dropped, freed lines, ED 2, and the anchors a rewrap carries (D3, D8). |
 | `src/store/frame.rs` | The frame's placement list, in draw order (D9). |
-| `src/handler.rs` | The handler trait and the context vtium-term implements (D6). |
+| `src/store/edit.rs` | `Edit`, the one way a handler changes the store: the store's own operations for a handler, with both buffers' screen rows bound, and none of the screen events (D6). |
+| `src/store/kitty.rs` | The store operations only kitty makes: its delete selectors and the lookup of a placement by its id. |
+| `src/handler.rs` | The handler trait and the context vtium-term implements: the store to read and to edit, the cursor, the margins, the index and the scroll, the sixel modes, the reply sink, the switches and the limits (D6). |
+| `src/protocol/sixel.rs`, `src/protocol/kitty.rs` | The sixel and kitty graphics handlers. |
 | `src/decode.rs` | The decode request and reply types, and the check of a reply's sizes against its request (D7). |
+| `src/decode/sixel.rs`, `src/decode/base64.rs`, `src/decode/raw.rs` | The decoders that run in the console: sixel, base64, and kitty's raw RGB and RGBA (D7). |
+| `fuzz/` | The handlers' cargo-fuzz targets, in their own workspace ([fuzz/README.md](fuzz/README.md)). |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its source, and the `auto` budget's rule. |
 
 `cargo test -p vtium-image` runs every test. The bounds table below is generated from `src/bounds.rs`, and `readme_table_matches_bounds` fails when it drifts; `VTIUM_IMAGE_BLESS=1 cargo test -p vtium-image readme_table` rewrites it.
