@@ -288,6 +288,9 @@ pub struct App {
     assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// Where the font's sets come from.
     font_sources: font::Sources,
+    /// The glyph helper's program, opened at the start, which every helper
+    /// starts from; why not, when it cannot be.
+    launcher: Result<helper::Launcher, String>,
     /// Each frit a head draws, by its name, with its one helper.
     frits: BTreeMap<String, Frit>,
     /// The kernel's font, read from the VT at start for a frit's
@@ -439,7 +442,8 @@ impl App {
             scrollback_bytes: bytes,
             caps,
             assumed: BTreeSet::new(),
-            font_sources: font::Sources::default(),
+            font_sources: font::Sources::configured(&config),
+            launcher: helper::Launcher::configured(&config),
             frits: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
@@ -545,6 +549,9 @@ impl App {
     /// and vconsole files: a test's stand-in. Each head's font is chosen
     /// again at its next display.
     pub fn set_font_sources(&mut self, sources: font::Sources) {
+        if let Some(command) = &sources.helper {
+            self.launcher = helper::Launcher::open(command.clone());
+        }
         self.font_sources = sources;
         for head in &mut self.heads {
             head.font = None;
@@ -1391,11 +1398,7 @@ impl App {
     fn helper(&mut self, name: &str) -> Option<&mut Helper> {
         let frit = self.frits.get(name)?;
         if frit.helper.is_none() && !frit.refused {
-            let command = self
-                .font_sources
-                .helper
-                .clone()
-                .map_or_else(helper::Command::system, Ok);
+            let launcher = self.launcher.clone();
             let wake = vtium_platform::calloop::ping::make_ping()
                 .map_err(|e| format!("cannot make its wake-up: {e}"))
                 .and_then(|(ping, source)| {
@@ -1404,11 +1407,11 @@ impl App {
                         .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
                     Ok(ping)
                 });
-            let started = match command.and_then(|c| wake.map(|w| (c, w))) {
-                Ok((command, ping)) => {
+            let started = match launcher.and_then(|l| wake.map(|w| (l, w))) {
+                Ok((launcher, ping)) => {
                     let wake = std::sync::Mutex::new(ping);
                     Ok(Helper::new(
-                        command,
+                        launcher,
                         std::sync::Arc::new(move || {
                             if let Ok(p) = wake.lock() {
                                 p.ping();
