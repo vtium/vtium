@@ -959,3 +959,44 @@ fn replaced_frames_of_one_size_reuse_the_buffer_freed_last() {
         ctx.unreserve(reservation);
     }
 }
+
+// timg's alternating ids under a budget that fits a static picture, two
+// frames and the spare buffer, and no more. Whether the next frame takes
+// the spare depends on whether a frame the host drew still holds it; the
+// images the store keeps must not: the replacement counts the image it
+// replaces whichever way it reserves.
+// covers: image.kitty
+#[test]
+fn a_replacement_keeps_the_same_images_whether_or_not_it_takes_the_spare() {
+    let frame_bytes = 16 * 4 + IMAGE_OVERHEAD;
+    let limit = 3 * frame_bytes + 16 * 4;
+    let run = |hold: bool| {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        h.store.set_limit(limit);
+        h.cursor = (10, 0);
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=T,s=4,v=4,i=99,q=2,C=1;{}", red(16)),
+        );
+        let frame = |k: &mut Kitty, h: &mut Host, id: u32, col: usize| {
+            h.cursor = (col, 0);
+            send(k, h, &format!("a=T,s=4,v=4,i={id},q=2,C=1;{}", red(16)));
+        };
+        frame(&mut k, &mut h, 1, 0);
+        frame(&mut k, &mut h, 2, 6);
+        let view = Rows {
+            screen: &h.screen,
+            above: &[],
+        };
+        // a frame the host drew holds a1's pixels, or none does
+        let held = hold.then(|| h.store.frame(view, h.cols));
+        frame(&mut k, &mut h, 1, 0); // a2 frees a1 into the spare
+        frame(&mut k, &mut h, 2, 6); // b2 takes the spare unless a1 is held
+        drop(held);
+        (h.store.image_count(), h.boxes(), h.take())
+    };
+    let (held, free) = (run(true), run(false));
+    assert_eq!(held.0, 3, "the static picture and both ids stay");
+    assert_eq!(held, free);
+}
