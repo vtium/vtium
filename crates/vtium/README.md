@@ -308,7 +308,7 @@ The image helper (ADR-1101) is its own program, which vtium does not build yet, 
 
 vtium takes `font-hinting` and `font-line-spacing`, checks their values and warns when one is set, but nothing reads them yet: the font helper hints and spaces lines as the frit says.
 
-Two parts of ADR-1002 wait outside this crate. vtium-render draws neither the hovered link's dashed underline nor the overlay row, though the frame vtium hands it carries both. vtium-platform sends no event when a key is let go, so releasing Ctrl with the pointer still leaves the overlay until the next pointer event or key press.
+Two parts of ADR-1002 wait outside this crate. vtium-render does not draw the overlay row, though the frame vtium hands it carries the row. vtium-platform sends no event when a key is let go, so releasing Ctrl with the pointer still leaves the overlay until the next pointer event or key press.
 
 ## Left to tier 3
 

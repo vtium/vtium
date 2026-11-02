@@ -2,7 +2,7 @@
 
 vtium is a terminal for the Linux console: the full-screen text screens a Linux machine shows before, or instead of, a desktop. This page is for someone meeting vtium for the first time, such as a packager or a curious Linux user. It answers two questions: why use vtium rather than the kernel's own console, `kmscon` or a terminal on a desktop, and why vtium suits the console on every kind of machine, from a small board with a 320x240 panel to a desktop with a large monitor. [concepts.md](concepts.md) explains how vtium's parts work, and the [README](../README.md) lists what is built today.
 
-vtium has no release yet. Everything this page describes is built in the repository, except what it marks as landing, which means designed and being built but not finished yet.
+vtium's first release is the pre-release v0.1.0-alpha.1. Everything this page describes is built in the repository, except what it marks as landing, which means designed and being built but not finished yet.
 
 ## Why another terminal
 
