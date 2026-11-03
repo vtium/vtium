@@ -760,3 +760,17 @@ fn a_box_past_the_largest_is_dropped_before_anything_scrolls_or_is_reserved() {
     assert_eq!(h.store.bytes(), 0, "nothing reserved");
     assert_eq!(h.store.frame_bytes(), 0);
 }
+
+// covers: image.iterm2
+#[test]
+fn only_the_first_frame_is_copied_when_the_frame_allowance_refuses() {
+    let Reply::Ok(frames) = animation(&[5, 5, 5], None) else {
+        panic!("a picture");
+    };
+    assert_eq!(super::copy(&frames, true).unwrap().len(), 3);
+    assert_eq!(super::copy(&frames, false).unwrap().len(), 1);
+    let Reply::Ok(still) = picture(2, 1) else {
+        panic!("a picture");
+    };
+    assert_eq!(super::copy(&still, true).unwrap().len(), 1);
+}

@@ -309,14 +309,7 @@ impl Iterm2 {
                 ctx.edit(|e| e.frames_ahead(cost)).and_then(Result::ok)
             })
             .flatten();
-        let copied = match payload {
-            Payload::Frames { .. } => {
-                let keep = if ahead.is_some() { frames } else { 1 };
-                payload.copy_frames(keep)
-            }
-            _ => payload.copy_into(Vec::new()).map(|one| vec![one]),
-        };
-        let Some(mut copied) = copied.filter(|c| !c.is_empty()) else {
+        let Some(mut copied) = copy(payload, ahead.is_some()) else {
             ctx.unreserve(reservation);
             if let Some(r) = ahead {
                 ctx.unreserve(r);
@@ -350,6 +343,26 @@ impl Iterm2 {
         let tall = usize::try_from(dh.div_ceil(u64::from(cell.1.max(1)))).unwrap_or(usize::MAX);
         place_scrolling(ctx, key, Some((draw_width, draw_height)), tall, false);
     }
+}
+
+/// The one copy of `payload`'s pixels into memory the console holds: every
+/// frame of an animated GIF when the frame allowance granted the frames
+/// past the first (`frames_granted`), and its first frame alone when it did
+/// not, so nothing the allowance refused is copied; the picture of any
+/// other payload. `None` when the pixels do not read whole.
+fn copy(payload: &Payload, frames_granted: bool) -> Option<Vec<(Vec<u32>, bool)>> {
+    let copied = match payload {
+        Payload::Frames { .. } => {
+            let keep = if frames_granted {
+                payload.frame_count()
+            } else {
+                1
+            };
+            payload.copy_frames(keep)
+        }
+        _ => payload.copy_into(Vec::new()).map(|one| vec![one]),
+    };
+    copied.filter(|c| !c.is_empty())
 }
 
 /// The gap a GIF frame's delay of `delay` hundredths of a second gives, in
