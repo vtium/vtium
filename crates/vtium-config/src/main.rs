@@ -22,9 +22,6 @@ fn main() -> ExitCode {
     {
         return ExitCode::from(vtium_config::child::run_parser());
     }
-    if vtium_config::banner::about(&args, &mut std::io::stdout()) {
-        return ExitCode::SUCCESS;
-    }
     let euid = rustix::process::geteuid().as_raw();
     if let Some(why) = vtium_config::cli::root_refusal(euid, &args) {
         eprintln!("vtium-config: {why}");

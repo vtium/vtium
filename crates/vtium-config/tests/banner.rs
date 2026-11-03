@@ -78,21 +78,21 @@ fn run(args: &[&str], stdout_is_pty: bool) -> (String, String, Option<i32>) {
 
 #[test]
 fn about_draws_the_banner_at_a_terminal() {
-    let (screen, _, status) = run(&["--about"], true);
+    let (screen, _, status) = run(&["--help", "about"], true);
     assert_eq!(status, Some(0), "{screen:?}");
     assert!(screen.contains(KICKER), "{screen:?}");
     assert!(screen.contains("\x1b[38;2;"), "{screen:?}");
-    assert!(screen.contains("Run vtium-config --help"), "{screen:?}");
+    assert!(screen.contains("sets up the vtium console"), "{screen:?}");
     assert!(!screen.contains("Usage:"), "{screen:?}");
 }
 
 #[test]
 fn about_prints_plain_text_to_a_pipe() {
-    let (screen, stdout, status) = run(&["--about"], false);
+    let (screen, stdout, status) = run(&["--help", "about"], false);
     assert_eq!(status, Some(0));
     assert_eq!(screen, "");
     assert!(stdout.starts_with("vtium-config "), "{stdout:?}");
-    assert!(stdout.contains("fonts and settings"), "{stdout:?}");
+    assert!(stdout.contains("sets up the vtium console"), "{stdout:?}");
     assert!(
         !stdout.contains('\x1b') && !stdout.contains(KICKER),
         "{stdout:?}"
@@ -106,8 +106,11 @@ fn help_at_a_terminal_prints_the_usage_and_no_banner() {
     assert!(screen.contains("Usage: vtium-config"), "{screen:?}");
     assert!(!screen.contains(KICKER), "{screen:?}");
     assert!(!screen.contains('\x1b'), "{screen:?}");
-    // --about stays out of the usage, and --no-banner is gone from it.
-    assert!(!screen.contains("--about"), "{screen:?}");
+    // about is a topic like the commands, and --no-banner is gone.
+    assert!(
+        screen.contains("vtium-config's name, version and logo"),
+        "{screen:?}"
+    );
     assert!(!screen.contains("--no-banner"), "{screen:?}");
 }
 
@@ -139,4 +142,50 @@ fn no_banner_is_still_accepted_and_silent() {
     assert_eq!(status, Some(0));
     assert!(screen.contains("Usage: vtium-config"), "{screen:?}");
     assert!(!screen.contains(KICKER), "{screen:?}");
+}
+
+#[test]
+fn help_and_bare_print_the_same_usage() {
+    let (_, bare, _) = run(&[], false);
+    let (_, help, _) = run(&["--help"], false);
+    assert_eq!(bare, help);
+    assert!(help.starts_with("Usage: vtium-config"), "{help:?}");
+}
+
+#[test]
+fn help_for_each_command_prints_its_own_text() {
+    for command in [
+        "fonts",
+        "check",
+        "config",
+        "new",
+        "tui",
+        "remove-frit",
+        "preview",
+        "set",
+        "apply",
+        "serve",
+    ] {
+        let (_, stdout, status) = run(&["--help", command], false);
+        assert_eq!(status, Some(0), "{command}");
+        assert!(
+            stdout.starts_with(&format!("Usage:\n  vtium-config {command}")),
+            "{command}: {stdout:?}"
+        );
+        assert!(stdout.contains("Example:\n  "), "{command}: {stdout:?}");
+        assert!(!stdout.contains("Options:"), "{command}: {stdout:?}");
+    }
+}
+
+#[test]
+fn help_on_an_unknown_topic_exits_2_and_lists_the_topics() {
+    let master = Command::new(BIN)
+        .args(["--help", "frobnicate"])
+        .output()
+        .expect("run vtium-config");
+    assert_eq!(master.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&master.stderr);
+    assert!(err.contains("no help on frobnicate"), "{err}");
+    assert!(err.contains("fonts") && err.contains("about"), "{err}");
+    assert!(master.stdout.is_empty());
 }

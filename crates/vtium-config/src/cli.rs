@@ -5,47 +5,6 @@ use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
-const USAGE: &str = "\
-Usage: vtium-config [OPTION]... [COMMAND [ARG]...]
-
-Manages the vtium console's fonts and settings, trying each font on the live console.
-
-With no command, prints this help. To open the interactive tool, run vtium-config tui.
-
-Commands:
-  fonts                              list the frits and built-in fonts, and the sources each lacks
-  check FILE                         check a frit (NAME.vtfrit), a head file (heads.conf) or a vtium.conf, writing nothing
-  config KEY [VALUE]                 print a vtium.conf key's value, or set it
-  config --unset KEY                 leave a vtium.conf key at its default
-  new FONT... [--name NAME] [--cell WxH] [--size POINTS]
-                                     make a frit of fonts, each a family or a source
-  new --from FILE [--name NAME]      install the frit in FILE
-  new --template                     print a frit to edit for new --from
-  new                                at a terminal, open the interactive tool at its new frit
-  tui                                at a terminal, open the interactive tool
-  remove-frit NAME                   remove a frit that vtium.conf does not name
-  preview FONT... [--size POINTS]    draw each font's specimen, as a picture where the terminal draws them
-  set NAME                           switch the running console to a frit or a built-in font
-  apply DIR                          check a saved draft and install it (as root)
-  serve                              generate glyphs for the console (the console starts it)
-
-Run as a user, a command that changes something writes a draft and prints
-the command that installs it; run as root, it installs at once.
-
-Options:
-  --configdir DIR       the directory of vtium.conf and heads.conf, in place of /etc/vtium
-  --frits DIR           the frits directory, in place of vtium.conf's font-frits
-  --sudo PROGRAM        the program that runs apply as root, in place of sudo
-  --vtium PROGRAM       the console binary apply checks files with, in place of /usr/bin/vtium
-  --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
-  --font-dir DIR        an outline font directory, in place of the build's list (repeatable)
-  --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
-  --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
-  --sys DIR             sysfs, where displays are measured, in place of /sys
-  --helper PROGRAM      the glyph helper the tool starts, in place of this binary's serve
-  --help, --version
-";
-
 /// What the command line asked for.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Options {
@@ -310,7 +269,16 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     };
     let mut cli = Cli { o: &o, out, err };
     match command {
-        "--help" => cli.say(USAGE.trim_end()),
+        "--help" => match rest.first() {
+            None => cli.say(crate::help::usage().trim_end()),
+            Some(topic) => match crate::help::topic(topic, cli.out) {
+                Ok(()) => 0,
+                Err(why) => {
+                    let _ = writeln!(cli.err, "vtium-config: {why}");
+                    2
+                }
+            },
+        },
         "--version" => cli.say(concat!("vtium-config ", env!("CARGO_PKG_VERSION"))),
         "fonts" => crate::commands::fonts(&rest, &o.paths(), cli.out, cli.err),
         "check" => crate::commands::check(&rest, &o.paths(), cli.out, cli.err),
@@ -339,7 +307,7 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
             crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, cli.err)
         }
         "tui" => cli.usage("tui opens the interactive tool at a terminal only"),
-        "" => cli.say(USAGE.trim_end()),
+        "" => cli.say(crate::help::usage().trim_end()),
         other => cli.usage(&format!("unknown command {other}")),
     }
 }

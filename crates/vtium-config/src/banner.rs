@@ -1,9 +1,9 @@
-//! The banner (vtium/vtium#112): `vtium-config --about` shows its name in
+//! The banner (vtium/vtium#112): `vtium-config --help about` shows its name in
 //! glass, panes of green and cyan glass behind
 //! letters that fall from ice white to deep teal, with a shine crossing
 //! them once.
 //!
-//! `--about` is left out of `--help`. The picture is drawn only when stdin
+//! The picture is drawn only when stdin
 //! and stdout are both terminals, and never with a non-empty `NO_COLOR`, a dpkg
 //! maintainer script's environment, a Chinese, Japanese or Korean locale,
 //! or a `TERM` that is unset, `dumb`, a monochrome VT or a terminfo name's
@@ -17,9 +17,6 @@
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::io::{IsTerminal, Write};
-
-/// The flag that shows the banner and a few lines about vtium-config.
-pub const ABOUT: &str = "--about";
 
 /// The flag that once turned the banner off. No command shows the banner
 /// by default now, so it does nothing; vtium-config still accepts it for
@@ -124,13 +121,9 @@ pub fn plan(terminal: Terminal, env: &dyn Fn(&str) -> Option<OsString>) -> Optio
     Some(Plan { depth, form })
 }
 
-/// Answers `--about` when it is the command line's first word: draws the
-/// banner when [`plan`] says to, then names the program. Returns whether
-/// it answered.
-pub fn about(args: &[OsString], out: &mut dyn Write) -> bool {
-    if args.first().is_none_or(|a| a != ABOUT) {
-        return false;
-    }
+/// Answers `--help about`: draws the banner when [`plan`] says to, then
+/// names the program and says what it does.
+pub fn about(out: &mut dyn Write) {
     let stdout = std::io::stdout();
     let terminal = Terminal {
         stdin: std::io::stdin().is_terminal(),
@@ -141,24 +134,15 @@ pub fn about(args: &[OsString], out: &mut dyn Write) -> bool {
             .filter(|&c| c > 0),
     };
     let text = match plan(terminal, &|name| std::env::var_os(name)) {
-        Some(plan) => format!("{}{TEXT_AFTER}", render(plan)),
-        None => format!("{TEXT_PLAIN}{TEXT_AFTER}"),
+        Some(plan) => format!("{}{PURPOSE}", render(plan)),
+        None => format!("vtium-config {}\n{PURPOSE}", env!("CARGO_PKG_VERSION")),
     };
     let _ = out.write_all(text.as_bytes());
     let _ = out.flush();
-    true
 }
 
-/// What `--about` prints when it draws no picture: the name, the version
-/// and what the program does.
-const TEXT_PLAIN: &str = concat!(
-    "vtium-config ",
-    env!("CARGO_PKG_VERSION"),
-    "\nfonts and settings for the vtium console\n"
-);
-
-/// What `--about` ends with.
-const TEXT_AFTER: &str = "Run vtium-config --help for the commands.\n";
+/// What the program is and does, which `--help about` ends with.
+const PURPOSE: &str = "vtium-config sets up the vtium console: its fonts and frits, its settings and heads, checked before they are saved.\n";
 
 /// The banner `plan` draws: a blank line, the kicker, the art, the tagline
 /// with the version, and a blank line.
@@ -952,21 +936,6 @@ mod tests {
             };
             assert_eq!(plan_for(t, &vars), None, "{stdin} {stdout}");
         }
-    }
-
-    #[test]
-    fn about_answers_only_as_the_first_word() {
-        let mut out = Vec::new();
-        for words in [
-            &[][..],
-            &["set", "--about"],
-            &["--no-banner"],
-            &["--version"],
-        ] {
-            let words: Vec<OsString> = words.iter().map(OsString::from).collect();
-            assert!(!about(&words, &mut out), "{words:?}");
-        }
-        assert_eq!(out, b"");
     }
 
     #[test]
