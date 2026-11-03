@@ -264,6 +264,15 @@ fn cluster_of(bytes: usize) -> String {
     s
 }
 
+/// A kitty placeholder cluster, U+10EEEE and `marks` 4-byte marks, the
+/// first three of which a line keeps: up to 17 bytes with its length byte.
+/// A placeholder alone is a character, so it has at least one mark.
+fn placeholder(marks: usize) -> String {
+    std::iter::once('\u{10EEEE}')
+        .chain(std::iter::repeat_n('\u{E0100}', marks.max(1)))
+        .collect()
+}
+
 /// A style no other write takes: its colors spell `n`.
 fn style_of(n: u32) -> Style {
     let [a, b, c, d] = n.to_le_bytes();
@@ -315,6 +324,33 @@ fn worst_screen_row(cols: usize) -> usize {
             }
         }
     }
+    // Rows of placeholder clusters, which sit outside the budget and raise
+    // the arena's limit by 17 bytes a cell (ADR-1001, "Placeholder
+    // cells"), each with its three marks or fewer, the first cell's size
+    // swept as above, beside rows of placeholders among long clusters.
+    for first in 0..=3 {
+        for long in [false, true] {
+            let mut line = Line::new(LineId::new(0), cols);
+            for sweep in 0..6 {
+                for col in 0..cols {
+                    let n = next();
+                    let c = match col {
+                        0 => placeholder(first),
+                        _ if long && sweep % 3 == 2 && col % 17 == 0 => cluster_of(120),
+                        _ => placeholder(3),
+                    };
+                    line.write(
+                        col,
+                        Glyph::Cluster(&c),
+                        Width::Narrow,
+                        &style_of(n),
+                        Some(LinkId::new(n)),
+                    );
+                    most = most.max(line_bytes_as_is(&line));
+                }
+            }
+        }
+    }
     let mut rng = common::Rng(0x213);
     for _ in 0..20 {
         let mut line = Line::new(LineId::new(0), cols);
@@ -354,7 +390,7 @@ fn a_screen_row_costs_at_most_its_bound() {
     #[cfg(target_pointer_width = "64")]
     assert_eq!(
         GRIDS.map(|(cols, _)| Line::bytes_max(cols)),
-        [9_648, 4_608, 2_368]
+        [15_428, 7_328, 3_728]
     );
 }
 
@@ -752,13 +788,13 @@ fn the_worst_default_scrollback_fits_the_minspec_peak() {
     assert_eq!(figures[0].1, SB_MEMORY_DEFAULT);
     #[cfg(target_pointer_width = "64")]
     {
-        assert_eq!(worst_row(), 7_560);
+        assert_eq!(worst_row(), 10_450);
         assert_eq!(
             figures,
             [
-                (992_256, 5_242_880, 16_776_192),
-                (296_160, 5_898_240, 14_461_216),
-                (152_160, 6_029_312, 12_569_216),
+                (1_547_136, 4_653_056, 16_741_248),
+                (459_360, 5_767_168, 15_984_416),
+                (233_760, 5_963_776, 13_330_816),
             ]
         );
     }

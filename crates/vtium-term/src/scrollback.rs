@@ -1374,12 +1374,13 @@ mod tests {
     }
 
     // What 16 MiB leaves after the rest of the process, the minspec grid's
-    // two screens at their worst and a full link store, 5 MiB; a smaller
+    // two screens at their worst and a full link store, 4,653,056 bytes
+    // (4.44 MiB) now that a screen row prices placeholder cells; a smaller
     // grid leaves more.
     #[test]
     fn the_default_budget_is_what_the_minspec_peak_leaves() {
         #[cfg(target_pointer_width = "64")]
-        assert_eq!(SB_MEMORY_DEFAULT, 5_242_880);
+        assert_eq!(SB_MEMORY_DEFAULT, 4_653_056);
         let screens = screens_bytes_max(MINSPEC_GRID.0, MINSPEC_GRID.1);
         let rest = MINSPEC_PEAK - MINSPEC_REST - screens - LINKS_BYTES_MAX;
         assert!((SB_MEMORY_DEFAULT..SB_MEMORY_DEFAULT + (64 << 10)).contains(&rest));
@@ -1388,7 +1389,7 @@ mod tests {
     }
 
     // Above minspec's grids the default stays at the minspec grid's value:
-    // a 3840x2160 display in 8x16 cells keeps 5 MiB, where the peak alone
+    // a 3840x2160 display in 8x16 cells keeps 4.44 MiB, where the peak alone
     // would leave it the fence's 1 MiB floor.
     #[test]
     fn a_grid_past_minspec_keeps_the_minspec_default() {

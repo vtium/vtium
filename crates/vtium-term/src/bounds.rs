@@ -49,6 +49,14 @@ const CLUSTER_BYTES: Bound = Bound {
     cite: "vtium's own: it bounds the worst a row can cost, which `sb-memory`'s default holds inside the minspec peak (ADR-1001, \"Memory\")",
 };
 
+const PLACEHOLDER: Bound = Bound {
+    name: "PLACEHOLDER_MARKS",
+    value: 3,
+    what: "Codepoints a cluster that starts with U+10EEEE, the kitty graphics protocol's Unicode placeholder, keeps after it whatever the line's cluster budget: its picture row, its picture column and the top byte of its image id",
+    past: "Codepoints past the third are dropped, so the cluster takes at most 17 bytes of its line's arena with its length byte; the line's budget of `CLUSTER_BYTES_PER_CELL` counts every other cluster",
+    cite: "ADR-1001, \"Placeholder cells\" (the maintainer, 2026-11-02); ADR-1100, D13",
+};
+
 const SB_SMALL: Bound = Bound {
     name: "SB_SIZE_CAP_SMALL",
     value: 10_000,
@@ -195,11 +203,12 @@ const INPUT_WORK: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 22] = [
+pub(crate) const BOUNDS: [Bound; 23] = [
     COLUMNS,
     ROWS,
     CLUSTER,
     CLUSTER_BYTES,
+    PLACEHOLDER,
     SB_SMALL,
     SB_MEDIUM,
     SB_LARGE,
@@ -239,6 +248,15 @@ pub const CLUSTER_BYTES_PER_CELL: usize = CLUSTER_BYTES.value;
 /// and [`CLUSTER_MAX`] codepoints of four UTF-8 bytes.
 pub(crate) const CLUSTER_BYTES_MAX: usize = 1 + CLUSTER_MAX * 4;
 
+/// Codepoints a placeholder cluster, one that starts with U+10EEEE, keeps
+/// after the placeholder whatever its line's cluster budget.
+pub(crate) const PLACEHOLDER_MARKS: usize = PLACEHOLDER.value;
+
+/// The bytes a placeholder cluster takes in its line's arena at most: a
+/// length byte, the placeholder's 4 UTF-8 bytes and [`PLACEHOLDER_MARKS`]
+/// codepoints of up to 4 bytes each.
+pub(crate) const PLACEHOLDER_BYTES_MAX: usize = 1 + 4 + PLACEHOLDER_MARKS * 4;
+
 /// A line's tables compact once they reach this many times what the line
 /// can name: its cells, or for clusters, its cluster bytes.
 pub(crate) const TABLE_GROWTH: usize = 2;
@@ -249,8 +267,14 @@ const _: () = assert!(COLUMNS_MAX * TABLE_GROWTH < u16::MAX as usize);
 // A cluster's offset in its line's arena is 21 bits of the cell: a full
 // arena at the widest line, plus the cluster that triggers compaction,
 // must fit.
-const _: () =
-    assert!(COLUMNS_MAX * TABLE_GROWTH * CLUSTER_BYTES_PER_CELL + CLUSTER_BYTES_MAX < 1 << 21);
+// A line of placeholder cells names up to `PLACEHOLDER_BYTES_MAX` a cell
+// beside its budget (ADR-1001, "Placeholder cells"): 376,961 bytes at the
+// widest line.
+const _: () = assert!(
+    COLUMNS_MAX * TABLE_GROWTH * (CLUSTER_BYTES_PER_CELL + PLACEHOLDER_BYTES_MAX)
+        + CLUSTER_BYTES_MAX
+        < 1 << 21
+);
 // A cluster's length fits its length byte.
 const _: () = assert!(CLUSTER_BYTES_MAX - 1 <= u8::MAX as usize);
 
