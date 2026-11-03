@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+"""
+run - fuzz vtium's cargo-fuzz targets and log each run in its crate's runs.tsv
+
+Usage:
+
+    tools/fuzz/run
+    FUZZ_TARGETS="vtium-parse:parse vtium-term" FUZZ_TIME=300 tools/fuzz/run
+    make fuzz FUZZ_TARGETS="vtium-parse:parse" FUZZ_TIME=300
+
+Each crate that has fuzz targets keeps them in crates/<crate>/fuzz/, a
+cargo-fuzz workspace of its own, and names them as [[bin]] entries in its
+Cargo.toml. FUZZ_TARGETS lists the targets to run, each as crate:target, or as
+a bare crate name for all of that crate's targets; without it the script runs
+every target. FUZZ_TIME is the number of seconds each target runs, 60 unless
+set. The script needs a nightly toolchain and cargo-fuzz.
+
+For each target, the script builds it with `cargo +nightly fuzz build`, makes a
+fresh corpus directory under the system's temporary directory, copies into it
+the crate's committed seeds for that target (crates/<crate>/fuzz/seeds/<target>/
+and the extra directories SEEDS names), and runs `cargo +nightly fuzz run` with
+libFuzzer's -max_total_time. libFuzzer only ever writes into that temporary
+directory and into target/fuzz-artifacts/<crate>/<target>/, so the repository's
+tracked seeds stay as they are. The script deletes the corpus directory once
+the run ends, because anyone can grow a corpus again by running the target.
+libFuzzer's full output goes to target/fuzz-logs/<crate>-<target>.log.
+
+The script then reads libFuzzer's final statistics and appends one row to
+crates/<crate>/fuzz/runs.tsv, creating the file with its header line when it
+does not exist yet. The script only ever appends to that file. HEADER below
+explains the columns.
+
+A run that crashes keeps the input that crashed it under
+target/fuzz-artifacts/<crate>/<target>/, and the script prints the command that
+reproduces the crash. The script still runs and logs the remaining targets,
+then exits with status 1. It exits with status 2 when FUZZ_TARGETS or FUZZ_TIME
+is malformed, before it runs anything.
+
+The commit column is `git rev-parse HEAD`, with "-dirty" appended when a
+tracked file differs from that commit. Changes to the runs.tsv files do not
+count, so that rows a run has just appended do not mark the next run dirty.
+The script reads the commit once, before the first target runs.
+
+VTIUM_FUZZ_ROOT names another checkout to work in; the tests use it.
+"""
+
+import datetime
+import hashlib
+import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import tomllib
+from dataclasses import dataclass
+from pathlib import Path
+
+DEFAULT_SECONDS = 60
+
+HEADER = (
+    "# One row per fuzz run that tools/fuzz/run (make fuzz) appended:"
+    " DATE, when the run started, in UTC;"
+    " COMMIT, the checkout's HEAD, with -dirty when a tracked file other than a runs.tsv differed from it;"
+    " TARGET, the fuzz target;"
+    " SECONDS, how long libFuzzer ran, as libFuzzer counts it when the run ends on time and as the wall clock measures it when the run stops early;"
+    " RUNS, how many inputs libFuzzer ran;"
+    " CORPUS, how many inputs its corpus held at the end;"
+    " COV, the code coverage libFuzzer reports as cov, the number of edges the inputs reached;"
+    " RESULT, ok, or the kind of failure (crash, timeout, oom or leak) and the path of the input that caused it, or failed with libFuzzer's exit status when it left no input;"
+    " HOST, the machine's architecture (uname -m) and its CPU count (nproc)."
+    " A - marks a figure the run did not record.\n"
+)
+
+# Seed directories beyond fuzz/seeds/<target>/, relative to the crate, as the
+# crate's fuzz README names them.
+SEEDS = {
+    ("vtium-image-helper", "jpeg"): ["tests/fixtures/jpeg"],
+}
+
+# A status line, such as "#189087\tDONE   cov: 841 ft: 4236 corp: 1185/29Kb ...".
+STATUS = re.compile(r"^#(\d+)\s+[A-Za-z_]+\s+(?:cov: (\d+) )?(?:ft: \d+ )?corp: (\d+)/", re.M)
+DONE = re.compile(r"^Done (\d+) runs in (\d+) second", re.M)
+UNITS = re.compile(r"^stat::number_of_executed_units:\s*(\d+)", re.M)
+ARTIFACT = re.compile(r"Test unit written to (\S+)")
+ARTIFACT_KIND = re.compile(r"^(crash|timeout|oom|leak)-")
+
+
+class UsageError(Exception):
+    pass
+
+
+@dataclass
+class Stats:
+    runs: int | None = None
+    seconds: int | None = None
+    corpus: int | None = None
+    cov: int | None = None
+    artifact: str | None = None
+    artifact_kind: str | None = None
+
+
+def parse_stats(text):
+    """Read libFuzzer's final figures from its output."""
+    stats = Stats()
+    status = STATUS.findall(text)
+    if status:
+        last = status[-1]
+        stats.runs = int(last[0])
+        stats.cov = int(last[1]) if last[1] else None
+        stats.corpus = int(last[2])
+    done = DONE.findall(text)
+    if done:
+        stats.runs, stats.seconds = int(done[-1][0]), int(done[-1][1])
+    units = UNITS.findall(text)
+    if units:
+        stats.runs = int(units[-1])
+    # libFuzzer also writes slow-unit- inputs, which are not failures.
+    for path in reversed(ARTIFACT.findall(text)):
+        kind = ARTIFACT_KIND.match(Path(path).name)
+        if kind:
+            stats.artifact, stats.artifact_kind = path, kind.group(1)
+            break
+    return stats
+
+
+def result_of(status, stats, root):
+    """The RESULT column for a run that exited with `status`."""
+    if status == 0:
+        return "ok"
+    if stats.artifact:
+        path = Path(stats.artifact)
+        try:
+            shown = str(path.resolve().relative_to(root.resolve()))
+        except ValueError:
+            shown = str(path)
+        return f"{stats.artifact_kind} {shown}"
+    return f"failed with exit status {status}"
+
+
+def figure(value):
+    return "-" if value is None else str(value)
+
+
+def format_row(fields):
+    for f in fields:
+        if "\t" in f or "\n" in f:
+            raise ValueError(f"a runs.tsv field holds a tab or a newline: {f!r}")
+    return "\t".join(fields) + "\n"
+
+
+def append_row(path, row):
+    """Append `row` to `path`, writing the header first into a new file."""
+    with open(path, "a+b") as f:
+        f.seek(0, os.SEEK_END)
+        if f.tell() == 0:
+            f.write(HEADER.encode())
+        else:
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                f.write(b"\n")
+        f.write(row.encode())
+
+
+def discover(root):
+    """Every crate's fuzz targets, as {crate: [target, ...]}."""
+    found = {}
+    for manifest in sorted((root / "crates").glob("*/fuzz/Cargo.toml")):
+        with open(manifest, "rb") as f:
+            bins = tomllib.load(f).get("bin", [])
+        names = sorted(b["name"] for b in bins if "name" in b)
+        if names:
+            found[manifest.parent.parent.name] = names
+    return found
+
+
+def select(found, spec):
+    """The (crate, target) pairs FUZZ_TARGETS names, in the order it names them."""
+    if not spec.strip():
+        return [(c, t) for c in found for t in found[c]]
+    chosen = []
+    for word in spec.split():
+        crate, sep, target = word.partition(":")
+        if crate not in found:
+            raise UsageError(f"FUZZ_TARGETS names {word}, but no crate {crate} has fuzz targets; the crates are {', '.join(found)}")
+        if sep and target not in found[crate]:
+            raise UsageError(f"FUZZ_TARGETS names {word}, but {crate}'s fuzz targets are {', '.join(found[crate])}")
+        for t in [target] if sep else found[crate]:
+            if (crate, t) not in chosen:
+                chosen.append((crate, t))
+    return chosen
+
+
+def seconds_from(value):
+    if not value.strip():
+        return DEFAULT_SECONDS
+    if not value.strip().isdigit() or int(value) == 0:
+        raise UsageError(f"FUZZ_TIME is {value!r}; it must be a whole number of seconds above 0")
+    return int(value)
+
+
+RUNS_TSV = re.compile(r"^crates/[^/]+/fuzz/runs\.tsv$")
+
+
+def commit_of(root):
+    git = ["git", "-C", str(root)]
+    head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    # Tracked files whose content, staged or not, differs from HEAD.
+    changed = subprocess.run([*git, "diff", "HEAD", "--name-only", "--no-renames", "-z"], check=True, capture_output=True, text=True).stdout
+    dirty = any(p and not RUNS_TSV.match(p) for p in changed.split("\0"))
+    return head + ("-dirty" if dirty else "")
+
+
+def host():
+    return f"{platform.machine()} {len(os.sched_getaffinity(0))} CPUs"
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def seed(corpus, crate_dir, crate, target):
+    """Copy the target's committed seeds into the corpus, each named by its SHA-1."""
+    count = 0
+    for rel in [f"fuzz/seeds/{target}", *SEEDS.get((crate, target), [])]:
+        d = crate_dir / rel
+        if not d.is_dir():
+            continue
+        for f in sorted(d.iterdir()):
+            # The fixtures directories carry a README, which is not an input.
+            if f.is_file() and f.suffix != ".md":
+                data = f.read_bytes()
+                (corpus / hashlib.sha1(data).hexdigest()).write_bytes(data)
+                count += 1
+    return count
+
+
+def run_target(root, crate, target, seconds, commit, machine):
+    """Fuzz one target and log it. Returns True when the run found nothing."""
+    crate_dir = root / "crates" / crate
+    fuzz_dir = crate_dir / "fuzz"
+    name = f"{crate}:{target}"
+    build = subprocess.run(["cargo", "+nightly", "fuzz", "build", target], cwd=fuzz_dir)
+    if build.returncode != 0:
+        print(f"{name}: the build failed with exit status {build.returncode}, so the script logs no run for it", file=sys.stderr)
+        return False
+
+    artifacts = root / "target" / "fuzz-artifacts" / crate / target
+    artifacts.mkdir(parents=True, exist_ok=True)
+    logs = root / "target" / "fuzz-logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    log = logs / f"{crate}-{target}.log"
+    corpus = Path(tempfile.mkdtemp(prefix=f"vtium-fuzz-{crate}-{target}-"))
+    try:
+        seeds = seed(corpus, crate_dir, crate, target)
+        print(f"{name}: fuzzing for {seconds} s from {seeds} seed(s); the log is {log.relative_to(root)}", flush=True)
+        started = now()
+        clock = time.monotonic()
+        with open(log, "wb") as out:
+            status = subprocess.run(
+                ["cargo", "+nightly", "fuzz", "run", target, str(corpus), "--",
+                 f"-max_total_time={seconds}", "-print_final_stats=1", f"-artifact_prefix={artifacts}/"],
+                cwd=fuzz_dir, stdout=out, stderr=subprocess.STDOUT,
+            ).returncode
+        wall = round(time.monotonic() - clock)
+    finally:
+        shutil.rmtree(corpus, ignore_errors=True)
+
+    stats = parse_stats(log.read_text(errors="replace"))
+    result = result_of(status, stats, root)
+    row = format_row([
+        started, commit, target, figure(stats.seconds if stats.seconds is not None else wall),
+        figure(stats.runs), figure(stats.corpus), figure(stats.cov), result, machine,
+    ])
+    append_row(fuzz_dir / "runs.tsv", row)
+    print(f"{name}: {result}, {figure(stats.runs)} runs, corpus {figure(stats.corpus)}, cov {figure(stats.cov)}", flush=True)
+    if result == "ok":
+        return True
+    if stats.artifact:
+        print(f"{name}: reproduce with: (cd {fuzz_dir} && cargo +nightly fuzz run {target} {Path(stats.artifact).resolve()})", file=sys.stderr)
+    else:
+        print(f"{name}: libFuzzer left no input; read {log}", file=sys.stderr)
+    return False
+
+
+def main(env):
+    root = Path(env.get("VTIUM_FUZZ_ROOT") or Path(__file__).resolve().parent.parent.parent)
+    try:
+        seconds = seconds_from(env.get("FUZZ_TIME", ""))
+        chosen = select(discover(root), env.get("FUZZ_TARGETS", ""))
+    except UsageError as e:
+        print(f"tools/fuzz/run: {e}", file=sys.stderr)
+        return 2
+    commit = commit_of(root)
+    machine = host()
+    failed = [f"{c}:{t}" for c, t in chosen if not run_target(root, c, t, seconds, commit, machine)]
+    if failed:
+        print(f"tools/fuzz/run: {len(failed)} of {len(chosen)} target(s) failed: {' '.join(failed)}", file=sys.stderr)
+        return 1
+    print(f"tools/fuzz/run: {len(chosen)} target(s) ran {seconds} s each and found nothing")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(os.environ))
