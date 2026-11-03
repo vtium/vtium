@@ -133,7 +133,10 @@ considered:
   - operator: aaronsb
     said: "Remember we can have a few percentage of pixel differential. We had that wiggle room in the c fork. Cpu rendering is the standard but we accept that every GPU could be slightly different, but we trust the underlying libraries to help us with most consitiency"
     via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead
-status: proposed
+  - operator: aaronsb
+    said: "I read through 1303 and overall it's as my intentions are for now"
+    via: the maintainer in the steering session, 2026-11-03, after reading the record at c7b635dd
+status: accepted
 date: 2026-11-03
 deciders:
   - aaronsb
