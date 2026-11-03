@@ -944,8 +944,34 @@ mod tests {
             None,
         );
         line.write(2, Glyph::Char(' '), Width::Narrow, &space, None);
-        let damage = Damage::new(4, 1);
+        // a row whose first cell is text in the placeholder's own style:
+        // the colors `cells` resolves once for a run of one style are not
+        // the placeholder's
+        let mut mixed = Line::new(LineId::new(2), 4);
+        mixed.write(0, Glyph::Char('a'), Width::Narrow, &placeholder, None);
+        mixed.write(
+            1,
+            Glyph::Cluster(cluster),
+            Width::Narrow,
+            &placeholder,
+            None,
+        );
+        mixed.write(2, Glyph::Char(' '), Width::Narrow, &space, None);
+        let damage = Damage::new(4, 2);
         let palette = palette();
+        let frame = Frame::new(
+            vec![&line, &mixed],
+            &damage,
+            &palette,
+            Age::NEVER,
+            Cursor::default(),
+            false,
+        );
+        let cells: Vec<FrameCell<'_>> = frame.cells(1).collect();
+        let cell = |i: usize| cells.get(i).copied().unwrap();
+        let (text, read, blank) = (cell(0), cell(1), cell(2));
+        assert_eq!((read.fg, read.bg), (blank.fg, blank.bg));
+        assert_ne!((text.fg, text.bg), (read.fg, read.bg));
         for (reverse, selection) in [(false, None), (true, None), (false, Some(0..4))] {
             let mut frame = Frame::new(
                 vec![&line],

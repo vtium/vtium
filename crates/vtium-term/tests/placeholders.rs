@@ -107,6 +107,23 @@ fn cells_that_leave_their_marks_out_read_as_cells_that_carry_them() {
             ..run(&t, 0, 0, 3, (3 << 24) | 0x0102, (1, 0))
         }]
     );
+    // a cell with only a row, under a neighbor on another picture row,
+    // takes no column from it
+    let mut t = Terminal::new(10, 4, 0);
+    t.input(format!("\x1b[38;5;42m{}{}", cell(&[0, 0]), cell(&[1])).as_bytes());
+    assert_eq!(
+        t.screen().placeholder_runs(),
+        vec![run(&t, 0, 0, 1, 42, (0, 0)), run(&t, 0, 1, 1, 42, (1, 0))]
+    );
+    // a third mark past 255 gives no top byte, so the cell takes its
+    // neighbor's, 3
+    let mut t = Terminal::new(10, 4, 0);
+    let past = format!("{P}{}{}\u{A8E6}", D[0], D[1]);
+    t.input(format!("\x1b[38;5;42m{}{past}", cell(&[0, 0, 3])).as_bytes());
+    assert_eq!(
+        t.screen().placeholder_runs(),
+        vec![run(&t, 0, 0, 2, (3 << 24) | 42, (0, 0))]
+    );
     // a neighbor in other colors, or not in the column before, gives
     // nothing: the cell reads as row 0, column 0, top byte 0
     let mut t = Terminal::new(10, 4, 0);

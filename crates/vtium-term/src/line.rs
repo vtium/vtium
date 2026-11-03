@@ -1770,6 +1770,36 @@ mod tests {
         assert_eq!(line.cluster_bytes(), 24 + 9);
     }
 
+    // Holding a line to its budget rebuilds its arena and counts its
+    // placeholder cells again, from the cells it has now: a line cut short
+    // names fewer than it did.
+    #[cfg(feature = "images")]
+    #[test]
+    fn holding_a_line_to_its_budget_counts_its_placeholders_again() {
+        let mut line = Line::new(LineId::new(1), 8);
+        let heavy = accented(31);
+        let p = placeholder(3);
+        for col in 0..8 {
+            let glyph = if col % 2 == 0 { &heavy } else { &p };
+            line.write(
+                col,
+                Glyph::Cluster(glyph),
+                Width::Narrow,
+                &Style::DEFAULT,
+                None,
+            );
+        }
+        assert_eq!(tables(&line).placeholders, 4);
+        line.cells.truncate(3);
+        line.hold_to_budget();
+        assert_eq!(
+            tables(&line).placeholders,
+            1,
+            "one placeholder cell is left"
+        );
+        assert_eq!(line.cluster_bytes(), 17 + tables(&line).live());
+    }
+
     // In a build without images, U+10EEEE is a private-use character like
     // any other: a cluster that starts with it keeps only what the line's
     // budget leaves, and the line counts no placeholder.
