@@ -2855,9 +2855,12 @@ impl App {
     /// left with one, changed the head's font, vtium returns the head to
     /// the font the configuration gives it, read again; and where the font
     /// returns or a zoom left the console off the configured size, the
-    /// console returns to that size. Nothing else is read or reloaded. A
-    /// configured font that draws nothing at that size leaves the font and
-    /// the size as they were, with one line saying why.
+    /// console returns to that size. Where the `font-size` read again
+    /// turns the configured size on or off, the frit the head draws is
+    /// rebuilt to drop or take its own cell (ADR-1200 D16). Nothing else is
+    /// read or reloaded. A configured font that draws nothing at that size
+    /// leaves the font and the size as they were, with one line saying
+    /// why.
     fn return_font(&mut self, h: usize, id: u64) {
         let Some(due) = self.heads.get(h).map(|head| head.returns(id)) else {
             return;
@@ -2875,9 +2878,20 @@ impl App {
         let kept = (head.points, head.auto_size, head.font_size);
         let switched = head.switched;
         let mut left = None;
-        if due.font {
+        let new = if due.font {
             head.switched = None;
-            let new = self.configured_font(h);
+            Some(self.configured_font(h))
+        } else if head.sized() != was_sized {
+            // The frit drawn, with its own cell or without it as the
+            // `font-size` read again now says (ADR-1200 D16).
+            match &head.font {
+                Some(Chosen::Frit { frit, .. }) => Chosen::frit(frit.clone(), head.sized()).ok(),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if let Some(new) = new {
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };

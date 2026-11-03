@@ -6255,3 +6255,32 @@ fn closing_the_console_a_switch_came_from_returns_the_font() {
     assert_eq!(size, "size:8 32");
     assert_eq!(reads.get(), 1, "nothing recorded against console 2");
 }
+
+/// ADR-1201 D11 and ADR-1200 D16: a configured `font-size` wins over a
+/// frit's own cell, so when a zoom returns after vtium.conf's `font-size`
+/// changed from 0 to 16, the next login draws frit a at 16 points in the
+/// built-in font's 8x16 cell, as a fresh start with that file does.
+#[test]
+fn a_zoom_returning_after_a_font_size_edit_draws_as_a_fresh_start() {
+    let (dir, fonts) = reset_fixture("reset-sized", "font-name=a\nfont-size=16\n");
+    let (fresh, _) = reset_seat(&dir, &small_consoles(1), fonts.clone());
+    assert_eq!(
+        (grid(&fresh.app, "small"), fresh.app.cells()),
+        (Some((40, 10)), vec![(8, 16)]),
+        "a fresh start at 16 points"
+    );
+    drop(fresh);
+    std::fs::write(dir.join("vtium.conf"), "font-name=a\nfont-size=0\n").expect("the edit");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert_eq!(grid(&s.app, "small"), Some((32, 8)), "a's own cell");
+    let zoom = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('=')
+    });
+    s.app.device_input(Path::new(KBD_SMALL), zoom, now());
+    assert_eq!(grid(&s.app, "small"), Some((16, 4)), "zoomed");
+    std::fs::write(dir.join("vtium.conf"), "font-name=a\nfont-size=16\n").expect("the edit");
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:10 40");
+    assert_eq!(s.app.cells(), [(8, 16)]);
+}
