@@ -1559,16 +1559,31 @@ impl App {
 
     /// The helper's answer to frit `name`'s cell query at `height`, which
     /// came after the console stopped waiting for it (ADR-1200 D17, the
-    /// maintainer, 2026-11-03): it is kept for the frit in place of the
-    /// missing answer, with one line, so a refusal holds as one in time
-    /// does, and each head drawing the frit that takes a cell from it is
-    /// laid out again, so the next frame draws in that cell.
+    /// maintainer, 2026-11-03). It takes the place of a missing answer
+    /// alone, the timeout recorded at `height` or no entry at all, and is
+    /// then logged in one line, so a refusal holds as one in time does. An
+    /// answer the frit already holds at `height`, as when an OSC 50 switch
+    /// back asked again and its answer came in time behind this one, stays,
+    /// and the late one is dropped. A cell taken lays out again each head
+    /// drawing the frit that takes it: for a bitmap first source's cell
+    /// every such head, whatever its height, and for an outline source's
+    /// those drawing at `height` alone, so the next frame draws in it.
     fn late_cell(
         &mut self,
         name: &str,
         height: u32,
         answer: Result<helper::OwnCell, helper::NoCell>,
     ) {
+        let Some(frit) = self.frits.get_mut(name) else {
+            return;
+        };
+        let missing = frit
+            .own
+            .get(&height)
+            .is_none_or(|known| known.as_ref().is_err_and(|no| no.late));
+        if !missing {
+            return;
+        }
         match &answer {
             Ok(helper::OwnCell::Bitmap(cell)) => log::info!(
                 "the frit {name}'s own {}x{} cell came after the wait: it draws in it from the next frame",
@@ -1584,23 +1599,27 @@ impl App {
                 "the helper refused the frit {name}'s own cell after the wait ({why}): it keeps the cell it draws in"
             ),
         }
-        let Some(frit) = self.frits.get_mut(name) else {
-            return;
+        let outline = match &answer {
+            Ok(helper::OwnCell::Bitmap(_)) => false,
+            Ok(helper::OwnCell::Outline(_)) => true,
+            Err(_) => {
+                frit.own.insert(height, answer);
+                return;
+            }
         };
-        let took = answer.is_ok();
         frit.own.insert(height, answer);
-        if !took {
-            return;
-        }
         for h in 0..self.heads.len() {
             let dpi = self.dpi(h);
-            let wants = self.heads.get(h).is_some_and(|head| {
+            let takes = self.heads.get(h).is_some_and(|head| {
+                let at = draw_height(head, dpi, &self.locale);
                 head.frit() == Some(name)
-                    && head.font.as_ref().is_some_and(|f| {
-                        f.wants_own_cell(draw_height(head, dpi, &self.locale), head.sized())
-                    })
+                    && (!outline || at == height)
+                    && head
+                        .font
+                        .as_ref()
+                        .is_some_and(|f| f.wants_own_cell(at, head.sized()))
             });
-            if wants {
+            if takes {
                 self.relayout(h);
             }
         }
@@ -4092,8 +4111,14 @@ mod tests {
     /// font sources `fonts` and the device `video` at `/dev/mem0`, before
     /// its first turn.
     fn seat(heads: Option<&str>, fonts: font::Sources) -> (Loop<App>, App) {
-        let args: Vec<OsString> = ["--font-size=16", "--login", "--", "/bin/true"]
+        seat_with(&["--font-size=16"], heads, fonts)
+    }
+
+    /// [`seat`] with the options `options` in place of `--font-size=16`.
+    fn seat_with(options: &[&str], heads: Option<&str>, fonts: font::Sources) -> (Loop<App>, App) {
+        let args: Vec<OsString> = options
             .iter()
+            .chain(&["--login", "--", "/bin/true"])
             .map(OsString::from)
             .collect();
         let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
@@ -4783,6 +4808,124 @@ mod tests {
             "no device told, no display unblanked"
         );
         assert!(app.blank.blanked(), "the blank stands");
+    }
+
+    /// Two heads on one memory device at `--font-size=0`: `a` draws the
+    /// bitmap frit `t` and `b` the bitmap frit `u`. Their helpers never
+    /// answer, so each frit's cell query at the start has no answer in
+    /// time, and each head still wants its frit's cell.
+    /// The seat is shown, and the frit's directory kept for the test.
+    fn late_seat(test: &str) -> (Loop<App>, App, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("vtium-app-{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        std::fs::write(dir.join("u.vtfrit"), "source=kbd:y\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.clone(),
+            helper: Some(helper::Command {
+                program: PathBuf::from("/bin/sh"),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let heads = "version = 1\n[head a]\nprofile = t\n[head b]\nprofile = u\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+        let (lp, mut app) = seat_with(&["--font-size=0"], Some(heads), fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A"), (2, "B")])),
+        );
+        shown(&mut app);
+        (lp, app, dir)
+    }
+
+    // ADR-1200 D17 (the maintainer, 2026-11-03), fix round 1 of the work
+    // that keeps a late answer: a late answer lays out again only the
+    // heads drawing the frit that take a cell from it. An outline cell for
+    // a height no head draws at lays out nothing; a bitmap first source's
+    // own cell lays out the head drawing the frit and not the head drawing
+    // another frit, which still wants its own cell. `refont`, which a
+    // layout takes, marks each head.
+    #[test]
+    fn a_late_cell_lays_out_only_the_heads_that_take_it() {
+        let (_lp, mut app, dir) = late_seat("late-heads");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let known = app.frits.get("t").map(|f| f.own.clone()).unwrap();
+        assert!(
+            known
+                .get(&at)
+                .is_some_and(|k| k.as_ref().is_err_and(|no| no.late)),
+            "the start's query had no answer in time: {known:?}"
+        );
+        let mark = |app: &mut App| {
+            for head in &mut app.heads {
+                head.refont = true;
+            }
+        };
+        let marked = |app: &App| app.heads.iter().map(|h| h.refont).collect::<Vec<_>>();
+        let other = at + 11;
+        mark(&mut app);
+        let outline = vtium_font::Cell {
+            width: 9,
+            height: other,
+        };
+        app.late_cell("t", other, Ok(helper::OwnCell::Outline(outline)));
+        assert_eq!(
+            marked(&app),
+            [true, true],
+            "an outline cell at {other} lays out nothing"
+        );
+        let own = vtium_font::Cell {
+            width: 8,
+            height: 16,
+        };
+        app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(own)));
+        assert_eq!(marked(&app), [false, true], "a is laid out, b is not");
+        assert_eq!(app.heads.first().map(|h| h.cell), Some((8, 16)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ADR-1200 D17: a late answer takes the place of a missing answer
+    // alone. Where an OSC 50 switch back asked again at the same height
+    // and its answer came in time, the helper hands on the first query's
+    // answer late, behind it (the helper's test
+    // `a_query_asked_again_keeps_its_own_answer_and_the_earlier_one_late`);
+    // the answer in time stays, and the late one lays out nothing. A
+    // refusal in time stays too; a late refusal fills a missing answer.
+    #[test]
+    fn a_late_cell_answer_fills_only_a_missing_answer() {
+        let (_lp, mut app, dir) = late_seat("late-missing");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let cell = |w, h| vtium_font::Cell {
+            width: w,
+            height: h,
+        };
+        let in_time = Ok(helper::OwnCell::Bitmap(cell(8, 16)));
+        let refused = Err(helper::NoCell {
+            why: "no such font".to_owned(),
+            late: false,
+        });
+        if let Some(frit) = app.frits.get_mut("t") {
+            frit.own.insert(at, in_time.clone());
+            frit.own.insert(at + 1, refused.clone());
+        }
+        for head in &mut app.heads {
+            head.refont = true;
+        }
+        app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(cell(16, 32))));
+        app.late_cell("t", at + 1, Ok(helper::OwnCell::Bitmap(cell(16, 32))));
+        let late_refusal = Err(helper::NoCell {
+            why: "late".to_owned(),
+            late: false,
+        });
+        app.late_cell("t", at + 2, late_refusal.clone());
+        let known = app.frits.get("t").map(|f| f.own.clone()).unwrap();
+        assert_eq!(known.get(&at), Some(&in_time));
+        assert_eq!(known.get(&(at + 1)), Some(&refused));
+        assert_eq!(known.get(&(at + 2)), Some(&late_refusal));
+        assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

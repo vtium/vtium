@@ -2936,6 +2936,38 @@ mod tests {
         assert_eq!(s.helper.failed(), None);
     }
 
+    // ADR-1200 D17: a query asked again at the same height, as an OSC 50
+    // switch back asks after the start's query had no answer in time,
+    // takes its own answer, the second; the first query's answer, which
+    // the helper sends before it, is handed on late behind it. The app
+    // keeps the answer in time (`a_late_cell_answer_fills_only_a_missing_answer`).
+    #[test]
+    fn a_query_asked_again_keeps_its_own_answer_and_the_earlier_one_late() {
+        let mut two = frame_bytes(FRAME_NO_OWN_CELL, b"the first query's answer");
+        two.extend(own_cell_frame(8, 16));
+        let held =
+            "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
+        let mut s = StandIn::new("cell-asked-again", held, &two);
+        assert!(
+            s.helper
+                .own_cell(16, Duration::from_millis(20), &t0)
+                .unwrap_err()
+                .late
+        );
+        std::fs::write(s.dir.join("answer.go"), b"").unwrap();
+        assert_eq!(
+            s.helper.own_cell(16, Duration::from_secs(10), &t0),
+            Ok(OwnCell::Bitmap(CELL))
+        );
+        let first = NoCell {
+            why: "the first query's answer".to_owned(),
+            late: false,
+        };
+        assert_eq!(s.helper.late_cells(), [(16, Err(first))]);
+        s.until_gone(t0());
+        assert_eq!(s.helper.failed(), None);
+    }
+
     // ADR-1200 D17 (the maintainer, 2026-11-03): each query left unanswered
     // past its wait keeps its own late answer, with the height it asked
     // at, in the order they came, and the helper is not given up; a late
