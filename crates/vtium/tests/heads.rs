@@ -421,6 +421,48 @@ struct Seat {
     released: Rc<Cell<u32>>,
 }
 
+impl Drop for Seat {
+    /// Ends the session of each head's shown console, with its process
+    /// group, and reaps it, before the seat's app drops. The app's ptys,
+    /// dropped, send their sessions SIGHUP and wait for none of them, so
+    /// without this a session could outlive its test.
+    fn drop(&mut self) {
+        let sessions: Vec<u32> = self
+            .app
+            .heads()
+            .iter()
+            .filter_map(|h| h.pty().and_then(|p| p.child_id()))
+            .collect();
+        for pid in sessions {
+            end_session(pid);
+        }
+    }
+}
+
+/// Kills the session `pid` leads, its whole process group, with SIGKILL,
+/// and reaps the leader. `pid` is a pty's child id, which the pty holds
+/// until it reaps the child, so no other process can have taken it: the
+/// pidfd opened here names the session.
+fn end_session(pid: u32) {
+    use rustix::io::Errno;
+    use rustix::process::{PidfdFlags, Signal, WaitId, WaitIdOptions};
+    use std::os::fd::AsFd;
+    let Some(pid) = i32::try_from(pid)
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+    else {
+        return;
+    };
+    let Ok(pidfd) = rustix::process::pidfd_open(pid, PidfdFlags::empty()) else {
+        return;
+    };
+    // The session's leader leads its process group too.
+    let _ = rustix::process::kill_process_group(pid, Signal::KILL);
+    while let Err(Errno::INTR) =
+        rustix::process::waitid(WaitId::PidFd(pidfd.as_fd()), WaitIdOptions::EXITED)
+    {}
+}
+
 /// The fake VT, which counts each release vtium acknowledges. The fake
 /// VT's `is_active` is false from the moment a release is asked for, so
 /// it cannot tell whether vtium has acknowledged the release yet.
@@ -3495,8 +3537,6 @@ struct Files {
     mark: PathBuf,
     /// A line at each session's start: its console's `VTIUM_CONSOLE`.
     starts: PathBuf,
-    /// A line at each session's start: its process id.
-    pids: PathBuf,
 }
 
 impl Files {
@@ -3518,17 +3558,11 @@ impl Files {
 }
 
 impl Drop for Files {
-    /// Ends every session the seat started that still runs, then retires
-    /// the directory and removes it. A session left running gets SIGHUP
-    /// when the seat drops and writes its mark, and a session the seat
-    /// started in its last turn may not have written its pid yet, so a
-    /// session can still write by the directory's path; once the
-    /// directory is retired, that write fails.
+    /// Retires the directory and removes it. The [`losing`] test drops
+    /// its files before its seat, whose drop ends the sessions it shows
+    /// and sends SIGHUP to any other, which then writes its mark by the
+    /// directory's path; once the directory is retired, that write fails.
     fn drop(&mut self) {
-        let pids = std::fs::read_to_string(&self.pids).unwrap_or_default();
-        for pid in pids.lines().filter_map(|l| l.parse().ok()) {
-            end_child(pid);
-        }
         let _ = std::fs::remove_dir_all(scratch::retire(&self.dir));
     }
 }
@@ -3557,31 +3591,6 @@ fn a_write_after_a_scratch_directory_is_retired_fails_and_leaves_nothing() {
     assert!(!old.exists(), "the guard's own drop leaves nothing");
 }
 
-/// Kills the process `pid` with SIGKILL and reaps it, when it is a child
-/// of this test process that nobody has reaped yet. A child keeps its pid
-/// until it is reaped, so the pid names the session it was written for;
-/// the pid of a session the seat's loop already reaped may belong to
-/// another process by now, and waitid refuses it as no child of ours.
-fn end_child(pid: i32) {
-    use rustix::process::{PidfdFlags, Signal, WaitId, WaitIdOptions};
-    use std::os::fd::AsFd;
-    let Some(pid) = rustix::process::Pid::from_raw(pid) else {
-        return;
-    };
-    let Ok(pidfd) = rustix::process::pidfd_open(pid, PidfdFlags::empty()) else {
-        return;
-    };
-    let ours = rustix::process::waitid(
-        WaitId::PidFd(pidfd.as_fd()),
-        WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT,
-    );
-    if ours.is_err() {
-        return;
-    }
-    let _ = rustix::process::pidfd_send_signal(&pidfd, Signal::KILL);
-    let _ = rustix::process::waitid(WaitId::PidFd(pidfd.as_fd()), WaitIdOptions::EXITED);
-}
-
 /// A head losing a display (ADR-1401 D8): the seat booted with `args`,
 /// `small` holding the small display, or both when `mirrored`, with the
 /// head file's `keys`, each of its sessions the script `test` writes,
@@ -3599,16 +3608,14 @@ fn losing(test: &str, args: &[&str], keys: &str, mirrored: bool) -> (Seat, Files
         script: dir.join("session.sh"),
         mark: dir.join("hup"),
         starts: dir.join("starts"),
-        pids: dir.join("pids"),
         dir,
     };
     std::fs::write(
         &files.script,
         format!(
-            "echo $$ >> {pids}\necho $VTIUM_CONSOLE >> {starts}\n\
+            "echo $VTIUM_CONSOLE >> {starts}\n\
              trap 'echo > {m}; exit 0' HUP\necho ready\n\
              while :; do read a; [ \"$a\" = q ] && exit 0; echo \"got:$a\"; done\n",
-            pids = files.pids.display(),
             starts = files.starts.display(),
             m = files.mark.display()
         ),
