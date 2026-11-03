@@ -386,7 +386,10 @@ fn a_draft_file_hard_linked_elsewhere_is_refused_and_nothing_is_quoted() {
     std::fs::hard_link(&elsewhere, &file).expect("a hard link");
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
-    assert!(err.contains("vtium.conf") && err.contains("hard link"), "{err}");
+    assert!(
+        err.contains("vtium.conf") && err.contains("hard link"),
+        "{err}"
+    );
     assert!(!format!("{out}{err}").contains("SECRET"), "{out}{err}");
     assert_eq!(f.conf(), "font-size=10\n");
 }
@@ -398,4 +401,38 @@ fn the_owners_a_draft_may_have_are_root_and_the_user_sudo_ran_for() {
     // run as a user, the user's own files, whatever SUDO_UID says
     assert_eq!(trusted_owners(1000, Some(5)), [0, 1000]);
     assert_eq!(trusted_owners(1000, None), [0, 1000]);
+}
+
+#[test]
+fn the_save_view_shows_the_command_the_save_runs() {
+    use vtium_config::tui::model::Saving;
+    use vtium_config::tui::{Paths, saving};
+    let exe = std::env::current_exe().expect("this test's path");
+    let system = Targets::system();
+    let paths = Paths {
+        configdir: system.configdir.clone(),
+        frits: system.frits.clone(),
+        drafts: PathBuf::from("/home/me/drafts"),
+        sudo: "sudo".into(),
+        vtium: system.vtium.clone(),
+    };
+    assert_eq!(
+        saving(&paths),
+        Saving::Sudo(format!("sudo {} apply DRAFT", exe.display()))
+    );
+    let f = fixture("shown", None);
+    let mine = Paths {
+        configdir: f.targets.configdir.clone(),
+        frits: f.targets.frits.clone(),
+        drafts: PathBuf::from("/home/me/drafts"),
+        sudo: "sudo".into(),
+        vtium: f.targets.vtium.clone(),
+    };
+    let want = save_argv(&Route::User, &exe, &f.targets, Path::new("DRAFT"))
+        .expect("an argv")
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert_eq!(saving(&mine), Saving::User(want));
 }

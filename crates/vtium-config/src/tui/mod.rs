@@ -127,7 +127,7 @@ pub fn fonts(dir: &Path) -> Vec<Font> {
 
 /// How a save from `paths` is installed, with the command it runs, built
 /// by the function that builds the command the save runs.
-fn saving(paths: &Paths) -> model::Saving {
+pub fn saving(paths: &Paths) -> model::Saving {
     let targets = paths.targets();
     let route = crate::apply::route(&targets, &paths.sudo, rustix::process::geteuid().is_root());
     let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
