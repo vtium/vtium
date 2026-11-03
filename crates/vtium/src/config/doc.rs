@@ -3,7 +3,9 @@
 
 use std::fmt::Write as _;
 
-use super::keys::{Default, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SCHEMES, Scope, TEXT_MAX};
+use super::keys::{
+    Default, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY, SCHEMES, Scope, TEXT_MAX,
+};
 use super::{FILE_MAX, LINE_MAX};
 
 const SOURCE: &str = "crates/vtium/src/config/keys.rs";
@@ -49,6 +51,9 @@ fn bound(k: &Key) -> String {
 }
 
 fn default(k: &Key) -> String {
+    if k.name == SB_MEMORY.name {
+        return sb_memory_defaults();
+    }
     match k.default {
         Default::Switch(true) => "on".to_owned(),
         Default::Switch(false) => "off".to_owned(),
@@ -58,6 +63,18 @@ fn default(k: &Key) -> String {
         Default::Rgb([r, g, b]) => format!("`{r},{g},{b}`"),
         Default::Unset => "unset".to_owned(),
     }
+}
+
+/// `sb-memory`'s default in each build, which differ because a build with
+/// images prices kitty placeholder cells into a screen row (ADR-1001,
+/// "Placeholder cells"). Both are written, so the documents are the same
+/// whichever build generates them.
+fn sb_memory_defaults() -> String {
+    format!(
+        "{} without images, {} with them",
+        vtium_term::SB_MEMORY_DEFAULT_MINSPEC,
+        vtium_term::SB_MEMORY_DEFAULT_IMAGES
+    )
 }
 
 fn option(k: &Key) -> String {
@@ -157,6 +174,13 @@ pub(super) fn example() -> String {
     );
     for k in KEYS.iter().filter(|k| k.scope == Scope::Anywhere) {
         let line = match (k.kind, k.default) {
+            _ if k.name == SB_MEMORY.name => format!(
+                "{}={}\n# (in a build with images: {}={})",
+                k.name,
+                vtium_term::SB_MEMORY_DEFAULT_MINSPEC,
+                k.name,
+                vtium_term::SB_MEMORY_DEFAULT_IMAGES
+            ),
             (Kind::Switch, Default::Switch(true)) => k.name.to_owned(),
             (Kind::Switch, _) => format!("no-{}", k.name),
             (_, Default::Number(n)) => format!("{}={n}", k.name),

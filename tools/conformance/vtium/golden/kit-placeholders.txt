@@ -1,0 +1,94 @@
+checkpoint 2193
+size 12x6
+cursor 5,2
+flags AUTO_WRAP
+row 0 ||
+row 1 |   􎻮̅̅􎻮̅̍|
+attr 1 3-4 fg=#00d787
+row 2 |   􎻮̍̅􎻮̍̍|
+attr 2 3-4 fg=#00d787
+row 3 ||
+row 4 ||
+row 5 ||
+checkpoint 2633
+size 12x6
+cursor 5,5
+flags AUTO_WRAP
+row 0 ||
+row 1 |   􎻮̅̅􎻮̅̍|
+attr 1 3-4 fg=#00d787
+row 2 |   􎻮̍̅􎻮̍̍|
+attr 2 3-4 fg=#00d787
+row 3 ||
+row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̅̅􎻮|
+attr 4 3-4 fg=#00d787
+row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
+attr 5 3-4 fg=#00d787
+checkpoint 2678
+size 12x6
+cursor 2,0
+flags AUTO_WRAP
+row 0 |􎻮̅̅|
+attr 0 0-0 fg=#00d787 bg=4 inverse
+attr 0 1-1 bg=4
+row 1 |   􎻮̅̅􎻮̅̍|
+attr 1 3-4 fg=#00d787
+row 2 |   􎻮̍̅􎻮̍̍|
+attr 2 3-4 fg=#00d787
+row 3 ||
+row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̅̅􎻮|
+attr 4 3-4 fg=#00d787
+row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
+attr 5 3-4 fg=#00d787
+checkpoint 2683
+size 12x6
+cursor 2,0
+flags AUTO_WRAP|INVERSE
+row 0 |􎻮̅̅|
+attr 0 0-0 fg=#00d787 bg=4
+attr 0 1-1 bg=4 inverse
+attr 0 2-11 inverse
+row 1 |   􎻮̅̅􎻮̅̍|
+attr 1 0-2 inverse
+attr 1 3-4 fg=#00d787 inverse
+attr 1 5-11 inverse
+row 2 |   􎻮̍̅􎻮̍̍|
+attr 2 0-2 inverse
+attr 2 3-4 fg=#00d787 inverse
+attr 2 5-11 inverse
+row 3 ||
+attr 3 0-11 inverse
+row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̅̅􎻮|
+attr 4 0-2 inverse
+attr 4 3-4 fg=#00d787 inverse
+attr 4 5-11 inverse
+row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
+attr 5 0-2 inverse
+attr 5 3-4 fg=#00d787 inverse
+attr 5 5-11 inverse
+checkpoint 2683
+size 12x6
+cursor 2,0
+flags AUTO_WRAP|INVERSE
+row 0 |􎻮̅̅|
+attr 0 0-0 fg=#00d787 bg=4
+attr 0 1-1 bg=4 inverse
+attr 0 2-11 inverse
+row 1 |   􎻮̅̅􎻮̅̍|
+attr 1 0-2 inverse
+attr 1 3-4 fg=#00d787 inverse
+attr 1 5-11 inverse
+row 2 |   􎻮̍̅􎻮̍̍|
+attr 2 0-2 inverse
+attr 2 3-4 fg=#00d787 inverse
+attr 2 5-11 inverse
+row 3 ||
+attr 3 0-11 inverse
+row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̅̅􎻮|
+attr 4 0-2 inverse
+attr 4 3-4 fg=#00d787 inverse
+attr 4 5-11 inverse
+row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
+attr 5 0-2 inverse
+attr 5 3-4 fg=#00d787 inverse
+attr 5 5-11 inverse

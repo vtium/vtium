@@ -15,6 +15,7 @@ mod with {
 
     use super::super::Screen;
     use crate::line::{Line, LineId};
+    use crate::placeholder::{self, PlaceholderRun};
     use crate::scrollback::{Change, Move};
 
     fn key(line: &Line) -> LineKey {
@@ -86,7 +87,11 @@ mod with {
             self.with_images(|store, screens, cols| store.place(image, place, screens, cols))
         }
 
-        /// The placements the view shows, in draw order (D9).
+        /// The placements the view shows, in draw order (D9). The store is
+        /// given the lines below the view as well, as many as a relative
+        /// placement starts above its root, so a child whose root has left
+        /// the bottom of a view moved back into the scrollback still draws
+        /// (D13).
         pub fn placements(&self) -> Vec<FramePlacement> {
             if !self.images.has_placements() {
                 return Vec::new();
@@ -111,7 +116,116 @@ mod with {
                 screen: &screen,
                 above: &above,
             };
-            self.images.frame(rows, self.cols)
+            let below = self.below_view(self.images.reach_below());
+            self.images.frame_with_below(rows, &below, self.cols)
+        }
+
+        /// The keys of the `n` lines below the view's bottom, top to
+        /// bottom: the newer scrollback rows and then the screen's own,
+        /// none while the view is the screen.
+        fn below_view(&self, n: usize) -> Vec<LineKey> {
+            let Some(top) = self.scrollback.view_index() else {
+                return Vec::new();
+            };
+            if n == 0 || self.flags.alternate {
+                return Vec::new();
+            }
+            let len = self.scrollback.len();
+            let first = top.saturating_add(self.rows);
+            let from_scrollback = (first..len).filter_map(|i| self.scrollback.get(i).map(key));
+            let from_screen = self
+                .main
+                .iter()
+                .take(self.rows)
+                .skip(first.saturating_sub(len))
+                .map(key);
+            from_scrollback.chain(from_screen).take(n).collect()
+        }
+
+        /// The runs of placeholder cells on the rows the view shows, left
+        /// to right and top to bottom, read from the cells (ADR-1100, D13):
+        /// what a frame hands the store beside the rows' line keys, so the
+        /// store draws each virtual placement where its runs lie.
+        pub fn placeholder_runs(&self) -> Vec<PlaceholderRun> {
+            let mut out = Vec::new();
+            // the alternate screen has no scrollback above it
+            let top = match self.flags.alternate {
+                true => 0,
+                false => self
+                    .scrollback
+                    .view_index()
+                    .unwrap_or(self.scrollback.len()),
+            };
+            let (mut carry, _) = placeholder::carry_from(self.rows_above(top), self.cols);
+            for line in self.view() {
+                placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
+                    out.push(r);
+                });
+            }
+            out
+        }
+
+        /// The runs of placeholder cells on the screen's own lines of the
+        /// main (`alt` false) or the alternate buffer, read from the cells
+        /// for a store decision that needs a virtual placement's position:
+        /// a kitty delete by cell, row or column, or a reservation that may
+        /// evict (ADR-1100, D13). The cells read count as input work (D5).
+        pub fn screen_placeholder_runs(&mut self, alt: bool) -> Vec<PlaceholderRun> {
+            self.screen_runs(alt).into_iter().map(|(_, r)| r).collect()
+        }
+
+        /// Marks changed every placeholder cell of kitty image id `image`
+        /// on the screen's own lines of the main (`alt` false) or the
+        /// alternate buffer, as the store asks when a virtual placement of
+        /// that image is made, replaced or deleted, or the image is sent
+        /// again (ADR-1100, D13). A buffer not shown has no cells on the
+        /// display, and a view moved into the scrollback is marked whole,
+        /// as the store's other changes mark it. The cells read count as
+        /// input work (D5).
+        pub fn mark_placeholders(&mut self, alt: bool, image: u32) {
+            if alt != self.flags.alternate {
+                return;
+            }
+            if self.scrollback.offset() != 0 {
+                self.damage.mark_all();
+                return;
+            }
+            for (y, run) in self.screen_runs(alt) {
+                if run.image != image {
+                    continue;
+                }
+                let x0 = usize::try_from(run.col).unwrap_or(usize::MAX);
+                let x1 = x0.saturating_add(usize::try_from(run.cells).unwrap_or(usize::MAX));
+                self.damage.mark_cells(y, x0..x1.min(self.cols));
+            }
+        }
+
+        /// The scrollback's rows above index `top`, nearest first: those a
+        /// picture row that soft-wraps down into the first row read may
+        /// start on.
+        fn rows_above(&self, top: usize) -> impl Iterator<Item = &Line> + '_ {
+            (0..top).rev().filter_map(|i| self.scrollback.get(i))
+        }
+
+        /// The runs on the screen's own lines of a buffer, each with its
+        /// screen row, counting the cells read as input work, those of the
+        /// rows above the screen whose wraps reach its first row included.
+        fn screen_runs(&mut self, alt: bool) -> Vec<(usize, PlaceholderRun)> {
+            // the main screen's rows may continue its scrollback's newest
+            // rows; the alternate screen has no scrollback
+            let top = if alt { 0 } else { self.scrollback.len() };
+            let (mut carry, mut read) = placeholder::carry_from(self.rows_above(top), self.cols);
+            let lines = if alt { &self.alt } else { &self.main };
+            let mut out = Vec::new();
+            for (y, line) in lines.iter().take(self.rows).enumerate() {
+                let cells = placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
+                    out.push((y, r));
+                });
+                read = read.saturating_add(cells);
+            }
+            self.images
+                .add_work(u64::try_from(read).unwrap_or(u64::MAX));
+            out
         }
 
         /// The keys of the main (`alt` false) or the alternate buffer's
@@ -357,7 +471,9 @@ mod with {
                 i64::try_from(k).ok()?.checked_add(1)?.checked_neg()
             };
             for region in changed {
-                let Some(top) = row_of(region.line) else {
+                // a relative placement's box starts `row` rows below the
+                // line its root is anchored on, above it when negative
+                let Some(top) = row_of(region.line).map(|y| y.saturating_add(region.row)) else {
                     continue;
                 };
                 let first = usize::try_from(top.max(0)).unwrap_or(0);

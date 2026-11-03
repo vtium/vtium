@@ -7,7 +7,7 @@
 //! [`Terminal::set_font_name`](crate::Terminal::set_font_name).
 //!
 //! - `OSC 50 ; Pt ST`: Pt names a frit or a built-in font, as
-//!   `vtium-vitrify set` sends it. A Pt that cannot be a frit's name is
+//!   `vtium config set` sends it. A Pt that cannot be a frit's name is
 //!   ignored; ADR-1200 D1 allows 1 to 64 characters of
 //!   `A-Z a-z 0-9 . _ + -`, not starting with `.`. The
 //!   input call returns after it, as after a synchronized update, so the
