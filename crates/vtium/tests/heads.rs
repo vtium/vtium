@@ -6195,3 +6195,40 @@ fn a_hang_up_returns_the_font_before_the_session_starts_again() {
     assert_eq!(s.app.font_name(), "a");
     assert_eq!(grid(&s.app, "small"), Some((32, 8)));
 }
+
+/// The lines in `dir`'s `starts.N`: how many times console N's session
+/// started.
+fn starts(dir: &Path, id: u32) -> usize {
+    std::fs::read_to_string(dir.join(format!("starts.{id}")))
+        .map(|t| t.lines().count())
+        .unwrap_or(0)
+}
+
+/// ADR-1201 D11: an OSC 50 request goes with the session that sent it. A
+/// hidden console's request waits for the console to be shown, and when
+/// the session ends first, its next session shows in the configured font.
+#[test]
+fn a_hidden_consoles_request_goes_with_its_session() {
+    let (dir, fonts) = reset_fixture("reset-stale", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.2"), "b").expect("the switch");
+    std::fs::write(dir.join("exit.2"), "").expect("the exit");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(2), fonts);
+    assert!(s.until(SECOND, |a| run_line(a, 2, 1).is_some()));
+    std::fs::write(dir.join("go.2"), "").expect("the go mark");
+    assert!(
+        s.until(SECOND, |_| starts(&dir, 2) == 2),
+        "console 2 started again"
+    );
+    assert_eq!(s.app.font_name(), "a");
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:x")),
+        "console 2's new session runs, shown"
+    );
+    assert_eq!(
+        s.app.font_name(),
+        "a",
+        "the ended session's request is gone"
+    );
+}

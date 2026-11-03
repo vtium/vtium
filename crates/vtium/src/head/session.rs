@@ -362,6 +362,10 @@ impl Head {
         // reset below finds the terminal taking input.
         #[cfg(feature = "images")]
         console.pictures.end_session(&mut console.term);
+        // So does an OSC 50 request a hidden console still holds, which
+        // would switch the font for the next session once it is shown and
+        // hold that session's output meanwhile (ADR-1201 D11).
+        console.term.terminal.take_font_request();
         if after == AfterExit::Restart {
             // A new session starts from a hard reset (RIS), with nothing of
             // the last session's output left (`terminal_close` at kmscon
