@@ -647,3 +647,40 @@ fn the_real_helper_returns_an_animated_gifs_frames_past_its_budget_of_one_pictur
     assert_eq!(picture(ask(&mut host, &first)).0, 16);
     assert_eq!(host.crashes(), 0);
 }
+
+#[test]
+fn requests_that_alternate_a_larger_budget_and_more_frame_room_restart_the_helper_once() {
+    let mut host = ImageHost::new(Some(program()), None);
+    let z = miniz_oxide::deflate::compress_to_vec_zlib(&STRAIGHT, 6);
+    let budget = Request {
+        largest_bytes: 32 << 20,
+        ..raw(Medium::Direct(z), Layout::Rgba, 2, 1, true)
+    };
+    let frames = Request {
+        any_image: true,
+        frames: Some(FrameLimits {
+            max_frames: 1024,
+            max_frame_bytes: 64 << 20,
+        }),
+        largest_bytes: 1 << 20,
+        ..base(Medium::Direct(gif_file(2)))
+    };
+    picture(ask(&mut host, &budget));
+    let first = host.pid().unwrap();
+    assert!(matches!(
+        ask(&mut host, &frames),
+        Reply::Ok(Payload::Frames { .. })
+    ));
+    let second = host.pid().unwrap();
+    assert_ne!(first, second, "its file cap was set from fewer bytes");
+    picture(ask(&mut host, &budget));
+    assert!(matches!(
+        ask(&mut host, &frames),
+        Reply::Ok(Payload::Frames { .. })
+    ));
+    assert_eq!(
+        host.pid().unwrap(),
+        second,
+        "the helper keeps the larger of each cap"
+    );
+}

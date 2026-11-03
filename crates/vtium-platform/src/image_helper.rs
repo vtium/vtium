@@ -275,17 +275,24 @@ impl ImageHost {
     /// A helper running as `account` for requests of up to `max_bytes`
     /// whose reply files reach `largest_file`: the one running, unless its
     /// account differs or either of its caps was set from fewer bytes, else
-    /// a new one.
+    /// a new one. A helper started again for the same account takes the
+    /// larger of each cap, the old one's and the request's, so requests
+    /// that alternate a larger budget and more frame room restart it once.
     fn ensure(
         &mut self,
         account: &Account,
         max_bytes: u64,
         largest_file: u64,
     ) -> Result<(), Reply> {
+        let (mut max_bytes, mut largest_file) = (max_bytes, largest_file);
         let stale = self.running.as_ref().is_some_and(|r| {
             r.account != *account || max_bytes > r.max_bytes || largest_file > r.largest_file
         });
         if stale {
+            if let Some(r) = self.running.as_ref().filter(|r| r.account == *account) {
+                max_bytes = max_bytes.max(r.max_bytes);
+                largest_file = largest_file.max(r.largest_file);
+            }
             self.kill();
         }
         if self.running.is_some() {
