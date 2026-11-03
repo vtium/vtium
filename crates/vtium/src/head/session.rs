@@ -140,6 +140,17 @@ pub(crate) enum AfterExit {
     GaveUp,
 }
 
+/// What the end of a console's session returns to the configuration
+/// (ADR-1201 D11).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Returns {
+    /// The head's font, which an OSC 50 switch changed.
+    pub(crate) font: bool,
+    /// The console's size, which a zoom changed or the font returning
+    /// sets.
+    pub(crate) size: bool,
+}
+
 /// Whether vtium ends once its heads stand as `heads` do: once a head
 /// ended under `oneshot` and no head that started still runs. Under the
 /// respawn policy no head ends.
@@ -268,6 +279,54 @@ impl Head {
             }
         }
         again
+    }
+
+    /// What the end of console `id`'s session returns (ADR-1201 D11): the
+    /// head's font, where the last OSC 50 switch came from that console or
+    /// the head has one console left; and the console's size, where the
+    /// font returns or the console no longer draws at the configured size,
+    /// as after a zoom. A session ending in another console of the head
+    /// leaves the font, so it never changes under another session.
+    pub(crate) fn returns(&self, id: u64) -> Returns {
+        let font = self
+            .switched
+            .is_some_and(|from| from == id || self.console_count() == 1);
+        let fit = if self.console.id == id {
+            Some(self.fit())
+        } else {
+            self.hidden.iter().find(|c| c.id == id).map(|c| c.fit)
+        };
+        let resized = fit.is_some_and(|f| (f.points, f.auto_size) != self.configured);
+        Returns {
+            font,
+            size: font || resized,
+        }
+    }
+
+    /// Takes the font size `config` configures, read again at a session's
+    /// end (ADR-1201 D11), for the consoles that open and the sessions
+    /// that end from now on; the head file's own `font-size` still wins.
+    pub(crate) fn reconfigure(&mut self, config: &Config) {
+        let (points, auto_size, sized) = crate::head::configured_size(self.own_size, config);
+        self.configured = (points, auto_size);
+        self.sized = sized;
+    }
+
+    /// Console `id` draws at the configured size from now on: the shown
+    /// console at the next relayout, and a hidden one in `hidden`, its
+    /// grid and cell at that size.
+    pub(crate) fn configured_size(&mut self, id: u64, hidden: console::Fit) {
+        let (points, auto_size) = self.configured;
+        if self.console.id == id {
+            self.points = points;
+            self.auto_size = auto_size;
+        } else if let Some(c) = self.hidden.iter_mut().find(|c| c.id == id) {
+            c.fit = console::Fit {
+                points,
+                auto_size,
+                ..hidden
+            };
+        }
     }
 
     /// The program of console `id` exited at `since`; `None` when the head

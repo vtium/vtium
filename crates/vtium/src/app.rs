@@ -293,6 +293,10 @@ pub struct App {
     assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// Where the font's sets come from.
     font_sources: font::Sources,
+    /// Reads the configuration again as the start read it, for the font
+    /// keys a session's end returns its console to (ADR-1201 D11); with
+    /// none, the configuration vtium started with stands.
+    reread: Option<Reread>,
     /// The glyph helper's program, opened at the start, which every helper
     /// starts from; why not, when it cannot be.
     launcher: Result<helper::Launcher, String>,
@@ -342,6 +346,10 @@ pub struct App {
     /// sleeps, or is going to.
     sleeping: Rc<Cell<bool>>,
 }
+
+/// Reads the configuration again, as [`crate::config::load`] read it at
+/// the start.
+pub type Reread = Box<dyn FnMut() -> crate::config::Loaded>;
 
 impl App {
     /// The seat for `config` on `vt`, with the compiled-in configuration's
@@ -456,6 +464,7 @@ impl App {
             caps,
             assumed: BTreeSet::new(),
             font_sources: font::Sources::configured(&config),
+            reread: None,
             launcher: helper::Launcher::configured(&config),
             frits: BTreeMap::new(),
             console_font: None,
@@ -582,6 +591,13 @@ impl App {
             head.font = None;
         }
         self.frits.clear();
+    }
+
+    /// How the configuration is read again at a session's end, for its
+    /// font keys (ADR-1201 D11): `main` gives the reader it starts with,
+    /// on the same command line and seat.
+    pub fn set_config_reader(&mut self, read: Reread) {
+        self.reread = Some(read);
     }
 
     /// The kernel's font, read from the VT while it was in text mode, for
@@ -785,17 +801,27 @@ impl App {
     }
 
     /// Chooses head `h`'s font once, at its first display (ADR-1200 D9,
-    /// ADR-1401 D3): the head's own font, else the frit `font-name` or
-    /// vconsole names, or the one-source frit made on the fly for a kbd
-    /// name, a path or vconsole's font, generated at run time (ADR-1301
-    /// D2); else the built-in font, with one line naming the font and why.
+    /// ADR-1401 D3), as [`App::configured_font`] gives it.
     fn choose_font(&mut self, h: usize) {
-        let Some(head) = self.heads.get(h) else {
-            return;
-        };
-        if head.font.is_some() {
+        if self.heads.get(h).is_none_or(|head| head.font.is_some()) {
             return;
         }
+        let chosen = self.configured_font(h);
+        if let Some(head) = self.heads.get_mut(h) {
+            head.font = Some(chosen);
+        }
+        self.share(h);
+    }
+
+    /// The font the configuration gives head `h` (ADR-1200 D9, ADR-1401
+    /// D3): the head's own font, else the frit `font-name` or vconsole
+    /// names, or the one-source frit made on the fly for a kbd name, a
+    /// path or vconsole's font, generated at run time (ADR-1301 D2); else
+    /// the built-in font, with one line naming the font and why.
+    fn configured_font(&self, h: usize) -> Chosen {
+        let Some(head) = self.heads.get(h) else {
+            return Chosen::Builtin(None);
+        };
         let s = &self.font_sources;
         let wanted = match &head.font_name {
             Some(name) => Some(font::Wanted {
@@ -808,41 +834,31 @@ impl App {
                 &font::read_text(&s.kernel_cmdline),
             ),
         };
-        let chosen = match wanted {
-            None => Chosen::Builtin(None),
-            Some(wanted) => match font::builtin_named(&wanted.name) {
-                Some(builtin) => builtin,
-                None => {
-                    // The frit's cell is read as text before the first
-                    // frame; its fonts are the helper's to parse (#145).
-                    let chosen = font::frit_named(&s.frits, &wanted)
-                        .and_then(|frit| Chosen::frit(frit, head.sized()));
-                    let chosen = match chosen {
-                        Ok(chosen) => {
-                            log::info!(
-                                "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
-                                chosen.name(0, &self.locale)
-                            );
-                            chosen
-                        }
-                        Err(why) => {
-                            log::warn!(
-                                "the font {} is not drawn ({why}): vtium draws its built-in font",
-                                wanted.name
-                            );
-                            Chosen::Builtin(None)
-                        }
-                    };
-                    if let Some(head) = self.heads.get_mut(h) {
-                        head.font = Some(chosen);
-                    }
-                    self.share(h);
-                    return;
-                }
-            },
+        let Some(wanted) = wanted else {
+            return Chosen::Builtin(None);
         };
-        if let Some(head) = self.heads.get_mut(h) {
-            head.font = Some(chosen);
+        if let Some(builtin) = font::builtin_named(&wanted.name) {
+            return builtin;
+        }
+        // The frit's cell is read as text before the first frame; its fonts
+        // are the helper's to parse (#145).
+        let chosen =
+            font::frit_named(&s.frits, &wanted).and_then(|frit| Chosen::frit(frit, head.sized()));
+        match chosen {
+            Ok(chosen) => {
+                log::info!(
+                    "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
+                    chosen.name(0, &self.locale)
+                );
+                chosen
+            }
+            Err(why) => {
+                log::warn!(
+                    "the font {} is not drawn ({why}): vtium draws its built-in font",
+                    wanted.name
+                );
+                Chosen::Builtin(None)
+            }
         }
     }
 
@@ -998,18 +1014,7 @@ impl App {
             };
             let old = head.font.replace(new);
             self.share(h);
-            // A switch asks the helper for the cell again where the last
-            // ask had no answer in time, even while another head draws the
-            // frit; a refusal holds (ADR-1200 D17).
-            if let Some(frit) = self
-                .heads
-                .get(h)
-                .and_then(Head::frit)
-                .and_then(|name| self.frits.get_mut(name))
-            {
-                frit.own
-                    .retain(|_, answer| !answer.as_ref().is_err_and(|no| no.late));
-            }
+            self.retry_late_cell(h);
             if let Some(head) = self.heads.get_mut(h) {
                 head.refont = true;
             }
@@ -1041,6 +1046,7 @@ impl App {
         let current = head.chosen().name(head.font_size, &self.locale).to_owned();
         match new {
             Ok(()) => {
+                head.switched = Some(head.console.id);
                 let refused = std::mem::take(&mut head.font_refused);
                 if refused > 1 {
                     log::info!(
@@ -2806,7 +2812,13 @@ impl App {
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
-            match head.exited(id, since, self.oneshot) {
+            let after = head.exited(id, since, self.oneshot);
+            // Before the console's next session starts, at the size it
+            // returns to.
+            if matches!(after, Some(AfterExit::Restart | AfterExit::Ended)) {
+                self.return_font(h, id);
+            }
+            match after {
                 // No login starts in the turn vtium exits, which hangs
                 // every session up.
                 Some(AfterExit::Restart) if self.exit.is_none() => self.spawn(h, id),
@@ -2817,6 +2829,166 @@ impl App {
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);
         }
+    }
+
+    /// The session in head `h`'s console `id` ended (ADR-1201 D11). Where
+    /// an OSC 50 switch from that console, or from any console of a head
+    /// left with one, changed the head's font, vtium returns the head to
+    /// the font the configuration gives it, read again; and where the font
+    /// returns or a zoom left the console off the configured size, the
+    /// console returns to that size. Nothing else is read or reloaded. A
+    /// configured font that draws nothing at that size leaves the font and
+    /// the size as they were, with one line saying why.
+    fn return_font(&mut self, h: usize, id: u64) {
+        let Some(due) = self.heads.get(h).map(|head| head.returns(id)) else {
+            return;
+        };
+        if !due.size {
+            return;
+        }
+        self.reread_font_keys();
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        let was_sized = head.sized();
+        head.reconfigure(&self.config);
+        let shown = head.console.id == id;
+        let kept = (head.points, head.auto_size, head.font_size);
+        let switched = head.switched;
+        let mut left = None;
+        if due.font {
+            head.switched = None;
+            let new = self.configured_font(h);
+            let Some(head) = self.heads.get_mut(h) else {
+                return;
+            };
+            if !same_font(head.chosen(), &new) || head.sized() != was_sized {
+                left = Some((head.frit().map(str::to_owned), head.font.replace(new)));
+                head.refont = true;
+                self.share(h);
+                self.retry_late_cell(h);
+            }
+        }
+        if let Some(head) = self.heads.get_mut(h) {
+            let fresh = head.fresh_fit();
+            head.configured_size(id, fresh);
+        }
+        if (shown || left.is_some()) && !self.relayout(h) {
+            let Some(head) = self.heads.get_mut(h) else {
+                return;
+            };
+            let tried = head.font_size;
+            (head.points, head.auto_size, head.font_size) = kept;
+            if let Some((_, old)) = left.take() {
+                head.font = old;
+                head.switched = switched;
+            }
+            head.refont = true;
+            self.relayout(h);
+            if let Some(head) = self.heads.get(h) {
+                log::warn!(
+                    "head {}: the configured font draws nothing at {tried} pixels: the font stays {}",
+                    head.name(),
+                    head.chosen().name(head.font_size, &self.locale)
+                );
+            }
+        }
+        if !shown
+            && let Some(hidden) = self.configured_fit(h)
+            && let Some(head) = self.heads.get_mut(h)
+        {
+            head.configured_size(id, hidden);
+        }
+        if let Some((was, _)) = left {
+            self.prune();
+            // The frit the head left, where another head still draws it,
+            // keeps the cells of the heads drawing it alone.
+            if let Some(other) = was.and_then(|was| {
+                self.heads
+                    .iter()
+                    .position(|head| head.frit() == Some(was.as_str()))
+            }) {
+                self.ask_glyphs(other);
+            }
+            if let Some(head) = self.heads.get(h) {
+                log::info!(
+                    "head {}: the session in console {id} ended: the font returns to {}",
+                    head.name(),
+                    head.chosen().name(head.font_size, &self.locale)
+                );
+            }
+        }
+    }
+
+    /// Reads the configuration again with the reader vtium started with,
+    /// for its font keys alone (ADR-1201 D11): each report about a font key,
+    /// or about a line or a file that may have held one, is logged, and the
+    /// key is dropped as it is at the start. Every other key applies at the
+    /// next start. With no reader, the configuration vtium started with
+    /// stands.
+    fn reread_font_keys(&mut self) {
+        const FONT_KEYS: [&crate::config::Key; 3] =
+            [&keys::FONT_NAME, &keys::FONT_SIZE, &keys::FONT_ENGINE];
+        let Some(read) = self.reread.as_mut() else {
+            return;
+        };
+        let loaded = read();
+        let font_key = |k: &str| FONT_KEYS.iter().any(|f| f.name == k);
+        for r in &loaded.reports {
+            if r.problem.key().is_none_or(font_key) {
+                crate::warn::warn(r);
+            }
+        }
+        self.config.take_keys(&loaded.config, &FONT_KEYS);
+    }
+
+    /// Head `h`'s frit asks the helper for its cell again where the last
+    /// ask had no answer in time, even while another head draws the frit; a
+    /// refusal holds (ADR-1200 D17).
+    fn retry_late_cell(&mut self, h: usize) {
+        if let Some(frit) = self
+            .heads
+            .get(h)
+            .and_then(Head::frit)
+            .and_then(|name| self.frits.get_mut(name))
+        {
+            frit.own
+                .retain(|_, answer| !answer.as_ref().is_err_and(|no| no.late));
+        }
+    }
+
+    /// The fit a hidden console of head `h` takes at the configured size:
+    /// the grid and cell the head's displays give its font there, as
+    /// [`App::relayout`] lays the shown console out. `None` while the head
+    /// has no display, when the console keeps the shown console's grid and
+    /// cell until it is shown, as a console the open chord opens does.
+    fn configured_fit(&mut self, h: usize) -> Option<crate::head::console::Fit> {
+        let dpi = self.dpi(h);
+        let head = self.heads.get(h)?;
+        if head.views.is_empty() {
+            return None;
+        }
+        let fresh = head.fresh_fit();
+        let height = height_at(head, (fresh.points, fresh.auto_size), dpi, &self.locale);
+        self.own_cell(h, height);
+        let head = self.heads.get(h)?;
+        let locale = self.locale.as_str();
+        let (face, base) = font::select(height, head.has_font, |x| head.face(x, locale)).ok()?;
+        let cell = |at: u32| {
+            head.face(at, locale).ok().map(|f| {
+                let c = f.cell();
+                (c.width, c.height)
+            })
+        };
+        let sizes: Vec<(u32, u32)> = head.views.values().map(|v| v.size).collect();
+        let turned = matches!(head.orientation, Orientation::Right | Orientation::Left);
+        let l = layout::layout(&sizes, turned, base, face.size_step(), cell)?;
+        Some(crate::head::console::Fit {
+            grid: l.grid,
+            font_size: base,
+            cell: cell(base)?,
+            ..fresh
+        })
     }
 
     /// A session kept ending as soon as it started, which ends the run
@@ -3355,9 +3527,17 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Show
 /// configured `font-size` in points, else the automatic rule, else the
 /// height it has, as a bitmap frit's whole multiples snap it.
 fn draw_height(head: &Head, dpi: f64, locale: &str) -> u32 {
-    let height = if let Some(points) = head.points {
+    height_at(head, (head.points, head.auto_size), dpi, locale)
+}
+
+/// The height `head` draws at with its display's density `dpi` at the
+/// size `(points, auto_size)`, a console's [`crate::head::console::Fit`]:
+/// as [`draw_height`] has it.
+fn height_at(head: &Head, size: (Option<u32>, bool), dpi: f64, locale: &str) -> u32 {
+    let (points, auto_size) = size;
+    let height = if let Some(points) = points {
         font::points_to_pixels(points, dpi)
-    } else if head.auto_size {
+    } else if auto_size {
         let sizes = head.views.values().map(|v| v.size);
         let w = sizes.clone().map(|s| s.0).min().unwrap_or(0);
         let ht = sizes.map(|s| s.1).min().unwrap_or(0);
@@ -3366,6 +3546,18 @@ fn draw_height(head: &Head, dpi: f64, locale: &str) -> u32 {
         head.font_size
     };
     head.chosen().snap(height)
+}
+
+/// Whether `a` and `b` are the same font: the same built-in by name, or
+/// the same frit, by its name and its text.
+fn same_font(a: &Chosen, b: &Chosen) -> bool {
+    match (a, b) {
+        (Chosen::Builtin(x), Chosen::Builtin(y)) => x == y,
+        (Chosen::Frit { frit: x, .. }, Chosen::Frit { frit: y, .. }) => {
+            x.name == y.name && x.text == y.text
+        }
+        _ => false,
+    }
 }
 
 /// Draws each of `head`'s displays that something asks to: its render

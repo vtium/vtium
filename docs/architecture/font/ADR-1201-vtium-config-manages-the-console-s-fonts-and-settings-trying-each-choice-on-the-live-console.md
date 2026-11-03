@@ -256,8 +256,9 @@ The tagline under the tool's banner says what the tool is for now: the console's
 - **The configured font is read again.** vtium reads vtium.conf's font keys again, `font-name`, `font-size` and `font-engine`, which ranks with `font-name` (ADR-1200 D16), with the reader it starts with, and takes the font that ADR-1200 D9's chain gives the head, at the size `font-size` gives. A font the TUI saved is therefore the font the next login draws. A key that does not read is reported and dropped as it is at start. Every other key still applies at the next start, as docs/config.md says.
 - **The size comes back with it,** so a zoom made since is undone at the same moment.
 - **One font for a head.** vtium holds the font for a whole head, and every console of the head draws in it (`Head::font` in `crates/vtium/src/head.rs`). A switch records the console it came from, and vtium returns the head's font when the session ends in that console, or in a head's only console. A session ending in another console of the same head leaves the font, so it never changes under another person's session.
-- **Not built yet.** Today a switch lasts until the next switch or until vtium starts again.
-- The C reference had no OSC 50 and kept its font for the life of its process, changed only by its zoom keys (`src/terminal.c` at kmscon `b1f7a7c5`, `zoom_in`, `zoom_out`), and a session's end left the size where the zoom put it. vtium returns the size at a session's end, a listed departure in the vtium crate's README once built.
+- The C reference had no OSC 50 and kept its font for the life of its process, changed only by its zoom keys (`src/terminal.c` at kmscon `b1f7a7c5`, `zoom_in`, `zoom_out`), and a session's end left the size where the zoom put it. vtium returns the size at a session's end, a listed departure in the vtium crate's README.
+
+> Edited 2026-11-02: D11 is built in the vtium crate, whose README lists the departure. A bullet that read "**Not built yet.** Today a switch lasts until the next switch or until vtium starts again." is gone, and the last bullet ended "a listed departure in the vtium crate's README once built".
 
 ### D12: the tool's name, and how users reach it
 

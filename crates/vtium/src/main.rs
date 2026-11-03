@@ -66,6 +66,12 @@ fn main() -> ExitCode {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }
     let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
+    // The same reader reads the font keys again at a session's end
+    // (ADR-1201 D11).
+    let reread: vtium::app::Reread = {
+        let args = args.clone();
+        Box::new(move || config::load(&args, Some("seat0"), &mut config::read_file))
+    };
     if loaded.check {
         return ExitCode::from(check::main(&loaded));
     }
@@ -110,11 +116,12 @@ fn main() -> ExitCode {
         heads.outcome.policy,
     );
     let status = match path {
-        Some(path) => run_kernel(config, start, heads, &path),
+        Some(path) => run_kernel(config, reread, start, heads, &path),
         None => {
             log::info!(target: "vt", "no VTs: using a fake VT");
             run(
                 config,
+                reread,
                 start,
                 heads,
                 None,
@@ -133,6 +140,7 @@ fn main() -> ExitCode {
 
 fn run_kernel(
     config: config::Config,
+    reread: vtium::app::Reread,
     start: Start,
     heads: vtium::head::Start,
     path: &Path,
@@ -141,6 +149,7 @@ fn run_kernel(
     let path = path.to_owned();
     run(
         config,
+        reread,
         start,
         heads,
         console,
@@ -183,6 +192,7 @@ type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 /// once, whichever VT it runs on.
 fn run(
     config: config::Config,
+    reread: vtium::app::Reread,
     start: Start,
     heads: vtium::head::Start,
     console: Option<ConsoleFont>,
@@ -207,6 +217,7 @@ fn run(
     if let Some(font) = console {
         app.set_console_font(font);
     }
+    app.set_config_reader(reread);
     app.set_heads(heads);
 
     match start.input() {

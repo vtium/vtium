@@ -121,6 +121,9 @@ pub struct Head {
     next_id: u64,
     /// A new console's `font-size`, as configured: in points, or `0`.
     configured: (Option<u32>, bool),
+    /// The head file's own `font-size` for the head, which wins over
+    /// vtium.conf's (ADR-1401 D3).
+    own_size: Option<u32>,
     /// The consoles the head opens at its start, its file's `consoles`
     /// within the caps.
     pub(crate) wanted: usize,
@@ -208,6 +211,11 @@ pub struct Head {
     pub(crate) refont: bool,
     /// OSC 50's refusals since its last switch: only the first is logged.
     pub(crate) font_refused: u64,
+    /// The console the last OSC 50 switch came from, while the head draws
+    /// the font it chose: the end of that console's session, or of the
+    /// session in the head's only console, returns the head to its
+    /// configured font (ADR-1201 D11).
+    pub(crate) switched: Option<u64>,
     pub(crate) orientation: Orientation,
     pub(crate) grid: (usize, usize),
     /// Runs before each of the head's frames is composed: a test's
@@ -324,6 +332,21 @@ fn screen_text(console: &Console) -> Vec<String> {
         .collect()
 }
 
+/// The size a console of a head draws at, from the head file's own
+/// `font-size` for the head, `own`, else `config`'s: in points, unless
+/// `font-size=0` or unset picks it from the displays; and whether a
+/// `font-size` other than 0 is configured.
+pub(crate) fn configured_size(own: Option<u32>, config: &Config) -> (Option<u32>, bool, bool) {
+    let size = own
+        .map(u64::from)
+        .or_else(|| config.number(&keys::FONT_SIZE));
+    let points = size
+        .filter(|&n| n != 0)
+        .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
+    let auto_size = size.unwrap_or(0) == 0;
+    (points, auto_size, !auto_size)
+}
+
 /// What [`Head`]'s `draw_hook` runs.
 pub type DrawHook = std::sync::Arc<dyn Fn() + Send + std::marker::Sync>;
 
@@ -337,14 +360,7 @@ impl Head {
         font: &vtium_settings::Font,
         term: Term,
     ) -> Head {
-        let size = font
-            .size
-            .map(u64::from)
-            .or_else(|| config.number(&keys::FONT_SIZE));
-        let points = size
-            .filter(|&n| n != 0)
-            .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
-        let auto_size = size.unwrap_or(0) == 0;
+        let (points, auto_size, sized) = configured_size(font.size, config);
         let fit = Fit {
             grid: GRID,
             font_size: 0,
@@ -359,6 +375,7 @@ impl Head {
             at: 0,
             next_id: 2,
             configured: (points, auto_size),
+            own_size: font.size,
             wanted: 1,
             login: None,
             ended_notice: crate::notice::session_ended(),
@@ -388,13 +405,14 @@ impl Head {
             font_size: 0,
             points,
             auto_size,
-            sized: size.unwrap_or(0) != 0,
+            sized,
             has_font: false,
             step: 16,
             cell: CELL,
             font: None,
             refont: false,
             font_refused: 0,
+            switched: None,
             orientation: Orientation::Normal,
             grid: GRID,
             draw_hook: None,
