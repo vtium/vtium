@@ -1655,18 +1655,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// new ones are left off until the next hotplug and the rest are set
     /// alone.
     fn modeset(&mut self) -> io::Result<()> {
-        let set = if self.legacy {
-            self.legacy_modeset();
-            Ok(())
+        // The legacy calls set each display on its own, so the displays set
+        // are announced whatever failed for another.
+        let (set, took) = if self.legacy {
+            (self.legacy_modeset(), true)
         } else {
             let mut set = self.atomic_modeset_or_default();
-            // A display whose new mode cannot be set, even as its default,
-            // stays at the mode it is set to, and the modeset is tried
-            // again, so the others are set and nothing is retried.
-            if set.as_ref().is_err_and(|e| errno(e) != Some(Errno::ACCESS)) && self.hold_back() {
+            // A display whose new mode the card refuses, as its default
+            // too, stays at the mode it is set to, and the modeset is tried
+            // again, so the others are set and nothing is retried. Any
+            // other failure goes to the wake-up retries.
+            if refused(&set) && self.hold_back() {
                 set = self.atomic_modeset_or_default();
             }
-            match set {
+            let set = match set.map_err(Failure::into_inner) {
                 Err(e) if errno(&e) != Some(Errno::ACCESS) && self.mixed() => {
                     let (online, new) = std::mem::take(&mut self.outputs)
                         .into_iter()
@@ -1680,14 +1682,19 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                         self.free(o);
                     }
                     self.atomic_modeset_or_default()
+                        .map_err(Failure::into_inner)
                 }
                 set => set,
-            }
+            };
+            let took = set.is_ok();
+            (set, took)
         };
         if set.is_err() {
-            self.hold_back();
+            for o in &mut self.outputs {
+                o.keep_set_mode();
+            }
         }
-        if set.is_ok() {
+        if took {
             // A modeset brings every display on.
             self.blanked = false;
             self.owed = false;
@@ -1701,8 +1708,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// Gives each display back the mode it is set to where a scan chose
-    /// another that a modeset could not set, holding that mode back.
-    /// Whether any display did.
+    /// another that the card refused, holding that mode back. Whether any
+    /// display did.
     fn hold_back(&mut self) -> bool {
         let mut any = false;
         for o in &mut self.outputs {
@@ -1721,8 +1728,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// dark connectors set off, it is tried without them first, so a dark
     /// connector never costs the lit displays (ADR-1401 D9); the first
     /// such failure is logged as a warning, later ones at debug level.
-    fn atomic_modeset_or_default(&mut self) -> io::Result<()> {
-        let refused = |set: &Result<(), Failure>| matches!(set, Err(Failure::Test(e)) if errno(e) != Some(Errno::ACCESS));
+    fn atomic_modeset_or_default(&mut self) -> Result<(), Failure> {
         let mut dark = !self.dark.is_empty();
         let mut set = self.atomic_modeset(dark);
         if dark && refused(&set) {
@@ -1744,7 +1750,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             set = self.atomic_modeset(false);
         }
         if !refused(&set) {
-            return set.map_err(Failure::into_inner);
+            return set;
         }
         log::warn!("retrying the modeset with each display's default mode");
         let modes: Vec<Mode> = self.outputs.iter().map(|o| o.mode).collect();
@@ -1757,7 +1763,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.mode = mode;
             }
         }
-        retried.map_err(Failure::into_inner)
+        retried
     }
 
     /// Announces each display online: new ones as added, and those whose
@@ -2066,8 +2072,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// The legacy modeset: each CRTC in turn, with no flip event.
-    fn legacy_modeset(&mut self) {
+    fn legacy_modeset(&mut self) -> io::Result<()> {
         self.legacy_dark();
+        // A display whose new mode failed for another reason than the card
+        // refusing it, which the wake-up retries try again.
+        let mut failed = Ok(());
         let mut outputs = std::mem::take(&mut self.outputs);
         let driven: Vec<u32> = outputs
             .iter()
@@ -2085,7 +2094,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Ok(made) => made,
                 Err(e) => {
                     log::error!("cannot allocate buffers for {}: {e}", o.name);
-                    o.hold_back();
+                    if o.keep_set_mode() {
+                        failed = Err(e);
+                    }
                     continue;
                 }
             };
@@ -2120,11 +2131,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Err(e) => {
                     log::error!("cannot set the CRTC of {}: {e}", o.name);
                     self.release(made.unwrap_or_default());
-                    o.hold_back();
+                    // EINVAL is the card refusing the mode.
+                    if errno(&e) == Some(Errno::INVAL) {
+                        o.hold_back();
+                    } else if o.keep_set_mode() {
+                        failed = Err(e);
+                    }
                 }
             }
         }
         self.outputs = outputs;
+        failed
     }
 
     #[cfg(test)]
@@ -2142,6 +2159,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 enum Failure {
     Test(io::Error),
     Other(io::Error),
+}
+
+/// Whether the card refused a modeset: its test commit failed, other than
+/// as refused while another process holds DRM master.
+fn refused(set: &Result<(), Failure>) -> bool {
+    matches!(set, Err(Failure::Test(e)) if errno(e) != Some(Errno::ACCESS))
 }
 
 impl Failure {

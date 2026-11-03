@@ -212,9 +212,9 @@ pub(super) struct Output<M> {
     /// The mode the last modeset that took set the display to, which its
     /// buffers were made for; `None` before its first.
     pub(super) set: Option<Mode>,
-    /// A mode chosen from a new list of modes that no modeset could set,
-    /// with the default mode tried too. The display stays at `set`, and a
-    /// scan tries this mode again only when the card wakes or the set of
+    /// A mode chosen from a new list of modes that the card refused, with
+    /// the default mode refused too. The display stays at `set`, and a scan
+    /// tries this mode again only when the card wakes or the set of
     /// displays changes.
     pub(super) held: Option<Mode>,
     /// The connector's physical size in millimetres, 0 where it has none.
@@ -281,9 +281,23 @@ impl<M: AsMut<[u8]>> Output<M> {
         self.mode.size()
     }
 
-    /// After a modeset that did not set it, gives the display back the
-    /// mode it is set to, which its buffers fit, where a scan chose
-    /// another, and holds the mode chosen back. Whether it did.
+    /// After a modeset that failed for another reason than the card
+    /// refusing the mode, gives the display back the mode it is set to,
+    /// which its buffers fit, where a scan chose another, and forgets the
+    /// list the mode was chosen from, so the next scan, as the wake-up
+    /// retries run it, chooses again. Whether it did.
+    pub(super) fn keep_set_mode(&mut self) -> bool {
+        let Some(set) = self.set.filter(|&set| set != self.mode) else {
+            return false;
+        };
+        self.mode = set;
+        self.modes.clear();
+        true
+    }
+
+    /// After the card refused the mode a scan chose, and the default mode
+    /// too, gives the display back the mode it is set to, which its
+    /// buffers fit, and holds the mode chosen back. Whether it did.
     pub(super) fn hold_back(&mut self) -> bool {
         let Some(set) = self.set.filter(|&set| set != self.mode) else {
             return false;

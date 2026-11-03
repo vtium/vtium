@@ -4104,25 +4104,73 @@ fn drawable(v: &mut Drm2d<FakeCard>, id: u32) -> bool {
     drawn
 }
 
-// vtium/vtium#216: on a legacy card, a new mode whose buffers cannot be
-// made, or whose CRTC cannot be set, leaves the display at the mode it is
-// set to, which its buffers fit, so the tokens it lends can be drawn into.
+// vtium/vtium#216: a new mode that fails for a moment, as where one
+// buffer cannot be made, leaves the display at the mode it is set to,
+// which its buffers fit, and goes to the wake-up retries, whose next try
+// chooses the mode again and sets it.
 #[test]
-fn a_legacy_display_whose_new_mode_cannot_be_set_keeps_its_mode() {
-    let mut v = legacy_with_new_modes();
+fn a_new_mode_that_fails_for_a_moment_is_tried_again() {
+    let mut v = awake(one());
+    let swapped = vec![mode(800, 600, 60, true)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
     v.card().state().dumb_errors.push_back(Errno::NOMEM);
-    v.poll().unwrap();
+    assert!(v.poll().is_err());
     assert_eq!(events(&mut v), []);
-    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "no buffers");
-    assert_eq!(token_size(&mut v, A), (640, 480));
+    assert_eq!(
+        v.size(DisplayId(A)),
+        Some((640, 480)),
+        "the mode it is set to"
+    );
     assert!(drawable(&mut v, A));
+    assert!(v.retries.is_some(), "the retries run");
+    v.retry_wake();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
+    assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
+    flip(&mut v);
+    assert_eq!(token_size(&mut v, A), (800, 600));
+}
+
+// vtium/vtium#216: on a legacy card, a new mode whose buffers cannot be
+// made, or whose CRTC is busy, leaves the display at the mode it is set
+// to, so the tokens it lends can be drawn into, and goes to the wake-up
+// retries, whose next try sets it.
+#[test]
+fn a_legacy_display_whose_new_mode_fails_for_a_moment_tries_it_again() {
+    for fail in ["buffers", "crtc"] {
+        let mut v = legacy_with_new_modes();
+        if fail == "buffers" {
+            v.card().state().dumb_errors.push_back(Errno::NOMEM);
+        } else {
+            v.card().state().set_crtc_errors.push_back(Errno::BUSY);
+        }
+        assert!(v.poll().is_err(), "{fail}");
+        assert_eq!(events(&mut v), [], "{fail}");
+        assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "{fail}");
+        assert_eq!(token_size(&mut v, A), (640, 480), "{fail}");
+        assert!(drawable(&mut v, A), "{fail}");
+        v.retry_wake();
+        assert_eq!(v.size(DisplayId(A)), Some((800, 600)), "{fail}");
+        assert_eq!(token_size(&mut v, A), (800, 600), "{fail}");
+    }
+}
+
+// vtium/vtium#216: on a legacy card, a new mode the card refuses with
+// EINVAL is held back as an atomic card's is: the display keeps the mode
+// it is set to, nothing is retried, and a hotplug with the same list sets
+// nothing.
+#[test]
+fn a_legacy_display_whose_new_mode_is_refused_holds_it_back() {
     let mut v = legacy_with_new_modes();
     v.card().state().set_crtc_errors.push_back(Errno::INVAL);
     v.poll().unwrap();
     assert_eq!(events(&mut v), []);
-    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "no CRTC set");
+    assert!(v.retries.is_none(), "nothing to retry");
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
     assert_eq!(token_size(&mut v, A), (640, 480));
     assert!(drawable(&mut v, A));
+    let set = v.card().state().set_crtcs.len();
+    v.poll().unwrap();
+    assert_eq!(v.card().state().set_crtcs.len(), set, "nothing set");
 }
 
 // vtium/vtium#216: a mode changed in place at the same size, with only a
