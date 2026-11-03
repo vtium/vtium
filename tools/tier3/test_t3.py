@@ -1295,10 +1295,21 @@ class VtiumGoldenTest(unittest.TestCase):
                                                   "img-scrollback", "img-tmux-pane",
                                                   "img-animation", "img-iterm2",
                                                   "img-placeholder", "img-png")]
+        # the default 2D variants' re-baselined goldens (vtium/vtium#24)
+        rebaselined = ["%s/%s" % (v, s)
+                       for v in ("2d-1280x800", "2d-1366x768-potato", "2d-7680x2160",
+                                 "2d-7680x2160-font32")
+                       for s in ("boxdraw", "blocks", "mosaic", "wide-margin", "combining",
+                                 "sync-hold", "sixel", "sixel-ramps", "sixel-bound",
+                                 "sixel-evict", "sixel-evict-rotated", "sixel-evict-history",
+                                 "sixel-evict-zoomed", "photos", "photo-scroll",
+                                 "photo-scrollback", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty",
+                                 "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood",
+                                 "cjk")]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
                                                "sysvinit-two-vts/cjk"] + moved + frit + devices
-                                              + heads + images))
+                                              + heads + images + rebaselined))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
