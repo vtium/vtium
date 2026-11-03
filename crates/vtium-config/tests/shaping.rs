@@ -758,6 +758,57 @@ fn an_unplaced_mark_in_right_to_left_text_is_placed_over_its_letter() {
     }
 }
 
+// ADR-1302 D3: a letter the font draws as several glyphs is one base for
+// an unplaced mark. The font has no glyph for d with dot below (U+1E0D),
+// so HarfRust decomposes it into d and a dot below (U+0323), both glyphs
+// numbered by the U+1E0D they come from, as JetBrains Mono's ccmp draws
+// that letter as d and a dot. A circumflex (U+0302, class 230) after it is
+// left at the pen. Its base is the d and the dot together: centred over
+// their ink, a clear row above the d. Taken from the dot alone, the
+// circumflex would sit a row above the dot, inside the d. The d is a bar
+// from 100 to 500 units across and 500 tall, rows 6 to 15 at 20 pixels;
+// the dot lies from 250 to 350 units across under the baseline; the
+// circumflex is a zero-width bar 200 units wide and 50 tall
+// covers: text.overhang
+#[test]
+fn a_letter_drawn_as_several_glyphs_is_one_base_for_an_unplaced_mark() {
+    let f = unpositioned(&[
+        (0x64, ttf::Glyph::rect(600, 100, 0, 500, 500)),
+        (0x323, ttf::Glyph::rect(0, -350, -150, -250, -50)),
+        (0x302, ttf::Glyph::rect(0, 0, 0, 200, 50)),
+    ]);
+    let k = ['\u{1e0d}', '\u{302}'];
+    let o = rasterise(&OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        clusters: vec![ask(&k, Kind::Marks)],
+        ..OutlineRequest::default()
+    })
+    .expect("rasterised");
+    let w = o.strikes[0].width as usize;
+    let g = cluster(&o, &k).expect("d with dot below and a circumflex");
+    let d = inked(g, w, 10);
+    assert!(!d.is_empty(), "the d in row 10");
+    for y in 6..=15 {
+        assert_eq!(inked(g, w, y), d, "row {y} holds the d alone");
+    }
+    assert!(!inked(g, w, 17).is_empty(), "the dot under the baseline");
+    let above: Vec<usize> = (0..6).filter(|&y| !inked(g, w, y).is_empty()).collect();
+    assert!(!above.is_empty(), "the circumflex above the d");
+    assert!(
+        !above.contains(&5),
+        "a clear row between the d and the circumflex"
+    );
+    for &y in &above {
+        let c = inked(g, w, y);
+        assert!(
+            (c[0] + c[c.len() - 1]).abs_diff(d[0] + d[d.len() - 1]) <= 1,
+            "row {y} centred over the d's columns {d:?}: {c:?}"
+        );
+    }
+}
+
 /// The subset of Noto Naskh Arabic in `tests/fixtures/`.
 fn naskh() -> Vec<u8> {
     std::fs::read(
