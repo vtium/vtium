@@ -37,6 +37,7 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::OwnedFd;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{FileType, Mode, OFlags};
@@ -508,6 +509,16 @@ struct Staged {
 /// was written, `Ok(false)` when a write failed after the checks, and the
 /// reason when the draft was refused before anything was written.
 fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
+    // a trailing slash makes the kernel follow a link whatever O_NOFOLLOW
+    // says, so the draft's own name is opened, without one
+    let named = dir.as_os_str().as_encoded_bytes();
+    let end = named
+        .iter()
+        .rposition(|&b| b != b'/')
+        .map_or(1.min(named.len()), |i| i.saturating_add(1));
+    let dir = Path::new(std::ffi::OsStr::from_bytes(
+        named.get(..end).unwrap_or(named),
+    ));
     let draft = rustix::fs::open(
         dir,
         OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,

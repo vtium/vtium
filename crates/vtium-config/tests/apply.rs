@@ -502,3 +502,22 @@ fn the_check_s_copies_never_go_where_tmpdir_points() {
         "nothing lands where TMPDIR points: {left:?}"
     );
 }
+
+#[test]
+fn a_draft_reached_through_a_link_with_a_trailing_slash_is_refused() {
+    let f = fixture("slash", Some("font-size=10\n"));
+    let draft = f.draft(&f.conf_plan("font-size=12\n"));
+    let link = f.root.join("linked");
+    std::os::unix::fs::symlink(&draft, &link).expect("a link to the draft");
+    let mut through = link.into_os_string();
+    through.push("/");
+    let (status, out, err) = f.apply(Path::new(&through));
+    assert_eq!(status, 1, "{out}{err}");
+    assert_eq!(f.conf(), "font-size=10\n");
+    // the draft itself, named with a trailing slash, installs
+    let mut direct = draft.into_os_string();
+    direct.push("/");
+    let (status, out, err) = f.apply(Path::new(&direct));
+    assert_eq!(status, 0, "{out}{err}");
+    assert_eq!(f.conf(), "font-size=12\n");
+}
