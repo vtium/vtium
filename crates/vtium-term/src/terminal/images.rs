@@ -1222,7 +1222,10 @@ mod tests {
         let request = t.take_image_request().map(|r| (r.medium, r.any_image));
         assert_eq!(
             request,
-            Some((vtium_image::decode::Medium::Direct(b"ABCDEF".to_vec()), true))
+            Some((
+                vtium_image::decode::Medium::Direct(b"ABCDEF".to_vec()),
+                true
+            ))
         );
     }
 
