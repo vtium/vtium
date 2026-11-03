@@ -54,8 +54,11 @@ struct Console {
     /// The console answers kitty's graphics query, as vtium built with
     /// `images` does.
     graphics: bool,
-    /// Each specimen the TUI asked for: the font and the pixel height.
-    pictures: Vec<(String, u32)>,
+    /// Each specimen the TUI asked for: the font, the pixel height and the
+    /// most pixels it may take.
+    pictures: Vec<(String, u32, (u32, u32))>,
+    /// The terminal's cell in pixels, as the terminal reports it.
+    cell_px: Option<(u32, u32)>,
 }
 
 impl Console {
@@ -86,6 +89,7 @@ impl Console {
             seen: None,
             graphics: false,
             pictures: Vec::new(),
+            cell_px: Some((8, 16)),
         }
     }
 
@@ -230,8 +234,12 @@ impl Port for Console {
         self.panic_bytes = bytes;
     }
 
-    fn picture(&mut self, font: &str, height: u32) -> Result<Picture, String> {
-        self.pictures.push((font.to_owned(), height));
+    fn cell_px(&mut self) -> Option<(u32, u32)> {
+        self.cell_px
+    }
+
+    fn picture(&mut self, font: &str, height: u32, max: (u32, u32)) -> Result<Picture, String> {
+        self.pictures.push((font.to_owned(), height, max));
         Ok(Picture {
             width: 2,
             height: 1,
@@ -686,10 +694,15 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
     let mut c = console().keys(&[b"\t", DOWN, DOWN, b"\t", b"q"]);
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
-    // 6 pt and 7 pt at 96 dpi, unifont highlighted in the font view
+    // 6 pt and 7 pt at 96 dpi, unifont highlighted in the font view, in
+    // the area beside the list, 55 columns by 19 rows of 8x16 cells
+    let area = (55 * 8, 19 * 16);
     assert_eq!(
         c.pictures,
-        [("unifont".to_owned(), 8), ("unifont".to_owned(), 9)]
+        [
+            ("unifont".to_owned(), 8, area),
+            ("unifont".to_owned(), 9, area)
+        ]
     );
     assert_eq!(
         kitty::show(kitty::IMAGE_ID, 2, 1, &[255, 0, 0, 255, 0, 0, 255, 255]),
@@ -745,4 +758,32 @@ fn without_kitty_graphics_no_picture_is_sent_and_the_view_says_so() {
     assert_eq!(count(&c.written, b"\x1b_Ga=T"), 0);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("draws no pictures"), "{screen}");
+}
+
+#[test]
+fn the_picture_never_reaches_the_footer_and_never_passes_the_cap() {
+    // 80x25 at 8x16: rows 4 to 22 are the area, above the message line
+    let mut c = console().keys(&[b"\t", DOWN]);
+    c.graphics = true;
+    run(&mut c);
+    let (_, _, (w, h)) = c.pictures[0].clone();
+    assert!(h <= (25 - 6) * 16 && w <= (80 - 25) * 8, "{w}x{h}");
+    // a terminal of very large cells is capped
+    let mut c = console().keys(&[b"\t", DOWN]);
+    c.graphics = true;
+    c.cell_px = Some((200, 400));
+    run(&mut c);
+    let (_, _, max) = c.pictures[0].clone();
+    assert_eq!(max, vtium_config::specimen::PICTURE_MAX);
+}
+
+#[test]
+fn display_dpi_outside_the_console_s_bounds_is_not_used() {
+    use vtium_config::tui::density;
+    assert_eq!(density(Some("display-dpi=150\n")), (150, DpiFrom::Conf));
+    assert_eq!(density(Some("display-dpi=1000\n")), (1000, DpiFrom::Conf));
+    assert_eq!(density(Some("display-dpi=1001\n")), (96, DpiFrom::Assumed));
+    assert_eq!(density(Some("display-dpi=19\n")), (96, DpiFrom::Assumed));
+    assert_eq!(density(Some("display-dpi=lots\n")), (96, DpiFrom::Assumed));
+    assert_eq!(density(None), (96, DpiFrom::Assumed));
 }

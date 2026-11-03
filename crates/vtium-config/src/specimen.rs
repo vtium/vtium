@@ -31,6 +31,11 @@ pub const LINES: [&str; 3] = [
     "┌──┬──┐ ├──┼──┤ └──┴──┘ ░▒▓█",
 ];
 
+/// The most pixels a picture takes, across and down: 3 MiB of RGBA, and
+/// 4 MiB of kitty graphics' base64. A picture is cut to its area on the
+/// screen first, and to this past it.
+pub const PICTURE_MAX: (u32, u32) = (1024, 768);
+
 /// How long the helper has to answer.
 pub const HELPER_WAIT: Duration = Duration::from_secs(5);
 
@@ -169,8 +174,18 @@ fn talk(
 }
 
 /// The specimen of `frit` at `height` pixels, drawn by the helper at
-/// `program`.
-pub fn draw(program: &Path, frit: &FritText, height: u32) -> Result<Picture, String> {
+/// `program`, as many whole lines and columns of it as fit in `max`
+/// pixels across and down, and at most [`PICTURE_MAX`].
+pub fn draw(
+    program: &Path,
+    frit: &FritText,
+    height: u32,
+    max: (u32, u32),
+) -> Result<Picture, String> {
+    let max = (max.0.min(PICTURE_MAX.0), max.1.min(PICTURE_MAX.1));
+    if height > max.1 || height == 0 {
+        return Err(TOO_LARGE.to_owned());
+    }
     let mut child = Command::new(program)
         .arg(crate::serve::SERVE_ARG)
         .env_clear()
@@ -213,30 +228,46 @@ pub fn draw(program: &Path, frit: &FritText, height: u32) -> Result<Picture, Str
     {
         faces.push(face);
     }
-    lay_out(&faces)
+    lay_out(&faces, max)
 }
 
+/// Why a size has no picture when one line of it does not fit.
+const TOO_LARGE: &str = "this size is larger than the preview area";
+
 /// The specimen's lines drawn with `faces`, the first that holds a
-/// character drawing it, in the first face's cell.
-fn lay_out(faces: &[SetFace]) -> Result<Picture, String> {
+/// character drawing it, in the first face's cell, as many whole lines and
+/// columns as fit in `max` pixels.
+fn lay_out(faces: &[SetFace], max: (u32, u32)) -> Result<Picture, String> {
     let cell = faces
         .first()
         .map(Face::cell)
         .ok_or("the helper drew no glyph")?;
-    let cols = LINES.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-    let width = cell.width.saturating_mul(u32::try_from(cols).unwrap_or(0));
-    let height = cell
-        .height
-        .saturating_mul(u32::try_from(LINES.len()).unwrap_or(0));
+    let widest = LINES.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let cols = u32::try_from(widest)
+        .unwrap_or(0)
+        .min(max.0.checked_div(cell.width).unwrap_or(0));
+    let lines = u32::try_from(LINES.len())
+        .unwrap_or(0)
+        .min(max.1.checked_div(cell.height).unwrap_or(0));
+    if cols == 0 || lines == 0 {
+        return Err(TOO_LARGE.to_owned());
+    }
+    let width = cell.width.saturating_mul(cols);
+    let height = cell.height.saturating_mul(lines);
     let stride = usize::try_from(width).unwrap_or(0).saturating_mul(4);
     let mut rgba: Vec<u8> = std::iter::repeat_n([PAPER[0], PAPER[1], PAPER[2], 255], {
         usize::try_from(width.saturating_mul(height)).unwrap_or(0)
     })
     .flatten()
     .collect();
-    for (row, line) in LINES.iter().enumerate() {
+    let shown = usize::try_from(lines).unwrap_or(0);
+    for (row, line) in LINES.iter().take(shown).enumerate() {
         let top = u32::try_from(row).unwrap_or(0).saturating_mul(cell.height);
-        for (col, c) in line.chars().enumerate() {
+        for (col, c) in line
+            .chars()
+            .take(usize::try_from(cols).unwrap_or(0))
+            .enumerate()
+        {
             let left = u32::try_from(col).unwrap_or(0).saturating_mul(cell.width);
             let Some(glyph) = faces
                 .iter()

@@ -246,7 +246,23 @@ fn save_rows(app: &App) -> Vec<Row> {
 /// Where the size view's picture goes, row and column from 1: beside the
 /// list of sizes, below the rule under the tabs.
 pub fn picture_at(_app: &App) -> (usize, usize) {
-    (4, 26)
+    (PICTURE_ROW, PICTURE_COL)
+}
+
+const PICTURE_ROW: usize = 4;
+const PICTURE_COL: usize = 26;
+
+/// The cells the picture may cover, columns and rows: from its place to
+/// the right edge, and down to the row above the message line, so it
+/// never covers the keys.
+pub fn picture_area(app: &App) -> (usize, usize) {
+    let footer = 3;
+    (
+        app.cols.saturating_sub(PICTURE_COL.saturating_sub(1)),
+        app.rows
+            .saturating_sub(footer)
+            .saturating_sub(PICTURE_ROW.saturating_sub(1)),
+    )
 }
 
 /// The screen for `app`: exactly `app.rows` rows, none wider than

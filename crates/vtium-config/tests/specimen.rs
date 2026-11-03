@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use vtium_config::serve::FritText;
-use vtium_config::specimen::{LINES, draw, pixel_height};
+use vtium_config::specimen::{LINES, PICTURE_MAX, draw, pixel_height};
 
 fn frit(text: &str) -> FritText {
     FritText {
@@ -27,7 +27,13 @@ fn widest() -> u32 {
 #[test]
 fn a_bitmap_frit_draws_at_whole_multiples_of_its_cell() {
     // unscii-8's cell is 8x8; 16 pixels draws it twice as large
-    let p = draw(helper(), &frit("source=builtin:unscii-8\n"), 16).expect("a picture");
+    let p = draw(
+        helper(),
+        &frit("source=builtin:unscii-8\n"),
+        16,
+        PICTURE_MAX,
+    )
+    .expect("a picture");
     assert_eq!(
         (p.width, p.height),
         (16 * widest(), 16 * LINES.len() as u32)
@@ -43,8 +49,15 @@ fn a_bitmap_frit_draws_at_whole_multiples_of_its_cell() {
 
 #[test]
 fn a_larger_size_draws_a_larger_picture() {
-    let small = draw(helper(), &frit("source=builtin:unscii-8\n"), 8).expect("a picture");
-    let large = draw(helper(), &frit("source=builtin:unscii-8\n"), 24).expect("a picture");
+    let small =
+        draw(helper(), &frit("source=builtin:unscii-8\n"), 8, PICTURE_MAX).expect("a picture");
+    let large = draw(
+        helper(),
+        &frit("source=builtin:unscii-8\n"),
+        24,
+        PICTURE_MAX,
+    )
+    .expect("a picture");
     assert_eq!(small.height, 8 * LINES.len() as u32);
     assert_eq!(large.height, 24 * LINES.len() as u32);
     assert!(large.width > small.width);
@@ -52,7 +65,7 @@ fn a_larger_size_draws_a_larger_picture() {
 
 #[test]
 fn a_frit_that_does_not_read_draws_nothing_and_says_why() {
-    let why = draw(helper(), &frit("source=nosuch:x\n"), 16).expect_err("no picture");
+    let why = draw(helper(), &frit("source=nosuch:x\n"), 16, PICTURE_MAX).expect_err("no picture");
     assert!(!why.is_empty());
 }
 
@@ -69,7 +82,42 @@ fn the_painter_draws_the_built_in_fonts_and_a_frit() {
     let frits = Path::new(env!("CARGO_MANIFEST_DIR")).join("frits");
     let mut paint = vtium_config::tui::painter(frits, helper().to_path_buf());
     for font in ["unifont", "unscii-8", "minspec-16"] {
-        let p = paint(font, 16).unwrap_or_else(|e| panic!("{font}: {e}"));
+        let p = paint(font, 16, PICTURE_MAX).unwrap_or_else(|e| panic!("{font}: {e}"));
         assert_eq!(p.height, 16 * LINES.len() as u32, "{font}");
+    }
+}
+
+#[test]
+fn a_picture_is_clipped_to_its_area_in_whole_cells() {
+    // unscii-8 at 16 pixels: 16x16 cells; 100x40 pixels hold 6 by 2
+    let p = draw(helper(), &frit("source=builtin:unscii-8\n"), 16, (100, 40)).expect("a picture");
+    assert_eq!((p.width, p.height), (96, 32));
+    assert_eq!(p.rgba.len(), 96 * 32 * 4);
+}
+
+#[test]
+fn a_size_taller_than_its_area_has_no_picture() {
+    let why =
+        draw(helper(), &frit("source=builtin:unscii-8\n"), 24, (400, 20)).expect_err("too tall");
+    assert!(why.contains("preview area"), "{why}");
+}
+
+#[test]
+fn no_picture_is_larger_than_the_cap() {
+    let (w, h) = PICTURE_MAX;
+    assert!(
+        u64::from(w) * u64::from(h) * 4 <= 4 << 20,
+        "at most 4 MiB of pixels"
+    );
+    // the largest size at the densest display the console believes
+    let height = pixel_height(32, 1000);
+    match draw(
+        helper(),
+        &frit("source=builtin:unscii-8\n"),
+        height,
+        PICTURE_MAX,
+    ) {
+        Ok(p) => assert!(p.width <= w && p.height <= h),
+        Err(why) => assert!(why.contains("preview area"), "{why}"),
     }
 }

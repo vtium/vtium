@@ -56,8 +56,17 @@ pub trait Port {
     fn save(&mut self, plan: &Plan) -> Result<usize, String>;
     /// What to write if the TUI panics: the switch back to the start font.
     fn on_panic(&mut self, bytes: Vec<u8>);
-    /// The specimen of the font `font` at `height` pixels.
-    fn picture(&mut self, font: &str, height: u32) -> Result<crate::specimen::Picture, String>;
+    /// The terminal's cell in pixels, where the terminal reports its size
+    /// in pixels.
+    fn cell_px(&mut self) -> Option<(u32, u32)>;
+    /// The specimen of the font `font` at `height` pixels, at most `max`
+    /// pixels across and down.
+    fn picture(
+        &mut self,
+        font: &str,
+        height: u32,
+        max: (u32, u32),
+    ) -> Result<crate::specimen::Picture, String>;
 }
 
 /// Alternate screen, cursor hidden; and back.
@@ -69,6 +78,7 @@ pub const LEAVE: &[u8] = b"\x1b[?25h\x1b[?1049l";
 pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
     let (cols, rows) = port.size();
     let (mut app, first) = App::new(inputs, cols, rows);
+    app.cell_px = port.cell_px();
     let mut decoder = Decoder::default();
     let mut queue: Vec<Effect> = first;
     loop {
@@ -82,8 +92,8 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                         port.on_panic(give_back(&app));
                         return Ok(status);
                     }
-                    Effect::Picture { font, height } => {
-                        let picture = port.picture(&font, height);
+                    Effect::Picture { font, height, max } => {
+                        let picture = port.picture(&font, height, max);
                         queue.extend(app.event(Event::Pictured(picture)));
                     }
                     Effect::Save(plan) => {
@@ -103,6 +113,7 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                 Wake::Bytes(bytes) => decoder.feed(&bytes).into_iter().map(Event::Input).collect(),
                 Wake::Resize => {
                     let (cols, rows) = port.size();
+                    app.cell_px = port.cell_px();
                     vec![Event::Resize { cols, rows }]
                 }
                 Wake::Signal(n) => vec![Event::Signal(n)],
@@ -156,7 +167,8 @@ struct Woken {
 }
 
 /// Draws a font's specimen at a pixel height.
-pub type Painter = Box<dyn FnMut(&str, u32) -> Result<crate::specimen::Picture, String>>;
+pub type Painter =
+    Box<dyn FnMut(&str, u32, (u32, u32)) -> Result<crate::specimen::Picture, String>>;
 
 /// The terminal on standard input and output.
 pub struct Tty {
@@ -372,8 +384,22 @@ impl Port for Tty {
         result
     }
 
-    fn picture(&mut self, font: &str, height: u32) -> Result<crate::specimen::Picture, String> {
-        (self.painter)(font, height)
+    fn cell_px(&mut self) -> Option<(u32, u32)> {
+        let w = rustix::termios::tcgetwinsize(std::io::stdout().as_fd()).ok()?;
+        let cell = (
+            u32::from(w.ws_xpixel).checked_div(u32::from(w.ws_col))?,
+            u32::from(w.ws_ypixel).checked_div(u32::from(w.ws_row))?,
+        );
+        (cell.0 > 0 && cell.1 > 0).then_some(cell)
+    }
+
+    fn picture(
+        &mut self,
+        font: &str,
+        height: u32,
+        max: (u32, u32),
+    ) -> Result<crate::specimen::Picture, String> {
+        (self.painter)(font, height, max)
     }
 
     fn on_panic(&mut self, bytes: Vec<u8>) {

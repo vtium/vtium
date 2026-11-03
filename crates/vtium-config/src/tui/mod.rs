@@ -147,18 +147,30 @@ fn saving(paths: &Paths) -> model::Saving {
     }
 }
 
+/// The density pictures are drawn at: vtium.conf's `display-dpi` where it
+/// is set within the bounds the console believes, else 96, as the
+/// console assumes.
+pub fn density(conf: Option<&str>) -> (u32, DpiFrom) {
+    use vtium_platform::display::{DPI_ASSUMED, DPI_MAX, DPI_MIN};
+    conf.and_then(|c| vtium_settings::setting(c, "display-dpi"))
+        .and_then(|d| d.parse::<u32>().ok())
+        .filter(|d| (DPI_MIN..=DPI_MAX).contains(&f64::from(*d)))
+        .map_or_else(
+            || {
+                let assumed = format!("{DPI_ASSUMED}").parse::<u32>().unwrap_or(96);
+                (assumed, DpiFrom::Assumed)
+            },
+            |d| (d, DpiFrom::Conf),
+        )
+}
+
 /// What the TUI starts from, read from `paths`.
 pub fn gather(paths: &Paths) -> Result<Inputs, String> {
     let conf_path = paths.configdir.join("vtium.conf");
     let heads_path = paths.configdir.join("heads.conf");
     let conf = read_conf(&conf_path)?;
     let heads = read_conf(&heads_path)?;
-    let dpi = conf
-        .as_deref()
-        .and_then(|c| vtium_settings::setting(c, "display-dpi"))
-        .and_then(|d| d.parse::<u32>().ok())
-        .filter(|d| *d > 0)
-        .map_or((96, DpiFrom::Assumed), |d| (d, DpiFrom::Conf));
+    let dpi = density(conf.as_deref());
     Ok(Inputs {
         fonts: fonts(&paths.frits),
         conf_path,
@@ -178,7 +190,7 @@ const SPECIMEN_FRIT: &str = "vtium-config-specimen";
 /// The TUI's painter: a font's specimen, drawn by the glyph helper at
 /// `program`, from the frit in `frits` or the built-in font of that name.
 pub fn painter(frits: PathBuf, program: PathBuf) -> port::Painter {
-    Box::new(move |font, height| {
+    Box::new(move |font, height, max| {
         let text = if RESERVED.contains(&font) {
             format!("source=builtin:{font}\n")
         } else {
@@ -191,7 +203,7 @@ pub fn painter(frits: PathBuf, program: PathBuf) -> port::Painter {
             name: SPECIMEN_FRIT.to_owned(),
             text,
         };
-        crate::specimen::draw(&program, &frit, height)
+        crate::specimen::draw(&program, &frit, height, max)
     })
 }
 

@@ -128,7 +128,11 @@ pub enum Effect {
     Save(Plan),
     /// Draws the specimen of the font `font` at `height` pixels, then
     /// sends [`Event::Pictured`].
-    Picture { font: String, height: u32 },
+    Picture {
+        font: String,
+        height: u32,
+        max: (u32, u32),
+    },
     /// Leaves, with this exit status.
     Exit(u8),
 }
@@ -161,6 +165,10 @@ pub enum Live {
     /// Another terminal: the TUI never sends OSC 50.
     NotVtium,
 }
+
+/// The cell assumed, in pixels, where the terminal reports no size in
+/// pixels: the console's 8x16 at 640x480.
+pub const ASSUMED_CELL: (u32, u32) = (8, 16);
 
 /// The sizes the size view offers, in points, after automatic (0): within
 /// the bounds the console reads `font-size` and a frit's `size=` in.
@@ -237,6 +245,8 @@ pub struct App {
     pub leaving: Option<u8>,
     /// A specimen picture is on the screen.
     pub picture: bool,
+    /// The terminal's cell in pixels, where it reports its size in pixels.
+    pub cell_px: Option<(u32, u32)>,
     /// OSC 50 replies still due before the TUI may leave.
     replies_due: usize,
 }
@@ -272,6 +282,7 @@ impl App {
             saving: false,
             leaving: None,
             picture: false,
+            cell_px: None,
             replies_due: 0,
         };
         (app, vec![Effect::Write(probe()), Effect::Wait(WAIT)])
@@ -368,11 +379,26 @@ impl App {
     /// on the screen, if any, is deleted.
     fn ask_picture(&mut self) -> Vec<Effect> {
         let font = self.font().map(|f| f.name.clone());
+        let (cols, rows) = super::view::picture_area(self);
+        let (cw, ch) = self.cell_px.unwrap_or(ASSUMED_CELL);
+        let max = (
+            u32::try_from(cols)
+                .unwrap_or(0)
+                .saturating_mul(cw)
+                .min(crate::specimen::PICTURE_MAX.0),
+            u32::try_from(rows)
+                .unwrap_or(0)
+                .saturating_mul(ch)
+                .min(crate::specimen::PICTURE_MAX.1),
+        );
         match (self.view, self.graphics, self.size(), font) {
-            (View::Sizes, true, points @ 1.., Some(font)) => vec![Effect::Picture {
-                font,
-                height: crate::specimen::pixel_height(points, self.inputs.dpi.0),
-            }],
+            (View::Sizes, true, points @ 1.., Some(font)) if max.0 > 0 && max.1 > 0 => {
+                vec![Effect::Picture {
+                    font,
+                    height: crate::specimen::pixel_height(points, self.inputs.dpi.0),
+                    max,
+                }]
+            }
             _ => self.drop_picture(),
         }
     }
