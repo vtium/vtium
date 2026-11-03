@@ -521,3 +521,21 @@ fn a_draft_reached_through_a_link_with_a_trailing_slash_is_refused() {
     assert_eq!(status, 0, "{out}{err}");
     assert_eq!(f.conf(), "font-size=12\n");
 }
+
+#[test]
+fn a_frit_the_reader_refuses_quotes_nothing_it_holds() {
+    let f = fixture("frit-secret", Some("font-size=10\n"));
+    let frit = f.targets.frits.join("leaky.vtfrit");
+    let draft = f.draft(&Plan {
+        files: vec![FileEdit {
+            path: frit.clone(),
+            old: None,
+            new: "source=builtin:unscii-8\nSECRET-TOKEN-4242=1\n".into(),
+        }],
+    });
+    let (status, out, err) = f.apply(&draft);
+    assert_eq!(status, 1, "{out}{err}");
+    assert!(err.contains("fonts/leaky.vtfrit line 2"), "{err}");
+    assert!(!format!("{out}{err}").contains("SECRET"), "{out}{err}");
+    assert!(!frit.exists());
+}
