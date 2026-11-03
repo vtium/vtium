@@ -171,9 +171,13 @@ pub fn gather(paths: &Paths) -> Result<Inputs, String> {
     })
 }
 
-/// The TUI's painter: a font's specimen, drawn by the glyph helper this
-/// binary is, from the frit in `frits` or the built-in font of that name.
-fn painter(frits: PathBuf) -> port::Painter {
+/// The name the specimen's frit takes: a frit's name, never a built-in
+/// set's.
+const SPECIMEN_FRIT: &str = "vtium-config-specimen";
+
+/// The TUI's painter: a font's specimen, drawn by the glyph helper at
+/// `program`, from the frit in `frits` or the built-in font of that name.
+pub fn painter(frits: PathBuf, program: PathBuf) -> port::Painter {
     Box::new(move |font, height| {
         let text = if RESERVED.contains(&font) {
             format!("source=builtin:{font}\n")
@@ -181,9 +185,10 @@ fn painter(frits: PathBuf) -> port::Painter {
             let path = frits.join(format!("{font}.vtfrit"));
             Frit::load(&path).map_err(|e| e.to_string())?.text
         };
-        let program = std::env::current_exe().map_err(|e| e.to_string())?;
+        // the helper refuses a frit named for a built-in set, so the
+        // specimen's frit takes a name of its own
         let frit = crate::serve::FritText {
-            name: font.to_owned(),
+            name: SPECIMEN_FRIT.to_owned(),
             text,
         };
         crate::specimen::draw(&program, &frit, height)
@@ -201,7 +206,9 @@ pub fn run(paths: &Paths, err: &mut dyn std::io::Write) -> u8 {
         }
     };
     let saver = crate::apply::saver(paths.clone());
-    let mut tty = match port::Tty::open(saver, painter(paths.frits.clone())) {
+    let program =
+        std::env::current_exe().unwrap_or_else(|_| PathBuf::from("/usr/bin/vtium-config"));
+    let mut tty = match port::Tty::open(saver, painter(paths.frits.clone(), program)) {
         Ok(tty) => tty,
         Err(e) => {
             let _ = writeln!(err, "vtium-config: the terminal: {e}");

@@ -63,3 +63,13 @@ fn points_become_pixels_at_the_density() {
     assert_eq!(pixel_height(12, 144), 24);
     assert_eq!(pixel_height(0, 96), 0);
 }
+
+#[test]
+fn the_painter_draws_the_built_in_fonts_and_a_frit() {
+    let frits = Path::new(env!("CARGO_MANIFEST_DIR")).join("frits");
+    let mut paint = vtium_config::tui::painter(frits, helper().to_path_buf());
+    for font in ["unifont", "unscii-8", "minspec-16"] {
+        let p = paint(font, 16).unwrap_or_else(|e| panic!("{font}: {e}"));
+        assert_eq!(p.height, 16 * LINES.len() as u32, "{font}");
+    }
+}
