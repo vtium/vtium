@@ -5021,6 +5021,51 @@ fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
     );
 }
 
+// ADR-1200 D17 (the maintainer, 2026-11-03): a bitmap frit's own cell that
+// comes after the 100 ms wait is kept and used. The held helper answers
+// nothing until the test writes its go file, so the first frame draws in
+// the display's 8x8 cell; once the answer comes, the frit draws in its
+// own 8x16 cell, its grid laid out again, with one line, and the answer
+// stays known to the frit
+#[test]
+fn a_bitmap_frits_own_cell_that_comes_late_is_taken_from_the_next_frame() {
+    let (_dir, fonts, go) = frit_fonts_of(
+        "own-late",
+        "source=kbd:x\n",
+        &own_cell(8, 16),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; wait",
+    );
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
+    let fell = logged();
+    assert!(
+        fell.iter().any(|l| l
+            == "the frit t's own cell is not known (the helper gave no answer in 100 ms): it draws in the display's cell"),
+        "{fell:?}"
+    );
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until(Duration::from_secs(10), |a| a.cells() == [(8, 16)]),
+        "the late answer is taken: {:?}",
+        h.app.cells()
+    );
+    assert_eq!(h.app.grid(), (40, 10));
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let known: Vec<_> = h.app.frit_cells("t").into_iter().map(|(_, a)| a).collect();
+    assert_eq!(known, [Ok(vtium::helper::OwnCell::Bitmap(cell))]);
+    let took = logged();
+    let lines: Vec<&String> = took.iter().filter(|l| l.contains("came after")).collect();
+    assert_eq!(
+        lines,
+        ["the frit t's own 8x16 cell came after the wait: it draws in it from the next frame"],
+        "{took:?}"
+    );
+}
+
 /// The outline font fixture vtium-config's tests measure: a subset of
 /// DejaVu Sans Mono whose W rule gives 9 columns at 16 pixels and 12 at
 /// 22.

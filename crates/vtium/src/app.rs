@@ -871,7 +871,8 @@ impl App {
     /// `height` (the maintainer, 2026-11-01). Each answer is kept for the
     /// frit, by the height asked at, for every head drawing it. A refusal,
     /// or no answer in time, leaves the display's cell, or for an outline
-    /// frit the built-in font's width, with one line saying why.
+    /// frit the built-in font's width, with one line saying why; an answer
+    /// that comes after the wait is taken by [`App::late_cell`].
     fn own_cell(&mut self, h: usize, height: u32) {
         let Some(head) = self.heads.get(h) else {
             return;
@@ -1481,7 +1482,8 @@ impl App {
     /// Takes each helper's answers: each display at a set's cell, of every
     /// head drawing the frit, forgets the glyphs it cached for the set's
     /// characters, so none draws the built-in font once the frit sent it
-    /// (ADR-1200 D7), and redraws the cells that show one.
+    /// (ADR-1200 D7), and redraws the cells that show one. An answer to a
+    /// cell query that came after its wait goes to [`App::late_cell`].
     fn helper_turn(&mut self, now: Instant) {
         for h in 0..self.heads.len() {
             if self
@@ -1492,11 +1494,18 @@ impl App {
                 self.ask_visible(h, now);
             }
         }
+        let mut late = Vec::new();
         for (name, frit) in &mut self.frits {
             let Some(helper) = &mut frit.helper else {
                 continue;
             };
             let answers = helper.poll(now);
+            late.extend(
+                helper
+                    .late_cells()
+                    .into_iter()
+                    .map(|(height, answer)| (name.clone(), height, answer)),
+            );
             if answers.is_empty() {
                 continue;
             }
@@ -1531,6 +1540,67 @@ impl App {
                 }
             }
         }
+        for (name, height, answer) in late {
+            self.late_cell(&name, height, answer);
+        }
+    }
+
+    /// The helper's answer to frit `name`'s cell query at `height`, which
+    /// came after the console stopped waiting for it (ADR-1200 D17, the
+    /// maintainer, 2026-11-03): it is kept for the frit in place of the
+    /// missing answer, with one line, so a refusal holds as one in time
+    /// does, and each head drawing the frit that takes a cell from it is
+    /// laid out again, so the next frame draws in that cell.
+    fn late_cell(
+        &mut self,
+        name: &str,
+        height: u32,
+        answer: Result<helper::OwnCell, helper::NoCell>,
+    ) {
+        match &answer {
+            Ok(helper::OwnCell::Bitmap(cell)) => log::info!(
+                "the frit {name}'s own {}x{} cell came after the wait: it draws in it from the next frame",
+                cell.width,
+                cell.height
+            ),
+            Ok(helper::OwnCell::Outline(cell)) => log::info!(
+                "the frit {name}'s {}x{} cell at {height} pixels came after the wait: it draws in it from the next frame",
+                cell.width,
+                cell.height
+            ),
+            Err(why) => log::info!(
+                "the helper refused the frit {name}'s own cell after the wait ({why}): it keeps the cell it draws in"
+            ),
+        }
+        let Some(frit) = self.frits.get_mut(name) else {
+            return;
+        };
+        let took = answer.is_ok();
+        frit.own.insert(height, answer);
+        if !took {
+            return;
+        }
+        for h in 0..self.heads.len() {
+            let dpi = self.dpi(h);
+            let wants = self.heads.get(h).is_some_and(|head| {
+                head.frit() == Some(name)
+                    && head.font.as_ref().is_some_and(|f| {
+                        f.wants_own_cell(draw_height(head, dpi, &self.locale), head.sized())
+                    })
+            });
+            if wants {
+                self.relayout(h);
+            }
+        }
+    }
+
+    /// What the console knows of frit `name`'s cell: the helper's answer to
+    /// each cell query, or why there was none, by the height asked at
+    /// (ADR-1200 D17).
+    pub fn frit_cells(&self, name: &str) -> Vec<(u32, Result<helper::OwnCell, helper::NoCell>)> {
+        self.frits.get(name).map_or_else(Vec::new, |frit| {
+            frit.own.iter().map(|(h, a)| (*h, a.clone())).collect()
+        })
     }
 
     /// The terminals start drawing and blinking.
