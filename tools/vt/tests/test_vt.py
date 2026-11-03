@@ -15,6 +15,7 @@ import hashlib
 import itertools
 import os
 import pty
+import re
 import select
 import shutil
 import signal
@@ -35,7 +36,7 @@ VT_INSTALL = os.path.join(VT, "vt-install.sh")
 VT_SH = os.path.join(VT, "vt.sh")
 UNITS_SH = os.path.join(VT, "units.sh")
 GUIDE_SH = os.path.join(VT, "checks", "guide.sh")
-DEMO_SH = os.path.join(VT, "demo.sh")
+ACCEPT_SH = os.path.join(VT, "accept.sh")
 FEEDBACK_SH = os.path.join(VT, "feedback.sh")
 # The real systemctl, outside the stand-ins, for the links under a root.
 REAL_SYSTEMCTL = shutil.which("systemctl")
@@ -364,6 +365,7 @@ class Stage:
         self.image = os.path.join(tmp, "vtium-image")
         write(self.image, "#!/bin/sh\n# the stand-in vtium-image\n")
         self.dir = os.path.join(tmp, "vt")
+        self.passes = os.path.join(tmp, "passes")
         self.calls = os.path.join(tmp, "calls")
         self.bin_args = os.path.join(tmp, "bin-args")
         self.signals = os.path.join(tmp, "signals")
@@ -376,13 +378,16 @@ class Stage:
         # FEATURES=images, reaches the make these run through MAKEFLAGS, so
         # it is kept out.
         for k in list(env):
-            if k.startswith(("VTIUM_", "GUIDE", "DEMO_", "SUDO_", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")) or \
+            if k.startswith(("VTIUM_", "GUIDE", "DEMO_", "ACCEPT_", "SUDO_", "XDG_RUNTIME_DIR", "XDG_STATE_HOME",
+                             "DBUS_SESSION_BUS_ADDRESS")) or \
                     k in ("MAKEFLAGS", "MFLAGS"):
                 del env[k]
         env.update(
             PATH=self.standins + os.pathsep + env["PATH"],
             VTIUM_VT_STANDINS=self.standins,
             VTIUM_VT_DIR=self.dir,
+            # the acceptance passes, which vt.sh hands the session
+            ACCEPT_DIR=self.passes,
             CALLS=self.calls,
             COUNT=os.path.join(self.tmp, "count"),
             BIN_ARGS=self.bin_args,
@@ -477,7 +482,8 @@ class RunVt(Case):
         p = self.run_vt("--dry-run", "8", "--", "--font-size=30")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("+ " + os.path.join(self.s.standins, "systemctl") + " stop kmsconvt@tty8.service", p.stdout)
-        self.assertIn(f"+ {self.s.bin} --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot --font-size=30 --login --",
+        self.assertIn(f"+ {self.s.bin} --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
+                      f"--font-frits={self.s.standins}/run-vtium-vt/frits --font-size=30 --login --",
                       p.stdout)
         self.assertIn(" start kmsconvt@tty8.service", p.stdout)
         self.assertEqual(self.s.changes(), [])
@@ -559,7 +565,7 @@ class RunVt(Case):
                 self.assertEqual(self.s.changes(), [f"{v} {u}" for v in ("stop", "start") for u in want])
                 if want:
                     self.assertIn(f"manual restore: sudo systemctl start {want[0]}\n", p.stdout)
-                    self.assertIn(f"when the demo ends, {want[0]} is started again on VT 8", p.stdout)
+                    self.assertIn(f"when the acceptance pass ends, {want[0]} is started again on VT 8", p.stdout)
                 else:
                     self.assertIn("nothing to restore afterwards", p.stdout)
 
@@ -786,7 +792,7 @@ class RunVt(Case):
         self.refused(self.run_vt("--label=a$(id)", "8"), "--label takes")
         self.refused(self.run_vt("--label=a\nb", "8"), "--label takes")
 
-    def test_the_demo_runs_as_the_user_with_its_label(self):
+    def test_the_acceptance_pass_runs_as_the_user_with_its_label(self):
         p = self.run_vt("--label=dev build abc", "8")
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
@@ -795,8 +801,8 @@ class RunVt(Case):
         self.assertEqual(argv[at + 1:], [os.path.join(self.s.standins, "setpriv"), f"--reuid={uid}", f"--regid={gid}",
                                          "--init-groups", "--inh-caps=-all", "--reset-env", "--", *CARRY,
                                          "/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
-                                         "DEMO_LABEL=vtium dev build abc", "/bin/bash",
-                                         os.path.join(VT, "demo.sh")])
+                                         "ACCEPT_LABEL=vtium dev build abc", "ACCEPT_VT=8", f"ACCEPT_BINARY={self.s.bin}",
+                                         "ACCEPT_FEATURES=none", "/bin/bash", os.path.join(VT, "accept.sh")])
 
     def test_a_run_starts_the_helper_built_with_it_from_a_copy_of_roots(self):
         helper = self.s.helper
@@ -807,6 +813,10 @@ class RunVt(Case):
                      f"+ install -m 0755 -- {helper} {stage}/vtium-config"):
             self.assertIn(line, p.stdout)
         self.assertIn(f" --font-helper={stage}/vtium-config ", p.stdout)
+        # the system's frits and the acceptance pass's, staged for OSC 50 (ADR-1501 D6)
+        self.assertIn(f" --font-frits={stage}/frits ", p.stdout)
+        self.assertRegex(p.stdout, rf"\+ install -m 0644 -- .*/tools/vt/sections/frits/acceptance-bitmap\.vtfrit "
+                                   rf".*/tools/vt/sections/frits/acceptance-outline\.vtfrit {re.escape(stage)}/frits\n")
         self.assertFalse(os.path.exists(stage))
         # A real run: vtium gets the copy's path, and the copy, the compiled
         # entry and their directory are gone once the run ends.
@@ -820,6 +830,33 @@ class RunVt(Case):
         p = self.run_vt("8")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertFalse([a for a in read(self.s.bin_args).splitlines() if a.startswith("--font-helper")])
+
+    def test_a_run_with_pictures_gives_vtium_a_copy_of_its_image_helper(self):
+        # The acceptance pass's helper pages need the image helper built with
+        # the console; the run stages it as it stages the glyph helper.
+        image = self.s.image
+        p = self.run_vt(f"--image={image}", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        stage = os.path.join(self.s.standins, "run-vtium-vt")
+        self.assertIn(f"+ install -m 0755 -- {image} {stage}/vtium-image\n", p.stdout)
+        self.assertIn(f" --image-helper={stage}/vtium-image ", p.stdout)
+        p = self.run_vt(f"--image={image}", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"--image-helper={stage}/vtium-image", read(self.s.bin_args).splitlines())
+        self.assertFalse(os.path.exists(stage))
+        # Without --image, vtium starts none of the run's.
+        p = self.run_vt("8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse([a for a in read(self.s.bin_args).splitlines() if a.startswith("--image-helper")])
+
+    def test_an_image_helper_another_user_could_have_written_is_refused(self):
+        for mode in (0o775, 0o757):
+            with self.subTest(mode=oct(mode)):
+                os.chmod(self.s.image, mode)
+                self.refused(self.run_vt(f"--image={self.s.image}", "--dry-run", "8"),
+                             "is writable by group or others")
+        os.chmod(self.s.image, 0o755)
+        self.refused(self.run_vt(f"--image={self.s.image}-missing", "--dry-run", "8"), "no image helper at")
 
     def test_a_helper_another_user_could_have_written_is_refused(self):
         for mode in (0o775, 0o757):
@@ -1130,7 +1167,8 @@ class RunVt(Case):
         # A dry run names the option it would give vtium.
         p = self.run_vt("--dry-run", "--debug=/nowhere", "8")
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertIn(f"+ {self.s.bin} --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot --debug --login --",
+        self.assertIn(f"+ {self.s.bin} --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
+                      f"--font-frits={self.s.standins}/run-vtium-vt/frits --debug --login --",
                       p.stdout)
 
     def test_a_transcript_the_user_cannot_write_is_refused(self):
@@ -1391,7 +1429,7 @@ class VtSh(Case):
         line = next(l for l in p.stdout.splitlines() if l.startswith("+ "))
         self.assertRegex(line, r" --debug=" + self.s.dir + r"/vt-[0-9T]+-tty5-XXXXXX\.drm ")
         self.assertRegex(p.stdout, r"the DRM state would be copied into " + self.s.dir + r"/vt-[0-9T]+-tty5-XXXXXX\.drm")
-        self.assertIn(" --oneshot --debug --login -- ", p.stdout)
+        self.assertIn("/run-vtium-vt/frits --debug --login -- ", p.stdout)
         self.assertEqual(self.s.calls_of("sudo"), [])
 
     def test_the_start_guide_runs_and_its_log_reaches_the_caller(self):
@@ -1413,24 +1451,32 @@ class VtSh(Case):
         self.assertIn("results: " + os.path.join(self.s.dir, "vt-check.log"), p.stdout)
         self.assertEqual(self.s.changes(), ["stop getty@tty4.service", "start getty@tty4.service"])
 
-    def test_the_demo_runs_and_its_answers_reach_the_caller(self):
-        # demo.sh reads its keys from the terminal make runs in.
+    def test_the_acceptance_pass_runs_and_its_pass_reaches_the_caller(self):
+        # accept.sh reads its keys from the terminal make runs in.
         env = self.s.env(BIN_MODE="session", BIN_STDIN="/dev/null", TERM="linux", ACTIVE_UNITS="kmsconvt@tty5.service")
-        d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-demo", f"VTIUM_BIN={self.s.bin}",
-                 f"VTIUM_CONFIG_BIN={self.s.helper}"], env)
+        d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-accept", f"VTIUM_BIN={self.s.bin}",
+                 f"VTIUM_CONFIG_BIN={self.s.helper}", f"VTIUM_IMAGE_BIN={self.s.image}"], env)
         d.wait_for(b"Switch to VT 5 now")
-        d.wait_for(b"press a key for the first section", timeout=20)
+        d.wait_for(b"press a key to start the pass", timeout=20)
         d.send(b" ")
         d.page()
-        d.wait_for(b"1 right  2 wrong")
-        d.send(b"1")
+        d.wait_for(b"y yes  n no")
+        d.send(b"y")
+        d.page()
+        d.wait_for(b"y yes  n no")
+        d.send(b"q")
         d.wait_for(b"q exit")
         d.send(b"q")
-        d.wait_for(b"results: " + os.path.join(self.s.dir, "feedback.tsv").encode())
+        d.wait_for(b"results: " + self.s.passes.encode())
         self.assertEqual(d.finish(), 0)
         seen = d.seen.decode(errors="replace")
         self.assertRegex(seen, r"label +vtium dev build ")
-        self.assertIn("10-sgr                    right", seen)
+        self.assertRegex(seen, r"vt +5\r\n")
+        self.assertRegex(seen, r"features +images\r\n")
+        self.assertIn("10-sgr                    yes", seen)
+        records = [n for n in os.listdir(self.s.passes) if n.endswith(".md")]
+        self.assertEqual(len(records), 1)
+        self.assertIn(f"- binary: {self.s.bin}\n", read(os.path.join(self.s.passes, records[0])))
         self.assertEqual(self.s.calls_of("sudo")[0], "-v")
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
 
@@ -1473,16 +1519,19 @@ class Make(Case):
         # tests name the stand-in's, as they name the binary.
         if not any(a.startswith(("VTIUM_CONFIG_BIN=", "CONFIG_RELEASE=")) for a in args) and "VTIUM_CONFIG_BIN" not in env:
             args = (*args, f"VTIUM_CONFIG_BIN={self.s.helper}")
+        # and the image helper, which vt-accept gives vtium with pictures
+        if not any(a.startswith(("VTIUM_IMAGE_BIN=", "IMAGE_RELEASE=")) for a in args) and "VTIUM_IMAGE_BIN" not in env:
+            args = (*args, f"VTIUM_IMAGE_BIN={self.s.image}")
         return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
                               capture_output=True, text=True, timeout=30, start_new_session=True)
 
     def test_help_lists_the_targets(self):
         p = self.make("help")
-        for target in ("minspec", "test-tools", "vt-demo", "vt-login", "vt-check", "vt-shell"):
+        for target in ("minspec", "test-tools", "vt-accept", "vt-login", "vt-check", "vt-shell"):
             self.assertIn(target, p.stdout)
 
     def test_the_binary_is_never_taken_from_the_environment(self):
-        p = self.make("vt-demo", "DRY_RUN=1", VTIUM_BIN=self.s.bin)
+        p = self.make("vt-accept", "DRY_RUN=1", VTIUM_BIN=self.s.bin)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("VTIUM_BIN is set in the environment", p.stderr)
         self.assertEqual(self.s.calls_of("sudo") + self.s.calls_of("loginctl"), [])
@@ -1490,26 +1539,35 @@ class Make(Case):
     def test_the_default_binary_is_the_minspec_build(self):
         # VTIUM_MINSPEC points the default at the stand-in, which the stand-in
         # cargo "builds".
-        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}")
+        # The acceptance pass builds it with pictures unless FEATURES is
+        # named on make's command line (ADR-1501 D5).
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu -- -C link-arg=-Wl,-z,pack-relative-relocs"])
+        self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --features images -- -C link-arg=-Wl,-z,pack-relative-relocs"])
         self.assertIn(f"--bin={self.s.bin} ", p.stdout)
         self.assertIn(f"--helper={self.s.helper} ", p.stdout)
+        self.assertIn(" --features=images ", p.stdout)
+        open(self.s.calls, "w").close()
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}", "FEATURES=")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu -- -C link-arg=-Wl,-z,pack-relative-relocs"])
+        self.assertIn(" --features= ", p.stdout)
+        self.assertNotIn("--image", p.stdout)
 
     def test_the_default_helper_is_the_release_build(self):
         # CONFIG_RELEASE points the default helper at the stand-in, which the
         # stand-in cargo "builds"; run-vt.sh runs vtium with the copy it makes.
-        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}")
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.s.calls_of("cargo"), ["build --release -p vtium-config --target x86_64-unknown-linux-gnu"])
         self.assertIn(f"--helper={self.s.helper} ", p.stdout)
         self.assertIn(f"--font-helper={self.s.standins}/run-vtium-vt/vtium-config ", p.stdout)
-        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", VTIUM_CONFIG_BIN=self.s.helper)
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", VTIUM_CONFIG_BIN=self.s.helper)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("VTIUM_CONFIG_BIN is set in the environment", p.stderr)
 
     def test_another_binary_is_run_as_it_is(self):
-        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.s.calls_of("cargo"), [])
 
@@ -1520,7 +1578,7 @@ class Make(Case):
         self.assertNotIn("cargo", p.stdout)
 
     def test_vt_debug_reaches_every_vt_target(self):
-        for target in ("vt-demo", "vt-login", "vt-shell"):
+        for target in ("vt-accept", "vt-login", "vt-shell"):
             with self.subTest(target=target):
                 p = self.make(target, "DRY_RUN=1", "VT_DEBUG=1", f"VTIUM_BIN={self.s.bin}")
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -1528,12 +1586,12 @@ class Make(Case):
         p = self.make("vt-check", "GUIDE=start", "DRY_RUN=1", "VT_DEBUG=1", f"VTIUM_BIN={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(" --debug=" + self.s.dir, p.stdout)
-        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
         self.assertNotIn("--debug", p.stdout)
 
     def test_a_guide_reaches_only_vt_check(self):
-        # One exported in the shell does not turn vt-demo into a guided run.
-        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", GUIDE="start", GUIDE_STEPS="9")
+        # One exported in the shell does not turn vt-accept into a guided run.
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", GUIDE="start", GUIDE_STEPS="9")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertNotIn("--guide", p.stdout)
         p = self.make("vt-check", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "GUIDE=start", "GUIDE_STEPS=2")
@@ -3265,7 +3323,7 @@ class Pty:
         os.write(self.fd, data)
 
     def page(self):
-        """Waits for demo.sh's cursor position query and answers it with a
+        """Waits for accept.sh's cursor position query and answers it with a
         row the footer fits below."""
         self.wait_for(b"\x1b[6n")
         self.send(b"\x1b[14;1R")
@@ -3574,62 +3632,6 @@ class Guide(Case):
                 self.assertEqual(g.finish(), 0)
         self.assertFalse(os.path.exists("pwned"))
         self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "pwned")))
-
-class Demo(Case):
-    """demo.sh and feedback.sh on a pseudo-terminal."""
-
-    def test_a_page_rated_reaches_feedback(self):
-        env = {"PATH": os.environ["PATH"], "TERM": "linux", "VTIUM_VT_DIR": self.s.dir,
-               "DEMO_LABEL": "vtium dev build test"}
-        d = Pty(["/bin/bash", DEMO_SH], env)
-        d.wait_for(b"press a key for the first section")
-        d.send(b" ")
-        d.page()
-        d.wait_for(b"1 right  2 wrong")
-        d.send(b"c")
-        d.wait_for(b"> ")
-        d.send(b"red is orange\r")
-        d.wait_for(b"> ")
-        d.send(b".\r")
-        d.wait_for(b"Enter no rating")
-        d.send(b"2")
-        d.wait_for(b"r review again from page 1  q exit")
-        d.send(b"q")
-        self.assertEqual(d.finish(), 0)
-        tsv = read(os.path.join(self.s.dir, "feedback.tsv")).splitlines()
-        self.assertEqual(tsv[0], "time\trun\tlabel\tterm\tsize\tsection\trating\tnote")
-        fields = tsv[1].split("\t")
-        self.assertEqual(fields[2:], ["vtium dev build test", "linux", "24x80", "10-sgr", "wrong", "red is orange"])
-        p = subprocess.run(["bash", FEEDBACK_SH], env=self.s.env(), capture_output=True, text=True, timeout=10)
-        self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertIn("10-sgr                    wrong\n    red is orange\n", p.stdout)
-
-    def test_the_demo_records_nothing_in_a_directory_not_the_users_own(self):
-        os.symlink(self.s.tmp, self.s.dir)
-        env = {"PATH": os.environ["PATH"], "TERM": "linux", "VTIUM_VT_DIR": self.s.dir}
-        d = Pty(["/bin/bash", DEMO_SH], env)
-        d.wait_for(b"is a symlink, or not a directory of yours")
-        d.wait_for(b"press a key for the first section")
-        d.send(b" ")
-        d.page()
-        d.wait_for(b"1 right  2 wrong")
-        d.send(b"q")
-        d.wait_for(b"q exit")
-        d.send(b"q")
-        self.assertEqual(d.finish(), 0)
-        self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "feedback.tsv")))
-
-    def test_every_section_has_its_guidance_and_fits_80x25(self):
-        sections = os.path.join(VT, "sections")
-        for f in sorted(os.listdir(sections)):
-            with self.subTest(section=f):
-                text = read(os.path.join(sections, f))
-                self.assertIn("# look-for: ", text)
-                self.assertIn("# wrong-looks-like: ", text)
-                out = subprocess.run(["bash", os.path.join(sections, f)], capture_output=True, text=True,
-                                     timeout=10).stdout
-                self.assertLessEqual(len(out.splitlines()), 17)
-
 
 if __name__ == "__main__":
     unittest.main()

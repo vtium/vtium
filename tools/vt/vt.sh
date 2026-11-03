@@ -1,9 +1,9 @@
 #!/bin/bash
 # The operator's review of vtium on a real VT in one blocking command, as make
-# vt-demo, vt-login, vt-check and vt-shell run it (docs/vt-review.md): picks
-# the development VT, or a free VT where there is none, runs run-vt.sh there
-# through sudo, and when the run ends prints a health check of vtium's log and
-# the run's answers.
+# vt-accept, vt-login, vt-check and vt-shell run it (docs/vt-review.md):
+# picks the development VT, or a free VT where there is none, runs run-vt.sh
+# there through sudo, and when the run ends prints a health check of vtium's
+# log and the run's answers.
 #
 #   vt.sh [N] [-- VTIUM-OPTION...]
 #
@@ -11,6 +11,9 @@
 #   VTIUM_VT_BIN      the vtium binary, which run-vt.sh runs as root
 #   VTIUM_VT_HELPER   the glyph helper built with it, which run-vt.sh copies
 #                     into /run/vtium-vt/ and names with --font-helper
+#   VTIUM_VT_IMAGE    with a binary that has pictures, the image helper built
+#                     with it, which run-vt.sh copies beside the glyph helper
+#                     and names with --image-helper
 #   VTIUM_VT_NR       the VT (VT=); without it, the development VT, the first
 #                     VT whose manifest make vt-install wrote and whose
 #                     vtium-dev@ttyN is enabled, which the run borrows and
@@ -21,8 +24,11 @@
 #                     checks again before it stops anything.
 #   VTIUM_VT_ARGS     vtium options (DEMO_ARGS=), split into words by xargs,
 #                     which honours quotes and backslashes and expands nothing
-#   VTIUM_VT_SESSION  demo (the default), login, guide or shell; shell's
-#                     session is recorded in a transcript beside vtium's log
+#   VTIUM_VT_SESSION  accept (the default), the acceptance pass; login, guide or shell;
+#                     shell's session is recorded in a transcript beside
+#                     vtium's log
+#   VTIUM_VT_FEATURES the features the binary was built with (FEATURES=),
+#                     which the acceptance pass's record names
 #   VTIUM_VT_GUIDE    for guide: a name in tools/vt/checks (NAME.guide) or a
 #                     path, checked here with guide.sh --check before sudo
 #   VTIUM_VT_STEPS    for guide: only these steps (GUIDE_STEPS="4 8 9")
@@ -37,7 +43,10 @@
 # systemctl, loginctl, systemd-analyze, the file "active" in place of
 # /sys/class/tty/tty0/active, and "root" in place of / for the manifests,
 # come from there, and run-vt.sh takes its own (see run-vt.sh). VTIUM_VT_DIR
-# is honoured only then, since a run's session writes to the default.
+# is honoured only then, since a run's session writes to the default. The
+# acceptance pass's passes go to ACCEPT_DIR, else $XDG_STATE_HOME/vtium/acceptance,
+# which run-vt.sh hands the session, so the session and this script read the
+# same directory.
 set -euo pipefail
 
 usage() {
@@ -59,10 +68,10 @@ standins=${VTIUM_VT_STANDINS:-}
 vt=${VTIUM_VT_NR:-}
 extra=()
 session=()
-mode=${VTIUM_VT_SESSION:-demo}
+mode=${VTIUM_VT_SESSION:-accept}
 case $mode in
-demo | login | guide | shell) ;;
-*) die "VTIUM_VT_SESSION=$mode: demo, login, guide or shell" ;;
+accept | login | guide | shell) ;;
+*) die "VTIUM_VT_SESSION=$mode: accept, login, guide or shell" ;;
 esac
 [ "$mode" = login ] && session=(--login)
 [ "$mode" = shell ] && session=(--shell)
@@ -104,7 +113,7 @@ while [ $# -gt 0 ]; do
 done
 
 bin=${VTIUM_VT_BIN:-}
-[ -n "$bin" ] || die "VTIUM_VT_BIN names the vtium binary; make vt-demo sets it"
+[ -n "$bin" ] || die "VTIUM_VT_BIN names the vtium binary; make vt-accept sets it"
 bin=$(readlink -m -- "$bin")
 [ -f "$bin" ] && [ -x "$bin" ] || die "no vtium binary at $bin: build it first (make minspec)"
 helper=${VTIUM_VT_HELPER:-}
@@ -113,6 +122,12 @@ if [ -n "$helper" ]; then
 	helper=$(readlink -m -- "$helper")
 	[ -f "$helper" ] && [ -x "$helper" ] || die "no glyph helper at $helper: build it first (make config-release)"
 	helper_arg=(--helper="$helper")
+fi
+image=${VTIUM_VT_IMAGE:-}
+if [ -n "$image" ]; then
+	image=$(readlink -m -- "$image")
+	[ -f "$image" ] && [ -x "$image" ] || die "no image helper at $image: build it first (make image-release)"
+	helper_arg+=(--image="$image")
 fi
 
 dry=${VTIUM_VT_DRY_RUN:-}
@@ -129,7 +144,8 @@ fi
 loginctl=${standins:+$standins/}loginctl
 systemctl=${standins:+$standins/}systemctl
 analyze=${standins:+$standins/}systemd-analyze
-feedback=$vt_dir/feedback.tsv
+passes=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
+passes=$(readlink -m -- "$passes")
 checklog=$vt_dir/vt-check.log
 
 # The VT on screen now: the desktop's, since this runs from it.
@@ -194,7 +210,7 @@ else
 	back="your desktop's Ctrl-Alt-F key returns to it"
 fi
 
-# The build, for the demo's title page: the checkout's commit, if git knows it.
+# The build, for the acceptance pass's title page: the checkout's commit, if git knows it.
 label=$(git -C "$here" describe --always --dirty 2>/dev/null | tr -cd '[:alnum:] ._+:/@-' | cut -c1-60) || label=
 log=$vt_dir/vt-$(date +%Y%m%dT%H%M%S)-tty$vt-XXXXXX.log
 transcript=
@@ -205,7 +221,8 @@ build_cmd() {
 	local record=() state=()
 	[ -z "$transcript" ] || record=(--transcript="$transcript")
 	[ -z "$drm" ] || state=(--debug="$drm")
-	cmd=("$here/run-vt.sh" --bin="$bin" "${helper_arg[@]}" --label="dev build ${label:-unknown}" "${state[@]}" "${session[@]}"
+	cmd=("$here/run-vt.sh" --bin="$bin" "${helper_arg[@]}" --label="dev build ${label:-unknown}"
+		--features="${VTIUM_VT_FEATURES:-}" --passes="$passes" "${state[@]}" "${session[@]}"
 		"${record[@]}" "$vt" -- "${extra[@]}")
 }
 
@@ -225,7 +242,7 @@ if [ -n "$dry" ]; then
 	printf '+'
 	printf ' %q' "${show[@]}"
 	printf '\n'
-	answers=$feedback
+	answers=$passes
 	[ -z "$guide" ] || answers=$checklog
 	if [ "$mode" = shell ]; then
 		echo "  (vtium's log would go to $log; the shell's transcript to $transcript)"
@@ -258,9 +275,8 @@ build_cmd
 # for the VT.
 "$sudo" -v || die "sudo failed"
 
-# Answers appended from here on belong to this run.
-before=0
-[ ! -f "$feedback" ] || before=$(stat -c %s "$feedback")
+# A pass written from here on belongs to this run.
+started=$(date +%s)
 checked=0
 [ ! -f "$checklog" ] || checked=$(stat -c %s "$checklog")
 
@@ -275,14 +291,18 @@ status=${PIPESTATUS[0]}
 set -e
 trap - INT
 
-# The dev build's last run among the answers added since the start, by its run
-# id: a demo run in another terminal may have appended to the same file
-# meanwhile.
-run=
-if [ -f "$feedback" ]; then
-	[ "$(stat -c %s "$feedback")" -ge "$before" ] || before=0
-	run=$(tail -c "+$((before + 1))" "$feedback" |
-		awk -F'\t' 'NF >= 7 && $1 != "time" && index($3, "vtium dev build ") == 1 { r = $2 } END { print r }')
+# The dev build's pass this run wrote: the record of a "vtium dev build"
+# label written last since the start; an acceptance pass in another terminal may
+# have written its own meanwhile.
+pass=
+if [ -d "$passes" ]; then
+	newest=0
+	for f in "$passes"/*.md; do
+		[ -f "$f" ] && grep -q '^- label: vtium dev build ' "$f" || continue
+		t=$(stat -c %Y -- "$f")
+		[ "$t" -ge "$started" ] && [ "$t" -ge "$newest" ] || continue
+		pass=$f newest=$t
+	done
 fi
 
 # A Rust panic prints this line before the release profile aborts.
@@ -309,11 +329,11 @@ if [ -n "$guide" ]; then
 	echo "results: $(readlink -m "$checklog")"
 fi
 
-# The demo's answers; a login's or a shell's, when a demo was run in it.
-if [ "$mode" = demo ] || { [ "$mode" != guide ] && [ -n "$run" ]; }; then
-	[ -z "$run" ] || "$here/feedback.sh" --file "$feedback" --run "$run"
+# The acceptance pass's record; a login's or a shell's, when an acceptance pass was run in it.
+if [ "$mode" = accept ] || { [ "$mode" != guide ] && [ -n "$pass" ]; }; then
+	[ -z "$pass" ] || "$here/feedback.sh" --dir "$passes" "$pass"
 	echo
-	echo "results: $(readlink -m "$feedback")"
+	echo "results: ${pass:-$passes}"
 fi
 
 # A login ends at its logout, a shell when it exits, and either at Ctrl-C
@@ -328,5 +348,5 @@ if [ "$status" -ne 0 ]; then
 fi
 case $mode in
 guide) [ -n "$added" ] || die "no lines from this run in $checklog: the guided checks did not start" ;;
-demo) [ -n "$run" ] || die "no answers from this run in $feedback: the demo did not run, or q was pressed before any page was rated" ;;
+accept) [ -n "$pass" ] || die "no pass from this run in $passes: the acceptance pass did not run, or q was pressed before the pass started" ;;
 esac
