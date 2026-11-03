@@ -362,6 +362,10 @@ pub(crate) const DIACRITICS: [char; 297] = [
     '\u{1D244}',
 ];
 
+/// The most columns a row of a picture spans: a cell's column comes from
+/// a diacritic's value, so no picture row passes [`DIACRITICS`]'s length.
+const PICTURE_COLUMNS_MAX: usize = DIACRITICS.len();
+
 /// The value of the diacritic `c`, its index in [`DIACRITICS`].
 fn value(c: char) -> Option<u32> {
     DIACRITICS
@@ -507,6 +511,37 @@ impl Reader {
         self.left = Some(read);
         Some(read)
     }
+}
+
+/// What the rows above the first row a read starts at hand on to it across
+/// soft wraps: `above` gives them nearest first. The walk goes back while
+/// each row soft-wrapped into the one below it and ends in a placeholder
+/// cell, at most as many rows as a picture row of [`PICTURE_COLUMNS_MAX`]
+/// cells fills at `cols` columns, and reads them from the farthest down.
+/// Returns the carry and the cells it read.
+pub(crate) fn carry_from<'a>(above: impl Iterator<Item = &'a Line>, cols: usize) -> (Carry, usize) {
+    let bound = PICTURE_COLUMNS_MAX.div_ceil(cols.max(1));
+    let rows: Vec<&Line> = above
+        .take(bound)
+        .take_while(|line| {
+            let last = cols.min(line.len()).checked_sub(1);
+            line.flags().contains(LineFlags::WRAPPED)
+                && last.is_some_and(|x| is_placeholder_cell(line, line.cell(x)))
+        })
+        .collect();
+    let mut carry = Carry::default();
+    let mut read = 0usize;
+    for line in rows.into_iter().rev() {
+        let cells = runs(
+            line,
+            LineKey::new(line.id().get()),
+            cols,
+            &mut carry,
+            &mut |_| {},
+        );
+        read = read.saturating_add(cells);
+    }
+    (carry, read)
 }
 
 /// Reads the runs of placeholder cells on `line`, the line `key` names, in

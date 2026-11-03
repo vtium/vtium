@@ -15,7 +15,7 @@ mod with {
 
     use super::super::Screen;
     use crate::line::{Line, LineId};
-    use crate::placeholder::{self, Carry, PlaceholderRun};
+    use crate::placeholder::{self, PlaceholderRun};
     use crate::scrollback::{Change, Move};
 
     fn key(line: &Line) -> LineKey {
@@ -148,7 +148,15 @@ mod with {
         /// store draws each virtual placement where its runs lie.
         pub fn placeholder_runs(&self) -> Vec<PlaceholderRun> {
             let mut out = Vec::new();
-            let mut carry = Carry::default();
+            // the alternate screen has no scrollback above it
+            let top = match self.flags.alternate {
+                true => 0,
+                false => self
+                    .scrollback
+                    .view_index()
+                    .unwrap_or(self.scrollback.len()),
+            };
+            let (mut carry, _) = placeholder::carry_from(self.rows_above(top), self.cols);
             for line in self.view() {
                 placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
                     out.push(r);
@@ -192,13 +200,23 @@ mod with {
             }
         }
 
+        /// The scrollback's rows above index `top`, nearest first: those a
+        /// picture row that soft-wraps down into the first row read may
+        /// start on.
+        fn rows_above(&self, top: usize) -> impl Iterator<Item = &Line> + '_ {
+            (0..top).rev().filter_map(|i| self.scrollback.get(i))
+        }
+
         /// The runs on the screen's own lines of a buffer, each with its
-        /// screen row, counting the cells read as input work.
+        /// screen row, counting the cells read as input work, those of the
+        /// rows above the screen whose wraps reach its first row included.
         fn screen_runs(&mut self, alt: bool) -> Vec<(usize, PlaceholderRun)> {
+            // the main screen's rows may continue its scrollback's newest
+            // rows; the alternate screen has no scrollback
+            let top = if alt { 0 } else { self.scrollback.len() };
+            let (mut carry, mut read) = placeholder::carry_from(self.rows_above(top), self.cols);
             let lines = if alt { &self.alt } else { &self.main };
             let mut out = Vec::new();
-            let mut read = 0usize;
-            let mut carry = Carry::default();
             for (y, line) in lines.iter().take(self.rows).enumerate() {
                 let cells = placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
                     out.push((y, r));

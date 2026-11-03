@@ -300,3 +300,64 @@ fn a_picture_row_rewrapped_by_a_resize_reads_the_same_cells() {
     t.screen_mut().resize(10, 4);
     assert_eq!(cells_read(&t), before);
 }
+
+/// The picture columns of the cells on screen row `y` that the read for a
+/// frame and the read for a store decision each give.
+fn columns_on(t: &mut Terminal, y: usize) -> (Vec<u32>, Vec<u32>) {
+    let line = key(t, y);
+    let columns = |runs: Vec<PlaceholderRun>| -> Vec<u32> {
+        runs.iter()
+            .filter(|r| r.line == line)
+            .flat_map(|r| (0..r.cells).map(move |i| r.column + i))
+            .collect()
+    };
+    let frame = columns(t.screen().placeholder_runs());
+    let screen = columns(t.screen_mut().screen_placeholder_runs(false));
+    (frame, screen)
+}
+
+// ADR-1100, D13: a picture row that soft-wraps from the scrollback onto
+// the screen's first row keeps counting its columns there, whether the read
+// starts at the top of the screen or at the top of a view moved back, so
+// the read for a frame and the read for damage agree.
+// covers: image.kitty-placeholders
+#[test]
+fn a_picture_row_wrapped_down_from_the_scrollback_keeps_its_columns() {
+    let mut t = Terminal::new(5, 3, 100);
+    t.screen_mut().set_scrollback_max(100);
+    let s = format!(
+        "\x1b[3;1H\x1b[38;5;42m{}{}\n\n",
+        cell(&[0, 0]),
+        cell(&[]).repeat(7)
+    );
+    t.input(s.as_bytes());
+    assert_eq!(columns_on(&mut t, 0), (vec![5, 6, 7], vec![5, 6, 7]));
+    t.screen_mut().scroll_view_up(1);
+    let runs = t.screen().placeholder_runs();
+    assert_eq!(
+        runs.iter().map(|r| (r.column, r.cells)).collect::<Vec<_>>(),
+        vec![(0, 5), (5, 3)],
+        "the view shows the row's head and its tail"
+    );
+}
+
+// The walk back through soft-wrapped rows stops after as many rows as the
+// longest picture row, 297 cells, fills: 3 rows at 100 columns. A row of
+// 600 placeholders whose first cell alone carries marks, with 4 of its rows
+// above the screen, reads its screen rows from the column the walk's
+// farthest row starts at, and the read counts each cell it visits as work.
+// covers: image.kitty-placeholders
+#[test]
+fn the_walk_back_through_wrapped_rows_stops_at_the_longest_picture_row() {
+    let mut t = Terminal::new(100, 2, 100);
+    t.screen_mut().set_scrollback_max(100);
+    let s = format!("\x1b[38;5;42m{}{}", cell(&[0, 0]), cell(&[]).repeat(599));
+    t.input(s.as_bytes());
+    assert_eq!(t.screen().scrollback().len(), 4);
+    let (frame, screen) = columns_on(&mut t, 0);
+    assert_eq!(frame.first(), Some(&300), "the walk reads 3 rows back");
+    assert_eq!(frame, screen);
+    let before = t.screen().images().work();
+    t.screen_mut().screen_placeholder_runs(false);
+    assert_eq!(t.screen().images().work() - before, 3 * 100 + 2 * 100);
+}
