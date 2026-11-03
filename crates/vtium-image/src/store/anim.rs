@@ -927,6 +927,10 @@ impl Store {
             image.opaque = all_opaque(&pixels);
             image.pixels = Pixels::new(pixels);
             image.revision = revision;
+            // z sets the gap of the frame an edit changes, the root's too
+            if new.gap != 0 {
+                image.anim.get_or_insert_with(Box::default).root_gap = new.gap;
+            }
             (1, area.saturating_add(size.pixels()))
         } else {
             let root = image.pixels.clone();

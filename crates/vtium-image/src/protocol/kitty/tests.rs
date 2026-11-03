@@ -1838,3 +1838,17 @@ fn z_on_an_edit_sets_the_gap_of_the_frame_it_edits() {
     send(&mut k, &mut h, &format!("a=f,i=1,r=2,s=1,v=1;{}", red(1)));
     assert_eq!(h.store.frame_gap(key, 2), Some(77));
 }
+
+// covers: image.kitty-animation
+#[test]
+fn z_on_an_edit_of_the_root_frame_sets_the_roots_gap() {
+    let (mut k, mut h) = animated();
+    let key = key(&mut h);
+    assert_eq!(h.store.frame_gap(key, 1), Some(0));
+    send(&mut k, &mut h, &format!("a=f,i=1,r=1,z=55,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    assert_eq!(h.store.frame_gap(key, 1), Some(55));
+    // z=0 keeps it
+    send(&mut k, &mut h, &format!("a=f,i=1,r=1,s=1,v=1;{}", red(1)));
+    assert_eq!(h.store.frame_gap(key, 1), Some(55));
+}
