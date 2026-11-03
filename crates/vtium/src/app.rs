@@ -2559,12 +2559,16 @@ impl App {
             // The seat's pointers hide together, on every head: the hide
             // comes from no one device. While the VT is another's, as a
             // released fake VT is with its pointers still open, the mouse
-            // moving in the other session arms the hide, and the hide only
-            // hides the pointer: the selection stays for the user's return,
-            // as the C reference's pointer callback dropped the hide while
-            // its session was not in the foreground (`src/terminal.c:1609-1611`
-            // at kmscon origin/main). vtium's pointer saw none of those moves,
-            // so it stays hidden until the next move on vtium's own VT.
+            // moving in the other session arms the hide. That hide clears no
+            // selection, so the selection stays for the user's return, as
+            // in the C reference, whose pointer callback dropped the hide
+            // while its session was not in the foreground
+            // (`src/terminal.c:1609-1611` at kmscon origin/main). It still
+            // hides the arrow, which the C reference drew again at its old
+            // place on the return (`src/terminal.c:1750-1772`): the input
+            // keeps adding up the moves made in the other session, so an
+            // arrow at the old place would jump at the next move (the
+            // README's "Departures").
             PointerEvent::Hide => {
                 let ours = self.vt.is_active();
                 for head in &mut self.heads {

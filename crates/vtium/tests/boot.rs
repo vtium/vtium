@@ -2996,6 +2996,12 @@ fn a_pointer_hide_on_a_released_vt_keeps_the_selection() {
         Mods::empty(),
     );
     assert_eq!(selected(&h).as_deref(), Some("sec"));
+    // The arrow's tip is at the pointer, its fill a pixel below it.
+    let (x, y) = (2 * 8 + 4, 16 + 8 + 1);
+    assert!(
+        h.until_memory(BOUND, |m| m.white_at(x, y)),
+        "the arrow shown"
+    );
     let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
     h.app.input_event(switch.clone(), h.at());
     assert!(h.until(BOUND, |_| released.get() == 1), "released");
@@ -3008,6 +3014,10 @@ fn a_pointer_hide_on_a_released_vt_keeps_the_selection() {
     assert!(h.until(BOUND, |a| a.vt.is_active()), "taken back");
     assert!(h.until_memory(BOUND, |m| m.awake), "awake");
     assert_eq!(selected(&h).as_deref(), Some("sec"), "kept at the return");
+    // The pointer moved in the other session, so vtium draws no arrow at
+    // its old place on the return.
+    h.drawn_now();
+    assert!(!h.memory().white_at(x, y), "no arrow at the return");
     // On vtium's own VT, blanked, the hide clears the selection.
     h.shown();
     h.skip_turn(Duration::from_secs(61));
