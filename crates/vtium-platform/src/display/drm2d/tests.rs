@@ -3853,30 +3853,121 @@ fn a_connector_that_lists_new_modes_takes_its_new_preferred_mode() {
     assert_eq!(age(&mut v, A), 0, "drawn whole");
 }
 
-// vtium/vtium#216: a new list of modes whose mode cannot be set, with the
-// mode chosen or the default, leaves the display at the mode it is set
-// to, which its buffers fit, and the next scan chooses from the list
-// again and sets it.
-#[test]
-fn a_new_mode_that_cannot_be_set_is_chosen_again_at_the_next_scan() {
-    let mut v = awake(one());
+/// The test-only commits the card has been sent.
+fn tests_sent(v: &Drm2d<FakeCard>) -> usize {
+    v.card()
+        .state()
+        .commits
+        .iter()
+        .filter(|c| c.test_only())
+        .count()
+}
+
+/// A display at 640x480 whose connector then lists one mode of 800x600
+/// alone, which the card refuses twice: the mode chosen, and the default.
+fn refused_new_modes(mut v: Drm2d<FakeCard>) -> Drm2d<FakeCard> {
     let swapped = vec![mode(800, 600, 60, true)];
     v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
     v.card().state().commit_errors.push_back(Errno::INVAL);
     v.card().state().commit_errors.push_back(Errno::INVAL);
-    assert!(v.poll().is_err());
+    v.poll().unwrap();
+    v
+}
+
+// vtium/vtium#216: a new list of modes whose mode the card refuses, as
+// chosen and as the default, leaves the display running at the mode it is
+// set to, which its buffers fit, and holds the new mode back. Nothing is
+// retried and nothing reports that the displays did not wake, so a key
+// press tries nothing, and a hotplug with the same list tries nothing.
+#[test]
+fn a_new_mode_that_cannot_be_set_is_held_back() {
+    let v = awake(one());
+    let before = tests_sent(&v);
+    let mut v = refused_new_modes(v);
+    assert_eq!(
+        tests_sent(&v) - before,
+        3,
+        "the mode chosen, the default, and the mode set"
+    );
     assert_eq!(events(&mut v), []);
+    assert!(v.retries.is_none() && !v.wake_failed, "nothing to retry");
     assert_eq!(
         v.size(DisplayId(A)),
         Some((640, 480)),
         "the mode it is set to"
     );
+    flip(&mut v);
     assert_eq!(token_size(&mut v, A), (640, 480));
+    let tried = tests_sent(&v);
+    v.input().unwrap();
+    v.poll().unwrap();
+    assert_eq!(tests_sent(&v), tried, "a key and a hotplug try nothing");
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+}
+
+// vtium/vtium#216: a mode held back gives way to the next list of modes
+// the connector gives, and is not tried again at the wake-up after.
+#[test]
+fn a_held_back_mode_gives_way_to_a_new_list() {
+    let mut v = refused_new_modes(awake(one()));
+    flip(&mut v);
+    v.events().for_each(drop);
+    let swapped = vec![mode(1024, 768, 60, true), mode(800, 600, 60, false)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
     v.poll().unwrap();
     assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
+    assert_eq!(v.size(DisplayId(A)), Some((1024, 768)));
+    flip(&mut v);
+    v.sleep();
+    v.wake_up().unwrap();
+    assert_eq!(v.size(DisplayId(A)), Some((1024, 768)), "nothing held back");
+}
+
+// vtium/vtium#216: a mode held back is tried again as the card wakes.
+#[test]
+fn a_held_back_mode_is_tried_again_at_a_wake_up() {
+    let mut v = refused_new_modes(awake(one()));
+    flip(&mut v);
+    v.sleep();
+    v.events().for_each(drop);
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A)), Event::Awake]);
     assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
     flip(&mut v);
     assert_eq!(token_size(&mut v, A), (800, 600));
+}
+
+// vtium/vtium#216: a mode held back is tried again when the set of
+// displays changes: here B is plugged in, and in the second part B is
+// unplugged.
+#[test]
+fn a_held_back_mode_is_tried_again_when_the_displays_change() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    let mut v = refused_new_modes(awake(Drm2d::with(card, ModePolicy::default()).unwrap()));
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.card().state().listed.retain(|&c| c == A);
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Removed(DisplayId(B)), Event::Redraw(DisplayId(A))]
+    );
+    assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
+
+    let mut v = refused_new_modes(a_then_b(ModePolicy::default()));
+    flip(&mut v);
+    v.events().for_each(drop);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
+    assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
 }
 
 /// A legacy card with one display at 640x480, whose connector then lists

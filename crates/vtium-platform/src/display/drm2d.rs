@@ -1140,6 +1140,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             d.available = false;
         }
         let mut needs = scan != Scan::Hotplug;
+        // The set of displays changed: one was bound or let go.
+        let mut changed = false;
         for &id in &res.connectors {
             let Some(conn) = self.connector(id) else {
                 continue;
@@ -1167,6 +1169,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                             needs = true;
                         }
                         o.choice = choice;
+                        o.held = None;
                     }
                     o.modes = conn.modes;
                 }
@@ -1209,6 +1212,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 self.identities.push((o.id, identity));
                 self.outputs.push(o);
                 needs = true;
+                changed = true;
             }
         }
         self.scanned = true;
@@ -1229,6 +1233,18 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 self.events.push(Event::Removed(o.id));
             }
             self.free(o);
+            changed = true;
+        }
+        // A mode held back is tried again as the card wakes, as another
+        // program may have changed what the card can set, and when the set
+        // of displays changes, which frees or takes the card's bandwidth.
+        if scan == Scan::WakeUp || changed {
+            for o in &mut self.outputs {
+                if let Some(held) = o.held.take() {
+                    o.mode = held;
+                    needs = true;
+                }
+            }
         }
         let outputs = &self.outputs;
         self.identities
@@ -1398,6 +1414,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             planes,
             mode: choice.current,
             set: None,
+            held: None,
             mm,
             choice,
             modes: conn.modes.clone(),
@@ -1584,7 +1601,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.legacy_modeset();
             Ok(())
         } else {
-            let set = self.atomic_modeset_or_default();
+            let mut set = self.atomic_modeset_or_default();
+            // A display whose new mode cannot be set, even as its default,
+            // stays at the mode it is set to, and the modeset is tried
+            // again, so the others are set and nothing is retried.
+            if set.as_ref().is_err_and(|e| errno(e) != Some(Errno::ACCESS)) && self.hold_back() {
+                set = self.atomic_modeset_or_default();
+            }
             match set {
                 Err(e) if errno(&e) != Some(Errno::ACCESS) && self.mixed() => {
                     let (online, new) = std::mem::take(&mut self.outputs)
@@ -1604,9 +1627,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
         };
         if set.is_err() {
-            for o in &mut self.outputs {
-                o.keep_set_mode();
-            }
+            self.hold_back();
         }
         if set.is_ok() {
             // A modeset brings every display on.
@@ -1619,6 +1640,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.announce();
         }
         set
+    }
+
+    /// Gives each display back the mode it is set to where a scan chose
+    /// another that a modeset could not set, holding that mode back.
+    /// Whether any display did.
+    fn hold_back(&mut self) -> bool {
+        let mut any = false;
+        for o in &mut self.outputs {
+            any |= o.hold_back();
+        }
+        any
     }
 
     /// Whether some displays are online and some are new.
@@ -1995,7 +2027,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Ok(made) => made,
                 Err(e) => {
                     log::error!("cannot allocate buffers for {}: {e}", o.name);
-                    o.keep_set_mode();
+                    o.hold_back();
                     continue;
                 }
             };
@@ -2030,7 +2062,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Err(e) => {
                     log::error!("cannot set the CRTC of {}: {e}", o.name);
                     self.release(made.unwrap_or_default());
-                    o.keep_set_mode();
+                    o.hold_back();
                 }
             }
         }

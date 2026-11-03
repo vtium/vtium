@@ -205,15 +205,18 @@ pub(super) struct Output<M> {
     pub(super) planes: Option<Planes>,
     pub(super) choice: Choice,
     /// The modes its connector listed when `choice` was made. A scan that
-    /// finds the connector listing others chooses again. It is emptied
-    /// when a modeset cannot set the mode chosen, so the next scan chooses
-    /// again.
+    /// finds the connector listing others chooses again.
     pub(super) modes: Vec<Mode>,
     /// The mode the display is set to, or is to be set to.
     pub(super) mode: Mode,
     /// The mode the last modeset that took set the display to, which its
     /// buffers were made for; `None` before its first.
     pub(super) set: Option<Mode>,
+    /// A mode chosen from a new list of modes that no modeset could set,
+    /// with the default mode tried too. The display stays at `set`, and a
+    /// scan tries this mode again only when the card wakes or the set of
+    /// displays changes.
+    pub(super) held: Option<Mode>,
     /// The connector's physical size in millimetres, 0 where it has none.
     pub(super) mm: (u32, u32),
     pub(super) mode_blob: u32,
@@ -280,12 +283,14 @@ impl<M: AsMut<[u8]>> Output<M> {
 
     /// After a modeset that did not set it, gives the display back the
     /// mode it is set to, which its buffers fit, where a scan chose
-    /// another; the next scan then chooses again.
-    pub(super) fn keep_set_mode(&mut self) {
-        if let Some(set) = self.set.filter(|&set| set != self.mode) {
-            self.mode = set;
-            self.modes.clear();
-        }
+    /// another, and holds the mode chosen back. Whether it did.
+    pub(super) fn hold_back(&mut self) -> bool {
+        let Some(set) = self.set.filter(|&set| set != self.mode) else {
+            return false;
+        };
+        self.held = Some(self.mode);
+        self.mode = set;
+        true
     }
 
     pub(super) fn back_fb(&self) -> u32 {
