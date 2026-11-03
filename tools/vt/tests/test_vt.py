@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tests the VT review tools (tools/vt, docs/vt-review.md) without a VT, sudo
 or logind. Each case gets a temporary directory of stand-ins named by
-VTIUM_VT_STANDINS: systemctl, loginctl, setpriv, getent and sudo record their
-calls, "shells" stands for /etc/shells, chvt and fgconsole record that they were reached (no tool may switch a VT),
+VTIUM_VT_STANDINS: systemctl, loginctl, setpriv, getent, sudo and
+systemd-sysusers record their calls, "shells" stands for /etc/shells, chvt and fgconsole record that they were reached (no tool may switch a VT),
 "active" stands for the VT on screen, and a stand-in vtium binary records its
 arguments and exits, crashes, waits for a signal or runs its session. The
 stand-ins also lead PATH, so a command the tools reach by name finds one.
@@ -325,6 +325,7 @@ class Stage:
         for name, text in (("systemctl", SYSTEMCTL), ("loginctl", LOGINCTL), ("setpriv", SETPRIV),
                            ("getent", GETENT), ("sudo", SUDO), ("systemd-analyze", ANALYZE),
                            ("cargo", "#!/bin/bash\n" + RECORD),
+                           ("systemd-sysusers", "#!/bin/bash\n" + RECORD),
                            ("readelf", READELF),
                            ("chvt", FORBIDDEN), ("fgconsole", FORBIDDEN)):
             write(os.path.join(self.standins, name), text)
@@ -340,6 +341,9 @@ class Stage:
         # The stand-in glyph helper, which vt-install copies and never runs.
         self.helper = os.path.join(tmp, "vtium-config")
         write(self.helper, "#!/bin/sh\n# the stand-in vtium-config\n")
+        # The stand-in image helper, which vt-install copies and never runs.
+        self.image = os.path.join(tmp, "vtium-image")
+        write(self.image, "#!/bin/sh\n# the stand-in vtium-image\n")
         self.dir = os.path.join(tmp, "vt")
         self.calls = os.path.join(tmp, "calls")
         self.bin_args = os.path.join(tmp, "bin-args")
@@ -1532,6 +1536,11 @@ class Install(Case):
     STATE = "var/lib/vtium-dev-install"
     # Every file vt-install writes, by its path under the root.
     FILES = (BIN, HELPER, UNIT, FALLBACK)
+    # What it writes beside them for a console with pictures: the image
+    # helper and its account's sysusers file.
+    IMAGE = "usr/local/bin/vtium-dev-image"
+    SYSUSERS = "etc/sysusers.d/vtium-dev-image.conf"
+    PICTURES = (IMAGE, SYSUSERS)
 
     def setUp(self):
         super().setUp()
@@ -1578,7 +1587,7 @@ class Install(Case):
         return out
 
     def vt_install(self, *args, **env):
-        env = dict(dict(VTIUM_VT_BIN=self.s.bin, VTIUM_VT_CONFIG=self.s.helper), **env)
+        env = dict(dict(VTIUM_VT_BIN=self.s.bin, VTIUM_VT_CONFIG=self.s.helper, VTIUM_VT_IMAGE=self.s.image), **env)
         return subprocess.run(["bash", VT_INSTALL, *args], env=self.s.env(**env),
                               capture_output=True, text=True, timeout=20, cwd=self.s.tmp)
 
@@ -1591,7 +1600,7 @@ class Install(Case):
         src = os.path.join(ROOT, "crates", "vtium", "install")
         dst = os.path.join(self.s.standins, "install")
         os.mkdir(dst)
-        for f in ("vtium@.service", "vtium-getty@.service"):
+        for f in ("vtium@.service", "vtium-getty@.service", "vtium-image.conf"):
             text = read(os.path.join(src, f))
             if f == "vtium@.service" and unit_lines:
                 text = "\n".join(unit_lines(text.splitlines())) + "\n"
@@ -1813,7 +1822,7 @@ exec "$@"
     def left(self):
         """What vt-install writes that is under the root: its files, its
         state directory, and any file at one of its temporary names."""
-        out = [f for f in (*self.FILES, self.STATE) if os.path.lexists(self.at(f))]
+        out = [f for f in (*self.FILES, *self.PICTURES, self.STATE) if os.path.lexists(self.at(f))]
         for d, _, names in os.walk(self.root):
             out += [os.path.relpath(os.path.join(d, n), self.root) for n in names if n.endswith(".vt-install-new")]
         return out
@@ -2309,7 +2318,7 @@ exec "$@"
         write(os.path.join(self.s.standins, "id"), "#!/bin/bash\n"
               f'[ "$1" != -u ] || {{ echo 0; exit; }}\nexec {shutil.which("id")!r} "$@"\n')
         write(os.path.join(self.s.standins, "stat"), "#!/bin/bash\n"
-              f'case "${{*: -1}}" in {self.s.bin!r} | {self.s.helper!r}) echo "0 755"; exit ;; esac\n'
+              f'case "${{*: -1}}" in {self.s.bin!r} | {self.s.helper!r} | {self.s.image!r}) echo "0 755"; exit ;; esac\n'
               f'exec {shutil.which("stat")!r} "$@"\n')
         os.chmod(self.s.standins, 0o755)
         # sudo names the user who ran it.
@@ -2503,6 +2512,309 @@ exec "$@"
         # Another VT is the development install's to take, beside it.
         p = self.vt_install("install", "5", ACTIVE_UNITS="vtium@tty4.service")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+    def pictures(self):
+        """The stand-in binary becomes a console with pictures, as make
+        vt-install FEATURES=images builds it: it names the image helper's
+        path beside the glyph helper's."""
+        write(self.s.bin, BIN + "# and its image helper at /usr/local/bin/vtium-dev-image.\n")
+
+    def shipped_sysusers(self):
+        return read(os.path.join(ROOT, "crates", "vtium", "install", "vtium-image.conf"))
+
+    def test_a_console_with_pictures_installs_its_image_helper_and_the_account(self):
+        self.pictures()
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(read(self.at(self.IMAGE)), read(self.s.image))
+        self.assertTrue(os.access(self.at(self.IMAGE), os.X_OK))
+        # The account's sysusers file is the shipped one, under an opening
+        # comment of its own, so the account is the one the package creates
+        # (ADR-1101 D2).
+        sysusers = read(self.at(self.SYSUSERS))
+        self.assertTrue(sysusers.endswith(self.shipped_sysusers()), sysusers)
+        self.assertTrue(all(l.startswith("#") for l in sysusers[:-len(self.shipped_sysusers())].splitlines()))
+        self.assertIn('u vtium-image - "vtium image helper" / -', sysusers.splitlines())
+        self.assertEqual(stat.S_IMODE(os.stat(self.at(self.SYSUSERS)).st_mode), 0o644)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (*self.FILES, *self.PICTURES)))
+        # systemd-sysusers creates the account from that file alone, as
+        # root, before vtium starts.
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [self.at(self.SYSUSERS)])
+        sudo = self.s.calls_of("sudo")
+        sysusers_run = sudo.index(f"{self.s.standins}/systemd-sysusers {self.at(self.SYSUSERS)}")
+        self.assertLess(sysusers_run, sudo.index(f"{self.s.standins}/systemctl restart vtium-dev@tty4.service"))
+        # The helpers are in place before the binary that starts them.
+        renames = [c.split()[4] for c in sudo if c.startswith("mv -fT -- ")]
+        self.assertLess(renames.index(self.at(self.IMAGE)), renames.index(self.at(self.BIN)))
+        # A reinstall replaces both as it replaces the other files.
+        write(self.s.image, read(self.s.image) + "# a newer build\n")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(read(self.at(self.IMAGE)), read(self.s.image))
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (*self.FILES, *self.PICTURES)))
+
+    def test_a_console_without_pictures_installs_no_image_helper(self):
+        # The minspec build names the packaged /usr/bin/vtium-image, as every
+        # build names the path it was built with through the image-helper
+        # key, and never starts it, so no image helper is needed, and the one
+        # make vt-install would name is never read.
+        write(self.s.bin, BIN + "# and names /usr/bin/vtium-image, which it never starts.\n")
+        p = self.vt_install("install", "4", VTIUM_VT_IMAGE=self.s.image + "-missing")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in self.PICTURES:
+            self.assertFalse(os.path.lexists(self.at(f)), f)
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [])
+        self.assertNotIn("vtium-dev-image", read(self.at(self.STATE + "/files")))
+
+    def test_a_console_with_pictures_that_starts_another_image_helper_is_refused(self):
+        # A build with images and no VTIUM_IMAGE starts /usr/bin/vtium-image,
+        # the packaged helper; it carries the line only a build with images
+        # carries.
+        write(self.s.bin, BIN + "# and /usr/bin/vtium-image, and logs: cannot open the image helper {name}: {e}\n")
+        self.refused(self.vt_install("install", "4"),
+                     "is built with images but does not look for its image helper at /usr/local/bin/vtium-dev-image")
+        self.assertEqual(self.left(), [])
+
+    def test_the_line_that_marks_a_build_with_images_is_in_code_built_only_with_images(self):
+        # vt-install tells a build with images by a line only vtium-platform's
+        # image helper start logs, in a module built only with images; a
+        # reworded message would let a build with images that starts another
+        # image helper through.
+        marker = next(l.split("=", 1)[1].strip("'") for l in read(VT_INSTALL).splitlines()
+                      if l.startswith("images_marker="))
+        start = read(os.path.join(ROOT, "crates", "vtium-platform", "src", "image_helper", "start.rs"))
+        self.assertIn(f'"{marker}{{name}}: {{e}}"', start)
+        lib = read(os.path.join(ROOT, "crates", "vtium-platform", "src", "lib.rs"))
+        self.assertIn('#[cfg(feature = "images")]\npub mod image_helper;', lib)
+
+    def test_a_console_with_pictures_needs_an_image_helper_only_root_or_you_could_have_written(self):
+        self.pictures()
+        for env, why in (({"VTIUM_VT_IMAGE": ""}, "VTIUM_VT_IMAGE names image helper; make vt-install sets it"),
+                         ({"VTIUM_VT_IMAGE": self.s.image + "-missing"},
+                          f"no image helper at {self.s.image}-missing: make vt-install FEATURES=images builds it")):
+            with self.subTest(why=why):
+                open(self.s.calls, "w").close()
+                self.refused(self.vt_install("install", "4", **env), why)
+        os.chmod(self.s.image, 0o775)
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "4"),
+                     f"{self.s.image} is writable by group or others (mode 775); vtium, as root, would start it")
+        self.assertEqual(self.left(), [])
+
+    def test_a_console_with_pictures_refuses_an_image_helper_or_account_file_not_vt_installs(self):
+        self.pictures()
+        for f in self.PICTURES:
+            with self.subTest(f=f):
+                os.makedirs(os.path.dirname(self.at(f)), exist_ok=True)
+                write(self.at(f), "someone else's\n", 0o644)
+                open(self.s.calls, "w").close()
+                self.refused(self.vt_install("install", "4"), f"/{f} is there already and vt-install did not write it")
+                self.assertEqual(read(self.at(f)), "someone else's\n")
+                os.unlink(self.at(f))
+
+    def test_a_dry_run_with_pictures_shows_the_account_file_and_the_commands_and_runs_none(self):
+        self.pictures()
+        p = self.vt_install("install", "--dry-run", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("--- /etc/sysusers.d/vtium-dev-image.conf", p.stdout)
+        self.assertIn('u vtium-image - "vtium image helper" / -', p.stdout)
+        self.assertIn(f"  /{self.IMAGE}\n", p.stdout)
+        self.assertIn(f"+ sudo mv -fT -- {self.root}/usr/local/bin/.vtium-dev-image.vt-install-new {self.at(self.IMAGE)}",
+                      p.stdout)
+        self.assertIn(f"+ sudo {self.s.standins}/systemd-sysusers {self.at(self.SYSUSERS)}", p.stdout)
+        self.assertEqual(self.s.calls_of("sudo") + self.s.calls_of("systemd-sysusers"), [])
+        self.assertEqual(self.left(), [])
+
+    def test_uninstall_removes_the_image_helper_and_the_account_file_and_leaves_the_account(self):
+        self.pictures()
+        for vt in ("4", "5"):
+            p = self.vt_install("install", vt)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        open(self.s.calls, "w").close()
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # VT 5 still runs the console, which starts the image helper.
+        self.assertIn(f"/{self.IMAGE} /{self.SYSUSERS}: vt-install holds tty5 as well", p.stdout)
+        for f in (*self.FILES, *self.PICTURES):
+            self.assertTrue(os.path.exists(self.at(f)), f)
+        p = self.vt_install("uninstall", "5")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+        # systemd-sysusers never removes an account, and uninstall asks it
+        # for nothing.
+        self.assertEqual(self.s.calls_of("systemd-sysusers"), [])
+
+    def test_a_reinstall_without_pictures_removes_the_image_helper_an_install_with_them_wrote(self):
+        # Every VT runs the one binary, so the console without pictures,
+        # installed on VT 5, leaves VT 4 with no use for the image helper.
+        self.pictures()
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        write(self.s.bin, BIN)
+        p = self.vt_install("install", "--dry-run", "5")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"+ sudo rm -f -- {self.at(self.IMAGE)}", p.stdout)
+        self.assertIn(f"+ sudo rm -f -- {self.at(self.SYSUSERS)}", p.stdout)
+        self.assertTrue(os.path.exists(self.at(self.IMAGE)))
+        p = self.vt_install("install", "5")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in self.PICTURES:
+            self.assertFalse(os.path.lexists(self.at(f)), f)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in self.FILES))
+        self.assertEqual(self.temps(), [])
+        for vt in ("4", "5"):
+            p = self.vt_install("uninstall", vt)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+
+    def test_an_image_helper_or_account_file_changed_since_stays(self):
+        for changed in self.PICTURES:
+            with self.subTest(changed=changed):
+                self.reseed()
+                self.pictures()
+                p = self.vt_install("install", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                with open(self.at(changed), "a") as f:
+                    f.write("# the maintainer's edit\n")
+                edited = read(self.at(changed))
+                # A reinstall with pictures refuses it, as it does any file
+                # changed since install wrote it.
+                open(self.s.calls, "w").close()
+                self.refused(self.vt_install("install", "4"), f"/{changed} changed since vt-install wrote it")
+                # One without pictures keeps and names it, removes the
+                # other, and the record forgets it.
+                write(self.s.bin, BIN)
+                p = self.vt_install("install", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertIn(f"kept /{changed}: it changed since vt-install wrote it", p.stdout)
+                self.assertEqual(read(self.at(changed)), edited)
+                other, = [f for f in self.PICTURES if f != changed]
+                self.assertFalse(os.path.lexists(self.at(other)))
+                self.assertNotIn(changed, read(self.at(self.STATE + "/files")))
+                # It is someone else's now: uninstall leaves it.
+                p = self.vt_install("uninstall", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(self.left(), [changed])
+
+    def test_a_copy_with_pictures_that_fails_halfway_can_be_undone_or_tried_again(self):
+        write(os.path.join(self.s.standins, "sudo"), self.HALF_WRITING_SUDO)
+        for target, case, way in itertools.product(
+                self.PICTURES, ("first install", "reinstall", "over one without pictures"), ("uninstall", "install again")):
+            with self.subTest(target=target, case=case, way=way):
+                self.reseed()
+                seeded = self.links()
+                if case != "first install":
+                    if case == "reinstall":
+                        self.pictures()
+                    p = self.vt_install("install", "4")
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    write(self.s.image, read(self.s.image) + "# a newer build\n")
+                self.pictures()
+                self.fail_copy("4", target)
+                if way == "uninstall":
+                    p = self.vt_install("uninstall", "4")
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    self.assertNotIn("changed since", p.stdout)
+                    self.assertEqual(self.links(), seeded)
+                    self.assertEqual(self.left(), [])
+                p = self.vt_install("install", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(read(self.at(self.IMAGE)), read(self.s.image))
+                p = self.vt_install("uninstall", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertNotIn("changed since", p.stdout)
+                self.assertEqual(self.links(), seeded)
+                self.assertEqual(self.left(), [])
+
+    # A stand-in cargo that records, beside its arguments, both helper paths
+    # the build bakes in.
+    CARGO_IMAGE_ENV = "#!/bin/bash\n" + ('printf "%s\\n" "cargo VTIUM_FONT_HELPER=${VTIUM_FONT_HELPER-unset} '
+                                         'VTIUM_IMAGE=${VTIUM_IMAGE-unset} $*" >>"$CALLS"\n')
+
+    def test_make_builds_a_console_with_pictures_and_its_image_helper(self):
+        write(os.path.join(self.s.standins, "cargo"), self.CARGO_IMAGE_ENV)
+        self.pictures()
+        # VTIUM_DEV, CONFIG_RELEASE and IMAGE_RELEASE point the defaults at
+        # the stand-ins, which the stand-in cargo "builds".
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1", "FEATURES=images",
+                            f"VTIUM_DEV={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}", f"IMAGE_RELEASE={self.s.image}"],
+                           env=self.s.env(), capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        builds = self.s.calls_of("cargo")
+        # The console starts its image helper at the development install's
+        # own path, never the packaged /usr/bin/vtium-image.
+        self.assertIn("VTIUM_FONT_HELPER=/usr/local/bin/vtium-dev-config VTIUM_IMAGE=/usr/local/bin/vtium-dev-image "
+                      "rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --target-dir target/vt-dev "
+                      "--features images -- -C link-arg=-Wl,-z,pack-relative-relocs", builds)
+        self.assertIn("VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --release -p vtium-config --target x86_64-unknown-linux-gnu",
+                      builds)
+        self.assertIn("VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --release -p vtium-image-helper "
+                      "--target x86_64-unknown-linux-gnu", builds)
+        self.assertEqual(len(builds), 3, builds)
+        self.assertIn(f"+ sudo install -D -m 0755 -- {self.s.image} {self.root}/usr/local/bin/.vtium-dev-image.vt-install-new",
+                      p.stdout)
+        self.assertIn(f"+ sudo {self.s.standins}/systemd-sysusers {self.at(self.SYSUSERS)}", p.stdout)
+        # A console built without images bakes in no image helper path, and
+        # make vt-install builds no image helper for it.
+        write(self.s.bin, BIN)
+        open(self.s.calls, "w").close()
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                            f"VTIUM_DEV={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}", f"IMAGE_RELEASE={self.s.image}"],
+                           env=self.s.env(), capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        builds = self.s.calls_of("cargo")
+        self.assertEqual(len(builds), 2, builds)
+        self.assertTrue(all("VTIUM_IMAGE=unset" in b and "vtium-image-helper" not in b for b in builds), builds)
+        self.assertNotIn("vtium-dev-image", p.stdout)
+
+    def test_make_refuses_a_console_with_images_that_does_not_name_the_development_image_helper(self):
+        write(os.path.join(self.s.standins, "cargo"), self.CARGO_IMAGE_ENV)
+        # The stand-in cargo built a console without the image helper's path.
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1", "FEATURES=images",
+                            f"VTIUM_DEV={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}", f"IMAGE_RELEASE={self.s.image}"],
+                           env=self.s.env(), capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"{self.s.bin} does not start its image helper at /usr/local/bin/vtium-dev-image", p.stderr)
+        self.assertEqual(self.s.calls_of("sudo"), [])
+
+    def test_make_names_the_image_helper_on_its_command_line_only(self):
+        self.pictures()
+        make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                                               f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}", *a],
+                                              env=self.s.env(**e), capture_output=True, text=True, timeout=30)
+        p = make(f"VTIUM_IMAGE_BIN={self.s.image}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"+ sudo install -D -m 0755 -- {self.s.image} ", p.stdout)
+        p = make(VTIUM_IMAGE_BIN=self.s.image)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("VTIUM_IMAGE_BIN is set in the environment", p.stderr)
+        self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
+
+    def test_make_as_root_with_images_needs_the_image_helper_named(self):
+        sudo_uid = self.as_root()
+        named = (f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}")
+        p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                            "FEATURES=images", *named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("with images in FEATURES the image helper with VTIUM_IMAGE_BIN=PATH", p.stderr)
+        self.assertNotIn("cargo", p.stdout)
+        self.pictures()
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                            "FEATURES=images", *named, f"VTIUM_IMAGE_BIN={self.s.image}"],
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"+ sudo {self.s.standins}/systemd-sysusers {self.at(self.SYSUSERS)}", p.stdout)
+        # As root, the systemd-sysusers it runs is a stand-in only root or
+        # the user who ran sudo wrote.
+        sysusers = os.path.join(self.s.standins, "systemd-sysusers")
+        os.chmod(sysusers, 0o777)
+        open(self.s.calls, "w").close()
+        self.refused(self.vt_install("install", "4", **sudo_uid), f"{sysusers} is writable by group or others (mode 777)")
+        os.unlink(sysusers)
+        self.refused(self.vt_install("install", "4", **sudo_uid), f"cannot read the owner of {sysusers}")
 
 class Package(Case):
     """make install, which a package's build runs, and units.sh, which makes
