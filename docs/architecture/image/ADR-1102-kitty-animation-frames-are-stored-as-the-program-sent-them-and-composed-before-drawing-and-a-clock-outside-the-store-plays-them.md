@@ -119,7 +119,7 @@ Terms used below: a *frame* is one picture of an animation, numbered from 1; the
   > Added 2026-11-02: the maintainer decided that an animated GIF sent as an iTerm2 picture plays as an animation through this record's frames and clock. The opacity bullet came with it: the record had not said when an image with frames counts as opaque.
 - **The use clock.** A command that names an image to add, change, compose, control or delete its frames moves the store's use clock for that image, as any command that names an existing image does (ADR-1100 D5). Playing an animation never moves it.
 
-> Added 2026-11-02, after the fresh review of the build: a frame's data that the console keeps for the image helper, as for a PNG or zlib frame sent directly, is reserved of the frame allowance as it arrives, in a reservation that holds the frame's image, where ADR-1100 D7 charges a picture's kept payload to the image budget, so a frame's payload never evicts a still picture or its own root frame.
+> Added 2026-11-02, after the fresh review of the build: a frame's data that the console keeps for the image helper, as for a PNG or zlib frame sent directly, is reserved of the frame allowance as it arrives, in a reservation that holds the frame's image, where ADR-1100 D7 charges a picture's kept payload to the image budget, so a frame's payload never evicts a still picture or its own root frame. The frames that a command's reservation freed for room stay freed when the command is refused after it, as the images that the image budget evicts for a refused picture stay evicted (ADR-1100 D5).
 
 ### D2: how frames are composed
 
