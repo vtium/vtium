@@ -579,30 +579,21 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
     // step 3: the console's own check, on copies root made, so what is
     // checked is what is written
     if heads.is_some() || conf.is_some() {
-        let scratch = tempdir()?;
+        let scratch = Scratch::new()?;
         let confdir = match &conf {
             Some(c) => {
-                std::fs::write(
-                    scratch.join("vtium.conf"),
-                    c.bytes.as_deref().unwrap_or_default(),
-                )
-                .map_err(|e| e.to_string())?;
-                scratch.clone()
+                scratch.write("vtium.conf", c.bytes.as_deref().unwrap_or_default())?;
+                scratch.path.clone()
             }
             None => targets.configdir.clone(),
         };
         let heads_file = match &heads {
-            Some(h) => {
-                let file = scratch.join("heads.conf");
-                std::fs::write(&file, h.bytes.as_deref().unwrap_or_default())
-                    .map_err(|e| e.to_string())?;
-                Some(file)
-            }
+            Some(h) => Some(scratch.write("heads.conf", h.bytes.as_deref().unwrap_or_default())?),
             None => Some(targets.configdir.join("heads.conf")).filter(|p| p.exists()),
         };
         let copies = [
-            (scratch.join("vtium.conf"), "vtium.conf"),
-            (scratch.join("heads.conf"), "heads.conf"),
+            (scratch.path.join("vtium.conf"), "vtium.conf"),
+            (scratch.path.join("heads.conf"), "heads.conf"),
             (
                 targets.configdir.join("vtium.conf"),
                 "the installed vtium.conf",
@@ -613,7 +604,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             ),
         ];
         let checked = check_config(&targets.vtium, &confdir, heads_file.as_deref(), &copies);
-        let _ = std::fs::remove_dir_all(&scratch);
+        drop(scratch);
         checked.map_err(|why| {
             format!(
                 "the console's check refused the draft:\n{why}\nRun vtium check-config --configdir {} as yourself to read what it says.",
@@ -676,21 +667,63 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
     Ok(!failed)
 }
 
-/// A new directory of root's own for the check's copies.
-fn tempdir() -> Result<PathBuf, String> {
-    let base = std::env::temp_dir();
-    for n in 0..100u32 {
-        let dir = base.join(format!("vtium-config-apply-{}-{n}", std::process::id()));
-        match std::fs::create_dir(&dir) {
-            Ok(()) => {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
-                    .map_err(|e| e.to_string())?;
-                return Ok(dir);
+/// A directory of this process's own for the check's copies: under
+/// `/tmp`, whatever `TMPDIR` says, since a kept environment can point
+/// `TMPDIR` at a directory the user controls; created with mode 0700 and
+/// held open, each copy written through it with O_CREAT, O_EXCL and
+/// O_NOFOLLOW.
+struct Scratch {
+    path: PathBuf,
+    dir: OwnedFd,
+}
+
+impl Scratch {
+    fn new() -> Result<Scratch, String> {
+        use std::os::unix::fs::DirBuilderExt;
+        let base = Path::new("/tmp");
+        for n in 0..100u32 {
+            let path = base.join(format!("vtium-config-apply-{}-{n}", std::process::id()));
+            match std::fs::DirBuilder::new().mode(0o700).create(&path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(format!("{}: {e}", path.display())),
             }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(format!("{}: {e}", dir.display())),
+            let dir = rustix::fs::open(
+                &path,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+            let stat = rustix::fs::fstat(&dir).map_err(|e| format!("{}: {e}", path.display()))?;
+            if stat.st_uid != rustix::process::geteuid().as_raw() || stat.st_mode & 0o077 != 0 {
+                return Err(format!(
+                    "{}: not a directory of this process's own",
+                    path.display()
+                ));
+            }
+            return Ok(Scratch { path, dir });
         }
+        Err("no free directory for the check under /tmp".to_owned())
     }
-    Err("no free directory for the check".to_owned())
+
+    /// Writes `bytes` as the new file `name` in the directory.
+    fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+        let fd = rustix::fs::openat(
+            &self.dir,
+            name,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_raw_mode(0o600),
+        )
+        .map_err(|e| format!("{name}: {e}"))?;
+        File::from(fd)
+            .write_all(bytes)
+            .map_err(|e| format!("{name}: {e}"))?;
+        Ok(self.path.join(name))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
 }

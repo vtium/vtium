@@ -65,10 +65,16 @@ impl Fixture {
 
     /// `vtium-config apply DIR` with the fixture's path options.
     fn apply(&self, draft: &Path) -> (i32, String, String) {
+        self.apply_with(draft, &[])
+    }
+
+    /// `apply` with `env` set in its environment.
+    fn apply_with(&self, draft: &Path, env: &[(&str, &Path)]) -> (i32, String, String) {
         let out = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
             .args(self.targets.options())
             .arg("apply")
             .arg(draft)
+            .envs(env.iter().copied())
             .output()
             .expect("the binary runs");
         (
@@ -477,4 +483,22 @@ fn a_file_of_another_owner_is_refused() {
     assert!(owner_trusted(0, &[0, 1000]));
     assert!(!owner_trusted(1234, &[0, 1000]));
     assert!(!owner_trusted(1000, &[0]));
+}
+
+#[test]
+fn the_check_s_copies_never_go_where_tmpdir_points() {
+    let f = fixture("tmpdir", Some("font-size=10\n"));
+    let theirs = f.root.join("theirs");
+    std::fs::create_dir_all(&theirs).expect("a directory of the user's");
+    // read-only, so a copy made there fails the apply as well as lands
+    std::fs::set_permissions(&theirs, std::fs::Permissions::from_mode(0o555)).expect("read-only");
+    let draft = f.draft(&f.conf_plan("font-size=12\n"));
+    let (status, out, err) = f.apply_with(&draft, &[("TMPDIR", &theirs)]);
+    assert_eq!(status, 0, "{out}{err}");
+    assert_eq!(f.conf(), "font-size=12\n");
+    let left: Vec<_> = std::fs::read_dir(&theirs).expect("the directory").collect();
+    assert!(
+        left.is_empty(),
+        "nothing lands where TMPDIR points: {left:?}"
+    );
 }

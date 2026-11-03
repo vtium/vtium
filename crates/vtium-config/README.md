@@ -78,7 +78,7 @@ vtium.conf is edited line by line by vtium-settings's `edit_conf`, and a head's 
 
 1. reads the draft without following a link, takes only regular files with names it knows and no second name (a hard link), owned like the draft's directory by root or by the user the privileged tool ran it for, and bounds each, since root is reading a directory the user owns; and since root read those files for the user, what it says of them names a file, a line and a key, and quotes nothing they hold;
 2. refuses the draft, writing nothing, when a file it replaces has changed since the draft was made, naming the file;
-3. checks every file before it writes any: each frit with the helper's frit reader, and vtium.conf and the head file with the console's own `vtium check-config`, run on root's copies of exactly the bytes it then writes;
+3. checks every file before it writes any: each frit with the helper's frit reader, and vtium.conf and the head file with the console's own `vtium check-config`, run on root's copies of exactly the bytes it then writes, made in a directory of its own under `/tmp` with mode 0700 whatever `TMPDIR` says, each copy created through the directory's descriptor without following a link;
 4. writes the frits, then the head file, then vtium.conf, each through vtium-settings's `install_file`: a new file beside the old one, mode 0644, flushed and renamed over it, the old one kept as `NAME.bak`;
 5. prints one line a file, `wrote PATH`, `failed PATH` with the reason, or `not written PATH` after a failure, and exits 0 when it wrote them all. The draft stays, so it can be applied again.
 
