@@ -369,17 +369,18 @@ fn only_the_system_s_directories_are_installed_through_sudo() {
 
 #[test]
 fn a_draft_file_hard_linked_elsewhere_is_refused_and_nothing_is_quoted() {
-    let f = fixture("hardlink", Some("font-size=10\n"));
+    let f = fixture("second-name", Some("font-size=10\n"));
     let draft = f.draft(&f.conf_plan("font-size=12\n"));
     // a file of the user's own outside the draft, linked in by a second name
     let elsewhere = f.root.join("elsewhere.conf");
-    std::fs::write(&elsewhere, "font-size=12\nSECRET-TOKEN-7731\n").expect("the file");
+    // a valid file, so only the second name refuses it
+    std::fs::write(&elsewhere, "font-size=12 # SECRET-TOKEN-7731\n").expect("the file");
     let file = draft.join("vtium.conf");
     std::fs::remove_file(&file).expect("the draft's file");
     std::fs::hard_link(&elsewhere, &file).expect("a hard link");
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
-    assert!(err.contains("vtium.conf") && err.contains("link"), "{err}");
+    assert!(err.contains("vtium.conf") && err.contains("hard link"), "{err}");
     assert!(!format!("{out}{err}").contains("SECRET"), "{out}{err}");
     assert_eq!(f.conf(), "font-size=10\n");
 }
