@@ -182,6 +182,12 @@ fn as_root_the_tui_does_not_open() {
 /// effective uid is 0, with `args`; `None` where the machine has user
 /// namespaces off.
 fn as_namespace_root(args: &[&str]) -> Option<Output> {
+    as_namespace_root_with(args, &[])
+}
+
+/// As [`as_namespace_root`], with the variables `envs` set besides the
+/// test's own environment.
+fn as_namespace_root_with(args: &[&str], envs: &[(&str, &str)]) -> Option<Output> {
     let probe = Command::new("unshare").args(["-r", "true"]).output().ok()?;
     if !probe.status.success() {
         eprintln!(
@@ -195,6 +201,7 @@ fn as_namespace_root(args: &[&str]) -> Option<Output> {
             .arg("-r")
             .arg(BIN)
             .args(args)
+            .envs(envs.iter().copied())
             .stdin(Stdio::null())
             .output()
             .expect("unshare runs"),
@@ -225,4 +232,34 @@ fn the_binary_run_as_root_refuses_paths_programs_and_the_tui() {
     };
     assert_eq!(status(&o), 1, "{}", stderr(&o));
     assert!(stderr(&o).contains("/nonexistent-draft"), "{}", stderr(&o));
+}
+
+/// doas with `keepenv` keeps a `SUDO_UID` the user set beside the
+/// `DOAS_USER` doas sets; apply run as root refuses the draft then, since
+/// either could name a user who did not run it.
+#[test]
+fn the_binary_run_as_root_refuses_more_than_one_tools_user() {
+    let draft = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-two-users-draft");
+    let _ = fs::remove_dir_all(&draft);
+    fs::create_dir_all(&draft).unwrap();
+    fs::write(draft.join("MANIFEST"), "").unwrap();
+    let dir = draft.to_str().unwrap();
+    let Some(o) = as_namespace_root_with(
+        &["apply", dir],
+        &[("SUDO_UID", "4242"), ("DOAS_USER", "root")],
+    ) else {
+        return;
+    };
+    assert_eq!(status(&o), 1, "{}", stderr(&o));
+    assert!(
+        stderr(&o).contains("SUDO_UID") && stderr(&o).contains("DOAS_USER"),
+        "{}",
+        stderr(&o)
+    );
+    assert!(stderr(&o).contains("Nothing was written"), "{}", stderr(&o));
+    // with one tool's variable alone, the same draft applies, writing nothing
+    let Some(o) = as_namespace_root_with(&["apply", dir], &[("DOAS_USER", "root")]) else {
+        return;
+    };
+    assert_eq!(status(&o), 0, "{}", stderr(&o));
 }

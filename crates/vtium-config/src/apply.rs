@@ -280,19 +280,36 @@ pub fn trusted_owners(euid: u32, sudo_uid: Option<u32>) -> Vec<u32> {
     }
 }
 
+/// The variables the privileged tools set for the user they ran a
+/// command for: sudo's, pkexec's and doas's.
+const INVOKING_VARS: [&str; 3] = ["SUDO_UID", "PKEXEC_UID", "DOAS_USER"];
+
 /// The user a privileged tool ran `apply` for: `SUDO_UID`, which sudo
-/// sets, else `PKEXEC_UID`, which pkexec sets, else `DOAS_USER`, the name
-/// doas sets, resolved to its uid by `uid_of`. `var` reads the
-/// environment. Each is only as trustworthy as the tool that sets it.
+/// sets, `PKEXEC_UID`, which pkexec sets, or `DOAS_USER`, the name doas
+/// sets, resolved to its uid by `uid_of`. `var` reads the environment.
+/// Each is only as trustworthy as the tool that sets it. Each tool sets
+/// its own variable alone, so when more than one is set, one was kept
+/// from the user's environment or forged, as doas's `keepenv` keeps a
+/// `SUDO_UID` the user set, and the reason is returned.
 pub fn invoking_user(
     var: impl Fn(&str) -> Option<String>,
     uid_of: impl Fn(&str) -> Option<u32>,
-) -> Option<u32> {
-    let uid = |name: &str| var(name).map(|v| v.parse::<u32>().ok());
-    match (uid("SUDO_UID"), uid("PKEXEC_UID")) {
-        (Some(found), _) => found,
-        (None, Some(found)) => found,
-        (None, None) => var("DOAS_USER").and_then(|name| uid_of(&name)),
+) -> Result<Option<u32>, String> {
+    let set: Vec<(&str, String)> = INVOKING_VARS
+        .iter()
+        .filter_map(|&name| var(name).map(|value| (name, value)))
+        .collect();
+    match set.as_slice() {
+        [] => Ok(None),
+        [("DOAS_USER", name)] => Ok(uid_of(name)),
+        [(_, uid)] => Ok(uid.parse::<u32>().ok()),
+        more => Err(format!(
+            "{} are set, but sudo, pkexec and doas each set only their own, so at least one was kept or forged from the user's environment. Run apply through one tool, with the environment it sets.",
+            more.iter()
+                .map(|(name, _)| *name)
+                .collect::<Vec<_>>()
+                .join(" and ")
+        )),
     }
 }
 
@@ -305,11 +322,15 @@ fn uid_of(name: &str) -> Option<u32> {
         .map(|u| u.uid.as_raw())
 }
 
-/// The owners of this process's drafts, from its effective uid and the
-/// user a privileged tool ran it for.
-fn owners() -> Vec<u32> {
-    let invoking = invoking_user(|k| std::env::var(k).ok(), uid_of);
-    trusted_owners(rustix::process::geteuid().as_raw(), invoking)
+/// The owners of this process's drafts, from its effective uid and, as
+/// root, the user a privileged tool ran it for.
+fn owners() -> Result<Vec<u32>, String> {
+    let euid = rustix::process::geteuid().as_raw();
+    let invoking = match euid {
+        0 => invoking_user(|k| std::env::var(k).ok(), uid_of)?,
+        _ => None,
+    };
+    Ok(trusted_owners(euid, invoking))
 }
 
 /// Whether a file owned by `uid` is one of `owners`'.
@@ -525,7 +546,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
         Mode::empty(),
     )
     .map_err(|e| format!("{}: {e}", dir.display()))?;
-    let owners = owners();
+    let owners = owners()?;
     owned(&draft, &dir.display().to_string(), &owners)?;
     let manifest = read_at(&draft, MANIFEST, MANIFEST_MAX, &owners)?;
     let manifest = String::from_utf8(manifest).map_err(|_| format!("{MANIFEST}: not UTF-8"))?;

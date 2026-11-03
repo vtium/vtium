@@ -451,30 +451,58 @@ fn the_user_a_draft_belongs_to_comes_from_sudo_pkexec_or_doas() {
     };
     let users = |name: &str| (name == "alice").then_some(1001);
     assert_eq!(
-        invoking_user(
-            env(&[
-                ("SUDO_UID", "1000"),
-                ("PKEXEC_UID", "2"),
-                ("DOAS_USER", "alice")
-            ]),
-            users
-        ),
-        Some(1000)
+        invoking_user(env(&[("SUDO_UID", "1000")]), users),
+        Ok(Some(1000))
     );
     assert_eq!(
-        invoking_user(
-            env(&[("PKEXEC_UID", "1002"), ("DOAS_USER", "alice")]),
-            users
-        ),
-        Some(1002)
+        invoking_user(env(&[("PKEXEC_UID", "1002")]), users),
+        Ok(Some(1002))
     );
     assert_eq!(
         invoking_user(env(&[("DOAS_USER", "alice")]), users),
-        Some(1001)
+        Ok(Some(1001))
     );
-    assert_eq!(invoking_user(env(&[("DOAS_USER", "mallory")]), users), None);
-    assert_eq!(invoking_user(env(&[("SUDO_UID", "lots")]), users), None);
-    assert_eq!(invoking_user(env(&[]), users), None);
+    assert_eq!(
+        invoking_user(env(&[("DOAS_USER", "mallory")]), users),
+        Ok(None)
+    );
+    assert_eq!(invoking_user(env(&[("SUDO_UID", "lots")]), users), Ok(None));
+    assert_eq!(invoking_user(env(&[]), users), Ok(None));
+    // each tool sets its own variable, so a second one was kept or forged:
+    // doas with keepenv keeps a SUDO_UID the user set, which must not win
+    for (pairs, named) in [
+        (
+            &[("SUDO_UID", "1000"), ("DOAS_USER", "alice")][..],
+            &["SUDO_UID", "DOAS_USER"][..],
+        ),
+        (
+            &[("SUDO_UID", "1000"), ("PKEXEC_UID", "1002")],
+            &["SUDO_UID", "PKEXEC_UID"],
+        ),
+        (
+            &[("PKEXEC_UID", "1002"), ("DOAS_USER", "alice")],
+            &["PKEXEC_UID", "DOAS_USER"],
+        ),
+        (
+            &[
+                ("SUDO_UID", "1000"),
+                ("PKEXEC_UID", "2"),
+                ("DOAS_USER", "alice"),
+            ],
+            &["SUDO_UID", "PKEXEC_UID", "DOAS_USER"],
+        ),
+        // set but unreadable still counts as set
+        (
+            &[("SUDO_UID", "lots"), ("DOAS_USER", "alice")],
+            &["SUDO_UID", "DOAS_USER"],
+        ),
+    ] {
+        let why = invoking_user(env(pairs), users).expect_err("more than one is refused");
+        for name in named {
+            assert!(why.contains(name), "{pairs:?}: {why}");
+        }
+        assert!(why.contains("kept or forged"), "{why}");
+    }
 }
 
 #[test]
