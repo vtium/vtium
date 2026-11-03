@@ -279,11 +279,36 @@ pub fn trusted_owners(euid: u32, sudo_uid: Option<u32>) -> Vec<u32> {
     }
 }
 
+/// The user a privileged tool ran `apply` for: `SUDO_UID`, which sudo
+/// sets, else `PKEXEC_UID`, which pkexec sets, else `DOAS_USER`, the name
+/// doas sets, resolved to its uid by `uid_of`. `var` reads the
+/// environment. Each is only as trustworthy as the tool that sets it.
+pub fn invoking_user(
+    var: impl Fn(&str) -> Option<String>,
+    uid_of: impl Fn(&str) -> Option<u32>,
+) -> Option<u32> {
+    let uid = |name: &str| var(name).map(|v| v.parse::<u32>().ok());
+    match (uid("SUDO_UID"), uid("PKEXEC_UID")) {
+        (Some(found), _) => found,
+        (None, Some(found)) => found,
+        (None, None) => var("DOAS_USER").and_then(|name| uid_of(&name)),
+    }
+}
+
+/// The uid of the user named `name`, as the system's user database gives
+/// it.
+fn uid_of(name: &str) -> Option<u32> {
+    nix::unistd::User::from_name(name)
+        .ok()
+        .flatten()
+        .map(|u| u.uid.as_raw())
+}
+
 /// The owners of this process's drafts, from its effective uid and the
-/// `SUDO_UID` sudo sets.
+/// user a privileged tool ran it for.
 fn owners() -> Vec<u32> {
-    let sudo_uid = std::env::var("SUDO_UID").ok().and_then(|u| u.parse().ok());
-    trusted_owners(rustix::process::geteuid().as_raw(), sudo_uid)
+    let invoking = invoking_user(|k| std::env::var(k).ok(), uid_of);
+    trusted_owners(rustix::process::geteuid().as_raw(), invoking)
 }
 
 /// Refuses `fd`, named `name` in messages, when its owner is not one of

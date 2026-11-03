@@ -57,6 +57,11 @@ skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
 # console. Its read-fonts is the version swash's skrifa already builds.
 harfrust = { version = "=0.12.0", default-features = false, features = ["std"] }
 
+# The user database's lookup of the name doas hands apply in DOAS_USER
+# (getpwnam), safe; the version calloop already builds, with its `user`
+# feature, in this binary only.
+nix = { version = "=0.31.3", default-features = false, features = ["user"] }
+
 [dev-dependencies]
 # A pty for `set`'s and the banner's tests; vtium-platform already builds
 # this version with these features.

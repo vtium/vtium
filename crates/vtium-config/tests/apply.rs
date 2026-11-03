@@ -8,7 +8,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use vtium_config::apply::{Route, Targets, route, save_argv, trusted_owners, write_draft};
+use vtium_config::apply::{
+    Route, Targets, invoking_user, route, save_argv, trusted_owners, write_draft,
+};
 
 #[path = "common/console.rs"]
 mod console;
@@ -429,4 +431,42 @@ fn the_save_view_shows_the_command_the_save_runs() {
         .collect::<Vec<_>>()
         .join(" ");
     assert_eq!(saving(&mine), Saving::User(want));
+}
+
+#[test]
+fn the_user_a_draft_belongs_to_comes_from_sudo_pkexec_or_doas() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |k: &str| {
+            pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| (*v).to_owned())
+        }
+    };
+    let users = |name: &str| (name == "alice").then_some(1001);
+    assert_eq!(
+        invoking_user(
+            env(&[
+                ("SUDO_UID", "1000"),
+                ("PKEXEC_UID", "2"),
+                ("DOAS_USER", "alice")
+            ]),
+            users
+        ),
+        Some(1000)
+    );
+    assert_eq!(
+        invoking_user(
+            env(&[("PKEXEC_UID", "1002"), ("DOAS_USER", "alice")]),
+            users
+        ),
+        Some(1002)
+    );
+    assert_eq!(
+        invoking_user(env(&[("DOAS_USER", "alice")]), users),
+        Some(1001)
+    );
+    assert_eq!(invoking_user(env(&[("DOAS_USER", "mallory")]), users), None);
+    assert_eq!(invoking_user(env(&[("SUDO_UID", "lots")]), users), None);
+    assert_eq!(invoking_user(env(&[]), users), None);
 }
