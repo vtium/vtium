@@ -16,3 +16,6 @@ iterm2-refusals 12 4
 iterm2-parts 12 6
 iterm2-scroll 12 6
 iterm2-gif 12 10
+iterm2-bound 12 4
+iterm2-loops 12 6
+iterm2-frames-max 12 4
