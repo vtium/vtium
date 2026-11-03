@@ -2175,6 +2175,68 @@ exec "$@"
         for f in (*self.FILES, self.STATE):
             self.assertFalse(os.path.exists(self.at(f)), f)
 
+    # The helper's path before the tool was renamed vtium-config (ADR-1201
+    # D12). An install made then holds it, and its record names it.
+    OLD_HELPER = "usr/local/bin/vtium-dev-vitrify"
+
+    def install_under_the_old_name(self, vt="4"):
+        """VT vt as an install made before the rename left it: the helper at
+        OLD_HELPER, and the record naming it there."""
+        p = self.vt_install("install", vt)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        os.rename(self.at(self.HELPER), self.at(self.OLD_HELPER))
+        record = self.at(self.STATE + "/files")
+        write(record, read(record).replace(f"/{self.HELPER}\n", f"/{self.OLD_HELPER}\n"), 0o644)
+        open(self.s.calls, "w").close()
+
+    def test_uninstall_removes_the_helper_an_install_under_the_old_name_wrote(self):
+        self.install_under_the_old_name()
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in (*self.FILES, self.OLD_HELPER, self.STATE):
+            self.assertFalse(os.path.lexists(self.at(f)), f)
+        self.assertIn("VT 4 is back as it was before make vt-install", p.stdout)
+
+    def test_a_reinstall_removes_the_helper_an_install_under_the_old_name_wrote(self):
+        self.install_under_the_old_name()
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(read(self.at(self.HELPER)), read(self.s.helper))
+        self.assertFalse(os.path.lexists(self.at(self.OLD_HELPER)))
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in self.FILES))
+        self.assertEqual(self.temps(), [])
+
+    def test_a_dry_run_over_an_install_under_the_old_name_shows_the_removal_and_makes_none(self):
+        self.install_under_the_old_name()
+        p = self.vt_install("install", "--dry-run", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"+ sudo rm -f -- {self.root}/{self.OLD_HELPER}", p.stdout)
+        self.assertTrue(os.path.isfile(self.at(self.OLD_HELPER)))
+        self.assertEqual(self.s.changes(), [])
+
+    def test_an_old_name_helper_changed_since_or_not_vt_installs_stays(self):
+        for recorded in (True, False):
+            with self.subTest(recorded=recorded):
+                self.install_under_the_old_name()
+                if recorded:
+                    # Edited since vt-install wrote it.
+                    write(self.at(self.OLD_HELPER), "#!/bin/sh\n# someone's edit\n", 0o755)
+                else:
+                    # vt-install's record does not name it: someone else's.
+                    record = self.at(self.STATE + "/files")
+                    write(record, "".join(l for l in open(record) if self.OLD_HELPER not in l), 0o644)
+                kept = read(self.at(self.OLD_HELPER))
+                p = self.vt_install("install", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(read(self.at(self.OLD_HELPER)), kept)
+                self.assertNotIn(self.OLD_HELPER, read(self.at(self.STATE + "/files")))
+                p = self.vt_install("uninstall", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(read(self.at(self.OLD_HELPER)), kept)
+                self.assertFalse(os.path.lexists(self.at(self.STATE)))
+                os.unlink(self.at(self.OLD_HELPER))
+
     def test_uninstall_names_a_template_alias_to_vtium_dev(self):
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)

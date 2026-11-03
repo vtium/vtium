@@ -15,7 +15,10 @@
 # stops and disables getty@ttyN and enables and starts vtium-dev@ttyN.
 # uninstall reads the manifest and undoes all of it: vtium-dev@ttyN stopped
 # and disabled, getty@ttyN enabled and started again where it was before, and
-# the files removed once no other VT's manifest needs them. One run at a
+# the files removed once no other VT's manifest needs them. Both remove the
+# helper an install made before the tool was renamed vtium-config left at
+# /usr/local/bin/vtium-dev-vitrify, while it is still the file that install
+# wrote (ADR-1201 D12). One run at a
 # time reads and changes the install: each holds a lock on
 # /var/lib/vtium-dev-install, and a second run refuses while the first runs.
 #
@@ -145,6 +148,10 @@ manifest=$state_dir/tty$vt
 record=$state_dir/files
 # What install writes, by its path on the machine; uninstall removes these.
 files=("$bin_path" "$helper_path" "$unit_dir/vtium-dev@.service" "$unit_dir/vtium-dev-getty@.service")
+# What an install made before the tool was renamed vtium-config (ADR-1201
+# D12) wrote under a name vt-install no longer uses. Install and uninstall
+# remove each one the record still holds unchanged, and keep any other.
+retired=(/usr/local/bin/vtium-dev-vitrify)
 # The per-VT alias that enabling vtium-dev@ttyN makes, and where it points.
 alias_link=$unit_dir/autovt@tty$vt.service
 alias_target=$unit_dir/vtium-dev@.service
@@ -192,7 +199,7 @@ put() {
 # its manifest.
 leftovers() {
 	local f t
-	for f in "${files[@]}"; do
+	for f in "${files[@]}" "${retired[@]}"; do
 		t=$root$(staged "$f")
 		[ ! -e "$t" ] && [ ! -L "$t" ] || printf '%s\n' "$t"
 	done
@@ -257,6 +264,21 @@ checksum() {
 # record holds.
 written() {
 	[ -f "$root$1" ] && [ ! -L "$root$1" ] && recorded "$1" | grep -qxF -- "$(checksum "$1")"
+}
+
+# Removes each retired file that is still the one install wrote, and names
+# one the record holds that changed since; one the record does not hold is
+# someone else's, and stays without a word.
+retire() {
+	local f
+	for f in "${retired[@]}"; do
+		[ -e "$root$f" ] || [ -L "$root$f" ] || continue
+		if written "$f"; then
+			as_root rm -f -- "$root$f"
+		elif [ -n "$(recorded "$f")" ]; then
+			echo "vt-$action: kept $f: it changed since vt-install wrote it"
+		fi
+	done
 }
 
 # The value of KEY in the manifest, which install wrote as root: yes or no.
@@ -335,6 +357,7 @@ if [ "$action" = uninstall ]; then
 				echo "vt-uninstall: kept $f: it changed since vt-install wrote it"
 			fi
 		done
+		retire
 		as_root rm -f -- "$root$record"
 		as_root rmdir --ignore-fail-on-non-empty -- "$root$state_dir"
 	fi
@@ -499,7 +522,7 @@ manifest_written=1
 # state the record knows: uninstall removes it, and a second run replaces it.
 {
 	cat "$tmp/files"
-	for f in "${files[@]}"; do
+	for f in "${files[@]}" "${retired[@]}"; do
 		! written "$f" || printf '%s  %s\n' "$(checksum "$f")" "$f"
 	done
 } >"$tmp/files.both"
@@ -509,7 +532,9 @@ put "$bin" "$bin_path" 0755
 for f in vtium-dev@.service vtium-dev-getty@.service; do
 	put "$tmp/$f" "$unit_dir/$f" 0644
 done
-# The copies are done, so the record holds only what is there now.
+# The new helper is in place, so the one under its old name goes. The copies
+# are done, so the record holds only what is there now.
+retire
 put "$tmp/files" "$record" 0644
 as_root "$systemctl" daemon-reload
 # vtium starts first. Its Conflicts=getty@%i stops the getty, and its
