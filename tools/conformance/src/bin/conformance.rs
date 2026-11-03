@@ -39,13 +39,14 @@ const OWN: [&str; 1] = ["tools/conformance/probes/vtium.replay"];
 const BUILD: [(&str, bool); 1] = [("images", true)];
 /// Features interface 1 lets an implementation without images, or
 /// without the draw2 view, leave out.
-const OPTIONAL: [&str; 6] = [
+const OPTIONAL: [&str; 7] = [
     "view-draw2",
     "damage-exact",
     "images",
     "sixel",
     "kitty-graphics",
     "image-host",
+    "kitty-animation",
 ];
 
 const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--rounds N]

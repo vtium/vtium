@@ -574,6 +574,10 @@ pub fn controls(spec: &Spec) -> Tally {
         ),
         ("no final newline", GOOD.trim_end_matches('\n').to_owned()),
         (
+            "an anim line with no image line before it",
+            format!("{GOOD}anim 0 frames 1 current 1 run stopped loops 1 stamps 0 0\n"),
+        ),
+        (
             "a block cut short",
             format!(
                 "checkpoint 0\n{}checkpoint 1\n{GOOD}",
