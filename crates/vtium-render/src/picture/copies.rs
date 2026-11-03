@@ -5,16 +5,21 @@
 
 use std::collections::BTreeMap;
 
-/// A whole picture as one display draws it: the image, the part of it the
-/// picture shows, the size it is drawn at and the display's turn. The store
-/// never reuses an image's key and never changes an image's pixels under
-/// one, so the key names the content; the image's size is kept with it all
-/// the same. Nothing about where the picture sits on the screen is in the
-/// key, so a picture that moves, scrolls off the top or is cut into pieces
-/// keeps its copy.
+/// A whole picture as one display draws it: the pixels it shows, the part
+/// of them it draws, the size it is drawn at and the display's turn. The
+/// image's key, the number of the frame shown and that frame's pixel
+/// revision name the pixels (ADR-1102 D3): the store never reuses an
+/// image's key, and gives a frame a new pixel revision whenever a command
+/// changes what it shows. The image's size is kept with them all the same.
+/// Nothing about where the picture sits on the screen is in the key, so a
+/// picture that moves, scrolls off the top or is cut into pieces keeps its
+/// copy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Key {
     pub(crate) image: u64,
+    /// The frame shown, 1 for the root frame and for a still picture.
+    pub(crate) frame: u32,
+    pub(crate) pixel_revision: u64,
     pub(crate) image_size: (u32, u32),
     /// The source rectangle: x, y, width and height in the image's pixels.
     pub(crate) src: (u32, u32, u32, u32),
@@ -103,10 +108,15 @@ impl Copies {
         self.entries.get(key).map(|e| e.pixels.as_slice())
     }
 
-    /// Makes room for `bytes`, evicting the copies no placement of this
-    /// frame shows, least recently placed first and then by key, and only
-    /// when that makes the copy fit: whether it fits.
-    pub(crate) fn room(&mut self, bytes: u64) -> bool {
+    /// Makes room for `key`'s copy: first drops the copies of its frame at
+    /// an older pixel revision that no placement of this frame shows, as
+    /// the store never shows a frame's older pixels again, then evicts the
+    /// copies no placement of this frame shows, least recently placed first
+    /// and then by key, and only when that makes the copy fit. Whether it
+    /// fits.
+    pub(crate) fn room(&mut self, key: &Key) -> bool {
+        self.drop_older(key);
+        let bytes = key.bytes();
         let frame = self.frame;
         let free = |c: &Copies| c.limit.saturating_sub(c.counts.bytes);
         if bytes <= free(self) {
@@ -134,6 +144,35 @@ impl Copies {
             self.counts.evicted = self.counts.evicted.saturating_add(1);
         }
         true
+    }
+
+    /// Drops the copies of `key`'s image and frame at an older pixel
+    /// revision, except those a placement of this frame shows.
+    fn drop_older(&mut self, key: &Key) {
+        let first = Key {
+            image: key.image,
+            frame: key.frame,
+            pixel_revision: 0,
+            image_size: (0, 0),
+            src: (0, 0, 0, 0),
+            size: (0, 0),
+            turn: 0,
+        };
+        let end = Key {
+            pixel_revision: key.pixel_revision,
+            ..first
+        };
+        let frame = self.frame;
+        let older: Vec<Key> = self
+            .entries
+            .range(first..end)
+            .filter(|(_, e)| e.placed != frame)
+            .map(|(k, _)| *k)
+            .collect();
+        for k in older {
+            self.entries.remove(&k);
+            self.counts.bytes = self.counts.bytes.saturating_sub(k.bytes());
+        }
     }
 
     /// Keeps `pixels` as `key`'s copy, which [`Copies::room`] made room for.
@@ -171,6 +210,8 @@ mod tests {
     fn key(image: u64, side: u32) -> Key {
         Key {
             image,
+            frame: 1,
+            pixel_revision: 1,
             image_size: (side, side),
             src: (0, 0, side, side),
             size: (side, side),
@@ -179,7 +220,7 @@ mod tests {
     }
 
     fn keep(c: &mut Copies, k: Key) -> bool {
-        let fits = c.room(k.bytes());
+        let fits = c.room(&k);
         if fits {
             c.keep(k, vec![0; usize::try_from(k.bytes() / 4).unwrap_or(0)]);
         }
@@ -234,6 +275,36 @@ mod tests {
         assert!(!keep(&mut c, key(2, 6)));
         assert_eq!(c.counts().evicted, 0);
         assert!(c.get(&key(1, 4)).is_some());
+    }
+
+    // ADR-1102 D3: a frame's older pixel revision never shows again, so its
+    // copy goes once the newer one is made, unless this frame still shows it
+    #[test]
+    fn a_newer_pixel_revision_of_a_frame_drops_the_older_copy() {
+        let at = |frame: u32, pixel_revision: u64| Key {
+            frame,
+            pixel_revision,
+            ..key(1, 4)
+        };
+        let mut c = Copies::new(1000);
+        c.begin_frame();
+        assert!(keep(&mut c, at(2, 5)));
+        assert!(keep(&mut c, at(3, 5)));
+        assert!(keep(&mut c, key(2, 4)));
+        c.begin_frame();
+        assert!(c.place(&at(2, 5)));
+        // frame 2 at revision 5 is this frame's: it stays beside revision 6
+        assert!(keep(&mut c, at(2, 6)));
+        assert!(c.get(&at(2, 5)).is_some());
+        c.begin_frame();
+        assert!(keep(&mut c, at(2, 9)));
+        assert!(c.get(&at(2, 5)).is_none());
+        assert!(c.get(&at(2, 6)).is_none());
+        // another frame, and another image, keep theirs
+        assert!(c.get(&at(3, 5)).is_some());
+        assert!(c.get(&key(2, 4)).is_some());
+        assert_eq!((c.counts().copies, c.counts().bytes), (3, 3 * 64));
+        assert_eq!(c.counts().evicted, 0);
     }
 
     #[test]
