@@ -282,11 +282,13 @@ fn deleting_a_virtual_placement_empties_its_runs_and_reports_a_change() {
     s.kitty_delete(delete, f.screens());
     assert!(frame(&s, &f, &runs).is_empty());
     assert_eq!(s.take_changed_virtual(), vec![(false, 7)], "deleted");
-    // a replacement by the same placement id, and the image sent again
+    // a replacement by the same placement id, and the image sent again,
+    // each reported on its own
     virtual_placement(&mut s, &f, key, 2, 2, 4);
     virtual_placement(&mut s, &f, key, 1, 1, 4);
+    assert_eq!(s.take_changed_virtual(), vec![(false, 7)], "made, replaced");
     let _ = image(&mut s, &f, 7, 8, 8);
-    assert_eq!(s.take_changed_virtual(), vec![(false, 7)]);
+    assert_eq!(s.take_changed_virtual(), vec![(false, 7)], "sent again");
     assert!(
         frame(&s, &f, &runs).is_empty(),
         "the new image has no placement"
@@ -457,7 +459,9 @@ fn ed_2_and_d_a_take_a_virtual_parents_child_by_the_runs_handed_with_them() {
     family(&mut s, &f);
     s.erase_screen(f.rows());
     assert_eq!(s.placement_count(), 2, "no runs: the child has no cells");
-    s.with_runs([&runs, &[]], f.screens(), COLS, |s| s.erase_screen(f.rows()));
+    s.with_runs([&runs, &[]], f.screens(), COLS, |s| {
+        s.erase_screen(f.rows())
+    });
     assert_eq!(s.placement_count(), 1, "the virtual parent stays");
     // d=a: every placement on the screen
     let (f, mut s) = (Fake::new(), store());
@@ -468,6 +472,75 @@ fn ed_2_and_d_a_take_a_virtual_parents_child_by_the_runs_handed_with_them() {
     };
     s.kitty_delete(all, f.screens());
     assert_eq!(s.placement_count(), 2);
-    s.with_runs([&runs, &[]], f.screens(), COLS, |s| s.kitty_delete(all, f.screens()));
+    s.with_runs([&runs, &[]], f.screens(), COLS, |s| {
+        s.kitty_delete(all, f.screens())
+    });
     assert_eq!(s.placement_count(), 1);
+}
+
+// covers: image.kitty-placeholders
+#[test]
+fn a_virtual_placement_evicted_or_replaced_by_one_on_a_line_is_reported() {
+    let (f, mut s) = (Fake::new(), store());
+    let key = image(&mut s, &f, 7, 16, 32);
+    virtual_placement(&mut s, &f, key, 2, 2, 4);
+    let _ = s.take_changed_virtual();
+    // the same image and placement id put on a line, with no U=1
+    let place = Place {
+        id: 4,
+        ..Place::default()
+    };
+    s.place(key, place, f.screens(), COLS).unwrap();
+    assert_eq!(
+        s.take_changed_virtual(),
+        vec![(false, 7)],
+        "replaced by one on a line"
+    );
+    assert!(
+        frame(&s, &f, &[run(10, 0, 2, 7, 0, 0)])
+            .iter()
+            .all(|p| p.rows == 2)
+    );
+    // eviction: a budget that holds one picture of 16 by 32 takes the
+    // virtual placement's image for the next
+    let (f, mut s) = (Fake::new(), store());
+    s.set_limit(16 * 32 * 4 + crate::IMAGE_OVERHEAD);
+    let key = image(&mut s, &f, 7, 16, 32);
+    virtual_placement(&mut s, &f, key, 2, 2, 0);
+    let _ = s.take_changed_virtual();
+    let _ = image(&mut s, &f, 8, 16, 32);
+    assert_eq!(s.image_count(), 1);
+    assert_eq!(s.take_changed_virtual(), vec![(false, 7)], "evicted");
+}
+
+// covers: image.kitty-placeholders
+#[test]
+fn run_entries_of_one_placement_draw_by_row_then_by_column() {
+    let (f, mut s) = (Fake::new(), store());
+    let key = image(&mut s, &f, 7, 16, 32);
+    virtual_placement(&mut s, &f, key, 2, 2, 0);
+    // one cell of picture row 1 at column 0, and one of picture row 0 at
+    // column 5, handed in that order
+    let runs = [run(12, 0, 1, 7, 1, 0), run(11, 5, 1, 7, 0, 0)];
+    let order: Vec<(i64, u32)> = frame(&s, &f, &runs)
+        .iter()
+        .map(|p| (p.row, p.col))
+        .collect();
+    assert_eq!(order, vec![(1, 5), (2, 0)]);
+}
+
+// covers: image.kitty-placeholders
+#[test]
+fn a_frame_takes_a_virtual_parents_origin_only_from_runs_on_the_rows_it_shows() {
+    let (f, mut s) = (Fake::new(), store());
+    let (_, child) = family(&mut s, &f);
+    // a run of the parent on line 99, which the view does not show, would
+    // put its origin at row 0, column 0
+    let runs = [run(99, 0, 1, 7, 0, 0), run(12, 4, 1, 7, 1, 1)];
+    let at: Vec<(i64, u32)> = frame(&s, &f, &runs)
+        .iter()
+        .filter(|p| p.image == child)
+        .map(|p| (p.row, p.col))
+        .collect();
+    assert_eq!(at, vec![(2, 4)]);
 }
