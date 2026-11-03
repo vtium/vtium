@@ -1,5 +1,5 @@
 //! SHA-256 (FIPS 180-4, section 6.2): the built-in sets' provenance names
-//! the SHA-256 of the files they are packed from, and vtium-vitrify pins a
+//! the SHA-256 of the files they are packed from, and vtium-config pins a
 //! frit's font files by it (ADR-1200 D1).
 //!
 //! vtium-font writes it rather than taking a crate: it is one small

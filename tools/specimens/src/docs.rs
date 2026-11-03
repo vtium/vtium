@@ -144,7 +144,7 @@ fn font_cell(p: &Profile) -> String {
                 .to_owned()
         }
         Glyphs::Tiny5 { .. } => {
-            "`tiny5`, the frit [`tiny5.vtfrit`](../../../crates/vtium-vitrify/frits/tiny5.vtfrit)"
+            "`tiny5`, the frit [`tiny5.vtfrit`](../../../crates/vtium-config/frits/tiny5.vtfrit)"
                 .to_owned()
         }
     }
@@ -191,10 +191,10 @@ fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
             "The console chooses this set by itself once #126 and #118's rule land; the screens here draw vtium-font's built-in set directly."
         }
         Glyphs::Desktop { .. } => {
-            "The console loads a set by name from #126. The screens here draw the glyphs vtium-vitrify's engine, the one the helper runs (ADR-1301 D2), generates from the frit and the pinned fonts `make specimens-fonts` fetches, in the profile's cell (`tools/specimens/README.md`); where those fonts are absent the check skips this profile while it is provisional, and fails it once accepted."
+            "The console loads a set by name from #126. The screens here draw the glyphs vtium-config's engine, the one the helper runs (ADR-1301 D2), generates from the frit and the pinned fonts `make specimens-fonts` fetches, in the profile's cell (`tools/specimens/README.md`); where those fonts are absent the check skips this profile while it is provisional, and fails it once accepted."
         }
         Glyphs::Tiny5 { .. } => {
-            "The screens here draw the glyphs vtium-vitrify's engine, the one the helper runs (ADR-1301 D2), generates from the shipped frit and Tiny5 Mono's BDF file, pinned by commit and SHA-256, which `make specimens-fonts` fetches, with the frit's `source=` line pointed at the fetched copy (`tools/specimens/README.md`); where that file is absent the check skips this profile while it is provisional, and fails it once accepted."
+            "The screens here draw the glyphs vtium-config's engine, the one the helper runs (ADR-1301 D2), generates from the shipped frit and Tiny5 Mono's BDF file, pinned by commit and SHA-256, which `make specimens-fonts` fetches, with the frit's `source=` line pointed at the fetched copy (`tools/specimens/README.md`); where that file is absent the check skips this profile while it is provisional, and fails it once accepted."
         }
     };
     let images = names

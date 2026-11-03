@@ -37,7 +37,7 @@
 # after its modeset is done, as NNN-modeset-<N>.state, and as end-<N>.state once
 # vtium has stopped. Each copy is written as the user, who must be able to write DIR; a
 # line in vtium's log names it.
-# --helper names the glyph helper vtium-vitrify built with the binary, held
+# --helper names the glyph helper vtium-config built with the binary, held
 # to the binary's rules. The run copies it, owned by root and mode 0755, into
 # /run/vtium-vt/, a directory only root can write, and runs vtium with
 # --font-helper naming the copy, so a review run starts the helper built with
@@ -308,7 +308,7 @@ read -r owner mode < <(stat -c '%u %a' -- "$bin")
 # from the copy this run makes.
 if [ -n "$helper" ]; then
 	helper=$(readlink -m -- "$helper")
-	[ -f "$helper" ] && [ -x "$helper" ] || die "no glyph helper at $helper: build it first (make vitrify-release)"
+	[ -f "$helper" ] && [ -x "$helper" ] || die "no glyph helper at $helper: build it first (make config-release)"
 	read -r owner mode < <(stat -c '%u %a' -- "$helper")
 	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
 		die "$helper belongs to uid $owner, neither root nor $user; vtium, as root, would start it"
@@ -609,7 +609,7 @@ carry=(/bin/sh -c 'h=$1 c=$2; shift 2; exec /usr/bin/env VTIUM_HEAD="$h" VTIUM_C
 	sh '$VTIUM_HEAD' '$VTIUM_CONSOLE')
 once=(--oneshot)
 helper_opt=()
-[ -z "$helper" ] || helper_opt=(--font-helper="$stage/vtium-vitrify")
+[ -z "$helper" ] || helper_opt=(--font-helper="$stage/vtium-config")
 debug_opt=()
 [ -z "$debug" ] || debug_opt=(--debug)
 login_argv=("${drop[@]}" -- "${carry[@]}" "${session[@]}")
@@ -629,7 +629,7 @@ stage_made=1
 	umask 022
 	act rm -rf -- "$stage"
 	act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo"
-	[ -z "$helper" ] || act install -m 0755 "${own[@]}" -- "$helper" "$stage/vtium-vitrify"
+	[ -z "$helper" ] || act install -m 0755 "${own[@]}" -- "$helper" "$stage/vtium-config"
 	act tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_src"
 )
 show "${cmd[@]}"

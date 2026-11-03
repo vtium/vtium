@@ -1,5 +1,5 @@
 //! The glyph helper's client (ADR-1301 D2): the console starts
-//! `vtium-vitrify serve` on its first need for a frit's glyphs, and takes
+//! `vtium-config serve` on its first need for a frit's glyphs, and takes
 //! each answer as it arrives without ever waiting on it.
 //!
 //! It asks under the operator's fill model (2026-10-28). An ask names the
@@ -55,7 +55,7 @@
 //! before the first frame and at a zoom of an outline frit. An answer that
 //! comes after the wait is dropped.
 //!
-//! The wire format is `vtium-vitrify`'s serve mode's (`serve.rs`), whose
+//! The wire format is `vtium-config`'s serve mode's (`serve.rs`), whose
 //! constants this module repeats.
 
 use std::collections::{BTreeSet, VecDeque};
@@ -141,10 +141,10 @@ const FRAME_OUTLINE_CELL: u32 = 10;
 const SIGXCPU: i32 = 24;
 
 /// The helper's program vtium is built with, `font-helper`'s default: set
-/// at build time with `VTIUM_VITRIFY`.
-pub const PROGRAM: &str = match option_env!("VTIUM_VITRIFY") {
+/// at build time with `VTIUM_FONT_HELPER`.
+pub const PROGRAM: &str = match option_env!("VTIUM_FONT_HELPER") {
     Some(path) => path,
-    None => "/usr/bin/vtium-vitrify",
+    None => "/usr/bin/vtium-config",
 };
 
 /// The account the helper runs as when the console is root: `nobody`,
@@ -3043,10 +3043,10 @@ mod tests {
         let me = rustix::process::geteuid().as_raw();
         let dir = program_dir("refused");
         let refused = |path: &Path, me: u32| open_program(path, me).unwrap_err();
-        let why = refused(Path::new("usr/bin/vtium-vitrify"), me);
+        let why = refused(Path::new("usr/bin/vtium-config"), me);
         assert_eq!(
             why,
-            "the helper's path usr/bin/vtium-vitrify is not absolute, so vtium does not start it"
+            "the helper's path usr/bin/vtium-config is not absolute, so vtium does not start it"
         );
         let why = refused(&dir, me);
         assert!(
@@ -3067,7 +3067,7 @@ mod tests {
             why.ends_with("is not a regular file, so vtium does not start it"),
             "{why}"
         );
-        let program = dir.join("vtium-vitrify");
+        let program = dir.join("vtium-config");
         program_copy("/bin/true", &program, 0o755);
         assert!(open_program(&program, me).is_ok());
         let why = refused(&program, me.wrapping_add(1));
@@ -3097,10 +3097,10 @@ mod tests {
     #[test]
     fn a_helper_started_after_an_upgrade_is_the_program_opened_at_start() {
         let dir = program_dir("upgrade");
-        let program = dir.join("vtium-vitrify");
+        let program = dir.join("vtium-config");
         program_copy("/bin/sh", &program, 0o755);
         let launcher = Launcher::open(sh(&program, "echo the old one")).unwrap();
-        let new = dir.join("vtium-vitrify.new");
+        let new = dir.join("vtium-config.new");
         program_copy("/bin/false", &new, 0o755);
         std::fs::rename(&new, &program).unwrap();
         let out = launcher.process().output().unwrap();
@@ -3114,7 +3114,7 @@ mod tests {
     #[test]
     fn no_child_holds_the_helpers_program() {
         let dir = program_dir("descriptor");
-        let program = dir.join("vtium-vitrify");
+        let program = dir.join("vtium-config");
         program_copy("/bin/sh", &program, 0o755);
         let name = program.display().to_string();
         let launcher = Launcher::open(sh(&program, "ls -l /proc/self/fd/")).unwrap();
@@ -3189,7 +3189,7 @@ mod tests {
     #[test]
     fn a_failed_start_names_proc_self_fd() {
         let dir = program_dir("unstartable");
-        let program = dir.join("vtium-vitrify");
+        let program = dir.join("vtium-config");
         // no one may execute it
         program_copy("/bin/true", &program, 0o644);
         let launcher = Launcher::open(sh(&program, "")).unwrap();
@@ -3223,13 +3223,13 @@ mod tests {
     #[test]
     fn a_missing_helper_is_not_opened() {
         let why = Launcher::open(Command {
-            program: Path::new("/nonexistent/vtium-vitrify").to_owned(),
+            program: Path::new("/nonexistent/vtium-config").to_owned(),
             args: Vec::new(),
             account: None,
         })
         .unwrap_err();
         assert!(
-            why.starts_with("cannot open the helper /nonexistent/vtium-vitrify"),
+            why.starts_with("cannot open the helper /nonexistent/vtium-config"),
             "{why}"
         );
     }

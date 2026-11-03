@@ -189,11 +189,11 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     short: None,
     kind: Kind::Number {
         min: 1,
-        max: vtium_config::CONSOLES_MAX as u64,
+        max: vtium_settings::CONSOLES_MAX as u64,
         unit: "consoles",
         word: None,
     },
-    default: Default::Number(vtium_config::HEAD_CONSOLES_DEFAULT as u64),
+    default: Default::Number(vtium_settings::HEAD_CONSOLES_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium",
     what: "The most consoles one head holds: the head file's `consoles` opens no more.",
@@ -356,11 +356,11 @@ pub const CONSOLES_MAX: Key = Key {
     short: None,
     kind: Kind::Number {
         min: 1,
-        max: vtium_config::CONSOLES_MAX as u64,
+        max: vtium_settings::CONSOLES_MAX as u64,
         unit: "consoles",
         word: None,
     },
-    default: Default::Number(vtium_config::CONSOLES_TOTAL_DEFAULT as u64),
+    default: Default::Number(vtium_settings::CONSOLES_TOTAL_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium",
     what: "The most consoles every head holds together. Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
@@ -1122,7 +1122,7 @@ pub const ALLOW_FONT_OPS: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.",
+    what: "Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-config set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.",
     cite: "ADR-1200 (D5); vtium/vtium#126",
 };
 

@@ -23,7 +23,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{Mode, OFlags, major, minor};
-use vtium_config::Policy;
+use vtium_settings::Policy;
 
 /// The directory the marker lives in, the parent of every VT's run
 /// directory (ADR-1401 D10).

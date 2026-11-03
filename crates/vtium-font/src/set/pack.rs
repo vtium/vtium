@@ -1,4 +1,4 @@
-//! The set writer's deflate, with the `deflate` feature: vtium-vitrify
+//! The set writer's deflate, with the `deflate` feature: vtium-config
 //! enables it, and `build.rs` includes this file to deflate the built-in
 //! sets. The console builds without it, so it carries an inflate and no
 //! deflate (ADR-1200 D19).

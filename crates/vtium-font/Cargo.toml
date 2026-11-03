@@ -13,12 +13,12 @@ workspace = true
 
 [features]
 default = ["unifont", "unscii"]
-# the PSF loader, `Psf`: vtium-vitrify reads PSF fonts with it, and the
+# the PSF loader, `Psf`: vtium-config reads PSF fonts with it, and the
 # console never parses a font file (ADR-1200 D6)
 psf = []
 # gzip-compressed PSF fonts, as the C reference's zlib option read them
 gzip = ["psf"]
-# the set writer's deflate: vtium-vitrify enables it, and the console, whose
+# the set writer's deflate: vtium-config enables it, and the console, whose
 # writer only rewrites its store raw, does not (ADR-1200 D19); without it
 # the writer stores every chunk raw
 deflate = []

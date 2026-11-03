@@ -93,7 +93,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use vtium_config::{Policy, WhenDisplayLost};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, Buffers, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
@@ -103,6 +102,7 @@ use vtium_platform::pty::{Erase, Pty};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
 use vtium_render::{Config as RenderConfig, Depth, DrawState, Orientation};
+use vtium_settings::{Policy, WhenDisplayLost};
 use vtium_term::{BlankRequest, BlankTimeout, Mods};
 
 use crate::blank::Order;
@@ -206,9 +206,9 @@ pub struct App {
     heads: Vec<Head>,
     /// The head file in force: the file's, or the compiled-in
     /// configuration.
-    rules: vtium_config::Config,
+    rules: vtium_settings::Config,
     /// What the start's head file resolved to (ADR-1401 D7).
-    outcome: vtium_config::Outcome,
+    outcome: vtium_settings::Outcome,
     /// The panic screen's report, for a broken closed head file (D7).
     report: Option<vtium_render::NoticeReport>,
     /// The index in [`App::heads`] of the screen the display guard lights
@@ -235,14 +235,14 @@ pub struct App {
     /// What the rules and the display guard read of each card.
     cards: BTreeMap<PathBuf, Card>,
     /// Each display lit in a head, as the rules saw it.
-    lit: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
+    lit: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
     /// Each display lit since the start until the focus settled, gone or
     /// not: the focus starts over them, so a display leaving never moves
     /// it (ADR-1401 D8).
-    start_lit: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
+    start_lit: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
     /// The displays a device announced that the rules leave dark, as the
     /// rules saw them.
-    dark: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
+    dark: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
     /// The display the display guard lit, and its head (ADR-1401 D9).
     guard_lit: Option<((PathBuf, DisplayId), usize)>,
     /// A device came or went: the guards run at the turn's end.
@@ -366,14 +366,14 @@ impl App {
             physical_memory(),
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
-        let rules = route::in_force(vtium_config::Config::builtin(), &config);
+        let rules = route::in_force(vtium_settings::Config::builtin(), &config);
         let caps = Caps {
             head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(
-                to_usize(vtium_config::HEAD_CONSOLES_DEFAULT.into()),
+                to_usize(vtium_settings::HEAD_CONSOLES_DEFAULT.into()),
                 to_usize,
             ),
             total: config.number(&keys::CONSOLES_MAX).map_or(
-                to_usize(vtium_config::CONSOLES_TOTAL_DEFAULT.into()),
+                to_usize(vtium_settings::CONSOLES_TOTAL_DEFAULT.into()),
                 to_usize,
             ),
         };
@@ -432,7 +432,7 @@ impl App {
             blank: Blank::new(dpms, now),
             heads,
             rules,
-            outcome: vtium_config::resolve(&vtium_config::Read::Missing),
+            outcome: vtium_settings::resolve(&vtium_settings::Read::Missing),
             report: None,
             screen: None,
             stopped: false,
@@ -498,7 +498,7 @@ impl App {
         // which it lights under open alone (D9).
         let mut declared = rules.clone();
         if declared.heads.is_empty() && rules.policy == Policy::Open {
-            declared.heads = vtium_config::Config::builtin().heads;
+            declared.heads = vtium_settings::Config::builtin().heads;
         }
         let caps = self.caps;
         self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, declared.heads.len());
@@ -509,7 +509,7 @@ impl App {
             self.heads.push(Head::notice_screen(&self.config, term));
             self.heads.len().saturating_sub(1)
         });
-        if outcome.display_wait() == vtium_config::DisplayWait::Forever {
+        if outcome.display_wait() == vtium_settings::DisplayWait::Forever {
             self.wait = Wait::new(None);
         }
         self.rules = rules;
@@ -1068,7 +1068,7 @@ impl App {
     /// The rules' identity of the display `id` of `node`, its place in
     /// its card's list the place among the displays its device lists, in
     /// the kernel's order of connectors, whatever their object ids.
-    fn identity(&self, node: &Path, id: DisplayId) -> Option<vtium_config::Identity> {
+    fn identity(&self, node: &Path, id: DisplayId) -> Option<vtium_settings::Identity> {
         let video = self.videos.get(node)?;
         let card = self.cards.get(node).cloned().unwrap_or_default();
         let order = video
@@ -1085,7 +1085,11 @@ impl App {
     /// The head the display `id` of `node` joins, by the first rule that
     /// matches it, with the display as the rules saw it; a display the
     /// rules leave dark is set off and logged ([`place_display`]).
-    fn head_for(&mut self, node: &Path, id: DisplayId) -> Option<(usize, vtium_config::Identity)> {
+    fn head_for(
+        &mut self,
+        node: &Path,
+        id: DisplayId,
+    ) -> Option<(usize, vtium_settings::Identity)> {
         let display = self.identity(node, id)?;
         let key = (node.to_owned(), id);
         if let Some((_, h)) = self.guard_lit.as_ref().filter(|(k, _)| *k == key) {
@@ -1877,7 +1881,7 @@ impl App {
         }
         // The display guard's display counts as lit; given no keyboard, the
         // anti-lockout guard moves nothing ([`App::guard`] runs it).
-        let lit: Vec<vtium_config::Identity> = self.start_lit.values().cloned().collect();
+        let lit: Vec<vtium_settings::Identity> = self.start_lit.values().cloned().collect();
         self.focus = head_index(self.rules.place(&lit, None).focus);
         self.bound_pointers();
         self.rehover();
@@ -1904,7 +1908,7 @@ impl App {
         // The displays a device left dark at its bind and never announced,
         // each with its device and connector; their place among their
         // card's connectors is unknown, so they sort last on it.
-        let held: Vec<(PathBuf, String, vtium_config::Identity)> = self
+        let held: Vec<(PathBuf, String, vtium_settings::Identity)> = self
             .videos
             .iter()
             .flat_map(|(node, video)| {
@@ -1915,7 +1919,7 @@ impl App {
                 })
             })
             .collect();
-        let devices: Vec<vtium_config::Identity> = self
+        let devices: Vec<vtium_settings::Identity> = self
             .lit
             .values()
             .chain(self.dark.values())
@@ -1925,13 +1929,13 @@ impl App {
             .collect();
         // A keyboard the rescue key moved roams, and reaches the focus's
         // head while it is lit.
-        let rescued: Vec<vtium_config::Identity> = self.routes.rescued().cloned().collect();
+        let rescued: Vec<vtium_settings::Identity> = self.routes.rescued().cloned().collect();
         // The default head is the head of a file that declares none.
         let focus = self.focus.map(|h| {
             if self.rules.heads.is_empty() {
-                vtium_config::Place::DefaultHead
+                vtium_settings::Place::DefaultHead
             } else {
-                vtium_config::Place::Head(h)
+                vtium_settings::Place::Head(h)
             }
         });
         let placement = self.rules.place_rescued(&devices, &rescued, focus);
@@ -1945,10 +1949,10 @@ impl App {
         let lighting = displays
             .iter()
             .zip(shown)
-            .find(|(_, p)| p.by == vtium_config::By::NeverDark)
+            .find(|(_, p)| p.by == vtium_settings::By::NeverDark)
             .and_then(|(key, p)| {
                 let h = match p.place {
-                    vtium_config::Place::Notice => screen,
+                    vtium_settings::Place::Notice => screen,
                     place => head_index(Some(place)),
                 };
                 Some((key.clone(), h?))
@@ -1999,7 +2003,7 @@ impl App {
         let release = held
             .iter()
             .zip(unannounced)
-            .find(|(_, p)| p.by == vtium_config::By::NeverDark);
+            .find(|(_, p)| p.by == vtium_settings::By::NeverDark);
         if let Some(((node, connector, _), _)) = release {
             if let Some((key, _)) = self.guard_lit.take() {
                 self.unlight(key);
@@ -2017,7 +2021,9 @@ impl App {
                 }
             }
         }
-        let guarded = inputs.iter().map(|p| p.by == vtium_config::By::AntiLockout);
+        let guarded = inputs
+            .iter()
+            .map(|p| p.by == vtium_settings::By::AntiLockout);
         for (id, disposition) in self.routes.guard(&self.rules, guarded) {
             if let Some(input) = &mut self.input {
                 input.set_disposition(id, disposition);
@@ -2184,7 +2190,7 @@ impl App {
                     let identity = dev
                         .input
                         .as_deref()
-                        .map_or_else(vtium_config::Identity::input, identity::input);
+                        .map_or_else(vtium_settings::Identity::input, identity::input);
                     self.add_input(&dev.node, identity);
                 }
                 DeviceKind::Fbdev if dev.flags.drm_backed => {
@@ -2214,7 +2220,7 @@ impl App {
     /// An input device udev reported, placed by the first rule matching
     /// `identity` (ADR-1401 D3): opened to deliver, opened for the rescue
     /// key alone, or never opened.
-    pub fn add_input(&mut self, node: &Path, identity: vtium_config::Identity) {
+    pub fn add_input(&mut self, node: &Path, identity: vtium_settings::Identity) {
         self.guard_due = true;
         let disposition = self.routes.add(&self.rules, node, &identity);
         if let Some(id) = self
@@ -2845,11 +2851,11 @@ impl App {
         // lights the boot display for the notice alone. The heads stay, each
         // isolated as the file wrote it, so a keyboard asking an isolated
         // head still switches no VT, whatever else delivers.
-        self.rules = vtium_config::Config {
+        self.rules = vtium_settings::Config {
             policy: Policy::Closed,
             heads: std::mem::take(&mut self.rules.heads),
             survivors: true,
-            ..vtium_config::Config::default()
+            ..vtium_settings::Config::default()
         };
         self.guard_due = true;
     }
@@ -3316,10 +3322,10 @@ struct KeyFrom {
 }
 
 /// The index of the head at `place`: the default head is the first.
-fn head_index(place: Option<vtium_config::Place>) -> Option<usize> {
+fn head_index(place: Option<vtium_settings::Place>) -> Option<usize> {
     match place? {
-        vtium_config::Place::Head(h) => Some(h),
-        vtium_config::Place::DefaultHead => Some(0),
+        vtium_settings::Place::Head(h) => Some(h),
+        vtium_settings::Place::DefaultHead => Some(0),
         _ => None,
     }
 }
@@ -3758,7 +3764,7 @@ mod tests {
         app.turn(Instant::now());
     }
 
-    // ADR-1401 D9 and vtium-config's Identity: a display's order is its
+    // ADR-1401 D9 and vtium-settings's Identity: a display's order is its
     // place in its card's connector list, which the boot display is picked
     // by, whatever its KMS object id.
     #[test]
@@ -3858,22 +3864,22 @@ mod tests {
             Rc::new(Instant::now),
             Vec::new(),
         );
-        let input = vtium_config::Identity::input;
+        let input = vtium_settings::Identity::input;
         app.add_input(
             Path::new("/m"),
-            input().with_class(vtium_config::Class::Mouse),
+            input().with_class(vtium_settings::Class::Mouse),
         );
         app.add_input(
             Path::new("/k"),
-            input().with_class(vtium_config::Class::Keyboard),
+            input().with_class(vtium_settings::Class::Keyboard),
         );
         assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
         assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
         // A mouse whose node also has udev's key class, its consumer keys,
         // is still a pointer the shipped rules leave closed.
         let keyed = input()
-            .with_class(vtium_config::Class::Mouse)
-            .with_class(vtium_config::Class::Key);
+            .with_class(vtium_settings::Class::Mouse)
+            .with_class(vtium_settings::Class::Key);
         let rules = app.rules.clone();
         assert_eq!(
             app.routes.add(&rules, Path::new("/mk"), &keyed),
@@ -3899,17 +3905,17 @@ mod tests {
         );
         let partly = "version = 1\n[head a]\nbogus = 1\n[head b]\n[rules]\ndisplay * -> b\n";
         app.set_heads(start(partly));
-        assert_eq!(app.outcome.runs, vtium_config::Runs::Survivors);
-        let input = vtium_config::Identity::input;
+        assert_eq!(app.outcome.runs, vtium_settings::Runs::Survivors);
+        let input = vtium_settings::Identity::input;
         let mouse = app.routes.add(
             &app.rules.clone(),
             Path::new("/m"),
-            &input().with_class(vtium_config::Class::Mouse),
+            &input().with_class(vtium_settings::Class::Mouse),
         );
         let keyboard = app.routes.add(
             &app.rules.clone(),
             Path::new("/k"),
-            &input().with_class(vtium_config::Class::Keyboard),
+            &input().with_class(vtium_settings::Class::Keyboard),
         );
         assert_eq!(mouse, vtium_platform::input::Disposition::Closed);
         assert_eq!(keyboard, vtium_platform::input::Disposition::Deliver);
@@ -4144,7 +4150,8 @@ mod tests {
         input.wake_up();
         app.input = Some(input);
         app.focus = Some(0);
-        let keyboard = vtium_config::Identity::input().with_class(vtium_config::Class::Keyboard);
+        let keyboard =
+            vtium_settings::Identity::input().with_class(vtium_settings::Class::Keyboard);
         app.add_input(Path::new("/nonexistent/vtium-test/event9"), keyboard);
         app.report_focus();
         assert_eq!(app.heads.first().map(|h| h.focused), Some(false));

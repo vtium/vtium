@@ -20,7 +20,7 @@ vtium-term.workspace = true
 vtium-font.workspace = true
 vtium-render.workspace = true
 # generates the desktop frit's glyphs through the engine the helper runs
-vtium-vitrify = { path = "../../crates/vtium-vitrify" }
+vtium-config = { path = "../../crates/vtium-config" }
 # deflates the PNGs written and inflates the ones checked; vtium-font
 # already links this version
 miniz_oxide = "0.8.9"

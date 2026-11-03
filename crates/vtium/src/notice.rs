@@ -2,7 +2,7 @@
 //! notice (ADR-1401 D7, D8, D9) and the on-screen display's full line
 //! (D5), in one place, so they can be reviewed and reworded together, and
 //! tier 2 and the specimens draw the same words the console shows. The head
-//! file's own errors come from vtium-config's catalog, `messages`.
+//! file's own errors come from vtium-settings's catalog, `messages`.
 //!
 //! Each notice says what happened, then what the person reading it can do
 //! next, in plain words. A key it names is built from the binding vtium
@@ -20,7 +20,7 @@ pub const NO_KEYBOARD: &str = "No keyboard was found. Plug one in to type.";
 pub fn anti_lockout(to: &str) -> String {
     format!(
         "No keyboard was reaching a screen that is on, so every keyboard now types into {to}. To send a keyboard somewhere else, change its rule in {}, then restart vtium or reboot.",
-        vtium_config::HEAD_FILE
+        vtium_settings::HEAD_FILE
     )
 }
 
@@ -29,7 +29,7 @@ pub fn anti_lockout(to: &str) -> String {
 pub fn rescue(device: impl Display, to: &str) -> String {
     format!(
         "The rescue key moved the keyboard at {device}. It types into the active screen, {to}, until the next boot. To keep it there after that, give it a rule in {}.",
-        vtium_config::HEAD_FILE
+        vtium_settings::HEAD_FILE
     )
 }
 
@@ -67,7 +67,7 @@ pub fn session_ended_console() -> String {
 pub fn stopped() -> String {
     format!(
         "A session kept ending as soon as it started, so vtium stopped every screen, and nothing here takes input. Fix the login command in {} or vtium.conf, then restart vtium or reboot.",
-        vtium_config::HEAD_FILE
+        vtium_settings::HEAD_FILE
     )
 }
 
@@ -76,7 +76,7 @@ pub fn stopped() -> String {
 pub fn no_head_left(path: &std::path::Path) -> String {
     format!(
         "The errors in {}, listed below, leave no head that can run.",
-        vtium_config::Shown(path)
+        vtium_settings::Shown(path)
     )
 }
 
@@ -90,7 +90,7 @@ pub fn panic(
     errors: Vec<String>,
     more: usize,
 ) -> vtium_render::NoticeReport {
-    let line = vtium_config::Line::ClosedOff;
+    let line = vtium_settings::Line::ClosedOff;
     vtium_render::NoticeReport {
         happened: vec![line.text().to_owned(), no_head_left(path)],
         items: errors,
@@ -141,7 +141,7 @@ pub fn osd_line(active: bool, head: &str, console: usize, of: usize) -> String {
 
 /// What `vtium check-config` prints (ADR-1401 D7, D12): its help, and the
 /// lines of its report that it writes itself. The head file's errors come
-/// from vtium-config's catalog, and the configuration's reports from the
+/// from vtium-settings's catalog, and the configuration's reports from the
 /// configuration's reader.
 pub mod check_config {
     use std::fmt::Display;
@@ -375,6 +375,28 @@ pub mod blank {
 
     pub fn cannot_signal(word: &str, pid: u32, vt: u16, why: impl Display) -> String {
         format!("vtium {word}: cannot signal vtium {pid} on VT {vt}: {why}")
+    }
+}
+
+/// What `vtium config` prints when it cannot hand its words to
+/// vtium-config (ADR-1201 D12).
+pub mod config_tool {
+    use std::fmt::Display;
+
+    /// vtium refused the tool at the glyph helper's path for `why`, the
+    /// helper's own reason, which names the path.
+    pub fn refused(why: &str) -> String {
+        format!(
+            "vtium config: {why}. vtium config runs vtium-config, the font and settings tool, from the glyph helper's path, which the font-helper key sets."
+        )
+    }
+
+    /// The tool at `program`, opened as descriptor `fd`, could not be
+    /// started, for `why`.
+    pub fn cannot_run(program: impl Display, fd: i32, why: impl Display) -> String {
+        format!(
+            "vtium config: cannot start {program} through /proc/self/fd/{fd}: {why}; vtium config starts the tool from the file it opened, through /proc/self/fd, so /proc must be mounted."
+        )
     }
 }
 

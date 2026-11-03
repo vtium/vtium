@@ -17,13 +17,13 @@ use vtium::config;
 use vtium::font::Sources;
 use vtium::head::{Head, Start};
 use vtium::video::Video;
-use vtium_config::Class;
 use vtium_platform::display::{
     DisplayId, Dpms, Event, Identity, Memory as Shared, Rect, SwapError, Swapped, Token,
 };
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
 use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
+use vtium_settings::Class;
 
 #[path = "common/scratch.rs"]
 mod scratch;
@@ -650,10 +650,10 @@ fn char_key(c: char) -> KeyEvent {
 }
 
 /// A keyboard at the USB port `path`, as the rules read it.
-fn keyboard(path: &str) -> vtium_config::Identity {
-    vtium_config::Identity {
+fn keyboard(path: &str) -> vtium_settings::Identity {
+    vtium_settings::Identity {
         path: Some(path.to_owned()),
-        ..vtium_config::Identity::input().with_class(Class::Keyboard)
+        ..vtium_settings::Identity::input().with_class(Class::Keyboard)
     }
 }
 
@@ -1037,7 +1037,7 @@ input class:keyboard -> roaming
 fn with_no_head_file_the_seat_runs_the_compiled_in_heads() {
     let s = Seat::boot(&[], two_displays(), "read x");
     let names: Vec<&str> = s.app.heads().iter().map(Head::name).collect();
-    let builtin = vtium_config::Config::builtin();
+    let builtin = vtium_settings::Config::builtin();
     let want: Vec<&str> = builtin.heads.iter().map(|h| h.name.as_str()).collect();
     assert_eq!(names, want);
     assert_eq!(names, ["console"]);
@@ -3415,9 +3415,9 @@ input class:mouse -> roaming
     let displays = [small, (node, large.lit())];
     let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
     assert!(s.until(SECOND, |a| a.cells().len() == 2));
-    let mouse = vtium_config::Identity {
+    let mouse = vtium_settings::Identity {
         path: Some("mouse-small".to_owned()),
-        ..vtium_config::Identity::input().with_class(Class::Mouse)
+        ..vtium_settings::Identity::input().with_class(Class::Mouse)
     };
     s.app.add_input(Path::new("/dev/input/event5"), mouse);
     let moved = InputEvent::Pointer(vtium_platform::input::PointerEvent::Moved {
@@ -4170,10 +4170,10 @@ impl HeadFile {
 
     /// The trust the start reads the file under, with the test's user in
     /// root's place.
-    fn trust(&self) -> vtium_config::Trust {
+    fn trust(&self) -> vtium_settings::Trust {
         use std::os::unix::fs::MetadataExt;
         let uid = std::fs::metadata(&self.dir).expect("the directory").uid();
-        vtium_config::Trust::owner(uid).below(&self.dir)
+        vtium_settings::Trust::owner(uid).below(&self.dir)
     }
 
     /// What the start runs for the file.
@@ -5539,7 +5539,7 @@ fn a_boot_with_no_head_file_writes_nothing_where_it_lives() {
     let start = file.rules();
     assert_eq!(
         (&start.rules, start.line()),
-        (&vtium_config::Config::builtin(), None)
+        (&vtium_settings::Config::builtin(), None)
     );
     let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
     let mut s = Seat::with_rules(&[], Some(start), displays, "echo ready; read x", no_fonts());

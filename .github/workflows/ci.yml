@@ -160,7 +160,7 @@ jobs:
         with:
           path: vtium
       # libudev and libxkbcommon, which vtium-platform links through
-      # vtium-vitrify, the tool that vitrifies the test fonts
+      # vtium-config, the tool that draws the test fonts' glyphs
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain

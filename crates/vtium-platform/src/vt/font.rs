@@ -1,5 +1,5 @@
 //! The font the kernel holds for a VT, and its Unicode map (ADR-1200 D8):
-//! `KDGETMODE`, `KDFONTOP`'s get and `GIO_UNIMAP`, for `vtium-vitrify`'s
+//! `KDGETMODE`, `KDFONTOP`'s get and `GIO_UNIMAP`, for `vtium-config`'s
 //! `console:` source. The console makes none of these calls.
 //!
 //! [`read`] holds the logic over [`FontIoctls`], so a test stands in for

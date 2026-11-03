@@ -55,7 +55,10 @@ pub(crate) enum Mark {
     Underline,
 }
 
-/// A placement as the last frame drew it, for the damage of the next.
+/// A placement as the last frame drew it, for the damage of the next: its
+/// box, its picture and the pixels it showed, named by the image, the
+/// frame and its pixel revision, so a placement that moves to another
+/// frame, or whose frame a command changed, draws its cells again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Drawn {
     row: i64,
@@ -69,6 +72,8 @@ struct Drawn {
     z: i32,
     image: u64,
     revision: u64,
+    frame: u32,
+    pixel_revision: u64,
 }
 
 impl Drawn {
@@ -85,6 +90,8 @@ impl Drawn {
             z: p.z,
             image: p.image.get(),
             revision: p.revision,
+            frame: p.frame,
+            pixel_revision: p.pixel_revision,
         }
     }
 }
@@ -392,6 +399,8 @@ impl Pictures {
             );
             let key = Key {
                 image: p.image.get(),
+                frame: p.frame,
+                pixel_revision: p.pixel_revision,
                 image_size: (p.image_width, p.image_height),
                 src: g.src,
                 size,
@@ -504,7 +513,7 @@ impl Pictures {
         let (sw, sh) = (key.src.2, key.src.3);
         if self.copies.place(&key) {
             pic.how = How::Copy;
-        } else if self.copies.room(key.bytes()) {
+        } else if self.copies.room(&key) {
             let copy = scale::turned_copy(&src, (sw, sh), key.size, self.orientation);
             self.copies.keep(key, copy);
             pic.how = How::Copy;

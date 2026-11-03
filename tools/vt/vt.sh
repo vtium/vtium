@@ -111,7 +111,7 @@ helper=${VTIUM_VT_HELPER:-}
 helper_arg=()
 if [ -n "$helper" ]; then
 	helper=$(readlink -m -- "$helper")
-	[ -f "$helper" ] && [ -x "$helper" ] || die "no glyph helper at $helper: build it first (make vitrify-release)"
+	[ -f "$helper" ] && [ -x "$helper" ] || die "no glyph helper at $helper: build it first (make config-release)"
 	helper_arg=(--helper="$helper")
 fi
 
