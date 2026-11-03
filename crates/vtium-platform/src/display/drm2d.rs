@@ -1995,6 +1995,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Ok(made) => made,
                 Err(e) => {
                     log::error!("cannot allocate buffers for {}: {e}", o.name);
+                    o.keep_set_mode();
                     continue;
                 }
             };

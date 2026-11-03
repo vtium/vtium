@@ -3879,6 +3879,46 @@ fn a_new_mode_that_cannot_be_set_is_chosen_again_at_the_next_scan() {
     assert_eq!(token_size(&mut v, A), (800, 600));
 }
 
+/// A legacy card with one display at 640x480, whose connector then lists
+/// one mode of 800x600 alone.
+fn legacy_with_new_modes() -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().atomic = false;
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let swapped = vec![mode(800, 600, 60, true)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+    v
+}
+
+/// Whether display `id` lends a token its renderer can draw into.
+fn drawable(v: &mut Drm2d<FakeCard>, id: u32) -> bool {
+    let mut token = v.lend(DisplayId(id)).expect("a token");
+    let drawn = token.draw(|_| ()).is_some();
+    v.give_back(token);
+    drawn
+}
+
+// vtium/vtium#216: on a legacy card, a new mode whose buffers cannot be
+// made, or whose CRTC cannot be set, leaves the display at the mode it is
+// set to, which its buffers fit, so the tokens it lends can be drawn into.
+#[test]
+fn a_legacy_display_whose_new_mode_cannot_be_set_keeps_its_mode() {
+    let mut v = legacy_with_new_modes();
+    v.card().state().dumb_errors.push_back(Errno::NOMEM);
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), []);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "no buffers");
+    assert_eq!(token_size(&mut v, A), (640, 480));
+    assert!(drawable(&mut v, A));
+    let mut v = legacy_with_new_modes();
+    v.card().state().set_crtc_errors.push_back(Errno::INVAL);
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), []);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "no CRTC set");
+    assert_eq!(token_size(&mut v, A), (640, 480));
+    assert!(drawable(&mut v, A));
+}
+
 // vtium/vtium#216: a mode changed in place at the same size, with only a
 // new refresh rate, keeps the display's buffers but is told to redraw, so
 // its owner reads the new rate, and the display is drawn whole. Here A is
