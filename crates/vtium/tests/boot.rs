@@ -2911,6 +2911,123 @@ fn a_drag_ends_without_its_button_and_at_a_vt_release() {
     assert_eq!(selected(&h).as_deref(), Some("sec"));
 }
 
+/// vtium/vtium#229's review: with the fake VT released and its pointers
+/// still open, vtium delivers no pointer action to the console, so a
+/// program tracking the mouse gets no report of a move, a click or the
+/// wheel from a pointer device, as the C reference's pointer callback
+/// returned while its terminal was not awake (`src/terminal.c:1610`).
+/// Taken back, the VT's console gets the next key alone.
+#[test]
+fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
+    let (mut h, released) = Harness::counting(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\ngot:%s.\\r\\n\",$0;exit}'; read x",
+    ]);
+    assert!(h.until(BOUND, |a| {
+        a.screen_text().iter().any(|l| l.ends_with("ready"))
+    }));
+    let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
+    h.app.input_event(switch.clone(), now());
+    assert!(h.until(BOUND, |_| released.get() == 1), "released");
+    assert!(!h.app.vt.is_active());
+    let mouse = Path::new("/dev/input/event9");
+    for event in [
+        over(2, 0, None),
+        press(Button::Left, false),
+        release(Button::Left),
+        PointerEvent::Wheel(1),
+        PointerEvent::Sync,
+    ] {
+        h.app.device_input(mouse, InputEvent::Pointer(event), now());
+    }
+    h.app.input_event(switch, now());
+    assert!(h.until(BOUND, |a| a.vt.is_active()), "taken back");
+    // The acquire wakes the display and the terminals.
+    assert!(h.until_memory(BOUND, |m| m.awake), "awake");
+    h.type_str("q");
+    assert!(
+        h.until(BOUND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l.starts_with("got:"))),
+        "{:?}",
+        h.app.screen_text()
+    );
+    assert!(shows(&h.app, "got:."), "{:?}", h.app.screen_text());
+}
+
+/// The fix branch's re-review: a released fake VT keeps its pointers open,
+/// so the mouse moving in the other session keeps arming the pointer's
+/// hide, and that hide leaves vtium's selection for the user's return, as
+/// the C reference's pointer callback dropped the hide while its session
+/// was not in the foreground (`src/terminal.c:1609-1611, 1655-1659` at
+/// kmscon origin/main). On vtium's own VT, blanked, the hide still clears
+/// the selection.
+#[test]
+fn a_pointer_hide_on_a_released_vt_keeps_the_selection() {
+    let (mut h, released) = Harness::counting(&[
+        "--dpms-timeout=60",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'first line\\nsecond one\\n'; read x",
+    ]);
+    assert!(h.until(BOUND, |a| shows(a, "second one")));
+    let selected = |h: &Harness| {
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .selection_text()
+    };
+    h.point(
+        [
+            over(0, 1, None),
+            press(Button::Left, false),
+            over(2, 1, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        Mods::empty(),
+    );
+    assert_eq!(selected(&h).as_deref(), Some("sec"));
+    // The arrow's tip is at the pointer, its fill a pixel below it.
+    let (x, y) = (2 * 8 + 4, 16 + 8 + 1);
+    assert!(
+        h.until_memory(BOUND, |m| m.white_at(x, y)),
+        "the arrow shown"
+    );
+    let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
+    h.app.input_event(switch.clone(), h.at());
+    assert!(h.until(BOUND, |_| released.get() == 1), "released");
+    assert!(!h.app.vt.is_active());
+    let mouse = Path::new("/dev/input/event9");
+    h.app
+        .device_input(mouse, InputEvent::Pointer(PointerEvent::Hide), h.at());
+    assert_eq!(selected(&h).as_deref(), Some("sec"), "kept while released");
+    h.app.input_event(switch, h.at());
+    assert!(h.until(BOUND, |a| a.vt.is_active()), "taken back");
+    assert!(h.until_memory(BOUND, |m| m.awake), "awake");
+    assert_eq!(selected(&h).as_deref(), Some("sec"), "kept at the return");
+    // The pointer moved in the other session, so vtium draws no arrow at
+    // its old place on the return.
+    h.drawn_now();
+    assert!(!h.memory().white_at(x, y), "no arrow at the return");
+    // On vtium's own VT, blanked, the hide clears the selection.
+    h.shown();
+    h.skip_turn(Duration::from_secs(61));
+    assert_eq!(h.memory().dpms, Some(Dpms::Off), "blanked");
+    assert!(h.app.vt.is_active());
+    h.app
+        .device_input(mouse, InputEvent::Pointer(PointerEvent::Hide), h.at());
+    assert_eq!(selected(&h), None, "cleared on vtium's own VT");
+}
+
 /// A selection a program sets with OSC 52 is pasted as any paste is:
 /// filtered, so its end marker and C0 controls arrive as spaces, each LF
 /// as CR, and bracketed. Shift+Insert pastes once a press, however long
@@ -5018,6 +5135,51 @@ fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
             "the frit t's own cell is not known (the helper gave no answer in 100 ms): it draws in the display's cell"
         ],
         "{lines:?}"
+    );
+}
+
+// ADR-1200 D17 (the maintainer, 2026-11-03): a bitmap frit's own cell that
+// comes after the 100 ms wait is kept and used. The held helper answers
+// nothing until the test writes its go file, so the first frame draws in
+// the display's 8x8 cell; once the answer comes, the frit draws in its
+// own 8x16 cell, its grid laid out again, with one line, and the answer
+// stays known to the frit
+#[test]
+fn a_bitmap_frits_own_cell_that_comes_late_is_taken_from_the_next_frame() {
+    let (_dir, fonts, go) = frit_fonts_of(
+        "own-late",
+        "source=kbd:x\n",
+        &own_cell(8, 16),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; wait",
+    );
+    logged();
+    let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
+    assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
+    let fell = logged();
+    assert!(
+        fell.iter().any(|l| l
+            == "the frit t's own cell is not known (the helper gave no answer in 100 ms): it draws in the display's cell"),
+        "{fell:?}"
+    );
+    std::fs::write(&go, b"").expect("the go file");
+    assert!(
+        h.until(Duration::from_secs(10), |a| a.cells() == [(8, 16)]),
+        "the late answer is taken: {:?}",
+        h.app.cells()
+    );
+    assert_eq!(h.app.grid(), (40, 10));
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let known: Vec<_> = h.app.frit_cells("t").into_iter().map(|(_, a)| a).collect();
+    assert_eq!(known, [Ok(vtium::helper::OwnCell::Bitmap(cell))]);
+    let took = logged();
+    let lines: Vec<&String> = took.iter().filter(|l| l.contains("came after")).collect();
+    assert_eq!(
+        lines,
+        ["the frit t's own 8x16 cell came after the wait: it draws in it from the next frame"],
+        "{took:?}"
     );
 }
 

@@ -223,7 +223,7 @@ fn run(
     match start.input() {
         Some(mut input) => {
             input.insert(&lp.handle(), |app: &mut App| app.input.as_mut());
-            app.input = Some(input);
+            app.set_input(input);
         }
         None => log::error!("no keymap: keys are not read"),
     }

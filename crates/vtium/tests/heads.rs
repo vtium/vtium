@@ -946,17 +946,17 @@ display card:mem-large -> large
 
 /// ADR-1200 D17, binary-recheck's finding 4: a bitmap frit asks for its
 /// fonts' own cell at an OSC 50 switch. Switched away and back while
-/// another head still draws it, a frit whose last ask had no answer in
-/// time asks again; one the helper refused keeps the refusal and asks
-/// nothing. The helper is the real one, so each query gets one answer:
-/// its frit names a kbd font no machine has, which it refuses. Held, it
-/// answers nothing until the test opens its go FIFO, so the start's ask
-/// has no answer in time whatever the machine's speed. In the `refused`
-/// case the test then lets the helper answer, and waits for its refusal
-/// of the start's ask, which comes too late and is dropped; the first
-/// switch back asks the running helper again and keeps its refusal, and
-/// the second asks nothing. In the `timeout` case each switch back asks
-/// again.
+/// another head still draws it, a frit whose last ask has had no answer
+/// asks again; one the helper refused keeps the refusal and asks nothing,
+/// a refusal that came after the wait included (the maintainer,
+/// 2026-11-03). The helper is the real one, so each query gets one
+/// answer: its frit names a kbd font no machine has, which it refuses.
+/// Held, it answers nothing until the test opens its go FIFO, so the
+/// start's ask has no answer in time whatever the machine's speed. In the
+/// `refused` case the test then lets the helper answer, and waits until
+/// vtium has kept its late refusal of the start's ask; neither switch
+/// back asks again. In the `timeout` case the helper stays held, and each
+/// switch back asks again.
 // covers: text.font-change
 #[test]
 fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
@@ -1006,6 +1006,14 @@ input class:keyboard -> roaming
                 .collect()
         };
         let late = |line: &String| line.contains("gave no answer");
+        // The frit `t` holds the helper's refusal at every height asked.
+        let refusal_kept = |a: &App| {
+            let known = a.frit_cells("t");
+            !known.is_empty()
+                && known
+                    .iter()
+                    .all(|(_, k)| k.as_ref().is_err_and(|no| !no.late))
+        };
         let mut seen = unknown(&logged());
         assert_eq!(seen.len(), 1, "{case}: the start asked once for both heads");
         assert!(
@@ -1024,10 +1032,11 @@ input class:keyboard -> roaming
                 .is_ok()
             };
             assert!(s.until(BOUND, open), "the helper answers");
-            let refusal = vtium_config::serve::FRAME_NO_OWN_CELL.to_string();
-            let sent =
-                || std::fs::read_to_string(&kinds).is_ok_and(|k| k.lines().any(|l| l == refusal));
-            assert!(s.until(BOUND, |_| sent()), "the start's ask refused, late");
+            assert!(
+                s.until(BOUND, |a| refusal_kept(a)),
+                "the start's ask refused, late, and kept: {:?}",
+                s.app.frit_cells("t")
+            );
         }
         // Away and back, then away and back again.
         for (n, (away, back)) in [("away", "back"), ("gone", "again")]
@@ -1041,7 +1050,7 @@ input class:keyboard -> roaming
             assert!(s.until(BOUND, |a| head_shows(a, "a", back)), "{case}");
             assert_eq!(s.app.font_name(), "t", "{case}");
             seen.extend(unknown(&logged()));
-            let asked = if refused { 1 } else { n + 1 };
+            let asked = if refused { 0 } else { n + 1 };
             assert_eq!(
                 seen.len() - 1,
                 asked,
@@ -1050,10 +1059,14 @@ input class:keyboard -> roaming
             );
         }
         if refused {
-            assert!(
-                !late(&seen[1]),
-                "the switch back kept the refusal: {seen:?}"
-            );
+            assert!(refusal_kept(&s.app), "{:?}", s.app.frit_cells("t"));
+            let refusal = vtium_config::serve::FRAME_NO_OWN_CELL.to_string();
+            let refusals = std::fs::read_to_string(&kinds)
+                .expect("the helper's frames")
+                .lines()
+                .filter(|l| *l == refusal)
+                .count();
+            assert_eq!(refusals, 1, "the helper was asked once");
         } else {
             assert!(seen.iter().all(late), "{seen:?}");
         }

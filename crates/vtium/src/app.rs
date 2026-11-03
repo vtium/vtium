@@ -100,7 +100,7 @@ use vtium_platform::input::{
 };
 use vtium_platform::pty::{Erase, Pty};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
-use vtium_platform::vt::{Switch, Vt, VtEvent};
+use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 use vtium_render::{Config as RenderConfig, Depth, DrawState, Orientation};
 use vtium_settings::{Policy, WhenDisplayLost};
 use vtium_term::{BlankRequest, BlankTimeout, Mods};
@@ -600,6 +600,18 @@ impl App {
         self.reread = Some(read);
     }
 
+    /// The seat's keyboards and pointers. On a fake VT, the app holds one
+    /// wake-up of them for as long as it runs, as the C reference's fake
+    /// VT did, so they stay open while the VT is released and the
+    /// Ctrl+Super+F12 that takes it back can arrive. A kernel VT's
+    /// release closes them, and its acquire opens them again.
+    pub fn set_input(&mut self, mut input: vtium_platform::input::Input) {
+        if self.vt.get::<FakeVt>().is_some() {
+            input.wake_up();
+        }
+        self.input = Some(input);
+    }
+
     /// The kernel's font, read from the VT while it was in text mode, for
     /// a frit's `console:` source (vtium/vtium#145).
     pub fn set_console_font(&mut self, font: vtium_platform::vt::font::ConsoleFont) {
@@ -871,7 +883,8 @@ impl App {
     /// `height` (the maintainer, 2026-11-01). Each answer is kept for the
     /// frit, by the height asked at, for every head drawing it. A refusal,
     /// or no answer in time, leaves the display's cell, or for an outline
-    /// frit the built-in font's width, with one line saying why.
+    /// frit the built-in font's width, with one line saying why; an answer
+    /// that comes after the wait is taken by [`App::late_cell`].
     fn own_cell(&mut self, h: usize, height: u32) {
         let Some(head) = self.heads.get(h) else {
             return;
@@ -1481,7 +1494,8 @@ impl App {
     /// Takes each helper's answers: each display at a set's cell, of every
     /// head drawing the frit, forgets the glyphs it cached for the set's
     /// characters, so none draws the built-in font once the frit sent it
-    /// (ADR-1200 D7), and redraws the cells that show one.
+    /// (ADR-1200 D7), and redraws the cells that show one. An answer to a
+    /// cell query that came after its wait goes to [`App::late_cell`].
     fn helper_turn(&mut self, now: Instant) {
         for h in 0..self.heads.len() {
             if self
@@ -1492,11 +1506,18 @@ impl App {
                 self.ask_visible(h, now);
             }
         }
+        let mut late = Vec::new();
         for (name, frit) in &mut self.frits {
             let Some(helper) = &mut frit.helper else {
                 continue;
             };
             let answers = helper.poll(now);
+            late.extend(
+                helper
+                    .late_cells()
+                    .into_iter()
+                    .map(|(height, answer)| (name.clone(), height, answer)),
+            );
             if answers.is_empty() {
                 continue;
             }
@@ -1531,6 +1552,88 @@ impl App {
                 }
             }
         }
+        for (name, height, answer) in late {
+            self.late_cell(&name, height, answer);
+        }
+    }
+
+    /// The helper's answer to frit `name`'s cell query at `height`, which
+    /// came after the console stopped waiting for it (ADR-1200 D17, the
+    /// maintainer, 2026-11-03). It takes the place of a missing answer
+    /// alone, a timeout or no answer at all, and is then logged in one
+    /// line, so a refusal holds as one in time does. A cell is missing
+    /// where [`Frit::answer_at`] finds no answer in time for it: for a
+    /// bitmap first source's cell, at any height, and otherwise at
+    /// `height`. An answer the frit already holds, as when an OSC 50 switch
+    /// back asked again and its answer came in time behind this one, stays,
+    /// and the late one is dropped. A cell taken lays out again each head
+    /// drawing the frit that takes it: for a bitmap first source's cell
+    /// every such head, whatever its height, and for an outline source's
+    /// those drawing at `height` alone, so the next frame draws in it.
+    fn late_cell(
+        &mut self,
+        name: &str,
+        height: u32,
+        answer: Result<helper::OwnCell, helper::NoCell>,
+    ) {
+        let Some(frit) = self.frits.get_mut(name) else {
+            return;
+        };
+        let outline = match &answer {
+            Ok(helper::OwnCell::Bitmap(_)) => Some(false),
+            Ok(helper::OwnCell::Outline(_)) => Some(true),
+            Err(_) => None,
+        };
+        let held = match outline {
+            Some(outline) => frit.answer_at(height, outline),
+            None => frit.own.get(&height).cloned(),
+        };
+        if held.is_some_and(|known| !known.is_err_and(|no| no.late)) {
+            return;
+        }
+        match &answer {
+            Ok(helper::OwnCell::Bitmap(cell)) => log::info!(
+                "the frit {name}'s own {}x{} cell came after the wait: it draws in it from the next frame",
+                cell.width,
+                cell.height
+            ),
+            Ok(helper::OwnCell::Outline(cell)) => log::info!(
+                "the frit {name}'s {}x{} cell at {height} pixels came after the wait: it draws in it from the next frame",
+                cell.width,
+                cell.height
+            ),
+            Err(why) => log::info!(
+                "the helper refused the frit {name}'s own cell after the wait ({why}): it keeps the cell it draws in"
+            ),
+        }
+        frit.own.insert(height, answer);
+        let Some(outline) = outline else {
+            return;
+        };
+        for h in 0..self.heads.len() {
+            let dpi = self.dpi(h);
+            let takes = self.heads.get(h).is_some_and(|head| {
+                let at = draw_height(head, dpi, &self.locale);
+                head.frit() == Some(name)
+                    && (!outline || at == height)
+                    && head
+                        .font
+                        .as_ref()
+                        .is_some_and(|f| f.wants_own_cell(at, head.sized()))
+            });
+            if takes {
+                self.relayout(h);
+            }
+        }
+    }
+
+    /// What the console knows of frit `name`'s cell: the helper's answer to
+    /// each cell query, or why there was none, by the height asked at
+    /// (ADR-1200 D17).
+    pub fn frit_cells(&self, name: &str) -> Vec<(u32, Result<helper::OwnCell, helper::NoCell>)> {
+        self.frits.get(name).map_or_else(Vec::new, |frit| {
+            frit.own.iter().map(|(h, a)| (*h, a.clone())).collect()
+        })
     }
 
     /// The terminals start drawing and blinking.
@@ -1710,6 +1813,11 @@ impl App {
                 }
                 self.darken();
                 self.wait.shown(now);
+                // The blank's countdown starts afresh from the acquire, as
+                // the C reference's reset its DPMS timer when a display
+                // became active (`src/seat.c:196-202`), and a blank in force
+                // ends; while the VT was another's it ran no blank.
+                self.user_input(now);
                 self.activate(now);
             }
             VtEvent::Release => {
@@ -2434,15 +2542,41 @@ impl App {
     /// b1f7a7c5).
     fn pointer_to(&mut self, h: Option<usize>, event: PointerEvent, mods: InputMods, now: Instant) {
         match event {
+            // While the terminals are not awake, a VT the user released or
+            // displays blanked, the pointer's action reaches no program and
+            // selects, pastes or zooms nothing, as a key reaches none (the
+            // C reference's pointer callback returned while its terminal
+            // was not awake, `src/terminal.c:1610`). It may end a blank,
+            // which wakes the terminals first.
             PointerEvent::Moved { .. } | PointerEvent::Button { .. } | PointerEvent::Wheel(_) => {
                 self.activity(now);
+                if !self.awake {
+                    return;
+                }
             }
+            PointerEvent::Sync if !self.awake => return,
             PointerEvent::Sync => {}
             // The seat's pointers hide together, on every head: the hide
-            // comes from no one device.
+            // comes from no one device. While the VT is another's, as a
+            // released fake VT is with its pointers still open, the mouse
+            // moving in the other session arms the hide. That hide clears no
+            // selection, so the selection stays for the user's return, as
+            // in the C reference, whose pointer callback dropped the hide
+            // while its session was not in the foreground
+            // (`src/terminal.c:1609-1611` at kmscon origin/main). It still
+            // hides the arrow, which the C reference drew again at its old
+            // place on the return (`src/terminal.c:1750-1772`): the input
+            // keeps adding up the moves made in the other session, so an
+            // arrow at the old place would jump at the next move (the
+            // README's "Departures").
             PointerEvent::Hide => {
+                let ours = self.vt.is_active();
                 for head in &mut self.heads {
-                    head.pointer_event(event, Mods::empty(), false, &mut self.selection);
+                    if ours {
+                        head.pointer_event(event, Mods::empty(), false, &mut self.selection);
+                    } else {
+                        head.hide_pointer();
+                    }
                 }
                 return;
             }
@@ -2465,8 +2599,13 @@ impl App {
     }
 
     /// The user's input reaches every device, which retries a failed
-    /// wake-up, and the blank.
+    /// wake-up, and the blank. While the VT is another's, as a released
+    /// fake VT is with its keyboards still open, it reaches neither: the
+    /// displays are not vtium's to wake.
     fn activity(&mut self, now: Instant) {
+        if !self.vt.is_active() {
+            return;
+        }
         for video in self.videos.values_mut() {
             if let Err(e) = video.input() {
                 log::warn!("cannot wake the displays: {e}");
@@ -3251,7 +3390,11 @@ impl App {
                 }
             }
         }
-        if self.blank.fire(now) {
+        // While the VT is another's its displays are not vtium's to blank,
+        // and its countdown waits for the acquire, as the C reference's
+        // DPMS timer blanked nothing while its seat was not in the
+        // foreground (`src/seat.c:520`).
+        if self.vt.is_active() && self.blank.fire(now) {
             self.blank_now(now);
         }
         #[cfg(feature = "images")]
@@ -3482,7 +3625,9 @@ impl App {
         let mut due: Vec<Instant> = Vec::new();
         due.extend(self.timer_due);
         due.extend(self.wait.due());
-        due.extend(self.blank.deadline());
+        if self.vt.is_active() {
+            due.extend(self.blank.deadline());
+        }
         for head in &self.heads {
             due.extend(head.text_due);
             due.extend(head.cursor_due.map(|(d, _)| d));
@@ -3876,7 +4021,6 @@ mod tests {
 
     use vtium_platform::display::{Identity, Memory, Rect, SwapError, Swapped, Token};
     use vtium_platform::event_loop::Loop;
-    use vtium_platform::vt::FakeVt;
 
     use super::*;
 
@@ -3888,6 +4032,15 @@ mod tests {
         pixels: Arc<Mutex<Vec<u8>>>,
         events: Vec<Event>,
         awake: bool,
+        /// It sleeps as a real device does: it lists the displays it
+        /// announced while asleep, and reports each sleep, so a release is
+        /// acknowledged.
+        like_a_device: bool,
+        /// The user's input told it, its displays unblanked, and its
+        /// displays powered down.
+        inputs: u32,
+        unblanks: u32,
+        powered_down: u32,
     }
 
     impl Still {
@@ -3900,6 +4053,10 @@ mod tests {
                 pixels: Arc::new(Mutex::new(vec![0; 320 * 160 * 4])),
                 events: Vec::new(),
                 awake: false,
+                like_a_device: false,
+                inputs: 0,
+                unblanks: 0,
+                powered_down: 0,
             }
         }
     }
@@ -3912,7 +4069,7 @@ mod tests {
             std::mem::take(&mut self.events)
         }
         fn displays(&self) -> Vec<DisplayId> {
-            if self.awake {
+            if self.awake || self.like_a_device {
                 self.ids.iter().map(|&(id, _)| id).collect()
             } else {
                 Vec::new()
@@ -3957,11 +4114,17 @@ mod tests {
         fn ready_for_frame(&self, id: DisplayId) -> bool {
             !self.is_flipping(id)
         }
-        fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
+        fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
+            if dpms == Dpms::Off {
+                self.powered_down = self.powered_down.saturating_add(1);
+            }
             Ok(())
         }
         fn sleep(&mut self) {
             self.awake = false;
+            if self.like_a_device {
+                self.events.push(Event::Asleep);
+            }
         }
         fn wake_up(&mut self) -> io::Result<()> {
             if !self.awake {
@@ -3972,9 +4135,11 @@ mod tests {
             Ok(())
         }
         fn unblank(&mut self) -> io::Result<()> {
+            self.unblanks = self.unblanks.saturating_add(1);
             Ok(())
         }
         fn input(&mut self) -> io::Result<()> {
+            self.inputs = self.inputs.saturating_add(1);
             Ok(())
         }
         fn hotplug(&mut self) -> io::Result<()> {
@@ -3989,8 +4154,14 @@ mod tests {
     /// font sources `fonts` and the device `video` at `/dev/mem0`, before
     /// its first turn.
     fn seat(heads: Option<&str>, fonts: font::Sources) -> (Loop<App>, App) {
-        let args: Vec<OsString> = ["--font-size=16", "--login", "--", "/bin/true"]
+        seat_with(&["--font-size=16"], heads, fonts)
+    }
+
+    /// [`seat`] with the options `options` in place of `--font-size=16`.
+    fn seat_with(options: &[&str], heads: Option<&str>, fonts: font::Sources) -> (Loop<App>, App) {
+        let args: Vec<OsString> = options
             .iter()
+            .chain(&["--login", "--", "/bin/true"])
             .map(OsString::from)
             .collect();
         let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
@@ -4565,8 +4736,16 @@ mod tests {
     #[test]
     fn the_loop_wakes_when_a_heads_hangup_falls_due() {
         let (_lp, mut app) = seat(Some("version = 1\n[head a]\n"), no_fonts());
+        // The VT is vtium's, so the blank's countdown sets a wake later
+        // than 30 s, and the earliest of the two wins. The test takes the
+        // VT without a turn, which would start shorter timers, such as the
+        // blink's.
+        app.vt.activate().unwrap();
         let t = Instant::now();
-        assert!(app.next_wake(t) > Some(Duration::from_secs(30)));
+        assert!(
+            app.next_wake(t)
+                .is_some_and(|w| w > Duration::from_secs(30))
+        );
         if let Some(head) = app.heads.first_mut() {
             head.hangup_due = Some(t + Duration::from_secs(30));
         }
@@ -4588,6 +4767,362 @@ mod tests {
         app.add_input(Path::new("/nonexistent/vtium-test/event9"), keyboard);
         app.report_focus();
         assert_eq!(app.heads.first().map(|h| h.focused), Some(false));
+    }
+
+    // vtium/vtium#229: on a fake VT the app holds one wake-up of the input
+    // for as long as it runs, as the C reference's fake VT did, so the
+    // keyboards stay open after Ctrl+Super+F12 releases it, and the same
+    // chord can take it back; a kernel VT's release closes them
+    #[test]
+    fn a_released_fake_vt_keeps_the_keyboards_open_to_take_it_back() {
+        use vtium_platform::input::{Direct, Input, InputConfig, Keymap};
+        let f12 = InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: InputMods::CTRL.union(InputMods::LOGO),
+            keysyms: vec![0xffc9],
+            codepoints: vec![None],
+            repeat: false,
+        });
+        let awake = |app: &App| app.input.as_ref().is_some_and(Input::is_awake);
+        let (_lp, mut app) = seat(None, no_fonts());
+        let input = || Input::new(Direct, Keymap::fallback().unwrap(), InputConfig::default());
+        app.set_input(input());
+        assert!(awake(&app), "open before the VT is first taken");
+        // the roaming keyboard's keys go to the head with the focus
+        app.focus = Some(0);
+        shown(&mut app);
+        assert!(app.vt.is_active() && awake(&app));
+        app.input_event(f12.clone(), Instant::now());
+        app.turn(Instant::now());
+        assert!(!app.vt.is_active(), "Ctrl+Super+F12 released the VT");
+        assert!(awake(&app), "the keyboards stay open while it is released");
+        app.input_event(f12, Instant::now());
+        app.turn(Instant::now());
+        assert!(app.vt.is_active() && awake(&app), "the chord took it back");
+        // A VT that is not the fake one holds nothing: its acquire opens the
+        // keyboards and its release closes them.
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.vt = Box::new(Bells::default());
+        app.set_input(input());
+        assert!(!awake(&app), "closed until the VT is taken");
+    }
+
+    // vtium/vtium#229's review: while the fake VT is released, with its
+    // keyboards and pointers still open, the user's input wakes none of
+    // the displays the other session owns, a blank that fired meanwhile
+    // included, and a key or a pointer action tells no device
+    #[test]
+    fn input_on_a_released_fake_vt_wakes_no_display() {
+        let key = |keysym: u32, mods: InputMods| {
+            InputEvent::Key(KeyEvent {
+                keycode: 0,
+                ascii: 0,
+                mods,
+                keysyms: vec![keysym],
+                codepoints: vec![None],
+                repeat: false,
+            })
+        };
+        let still = |app: &mut App| {
+            let v = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            let s = v.as_any().downcast_mut::<Still>().unwrap();
+            (s.inputs, s.unblanks)
+        };
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        app.input_event(
+            key(0xffc9, InputMods::CTRL.union(InputMods::LOGO)),
+            Instant::now(),
+        );
+        app.turn(Instant::now());
+        assert!(!app.vt.is_active(), "Ctrl+Super+F12 released the VT");
+        // The blank's timer fires while the VT is another's.
+        assert!(app.blank.blank_now());
+        let before = still(&mut app);
+        app.input_event(key(u32::from('a'), InputMods::empty()), Instant::now());
+        let moved = PointerEvent::Moved {
+            x: 4,
+            y: 4,
+            held: None,
+        };
+        app.input_event(InputEvent::Pointer(moved), Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(
+            still(&mut app),
+            before,
+            "no device told, no display unblanked"
+        );
+        assert!(app.blank.blanked(), "the blank stands");
+    }
+
+    // vtium/vtium#229's review, round 2: while the fake VT is released the
+    // blank's timer blanks nothing, however long it runs past its
+    // timeout, and wakes no loop for it; taken back, the countdown starts
+    // afresh from the acquire. The device lists its displays while
+    // asleep, as a real one does, so a power-down would reach it.
+    #[test]
+    fn a_released_fake_vt_blanks_no_display_and_counts_afresh_at_the_acquire() {
+        let chord = InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: InputMods::CTRL.union(InputMods::LOGO),
+            keysyms: vec![0xffc9],
+            codepoints: vec![None],
+            repeat: false,
+        });
+        let powered_down = |app: &mut App| {
+            let v = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            v.as_any().downcast_mut::<Still>().unwrap().powered_down
+        };
+        let (_lp, mut app) = seat_with(&["--font-size=16", "--dpms-timeout=1"], None, no_fonts());
+        let mut still = Still::new(&[(1, "A")]);
+        still.like_a_device = true;
+        app.add_video(PathBuf::from("/dev/mem0"), Box::new(still));
+        shown(&mut app);
+        app.focus = Some(0);
+        let t = Instant::now();
+        let at = |s: u64| t + Duration::from_millis(s);
+        app.input_event(chord.clone(), t);
+        app.turn(t);
+        assert!(!app.vt.is_active(), "Ctrl+Super+F12 released the VT");
+        let before = powered_down(&mut app);
+        app.turn(at(5_000));
+        assert_eq!(
+            powered_down(&mut app),
+            before,
+            "nothing blanked while released"
+        );
+        assert!(!app.blank.blanked());
+        assert!(
+            app.next_wake(at(5_000)).is_none_or(|w| w > Duration::ZERO),
+            "the blank wakes no loop while released"
+        );
+        app.input_event(chord, at(5_000));
+        app.turn(at(5_000));
+        assert!(app.vt.is_active(), "taken back");
+        app.turn(at(5_500));
+        assert_eq!(
+            powered_down(&mut app),
+            before,
+            "the countdown started at the acquire"
+        );
+        app.turn(at(6_100));
+        assert!(app.blank.blanked(), "a second after the acquire, it blanks");
+        assert!(powered_down(&mut app) > before);
+    }
+
+    /// Two heads on one memory device at `--font-size=0`: `a` draws the
+    /// bitmap frit `t` and `b` the bitmap frit `u`. Their helpers never
+    /// answer, so each frit's cell query at the start has no answer in
+    /// time, and each head still wants its frit's cell.
+    /// The seat is shown, and the frit's directory kept for the test.
+    fn late_seat(test: &str) -> (Loop<App>, App, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("vtium-app-{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
+        std::fs::write(dir.join("u.vtfrit"), "source=kbd:y\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.clone(),
+            helper: Some(helper::Command {
+                program: PathBuf::from("/bin/sh"),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let heads = "version = 1\n[head a]\nprofile = t\n[head b]\nprofile = u\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+        let (lp, mut app) = seat_with(&["--font-size=0"], Some(heads), fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A"), (2, "B")])),
+        );
+        shown(&mut app);
+        (lp, app, dir)
+    }
+
+    // ADR-1200 D17 (the maintainer, 2026-11-03), fix round 1 of the work
+    // that keeps a late answer: a late answer lays out again only the
+    // heads drawing the frit that take a cell from it. An outline cell for
+    // a height no head draws at, given to frit `u`, lays out nothing; a
+    // bitmap first source's own cell, given to frit `t`, lays out the head
+    // drawing `t` and not the head drawing `u`, which still wants its own
+    // cell. Each frit gets one kind of answer, as one frit's first source
+    // answers one kind for the whole boot. `refont`, which a layout takes,
+    // marks each head.
+    #[test]
+    fn a_late_cell_lays_out_only_the_heads_that_take_it() {
+        let (_lp, mut app, dir) = late_seat("late-heads");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let known = app.frits.get("t").map(|f| f.own.clone()).unwrap();
+        assert!(
+            known
+                .get(&at)
+                .is_some_and(|k| k.as_ref().is_err_and(|no| no.late)),
+            "the start's query had no answer in time: {known:?}"
+        );
+        let mark = |app: &mut App| {
+            for head in &mut app.heads {
+                head.refont = true;
+            }
+        };
+        let marked = |app: &App| app.heads.iter().map(|h| h.refont).collect::<Vec<_>>();
+        let other = at + 11;
+        mark(&mut app);
+        let outline = vtium_font::Cell {
+            width: 9,
+            height: other,
+        };
+        app.late_cell("u", other, Ok(helper::OwnCell::Outline(outline)));
+        assert_eq!(
+            marked(&app),
+            [true, true],
+            "an outline cell at {other} lays out nothing"
+        );
+        let own = vtium_font::Cell {
+            width: 8,
+            height: 16,
+        };
+        app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(own)));
+        assert_eq!(marked(&app), [false, true], "a is laid out, b is not");
+        assert_eq!(app.heads.first().map(|h| h.cell), Some((8, 16)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ADR-1200 D17: a late answer takes the place of a missing answer
+    // alone. Where an OSC 50 switch back asked again at the same height
+    // and its answer came in time, the helper hands on the first query's
+    // answer late, behind it (the helper's test
+    // `a_query_asked_again_keeps_its_own_answer_and_the_earlier_one_late`);
+    // the answer in time stays, and the late one lays out nothing. A
+    // refusal in time stays too; a late refusal fills a missing answer.
+    #[test]
+    fn a_late_cell_answer_fills_only_a_missing_answer() {
+        let (_lp, mut app, dir) = late_seat("late-missing");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let cell = |w, h| vtium_font::Cell {
+            width: w,
+            height: h,
+        };
+        let in_time = Ok(helper::OwnCell::Bitmap(cell(8, 16)));
+        let refused = Err(helper::NoCell {
+            why: "no such font".to_owned(),
+            late: false,
+        });
+        if let Some(frit) = app.frits.get_mut("t") {
+            frit.own.insert(at, in_time.clone());
+            frit.own.insert(at + 1, refused.clone());
+        }
+        for head in &mut app.heads {
+            head.refont = true;
+        }
+        app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(cell(16, 32))));
+        app.late_cell("t", at + 1, Ok(helper::OwnCell::Bitmap(cell(16, 32))));
+        let late_refusal = Err(helper::NoCell {
+            why: "late".to_owned(),
+            late: false,
+        });
+        app.late_cell("t", at + 2, late_refusal.clone());
+        let known = app.frits.get("t").map(|f| f.own.clone()).unwrap();
+        assert_eq!(known.get(&at), Some(&in_time));
+        assert_eq!(known.get(&(at + 1)), Some(&refused));
+        assert_eq!(known.get(&(at + 2)), Some(&late_refusal));
+        assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ADR-1200 D17, the fix branch's re-review: a bitmap frit's answer
+    // holds at every height, so a refusal that came in time at one height
+    // holds at all of them. A late bitmap cell is then dropped, at the
+    // start's height, whose query had no answer in time, and at a height
+    // no query was asked at, and it never becomes the cell that
+    // `answer_at`, which looks for a bitmap cell first, finds.
+    #[test]
+    fn a_late_bitmap_cell_yields_to_a_refusal_in_time_at_any_height() {
+        let (_lp, mut app, dir) = late_seat("late-refused");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let refused = Err(helper::NoCell {
+            why: "no such font".to_owned(),
+            late: false,
+        });
+        if let Some(frit) = app.frits.get_mut("t") {
+            assert!(
+                frit.own
+                    .get(&at)
+                    .is_some_and(|k| k.as_ref().is_err_and(|no| no.late)),
+                "the start's query had no answer in time: {:?}",
+                frit.own
+            );
+            frit.own.insert(at + 5, refused.clone());
+        }
+        for head in &mut app.heads {
+            head.refont = true;
+        }
+        let own = Ok(helper::OwnCell::Bitmap(vtium_font::Cell {
+            width: 8,
+            height: 16,
+        }));
+        app.late_cell("t", at, own.clone());
+        app.late_cell("t", at + 3, own);
+        let frit = app.frits.get("t").unwrap();
+        assert!(
+            frit.own.values().all(Result::is_err),
+            "no late cell kept: {:?}",
+            frit.own
+        );
+        assert_eq!(frit.answer_at(at, false), Some(refused.clone()));
+        assert_eq!(frit.answer_at(at + 3, false), Some(refused));
+        assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ADR-1200 D17, the fix branch's re-review: the answers, and not the
+    // frit's text, say which kind a frit is. Frit `t`'s text guesses
+    // bitmap (`source=kbd:x`), as `font-name=/path/x.ttf` makes a frit
+    // whose first source is in fact an outline font. With an outline cell
+    // held at one height, a head at another height has no answer and asks
+    // at its own, and a head at the first height, still guessing bitmap,
+    // gets that cell, whatever failed at the other height.
+    #[test]
+    fn an_outline_answer_holds_at_its_height_alone_whatever_the_text_guesses() {
+        let (_lp, mut app, dir) = late_seat("late-kind");
+        let at = 16;
+        let outline = Ok(helper::OwnCell::Outline(vtium_font::Cell {
+            width: 9,
+            height: at,
+        }));
+        let failures = [
+            Err(helper::NoCell {
+                why: "no answer in time".to_owned(),
+                late: true,
+            }),
+            Err(helper::NoCell {
+                why: "no such font".to_owned(),
+                late: false,
+            }),
+        ];
+        let frit = app.frits.get_mut("t").unwrap();
+        frit.own.clear();
+        frit.own.insert(at, outline.clone());
+        // The second head, at 20, asks at its own height.
+        assert_eq!(frit.answer_at(20, false), None, "the second head asks");
+        for failed in failures {
+            frit.own.insert(20, failed.clone());
+            // A third head at 16 takes the outline cell held there.
+            assert_eq!(
+                frit.answer_at(at, false),
+                Some(outline.clone()),
+                "the third head, beside {failed:?} at 20"
+            );
+            assert_eq!(frit.answer_at(20, false), Some(failed));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
