@@ -3,8 +3,8 @@
 ---------------------------------------------------------------------------------------------------
    broken     does not read: line 2: unknown key colour
    minspec-16 reads
-   proof      reads
-   tiny5      reads
+   proof      reads, 1 source missing
+   tiny5      no source on this machine
  > unifont    built in, saved
    unscii-8   built in
 
