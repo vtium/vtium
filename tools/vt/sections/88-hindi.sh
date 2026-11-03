@@ -1,7 +1,8 @@
 #!/bin/bash
 # look-for: Devanagari letters whole, joined consonants one shape where the
 # look-for: font has one, vowel signs beside or above their letters; breaks in
-# look-for: the top bar at cell edges are expected today.
+# look-for: the top bar at cell edges are expected today. In the bitmap set a
+# look-for: vowel sign that stands beside its letter is drawn over it today.
 # wrong-looks-like: Boxes, dotted circles, a vowel sign on the wrong side of
 # wrong-looks-like: its consonant, or a sign in a cell of its own.
 # frits: acceptance-outline acceptance-bitmap

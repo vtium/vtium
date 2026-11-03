@@ -1,7 +1,8 @@
 #!/bin/bash
-# look-for: Hebrew letters whole, one a cell, square and of even height. vtium
-# look-for: does not order right-to-left text yet, so the words run left to
-# look-for: right in typed order: expected today.
+# look-for: Hebrew letters whole, one a cell; most letters are square blocks
+# look-for: of one height; ל rises above them and ן drops below: both are
+# look-for: right. vtium does not order right-to-left text yet, so the words
+# look-for: run left to right in typed order: expected today.
 # wrong-looks-like: Boxes, a letter cut or overlapping its neighbour, or a
 # wrong-looks-like: decoration broken between letters.
 # frits: acceptance-outline acceptance-bitmap
