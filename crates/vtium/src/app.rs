@@ -1560,9 +1560,11 @@ impl App {
     /// The helper's answer to frit `name`'s cell query at `height`, which
     /// came after the console stopped waiting for it (ADR-1200 D17, the
     /// maintainer, 2026-11-03). It takes the place of a missing answer
-    /// alone, the timeout recorded at `height` or no entry at all, and is
-    /// then logged in one line, so a refusal holds as one in time does. An
-    /// answer the frit already holds at `height`, as when an OSC 50 switch
+    /// alone, a timeout or no answer at all, and is then logged in one
+    /// line, so a refusal holds as one in time does. A cell is missing
+    /// where [`Frit::answer_at`] finds no answer in time for it: for a
+    /// bitmap first source's cell, at any height, and otherwise at
+    /// `height`. An answer the frit already holds, as when an OSC 50 switch
     /// back asked again and its answer came in time behind this one, stays,
     /// and the late one is dropped. A cell taken lays out again each head
     /// drawing the frit that takes it: for a bitmap first source's cell
@@ -1577,11 +1579,16 @@ impl App {
         let Some(frit) = self.frits.get_mut(name) else {
             return;
         };
-        let missing = frit
-            .own
-            .get(&height)
-            .is_none_or(|known| known.as_ref().is_err_and(|no| no.late));
-        if !missing {
+        let outline = match &answer {
+            Ok(helper::OwnCell::Bitmap(_)) => Some(false),
+            Ok(helper::OwnCell::Outline(_)) => Some(true),
+            Err(_) => None,
+        };
+        let held = match outline {
+            Some(outline) => frit.answer_at(height, outline),
+            None => frit.own.get(&height).cloned(),
+        };
+        if held.is_some_and(|known| !known.is_err_and(|no| no.late)) {
             return;
         }
         match &answer {
@@ -1599,15 +1606,10 @@ impl App {
                 "the helper refused the frit {name}'s own cell after the wait ({why}): it keeps the cell it draws in"
             ),
         }
-        let outline = match &answer {
-            Ok(helper::OwnCell::Bitmap(_)) => false,
-            Ok(helper::OwnCell::Outline(_)) => true,
-            Err(_) => {
-                frit.own.insert(height, answer);
-                return;
-            }
-        };
         frit.own.insert(height, answer);
+        let Some(outline) = outline else {
+            return;
+        };
         for h in 0..self.heads.len() {
             let dpi = self.dpi(h);
             let takes = self.heads.get(h).is_some_and(|head| {
@@ -4736,7 +4738,10 @@ mod tests {
         // blink's.
         app.vt.activate().unwrap();
         let t = Instant::now();
-        assert!(app.next_wake(t).is_some_and(|w| w > Duration::from_secs(30)));
+        assert!(
+            app.next_wake(t)
+                .is_some_and(|w| w > Duration::from_secs(30))
+        );
         if let Some(head) = app.heads.first_mut() {
             head.hangup_due = Some(t + Duration::from_secs(30));
         }
@@ -5022,6 +5027,51 @@ mod tests {
         assert_eq!(known.get(&at), Some(&in_time));
         assert_eq!(known.get(&(at + 1)), Some(&refused));
         assert_eq!(known.get(&(at + 2)), Some(&late_refusal));
+        assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ADR-1200 D17, the fix branch's re-review: a bitmap frit's answer
+    // holds at every height, so a refusal that came in time at one height
+    // holds at all of them. A late bitmap cell is then dropped, at the
+    // start's height, whose query had no answer in time, and at a height
+    // no query was asked at, and it never becomes the cell that
+    // `answer_at`, which looks for a bitmap cell first, finds.
+    #[test]
+    fn a_late_bitmap_cell_yields_to_a_refusal_in_time_at_any_height() {
+        let (_lp, mut app, dir) = late_seat("late-refused");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let refused = Err(helper::NoCell {
+            why: "no such font".to_owned(),
+            late: false,
+        });
+        if let Some(frit) = app.frits.get_mut("t") {
+            assert!(
+                frit.own
+                    .get(&at)
+                    .is_some_and(|k| k.as_ref().is_err_and(|no| no.late)),
+                "the start's query had no answer in time: {:?}",
+                frit.own
+            );
+            frit.own.insert(at + 5, refused.clone());
+        }
+        for head in &mut app.heads {
+            head.refont = true;
+        }
+        let own = Ok(helper::OwnCell::Bitmap(vtium_font::Cell {
+            width: 8,
+            height: 16,
+        }));
+        app.late_cell("t", at, own.clone());
+        app.late_cell("t", at + 3, own);
+        let frit = app.frits.get("t").unwrap();
+        assert!(
+            frit.own.values().all(Result::is_err),
+            "no late cell kept: {:?}",
+            frit.own
+        );
+        assert_eq!(frit.answer_at(at, false), Some(refused.clone()));
+        assert_eq!(frit.answer_at(at + 3, false), Some(refused));
         assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
         let _ = std::fs::remove_dir_all(&dir);
     }
