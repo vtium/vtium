@@ -52,6 +52,7 @@ cols=80
 key=
 note=
 go=
+bracketed=
 
 clear_screen() {
 	printf '\033[0m\033[H\033[2J\033[3J'
@@ -82,16 +83,49 @@ small_mark() {
 
 # Reads one key into $key. An escape sequence (an arrow key, a late reply from
 # the terminal) is read whole and returned as ESC, so its bytes are never taken
-# for keys.
+# for keys. So is a paste: the walk turns on bracketed paste (DECSET 2004), so
+# the terminal sends pasted text between ESC [ 200 ~ and ESC [ 201 ~, and the
+# walk drops it whole, so a pasted y, n, c or q never answers a page.
 read_key() {
+	local c seq=
 	IFS= read -rsn1 key </dev/tty || exit 0
-	[ "$key" != $'\033' ] || drain
+	[ "$key" = $'\033' ] || return 0
+	if IFS= read -rsn1 -t 0.05 c </dev/tty && [ "$c" = '[' ]; then
+		# a CSI sequence: parameters, then a final byte from @ to ~
+		while IFS= read -rsn1 -t 0.05 c </dev/tty; do
+			seq+=$c
+			case $c in [@-~]) break ;; esac
+		done
+	fi
+	if [ "$seq" = '200~' ]; then
+		skip_paste
+	else
+		drain
+	fi
+}
+
+# Reads a paste after its start, up to and with its end, ESC [ 201 ~, and drops
+# it. A paste whose end does not come within a second of its last byte ends
+# there.
+skip_paste() {
+	local c tail=
+	while IFS= read -rsn1 -d '' -t 1 c </dev/tty; do
+		tail=$tail$c
+		[ ${#tail} -le 6 ] || tail=${tail:1}
+		[ "$tail" != $'\033[201~' ] || return 0
+	done
 }
 
 # Discards keys already typed, so a key pressed before a prompt appeared does
-# not answer it.
+# not answer it, and any paste among them whole, though it arrives over more
+# than one read.
 drain() {
-	while IFS= read -rsn1 -t 0.05 _ </dev/tty; do :; done
+	local c tail=
+	while IFS= read -rsn1 -d '' -t 0.05 c </dev/tty; do
+		tail=$tail$c
+		[ ${#tail} -le 6 ] || tail=${tail:1}
+		[ "$tail" != $'\033[200~' ] || { skip_paste; tail=; }
+	done
 }
 
 # Shows PROMPT in reverse video on the current line and waits for a key; q ends
@@ -503,7 +537,10 @@ prompt() {
 # stays in view. Ctrl-D on an empty line or a line holding only "." ends it.
 # Ctrl-D reaches the line editor as a key, never as the end of the walk's
 # input. The line editor shows what is typed only while the terminal's echo is
-# on, so echo is on for the comment.
+# on, so echo is on for the comment. A paste is comment text: the line editor
+# takes a bracketed paste whole into the line, a pasted address with it, and
+# turns bracketed paste off when it returns a line, so the walk turns it on
+# again after the comment.
 read_comment() {
 	local line lines=()
 	prompt 'comment: end it with Ctrl-D or a line holding only .'
@@ -518,6 +555,7 @@ read_comment() {
 		lines+=("$line")
 	done
 	stty -echo </dev/tty 2>/dev/null
+	[ -z "$bracketed" ] || printf '\033[?2004h' >/dev/tty
 	note=$(printf '%s\n' "${lines[@]}")
 }
 
@@ -684,8 +722,11 @@ start_rows=$rows start_cols=$cols
 # drops, and that read then waits for another key. Off for the whole run,
 # Ctrl-D is a key whenever it arrives.
 if [ -z "$nopage" ] && tty_mode=$(stty -g </dev/tty 2>/dev/null); then
-	trap 'restore_font; reset_terminal; stty "$tty_mode" </dev/tty' EXIT
+	trap 'restore_font; reset_terminal; printf "\033[?2004l" >/dev/tty; stty "$tty_mode" </dev/tty' EXIT
 	stty -echo -icanon min 1 time 0 </dev/tty
+	# Pasted text comes bracketed, so the walk can tell it from keys (read_key).
+	printf '\033[?2004h' >/dev/tty
+	bracketed=1
 fi
 
 if [ -n "$noprompt" ]; then

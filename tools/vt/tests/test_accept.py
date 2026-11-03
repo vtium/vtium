@@ -125,6 +125,18 @@ class Pty:
     def send(self, data):
         os.write(self.fd, data)
 
+    def paste(self, *pieces):
+        """Pastes the text of PIECES, sent one after another, as a terminal
+        does: between ESC [ 200 ~ and ESC [ 201 ~ while the program has asked
+        for bracketed paste (DECSET 2004), as it is otherwise."""
+        on = self.seen.rfind(b"\x1b[?2004h") > self.seen.rfind(b"\x1b[?2004l")
+        pieces = list(pieces)
+        if on:
+            pieces[0] = b"\x1b[200~" + pieces[0]
+            pieces[-1] = pieces[-1] + b"\x1b[201~"
+        for p in pieces:
+            self.send(p)
+
     def finish(self, timeout=10):
         end = time.monotonic() + timeout
         while time.monotonic() < end:
@@ -354,6 +366,67 @@ class Walk(Case):
         self.assertEqual(d.finish(), 0)
         _, text = self.record()
         self.assertEqual(self.rows(text), [("10-one", "no", "first comment"), ("20-two", "-", "")])
+
+    def test_a_paste_at_the_answer_prompt_answers_nothing(self):
+        # The walk asks for bracketed paste, and a paste's y, n, c, u, s, b,
+        # r and q, arriving in more than one piece, answer nothing: the page
+        # stays, nothing is recorded, and the next key typed answers it.
+        d = self.walk(self.env(), "one", "two")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"page one")
+        d.wait_for(ASK)
+        d.paste(b"https://example.org/ycnq?a=b", b"&u=s rb\nyes")
+        # r, typed after the paste, draws the same page again: the walk read
+        # the whole paste and is still on page one
+        d.send(b"r")
+        d.wait_for(b"[1/2] one")
+        d.wait_for(ASK)
+        self.assertNotIn(b"comment:", d.seen)
+        path, text = self.record()
+        self.assertEqual(self.rows(text), [("10-one", "-", ""), ("20-two", "-", "")])
+        d.send(b"s")
+        d.wait_for(b"page two")
+        d.wait_for(ASK)
+        d.send(b"q")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        # the walk asked for bracketed paste, and turns it off as it ends
+        self.assertIn(b"\x1b[?2004h", d.seen)
+        self.assertIn(b"\x1b[?2004l", d.seen[d.seen.rindex(b"q exit"):])
+        _, text = self.record()
+        self.assertEqual(self.rows(text), [("10-one", "skip", ""), ("20-two", "-", "")])
+
+    def test_a_paste_in_a_comment_is_comment_text(self):
+        d = self.walk(self.env(), "one", "two")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"page one")
+        d.wait_for(ASK)
+        d.send(b"c")
+        d.wait_for(b"> ")
+        d.send(b"see ")
+        d.paste(b"https://example.org/q?y=n")
+        d.send(b"\r")
+        d.wait_for(b"> ")
+        d.send(b".\r")
+        d.wait_for(b"y yes  n no  u unsure  s skip")
+        d.send(b"n")
+        d.wait_for(b"page two")
+        d.wait_for(ASK)
+        # after the comment the walk asks for bracketed paste again, and a
+        # paste answers nothing
+        d.paste(b"yyy")
+        d.send(b"r")
+        d.wait_for(b"[2/2] two")
+        d.wait_for(ASK)
+        d.send(b"q")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        _, text = self.record()
+        self.assertEqual(self.rows(text), [("10-one", "no", "see https://example.org/q?y=n"), ("20-two", "-", "")])
 
     def test_a_terminal_smaller_than_80x25_is_named_on_the_title_and_each_page(self):
         d = self.walk(self.env(), "one", size=(24, 80))
