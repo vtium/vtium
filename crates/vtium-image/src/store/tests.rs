@@ -1703,6 +1703,33 @@ fn a_drawn_size_draws_the_picture_at_it_and_the_box_covers_the_cells_it_reaches(
     );
 }
 
+// covers: image.iterm2
+#[test]
+fn a_drawn_size_ignores_a_box_in_cells_the_place_names() {
+    // the place's box of 9 by 7 cells is not the picture's: a drawn size
+    // of 30 by 20 pixels still covers four columns and two rows at 8 by 16
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    let img = add(&mut s, &f, Protocol::SIXEL, 64, 48, 0);
+    let place = Place {
+        col: 1,
+        row: 1,
+        cols: 9,
+        rows: 7,
+        ..Place::default()
+    };
+    let drawn = Link::Drawn {
+        width: 30,
+        height: 20,
+    };
+    s.place_at(img, place, drawn, f.screens(), COLS).unwrap();
+    let frame = s.frame(f.rows(), COLS);
+    let p = &frame[0];
+    assert_eq!((p.col, p.row, p.cols, p.rows), (1, 1, 4, 2));
+    assert_eq!((p.offset_x, p.offset_y), (0, 0));
+    assert_eq!((p.drawn_width, p.drawn_height), (30, 20));
+}
+
 /// A picture under the sixel tag, 8 by 16 pixels of `root`, with a second
 /// whole frame of `second`, as an iTerm2 picture's animated GIF is stored.
 fn animated(s: &mut Store, f: &Fake, root: u32, second: Vec<u32>) -> ImageKey {

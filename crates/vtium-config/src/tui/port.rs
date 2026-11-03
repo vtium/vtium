@@ -21,6 +21,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use rustix::termios::{OptionalActions, QueueSelector, Termios, tcflush, tcgetattr, tcsetattr};
+use vtium_platform::calloop::channel::{Event as Sent, Sender, channel};
 use vtium_platform::calloop::generic::Generic;
 use vtium_platform::calloop::{Interest, Mode, PostAction};
 use vtium_platform::event_loop::{Loop, Signal};
@@ -35,6 +36,8 @@ use crate::draft::Plan;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Wake {
     Bytes(Vec<u8>),
+    /// The sources each frit lacks, which [`Port::sources`] asked for.
+    Sourced(Vec<(String, super::model::SourcesFound)>),
     Resize,
     Signal(i32),
     Timeout,
@@ -67,6 +70,13 @@ pub trait Port {
         height: u32,
         max: (u32, u32),
     ) -> Result<crate::specimen::Picture, String>;
+    /// What the font `font` gives at `height` pixels, for a terminal that
+    /// draws no pictures.
+    fn summary(&mut self, font: &str, height: u32) -> Result<crate::specimen::Summary, String>;
+    /// Asks which sources each frit of `fonts` lacks or refuses, without
+    /// waiting: the answers come later, as [`Wake::Sourced`], and the loop
+    /// reads keys meanwhile.
+    fn sources(&mut self, fonts: Vec<String>);
 }
 
 /// Alternate screen, cursor hidden; and back.
@@ -96,6 +106,15 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                         let picture = port.picture(&font, height, max);
                         queue.extend(app.event(Event::Pictured(picture)));
                     }
+                    Effect::Summary { font, height } => {
+                        let summary = port.summary(&font, height);
+                        queue.extend(app.event(Event::Summarized {
+                            font,
+                            height,
+                            summary,
+                        }));
+                    }
+                    Effect::Sources(fonts) => port.sources(fonts),
                     Effect::Save(plan) => {
                         port.write(&view::paint(&view::screen(&app)))?;
                         let result = port.save(&plan);
@@ -117,6 +136,7 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                     vec![Event::Resize { cols, rows }]
                 }
                 Wake::Signal(n) => vec![Event::Signal(n)],
+                Wake::Sourced(found) => vec![Event::Sourced(found)],
                 Wake::Timeout => vec![Event::Timeout],
             };
             for event in events {
@@ -170,10 +190,27 @@ struct Woken {
 pub type Painter =
     Box<dyn FnMut(&str, u32, (u32, u32)) -> Result<crate::specimen::Picture, String>>;
 
+/// Summarizes a font's specimen at a pixel height.
+pub type Summarizer = Box<dyn FnMut(&str, u32) -> Result<crate::specimen::Summary, String>>;
+
+/// Finds the sources each frit lacks, on a thread of its own.
+pub type Finder = Box<dyn FnOnce(Vec<String>) -> Vec<(String, super::model::SourcesFound)> + Send>;
+
+/// What the real port asks the glyph helper through.
+pub struct Tools {
+    pub painter: Painter,
+    pub summarizer: Summarizer,
+    /// Taken by the one sources query a run makes.
+    pub finder: Option<Finder>,
+}
+
 /// The terminal on standard input and output.
 pub struct Tty {
     saver: Saver,
-    painter: Painter,
+    tools: Tools,
+    /// Where the source finder's thread sends its answers, which the loop
+    /// reads as [`Wake::Sourced`].
+    sourced: Sender<Vec<(String, super::model::SourcesFound)>>,
     input: OwnedFd,
     raw: Termios,
     saved: Termios,
@@ -193,8 +230,8 @@ impl Tty {
     /// Takes the terminal: raw mode, the alternate screen, the signals
     /// held. `saver` writes a draft and runs the privileged step through
     /// the runner it is given.
-    pub fn open(saver: Saver, painter: Painter) -> io::Result<Tty> {
-        let input = rustix::io::dup(std::io::stdin().as_fd())?;
+    pub fn open(saver: Saver, tools: Tools) -> io::Result<Tty> {
+        let input = rustix::io::fcntl_dupfd_cloexec(std::io::stdin().as_fd(), 0)?;
         let saved = tcgetattr(&input)?;
         let mut raw = saved.clone();
         raw.make_raw();
@@ -211,7 +248,11 @@ impl Tty {
         // held so the TUI can take the terminal's foreground back after
         // the privileged step without being stopped
         events.on_signal(Signal::SIGTTOU, |_: &mut Woken| {})?;
-        let source = Generic::new(rustix::io::dup(&input)?, Interest::READ, Mode::Level);
+        let source = Generic::new(
+            rustix::io::fcntl_dupfd_cloexec(&input, 0)?,
+            Interest::READ,
+            Mode::Level,
+        );
         events
             .handle()
             .insert_source(source, |_, fd, w: &mut Woken| {
@@ -234,11 +275,20 @@ impl Tty {
                 }
             })
             .map_err(|e| io::Error::other(e.to_string()))?;
+        let (sourced, answers) = channel();
+        events
+            .handle()
+            .insert_source(answers, |sent, _, w: &mut Woken| {
+                if let Sent::Msg(found) = sent {
+                    w.wakes.push(Wake::Sourced(found));
+                }
+            })
+            .map_err(|e| io::Error::other(e.to_string()))?;
         tcsetattr(&input, OptionalActions::Now, &raw)?;
         if let Ok(mut r) = RESTORE.lock() {
             *r = Some(Restore {
                 saved: saved.clone(),
-                tty: rustix::io::dup(&input)?,
+                tty: rustix::io::fcntl_dupfd_cloexec(&input, 0)?,
                 bytes: Vec::new(),
             });
         }
@@ -249,7 +299,8 @@ impl Tty {
         }));
         let mut tty = Tty {
             saver,
-            painter,
+            tools,
+            sourced,
             input,
             raw,
             saved,
@@ -399,7 +450,20 @@ impl Port for Tty {
         height: u32,
         max: (u32, u32),
     ) -> Result<crate::specimen::Picture, String> {
-        (self.painter)(font, height, max)
+        (self.tools.painter)(font, height, max)
+    }
+
+    fn summary(&mut self, font: &str, height: u32) -> Result<crate::specimen::Summary, String> {
+        (self.tools.summarizer)(font, height)
+    }
+
+    fn sources(&mut self, fonts: Vec<String>) {
+        if let Some(finder) = self.tools.finder.take() {
+            let sourced = self.sourced.clone();
+            std::thread::spawn(move || {
+                let _ = sourced.send(finder(fonts));
+            });
+        }
     }
 
     fn on_panic(&mut self, bytes: Vec<u8>) {

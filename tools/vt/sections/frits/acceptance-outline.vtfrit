@@ -1,0 +1,21 @@
+# acceptance-outline: the acceptance pass's outline font set (ADR-1501 D6). DejaVu
+# Sans Mono for Latin, Greek and Cyrillic, then a Noto Sans font for each
+# script it lacks, then Noto Color Emoji, then the built-in unifont for
+# anything none of them holds. Each source is a file of Arch Linux's
+# packages: ttf-dejavu, noto-fonts, noto-fonts-cjk and noto-fonts-emoji.
+# The acceptance pass records each file's SHA-256 and package with every pass, so
+# a change between two passes is told apart from a font update.
+#
+# checks: glyphs scaled to the cell; marks from the font's anchors
+
+name=acceptance-outline
+license=Bitstream-Vera AND OFL-1.1
+
+source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf
+source=outline:/usr/share/fonts/noto/NotoSansHebrew-Regular.ttf
+source=outline:/usr/share/fonts/noto/NotoSansArabic-Regular.ttf
+source=outline:/usr/share/fonts/noto/NotoSansDevanagari-Regular.ttf
+source=outline:/usr/share/fonts/noto/NotoSansThai-Regular.ttf
+source=outline:/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc
+source=outline:/usr/share/fonts/noto/NotoColorEmoji.ttf
+source=builtin:unifont

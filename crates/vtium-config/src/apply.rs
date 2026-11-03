@@ -159,6 +159,18 @@ pub fn write_draft(root: &Path, plan: &Plan, targets: &Targets) -> io::Result<Pa
             .map_or_else(|| "new".to_owned(), |old| hash(old.as_bytes()));
         manifest.push_str(&format!("write\t{name}\t{was}\n"));
     }
+    for removal in &plan.removals {
+        let name = name_for(targets, &removal.path)
+            .filter(|n| n.starts_with("fonts/"))
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("{} is no frit a draft removes", removal.path.display()),
+                )
+            })?;
+        let was = hash(&removal.old);
+        manifest.push_str(&format!("remove\t{name}\t{was}\n"));
+    }
     std::fs::write(dir.join(MANIFEST), manifest)?;
     Ok(dir)
 }
@@ -254,7 +266,7 @@ pub fn saver(paths: Paths) -> Saver {
         let program = std::env::current_exe().map_err(|e| e.to_string())?;
         let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
         match run(&argv) {
-            Ok((true, _)) => Ok(plan.files.len()),
+            Ok((true, _)) => Ok(plan.len()),
             Ok((false, said)) => Err(format!(
                 "the command failed, and the draft stays in {}.\n{}",
                 draft.display(),
@@ -520,6 +532,124 @@ pub fn command(
     }
 }
 
+/// Makes `plan`, the change a command computed (ADR-1201 D2), writing to
+/// `out` and `err`; returns the exit status. Run as root, it installs the
+/// change at once through the steps `apply` takes, from a draft root makes
+/// in a directory of its own. Run as a user, it writes the change as a
+/// draft under `paths.drafts` and prints each file the draft writes or
+/// removes, the draft's directory, and the command that installs it.
+pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
+    if plan.is_empty() {
+        let _ = writeln!(out, "unchanged");
+        return 0;
+    }
+    let targets = paths.targets();
+    if rustix::process::geteuid().is_root() {
+        return match install_now(plan, &targets, out) {
+            Ok(true) => 0,
+            Ok(false) => 1,
+            Err(why) => {
+                let _ = writeln!(err, "vtium-config: {why}\nNothing was written.");
+                1
+            }
+        };
+    }
+    let draft = match write_draft(&paths.drafts, plan, &targets) {
+        Ok(draft) => draft,
+        Err(e) => {
+            let _ = writeln!(
+                err,
+                "vtium-config: the draft under {}: {e}",
+                paths.drafts.display()
+            );
+            return 1;
+        }
+    };
+    for file in &plan.files {
+        let _ = writeln!(out, "write\t{}", file.path.display());
+    }
+    for removal in &plan.removals {
+        let _ = writeln!(out, "remove\t{}", removal.path.display());
+    }
+    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
+    let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
+    let shown: Vec<String> = argv
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let _ = writeln!(out, "draft\t{}", draft.display());
+    let _ = writeln!(out, "run\t{}", shown.join(" "));
+    0
+}
+
+/// Installs `plan` at once, as root: the draft written into a directory of
+/// root's own under `/tmp`, then applied, so every file goes through the
+/// checks `apply` makes.
+fn install_now(plan: &Plan, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
+    install_under(Scratch::system()?, plan, targets, out)
+}
+
+/// [`install_now`] with its draft in `scratch`, which goes when it is
+/// dropped, whatever the apply did.
+fn install_under(
+    scratch: Scratch,
+    plan: &Plan,
+    targets: &Targets,
+    out: &mut dyn Write,
+) -> Result<bool, String> {
+    let draft = write_draft(&scratch.path, plan, targets)
+        .map_err(|e| format!("the draft under {}: {e}", scratch.path.display()))?;
+    apply(&draft, targets, out)
+}
+
+/// A copy of `bytes`, named `name`, in a directory of this process's own
+/// under the system's temporary directory, as `check` hands a file to the
+/// console's check; the directory goes when the copy is dropped.
+pub struct Copy {
+    scratch: Scratch,
+    pub path: PathBuf,
+}
+
+impl Copy {
+    pub fn new(name: &str, bytes: &[u8]) -> Result<Copy, String> {
+        let scratch = Scratch::new(
+            &std::env::temp_dir(),
+            &mut scratch_name,
+            rustix::process::geteuid().as_raw(),
+        )?;
+        let path = scratch.write(name, bytes)?;
+        Ok(Copy { scratch, path })
+    }
+
+    /// The directory that holds the copy.
+    pub fn dir(&self) -> &Path {
+        &self.scratch.path
+    }
+}
+
+/// What names the frit `name` and so keeps it from being removed:
+/// vtium.conf's `font-name` in `conf`, or a head's `profile =` line in the
+/// head file `heads`, since a head's profile other than `default` draws the
+/// frit of its name; `None` when nothing does. The head file is read as
+/// the console reads it, what survives its errors included.
+pub fn naming(name: &str, conf: Option<&str>, heads: Option<&str>) -> Option<String> {
+    if conf
+        .and_then(|c| vtium_settings::setting(c, "font-name"))
+        .as_deref()
+        == Some(name)
+    {
+        return Some("vtium.conf's font-name".to_owned());
+    }
+    let heads = vtium_settings::reading(heads?.as_bytes())
+        .parsed
+        .config
+        .heads;
+    heads
+        .iter()
+        .find(|h| h.profile != "default" && h.profile == name)
+        .map(|h| format!("head {}'s profile", h.name))
+}
+
 /// A file read from the draft, checked, waiting to be written.
 struct Staged {
     target: PathBuf,
@@ -644,20 +774,26 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             )
         })?;
     }
-    // a frit vtium.conf names after the save is never removed
+    // a frit vtium.conf or a head names after the save is never removed
     let conf_text = match &conf {
         Some(c) => String::from_utf8_lossy(c.bytes.as_deref().unwrap_or_default()).into_owned(),
         None => std::fs::read_to_string(targets.configdir.join("vtium.conf")).unwrap_or_default(),
     };
-    if let Some(named) = vtium_settings::setting(&conf_text, "font-name")
-        && let Some(path) = removals
-            .iter()
-            .find(|p| p.file_stem().and_then(|s| s.to_str()) == Some(named.as_str()))
-    {
-        return Err(format!(
-            "{} is the frit vtium.conf's font-name names, so it is not removed",
-            path.display()
-        ));
+    let heads_text = match &heads {
+        Some(h) => String::from_utf8_lossy(h.bytes.as_deref().unwrap_or_default()).into_owned(),
+        None => std::fs::read_to_string(targets.configdir.join("heads.conf")).unwrap_or_default(),
+    };
+    for path in &removals {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if let Some(by) = naming(stem, Some(&conf_text), Some(&heads_text)) {
+            return Err(format!(
+                "{} is the frit {by} names, so it is not removed",
+                path.display()
+            ));
+        }
     }
     // step 4: frits, the head file, vtium.conf, then removals
     let order: Vec<Staged> = frits
@@ -892,6 +1028,84 @@ mod tests {
             "{why}"
         );
         assert!(entries_of(&base).is_empty(), "{:?}", entries_of(&base));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// Root's change, installed at once: the draft goes into a directory of
+    /// its own and through apply's steps, its files land in the targets,
+    /// the directory is gone afterwards, and a failing check writes
+    /// nothing. Run as the user, apply takes the user's own draft.
+    #[test]
+    fn root_s_change_installs_through_a_draft_of_its_own_and_leaves_nothing_behind() {
+        use crate::draft::FileEdit;
+        let base = base("install-now");
+        let etc = base.join("etc");
+        let fonts = etc.join("fonts");
+        std::fs::create_dir_all(&fonts).unwrap();
+        std::fs::write(etc.join("vtium.conf"), "font-size=12\n").unwrap();
+        let drafts = base.join("drafts");
+        std::fs::create_dir(&drafts).unwrap();
+        let targets = |vtium: &str| Targets {
+            configdir: etc.clone(),
+            frits: fonts.clone(),
+            vtium: vtium.into(),
+        };
+        let scratch = || Scratch::new(&drafts, &mut scratch_name, euid()).unwrap();
+        let plan = |frit: &str, conf: &str| Plan {
+            files: vec![
+                FileEdit {
+                    path: fonts.join("mine.vtfrit"),
+                    old: None,
+                    new: frit.to_owned(),
+                },
+                FileEdit {
+                    path: etc.join("vtium.conf"),
+                    old: Some("font-size=12\n".to_owned()),
+                    new: conf.to_owned(),
+                },
+            ],
+            removals: Vec::new(),
+        };
+        // a check that fails, the console's or the frit reader's, writes
+        // nothing
+        let mut out = Vec::new();
+        let refused = install_under(
+            scratch(),
+            &plan("source=builtin:unifont\n", "font-size=13\n"),
+            &targets("/bin/false"),
+            &mut out,
+        );
+        assert!(refused.is_err(), "{refused:?}");
+        let refused = install_under(
+            scratch(),
+            &plan("colour=red\n", "font-size=13\n"),
+            &targets("/bin/true"),
+            &mut out,
+        );
+        assert!(refused.is_err(), "{refused:?}");
+        assert!(!fonts.join("mine.vtfrit").exists());
+        assert_eq!(
+            std::fs::read_to_string(etc.join("vtium.conf")).unwrap(),
+            "font-size=12\n"
+        );
+        assert!(entries_of(&drafts).is_empty(), "{:?}", entries_of(&drafts));
+        // a change every check takes lands in the targets
+        let written = install_under(
+            scratch(),
+            &plan("source=builtin:unifont\n", "font-size=13\n"),
+            &targets("/bin/true"),
+            &mut out,
+        );
+        assert_eq!(written, Ok(true), "{}", String::from_utf8_lossy(&out));
+        assert_eq!(
+            std::fs::read_to_string(fonts.join("mine.vtfrit")).unwrap(),
+            "source=builtin:unifont\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(etc.join("vtium.conf")).unwrap(),
+            "font-size=13\n"
+        );
+        assert!(entries_of(&drafts).is_empty(), "{:?}", entries_of(&drafts));
         std::fs::remove_dir_all(&base).unwrap();
     }
 

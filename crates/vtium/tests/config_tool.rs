@@ -17,6 +17,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 
+#[path = "common/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 /// The environment variable that names the child's role.
 const ROLE: &str = "VTIUM_CONFIG_TOOL_CHILD";
 
@@ -93,12 +97,10 @@ fn one_at_a_time() -> MutexGuard<'static, ()> {
     ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// A directory of the test's own, emptied.
-fn scratch(name: &str) -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("config-tool-{name}"));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).expect("make the test's directory");
-    dir
+/// A directory of the test's own, empty, removed when the test ends,
+/// whether it passes or fails.
+fn scratch(name: &str) -> Scratch {
+    Scratch::new(&format!("config-tool-{name}"))
 }
 
 #[test]

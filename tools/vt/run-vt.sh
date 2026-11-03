@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs vtium on one VT in place of the VT's console unit (vtium-dev@, getty@,
-# kmsconvt@ or autovt@ttyN), with the demo, a login prompt, a guide or the
+# kmsconvt@ or autovt@ttyN), with the acceptance pass, a login prompt, a guide or the
 # user's shell as its only session.
 # When the session ends, this script is interrupted or vtium fails, the units
 # that were running are started again, and only those. From the moment the
@@ -8,7 +8,8 @@
 # that logind starts no console there when the VT is switched to. See
 # docs/vt-review.md.
 #
-#   sudo tools/vt/run-vt.sh --bin=PATH [--helper=PATH] [--dry-run] [--label=TEXT] [--debug=DIR] [--login |
+#   sudo tools/vt/run-vt.sh --bin=PATH [--helper=PATH] [--image=PATH] [--dry-run] [--label=TEXT] [--features=TEXT]
+#        [--passes=DIR] [--debug=DIR] [--login |
 #        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]
 #
 # --bin names the vtium binary, which runs as root: a regular file owned by
@@ -16,13 +17,16 @@
 # default 3. Options after -- go to vtium, for one machine's display and font
 # settings (--mode=..., --font-size=...). Only display, font, palette, text and
 # input options are accepted, each as one word: --name=value, or --name /
-# --no-name for a switch. --label names the build on the demo's title page.
+# --no-name for a switch. --label names the build on the acceptance pass's title
+# page and in its pass record, and --features the features it was built with;
+# --passes names the directory the acceptance pass keeps its pass records in
+# (ADR-1501), which the session, as the user, creates when it is missing.
 # --login runs vtium's login prompt (/bin/login, through PAM) in place of the
-# demo, so the session is a logind session. The first logout ends the run; so
+# acceptance pass, so the session is a logind session. The first logout ends the run; so
 # do Ctrl-C, a vtium crash and vtium ending on its own, the last two as
 # failures.
 # --guide=FILE runs the guided checks of FILE (checks/guide.sh) in place of
-# the demo, as the user, with no login; --steps="4 8 9" (or 4,8,9) runs only
+# the acceptance pass, as the user, with no login; --steps="4 8 9" (or 4,8,9) runs only
 # those steps. The answers go to /tmp/vtium-vt/vt-check.log.
 # --shell runs the user's login shell, the one the password database names and
 # /etc/shells lists, as the user, with no login, in the user's home directory,
@@ -42,8 +46,12 @@
 # /run/vtium-vt/, a directory only root can write, and runs vtium with
 # --font-helper naming the copy, so a review run starts the helper built with
 # it and never the packaged one or the development install's (ADR-1500 D4).
+# --image names the image helper vtium-image built with a binary that has
+# pictures, held to the same rules and copied beside it, and the run gives
+# vtium --image-helper naming the copy, so the acceptance pass's helper pages
+# draw their pictures (ADR-1501 D5).
 # The run also compiles the checkout's terminfo entry, xterm-vtium, the name
-# vtium gives TERM, into /run/vtium-vt/terminfo, and the demo, the guide and
+# vtium gives TERM, into /run/vtium-vt/terminfo, and the acceptance pass, the guide and
 # the shell get TERMINFO naming it, so they read the entry the package ships,
 # as built from this checkout. The run does not pass that variable to
 # /bin/login's session, so with --login the run uses the system's
@@ -82,7 +90,10 @@ dry=
 vt=
 bin=
 helper=
+image=
 label=
+features=
+passes=
 extra=()
 login=
 guide=
@@ -95,7 +106,10 @@ while [ $# -gt 0 ]; do
 	--dry-run) dry=1 ;;
 	--bin=*) bin=${1#*=} ;;
 	--helper=*) helper=${1#*=}; [ -n "$helper" ] || die "--helper needs the glyph helper's path" ;;
+	--image=*) image=${1#*=}; [ -n "$image" ] || die "--image needs the image helper's path" ;;
 	--label=*) label=${1#*=} ;;
+	--features=*) features=${1#*=} ;;
+	--passes=*) passes=${1#*=} ;;
 	--login) login=1 ;;
 	--guide=*) guide=${1#*=}; [ -n "$guide" ] || die "--guide needs the guide's path: --guide=tools/vt/checks/NAME.guide" ;;
 	--steps=*) steps=${1#*=} ;;
@@ -133,6 +147,7 @@ if [ -n "$standins" ]; then
 	run_user=$standins/run-user
 	dri=$standins/debugfs-dri
 	stage=$standins/run-vtium-vt
+	system_frits=$standins/vtium-fonts
 	system_terminfo=$standins/terminfo
 	# The tests run without root, so the staged files stay theirs.
 	own=()
@@ -150,6 +165,7 @@ else
 	run_user=/run/user
 	dri=/sys/kernel/debug/dri
 	stage=/run/vtium-vt
+	system_frits=/etc/vtium/fonts
 	system_terminfo=/usr/share/terminfo
 	own=(-o root -g root)
 fi
@@ -175,7 +191,7 @@ act() {
 	die "VT must be a number from 2 to 12, not '$vt'"
 # The allowlist is written for the command line #21 gives vtium, the C
 # reference's; vtium parses no arguments yet. The checks below are made for
-# VT $vt with the demo as the session, so only options that cannot change that
+# VT $vt with the acceptance pass as the session, so only options that cannot change that
 # are let through: an allowlist of exact names, since the C reference's
 # getopt_long also took a unique prefix (--lo for --login). An
 # option with a value carries it in the same word: a separate word would be
@@ -229,6 +245,10 @@ done
 # takes a build's characters only.
 [[ $label =~ ^[[:alnum:]\ ._+:/@-]{0,80}$ ]] ||
 	die "--label takes up to 80 letters, digits, spaces and ._+:/@-, not '$label'"
+[[ $features =~ ^[a-z0-9\ ,_-]{0,80}$ ]] ||
+	die "--features takes up to 80 lowercase letters, digits, spaces and ,_-, not '$features'"
+[[ -z $passes || $passes =~ ^/[[:alnum:]/._+@-]{0,200}$ ]] ||
+	die "--passes takes an absolute path of letters, digits and /._+@-, not '$passes'"
 [ -z "$login" ] || [ -z "$guide" ] || die "--guide runs the guided checks, with no login"
 [ -z "$shell" ] || [ -z "$login$guide" ] || die "--shell runs your shell, with no login and no guide"
 [ -z "$transcript" ] || [ -n "$shell" ] || die "--transcript goes with --shell"
@@ -296,7 +316,7 @@ if [ -n "$shell" ]; then
 fi
 
 # The binary runs as root, so only its owner or root may have written it.
-[ -n "$bin" ] || die "--bin=PATH names the vtium binary (make vt-demo builds target/x86_64-unknown-linux-gnu/minspec/vtium)"
+[ -n "$bin" ] || die "--bin=PATH names the vtium binary (make vt-accept builds target/x86_64-unknown-linux-gnu/minspec/vtium)"
 bin=$(readlink -m -- "$bin")
 [ -f "$bin" ] && [ -x "$bin" ] || die "no vtium binary at $bin: build it first (make minspec)"
 read -r owner mode < <(stat -c '%u %a' -- "$bin")
@@ -314,6 +334,16 @@ if [ -n "$helper" ]; then
 		die "$helper belongs to uid $owner, neither root nor $user; vtium, as root, would start it"
 	(( (8#$mode & 8#022) == 0 )) ||
 		die "$helper is writable by group or others (mode $mode); vtium, as root, would start it"
+fi
+# So is the image helper, which vtium, as root, starts as the session's user.
+if [ -n "$image" ]; then
+	image=$(readlink -m -- "$image")
+	[ -f "$image" ] && [ -x "$image" ] || die "no image helper at $image: build it first (make image-release)"
+	read -r owner mode < <(stat -c '%u %a' -- "$image")
+	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
+		die "$image belongs to uid $owner, neither root nor $user; vtium, as root, would start it"
+	(( (8#$mode & 8#022) == 0 )) ||
+		die "$image is writable by group or others (mode $mode); vtium, as root, would start it"
 fi
 # vtium names itself TERM=xterm-vtium; the run compiles that entry from the
 # checkout, as the package does, for the sessions it starts itself.
@@ -527,7 +557,7 @@ else
 fi
 
 label=${label:-unlabelled}
-ends="the demo ends" last=3
+ends="the acceptance pass ends" last=3
 [ -z "$login" ] || ends="it ends" last=4
 [ -z "$guide" ] || ends="the checks end"
 [ -z "$shell" ] || ends="the shell exits"
@@ -540,8 +570,8 @@ else
 fi
 if [ -n "$login" ]; then
 	what="log in, then, in $checkout:
-       DEMO_LABEL='vtium $label' tools/vt/demo.sh
-           the demo; its answers go where make vt-demo's go
+       ACCEPT_LABEL='vtium $label' tools/vt/accept.sh
+           the acceptance pass; its pass is kept where make vt-accept keeps them
      until someone logs in, the prompt comes back after login's timeout
   3. log out to end it; Ctrl-C here ends it too, the login with it"
 elif [ -n "$guide" ]; then
@@ -552,8 +582,8 @@ elif [ -n "$shell" ]; then
      exit it to end the run${transcript:+; the session is recorded in
      $transcript}"
 else
-	what="rate each page with 1, 2 or 3 (c adds a comment, b goes back);
-     press q in the demo to finish"
+	what="answer each page with y, n, u or s (c adds a comment, b goes back);
+     q quits the acceptance pass, and the next run resumes the pass"
 fi
 users_shell="$user's shell"
 term_note=
@@ -573,7 +603,7 @@ $manual
 $term_note
 EOF
 
-# The demo, the guide and the shell run as $user, never as root, with the
+# The acceptance pass, the guide and the shell run as $user, never as root, with the
 # environment cleared by setpriv; env then sets what the session reads, each
 # value one word of its own, never through a shell. The user's shell starts
 # in the home directory as a login shell (-l), as login(1) would start it;
@@ -588,7 +618,22 @@ EOF
 # script decides how it stops: SIGTERM from restore(). --configdir keeps the
 # system's config out of the run; config/ holds the review's own.
 terminfo=(TERMINFO="$stage/terminfo")
-session=(/usr/bin/env "${terminfo[@]}" DEMO_LABEL="vtium $label" /bin/bash "$here/demo.sh")
+# The acceptance pass records the build it judges: the VT, the binary and its
+# features, beside the label (ADR-1501 D5).
+accept=(ACCEPT_LABEL="vtium $label" ACCEPT_VT="$vt" ACCEPT_BINARY="$bin" ACCEPT_FEATURES="${features:-none}")
+[ -z "$passes" ] || accept+=(ACCEPT_DIR="$passes")
+# The pages that blink text name the style vtium draws it in (blink.inc): from
+# the config this run gives vtium, which --configdir names, and from the blink
+# options given to vtium, the last of each winning as it does in vtium.
+accept+=(ACCEPT_VTIUM_CONF="$here/config/vtium.conf")
+for o in "${extra[@]}"; do
+	case $o in
+	--blink-text=*) accept+=(ACCEPT_BLINK_TEXT="${o#*=}") ;;
+	--blink) accept+=(ACCEPT_BLINK=on) ;;
+	--no-blink) accept+=(ACCEPT_BLINK=off) ;;
+	esac
+done
+session=(/usr/bin/env "${terminfo[@]}" "${accept[@]}" /bin/bash "$here/accept.sh")
 if [ -n "$guide" ]; then
 	session=(/usr/bin/env "${terminfo[@]}" GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
 		/bin/bash "$here/checks/guide.sh" "$guide")
@@ -610,6 +655,34 @@ carry=(/bin/sh -c 'h=$1 c=$2; shift 2; exec /usr/bin/env VTIUM_HEAD="$h" VTIUM_C
 once=(--oneshot)
 helper_opt=()
 [ -z "$helper" ] || helper_opt=(--font-helper="$stage/vtium-config")
+[ -z "$image" ] || helper_opt+=(--image-helper="$stage/vtium-image")
+# The acceptance pass switches the console among its own frits with OSC 50, which
+# vtium takes only for a frit in its frits directory (ADR-1200 D5,
+# ADR-1501 D6). The run stages the system's frits and the acceptance pass's into a
+# directory of root's alone and names it, so the review sees both. The copy
+# runs as root and is readable by everyone, so a frit must be a regular file
+# of root's or the user's, never a symlink or a file with another hard link,
+# which could name a file the user may not read, such as /etc/shadow. OSC 50
+# names a frit by its file name, so a system frit with the name of one of the
+# acceptance pass's is refused: the walk would judge whichever was copied last.
+frit_files=()
+declare -A frit_from=()
+for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
+	[ -e "$f" ] || [ -L "$f" ] || continue
+	[ ! -L "$f" ] || die "$f is a symlink; the run copies only a frit that is a file of its own"
+	[ -f "$f" ] || die "$f is not a regular file; the run copies only a frit that is a file of its own"
+	read -r owner mode links < <(stat -c '%u %a %h' -- "$f")
+	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
+		die "$f belongs to uid $owner, neither root nor $user; the run copies it as root"
+	[ "$links" -eq 1 ] || die "$f has $links hard links; the run copies only a frit that is a file of its own"
+	(( (8#$mode & 8#022) == 0 )) ||
+		die "$f is writable by group or others (mode $mode); vtium, as root, would read it"
+	[ -z "${frit_from[${f##*/}]:-}" ] ||
+		die "$f and ${frit_from[${f##*/}]} are both named ${f##*/}; OSC 50 names a frit by its file name, so rename the system's"
+	frit_from[${f##*/}]=$f
+	frit_files+=("$f")
+done
+helper_opt+=(--font-frits="$stage/frits")
 debug_opt=()
 [ -z "$debug" ] || debug_opt=(--debug)
 login_argv=("${drop[@]}" -- "${carry[@]}" "${session[@]}")
@@ -619,7 +692,7 @@ if [ -n "$login" ]; then
 fi
 cmd=("$bin" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" "${helper_opt[@]}"
 	"${term_opt[@]}" "${debug_opt[@]}" "${extra[@]}" --login -- "${login_argv[@]}")
-# The helper's copy and the terminfo entry, in a directory of root's alone,
+# The helper's copy, the terminfo entry and the frits, in a directory of root's alone,
 # made fresh for this run and removed when it ends. tic makes the entry's
 # directory and file under the umask, and the caller's may be 077, which
 # would leave the entry unreadable to the session that runs as the user, so
@@ -628,8 +701,10 @@ stage_made=1
 (
 	umask 022
 	act rm -rf -- "$stage"
-	act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo"
+	act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo" "$stage/frits"
+	[ ${#frit_files[@]} -eq 0 ] || act install -m 0644 "${own[@]}" -- "${frit_files[@]}" "$stage/frits"
 	[ -z "$helper" ] || act install -m 0755 "${own[@]}" -- "$helper" "$stage/vtium-config"
+	[ -z "$image" ] || act install -m 0755 "${own[@]}" -- "$image" "$stage/vtium-image"
 	act tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_src"
 )
 show "${cmd[@]}"

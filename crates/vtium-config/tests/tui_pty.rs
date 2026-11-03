@@ -206,16 +206,16 @@ impl Console {
     }
 
     /// Waits until the console has read every byte written to the
-    /// terminal before now. The test keeps the terminal's other end open,
-    /// so the console never reads an end of file. A NUL written to the
-    /// terminal arrives after every byte written before it, so the test
-    /// writes one and waits for the console to read it.
+    /// terminal before now. A NUL written to the terminal arrives after
+    /// every byte written before it, so the test writes one and waits for
+    /// the console to read it, or for the console to have closed, after
+    /// which it reads nothing more.
     fn drained(&self, slave: &File) {
         let before = self.seen.0.lock().expect("the lock").marks;
         let mut out = slave;
         out.write_all(&[0]).expect("a mark");
         self.until("read everything written to the terminal", |s| {
-            s.marks > before
+            s.marks > before || s.closed
         });
     }
 
@@ -589,10 +589,13 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     c.key(b"s");
     c.until("showed the save", |s| s.screen.contains("+ font-size=6"));
     let program = env!("CARGO_BIN_EXE_vtium-config");
+    // the command wraps where the paths' lengths put the screen's edge, so
+    // it is read by its words, the screen's rows joined
+    let screen = c.screen();
+    let words: Vec<&str> = screen.split_whitespace().collect();
     assert!(
-        c.screen().contains("apply DRAFT"),
-        "the command shown: {}",
-        c.screen()
+        words.windows(2).any(|w| w == ["apply", "DRAFT"]),
+        "the command shown: {screen}"
     );
     c.key(b"\r");
     c.until("failed", |s| s.screen.contains("Nothing was saved"));
@@ -691,4 +694,126 @@ fn a_terminal_that_closes_ends_the_tui() {
         matches!(code, 1 | 129),
         "the hangup's status, or a failed write's: {code}"
     );
+}
+
+/// The glyph helper the TUI starts holds only its three pipes, never a copy
+/// of the user's terminal, which a font could write to, nor a descriptor the
+/// TUI inherited; and while that
+/// helper does not answer, the TUI goes on taking keys, and marks no frit
+/// as drawing nothing, only its sources as not checked.
+#[test]
+fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken() {
+    let (master, slave) = pair(80, 25);
+    let (root, fonts) = fixture("silent-helper");
+    // A stand-in for the helper, which never answers. The shell lists the
+    // descriptors it inherited before it becomes sleep, because sleep holds
+    // descriptors of its own while it starts (the dynamic loader holds each
+    // library open while it maps it). `ls` takes the list inside a subshell,
+    // a child of the shell, and the redirect to the list belongs to that
+    // subshell, so the shell's own descriptors do not change while the list
+    // is taken. A plain `ls ... > file` would let a shell such as dash, which
+    // Ubuntu runs as /bin/sh, apply the redirect in the shell itself and keep
+    // its real stdout on a spare descriptor, which the list then shows. The
+    // stand-in runs under bash all the same, so every machine runs the same
+    // shell. The shell renames the list into place, so the test reads either
+    // no list or the whole of it, and the partial list's name carries the
+    // shell's pid, so no other stand-in can rename it.
+    let helper = root.join("helper");
+    std::fs::write(
+        &helper,
+        "#!/bin/bash\n( ls -l /proc/$$/fd ) > \"$0.fds.$$\"\nmv \"$0.fds.$$\" \"$0.fds\"\nexec sleep 30\n",
+    )
+    .expect("helper");
+    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("its mode");
+    let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+    // The TUI inherits a descriptor without close-on-exec, as a CI runner
+    // leaves some open, and must not pass it on to the helper. dup's copy
+    // lacks the flag. Other tests' children that start meanwhile inherit it
+    // too, which does them no harm, since it is only /dev/null.
+    let leaked =
+        rustix::io::dup(File::open("/dev/null").expect("/dev/null")).expect("a leaked descriptor");
+    let child = tui_with(
+        &slave,
+        &root,
+        &[
+            "--configdir".as_ref(),
+            root.as_os_str(),
+            "--frits".as_ref(),
+            fonts.as_os_str(),
+            "--helper".as_ref(),
+            helper.as_os_str(),
+        ],
+    );
+    drop(leaked);
+    c.until("decided", |s| s.screen.contains("live preview: on"));
+    // the stand-in lists what the TUI gave it
+    let fds_file = root.join("helper.fds");
+    let deadline = now() + Duration::from_secs(10);
+    let listed = loop {
+        if let Ok(listed) = std::fs::read_to_string(&fds_file) {
+            break listed;
+        }
+        assert!(now() < deadline, "the helper never started");
+        std::thread::yield_now();
+    };
+    // After its "total" line, each line of `ls -l` reads "... <number> ->
+    // <target>". A line without a target, which `ls` writes when it cannot
+    // read the link, fails the test rather than hiding a descriptor.
+    let all: Vec<(u32, String)> = listed
+        .lines()
+        .filter(|line| !line.starts_with("total "))
+        .map(|line| {
+            let parsed = line.split_once(" -> ").and_then(|(left, to)| {
+                let n = left.split_whitespace().last()?.parse().ok()?;
+                Some((n, to.to_owned()))
+            });
+            parsed.unwrap_or_else(|| panic!("a descriptor and its target: {line:?}"))
+        })
+        .collect();
+    // The shell also holds the script it reads, on one descriptor of its own
+    // (bash keeps it on 255) that it closes when it becomes sleep. That entry
+    // is the shell's, not the TUI's, so the test leaves it out.
+    let script = std::fs::canonicalize(&helper).expect("the stand-in's path");
+    let script = script.to_string_lossy();
+    let (on_script, mut fds): (Vec<_>, Vec<_>) = all.into_iter().partition(|(_, to)| *to == script);
+    assert!(
+        on_script.len() <= 1,
+        "the shell holds its script once: {on_script:?}"
+    );
+    fds.sort();
+    let numbers: Vec<u32> = fds.iter().map(|(n, _)| *n).collect();
+    assert_eq!(
+        numbers,
+        [0, 1, 2],
+        "only its stdin and stdout pipes and stderr: {fds:?}"
+    );
+    assert!(
+        fds.iter().all(|(_, to)| !to.starts_with("/dev/pts")),
+        "no terminal: {fds:?}"
+    );
+    // a key reaches the TUI while the helper is silent
+    c.key(UP);
+    c.until("switched", |s| s.font == "tiny5");
+    // once its wait is out, no frit is said to draw nothing
+    c.until("gave up on the helper", |s| {
+        s.screen.contains("sources not checked")
+    });
+    assert!(
+        !c.screen().contains("no source on this machine"),
+        "{}",
+        c.screen()
+    );
+    c.key(b"q");
+    assert_eq!(status(child), 0);
+    c.drained(&slave);
+}
+
+/// Now, for a wait bounded only so the test fails instead of hanging.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the wait for the stand-in helper is bounded so the test fails instead of hanging"
+)]
+fn now() -> std::time::Instant {
+    std::time::Instant::now()
 }

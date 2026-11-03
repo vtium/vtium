@@ -14,6 +14,7 @@ cache and the logger a worker process receives (t3_common.py).
 """
 
 import argparse
+import base64
 import contextlib
 import hashlib
 import io
@@ -1291,7 +1292,8 @@ class VtiumGoldenTest(unittest.TestCase):
         images = ["images-640x480/" + s for s in ("img-sixel", "img-kitty", "img-relative",
                                                   "img-overwrite", "img-delete", "img-scroll",
                                                   "img-scrollback", "img-tmux-pane",
-                                                  "img-png")]
+                                                  "img-animation", "img-iterm2",
+                                                  "img-placeholder", "img-png")]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
                                                "sysvinit-two-vts/cjk"] + moved + frit + devices
@@ -3932,6 +3934,65 @@ def sixel_pixels(data):
     return out
 
 
+def gif_frames(data):
+    """The frames of a GIF file, each [(r, g, b) per pixel, row by row], with
+    its graphic control extension's delay and disposal method: a reader of
+    the GIF89a form, its LZW codes read at any width, apart from the writer
+    it checks. A frame covers the whole picture and uses the global color
+    table, as t3_pictures.gif writes them."""
+    assert data[:6] == b"GIF89a"
+    width, height, packed = struct.unpack("<HHB", data[6:11])
+    table_size = 2 << (packed & 7)
+    table = [tuple(data[13 + 3 * i:16 + 3 * i]) for i in range(table_size)]
+    i, frames, control = 13 + 3 * table_size, [], None
+    while data[i] != 0x3B:
+        if data[i] == 0x21:
+            if data[i + 1] == 0xF9:
+                flags, delay = struct.unpack("<BH", data[i + 3:i + 6])
+                control = (delay, flags >> 2 & 7)
+            i += 2
+            while data[i]:
+                i += data[i] + 1
+            i += 1
+            continue
+        assert data[i] == 0x2C
+        left, top, w, h, flags = struct.unpack("<HHHHB", data[i + 1:i + 10])
+        assert (left, top, w, h, flags) == (0, 0, width, height, 0)
+        minimum, i = data[i + 10], i + 11
+        blob = bytearray()
+        while data[i]:
+            blob += data[i + 1:i + 1 + data[i]]
+            i += data[i] + 1
+        i += 1
+        clear, end = 1 << minimum, (1 << minimum) + 1
+        bits, pos, out, prev = minimum + 1, 0, [], None
+        words = [[n] for n in range(clear)] + [None, None]
+        while True:
+            if pos + bits > len(blob) * 8:
+                raise ValueError("a frame's codes end with no end code")
+            code = int.from_bytes(blob[pos // 8:pos // 8 + 3], "little") >> pos % 8
+            code &= (1 << bits) - 1
+            pos += bits
+            if code == clear:
+                words, bits, prev = words[:end + 1], minimum + 1, None
+                continue
+            if code == end:
+                break
+            if code < len(words):
+                word = words[code]
+                if prev is not None:
+                    words.append(prev + word[:1])
+            else:
+                word = prev + prev[:1]
+                words.append(word)
+            out += word
+            prev = word
+            if len(words) == 1 << bits and bits < 12:
+                bits += 1
+        frames.append(([table[n] for n in out], control))
+    return frames
+
+
 class PicturesTest(unittest.TestCase):
     """The test pictures of the images variant (t3_pictures.py): pinned, a
     whole number of cells, and each file a faithful copy of its picture."""
@@ -3940,11 +4001,16 @@ class PicturesTest(unittest.TestCase):
         # The images variant's goldens hold these pixels, so a change to the
         # pictures moves them: this digest changes in the same commit as
         # the goldens.
-        self.assertEqual(t3_pictures.digest(),
+        # the pictures of the screens before the animation, iTerm2 and
+        # placeholder screens are as they were
+        self.assertEqual(t3_pictures.digest(t3_pictures.FIRST_PICTURES),
                          "76eb38dd0e3d1b6dec0b7ede466c82ad2dc325704e8d732c351e8077846c1658")
+        self.assertEqual(t3_pictures.digest(),
+                         "052432683ed74a7f98165ab4167d64c08448770c2bbf2e81685d0a3b24833156")
         self.assertEqual(sorted(t3_pictures.files()), [
             "bands.rgba", "bands.six", "child.rgba", "disc.png", "disc.six", "parent.rgba",
-            "quad.png", "quad.rgba", "quad.rgba.z", "quad.six"])
+            "patch-cyan.rgba", "patch-magenta.rgba", "patch-violet.rgba", "patch-yellow.rgba",
+            "quad.gif", "quad.png", "quad.rgba", "quad.rgba.z", "quad.six"])
 
     def test_whole_cells(self):
         # Every picture is a whole number of the variant's 8x16 cells, and
@@ -3963,9 +4029,15 @@ class PicturesTest(unittest.TestCase):
         # colors where the picture is opaque and black where it is clear.
         files = t3_pictures.files()
         for name, data in files.items():
-            pic = t3_pictures.PICTURES[name.split(".")[0]]
+            pic = dict(t3_pictures.PICTURES, **t3_pictures.PATCHES)[name.split(".")[0]]
             with self.subTest(name):
-                if name.endswith(".six"):
+                if name.endswith(".gif"):
+                    # every frame whole, shown 100 ms and left in place
+                    want = [([t3_pictures.eight(p) for row in t3_pictures.PICTURES[n].pixels
+                              for p in row], (10, 1)) for n in t3_pictures.GIF_FRAMES]
+                    self.assertEqual(gif_frames(data), want)
+                    self.assertNotIn(b"NETSCAPE2.0", data)
+                elif name.endswith(".six"):
                     want = {(x, y): p for y, row in enumerate(pic.pixels)
                             for x, p in enumerate(row) if p}
                     self.assertEqual(sixel_pixels(data), want)
@@ -4005,7 +4077,8 @@ class ImagesVariantTest(unittest.TestCase):
     def test_cases(self):
         self.assertEqual(t3_scenario.variant_cases(self.VARIANT), [
             "prelogin", "img-sixel", "img-kitty", "img-relative", "img-overwrite", "img-delete",
-            "img-scroll", "img-scrollback", "img-scrollforward", "img-tmux-pane", "img-png",
+            "img-scroll", "img-scrollback", "img-scrollforward", "img-tmux-pane",
+            "img-animation", "img-iterm2", "img-placeholder", "img-png",
             "vt-switch", "vt-restore"])
         v = t3_scenario.VARIANTS[self.VARIANT]
         self.assertEqual((v["device"], v["cpus"], v["memory_mb"], v["images"], v["goldens"]),
@@ -4192,7 +4265,9 @@ class ImagesVariantTest(unittest.TestCase):
             if screen == "img-tmux-pane":
                 self.assertNotIn("img-common.inc", text)
                 continue
-            named = set(re.findall(r'\$pics/([\w.]+)', text) + re.findall(r'pic64 ([\w.]+)', text))
+            named = set(re.findall(r'\$pics/([\w.-]+)', text)
+                        + re.findall(r'(?:pic64|iterm2_send "[^"]*"|iterm2_parts "[^"]*") '
+                                     r'([\w.-]+)', text))
             with self.subTest(screen):
                 self.assertTrue(named)
                 self.assertLessEqual(named, set(t3_pictures.files()))
@@ -4323,12 +4398,128 @@ class ImagesVariantTest(unittest.TestCase):
         self.assertEqual(t3_scenario.judge_replies("img-delete", []),
                          "the screen reported no reply; it must report i=32;OK, "
                          "i=33;ENOENT:image not found")
-        # each screen reports as many times as REPLIES lists for it
+        # each screen reports as many times as REPLIES lists for it, each
+        # report a line of its own that calls reply_event, ask_event or
+        # cursor_event (img-common.inc)
         for screen, replies in t3_evaluate.REPLIES.items():
             with self.subTest(screen), open(os.path.join(t3_common.GUEST, "screens",
                                                          screen + ".sh")) as f:
-                self.assertEqual(len(re.findall(r'^reply_event "', f.read(), re.M)),
+                self.assertEqual(len(re.findall(r'^(?:reply|ask|cursor)_event "', f.read(),
+                                                re.M)),
                                  len(replies))
+
+    def bash(self, script, pics=""):
+        """The bytes `script` prints in bash after it sources
+        img-common.inc, with the test pictures read from `pics`."""
+        inc = os.path.join(t3_common.GUEST, "screens", "img-common.inc")
+        return subprocess.run(["bash", "-c", '. "$1"; pics=$2; ' + script, "bash", inc, pics],
+                              capture_output=True, check=True).stdout
+
+    def test_placeholder_bytes(self):
+        # A placeholder cell is U+10EEEE and a diacritic for each argument,
+        # the marks the first eight of vtium-term's table (ADR-1100 D13).
+        self.assertEqual(self.bash("placeholder 2 3 1"),
+                         "\U0010EEEE\u030E\u0310\u030D".encode())
+        self.assertEqual(self.bash("placeholder"), "\U0010EEEE".encode())
+        with open(os.path.join(t3_common.ROOT, "crates", "vtium-term", "src",
+                               "placeholder.rs")) as f:
+            table = f.read().split("DIACRITICS: [char; 297] = [", 1)[1]
+        first = [chr(int(h, 16)) for h in re.findall(r"'\\u\{([0-9A-Fa-f]+)\}'", table)[:8]]
+        self.assertEqual(len(first), 8)
+        for n, mark in enumerate(first):
+            with self.subTest(n):
+                self.assertEqual(self.bash("placeholder %d" % n),
+                                 ("\U0010EEEE" + mark).encode())
+
+    def test_iterm2_senders(self):
+        # iterm2_send sends one File= string; iterm2_parts sends
+        # MultipartFile=, FileParts of the length asked for, which rejoin
+        # to the file byte for byte, and FileEnd (ADR-1103 D1).
+        png = t3_pictures.files()["quad.png"]
+        with tempfile.TemporaryDirectory() as d:
+            t3_pictures.write(d)
+            one = self.bash('iterm2_send "inline=1;width=32px" quad.png', d)
+            parts = self.bash('iterm2_parts "inline=1;width=16;height=6" quad.png 30', d)
+        self.assertEqual(one, b"\x1b]1337;File=inline=1;width=32px:"
+                         + base64.b64encode(png) + b"\x07")
+        strings = parts.split(b"\x07")
+        self.assertEqual(strings[-1], b"")
+        self.assertEqual(strings[0], b"\x1b]1337;MultipartFile=inline=1;width=16;height=6")
+        self.assertEqual(strings[-2], b"\x1b]1337;FileEnd")
+        pieces = [p[len(b"\x1b]1337;FilePart="):] for p in strings[1:-2]]
+        self.assertTrue(all(p.startswith(b"\x1b]1337;FilePart=") for p in strings[1:-2]))
+        self.assertEqual([len(p) for p in pieces[:-1]], [30] * (len(pieces) - 1))
+        self.assertLessEqual(len(pieces[-1]), 30)
+        self.assertGreater(len(pieces), 2)
+        self.assertEqual(base64.b64decode(b"".join(pieces)), png)
+
+    def test_shows(self):
+        # Each screen SHOWS names is shown by its golden, and not by another
+        # screen's, so a capture of the wrong frame or of no picture fails.
+        self.assertEqual(sorted(t3_evaluate.SHOWS),
+                         ["img-animation", "img-iterm2", "img-placeholder"])
+        for name in t3_evaluate.SHOWS:
+            with self.subTest(name):
+                golden = t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT,
+                                                 name + ".png"))
+                self.assertIsNone(t3_evaluate.not_shown(name, golden))
+                other = t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT,
+                                                "img-kitty.png"))
+                self.assertRegex(t3_evaluate.not_shown(name, other),
+                                 "^the screen settled without showing ")
+
+    def test_capture_waits_for_the_pictures(self):
+        # The driver captures a screen SHOWS names once it has settled
+        # showing its pictures: a middle frame that holds still for a
+        # second is not taken, a screen that never shows them fails its
+        # case and the run goes on, and any other screen that never
+        # settles stops the run as before.
+        def paint(*pictures):
+            data = bytearray(640 * 480 * 3)
+            for name, col, row in pictures:
+                for y, line in enumerate(t3_pictures.PICTURES[name].pixels):
+                    for x, p in enumerate(line):
+                        if p:
+                            i = (((row - 1) * 16 + y) * 640 + (col - 1) * 8 + x) * 3
+                            data[i:i + 3] = bytes(t3_pictures.eight(p))
+            return t3img.Image(640, 480, bytes(data))
+
+        before = paint(("quad", 3, 3))
+        first, last = paint(("quad", 15, 3)), paint(("quad-turned-twice", 15, 3))
+
+        class Clock:
+            now = 0.0
+
+            def time(self):
+                return self.now
+
+            def sleep(self, seconds):
+                self.now += seconds
+
+        class VM:
+            def __init__(self, frames):
+                self.frames = frames
+
+            def screendump(self, path, output=None):
+                img = self.frames.pop(0) if len(self.frames) > 1 else self.frames[0]
+                t3_qemu.write_ppm(path, img)
+                return img
+
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(t3_qemu, "time", Clock()):
+            path = os.path.join(d, "img-iterm2.ppm")
+            img, why = t3_scenario.capture_screen(VM([first, first, last]), "img-iterm2", path,
+                                                  before)
+            self.assertEqual((img.data == last.data, why), (True, None))
+            # the quarters show where the last frame should, all but its white frame
+            img, why = t3_scenario.capture_screen(VM([first]), "img-iterm2", path, before)
+            self.assertEqual(img.data, first.data)
+            self.assertEqual(why, "the screen settled without showing quad-turned-twice at "
+                                  "column 15, row 3 (2852 pixels differ)")
+            with self.assertRaisesRegex(RuntimeError, "not in the expected state"):
+                t3_scenario.capture_screen(VM([before]), "img-kitty", path, before)
+        with open(os.path.join(t3_common.HERE, "t3_scenario.py")) as f:
+            self.assertIn("last, why = capture_screen(vm, name, path, last)", f.read())
 
     def test_make_target(self):
         # make tier3-images builds the tree with images and any features
@@ -4379,16 +4570,8 @@ class PictureGoldenTest(unittest.TestCase):
         corner at cell (`col`, `row`), counted from 1, its opaque pixels in
         their colors: only its pixel rows `rows` (a range) when given, and
         only the pixel box `part` (x0, y0, x1, y1) of it, drawn at the cell,
-        when given."""
-        pic = t3_pictures.PICTURES[name]
-        x0, y0, x1, y1 = part or (0, 0, pic.width, pic.height)
-        left, top = (col - 1) * 8, (row - 1) * 16
-        wrong = []
-        for y in rows or range(y0, y1):
-            for x in range(x0, x1):
-                p = pic.pixels[y][x]
-                if p and self.pixel(img, left + x - x0, top + y - y0) != t3_pictures.eight(p):
-                    wrong.append((x, y))
+        when given (t3_pictures.shows)."""
+        wrong = t3_pictures.shows(img, name, col, row, rows=rows, part=part)
         self.assertEqual(wrong[:4], [], "%s at column %d, row %d: %d pixels differ"
                          % (name, col, row, len(wrong)))
 
@@ -4435,19 +4618,25 @@ class PictureGoldenTest(unittest.TestCase):
         self.placed(img, "disc", 44, 3)
         self.shows_through(img, "disc", 44, 3)
 
+    def scaled(self, img, col, row, width, height):
+        """Assert the quarters, scaled to `width` by `height` pixels with
+        their top left corner at cell (`col`, `row`), show each quarter's
+        color over the middle of its quarter of that box, away from the
+        edges a scaler blends."""
+        left, top = (col - 1) * 8, (row - 1) * 16
+        w, h = width // 2, height // 2
+        for (qx, qy), color in (((0, 0), t3_pictures.RED), ((1, 0), t3_pictures.GREEN),
+                                ((0, 1), t3_pictures.BLUE), ((1, 1), t3_pictures.YELLOW)):
+            for x in range(left + qx * w + w // 8, left + qx * w + w - w // 8, 3):
+                for y in range(top + qy * h + h // 6, top + qy * h + h - h // 6, 3):
+                    self.assertEqual(self.pixel(img, x, y), t3_pictures.eight(color), (x, y))
+
     def test_kitty(self):
         img = self.golden("img-kitty")
         self.placed(img, "quad", 5, 3)
         self.placed(img, "quad", 30, 3)
         self.placed(img, "quad", 5, 8, part=(32, 24, 64, 48))
-        # scaled to 16x6 cells: each quarter's color fills the middle of its
-        # quarter of the box
-        left, top = 29 * 8, 7 * 16
-        for (qx, qy), color in (((0, 0), t3_pictures.RED), ((1, 0), t3_pictures.GREEN),
-                                ((0, 1), t3_pictures.BLUE), ((1, 1), t3_pictures.YELLOW)):
-            for x in range(left + qx * 64 + 8, left + qx * 64 + 56, 7):
-                for y in range(top + qy * 48 + 8, top + qy * 48 + 40, 7):
-                    self.assertEqual(self.pixel(img, x, y), t3_pictures.eight(color), (x, y))
+        self.scaled(img, 30, 8, 128, 96)
 
     def test_relative(self):
         img = self.golden("img-relative")
@@ -4509,6 +4698,28 @@ class PictureGoldenTest(unittest.TestCase):
                    if len(set(self.pixel(img, x, y))) > 1]
         self.assertEqual(colored[:4], [])
         self.assertNotEqual(img.data, bytes(len(img.data)))
+
+    def test_animation(self):
+        # the quarters on the frame the screen stopped them on, and the
+        # child on the last of its frames, played once
+        img = self.golden("img-animation")
+        self.placed(img, "anim-stopped", 5, 3)
+        self.placed(img, "anim-ended", 20, 3)
+
+    def test_iterm2(self):
+        img = self.golden("img-iterm2")
+        self.placed(img, "quad", 3, 3)
+        self.placed(img, t3_pictures.GIF_FRAMES[-1], 15, 3)
+        self.scaled(img, 27, 3, 128, 96)
+        self.scaled(img, 47, 3, 32, 24)
+
+    def test_placeholder(self):
+        # the picture followed its cells from column 5 to 35, and the
+        # 32-bit image id drew the child
+        img = self.golden("img-placeholder")
+        self.placed(img, "quad", 35, 3)
+        self.blank(img, 5, 3, 8, 3)
+        self.placed(img, "child", 5, 9)
 
     def test_png(self):
         img = self.golden("img-png")

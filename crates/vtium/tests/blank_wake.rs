@@ -29,6 +29,11 @@ const W: u32 = 320;
 const H: u32 = 160;
 const ID: DisplayId = DisplayId(7);
 
+/// How long a wait on a state another thread or process brings may run
+/// before the test fails: long enough for a loaded machine, and only a
+/// bound, since each wait ends at the state it waits for.
+const BOUND: Duration = Duration::from_secs(10);
+
 /// A device with one display, its frame buffer in memory.
 #[derive(Default)]
 struct Memory {
@@ -308,9 +313,9 @@ impl Harness {
     }
 
     /// Turns the loop as `main` does until the device satisfies `done`,
-    /// at most 3 s.
+    /// at most [`BOUND`].
     fn until(&mut self, done: impl Fn(&Memory) -> bool) -> bool {
-        self.turn_until(Duration::from_secs(3), |h| done(h.memory()))
+        self.turn_until(BOUND, |h| done(h.memory()))
     }
 
     /// Turns the loop as `main` does until `done` holds, at most `limit`.
@@ -415,7 +420,12 @@ fn the_signals_act_with_blanking_and_program_control_off() {
 fn a_wake_while_lit_and_a_blank_while_blanked_change_nothing() {
     let mut h = Harness::new(&[]);
     h.signal(Order::Wake);
-    assert!(!h.until(|m| m.unblanks > 0 || m.dpms != Some(Dpms::On)));
+    // Nothing changes: a wake would show within the turns of 300 ms.
+    let changed = |h: &mut Harness| {
+        let m = h.memory();
+        m.unblanks > 0 || m.dpms != Some(Dpms::On)
+    };
+    assert!(!h.turn_until(Duration::from_millis(300), changed));
     h.signal(Order::Blank);
     assert!(h.until(OFF));
     h.signal(Order::Blank);
@@ -439,7 +449,7 @@ fn a_wake_while_lit_restarts_the_countdown() {
             .is_some_and(|d| d >= sent + Duration::from_secs(60))
     };
     assert!(
-        h.turn_until(Duration::from_secs(3), restarted),
+        h.turn_until(BOUND, restarted),
         "the countdown runs from the wake, not from the start"
     );
     assert!(h.app.blank.deadline() <= Some(h.at() + Duration::from_secs(60)));
@@ -457,10 +467,7 @@ fn a_blank_while_the_vt_is_released_reaches_no_device() {
         .expect("the scripted VT")
         .events
         .push(VtEvent::Release);
-    assert!(
-        h.turn_until(Duration::from_secs(3), |h| !h.app.vt.is_active()),
-        "released"
-    );
+    assert!(h.turn_until(BOUND, |h| !h.app.vt.is_active()), "released");
     h.memory().dpms_sets.clear();
     h.signal(Order::Blank);
     h.turn_until(Duration::from_millis(300), |_| false);

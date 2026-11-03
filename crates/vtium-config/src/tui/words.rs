@@ -13,6 +13,7 @@ pub const FONTS: &str = "Fonts";
 pub const SIZES: &str = "Sizes";
 pub const SETTINGS: &str = "Settings";
 pub const HEADS: &str = "Heads";
+pub const NEW: &str = "New";
 pub const SAVE: &str = "Save";
 
 /// What live preview is doing, at the right of the first line.
@@ -33,6 +34,15 @@ pub fn does_not_read(why: impl Display) -> String {
     format!("does not read: {why}")
 }
 pub const KEPT: &str = "kept by the console, see its log";
+pub fn sources_missing(n: usize) -> String {
+    if n == 1 {
+        "1 source missing".to_owned()
+    } else {
+        format!("{n} sources missing")
+    }
+}
+pub const DRAWS_NOTHING: &str = "no source on this machine";
+pub const SOURCES_UNKNOWN: &str = "sources not checked";
 
 /// Marks the choice that a save writes.
 pub const TO_SAVE: &str = "to save";
@@ -53,6 +63,19 @@ pub fn density(dpi: u32, from: impl Display) -> String {
 pub fn no_picture(why: impl Display) -> String {
     format!("No picture of this size: {why}")
 }
+pub fn size_summary(s: &crate::specimen::Summary) -> String {
+    let grid = s
+        .grid
+        .map(|(c, r)| format!(", the display holds {c}x{r} cells,"))
+        .unwrap_or_default();
+    format!(
+        "At this size the cell is {}x{} pixels{grid} and the font draws {} of the specimen's {} characters itself.",
+        s.cell.width, s.cell.height, s.covered, s.of
+    )
+}
+pub fn no_summary(why: impl Display) -> String {
+    format!("This size cannot be drawn: {why}")
+}
 pub const AUTOMATIC_PICTURE: &str =
     "Automatic lets vtium pick the size from the display, so it has no picture.";
 pub const DPI_FROM_CONF: &str = "from vtium.conf's display-dpi";
@@ -60,9 +83,11 @@ pub const DPI_FROM_EDID: &str = "measured from the display";
 pub const DPI_ASSUMED: &str = "assumed, since no display reports its size";
 
 /// The settings view.
-pub const UNSET: &str = "(default)";
-pub const SETTINGS_HINT: &str =
-    "Fonts and Sizes set font-name and font-size; Enter turns allow-font-ops on or off.";
+pub fn default_value(value: impl Display) -> String {
+    format!("{value} (default)")
+}
+pub const SETTINGS_HINT: &str = "Enter turns a switch on or off, steps a choice, or types a value; an empty value is the default.";
+pub const EDITING: &str = "Type the value; Enter keeps it, an empty value is the default.";
 pub const ON: &str = "on";
 pub const OFF: &str = "off";
 
@@ -75,6 +100,24 @@ pub fn head_profile(profile: impl Display) -> String {
     format!("profile {profile}")
 }
 pub const HEADS_HINT: &str = "Left and Right choose the profile a head draws with.";
+
+/// The new-frit view: its fields, and what it says.
+pub const NEW_FIELD_NAMES: [&str; 6] = ["Name", "Source 1", "Source 2", "Source 3", "Cell", "Size"];
+pub const NEW_ADD: &str = "Add the frit to the save";
+pub const NEW_HINT: &str = "A source is a font's family, as JetBrains Mono, or a source as a frit writes it, as kbd:ter-v16n. Each later source fills what the ones before it lack. Cell is WIDTHxHEIGHT and Size is points; leave them empty for the fonts' own. An empty name is made from the first source.";
+pub const NEW_BAD_NAME: &str =
+    "the name is 1 to 64 letters, digits, '.', '_', '+' and '-', and not a built-in font's";
+pub fn new_added(name: impl Display) -> String {
+    format!("{name} is added to the save; Enter saves it.")
+}
+pub fn new_replaces_binary(name: impl Display) -> String {
+    format!(
+        "the installed {name}.vtfrit is not UTF-8 text, so a new frit does not replace it; remove it with vtium config remove-frit {name} first"
+    )
+}
+pub fn new_refused(why: impl Display) -> String {
+    format!("The frit does not read: {why}")
+}
 
 /// The save view.
 pub const NOTHING_TO_SAVE: &str = "Nothing is changed, so there is nothing to save.";
@@ -101,6 +144,8 @@ pub const KEYS_FONTS: &str = "Enter keep  Tab next  s save  q leave, undo";
 pub const KEYS_SIZES: &str = "Enter keep  Tab next  s save  q leave, undo";
 pub const KEYS_SETTINGS: &str = "Enter change  Tab next  s save  q leave, undo";
 pub const KEYS_HEADS: &str = "Left Right profile  Tab next  s save  q leave";
+pub const KEYS_NEW: &str = "type a field  Enter next  Tab next view  Ctrl-C leave, undo";
+pub const KEYS_EDITING: &str = "Enter keep  Up Down drop  Ctrl-C leave, undo";
 pub const KEYS_SAVE: &str = "Enter save  Backspace back  q leave, undo";
 pub const KEYS_SMALL: &str = "Enter keep  q back";
 

@@ -19,6 +19,12 @@
 //! or at once when the CRTC stops being active, as `drm_crtc_vblank_off`
 //! sends the events still waiting.
 //!
+//! A framebuffer smaller than what it is asked to show is refused with
+//! ENOSPC, as the kernel refuses it: a commit whose plane reads past its
+//! framebuffer's edge (`drm_atomic_plane_check`), and a legacy CRTC set or
+//! page flip whose framebuffer is smaller than the CRTC's mode
+//! (`drm_crtc_check_viewport`).
+//!
 //! A framebuffer removed while a plane shows it takes the plane off its
 //! CRTC (`atomic_remove_fb`). What happens to the CRTC depends on the
 //! driver, which [`State::remove_fb`] picks. On amdgpu, the default, the
@@ -165,6 +171,10 @@ pub(crate) struct State {
     pub(crate) plane_crtc: BTreeMap<u32, u32>,
     /// The framebuffer each plane shows.
     pub(crate) plane_fb: BTreeMap<u32, u32>,
+    /// The part of its framebuffer each plane shows, as the commits so far
+    /// left it: each plane's `SRC_X`, `SRC_Y`, `SRC_W` and `SRC_H`, in 16.16
+    /// fixed point.
+    pub(crate) plane_src: BTreeMap<(u32, &'static str), u64>,
     /// The card is this process's DRM master. The open makes it so, as the
     /// kernel makes the first opener of a card no process holds master of.
     pub(crate) master: bool,
@@ -554,7 +564,8 @@ impl FakeCard {
                 continue;
             };
             let fb = self.id();
-            s.fbs.insert(fb, (0, 0));
+            let size = mode_of(mode).map_or((0, 0), |m| m.size());
+            s.fbs.insert(fb, size);
             s.console_fbs.push(fb);
             if let Some(c) = s.connectors.get_mut(&conn) {
                 c.encoder = encoder;
@@ -788,6 +799,46 @@ fn mode_of(bytes: &[u8]) -> Option<Mode> {
 fn err(e: Errno) -> io::Error {
     io::Error::from_raw_os_error(e.raw_os_error())
 }
+
+/// Whether the framebuffer `fb`, of a size the card knows, is narrower or
+/// shorter than `mode`, as `drm_crtc_check_viewport` refuses for a legacy
+/// CRTC set or page flip.
+fn smaller_than(s: &State, fb: u32, mode: &Mode) -> bool {
+    let (w, h) = mode.size();
+    s.fbs.get(&fb).is_some_and(|&(fw, fh)| w > fw || h > fh)
+}
+
+/// Whether a plane `commit` leaves on a CRTC with a framebuffer reads past
+/// that framebuffer's edge, as `drm_atomic_plane_check` refuses: its source
+/// rectangle, the commit's values over those the plane holds, does not lie
+/// inside the framebuffer.
+fn commit_reads_past_a_framebuffer(s: &State, commit: &Commit) -> bool {
+    let set = |p: u32| commit.props.iter().any(|(o, _, _)| *o == p);
+    s.planes.keys().filter(|&&p| set(p)).any(|&p| {
+        let fb = commit
+            .get(p, "FB_ID")
+            .map_or(s.plane_fb.get(&p).copied(), |v| u32::try_from(v).ok())
+            .unwrap_or(0);
+        let crtc = commit
+            .get(p, "CRTC_ID")
+            .map_or(s.plane_crtc.get(&p).copied(), |v| u32::try_from(v).ok())
+            .unwrap_or(0);
+        let Some(&(fw, fh)) = s.fbs.get(&fb).filter(|_| crtc != 0) else {
+            return false;
+        };
+        let [x, y, w, h] = SRC.map(|name| {
+            commit
+                .get(p, name)
+                .or_else(|| s.plane_src.get(&(p, name)).copied())
+                .unwrap_or(0)
+        });
+        let (fw, fh) = (u64::from(fw) << 16, u64::from(fh) << 16);
+        w > fw || x > fw - w || h > fh || y > fh - h
+    })
+}
+
+/// A plane's source rectangle: its corner, then its width and height.
+const SRC: [&str; 4] = ["SRC_X", "SRC_Y", "SRC_W", "SRC_H"];
 
 const PLANE_PROPS: [&str; 10] = [
     "FB_ID", "CRTC_ID", "SRC_X", "SRC_Y", "SRC_W", "SRC_H", "CRTC_X", "CRTC_Y", "CRTC_W", "CRTC_H",
@@ -1126,6 +1177,9 @@ impl Kms for FakeCard {
         if !s.master {
             return Err(err(Errno::ACCESS));
         }
+        if commit_reads_past_a_framebuffer(&s, &commit) {
+            return Err(err(Errno::NOSPC));
+        }
         // The CRTCs in the commit's state: each set directly, each a plane
         // is put on, and each a plane in the commit was on. The kernel
         // sends a flip event for every one.
@@ -1195,6 +1249,11 @@ impl Kms for FakeCard {
                 "FB_ID" if s.planes.contains_key(o) => {
                     s.plane_fb.insert(*o, v32);
                 }
+                _ if s.planes.contains_key(o) && SRC.contains(&n.as_str()) => {
+                    if let Some(&name) = SRC.iter().find(|&&name| name == n) {
+                        s.plane_src.insert((*o, name), *v);
+                    }
+                }
                 "ACTIVE" => {
                     s.active.insert(*o, *v != 0);
                 }
@@ -1250,6 +1309,9 @@ impl Kms for FakeCard {
         if s.busy_size == Some(mode.size()) {
             return Err(err(Errno::BUSY));
         }
+        if smaller_than(&s, fb, mode) {
+            return Err(err(Errno::NOSPC));
+        }
         s.set_crtcs.push((crtc, fb, connector, *mode));
         s.bind(connector, crtc);
         s.crtc_modes.insert(crtc, *mode);
@@ -1285,6 +1347,12 @@ impl Kms for FakeCard {
         let mut s = self.state.borrow_mut();
         if let Some(e) = s.commit_errors.pop_front() {
             return Err(err(e));
+        }
+        if s.crtc_modes
+            .get(&crtc)
+            .is_some_and(|m| smaller_than(&s, fb, m))
+        {
+            return Err(err(Errno::NOSPC));
         }
         if s.pending.contains(&crtc) {
             return Err(err(Errno::BUSY));
@@ -1391,5 +1459,96 @@ pub(crate) mod logs {
                 .map(|(_, line)| line.clone())
                 .collect()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![expect(clippy::expect_used, reason = "a test fails by panicking")]
+
+    use rustix::io::Errno;
+
+    use super::super::kms::{Kms, Request};
+    use super::super::mode::mode;
+    use super::FakeCard;
+
+    const CONN: u32 = 41;
+    const CRTC: u32 = 100;
+    const PRIMARY_PLANE: u32 = 300;
+
+    /// A framebuffer of `width` by `height` over a dumb buffer its size.
+    fn fb(card: &FakeCard, width: u32, height: u32) -> u32 {
+        let dumb = card.create_dumb(width, height).expect("a dumb buffer");
+        card.add_fb(dumb.handle, dumb.pitch, width, height, 0)
+            .expect("a framebuffer")
+    }
+
+    fn errno(r: std::io::Result<()>) -> Option<Errno> {
+        r.err()
+            .and_then(|e| e.raw_os_error())
+            .map(Errno::from_raw_os_error)
+    }
+
+    /// A commit that puts `fb` on the primary plane, with the source
+    /// rectangle `src` where given, in whole pixels.
+    fn show(card: &FakeCard, fb: u32, src: Option<(u64, u64)>) -> std::io::Result<()> {
+        let mut req = Request::default();
+        req.set(PRIMARY_PLANE, card.prop_id("FB_ID"), u64::from(fb));
+        req.set(PRIMARY_PLANE, card.prop_id("CRTC_ID"), u64::from(CRTC));
+        if let Some((w, h)) = src {
+            req.set(PRIMARY_PLANE, card.prop_id("SRC_X"), 0);
+            req.set(PRIMARY_PLANE, card.prop_id("SRC_Y"), 0);
+            req.set(PRIMARY_PLANE, card.prop_id("SRC_W"), w << 16);
+            req.set(PRIMARY_PLANE, card.prop_id("SRC_H"), h << 16);
+        }
+        card.commit(&req, 0)
+    }
+
+    // vtium/vtium#224: a legacy CRTC set or page flip whose framebuffer is
+    // smaller than the mode is refused with ENOSPC, as the kernel's
+    // `drm_crtc_check_viewport` refuses it, and one the mode fits is taken.
+    #[test]
+    fn a_legacy_set_or_flip_over_a_framebuffer_smaller_than_the_mode_is_refused() {
+        let card = FakeCard::new(&[(CONN, vec![mode(640, 480, 60, true)])]);
+        let (small, large) = (fb(&card, 320, 240), fb(&card, 640, 480));
+        let at_640 = mode(640, 480, 60, true);
+        assert_eq!(
+            errno(card.set_crtc(CRTC, small, CONN, &at_640)),
+            Some(Errno::NOSPC)
+        );
+        assert!(card.state().set_crtcs.is_empty(), "nothing set");
+        assert_eq!(errno(card.set_crtc(CRTC, large, CONN, &at_640)), None);
+        assert_eq!(errno(card.page_flip(CRTC, small)), Some(Errno::NOSPC));
+        assert!(card.state().page_flips.is_empty(), "nothing flipped");
+        assert_eq!(errno(card.page_flip(CRTC, large)), None);
+        let narrow = fb(&card, 320, 480);
+        card.complete_flips();
+        assert_eq!(errno(card.page_flip(CRTC, narrow)), Some(Errno::NOSPC));
+    }
+
+    // vtium/vtium#224: an atomic commit whose plane reads past its
+    // framebuffer's edge is refused with ENOSPC, as the kernel's
+    // `drm_atomic_plane_check` refuses it, and one that reads inside it is
+    // taken. A commit that sets only the framebuffer reads the source
+    // rectangle the plane holds.
+    #[test]
+    fn a_commit_whose_plane_reads_past_its_framebuffer_is_refused() {
+        let card = FakeCard::new(&[(CONN, vec![mode(640, 480, 60, true)])]);
+        let (small, large) = (fb(&card, 320, 240), fb(&card, 640, 480));
+        card.set_crtc(CRTC, large, CONN, &mode(640, 480, 60, true))
+            .expect("the CRTC set");
+        assert_eq!(
+            errno(show(&card, small, Some((640, 480)))),
+            Some(Errno::NOSPC)
+        );
+        assert_eq!(
+            card.state().plane_fb.get(&PRIMARY_PLANE),
+            None,
+            "nothing shown"
+        );
+        assert_eq!(errno(show(&card, large, Some((640, 480)))), None);
+        assert_eq!(card.state().plane_fb.get(&PRIMARY_PLANE), Some(&large));
+        assert_eq!(errno(show(&card, small, None)), Some(Errno::NOSPC));
+        assert_eq!(errno(show(&card, small, Some((320, 240)))), None);
     }
 }

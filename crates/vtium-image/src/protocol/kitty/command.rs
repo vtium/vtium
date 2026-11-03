@@ -4,7 +4,7 @@
 use core::fmt::Write as _;
 
 use crate::bounds::{BOX_CELLS_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX};
-use crate::handler::{Context, ReplyKind};
+use crate::handler::{Cause, Context, ReplyKind};
 
 /// What a command is answered when it fails: each a fixed message of the
 /// closed set of kitty replies (D6).
@@ -326,6 +326,29 @@ impl Command {
         None
     }
 
+    /// Which of vtium's bounds refuses this command, where one does: the
+    /// picture's size past `max-graphic-size`, or its box past
+    /// `BOX_CELLS_MAX`. [`refusal`](Self::refusal) answers EINVAL for
+    /// both; this names the bound for the log, since the operator can act
+    /// on a setting where only the program's author can act on a bad key.
+    pub(super) fn bound(&self, ctx: &dyn Context) -> Option<&'static str> {
+        let (max_w, max_h) = graphic(ctx);
+        let sized = self.action == b'f' || (self.width != 0 && self.height != 0);
+        if self.transmits()
+            && self.format != 100
+            && sized
+            && (self.width > max_w || self.height > max_h)
+        {
+            return Some("a kitty picture past max-graphic-size");
+        }
+        if matches!(self.action, b'T' | b'p')
+            && (u64::from(self.cols) > BOX_CELLS_MAX || u64::from(self.rows) > BOX_CELLS_MAX)
+        {
+            return Some("a kitty picture's box passes BOX_CELLS_MAX");
+        }
+        None
+    }
+
     /// Whether this command continues the upload in chunks begun by
     /// `first`: it carries only `m` and `q`, and `a=f` too when the upload
     /// began with `a=f`, as the spec asks of animation frames.
@@ -361,6 +384,10 @@ pub(super) fn charge(pixels: u64) -> u64 {
 /// image that already exists, so every answer to it, a refusal as well as
 /// an OK, names that image's id; `id` names it only when no image is found.
 pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answer) {
+    // noted whether or not the program hears it
+    if answer == Err(Error::NoSpace) {
+        ctx.note(Cause::Console, "the budget refuses a kitty picture");
+    }
     if (cmd.id == 0 && cmd.number == 0) || cmd.dropped() {
         return;
     }

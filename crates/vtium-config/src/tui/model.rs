@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use vtium_settings::keys::{self, Kind, Scope};
 use vtium_settings::{Edit, edit_conf, parse, set_profile, setting, switch as conf_switch};
 
 use super::input::{Input, Key, Reply};
@@ -78,6 +79,18 @@ pub struct Inputs {
     pub drafts: PathBuf,
     /// The density size pictures are drawn at, and where it came from.
     pub dpi: (u32, DpiFrom),
+    /// The frits' directory, where a new frit is installed.
+    pub frits: PathBuf,
+    /// The view the TUI opens at: the fonts, or the new-frit view for
+    /// `vtium config new`.
+    pub view: View,
+    /// The first display's size in pixels, which a size's grid is counted
+    /// on, where a display is connected.
+    pub display: Option<(u32, u32)>,
+    /// Each frit installed in the frits' directory, by its name, as text,
+    /// or `None` for one that is not UTF-8: what a new frit of that name
+    /// replaces.
+    pub installed: std::collections::BTreeMap<String, Option<String>>,
 }
 
 /// How a save is installed, as the save view shows it: the command a
@@ -111,7 +124,18 @@ pub enum Event {
     Saved(Result<usize, String>),
     /// The specimen [`Effect::Picture`] asked for, or why there is none.
     Pictured(Result<crate::specimen::Picture, String>),
+    /// The summary [`Effect::Summary`] asked for.
+    Summarized {
+        font: String,
+        height: u32,
+        summary: Result<crate::specimen::Summary, String>,
+    },
+    /// The sources each frit [`Effect::Sources`] named lacks.
+    Sourced(Vec<(String, SourcesFound)>),
 }
+
+/// The sources a frit lacks or refuses, or why it draws nothing here.
+pub type SourcesFound = crate::specimen::Sources;
 
 /// One thing the loop does for the state machine.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -131,6 +155,12 @@ pub enum Effect {
         height: u32,
         max: (u32, u32),
     },
+    /// Summarizes the specimen of the font `font` at `height` pixels, for
+    /// a terminal that draws no pictures, then sends [`Event::Summarized`].
+    Summary { font: String, height: u32 },
+    /// Asks the glyph helper which sources each frit named lacks, then
+    /// sends [`Event::Sourced`].
+    Sources(Vec<String>),
     /// Leaves, with this exit status.
     Exit(u8),
 }
@@ -142,12 +172,21 @@ pub enum View {
     Sizes,
     Settings,
     Heads,
+    /// `new`'s guided flow: a frit made from fonts, saved like any change
+    /// (ADR-1201 D9).
+    New,
     Save,
 }
 
 impl View {
     /// The views Tab steps through, in order.
-    pub const TABS: [View; 4] = [View::Fonts, View::Sizes, View::Settings, View::Heads];
+    pub const TABS: [View; 5] = [
+        View::Fonts,
+        View::Sizes,
+        View::Settings,
+        View::Heads,
+        View::New,
+    ];
 }
 
 /// What the TUI found the terminal to be (D4).
@@ -172,8 +211,10 @@ pub const ASSUMED_CELL: (u32, u32) = (8, 16);
 /// the bounds the console reads `font-size` and a frit's `size=` in.
 pub const SIZES: [u32; 15] = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32];
 
-/// The settings view's keys, the font keys of D1.
-pub const SETTING_KEYS: [&str; 7] = [
+/// The font keys, which the settings view lists first (D1): the font,
+/// its size and options, font operations, the density, and the sprite
+/// policy's keys.
+pub const FONT_KEYS: [&str; 14] = [
     "font-name",
     "font-size",
     "font-frits",
@@ -181,22 +222,116 @@ pub const SETTING_KEYS: [&str; 7] = [
     "font-line-spacing",
     "allow-font-ops",
     "display-dpi",
+    "glyph-source",
+    "glyph-source-box",
+    "glyph-source-block",
+    "glyph-source-braille",
+    "glyph-source-sextants",
+    "glyph-source-octants",
+    "glyph-source-legacy",
 ];
+
+/// The keys the settings view lists: every key vtium.conf takes, from
+/// vtium's own key table, the font keys first and the rest in the table's
+/// order.
+pub fn setting_keys() -> Vec<&'static keys::Key> {
+    let font = FONT_KEYS.iter().filter_map(|n| keys::find(n));
+    let rest = keys::KEYS
+        .iter()
+        .filter(|k| k.scope == Scope::Anywhere && !FONT_KEYS.contains(&k.name));
+    font.chain(rest).collect()
+}
+
+/// One change a save makes to a key of vtium.conf.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Change {
+    Set(String),
+    Switch(bool),
+    /// The key goes back to its default.
+    Unset,
+}
 
 /// What a save would change, not yet written.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Pending {
-    pub font_name: Option<String>,
-    /// `0` for automatic.
-    pub font_size: Option<u32>,
-    pub allow_font_ops: Option<bool>,
+    /// vtium.conf's keys, one change a key, in the order they were made.
+    pub conf: Vec<(String, Change)>,
     /// Each head's new profile, by the head's name.
     pub profiles: Vec<(String, String)>,
+    /// New frits, each its name and text.
+    pub frits: Vec<(String, String)>,
 }
 
 impl Pending {
     pub fn is_empty(&self) -> bool {
         *self == Pending::default()
+    }
+
+    /// The change a save makes to `key`.
+    pub fn get(&self, key: &str) -> Option<&Change> {
+        self.conf.iter().find(|(k, _)| k == key).map(|(_, c)| c)
+    }
+
+    /// Makes `change` the one change to `key`.
+    pub fn set(&mut self, key: &str, change: Change) {
+        self.conf.retain(|(k, _)| k != key);
+        self.conf.push((key.to_owned(), change));
+    }
+
+    /// The font a save names in `font-name`.
+    pub fn font_name(&self) -> Option<&str> {
+        match self.get("font-name") {
+            Some(Change::Set(name)) => Some(name),
+            _ => None,
+        }
+    }
+
+    /// The size a save names in `font-size`, 0 for automatic.
+    pub fn font_size(&self) -> Option<u32> {
+        match self.get("font-size") {
+            Some(Change::Set(size)) => size.parse().ok(),
+            _ => None,
+        }
+    }
+}
+
+/// The new-frit view's fields, in order: its name, three sources, its
+/// cell and its size; the row after them adds the frit to the save.
+pub const NEW_FIELDS: usize = 6;
+
+/// The new frit being made.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NewFrit {
+    /// The fields' text: name, source 1 to 3, cell, size.
+    pub fields: [String; NEW_FIELDS],
+    /// The highlighted row: a field, or [`NEW_FIELDS`] for the add row.
+    pub at: usize,
+}
+
+impl NewFrit {
+    /// The frit's name: the name field, else one made from the first
+    /// source.
+    pub fn name(&self) -> String {
+        let [name, first, ..] = &self.fields;
+        if name.trim().is_empty() {
+            crate::commands::name_from(first.trim())
+        } else {
+            name.trim().to_owned()
+        }
+    }
+
+    /// The frit's text, from its fields.
+    pub fn text(&self) -> String {
+        let [_, a, b, c, cell, size] = &self.fields;
+        let fonts: Vec<String> = [a, b, c]
+            .iter()
+            .map(|f| f.trim().to_owned())
+            .filter(|f| !f.is_empty())
+            .collect();
+        fn opt(f: &str) -> Option<&str> {
+            Some(f.trim()).filter(|t| !t.is_empty())
+        }
+        crate::commands::frit_from(&self.name(), &fonts, opt(cell), opt(size))
     }
 }
 
@@ -231,6 +366,10 @@ pub struct App {
     pub size_at: usize,
     pub setting_at: usize,
     pub head_at: usize,
+    /// The value being typed for the highlighted setting, while it is
+    /// edited.
+    pub editing: Option<String>,
+    pub new_frit: NewFrit,
     pub pending: Pending,
     /// A line for the user, under the list.
     pub message: Option<String>,
@@ -245,6 +384,10 @@ pub struct App {
     pub picture: bool,
     /// The terminal's cell in pixels, where it reports its size in pixels.
     pub cell_px: Option<(u32, u32)>,
+    /// The last summary of a size: the font, the height and what it gave.
+    pub summary: Option<(String, u32, Result<crate::specimen::Summary, String>)>,
+    /// The sources each frit lacks, as the helper found them.
+    pub sources: std::collections::BTreeMap<String, SourcesFound>,
     /// OSC 50 replies still due before the TUI may leave.
     replies_due: usize,
 }
@@ -258,11 +401,12 @@ impl App {
             .as_deref()
             .and_then(|n| inputs.fonts.iter().position(|f| f.name == n))
             .unwrap_or(0);
+        let view = inputs.view;
         let app = App {
             inputs,
             cols,
             rows,
-            view: View::Fonts,
+            view,
             live: Live::Asking,
             graphics: false,
             answers: Answers::default(),
@@ -274,6 +418,8 @@ impl App {
             size_at: 0,
             setting_at: 0,
             head_at: 0,
+            editing: None,
+            new_frit: NewFrit::default(),
             pending: Pending::default(),
             message: None,
             report: Vec::new(),
@@ -281,6 +427,8 @@ impl App {
             leaving: None,
             picture: false,
             cell_px: None,
+            summary: None,
+            sources: std::collections::BTreeMap::new(),
             replies_due: 0,
         };
         (app, vec![Effect::Write(probe()), Effect::Wait(WAIT)])
@@ -299,13 +447,31 @@ impl App {
     /// Whether a save leaves `allow-font-ops` on: the pending change, else
     /// vtium.conf's, else its default, on.
     pub fn font_ops(&self) -> bool {
-        self.pending.allow_font_ops.unwrap_or_else(|| {
-            self.inputs
+        match self.pending.get("allow-font-ops") {
+            Some(Change::Switch(on)) => *on,
+            Some(Change::Unset) => true,
+            _ => self
+                .inputs
                 .conf
                 .as_deref()
                 .and_then(|c| conf_switch(c, "allow-font-ops"))
-                .unwrap_or(true)
-        })
+                .unwrap_or(true),
+        }
+    }
+
+    /// The value a save leaves `key` at, as the settings view shows it,
+    /// and whether it is the key's default.
+    pub fn value(&self, key: &keys::Key) -> (String, bool) {
+        let conf = self.inputs.conf.as_deref();
+        match self.pending.get(key.name) {
+            Some(Change::Set(v)) => (v.clone(), false),
+            Some(Change::Switch(on)) => (if *on { "on" } else { "off" }.to_owned(), false),
+            Some(Change::Unset) => crate::commands::value_text(key, None),
+            None => {
+                let (v, set) = crate::commands::value_text(key, conf);
+                (v, !set)
+            }
+        }
     }
 
     /// The heads the head file declares, when it reads.
@@ -361,6 +527,18 @@ impl App {
             Event::Timeout => self.timeout(),
             Event::Saved(result) => self.saved(result),
             Event::Pictured(result) => self.pictured(result),
+            Event::Summarized {
+                font,
+                height,
+                summary,
+            } => {
+                self.summary = Some((font, height, summary));
+                Vec::new()
+            }
+            Event::Sourced(found) => {
+                self.sources.extend(found);
+                Vec::new()
+            }
         }
     }
 
@@ -372,9 +550,24 @@ impl App {
         }
     }
 
+    /// The size a font the console cannot switch to is pictured at in the
+    /// fonts view: the size a save names, else vtium.conf's `font-size`,
+    /// else `preview`'s.
+    fn preview_points(&self) -> u32 {
+        self.pending
+            .font_size()
+            .or_else(|| {
+                self.configured("font-size")
+                    .and_then(|s| s.parse::<u32>().ok())
+            })
+            .filter(|s| *s > 0)
+            .unwrap_or(crate::preview::POINTS)
+    }
+
     /// The specimen for the highlighted size, where the terminal draws
-    /// kitty graphics and the size is not automatic; otherwise the picture
-    /// on the screen, if any, is deleted.
+    /// kitty graphics and the size is not automatic, and for the
+    /// highlighted font where the console cannot be switched to it live
+    /// (D4); otherwise the picture on the screen, if any, is deleted.
     fn ask_picture(&mut self) -> Vec<Effect> {
         let font = self.font().map(|f| f.name.clone());
         let (cols, rows) = super::view::picture_area(self);
@@ -389,13 +582,27 @@ impl App {
                 .saturating_mul(ch)
                 .min(crate::specimen::PICTURE_MAX.1),
         );
-        match (self.view, self.graphics, self.size(), font) {
-            (View::Sizes, true, points @ 1.., Some(font)) if max.0 > 0 && max.1 > 0 => {
-                vec![Effect::Picture {
-                    font,
-                    height: crate::specimen::pixel_height(points, self.inputs.dpi.0),
-                    max,
-                }]
+        let readable = !matches!(self.font().map(|f| &f.state), Some(FontState::Refused(_)));
+        let not_live = matches!(self.live, Live::OpsOff | Live::NotVtium);
+        let points = match self.view {
+            View::Sizes => self.size(),
+            View::Fonts if not_live && readable => self.preview_points(),
+            _ => 0,
+        };
+        let height = crate::specimen::pixel_height(points, self.inputs.dpi.0);
+        match (self.graphics, points, font) {
+            (true, 1.., Some(font)) if max.0 > 0 && max.1 > 0 => {
+                vec![Effect::Picture { font, height, max }]
+            }
+            // a terminal that draws no pictures gets a size's summary
+            (false, 1.., Some(font))
+                if self.view == View::Sizes
+                    && self
+                        .summary
+                        .as_ref()
+                        .is_none_or(|(f, h, _)| *f != font || *h != height) =>
+            {
+                vec![Effect::Summary { font, height }]
             }
             _ => self.drop_picture(),
         }
@@ -412,7 +619,7 @@ impl App {
 
     fn pictured(&mut self, result: Result<crate::specimen::Picture, String>) -> Vec<Effect> {
         let mut out = self.drop_picture();
-        if self.view != View::Sizes || self.leaving.is_some() {
+        if !matches!(self.view, View::Sizes | View::Fonts) || self.leaving.is_some() {
             return out;
         }
         match result {
@@ -441,7 +648,7 @@ impl App {
                 Reply::Graphics(ok) => self.answers.graphics |= ok,
                 Reply::Attributes => {
                     self.decide();
-                    return Vec::new();
+                    return self.started();
                 }
             }
             return Vec::new();
@@ -465,6 +672,25 @@ impl App {
         }
         self.shown_font = Some(name);
         self.follow()
+    }
+
+    /// What follows once the terminal is known: the sources each frit that
+    /// reads lacks, found once, and the highlighted font's picture where
+    /// one shows.
+    fn started(&mut self) -> Vec<Effect> {
+        let frits: Vec<String> = self
+            .inputs
+            .fonts
+            .iter()
+            .filter(|f| f.state == FontState::Reads)
+            .map(|f| f.name.clone())
+            .collect();
+        let mut out = Vec::new();
+        if !frits.is_empty() {
+            out.push(Effect::Sources(frits));
+        }
+        out.extend(self.ask_picture());
+        out
     }
 
     /// Settles what the terminal is, from the answers that came.
@@ -498,7 +724,7 @@ impl App {
     fn timeout(&mut self) -> Vec<Effect> {
         if self.live == Live::Asking {
             self.decide();
-            return Vec::new();
+            return self.started();
         }
         match self.leaving {
             Some(status) => vec![Effect::Exit(status)],
@@ -559,9 +785,24 @@ impl App {
         }
     }
 
+    /// Whether a key's character is text being typed: in the new-frit view
+    /// on a field, and in the settings view while a value is edited.
+    fn typing(&self) -> bool {
+        match self.view {
+            View::New => self.new_frit.at < NEW_FIELDS,
+            View::Settings => self.editing.is_some(),
+            _ => false,
+        }
+    }
+
     fn key(&mut self, key: Key) -> Vec<Effect> {
         if self.leaving.is_some() || self.saving {
             return Vec::new();
+        }
+        if self.typing()
+            && let Key::Char(_) | Key::Backspace = key
+        {
+            return self.type_key(key);
         }
         match key {
             Key::Interrupt => return self.leave(130),
@@ -575,6 +816,7 @@ impl App {
                     at.saturating_add(n).saturating_sub(1) % n
                 };
                 self.view = View::TABS.get(next).copied().unwrap_or(View::Fonts);
+                self.editing = None;
                 let mut out = self.ask_picture();
                 out.extend(self.follow());
                 return out;
@@ -584,7 +826,7 @@ impl App {
                 return self.drop_picture();
             }
             Key::Char('o') if self.live == Live::OpsOff => {
-                self.pending.allow_font_ops = Some(true);
+                self.pending.set("allow-font-ops", Change::Switch(true));
                 self.message = Some(super::words::OPS_ON_PENDING.to_owned());
                 return Vec::new();
             }
@@ -597,7 +839,8 @@ impl App {
                 let before = self.size_at;
                 self.size_at = step(self.size_at, n, key);
                 if key == Key::Enter {
-                    self.pending.font_size = Some(self.size());
+                    let size = self.size().to_string();
+                    self.pending.set("font-size", Change::Set(size));
                 }
                 if self.size_at == before {
                     Vec::new()
@@ -606,12 +849,11 @@ impl App {
                 }
             }
             View::Settings => {
-                self.setting_at = step(self.setting_at, SETTING_KEYS.len(), key);
-                if key == Key::Enter && SETTING_KEYS.get(self.setting_at) == Some(&"allow-font-ops")
-                {
-                    let now = self.font_ops();
-                    self.pending.allow_font_ops = Some(!now);
-                }
+                self.settings_key(key);
+                Vec::new()
+            }
+            View::New => {
+                self.new_key(key);
                 Vec::new()
             }
             View::Heads => {
@@ -661,6 +903,7 @@ impl App {
     }
 
     fn fonts_key(&mut self, key: Key) -> Vec<Effect> {
+        let before = self.font_at;
         let n = self.inputs.fonts.len();
         self.font_at = step(self.font_at, n, key);
         if key == Key::Enter
@@ -668,9 +911,132 @@ impl App {
             && !matches!(font.state, FontState::Refused(_))
             && !self.refused.contains(&font.name)
         {
-            self.pending.font_name = Some(font.name.clone());
+            let name = font.name.clone();
+            self.pending.set("font-name", Change::Set(name));
         }
-        self.follow()
+        let mut out = self.follow();
+        if matches!(self.live, Live::OpsOff | Live::NotVtium) && self.font_at != before {
+            out.extend(self.ask_picture());
+        }
+        out
+    }
+
+    /// A character or Backspace typed into the field being edited.
+    fn type_key(&mut self, key: Key) -> Vec<Effect> {
+        let text = match self.view {
+            View::New => self.new_frit.fields.get_mut(self.new_frit.at),
+            _ => self.editing.as_mut(),
+        };
+        if let Some(text) = text {
+            match key {
+                Key::Char(c) if !c.is_control() && text.len() < TYPED_MAX => text.push(c),
+                Key::Backspace => {
+                    text.pop();
+                }
+                _ => {}
+            }
+        }
+        Vec::new()
+    }
+
+    /// A key in the settings view: Enter turns a switch on or off, steps a
+    /// key of a fixed set of words to its next word, and starts typing any
+    /// other key's value, which a second Enter keeps; an empty value goes
+    /// back to the default. Moving away drops what is typed.
+    fn settings_key(&mut self, key: Key) {
+        let all = setting_keys();
+        if let Some(typed) = self.editing.take() {
+            if key == Key::Enter
+                && let Some(k) = all.get(self.setting_at)
+            {
+                self.change(k, typed.trim());
+            }
+            return;
+        }
+        self.setting_at = step(self.setting_at, all.len(), key);
+        let Some(k) = all.get(self.setting_at).copied() else {
+            return;
+        };
+        if key != Key::Enter {
+            return;
+        }
+        let (now, _) = self.value(k);
+        match k.kind {
+            Kind::Switch => {
+                let on = now != "on";
+                self.pending.set(k.name, Change::Switch(on));
+            }
+            Kind::Choice(words) => {
+                let at = words.iter().position(|w| *w == now);
+                let next = at.map_or(0, |i| i.saturating_add(1) % words.len().max(1));
+                if let Some(w) = words.get(next) {
+                    self.pending.set(k.name, Change::Set((*w).to_owned()));
+                }
+            }
+            _ => {
+                let (value, default) = self.value(k);
+                self.editing = Some(if default { String::new() } else { value });
+            }
+        }
+    }
+
+    /// Sets `key` to the typed `value` as a change the save makes, or back
+    /// to its default when `value` is empty; a value vtium would not read
+    /// back says why on the message line.
+    fn change(&mut self, key: &'static keys::Key, value: &str) {
+        if value.is_empty() {
+            self.pending.set(key.name, Change::Unset);
+            return;
+        }
+        let change = crate::commands::set_edit(key, value).and_then(|e| {
+            edit_conf("", &[e]).map_err(|e| super::words::conf_edit(&e))?;
+            Ok(match e {
+                Edit::Switch(_, on) => Change::Switch(on),
+                _ => Change::Set(value.to_owned()),
+            })
+        });
+        match change {
+            Ok(change) => self.pending.set(key.name, change),
+            Err(why) => self.message = Some(why),
+        }
+    }
+
+    /// A key in the new-frit view: Up and Down move between the fields,
+    /// Enter moves to the next, and Enter on the last row adds the frit to
+    /// the save, once the frit reader takes it, and shows the save.
+    fn new_key(&mut self, key: Key) {
+        let rows = NEW_FIELDS.saturating_add(1);
+        let at = self.new_frit.at;
+        self.new_frit.at = match key {
+            Key::Enter if at < NEW_FIELDS => at.saturating_add(1),
+            _ => step(at, rows, key),
+        };
+        if key != Key::Enter || at != NEW_FIELDS {
+            return;
+        }
+        let name = self.new_frit.name();
+        let text = self.new_frit.text();
+        let path = self.inputs.frits.join(format!("{name}.vtfrit"));
+        let read =
+            if !crate::frit::valid_name(&name) || crate::frit::RESERVED.contains(&name.as_str()) {
+                Err(super::words::NEW_BAD_NAME.to_owned())
+            } else if self.inputs.installed.get(&name) == Some(&None) {
+                Err(super::words::new_replaces_binary(&name))
+            } else {
+                crate::frit::Frit::parse(text.as_bytes(), &path, &name)
+                    .map(|_| ())
+                    .map_err(|e| e.why)
+            };
+        match read {
+            Ok(()) => {
+                self.pending.frits.retain(|(n, _)| *n != name);
+                self.pending.frits.push((name.clone(), text));
+                self.new_frit = NewFrit::default();
+                self.message = Some(super::words::new_added(&name));
+                self.view = View::Save;
+            }
+            Err(why) => self.message = Some(super::words::new_refused(why)),
+        }
     }
 
     /// What saving now would change: vtium.conf with the pending keys, and
@@ -678,17 +1044,26 @@ impl App {
     pub fn plan(&self) -> Result<Plan, String> {
         let mut files = Vec::new();
         let p = &self.pending;
-        let size = p.font_size.map(|s| s.to_string());
-        let mut edits = Vec::new();
-        if let Some(name) = &p.font_name {
-            edits.push(Edit::Set("font-name", name));
+        // the frits first, as apply writes them, so the save view lists
+        // them in the order they are installed
+        for (name, text) in &p.frits {
+            let path = self.inputs.frits.join(format!("{name}.vtfrit"));
+            let old = self.inputs.installed.get(name).cloned().flatten();
+            files.push(FileEdit {
+                path,
+                old,
+                new: text.clone(),
+            });
         }
-        if let Some(size) = &size {
-            edits.push(Edit::Set("font-size", size));
-        }
-        if let Some(on) = p.allow_font_ops {
-            edits.push(Edit::Switch("allow-font-ops", on));
-        }
+        let edits: Vec<Edit<'_>> = p
+            .conf
+            .iter()
+            .map(|(key, change)| match change {
+                Change::Set(v) => Edit::Set(key, v),
+                Change::Switch(on) => Edit::Switch(key, *on),
+                Change::Unset => Edit::Unset(key),
+            })
+            .collect();
         if !edits.is_empty() {
             let old = self.inputs.conf.clone();
             let new = edit_conf(old.as_deref().unwrap_or_default(), &edits)
@@ -716,7 +1091,10 @@ impl App {
                 });
             }
         }
-        Ok(Plan { files })
+        Ok(Plan {
+            files,
+            removals: Vec::new(),
+        })
     }
 
     fn saved(&mut self, result: Result<usize, String>) -> Vec<Effect> {
@@ -734,8 +1112,10 @@ impl App {
                 }
                 // the saved font is the console's from here, the font
                 // leaving gives back (D4)
-                if self.live == Live::On && self.pending.font_name.is_some() {
-                    self.start_font = self.pending.font_name.clone();
+                if self.live == Live::On
+                    && let Some(name) = self.pending.font_name()
+                {
+                    self.start_font = Some(name.to_owned());
                 }
                 self.pending = Pending::default();
                 self.report.clear();
@@ -751,6 +1131,9 @@ impl App {
         Vec::new()
     }
 }
+
+/// The most bytes a typed field holds.
+pub const TYPED_MAX: usize = 256;
 
 /// `at` moved by `key` in a list of `n`.
 fn step(at: usize, n: usize, key: Key) -> usize {

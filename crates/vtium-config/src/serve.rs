@@ -39,11 +39,18 @@
 //! it has no request and no fill for [`HELPER_IDLE_MS`], or when the
 //! console closes its end and its work is done.
 //!
+//! A fifth request, a sources query, is vtium-config's own and the console
+//! never sends it: it asks which of a frit's sources this machine lacks or
+//! refuses, which `vtium config fonts` and the TUI's font list show
+//! (ADR-1201 D2, D3), so they learn it without parsing a font in their own
+//! process. It is answered at once, like a cell query.
+//!
 //! ```text
 //! request  magic "VTVSREQ3", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
-//!          query), frit name length u32, the name (ADR-1200 D1's
+//!          query, 5 sources query), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
-//!          u32 (0 for a cell query), cell height u32 (for a cell query,
+//!          u32 (0 for a cell or sources query), cell height u32 (for a
+//!          sources query 0, for a cell query
 //!          the height an outline font is drawn at, or 0), capabilities
 //!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
@@ -65,8 +72,11 @@
 //!          height u32); kind 7 no own cell (UTF-8 reason); kind 8 a stop
 //!          taken (its cell's width u32 and height u32), one for each
 //!          stop; kind 9 a warning the frit's text gave as it was read,
-//!          once for each frit read (UTF-8); kind 3 a failure (UTF-8
-//!          reason)
+//!          once for each frit read (UTF-8); kind 11 a sources query's
+//!          answer, one line for each source left out, `missing` or
+//!          `refused`, a tab, the source's line in the frit, a tab, its
+//!          spelling, a tab and why (UTF-8, empty when none is left out);
+//!          kind 3 a failure (UTF-8 reason)
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
@@ -142,6 +152,8 @@ pub const FRAME_WARNING: u32 = 9;
 /// answer when the frit's first source is an outline font: its width and
 /// height, the height the one asked for.
 pub const FRAME_OUTLINE_CELL: u32 = 10;
+/// A sources query's answer: each source left out, one a line.
+pub const FRAME_SOURCES: u32 = 11;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// A fill: the cell's coverage, in order, around the asks.
@@ -151,6 +163,10 @@ pub const STOP: u32 = 3;
 /// A cell query asks for the frit's own cell. It carries a width of 0, the
 /// height an outline font would be drawn at or 0, and no codepoints.
 pub const OWN_CELL: u32 = 4;
+/// A sources query asks which of the frit's sources this machine lacks or
+/// refuses. It carries a cell of 0 by 0 and no codepoints, and the console
+/// never sends it.
+pub const SOURCES: u32 = 5;
 /// What a fill draws after the screen's codepoints: printable Latin
 /// (Basic Latin, Latin-1 and Latin Extended-A), then box drawing, block
 /// elements and shades.
@@ -185,7 +201,7 @@ pub struct FritText {
 /// What the console sends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServeRequest {
-    /// [`ASK`], [`FILL`], [`STOP`] or [`OWN_CELL`].
+    /// [`ASK`], [`FILL`], [`STOP`], [`OWN_CELL`] or [`SOURCES`].
     pub kind: u32,
     pub frit: FritText,
     pub cell: Cell,
@@ -321,7 +337,7 @@ impl ServeRequest {
         }
         let mut f = Fields(r);
         let kind = f.u32()?;
-        if !matches!(kind, ASK | FILL | STOP | OWN_CELL) {
+        if !matches!(kind, ASK | FILL | STOP | OWN_CELL | SOURCES) {
             return Err("an unknown request kind".to_owned());
         }
         let n = f.count(NAME_BYTES_MAX, "a frit's name")?;
@@ -339,9 +355,12 @@ impl ServeRequest {
             width: f.u32()?,
             height: f.u32()?,
         };
-        let query = kind == OWN_CELL;
+        let query = matches!(kind, OWN_CELL | SOURCES);
         if query && (cell.width != 0 || cell.height > CELL_SIDE_MAX) {
             return Err("a cell query at a cell, or at a height past CELL_SIDE_MAX".to_owned());
+        }
+        if kind == SOURCES && cell.height != 0 {
+            return Err("a sources query at a height".to_owned());
         }
         if !query
             && (!(1..=CELL_SIDE_MAX).contains(&cell.width)
@@ -504,6 +523,49 @@ pub enum OwnCell {
     Outline(Cell),
 }
 
+/// A source [`Engine::load`] left out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LeftOut {
+    /// This machine does not have it; otherwise it has it and refused it.
+    pub missing: bool,
+    /// Its line in the frit.
+    pub line: usize,
+    /// Its value as the frit spells it, such as `font:JetBrains Mono`.
+    pub spelling: String,
+    pub why: String,
+}
+
+impl LeftOut {
+    /// The line a sources query answers for it.
+    pub fn line_text(&self) -> String {
+        let kind = if self.missing { "missing" } else { "refused" };
+        let clean = |t: &str| t.replace(['\t', '\n'], " ");
+        format!(
+            "{kind}\t{}\t{}\t{}",
+            self.line,
+            clean(&self.spelling),
+            clean(&self.why)
+        )
+    }
+
+    /// The source a sources query's line `text` names, `None` for a line
+    /// that is not one.
+    pub fn parse(text: &str) -> Option<LeftOut> {
+        let mut f = text.splitn(4, '\t');
+        let missing = match f.next()? {
+            "missing" => true,
+            "refused" => false,
+            _ => return None,
+        };
+        Some(LeftOut {
+            missing,
+            line: f.next()?.parse().ok()?,
+            spelling: f.next()?.to_owned(),
+            why: f.next()?.to_owned(),
+        })
+    }
+}
+
 /// A frit's sources, ready to draw at any cell.
 pub struct Engine {
     name: String,
@@ -515,6 +577,9 @@ pub struct Engine {
     failed: RefCell<BTreeMap<usize, String>>,
     /// What the frit's text gave as warnings, each naming its line.
     warnings: Vec<String>,
+    /// The sources [`Engine::load`] left out, each as a sources query
+    /// answers it.
+    left_out: Vec<LeftOut>,
     /// Each outline source's baseline at a cell's height, by its place in
     /// `sources` and the height (ADR-1302 D3): found once, from the
     /// source's printable ASCII, so every request draws it on one
@@ -630,6 +695,7 @@ impl Engine {
         };
         let mut sources = Vec::new();
         let mut why = Vec::new();
+        let mut left_out = Vec::new();
         for source in &frit.sources {
             let loaded = resolve(source, &host).and_then(|input| {
                 match input {
@@ -654,9 +720,21 @@ impl Engine {
             match loaded {
                 Ok(l) => sources.push((source.clone(), l)),
                 Err(SourceError::Missing(e)) => {
-                    why.push(format!("source={}: {e}", source.spelling))
+                    why.push(format!("source={}: {e}", source.spelling));
+                    left_out.push(LeftOut {
+                        missing: true,
+                        line: source.line,
+                        spelling: source.spelling.clone(),
+                        why: e,
+                    });
                 }
                 Err(SourceError::Failed(e)) => {
+                    left_out.push(LeftOut {
+                        missing: false,
+                        line: source.line,
+                        spelling: source.spelling.clone(),
+                        why: e.clone(),
+                    });
                     let line = format!("source={}: {e}", source.spelling);
                     warnings.push(format!(
                         "{}:{}: {line}; the source is left out",
@@ -692,6 +770,7 @@ impl Engine {
             coverage,
             failed: RefCell::default(),
             warnings,
+            left_out,
             baselines: RefCell::default(),
             hinting: frit.hinting,
         })
@@ -701,6 +780,12 @@ impl Engine {
     /// refused, each naming its line.
     pub fn warnings(&self) -> &[String] {
         &self.warnings
+    }
+
+    /// The sources the engine left out: those this machine does not have,
+    /// and those it has and refused.
+    pub fn left_out(&self) -> &[LeftOut] {
+        &self.left_out
     }
 
     /// Every codepoint the frit's sources give, sorted.
@@ -1172,6 +1257,51 @@ fn read_requests(input: impl Read + Send + 'static) -> Requests {
     rx
 }
 
+/// The variable the helper sets when it starts itself again without the
+/// descriptors it inherited, so it does so once.
+pub const SHED_VAR: &str = "VTIUM_CONFIG_SERVE_SHED";
+
+/// The descriptors above standard error this process holds: each number
+/// `/proc/self/fd` lists that still names a file once the listing's own
+/// descriptor is closed.
+fn inherited() -> Vec<u32> {
+    let listed: Vec<u32> = std::fs::read_dir("/proc/self/fd")
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+                .filter(|&fd| fd > 2)
+                .collect()
+        })
+        .unwrap_or_default();
+    listed
+        .into_iter()
+        .filter(|fd| std::fs::read_link(format!("/proc/self/fd/{fd}")).is_ok())
+        .collect()
+}
+
+/// Leaves the helper holding only its three pipes, whatever its starter
+/// left open, as a terminal a font could write to: when it holds any
+/// descriptor above standard error, it marks every one close-on-exec and
+/// starts itself again, once, with the same arguments. Returns why it could
+/// not; `None` when it holds only its pipes, or after the one restart.
+fn shed_inherited() -> Option<String> {
+    use std::os::unix::process::CommandExt;
+    if std::env::var_os(SHED_VAR).is_some() || inherited().is_empty() {
+        return None;
+    }
+    if let Err(e) = vtium_platform::cloexec_above_stdio() {
+        return Some(format!("the helper cannot close what it inherited: {e}"));
+    }
+    let why = std::process::Command::new("/proc/self/exe")
+        .args(std::env::args_os().skip(1))
+        .env(SHED_VAR, "1")
+        .exec();
+    Some(format!(
+        "the helper cannot start again without what it inherited: {why}"
+    ))
+}
+
 /// Serves requests read from `input` until it ends and its work is done,
 /// or until `idle` passes with no request and no fill, writing the
 /// answers to `out`. Returns the exit status: 0 at the input's end or the
@@ -1252,6 +1382,16 @@ impl Work<'_> {
                         write_frame(out, FRAME_OUTLINE_CELL, &cell_payload(cell))
                     }
                     Err(why) => reason(out, FRAME_NO_OWN_CELL, &why),
+                };
+            }
+            SOURCES => {
+                return match self.engine(&request.frit) {
+                    Ok(engine) => {
+                        let lines: Vec<String> =
+                            engine.left_out().iter().map(LeftOut::line_text).collect();
+                        write_frame(out, FRAME_SOURCES, lines.join("\n").as_bytes())
+                    }
+                    Err(why) => failed(out, &why.clone()),
                 };
             }
             _ => {
@@ -1411,6 +1551,10 @@ fn refuse_root(euid: Uid) -> Result<(), String> {
 /// a failed frame, so the console logs it.
 pub fn command(paths: &Paths) -> u8 {
     let mut out = io::stdout().lock();
+    if let Some(why) = shed_inherited() {
+        let _ = failed(&mut out, &why);
+        return 1;
+    }
     if let Err(e) = rustix::thread::set_no_new_privs(true) {
         let _ = failed(
             &mut out,
@@ -1639,6 +1783,66 @@ mod tests {
         not_utf8[16] = 0xff;
         assert!(ServeRequest::read(&mut &not_utf8[..]).is_err());
         assert!(ServeRequest::read(&mut &good[..good.len() - 1]).is_err());
+    }
+
+    /// A sources query carries a cell of 0 by 0 and names nothing: one
+    /// at a width or a height, or naming a codepoint or a held range, is
+    /// refused as it is read.
+    #[test]
+    fn a_sources_query_naming_anything_is_refused() {
+        let empty = Cell {
+            width: 0,
+            height: 0,
+        };
+        let query = ServeRequest {
+            cell: empty,
+            ..request(SOURCES, frit("source=builtin:unifont\n"), &[])
+        };
+        assert_eq!(
+            ServeRequest::read(&mut &query.encode()[..]),
+            Ok(Some(query.clone()))
+        );
+        for (what, bad) in [
+            (
+                "a width",
+                ServeRequest {
+                    cell: Cell {
+                        width: 1,
+                        height: 0,
+                    },
+                    ..query.clone()
+                },
+            ),
+            (
+                "a height",
+                ServeRequest {
+                    cell: Cell {
+                        width: 0,
+                        height: 16,
+                    },
+                    ..query.clone()
+                },
+            ),
+            (
+                "a codepoint",
+                ServeRequest {
+                    codepoints: vec![0x41],
+                    ..query.clone()
+                },
+            ),
+            (
+                "a held range",
+                ServeRequest {
+                    held: vec![(0x41, 0x42)],
+                    ..query.clone()
+                },
+            ),
+        ] {
+            assert!(
+                ServeRequest::read(&mut &bad.encode()[..]).is_err(),
+                "{what}"
+            );
+        }
     }
 
     // ADR-1200 D21: an ask names clusters whole, each checked as it is

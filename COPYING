@@ -96,3 +96,11 @@ in the public domain. The licence's text is
 crates/vtium-config/tests/fixtures/DejaVuSansMono-LICENSE.txt, and the
 fixtures' README says how each subset was made. The tests read them; vtium
 installs none of them.
+
+Noto Naskh Arabic's subset, the test fixture
+crates/vtium-config/tests/fixtures/NotoNaskhArabic-beh-fatha.ttf: a subset of
+Noto Naskh Arabic 2.021, Copyright 2022 The Noto Project Authors, under the SIL
+Open Font License 1.1. The licence's text is
+crates/vtium-config/tests/fixtures/NotoNaskhArabic-LICENSE.txt, and the
+fixtures' README says how the subset was made. The tests read it; vtium
+installs none of it.

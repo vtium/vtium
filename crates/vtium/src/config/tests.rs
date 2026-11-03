@@ -63,7 +63,8 @@ fn tier3_guest_configurations() {
             0,
             false,
         ),
-        (TIER3_MIN, None, Some("monospace"), 0, false),
+        // no font-name: vconsole's font, else the built-ins (ADR-1200 D9)
+        (TIER3_MIN, None, None, 0, false),
     ];
     for (text, engine, name, size, hwaccel) in cases {
         let l = main_file(text);
@@ -134,7 +135,9 @@ fn defaults() {
     assert_eq!(c.number(&SYNC_TIMEOUT), Some(200));
     assert_eq!(c.number(&DPMS_TIMEOUT), Some(600));
     assert_eq!(c.number(&FONT_SIZE), Some(0));
-    assert_eq!(c.text(&FONT_NAME), Some("monospace"));
+    // unset: vconsole's font, else the built-ins, where the C reference
+    // asked fontconfig for "monospace" (src/config.c:1424)
+    assert_eq!(c.text(&FONT_NAME), None);
     assert_eq!(c.text(&RENDER_TIMER), Some("none"));
     assert_eq!(c.text(&GLYPH_CACHE), None);
     assert_eq!(c.text(&DISPLAY_DEPTH), Some("auto"));
@@ -1105,7 +1108,7 @@ fn the_key_table_keeps_its_rules() {
 #[test]
 fn blink_text_and_blink_decorations_take_their_values() {
     let d = main_file("");
-    assert_eq!(d.config.text(&BLINK_TEXT), Some("full"));
+    assert_eq!(d.config.text(&BLINK_TEXT), Some("partial"));
     assert!(!d.config.switch(&BLINK_DECORATIONS));
     let l = load_with(
         &["--blink-text=off"],
@@ -1119,7 +1122,7 @@ fn blink_text_and_blink_decorations_take_their_values() {
     assert!(l.config.switch(&BLINK_DECORATIONS));
     assert_eq!(problems(&l), [] as [&Problem; 0]);
     let l = main_file("blink-text=half\nblink-decorations=1\n");
-    assert_eq!(l.config.text(&BLINK_TEXT), Some("full"));
+    assert_eq!(l.config.text(&BLINK_TEXT), Some("partial"));
     assert_eq!(
         problems(&l),
         [

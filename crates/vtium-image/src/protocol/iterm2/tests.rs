@@ -205,7 +205,7 @@ impl Context for Host {
 
     fn add_work(&mut self, _: u64) {}
 
-    fn note(&mut self, why: &str) {
+    fn note(&mut self, _: crate::handler::Cause, why: &str) {
         self.notes.push(why.to_owned());
     }
 }

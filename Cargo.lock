@@ -756,6 +756,8 @@ name = "vtium-settings"
 version = "0.1.0-alpha.2"
 dependencies = [
  "rustix",
+ "vtium-font",
+ "vtium-term",
 ]
 
 [[package]]

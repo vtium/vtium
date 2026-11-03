@@ -9,7 +9,7 @@
 X86_TARGET := x86_64-unknown-linux-gnu
 
 # The binary the VT review runs. It runs as root, so it is named in this file
-# or on make's command line (make vt-demo VTIUM_BIN=PATH), never taken from a
+# or on make's command line (make vt-accept VTIUM_BIN=PATH), never taken from a
 # stale export in the shell. The default is the minspec build, which the vt
 # targets build first; another binary is run as it is. make vt-install's
 # default is the development console, the minspec build made to start its
@@ -18,12 +18,20 @@ X86_TARGET := x86_64-unknown-linux-gnu
 # release build of vtium-config unless named: make vt-install installs it,
 # and the review runs copy it into /run/vtium-vt/ and run vtium with
 # --font-helper naming the copy, so each run starts the helper built with it.
+# With images in FEATURES, make vt-install's console also starts its image
+# helper at VTIUM_DEV_IMAGE, and the helper make vt-install installs there,
+# VTIUM_IMAGE_BIN, is the release build of vtium-image unless named.
 VTIUM_MINSPEC := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/minspec/vtium
 VTIUM_DEV_DIR := $(or $(CARGO_TARGET_DIR),target)/vt-dev
 VTIUM_DEV := $(VTIUM_DEV_DIR)/$(X86_TARGET)/minspec/vtium
 VTIUM_DEV_HELPER := /usr/local/bin/vtium-dev-config
+VTIUM_DEV_IMAGE := /usr/local/bin/vtium-dev-image
+# The line only a build with images carries, by which make vt-install tells a
+# console with images: tools/vt/vt-install.sh names it.
+VT_IMAGES_MARKER := $(shell sed -n "s/^images_marker='\(.*\)'$$/\1/p" tools/vt/vt-install.sh)
 CONFIG_RELEASE := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-config
-VT_GOALS := vt-demo vt-login vt-check vt-shell
+IMAGE_RELEASE := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-image
+VT_GOALS := vt-accept vt-login vt-check vt-shell
 VT_INSTALL_GOALS := vt-install vt-uninstall
 ifneq ($(filter $(VT_GOALS) $(VT_INSTALL_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(filter environment%,$(origin VTIUM_BIN)),)
@@ -31,6 +39,9 @@ $(error VTIUM_BIN is set in the environment; the vt targets run it as root, so n
 endif
 ifneq ($(filter environment%,$(origin VTIUM_CONFIG_BIN)),)
 $(error VTIUM_CONFIG_BIN is set in the environment; the vt targets give it to vtium, which starts it from root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_CONFIG_BIN=PATH)
+endif
+ifneq ($(filter environment%,$(origin VTIUM_IMAGE_BIN)),)
+$(error VTIUM_IMAGE_BIN is set in the environment; make vt-install installs it for vtium, which starts it from root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_IMAGE_BIN=PATH)
 endif
 endif
 # Simply expanded, so the recipes' $(value VTIUM_BIN) is the path itself.
@@ -40,9 +51,15 @@ endif
 ifeq ($(origin VTIUM_CONFIG_BIN),undefined)
 VTIUM_CONFIG_BIN := $(CONFIG_RELEASE)
 endif
+ifeq ($(origin VTIUM_IMAGE_BIN),undefined)
+VTIUM_IMAGE_BIN := $(IMAGE_RELEASE)
+endif
 vt_build := $(if $(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),minspec)
 vt_helper_build := $(if $(filter $(CONFIG_RELEASE),$(VTIUM_CONFIG_BIN)),config-release)
-vt_dev_build := $(if $(filter $(VTIUM_DEV),$(VTIUM_BIN)),vt-dev-console) $(vt_helper_build)
+# These two read IMAGES, from FEATURES, below, so they expand where they are
+# used.
+vt_image_build = $(if $(and $(IMAGES),$(filter $(IMAGE_RELEASE),$(VTIUM_IMAGE_BIN))),image-release)
+vt_dev_build = $(if $(filter $(VTIUM_DEV),$(VTIUM_BIN)),vt-dev-console) $(vt_helper_build) $(vt_image_build)
 
 .PHONY: help
 help: ## Show this help
@@ -75,8 +92,8 @@ endef
 # sysroot, as the ARM targets do; the wrappers are named for these targets
 # alone, so the default build and cargo test use the host's toolchain.
 ARM_WRAP := $(CURDIR)/tools/arm
-minspec install-tree vt-dev-console config-release: export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/$(X86_TARGET)-cc
-minspec install-tree vt-dev-console config-release: export PKG_CONFIG_x86_64_unknown_linux_gnu = $(ARM_WRAP)/$(X86_TARGET)-pkg-config
+minspec install-tree vt-dev-console config-release image-release: export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/$(X86_TARGET)-cc
+minspec install-tree vt-dev-console config-release image-release: export PKG_CONFIG_x86_64_unknown_linux_gnu = $(ARM_WRAP)/$(X86_TARGET)-pkg-config
 
 # The vtium crate's features the console binary is built with, named on
 # make's command line (make install-tree FEATURES='images logind'). None, the
@@ -84,6 +101,22 @@ minspec install-tree vt-dev-console config-release: export PKG_CONFIG_x86_64_unk
 # (ADR-1200 D19). The assignment here outranks the environment, so a
 # FEATURES exported in the shell builds nothing different.
 FEATURES :=
+# The acceptance pass shows pictures by default (ADR-1501 D5): make vt-accept
+# builds the console with images unless make's command line names FEATURES,
+# so make vt-accept FEATURES= is a pass of the minspec build. A binary named
+# with VTIUM_BIN is run as it is, so its features are the ones it was built
+# with: images when it carries the line only a build with images carries
+# (VT_IMAGES_MARKER), else none, and the run gives it the image helper only
+# when it has pictures.
+ifneq ($(filter vt-accept,$(MAKECMDGOALS)),)
+ifneq ($(origin FEATURES),command line)
+ifeq ($(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),)
+FEATURES := $(if $(shell grep -qaF -- '$(VT_IMAGES_MARKER)' '$(VTIUM_BIN)' 2>/dev/null && echo images),images)
+else
+FEATURES := images
+endif
+endif
+endif
 
 .PHONY: minspec
 minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
@@ -111,15 +144,19 @@ VTIUM_INSTALL := crates/vtium/install
 # with commas or spaces, as cargo's --features does.
 comma := ,
 IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
-IMAGE_RELEASE := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-image
 
 .PHONY: config-release
 config-release: ## Build vtium-config, the font tool and glyph helper, for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/release/vtium-config
 	cargo build --release -p vtium-config --target $(X86_TARGET)
 	$(call check-glibc,$(CONFIG_RELEASE))
 
+.PHONY: image-release
+image-release: ## Build vtium-image, the image helper, for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/release/vtium-image
+	cargo build --release -p vtium-image-helper --target $(X86_TARGET)
+	$(call check-glibc,$(IMAGE_RELEASE))
+
 .PHONY: install-tree
-install-tree: minspec config-release ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' when named (needs tic)
+install-tree: minspec config-release $(if $(IMAGES),image-release) ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' when named (needs tic)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
 	$(call check-relr,$(DESTDIR)/usr/bin/vtium)
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium)
@@ -132,7 +169,6 @@ install-tree: minspec config-release ## Stage vtium's install tree under DESTDIR
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 ifneq ($(IMAGES),)
-	cargo build --release -p vtium-image-helper --target $(X86_TARGET)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-image)
 	install -Dm644 $(VTIUM_INSTALL)/vtium-image.conf $(DESTDIR)/usr/lib/sysusers.d/vtium-image.conf
@@ -302,6 +338,7 @@ conformance-issues: ## Check that every issue the conformance lists say owes a c
 # the scripts' `A && B || die` is deliberate.
 test-tools: ## Test the VT review tools, the tier 3 harness and the fuzz runner without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
+	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
 	python3 -I -B tools/fuzz/test_run.py
@@ -330,14 +367,18 @@ $(VT_GOALS): export VTIUM_VT_NR = $(value VT)
 $(VT_GOALS): export VTIUM_VT_ARGS = $(value DEMO_ARGS)
 $(VT_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 $(VT_GOALS): export VTIUM_VT_DEBUG = $(value VT_DEBUG)
+$(VT_GOALS): export VTIUM_VT_FEATURES = $(value FEATURES)
+# With pictures, the image helper built with the console, which run-vt.sh
+# gives vtium as it gives it the glyph helper.
+$(VT_GOALS): export VTIUM_VT_IMAGE = $(if $(IMAGES),$(value VTIUM_IMAGE_BIN))
 # GUIDE and GUIDE_STEPS are make vt-check's; one exported in the shell does
 # not reach the others.
 $(VT_GOALS): export VTIUM_VT_GUIDE =
 $(VT_GOALS): export VTIUM_VT_STEPS =
 
-.PHONY: vt-demo
-vt-demo: export VTIUM_VT_SESSION = demo
-vt-demo: $(vt_build) $(vt_helper_build) ## Run vtium with the demo on the development VT or a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
+.PHONY: vt-accept
+vt-accept: export VTIUM_VT_SESSION = accept
+vt-accept: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run the acceptance pass on the development VT or a free VT, with pictures unless FEATURES is named, every page answered and the pass recorded, then print the pass (VT=N, FEATURES='...', DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-login
@@ -372,31 +413,42 @@ vt-check: $(vt_build) $(vt_helper_build) ## Run a guide's checks on the developm
 # and the script asks sudo for each step that needs root, so root is refused
 # before anything is built. The tests, whose stand-ins write only under their
 # own root (VTIUM_VT_STANDINS), may run as root, but make vt-install then
-# needs the binary and the helper named with VTIUM_BIN and VTIUM_CONFIG_BIN,
-# so that no build runs as root.
+# needs the binary and the helpers named with VTIUM_BIN, VTIUM_CONFIG_BIN
+# and, with images in FEATURES, VTIUM_IMAGE_BIN, so that no build runs as
+# root.
 ifneq ($(filter $(VT_INSTALL_GOALS),$(MAKECMDGOALS)),)
 ifeq ($(shell id -u),0)
 ifeq ($(VTIUM_VT_STANDINS),)
 $(error $(firstword $(filter $(VT_INSTALL_GOALS),$(MAKECMDGOALS))): run it as yourself, not as root or under sudo; it asks sudo for each step that needs root)
 endif
 ifneq ($(and $(filter vt-install,$(MAKECMDGOALS)),$(strip $(vt_build) $(vt_dev_build))),)
-$(error vt-install: as root under the tests' stand-ins, name the binary and the helper with VTIUM_BIN=PATH VTIUM_CONFIG_BIN=PATH, so that no build runs as root and leaves root's files in target/)
+$(error vt-install: as root under the tests' stand-ins, name the binary and the helper with VTIUM_BIN=PATH VTIUM_CONFIG_BIN=PATH, and with images in FEATURES the image helper with VTIUM_IMAGE_BIN=PATH, so that no build runs as root and leaves root's files in target/)
 endif
 endif
 endif
 $(VT_INSTALL_GOALS): export VTIUM_VT_BIN = $(value VTIUM_BIN)
 $(VT_INSTALL_GOALS): export VTIUM_VT_NR = $(value VT)
 $(VT_INSTALL_GOALS): export VTIUM_VT_CONFIG = $(value VTIUM_CONFIG_BIN)
+$(VT_INSTALL_GOALS): export VTIUM_VT_IMAGE = $(value VTIUM_IMAGE_BIN)
 $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 
 # The development console: the minspec build, with FEATURES, made to start
-# its helper at VTIUM_DEV_HELPER, which vt-install installs.
+# its helper at VTIUM_DEV_HELPER and, with images in FEATURES, its image
+# helper at VTIUM_DEV_IMAGE, which vt-install installs. The console carries
+# VT_IMAGES_MARKER exactly when it is built with images, as vt-install reads
+# it.
 .PHONY: vt-dev-console
 vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(VTIUM_DEV))
 	$(call check-glibc,$(VTIUM_DEV))
+ifneq ($(IMAGES),)
+	grep -qaF '$(VTIUM_DEV_IMAGE)' $(VTIUM_DEV) || { echo "$(VTIUM_DEV) does not start its image helper at $(VTIUM_DEV_IMAGE)" >&2; exit 1; }
+	grep -qaF '$(VT_IMAGES_MARKER)' $(VTIUM_DEV) || { echo "$(VTIUM_DEV) is built with images but lacks the line '$(VT_IMAGES_MARKER)' that vt-install tells such a build by (tools/vt/vt-install.sh)" >&2; exit 1; }
+else
+	! grep -qaF '$(VT_IMAGES_MARKER)' $(VTIUM_DEV) || { echo "$(VTIUM_DEV) is built without images but carries the line '$(VT_IMAGES_MARKER)' that vt-install tells a build with images by (tools/vt/vt-install.sh)" >&2; exit 1; }
+endif
 
 .PHONY: vt-install
 vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-dev on VT N in place of its getty, started at every boot (VT=N, DRY_RUN=1, FEATURES='...')

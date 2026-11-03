@@ -18,8 +18,8 @@ import t3_power
 import t3img
 from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, ROOT, RUNDIR, rel
 from t3_evaluate import (BENCHMARKS, CASES, DRAWS_PICTURES, IMAGE_SCREENS, KEYED, KEYS_AFTER,
-                         NO_GOLDEN, PICTURE_SCREENS, REPLIES, SCREENS, SMALL_SCREENS,
-                         VTIUM_GOLDEN, cases, evaluate)
+                         NO_GOLDEN, PICTURE_SCREENS, REPLIES, SCREENS, SHOWS, SMALL_SCREENS,
+                         VTIUM_GOLDEN, cases, evaluate, not_shown)
 from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 
 # Display variants. Each boots its own guest from the base image, with its
@@ -970,10 +970,10 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
         vm.wait_event("T3-DONE %s" % name,
                       timeout=BENCH_TIMEOUT if name in BENCHMARKS else SCREEN_TIMEOUT)
         path = os.path.join(work, name + ".ppm")
-        # Each screen differs from the one before it, so a capture of the
-        # previous screen is never taken for this one.
-        last = wait_stable(vm, path, want=lambda img, prev=last: img.data != prev.data)
+        last, why = capture_screen(vm, name, path, last)
         caps[name] = path
+        if why:
+            errors[name] = why
         capture_outputs(vm, outputs, work, name, caps, lasts)
         phase(name)
         # The keyed cases of this screen, each captured once the screen
@@ -991,7 +991,7 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
         elif name in REPLIES and v.get("images", True):
             why = judge_replies(name, screen_replies(events, name))
             if why:
-                errors[name] = why
+                errors[name] = "; ".join(filter(None, (errors.get(name), why)))
         for screen, case, chords in KEYED:
             if screen != name or case not in variant_cases(variant):
                 continue
@@ -1016,6 +1016,29 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
         check_pointer(variant, vm, work, caps, errors, log)
         phase(t3_pointer.CASE)
     run_checks(variant, vm, work, caps, errors, log, phase)
+
+
+def capture_screen(vm, name, path, last):
+    """Capture screen `name` into `path` once it has settled, differs from
+    `last`, the capture of the screen before it, so that capture is never
+    taken for this one, and shows the pictures t3_evaluate.SHOWS lists for
+    it, so an animation is captured on the frame it stops on and never on
+    one it passes. Returns the capture and why the case fails, or None.
+
+    A screen with pictures to show that settles without them, or never
+    settles, gives the capture it ended on and the reason, so its case
+    fails whatever its golden says and the screens after it still run.
+    Any other screen that never gets there raises, as before."""
+    def want(img):
+        return img.data != last.data and not_shown(name, img) is None
+
+    try:
+        return wait_stable(vm, path, want=want), None
+    except RuntimeError as e:
+        if name not in SHOWS:
+            raise
+        img = t3img.read(path)
+        return img, not_shown(name, img) or str(e)
 
 
 def switch_vts(variant, vm, work, last, caps, errors, phase):

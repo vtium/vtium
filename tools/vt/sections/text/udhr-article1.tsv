@@ -1,0 +1,14 @@
+# code	name	sentence	excerpt	excerpt in English	superscript and subscript characters
+english	English	All human beings are born free and equal in dignity and rights.	are born free and equal	are born free and equal	x² H₂O; small letters ᵃᵇᶜ above, ₐₑₒ below
+vietnamese	Vietnamese	Tất cả mọi người sinh ra đều được tự do và bình đẳng về nhân phẩm và quyền.	đều được tự do và bình đẳng	are free and equal	x² H₂O; small letters ᵃᵇᶜ above, ₐₑₒ below
+vietnamese-marks	Vietnamese, marks combining	Tất cả mọi người sinh ra đều được tự do và bình đẳng về nhân phẩm và quyền.	đều được tự do và bình đẳng	are free and equal	x² H₂O; small letters ᵃᵇᶜ above, ₐₑₒ below
+greek	Greek	Όλοι οι άνθρωποι γεννιούνται ελεύθεροι και ίσοι στην αξιοπρέπεια και τα δικαιώματα.	ελεύθεροι και ίσοι	free and equal	x² H₂O; small Greek ᵝᵞᵟ above, ᵦᵧᵨ below
+russian	Russian	Все люди рождаются свободными и равными в своем достоинстве и правах.	свободными и равными	free and equal	x² H₂O; Unicode has one small Cyrillic letter, ᵸ
+hebrew	Hebrew	כל בני אדם נולדו בני חורין ושווים בערכם ובזכויותיהם.	נולדו בני חורין ושווים	were born free and equal	x² H₂O; Unicode has no small Hebrew letters
+arabic	Arabic	يولد جميع الناس أحرارًا متساوين في الكرامة والحقوق.	أحرارًا متساوين	free and equal	x² H₂O; Unicode has no small Arabic letters
+hindi	Hindi, in Devanagari	सभी मनुष्यों को गौरव और अधिकारों के मामले में जन्मजात स्वतन्त्रता और समानता प्राप्त है ।	स्वतन्त्रता और समानता	freedom and equality	x² H₂O; Unicode has no small Devanagari letters
+thai	Thai	มนุษย์ทั้งหลายเกิดมามีอิสระและเสมอภาคกันในเกียรติศักดิ์และสิทธิ	เกิดมามีอิสระและเสมอภาคกัน	are born free and equal	x² H₂O; Unicode has no small Thai letters
+chinese	Chinese, simplified	人人生而自由，在尊严和权利上一律平等。	人人生而自由	everyone is born free	x² H₂O; Unicode has no small Chinese characters
+japanese	Japanese, kanji and hiragana	すべての人間は、生まれながらにして自由であり、かつ、尊厳と権利とについて平等である。	生まれながらにして自由であり	are born free	x² H₂O; Unicode has no small kana
+korean	Korean, in Hangul	모든 인간은 태어날 때부터 자유로우며 그 존엄과 권리에 있어 동등하다.	태어날 때부터 자유로우며	free from birth	x² H₂O; Unicode has no small Hangul
+emoji	Emoji	All human beings 👩‍👩‍👧 are born free 🕊️ and equal ⚖️ in dignity and rights ✊🏽.	👩‍👩‍👧 🇺🇳 ✊🏽 ⚖️ 🕊️	family, UN flag, fist, scales, dove	x² H₂O
