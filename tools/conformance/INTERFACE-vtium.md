@@ -68,7 +68,7 @@ command clipboard clipboard
 
 ```grammar
 line test * test clipboard (?:none|(?:[0-9a-f]{2})+)
-line anim * anim {N} frames [1-9][0-9]* current [1-9][0-9]* run (?:stopped|loading|looping) loops {N} stamps {N} {N}
+line anim * anim {N} frames [1-9][0-9]* current [1-9][0-9]* run (?:stopped|loading|looping) loops [1-9][0-9]* stamps {N} {N}
 line anim * anim {N} frame [1-9][0-9]* gap {INT} digest [0-9a-f]{8}
 define IMAGES (?: placement)*(?: image(?: anim)*)*
 define SCREEN {HEAD}(?: row(?: attr)*)+{IMAGES}

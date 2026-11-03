@@ -760,6 +760,11 @@ pub fn controls(spec: &Spec) -> Tally {
             "anim 0 frames does not follow image 0's line",
         ),
         (
+            "loops 0, which no command sets",
+            good_anim.replace("loops 1", "loops 0"),
+            "not a anim line",
+        ),
+        (
             "a current frame past the frames",
             format!("{image}{}{}", head(0, 1, 2), frame(0, 1)),
             "anim 0 current 2 past its 1 frames",
