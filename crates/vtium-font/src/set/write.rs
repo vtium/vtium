@@ -8,7 +8,7 @@
 //! reaches them, and every chunk is deflated at one fixed level, so the
 //! same set gives the same bytes on every host built with the same
 //! features: the console's writer, without the `deflate` feature, stores
-//! raw a compress=yes strike that vtium-vitrify's deflates.
+//! raw a compress=yes strike that vtium-config's deflates.
 
 use crate::bounds::{
     CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_BYTES_MAX, SET_CHUNK_BYTES, SET_CHUNKS_MAX,

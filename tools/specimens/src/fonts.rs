@@ -4,7 +4,7 @@
 //! pinned here by URL and SHA-256 and fetched into a cache outside the
 //! tree, as tier 3 pins its guest images: `$XDG_CACHE_HOME/vtium/specimens/fonts`.
 //! The glyphs of `frits/desktop.vtfrit` are generated from the outline
-//! fonts by vtium-vitrify's engine, the one the helper runs, in this
+//! fonts by vtium-config's engine, the one the helper runs, in this
 //! process, with the cache as its only font directory, at each outline
 //! profile's cell. The glyphs of the shipped frit `tiny5` are generated the
 //! same way from Tiny5 Mono's BDF file in the cache, its `source=` line
@@ -57,8 +57,8 @@ pub const TINY5: Pinned = Pinned {
     sha256: "33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3",
 };
 
-/// The shipped frit `tiny5`, as vtium-vitrify ships it.
-pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-vitrify/frits/tiny5.vtfrit");
+/// The shipped frit `tiny5`, as vtium-config ships it.
+pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-config/frits/tiny5.vtfrit");
 
 /// The path the shipped frit `tiny5` names its BDF file at.
 const TINY5_SOURCE: &str = "source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf";
@@ -152,7 +152,7 @@ pub fn tiny5(fonts: &Path, cells: &[Cell]) -> Result<Vec<(Cell, Arc<Set>)>, Stri
 }
 
 /// The glyphs of the frit `name`, `text`, at each of `cells`, as
-/// vtium-vitrify's engine, the one the helper runs (ADR-1301 D2), draws
+/// vtium-config's engine, the one the helper runs (ADR-1301 D2), draws
 /// every codepoint the frit gives, `fonts` its only font directory. A cell
 /// at which a source gives nothing, or fails as it draws, is refused: the
 /// glyphs of only some of the frit's sources are not the profile's.
@@ -162,7 +162,7 @@ fn generate(
     fonts: &Path,
     cells: &[Cell],
 ) -> Result<Vec<(Cell, Arc<Set>)>, String> {
-    use vtium_vitrify::serve::{Engine, FritText, Paths};
+    use vtium_config::serve::{Engine, FritText, Paths};
     let frit = FritText {
         name: name.to_owned(),
         text: text.to_owned(),

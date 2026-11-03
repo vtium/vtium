@@ -6,8 +6,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use vtium_config::{Class, Identity, Place};
 use vtium_platform::input::{DeviceId, Disposition};
+use vtium_settings::{Class, Identity, Place};
 
 /// One input device and where the rules placed it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,7 +57,7 @@ impl Routes {
     /// and returns whether vtium opens it.
     pub(crate) fn add(
         &mut self,
-        rules: &vtium_config::Config,
+        rules: &vtium_settings::Config,
         node: &Path,
         identity: &Identity,
     ) -> Disposition {
@@ -103,7 +103,7 @@ impl Routes {
     /// new one.
     pub(crate) fn guard(
         &mut self,
-        rules: &vtium_config::Config,
+        rules: &vtium_settings::Config,
         guarded: impl IntoIterator<Item = bool>,
     ) -> Vec<(DeviceId, Disposition)> {
         let mut changed = Vec::new();
@@ -134,13 +134,13 @@ impl Routes {
     /// rescue take it from its place. Returns its handle once moved.
     pub(crate) fn rescue(
         &mut self,
-        rules: &vtium_config::Config,
+        rules: &vtium_settings::Config,
         node: &Path,
     ) -> Option<Option<DeviceId>> {
         let route = self.devices.get_mut(node).filter(|r| !r.rescued)?;
-        let placed = vtium_config::Placed {
+        let placed = vtium_settings::Placed {
             place: route.place,
-            by: vtium_config::By::NoMatch,
+            by: vtium_settings::By::NoMatch,
         };
         route.rescued = rules.rescue(&placed);
         if !route.rescued {
@@ -211,15 +211,15 @@ impl Routes {
 }
 
 /// Whether vtium opens a device placed at `place`.
-fn disposition(rules: &vtium_config::Config, place: Place, identity: &Identity) -> Disposition {
-    let placed = vtium_config::Placed {
+fn disposition(rules: &vtium_settings::Config, place: Place, identity: &Identity) -> Disposition {
+    let placed = vtium_settings::Placed {
         place,
-        by: vtium_config::By::NoMatch,
+        by: vtium_settings::By::NoMatch,
     };
     match rules.disposition(&placed, identity) {
-        vtium_config::Disposition::Deliver => Disposition::Deliver,
-        vtium_config::Disposition::RescueOnly => Disposition::Rescue,
-        vtium_config::Disposition::Closed => Disposition::Closed,
+        vtium_settings::Disposition::Deliver => Disposition::Deliver,
+        vtium_settings::Disposition::RescueOnly => Disposition::Rescue,
+        vtium_settings::Disposition::Closed => Disposition::Closed,
     }
 }
 
@@ -240,13 +240,13 @@ fn head_of(place: Place, focus: Option<usize>) -> Option<usize> {
 /// their tail, which a partly broken open file's inputs walk after its
 /// surviving rules (D7).
 pub(crate) fn in_force(
-    mut rules: vtium_config::Config,
+    mut rules: vtium_settings::Config,
     config: &crate::config::Config,
-) -> vtium_config::Config {
+) -> vtium_settings::Config {
     if config.switch(&crate::config::keys::MOUSE) {
         return rules;
     }
-    let shipped = vtium_config::Config::builtin();
+    let shipped = vtium_settings::Config::builtin();
     if rules == shipped {
         ignore_pointers(&mut rules.rules);
     } else {
@@ -258,8 +258,8 @@ pub(crate) fn in_force(
 }
 
 /// Sends each rule of `rules` that takes a pointer class alone to `ignore`.
-fn ignore_pointers(rules: &mut [vtium_config::Rule]) {
-    use vtium_config::{Match, Target, Token};
+fn ignore_pointers(rules: &mut [vtium_settings::Rule]) {
+    use vtium_settings::{Match, Target, Token};
     for rule in rules {
         if matches!(&rule.matcher, Match::All(tokens)
             if matches!(tokens.as_slice(), [Token::Class(c)] if c.is_pointer()))
@@ -285,7 +285,7 @@ mod tests {
     // opened for the rescue key alone and delivers to no head.
     #[test]
     fn a_device_delivers_to_its_rules_head_or_the_focus() {
-        let rules = vtium_config::parse(
+        let rules = vtium_settings::parse(
             "version = 1\n[head a]\n[head b]\n[rules]\ninput path:p-a -> a\ninput path:p-x -> ignore\ninput class:keyboard -> roaming\n",
         )
         .map(|p| p.config)
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn the_guard_opens_an_ignored_keyboard_while_it_holds_it_on_the_focus() {
-        let rules = vtium_config::parse(
+        let rules = vtium_settings::parse(
             "version = 1\n[head a]\n[rules]\ninput path:p-x -> ignore\ninput path:p-a -> a\n",
         )
         .map(|p| p.config)
@@ -360,7 +360,7 @@ mod tests {
     // newest RESCUED_MAX devices.
     #[test]
     fn the_rescue_holds_through_an_unplug_for_the_newest_few() {
-        let rules = vtium_config::parse("version = 1\n[rules]\ninput * -> ignore\n")
+        let rules = vtium_settings::parse("version = 1\n[rules]\ninput * -> ignore\n")
             .map(|p| p.config)
             .unwrap_or_default();
         let mut routes = Routes::default();

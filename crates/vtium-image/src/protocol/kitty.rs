@@ -45,10 +45,19 @@
 //!   placement, which lies on no line; the placeholder cells that show it
 //!   are vtium-term's to read.
 //!
-//! Animation (`a=f`, `a=a`, `a=c`) is answered EINVAL until its own work
-//! builds it (kitty animation's record); `Command::later` is the one place
-//! that refuses it. A delete of animation frames (`d=f`, `d=F`) deletes
-//! nothing.
+//! - **Animation** (ADR-1102). `a=f` sends a frame's data, through the same
+//!   media and chunks as a transmission, onto the image `i` or `I` names:
+//!   a new frame on a color or an earlier frame (`c`, `Y`), or an edit of
+//!   frame `r`, laid by blending or with `X=1` by replacement over the
+//!   rectangle `x`, `y`, `s`, `v`. Raw data without `s` or `v` reaches the
+//!   image's edge. Its bytes are reserved of the frame allowance before they
+//!   arrive, and the store reserves the rest of the frame's cost when it
+//!   stores it. `a=c` composes a rectangle of one frame onto another, and
+//!   `a=a` sets the current frame, the run state, the loops and a frame's
+//!   gap. `d=f` and `d=F` delete every frame of the image they name but its
+//!   root. A missing image or frame answers ENOENT, a rectangle that leaves
+//!   the image EINVAL, and a frame the allowance or `FRAMES_MAX` refuses
+//!   ENOSPC.
 
 use vtium_parse::Chunk;
 
@@ -56,13 +65,13 @@ use crate::bounds::IMAGE_OVERHEAD;
 use crate::decode::base64::{Base64, Sink};
 use crate::decode::convert::{Alpha, Layout};
 use crate::decode::raw::Raw;
-use crate::decode::{Description, Medium, Reply, Request};
+use crate::decode::{Description, Medium, Payload, Reply, Request};
 use crate::handler::{Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place, Refusal};
 use crate::protocol::chunk_work;
 use crate::rules::Protocol;
 use crate::store::kitty::{Delete, Select};
-use crate::store::{Link, Placing, Reservation};
+use crate::store::{Compose, Control, Link, NewFrame, Placing, Reservation, layer_cost};
 
 mod command;
 #[cfg(test)]
@@ -352,15 +361,40 @@ impl Kitty {
             self.upload.mode = Mode::Skip(Err(e));
             return;
         }
-        if cmd.for_helper() {
-            self.upload.mode = if ctx.helper() {
-                Mode::Host {
-                    data: Vec::new(),
-                    cap: 0,
-                    reservation: None,
+        let frame = if cmd.action == b'f' {
+            match frame_target(ctx, &mut self.upload.cmd) {
+                Ok(key) => Some(key),
+                Err(e) => {
+                    self.upload.mode = Mode::Skip(Err(e));
+                    return;
                 }
-            } else {
-                Mode::Skip(Err(Error::Invalid))
+            }
+        } else {
+            None
+        };
+        let cmd = self.upload.cmd;
+        if cmd.for_helper() {
+            if !ctx.helper() {
+                self.upload.mode = Mode::Skip(Err(Error::Invalid));
+                return;
+            }
+            // a frame's payload is kept of the frame allowance, in a
+            // reservation that holds its image from the first byte; a
+            // picture's grows of the image budget as it arrives
+            let reservation = match frame {
+                Some(key) => match ctx.edit(|e| e.frame_reserve(key, 0)).and_then(Result::ok) {
+                    Some(r) => Some(r),
+                    None => {
+                        self.upload.mode = Mode::Skip(Err(Error::NoSpace));
+                        return;
+                    }
+                },
+                None => None,
+            };
+            self.upload.mode = Mode::Host {
+                data: Vec::new(),
+                cap: 0,
+                reservation,
             };
             return;
         }
@@ -370,9 +404,18 @@ impl Kitty {
             self.upload.mode = Mode::Count { len: 0, want };
             return;
         }
+        // a frame's data is reserved of the frame allowance, an image's of
+        // the image budget
+        let reserved = |ctx: &mut dyn Context, count: usize| match frame {
+            Some(key) => ctx
+                .edit(|e| e.frame_reserve(key, layer_cost(cmd.width, cmd.height)))
+                .and_then(Result::ok)
+                .map(|r| (Vec::new(), r)),
+            None => buffer(ctx, cmd.id, count, charge(pixels)),
+        };
         let Some((count, (buffer, reservation))) = usize::try_from(pixels)
             .ok()
-            .and_then(|count| Some((count, buffer(ctx, cmd.id, count, charge(pixels))?)))
+            .and_then(|count| Some((count, reserved(ctx, count)?)))
         else {
             self.upload.mode = Mode::Skip(Err(Error::NoSpace));
             return;
@@ -419,7 +462,11 @@ impl Kitty {
                 ctx.add_work(cmd.pixels());
                 let (pixels, opaque) = raw.into_pixels();
                 let picture = (cmd.width, cmd.height, pixels, opaque);
-                store(ctx, &cmd, picture, reservation);
+                if cmd.action == b'f' {
+                    frame(ctx, &cmd, picture, reservation);
+                } else {
+                    store(ctx, &cmd, picture, reservation);
+                }
             }
         }
     }
@@ -428,7 +475,7 @@ impl Kitty {
     /// the helper reads. An empty name, a longer one or one holding NUL
     /// answers EBADF with no request, as an unreadable file does.
     fn media_finish(&mut self, ctx: &mut dyn Context) {
-        let cmd = self.cmd;
+        let mut cmd = self.cmd;
         if cmd.dropped() {
             return;
         }
@@ -443,7 +490,12 @@ impl Kitty {
             b't' => Medium::TempFile(name),
             _ => Medium::SharedMemory(name),
         };
-        if let Some(e) = cmd.refusal(ctx) {
+        let refusal = cmd.refusal(ctx).or_else(|| {
+            (cmd.action == b'f')
+                .then(|| frame_target(ctx, &mut cmd).err())
+                .flatten()
+        });
+        if let Some(e) = refusal {
             let removable = matches!(cmd.medium, b't' | b's');
             if helper && name_error.is_none() && removable {
                 self.request(ctx, &cmd, medium, Some(e), None);
@@ -584,11 +636,57 @@ impl Kitty {
             b'x' => at(cmd.x).map_or(Select::Nothing, Select::Column),
             b'y' => at(cmd.y).map_or(Select::Nothing, Select::Row),
             b'z' => Select::Z(cmd.z),
-            // animation frames: nothing to delete until animation exists
+            // animation frames: every frame but the root of the image named;
+            // the spec asks every animation command for i or I, so with
+            // neither it deletes nothing (ADR-1102, D5)
+            b'f' => {
+                if let Some(key) = ctx.find_image(cmd.id, cmd.number) {
+                    ctx.touch(key);
+                    ctx.edit(|e| e.delete_frames(key));
+                }
+                return;
+            }
             _ => return,
         };
         let free = cmd.delete.is_ascii_uppercase();
         ctx.edit(|e| e.kitty_delete(Delete { select, free }));
+    }
+
+    /// `a=a` and `a=c`: an animation control or a composition of frames on
+    /// the image `i` or `I` names, answered as a put is, with the image's
+    /// id.
+    fn animate(&mut self, ctx: &mut dyn Context) {
+        let cmd = self.cmd;
+        let answer = match cmd.refusal(ctx) {
+            Some(e) => Err(e),
+            None => animated(ctx, &cmd).and_then(|key| {
+                let done = if cmd.action == b'a' {
+                    let control = Control {
+                        current: cmd.cols,
+                        run: cmd.width,
+                        loops: cmd.height,
+                        frame: cmd.rows,
+                        gap: cmd.z,
+                    };
+                    ctx.edit(|e| e.control_animation(key, control))
+                } else {
+                    let compose = Compose {
+                        src: cmd.rows,
+                        dst: cmd.cols,
+                        src_x: cmd.cell_x,
+                        src_y: cmd.cell_y,
+                        dst_x: cmd.x,
+                        dst_y: cmd.y,
+                        width: cmd.w,
+                        height: cmd.h,
+                        replace: cmd.cursor == 1,
+                    };
+                    ctx.edit(|e| e.compose_frames(key, compose))
+                };
+                done.unwrap_or(Err(Refusal::NoSpace)).map_err(error)
+            }),
+        };
+        reply(ctx, &cmd, cmd.id, answer);
     }
 
     /// The string ended with its terminator.
@@ -611,6 +709,7 @@ impl Kitty {
             Target::None => match self.cmd.action {
                 b'p' => self.put(ctx),
                 b'd' => self.delete(ctx),
+                b'a' | b'c' => self.animate(ctx),
                 _ => {
                     let cmd = self.cmd;
                     reply(ctx, &cmd, cmd.id, Err(Error::Invalid));
@@ -668,6 +767,104 @@ fn store(
         Ok(())
     };
     reply(ctx, cmd, id, answer);
+}
+
+/// The kitty answer to a store's refusal.
+fn error(refusal: Refusal) -> Error {
+    match refusal {
+        Refusal::NotFound => Error::NotFound,
+        Refusal::NoSpace => Error::NoSpace,
+        Refusal::Invalid => Error::Invalid,
+    }
+}
+
+/// The image an animation command names by `i` or `I`, whose use clock the
+/// command moves (ADR-1102, D1), or ENOENT.
+fn animated(ctx: &mut dyn Context, cmd: &Command) -> Result<ImageKey, Error> {
+    let key = ctx.find_image(cmd.id, cmd.number).ok_or(Error::NotFound)?;
+    ctx.touch(key);
+    Ok(key)
+}
+
+/// The image `a=f` sends a frame to, with its checks made before any data
+/// is read (ADR-1102, D2): raw data without `s` or `v` reaches the image's
+/// right or bottom edge from `x` or `y`, and its rectangle must lie inside
+/// the image; the frame `r` edits, or else the frame `c` starts from, must
+/// exist; and a new frame must fit `FRAMES_MAX`. A PNG's size is known
+/// only once it is decoded, so only its offset is checked here.
+fn frame_target(ctx: &mut dyn Context, cmd: &mut Command) -> Result<ImageKey, Error> {
+    let key = animated(ctx, cmd)?;
+    let (width, height) = ctx.store().image_size(key).ok_or(Error::NotFound)?;
+    let rect = if cmd.format == 100 {
+        (cmd.x, cmd.y, 1, 1)
+    } else {
+        if cmd.width == 0 {
+            cmd.width = width.saturating_sub(cmd.x);
+        }
+        if cmd.height == 0 {
+            cmd.height = height.saturating_sub(cmd.y);
+        }
+        (cmd.x, cmd.y, cmd.width, cmd.height)
+    };
+    ctx.store()
+        .check_frame(key, rect, cmd.cols, cmd.rows)
+        .map_err(error)?;
+    Ok(key)
+}
+
+/// Stores `cmd`'s frame data, its width, height, pixels and whether every
+/// pixel is opaque, whose bytes `reservation` holds of the frame
+/// allowance, and answers.
+fn frame(
+    ctx: &mut dyn Context,
+    cmd: &Command,
+    (width, height, pixels, opaque): (u32, u32, Vec<u32>, bool),
+    reservation: Reservation,
+) {
+    let new = NewFrame {
+        x: cmd.x,
+        y: cmd.y,
+        width,
+        height,
+        pixels,
+        opaque,
+        replace: cmd.cell_x == 1,
+        base: cmd.cols,
+        background: cmd.cell_y,
+        edit: cmd.rows,
+        gap: cmd.z,
+    };
+    let answer = ctx
+        .edit(|e| e.add_frame(new, reservation))
+        .unwrap_or(Err(Refusal::NoSpace))
+        .map(|_| ())
+        .map_err(error);
+    reply(ctx, cmd, cmd.id, answer);
+}
+
+/// The helper's picture for `a=f`, `size` pixels: checked against the image
+/// and its frames, reserved of the frame allowance before a byte is copied,
+/// then stored.
+fn decoded_frame(ctx: &mut dyn Context, cmd: &Command, payload: &Payload, size: (u32, u32)) {
+    let Some(key) = ctx.find_image(cmd.id, cmd.number) else {
+        return reply(ctx, cmd, cmd.id, Err(Error::NotFound));
+    };
+    let rect = (cmd.x, cmd.y, size.0, size.1);
+    if let Err(e) = ctx.store().check_frame(key, rect, cmd.cols, cmd.rows) {
+        return reply(ctx, cmd, cmd.id, Err(error(e)));
+    }
+    let reserved = ctx
+        .edit(|e| e.frame_reserve(key, layer_cost(size.0, size.1)))
+        .and_then(Result::ok);
+    let Some(reservation) = reserved else {
+        return reply(ctx, cmd, cmd.id, Err(Error::NoSpace));
+    };
+    let Some((pixels, opaque)) = payload.copy_into(Vec::new()) else {
+        ctx.unreserve(reservation);
+        return reply(ctx, cmd, cmd.id, Err(Error::BadFile));
+    };
+    ctx.add_work(u64::from(size.0).saturating_mul(u64::from(size.1)));
+    frame(ctx, cmd, (size.0, size.1, pixels, opaque), reservation);
 }
 
 /// An empty buffer for a picture of `count` pixels and the reservation of
@@ -895,6 +1092,9 @@ impl Handler for Kitty {
             return reply(ctx, &cmd, cmd.id, Ok(()));
         }
         let count = u64::from(size.0).saturating_mul(u64::from(size.1));
+        if cmd.action == b'f' {
+            return decoded_frame(ctx, &cmd, &payload, size);
+        }
         let len = usize::try_from(count).unwrap_or(usize::MAX);
         // the budget refuses before a byte of the picture is copied
         let Some((into, reservation)) = buffer(ctx, cmd.id, len, charge(count)) else {

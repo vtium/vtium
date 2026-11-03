@@ -17,6 +17,7 @@
 //! hash. Every walk over placements adds what it visits to the store's
 //! work count, which the terminal adds to its input call's work.
 
+mod anim;
 mod edit;
 mod events;
 mod frame;
@@ -36,6 +37,9 @@ use crate::bounds::{
 use crate::image::{ImageKey, LineKey, NewImage, Pixels, Place, PlacementKey, Refusal};
 use crate::rules::{Kept, Layer, rules};
 
+use anim::Anim;
+pub use anim::{Animation, FramePixels, Run};
+pub(crate) use anim::{Compose, Control, NewFrame, layer_cost};
 pub use edit::Edit;
 pub use frame::FramePlacement;
 use relative::{Drawn, Located, Spot};
@@ -126,7 +130,12 @@ struct Image {
     placements: u32,
     /// Held while an operation that may evict works for it.
     hold: u32,
+    /// Its root frame's pixel revision: the store's revision when a command
+    /// last changed its own pixels (ADR-1102, D3).
     revision: u64,
+    /// Its animation, once a command gave it frames or set its playing
+    /// (ADR-1102); `None` for a picture no animation command named.
+    anim: Option<Box<Anim>>,
 }
 
 /// A placement: a box of cells showing part of an image, anchored to a
@@ -365,6 +374,9 @@ pub struct Store {
     used: u64,
     /// What pieces cut by screen events owe, not yet granted.
     owed: u64,
+    /// What the frame allowance has granted: every animation's charge and
+    /// the frame reservations not yet spent (ADR-1102, D1).
+    frame_used: u64,
     clock: u64,
     next_image: u64,
     next_placement: u64,
@@ -408,6 +420,7 @@ impl PartialEq for Store {
             && self.limit == other.limit
             && self.used == other.used
             && self.owed == other.owed
+            && self.frame_used == other.frame_used
             && self.clock == other.clock
             && self.next_image == other.next_image
             && self.next_placement == other.next_placement
@@ -439,6 +452,7 @@ impl Store {
             limit: 0,
             used: 0,
             owed: 0,
+            frame_used: 0,
             clock: 0,
             next_image: 0,
             next_placement: 0,
@@ -632,6 +646,15 @@ impl Store {
         // still in the buffer in use with the id; it is held no more. A copy
         // of a reservation already spent holds nothing, so the image
         // reserves its whole cost
+        // a frame reservation holds the frame allowance, which pays for no
+        // image: it is given back, and the image reserves its whole cost
+        let reservation = match reservation {
+            Some(r) if r.frames => {
+                self.unreserve(r);
+                None
+            }
+            other => other,
+        };
         let spent = reservation.and_then(|r| self.spend(&r).map(|bytes| (r, bytes)));
         let (mut reserved, held) = match spent {
             Some((r, bytes)) => {
@@ -725,6 +748,7 @@ impl Store {
             placements: 0,
             hold: 0,
             revision,
+            anim: None,
         };
         if let Some(buf) = self.buffers.get_mut(b) {
             buf.images.insert(key, image);
@@ -1288,6 +1312,8 @@ impl Store {
         self.used = self
             .used
             .saturating_sub(image.bytes.saturating_sub(image.owed));
+        // its frames go with it and give back their allowance (ADR-1102, D1)
+        self.frame_used = self.frame_used.saturating_sub(Anim::charge_of(&image));
         self.keep_spare(image.pixels);
     }
 
@@ -1338,6 +1364,7 @@ impl Store {
             self.used = self
                 .used
                 .saturating_sub(image.bytes.saturating_sub(image.owed));
+            self.frame_used = self.frame_used.saturating_sub(Anim::charge_of(image));
         }
         self.pending.retain(|&(pb, _, _)| pb != b);
         self.bump();

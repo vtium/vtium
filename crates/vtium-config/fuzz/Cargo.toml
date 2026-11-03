@@ -1,0 +1,37 @@
+# The shaping path's and the BDF reader's fuzz targets, run with
+# cargo-fuzz on nightly:
+#   cargo +nightly fuzz run shape
+#   cargo +nightly fuzz run bdf
+# Its own workspace, so the main workspace and CI do not build it.
+[package]
+name = "vtium-config-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# The test font builder the target shares with the tests compresses its
+# PNG strikes; vtium-config already builds this version.
+miniz_oxide = "=0.8.9"
+vtium-config = { path = ".." }
+
+[[bin]]
+name = "shape"
+path = "fuzz_targets/shape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bdf"
+path = "fuzz_targets/bdf.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

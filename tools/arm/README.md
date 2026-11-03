@@ -59,4 +59,4 @@ They are not built. vtium links libudev and libxkbcommon, which Debian builds fo
 
 ## The x86_64 build
 
-`make minspec` and `make install-tree` link vtium and vtium-vitrify for `x86_64-unknown-linux-gnu` through the same wrappers against the `amd64` sysroot, so neither binary requires more than glibc 2.36 (vtium/vtium#143). `x86_64-unknown-linux-gnu-run` runs a binary natively. Each build, and `make arm`, reads the binary's highest required `GLIBC_` version with `readelf -V` and fails above 2.36.
+`make minspec` and `make install-tree` link vtium and vtium-config for `x86_64-unknown-linux-gnu` through the same wrappers against the `amd64` sysroot, so neither binary requires more than glibc 2.36 (vtium/vtium#143). `x86_64-unknown-linux-gnu-run` runs a binary natively. Each build, and `make arm`, reads the binary's highest required `GLIBC_` version with `readelf -V` and fails above 2.36.

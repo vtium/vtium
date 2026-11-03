@@ -650,8 +650,8 @@ dependencies = [
  "vtium-image",
  "vtium-platform",
  "vtium-render",
+ "vtium-settings",
  "vtium-term",
- "vtium-vitrify",
  "xkbcommon",
 ]
 
@@ -659,7 +659,17 @@ dependencies = [
 name = "vtium-config"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "bzip2",
+ "harfrust",
+ "lzma-rust2",
+ "miniz_oxide",
  "rustix",
+ "ruzstd",
+ "skrifa",
+ "swash",
+ "vtium-font",
+ "vtium-platform",
+ "vtium-term",
 ]
 
 [[package]]
@@ -740,15 +750,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-settings"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "rustix",
+]
+
+[[package]]
 name = "vtium-specimens"
 version = "0.1.0-alpha.1"
 dependencies = [
  "miniz_oxide",
+ "vtium-config",
  "vtium-font",
  "vtium-render",
  "vtium-term",
  "vtium-tier2",
- "vtium-vitrify",
 ]
 
 [[package]]
@@ -775,26 +792,9 @@ dependencies = [
  "vtium-conformance",
  "vtium-font",
  "vtium-render",
+ "vtium-settings",
  "vtium-term",
  "vtium-testfont",
- "vtium-vitrify",
-]
-
-[[package]]
-name = "vtium-vitrify"
-version = "0.1.0-alpha.1"
-dependencies = [
- "bzip2",
- "harfrust",
- "lzma-rust2",
- "miniz_oxide",
- "rustix",
- "ruzstd",
- "skrifa",
- "swash",
- "vtium-font",
- "vtium-platform",
- "vtium-term",
 ]
 
 [[package]]

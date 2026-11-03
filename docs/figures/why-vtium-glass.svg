@@ -41,7 +41,7 @@
 <text x="330" y="300" font-size="13" text-anchor="middle" fill="#1f2933">fonts, characters</text>
 <text x="330" y="318" font-size="13" text-anchor="middle" fill="#1f2933">and the cell</text>
 <rect x="456" y="252" width="172" height="88" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
-<text x="542" y="278" font-size="15" text-anchor="middle" fill="#1f2933">vtium-vitrify</text>
+<text x="542" y="278" font-size="15" text-anchor="middle" fill="#1f2933">vtium-config</text>
 <text x="542" y="300" font-size="13" text-anchor="middle" fill="#1f2933">reads the fonts and</text>
 <text x="542" y="318" font-size="13" text-anchor="middle" fill="#1f2933">draws their glyphs</text>
 <rect x="668" y="252" width="172" height="88" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>

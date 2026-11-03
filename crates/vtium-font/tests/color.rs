@@ -1,6 +1,6 @@
 //! A set whose cell holds a strike in each pixel format (ADR-1200 D2,
 //! D13): 1-bit glyphs from a bitmap source, R8 glyphs from an outline font
-//! and premultiplied RGBA glyphs from a color font, as `vtium-vitrify`
+//! and premultiplied RGBA glyphs from a color font, as `vtium-config`
 //! builds a set from a code font, its fallbacks and color emoji. Each
 //! glyph draws in its own format, a color glyph two cells wide among them.
 
