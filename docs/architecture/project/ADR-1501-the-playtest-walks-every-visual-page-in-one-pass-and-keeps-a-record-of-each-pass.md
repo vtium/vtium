@@ -8,10 +8,26 @@ basis:
     level: directed
     said: "the test harness in our kmscon fork c reference had a series of pages that exercised all manner of terminal capabilities. I'd like ... a script that allows an operator to essentially take our own interview process (looks correct, yes no, comments etc) without needing to type commands but instead run through all the visuals. I think a visual acceptance pass that records this for any given pass is helpful as a 'playtest' so to speak for me, the operator."
     via: "the steering session, 2026-11-03, quoted in this record's brief by the team lead"
+  - operator: aaronsb
+    level: directed
+    said: "vtium is not copying the C reference and aims to exceed it. The C fork's pages carry hard-won knowledge of what's worth checking, so use them, but the C fork's page set is a starting point, not a boundary."
+    via: "the steering session, 2026-11-03, relayed by the team lead; the wording is the team lead's"
+    paraphrase: true
+  - operator: aaronsb
+    level: directed
+    said: "Even though I only read English, it would be helpful to have other language features too, especially formatting on them like lines and italic bold super sub etc. We could present a series of pages essentially stating the same thing. For all the visuals, we use English language to describe what we are looking at."
+    via: "the steering session, 2026-11-03, quoted by the team lead"
+  - operator: aaronsb
+    level: directed
+    said: "Run each language page in a common outline font and in a bitmap font: DejaVu Sans Mono with Noto Sans fallbacks, and GNU Unifont with Terminus, named by frits kept beside the pages; each pass record names the frit and each font file's path and version or SHA-256; a page whose font is not installed records skip with the missing file named."
+    via: "the steering session, 2026-11-03, relayed by the team lead; the wording is the team lead's"
+    paraphrase: true
   - upstream: "aaronsb/kmscon origin/main, fork/demo/: demo.sh walked about thirty section scripts in fork/demo/sections/, one page each with its `# look-for:` and `# wrong-looks-like:` guidance below it, rated with the keys 1, 2 and 3, s, c, r, b and q; each answer appended a line to /tmp/kmscon-demo/feedback.tsv; feedback.sh printed a run and compared the latest run of each label side by side; the pages fell into review kits (text, sixel, kitty, glyphs); docs/fork/demo.md described it all"
   - upstream: "aaronsb/kmscon origin/main, docs/architecture/fork/ADR-302: a conformance run was recorded as a generated markdown page, written for a reader who was not there, committed once per working session at bring-home, with comparison pages made as often as needed and never committed"
   - evidence: "the tree on integration at 6d70669: tools/vt/demo.sh walked tools/vt/sections/ (10-sgr.sh alone) with the C reference's keys and appended each answer to /tmp/vtium-vt/feedback.tsv; tools/vt/checks/guide.sh asks y, n or skip and a note for each step of a guide and appends the answers to /tmp/vtium-vt/vt-check.log; make vt-demo runs demo.sh as the session of a review run through tools/vt/vt.sh and run-vt.sh, which pass the session DEMO_LABEL=\"vtium dev build <git describe>\" and clear the rest of its environment"
   - evidence: "measured 2026-11-03 in the playtest's worktree: each text page's output, fed to tools/conformance's vtium-replay at 80x25 below demo.sh's two header rows, gives the screen its guidance describes (the charsets pairs match, DECCRA's copy keeps its colors, DECFRA and DECERA fill and empty their rectangles, the scroll region keeps lines 7 to 12 between its markers, OSC 4 turns color 1 to #ffa500); the picture pages, run on a pseudo-terminal that answers as a build with pictures, place three sixel bars and a transparent frame, and four kitty placements in the three layers, and vtium-replay shows the third kitty-layers placement deleted"
+  - evidence: "the tree on integration at 6d70669: vtium takes OSC 50 under allow-font-ops, on by default, switches the console to a frit in its frits directory (font-frits) at once, and answers OSC 50's query with the font in use (crates/vtium/src/app.rs, switch_font; crates/vtium-term/src/terminal/reply.rs); the frit format refuses style= other than regular (crates/vtium-config/src/frit.rs), so every font set draws bold by widening the regular glyph a pixel and italic upright (crates/vtium-font/src/set/read.rs, strike_by); joining forms are keyed only in the helper (crates/vtium-config/src/shaping), and the console orders no right-to-left text"
+  - evidence: "measured 2026-11-03: vtium-config's engine loads both playtest frits on this machine and draws every codepoint the language pages hold at 11x20 (outline) and 8x16 (bitmap); drawn through vtium-render, Hebrew and Arabic come out letter by letter in typed order and the Arabic letters unjoined"
   - evidence: "the tree on integration at 6d70669: vtium-term keeps SGR 8, 53, 6 and 73 to 75 and DECDWL, DECDHL and DECSWL in its cells and lines, and vtium-render reads no conceal, overline, script or line-size attribute when it draws"
 agent:
   name: Claude
@@ -27,7 +43,7 @@ related: []
 
 ## Summary
 
-- **Decided:** The playtest is one pass, by the operator on a VT, through every page in `tools/vt/sections/`. A page draws one thing vtium supports and says below itself, in plain words, what right and wrong look like. The operator answers each page with one key (y looks right, n looks wrong, u unsure, s skip), may type a comment first, may go back a page, and may quit and resume later; no command is typed between pages. Each pass is a markdown record in `~/.local/state/vtium/playtest/`, rewritten after every answer, that names the build, the VT, the terminal and each page's answer and comment. `tools/vt/feedback.sh --compare A B` prints the pages whose answer changed between two passes and exits 1 when a page went from yes to no.
+- **Decided:** The playtest is one pass, by the operator on a VT, through every page in `tools/vt/sections/`. A page draws one thing vtium supports and says below itself, in plain words, what right and wrong look like. The operator answers each page with one key (y looks right, n looks wrong, u unsure, s skip), may type a comment first, may go back a page, and may quit and resume later; no command is typed between pages. Each pass is a markdown record in `~/.local/state/vtium/playtest/`, rewritten after every answer, that names the build, the VT, the terminal and each page's answer and comment. `tools/vt/feedback.sh --compare A B` prints the pages whose answer changed between two passes and exits 1 when a page went from yes to no. Thirteen language pages show one sentence in thirteen scripts under every style, and the walk shows each twice, switching the console with OSC 50 to an outline font set and then a bitmap one, and records every font file's SHA-256.
 - **Trades away:** The C reference's keys 1, 2 and 3, its review kits and its answers file in `/tmp`, which earlier `make vt-demo` runs wrote; their records are not read. Pages that need programs on the host (chafa, mpv, tmux), file media in a login, or the GPU path have no page yet. A pass takes the operator about half an hour.
 - **One-way?** No. The pages are shell scripts and the record is a generated text file; the format can change with its reader in one change, and the open questions below are each one setting.
 - **Probes:** *Confident:* one key per answer, a typed comment, back, and quit-and-resume cover the interview the maintainer asked for, the way the guides' y, n and skip already do. *Not confident:* where committed records live and how often one is committed (Open questions 2 and 3).
@@ -38,6 +54,8 @@ related: []
 The maintainer judges what vtium draws by eye, on a VT of this machine. The tools for that exist (`docs/vt-review.md`): a review run puts a build of the checkout on the development VT, and a guide (`make vt-check GUIDE=NAME`) asks y, n or skip for each step, or the demo (`make vt-demo`) shows the pages in `tools/vt/sections/`. Before this record the demo had one page, the SGR attributes. The C reference's demo had about thirty, one for each kind of thing the C reference drew, and its answers went to a file in `/tmp`, which a reboot clears.
 
 The maintainer asked for a playtest: a script that walks every visual page in order, says on each what correct looks like, takes the same interview answers the guides take with single keys, and records each pass, so that two passes can be compared and a regression shows as a page that went from yes to no.
+
+The C reference's pages are where the playtest starts, not where it stops: vtium aims to do more than the C reference did, and every visible thing vtium does gets a page. The maintainer reads only English and asked for pages in other scripts all the same, each described in English in shapes a person can check without reading the script, and run in an outline font and a bitmap font, because the two take different paths through vtium: a real face or a synthetic style, marks and joining from the font's data or from vtium's own rules, scaling to fit the cell or by whole multiples.
 
 A page is a short script that draws one screen of output. The pass record is the file that holds one pass's answers. A build is the vtium binary under review, named by its `git describe` and the features it was built with.
 
@@ -89,11 +107,12 @@ These are the pages, and the ADR-1000 rows each one shows:
 | 77-reverse-screen | DECSCNM, the whole screen in reverse video | `DEC-5` |
 | 78-palette-change | OSC 4 changing color 1 after the text in it was written | `color.palette.set`, `sgr.draw-time-color` |
 | 80-links | OSC 8 links, underlined only under the pointer, and their address while Ctrl is held | `osc.8` |
-| 90-sixel | sixel bars beside text cells of the same color, and a frame with a clear middle over words | `image.sixel`, `image.compositor` |
-| 91-kitty | kitty pictures sent as raw pixels, one in each layer, and a placement that moves the cursor | `image.kitty`, `image.compositor` |
-| 92-kitty-layers | one kitty picture placed over and under text, and a placement deleted | `image.kitty`, `image.overlap` |
-| 93-kitty-png | kitty pictures sent as PNG and as zlib, which the image helper decodes | `image.kitty`, `image.helper` |
-| 94-iterm2 | iTerm2 pictures, OSC 1337 File=, at two sizes | `image.iterm2`, `image.helper` |
+| 81-english to 93-emoji-styles | the language pages (D7): one sentence in English, Vietnamese twice (precomposed, and every mark combining), Greek, Russian, Hebrew, Arabic, Hindi, Thai, Chinese, Japanese and Korean, and an emoji line, each under every style, each walked in both font sets (D6) | `sgr.*`, `text.grapheme`, `text.vs-width`, `text.emoji`, `text.outline` |
+| 95-sixel | sixel bars beside text cells of the same color, and a frame with a clear middle over words | `image.sixel`, `image.compositor` |
+| 96-kitty | kitty pictures sent as raw pixels, one in each layer, and a placement that moves the cursor | `image.kitty`, `image.compositor` |
+| 97-kitty-layers | one kitty picture placed over and under text, and a placement deleted | `image.kitty`, `image.overlap` |
+| 98-kitty-png | kitty pictures sent as PNG and as zlib, which the image helper decodes | `image.kitty`, `image.helper` |
+| 99-iterm2 | iTerm2 pictures, OSC 1337 File=, at two sizes | `image.iterm2`, `image.helper` |
 
 The four picture pages that sixel and kitty's raw pixels serve need a build with pictures, which DA1's attribute 4 and an answer to a kitty query show. The two that the helper serves also need the image helper to decode a PNG, which a kitty query of one PNG pixel shows. Each says which of these it lacks and records skip.
 
@@ -102,6 +121,7 @@ These rows have a visible effect and no page yet. Each page comes with the chang
 - `sgr.conceal`, `sgr.overline`, `sgr.rapid-blink`, `sgr.script` and `text.line-size`: vtium-term keeps them, and vtium-render does not draw them yet.
 - `text.outline`, `text.ligatures`, `text.font-merge`, `text.bidi` and `text.kitty-sizing`: not built yet.
 - `image.kitty-animation`, `image.kitty-placeholders` and `image.kitty-relative`: built; their pages are owed.
+- `text.reflow` and `DEC-2028`: built; a page needs the grid to change size while it shows, which a font switch does, and is owed.
 - The C reference's pages that need programs on the host (photos, photo-scroll, mpv-sixel and the tmux grids need chafa, mpv and tmux and the C reference's photograph), its sixel ramps, article and eviction pages, its kitty-files page, which needs a logind session of the program's own that a review run's session lacks, and its glyph cache pages, which judged the C reference's GPU renderer.
 
 ### D3: the pass record
@@ -110,17 +130,17 @@ A pass is one walk through the pages, named by the time it started and the walk'
 
 The record holds, in order:
 
-1. a list: the pass, the label (`DEMO_LABEL`, which a review run sets to `vtium dev build <git describe>`), the VT, the binary and its features (`DEMO_VT`, `DEMO_BINARY` and `DEMO_FEATURES`, or `not given`), the terminal's `TERM` and size, its DA1 answer, when the pass started, when it was last written, and how many pages it has answered;
+1. a list: the pass, the label (`DEMO_LABEL`, which a review run sets to `vtium dev build <git describe>`), the VT, the binary and its features (`DEMO_VT`, `DEMO_BINARY` and `DEMO_FEATURES`, or `not given`), the terminal's `TERM` and size, its DA1 answer, the font OSC 50's query named at the start, each font set the pass uses with its frit file's SHA-256, each font file it names with its SHA-256 and the package that owns it (or `missing`), one SHA-256 over those font lines, when the pass started, when it was last written, and how many pages it has answered;
 2. a table of every page in order, with its answer (yes, no, unsure, skip, or `-` for none yet) and its comment, in which `&`, `<` and `>` are entities, a backslash and `|` are escaped with a backslash, and each line break is `<br>`;
 3. what each page shows when it is right, its `# look-for:` text, so the record reads on its own after the pages change.
 
 The walk writes the whole record after every answer, to a file beside it that it then renames into place, so a record is never seen half written and a pass that ends any way keeps every answer given.
 
-When the walk starts and the newest pass with the same label still has a page without an answer, the title page offers to resume it at that page, or to start a new pass. A pass is never resumed under another label, so one pass judges one build.
+When the walk starts and the newest pass with the same label still has a page without an answer, the title page offers to resume it at that page, or to start a new pass. A pass is never resumed under another label, or once any font file it named has changed, so one pass judges one build in one set of fonts.
 
 ### D4: comparing passes
 
-`tools/vt/feedback.sh` reads records. With no option it prints the newest pass, or the one named; `--list` lists every pass; `--compare A B` compares two passes, each named by its id or by the path of a record, such as one committed to the repository; `--compare` alone compares the two newest. The comparison names both passes, then lists each page whose answer differs, with both answers and both comments, and marks a page that went from yes to no. It exits 1 when any page did, and 0 otherwise.
+`tools/vt/feedback.sh` reads records. With no option it prints the newest pass, or the one named; `--list` lists every pass; `--compare A B` compares two passes, each named by its id or by the path of a record, such as one committed to the repository; `--compare` alone compares the two newest. The comparison names both passes, then lists each page whose answer differs, with both answers and both comments, and marks a page that went from yes to no. It then lists every font set or font file line that is in one pass and not the other, so a page that changed between two passes is not blamed on vtium when a font package changed under it. It exits 1 when any page went from yes to no, and 0 otherwise.
 
 ### D5: running a pass
 
@@ -128,9 +148,32 @@ A pass runs as the session of a review run, like `make vt-demo` (`docs/vt-review
 
 - the Makefile runs it as `make vt-playtest`, a review target like `vt-demo` that also exports `FEATURES` to `vt.sh`;
 - `vt.sh` passes `run-vt.sh` the VT, the binary, the features and the passes directory, and after the run prints the pass the run wrote with `feedback.sh`;
-- `run-vt.sh` puts `DEMO_VT`, `DEMO_BINARY`, `DEMO_FEATURES` and `PLAYTEST_DIR` into the session's environment beside `DEMO_LABEL`, each checked for the characters it may hold.
+- `run-vt.sh` puts `DEMO_VT`, `DEMO_BINARY`, `DEMO_FEATURES` and `PLAYTEST_DIR` into the session's environment beside `DEMO_LABEL`, each checked for the characters it may hold, and copies the system's frits and the playtest's into `/run/vtium-vt/frits`, a directory of root's alone made for the run, and runs vtium with `--font-frits` naming it, so the walk can switch among them (D6).
 
 The walk also runs in any terminal by hand, `DEMO_LABEL='foot 1.21' tools/vt/demo.sh`, so a page can be compared in vtium and in another terminal; that pass carries its own label.
+
+### D6: font sets
+
+A font set is a frit (a font set file, ADR-1200 D1). The playtest keeps two in `tools/vt/sections/frits/`:
+
+- `playtest-outline`: DejaVu Sans Mono, then Noto Sans Hebrew, Arabic, Devanagari and Thai, Noto Sans CJK and Noto Color Emoji, each by its file in Arch Linux's packages, then the built-in unifont.
+- `playtest-bitmap`: Terminus at 8x16 (`ter-v16n`, from `terminus-font`) for Latin, Greek and Cyrillic, then the built-in GNU Unifont, which holds every other script on the pages. GNU Unifont is vtium's own built-in font, so no unifont file is needed.
+
+A page whose `# frits:` line names font sets is an entry of the walk for each, as `84-greek@playtest-outline` and `84-greek@playtest-bitmap`. Before such an entry the walk switches the console to the frit with OSC 50, makes a round trip to the terminal so the switch has been read, and asks OSC 50's query which font is in use; a page with no `# frits:` line switches the console back to the font the query named when the walk started. vtium switches the live console among the frits in its frits directory, so one pass covers both font sets, and the review run gives vtium a frits directory holding the playtest's frits (D5). The page prints which font set it is drawn in and, from the frit's `# checks:` lines, what that set checks: glyphs scaled to the cell with marks placed from the font's own data, or whole-multiple bitmaps with marks placed by vtium's rules.
+
+An entry is recorded as skip, with the reason as its comment, when a file its frit names is missing on this machine (the comment names the file), or when vtium does not switch to it (the comment names what OSC 50's query answered). Both fonts' bold is the regular glyph widened a pixel and both draw italic upright, since frits take only regular faces today; the language pages say so.
+
+### D7: the language pages
+
+Each language page shows, from `tools/vt/sections/text/udhr-article1.tsv`:
+
+1. the first sentence of Article 1 of the Universal Declaration of Human Rights in its language, which may wrap onto a second row, and its English: "All human beings are born free and equal in dignity and rights.";
+2. a few of its words, with their English, in sixteen styles, two to a row: plain, bold, italic, bold italic, dim, reverse, underline, double, curly, dotted and dashed underlines, a red underline, strike, overline, and SGR 73 and 74, superscript and subscript;
+3. Unicode's superscript and subscript characters, digits for every script and the small letters where Unicode has them (Latin, Greek and one Cyrillic letter), with a sentence that says where it has none;
+4. a line marking the styles vtium does not draw yet with `*`: italic, which stays upright, and overline and SGR 73 and 74, which look plain;
+5. the font set (D6) and what it checks.
+
+The sentences come from the UDHR in XML project at a fixed commit; `tools/vt/sections/text/README.md` names it and the three entries that differ from the files. Each page's guidance describes the right picture in shapes: marks stacked on their letters and not cut at the row's top, Arabic letters each with its dots, Hangul syllables as square blocks, a decoration reaching across both cells of a wide character. Where vtium does not yet do what the script needs, the guidance says what vtium draws today and that it is expected: Hebrew and Arabic run left to right in typed order, since vtium does not order right-to-left text yet, and Arabic letters stand apart, since the console does not key joining forms yet. The operator judges the rest of the page and answers yes when only those look as described. The two Vietnamese pages draw the same words, once precomposed and once with every mark a combining character, so a difference between them is vtium's handling of combining marks.
 
 ### Open questions
 
@@ -141,6 +184,9 @@ These set direction; the maintainer answers them.
 3. **How often a pass is committed.** Recommendation: the steering session runs a pass on the build of each batch that goes from `stage` to main, compares it with the last committed pass, lists any page that went from yes to no in the stage PR's body, and commits the pass on `integration` with the batch. Passes between batches stay in the passes directory. This follows the C reference's ADR-302, one committed record per bring-home.
 4. **Pictures in a pass.** A review run builds the minspec console unless `FEATURES` is named, so the picture pages record skip. Recommendation: `make vt-playtest` builds with `FEATURES=images` unless `FEATURES` is named, so a pass covers every page; a pass of the minspec build is then `make vt-playtest FEATURES=`.
 5. **unsure.** Recommendation: keep u, as the C reference's demo had 3: a page looked at and not judged is different from a page skipped.
+6. **One pass for both font sets, or a pass per font set.** vtium switches fonts live, so the playtest walks both in one pass (D6). The other way runs the pass once with `DEMO_ARGS=--font-name=playtest-outline` and once with the bitmap set, each record judging one font throughout. Recommendation: keep one pass, since the operator sees the same page in both fonts one after the other.
+7. **One answer for a language page.** A page holds sixteen styles and takes one answer, with the styles vtium does not draw yet marked on the page. The other way gives each style its own answer, which makes a pass sixteen times as long for these pages. Recommendation: one answer, with the comment naming any style that looked wrong.
+8. **The text's licence.** The UDHR's translations are published for wide reuse by the United Nations, and the UDHR in XML project states no licence of its own for its files. Recommendation: the maintainer confirms that quoting one sentence per language for testing is acceptable, or the playtest replaces a sentence with one under a stated licence.
 
 ## C notes: the C reference's demo
 
@@ -155,6 +201,7 @@ The C reference's `fork/demo/demo.sh` walked the section scripts in `fork/demo/s
 - A comparison is between two passes, by id or record path, and its exit status marks a page that went from yes to no; the C reference compared the latest run of each label.
 - One pass covers every page; there are no review kits.
 - The walk puts back the terminal state a page may have changed before the next page.
+- Language pages in thirteen scripts, each walked in an outline and a bitmap font set with the fonts recorded; the C reference's demo ran in whatever font its console had.
 
 ## Consequences
 
@@ -166,7 +213,7 @@ The C reference's `fork/demo/demo.sh` walked the section scripts in `fork/demo/s
 
 ### Negative
 
-- A pass takes about half an hour, and a page added later is unanswered in every earlier pass.
+- A pass takes most of an hour: 27 pages and the 13 language pages twice. A page added later is unanswered in every earlier pass.
 - The pages that need programs, file media or the GPU path, and the rows vtium does not draw yet, are not judged by a pass.
 - The tests of the earlier demo in `tools/vt/tests/test_vt.py` move to `tools/vt/tests/test_playtest.py`, and `vt.sh`, `run-vt.sh` and the Makefile change with the walk.
 
