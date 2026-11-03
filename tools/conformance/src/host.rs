@@ -219,7 +219,25 @@ mod tests {
         }
     }
 
-    fn fixtures(name: &str, files: &[(&str, &[u8])]) -> PathBuf {
+    /// A directory of fixtures of a test's own, removed when the test
+    /// ends, whether it passes or fails.
+    struct Fixtures(PathBuf);
+
+    impl std::ops::Deref for Fixtures {
+        type Target = std::path::Path;
+
+        fn deref(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Fixtures {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn fixtures(name: &str, files: &[(&str, &[u8])]) -> Fixtures {
         let dir = std::env::temp_dir().join(format!(
             "vtium-conformance-host-{}-{name}",
             std::process::id()
@@ -229,7 +247,7 @@ mod tests {
         for (file, data) in files {
             std::fs::write(dir.join(file), data).unwrap_or_default();
         }
-        dir
+        Fixtures(dir)
     }
 
     #[test]
@@ -302,7 +320,6 @@ mod tests {
         let (line, reply) = host.answer(&odd);
         assert!(line.ends_with("name=/a\\x20b\\x5cc len=0"), "{line}");
         assert_eq!(reply, Reply::Unreadable);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A fixture picture of `width` by `height`, its pixels all 0.
@@ -335,7 +352,6 @@ mod tests {
         assert_eq!(host.answer(&png(b"/tall")).1, Reply::TooLarge);
         // 3 by 3 fits each side but its 36 bytes pass the 32 allowed
         assert_eq!(host.answer(&png(b"/heavy")).1, Reply::OverBudget);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -358,7 +374,6 @@ mod tests {
         assert!(matches!(host.answer(&png(b"/side")).1, Reply::Ok(_)));
         // 2 by 4, 32 bytes, at a most of 32
         assert!(matches!(host.answer(&png(b"/bytes")).1, Reply::Ok(_)));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -388,6 +403,5 @@ mod tests {
         let (line, reply) = host.answer(&discard);
         assert!(line.contains("flags=discard"), "{line}");
         assert_eq!(reply, Reply::Ok(Payload::Discarded));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

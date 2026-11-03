@@ -181,13 +181,31 @@ mod tests {
         format!("{path}\tlibtsm\t{COMMIT}\ttest/conformance/{path}\t{sha}\n")
     }
 
-    fn tree(name: &str) -> std::path::PathBuf {
+    /// A tree of copies in a directory of a test's own, removed when the
+    /// test ends, whether it passes or fails.
+    struct Tree(std::path::PathBuf);
+
+    impl std::ops::Deref for Tree {
+        type Target = Path;
+
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Tree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn tree(name: &str) -> Tree {
         let root =
             std::env::temp_dir().join(format!("vtium-provenance-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::create_dir_all(root.join("corpus/golden"));
         let _ = std::fs::write(root.join("corpus/golden/a.txt"), "abc");
-        root
+        Tree(root)
     }
 
     #[test]
