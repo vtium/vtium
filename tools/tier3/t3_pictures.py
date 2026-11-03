@@ -7,7 +7,8 @@ them into the disc's screens/pictures/ for a variant that names "pictures"
 (t3_scenario.build_disc), and the screens send them to vtium as a program
 would: as sixel strings, as kitty graphics commands with raw pixels, with
 zlib-compressed pixels, and with PNG files that vtium's image helper decodes
-(ADR-1101).
+(ADR-1101), as the frames of kitty animations (ADR-1102), and as iTerm2
+pictures, among them an animated GIF (ADR-1103).
 
 Every picture is a whole number of the variant's 8x16 cells, and every sixel
 picture a whole number of sixel bands of 6 rows, so a picture drawn one cell
@@ -150,23 +151,121 @@ def disc(width, height, outer, inner):
     return Picture(width, height, pixel)
 
 
+def fill(width, height, color):
+    """A picture of one color, `width` by `height` pixels."""
+    return Picture(width, height, lambda x, y: color)
+
+
 # The pictures, by name. quad is 8 cells by 3 rows at 8x16, bands 8 by 6 with
 # one band to a row, parent 6 by 2, child 4 by 2 and disc 6 by 3.
+#
+# The quad-turned pictures are the quarters turned a quarter clockwise, once
+# and twice: with quad they are the three frames of quad.gif, an animated
+# GIF sent as an iTerm2 picture (img-iterm2.sh), which plays once and stops
+# on its last frame. anim-stopped and anim-ended are the frames the kitty
+# animations of img-animation.sh show once they stop: the quarters with
+# their top left and bottom right made cyan and magenta by PATCHES, and the
+# child with its top left and bottom right made yellow. No file holds them;
+# the self-tests read the goldens for them.
 PICTURES = {
     "quad": quad(64, 48, RED, GREEN, BLUE, YELLOW),
     "bands": bands(64, 96, [RED, ORANGE, YELLOW, GREEN, BLUE, VIOLET]),
     "parent": quad(48, 32, ORANGE, VIOLET, VIOLET, ORANGE),
     "child": quad(32, 32, CYAN, MAGENTA, MAGENTA, CYAN),
     "disc": disc(48, 48, ORANGE, BLUE),
+    "quad-turned": quad(64, 48, BLUE, RED, YELLOW, GREEN),
+    "quad-turned-twice": quad(64, 48, YELLOW, BLUE, GREEN, RED),
+    "anim-stopped": quad(64, 48, CYAN, GREEN, BLUE, MAGENTA),
+    "anim-ended": quad(32, 32, YELLOW, MAGENTA, MAGENTA, YELLOW),
 }
+# The pictures that existed before the animation, iTerm2 and placeholder
+# screens; the goldens of the screens before them hold these alone.
+FIRST_PICTURES = ("quad", "bands", "parent", "child", "disc")
+
+# The frames of quad.gif, in order, and each frame's delay in hundredths of
+# a second, which vtium shows for 10 ms a hundredth.
+GIF_FRAMES = ("quad", "quad-turned", "quad-turned-twice")
+GIF_DELAY = 10
+
+# The pixels img-animation.sh lays on its images as kitty animation frames
+# (a=f), each the inside of one quarter, so a frame made from it keeps the
+# picture's white frame: 31 by 23 for a quarter of quad, 15 by 15 for one
+# of child. They are not whole cells, as frame data need not be.
+PATCHES = {
+    "patch-cyan": fill(31, 23, CYAN),
+    "patch-magenta": fill(31, 23, MAGENTA),
+    "patch-violet": fill(31, 23, VIOLET),
+    "patch-yellow": fill(15, 15, YELLOW),
+}
+
+
+def gif(frames, delay):
+    """An animated GIF of `frames`, Pictures of one size with no clear
+    pixel, each shown for `delay` hundredths of a second and left in place
+    for the next (disposal method 1). It has no NETSCAPE2.0 extension, so
+    it plays its frames once (ADR-1103 D2). One global color table holds
+    every color the frames use, in the order they first appear.
+
+    The image data is LZW codes of a fixed width: each code is a color's
+    index, and a clear code comes before the decoder's table could grow
+    past that width, so the file needs no compression at all and any GIF
+    decoder reads it."""
+    width, height = frames[0].width, frames[0].height
+    colors = []
+    for f in frames:
+        for row in f.pixels:
+            for p in row:
+                if p not in colors:
+                    colors.append(p)
+    bits = max(1, (len(colors) - 1).bit_length())
+    table = 1 << bits
+    minimum = max(2, bits)
+    clear, end = 1 << minimum, (1 << minimum) + 1
+    # After a clear, each literal but the first adds an entry to the
+    # decoder's table; it widens its codes once the next entry is
+    # 1 << (minimum + 1), so a clear comes 3 literals before that.
+    run = (1 << minimum) - 3
+    out = bytearray(b"GIF89a")
+    out += struct.pack("<HHBBB", width, height, 0x80 | ((bits - 1) << 4) | (bits - 1), 0, 0)
+    for n in range(table):
+        out += bytes(eight(colors[n])) if n < len(colors) else b"\0\0\0"
+    for f in frames:
+        # the graphic control extension: disposal 1, the delay, no clear color
+        out += b"\x21\xf9\x04" + struct.pack("<BHB", 1 << 2, delay, 0) + b"\0"
+        out += b"\x2c" + struct.pack("<HHHHB", 0, 0, width, height, 0)
+        indices = [colors.index(p) for row in f.pixels for p in row]
+        codes = []
+        for i in range(0, len(indices), run):
+            codes.append(clear)
+            codes += indices[i:i + run]
+        codes.append(end)
+        width_bits = minimum + 1
+        acc = nacc = 0
+        data = bytearray()
+        for c in codes:
+            acc |= c << nacc
+            nacc += width_bits
+            while nacc >= 8:
+                data.append(acc & 0xFF)
+                acc >>= 8
+                nacc -= 8
+        if nacc:
+            data.append(acc)
+        out.append(minimum)
+        for i in range(0, len(data), 255):
+            out.append(len(data[i:i + 255]))
+            out += data[i:i + 255]
+        out.append(0)
+    return bytes(out + b"\x3b")
 
 
 def files():
     """{file name: bytes} of every file the screens read: each sixel string
-    (.six), raw pixels (.rgba), raw pixels compressed with zlib (.rgba.z)
-    and PNG file (.png) they send."""
+    (.six), raw pixels (.rgba), raw pixels compressed with zlib (.rgba.z),
+    PNG file (.png) and animated GIF (.gif) they send."""
     p = PICTURES
-    return {
+    out = {name + ".rgba": patch.rgba() for name, patch in PATCHES.items()}
+    out.update({
         "quad.six": p["quad"].sixel(),
         "quad.rgba": p["quad"].rgba(),
         "quad.rgba.z": zlib.compress(p["quad"].rgba(), 9),
@@ -177,7 +276,9 @@ def files():
         "child.rgba": p["child"].rgba(),
         "disc.six": p["disc"].sixel(),
         "disc.png": p["disc"].png(),
-    }
+        "quad.gif": gif([p[name] for name in GIF_FRAMES], GIF_DELAY),
+    })
+    return out
 
 
 def write(directory):
@@ -191,11 +292,13 @@ def write(directory):
     return sorted(out)
 
 
-def digest():
-    """One SHA-256 over every picture's size and pixels, which the
-    self-tests pin: the goldens of the images variant hold these pixels."""
+def digest(names=None):
+    """One SHA-256 over the size and pixels of each picture `names` names,
+    or of every picture and patch, which the self-tests pin: the goldens of
+    the images variant hold these pixels."""
+    every = dict(PICTURES, **PATCHES)
     h = hashlib.sha256()
-    for name, pic in sorted(PICTURES.items()):
+    for name, pic in sorted((n, every[n]) for n in (names or every)):
         h.update(("%s %dx%d\n" % (name, pic.width, pic.height)).encode())
         h.update(pic.rgba())
     return h.hexdigest()

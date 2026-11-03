@@ -37,11 +37,14 @@ SMALL_SCREENS = ["small-console", "sgr", "boxdraw", "underline-styles", "underli
 # the test pictures t3_pictures.py writes: a sixel picture, kitty pictures
 # sent directly, relative placements, text and an erase over pictures,
 # deletes, pictures scrolled partly off the top, one pane of a tmux grid
-# playing video, whose damage is measured, and pictures the image helper
-# reads and decodes. img-png is last, so vt-restore shows pictures
-# redrawn after the VT switch (RESTORED).
+# playing video, whose damage is measured, kitty animations stopped on a
+# frame, iTerm2 pictures with an animated GIF, kitty pictures drawn through
+# Unicode placeholders, and pictures the image helper reads and decodes.
+# img-png is last, so vt-restore shows pictures redrawn after the VT switch
+# (RESTORED).
 PICTURE_SCREENS = ["img-sixel", "img-kitty", "img-relative", "img-overwrite", "img-delete",
-                   "img-scroll", "img-tmux-pane", "img-png"]
+                   "img-scroll", "img-tmux-pane", "img-animation", "img-iterm2",
+                   "img-placeholder", "img-png"]
 # Cases captured after a screen is drawn, by pressing keys: each is (screen,
 # case, the chords pressed before its capture), captured once the screen has
 # changed, so a key that changes nothing fails its case. After the last, the
@@ -100,17 +103,25 @@ IMAGE_SCREENS = ["sixel", "sixel-ramps", "sixel-article", "sixel-bound", "sixel-
                  "kitty-photo", "kitty-files", "kitty-layers", "flood"]
 # Every screen that draws pictures: those above and the images variant's.
 DRAWS_PICTURES = IMAGE_SCREENS + PICTURE_SCREENS
-# What the picture screens that ask for kitty's replies must report on the
-# event port (T3-REPLY, img-common.inc), in order: the image helper read and
+# What the picture screens that ask for replies must report on the event
+# port (T3-REPLY, img-common.inc), in order: the image helper read and
 # decoded each picture, removed the temporary file and refused a file the
-# session's user cannot read (img-png), and a delete kept one image's data
-# and freed another's (img-delete). A screen that reports anything else
-# fails, whether or not its golden is reviewed yet.
+# session's user cannot read (img-png); a delete kept one image's data and
+# freed another's (img-delete); vtium took every animation frame and control
+# (img-animation) and the virtual placement (img-placeholder); and each
+# iTerm2 picture left the cursor on the row of its last pixel row, at its
+# left column, where a dropped picture leaves it at row 3 (img-iterm2). A
+# screen that reports anything else fails, whether or not its golden is
+# reviewed yet.
 REPLIES = {
     "img-png": ["i=41;OK", "i=42;OK", "i=43;OK", "removed", "i=44;OK",
                 "i=45;EBADF:Failed to read image file", "rpc_pipefs readable",
                 "i=46;EBADF:Failed to read image file"],
     "img-delete": ["i=32;OK", "i=33;ENOENT:image not found"],
+    "img-animation": ["i=50;OK"] * 6 + ["i=51;OK"] * 4,
+    "img-iterm2": ["png at row 5, column 3", "gif at row 5, column 15",
+                   "parts at row 8, column 27", "pixels at row 4, column 47"],
+    "img-placeholder": ["i=60;OK"],
 }
 
 

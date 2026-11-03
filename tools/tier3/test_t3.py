@@ -3932,6 +3932,65 @@ def sixel_pixels(data):
     return out
 
 
+def gif_frames(data):
+    """The frames of a GIF file, each [(r, g, b) per pixel, row by row], with
+    its graphic control extension's delay and disposal method: a reader of
+    the GIF89a form, its LZW codes read at any width, apart from the writer
+    it checks. A frame covers the whole picture and uses the global color
+    table, as t3_pictures.gif writes them."""
+    assert data[:6] == b"GIF89a"
+    width, height, packed = struct.unpack("<HHB", data[6:11])
+    table_size = 2 << (packed & 7)
+    table = [tuple(data[13 + 3 * i:16 + 3 * i]) for i in range(table_size)]
+    i, frames, control = 13 + 3 * table_size, [], None
+    while data[i] != 0x3B:
+        if data[i] == 0x21:
+            if data[i + 1] == 0xF9:
+                flags, delay = struct.unpack("<BH", data[i + 3:i + 6])
+                control = (delay, flags >> 2 & 7)
+            i += 2
+            while data[i]:
+                i += data[i] + 1
+            i += 1
+            continue
+        assert data[i] == 0x2C
+        left, top, w, h, flags = struct.unpack("<HHHHB", data[i + 1:i + 10])
+        assert (left, top, w, h, flags) == (0, 0, width, height, 0)
+        minimum, i = data[i + 10], i + 11
+        blob = bytearray()
+        while data[i]:
+            blob += data[i + 1:i + 1 + data[i]]
+            i += data[i] + 1
+        i += 1
+        clear, end = 1 << minimum, (1 << minimum) + 1
+        bits, pos, out, prev = minimum + 1, 0, [], None
+        words = [[n] for n in range(clear)] + [None, None]
+        while True:
+            if pos + bits > len(blob) * 8:
+                raise ValueError("a frame's codes end with no end code")
+            code = int.from_bytes(blob[pos // 8:pos // 8 + 3], "little") >> pos % 8
+            code &= (1 << bits) - 1
+            pos += bits
+            if code == clear:
+                words, bits, prev = words[:end + 1], minimum + 1, None
+                continue
+            if code == end:
+                break
+            if code < len(words):
+                word = words[code]
+                if prev is not None:
+                    words.append(prev + word[:1])
+            else:
+                word = prev + prev[:1]
+                words.append(word)
+            out += word
+            prev = word
+            if len(words) == 1 << bits and bits < 12:
+                bits += 1
+        frames.append(([table[n] for n in out], control))
+    return frames
+
+
 class PicturesTest(unittest.TestCase):
     """The test pictures of the images variant (t3_pictures.py): pinned, a
     whole number of cells, and each file a faithful copy of its picture."""
@@ -3940,11 +3999,16 @@ class PicturesTest(unittest.TestCase):
         # The images variant's goldens hold these pixels, so a change to the
         # pictures moves them: this digest changes in the same commit as
         # the goldens.
-        self.assertEqual(t3_pictures.digest(),
+        # the pictures of the screens before the animation, iTerm2 and
+        # placeholder screens are as they were
+        self.assertEqual(t3_pictures.digest(t3_pictures.FIRST_PICTURES),
                          "76eb38dd0e3d1b6dec0b7ede466c82ad2dc325704e8d732c351e8077846c1658")
+        self.assertEqual(t3_pictures.digest(),
+                         "052432683ed74a7f98165ab4167d64c08448770c2bbf2e81685d0a3b24833156")
         self.assertEqual(sorted(t3_pictures.files()), [
             "bands.rgba", "bands.six", "child.rgba", "disc.png", "disc.six", "parent.rgba",
-            "quad.png", "quad.rgba", "quad.rgba.z", "quad.six"])
+            "patch-cyan.rgba", "patch-magenta.rgba", "patch-violet.rgba", "patch-yellow.rgba",
+            "quad.gif", "quad.png", "quad.rgba", "quad.rgba.z", "quad.six"])
 
     def test_whole_cells(self):
         # Every picture is a whole number of the variant's 8x16 cells, and
@@ -3963,9 +4027,15 @@ class PicturesTest(unittest.TestCase):
         # colors where the picture is opaque and black where it is clear.
         files = t3_pictures.files()
         for name, data in files.items():
-            pic = t3_pictures.PICTURES[name.split(".")[0]]
+            pic = dict(t3_pictures.PICTURES, **t3_pictures.PATCHES)[name.split(".")[0]]
             with self.subTest(name):
-                if name.endswith(".six"):
+                if name.endswith(".gif"):
+                    # every frame whole, shown 100 ms and left in place
+                    want = [([t3_pictures.eight(p) for row in t3_pictures.PICTURES[n].pixels
+                              for p in row], (10, 1)) for n in t3_pictures.GIF_FRAMES]
+                    self.assertEqual(gif_frames(data), want)
+                    self.assertNotIn(b"NETSCAPE2.0", data)
+                elif name.endswith(".six"):
                     want = {(x, y): p for y, row in enumerate(pic.pixels)
                             for x, p in enumerate(row) if p}
                     self.assertEqual(sixel_pixels(data), want)
@@ -4005,7 +4075,8 @@ class ImagesVariantTest(unittest.TestCase):
     def test_cases(self):
         self.assertEqual(t3_scenario.variant_cases(self.VARIANT), [
             "prelogin", "img-sixel", "img-kitty", "img-relative", "img-overwrite", "img-delete",
-            "img-scroll", "img-scrollback", "img-scrollforward", "img-tmux-pane", "img-png",
+            "img-scroll", "img-scrollback", "img-scrollforward", "img-tmux-pane",
+            "img-animation", "img-iterm2", "img-placeholder", "img-png",
             "vt-switch", "vt-restore"])
         v = t3_scenario.VARIANTS[self.VARIANT]
         self.assertEqual((v["device"], v["cpus"], v["memory_mb"], v["images"], v["goldens"]),
@@ -4192,7 +4263,9 @@ class ImagesVariantTest(unittest.TestCase):
             if screen == "img-tmux-pane":
                 self.assertNotIn("img-common.inc", text)
                 continue
-            named = set(re.findall(r'\$pics/([\w.]+)', text) + re.findall(r'pic64 ([\w.]+)', text))
+            named = set(re.findall(r'\$pics/([\w.-]+)', text)
+                        + re.findall(r'(?:pic64|iterm2_send "[^"]*"|iterm2_parts "[^"]*") '
+                                     r'([\w.-]+)', text))
             with self.subTest(screen):
                 self.assertTrue(named)
                 self.assertLessEqual(named, set(t3_pictures.files()))
@@ -4323,11 +4396,14 @@ class ImagesVariantTest(unittest.TestCase):
         self.assertEqual(t3_scenario.judge_replies("img-delete", []),
                          "the screen reported no reply; it must report i=32;OK, "
                          "i=33;ENOENT:image not found")
-        # each screen reports as many times as REPLIES lists for it
+        # each screen reports as many times as REPLIES lists for it, each
+        # report a line of its own that calls reply_event, ask_event or
+        # cursor_event (img-common.inc)
         for screen, replies in t3_evaluate.REPLIES.items():
             with self.subTest(screen), open(os.path.join(t3_common.GUEST, "screens",
                                                          screen + ".sh")) as f:
-                self.assertEqual(len(re.findall(r'^reply_event "', f.read(), re.M)),
+                self.assertEqual(len(re.findall(r'^(?:reply|ask|cursor)_event "', f.read(),
+                                                re.M)),
                                  len(replies))
 
     def test_make_target(self):
