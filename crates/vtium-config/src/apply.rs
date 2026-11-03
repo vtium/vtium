@@ -611,7 +611,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
     // step 3: the console's own check, on copies root made, so what is
     // checked is what is written
     if heads.is_some() || conf.is_some() {
-        let scratch = Scratch::new()?;
+        let scratch = Scratch::system()?;
         let confdir = match &conf {
             Some(c) => {
                 scratch.write("vtium.conf", c.bytes.as_deref().unwrap_or_default())?;
@@ -701,8 +701,8 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
 
 /// A directory of this process's own for the check's copies: under
 /// `/tmp`, whatever `TMPDIR` says, since a kept environment can point
-/// `TMPDIR` at a directory the user controls; created with mode 0700 and
-/// held open, each copy written through it with O_CREAT, O_EXCL and
+/// `TMPDIR` at a directory the user controls; created new with mode 0700
+/// and held open, each copy written through it with O_CREAT, O_EXCL and
 /// O_NOFOLLOW.
 struct Scratch {
     path: PathBuf,
@@ -710,11 +710,20 @@ struct Scratch {
 }
 
 impl Scratch {
-    fn new() -> Result<Scratch, String> {
+    /// The check's directory under `/tmp`, named by [`scratch_name`], so a
+    /// local user who makes names under `/tmp` first cannot make every
+    /// name apply tries taken.
+    fn system() -> Result<Scratch, String> {
+        Scratch::new(Path::new("/tmp"), &mut scratch_name)
+    }
+
+    /// A new directory `vtium-config-apply-NAME` under `base`, each NAME
+    /// taken from `names`; a name already taken, by anyone, is never
+    /// reused, and the next name is tried.
+    fn new(base: &Path, names: &mut dyn FnMut() -> String) -> Result<Scratch, String> {
         use std::os::unix::fs::DirBuilderExt;
-        let base = Path::new("/tmp");
-        for n in 0..100u32 {
-            let path = base.join(format!("vtium-config-apply-{}-{n}", std::process::id()));
+        for _ in 0..100u32 {
+            let path = base.join(format!("vtium-config-apply-{}", names()));
             match std::fs::DirBuilder::new().mode(0o700).create(&path) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -735,7 +744,10 @@ impl Scratch {
             }
             return Ok(Scratch { path, dir });
         }
-        Err("no free directory for the check under /tmp".to_owned())
+        Err(format!(
+            "no free directory for the check under {}",
+            base.display()
+        ))
     }
 
     /// Writes `bytes` as the new file `name` in the directory.
@@ -754,8 +766,105 @@ impl Scratch {
     }
 }
 
+/// A name for the check's directory that no other user can tell in
+/// advance: 16 hex digits of a hash keyed by a fresh `RandomState`, whose
+/// keys come from the operating system's random source.
+fn scratch_name() -> String {
+    use std::hash::BuildHasher;
+    format!(
+        "{:016x}",
+        std::hash::RandomState::new().hash_one(std::process::id())
+    )
+}
+
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test fails by panicking"
+)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::DirBuilderExt;
+
+    /// A fresh directory of the test's own under the system's temporary
+    /// directory, standing in for `/tmp`.
+    fn base(test: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "vtium-config-scratch-{test}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir(&base).unwrap();
+        base
+    }
+
+    /// The names a test's name source gives, in turn, and then `last`.
+    fn names(list: &'static [&'static str]) -> impl FnMut() -> String {
+        let mut it = list.iter();
+        move || (*it.next().unwrap_or(&"last")).to_owned()
+    }
+
+    /// The entries of `dir`, sorted.
+    fn entries_of(dir: &Path) -> Vec<String> {
+        let mut out: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// A name a local user made first, as this same user and with the
+    /// check's own mode, is never taken as the check's directory: its
+    /// files are not the check's, and the next name is tried.
+    #[test]
+    fn a_name_already_taken_is_never_reused() {
+        let base = base("taken");
+        let taken = base.join("vtium-config-apply-taken");
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&taken)
+            .unwrap();
+        std::fs::write(taken.join("vtium.conf"), "planted\n").unwrap();
+        let scratch = Scratch::new(&base, &mut names(&["taken", "free"])).unwrap();
+        assert_eq!(scratch.path, base.join("vtium-config-apply-free"));
+        scratch.write("vtium.conf", b"checked\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(taken.join("vtium.conf")).unwrap(),
+            "planted\n"
+        );
+        drop(scratch);
+        assert_eq!(entries_of(&base), ["vtium-config-apply-taken"]);
+        // every name taken: the check refuses, and leaves what it found
+        let why = Scratch::new(&base, &mut || "taken".to_owned())
+            .err()
+            .expect("no free name");
+        assert!(why.contains("no free directory"), "{why}");
+        assert_eq!(entries_of(&base), ["vtium-config-apply-taken"]);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// The system's names cannot be told in advance from the process's id
+    /// or a count, so a local user cannot make them all first.
+    #[test]
+    fn the_system_s_names_are_not_predictable() {
+        let pid = std::process::id().to_string();
+        let drawn: Vec<String> = (0..8).map(|_| scratch_name()).collect();
+        for name in &drawn {
+            assert_eq!(name.len(), 16, "{name}");
+            assert!(name.bytes().all(|b| b.is_ascii_hexdigit()), "{name}");
+            assert!(!name.contains(&pid), "{name}");
+        }
+        let mut unique = drawn.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), drawn.len(), "{drawn:?}");
     }
 }
