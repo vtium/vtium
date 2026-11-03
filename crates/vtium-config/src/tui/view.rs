@@ -242,7 +242,6 @@ fn save_rows(app: &App) -> Vec<Row> {
         }
     };
     match &app.inputs.saving {
-        Saving::Root => say(words::SAVE_COMMAND_ROOT, " "),
         Saving::Sudo(command) | Saving::User(command) => {
             let intro = match &app.inputs.saving {
                 Saving::Sudo(_) => words::SAVE_RUNS,

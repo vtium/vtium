@@ -335,8 +335,7 @@ fn the_privileged_step_is_sudo_vtium_config_apply_dir_and_nothing_else() {
     let draft = PathBuf::from("/home/me/.local/state/vtium/drafts/1 2;rm -rf");
     let program = Path::new("/usr/bin/vtium-config");
     let f = fixture("argv", None);
-    let sudo =
-        save_argv(&Route::Sudo("sudo".into()), program, &f.targets, &draft).expect("an argv");
+    let sudo = save_argv(&Route::Sudo("sudo".into()), program, &f.targets, &draft);
     let want: Vec<OsString> = vec![
         "sudo".into(),
         program.into(),
@@ -349,13 +348,11 @@ fn the_privileged_step_is_sudo_vtium_config_apply_dir_and_nothing_else() {
         "no option reaches root: {sudo:?}"
     );
     // directories not the system's install as the user, with their options
-    let user = save_argv(&Route::User, program, &f.targets, &draft).expect("an argv");
+    let user = save_argv(&Route::User, program, &f.targets, &draft);
     let mut want: Vec<OsString> = vec![program.into()];
     want.extend(f.targets.options());
     want.extend(["apply".into(), draft.clone().into()]);
     assert_eq!(user, want);
-    // root installs in its own process
-    assert_eq!(save_argv(&Route::Root, program, &f.targets, &draft), None);
 }
 
 #[test]
@@ -367,10 +364,8 @@ fn only_the_system_s_directories_are_installed_through_sudo() {
         vtium: vtium_config::apply::VTIUM.into(),
     };
     let sudo: OsString = "sudo".into();
-    assert_eq!(route(&system, &sudo, false), Route::Sudo(sudo.clone()));
-    assert_eq!(route(&system, &sudo, true), Route::Root);
-    assert_eq!(route(&f.targets, &sudo, false), Route::User);
-    assert_eq!(route(&f.targets, &sudo, true), Route::User);
+    assert_eq!(route(&system, &sudo), Route::Sudo(sudo.clone()));
+    assert_eq!(route(&f.targets, &sudo), Route::User);
 }
 
 #[test]
@@ -429,7 +424,6 @@ fn the_save_view_shows_the_command_the_save_runs() {
         vtium: f.targets.vtium.clone(),
     };
     let want = save_argv(&Route::User, &exe, &f.targets, Path::new("DRAFT"))
-        .expect("an argv")
         .iter()
         .map(|a| a.to_string_lossy().into_owned())
         .collect::<Vec<_>>()

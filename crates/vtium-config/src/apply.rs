@@ -190,12 +190,9 @@ fn new_dir(root: &Path) -> io::Result<PathBuf> {
 /// How a save is installed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Route {
-    /// The system's directories, from a user: `sudo vtium-config apply
-    /// DIR`, through the program named.
+    /// The system's directories: `sudo vtium-config apply DIR`, through
+    /// the program named.
     Sudo(OsString),
-    /// The system's directories, from root: `apply` in the TUI's own
-    /// process.
-    Root,
     /// Directories that are not the system's, as a test or a person
     /// trying the tool names them: `apply` run as the user, with the
     /// options that name them. No privilege is offered for them.
@@ -214,30 +211,24 @@ impl Targets {
     }
 }
 
-/// How a save from a process with `root`, to `targets`, is installed,
-/// with `sudo` the program that runs a privileged command.
-pub fn route(targets: &Targets, sudo: &OsString, root: bool) -> Route {
-    match (*targets == Targets::system(), root) {
-        (true, true) => Route::Root,
-        (true, false) => Route::Sudo(sudo.clone()),
-        (false, _) => Route::User,
+/// How a save to `targets` is installed, with `sudo` the program that runs
+/// a privileged command. The TUI that saves runs as the user (ADR-1201
+/// D5).
+pub fn route(targets: &Targets, sudo: &OsString) -> Route {
+    if *targets == Targets::system() {
+        Route::Sudo(sudo.clone())
+    } else {
+        Route::User
     }
 }
 
 /// The argv a save runs, `program` being this binary: `sudo
 /// /usr/bin/vtium-config apply DIR` and nothing else for the system's
-/// directories, so a sudo rule can name it whole; the options and `apply
-/// DIR` as the user for other directories; and `None` for root, which
-/// installs in its own process.
-pub fn save_argv(
-    route: &Route,
-    program: &Path,
-    targets: &Targets,
-    draft: &Path,
-) -> Option<Vec<OsString>> {
+/// directories, so a sudo rule can name it whole; and the options and
+/// `apply DIR` as the user for other directories.
+pub fn save_argv(route: &Route, program: &Path, targets: &Targets, draft: &Path) -> Vec<OsString> {
     let mut argv: Vec<OsString> = Vec::new();
     match route {
-        Route::Root => return None,
         Route::Sudo(sudo) => {
             argv.push(sudo.clone());
             argv.push(program.into());
@@ -249,7 +240,7 @@ pub fn save_argv(
     }
     argv.push("apply".into());
     argv.push(draft.into());
-    Some(argv)
+    argv
 }
 
 /// The TUI's saver for `paths`: the draft under `paths.drafts`, then the
@@ -260,20 +251,7 @@ pub fn saver(paths: Paths) -> Saver {
         let draft = write_draft(&paths.drafts, plan, &targets)
             .map_err(|e| format!("the draft under {}: {e}", paths.drafts.display()))?;
         let program = std::env::current_exe().map_err(|e| e.to_string())?;
-        let route = route(&targets, &paths.sudo, rustix::process::geteuid().is_root());
-        let Some(argv) = save_argv(&route, &program, &targets, &draft) else {
-            let (mut out, mut err) = (Vec::new(), Vec::new());
-            let words = [draft.to_string_lossy().into_owned()];
-            return match command(&words, &targets, &mut out, &mut err) {
-                0 => Ok(plan.files.len()),
-                _ => Err(format!(
-                    "the install failed, and the draft stays in {}.\n{}{}",
-                    draft.display(),
-                    String::from_utf8_lossy(&out),
-                    String::from_utf8_lossy(&err)
-                )),
-            };
-        };
+        let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
         match run(&argv) {
             Ok((true, _)) => Ok(plan.files.len()),
             Ok((false, said)) => Err(format!(

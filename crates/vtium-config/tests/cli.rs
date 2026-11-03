@@ -163,5 +163,19 @@ fn as_root_every_path_and_program_option_is_refused() {
         root_refusal(true, &args(&["--no-banner", "set", "proof"])),
         None
     );
-    assert_eq!(root_refusal(true, &args(&[])), None);
+}
+
+/// ADR-1201 D5: the TUI runs as the user from start to end and never as
+/// root; as root it does not open, and says how to run it.
+#[test]
+fn as_root_the_tui_does_not_open() {
+    use std::ffi::OsString;
+    use vtium_config::cli::root_refusal;
+    let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
+    for words in [&[][..], &["--no-banner"]] {
+        let why = root_refusal(true, &args(words)).expect("refused as root");
+        assert!(why.contains("as yourself") && why.contains("sudo"), "{why}");
+        assert_eq!(root_refusal(false, &args(words)), None);
+    }
+    assert_eq!(root_refusal(true, &args(&["--version"])), None);
 }

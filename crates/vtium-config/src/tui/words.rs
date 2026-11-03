@@ -80,7 +80,6 @@ pub const HEADS_HINT: &str = "Left and Right choose the profile a head draws wit
 pub const NOTHING_TO_SAVE: &str = "Nothing is changed, so there is nothing to save.";
 pub const SAVE_RUNS: &str = "Enter runs this command, which asks for your password once:";
 pub const SAVE_AS_USER: &str = "The tool's directories are not the system's, so Enter installs the draft as you, with no sudo, by this command:";
-pub const SAVE_COMMAND_ROOT: &str = "Enter installs the draft at once, since you are root.";
 pub fn draft_under(dir: impl Display) -> String {
     format!("DRAFT is a new directory under {dir}.")
 }

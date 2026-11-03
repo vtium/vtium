@@ -129,7 +129,7 @@ pub fn fonts(dir: &Path) -> Vec<Font> {
 /// by the function that builds the command the save runs.
 pub fn saving(paths: &Paths) -> model::Saving {
     let targets = paths.targets();
-    let route = crate::apply::route(&targets, &paths.sudo, rustix::process::geteuid().is_root());
+    let route = crate::apply::route(&targets, &paths.sudo);
     let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
     let shown = |argv: Vec<OsString>| {
         argv.iter()
@@ -137,13 +137,10 @@ pub fn saving(paths: &Paths) -> model::Saving {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    match (
-        &route,
-        crate::apply::save_argv(&route, &program, &targets, Path::new(model::DRAFT)),
-    ) {
-        (crate::apply::Route::Sudo(_), Some(argv)) => model::Saving::Sudo(shown(argv)),
-        (_, Some(argv)) => model::Saving::User(shown(argv)),
-        (_, None) => model::Saving::Root,
+    let argv = crate::apply::save_argv(&route, &program, &targets, Path::new(model::DRAFT));
+    match route {
+        crate::apply::Route::Sudo(_) => model::Saving::Sudo(shown(argv)),
+        crate::apply::Route::User => model::Saving::User(shown(argv)),
     }
 }
 
@@ -210,6 +207,15 @@ pub fn painter(frits: PathBuf, program: PathBuf) -> port::Painter {
 /// Opens the TUI on the terminal and runs it until the user leaves;
 /// returns the exit status.
 pub fn run(paths: &Paths, err: &mut dyn std::io::Write) -> u8 {
+    // the TUI runs as the user from start to end (ADR-1201 D5); main
+    // refuses root before this, and so does this
+    if rustix::process::geteuid().is_root() {
+        let _ = writeln!(
+            err,
+            "vtium-config: run vtium config as yourself; it asks for sudo when it saves"
+        );
+        return 2;
+    }
     let inputs = match gather(paths) {
         Ok(inputs) => inputs,
         Err(why) => {

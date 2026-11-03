@@ -83,13 +83,14 @@ pub const PATH_OPTIONS: [&str; 8] = [
 ];
 
 /// Why vtium-config, run with `root` (an effective uid of 0), refuses
-/// `args`: an option of [`PATH_OPTIONS`], or the step that releases the
-/// TUI's signals and runs another program; `None` when it takes them.
+/// `args`: an option of [`PATH_OPTIONS`], the step that releases the
+/// TUI's signals and runs another program, or no command, which opens the
+/// TUI; `None` when it takes them.
 pub fn root_refusal(root: bool, args: &[OsString]) -> Option<String> {
     if !root {
         return None;
     }
-    args.iter().find_map(|a| {
+    let named = args.iter().find_map(|a| {
         let a = a.to_string_lossy();
         let named = PATH_OPTIONS
             .iter()
@@ -103,7 +104,12 @@ pub fn root_refusal(root: bool, args: &[OsString]) -> Option<String> {
             )),
             None => None,
         }
-    })
+    });
+    // the TUI runs as the user from start to end (ADR-1201 D5)
+    let tui = parse_args(args)
+        .is_ok_and(|o| o.words.is_empty())
+        .then(|| "run vtium config as yourself; it asks for sudo when it saves".to_owned());
+    named.or(tui)
 }
 
 /// The directory of vtium.conf and the head file, as the console's.

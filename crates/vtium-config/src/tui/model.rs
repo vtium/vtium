@@ -89,8 +89,6 @@ pub enum Saving {
     Sudo(String),
     /// As the user, into directories that are not the system's.
     User(String),
-    /// At once, in the TUI's process, since it runs as root.
-    Root,
 }
 
 /// The name the save view gives the draft's directory in its command.
