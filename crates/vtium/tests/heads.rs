@@ -3149,9 +3149,10 @@ fn a_hidden_console_starts_again_at_the_configured_size() {
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     let sizes = |a: &App| console_lines(a, "small", "size:");
     assert!(s.until(SECOND, |a| sizes(a).iter().all(Option::is_some)));
+    // Each key acts within the input call: the chord shows another
+    // console, the zoom lays it out again.
     let key = |s: &mut Seat, event: InputEvent| {
         s.app.device_input(Path::new(KBD_SMALL), event, now());
-        s.until(Duration::from_millis(50), |_| false);
     };
     let zoom = |c: char| {
         InputEvent::Key(KeyEvent {
@@ -3160,16 +3161,17 @@ fn a_hidden_console_starts_again_at_the_configured_size() {
         })
     };
     key(&mut s, ctrl_super(RIGHT));
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
     key(&mut s, zoom('='));
     assert_eq!(grid(&s.app, "small"), Some((20, 5)), "console 2 zoomed in");
     key(&mut s, ctrl_super(LEFT));
+    assert_eq!(consoles(&s.app, "small"), Some((2, 0)));
     key(&mut s, zoom('-'));
     assert_eq!(
         grid(&s.app, "small"),
         Some((40, 20)),
         "console 1 zoomed out"
     );
-    assert_eq!(consoles(&s.app, "small"), Some((2, 0)));
     std::fs::write(dir.join("go"), "").expect("the go mark");
     let again = |a: &App| console_lines(a, "small", "again:");
     let restarted = s.until(Duration::from_secs(3), |a| {
