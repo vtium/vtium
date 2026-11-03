@@ -1,5 +1,6 @@
-//! The interface check: vtium-replay and the copied goldens against the
-//! interface's own blocks, beside the verdict on each case.
+//! The interface check: vtium-replay, the copied goldens and vtium's own
+//! goldens against the interface's own blocks, beside the verdict on each
+//! case.
 //!
 //! Every line of every golden is a form of its kind in the grammar, the
 //! kinds come in the order of the view's `structure`, and each block keeps
@@ -26,8 +27,8 @@ mod refusals;
 
 pub use refusals::{exit_code, refusals};
 
-/// The copied goldens by view; the draw2 goldens were not copied, as
-/// vtium has no draw2 view.
+/// The goldens by view, in the copied corpus and in vtium's own cases;
+/// the draw2 goldens were not copied, as vtium has no draw2 view.
 const GOLDENS: [(&str, &str); 2] = [("screen", "golden"), ("frame", "golden-frame")];
 
 /// What one check counted, and the faults it found.
@@ -84,16 +85,22 @@ impl Check {
 }
 
 /// Runs every check: `texts` are the interface's documents, in order,
-/// `describe` what vtium-replay's `--describe` prints.
-pub fn check(spec: &Spec, texts: &[&str], corpus: &Corpus, describe: &str) -> Check {
+/// `corpora` the copied corpus and vtium's own cases, whose goldens are
+/// read, and `describe` what vtium-replay's `--describe` prints.
+pub fn check(spec: &Spec, texts: &[&str], corpora: &[&Corpus], describe: &str) -> Check {
     let declared: BTreeSet<String> = describe
         .lines()
         .filter_map(|l| l.strip_prefix("feature "))
         .map(str::to_owned)
         .collect();
-    let (goldens, golden_faults) = goldens(spec, corpus);
+    let (mut goldens_read, mut golden_faults) = (0usize, Vec::new());
+    for corpus in corpora {
+        let (count, faults) = goldens(spec, corpus);
+        goldens_read = goldens_read.saturating_add(count);
+        golden_faults.extend(faults);
+    }
     Check {
-        goldens,
+        goldens: goldens_read,
         golden_faults,
         examples: examples(texts, spec, &declared),
         palettes: palettes(texts),
@@ -102,9 +109,16 @@ pub fn check(spec: &Spec, texts: &[&str], corpus: &Corpus, describe: &str) -> Ch
     }
 }
 
-/// Every golden of the copied views against the grammar, sized by
-/// `cases.list`.
+/// Every golden of `corpus` against the grammar, sized by its
+/// `cases.list`. A fault names the golden by the corpus's directory, such
+/// as `vtium/golden/kit-anim.txt`.
 fn goldens(spec: &Spec, corpus: &Corpus) -> (usize, Vec<String>) {
+    let set = corpus
+        .root
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
     let sizes: BTreeMap<&str, (usize, usize)> = corpus
         .cases
         .iter()
@@ -119,31 +133,31 @@ fn goldens(spec: &Spec, corpus: &Corpus) -> (usize, Vec<String>) {
                 .filter(|p| p.extension().is_some_and(|x| x == "txt"))
                 .collect(),
             Err(e) => {
-                faults.push(format!("{dir}/: {e}"));
+                faults.push(format!("{set}/{dir}/: {e}"));
                 continue;
             }
         };
         files.sort();
         if files.is_empty() {
-            faults.push(format!("no goldens in {dir}/"));
+            faults.push(format!("no goldens in {set}/{dir}/"));
         }
         for path in files {
             count = count.saturating_add(1);
             let file = path.file_name().unwrap_or_default().to_string_lossy();
             let stem = path.file_stem().unwrap_or_default().to_string_lossy();
             let Some(&(cols, rows)) = sizes.get(stem.as_ref()) else {
-                faults.push(format!("{dir}/{file}: no case in cases.list"));
+                faults.push(format!("{set}/{dir}/{file}: no case in cases.list"));
                 continue;
             };
             let text = match std::fs::read_to_string(&path) {
                 Ok(text) => text,
                 Err(e) => {
-                    faults.push(format!("{dir}/{file}: {e}"));
+                    faults.push(format!("{set}/{dir}/{file}: {e}"));
                     continue;
                 }
             };
             if let Some(fault) = check_output(spec, view, &text, cols, rows, false) {
-                faults.push(format!("{dir}/{file}: {fault}"));
+                faults.push(format!("{set}/{dir}/{file}: {fault}"));
             }
         }
     }
@@ -191,8 +205,19 @@ pub fn check_output(
 /// before it and within the columns; placements and images numbered from
 /// 0 after the last row; checkpoints not decreasing. The screen view is
 /// printed at `cols` by `rows`, the command line's; the others at their
-/// `size` line's.
+/// `size` line's. INTERFACE-vtium.md's `anim` lines keep their own rules
+/// ([`AnimLines`]).
 pub fn numbering(lines: &[&str], view: &str, cols: usize, rows: usize) -> Option<String> {
+    let mut anim = AnimLines::default();
+    for (n, line) in lines.iter().enumerate() {
+        let fields: Vec<&str> = line.split(' ').collect();
+        if let Some(fault) = anim.line(n.saturating_add(1), &fields) {
+            return Some(fault);
+        }
+    }
+    if let Some(fault) = anim.end() {
+        return Some(fault);
+    }
     let (mut cols, mut rows) = (cols, rows);
     // the row of the block so far: None before any block, -1 before its first row
     let mut row: Option<i64> = None;
@@ -281,6 +306,90 @@ pub fn numbering(lines: &[&str], view: &str, cols: usize, rows: usize) -> Option
     match row {
         Some(r) if r != last_row => Some(format!("the output ends after row {r} of {rows}")),
         _ => None,
+    }
+}
+
+/// The rules of INTERFACE-vtium.md's `anim` lines: an image's
+/// `anim M frames F current C ...` line comes straight after its `image M`
+/// line, with C at most F; its `anim M frame K ...` lines follow it, K
+/// counting 1, 2, 3 up to F, exactly F of them.
+#[derive(Debug, Default)]
+struct AnimLines {
+    /// The number of the `image` line just read.
+    image: Option<i64>,
+    /// The image whose frame lines are read, its frames and the frame
+    /// whose line comes next.
+    frames: Option<(i64, i64, i64)>,
+}
+
+impl AnimLines {
+    /// The fault of line `n`, split into `f`, if any.
+    fn line(&mut self, n: usize, f: &[&str]) -> Option<String> {
+        let num = |i: usize| f.get(i).and_then(|s| s.parse::<i64>().ok());
+        let kind = f.first().copied().unwrap_or_default();
+        let after_image = self.image.take();
+        let frame_line = kind == "anim" && f.get(2) == Some(&"frame");
+        if !frame_line && let Some(fault) = self.unfinished(&format!("line {n}")) {
+            return Some(fault);
+        }
+        match kind {
+            "image" => {
+                self.image = num(1);
+                self.frames = None;
+            }
+            "anim" if frame_line => {
+                let (m, k) = (num(1)?, num(3)?);
+                let Some((image, total, next)) = self.frames.filter(|(i, _, _)| *i == m) else {
+                    return Some(format!(
+                        "line {n}: anim {m} frame {k} with no anim {m} frames line before it"
+                    ));
+                };
+                if k != next {
+                    return Some(format!(
+                        "line {n}: anim {m} frame {k} where anim {image} frame {next} belongs"
+                    ));
+                }
+                if k > total {
+                    return Some(format!(
+                        "line {n}: anim {m} frame {k} past its {total} frames"
+                    ));
+                }
+                self.frames = Some((image, total, next.saturating_add(1)));
+            }
+            "anim" => {
+                let (m, total, current) = (num(1)?, num(3)?, num(5)?);
+                if after_image != Some(m) {
+                    return Some(format!(
+                        "line {n}: anim {m} frames does not follow image {m}'s line"
+                    ));
+                }
+                if current > total {
+                    return Some(format!(
+                        "line {n}: anim {m} current {current} past its {total} frames"
+                    ));
+                }
+                self.frames = Some((m, total, 1));
+            }
+            _ => self.frames = None,
+        }
+        None
+    }
+
+    /// The fault of an image whose frame lines stop short of its frames,
+    /// found `at` a line.
+    fn unfinished(&self, at: &str) -> Option<String> {
+        let (m, total, next) = self.frames?;
+        (next <= total).then(|| {
+            format!(
+                "{at}: anim {m} lists {} of its {total} frames",
+                next.saturating_sub(1)
+            )
+        })
+    }
+
+    /// The fault of an output that ends with an image's frame lines short.
+    fn end(&self) -> Option<String> {
+        self.unfinished("the output's end")
     }
 }
 
@@ -574,6 +683,10 @@ pub fn controls(spec: &Spec) -> Tally {
         ),
         ("no final newline", GOOD.trim_end_matches('\n').to_owned()),
         (
+            "an anim line with no image line before it",
+            format!("{GOOD}anim 0 frames 1 current 1 run stopped loops 1 stamps 0 0\n"),
+        ),
+        (
             "a block cut short",
             format!(
                 "checkpoint 0\n{}checkpoint 1\n{GOOD}",
@@ -581,10 +694,102 @@ pub fn controls(spec: &Spec) -> Tally {
             ),
         ),
     ];
+    // anim lines (INTERFACE-vtium.md), each bad output breaking one rule,
+    // which its fault must name
+    let image = format!("{GOOD}image 0 4x2 digest 00000000\n");
+    let head = |m: u32, f: u32, c: u32| {
+        format!("anim {m} frames {f} current {c} run stopped loops 1 stamps 0 0\n")
+    };
+    let frame = |m: u32, k: u32| format!("anim {m} frame {k} gap 0 digest 00000000\n");
+    let good_anim = format!("{image}{}{}{}", head(0, 2, 2), frame(0, 1), frame(0, 2));
+    let anim = [
+        (
+            "a frame line before its image's anim frames line",
+            format!("{image}{}{}{}", frame(0, 1), head(0, 1, 1), frame(0, 1)),
+            "anim 0 frame 1 with no anim 0 frames line before it",
+        ),
+        (
+            "frame lines with no anim frames line",
+            format!("{image}{}", frame(0, 1)),
+            "anim 0 frame 1 with no anim 0 frames line before it",
+        ),
+        (
+            "a frame past the image's frames",
+            format!("{image}{}{}{}", head(0, 1, 1), frame(0, 1), frame(0, 2)),
+            "anim 0 frame 2 past its 1 frames",
+        ),
+        (
+            "a frame listed twice",
+            format!(
+                "{image}{}{}{}{}",
+                head(0, 2, 1),
+                frame(0, 1),
+                frame(0, 1),
+                frame(0, 2)
+            ),
+            "anim 0 frame 1 where anim 0 frame 2 belongs",
+        ),
+        (
+            "fewer frame lines than frames",
+            format!("{image}{}{}", head(0, 2, 1), frame(0, 1)),
+            "anim 0 lists 1 of its 2 frames",
+        ),
+        (
+            "an anim number other than its image's",
+            format!("{image}{}{}", head(1, 1, 1), frame(1, 1)),
+            "anim 1 frames does not follow image 1's line",
+        ),
+        (
+            "two anim frames lines for one image",
+            format!(
+                "{image}{}{}{}{}",
+                head(0, 1, 1),
+                frame(0, 1),
+                head(0, 1, 1),
+                frame(0, 1)
+            ),
+            "anim 0 frames does not follow image 0's line",
+        ),
+        (
+            "anim 0 after image 1",
+            format!(
+                "{image}image 1 4x2 digest 00000000\n{}{}",
+                head(0, 1, 1),
+                frame(0, 1)
+            ),
+            "anim 0 frames does not follow image 0's line",
+        ),
+        (
+            "loops 0, which no command sets",
+            good_anim.replace("loops 1", "loops 0"),
+            "not a anim line",
+        ),
+        (
+            "a current frame past the frames",
+            format!("{image}{}{}", head(0, 1, 2), frame(0, 1)),
+            "anim 0 current 2 past its 1 frames",
+        ),
+    ];
     let mut tally = Tally {
-        count: bad.len().saturating_add(2),
+        count: bad.len().saturating_add(anim.len()).saturating_add(3),
         ..Tally::default()
     };
+    if let Some(fault) = check_output(spec, "screen", &good_anim, 4, 2, false) {
+        tally.faults.push(format!(
+            "control: the grammar rejects good anim lines: {fault}"
+        ));
+    }
+    for (what, text, why) in &anim {
+        match check_output(spec, "screen", text, 4, 2, false) {
+            None => tally
+                .faults
+                .push(format!("control: the grammar accepts {what}")),
+            Some(fault) if !fault.contains(why) => tally.faults.push(format!(
+                "control: the check rejects {what} for another reason: {fault}"
+            )),
+            Some(_) => {}
+        }
+    }
     if let Some(fault) = check_output(spec, "screen", GOOD, 4, 2, false) {
         tally.faults.push(format!(
             "control: the grammar rejects a good output: {fault}"

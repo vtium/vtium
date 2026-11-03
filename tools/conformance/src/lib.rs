@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! vtium's side of tier 1.
 //!
-//! `vtium-replay` meets the replay interface, interface 1.1:
+//! `vtium-replay` meets the replay interface, interface 1.2:
 //! `corpus/INTERFACE.md` with vtium's additions in `INTERFACE-vtium.md`,
 //! over `vtium-term`: a byte stream and the test commands
 //! in it go in, and the screen or frame view comes out as text.
@@ -54,13 +54,17 @@ pub(crate) fn internal(message: impl Into<String>) -> Failure {
 
 /// What `--describe` prints: the interface, the views, the features and
 /// the commands vtium offers, in the order of the interface's describe
-/// blocks. vtium has no draw2 view, offers the image features in a build
-/// with images, and declines `damage-exact`.
+/// blocks. vtium has no draw2 view, offers the image features and
+/// `kitty-animation` in a build with images, and declines `damage-exact`.
 pub fn describe() -> String {
-    let images: &[&str] = if command::IMAGES {
-        &["images", "sixel", "kitty-graphics", "image-host"]
+    // 1.0's image features, and vtium's kitty-animation
+    let (images, animation): (&[&str], &[&str]) = if command::IMAGES {
+        (
+            &["images", "sixel", "kitty-graphics", "image-host"],
+            &["kitty-animation"],
+        )
     } else {
-        &[]
+        (&[], &[])
     };
     let features = ["attrs-extended", "view-frame"]
         .iter()
@@ -73,8 +77,9 @@ pub fn describe() -> String {
             "palette",
             "query",
             "clipboard",
-        ]);
-    let mut out = String::from("interface 1.1\nview screen\nview frame\n");
+        ])
+        .chain(animation);
+    let mut out = String::from("interface 1.2\nview screen\nview frame\n");
     for f in features {
         out.push_str("feature ");
         out.push_str(f);
