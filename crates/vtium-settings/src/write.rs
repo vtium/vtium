@@ -150,13 +150,48 @@ fn write_new(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
     written
 }
 
-/// Keeps the file at `path` as `NAME.bak`, replacing an older one in one
-/// rename: a second name for the same file where the filesystem allows
-/// it, else a copy.
-fn keep_backup(path: &Path, staging: &Path, mode: u32) -> io::Result<()> {
+/// What is at `path`, without following a link: its mode, or `None`
+/// when nothing is there; a link or anything but a regular file is
+/// refused, so nothing is read or replaced through a link.
+fn regular(path: &Path) -> io::Result<Option<u32>> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_file() => Ok(Some(m.permissions().mode() & 0o7777)),
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} is not a regular file, and only one is replaced",
+                path.display()
+            ),
+        )),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// A copy of the regular file at `path`, with its mode, as a new file at
+/// `staging`.
+fn copy_backup(path: &Path, staging: &Path) -> io::Result<()> {
+    let mode =
+        regular(path)?.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "nothing to keep"))?;
+    let bytes = {
+        let mut f = OpenOptions::new()
+            .read(true)
+            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed())
+            .open(path)?;
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut f, &mut bytes)?;
+        bytes
+    };
+    write_new(staging, &bytes, mode)
+}
+
+/// Keeps the regular file at `path` as `NAME.bak`, replacing an older one
+/// in one rename: a second name for the same file where the filesystem
+/// allows it, else a copy with the same mode.
+fn keep_backup(path: &Path, staging: &Path) -> io::Result<()> {
     let _ = fs::remove_file(staging);
     if fs::hard_link(path, staging).is_err() {
-        write_new(staging, &fs::read(path)?, mode)?;
+        copy_backup(path, staging)?;
     }
     let renamed = fs::rename(staging, beside(path, "", ".bak")?);
     if renamed.is_err() {
@@ -170,18 +205,20 @@ fn keep_backup(path: &Path, staging: &Path, mode: u32) -> io::Result<()> {
 ///
 /// The new bytes go to a new file beside `path`, created without following
 /// a link, flushed to disk, and renamed over `path`, so `path` is the old
-/// file or the new one and never half of each. A link at `path` is
-/// replaced, and the file it points to is left. A failure before the
+/// file or the new one and never half of each. Anything at `path` but a
+/// regular file, a symbolic link among them, is refused and left, so
+/// nothing is read or replaced through a link. A failure before the
 /// rename leaves the old file as it was and removes the new one. Run as
 /// root, the new file is root's.
 pub fn install_file(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
     let pid = std::process::id();
+    let existing = regular(path)?;
     let staging = beside(path, ".", &format!(".{pid}.new"))?;
     let _ = fs::remove_file(&staging);
     write_new(&staging, bytes, mode)?;
     let result = (|| {
-        if fs::symlink_metadata(path).is_ok() {
-            keep_backup(path, &beside(path, ".", &format!(".{pid}.bak"))?, mode)?;
+        if existing.is_some() {
+            keep_backup(path, &beside(path, ".", &format!(".{pid}.bak"))?)?;
         }
         fs::rename(&staging, path)
     })();
@@ -194,4 +231,41 @@ pub fn install_file(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
         _ => Path::new("."),
     };
     File::open(dir)?.sync_all()
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+mod tests {
+    use super::*;
+
+    fn dir(name: &str) -> PathBuf {
+        let d =
+            std::env::temp_dir().join(format!("vtium-settings-copy-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn a_copied_backup_keeps_the_old_file_s_mode() {
+        let d = dir("mode");
+        let file = d.join("vtium.conf");
+        fs::write(&file, "old\n").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        copy_backup(&file, &d.join("copy")).unwrap();
+        assert_eq!(fs::read(d.join("copy")).unwrap(), b"old\n");
+        let mode = fs::metadata(d.join("copy")).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode, 0o600);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_copied_backup_never_reads_through_a_link() {
+        let d = dir("link");
+        fs::write(d.join("secret"), "theirs\n").unwrap();
+        std::os::unix::fs::symlink(d.join("secret"), d.join("vtium.conf")).unwrap();
+        assert!(copy_backup(&d.join("vtium.conf"), &d.join("copy")).is_err());
+        assert!(!d.join("copy").exists());
+        let _ = fs::remove_dir_all(&d);
+    }
 }

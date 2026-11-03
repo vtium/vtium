@@ -268,19 +268,32 @@ fn a_write_that_fails_before_its_rename_leaves_the_old_file_whole() {
 }
 
 #[test]
-fn a_link_in_the_file_s_place_is_replaced_and_its_target_left() {
+fn a_link_in_the_file_s_place_is_refused_and_both_left() {
     let dir = fixture("link");
     let target = dir.join("elsewhere");
     fs::write(&target, "theirs\n").expect("the link's target");
     let file = dir.join("heads.conf");
     std::os::unix::fs::symlink(&target, &file).expect("the link");
-    install_file(&file, b"new\n", 0o644).expect("the install");
+    assert!(install_file(&file, b"new\n", 0o644).is_err());
     assert_eq!(fs::read(&target).expect("the target"), b"theirs\n");
     assert!(
-        !fs::symlink_metadata(&file)
-            .expect("the file")
+        fs::symlink_metadata(&file)
+            .expect("the link")
             .file_type()
-            .is_symlink()
+            .is_symlink(),
+        "the link stays"
     );
-    assert_eq!(fs::read(&file).expect("the file"), b"new\n");
+    let left: Vec<_> = fs::read_dir(&dir).expect("the directory").collect();
+    assert_eq!(left.len(), 2, "no backup or new file is left");
+}
+
+#[test]
+fn the_backup_keeps_the_old_file_s_mode() {
+    let dir = fixture("mode");
+    let file = dir.join("vtium.conf");
+    fs::write(&file, "old\n").expect("the old file");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).expect("mode 0600");
+    install_file(&file, b"new\n", 0o644).expect("the install");
+    let bak = fs::metadata(dir.join("vtium.conf.bak")).expect("the backup");
+    assert_eq!(bak.permissions().mode() & 0o7777, 0o600);
 }
