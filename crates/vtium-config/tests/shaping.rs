@@ -655,3 +655,188 @@ fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
         "the bar fills both cells"
     );
 }
+
+/// The columns of row `y` that `p`, a glyph `w` pixels wide, inks.
+fn inked(p: &Placed, w: usize, y: usize) -> Vec<usize> {
+    (0..w).filter(|&x| p.pixels[y * w + x] > 0).collect()
+}
+
+/// `Test Mono` with an empty GPOS, so that HarfRust positions no mark
+/// itself and leaves each at the pen, and with `glyphs` added, each mapped
+/// from its codepoint.
+fn unpositioned(glyphs: &[(u32, ttf::Glyph)]) -> ttf::Font {
+    let mut f = ttf::Font {
+        empty_gpos: true,
+        ..ttf::test_mono()
+    };
+    for (cp, g) in glyphs {
+        let id = u16::try_from(f.glyphs.len()).expect("a glyph id");
+        f.glyphs.push(g.clone());
+        f.cmap.push((*cp, id));
+    }
+    f.cmap.sort_unstable();
+    f
+}
+
+// ADR-1302 D3, a mark the shaper left at the pen, in right-to-left text.
+// A mark follows its base in the order the text is written (Unicode's
+// combining character sequence), and HarfRust returns a right-to-left
+// cluster in visual order, the mark first, so the helper finds the base on
+// either side of the mark. The font holds a Hebrew alef (U+05D0) and an
+// Arabic alef (U+0627), each a bar from 100 to 500 units across and up to
+// 500 units tall, a segol accent (U+0592, class 230, above) and a hamza
+// below (U+0655, class 220, below), each a zero-width bar from 0 to 100
+// units across and 50 units tall on the baseline. At 20 pixels, the
+// baseline on row 16, the letters fill rows 6 to 15. Left at the pen, each
+// mark would lie on the baseline at the letter's left edge, over row 15;
+// placed, the accent is centred over the letter with a clear row between
+// them, and the hamza centred directly under it
+// covers: text.overhang
+#[test]
+fn an_unplaced_mark_in_right_to_left_text_is_placed_over_its_letter() {
+    let f = unpositioned(&[
+        (0x5d0, ttf::Glyph::rect(600, 100, 0, 500, 500)),
+        (0x627, ttf::Glyph::rect(600, 100, 0, 500, 500)),
+        (0x592, ttf::Glyph::rect(0, 0, 0, 100, 50)),
+        (0x655, ttf::Glyph::rect(0, 0, 0, 100, 50)),
+    ]);
+    let (accent, hamza) = (['\u{5d0}', '\u{592}'], [ALEF, '\u{655}']);
+    let o = rasterise(&OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        clusters: [accent, hamza]
+            .iter()
+            .map(|k| vtium_config::shaping::ask(&key(k)))
+            .collect(),
+        ..OutlineRequest::default()
+    })
+    .expect("rasterised");
+    let (w, baseline) = (o.strikes[0].width as usize, o.strikes[0].baseline);
+    assert_eq!((w, baseline), (12, 16));
+    for (k, above) in [(&accent, true), (&hamza, false)] {
+        let g = cluster(&o, k).unwrap_or_else(|| panic!("{k:?} shaped"));
+        // the letter's columns, in a row only it inks
+        let letter = inked(g, w, 10);
+        assert!(!letter.is_empty(), "{k:?}: the letter in row 10");
+        let (top, bottom) = (6, 15);
+        for y in top..=bottom {
+            assert_eq!(
+                inked(g, w, y),
+                letter,
+                "{k:?}: row {y} holds the letter alone"
+            );
+        }
+        let outside: Vec<usize> = (0..20)
+            .filter(|&y| (y < top || y > bottom) && !inked(g, w, y).is_empty())
+            .collect();
+        assert!(
+            !outside.is_empty(),
+            "{k:?}: the mark outside the letter's rows"
+        );
+        for &y in &outside {
+            assert_eq!(y < top, above, "{k:?}: the mark's side, row {y}");
+            let c = inked(g, w, y);
+            let middle = letter[0] + letter[letter.len() - 1];
+            assert!(
+                (c[0] + c[c.len() - 1]).abs_diff(middle) <= 1,
+                "{k:?}: row {y} centred over {letter:?}: {c:?}"
+            );
+        }
+        if above {
+            assert!(
+                inked(g, w, top - 1).is_empty(),
+                "a clear row under the accent"
+            );
+        } else {
+            assert_eq!(
+                outside[0],
+                bottom + 1,
+                "the hamza directly under the letter"
+            );
+        }
+    }
+}
+
+/// The subset of Noto Naskh Arabic in `tests/fixtures/`.
+fn naskh() -> Vec<u8> {
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/NotoNaskhArabic-beh-fatha.ttf"),
+    )
+    .expect("the fixture")
+}
+
+// A joining form the font draws as several glyphs from the letter's own
+// character is kept: Noto Naskh Arabic draws beh's joined forms as a
+// dotless body and a separate dot, both from the beh. Beh's initial,
+// medial and final forms, and its initial form with a fatha, each draw one
+// cell wide, each unlike the others and unlike the isolated beh, and the
+// fatha adds ink above the initial form where the bare form has none
+#[test]
+fn a_joining_form_the_font_draws_as_several_glyphs_is_kept() {
+    const FATHA: char = '\u{64e}';
+    let forms: [&[char]; 4] = [
+        &[BEH, ZWJ],
+        &[ZWJ, BEH, ZWJ],
+        &[ZWJ, BEH],
+        &[BEH, FATHA, ZWJ],
+    ];
+    let o = rasterise(&OutlineRequest {
+        font: naskh().into(),
+        cells: vec![(12, 24)],
+        clusters: forms
+            .iter()
+            .map(|k| vtium_config::shaping::ask(&key(k)))
+            .collect(),
+        ..OutlineRequest::default()
+    })
+    .expect("rasterised");
+    let mut drawn = vec![codepoint(&o, BEH).pixels.clone()];
+    for k in forms {
+        assert_eq!(vtium_config::shaping::kind(&key(k)), Kind::Joining, "{k:?}");
+        let g = cluster(&o, k).unwrap_or_else(|| panic!("{k:?} kept"));
+        assert!(!g.wide && !g.color, "{k:?}: one cell, a mask");
+        drawn.push(g.pixels.clone());
+    }
+    let bare = cluster(&o, forms[0]).expect("the initial beh");
+    let vocalised = cluster(&o, forms[3]).expect("the initial beh with a fatha");
+    drawn.sort();
+    drawn.dedup();
+    assert_eq!(drawn.len(), 5, "each form drawn apart");
+    let fatha =
+        (0..24).any(|y| inked(bare, 12, y).is_empty() && !inked(vocalised, 12, y).is_empty());
+    assert!(fatha, "the fatha's ink where the bare form has none");
+}
+
+// A joining cluster that the font draws as its letter alone draws is left
+// out, though no scalar value maps to the glyph it shapes to: this font
+// replaces beh's glyph under `ccmp` wherever beh stands and has no joined
+// forms, so beh keyed with U+200D on either side shapes to the same glyph
+// as beh without it, and the console draws beh by its codepoint instead
+#[test]
+fn a_joining_cluster_drawn_as_its_letter_alone_is_left_out() {
+    let mut f = unpositioned(&[
+        (0x628, ttf::Glyph::rect(600, 100, 0, 500, 300)),
+        (0xe000, ttf::Glyph::rect(600, 100, 0, 500, 400)),
+    ]);
+    let id = |cp: u32| f.cmap.iter().find(|(c, _)| *c == cp).expect("mapped").1;
+    let (beh, other) = (id(0x628), id(0xe000));
+    f.gsub = vec![(*b"ccmp", ttf::Lookup::Single(vec![(beh, other)]))];
+    let keys = [[BEH, ZWJ], [ZWJ, BEH]];
+    let o = rasterise(&OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        clusters: keys
+            .iter()
+            .map(|k| vtium_config::shaping::ask(&key(k)))
+            .collect(),
+        ..OutlineRequest::default()
+    })
+    .expect("rasterised");
+    assert!(
+        o.strikes[0].clusters.is_empty(),
+        "{:x?}",
+        o.strikes[0].clusters
+    );
+}
