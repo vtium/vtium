@@ -112,14 +112,25 @@ fn help_at_a_terminal_prints_the_usage_and_no_banner() {
 }
 
 #[test]
-fn bare_command_prints_no_banner_away_from_a_terminal() {
-    let (screen, stdout, status) = run(&[], false);
+fn bare_command_prints_the_usage_and_no_banner() {
+    for stdout_is_pty in [false, true] {
+        let (screen, stdout, status) = run(&[], stdout_is_pty);
+        assert_eq!(status, Some(0), "{stdout_is_pty}");
+        let shown = if stdout_is_pty { screen } else { stdout };
+        assert!(shown.contains("Usage: vtium-config"), "{shown:?}");
+        assert!(shown.contains("vtium-config tui"), "{shown:?}");
+        assert!(
+            !shown.contains(KICKER) && !shown.contains('\x1b'),
+            "{shown:?}"
+        );
+    }
+}
+
+#[test]
+fn tui_is_refused_away_from_a_terminal() {
+    let (_, stdout, status) = run(&["tui"], false);
     assert_eq!(status, Some(2));
-    assert_eq!(screen, "");
-    assert!(
-        !stdout.contains(KICKER) && !stdout.contains('\x1b'),
-        "{stdout:?}"
-    );
+    assert_eq!(stdout, "");
 }
 
 #[test]

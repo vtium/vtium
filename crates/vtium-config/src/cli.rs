@@ -10,7 +10,7 @@ Usage: vtium-config [OPTION]... [COMMAND [ARG]...]
 
 Manages the vtium console's fonts and settings, trying each font on the live console.
 
-With no command at a terminal, opens the interactive tool.
+With no command, prints this help. To open the interactive tool, run vtium-config tui.
 
 Commands:
   fonts                              list the frits and built-in fonts, and the sources each lacks
@@ -22,6 +22,7 @@ Commands:
   new --from FILE [--name NAME]      install the frit in FILE
   new --template                     print a frit to edit for new --from
   new                                at a terminal, open the interactive tool at its new frit
+  tui                                at a terminal, open the interactive tool
   remove-frit NAME                   remove a frit that vtium.conf does not name
   preview FONT... [--size POINTS]    draw each font's specimen, as a picture where the terminal draws them
   set NAME                           switch the running console to a frit or a built-in font
@@ -212,13 +213,11 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
             None => None,
         }
     });
-    // the TUI runs as the user from start to end (ADR-1201 D5); an empty
-    // command word is no command, which `run` opens the TUI for, and `new`
-    // alone opens it too
+    // the TUI runs as the user from start to end (ADR-1201 D5); `tui` opens
+    // it, and `new` alone opens it too
     let tui = parse_args(args)
         .is_ok_and(|o| match o.words.as_slice() {
-            [] => true,
-            [w] => w.is_empty() || w == "new",
+            [w] => w == "tui" || w == "new",
             _ => false,
         })
         .then(|| "run vtium config as yourself; it asks for sudo when it saves".to_owned());
@@ -328,10 +327,12 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         "set" => crate::switch::command(&rest, o.frits.as_deref(), cli.out, cli.err),
         "apply" => crate::apply::command(&rest, &o.paths().targets(), cli.out, cli.err),
         crate::serve::SERVE_ARG => cli.serve(&rest),
-        "" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
+        "tui" if !rest.is_empty() => cli.usage("tui takes no argument"),
+        "tui" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
             crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, cli.err)
         }
-        "" => cli.usage("no command"),
+        "tui" => cli.usage("tui opens the interactive tool at a terminal only"),
+        "" => cli.say(USAGE.trim_end()),
         other => cli.usage(&format!("unknown command {other}")),
     }
 }
