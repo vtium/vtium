@@ -486,13 +486,18 @@ def widest(line):
     """The furthest column a line of a page's output reaches, as a terminal
     would place it: a carriage return goes back to column 0, CUP and CHA move
     to their column, other escape sequences take none, wide characters two
-    columns, and combining marks, joiners and selectors none."""
-    col = most = 0
+    columns, REP the last character's width again for each repeat, and
+    combining marks, joiners and selectors none."""
+    col = most = last = 0
     at = 0
     while at < len(line):
         m = ESCAPE.match(line, at)
         if m:
-            if m.group(3) in ("H", "f", "G"):
+            if m.group(3) == "b":
+                # REP repeats the last character printed
+                col += int(m.group(2) or 1) * last
+                most = max(most, col)
+            elif m.group(3) in ("H", "f", "G"):
                 params = (m.group(2) or "").split(";")
                 n = params[-1] if m.group(3) != "G" else params[0]
                 col = max(int(n or 1) - 1, 0) if n.isdigit() or n == "" else col
@@ -506,7 +511,8 @@ def widest(line):
                 0x1f3fb <= ord(ch) <= 0x1f3ff:
             continue
         else:
-            col += 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+            last = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+            col += last
             most = max(most, col)
     return most
 

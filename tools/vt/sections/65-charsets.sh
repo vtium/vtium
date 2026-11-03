@@ -22,6 +22,6 @@ printf '  The same set in G1 (ESC ) 0), shifted in with SO and out with SI:\n'
 printf '\033)0    abc%slqqk%sabc   abc┌──┐abc\n' "$so" "$si"
 echo
 printf '  REP, CSI n b, repeats the last character printed n more times:\n'
-printf '    x then REP 5: x\033[5b   x then REP 5: xxxxxx\n'
-printf '    = then REP 20: =\033[20b|   = then REP 20: =====================|\n'
-printf '    中 then REP 3: 中\033[3b|   中 then REP 3: 中中中中|\n'
+printf '    x, REP 5:   x\033[5b   xxxxxx\n'
+printf '    =, REP 20:  =\033[20b|   =====================|\n'
+printf '    中, REP 3:  中\033[3b|   中中中中|\n'
