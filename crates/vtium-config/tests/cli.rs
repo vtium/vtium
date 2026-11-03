@@ -178,6 +178,37 @@ fn as_root_the_tui_does_not_open() {
     assert_eq!(root_refusal(0, &args(&["--version"])), None);
 }
 
+/// As root, the commands that read a file the user names, or that start
+/// the glyph helper, which refuses root, are refused: `sudo vtium-config`
+/// reads and writes only the system's files, and never prints a file root
+/// read for the user.
+#[test]
+fn as_root_the_commands_that_run_as_the_user_are_refused() {
+    use std::ffi::OsString;
+    use vtium_config::cli::root_refusal;
+    let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
+    for (words, says) in [
+        (&["check", "/etc/shadow"][..], "check"),
+        (&["fonts"], "fonts"),
+        (&["preview", "unifont"], "preview"),
+        (&["new", "--from", "/etc/shadow"], "new --from"),
+        (&["new", "--name", "x", "--from=/etc/shadow"], "new --from"),
+    ] {
+        let why = root_refusal(0, &args(words)).unwrap_or_else(|| panic!("{words:?}"));
+        assert!(why.contains(says) && why.contains("as yourself"), "{why}");
+        assert_eq!(root_refusal(1000, &args(words)), None, "{words:?}");
+    }
+    // the commands that change the system's files from text they build
+    // themselves still run as root
+    for words in [
+        &["config", "font-size", "12"][..],
+        &["new", "kbd:lat0-16", "--name", "lat"],
+        &["remove-frit", "old"],
+    ] {
+        assert_eq!(root_refusal(0, &args(words)), None, "{words:?}");
+    }
+}
+
 /// Runs the binary as root in an unprivileged user namespace, where its
 /// effective uid is 0, with `args`; `None` where the machine has user
 /// namespaces off.
@@ -220,6 +251,8 @@ fn the_binary_run_as_root_refuses_paths_programs_and_the_tui() {
         (&[], "as yourself"),
         (&[""], "as yourself"),
         (&["new"], "as yourself"),
+        (&["check", "/etc/shadow"], "as yourself"),
+        (&["new", "--from", "/etc/shadow"], "as yourself"),
     ] {
         let Some(o) = as_namespace_root(args) else {
             return;

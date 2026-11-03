@@ -179,8 +179,10 @@ pub const VALUE_OPTIONS: [ValueOption; 9] = [
 
 /// Why vtium-config, run with the effective uid `euid`, refuses
 /// `args`: a path or program option of [`VALUE_OPTIONS`], the step that releases the
-/// TUI's signals and runs another program, or no command or an empty
-/// one, which opens the TUI; `None` when it takes them.
+/// TUI's signals and runs another program, no command or an empty one,
+/// which opens the TUI, or a command that runs as the user: `check`,
+/// `fonts`, `preview` and `new --from`, which read files the user names or
+/// start the glyph helper, which refuses root; `None` when it takes them.
 /// It refuses only as root, an effective uid of 0; `main` runs it first.
 pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
     if euid != 0 {
@@ -213,7 +215,24 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
             _ => false,
         })
         .then(|| "run vtium config as yourself; it asks for sudo when it saves".to_owned());
-    named.or(tui)
+    // a command that reads a file the user names, or runs the glyph helper,
+    // which refuses root, runs as the user: as root it would read any file
+    // and could print what is in it
+    let own = parse_args(args).ok().and_then(|o| {
+        let user_only = match o.words.as_slice() {
+            [c, ..] if matches!(c.as_str(), "check" | "fonts" | "preview") => Some(c.clone()),
+            [c, rest @ ..] if c == "new" && rest.iter().any(|w| w.starts_with("--from")) => {
+                Some("new --from".to_owned())
+            }
+            _ => None,
+        };
+        user_only.map(|c| {
+            format!(
+                "run vtium config {c} as yourself: it needs no privilege, and as root it would read files only the user should name"
+            )
+        })
+    });
+    named.or(tui).or(own)
 }
 
 /// The directory of vtium.conf and the head file, as the console's.
