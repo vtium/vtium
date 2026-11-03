@@ -211,6 +211,9 @@ struct Buffer {
     /// Each placement's relative placements, its children, in the order
     /// they were made (D13); every relative placement is in it once.
     children: BTreeMap<PlacementKey, Vec<PlacementKey>>,
+    /// The relative placements whose parent is a virtual placement: every
+    /// chain that ends at a virtual placement starts with one (D13).
+    virtual_children: usize,
     /// The stack at each layer and z, bottom to top (D4).
     stacks: BTreeMap<(Layer, i32), Vec<PlacementKey>>,
     /// How many placements are each height in rows, all of them and those
@@ -342,11 +345,43 @@ impl Buffer {
         }
     }
 
-    /// Adds or replaces a placement, keeping the height counts.
+    /// Adds or replaces a placement, keeping the height counts, and the
+    /// count of virtual placements' children when a replacement makes a
+    /// parent virtual or no longer virtual.
     fn put(&mut self, key: PlacementKey, p: Placement) {
         self.count_height(key, false);
+        let was = self.is_virtual(key);
+        let now = p.spot == Spot::Virtual;
         self.placements.insert(key, p);
         self.count_height(key, true);
+        let kids = self.children.get(&key).map_or(0, Vec::len);
+        if was && !now {
+            self.virtual_children = self.virtual_children.saturating_sub(kids);
+        } else if now && !was {
+            self.virtual_children = self.virtual_children.saturating_add(kids);
+        }
+    }
+
+    fn is_virtual(&self, key: PlacementKey) -> bool {
+        self.placements
+            .get(&key)
+            .is_some_and(|p| p.spot == Spot::Virtual)
+    }
+
+    /// Adds relative placement `key` to its parent `parent`'s children.
+    fn link(&mut self, key: PlacementKey, parent: PlacementKey) {
+        self.children.entry(parent).or_default().push(key);
+        if self.is_virtual(parent) {
+            self.virtual_children = self.virtual_children.saturating_add(1);
+        }
+    }
+
+    /// Forgets placement `key`'s list of children, as it goes.
+    fn drop_children(&mut self, key: PlacementKey) {
+        let kids = self.children.remove(&key).map_or(0, |list| list.len());
+        if self.is_virtual(key) {
+            self.virtual_children = self.virtual_children.saturating_sub(kids);
+        }
     }
 
     /// Removes a placement, keeping the height counts.
@@ -936,7 +971,7 @@ impl Store {
             Some(buf) => {
                 match spot {
                     Spot::Line(line) => buf.attach(key, line),
-                    Spot::Child { parent, .. } => buf.children.entry(parent).or_default().push(key),
+                    Spot::Child { parent, .. } => buf.link(key, parent),
                     Spot::Virtual => {}
                 }
                 buf.stack_arrival(key)
@@ -1281,7 +1316,7 @@ impl Store {
         buf.detach(key);
         buf.unstack(key);
         buf.unlink(key);
-        buf.children.remove(&key);
+        buf.drop_children(key);
         let p = buf.take(key)?;
         self.virtual_changed(b, &p);
         self.pending.retain(|&(pb, pk, _)| (pb, pk) != (b, key));

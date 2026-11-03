@@ -233,8 +233,13 @@ impl Buffer {
         let Some(Spot::Child { parent, .. }) = self.placements.get(&key).map(|p| p.spot) else {
             return;
         };
+        let virtual_parent = self.is_virtual(parent);
         if let Some(list) = self.children.get_mut(&parent) {
+            let before = list.len();
             list.retain(|&k| k != key);
+            if virtual_parent && list.len() < before {
+                self.virtual_children = self.virtual_children.saturating_sub(1);
+            }
             if list.is_empty() {
                 self.children.remove(&parent);
             }

@@ -208,14 +208,22 @@ impl Store {
 
     /// Whether the alternate buffer, or with `alt` false the main one,
     /// holds a relative placement whose chain of parents ends at a virtual
-    /// placement, whose cells only runs give.
+    /// placement, whose cells only runs give. Every such chain starts with
+    /// a child of the virtual placement itself, and the buffer counts those
+    /// children as they are linked and unlinked, so the answer costs no
+    /// walk.
     pub fn has_virtual_children(&self, alt: bool) -> bool {
         let b = if alt { ALT } else { super::MAIN };
         self.buffers.get(b).is_some_and(|buf| {
-            buf.children
-                .values()
-                .flatten()
-                .any(|&k| matches!(buf.locate(k), Some(Located::Floating { .. })))
+            debug_assert_eq!(
+                buf.virtual_children > 0,
+                buf.children
+                    .values()
+                    .flatten()
+                    .any(|&k| matches!(buf.locate(k), Some(Located::Floating { .. }))),
+                "the count of virtual placements' children follows the chains"
+            );
+            buf.virtual_children > 0
         })
     }
 

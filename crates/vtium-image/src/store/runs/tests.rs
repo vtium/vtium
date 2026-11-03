@@ -544,3 +544,108 @@ fn a_frame_takes_a_virtual_parents_origin_only_from_runs_on_the_rows_it_shows() 
         .collect();
     assert_eq!(at, vec![(2, 4)]);
 }
+
+// covers: image.kitty-placeholders
+#[test]
+fn the_count_of_a_virtual_parents_children_follows_deletes_and_replacements() {
+    let (f, mut s) = (Fake::new(), store());
+    let (parent, child) = family(&mut s, &f);
+    assert!(s.has_virtual_children(false));
+    let delete_image = |s: &mut Store, id| {
+        let delete = Delete {
+            select: Select::Id { id, placement: 0 },
+            free: false,
+        };
+        s.kitty_delete(delete, f.screens());
+    };
+    // the child goes, then comes back
+    delete_image(&mut s, 8);
+    assert!(!s.has_virtual_children(false));
+    let link = Link::Parent {
+        image: 7,
+        placement: 1,
+        cols: 1,
+        rows: 1,
+    };
+    s.place_at(
+        child,
+        Place {
+            id: 3,
+            ..Place::default()
+        },
+        link,
+        f.screens(),
+        COLS,
+    )
+    .unwrap();
+    assert!(s.has_virtual_children(false));
+    // the parent replaced by a placement on a line, then by a virtual one,
+    // its children kept each time
+    let on_line = Place {
+        id: 1,
+        ..Place::default()
+    };
+    s.place(parent, on_line, f.screens(), COLS).unwrap();
+    assert_eq!(s.placement_count(), 2);
+    assert!(!s.has_virtual_children(false));
+    virtual_placement(&mut s, &f, parent, 2, 2, 1);
+    assert!(s.has_virtual_children(false));
+    // a grandchild, then the child between them replaced with a parent on
+    // a line, which leaves no chain ending at the virtual placement
+    let other = image(&mut s, &f, 9, 8, 16);
+    s.place(
+        other,
+        Place {
+            id: 1,
+            ..Place::default()
+        },
+        f.screens(),
+        COLS,
+    )
+    .unwrap();
+    let grand = image(&mut s, &f, 10, 8, 16);
+    let under_child = Link::Parent {
+        image: 8,
+        placement: 3,
+        cols: 1,
+        rows: 0,
+    };
+    s.place_at(grand, Place::default(), under_child, f.screens(), COLS)
+        .unwrap();
+    assert!(s.has_virtual_children(false));
+    let to_other = Link::Parent {
+        image: 9,
+        placement: 1,
+        cols: 0,
+        rows: 0,
+    };
+    s.place_at(
+        child,
+        Place {
+            id: 3,
+            ..Place::default()
+        },
+        to_other,
+        f.screens(),
+        COLS,
+    )
+    .unwrap();
+    assert!(!s.has_virtual_children(false));
+    // back under the virtual parent, and then the parent's image deleted,
+    // which takes the whole family
+    s.place_at(
+        child,
+        Place {
+            id: 3,
+            ..Place::default()
+        },
+        link,
+        f.screens(),
+        COLS,
+    )
+    .unwrap();
+    assert!(s.has_virtual_children(false));
+    delete_image(&mut s, 7);
+    assert!(!s.has_virtual_children(false));
+    assert_eq!(s.placement_count(), 1, "image 9's placement stays");
+}
