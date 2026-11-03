@@ -1,7 +1,7 @@
-//! The banner through the binary, at a pty: shown when stdin and stdout
-//! are the terminal, hidden when stdout is a pipe though stdin is the
-//! terminal, and hidden by `--no-banner`. Which plan a terminal gets is
-//! tested in `banner.rs`.
+//! The banner through the binary, at a pty: `--about` draws it when stdin
+//! and stdout are the terminal and prints plain text to a pipe, and no
+//! other command prints it. Which plan a terminal gets is tested in
+//! `banner.rs`.
 
 use std::fs::File;
 use std::io::Read;
@@ -17,9 +17,9 @@ const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 /// The kicker, which only the banner prints.
 const KICKER: &str = "v  t  i  u  m";
 
-/// What `vtium-config ARGS --help` wrote to an 80-column pty and to its
-/// stdout, with stdin the pty and stdout the pty or a pipe.
-fn run(args: &[&str], stdout_is_pty: bool) -> (String, String) {
+/// What `vtium-config ARGS` wrote to an 80-column pty and to its stdout,
+/// and its exit status, with stdin the pty and stdout the pty or a pipe.
+fn run(args: &[&str], stdout_is_pty: bool) -> (String, String, Option<i32>) {
     let master =
         openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).expect("openpt");
     grantpt(&master).expect("grantpt");
@@ -45,7 +45,6 @@ fn run(args: &[&str], stdout_is_pty: bool) -> (String, String) {
     };
     let child = Command::new(BIN)
         .args(args)
-        .arg("--help")
         .env_clear()
         .env("TERM", "xterm-256color")
         .env("COLORTERM", "truecolor")
@@ -70,35 +69,63 @@ fn run(args: &[&str], stdout_is_pty: bool) -> (String, String) {
         }
     }
     let out = child.wait_with_output().expect("wait");
-    assert!(out.status.success(), "{out:?}");
     (
         String::from_utf8_lossy(&screen).into_owned(),
         String::from_utf8_lossy(&out.stdout).into_owned(),
+        out.status.code(),
     )
 }
 
 #[test]
-fn shown_when_stdin_and_stdout_are_the_terminal() {
-    let (screen, _) = run(&[], true);
-    let banner = screen.find(KICKER).expect("the banner");
-    let usage = screen.find("Usage: vtium-config").expect("the help");
-    assert!(banner < usage, "{screen:?}");
+fn about_draws_the_banner_at_a_terminal() {
+    let (screen, _, status) = run(&["--about"], true);
+    assert_eq!(status, Some(0), "{screen:?}");
+    assert!(screen.contains(KICKER), "{screen:?}");
     assert!(screen.contains("\x1b[38;2;"), "{screen:?}");
+    assert!(screen.contains("Run vtium-config --help"), "{screen:?}");
+    assert!(!screen.contains("Usage:"), "{screen:?}");
 }
 
 #[test]
-fn hidden_when_stdout_is_a_pipe() {
-    let (screen, stdout) = run(&[], false);
+fn about_prints_plain_text_to_a_pipe() {
+    let (screen, stdout, status) = run(&["--about"], false);
+    assert_eq!(status, Some(0));
     assert_eq!(screen, "");
-    assert!(stdout.starts_with("Usage: vtium-config"), "{stdout:?}");
-    assert!(!stdout.contains('\x1b'), "{stdout:?}");
+    assert!(stdout.starts_with("vtium-config "), "{stdout:?}");
+    assert!(stdout.contains("fonts and settings"), "{stdout:?}");
+    assert!(
+        !stdout.contains('\x1b') && !stdout.contains(KICKER),
+        "{stdout:?}"
+    );
 }
 
 #[test]
-fn hidden_by_no_banner() {
-    let (screen, _) = run(&["--no-banner"], true);
+fn help_at_a_terminal_prints_the_usage_and_no_banner() {
+    let (screen, _, status) = run(&["--help"], true);
+    assert_eq!(status, Some(0));
     assert!(screen.contains("Usage: vtium-config"), "{screen:?}");
-    assert!(screen.contains("--no-banner"), "{screen:?}");
     assert!(!screen.contains(KICKER), "{screen:?}");
     assert!(!screen.contains('\x1b'), "{screen:?}");
+    // --about stays out of the usage, and --no-banner is gone from it.
+    assert!(!screen.contains("--about"), "{screen:?}");
+    assert!(!screen.contains("--no-banner"), "{screen:?}");
+}
+
+#[test]
+fn bare_command_prints_no_banner_away_from_a_terminal() {
+    let (screen, stdout, status) = run(&[], false);
+    assert_eq!(status, Some(2));
+    assert_eq!(screen, "");
+    assert!(
+        !stdout.contains(KICKER) && !stdout.contains('\x1b'),
+        "{stdout:?}"
+    );
+}
+
+#[test]
+fn no_banner_is_still_accepted_and_silent() {
+    let (screen, _, status) = run(&["--no-banner", "--help"], true);
+    assert_eq!(status, Some(0));
+    assert!(screen.contains("Usage: vtium-config"), "{screen:?}");
+    assert!(!screen.contains(KICKER), "{screen:?}");
 }

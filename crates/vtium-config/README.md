@@ -69,7 +69,7 @@ Each command but the TUI prints one line a result, tab-separated, and exits 0 on
 
 The frits are in `/etc/vtium/fonts`, changed at build time with `VTIUM_FONT_FRITS`, as the console's are. `--frits DIR` names another for `set`, the TUI and `apply`; `--configdir DIR` names another directory than `/etc/vtium` for vtium.conf and `heads.conf`; `--sudo PROGRAM` replaces `sudo` in the TUI's privileged step; `--vtium PROGRAM` names the console binary `apply` checks files with, `/usr/bin/vtium` unless `VTIUM_PROGRAM` set another at build time; none of these is taken as root ([Saving](#saving)); and `--kbd-dir DIR` (repeatable), `--font-dir DIR` (repeatable), `--vconsole-conf FILE` and `--kernel-cmdline FILE` replace the paths `serve` finds sources in, `--sys DIR` replaces `/sys`, where the TUI and `preview` measure the displays, and `--helper PROGRAM` replaces the glyph helper the tool starts, this binary's `serve`, as a test's stand-in does.
 
-When stdin and stdout are both terminals, the tool opens with a banner of its name in glass (`src/banner.rs`, vtium/vtium#112). `--no-banner` or a non-empty `NO_COLOR` turns it off, and it never precedes `--version`, never shows in a Chinese, Japanese or Korean locale, and never reaches a pipe.
+`vtium-config --about` draws a banner of its name in glass (`src/banner.rs`, vtium/vtium#112) and says what the program is. `--help` does not list `--about`. The picture is drawn only when stdin and stdout are both terminals, never with a non-empty `NO_COLOR`, never in a Chinese, Japanese or Korean locale, and never into a pipe, where `--about` prints plain text. No other command prints the banner. `--no-banner` does nothing now, and vtium-config accepts it so that scripts that pass it keep working.
 
 ## The TUI
 

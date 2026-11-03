@@ -42,7 +42,6 @@ Options:
   --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
   --sys DIR             sysfs, where displays are measured, in place of /sys
   --helper PROGRAM      the glyph helper the tool starts, in place of this binary's serve
-  --no-banner           no banner at a terminal (NO_COLOR also turns it off)
   --help, --version
 ";
 
@@ -273,7 +272,7 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
             continue;
         }
         match arg.as_str() {
-            // The banner reads it before the command line runs.
+            // It once turned the banner off; it does nothing now, and scripts still pass it.
             crate::banner::OFF => {}
             "--" => {
                 for rest in it.by_ref() {
