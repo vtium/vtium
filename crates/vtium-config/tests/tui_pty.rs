@@ -697,7 +697,8 @@ fn a_terminal_that_closes_ends_the_tui() {
 }
 
 /// The glyph helper the TUI starts holds only its three pipes, never a copy
-/// of the user's terminal, which a font could write to; and while that
+/// of the user's terminal, which a font could write to, nor a descriptor the
+/// TUI inherited; and while that
 /// helper does not answer, the TUI goes on taking keys, and marks no frit
 /// as drawing nothing, only its sources as not checked.
 #[test]
@@ -721,6 +722,12 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
         .expect("its mode");
     let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+    // The TUI inherits a descriptor without close-on-exec, as a CI runner
+    // leaves some open, and must not pass it on to the helper. dup's copy
+    // lacks the flag. Other tests' children that start meanwhile inherit it
+    // too, which does them no harm, since it is only /dev/null.
+    let leaked =
+        rustix::io::dup(File::open("/dev/null").expect("/dev/null")).expect("a leaked descriptor");
     let child = tui_with(
         &slave,
         &root,
@@ -733,6 +740,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
             helper.as_os_str(),
         ],
     );
+    drop(leaked);
     c.until("decided", |s| s.screen.contains("live preview: on"));
     // the stand-in lists what the TUI gave it
     let fds_file = root.join("helper.fds");
