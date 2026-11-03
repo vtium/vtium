@@ -265,7 +265,7 @@ fn table() -> String {
 #[test]
 fn outcome_table_matches_resolve() {
     let want = table();
-    if std::env::var_os("VTIUM_CONFIG_BLESS").is_some() {
+    if std::env::var_os("VTIUM_SETTINGS_BLESS").is_some() {
         let wrote = std::fs::write(TABLE, &want);
         assert!(wrote.is_ok(), "outcomes.tsv not rewritten: {wrote:?}");
         return;
@@ -273,7 +273,7 @@ fn outcome_table_matches_resolve() {
     let committed = std::fs::read_to_string(TABLE).unwrap_or_default();
     assert_eq!(
         committed, want,
-        "outcomes.tsv differs from resolve; VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config outcome_table rewrites it"
+        "outcomes.tsv differs from resolve; VTIUM_SETTINGS_BLESS=1 cargo test -p vtium-settings outcome_table rewrites it"
     );
 }
 

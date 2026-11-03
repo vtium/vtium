@@ -3,7 +3,7 @@
 //! under `/dev` and writes nothing, so it runs unprivileged: the devices
 //! present it reads from sysfs and udev's database (ADR-1401 D7).
 //!
-//! The head file goes through vtium-config's reader, parser and
+//! The head file goes through vtium-settings's reader, parser and
 //! evaluator, the ones the start runs (ADR-1401 D7): the file's own
 //! errors, each with what it drops, and its warnings go to standard error
 //! and make the status 1. What depends on the machine it is checked on,
@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vtium_config::{
+use vtium_settings::{
     Against, AtStart, Config as Heads, Identity, Lockout, Match, Note, Parsed, Problem, Read,
     Rejected, Remark, Runs, Stating, Token, Trust, Untrusted, at,
 };
@@ -214,7 +214,7 @@ impl Host {
     /// takes and nothing overrides.
     pub fn system(config: &Config) -> Host {
         Host {
-            head_file: PathBuf::from(vtium_config::HEAD_FILE),
+            head_file: PathBuf::from(vtium_settings::HEAD_FILE),
             udev_control: PathBuf::from(UDEV_CONTROL),
             roots: Roots::system(),
             frits: font::frits(config),
@@ -375,9 +375,9 @@ impl Settings<'_> {
         Settings {
             head_cap: number(
                 &keys::HEAD_CONSOLES_MAX,
-                vtium_config::HEAD_CONSOLES_DEFAULT,
+                vtium_settings::HEAD_CONSOLES_DEFAULT,
             ),
-            total: number(&keys::CONSOLES_MAX, vtium_config::CONSOLES_TOTAL_DEFAULT),
+            total: number(&keys::CONSOLES_MAX, vtium_settings::CONSOLES_TOTAL_DEFAULT),
             frits,
         }
     }
@@ -398,7 +398,7 @@ pub fn head_file(
     settings: &Settings,
 ) -> HeadCheck {
     let mut out = HeadCheck::default();
-    let inspected = match vtium_config::inspect(path, trust) {
+    let inspected = match vtium_settings::inspect(path, trust) {
         Ok(Some(inspected)) => inspected,
         Ok(None) if candidate => {
             out.counted
@@ -437,10 +437,10 @@ pub fn head_file(
             return out;
         }
     }
-    let reading = vtium_config::reading(&inspected.bytes);
+    let reading = vtium_settings::reading(&inspected.bytes);
     errors(&mut out, path, &reading.errors);
     let trusted = reading.trusted();
-    let runs = vtium_config::resolve(&Read::Trusted(trusted)).runs;
+    let runs = vtium_settings::resolve(&Read::Trusted(trusted)).runs;
     findings(&mut out, path, &reading.parsed, machine, settings, runs);
     out.notes
         .push(at(path, None, AtStart(Read::Trusted(trusted))).to_string());
@@ -453,7 +453,7 @@ pub fn head_file(
 fn denied(rejected: &Rejected) -> bool {
     matches!(
         rejected.errors.as_slice(),
-        [vtium_config::Error {
+        [vtium_settings::Error {
             problem: Problem::Unreadable(std::io::ErrorKind::PermissionDenied),
             ..
         }]
@@ -497,7 +497,7 @@ fn findings(
         frits: settings.frits,
         has_frit: &has_frit,
     };
-    for w in &vtium_config::warnings(parsed, &against) {
+    for w in &vtium_settings::warnings(parsed, &against) {
         out.counted.push(at(path, Some(w.line()), w).to_string());
     }
     if parsed.more_warnings > 0 {
@@ -527,7 +527,7 @@ fn findings(
         Runs::Builtin | Runs::Off => false,
     };
     let remarks = if runs_file {
-        vtium_config::remarks(&parsed.config, machine.devices)
+        vtium_settings::remarks(&parsed.config, machine.devices)
     } else {
         Vec::new()
     };
@@ -1077,7 +1077,7 @@ mod tests {
     fn caps(head_cap: u32) -> Settings<'static> {
         Settings {
             head_cap,
-            total: vtium_config::CONSOLES_TOTAL_DEFAULT,
+            total: vtium_settings::CONSOLES_TOTAL_DEFAULT,
             frits: Path::new("/nonexistent/vtium/frits"),
         }
     }
@@ -1337,8 +1337,8 @@ mod tests {
         assert_eq!(
             (k.head_cap, k.total),
             (
-                vtium_config::HEAD_CONSOLES_DEFAULT,
-                vtium_config::CONSOLES_TOTAL_DEFAULT
+                vtium_settings::HEAD_CONSOLES_DEFAULT,
+                vtium_settings::CONSOLES_TOTAL_DEFAULT
             )
         );
     }
@@ -1500,7 +1500,7 @@ mod tests {
 
     /// A display, a keyboard and a joystick, each named.
     fn present() -> Vec<Identity> {
-        use vtium_config::Class;
+        use vtium_settings::Class;
         let named = |mut id: Identity, name: &str| {
             id.name = Some(name.to_owned());
             id
@@ -1915,7 +1915,7 @@ mod tests {
     // it reports itself, escaped
     #[test]
     fn device_findings_name_idle_rules_and_lockouts_with_the_device_escaped() {
-        use vtium_config::{Class, parse};
+        use vtium_settings::{Class, parse};
         let text = "version = 1\n[head desk]\n[head panel]\n[rules]\n\
                     display * -> desk\n\
                     input name:Keyb* -> desk\n\

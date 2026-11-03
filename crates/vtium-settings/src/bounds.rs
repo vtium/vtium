@@ -5,7 +5,7 @@
 //! and where its value comes from; the public constant takes its value
 //! from the row. The README table is generated from [`BOUNDS`], and
 //! `readme_table_matches_bounds` fails when the committed copy differs.
-//! `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config readme_table` rewrites it.
+//! `VTIUM_SETTINGS_BLESS=1 cargo test -p vtium-settings readme_table` rewrites it.
 
 /// One bound and its account, a row of the README table.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -170,7 +170,7 @@ mod tests {
             .get(start..end.saturating_add(END.len()))
             .unwrap_or_default();
         let want = table();
-        if std::env::var_os("VTIUM_CONFIG_BLESS").is_some() {
+        if std::env::var_os("VTIUM_SETTINGS_BLESS").is_some() {
             let blessed = readme.replacen(committed, &want, 1);
             std::fs::write(path, blessed).unwrap_or_default();
             return;

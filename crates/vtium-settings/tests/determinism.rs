@@ -6,7 +6,7 @@
 //! orders exhaustive; the generator is seeded, and a failure prints its
 //! seed.
 
-use vtium_config::{Class, Config, Edid, Identity, Place, Placed, Policy, UsbSerial, reading};
+use vtium_settings::{Class, Config, Edid, Identity, Place, Placed, Policy, UsbSerial, reading};
 
 /// A small seeded generator (xorshift64*).
 struct Rng(u64);

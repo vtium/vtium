@@ -82,7 +82,7 @@ pub fn panic_screen() -> Result<Notice, String> {
 }
 
 fn panic_report() -> Result<vtium_render::NoticeReport, String> {
-    let path = std::path::Path::new(vtium_config::HEAD_FILE);
+    let path = std::path::Path::new(vtium_settings::HEAD_FILE);
     vtium::head::Start::trusted(path, BROKEN_CLOSED.as_bytes())
         .report()
         .cloned()
@@ -93,7 +93,7 @@ fn panic_report() -> Result<vtium_render::NoticeReport, String> {
 /// boot display (ADR-1401 D9).
 pub fn no_display() -> Result<Notice, String> {
     Ok(Notice::new(vtium::head::outcome_notice(
-        vtium_config::Line::NoDisplay,
+        vtium_settings::Line::NoDisplay,
     )))
 }
 
@@ -101,7 +101,7 @@ pub fn no_display() -> Result<Notice, String> {
 /// have no display, alone on the boot display (ADR-1401 D7, D9).
 pub fn partly() -> Result<Notice, String> {
     Ok(Notice::new(vtium::head::outcome_notice(
-        vtium_config::Line::Partly,
+        vtium_settings::Line::Partly,
     )))
 }
 
@@ -130,7 +130,7 @@ fn head_file(text: &str) -> Result<String, String> {
         let uid = std::fs::metadata(&path)
             .map_err(|e| format!("{}: {e}", path.display()))?
             .uid();
-        let trust = vtium_config::Trust::owner(uid).below(&dir);
+        let trust = vtium_settings::Trust::owner(uid).below(&dir);
         let start = vtium::head::rules(&path, &trust);
         start
             .notice()

@@ -100,8 +100,8 @@ fn main() -> ExitCode {
     // Before the loop and the VT, so a failure opening either under a
     // closed policy still leaves the marker that keeps the getty off.
     let heads = vtium::head::rules(
-        Path::new(vtium_config::HEAD_FILE),
-        &vtium_config::Trust::ROOT,
+        Path::new(vtium_settings::HEAD_FILE),
+        &vtium_settings::Trust::ROOT,
     );
     vtium::getty::mark(
         Path::new(vtium::getty::DIR),

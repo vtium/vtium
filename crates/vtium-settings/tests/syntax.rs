@@ -2,7 +2,7 @@
 //! endings, the top-level keys, the names and the targets, and the first
 //! cut's names, each an error that names the word that replaced it.
 
-use vtium_config::{PolicyFault, Problem, Target, parse};
+use vtium_settings::{PolicyFault, Problem, Target, parse};
 
 /// The first error's text for `text`.
 fn first_error(text: &str) -> String {
@@ -87,9 +87,9 @@ fn a_crlf_line_ending_is_a_newline_and_a_lone_carriage_return_an_error() {
 // covers: platform.heads.policy
 #[test]
 fn a_byte_order_mark_before_the_first_line_is_dropped() {
-    let r = vtium_config::reading(b"\xef\xbb\xbfpolicy = closed\nversion = 1\n[head a]\n");
+    let r = vtium_settings::reading(b"\xef\xbb\xbfpolicy = closed\nversion = 1\n[head a]\n");
     assert!(r.errors.is_empty(), "{:?}", r.errors);
-    assert_eq!(r.parsed.config.policy, vtium_config::Policy::Closed);
+    assert_eq!(r.parsed.config.policy, vtium_settings::Policy::Closed);
     assert!(parse("\u{feff}version = 1\n").is_ok());
 }
 
@@ -133,7 +133,7 @@ fn roaming_ignore_and_off_are_the_targets_and_the_reserved_names() {
     for (name, word) in [("focus", "`roaming`"), ("dark", "`off`")] {
         let shown = first_error(&format!("version = 1\n[head {name}]\n"));
         assert!(shown.contains(word), "{name}: {shown}");
-        let r = vtium_config::reading(
+        let r = vtium_settings::reading(
             format!("version = 1\n[head {name}]\n[head a]\n[rules]\ndisplay * -> {name}\ndisplay * -> a\n")
                 .as_bytes(),
         );
@@ -199,7 +199,7 @@ fn the_first_cuts_names_are_errors_that_name_the_new_word() {
 
 #[test]
 fn a_heads_keys_take_their_words() {
-    use vtium_config::WhenDisplayLost;
+    use vtium_settings::WhenDisplayLost;
     let p = parse(
         "version = 1\n[head a]\nisolated = yes\nwhen-display-lost = keep\n[head b]\nisolated = no\nwhen-display-lost = hangup 5m\n[head c]\n",
     )

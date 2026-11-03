@@ -32,7 +32,7 @@
 //! be in: missing, untrusted, valid, partly broken or broken.
 //!
 //! ```
-//! use vtium_config::{Class, Identity, Place, parse};
+//! use vtium_settings::{Class, Identity, Place, parse};
 //!
 //! let text = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n";
 //! let config = parse(text).map(|p| p.config).unwrap_or_default();

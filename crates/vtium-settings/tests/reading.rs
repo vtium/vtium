@@ -1,7 +1,7 @@
 //! What each error of a head file drops, what survives, and how the
 //! reading classifies the file for the outcome model (ADR-1401 D3, D7).
 
-use vtium_config::{
+use vtium_settings::{
     FILE_MAX, HEADS_MAX, Kept, Line, Policy, PolicyLine, Problem, Reading, Rest, Runs, Scope,
     Stated, Target, Trusted, reading, resolve,
 };
@@ -50,7 +50,7 @@ fn a_bad_rule_drops_that_rule_alone() {
     assert_eq!(r.scopes, [Scope::Line]);
     assert_eq!(r.trusted(), trusted(Stated::Unset, Rest::Partly));
     assert_eq!(
-        resolve(&vtium_config::Read::Trusted(r.trusted())).runs,
+        resolve(&vtium_settings::Read::Trusted(r.trusted())).runs,
         Runs::Survivors
     );
 }
@@ -115,12 +115,12 @@ fn a_guards_section_is_dropped_with_its_lines_and_the_rest_runs() {
     assert_eq!(rule_lines(&r), [4]);
     assert_eq!(
         r.parsed.config.policy,
-        vtium_config::Policy::Open,
+        vtium_settings::Policy::Open,
         "the policy alone sets the guards"
     );
     assert_eq!(
         problems(&r),
-        [(Some(5), Problem::Renamed(vtium_config::Renamed::Guards))]
+        [(Some(5), Problem::Renamed(vtium_settings::Renamed::Guards))]
     );
     assert_eq!(r.scopes, [Scope::Section]);
 }
@@ -156,7 +156,7 @@ fn a_missing_or_unknown_version_drops_all_but_the_policy() {
             "{text:?}"
         );
         assert_eq!(
-            resolve(&vtium_config::Read::Trusted(r.trusted())).runs,
+            resolve(&vtium_settings::Read::Trusted(r.trusted())).runs,
             Runs::Off
         );
         // the same file under open runs the shipped rules, with its line
@@ -166,7 +166,7 @@ fn a_missing_or_unknown_version_drops_all_but_the_policy() {
             trusted(Stated::Open, Rest::Broken),
             "{text:?}"
         );
-        let outcome = resolve(&vtium_config::Read::Trusted(open.trusted()));
+        let outcome = resolve(&vtium_settings::Read::Trusted(open.trusted()));
         assert_eq!(
             (outcome.runs, outcome.line),
             (Runs::Builtin, Some(Line::Skipped))
@@ -208,7 +208,7 @@ fn a_line_vtium_cannot_read_drops_only_what_its_place_takes() {
     // the closed policy stands
     assert_eq!(r.trusted(), trusted(Stated::Closed, Rest::Partly));
     assert_eq!(
-        resolve(&vtium_config::Read::Trusted(r.trusted())).runs,
+        resolve(&vtium_settings::Read::Trusted(r.trusted())).runs,
         Runs::Survivors
     );
 }
@@ -261,7 +261,7 @@ fn a_crlf_policy_line_ending_at_the_bound_is_read_and_nothing_past_it() {
             (None, Problem::TooLarge),
             (
                 Some(line),
-                Problem::UnreadablePolicy(vtium_config::PolicyFault::Cut)
+                Problem::UnreadablePolicy(vtium_settings::PolicyFault::Cut)
             )
         ]
     );
@@ -361,13 +361,13 @@ fn a_valid_open_file_with_rules_and_no_head_runs_its_rules() {
     assert!(r.errors.is_empty());
     assert_eq!(r.kept(), Kept::Headless);
     assert_eq!(r.trusted(), trusted(Stated::Unset, Rest::Headless));
-    let outcome = resolve(&vtium_config::Read::Trusted(r.trusted()));
+    let outcome = resolve(&vtium_settings::Read::Trusted(r.trusted()));
     assert_eq!((outcome.runs, outcome.line), (Runs::NoHead, None));
     // with nothing at all it is the shipped rules, silently
     let empty = read("version = 1\n");
     assert_eq!(empty.trusted(), trusted(Stated::Unset, Rest::Empty));
     assert_eq!(
-        resolve(&vtium_config::Read::Trusted(empty.trusted())).runs,
+        resolve(&vtium_settings::Read::Trusted(empty.trusted())).runs,
         Runs::Builtin
     );
 }
@@ -379,9 +379,9 @@ fn the_strict_parse_is_the_reading_of_a_file_with_no_error() {
     let valid = "version = 1\npolicy = closed\n[head a]\nisolated = no\n[rules]\ndisplay * -> a\n";
     let r = read(valid);
     assert!(r.errors.is_empty());
-    assert_eq!(vtium_config::parse(valid), Ok(r.parsed));
+    assert_eq!(vtium_settings::parse(valid), Ok(r.parsed));
     let partly = "version = 1\n[head a]\n[rules]\ndisplay * -> a\ninput frob:x -> a\n";
     let r = read(partly);
     assert_eq!(rule_lines(&r), [4]);
-    assert_eq!(vtium_config::parse(partly), Err(r.errors));
+    assert_eq!(vtium_settings::parse(partly), Err(r.errors));
 }

@@ -4590,7 +4590,7 @@ fn the_start_logs_each_head_file_error_with_its_line() {
     std::fs::write(&path, text).expect("the head file");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
     let uid = std::fs::metadata(dir.path()).expect("the directory").uid();
-    let trust = vtium_config::Trust::owner(uid).below(dir.path());
+    let trust = vtium_settings::Trust::owner(uid).below(dir.path());
     logged();
     let start = vtium::head::rules(&path, &trust);
     let lines = logged();

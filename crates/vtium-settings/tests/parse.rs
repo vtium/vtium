@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use vtium_config::{PolicyFault, Problem, at, parse};
+use vtium_settings::{PolicyFault, Problem, at, parse};
 
 /// The invalid file of ADR-1401's figure: line 6 names `desc`, a head no
 /// section declares.
@@ -36,7 +36,7 @@ fn a_rule_naming_an_undefined_head_rejects_the_file_at_its_line() {
 fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
     let rejected = parse(INVALID_FIGURE).expect_err("a rule names an undefined head");
     let error = &rejected.errors[0];
-    let heads = Path::new(vtium_config::HEAD_FILE);
+    let heads = Path::new(vtium_settings::HEAD_FILE);
     assert_eq!(
         at(heads, error.line(), error).to_string(),
         "/etc/vtium/heads.conf:6: This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
@@ -301,7 +301,7 @@ fn each_kind_of_error_is_named_at_its_line() {
 
 #[test]
 fn a_file_past_a_bound_names_its_line() {
-    let long = format!("version = 1\n# {}\n", "x".repeat(vtium_config::LINE_MAX));
+    let long = format!("version = 1\n# {}\n", "x".repeat(vtium_settings::LINE_MAX));
     let r = parse(&long).expect_err("a line past LINE_MAX");
     assert_eq!(
         (r.errors[0].line, &r.errors[0].problem),
@@ -309,21 +309,21 @@ fn a_file_past_a_bound_names_its_line() {
     );
 
     let mut heads = String::from("version = 1\n");
-    for i in 0..=vtium_config::HEADS_MAX {
+    for i in 0..=vtium_settings::HEADS_MAX {
         heads.push_str(&format!("[head h{i}]\n"));
     }
     let r = parse(&heads).expect_err("a head past HEADS_MAX");
     assert_eq!(r.errors.len(), 1);
-    assert_eq!(r.errors[0].line, Some(vtium_config::HEADS_MAX + 2));
+    assert_eq!(r.errors[0].line, Some(vtium_settings::HEADS_MAX + 2));
     assert_eq!(r.errors[0].problem, Problem::TooManyHeads);
 
     let mut rules = String::from("version = 1\n[rules]\n");
-    for _ in 0..=vtium_config::RULES_MAX {
+    for _ in 0..=vtium_settings::RULES_MAX {
         rules.push_str("input * -> roaming\n");
     }
     let r = parse(&rules).expect_err("a rule past RULES_MAX");
     assert_eq!(r.errors.len(), 1);
-    assert_eq!(r.errors[0].line, Some(vtium_config::RULES_MAX + 3));
+    assert_eq!(r.errors[0].line, Some(vtium_settings::RULES_MAX + 3));
     assert_eq!(r.errors[0].problem, Problem::TooManyRules);
 }
 
@@ -352,11 +352,11 @@ input class:printer -> roaming
 #[test]
 fn errors_past_the_bound_are_counted() {
     let mut text = String::from("version = 1\n");
-    for _ in 0..vtium_config::ERRORS_MAX + 5 {
+    for _ in 0..vtium_settings::ERRORS_MAX + 5 {
         text.push_str("nonsense\n");
     }
     let r = parse(&text).expect_err("every line an error");
-    assert_eq!(r.errors.len(), vtium_config::ERRORS_MAX);
+    assert_eq!(r.errors.len(), vtium_settings::ERRORS_MAX);
     assert_eq!(r.more, 5);
 }
 
@@ -372,7 +372,7 @@ fn text_an_error_quotes_is_escaped_and_cut() {
     let long = "n".repeat(200);
     let r = parse(&format!("version = 1\n[head {long}]\n")).expect_err("a name past NAME_MAX");
     let shown = r.errors[0].to_string();
-    let quoted = format!("\"{}...\"", "n".repeat(vtium_config::QUOTE_MAX));
+    let quoted = format!("\"{}...\"", "n".repeat(vtium_settings::QUOTE_MAX));
     assert!(shown.contains(&quoted), "{shown}");
 }
 
@@ -407,7 +407,7 @@ input * -> ignore
 
 #[test]
 fn the_records_example_file_is_valid_and_reads_every_key() {
-    use vtium_config::{Edid, Kind, Match, Target, Token, WhenDisplayLost};
+    use vtium_settings::{Edid, Kind, Match, Target, Token, WhenDisplayLost};
     let parsed = parse(EXAMPLE).expect("the record's example is valid");
     assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
     assert!(parsed.notes.is_empty(), "{:?}", parsed.notes);
@@ -462,12 +462,12 @@ fn a_rule_may_name_a_head_declared_after_it() {
     let c = parse("version = 1\n[rules]\ndisplay * -> late\n[head late]\n")
         .expect("valid")
         .config;
-    assert_eq!(c.rules[0].target, vtium_config::Target::Head(0));
+    assert_eq!(c.rules[0].target, vtium_settings::Target::Head(0));
 }
 
 #[test]
 fn when_display_lost_takes_seconds_or_a_suffix() {
-    use vtium_config::WhenDisplayLost;
+    use vtium_settings::WhenDisplayLost;
     for (value, want) in [
         ("keep", WhenDisplayLost::Keep),
         ("hangup", WhenDisplayLost::Hangup),
@@ -498,7 +498,7 @@ fn when_display_lost_takes_seconds_or_a_suffix() {
 
 #[test]
 fn consoles_past_the_cap_get_the_cap_with_a_warning() {
-    use vtium_config::{CONSOLES_MAX, Warning};
+    use vtium_settings::{CONSOLES_MAX, Warning};
     for value in ["51", "99999999999999999999"] {
         let p = parse(&format!("version = 1\n[head a]\nconsoles = {value}\n")).expect("valid");
         assert_eq!(p.config.heads[0].consoles, CONSOLES_MAX);
@@ -511,7 +511,7 @@ fn consoles_past_the_cap_get_the_cap_with_a_warning() {
 
 #[test]
 fn a_rule_an_earlier_one_shadows_is_a_warning() {
-    use vtium_config::Warning;
+    use vtium_settings::Warning;
     let text = "\
 version = 1
 [head a]
@@ -534,7 +534,7 @@ input name:Numpad -> ignore
 
 #[test]
 fn input_sent_to_a_head_by_id_or_name_alone_is_a_note() {
-    use vtium_config::Note;
+    use vtium_settings::Note;
     let text = "\
 version = 1
 [head kiosk]
@@ -580,7 +580,7 @@ input udev:VTIUM_HEAD=a -> a
 
 #[test]
 fn a_heads_font_is_its_profiles_over_the_configuration() {
-    use vtium_config::Font;
+    use vtium_settings::Font;
     let text = "\
 version = 1
 [head plain]
@@ -619,11 +619,11 @@ fn the_errors_kept_are_the_first_by_line() {
     // the undefined head is found only once every head is known, after
     // the errors of every later line
     let mut text = String::from("version = 1\n[rules]\ninput * -> nowhere\n");
-    for _ in 0..vtium_config::ERRORS_MAX + 6 {
+    for _ in 0..vtium_settings::ERRORS_MAX + 6 {
         text.push_str("nonsense\n");
     }
     let r = parse(&text).expect_err("errors");
-    assert_eq!(r.errors.len(), vtium_config::ERRORS_MAX);
+    assert_eq!(r.errors.len(), vtium_settings::ERRORS_MAX);
     assert_eq!(r.more, 7);
     assert_eq!(r.errors[0].line, Some(3));
     assert!(matches!(&r.errors[0].problem, Problem::UndefinedHead(n) if n.raw() == "nowhere"));
@@ -631,12 +631,12 @@ fn the_errors_kept_are_the_first_by_line() {
     let mut sorted = lines.clone();
     sorted.sort();
     assert_eq!(lines, sorted);
-    assert_eq!(lines.last(), Some(&Some(vtium_config::ERRORS_MAX + 2)));
+    assert_eq!(lines.last(), Some(&Some(vtium_settings::ERRORS_MAX + 2)));
 }
 
 #[test]
 fn warnings_and_notes_past_the_bound_are_counted() {
-    use vtium_config::{ERRORS_MAX, Note, Warning};
+    use vtium_settings::{ERRORS_MAX, Note, Warning};
     let mut text = String::from("version = 1\n[head a]\n[rules]\ninput * -> a\n");
     for i in 0..ERRORS_MAX + 3 {
         // shadowed by line 4, and a weak match: one warning and one note
@@ -692,9 +692,9 @@ fn an_error_lists_what_its_key_takes() {
 // Each token form is written for its own key, in KEYS' order.
 #[test]
 fn each_token_form_starts_with_its_key() {
-    for (key, form) in vtium_config::Token::KEYS
+    for (key, form) in vtium_settings::Token::KEYS
         .iter()
-        .zip(vtium_config::Token::FORMS)
+        .zip(vtium_settings::Token::FORMS)
     {
         assert!(form.starts_with(&format!("{key}:")), "{key}: {form}");
     }

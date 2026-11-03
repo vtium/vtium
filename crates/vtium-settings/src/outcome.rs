@@ -4,12 +4,12 @@
 //!
 //! A policy line vtium cannot read closes the file and breaks it whole (ADR-1401 D7, level 2): whatever the rest of the file holds, nothing of it runs, and the boot display shows the panic screen. A readable closed policy is sticky. Once a trusted file states a readable `policy = closed`, nothing opens anything up: no other line of the file, no broken line in it, and no event while vtium runs. A reload under it applies only a valid closed file, the owner's change, which keeps the policy closed; going from closed to open takes a vtium restart.
 //!
-//! `outcomes.tsv`, beside the crate's manifest, lists every path with its outcome; `outcome_table_matches_resolve` fails when it differs from [`resolve`], and `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config outcome_table` rewrites it.
+//! `outcomes.tsv`, beside the crate's manifest, lists every path with its outcome; `outcome_table_matches_resolve` fails when it differs from [`resolve`], and `VTIUM_SETTINGS_BLESS=1 cargo test -p vtium-settings outcome_table` rewrites it.
 //!
 //! Only a trusted file carries what it states:
 //!
 //! ```
-//! use vtium_config::{Read, Rest, Stated, Trusted};
+//! use vtium_settings::{Read, Rest, Stated, Trusted};
 //! let read = Read::Trusted(Trusted { stated: Stated::Closed, rest: Rest::Valid });
 //! assert!(matches!(read, Read::Trusted(_)));
 //! ```
@@ -17,14 +17,14 @@
 //! and an untrusted one has nowhere to carry it:
 //!
 //! ```compile_fail,E0618
-//! use vtium_config::{Read, Rest, Stated, Trusted};
+//! use vtium_settings::{Read, Rest, Stated, Trusted};
 //! let read = Read::Untrusted(Trusted { stated: Stated::Closed, rest: Rest::Valid });
 //! ```
 //!
 //! A problem that leaves the file unread is the first level's verdict, never a scope of a trusted file, so an untrusted file cannot reach [`Trusted::of`]:
 //!
 //! ```compile_fail,E0599
-//! use vtium_config::{Kept, Scope, Trusted};
+//! use vtium_settings::{Kept, Scope, Trusted};
 //! let trusted = Trusted::of(&[], &[Scope::Trust], Kept::Heads);
 //! ```
 

@@ -9,7 +9,7 @@
 //! policy, and the boot display shows the panic screen, whose errors name
 //! the line.
 
-use vtium_config::{
+use vtium_settings::{
     Drops, FILE_MAX, LINE_MAX, Line, Policy, PolicyFault, PolicyLine, Problem, Reading, Rest, Runs,
     Stated, Trusted, reading, resolve,
 };
@@ -18,8 +18,8 @@ use vtium_config::{
 /// it.
 const BODY: &str = "[head a]\n[rules]\ndisplay * -> a\ninput * -> a\n";
 
-fn outcome(r: &Reading) -> vtium_config::Outcome {
-    resolve(&vtium_config::Read::Trusted(r.trusted()))
+fn outcome(r: &Reading) -> vtium_settings::Outcome {
+    resolve(&vtium_settings::Read::Trusted(r.trusted()))
 }
 
 /// Checks that `bytes` read as closed and broken for a fault `is` accepts, the error
@@ -255,7 +255,7 @@ fn a_second_readable_policy_line_is_a_duplicate_that_drops_only_itself() {
             matches!(
                 r.errors.errors.as_slice(),
                 [e] if e.line == Some(3)
-                    && e.problem == vtium_config::Problem::DuplicateKey("policy")
+                    && e.problem == vtium_settings::Problem::DuplicateKey("policy")
             ),
             "{top:?}: {:?}",
             r.errors
@@ -311,7 +311,7 @@ fn a_policy_lines_error_is_kept_past_the_error_bound() {
         *f == PolicyFault::ControlCharacter('\u{1b}')
     });
     let r = reading(bad.as_bytes());
-    assert_eq!(r.errors.errors.len(), vtium_config::ERRORS_MAX);
+    assert_eq!(r.errors.errors.len(), vtium_settings::ERRORS_MAX);
     // every error past the bound is counted, the one the policy line's
     // error took the place of among them
     assert_eq!(r.errors.errors.len() + r.errors.more, 71);

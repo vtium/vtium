@@ -2,7 +2,7 @@
 //! compiled-in configuration is the parse of the template, and the
 //! template states the shipped rules.
 
-use vtium_config::{
+use vtium_settings::{
     Class, Config, Kind, Match, Policy, TEMPLATE, Target, Token, WhenDisplayLost, parse,
 };
 
@@ -14,7 +14,7 @@ fn the_compiled_in_configuration_is_the_parse_of_the_template() {
         file, TEMPLATE,
         "the compiled-in text is the template file's"
     );
-    vtium_config::text(file.as_bytes()).expect("the template passes the file checks");
+    vtium_settings::text(file.as_bytes()).expect("the template passes the file checks");
     let parsed = parse(&file).expect("the template is a valid head file");
     assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
     assert!(parsed.notes.is_empty(), "{:?}", parsed.notes);

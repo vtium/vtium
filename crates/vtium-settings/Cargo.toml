@@ -1,5 +1,5 @@
 [package]
-name = "vtium-config"
+name = "vtium-settings"
 description = "The head file: its reader and parser, and the evaluator that places each display and input"
 version.workspace = true
 edition.workspace = true

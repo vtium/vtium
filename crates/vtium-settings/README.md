@@ -1,4 +1,4 @@
-# vtium-config
+# vtium-settings
 
 The head file of ADR-1401: its reader, its parser, and the evaluator that places each display and input in a head, roaming, in `ignore` or `off`, with the guards over the result. `vtium` and `vtiumctl` both link it, so the verdict before install is the verdict at boot. It depends on neither `vtium` nor `vtium-platform`: a device reaches it as an `Identity` its caller fills, and the guards are functions of a placement and the set of devices. It forbids unsafe code, denies every input-reachable panic, and depends only on rustix, to open the file as the console opens vtium.conf.
 
@@ -21,7 +21,7 @@ The head file of ADR-1401: its reader, its parser, and the evaluator that places
 | `templates/heads.conf` | The commented template; the compiled-in configuration is its parse. |
 | `tests/` | The integration tests, one file a part: the syntax, the parser, what each error drops, the reader, the policy line vtium cannot read, the placement and guards, the determinism property and the template. |
 
-`cargo test -p vtium-config` runs every test. The bounds table below is generated from `src/bounds.rs`, and `readme_table_matches_bounds` fails when it drifts; `VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config readme_table` rewrites it. `outcomes.tsv` is generated from `resolve`, as [`src/outcome.rs`](src/outcome.rs)'s module doc says.
+`cargo test -p vtium-settings` runs every test. The bounds table below is generated from `src/bounds.rs`, and `readme_table_matches_bounds` fails when it drifts; `VTIUM_SETTINGS_BLESS=1 cargo test -p vtium-settings readme_table` rewrites it. `outcomes.tsv` is generated from `resolve`, as [`src/outcome.rs`](src/outcome.rs)'s module doc says.
 
 ## Behaviour
 

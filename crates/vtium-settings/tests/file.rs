@@ -10,7 +10,7 @@ use std::fs;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
-use vtium_config::{
+use vtium_settings::{
     FILE_MAX, Inspected, Line, Policy, Problem, Read, Runs, Trust, Untrusted, Within, inspect,
     read, reading, resolve, scope, text,
 };
@@ -18,7 +18,7 @@ use vtium_config::{
 /// A fresh fixture directory of its own for one test, mode 0755.
 fn fixture(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("vtium-config-fixtures")
+        .join("vtium-settings-fixtures")
         .join(name);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("the fixture directory");
@@ -37,7 +37,7 @@ fn write(path: &Path, text: &str, mode: u32) {
     fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("its mode");
 }
 
-fn problem(result: Result<Option<String>, vtium_config::Rejected>) -> Problem {
+fn problem(result: Result<Option<String>, vtium_settings::Rejected>) -> Problem {
     match result {
         Err(r) => r.errors[0].problem.clone(),
         Ok(t) => panic!("read: {t:?}"),

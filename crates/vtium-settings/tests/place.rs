@@ -2,7 +2,7 @@
 //! guards over a set of devices, under each policy (ADR-1401 D3, D4, D5,
 //! D7, D9).
 
-use vtium_config::{
+use vtium_settings::{
     By, Class, Config, Disposition, Edid, Identity, Lockout, Place, Placed, Policy, UsbSerial,
     glob, parse, reading, rule_for,
 };
@@ -991,7 +991,7 @@ fn what_survives_of_a_partly_broken_open_file_runs_then_the_shipped_rules_tail()
 // covers: platform.heads.policy
 #[test]
 fn placement_runs_the_switches_and_the_unplaced_inputs_the_outcome_gives() {
-    use vtium_config::{Read, Runs, SwitchKey, Unplaced, resolve};
+    use vtium_settings::{Read, Runs, SwitchKey, Unplaced, resolve};
     let heads = "version = 1\n[head a]\nisolated = yes\n[head b]\nisolated = no\n[head c]\n[rules]\ndisplay * -> c\ninput class:keyboard -> b\n";
     let bad = "input * -> nosuch\n";
     let joystick = Identity::input().with_class(Class::Joystick);
