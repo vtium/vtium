@@ -561,6 +561,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-parse"
+version = "0.1.0-alpha.2"
+
+[[package]]
 name = "vtium-platform"
 version = "0.1.0-alpha.2"
 dependencies = [
@@ -578,6 +582,15 @@ name = "vtium-settings"
 version = "0.1.0-alpha.2"
 dependencies = [
  "rustix",
+ "vtium-font",
+ "vtium-term",
+]
+
+[[package]]
+name = "vtium-term"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "vtium-parse",
 ]
 
 [[package]]

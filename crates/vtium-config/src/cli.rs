@@ -14,7 +14,7 @@ With no command at a terminal, opens the interactive tool.
 
 Commands:
   fonts                              list the frits and built-in fonts, and the sources each lacks
-  check FILE                         check a frit (NAME.vtfrit) or a vtium.conf, writing nothing
+  check FILE                         check a frit (NAME.vtfrit), a head file (heads.conf) or a vtium.conf, writing nothing
   config KEY [VALUE]                 print a vtium.conf key's value, or set it
   config --unset KEY                 leave a vtium.conf key at its default
   new FONT... [--name NAME] [--cell WxH] [--size POINTS]
@@ -33,7 +33,7 @@ the command that installs it; run as root, it installs at once.
 
 Options:
   --configdir DIR       the directory of vtium.conf and heads.conf, in place of /etc/vtium
-  --frits DIR           the frits directory, in place of the system's
+  --frits DIR           the frits directory, in place of vtium.conf's font-frits
   --sudo PROGRAM        the program that runs apply as root, in place of sudo
   --vtium PROGRAM       the console binary apply checks files with, in place of /usr/bin/vtium
   --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
@@ -83,12 +83,13 @@ impl Options {
 
     /// Where the TUI and `apply` read and write, as the options name them.
     fn paths(&self) -> crate::tui::Paths {
+        let configdir = self.configdir.clone().unwrap_or_else(default_configdir);
         crate::tui::Paths {
-            configdir: self.configdir.clone().unwrap_or_else(default_configdir),
             frits: self
                 .frits
                 .clone()
-                .unwrap_or_else(crate::switch::default_frits),
+                .map_or_else(|| crate::switch::frits_dir(&configdir), Ok),
+            configdir,
             drafts: crate::tui::default_drafts(),
             sudo: self
                 .sudo
@@ -326,7 +327,13 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         }
         "new" => crate::commands::new(&rest, &o.paths(), cli.out, cli.err),
         "preview" => crate::preview::command(&rest, &o.paths(), cli.out, cli.err),
-        "set" => crate::switch::command(&rest, o.frits.as_deref(), cli.out, cli.err),
+        "set" => match o.paths().frits {
+            Ok(frits) => crate::switch::command(&rest, &frits, cli.out, cli.err),
+            Err(why) => {
+                let _ = writeln!(cli.err, "vtium-config: {why}");
+                1
+            }
+        },
         "apply" => crate::apply::command(&rest, &o.paths().targets(), cli.out, cli.err),
         crate::serve::SERVE_ARG => cli.serve(&rest),
         "" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {

@@ -41,7 +41,7 @@ impl Density {
     /// and high. A side of 0 mm is no physical size, and a side whose
     /// density falls outside [`DPI_MIN`] to [`DPI_MAX`] is a misreport:
     /// either gives [`Density::ASSUMED`].
-    pub(crate) fn of(pixels: (u32, u32), mm: (u32, u32)) -> Density {
+    pub fn of(pixels: (u32, u32), mm: (u32, u32)) -> Density {
         let axis = |px: u32, mm: u32| {
             (mm != 0)
                 .then(|| f64::from(px) * INCH_IN_TENTH_MM / (f64::from(mm) * 10.0))

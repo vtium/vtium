@@ -22,4 +22,4 @@
 
 
 -------------------------------------------------------------------------------
- Enter keep  Tab next  s save  q leave, undo
+ Enter keep  r remove  Tab next  s save  q leave, undo

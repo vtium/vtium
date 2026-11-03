@@ -184,10 +184,35 @@ impl Drop for Raw<'_> {
     }
 }
 
-/// The frits' directory the build names, `font-frits`'s default in the
-/// key table the console reads.
-pub fn default_frits() -> PathBuf {
-    PathBuf::from(vtium_settings::keys::FRITS)
+/// The frits' directory, or why vtium-config knows of none: the commands
+/// that list, write or remove frits fail with the reason, and the others
+/// go on without it.
+pub type Frits = Result<PathBuf, String>;
+
+/// The frits' directory the console reads with the vtium.conf in
+/// `configdir`: the file's `font-frits`, read as the console reads it,
+/// else the key's default, the directory the build names. vtium-config
+/// takes `font-frits` only as an absolute path: a relative one would be
+/// read against whatever directory the tool runs in, and an empty one
+/// names that directory itself, so either is refused, naming vtium.conf
+/// and the key. A vtium.conf that cannot be read is refused with its
+/// reason, as the TUI's start refuses it.
+pub fn frits_dir(configdir: &Path) -> Frits {
+    let key = vtium_settings::keys::FONT_FRITS.name;
+    let conf = configdir.join("vtium.conf");
+    let Some(value) =
+        crate::tui::read_conf(&conf)?.and_then(|text| vtium_settings::setting(&text, key))
+    else {
+        return Ok(PathBuf::from(vtium_settings::keys::FRITS));
+    };
+    if Path::new(&value).is_absolute() {
+        Ok(PathBuf::from(value))
+    } else {
+        Err(format!(
+            "{}: {key}={value:?} is not an absolute path, so vtium-config does not know which directory the frits are in; set {key} to an absolute path, or name the directory with --frits",
+            conf.display()
+        ))
+    }
 }
 
 /// The frit file `name` names in `frits`, for a frit's name.
@@ -202,14 +227,9 @@ fn known(name: &str, frits: &Path) -> bool {
         || frit_file(frits, name).is_some_and(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file()))
 }
 
-/// `set` with its words, the frits' directory `--frits` named, if any,
-/// writing to `out` and `err`; returns the exit status.
-pub fn command(
-    words: &[String],
-    frits: Option<&Path>,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> u8 {
+/// `set` with its words and the frits' directory, writing to `out` and
+/// `err`; returns the exit status.
+pub fn command(words: &[String], frits: &Path, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let [name] = words else {
         let _ = writeln!(
             err,
@@ -217,12 +237,11 @@ pub fn command(
         );
         return 2;
     };
-    let frits = frits.map_or_else(default_frits, Path::to_owned);
     let fail = |err: &mut dyn Write, why: &str| {
         let _ = writeln!(err, "vtium-config: {why}");
         1
     };
-    if !known(name, &frits) {
+    if !known(name, frits) {
         let file = frits.join(format!("{name}.vtfrit"));
         return fail(
             err,

@@ -1,6 +1,9 @@
 //! A display's EDID, its base block read once for what vtium takes from
 //! it: the physical size the density uses (ADR-1301 D3) and the monitor
-//! it names, which the head file's `edid:` matches (ADR-1401 D4).
+//! it names, which the head file's `edid:` matches (ADR-1401 D4). The
+//! console and vtium-config read a display's size through this one reader
+//! ([`Edid::parse`] and [`Edid::mm`]), so the density vtium-config draws
+//! its size pictures at is the console's.
 
 use std::fmt;
 use std::io::Read;
@@ -20,7 +23,7 @@ const SERIAL_STRING: u8 = 0xff;
 
 /// What an EDID's base block states.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Edid {
+pub struct Edid {
     /// The physical size in millimetres, across and down, from the image
     /// size in centimetres, bytes 21 and 22; `None` for a side of 0, as
     /// EDID 1.4 states an aspect ratio with no size.
@@ -31,7 +34,7 @@ pub(crate) struct Edid {
 impl Edid {
     /// The base block at the start of `bytes`; `None` for bytes that are
     /// no EDID or whose base block's checksum fails.
-    pub(crate) fn parse(bytes: &[u8]) -> Option<Edid> {
+    pub fn parse(bytes: &[u8]) -> Option<Edid> {
         let base = bytes.get(..BASE)?;
         if base.get(..HEADER.len())? != HEADER
             || base.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)) != 0
@@ -67,6 +70,12 @@ impl Edid {
                 serial,
             },
         })
+    }
+
+    /// The physical size the base block states, in millimetres across and
+    /// down; `None` where it states none.
+    pub fn mm(&self) -> Option<(u32, u32)> {
+        self.mm
     }
 
     /// The EDID of connector `name` (`HDMI-A-1`), read from `card`, the
