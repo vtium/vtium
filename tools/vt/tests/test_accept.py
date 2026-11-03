@@ -26,6 +26,9 @@ import time
 import unicodedata
 import unittest
 
+# The longest any test waits on another process. It only makes a broken test fail instead of hanging.
+WAIT_BOUND = 120
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 VT = os.path.join(ROOT, "tools", "vt")
 ACCEPT_SH = os.path.join(VT, "accept.sh")
@@ -122,7 +125,7 @@ class Pty:
                 a, self.after_dsr = a + self.after_dsr, b""
             os.write(self.fd, a if a is not None else b"\x1b]50;" + self.font.encode() + b"\x07")
 
-    def wait_for(self, text, timeout=10):
+    def wait_for(self, text, timeout=WAIT_BOUND):
         end = time.monotonic() + timeout
         while text not in self.out:
             if time.monotonic() > end or not self.pump(end - time.monotonic()):
@@ -144,7 +147,7 @@ class Pty:
         for p in pieces:
             self.send(p)
 
-    def finish(self, timeout=10):
+    def finish(self, timeout=WAIT_BOUND):
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             pid, status = os.waitpid(self.pid, os.WNOHANG)
@@ -237,7 +240,7 @@ class Case(unittest.TestCase):
 
     def feedback(self, *argv):
         return subprocess.run(["bash", FEEDBACK_SH, *argv], env=self.env(), capture_output=True, text=True,
-                              timeout=20)
+                              timeout=WAIT_BOUND)
 
 
 class Walk(Case):
@@ -869,7 +872,7 @@ LANGUAGES = [l.split("\t") for l in read(TEXT).splitlines() if not l.startswith(
 SENTENCES = {l[2] for l in LANGUAGES}
 
 
-def responder_run(page, answers, timeout=20):
+def responder_run(page, answers, timeout=WAIT_BOUND):
     """Runs PAGE on a pseudo-terminal that answers each query in ANSWERS, a
     list of (query, answer), and returns its exit status and everything it
     sent."""
@@ -919,7 +922,7 @@ class Pages(Case):
                     self.assertTrue(joined, f"no # {key}: lines")
                     # four rows of the footer at 80 columns, after its label
                     self.assertLessEqual(len(joined), 4 * 69, key)
-                p = subprocess.run(["bash", os.path.join(SECTIONS, f)], capture_output=True, timeout=20,
+                p = subprocess.run(["bash", os.path.join(SECTIONS, f)], capture_output=True, timeout=WAIT_BOUND,
                                    stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"]})
                 self.assertIn(p.returncode, (0, 77), p.stderr)
                 self.assertEqual(p.stderr, b"")
@@ -1035,7 +1038,7 @@ class Blink(Case):
     keeps it."""
 
     def page(self, name, **env):
-        return subprocess.run(["bash", os.path.join(SECTIONS, name)], capture_output=True, text=True, timeout=20,
+        return subprocess.run(["bash", os.path.join(SECTIONS, name)], capture_output=True, text=True, timeout=WAIT_BOUND,
                               stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"], **env})
 
     def conf(self, text, mode=0o644):
@@ -1303,7 +1306,7 @@ class Languages(Case):
         self.assertEqual(by["english"][2], "All human beings are born free and equal in dignity and rights.")
 
     def test_a_language_page_shows_every_style_and_says_which_are_not_drawn(self):
-        p = subprocess.run(["bash", os.path.join(SECTIONS, "84-greek.sh")], capture_output=True, timeout=20,
+        p = subprocess.run(["bash", os.path.join(SECTIONS, "84-greek.sh")], capture_output=True, timeout=WAIT_BOUND,
                            stdin=subprocess.DEVNULL,
                            env={"PATH": os.environ["PATH"], "ACCEPT_FRIT": "acceptance-bitmap", "ACCEPT_TOP": "3"})
         self.assertEqual(p.returncode, 0, p.stderr)

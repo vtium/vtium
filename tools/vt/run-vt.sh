@@ -247,7 +247,7 @@ done
 	die "--label takes up to 80 letters, digits, spaces and ._+:/@-, not '$label'"
 [[ $features =~ ^[a-z0-9\ ,_-]{0,80}$ ]] ||
 	die "--features takes up to 80 lowercase letters, digits, spaces and ,_-, not '$features'"
-# The path reaches the session as one word of its own (ACCEPT_DIR=...), never through a shell, so
+# The path reaches the session as one word of its own (ACCEPT_DIR=...), never as shell code, so
 # a space or any other printable character is safe in it. A control character, a newline above
 # all, is refused because it would garble the lines the run prints.
 [[ -z $passes || ( $passes == /* && $passes != *[[:cntrl:]]* && ${#passes} -le 4000 ) ]] ||
@@ -318,60 +318,86 @@ if [ -n "$shell" ]; then
 	fi
 fi
 
-# The binary runs as root, so only its owner or root may have written it.
-[ -n "$bin" ] || die "--bin=PATH names the vtium binary (make vt-accept builds target/x86_64-unknown-linux-gnu/minspec/vtium)"
-bin=$(readlink -m -- "$bin")
-[ -f "$bin" ] && [ -x "$bin" ] || die "no vtium binary at $bin: build it first (make minspec)"
-read -r owner mode < <(stat -c '%u %a' -- "$bin")
-[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
-	die "$bin belongs to uid $owner, neither root nor $user; it would run as root"
-(( (8#$mode & 8#022) == 0 )) ||
-	die "$bin is writable by group or others (mode $mode); it would run as root"
-# pin FILE opens FILE once and sets pinned to the open file's name, /dev/fd/N.
-# Every check of a file that root copies reads that open file, and the copy
-# reads it too, so a file swapped in at FILE after the check is never copied.
-# A file that is no longer what FILE names once it is open, such as a symlink
-# put there in the meantime, is refused.
-pinned=
-pinned_fds=()
-pin() {
-	local fd
-	exec {fd}<"$1" || die "cannot open $1"
-	pinned=/dev/fd/$fd
-	pinned_fds+=("$fd")
-	[ "$(stat -L -c '%d:%i' -- "$pinned")" = "$(stat -c '%d:%i' -- "$1")" ] ||
-		die "$1 changed or is a symlink; the run copies only the file it checked"
+# --inh-caps=-all empties the one capability set the uid change leaves. The
+# bounding set and no-new-privs are left alone: sudo works in the shell.
+drop=("$setpriv" --reuid="$uid" --regid="$gid" --init-groups --inh-caps=-all --reset-env)
+
+# Everything root runs or copies is first read as the user, so the user's own
+# permissions decide what is read: a symlink to a file the user may not read, a
+# second hard link to one, or a swapped-in file all fail to open, and no check
+# races a change, because root checks only what it holds. read_dir is a
+# directory of root's alone, removed when the run ends. Run without root
+# (a dry run, the tests), the reader is the caller itself.
+reader=()
+read_base=${standins:-/run}
+if [ "$(id -u)" -ne 0 ] && [ -z "$standins" ]; then
+	read_base=${TMPDIR:-/tmp}
+else
+	reader=("${drop[@]}" --)
+fi
+read_dir=$(mktemp -d -p "$read_base" run-vt-read.XXXXXX) || die "cannot create a directory to read the files in"
+trap 'rm -rf -- "$read_dir"' EXIT
+read_n=0
+# fetch FILE reads FILE as the user into a file of root's, $fetched, and sets
+# fkind to symlink or file, with fowner, fmode, flinks and ftype from the open
+# file. The user's shell opens FILE once, reports whether the path is a symlink,
+# reports the open file's owner, mode and link count, and copies that open file,
+# so the checks and the copy are of one file. A symlink swapped in a moment
+# later gains nothing: the user's own permissions decided what was opened.
+# Only a user who cannot read FILE makes fetch fail.
+fetch_script='exec 5<"$1" || exit 1
+if [ -L "$1" ]; then echo symlink >&3; exit 0; fi
+/usr/bin/stat -L -c "file %u %a %h %F" /dev/fd/5 >&3 || exit 1
+exec /bin/cat <&5 >&4'
+fetched=
+fetch() {
+	read_n=$((read_n + 1))
+	fetched=$read_dir/$read_n
+	"${reader[@]}" /bin/sh -c "$fetch_script" sh "$1" 3>"$fetched.meta" 4>"$fetched" || return 1
+	fkind='' fowner='' fmode='' flinks='' ftype=''
+	read -r fkind fowner fmode flinks ftype <"$fetched.meta"
+	[ -n "$fkind" ] || return 1
 }
-# copy MODE OPEN NAME DEST installs the open file OPEN at DEST, and shows NAME,
-# the path the file was found at, as its source.
+# copy MODE SOURCE NAME DEST installs SOURCE, the copy root holds, at DEST, and
+# shows NAME, the path the file was found at, as its source.
 copy() {
 	show install -m "$1" "${own[@]}" -- "$3" "$4"
 	[ -n "$dry" ] || install -m "$1" "${own[@]}" -- "$2" "$4"
 }
+# check_file NAME FILE_AS_SHOWN WHO: the owner and mode checks, on what was read.
+check_file() {
+	[ "$fowner" -eq 0 ] || [ "$fowner" -eq "$uid" ] ||
+		die "$1 belongs to uid $fowner, neither root nor $user; $2"
+	(( (8#$fmode & 8#022) == 0 )) ||
+		die "$1 is writable by group or others (mode $fmode); $2"
+}
+
+# The binary runs as root, so only its owner or root may have written it.
+[ -n "$bin" ] || die "--bin=PATH names the vtium binary (make vt-accept builds target/x86_64-unknown-linux-gnu/minspec/vtium)"
+bin=$(readlink -m -- "$bin")
+[ -f "$bin" ] && [ -x "$bin" ] || die "no vtium binary at $bin: build it first (make minspec)"
+fetch "$bin" || die "$user cannot read the vtium binary $bin"
+[ "$fkind" = file ] || die "$bin is a symlink; the run uses only the file it checked"
+check_file "$bin" "it would run as root"
+bin_src=$fetched
 # The helper is held to the same rules: vtium, as root, starts it as nobody,
 # from the copy this run makes.
 if [ -n "$helper" ]; then
 	helper=$(readlink -m -- "$helper")
 	[ -f "$helper" ] && [ -x "$helper" ] || die "no glyph helper at $helper: build it first (make config-release)"
-	pin "$helper"; helper_src=$pinned
-	[ -f "$helper_src" ] && [ -x "$helper_src" ] || die "no glyph helper at $helper: build it first (make config-release)"
-	read -r owner mode < <(stat -L -c '%u %a' -- "$helper_src")
-	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
-		die "$helper belongs to uid $owner, neither root nor $user; vtium, as root, would start it"
-	(( (8#$mode & 8#022) == 0 )) ||
-		die "$helper is writable by group or others (mode $mode); vtium, as root, would start it"
+	fetch "$helper" || die "$user cannot read the glyph helper $helper"
+	[ "$fkind" = file ] || die "$helper is a symlink; the run copies only the file it checked"
+	check_file "$helper" "vtium, as root, would start it"
+	helper_src=$fetched
 fi
 # So is the image helper, which vtium, as root, starts as the session's user.
 if [ -n "$image" ]; then
 	image=$(readlink -m -- "$image")
 	[ -f "$image" ] && [ -x "$image" ] || die "no image helper at $image: build it first (make image-release)"
-	pin "$image"; image_src=$pinned
-	[ -f "$image_src" ] && [ -x "$image_src" ] || die "no image helper at $image: build it first (make image-release)"
-	read -r owner mode < <(stat -L -c '%u %a' -- "$image_src")
-	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
-		die "$image belongs to uid $owner, neither root nor $user; vtium, as root, would start it"
-	(( (8#$mode & 8#022) == 0 )) ||
-		die "$image is writable by group or others (mode $mode); vtium, as root, would start it"
+	fetch "$image" || die "$user cannot read the image helper $image"
+	[ "$fkind" = file ] || die "$image is a symlink; the run copies only the file it checked"
+	check_file "$image" "vtium, as root, would start it"
+	image_src=$fetched
 fi
 # The acceptance pass switches the console among its own frits with OSC 50, which
 # vtium takes only for a frit in its frits directory (ADR-1200 D5,
@@ -389,19 +415,20 @@ for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
 	[ -e "$f" ] || [ -L "$f" ] || continue
 	[ ! -L "$f" ] || die "$f is a symlink; the run copies only a frit that is a file of its own"
 	[ -f "$f" ] || die "$f is not a regular file; the run copies only a frit that is a file of its own"
-	pin "$f"
-	[ -f "$pinned" ] || die "$f is not a regular file; the run copies only a frit that is a file of its own"
-	read -r owner mode links < <(stat -L -c '%u %a %h' -- "$pinned")
-	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
-		die "$f belongs to uid $owner, neither root nor $user; the run copies it as root"
-	[ "$links" -eq 1 ] || die "$f has $links hard links; the run copies only a frit that is a file of its own"
-	(( (8#$mode & 8#022) == 0 )) ||
-		die "$f is writable by group or others (mode $mode); vtium, as root, would read it"
+	fetch "$f" || die "$user cannot read the frit $f"
+	[ "$fkind" != symlink ] || die "$f is a symlink; the run copies only a frit that is a file of its own"
+	[ "$fkind" = file ] && [[ $ftype == regular* ]] ||
+		die "$f is not a regular file; the run copies only a frit that is a file of its own"
+	[ "$fowner" -eq 0 ] || [ "$fowner" -eq "$uid" ] ||
+		die "$f belongs to uid $fowner, neither root nor $user; the run copies it as root"
+	[ "$flinks" -eq 1 ] || die "$f has $flinks hard links; the run copies only a frit that is a file of its own"
+	(( (8#$fmode & 8#022) == 0 )) ||
+		die "$f is writable by group or others (mode $fmode); vtium, as root, would read it"
 	[ -z "${frit_from[${f##*/}]:-}" ] ||
 		die "$f and ${frit_from[${f##*/}]} are both named ${f##*/}; OSC 50 names a frit by its file name, so rename the system's"
 	frit_from[${f##*/}]=$f
 	frit_files+=("$f")
-	frit_srcs+=("$pinned")
+	frit_srcs+=("$fetched")
 done
 # vtium names itself TERM=xterm-vtium; the run compiles that entry from the
 # checkout, as the package does, for the sessions it starts itself.
@@ -413,9 +440,6 @@ terminfo_src=$checkout/crates/vtium/install/xterm-vtium.ti
 term_opt=()
 [ -z "$login" ] || [ -f "$system_terminfo/x/xterm-vtium" ] || term_opt=(--term=kmscon)
 
-# --inh-caps=-all empties the one capability set the uid change leaves. The
-# bounding set and no-new-privs are left alone: sudo works in the shell.
-drop=("$setpriv" --reuid="$uid" --regid="$gid" --init-groups --inh-caps=-all --reset-env)
 if [ -n "$guide" ] && [ -z "$dry" ]; then
 	"${drop[@]}" -- /usr/bin/test -f "$guide" -a -r "$guide" ||
 		die "$user cannot read the guide $guide"
@@ -549,6 +573,7 @@ restore() {
 	set +e
 	trap '' INT TERM HUP PIPE
 	trap - EXIT
+	rm -rf -- "$read_dir"
 	if running; then
 		show kill -TERM "$child" || true
 		kill -TERM "$child" 2>/dev/null || true
@@ -722,7 +747,7 @@ if [ -n "$login" ]; then
 	once=()
 	login_argv=(/bin/login -p)
 fi
-cmd=("$bin" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" "${helper_opt[@]}"
+cmd=("$stage/vtium" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" "${helper_opt[@]}"
 	"${term_opt[@]}" "${debug_opt[@]}" "${extra[@]}" --login -- "${login_argv[@]}")
 # The helper's copy, the terminfo entry and the frits, in a directory of root's alone,
 # made fresh for this run and removed when it ends. tic makes the entry's
@@ -737,12 +762,12 @@ stage_made=1
 	for i in "${!frit_files[@]}"; do
 		copy 0644 "${frit_srcs[i]}" "${frit_files[i]}" "$stage/frits/${frit_files[i]##*/}"
 	done
+	copy 0755 "$bin_src" "$bin" "$stage/vtium"
 	[ -z "$helper" ] || copy 0755 "$helper_src" "$helper" "$stage/vtium-config"
 	[ -z "$image" ] || copy 0755 "$image_src" "$image" "$stage/vtium-image"
 	act tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_src"
 )
-# Nothing vtium starts inherits the files that were copied.
-for fd in "${pinned_fds[@]}"; do exec {fd}<&-; done
+rm -rf -- "$read_dir"
 show "${cmd[@]}"
 [ -z "$dry" ] || exit 0
 # Under --debug, vtium's output goes through watch_log, which closes the lock

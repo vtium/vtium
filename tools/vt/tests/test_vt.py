@@ -153,7 +153,13 @@ done
 echo "$h" >>"${SETPRIV_HOLD:-/dev/null}"
 while [ $# -gt 0 ] && [ "$1" != -- ]; do [ "$1" != --reset-env ] || unset VTIUM_HEAD VTIUM_CONSOLE; shift; done
 shift
-exec "$@"
+# RSWAP_AFTER names a file whose read by the user is the command being run: once it ends, the
+# file at RSWAP_TO is replaced by RSWAP_FROM, so a test can change a file between the read and
+# the checks that follow.
+if [ -z "${RSWAP_AFTER:-}" ] || [[ " $* " != *" $RSWAP_AFTER "* ]]; then exec "$@"; fi
+"$@"; status=$?
+mv -f -- "$RSWAP_FROM" "$RSWAP_TO"
+exit $status
 """
 
 # passwd NAME prints $PASSWD when it is set (an empty one: no such user),
@@ -218,7 +224,7 @@ FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
 
 # The stand-in vtium: records its arguments, prints $BIN_LOG, then as
 # $BIN_MODE says: exit (with $BIN_STATUS), wait (until a signal, recording
-# it), linger (exits, leaving a sleep of $BIN_LINGER seconds that holds its
+# it), linger (exits, leaving a sleep that never ends and holds its
 # output open, as a process vtium started might), or session (runs the argv after --, with $BIN_STDIN as its input, as
 # vtium runs its first head's first console: VTIUM_HEAD=console and
 # VTIUM_CONSOLE=1 in its environment, and a word that is $VTIUM_HEAD or
@@ -233,6 +239,7 @@ for f in /proc/$$/fd/*; do
 	case $(readlink "$f") in
 	*vt.lock) echo "vtium inherited the lock" >&2; exit 97 ;;
 	"$VTIUM_VT_STANDINS"/tty[0-9]*) echo "vtium inherited the run's hold on its VT" >&2; exit 97 ;;
+	*/run-vt-read.*) echo "vtium inherited a file the run read" >&2; exit 97 ;;
 	esac
 done
 # Whether the run that started it holds its VT open: "held" or "free" in
@@ -254,7 +261,7 @@ wait)
 	: >"${BIN_READY:-/dev/null}"
 	while :; do sleep 0.05; done ;;
 linger)
-	sleep "${BIN_LINGER:-20}" &
+	sleep infinity &
 	exit 0 ;;
 session)
 	while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
@@ -507,7 +514,7 @@ class RunVt(Case):
         p = self.run_vt("--dry-run", "8", "--", "--font-size=30")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("+ " + os.path.join(self.s.standins, "systemctl") + " stop kmsconvt@tty8.service", p.stdout)
-        self.assertIn(f"+ {self.s.bin} --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
+        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
                       f"--font-frits={self.s.standins}/run-vtium-vt/frits --font-size=30 --login --",
                       p.stdout)
         self.assertIn(" start kmsconvt@tty8.service", p.stdout)
@@ -755,7 +762,7 @@ class RunVt(Case):
                 "--image-storage-limit=auto", "--sync-timeout=500", "--dpms-timeout=15",
                 "--grab-paste=<Ctrl><Shift>V", "--pointer-hide-timeout=5",
                 "--pointer-hide-while-typing", "--no-pointer-hide-while-typing",
-                "--pointer-char=+", "--osd=full", "--osd-timeout=never", "--osd-timeout=WAIT_BOUND",
+                "--pointer-char=+", "--osd=full", "--osd-timeout=never", "--osd-timeout=10",
                 "--focus-mark=always", "--display-buffers=1", "--display-buffers=2", "--display-buffers=3"]
         p = self.run_vt("--dry-run", "8", "--", *opts)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -833,7 +840,7 @@ class RunVt(Case):
                                  "ACCEPT_BLINK=off", "ACCEPT_BLINK=on", "ACCEPT_BLINK_TEXT=full"])
 
     def test_a_file_swapped_in_after_the_check_is_never_copied(self):
-        # The run checks the glyph helper, the image helper and the frits, then copies them as root.
+        # The run checks vtium, the glyph helper, the image helper and the frits, then copies them as root.
         # A file put in their place in between must not reach the stage: the copy is of the file
         # that was checked.
         fonts = os.path.join(self.s.standins, "vtium-fonts")
@@ -841,7 +848,7 @@ class RunVt(Case):
         frit = os.path.join(fonts, "system.vtfrit")
         write(frit, "font=/usr/share/fonts/checked.ttf\n")
         os.chmod(frit, 0o644)
-        for what, path, staged in (("glyph helper", self.s.helper, "vtium-config"),
+        for what, path, staged in (("vtium", self.s.bin, "vtium"), ("glyph helper", self.s.helper, "vtium-config"),
                                    ("image helper", self.s.image, "vtium-image"),
                                    ("frit", frit, "frits/system.vtfrit")):
             with self.subTest(what=what):
@@ -857,6 +864,29 @@ class RunVt(Case):
                 self.assertIn("swapped-in file", read(path), "the test did not swap the file")
                 self.assertEqual(read(os.path.join(seen, staged)), checked)
                 write(path, checked, 0o755 if what != "frit" else 0o644)
+
+    def test_the_checks_are_made_on_what_was_read(self):
+        # The owner and mode checks read the file the user's process opened, not the path, which a
+        # swap after the read can change. A good file read and then replaced by a bad one passes,
+        # and a bad file read and then replaced by a good one is refused.
+        fonts = os.path.join(self.s.standins, "vtium-fonts")
+        os.mkdir(fonts)
+        frit = os.path.join(fonts, "system.vtfrit")
+        write(frit, "font=/usr/share/fonts/x.ttf\n", 0o755)
+        for what, path, args in (("vtium", self.s.bin, []), ("glyph helper", self.s.helper, [f"--helper={self.s.helper}"]),
+                                 ("image helper", self.s.image, [f"--image={self.s.image}"]), ("frit", frit, [])):
+            for first, then, ok in ((0o755, 0o777, True), (0o775, 0o755, False)):
+                with self.subTest(what=what, first=oct(first)):
+                    swapped = os.path.join(self.s.tmp, "swapped")
+                    write(swapped, read(path), then)
+                    os.chmod(path, first)
+                    p = self.run_vt(*args, "--dry-run", "8", RSWAP_AFTER=path, RSWAP_FROM=swapped, RSWAP_TO=path)
+                    self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), then, "the test did not swap the file")
+                    if ok:
+                        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    else:
+                        self.refused(p, "is writable by group or others")
+                    os.chmod(path, 0o755)
 
     def test_a_run_starts_the_helper_built_with_it_from_a_copy_of_roots(self):
         helper = self.s.helper
@@ -1258,7 +1288,7 @@ class RunVt(Case):
         # A dry run names the option it would give vtium.
         p = self.run_vt("--dry-run", "--debug=/nowhere", "8")
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertIn(f"+ {self.s.bin} --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
+        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
                       f"--font-frits={self.s.standins}/run-vtium-vt/frits --debug --login --",
                       p.stdout)
 
@@ -3604,8 +3634,8 @@ class Guide(Case):
         write(guide, "title: Run guide\n"
                      f"step: Ran\nrun: {ran}\ndo: keep still\nexpect: ran 42\n"
                      "step: Failed\nrun: echo VT {vt}; exit 3\nexpect: VT 6\n"
-                     "step: Stopped\nrun: echo started; sleep 30; echo not reached\nexpect: started\n"
-                     "step: Quit\nrun: echo begun; sleep 30\nexpect: begun\n", 0o644)
+                     "step: Stopped\nrun: echo started; sleep infinity; echo not reached\nexpect: started\n"
+                     "step: Quit\nrun: echo begun; sleep infinity\nexpect: begun\n", 0o644)
         g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
         g.wait_for(b"Press Enter to begin.")
         g.send(b"\r")
@@ -3672,9 +3702,9 @@ class Guide(Case):
         self.assertEqual(log[1:16], ["-- step 1 of 4: Ran", "  run: " + ran, "  answer: no",
                                      "-- step 2 of 4: Failed", "  run: echo VT 6; exit 3",
                                      "  command exited with status 3", "  answer: skip",
-                                     "-- step 3 of 4: Stopped", "  run: echo started; sleep 30; echo not reached",
+                                     "-- step 3 of 4: Stopped", "  run: echo started; sleep infinity; echo not reached",
                                      "  command exited with status 130", "  answer: no  note: cut short",
-                                     "-- step 4 of 4: Quit", "  run: echo begun; sleep 30",
+                                     "-- step 4 of 4: Quit", "  run: echo begun; sleep infinity",
                                      "  command exited with status 131", "  answer: no  note: cut short"])
         self.assertRegex(log[16], r"^=== done ")
 
