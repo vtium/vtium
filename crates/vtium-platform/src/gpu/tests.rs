@@ -161,7 +161,7 @@ fn a_quad_copies_its_texels_row_for_row_from_a_padded_upload() {
         pixels[16 + i * 4..16 + i * 4 + 4].copy_from_slice(&px.map(|c| c + 100));
     }
     let texture = gl.create_texture(TextureFormat::Rgba8, 3, 2).unwrap();
-    gl.fill_texture(texture, TextureFormat::Rgba8, rect(0, 0, 3, 2), &pixels, 16)
+    gl.fill_texture(texture, rect(0, 0, 3, 2), &pixels, 16)
         .unwrap();
     let (frame_tex, fb) = gl.create_frame(3, 2).unwrap();
     gl.clear(fb, (3, 2), rect(0, 0, 3, 2), 0).unwrap();
@@ -195,7 +195,7 @@ fn an_r8_texture_of_odd_width_uploads_with_no_row_alignment() {
     // rows of 3 bytes, tightly packed: GL's default alignment of 4 would
     // read each row after the first from the wrong place
     let pixels: Vec<u8> = (1..=9).map(|v| v * 20).collect();
-    gl.fill_texture(texture, TextureFormat::R8, rect(0, 0, 3, 3), &pixels, 3)
+    gl.fill_texture(texture, rect(0, 0, 3, 3), &pixels, 3)
         .unwrap();
     let (frame_tex, fb) = gl.create_frame(3, 3).unwrap();
     copy(
@@ -239,14 +239,8 @@ fn clear_fills_its_rectangle_opaque_and_a_scissor_cuts_a_draw() {
     }
     // a white texel drawn over the whole target, cut to its first row
     let texture = gl.create_texture(TextureFormat::Rgba8, 1, 1).unwrap();
-    gl.fill_texture(
-        texture,
-        TextureFormat::Rgba8,
-        rect(0, 0, 1, 1),
-        &[255; 4],
-        4,
-    )
-    .unwrap();
+    gl.fill_texture(texture, rect(0, 0, 1, 1), &[255; 4], 4)
+        .unwrap();
     copy(
         &mut gl,
         program,
@@ -274,14 +268,8 @@ fn over_blends_a_premultiplied_texel_on_what_the_target_holds() {
     gl.clear(fb, (1, 1), rect(0, 0, 1, 1), 0xC8_6400).unwrap();
     let texture = gl.create_texture(TextureFormat::Rgba8, 1, 1).unwrap();
     // half covered blue, premultiplied: src + dst * (1 - 0.5)
-    gl.fill_texture(
-        texture,
-        TextureFormat::Rgba8,
-        rect(0, 0, 1, 1),
-        &[0, 0, 128, 128],
-        4,
-    )
-    .unwrap();
+    gl.fill_texture(texture, rect(0, 0, 1, 1), &[0, 0, 128, 128], 4)
+        .unwrap();
     copy(
         &mut gl,
         program,
@@ -311,7 +299,6 @@ fn a_draws_filter_chooses_how_its_texture_is_sampled() {
     let texture = gl.create_texture(TextureFormat::Rgba8, 2, 1).unwrap();
     gl.fill_texture(
         texture,
-        TextureFormat::Rgba8,
         rect(0, 0, 2, 1),
         &[0, 0, 0, 255, 255, 0, 0, 255],
         8,
@@ -353,7 +340,6 @@ fn many_quads_draw_as_instances_of_one_call() {
     let texture = gl.create_texture(TextureFormat::Rgba8, 2, 1).unwrap();
     gl.fill_texture(
         texture,
-        TextureFormat::Rgba8,
         rect(0, 0, 2, 1),
         &[255, 0, 0, 255, 0, 0, 255, 255],
         8,
@@ -414,23 +400,112 @@ fn a_uniform_the_driver_dropped_has_no_location_and_setting_it_does_nothing() {
     gl.free_frame(fb, frame_tex).unwrap();
 }
 
+/// The row length is set at every upload, so an upload of rows packed
+/// tight after one of padded rows reads its own rows only. Left from the
+/// first upload, a row length of 16 would read 35 bytes of the second's 9.
+#[test]
+fn each_upload_sets_its_own_row_length() {
+    let mut gl = software();
+    let program = gl.compile(VERT, COPY).unwrap();
+    let texture = gl.create_texture(TextureFormat::R8, 3, 3).unwrap();
+    let padded: Vec<u8> = (0..48).map(|i| if i % 16 < 3 { 200 } else { 0 }).collect();
+    gl.fill_texture(texture, rect(0, 0, 3, 3), &padded, 16)
+        .unwrap();
+    // the 9 bytes uploaded sit in a longer allocation of other values, so a
+    // stale row length reads them, not memory past the allocation
+    let backing: Vec<u8> = (1..=9).map(|v| v * 10).chain([255; 32]).collect();
+    gl.fill_texture(texture, rect(0, 0, 3, 3), &backing[..9], 3)
+        .unwrap();
+    let (frame_tex, fb) = gl.create_frame(3, 3).unwrap();
+    copy(
+        &mut gl,
+        program,
+        fb,
+        (3, 3),
+        texture,
+        true,
+        &[quad([0, 0, 3, 3], [0, 0, 3, 3])],
+        Blend::Replace,
+        None,
+    );
+    let mut out = vec![0u8; 36];
+    gl.read(fb, rect(0, 0, 3, 3), &mut out).unwrap();
+    let red: Vec<u8> = out.chunks(4).map(|p| p[0]).collect();
+    assert_eq!(red, backing[..9]);
+    gl.free_frame(fb, frame_tex).unwrap();
+    gl.check().unwrap();
+}
+
+/// An upload is checked against the texture the context keeps: its format
+/// sizes the slice, and the rectangle lies inside it. A texture the context
+/// did not make, or freed, is refused, and none of it reaches GL.
+#[test]
+fn an_upload_is_checked_against_the_texture_itself() {
+    let mut gl = software();
+    let rgba = gl.create_texture(TextureFormat::Rgba8, 4, 4).unwrap();
+    // sixteen bytes would fill a 4x4 R8 texture; this one takes four a pixel
+    let e = gl
+        .fill_texture(rgba, rect(0, 0, 4, 4), &[0; 16], 4)
+        .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
+    for outside in [rect(1, 0, 4, 4), rect(0, 3, 1, 2), rect(u32::MAX, 0, 2, 1)] {
+        let e = gl.fill_texture(rgba, outside, &[0; 256], 64).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Misuse, "{outside:?}: {e}");
+    }
+    gl.fill_texture(rgba, rect(0, 0, 4, 4), &[0; 64], 16)
+        .unwrap();
+    let e = gl
+        .fill_texture(9999, rect(0, 0, 1, 1), &[0; 4], 4)
+        .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
+    gl.free_texture(rgba).unwrap();
+    let e = gl
+        .fill_texture(rgba, rect(0, 0, 1, 1), &[0; 4], 4)
+        .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
+    assert_eq!(gl.free_texture(rgba).unwrap_err().kind, ErrorKind::Misuse);
+    gl.check().unwrap();
+}
+
+#[test]
+fn a_uniform_name_with_a_nul_is_refused() {
+    let mut gl = software();
+    let program = gl.compile(VERT, COPY).unwrap();
+    let e = gl.uniform_location(program, "tex\0").unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
+}
+
+#[test]
+fn only_opengl_es_versions_are_read() {
+    use super::context::es_version;
+    assert_eq!(es_version("OpenGL ES 3.2 Mesa 26.2.6"), Some((3, 2)));
+    assert_eq!(es_version("OpenGL ES 3.0"), Some((3, 0)));
+    assert_eq!(es_version("OpenGL ES 2.0 Mesa"), Some((2, 0)));
+    assert_eq!(es_version("4.6 (Core Profile) Mesa"), None);
+    assert_eq!(es_version("OpenGL ES 3"), None);
+    assert_eq!(es_version(""), None);
+}
+
+#[test]
+fn an_error_a_test_raises_is_reported_by_the_next_check_alone() {
+    let mut gl = software();
+    gl.raise(ErrorKind::ContextLost);
+    assert_eq!(gl.check().unwrap_err().kind, ErrorKind::ContextLost);
+    gl.check().unwrap();
+}
+
 #[test]
 fn an_upload_or_a_read_whose_slice_is_short_is_refused_before_gl() {
     let mut gl = software();
     let texture = gl.create_texture(TextureFormat::Rgba8, 4, 4).unwrap();
     let r = rect(0, 0, 4, 4);
     // the last row needs 16 bytes after three strides of 20
-    let e = gl
-        .fill_texture(texture, TextureFormat::Rgba8, r, &[0; 75], 20)
-        .unwrap_err();
+    let e = gl.fill_texture(texture, r, &[0; 75], 20).unwrap_err();
     assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
-    gl.fill_texture(texture, TextureFormat::Rgba8, r, &[0; 76], 20)
-        .unwrap();
+    gl.fill_texture(texture, r, &[0; 76], 20).unwrap();
     // a stride shorter than a row, or not of whole pixels
     for stride in [15, 18] {
-        let e = gl
-            .fill_texture(texture, TextureFormat::Rgba8, r, &[0; 128], stride)
-            .unwrap_err();
+        let e = gl.fill_texture(texture, r, &[0; 128], stride).unwrap_err();
         assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
     }
     let (frame_tex, fb) = gl.create_frame(4, 4).unwrap();
@@ -446,9 +521,9 @@ fn an_upload_or_a_read_whose_slice_is_short_is_refused_before_gl() {
 #[test]
 fn check_reports_a_gl_error_once_and_then_nothing() {
     let mut gl = software();
-    // a texture GL never made has no storage to fill
-    gl.fill_texture(9999, TextureFormat::Rgba8, rect(0, 0, 1, 1), &[0; 4], 4)
-        .unwrap();
+    // past the largest texture: GL_INVALID_VALUE, which only check reads
+    let past = gl.limits().texture + 1;
+    gl.create_texture(TextureFormat::R8, past, 1).unwrap();
     let e = gl.check().unwrap_err();
     assert!(matches!(e.kind, ErrorKind::Gl(_)), "{e}");
     gl.check().unwrap();
@@ -481,6 +556,17 @@ fn a_shader_that_does_not_compile_gives_the_drivers_log() {
     assert_eq!(e.kind, ErrorKind::Compile);
     assert!(
         e.detail.contains("fragment shader") && e.detail.contains("undeclared"),
+        "{e}"
+    );
+    // both shaders refused: both logs
+    let e = gl
+        .compile(
+            "#version 300 es\nvoid main() { first_wrong = 1; }\n",
+            "#version 300 es\nvoid main() { second_wrong = 1; }\n",
+        )
+        .unwrap_err();
+    assert!(
+        e.detail.contains("first_wrong") && e.detail.contains("second_wrong"),
         "{e}"
     );
     // the inputs do not match the outputs: it compiles and does not link
@@ -583,13 +669,29 @@ fn a_gbm_buffer_imports_as_a_target_that_draws() {
     let fb = gl.import(&buffer).unwrap();
     gl.clear(fb, (64, 32), rect(0, 0, 64, 32), 0x12_3456)
         .unwrap();
-    gl.clear(fb, (64, 32), rect(60, 30, 4, 2), 0xAB_CDEF)
+    // a quad through a program into the last 4x2 pixels
+    let program = gl.compile(VERT, COPY).unwrap();
+    let texture = gl.create_texture(TextureFormat::Rgba8, 1, 1).unwrap();
+    gl.fill_texture(texture, rect(0, 0, 1, 1), &[0xAB, 0xCD, 0xEF, 0xFF], 4)
         .unwrap();
+    copy(
+        &mut gl,
+        program,
+        fb,
+        (64, 32),
+        texture,
+        false,
+        &[quad([60, 30, 4, 2], [0, 0, 1, 1])],
+        Blend::Replace,
+        None,
+    );
     gl.submit().unwrap();
     gl.check().unwrap();
     let mut out = vec![0u8; 64 * 32 * 4];
     gl.read(fb, rect(0, 0, 64, 32), &mut out).unwrap();
     assert_eq!(out[..4], [0x12, 0x34, 0x56, 0xFF]);
+    assert_eq!(out[(29 * 64 + 63) * 4..][..4], [0x12, 0x34, 0x56, 0xFF]);
+    assert_eq!(out[(30 * 64 + 60) * 4..][..4], [0xAB, 0xCD, 0xEF, 0xFF]);
     assert_eq!(out[(31 * 64 + 63) * 4..][..4], [0xAB, 0xCD, 0xEF, 0xFF]);
     gl.free_import(fb).unwrap();
     gl.check().unwrap();

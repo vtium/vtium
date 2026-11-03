@@ -1,7 +1,7 @@
 //! libgbm, opened when the GPU path starts (ADR-1303 D8).
 //!
 //! vtium links no GBM library. It opens `libgbm.so.1` with libloading and
-//! takes the dozen calls it makes, so a build with the `gpu` feature starts
+//! takes the eleven calls it makes, so a build with the `gpu` feature starts
 //! on a machine without libgbm and reports the step that failed. A [`Gbm`]
 //! device is made over a DRM device's descriptor, a card or its render node.
 //! The head's GL context makes one on the render node as EGL's native

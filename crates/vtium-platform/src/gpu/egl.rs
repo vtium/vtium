@@ -31,6 +31,10 @@ use crate::display::{DmaBuf, MODIFIER_INVALID};
 
 type Instance = egl::DynamicInstance<egl::EGL1_5>;
 
+/// The library vtium opens: the runtime's soname, never the unversioned
+/// name a development package installs.
+const LIBRARY: &str = "libEGL.so.1";
+
 const PLATFORM_GBM_KHR: egl::Enum = 0x31D7;
 const PLATFORM_DEVICE_EXT: egl::Enum = 0x313F;
 const CONTEXT_MAJOR_VERSION: egl::Int = 0x3098;
@@ -91,10 +95,10 @@ fn load() -> Result<Instance, SetupError> {
     // SAFETY: libEGL.so.1 is the Khronos ABI that khronos-egl declares, and
     // loading it runs only its own constructors.
     #[expect(unsafe_code, reason = "opening libEGL")]
-    unsafe { Instance::load_required() }.map_err(|e| {
+    unsafe { Instance::load_required_from_filename(LIBRARY) }.map_err(|e| {
         setup(
             Step::EglDisplay,
-            format!("libEGL.so.1 cannot be loaded or lacks EGL 1.5: {e}"),
+            format!("{LIBRARY} cannot be loaded or lacks EGL 1.5: {e}"),
         )
     })
 }
@@ -145,8 +149,15 @@ impl Egl {
     pub(super) fn software() -> Result<Egl, SetupError> {
         let api = load()?;
         let client = client_extensions(&api);
-        for needed in ["EGL_EXT_device_enumeration", "EGL_EXT_platform_device"] {
-            if !names(&client, needed) {
+        // EGL_EXT_device_base holds the enumeration and the query
+        let base = names(&client, "EGL_EXT_device_base");
+        for needed in [
+            "EGL_EXT_device_enumeration",
+            "EGL_EXT_device_query",
+            "EGL_EXT_platform_device",
+        ] {
+            let base_holds = base && needed != "EGL_EXT_platform_device";
+            if !base_holds && !names(&client, needed) {
                 return Err(setup(
                     Step::EglDisplay,
                     format!("libEGL lacks {needed}, which finds Mesa's software device"),
@@ -255,8 +266,13 @@ impl Egl {
     }
 
     /// The extensions of the display's EGL device, where EGL reports its
-    /// device (`EGL_EXT_device_query`).
+    /// device: the client extensions name `EGL_EXT_device_query`, or
+    /// `EGL_EXT_device_base`, which includes it.
     fn device_extensions(&self) -> Option<String> {
+        let client = client_extensions(&self.api);
+        if !names(&client, "EGL_EXT_device_query") && !names(&client, "EGL_EXT_device_base") {
+            return None;
+        }
         let attrib = self.api.get_proc_address("eglQueryDisplayAttribEXT")?;
         let string = self.api.get_proc_address("eglQueryDeviceStringEXT")?;
         // SAFETY: both pointers are the functions of their names, which

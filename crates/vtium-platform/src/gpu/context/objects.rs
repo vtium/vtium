@@ -10,13 +10,16 @@
 
 use glow::HasContext;
 
-use super::{Context, Import, Location, TextureFormat, int, ints, misuse, name, param};
+use super::{
+    Context, Import, Location, TextureFormat, TextureInfo, int, ints, misuse, name, param,
+};
 use crate::display::{DmaBuf, Rect};
 use crate::gpu::{Error, ErrorKind};
 
 impl Context {
     /// A `width` by `height` texture of `format`, its contents undefined,
-    /// sampled nearest and clamped at its edges.
+    /// sampled nearest and clamped at its edges. The context keeps its
+    /// format and size, which every upload into it is checked against.
     pub fn create_texture(
         &mut self,
         format: TextureFormat,
@@ -49,22 +52,51 @@ impl Context {
                 self.gl
                     .tex_parameter_i32(glow::TEXTURE_2D, param, self::param(value));
             }
-            Ok(texture.0.get())
+            let name = texture.0.get();
+            self.textures.insert(
+                name,
+                TextureInfo {
+                    format,
+                    width,
+                    height,
+                },
+            );
+            Ok(name)
         }
     }
 
-    /// Fills `rect` of `texture`, of `format`, from `pixels`, rows `stride`
-    /// bytes apart. Refused, reaching no GL, unless `stride` holds whole
-    /// pixels and a whole row, and `pixels` holds every row.
+    /// Fills `rect` of `texture` from `pixels`, in the texture's format,
+    /// rows `stride` bytes apart. Refused, reaching no GL, unless the
+    /// texture is one this context made and keeps, `rect` lies inside it,
+    /// `stride` holds whole pixels and a whole row, and `pixels` holds every
+    /// row.
     pub fn fill_texture(
         &mut self,
         texture: u32,
-        format: TextureFormat,
         rect: Rect,
         pixels: &[u8],
         stride: usize,
     ) -> Result<(), Error> {
+        let info = *self
+            .textures
+            .get(&texture)
+            .ok_or_else(|| misuse(format!("texture {texture} is not this context's")))?;
+        let inside = rect
+            .x
+            .checked_add(rect.width)
+            .is_some_and(|r| r <= info.width)
+            && rect
+                .y
+                .checked_add(rect.height)
+                .is_some_and(|b| b <= info.height);
+        if !inside {
+            return Err(misuse(format!(
+                "an upload to {rect:?} passes the {}x{} texture",
+                info.width, info.height
+            )));
+        }
         let texture = glow::NativeTexture(name(texture)?);
+        let format = info.format;
         let [x, y, w, h] = ints(rect)?;
         let bpp = format.bytes();
         let row = usize::try_from(rect.width)
@@ -98,10 +130,13 @@ impl Context {
             .and_then(|n| i32::try_from(n).ok())
             .ok_or_else(|| misuse("a stride past GL's integers"))?;
         self.current()?;
-        // SAFETY: with no buffer bound for unpacking, an alignment of 1, no
-        // skipped pixels or rows and a row length of `stride / bpp`, GL
-        // reads `(h - 1) * stride + w * bpp` bytes, which is `need`, the
-        // length of `pixels`.
+        // SAFETY: the texture is one this context made, of the format and
+        // size it keeps, and `rect` lies inside it, so GL takes `bpp` bytes
+        // a pixel from the format given here. With no buffer bound for
+        // unpacking, an alignment of 1, no skipped pixels or rows and a row
+        // length of `stride / bpp`, all set here, GL reads
+        // `(h - 1) * stride + w * bpp` bytes, which is `need`, the length of
+        // `pixels`.
         #[expect(unsafe_code, reason = "glTexSubImage2D from a slice checked above")]
         unsafe {
             self.gl.bind_buffer(glow::PIXEL_UNPACK_BUFFER, None);
@@ -125,14 +160,18 @@ impl Context {
         Ok(())
     }
 
-    /// Frees `texture`.
+    /// Frees `texture`, one this context made and keeps.
     pub fn free_texture(&mut self, texture: u32) -> Result<(), Error> {
-        let texture = glow::NativeTexture(name(texture)?);
+        if !self.textures.contains_key(&texture) {
+            return Err(misuse(format!("texture {texture} is not this context's")));
+        }
+        let gl_texture = glow::NativeTexture(name(texture)?);
         self.current()?;
+        self.textures.remove(&texture);
         // SAFETY: a GL call on the current context with no pointer.
         #[expect(unsafe_code, reason = "glDeleteTextures")]
         unsafe {
-            self.gl.delete_texture(texture);
+            self.gl.delete_texture(gl_texture);
         }
         Ok(())
     }
@@ -194,7 +233,9 @@ impl Context {
     /// Imports `buffer`, a display's buffer, as an EGL image bound as the
     /// storage of a renderbuffer, and gives a framebuffer that draws into
     /// it. A buffer the driver cannot import, or cannot draw into, is an
-    /// error of kind [`ErrorKind::Import`].
+    /// error of kind [`ErrorKind::Import`]. The error GL raises when it
+    /// cannot bind the image is read here and folded into that error, so
+    /// the next check does not report it against the frame that follows.
     pub fn import(&mut self, buffer: &DmaBuf) -> Result<u32, Error> {
         self.current()?;
         let import = |detail: String| Error::new(ErrorKind::Import, detail);
@@ -212,6 +253,13 @@ impl Context {
                 self.gl
                     .bind_renderbuffer(glow::RENDERBUFFER, Some(renderbuffer));
                 target(glow::RENDERBUFFER, image.as_ptr());
+                let bound = self.gl.get_error();
+                if bound != glow::NO_ERROR {
+                    self.gl.delete_renderbuffer(renderbuffer);
+                    return Err(format!(
+                        "glEGLImageTargetRenderbufferStorageOES raised {bound:#06x}"
+                    ));
+                }
                 let fb = match self.gl.create_framebuffer() {
                     Ok(fb) => fb,
                     Err(e) => {
@@ -294,25 +342,32 @@ impl Context {
         unsafe {
             let gl = &self.gl;
             let mut shaders = Vec::new();
-            let mut failed = None;
+            let mut logs = Vec::new();
             for (kind, label, text) in [
                 (glow::VERTEX_SHADER, "vertex", vertex),
                 (glow::FRAGMENT_SHADER, "fragment", fragment),
             ] {
-                let shader = gl.create_shader(kind).map_err(compile)?;
+                let shader = match gl.create_shader(kind) {
+                    Ok(shader) => shader,
+                    Err(e) => {
+                        logs.push(format!("the {label} shader cannot be made: {e}"));
+                        break;
+                    }
+                };
                 gl.shader_source(shader, text);
                 gl.compile_shader(shader);
                 if !gl.get_shader_compile_status(shader) {
-                    failed = Some(format!(
+                    logs.push(format!(
                         "the {label} shader does not compile: {}",
                         gl.get_shader_info_log(shader).trim_end()
                     ));
                 }
                 shaders.push(shader);
             }
-            let program = match failed {
-                Some(log) => Err(compile(log)),
-                None => gl.create_program().map_err(compile),
+            let program = if logs.is_empty() {
+                gl.create_program().map_err(compile)
+            } else {
+                Err(compile(logs.join("; ")))
             };
             if let Ok(p) = program {
                 for &s in &shaders {
@@ -341,12 +396,15 @@ impl Context {
 
     /// Where `program`'s uniform `uniform` is; `None` where the program
     /// has none of that name, as when the driver dropped a uniform nothing
-    /// reads.
+    /// reads. A name with a NUL in it is refused, reaching no GL.
     pub fn uniform_location(
         &mut self,
         program: u32,
         uniform: &str,
     ) -> Result<Option<Location>, Error> {
+        if uniform.contains('\0') {
+            return Err(misuse(format!("the uniform name {uniform:?} holds a NUL")));
+        }
         let p = glow::NativeProgram(name(program)?);
         self.current()?;
         // SAFETY: a GL query on the current context, the name passed with

@@ -19,7 +19,7 @@
 //! `gltex_render`).
 
 use std::collections::BTreeMap;
-use std::ffi::c_void;
+use std::ffi::{CStr, c_char, c_void};
 use std::marker::PhantomData;
 use std::num::NonZeroU32;
 use std::os::fd::OwnedFd;
@@ -49,6 +49,7 @@ const INSTANCE_BYTES: usize = 48;
 /// The same, as GL's attribute stride takes it.
 const INSTANCE_STRIDE: i32 = 48;
 
+type GetString = unsafe extern "system" fn(u32) -> *const c_char;
 type ImageTargetRenderbuffer = unsafe extern "system" fn(u32, *const c_void);
 type ResetStatus = unsafe extern "system" fn() -> u32;
 
@@ -100,6 +101,15 @@ impl TextureFormat {
     }
 }
 
+/// A texture the context made, as the context keeps it, so an upload is
+/// checked against the texture itself.
+#[derive(Clone, Copy, Debug)]
+struct TextureInfo {
+    format: TextureFormat,
+    width: u32,
+    height: u32,
+}
+
 /// An imported buffer's renderbuffer and image, which its framebuffer
 /// draws into.
 struct Import {
@@ -119,6 +129,15 @@ fn int(v: u32) -> Result<i32, Error> {
 /// A rectangle as GL takes it.
 fn ints(r: Rect) -> Result<[i32; 4], Error> {
     Ok([int(r.x)?, int(r.y)?, int(r.width)?, int(r.height)?])
+}
+
+/// The major and minor version of an OpenGL ES `GL_VERSION`, which reads
+/// "OpenGL ES 3.2 Mesa 26.2.6"; `None` for any other string, desktop
+/// OpenGL's included.
+pub(super) fn es_version(version: &str) -> Option<(u32, u32)> {
+    let number = version.strip_prefix("OpenGL ES ")?.split(' ').next()?;
+    let (major, minor) = number.split_once('.')?;
+    Some((major.parse().ok()?, minor.parse().ok()?))
 }
 
 /// A GL enum as `glTexParameteri` and `glSamplerParameteri` take it.
@@ -166,7 +185,10 @@ pub struct Context {
     samplers: [glow::NativeSampler; 2],
     image_target: Option<ImageTargetRenderbuffer>,
     reset_status: Option<ResetStatus>,
+    textures: BTreeMap<u32, TextureInfo>,
     imports: BTreeMap<u32, Import>,
+    /// An error the next check reports, which a test raised.
+    raised: Option<ErrorKind>,
     limits: Limits,
     renderer: String,
     version: String,
@@ -200,6 +222,32 @@ impl Context {
 
     fn new(egl: Egl) -> Result<Context, SetupError> {
         let fail = |step, detail: String| SetupError { step, detail };
+        // glow panics on a version it cannot read, so the version is read
+        // and judged first, through a glGetString of its own
+        let get_string = egl
+            .proc_address("glGetString")
+            .ok_or_else(|| fail(Step::Version, "GL has no glGetString".to_owned()))?;
+        // SAFETY: the pointer is glGetString, cast to its signature; the
+        // context is current on this thread, and the string it returns, or
+        // null, is GL's own.
+        #[expect(unsafe_code, reason = "GL_VERSION through glGetString, before glow")]
+        let version = unsafe {
+            let get_string = std::mem::transmute::<extern "system" fn(), GetString>(get_string);
+            let raw = get_string(glow::VERSION);
+            (!raw.is_null()).then(|| CStr::from_ptr(raw).to_str().map(str::to_owned))
+        };
+        let version = match version {
+            Some(Ok(v)) => v,
+            _ => return Err(fail(Step::Version, "GL_VERSION cannot be read".to_owned())),
+        };
+        let (major, minor) = es_version(&version)
+            .filter(|&(major, _)| major >= 3)
+            .ok_or_else(|| {
+                fail(
+                    Step::Version,
+                    format!("OpenGL ES 3.0 or later is needed, and the context is {version}"),
+                )
+            })?;
         // SAFETY: the context is current on this thread, and each name
         // eglGetProcAddress resolves is the GL function of that name.
         #[expect(unsafe_code, reason = "loading GL's function table")]
@@ -213,9 +261,8 @@ impl Context {
         // query writes, and glGetShaderPrecisionFormat, on the current
         // context.
         #[expect(unsafe_code, reason = "GL's queries of the new context")]
-        let (renderer, version, limits) = unsafe {
+        let (renderer, limits) = unsafe {
             let renderer = gl.get_parameter_string(glow::RENDERER);
-            let version = gl.get_parameter_string(glow::VERSION);
             let mut viewport = [0; 2];
             gl.get_parameter_i32_slice(glow::MAX_VIEWPORT_DIMS, &mut viewport);
             let [viewport_width, viewport_height] = viewport;
@@ -233,15 +280,8 @@ impl Context {
                 fragment_highp: highp_float && highp_int,
                 texture_units: side(gl.get_parameter_i32(glow::MAX_TEXTURE_IMAGE_UNITS)),
             };
-            (renderer, version, limits)
+            (renderer, limits)
         };
-        let v = gl.version();
-        if !v.is_embedded || v.major < 3 {
-            return Err(fail(
-                Step::Version,
-                format!("OpenGL ES 3.0 or later is needed, and the context is {version}"),
-            ));
-        }
         if !limits.fragment_highp {
             return Err(fail(
                 Step::Highp,
@@ -259,7 +299,7 @@ impl Context {
                 .then(|| load("glEGLImageTargetRenderbufferStorageOES"))
                 .flatten()
                 .map(|f| std::mem::transmute::<extern "system" fn(), ImageTargetRenderbuffer>(f));
-            let reset = if v.major > 3 || v.minor >= 2 {
+            let reset = if major > 3 || minor >= 2 {
                 Some("glGetGraphicsResetStatus")
             } else if extensions.contains("GL_KHR_robustness") {
                 Some("glGetGraphicsResetStatusKHR")
@@ -295,6 +335,10 @@ impl Context {
                 }
                 gl.bind_vertex_array(None);
                 gl.bind_buffer(glow::ARRAY_BUFFER, None);
+                // dithering may move a channel by a level where a format has
+                // fewer bits; vtium's formats have 8 a channel, and no draw
+                // asks for it
+                gl.disable(glow::DITHER);
                 let mut samplers = Vec::new();
                 for filter in [glow::NEAREST, glow::LINEAR] {
                     let s = gl.create_sampler()?;
@@ -321,7 +365,9 @@ impl Context {
             samplers: [nearest, linear],
             image_target,
             reset_status,
+            textures: BTreeMap::new(),
             imports: BTreeMap::new(),
+            raised: None,
             limits,
             renderer,
             version,
@@ -352,10 +398,21 @@ impl Context {
             .map_err(|e| Error::new(ErrorKind::ContextLost, e))
     }
 
+    /// Makes the next [`Context::check`] report an error of `kind`, as GL's
+    /// error flag would, and touches no GL: for the tests of what a caller
+    /// does with each kind, which no real driver can be made to raise on
+    /// demand. vtium-render's stand-in GL raises errors the same way.
+    pub fn raise(&mut self, kind: ErrorKind) {
+        self.raised = Some(kind);
+    }
+
     /// Reads GL's errors since the last check, every flag GL holds, and the
     /// context's reset status where the driver reports one, sorted as
-    /// [`sort`] sorts them.
+    /// [`sort`] sorts them. An error a test raised comes first.
     pub fn check(&mut self) -> Result<(), Error> {
+        if let Some(kind) = self.raised.take() {
+            return Err(Error::new(kind, "raised by a test"));
+        }
         self.current()?;
         // SAFETY: GL's error and reset queries on the current context; the
         // reset query takes no argument.
