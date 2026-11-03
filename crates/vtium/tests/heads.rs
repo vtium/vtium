@@ -6232,3 +6232,26 @@ fn a_hidden_consoles_request_goes_with_its_session() {
         "the ended session's request is gone"
     );
 }
+
+/// ADR-1201 D11: closing a console ends its session, so closing the
+/// console the switch came from returns the head to the configured font at
+/// once, and nothing stays recorded against the closed console: a session
+/// ending later in another console reads nothing again and starts in the
+/// configured font.
+#[test]
+fn closing_the_console_a_switch_came_from_returns_the_font() {
+    let (dir, fonts) = reset_fixture("reset-close", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.2"), "b").expect("the switch");
+    let (mut s, reads) = reset_seat(&dir, &small_consoles(3), fonts);
+    assert!(s.until(SECOND, |a| sizes(a).iter().all(Option::is_some)));
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)), "console 3 shown");
+    assert_eq!(s.app.font_name(), "a");
+    assert_eq!(grid(&s.app, "small"), Some((32, 8)));
+    assert_eq!(reads.get(), 1);
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:8 32");
+    assert_eq!(reads.get(), 1, "nothing recorded against console 2");
+}

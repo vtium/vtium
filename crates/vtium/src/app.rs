@@ -2624,11 +2624,23 @@ impl App {
                         false
                     }
                     (Some(h), HeadChord::OpenConsole) => self.open_console(h, now),
-                    (Some(h), HeadChord::CloseConsole) => self
-                        .heads
-                        .get_mut(h)
-                        .and_then(|head| head.close_shown(visible))
-                        .is_some(),
+                    (Some(h), HeadChord::CloseConsole) => {
+                        let closed = self
+                            .heads
+                            .get_mut(h)
+                            .and_then(|head| head.close_shown(visible))
+                            .map(|console| console.id);
+                        // Its session ended, and with it the switch it made
+                        // (ADR-1201 D11).
+                        if let Some(id) = closed.filter(|&id| {
+                            self.heads
+                                .get(h)
+                                .is_some_and(|head| head.switched == Some(id))
+                        }) {
+                            self.return_font(h, id);
+                        }
+                        closed.is_some()
+                    }
                     (h, _) => h
                         .and_then(|h| self.heads.get_mut(h))
                         .is_some_and(|head| head.console_chord(chord, visible)),
@@ -2837,7 +2849,8 @@ impl App {
         }
     }
 
-    /// The session in head `h`'s console `id` ended (ADR-1201 D11). Where
+    /// The session in head `h`'s console `id` ended, or the console
+    /// closed (ADR-1201 D11). Where
     /// an OSC 50 switch from that console, or from any console of a head
     /// left with one, changed the head's font, vtium returns the head to
     /// the font the configuration gives it, read again; and where the font
@@ -2899,7 +2912,11 @@ impl App {
                 );
             }
         }
-        if !shown
+        let hidden = self
+            .heads
+            .get(h)
+            .is_some_and(|head| head.hidden.iter().any(|c| c.id == id));
+        if hidden
             && let Some(hidden) = self.configured_fit(h)
             && let Some(head) = self.heads.get_mut(h)
         {
