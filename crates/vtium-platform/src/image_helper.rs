@@ -425,7 +425,16 @@ impl ImageHost {
                         }
                         continue;
                     }
-                    _ => return Some(self.crash("its first packet is no hello")),
+                    _ => {
+                        let why = match wire::hello_version(&packet.bytes) {
+                            Some(v) if v != wire::VERSION => format!(
+                                "its hello speaks wire version {v}, and vtium speaks version {}",
+                                wire::VERSION
+                            ),
+                            _ => "its first packet is no hello".to_owned(),
+                        };
+                        return Some(self.crash(&why));
+                    }
                 }
             }
             return Some(match self.check(packet) {

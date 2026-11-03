@@ -240,6 +240,13 @@ pub fn encode_hello(hello: &Hello) -> Vec<u8> {
     out
 }
 
+/// The wire version a hello in `packet` names, whether or not it is this
+/// build's, so a refusal can say which version the helper speaks; `None`
+/// for a packet too short or of another kind.
+pub fn hello_version(packet: &[u8]) -> Option<u32> {
+    (packet.len() >= 12 && get32(packet, 0) == KIND_HELLO).then(|| get32(packet, 8))
+}
+
 /// The hello in `packet`, which must be exactly one.
 pub fn decode_hello(packet: &[u8]) -> Result<Hello, Malformed> {
     header(packet, KIND_HELLO, HELLO_BYTES)?;
@@ -837,6 +844,13 @@ mod tests {
             seccomp: true,
         };
         assert_eq!(decode_hello(&encode_hello(&hello)).unwrap(), hello);
+        let old = Hello {
+            version: 1,
+            ..hello
+        };
+        assert_eq!(hello_version(&encode_hello(&old)), Some(1));
+        assert!(decode_hello(&encode_hello(&old)).is_err());
+        assert_eq!(hello_version(&packet), None, "a reply is no hello");
         let mut bad = encode_hello(&hello);
         bad[16] = 2;
         assert!(decode_hello(&bad).is_err());

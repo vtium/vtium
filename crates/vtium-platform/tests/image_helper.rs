@@ -100,7 +100,12 @@ fn stand_in(role: &str, tmpdir: Option<&str>) -> ! {
     }
     if role != "no-hello" {
         let hello = Hello {
-            version: wire::VERSION,
+            // a helper of another build, which speaks the wire before frames
+            version: if role == "old-hello" {
+                1
+            } else {
+                wire::VERSION
+            },
             landlock: 0,
             seccomp: false,
         };
@@ -615,6 +620,7 @@ fn each_reply_that_fails_a_check_fails_the_request_as_a_crash() {
         "lie-ignored",
         "lie-frames",
         "lie-no-frames",
+        "old-hello",
         "pooled-unsealed",
         "no-hello",
     ] {
