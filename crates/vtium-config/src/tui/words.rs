@@ -109,6 +109,11 @@ pub const NEW_BAD_NAME: &str =
 pub fn new_added(name: impl Display) -> String {
     format!("{name} is added to the save; Enter saves it.")
 }
+pub fn new_replaces_binary(name: impl Display) -> String {
+    format!(
+        "the installed {name}.vtfrit is not UTF-8 text, so a new frit does not replace it; remove it with vtium config remove-frit {name} first"
+    )
+}
 pub fn new_refused(why: impl Display) -> String {
     format!("The frit does not read: {why}")
 }

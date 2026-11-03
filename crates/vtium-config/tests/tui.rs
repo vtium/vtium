@@ -334,6 +334,16 @@ fn inputs() -> Inputs {
         frits: PathBuf::from("/etc/vtium/fonts"),
         view: model::View::Fonts,
         display: Some((640, 480)),
+        installed: [
+            ("broken", Some("source=builtin:unifont\ncolour=red\n")),
+            ("minspec-16", Some("source=builtin:unifont\n")),
+            ("proof", Some("source=font:JetBrains Mono\n")),
+            ("tiny5", Some("source=bdf:/x/Tiny5Mono.bdf\n")),
+            ("latin1", None),
+        ]
+        .into_iter()
+        .map(|(n, t)| (n.to_owned(), t.map(str::to_owned)))
+        .collect(),
     }
 }
 
@@ -658,6 +668,42 @@ fn a_new_frit_is_typed_in_its_view_and_saved_into_the_frits() {
         plan.files[0].new,
         "# quiet: made by vtium-config new\nname=quiet\nsource=builtin:unscii-8\nsource=font:Some Family\n"
     );
+}
+
+/// A new frit named as an installed one replaces it, the save showing the
+/// installed text it replaces, as the TUI gathered it at start; one whose
+/// installed file is not UTF-8 text is not replaced, and says why.
+#[test]
+fn a_new_frit_replaces_the_installed_one_of_its_name() {
+    let to_new = [b"\t".as_slice(), b"\t", b"\t", b"\t"];
+    let mut keys: Vec<&[u8]> = to_new.to_vec();
+    keys.extend([b"proof".as_slice(), b"\r", b"builtin:unifont"]);
+    // five fields to the add row, the add, and the save
+    keys.extend([b"\r".as_slice(); 7]);
+    keys.push(b"q");
+    let mut c = console().keys(&keys);
+    run(&mut c);
+    let plan = c.saves.first().expect("a save");
+    assert_eq!(
+        plan.files[0].path,
+        PathBuf::from("/etc/vtium/fonts/proof.vtfrit")
+    );
+    assert_eq!(
+        plan.files[0].old.as_deref(),
+        Some("source=font:JetBrains Mono\n")
+    );
+    let mut keys: Vec<&[u8]> = to_new.to_vec();
+    keys.extend([b"latin1".as_slice(), b"\r", b"builtin:unifont"]);
+    keys.extend([b"\r".as_slice(); 6]);
+    let mut c = console().keys(&keys);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains("the installed latin1.vtfrit is not UTF-8 text"),
+        "{screen}"
+    );
+    assert!(c.saves.is_empty());
 }
 
 #[test]

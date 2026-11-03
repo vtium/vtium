@@ -87,6 +87,10 @@ pub struct Inputs {
     /// The first display's size in pixels, which a size's grid is counted
     /// on, where a display is connected.
     pub display: Option<(u32, u32)>,
+    /// Each frit installed in the frits' directory, by its name, as text,
+    /// or `None` for one that is not UTF-8: what a new frit of that name
+    /// replaces.
+    pub installed: std::collections::BTreeMap<String, Option<String>>,
 }
 
 /// How a save is installed, as the save view shows it: the command a
@@ -1014,12 +1018,14 @@ impl App {
         let text = self.new_frit.text();
         let path = self.inputs.frits.join(format!("{name}.vtfrit"));
         let read =
-            if crate::frit::valid_name(&name) && !crate::frit::RESERVED.contains(&name.as_str()) {
+            if !crate::frit::valid_name(&name) || crate::frit::RESERVED.contains(&name.as_str()) {
+                Err(super::words::NEW_BAD_NAME.to_owned())
+            } else if self.inputs.installed.get(&name) == Some(&None) {
+                Err(super::words::new_replaces_binary(&name))
+            } else {
                 crate::frit::Frit::parse(text.as_bytes(), &path, &name)
                     .map(|_| ())
                     .map_err(|e| e.why)
-            } else {
-                Err(super::words::NEW_BAD_NAME.to_owned())
             };
         match read {
             Ok(()) => {
@@ -1042,7 +1048,7 @@ impl App {
         // them in the order they are installed
         for (name, text) in &p.frits {
             let path = self.inputs.frits.join(format!("{name}.vtfrit"));
-            let old = std::fs::read_to_string(&path).ok();
+            let old = self.inputs.installed.get(name).cloned().flatten();
             files.push(FileEdit {
                 path,
                 old,

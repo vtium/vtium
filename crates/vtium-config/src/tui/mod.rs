@@ -129,6 +129,39 @@ pub fn fonts(dir: &Path) -> Vec<Font> {
     out
 }
 
+/// Each frit installed in `dir`, by its name: its text, or `None` for one
+/// that is not UTF-8. A file past the frit's bound, or not a regular file,
+/// is left out, as [`fonts`] leaves it.
+pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Option<String>> {
+    use std::io::Read;
+    let mut out = std::collections::BTreeMap::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_suffix(".vtfrit"))
+            .filter(|n| valid_name(n) && !RESERVED.contains(n))
+        else {
+            continue;
+        };
+        if !std::fs::metadata(&path).is_ok_and(|m| m.is_file()) {
+            continue;
+        }
+        let mut bytes = Vec::new();
+        let max = u64::try_from(crate::frit::FRIT_BYTES_MAX).unwrap_or(0);
+        let read = std::fs::File::open(&path)
+            .and_then(|f| f.take(max.saturating_add(1)).read_to_end(&mut bytes));
+        if read.is_ok() && bytes.len() <= crate::frit::FRIT_BYTES_MAX {
+            out.insert(name.to_owned(), String::from_utf8(bytes).ok());
+        }
+    }
+    out
+}
+
 /// How a save from `paths` is installed, with the command it runs, built
 /// by the function that builds the command the save runs.
 pub fn saving(paths: &Paths) -> model::Saving {
@@ -188,6 +221,7 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         frits: paths.frits.clone(),
         view,
         display: displays.first().map(|d| d.pixels),
+        installed: installed(&paths.frits),
     })
 }
 
