@@ -4158,8 +4158,8 @@ fn a_new_mode_that_fails_for_a_moment_is_tried_again() {
 }
 
 // vtium/vtium#216: on a legacy card, a new mode whose buffers cannot be
-// made, or whose CRTC is busy, leaves the display at the mode it is set
-// to, so the tokens it lends can be drawn into, and goes to the wake-up
+// made, or whose CRTC is busy, leaves the display set at the mode it is
+// set to, so the tokens it lends can be drawn into, and starts the wake-up
 // retries, whose next try sets it.
 #[test]
 fn a_legacy_display_whose_new_mode_fails_for_a_moment_tries_it_again() {
@@ -4170,7 +4170,7 @@ fn a_legacy_display_whose_new_mode_fails_for_a_moment_tries_it_again() {
         } else {
             v.card().state().set_crtc_errors.push_back(Errno::BUSY);
         }
-        assert!(v.poll().is_err(), "{fail}");
+        v.poll().unwrap();
         assert_eq!(events(&mut v), [], "{fail}");
         assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "{fail}");
         assert_eq!(token_size(&mut v, A), (640, 480), "{fail}");
@@ -4275,6 +4275,69 @@ fn a_wake_up_whose_new_mode_keeps_failing_wakes_at_the_mode_set() {
         v.size(DisplayId(A)),
         Some((800, 600)),
         "tried at the wake-up"
+    );
+}
+
+// vtium/vtium#216: on a legacy card, a wake-up whose new mode keeps failing
+// for another reason than the card refusing it sets the display at the
+// mode it is set to, keeps DRM master, and asks for one redraw; the
+// retries ask for none, and once they run out the mode is held back.
+#[test]
+fn a_legacy_wake_up_whose_new_mode_keeps_failing_wakes_at_the_mode_set() {
+    for fail in ["buffers", "crtc"] {
+        let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+        card.state().atomic = false;
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        v.sleep();
+        v.events().for_each(drop);
+        let swapped = vec![mode(800, 600, 60, true)];
+        v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+        if fail == "buffers" {
+            v.card().state().dumb_errors.extend([Errno::NOMEM; 1000]);
+        }
+        // The CRTC refuses every set at the new mode as busy.
+        v.card().state().busy_size = (fail == "crtc").then_some((800, 600));
+        v.wake_up().unwrap();
+        assert_eq!(
+            events(&mut v),
+            [Event::Redraw(DisplayId(A)), Event::Awake],
+            "{fail}"
+        );
+        assert!(v.card().state().master, "{fail}: DRM master is kept");
+        let last = v.card().state().set_crtcs.last().unwrap().3;
+        assert_eq!(last.size(), (640, 480), "{fail}: set at the mode set");
+        assert_eq!(token_size(&mut v, A), (640, 480), "{fail}");
+        let (seen, tries) = run_the_retries(&mut v);
+        assert_eq!(seen, [], "{fail}: no redraw, and no wake-up failed");
+        assert_eq!(tries, crate::WAKE_RETRIES, "{fail}");
+        assert!(v.card().state().master && v.awake, "{fail}");
+        let set = v.card().state().set_crtcs.len();
+        v.input().unwrap();
+        v.poll().unwrap();
+        assert_eq!(v.card().state().set_crtcs.len(), set, "{fail}: nothing set");
+    }
+}
+
+// vtium/vtium#216: on a legacy card, a display whose CRTC cannot be set at
+// a wake-up, at its new mode or at the mode it was set to, is not asked to
+// redraw, so the retries of the wake-up ask for no redraw either.
+#[test]
+fn a_legacy_display_not_set_at_a_wake_up_is_not_redrawn() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().atomic = false;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.sleep();
+    v.events().for_each(drop);
+    let swapped = vec![mode(800, 600, 60, true)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+    v.card().state().set_crtc_errors.extend([Errno::BUSY; 1000]);
+    let _ = v.wake_up();
+    let (seen, _) = run_the_retries(&mut v);
+    let mut all = events(&mut v);
+    all.extend(seen);
+    assert!(
+        !all.contains(&Event::Redraw(DisplayId(A))),
+        "no redraw for a display not set: {all:?}"
     );
 }
 

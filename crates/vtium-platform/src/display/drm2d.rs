@@ -1690,8 +1690,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     fn modeset(&mut self) -> io::Result<()> {
         // The legacy calls set each display on its own, so the displays set
         // are announced whatever failed for another.
-        let (set, took) = if self.legacy {
-            (self.legacy_modeset(), true)
+        let (set, unset) = if self.legacy {
+            (Ok(()), self.legacy_modeset())
         } else {
             let mut set = self.atomic_modeset_or_default();
             // A display whose new mode the card refuses, as its default
@@ -1726,10 +1726,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 }
                 set => set,
             };
-            let took = set.is_ok();
-            (set, took)
+            (set, Vec::new())
         };
-        if took {
+        if set.is_ok() {
             // A modeset brings every display on.
             self.blanked = false;
             self.owed = false;
@@ -1737,7 +1736,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             for o in &mut self.outputs {
                 o.down = false;
             }
-            self.announce();
+            self.announce_set(&unset);
             if self.owing() {
                 self.retry(false);
             }
@@ -1829,7 +1828,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// buffers hold nothing known to be redrawn. A display powered down is
     /// told to redraw when it is powered on.
     fn announce(&mut self) {
+        self.announce_set(&[]);
+    }
+
+    /// Announces each display online as [`Drm2d::announce`] does, but those
+    /// in `unset`, which a legacy modeset could not set: one of them is
+    /// told to redraw once a modeset sets it.
+    fn announce_set(&mut self, unset: &[DisplayId]) {
         for o in self.outputs.iter_mut().filter(|o| o.online) {
+            if unset.contains(&o.id) {
+                continue;
+            }
             let redraw = std::mem::take(&mut o.redraw);
             if o.announced {
                 if redraw && o.dpms_on() {
@@ -2134,12 +2143,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         outcome
     }
 
-    /// The legacy modeset: each CRTC in turn, with no flip event.
-    fn legacy_modeset(&mut self) -> io::Result<()> {
+    /// The legacy modeset: each CRTC in turn, with no flip event. A
+    /// display whose new mode cannot be set is set at the mode it is set
+    /// to: held back where the card refused the mode with `EINVAL`, and
+    /// else owed it. Returns the displays it could not set.
+    fn legacy_modeset(&mut self) -> Vec<DisplayId> {
         self.legacy_dark();
-        // A display whose new mode failed for another reason than the card
-        // refusing it, which the wake-up retries try again.
-        let mut failed = Ok(());
+        let mut unset = Vec::new();
         let mut outputs = std::mem::take(&mut self.outputs);
         let driven: Vec<u32> = outputs
             .iter()
@@ -2147,64 +2157,76 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .map(|o| o.crtc)
             .collect();
         for o in &mut outputs {
-            log::info!(
-                "preparing the modeset of {} at {}x{}",
-                o.name,
-                o.size().0,
-                o.size().1
-            );
-            let made = match self.stage(o) {
-                Ok(made) => made,
-                Err(e) => {
-                    log::error!("cannot allocate buffers for {}: {e}", o.name);
-                    if o.keep_set_mode() {
-                        failed = Err(e);
-                    }
-                    continue;
-                }
+            let mut set = self.legacy_set(o, &driven);
+            let again = match &set {
+                Ok(()) => false,
+                Err(Failure::Test(_)) => o.hold_back(),
+                Err(Failure::Other(_)) => o.keep_set_mode(),
             };
-            // A display that returns is set from off, as the atomic
-            // modeset sets it, where the card can turn its CRTC off; a
-            // CRTC a display online drives stays on.
-            if o.returning {
-                let on = self.connector_crtc(o.id.0);
-                if let Some(crtc) = on.filter(|c| !driven.contains(c))
-                    && let Err(e) = self.card.disable_crtc(crtc)
-                {
-                    log::debug!("cannot turn the CRTC of {} off first: {e}", o.name);
-                }
+            if again {
+                set = self.legacy_set(o, &driven);
             }
-            // Another program may have left its cursor on the CRTC.
-            if let Err(e) = self.card.hide_cursor(o.crtc) {
-                log::warn!("cannot hide the hardware cursor: {e}");
-            }
-            let fb = Self::staged_fb(o, made.as_ref());
-            match self.card.set_crtc(o.crtc, fb, o.id.0, &o.mode) {
-                Ok(()) => {
-                    self.install(o, made);
-                    o.online = true;
-                    o.returning = false;
-                    o.modeset_flip = true;
-                    // The CRTC is on, whatever DPMS it was at.
-                    if !o.dpms_on() {
-                        o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));
-                        o.powered_on();
-                    }
-                }
-                Err(e) => {
-                    log::error!("cannot set the CRTC of {}: {e}", o.name);
-                    self.release(made.unwrap_or_default());
-                    // EINVAL is the card refusing the mode.
-                    if errno(&e) == Some(Errno::INVAL) {
-                        o.hold_back();
-                    } else if o.keep_set_mode() {
-                        failed = Err(e);
-                    }
-                }
+            if set.is_err() {
+                unset.push(o.id);
             }
         }
         self.outputs = outputs;
-        failed
+        unset
+    }
+
+    /// Sets one display's CRTC at its mode, with new buffers where the mode
+    /// needs them. The card refusing the mode, which it does by failing the
+    /// CRTC set with `EINVAL`, fails as [`Failure::Test`].
+    fn legacy_set(&self, o: &mut Output<S::Memory>, driven: &[u32]) -> Result<(), Failure> {
+        log::info!(
+            "preparing the modeset of {} at {}x{}",
+            o.name,
+            o.size().0,
+            o.size().1
+        );
+        let made = self.stage(o).map_err(|e| {
+            log::error!("cannot allocate buffers for {}: {e}", o.name);
+            Failure::Other(e)
+        })?;
+        // A display that returns is set from off, as the atomic modeset
+        // sets it, where the card can turn its CRTC off; a CRTC a display
+        // online drives stays on.
+        if o.returning {
+            let on = self.connector_crtc(o.id.0);
+            if let Some(crtc) = on.filter(|c| !driven.contains(c))
+                && let Err(e) = self.card.disable_crtc(crtc)
+            {
+                log::debug!("cannot turn the CRTC of {} off first: {e}", o.name);
+            }
+        }
+        // Another program may have left its cursor on the CRTC.
+        if let Err(e) = self.card.hide_cursor(o.crtc) {
+            log::warn!("cannot hide the hardware cursor: {e}");
+        }
+        let fb = Self::staged_fb(o, made.as_ref());
+        match self.card.set_crtc(o.crtc, fb, o.id.0, &o.mode) {
+            Ok(()) => {
+                self.install(o, made);
+                o.online = true;
+                o.returning = false;
+                o.modeset_flip = true;
+                // The CRTC is on, whatever DPMS it was at.
+                if !o.dpms_on() {
+                    o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));
+                    o.powered_on();
+                }
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("cannot set the CRTC of {}: {e}", o.name);
+                self.release(made.unwrap_or_default());
+                if errno(&e) == Some(Errno::INVAL) {
+                    Err(Failure::Test(e))
+                } else {
+                    Err(Failure::Other(e))
+                }
+            }
+        }
     }
 
     #[cfg(test)]
@@ -2218,7 +2240,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 }
 
-/// How an atomic modeset failed: its test-only commit, or anything else.
+/// How a modeset failed: the card refused it, as an atomic modeset's
+/// test-only commit or a legacy CRTC set failing with `EINVAL`, or
+/// anything else.
 enum Failure {
     Test(io::Error),
     Other(io::Error),

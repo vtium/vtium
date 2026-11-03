@@ -179,6 +179,9 @@ pub(crate) struct State {
     pub(crate) dumb_errors: VecDeque<Errno>,
     /// Errors the next legacy CRTC sets return, one each.
     pub(crate) set_crtc_errors: VecDeque<Errno>,
+    /// A mode's size at which every legacy CRTC set fails with EBUSY, as a
+    /// CRTC that stays busy for that mode.
+    pub(crate) busy_size: Option<(u32, u32)>,
     /// Errors the next framebuffers' creations return, one each.
     pub(crate) fb_errors: VecDeque<Errno>,
     /// Errors the next dumb buffers' mappings return, one each.
@@ -1243,6 +1246,9 @@ impl Kms for FakeCard {
         }
         if let Some(e) = s.set_crtc_errors.pop_front() {
             return Err(err(e));
+        }
+        if s.busy_size == Some(mode.size()) {
+            return Err(err(Errno::BUSY));
         }
         s.set_crtcs.push((crtc, fb, connector, *mode));
         s.bind(connector, crtc);
