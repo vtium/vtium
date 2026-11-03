@@ -11,6 +11,12 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The console's terminal built with images in this crate's tests, to read
+# the TUI's size pictures as vtium reads them. The workspace's
+# `--all-features` run turns it on; it adds nothing to the binary.
+kitty-check = ["vtium-term/images"]
+
 [dependencies]
 # The glyph chunk format's writer; the PSF reader; the built-in fonts a
 # frit may name as sources. The PSF reader is behind

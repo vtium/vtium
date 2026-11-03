@@ -30,10 +30,11 @@ The font and settings tool of ADR-1201, which users reach as `vtium config`, and
 | `tests/serve.rs` | `serve` run as the console runs it, under its own sandbox. |
 | `tests/switch.rs` | `set` on a real pty in raw mode, answered by vtium-term's terminal, the frits it checks a name against, and its refusals before the terminal is touched. |
 | `tests/tui.rs` | The TUI's real loop driven headlessly: scripted keys in, vtium-term or a terminal that answers only DA1 on the other side, and the state's effects read in the bytes written and the screen. |
-| `tests/tui_pty.rs` | The real binary's TUI on a pty with vtium-term answering: the start bytes, live switching and the font given back on q, Ctrl-C and SIGTERM, no OSC 50 to another terminal, `set`'s check of the terminal, and a whole save through a stand-in for sudo. |
+| `tests/tui_pty.rs` | The real binary's TUI on a pty with vtium-term answering: the start bytes, live switching with one switch in flight, the font given back on q, Ctrl-C, SIGTERM, SIGHUP, SIGINT and SIGQUIT, an end when the terminal closes, no OSC 50 to another terminal, `set`'s check of the terminal, and a whole save through a stand-in for sudo. |
 | `tests/screens/` | The TUI's screens at 80x25 and 100x30, vtium's own goldens, each provisional until the maintainer reviews the layout, as `provisional.tsv` lists. |
 | `tests/apply.rs` | `apply` in a temporary directory standing in for `/etc/vtium`: one changed line, a target changed since the draft, a check that fails, a write that fails before its rename, links and bounds. |
-| `tests/specimen.rs` | Specimens drawn by the real helper. |
+| `tests/specimen.rs` | Specimens drawn by the real helper, their clip to the preview area and their cap, and the painter on the built-in fonts and a shipped frit. |
+| `tests/kitty_bytes.rs` | The size pictures read by vtium-term built with `images`, under the `kitty-check` feature that the workspace's `--all-features` run turns on: the graphics query answered before DA1, one placement after a picture in one command or in chunks, none after the delete. |
 | `tests/outline.rs`, `tests/common/ttf.rs` | Outline rasterising on a TrueType font with COLR color glyphs written in the test. |
 | `tests/shaping.rs` | Clusters shaped on a TrueType font with `ccmp`, joining forms and a precomposed letter written in the test. |
 | `gen-shaping/` | The generator of `src/shaping/data.rs` from the Unicode Character Database, its own workspace, run by hand. |

@@ -62,6 +62,8 @@ struct Seen {
     font: String,
     /// The pty closed.
     closed: bool,
+    /// For each read that held an OSC 50 switch, how many it held.
+    switches_per_read: Vec<usize>,
 }
 
 /// The console on a pty's master.
@@ -146,6 +148,14 @@ impl Console {
                     let (lock, cv) = &*shared;
                     let mut s = lock.lock().expect("the lock");
                     s.written.extend_from_slice(bytes);
+                    let sets = String::from_utf8_lossy(bytes)
+                        .split("\x1b]50;")
+                        .skip(1)
+                        .filter(|r| !r.starts_with('?'))
+                        .count();
+                    if sets > 0 {
+                        s.switches_per_read.push(sets);
+                    }
                     s.screen = screen_text(&t);
                     // the font the console draws: its query's answer
                     t.input(b"\x1b]50;?\x1b\\");
@@ -575,4 +585,77 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     // the command ran with no signal held
     let blocked = std::fs::read_to_string(root.join("sudo.sigblk")).expect("the stand-in ran");
     assert_eq!(blocked.trim(), "SigBlk:\t0000000000000000", "{blocked}");
+}
+
+#[test]
+fn two_keys_at_once_send_one_switch_and_the_next_after_its_reply() {
+    let (mut c, child, _slave) = started("in-flight", Kind::Vtium { ops: true }, 80, 25);
+    // two Ups in one write: tiny5, then proof once tiny5's reply is in
+    c.key(&[UP, UP].concat());
+    c.until("drew proof", |s| s.font == "proof");
+    c.key(b"q");
+    assert_eq!(status(child), 0);
+    assert_eq!(c.switches(), ["tiny5", "proof", "unifont"]);
+    let per_read = c.seen.0.lock().expect("the lock").switches_per_read.clone();
+    assert!(
+        per_read.iter().all(|&n| n == 1),
+        "one switch at a time: {per_read:?}"
+    );
+}
+
+#[test]
+fn sighup_sigint_and_sigquit_give_the_start_font_back() {
+    use rustix::process::Signal;
+    for (signal, n) in [(Signal::HUP, 1), (Signal::INT, 2), (Signal::QUIT, 3)] {
+        let (mut c, child, slave) =
+            started(&format!("signal-{n}"), Kind::Vtium { ops: true }, 80, 25);
+        c.key(UP);
+        c.until("drew tiny5", |s| s.font == "tiny5");
+        let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
+        rustix::process::kill_process(pid, signal).expect("kill");
+        assert_eq!(status(child), 128 + n, "signal {n}");
+        assert_eq!(c.switches(), ["tiny5", "unifont"], "signal {n}");
+        assert_eq!(c.font(), "unifont", "signal {n}");
+        assert!(cooked(&slave), "signal {n}");
+    }
+}
+
+#[test]
+fn a_terminal_that_closes_ends_the_tui() {
+    // the test answers on the master itself, then closes it
+    let (mut master, slave) = pair(80, 25);
+    let (root, fonts) = fixture("closed");
+    let mut child = tui(&slave, &root, &fonts);
+    drop(slave);
+    let mut got = Vec::new();
+    let mut buf = [0u8; 4096];
+    while !got.windows(3).any(|w| w == b"\x1b[c") {
+        let n = master.read(&mut buf).expect("the requests");
+        got.extend_from_slice(&buf[..n]);
+    }
+    master
+        .write_all(b"\x1bP>|vtium(test)\x1b\\\x1b]50;unifont\x1b\\\x1b[?62c")
+        .expect("the answers");
+    master.write_all(UP).expect("a key");
+    while !got.windows(9).any(|w| w == b"\x1b]50;tiny") {
+        let n = master.read(&mut buf).expect("the switch");
+        got.extend_from_slice(&buf[..n]);
+    }
+    drop(master);
+    // bounded only so a hang fails instead of stopping the test run
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(child.wait());
+    });
+    let status = ended
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the TUI ends when its terminal closes")
+        .expect("wait");
+    let code = status
+        .code()
+        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
+    assert!(
+        matches!(code, 1 | 129),
+        "the hangup's status, or a failed write's: {code}"
+    );
 }
