@@ -2175,17 +2175,23 @@ impl App {
     /// Hangs up head `h`'s sessions, which lost their last display under
     /// `when-display-lost = hangup` (ADR-1401 D8); each console then
     /// follows the respawn policy, its session starting again in the same
-    /// console.
+    /// console, after the end of its session returned what it switched or
+    /// zoomed (ADR-1201 D11).
     fn hang_up(&mut self, h: usize, now: Instant) {
         let since = now.saturating_duration_since(self.epoch);
         let oneshot = self.oneshot;
-        let again = self
+        let ended = self
             .heads
             .get_mut(h)
             .map(|head| head.hang_up(since, oneshot))
             .unwrap_or_default();
-        for id in again {
-            self.spawn(h, id);
+        for (id, after) in ended {
+            if matches!(after, AfterExit::Restart | AfterExit::Ended) {
+                self.return_font(h, id);
+            }
+            if after == AfterExit::Restart {
+                self.spawn(h, id);
+            }
         }
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);

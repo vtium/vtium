@@ -5918,18 +5918,32 @@ fn small_consoles(n: usize) -> String {
     )
 }
 
-/// What each console of the session-end tests runs: it shows its pty's
-/// size as it starts, as `size:ROWS COLS`; asks OSC 50 for the font that
-/// the file `switch.N` in `dir` names, where N is its console's id, and
-/// removes the file, so the console's next session asks nothing; and then
-/// echoes each line it reads, ending at `q`.
+/// What each console of the session-end tests runs: it counts its starts
+/// in `dir`'s `starts.N`, where N is its console's id, and shows its pty's
+/// size as it starts, as `size:ROWS COLS` and as `runK:ROWS COLS` for its
+/// Kth start; asks OSC 50 for the font that the file `switch.N` names, and
+/// removes the file, so the console's next session asks nothing; where
+/// `exit.N` is there, removes it and exits once `go.N` appears, removing
+/// that too; and otherwise echoes each line it reads, ending at `q`.
 fn switching(dir: &Path) -> String {
     format!(
-        "d={d}; echo \"size:$(stty size)\"; f=$d/switch.$VTIUM_CONSOLE; \
-         if [ -e $f ]; then n=$(cat $f); rm $f; printf \"\\033]50;$n\\007\"; fi; \
+        "d={d}; n=$VTIUM_CONSOLE; echo x >> $d/starts.$n; \
+         echo \"size:$(stty size)\"; echo \"run$(wc -l < $d/starts.$n):$(stty size)\"; \
+         f=$d/switch.$n; if [ -e $f ]; then x=$(cat $f); rm $f; printf \"\\033]50;$x\\007\"; fi; \
+         if [ -e $d/exit.$n ]; then rm $d/exit.$n; \
+         while [ ! -e $d/go.$n ]; do sleep 0.02; done; rm $d/go.$n; exit 0; fi; \
          while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
         d = dir.display()
     )
+}
+
+/// The line console `id` of head small shows for its `run`th start, once
+/// it does.
+fn run_line(app: &App, id: usize, run: usize) -> Option<String> {
+    console_lines(app, "small", &format!("run{run}:"))
+        .get(id - 1)
+        .cloned()
+        .flatten()
 }
 
 /// A directory of its own for `test`, holding the frits a, b and c, each
@@ -6150,4 +6164,34 @@ fn a_sessions_end_with_nothing_switched_or_zoomed_reads_and_reloads_nothing() {
     assert_eq!(size, "size:8 32");
     assert_eq!(s.app.font_name(), "a");
     assert_eq!(reads.get(), 0, "vtium.conf not read again");
+}
+
+/// ADR-1201 D11 and ADR-1401 D8: a hang-up ends the session too. The head
+/// loses its display under `when-display-lost = hangup`, and its session,
+/// which switched the font, starts again in the configured font, which the
+/// display draws when it comes back.
+#[test]
+fn a_hang_up_returns_the_font_before_the_session_starts_again() {
+    let (dir, fonts) = reset_fixture("reset-hangup", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let heads = small_consoles(1).replace(
+        "consoles = 1\n",
+        "consoles = 1\nwhen-display-lost = hangup\n",
+    );
+    let (mut s, _) = reset_seat(&dir, &heads, fonts);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    s.unplug("/dev/mem0", now());
+    assert!(
+        s.until(SECOND, |a| run_line(a, 1, 2).is_some()),
+        "hung up and started again"
+    );
+    let frames = s.memory("/dev/mem0").frames;
+    s.plug("/dev/mem0", now());
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.frames > frames),
+        "drawn again on its return"
+    );
+    assert_eq!(s.app.font_name(), "a");
+    assert_eq!(grid(&s.app, "small"), Some((32, 8)));
 }

@@ -249,10 +249,10 @@ impl Head {
     /// carrier (ADR-1401 D8): every console's pty closes, so its programs
     /// get SIGHUP, and each console follows the respawn policy with no
     /// quick exit counted, since vtium ended the session. Each console
-    /// keeps its place and its id (D5). Returns the consoles whose
-    /// sessions start again. A head that ended or never started has
+    /// keeps its place and its id (D5). Returns each console hung up, with
+    /// what its session's end does. A head that ended or never started has
     /// nothing to hang up.
-    pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool) -> Vec<u64> {
+    pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool) -> Vec<(u64, AfterExit)> {
         self.hangup_due = None;
         if self.ended() || !self.started() {
             return Vec::new();
@@ -262,7 +262,7 @@ impl Head {
             self.name()
         );
         let running: Vec<u64> = self.consoles().filter(|c| !c.ended).map(|c| c.id).collect();
-        let mut again = Vec::new();
+        let mut ended = Vec::new();
         for id in running {
             let Some(console) = self.console_mut(id) else {
                 continue;
@@ -274,11 +274,9 @@ impl Head {
                 .respawn
                 .as_mut()
                 .map_or(Next::Restart, |r| r.hung_up(since, oneshot));
-            if self.session_ended(id, next) == AfterExit::Restart {
-                again.push(id);
-            }
+            ended.push((id, self.session_ended(id, next)));
         }
-        again
+        ended
     }
 
     /// What the end of console `id`'s session returns (ADR-1201 D11): the
