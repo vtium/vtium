@@ -4385,6 +4385,25 @@ class PictureGoldenTest(unittest.TestCase):
                if self.pixel(img, x, y) != self.BLACK]
         self.assertEqual(lit[:4], [], "cells at column %d, row %d not blank" % (col, row))
 
+    def test_reads_every_golden(self):
+        # Each of the variant's goldens is read by a test of this class, so
+        # renaming or dropping one cannot leave a golden unchecked.
+        read = set()
+
+        class Recording(type(self)):
+            def golden(inner, screen):
+                read.add(screen)
+                return PictureGoldenTest.golden(inner, screen)
+
+        for name in dir(self):
+            if name.startswith("test_") and name != "test_reads_every_golden":
+                getattr(Recording(name), name)()
+        want = {t3_evaluate.same_as(c, self.VARIANT)
+                for c in t3_scenario.variant_cases(self.VARIANT)
+                if c not in t3_evaluate.NO_GOLDEN}
+        self.assertEqual(want, set(t3_evaluate.PICTURE_SCREENS) | {"img-scrollback"})
+        self.assertEqual(read, want)
+
     def test_sixel(self):
         img = self.golden("img-sixel")
         self.placed(img, "quad", 5, 3)
