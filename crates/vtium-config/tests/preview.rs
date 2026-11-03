@@ -4,8 +4,12 @@
 //! answers the graphics query: the console's own terminal built with
 //! `images`, under the `kitty-check` feature.
 
+use std::fs::{File, OpenOptions};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
@@ -169,15 +173,84 @@ fn preview_s_usage_errors_exit_2() {
     }
 }
 
-#[cfg(feature = "kitty-check")]
-mod pictures {
-    use std::fs::{File, OpenOptions};
+/// A pty's master and its slave, neither the test's controlling terminal.
+fn pair() -> (File, File) {
+    let master =
+        openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).expect("a pty");
+    grantpt(&master).expect("grantpt");
+    unlockpt(&master).expect("unlockpt");
+    let name = ptsname(&master, Vec::new()).expect("ptsname");
+    let slave = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(rustix::fs::OFlags::NOCTTY.bits() as i32)
+        .open(name.to_str().expect("a path"))
+        .expect("the slave");
+    (File::from(master), slave)
+}
+
+/// `preview unifont` on a pty whose other end answers nothing, or DA1
+/// alone: its status and every byte it wrote.
+fn on_a_terminal(answers_da1: bool) -> (i32, String) {
     use std::io::{Read, Write};
     use std::os::fd::AsFd;
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::process::Stdio;
+    let root = fixture(if answers_da1 { "da1-only" } else { "silent" }, None);
+    let (mut master, slave) = pair();
+    let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
+    let mut child = Command::new("setsid")
+        .arg("--ctty")
+        .arg(BIN)
+        .arg("--configdir")
+        .arg(&root)
+        .arg("--frits")
+        .arg(frits())
+        .args(["--sys", "/nonexistent", "preview", "unifont"])
+        .env("LANG", "C")
+        .stdin(io())
+        .stdout(io())
+        .stderr(io())
+        .spawn()
+        .expect("setsid runs");
+    drop(slave);
+    let mut written = Vec::new();
+    let mut buf = [0u8; 4096];
+    while let Ok(n @ 1..) = master.read(&mut buf) {
+        written.extend_from_slice(&buf[..n]);
+        if answers_da1
+            && buf[..n].windows(3).any(|w| w == b"\x1b[c")
+            && master.write_all(b"\x1b[?62c").is_err()
+        {
+            break;
+        }
+    }
+    let status = child.wait().expect("wait").code().unwrap_or(-1);
+    (status, String::from_utf8_lossy(&written).into_owned())
+}
+
+/// A terminal that answers nothing, or DA1 alone, draws no kitty graphics:
+/// preview asks, waits at most its second, and prints the line of text
+/// alone.
+#[test]
+fn a_terminal_that_answers_nothing_or_da1_alone_gets_no_picture() {
+    for answers_da1 in [false, true] {
+        let (status, written) = on_a_terminal(answers_da1);
+        assert_eq!(status, 0, "{written:?}");
+        assert!(
+            written.contains("\x1b_Gi=31,s=1,v=1,a=q"),
+            "asked: {written:?}"
+        );
+        assert!(written.contains("unifont\t12 pt\tcell 8x16"), "{written:?}");
+        assert!(!written.contains("a=T"), "no picture: {written:?}");
+    }
+}
+
+#[cfg(feature = "kitty-check")]
+mod pictures {
+    use std::io::{Read, Write};
+    use std::os::fd::AsFd;
     use std::process::Stdio;
 
-    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
     use vtium_term::images::{Kitty, Switches};
     use vtium_term::{ImageString, Terminal};
 
@@ -196,21 +269,6 @@ mod pictures {
         });
         t.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
         t
-    }
-
-    fn pair() -> (File, File) {
-        let master =
-            openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).expect("a pty");
-        grantpt(&master).expect("grantpt");
-        unlockpt(&master).expect("unlockpt");
-        let name = ptsname(&master, Vec::new()).expect("ptsname");
-        let slave = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(rustix::fs::OFlags::NOCTTY.bits() as i32)
-            .open(name.to_str().expect("a path"))
-            .expect("the slave");
-        (File::from(master), slave)
     }
 
     /// Each font is a line and a picture that moves the cursor past it,
