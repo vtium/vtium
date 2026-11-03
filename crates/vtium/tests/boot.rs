@@ -606,9 +606,8 @@ impl Harness {
     }
 }
 
-const SECOND: Duration = Duration::from_secs(5);
-
-/// How long a wait on a frame, drawn by the head's render thread, may run
+/// How long a wait on a state that another thread or process brings, such
+/// as a frame the render thread draws or a line a session prints, may run
 /// before the test fails: long enough for a loaded machine, and only a
 /// bound, since each wait ends at the state it waits for.
 const BOUND: Duration = Duration::from_secs(10);
@@ -628,12 +627,12 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
     assert_eq!(h.app.grid(), (40, 10));
 
     // The child's output reaches the screen and is drawn.
-    assert!(h.until(SECOND, |a| {
+    assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.contains("hello from"))
     }));
-    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
     assert!(
-        h.until_memory(SECOND, |m| m.frames > 0),
+        h.until_memory(BOUND, |m| m.frames > 0),
         "a frame was presented"
     );
     assert!(
@@ -643,7 +642,7 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
 
     // Keys go through the key order to the child, which echoes them.
     h.type_str("ok\r");
-    assert!(h.until(SECOND, |a| {
+    assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.contains("got:ok"))
     }));
 
@@ -660,7 +659,7 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
     h.app
         .input_event(InputEvent::Key(ctrl_super_f12.clone()), now());
     assert!(
-        h.until_memory(SECOND, |m| !m.awake),
+        h.until_memory(BOUND, |m| !m.awake),
         "asleep for the release"
     );
     assert!(
@@ -670,9 +669,9 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
     assert!(!h.app.vt.is_active());
     let before = h.memory().frames;
     h.app.input_event(InputEvent::Key(ctrl_super_f12), now());
-    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
     assert!(
-        h.until_memory(SECOND, |m| m.awake && m.frames > before),
+        h.until_memory(BOUND, |m| m.awake && m.frames > before),
         "the acquire wakes the display and draws it again"
     );
 
@@ -689,7 +688,7 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
 
     // The child ends; under oneshot vtium ends, switching back first.
     h.type_str("\r");
-    assert!(h.until(SECOND, |a| a.finished().is_some()));
+    assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::Oneshot));
     assert!(!h.app.vt.is_active(), "the VT was given back");
 }
@@ -697,7 +696,7 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
 #[test]
 fn a_command_that_fails_at_once_is_started_five_times_more() {
     let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", "exit 3"]);
-    assert!(h.until(SECOND, |a| a.finished().is_some()));
+    assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::TooQuick));
     assert_eq!(h.app.finished().map(Exit::status), Some(1));
 }
@@ -712,11 +711,11 @@ fn a_repeat_is_dropped_once_the_program_resets_decarm() {
         "-c",
         "printf '\\033[?8lready\\n'; read x; echo \"got:$x\"",
     ]);
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
     h.type_keys("a", false);
     h.type_keys("b", true);
     h.type_keys("\r", false);
-    assert!(h.until(SECOND, |a| {
+    assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.starts_with("got:"))
     }));
     assert!(
@@ -803,7 +802,7 @@ fn decorated(options: &[&str], text: &str) -> Harness {
     let mut args = options.to_vec();
     args.extend(["--login", "--", "/bin/sh", "-c", &script]);
     let mut h = Harness::new(&args);
-    assert!(h.until(SECOND, |a| shows(a, "U S")));
+    assert!(h.until(BOUND, |a| shows(a, "U S")));
     // The S, two cells past the cursor's first place, is drawn.
     assert!(
         h.until_memory(BOUND, |m| m.inked(0, 2..3)),
@@ -865,13 +864,13 @@ fn a_retaken_vt_sets_the_displays_up_again_and_draws_them_whole() {
         &["--login", "--", "/bin/sh", "-c", "printf 'held\\n'; read x"],
         ScriptedVt::default(),
     );
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "held")));
-    assert!(h.until_memory(SECOND, |m| m.frames > 0 && m.age == 1));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "held")));
+    assert!(h.until_memory(BOUND, |m| m.frames > 0 && m.age == 1));
     let (wake_ups, frames) = (h.memory().wake_ups, h.memory().frames);
     let lent = h.memory().ages.len();
     h.scripted().events.push(VtEvent::Retaken);
     assert!(
-        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1 && m.frames > frames),
+        h.until_memory(BOUND, |m| m.wake_ups == wake_ups + 1 && m.frames > frames),
         "the device is set up again and a frame drawn after it"
     );
     // The wake-up made the buffer's contents unknown, and a token lent
@@ -982,12 +981,12 @@ fn an_acquire_restarts_the_blanks_countdown() {
     h.shown();
     h.skip_turn(Duration::from_secs(40));
     h.scripted().events.push(VtEvent::Release);
-    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    assert!(h.until(BOUND, |a| !a.vt.is_active()), "released");
     let wake_ups = h.memory().wake_ups;
     h.scripted().active = true;
     h.scripted().events.push(VtEvent::Acquired);
     assert!(
-        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1),
+        h.until_memory(BOUND, |m| m.wake_ups == wake_ups + 1),
         "woken by the acquire"
     );
     // The switch back is the user's: the countdown starts again from it.
@@ -1015,7 +1014,7 @@ fn a_device_added_while_the_vt_is_not_shown_sleeps_until_the_acquire() {
         &["--login", "--", "/bin/sh", "-c", "read x"],
         ScriptedVt::default(),
     );
-    assert!(h.until(SECOND, |a| a.vt.is_active()), "acquired");
+    assert!(h.until(BOUND, |a| a.vt.is_active()), "acquired");
     let add = |h: &mut Harness, node: &str| {
         h.app
             .add_video(PathBuf::from(node), Box::new(Memory::default()));
@@ -1036,7 +1035,7 @@ fn a_device_added_while_the_vt_is_not_shown_sleeps_until_the_acquire() {
         "shown: woken, not slept"
     );
     h.scripted().events.push(VtEvent::Release);
-    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    assert!(h.until(BOUND, |a| !a.vt.is_active()), "released");
     add(&mut h, "/dev/mem2");
     assert_eq!(counts(&mut h, "/dev/mem2"), (1, 0), "not shown: slept");
     h.scripted().active = true;
@@ -1065,7 +1064,7 @@ fn a_retakes_wake_up_landing_after_the_blank_leaves_it_dark() {
         ScriptedVt::default(),
         Box::new(late),
     );
-    assert!(h.until_memory(SECOND, |m| m.frames > 0), "drawn");
+    assert!(h.until_memory(BOUND, |m| m.frames > 0), "drawn");
     // The re-take's wake-up retries past the blank.
     h.late().held = Some(Event::Awake);
     h.scripted().events.push(VtEvent::Retaken);
@@ -1077,7 +1076,7 @@ fn a_retakes_wake_up_landing_after_the_blank_leaves_it_dark() {
     h.memory().dpms = Some(Dpms::On);
     h.late().held = None;
     assert!(
-        h.until_memory(SECOND, |m| m.events.is_empty()),
+        h.until_memory(BOUND, |m| m.events.is_empty()),
         "the `Awake` taken"
     );
     assert_eq!(h.memory().dpms, Some(Dpms::Off), "dark again");
@@ -1236,7 +1235,7 @@ fn a_program_wakes_nothing_while_the_vt_is_anothers() {
         "blanked after dpms-timeout"
     );
     h.scripted().events.push(VtEvent::Release);
-    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    assert!(h.until(BOUND, |a| !a.vt.is_active()), "released");
     let (unblanks, sets) = (h.memory().unblanks, h.memory().dpms_sets.len());
     std::fs::write(&go, b"").expect("the go file");
     assert!(
@@ -1249,7 +1248,7 @@ fn a_program_wakes_nothing_while_the_vt_is_anothers() {
     h.scripted().active = true;
     h.scripted().events.push(VtEvent::Acquired);
     assert!(
-        h.until_memory(SECOND, |m| m.wake_ups == wake_ups + 1
+        h.until_memory(BOUND, |m| m.wake_ups == wake_ups + 1
             && m.dpms == Some(Dpms::On)),
         "lit by the acquire"
     );
@@ -1448,7 +1447,7 @@ fn a_programs_minute_blanks_past_the_pointers_hide() {
         go.display()
     ));
     assert!(
-        h.until(SECOND, |a| a
+        h.until(BOUND, |a| a
             .screen_text()
             .iter()
             .any(|l| l.starts_with("ready"))),
@@ -1460,7 +1459,7 @@ fn a_programs_minute_blanks_past_the_pointers_hide() {
     h.skip_turn(Duration::from_secs(39));
     assert_eq!(h.memory().dpms, Some(Dpms::On), "lit at 59 s");
     h.skip(Duration::from_secs(2));
-    assert!(h.until_memory(SECOND, OFF), "blanked at the minute");
+    assert!(h.until_memory(BOUND, OFF), "blanked at the minute");
     let unblanks = h.memory().unblanks;
     std::fs::write(&go, b"").expect("the go file");
     assert!(
@@ -1487,7 +1486,7 @@ fn the_loop_wakes_for_the_blank() {
         ScriptedVt::default(),
     );
     assert!(
-        h.until_memory(SECOND, |m| m.frames > 0 && m.events.is_empty()),
+        h.until_memory(BOUND, |m| m.frames > 0 && m.events.is_empty()),
         "drawn"
     );
     let wake = h.app.next_wake(h.at());
@@ -1522,7 +1521,7 @@ fn a_larger_display_draws_a_larger_font_on_the_same_grid() {
         Box::new(Memory::sized(640, 320)),
     );
     h.app.vt.activate().ok();
-    assert!(h.until(SECOND, |a| a.cells().len() == 2));
+    assert!(h.until(BOUND, |a| a.cells().len() == 2));
     // 320x160 holds 40x10 cells of 8x16; 640x320 holds 40x10 of 16x32.
     assert_eq!(h.app.grid(), (40, 10));
     assert_eq!(h.app.cells(), [(8, 16), (16, 32)]);
@@ -1545,7 +1544,7 @@ fn zoom_and_rotate_change_the_grid() {
     h.app.input_event(key(Mods::LOGO, minus), now());
     assert_eq!(h.app.grid(), (40, 10));
     // The keys reach no program.
-    assert!(h.until(SECOND, |a| a.screen_text().iter().all(|l| l.is_empty())));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().all(|l| l.is_empty())));
 }
 
 /// A device whose flips take 100 ms and report no completion, as a lost
@@ -1642,7 +1641,7 @@ fn a_due_draw_held_by_a_flip_does_not_spin_the_loop() {
         FakeVt::new(),
         Box::new(slow),
     );
-    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
     h.settled();
     h.type_str("\r");
     let end = now() + Duration::from_millis(1500);
@@ -1700,7 +1699,7 @@ fn button_reports_are_queued_whole_while_the_child_does_not_read() {
         "stty raw -echo; printf '\\033[?1003h\\033[?1006hready'; sleep 2; \
          awk 'BEGIN{RS=\"q\"}{p=gsub(/<0;[0-9]+;[0-9]+M/,\"\");r=gsub(/<0;[0-9]+;[0-9]+m/,\"\");printf \"press=%d release=%d\\r\\n\",p,r;exit}'; read x",
     ]);
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
     let queued = |h: &Harness| h.app.pty().map_or(0, |p| p.queued());
     // Keys fill the pty and then the queue past the point motion
     // coalesces from.
@@ -1758,14 +1757,14 @@ fn a_wheel_event_is_one_report_or_three_lines() {
          stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
          awk 'BEGIN{RS=\"q\"}{n=gsub(/<64;/,\"\");printf \"wheel=%d\\r\\n\",n;exit}'; read x",
     ]);
-    assert!(h.until(SECOND, |a| {
+    assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.ends_with("ready"))
     }));
     h.app
         .input_event(pointer(PointerEvent::Wheel(i32::MAX)), now());
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| a
+        h.until(BOUND, |a| a
             .screen_text()
             .iter()
             .any(|l| l.ends_with("wheel=1"))),
@@ -1781,7 +1780,7 @@ fn a_wheel_event_is_one_report_or_three_lines() {
         "-c",
         "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; read x",
     ]);
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "line39")));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "line39")));
     h.app
         .input_event(pointer(PointerEvent::Wheel(i32::MAX)), now());
     assert_eq!(
@@ -1857,7 +1856,7 @@ fn a_drag_across_two_lines_copies_them_and_the_middle_button_pastes_them() {
         "-c",
         "printf 'first line\\nsecond one\\n'; read x; read y; echo \"got:$x|$y\"; read z",
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "second one")));
+    assert!(h.until(BOUND, |a| shows(a, "second one")));
     h.point(
         [
             over(0, 0, None),
@@ -1875,7 +1874,7 @@ fn a_drag_across_two_lines_copies_them_and_the_middle_button_pastes_them() {
     );
     h.type_str("\r");
     assert!(
-        h.until(SECOND, |a| shows(a, "got:first line|second one")),
+        h.until(BOUND, |a| shows(a, "got:first line|second one")),
         "{:?}",
         h.app.screen_text()
     );
@@ -1894,7 +1893,7 @@ fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
         "-c",
         "printf 'alpha beta gamma\\nsecond line here\\n'; read x; read y; echo \"got:$x|$y\"; read z",
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "second line here")));
+    assert!(h.until(BOUND, |a| shows(a, "second line here")));
     let none = Mods::empty();
     h.point(
         [
@@ -1954,7 +1953,7 @@ fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
         none,
     );
     assert!(
-        h.until(SECOND, |a| shows(a, "got:beta|second line here")),
+        h.until(BOUND, |a| shows(a, "got:beta|second line here")),
         "{:?}",
         h.app.screen_text()
     );
@@ -1974,7 +1973,7 @@ fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
         "stty raw -echo; printf 'pick me\\r\\n\\033[?1000h\\033[?1006h\\033[?2004hready'; \
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.point(
         [
             over(0, 0, None),
@@ -1993,10 +1992,7 @@ fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
     );
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(
-            a,
-            "E[200~pick meE[201~E[<0;7;1ME[<0;7;1m"
-        )),
+        h.until(BOUND, |a| shows(a, "E[200~pick meE[201~E[<0;7;1ME[<0;7;1m")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2018,7 +2014,7 @@ fn shift_and_the_wheel_scroll_back_while_the_program_tracks_the_pointer() {
          stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
          awk 'BEGIN{RS=\"q\"}{n=gsub(/</,\"\");printf \"reports=%d\\r\\n\",n;exit}'; read x",
     ]);
-    assert!(h.until(SECOND, |a| {
+    assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.ends_with("ready"))
     }));
     let back = |h: &Harness| {
@@ -2037,7 +2033,7 @@ fn shift_and_the_wheel_scroll_back_while_the_program_tracks_the_pointer() {
     assert_eq!(back(&h), 0);
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| a
+        h.until(BOUND, |a| a
             .screen_text()
             .iter()
             .any(|l| l.ends_with("reports=1"))),
@@ -2059,7 +2055,7 @@ fn shift_pressed_during_a_reported_drag_changes_nothing() {
         "stty raw -echo; printf '\\033[?1002h\\033[?1006hready'; \
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.point(
         [over(0, 0, None), press(Button::Left, false)],
         Mods::empty(),
@@ -2077,7 +2073,7 @@ fn shift_pressed_during_a_reported_drag_changes_nothing() {
     );
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(a, "E[<0;1;1ME[<36;5;1ME[<0;5;1m")),
+        h.until(BOUND, |a| shows(a, "E[<0;1;1ME[<36;5;1ME[<0;5;1m")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2136,7 +2132,7 @@ fn the_pointer_over_a_link_hovers_it_and_ctrl_shows_its_uri() {
         "-c",
         &format!("{LINKED}; read x"),
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "see link here")));
+    assert!(h.until(BOUND, |a| shows(a, "see link here")));
     let uri = || Some("file://pixie/home/a.md".to_owned());
     assert_eq!(links(&h.app), (None, vec![], None));
     h.point([over(5, 0, None)], Mods::empty());
@@ -2176,7 +2172,7 @@ fn ctrl_click_on_a_link_copies_its_uri_and_the_middle_button_pastes_it() {
         "-c",
         &format!("{LINKED}; read x; echo \"got:$x\"; read y"),
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "see link here")));
+    assert!(h.until(BOUND, |a| shows(a, "see link here")));
     let none = Mods::empty();
     h.point(
         [
@@ -2232,7 +2228,7 @@ fn ctrl_click_on_a_link_copies_its_uri_and_the_middle_button_pastes_it() {
     );
     h.type_str("\r");
     assert!(
-        h.until(SECOND, |a| shows(a, "got:file://pixie/home/a.md")),
+        h.until(BOUND, |a| shows(a, "got:file://pixie/home/a.md")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2253,7 +2249,7 @@ fn ctrl_shift_click_copies_a_link_while_the_program_tracks_the_pointer() {
              awk 'BEGIN{{RS=\"q\"}}{{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}}'; read x"
         ),
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     let click = [
         over(5, 0, None),
         press(Button::Left, false),
@@ -2265,7 +2261,7 @@ fn ctrl_shift_click_copies_a_link_while_the_program_tracks_the_pointer() {
     assert_eq!(h.app.selection(), Some(&b"file://pixie/home/a.md"[..]));
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(a, "E[<16;6;1ME[<16;6;1m")),
+        h.until(BOUND, |a| shows(a, "E[<16;6;1ME[<16;6;1m")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2288,14 +2284,14 @@ fn the_wheel_sends_cursor_keys_on_the_alternate_screen_under_mode_1007() {
                  awk 'BEGIN{{RS=\"q\"}}{{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}}'; read x"
             ),
         ]);
-        assert!(h.until(SECOND, |a| shows(a, "ready")));
+        assert!(h.until(BOUND, |a| shows(a, "ready")));
         h.point(
             [PointerEvent::Wheel(1), PointerEvent::Wheel(-1)],
             Mods::empty(),
         );
         h.type_str("q");
         assert!(
-            h.until(SECOND, |a| shows(a, want)),
+            h.until(BOUND, |a| shows(a, want)),
             "{reset:?}: {:?}",
             h.app.screen_text()
         );
@@ -2327,7 +2323,7 @@ fn natural_scrolling_reverses_the_wheel_but_not_its_zoom() {
         "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; echo ready; read x",
     ]);
     h.app.set_natural_scrolling(true);
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.point([PointerEvent::Wheel(1)], Mods::empty());
     assert_eq!(back(&h), 0, "a step up scrolls down, at the bottom already");
     h.point([PointerEvent::Wheel(-1)], Mods::empty());
@@ -2352,11 +2348,11 @@ fn natural_scrolling_reverses_the_wheel_but_not_its_zoom() {
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
     ]);
     h.app.set_natural_scrolling(true);
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.point([PointerEvent::Wheel(1)], Mods::empty());
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(a, "[E[BE[BE[B]")),
+        h.until(BOUND, |a| shows(a, "[E[BE[BE[B]")),
         "a step up sends the down key: {:?}",
         h.app.screen_text()
     );
@@ -2370,11 +2366,11 @@ fn natural_scrolling_reverses_the_wheel_but_not_its_zoom() {
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
     ]);
     h.app.set_natural_scrolling(true);
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.point([over(0, 0, None), PointerEvent::Wheel(1)], Mods::empty());
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(a, "[E[<65;1;1M]")),
+        h.until(BOUND, |a| shows(a, "[E[<65;1;1M]")),
         "a step up reports the wheel's down button: {:?}",
         h.app.screen_text()
     );
@@ -2394,7 +2390,7 @@ fn a_program_that_asks_for_shift_gets_it_in_its_reports() {
          stty raw -echo; printf 'pick me\\r\\n\\033[?1000h\\033[?1006h\\033[>1sready'; \
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     let row = 8;
     h.point(
         [
@@ -2417,7 +2413,7 @@ fn a_program_that_asks_for_shift_gets_it_in_its_reports() {
     );
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(a, "E[<4;1;9ME[<4;1;9mE[<68;1;9M")),
+        h.until(BOUND, |a| shows(a, "E[<4;1;9ME[<4;1;9mE[<68;1;9M")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2434,10 +2430,10 @@ fn bell_rings_the_vt_at_a_bel_while_mode_1042_lets_it_through() {
         let mut all: Vec<&str> = args.to_vec();
         all.extend(["--login", "--", "/bin/sh", "-c", script]);
         let mut h = Harness::with_vt(&all, ScriptedVt::default());
-        assert!(h.until(SECOND, |a| shows(a, "one")));
+        assert!(h.until(BOUND, |a| shows(a, "one")));
         assert_eq!(h.scripted().bells, want, "{args:?}");
         h.type_str("\r");
-        assert!(h.until(SECOND, |a| shows(a, "two")));
+        assert!(h.until(BOUND, |a| shows(a, "two")));
         assert_eq!(h.scripted().bells, want, "{args:?}: mode 1042 reset");
     }
 }
@@ -2460,7 +2456,7 @@ fn a_rotation_moves_the_hover_to_the_link_now_under_the_pointer() {
         "printf '\\033]8;;https://a.example/\\007'; printf '%0240d' 0 | tr 0 A; \
          printf '\\033]8;;https://b.example/\\007BBBBBBBB\\033]8;;\\007\\n'; read x",
     ]);
-    assert!(h.until(SECOND, |a| {
+    assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.ends_with("BBBBBBBB"))
     }));
     let still = PointerEvent::Moved {
@@ -2495,7 +2491,7 @@ fn a_zoom_moves_the_hover_to_the_link_now_under_the_pointer() {
         "-c",
         "printf '\\033]8;;https://a.example/\\007AAAAAAAA\\033]8;;https://b.example/\\007BBBBBBBB\\033]8;;\\007\\n'; read x",
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "AAAAAAAABBBBBBBB")));
+    assert!(h.until(BOUND, |a| shows(a, "AAAAAAAABBBBBBBB")));
     let still = PointerEvent::Moved {
         x: 100,
         y: 8,
@@ -2530,7 +2526,7 @@ fn typing_that_hides_the_pointer_ends_the_hover() {
         "-c",
         &format!("{LINKED}; read x"),
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "see link here")));
+    assert!(h.until(BOUND, |a| shows(a, "see link here")));
     h.point([over(5, 0, None)], Mods::empty());
     assert_eq!(links(&h.app).0, Some("file://pixie/home/a.md".to_owned()));
     h.type_str("a");
@@ -2552,7 +2548,7 @@ fn ctrl_shift_right_click_copies_a_commands_output_while_the_program_tracks() {
          stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "$ ready")));
+    assert!(h.until(BOUND, |a| shows(a, "$ ready")));
     let click = [
         over(1, 2, None),
         press(Button::Right, false),
@@ -2563,7 +2559,7 @@ fn ctrl_shift_right_click_copies_a_commands_output_while_the_program_tracks() {
     h.point(click, Mods::CTRL);
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(a, "[E[<18;2;3ME[<18;2;3m]")),
+        h.until(BOUND, |a| shows(a, "[E[<18;2;3ME[<18;2;3m]")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2583,7 +2579,7 @@ fn ctrl_right_click_copies_the_output_of_the_command_under_the_pointer() {
         "-c",
         "printf '\\033]133;A\\007$ \\033]133;B\\007ls\\n\\033]133;C\\007one\\ntwo\\n\\033]133;A\\007$ '; read x",
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "two")));
+    assert!(h.until(BOUND, |a| shows(a, "two")));
     let selected = |h: &Harness| {
         h.app
             .term()
@@ -2640,7 +2636,7 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
          head -c 1 >/dev/null; printf '\\033[?1049halt'; \
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read y",
     ]);
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "$ last")));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "$ last")));
     let back = |h: &Harness| {
         h.app
             .term()
@@ -2666,7 +2662,7 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
     // The program on the main screen read nothing before the `q`.
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| a
+        h.until(BOUND, |a| a
             .screen_text()
             .iter()
             .any(|l| l.starts_with("main:"))),
@@ -2676,7 +2672,7 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
     assert!(shows(&h.app, "main:[]"), "{:?}", h.app.screen_text());
     h.type_str("x");
     assert!(
-        h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "alt")),
+        h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "alt")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2684,7 +2680,7 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
     jump(&mut h, false);
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(a, "E[1;6AE[1;6B")),
+        h.until(BOUND, |a| shows(a, "E[1;6AE[1;6B")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2714,22 +2710,22 @@ fn grab_paste_binds_the_paste() {
         "-c",
         script,
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     assert_eq!(h.app.selection(), Some(&b"pasted"[..]));
     h.app.input_event(alt_p, now());
     h.app.input_event(shift_insert.clone(), now());
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(a, "E[200~pastedE[201~E[2~")),
+        h.until(BOUND, |a| shows(a, "E[200~pastedE[201~E[2~")),
         "{:?}",
         h.app.screen_text()
     );
     let mut h = Harness::new(&["--grab-paste=", "--login", "--", "/bin/sh", "-c", script]);
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.app.input_event(shift_insert, now());
     h.type_str("q");
     assert!(
-        h.until(SECOND, |a| shows(a, "E[2~")),
+        h.until(BOUND, |a| shows(a, "E[2~")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2803,12 +2799,12 @@ fn a_shift_chord_names_the_shifted_keysym() {
     for (chord, pasted) in [("<Ctrl><Shift>V", true), ("<Ctrl><Shift>v", false)] {
         let arg = format!("--grab-paste={chord}");
         let mut h = Harness::new(&[&arg, "--login", "--", "/bin/sh", "-c", script]);
-        assert!(h.until(SECOND, |a| shows(a, "ready")));
+        assert!(h.until(BOUND, |a| shows(a, "ready")));
         h.app.input_event(ctrl_shift_v.clone(), now());
         h.type_str("q");
         let want = if pasted { "[E[200~pastedE[201~]" } else { "[]" };
         assert!(
-            h.until(SECOND, |a| shows(a, want)),
+            h.until(BOUND, |a| shows(a, want)),
             "{chord}: {:?}",
             h.app.screen_text()
         );
@@ -2832,7 +2828,7 @@ fn a_press_past_the_grid_selects_from_its_last_cell() {
         Box::new(Memory::sized(326, 168)),
     );
     assert_eq!(h.app.grid(), (40, 10));
-    assert!(h.until(SECOND, |a| shows(a, "alpha beta gamma")));
+    assert!(h.until(BOUND, |a| shows(a, "alpha beta gamma")));
     let none = Mods::empty();
     h.point(
         [
@@ -2872,7 +2868,7 @@ fn a_drag_ends_without_its_button_and_at_a_vt_release() {
         "-c",
         "printf 'first line\\nsecond one\\n'; read x",
     ]);
-    assert!(h.until(SECOND, |a| shows(a, "second one")));
+    assert!(h.until(BOUND, |a| shows(a, "second one")));
     let none = Mods::empty();
     let selected = |h: &Harness| {
         h.app
@@ -2904,13 +2900,13 @@ fn a_drag_ends_without_its_button_and_at_a_vt_release() {
     assert_eq!(selected(&h).as_deref(), Some("sec"));
     let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
     h.app.input_event(switch.clone(), now());
-    assert!(h.until_memory(SECOND, |m| !m.awake), "asleep");
+    assert!(h.until_memory(BOUND, |m| !m.awake), "asleep");
     // The switch back finds the VT let go only once vtium acknowledged
     // the release, which waits for the display to sleep.
     assert!(h.until(BOUND, |_| released.get() == 1), "released");
     assert!(!h.app.vt.is_active());
     h.app.input_event(switch, now());
-    assert!(h.until(SECOND, |a| a.vt.is_active()), "acquired");
+    assert!(h.until(BOUND, |a| a.vt.is_active()), "acquired");
     h.point([over(9, 1, Some(Button::Left))], none);
     assert_eq!(selected(&h).as_deref(), Some("sec"));
 }
@@ -2936,7 +2932,7 @@ fn a_hostile_selection_is_pasted_filtered_once_a_press() {
         FakeVt::new(),
         Box::new(Memory::sized(640, 160)),
     );
-    assert!(h.until(SECOND, |a| shows(a, "ready")));
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
     assert_eq!(h.app.selection(), Some(&b"a\x1b[201~b\x03c\nd"[..]));
     let shift_insert = |repeat: bool| {
         InputEvent::Key(KeyEvent {
@@ -2957,7 +2953,7 @@ fn a_hostile_selection_is_pasted_filtered_once_a_press() {
     h.type_str("q");
     let paste = "E[200~a [201~b cRdE[201~";
     assert!(
-        h.until(SECOND, |a| shows(a, &format!("{paste}X{paste}"))),
+        h.until(BOUND, |a| shows(a, &format!("{paste}X{paste}"))),
         "{:?}",
         h.app.screen_text()
     );
@@ -2974,7 +2970,7 @@ fn a_change_of_mouse_tracking_clears_the_selection() {
         go.display()
     );
     let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", &script]);
-    assert!(h.until(SECOND, |a| shows(a, "text")));
+    assert!(h.until(BOUND, |a| shows(a, "text")));
     h.point(
         [
             over(0, 0, None),
@@ -2993,7 +2989,7 @@ fn a_change_of_mouse_tracking_clears_the_selection() {
             .has_selection()
     );
     std::fs::write(&go, b"").expect("the go file");
-    let cleared = h.until(SECOND, |a| {
+    let cleared = h.until(BOUND, |a| {
         shows(a, "on") && !a.term().expect("a head").terminal.screen().has_selection()
     });
     assert!(cleared, "{:?}", h.app.screen_text());
@@ -3059,7 +3055,7 @@ fn a_long_write_draws_at_most_once_a_refresh() {
         FakeVt::new(),
         Box::new(slow),
     );
-    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
     h.shown();
     h.settled();
     let before = h.memory().frames;
@@ -3318,7 +3314,7 @@ fn a_release_waits_for_every_device_to_sleep() {
     );
     h.app
         .add_video(PathBuf::from("/dev/mem1"), Box::new(Memory::default()));
-    assert!(h.until(SECOND, |a| a.cells().len() == 2));
+    assert!(h.until(BOUND, |a| a.cells().len() == 2));
     h.scripted().events.push(VtEvent::Release);
     // The other device asleep, its sleep reported and taken.
     let asleep = |h: &mut Harness| {
@@ -3335,7 +3331,7 @@ fn a_release_waits_for_every_device_to_sleep() {
     );
     h.late().held = None;
     assert!(
-        h.until(SECOND, |a| !a.vt.is_active()),
+        h.until(BOUND, |a| !a.vt.is_active()),
         "acknowledged once the last device slept"
     );
 }
@@ -3363,7 +3359,7 @@ fn a_restart_draws_the_reset_screen() {
         })
     };
     let mut h = Harness::new(&["--no-blink", "--login", "--", "/bin/sh", "-c", &script]);
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "first")));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "first")));
     assert!(h.until_memory(BOUND, irst), "the first session drawn");
     std::fs::write(&go, b"").expect("the go file");
     assert!(h.until(BOUND, |a| a.screen_text().iter().all(|l| l.is_empty())));
@@ -3466,7 +3462,7 @@ fn a_flip_draws_only_its_own_display() {
     );
     h.app
         .add_video(PathBuf::from("/dev/mem1"), Box::new(Memory::default()));
-    assert!(h.until(SECOND, |a| a.cells().len() == 2));
+    assert!(h.until(BOUND, |a| a.cells().len() == 2));
     h.settled();
     fn gated(h: &mut Harness) -> &mut Gate {
         h.app
@@ -3484,7 +3480,7 @@ fn a_flip_draws_only_its_own_display() {
     }
     gated(&mut h).flipping = true;
     h.type_str("\r");
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "got")));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "got")));
     // The other display shows "got", past the cursor's cell, so it has
     // its frame of the output and asks for no other.
     assert!(
@@ -3606,7 +3602,7 @@ fn withheld() -> (Harness, u32, Vec<u8>) {
         FakeVt::new(),
         Box::new(device),
     );
-    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
     assert!(
         h.until_memory(BOUND, |m| m.frames > 0),
         "the first frame shown"
@@ -3676,7 +3672,7 @@ fn a_display_lending_no_canvas_does_not_spin_the_loop() {
 fn osc_52_is_held_or_dropped_as_clipboard_write_says() {
     let set = "printf '\\033]52;c;aGVsbG8=\\007set\\n'; read x";
     let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", set]);
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "set")));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "set")));
     assert_eq!(h.app.selection(), Some(&b"hello"[..]));
     let mut h = Harness::new(&[
         "--no-clipboard-write",
@@ -3686,7 +3682,7 @@ fn osc_52_is_held_or_dropped_as_clipboard_write_says() {
         "-c",
         set,
     ]);
-    assert!(h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "set")));
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "set")));
     assert_eq!(h.app.selection(), None);
     assert_eq!(
         h.app
@@ -3772,7 +3768,7 @@ fn a_device_whose_displays_never_come_on_counts_as_none() {
 fn a_display_gone_after_the_start_is_hotplug() {
     let mut h = Harness::new(&WAITING);
     // A frame on screen: its flip read, which ends the start's wait.
-    assert!(h.until_memory(SECOND, |m| m.frames > 0 && m.events.is_empty()));
+    assert!(h.until_memory(BOUND, |m| m.frames > 0 && m.events.is_empty()));
     h.app.remove_video(Path::new("/dev/mem0"));
     assert!(h.app.cells().is_empty(), "no display");
     // Past the 1 s wait, on the seat's clock.
@@ -3781,7 +3777,7 @@ fn a_display_gone_after_the_start_is_hotplug() {
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
     assert!(
-        h.until_memory(SECOND, |m| m.frames > 0),
+        h.until_memory(BOUND, |m| m.frames > 0),
         "the new display drawn"
     );
     assert_eq!(h.app.finished(), None);
@@ -3853,7 +3849,7 @@ fn the_default_wait_is_ten_seconds() {
     h.skip_turn(Duration::from_millis(8_500));
     assert_eq!(h.app.finished(), None, "not yet");
     h.skip(Duration::from_millis(1_500));
-    assert!(h.until(SECOND, |a| a.finished().is_some()));
+    assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
 }
 
@@ -3873,7 +3869,7 @@ fn forever_waits_for_the_first_display() {
     assert_eq!(h.app.finished(), None, "an hour on, still waiting");
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
-    assert!(h.until_memory(SECOND, |m| m.frames > 0), "drawn");
+    assert!(h.until_memory(BOUND, |m| m.frames > 0), "drawn");
     assert_eq!(h.app.grid(), (40, 10));
     assert_eq!(h.app.finished(), None);
 }
@@ -3916,9 +3912,9 @@ fn with_the_last_display_gone_the_session_runs_on_and_the_next_is_drawn_whole() 
         "-c",
         script,
     ]);
-    assert!(h.until_memory(SECOND, |m| m.frames > 0));
+    assert!(h.until_memory(BOUND, |m| m.frames > 0));
     h.type_str("a\r");
-    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert!(h.until(BOUND, |a| got(a).is_some_and(|g| g.0 == "a")));
     let (_, winch, size) = got(&h.app).expect("a line");
     assert_eq!(size, "10 40");
 
@@ -3932,7 +3928,7 @@ fn with_the_last_display_gone_the_session_runs_on_and_the_next_is_drawn_whole() 
     assert_eq!(h.app.grid(), (40, 10), "the last display's grid");
     h.type_str("b\r");
     assert!(
-        h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "b")),
+        h.until(BOUND, |a| got(a).is_some_and(|g| g.0 == "b")),
         "keys reach the session with no display"
     );
     assert_eq!(
@@ -3947,7 +3943,7 @@ fn with_the_last_display_gone_the_session_runs_on_and_the_next_is_drawn_whole() 
         PathBuf::from("/dev/mem0"),
         Box::new(Memory::sized(240, 128)),
     );
-    assert!(h.until_memory(SECOND, |m| m.frames > 0), "drawn");
+    assert!(h.until_memory(BOUND, |m| m.frames > 0), "drawn");
     assert_eq!(h.app.grid(), (30, 8));
     // Drawn whole: each row of text is drawn, though none changed since.
     let m = h.memory();
@@ -3962,7 +3958,7 @@ fn with_the_last_display_gone_the_session_runs_on_and_the_next_is_drawn_whole() 
         );
     }
     h.type_str("c\r");
-    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "c")));
+    assert!(h.until(BOUND, |a| got(a).is_some_and(|g| g.0 == "c")));
     assert_eq!(
         got(&h.app),
         Some(("c".into(), winch + 1, "8 30".into())),
@@ -3991,7 +3987,7 @@ fn a_display_coming_after_the_blanked_last_one_went_is_drawn() {
     h.app.turn(h.at());
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
-    assert!(h.until_memory(SECOND, |m| m.frames > 0), "drawn");
+    assert!(h.until_memory(BOUND, |m| m.frames > 0), "drawn");
 }
 
 /// The wait runs out on a display that is announced and never shows a
@@ -4005,7 +4001,7 @@ fn a_display_whose_every_swap_fails_counts_as_none() {
     };
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(refusing));
-    assert!(h.until(SECOND, |a| a.cells().len() == 1), "announced");
+    assert!(h.until(BOUND, |a| a.cells().len() == 1), "announced");
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
     assert_eq!(h.memory().frames, 0);
@@ -4111,13 +4107,10 @@ fn the_last_display_going_while_released_wakes_nothing() {
     // The re-take in a turn of its own, before the release.
     h.app.turn(h.at());
     h.scripted().events.push(VtEvent::Release);
-    assert!(h.until(SECOND, |a| !a.vt.is_active()), "released");
+    assert!(h.until(BOUND, |a| !a.vt.is_active()), "released");
     let (wake_ups, unblanks) = (h.memory().wake_ups, h.memory().unblanks);
     h.memory().events.push(Event::Removed(ID));
-    assert!(
-        h.until(SECOND, |a| a.cells().is_empty()),
-        "the display went"
-    );
+    assert!(h.until(BOUND, |a| a.cells().is_empty()), "the display went");
     let m = h.memory();
     assert_eq!(
         (m.wake_ups, m.unblanks, m.awake),
@@ -4142,9 +4135,9 @@ fn a_selection_follows_a_wrapped_line() {
         "read go; w=$(stty size | cut -d' ' -f2); \
          printf '%*s' $((w - 3)) '' | tr ' ' x; printf ' abcdef end\\n'; read x",
     ]);
-    assert!(h.until_memory(SECOND, |m| m.frames > 0));
+    assert!(h.until_memory(BOUND, |m| m.frames > 0));
     h.type_str("\r");
-    assert!(h.until(SECOND, |a| shows(a, "cdef end")));
+    assert!(h.until(BOUND, |a| shows(a, "cdef end")));
     let cols = h.app.term().expect("a head").terminal.screen().cols();
     let last = i32::try_from(cols).unwrap() - 1;
     let text = h.app.screen_text();
@@ -4242,11 +4235,11 @@ fn the_child_starts_on_the_first_displays_grid() {
         vec![Box::new(Memory::default())],
         Duration::from_millis(500),
     );
-    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert!(h.until(BOUND, |a| first(a).is_some()), "the child started");
     assert_eq!(h.app.grid(), (40, 10));
     assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
     h.type_str("a\r");
-    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert!(h.until(BOUND, |a| got(a).is_some_and(|g| g.0 == "a")));
     assert_eq!(
         got(&h.app),
         Some(("a".into(), 0, "10 40".into())),
@@ -4266,13 +4259,13 @@ fn the_child_starts_on_the_grid_of_every_display_at_the_start() {
         ],
         Duration::from_millis(500),
     );
-    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert!(h.until(BOUND, |a| first(a).is_some()), "the child started");
     assert_eq!(h.app.cells().len(), 2, "both displays");
     let (cols, rows) = h.app.grid();
     assert_ne!((cols, rows), (80, 24));
     assert_eq!(first(&h.app).map(|f| f.0), Some(format!("{rows} {cols}")));
     h.type_str("a\r");
-    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert!(h.until(BOUND, |a| got(a).is_some_and(|g| g.0 == "a")));
     assert_eq!(got(&h.app).map(|g| g.1), Some(0), "no SIGWINCH");
 }
 
@@ -4286,10 +4279,10 @@ fn under_a_wait_the_child_starts_when_the_first_display_comes() {
     assert_eq!(first(&h.app), None);
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
-    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert!(h.until(BOUND, |a| first(a).is_some()), "the child started");
     assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
     h.type_str("a\r");
-    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert!(h.until(BOUND, |a| got(a).is_some_and(|g| g.0 == "a")));
     assert_eq!(got(&h.app).map(|g| g.1), Some(0), "no SIGWINCH");
     assert_eq!(h.app.finished(), None);
 }
@@ -4311,10 +4304,10 @@ fn under_forever_with_no_display_the_child_starts_at_the_first_display() {
     assert!(!h.app.started(), "no child before a display");
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Memory::default()));
-    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert!(h.until(BOUND, |a| first(a).is_some()), "the child started");
     assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
     h.type_str("a\r");
-    assert!(h.until(SECOND, |a| got(a).is_some_and(|g| g.0 == "a")));
+    assert!(h.until(BOUND, |a| got(a).is_some_and(|g| g.0 == "a")));
     assert_eq!(
         got(&h.app),
         Some(("a".into(), 0, "10 40".into())),
@@ -4327,12 +4320,12 @@ fn under_forever_with_no_display_the_child_starts_at_the_first_display() {
 fn a_child_started_again_starts_on_the_grid() {
     let script = "echo \"first:$(stty size) $$\"; read x";
     let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", script]);
-    assert!(h.until(SECOND, |a| first(a).is_some()), "the child started");
+    assert!(h.until(BOUND, |a| first(a).is_some()), "the child started");
     let (size, pid) = first(&h.app).expect("a first line");
     assert_eq!(size, "10 40");
     h.type_str("\r");
     assert!(
-        h.until(SECOND, |a| first(a).is_some_and(|f| f.1 != pid)),
+        h.until(BOUND, |a| first(a).is_some_and(|f| f.1 != pid)),
         "started again"
     );
     assert_eq!(first(&h.app).map(|f| f.0), Some("10 40".to_owned()));
@@ -4480,13 +4473,13 @@ fn a_release_reports_the_visibility_to_a_program_waiting_in_a_read() {
         ScriptedVt::default(),
     );
     assert!(
-        h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "E[?999;1n")),
+        h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "E[?999;1n")),
         "visible as the mode is set: {:?}",
         h.app.screen_text()
     );
     h.scripted().events.push(VtEvent::Release);
     assert!(
-        h.until(SECOND, |a| a.screen_text().iter().any(|l| l == "E[?999;2n")),
+        h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "E[?999;2n")),
         "not visible once released, with no key: {:?}",
         h.app.screen_text()
     );
@@ -4510,7 +4503,7 @@ fn a_zoom_reports_the_text_area_to_a_program_waiting_in_a_read() {
          printf '\\033[?2048h'; rd; rd; read x",
     ]);
     assert!(
-        h.until(SECOND, |a| a
+        h.until(BOUND, |a| a
             .screen_text()
             .iter()
             .any(|l| l == "E[48;10;40;160;320t")),
@@ -4520,7 +4513,7 @@ fn a_zoom_reports_the_text_area_to_a_program_waiting_in_a_read() {
     h.app.input_event(key(Mods::CTRL, 0x3d), now());
     assert_eq!(h.app.grid(), (20, 5), "zoomed in to 16x32 cells");
     assert!(
-        h.until(SECOND, |a| a
+        h.until(BOUND, |a| a
             .screen_text()
             .iter()
             .any(|l| l == "E[48;5;20;160;320t")),
@@ -4588,7 +4581,7 @@ fn osc50_after(args: &[&str], before: &str, script: &str, fonts: Sources) -> Har
         .collect();
     let mut h = Harness::fonts(&args, Memory::default(), fonts);
     // The tty echoes the reply to `read`, after `done` on its line.
-    assert!(h.until(SECOND, |a| {
+    assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.contains("done"))
     }));
     h
@@ -5146,7 +5139,7 @@ fn a_late_outline_cell_is_dropped_and_the_next_zoom_asks_again() {
         .open(&go)
         .expect("the go FIFO");
     // the late answer arrives, and is dropped with no failure
-    assert!(h.until(SECOND, |_| cell_answers(&kinds) == 1));
+    assert!(h.until(BOUND, |_| cell_answers(&kinds) == 1));
     assert_eq!(
         h.app.cells(),
         vec![(8, 22)],
@@ -5272,7 +5265,7 @@ fn a_scrolled_back_cell_draws_the_helpers_glyph_once_it_lands() {
         "echo A; i=0; while [ $i -lt 12 ]; do printf '\\303\\251\\n'; i=$((i+1)); done; printf '\\303\\251\\303\\251'; read x",
     );
     // the live screen shows only é, which the helper does not send
-    assert!(h.until(SECOND, |a| {
+    assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l == "\u{e9}\u{e9}")
     }));
     h.point(
@@ -5664,7 +5657,7 @@ fn points_convert_down_the_rows_at_the_lowest_density() {
     };
     h.app
         .add_video(PathBuf::from("/dev/mem1"), Box::new(second));
-    assert!(h.until(SECOND, |a| a.cells().len() == 2));
+    assert!(h.until(BOUND, |a| a.cells().len() == 2));
     let heights: Vec<u32> = h.app.cells().iter().map(|c| c.1).collect();
     assert_eq!(heights, [16, 16], "the lower of 144 and 96 DPI");
 }
@@ -5910,7 +5903,7 @@ fn osc_50_leaves_the_font_for_a_name_no_frit_bears_or_with_font_ops_off() {
 /// its tty echoed it; waited for.
 fn replied(h: &mut Harness, name: &str) -> bool {
     let reply = format!("]50;{name}");
-    h.until(SECOND, |a| {
+    h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.contains(&reply))
     })
 }
@@ -6067,7 +6060,7 @@ fn a_release_waits_for_the_frame_composing() {
         ],
         ScriptedVt::default(),
     );
-    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
     h.shown();
     h.settled();
     let (entered, composing) = std::sync::mpsc::channel();
@@ -6128,7 +6121,7 @@ fn a_frame_after_a_failed_swap_is_drawn_at_age_1() {
         ScriptedVt::default(),
         Box::new(memory),
     );
-    assert!(h.until(SECOND, |a| a.vt.is_active()));
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
     h.type_str("ab");
     assert!(
         h.until_memory(BOUND, |m| m.ages.contains(&1)),
