@@ -449,6 +449,36 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
     assert_eq!(lines[6], "unscii-8\tbuilt in\t");
 }
 
+/// A helper that fails as it starts, as when it cannot set
+/// no-new-privileges, sends one failed frame and exits before it reads a
+/// request. That failure is the helper's, never the first frit's: every
+/// frit is unknown, with the helper's reason, and none draws nothing.
+#[test]
+fn a_helper_that_fails_at_start_marks_every_frit_unknown() {
+    let f = fixture("fonts-start-fails", None);
+    let helper = f.root.join("fails");
+    // kind 3, a failure, of 4 bytes, then the end
+    std::fs::write(
+        &helper,
+        "#!/bin/sh\nprintf '\\003\\000\\000\\000\\004\\000\\000\\000boom'\n",
+    )
+    .expect("the stand-in");
+    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("its mode");
+    let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
+    assert_eq!(ran.status, 0, "{}", ran.err);
+    assert!(!ran.out.contains("draws nothing"), "{}", ran.out);
+    let lines: Vec<&str> = ran.out.lines().collect();
+    for (at, name) in [(0, "spare"), (1, "tiny")] {
+        assert!(
+            lines[at].starts_with(&format!("{name}\treads\tunknown: "))
+                && lines[at].contains("boom"),
+            "{}",
+            ran.out
+        );
+    }
+}
+
 /// A helper that never answers, or answers one frit and then stalls,
 /// marks no frit as drawing nothing: the answers that came are kept, and
 /// each frit still unanswered after the helper's wait is unknown.
