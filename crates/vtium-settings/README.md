@@ -1,6 +1,6 @@
 # vtium-settings
 
-The head file of ADR-1401: its reader, its parser, and the evaluator that places each display and input in a head, roaming, in `ignore` or `off`, with the guards over the result. `vtium` and `vtiumctl` both link it, so the verdict before install is the verdict at boot. It depends on neither `vtium` nor `vtium-platform`: a device reaches it as an `Identity` its caller fills, and the guards are functions of a placement and the set of devices. It forbids unsafe code, denies every input-reachable panic, and depends only on rustix, to open the file as the console opens vtium.conf.
+The head file of ADR-1401: its reader, its parser, its one writer, and the evaluator that places each display and input in a head, roaming, in `ignore` or `off`, with the guards over the result. `vtium` and `vtiumctl` both link it, so the verdict before install is the verdict at boot. It depends on neither `vtium` nor `vtium-platform`: a device reaches it as an `Identity` its caller fills, and the guards are functions of a placement and the set of devices. It forbids unsafe code, denies every input-reachable panic, and depends only on rustix, to open the file as the console opens vtium.conf.
 
 | Path | What it is |
 |---|---|
@@ -17,6 +17,8 @@ The head file of ADR-1401: its reader, its parser, and the evaluator that places
 | `src/outcome/tests/runtime.rs` | The run-time model: every state the events while vtium runs reach from each start outcome, and the invariants over them. |
 | `outcomes.tsv` | The outcome table: one row a path, with its inputs, its outcome, each switch's rule and where a lockout can occur. |
 | `src/error.rs` | Errors, warnings and notes, each with its `line()`; `at`, a finding shown at its file and line; and `Quoted`, the escaped text an error quotes. |
+| `src/write.rs` | `set_profile`, the head file's one writer (ADR-1201 D6), which sets a head's `profile =` line and keeps every other byte, refusing a file with errors, a head the file does not declare and a name vtium would refuse; and `install_file`, which replaces a regular configuration file in one rename, refusing a link or anything else in its place, and keeps the old one as `NAME.bak` with its mode. |
+| `src/conf.rs` | `edit_conf`, vtium.conf edited line by line (ADR-1201 D5): a value replaced in place on the line vtium takes it from, a new key below its commented line or at the end, an unset key's lines commented out, a switch written `key` or `no-key`, and every other byte kept; and `setting`, the value vtium takes for a key. It knows the file's syntax and not its keys, which are the console's key table. |
 | `src/messages.rs` | The catalog: every error, warning and note's text, and each outcome's console line. |
 | `templates/heads.conf` | The commented template; the compiled-in configuration is its parse. |
 | `tests/` | The integration tests, one file a part: the syntax, the parser, what each error drops, the reader, the policy line vtium cannot read, the placement and guards, the determinism property and the template. |

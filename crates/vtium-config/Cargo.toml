@@ -1,6 +1,6 @@
 [package]
 name = "vtium-config"
-description = "Generates vtium's glyphs from frits at run time, and switches the console's frit"
+description = "Manages the vtium console's fonts and settings, trying each font on the live console, and generates its glyphs at run time"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,14 +11,24 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The console's terminal built with images in this crate's tests, to read
+# the TUI's size pictures as vtium reads them. The workspace's
+# `--all-features` run turns it on; it adds nothing to the binary.
+kitty-check = ["vtium-term/images"]
+
 [dependencies]
 # The glyph chunk format's writer; the PSF reader; the built-in fonts a
 # frit may name as sources. The PSF reader is behind
 # vtium-font's `psf` feature and the writer's deflate behind its
 # `deflate` feature, which only this tool enables (ADR-1200 D19).
 vtium-font = { workspace = true, features = ["psf", "deflate"] }
-# KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8).
+# KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8);
+# the TUI's event loop, which holds its signals (ADR-1201 D7).
 vtium-platform.workspace = true
+# vtium.conf's line editor and the head file's one writer and parser
+# (ADR-1201 D5, D6), the crate the console already links.
+vtium-settings.workspace = true
 # gzip's deflate, for compressed fonts and unimaps; vtium-font already
 # builds this version.
 miniz_oxide = "0.8.9"
@@ -46,6 +56,11 @@ skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
 # its own; run only in the helper and the parser's child, never in the
 # console. Its read-fonts is the version swash's skrifa already builds.
 harfrust = { version = "=0.12.0", default-features = false, features = ["std"] }
+
+# The user database's lookup of the name doas hands apply in DOAS_USER
+# (getpwnam), safe; the version calloop already builds, with its `user`
+# feature, in this binary only.
+nix = { version = "=0.31.3", default-features = false, features = ["user"] }
 
 [dev-dependencies]
 # A pty for `set`'s and the banner's tests; vtium-platform already builds

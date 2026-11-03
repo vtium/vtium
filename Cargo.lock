@@ -663,12 +663,14 @@ dependencies = [
  "harfrust",
  "lzma-rust2",
  "miniz_oxide",
+ "nix",
  "rustix",
  "ruzstd",
  "skrifa",
  "swash",
  "vtium-font",
  "vtium-platform",
+ "vtium-settings",
  "vtium-term",
 ]
 

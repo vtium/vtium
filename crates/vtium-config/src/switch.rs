@@ -4,7 +4,11 @@
 //!
 //! NAME is checked first, as the console checks it: a built-in font, or a
 //! frit's name with `NAME.vtfrit` a regular file in the frits' directory;
-//! the command fails naming that file when it is neither. It then writes
+//! the command fails naming that file when it is neither. It then asks the
+//! terminal what it is, with XTVERSION and DA1 ([`is_vtium`]), and sends
+//! nothing more to a terminal that does not name vtium, since another
+//! terminal may act on OSC 50, as xterm looks for an X font of that name
+//! (ADR-1201 D4). To vtium it writes
 //! `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to `/dev/tty`, and
 //! reads the reply in raw mode for at most [`WAIT`], putting the
 //! terminal's mode back after. SIGTERM, SIGHUP, SIGINT and SIGQUIT are
@@ -56,6 +60,36 @@ pub fn reply_name(bytes: &[u8]) -> Option<&[u8]> {
         [0x07, ..] | [0x1b, b'\\', ..] => Some(name),
         _ => None,
     }
+}
+
+/// Asks the terminal behind `tty`, already raw, what it is, with XTVERSION
+/// and DA1, and reads until DA1's reply or `deadline`: whether XTVERSION
+/// named vtium. Every terminal of the VT100 line answers DA1, and replies
+/// come in the order of the requests, so no reply comes after DA1's.
+pub fn is_vtium(tty: &mut (impl Read + Write), deadline: Instant) -> io::Result<bool> {
+    use crate::tui::input::{Decoder, Input, Reply};
+    tty.write_all(b"\x1b[>q\x1b[c")?;
+    tty.flush()?;
+    let mut decoder = Decoder::default();
+    let mut vtium = false;
+    let mut buf = [0u8; 256];
+    let mut read = 0usize;
+    while now() < deadline && read < READ_MAX {
+        let n = match tty.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        read = read.saturating_add(n);
+        for input in decoder.feed(buf.get(..n).unwrap_or_default()) {
+            match input {
+                Input::Reply(Reply::Version(v)) => vtium = v.starts_with("vtium("),
+                Input::Reply(Reply::Attributes) => return Ok(vtium),
+                _ => {}
+            }
+        }
+    }
+    Ok(vtium)
 }
 
 /// Asks the terminal behind `tty`, already raw, for `name`, and reads the
@@ -188,24 +222,35 @@ pub fn command(
     };
     let answer = Raw::new(&tty).and_then(|_raw| {
         let deadline = now().checked_add(WAIT).unwrap_or_else(now);
-        switch(&mut &tty, name, deadline)
+        if !is_vtium(&mut &tty, deadline)? {
+            return Ok(None);
+        }
+        let deadline = now().checked_add(WAIT).unwrap_or_else(now);
+        switch(&mut &tty, name, deadline).map(Some)
     });
     match answer {
-        Ok(Answer::Named(n)) if n == *name => {
+        Ok(None) => {
+            let _ = writeln!(
+                out,
+                "failed\t{name}\tthe terminal is not vtium, so set sends it nothing"
+            );
+            1
+        }
+        Ok(Some(Answer::Named(n))) if n == *name => {
             let _ = writeln!(out, "set\t{name}");
             0
         }
-        Ok(Answer::Named(n)) => {
+        Ok(Some(Answer::Named(n))) => {
             let _ = writeln!(
                 out,
                 "failed\t{name}\tthe console kept the font {n}; its log says why"
             );
             1
         }
-        Ok(Answer::Silent) => {
+        Ok(Some(Answer::Silent)) => {
             let _ = writeln!(
                 out,
-                "failed\t{name}\tno reply: the console's allow-font-ops is off, or the terminal is not vtium"
+                "failed\t{name}\tno reply: the console's allow-font-ops is off"
             );
             1
         }
