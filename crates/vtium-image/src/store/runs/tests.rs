@@ -649,3 +649,35 @@ fn the_count_of_a_virtual_parents_children_follows_deletes_and_replacements() {
     assert!(!s.has_virtual_children(false));
     assert_eq!(s.placement_count(), 1, "image 9's placement stays");
 }
+
+// D13: a buffer holds a virtual placement from when one is made until the
+// last goes, and the other buffer's count is its own.
+// covers: image.kitty-placeholders
+#[test]
+fn has_virtual_follows_the_buffers_virtual_placements() {
+    let (f, mut s) = (Fake::new(), store());
+    let key = image(&mut s, &f, 7, 16, 32);
+    assert!(!s.has_virtual(false));
+    let at = Place {
+        col: 1,
+        ..Place::default()
+    };
+    s.place_at(key, at, Link::Cell, f.screens(), COLS)
+        .expect("placed");
+    assert!(
+        !s.has_virtual(false),
+        "a placement on a line is not virtual"
+    );
+    virtual_placement(&mut s, &f, key, 2, 2, 3);
+    assert!(s.has_virtual(false));
+    assert!(!s.has_virtual(true));
+    let delete = Delete {
+        select: Select::Id {
+            id: 7,
+            placement: 3,
+        },
+        free: false,
+    };
+    s.kitty_delete(delete, f.screens());
+    assert!(!s.has_virtual(false));
+}

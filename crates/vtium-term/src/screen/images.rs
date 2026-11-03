@@ -159,8 +159,19 @@ mod with {
                 above: &above,
             };
             let below = self.below_view(self.images.reach_below());
-            let runs = self.placeholder_runs();
+            let runs = self.frame_runs();
             self.images.frame_with_runs(rows, &below, &runs, self.cols)
+        }
+
+        /// The runs a frame hands the store: those on the rows the view
+        /// shows, read only while the shown buffer holds a virtual
+        /// placement, since only a virtual placement draws through them.
+        fn frame_runs(&self) -> Vec<PlaceholderRun> {
+            if self.images.has_virtual(self.flags.alternate) {
+                self.placeholder_runs()
+            } else {
+                Vec::new()
+            }
         }
 
         /// The keys of the `n` lines below the view's bottom, top to
@@ -573,6 +584,48 @@ mod with {
                     self.damage.mark_cells(y, x0..x1);
                 }
             }
+        }
+    }
+
+    #[cfg(test)]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    mod tests {
+        use crate::Terminal;
+        use crate::images::{Kitty, Switches};
+        use crate::terminal::ImageString;
+
+        // ADR-1100, D13: a frame reads the placeholder cells only while the
+        // shown buffer holds a virtual placement, so a screen of
+        // placeholder cells beside an ordinary kitty placement hands the
+        // store no runs, and one with a virtual placement hands them all.
+        // A frame counts no input work, so the test reads the runs the
+        // frame would hand.
+        // covers: image.kitty-placeholders
+        #[test]
+        fn a_frame_reads_runs_only_while_the_shown_buffer_holds_a_virtual_placement() {
+            let mut t = Terminal::new(12, 6, 0);
+            t.screen_mut().set_image_limit(1 << 30);
+            t.screen_mut().set_image_cell(8, 16).unwrap();
+            t.set_image_switches(Switches {
+                sixel: false,
+                kitty: true,
+                iterm2: false,
+            });
+            t.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+            let mut s = b"\x1b_Ga=t,f=24,s=8,v=16,i=42,q=2;".to_vec();
+            s.extend(b"////".repeat(128));
+            s.extend(b"\x1b\\\x1b_Ga=p,i=42,p=1,q=2\x1b\\");
+            t.input(&s);
+            t.input("\x1b[2;1H\x1b[38;5;42m\u{10EEEE}\u{0305}\u{0305}".as_bytes());
+            assert_eq!(t.screen().placeholder_runs().len(), 1);
+            assert!(t.screen().frame_runs().is_empty(), "no virtual placement");
+            t.input(b"\x1b_Ga=p,U=1,i=42,p=2,c=1,r=1,q=2\x1b\\");
+            assert_eq!(t.screen().frame_runs().len(), 1);
+            t.input(b"\x1b[?1049h");
+            assert!(
+                t.screen().frame_runs().is_empty(),
+                "the alternate buffer holds none"
+            );
         }
     }
 }

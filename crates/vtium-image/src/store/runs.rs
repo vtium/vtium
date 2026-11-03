@@ -207,6 +207,19 @@ impl Store {
     }
 
     /// Whether the alternate buffer, or with `alt` false the main one,
+    /// holds a virtual placement, whose picture only placeholder runs draw:
+    /// vtium-term reads the runs for a frame only then. It visits the
+    /// buffer's placements, at most [`PLACEMENTS_PER_BUFFER`], each once.
+    ///
+    /// [`PLACEMENTS_PER_BUFFER`]: crate::bounds::PLACEMENTS_PER_BUFFER
+    pub fn has_virtual(&self, alt: bool) -> bool {
+        let b = if alt { ALT } else { super::MAIN };
+        self.buffers
+            .get(b)
+            .is_some_and(|buf| buf.placements.values().any(|p| p.spot == Spot::Virtual))
+    }
+
+    /// Whether the alternate buffer, or with `alt` false the main one,
     /// holds a relative placement whose chain of parents ends at a virtual
     /// placement, whose cells only runs give. Every such chain starts with
     /// a child of the virtual placement itself, and the buffer counts those
