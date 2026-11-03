@@ -1,144 +1,265 @@
 #!/bin/bash
-# Prints the judgements demo.sh recorded: one line per section, with the
-# last rating given for it in the run, and its comment below it, one indented
-# line per line typed. A rating given again after b replaces the earlier one
-# here; the file keeps both. Sections whose last rating is skipped are listed
-# again at the end, as still to review.
+# Reads the acceptance pass's records (ADR-1501), the markdown files accept.sh
+# writes: a list of what the pass ran on, then a table of each page's answer
+# (yes, no, unsure, skip, or - for none yet) and comment.
 #
-#   feedback.sh [--file PATH]             the latest run
-#   feedback.sh [--file PATH] --run ID    the run ID (the run column)
-#   feedback.sh [--file PATH] --compare   the latest run of each DEMO_LABEL,
-#                                         side by side by section
+#   feedback.sh [--dir DIR] [PASS]          one pass: its build, then each page's
+#                                           answer and comment (default: the newest)
+#   feedback.sh [--dir DIR] --list          every pass, oldest first
+#   feedback.sh [--dir DIR] --compare A B   the pages whose answer differs from
+#                                           pass A to pass B, warning first when they
+#                                           ran on different hardware and naming a
+#                                           blink style that differs; exits 1 when
+#                                           a page went from yes to no
+#   feedback.sh [--dir DIR] --compare       the same for the two newest passes
+#   feedback.sh [--dir DIR] --newest LABEL  the path of the newest pass of LABEL
+#   feedback.sh --tsv PASS                  the pass as tab-separated lines
 #
-# PATH defaults to feedback.tsv in /tmp/vtium-vt (VTIUM_VT_DIR), as in demo.sh.
+# PASS is a pass's id in DIR, or the path of a record, such as one committed
+# under docs/acceptance/. DIR is ACCEPT_DIR, else
+# $XDG_STATE_HOME/vtium/acceptance (~/.local/state/vtium/acceptance), where
+# accept.sh keeps the passes. The newest pass is the one started last.
 set -euo pipefail
 
-here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
-# shellcheck source=tools/vt/common.sh
-. "$here/common.sh"
-
 usage() {
-	sed -n '7,10s/^# \{0,1\}//p' "$0" >&2
+	sed -n '6,16s/^# \{0,1\}//p' "$0" >&2
 	exit 2
 }
 
 die() {
 	printf 'feedback: %s\n' "$*" >&2
-	exit 1
+	exit 2
 }
 
-file=$vt_dir/feedback.tsv
-mode=latest
-run=
+dir=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
+mode=show
+args=()
 while [ $# -gt 0 ]; do
 	case $1 in
-	--file) [ $# -ge 2 ] || usage; file=$2; shift ;;
-	--run) [ $# -ge 2 ] || usage; mode=run; run=$2; shift ;;
+	--dir) [ $# -ge 2 ] || usage; dir=$2; shift ;;
+	--list) mode=list ;;
 	--compare) mode=compare ;;
-	*) usage ;;
+	--newest) [ $# -ge 2 ] || usage; mode=newest; args+=("$2"); shift ;;
+	--tsv) mode=tsv ;;
+	-*) usage ;;
+	*) args+=("$1") ;;
 	esac
 	shift
 done
-[ -r "$file" ] || die "cannot read $file"
 
-# Answer lines only: the header and anything short of the eight columns are
-# skipped.
-answers() {
-	awk -F'\t' 'NF >= 7 && $1 != "time"' "$file"
+# A record as tab-separated lines: "#KEY value" for each line of its list,
+# then "PAGE answer comment" for each row of its table, the comment with its
+# backslashes doubled and each line break as \n. The cells' escapes, as
+# accept.sh writes them, are undone: \\ and \| in the comment, then <br>, &lt;,
+# &gt; and &amp;.
+tsv() {
+	awk '
+	function unescape(s,   out, c, i) {
+		out = ""
+		for (i = 1; i <= length(s); i++) {
+			c = substr(s, i, 1)
+			if (c == "\\" && i < length(s)) c = substr(s, ++i, 1)
+			out = out c
+		}
+		gsub(/<br>/, "\n", out)
+		gsub(/&lt;/, "<", out)
+		gsub(/&gt;/, ">", out)
+		gsub(/&amp;/, "\\&", out)
+		return out
+	}
+	# the cells of a row "| a | b | c |", split at each | that no backslash
+	# escapes
+	function cells(line, out,   n, i, c, cur) {
+		n = 0
+		cur = ""
+		for (i = 2; i <= length(line); i++) {
+			c = substr(line, i, 1)
+			if (c == "\\" && i < length(line)) { cur = cur c substr(line, ++i, 1); continue }
+			if (c == "|") { sub(/^ +/, "", cur); sub(/ +$/, "", cur); out[++n] = cur; cur = ""; continue }
+			cur = cur c
+		}
+		return n
+	}
+	function field(s) {
+		gsub(/\\/, "\\\\", s)
+		gsub(/\n/, "\\n", s)
+		gsub(/\t/, " ", s)
+		return s
+	}
+	/^\| page \| answer \| comment \|$/ { table = 1; next }
+	table && /^\|---/ { next }
+	table && /^\| / {
+		if (cells($0, c) >= 3) printf "%s\t%s\t%s\n", c[1], c[2], field(unescape(c[3]))
+		next
+	}
+	table { table = 0; done = 1 }
+	!table && !done && match($0, /^- [a-z0-9-]+: /) {
+		key = substr($0, 3, RLENGTH - 4)
+		printf "#%s\t%s\n", key, substr($0, RLENGTH + 1)
+	}' "$1"
 }
 
-[ -n "$(answers)" ] || die "no answers in $file"
+# The path of PASS: a record's path, or an id in the passes directory.
+path_of() {
+	if [ -f "$1" ]; then
+		printf '%s' "$1"
+	elif [[ $1 =~ ^[0-9T]+-[0-9]+$ ]] && [ -f "$dir/$1.md" ]; then
+		printf '%s' "$dir/$1.md"
+	else
+		die "no pass $1 in $dir, and no such record"
+	fi
+}
 
-# awk functions both views use: the comment's escapes undone (\\ and \n, as
-# demo.sh writes them), each of its lines printed indented, and a sort.
-lib='
-function unescape(s,   out, c, i) {
+# The records in the passes directory, oldest first: a pass id sorts by the
+# time it started.
+records() {
+	local f
+	for f in "$dir"/*.md; do
+		if [[ -f $f && ${f##*/} =~ ^[0-9T]+-[0-9]+\.md$ ]]; then printf '%s\n' "$f"; fi
+	done | sort
+}
+
+# An awk function that prints a comment from a tab-separated line, one
+# indented line for each line typed, after PREFIX: \\ is a backslash and \n
+# a line break.
+lines='
+function lines(prefix, s,   i, c, l) {
+	l = ""
 	for (i = 1; i <= length(s); i++) {
 		c = substr(s, i, 1)
 		if (c == "\\" && i < length(s)) {
 			c = substr(s, ++i, 1)
-			if (c == "n") c = "\n"
+			if (c == "n") { printf "    %s%s\n", prefix, l; l = ""; continue }
 		}
-		out = out c
+		l = l c
 	}
-	return out
-}
-function comment(s,   n, l, i) {
-	n = split(unescape(s), l, "\n")
-	for (i = 1; i <= n; i++) printf "    %s\n", l[i]
-}
-function sort(a, n,   i, j, t) {
-	for (i = 2; i <= n; i++)
-		for (j = i; j > 1 && a[j - 1] > a[j]; j--) { t = a[j]; a[j] = a[j - 1]; a[j - 1] = t }
+	printf "    %s%s\n", prefix, l
 }'
 
-if [ "$mode" = compare ]; then
-	answers | awk -F'\t' "$lib"'
-	{ line[NR] = $0; if (!($3 in latest)) labels[++nl] = $3; latest[$3] = $2 }
-	END {
-		for (i = 1; i <= NR; i++) {
-			split(line[i], f, "\t")
-			if (latest[f[3]] != f[2]) continue
-			if (!(f[6] in seen)) { seen[f[6]] = 1; ids[++ns] = f[6] }
-			rating[f[3], f[6]] = f[7]
-			note[f[3], f[6]] = f[8]
-			terminal[f[3]] = "TERM=" f[4] ", " f[5]
-		}
-		sort(ids, ns)
-		for (c = 1; c <= nl; c++) {
-			col = substr("ABCDEFGHIJKLMNOPQRSTUVWXYZ", c, 1)
-			printf "%s  %s\n   run %s, %s\n", col, labels[c], latest[labels[c]], terminal[labels[c]]
-		}
-		printf "\n%-24s", "section"
-		for (c = 1; c <= nl; c++) printf "  %-7s", substr("ABCDEFGHIJKLMNOPQRSTUVWXYZ", c, 1)
-		printf "\n"
-		for (s = 1; s <= ns; s++) {
-			printf "%-24s", ids[s]
-			for (c = 1; c <= nl; c++) {
-				r = rating[labels[c], ids[s]]
-				printf "  %-7s", r == "" ? "-" : r
-			}
-			printf "\n"
-		}
-		for (s = 1; s <= ns; s++)
-			for (c = 1; c <= nl; c++)
-				if (rating[labels[c], ids[s]] == "skipped") {
-					if (!skipped++) printf "\nskipped, still to review\n"
-					printf "%s  %s\n", substr("ABCDEFGHIJKLMNOPQRSTUVWXYZ", c, 1), ids[s]
-				}
-		for (s = 1; s <= ns; s++)
-			for (c = 1; c <= nl; c++)
-				if (note[labels[c], ids[s]] != "") {
-					if (!header++) printf "\ncomments\n"
-					printf "%s  %s\n", substr("ABCDEFGHIJKLMNOPQRSTUVWXYZ", c, 1), ids[s]
-					comment(note[labels[c], ids[s]])
-				}
-	}' | sed 's/ *$//'
-	exit 0
-fi
-
-[ "$mode" = run ] || run=$(answers | awk -F'\t' 'END { print $2 }')
-answers | awk -F'\t' -v run="$run" "$lib"'
-$2 != run { next }
-{
-	if (!n++) { started = $1; label = $3; term = $4; size = $5 }
-	if (!($6 in rating)) ids[++ns] = $6
-	rating[$6] = $7
-	note[$6] = $8
+# The value of KEY in a record's tab-separated lines on stdin.
+value() {
+	awk -F'\t' -v k="#$1" '$1 == k { print $2; exit }'
 }
-END {
-	if (!n) { print "feedback: no run " run > "/dev/stderr"; exit 1 }
-	sort(ids, ns)
-	printf "run       %s\nlabel     %s\nterminal  TERM=%s, %s\nstarted   %s\n", run, label, term, size, started
-	printf "answers   %d for %d sections\n\n", n, ns
-	printf "%-24s  %s\n", "section", "rating"
-	for (s = 1; s <= ns; s++) {
-		printf "%-24s  %s\n", ids[s], rating[ids[s]]
-		if (note[ids[s]] != "") comment(note[ids[s]])
+
+case $mode in
+tsv)
+	[ ${#args[@]} -eq 1 ] || usage
+	tsv "$(path_of "${args[0]}")"
+	;;
+newest)
+	found=
+	while IFS= read -r f; do
+		[ "$(tsv "$f" | value label)" != "${args[0]}" ] || found=$f
+	done < <(records)
+	[ -n "$found" ] || exit 1
+	printf '%s\n' "$found"
+	;;
+list)
+	[ ${#args[@]} -eq 0 ] || usage
+	[ -n "$(records)" ] || die "no passes in $dir"
+	printf '%-24s %-10s %s\n' pass answered label
+	while IFS= read -r f; do
+		t=$(tsv "$f")
+		printf '%-24s %-10s %s\n' "$(value pass <<<"$t")" "$(value answered <<<"$t" | sed 's/ of /\//')" \
+			"$(value label <<<"$t")"
+	done < <(records)
+	;;
+show)
+	[ ${#args[@]} -le 1 ] || usage
+	if [ ${#args[@]} -eq 1 ]; then
+		f=$(path_of "${args[0]}")
+	else
+		f=$(records | tail -n 1)
+		[ -n "$f" ] || die "no passes in $dir"
+	fi
+	printf 'pass      %s\n' "$(tsv "$f" | value pass)"
+	tsv "$f" | awk -F'\t' "$lines"'
+	/^#/ { if ($1 != "#pass") printf "%-10s%s\n", substr($1, 2), $2; next }
+	{
+		if (!rows++) printf "\n%-24s  %s\n", "page", "answer"
+		printf "%-24s  %s\n", $1, $2
+		if ($3 != "") lines("", $3)
+		if ($2 == "-") left[++nl] = $1
+		if ($2 == "skip") skipped[++ns] = $1
 	}
-	for (s = 1; s <= ns; s++)
-		if (rating[ids[s]] == "skipped") {
-			if (!skipped++) printf "\nskipped, still to review\n"
-			printf "  %s\n", ids[s]
+	END {
+		if (nl) { printf "\nstill to answer\n"; for (i = 1; i <= nl; i++) printf "  %s\n", left[i] }
+		if (ns) { printf "\nskipped\n"; for (i = 1; i <= ns; i++) printf "  %s\n", skipped[i] }
+	}'
+	echo "record    $f"
+	;;
+compare)
+	case ${#args[@]} in
+	0)
+		mapfile -t two < <(records | tail -n 2)
+		[ ${#two[@]} -eq 2 ] || die "--compare needs two passes; $dir has ${#two[@]}"
+		a=${two[0]} b=${two[1]}
+		;;
+	2) a=$(path_of "${args[0]}") b=$(path_of "${args[1]}") ;;
+	*) usage ;;
+	esac
+	{
+		tsv "$a" | sed 's/^/A\t/'
+		tsv "$b" | sed 's/^/B\t/'
+	} | awk -F'\t' "$lines"'
+	$2 == "#font" || $2 == "#frit" { fonts[$1, $3] = 1; order_f[++nf] = $1 SUBSEP $3; next }
+	$2 == "#machine" || $2 == "#kernel" || $2 == "#gpu" || $2 == "#display" {
+		hw[$1, substr($2, 2) ": " $3] = 1; order_h[++nh] = $1 SUBSEP substr($2, 2) ": " $3; next
+	}
+	$2 ~ /^#/ { meta[$1, substr($2, 2)] = $3; next }
+	{
+		if (!(($2) in seen)) { seen[$2] = 1; order[++n] = $2 }
+		answer[$1, $2] = $3
+		note[$1, $2] = $4
+		has[$1, $2] = 1
+	}
+	END {
+		for (s = 1; s <= 2; s++) {
+			side = s == 1 ? "A" : "B"
+			printf "%s  %s  %s, %s answered\n", side, meta[side, "pass"], meta[side, "label"], meta[side, "answered"]
 		}
-}' | sed 's/ *$//'
+		for (i = 1; i <= nh; i++) {
+			split(order_h[i], k, SUBSEP)
+			other = k[1] == "A" ? "B" : "A"
+			if ((other, k[2]) in hw) continue
+			if (!hhead++) printf "\nWARNING: the two passes ran on different hardware, and each is evidence about its own only:\n"
+			printf "  %s: %s\n", k[1], k[2]
+		}
+		printf "\n%-24s  %-7s  %-7s\n", "page", "A", "B"
+		for (i = 1; i <= n; i++) {
+			p = order[i]
+			ra = has["A", p] ? answer["A", p] : "(none)"
+			rb = has["B", p] ? answer["B", p] : "(none)"
+			if (ra == rb) continue
+			changed++
+			mark = ""
+			if (ra == "yes" && rb == "no") { mark = "  <- went from yes to no"; worse[++nw] = p }
+			if (!has["A", p]) mark = "  (a page new in B)"
+			if (!has["B", p]) mark = "  (a page B does not have)"
+			printf "%-24s  %-7s  %-7s%s\n", p, ra, rb, mark
+			if (note["A", p] != "") lines("A: ", note["A", p])
+			if (note["B", p] != "") lines("B: ", note["B", p])
+		}
+		if (!changed) printf "(every page has the same answer in both)\n"
+		for (i = 1; i <= nf; i++) {
+			split(order_f[i], k, SUBSEP)
+			other = k[1] == "A" ? "B" : "A"
+			if ((other, k[2]) in fonts) continue
+			if (!fhead++) printf "\nfont files that differ, so a changed page may come from a font update:\n"
+			printf "  %s: %s\n", k[1], k[2]
+		}
+		if (meta["A", "blink-text"] != meta["B", "blink-text"]) {
+			printf "\nthe blink style differs, so a changed blink page may come from it:\n"
+			printf "  A: %s\n  B: %s\n", meta["A", "blink-text"] == "" ? "(not recorded)" : meta["A", "blink-text"], meta["B", "blink-text"] == "" ? "(not recorded)" : meta["B", "blink-text"]
+		}
+		printf "\n"
+		if (nw) {
+			printf "%d page%s went from yes to no:", nw, nw == 1 ? "" : "s"
+			for (i = 1; i <= nw; i++) printf " %s", worse[i]
+			printf "\n"
+			exit 1
+		}
+		printf "no page went from yes to no\n"
+	}' | sed 's/ *$//'
+	;;
+esac

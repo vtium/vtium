@@ -9,7 +9,7 @@
 X86_TARGET := x86_64-unknown-linux-gnu
 
 # The binary the VT review runs. It runs as root, so it is named in this file
-# or on make's command line (make vt-demo VTIUM_BIN=PATH), never taken from a
+# or on make's command line (make vt-accept VTIUM_BIN=PATH), never taken from a
 # stale export in the shell. The default is the minspec build, which the vt
 # targets build first; another binary is run as it is. make vt-install's
 # default is the development console, the minspec build made to start its
@@ -31,7 +31,7 @@ VTIUM_DEV_IMAGE := /usr/local/bin/vtium-dev-image
 VT_IMAGES_MARKER := $(shell sed -n "s/^images_marker='\(.*\)'$$/\1/p" tools/vt/vt-install.sh)
 CONFIG_RELEASE := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-config
 IMAGE_RELEASE := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-image
-VT_GOALS := vt-demo vt-login vt-check vt-shell
+VT_GOALS := vt-accept vt-login vt-check vt-shell
 VT_INSTALL_GOALS := vt-install vt-uninstall
 ifneq ($(filter $(VT_GOALS) $(VT_INSTALL_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(filter environment%,$(origin VTIUM_BIN)),)
@@ -101,6 +101,22 @@ minspec install-tree vt-dev-console config-release image-release: export PKG_CON
 # (ADR-1200 D19). The assignment here outranks the environment, so a
 # FEATURES exported in the shell builds nothing different.
 FEATURES :=
+# The acceptance pass shows pictures by default (ADR-1501 D5): make vt-accept
+# builds the console with images unless make's command line names FEATURES,
+# so make vt-accept FEATURES= is a pass of the minspec build. A binary named
+# with VTIUM_BIN is run as it is, so its features are the ones it was built
+# with: images when it carries the line only a build with images carries
+# (VT_IMAGES_MARKER), else none, and the run gives it the image helper only
+# when it has pictures.
+ifneq ($(filter vt-accept,$(MAKECMDGOALS)),)
+ifneq ($(origin FEATURES),command line)
+ifeq ($(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),)
+FEATURES := $(if $(shell grep -qaF -- '$(VT_IMAGES_MARKER)' '$(VTIUM_BIN)' 2>/dev/null && echo images),images)
+else
+FEATURES := images
+endif
+endif
+endif
 
 .PHONY: minspec
 minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
@@ -322,6 +338,7 @@ conformance-issues: ## Check that every issue the conformance lists say owes a c
 # the scripts' `A && B || die` is deliberate.
 test-tools: ## Test the VT review tools, the tier 3 harness and the fuzz runner without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
+	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
 	python3 -I -B tools/fuzz/test_run.py
@@ -350,14 +367,18 @@ $(VT_GOALS): export VTIUM_VT_NR = $(value VT)
 $(VT_GOALS): export VTIUM_VT_ARGS = $(value DEMO_ARGS)
 $(VT_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 $(VT_GOALS): export VTIUM_VT_DEBUG = $(value VT_DEBUG)
+$(VT_GOALS): export VTIUM_VT_FEATURES = $(value FEATURES)
+# With pictures, the image helper built with the console, which run-vt.sh
+# gives vtium as it gives it the glyph helper.
+$(VT_GOALS): export VTIUM_VT_IMAGE = $(if $(IMAGES),$(value VTIUM_IMAGE_BIN))
 # GUIDE and GUIDE_STEPS are make vt-check's; one exported in the shell does
 # not reach the others.
 $(VT_GOALS): export VTIUM_VT_GUIDE =
 $(VT_GOALS): export VTIUM_VT_STEPS =
 
-.PHONY: vt-demo
-vt-demo: export VTIUM_VT_SESSION = demo
-vt-demo: $(vt_build) $(vt_helper_build) ## Run vtium with the demo on the development VT or a free VT, then print the answers (VT=N, DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
+.PHONY: vt-accept
+vt-accept: export VTIUM_VT_SESSION = accept
+vt-accept: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run the acceptance pass on the development VT or a free VT, with pictures unless FEATURES is named, every page answered and the pass recorded, then print the pass (VT=N, FEATURES='...', DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-login
