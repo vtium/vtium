@@ -174,12 +174,21 @@ fn answer(socket: &OwnedFd, role: &str, id: u64, request: &Request) {
         height: h,
         ignored: 0,
         pooled: role.starts_with("pooled"),
+        delays: Vec::new(),
+        loops: None,
         reason: Vec::new(),
     };
     if request.discard {
         send(socket, &wire::encode_reply(&header), None);
         return;
     }
+    header.delays = match role {
+        // two frames for a request that asked for one picture
+        "lie-frames" => vec![0, 0],
+        // a picture that counts no frame
+        "lie-no-frames" => Vec::new(),
+        _ => vec![0],
+    };
     let fd = rustix::fs::memfd_create("stand-in", MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING)
         .unwrap();
     let mut len = u64::from(w * h * 4);
@@ -359,6 +368,7 @@ fn raw(medium: Medium) -> Request {
         exact: false,
         discard: false,
         any_image: false,
+        frames: None,
         pixels: Some(Description {
             layout: Layout::Rgb,
             alpha: Alpha::Straight,
@@ -603,6 +613,8 @@ fn each_reply_that_fails_a_check_fails_the_request_as_a_crash() {
         "lie-big",
         "lie-fd",
         "lie-ignored",
+        "lie-frames",
+        "lie-no-frames",
         "pooled-unsealed",
         "no-hello",
     ] {

@@ -17,7 +17,7 @@ use rustix::net::{
     RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags, SendAncillaryBuffer,
     SendAncillaryMessage, SendFlags,
 };
-use vtium_image::decode::wire::{REASON_MAX, Status};
+use vtium_image::decode::wire::{REASON_MAX, REPLY_FRAMES_MAX, Status};
 
 use crate::files::Identity;
 
@@ -129,6 +129,11 @@ pub struct Outcome {
     /// domain or its third filter was in force. The worker reports this
     /// itself, so it holds in honest runs only (ADR-1101 D10).
     pub locked: bool,
+    /// An animated GIF's frame delays, in hundredths of a second, one for
+    /// each frame of its reply file; empty for one picture.
+    pub delays: Vec<u16>,
+    /// An animated GIF's loop count, 0 meaning forever, or `None`.
+    pub loops: Option<u16>,
     pub reason: String,
 }
 
@@ -143,18 +148,20 @@ impl Outcome {
             shm: None,
             mismatch: false,
             locked: false,
+            delays: Vec::new(),
+            loops: None,
             reason: reason.into(),
         }
     }
 }
 
-/// The bytes of an outcome before its reason.
-const OUTCOME_FIXED: usize = 44;
+/// The bytes of an outcome before its delays and its reason.
+const OUTCOME_FIXED: usize = 52;
 /// The most bytes an outcome takes.
-pub const OUTCOME_MAX: usize = OUTCOME_FIXED + REASON_MAX;
+pub const OUTCOME_MAX: usize = OUTCOME_FIXED + 2 * REPLY_FRAMES_MAX + REASON_MAX;
 
 /// The outcome's packet; the reason is cut at [`REASON_MAX`] bytes, on a
-/// character's boundary.
+/// character's boundary, and the delays at [`REPLY_FRAMES_MAX`].
 pub fn encode_outcome(o: &Outcome) -> Vec<u8> {
     let mut end = o.reason.len().min(REASON_MAX);
     while !o.reason.is_char_boundary(end) {
@@ -164,7 +171,9 @@ pub fn encode_outcome(o: &Outcome) -> Vec<u8> {
     let (dev, ino) = o.shm.map_or((0, 0), |id| (id.dev, id.ino));
     let flags = u32::from(o.shm.is_some())
         | u32::from(o.mismatch).wrapping_shl(1)
-        | u32::from(o.locked).wrapping_shl(2);
+        | u32::from(o.locked).wrapping_shl(2)
+        | u32::from(o.loops.is_some()).wrapping_shl(3);
+    let delays = o.delays.get(..REPLY_FRAMES_MAX).unwrap_or(&o.delays);
     let mut out = Vec::with_capacity(OUTCOME_FIXED.saturating_add(reason.len()));
     for v in [
         o.status as u32,
@@ -178,6 +187,11 @@ pub fn encode_outcome(o: &Outcome) -> Vec<u8> {
         out.extend_from_slice(&v.to_le_bytes());
     }
     out.extend_from_slice(&flags.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(delays.len()).unwrap_or(0).to_le_bytes());
+    out.extend_from_slice(&u32::from(o.loops.unwrap_or(0)).to_le_bytes());
+    for d in delays {
+        out.extend_from_slice(&d.to_le_bytes());
+    }
     out.extend_from_slice(reason.as_bytes());
     out
 }
@@ -198,13 +212,31 @@ pub fn decode_outcome(packet: &[u8]) -> Option<Outcome> {
     };
     let status = Status::from_wire(u32_at(0)?)?;
     let reason_len = usize::try_from(u32_at(12)?).ok()?;
-    if reason_len > REASON_MAX || OUTCOME_FIXED.checked_add(reason_len)? != packet.len() {
+    let frames = usize::try_from(u32_at(44)?).ok()?;
+    if frames > REPLY_FRAMES_MAX {
+        return None;
+    }
+    let delays_end = OUTCOME_FIXED.checked_add(frames.checked_mul(2)?)?;
+    if reason_len > REASON_MAX || delays_end.checked_add(reason_len)? != packet.len() {
         return None;
     }
     let flags = u32_at(40)?;
-    if flags & !7 != 0 {
+    if flags & !15 != 0 {
         return None;
     }
+    let loops = u16::try_from(u32_at(48)?).ok()?;
+    let loops = match flags & 8 {
+        0 if loops == 0 => None,
+        0 => return None,
+        _ => Some(loops),
+    };
+    let delays = packet
+        .get(OUTCOME_FIXED..delays_end)?
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&b| u16::from_le_bytes(b))
+        .collect();
     let shm = (flags & 1 != 0).then(|| Identity {
         dev: u64_at(24).unwrap_or(0),
         ino: u64_at(32).unwrap_or(0),
@@ -217,7 +249,9 @@ pub fn decode_outcome(packet: &[u8]) -> Option<Outcome> {
         shm,
         mismatch: flags & 2 != 0,
         locked: flags & 4 != 0,
-        reason: String::from_utf8_lossy(packet.get(OUTCOME_FIXED..)?).into_owned(),
+        delays,
+        loops,
+        reason: String::from_utf8_lossy(packet.get(delays_end..)?).into_owned(),
     })
 }
 
@@ -266,6 +300,8 @@ mod tests {
             shm: Some(Identity { dev: 6, ino: 7 }),
             mismatch: true,
             locked: true,
+            delays: vec![3, 0, 7],
+            loops: Some(0),
             reason: "é".repeat(200),
         };
         let packet = encode_outcome(&o);
@@ -280,7 +316,12 @@ mod tests {
         );
         assert_eq!(decode_outcome(&packet[..packet.len() - 1]), None);
         let mut bad = packet.clone();
-        bad[40] = 8;
+        bad[40] = 16;
+        assert_eq!(decode_outcome(&bad), None);
+        // a loop count without its flag
+        let mut bad = packet.clone();
+        bad[40] &= !8;
+        bad[48] = 1;
         assert_eq!(decode_outcome(&bad), None);
     }
 }

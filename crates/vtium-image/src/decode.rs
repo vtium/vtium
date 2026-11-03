@@ -92,6 +92,9 @@ pub struct Request {
     /// Decode a PNG, JPEG or GIF file, recognized by its first bytes, as
     /// iTerm2's pictures ask (ADR-1103).
     pub any_image: bool,
+    /// Every frame of an animated GIF, within these bounds, for a request
+    /// with the any-image flag (ADR-1101 D7); `None` asks for one picture.
+    pub frames: Option<FrameLimits>,
     /// The raw pixels the helper reads or inflates, which it converts into
     /// the store's format; `None` for PNG, any image or a discard.
     pub pixels: Option<Description>,
@@ -99,6 +102,18 @@ pub struct Request {
     /// `max-graphic-size`, and its most bytes, from the budget.
     pub largest: (u32, u32),
     pub largest_bytes: u64,
+}
+
+/// The bounds a request sets on an animated GIF's frames (ADR-1101 D7,
+/// ADR-1103 D2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FrameLimits {
+    /// The most frames the reply may hold, its first included, from 1 to
+    /// ADR-1102's `FRAMES_MAX`.
+    pub max_frames: u32,
+    /// The most bytes the frames past the first may take together: what
+    /// the console's frame allowance could hold for them.
+    pub max_frame_bytes: u64,
 }
 
 /// Raw pixels as a request describes them, built by the handler from its
@@ -192,18 +207,48 @@ pub enum Payload {
         height: u32,
         file: ReplyFile,
     },
+    /// An animated GIF's frames, each a whole picture of `width` by
+    /// `height` in the store's format, one after another in `data`, each
+    /// frame's delay in hundredths of a second, and the GIF's loop count, 0
+    /// meaning forever, or `None` when it gives none (ADR-1103 D2). A reply
+    /// of one frame is a [`Rgba`](Self::Rgba) or [`File`](Self::File).
+    Frames {
+        width: u32,
+        height: u32,
+        delays: Vec<u16>,
+        loops: Option<u16>,
+        data: FrameData,
+    },
     /// A discard's answer, which carries nothing.
     Discarded,
+}
+
+/// Where an animated GIF's frames are: in memory, as the fixture host gives
+/// them, or left in the helper's reply file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FrameData {
+    Memory(Vec<u8>),
+    File(ReplyFile),
 }
 
 impl Payload {
     /// A picture's width and height; `None` for a discard's answer.
     pub fn size(&self) -> Option<(u32, u32)> {
         match self {
-            Self::Rgba { width, height, .. } | Self::File { width, height, .. } => {
-                Some((*width, *height))
-            }
+            Self::Rgba { width, height, .. }
+            | Self::File { width, height, .. }
+            | Self::Frames { width, height, .. } => Some((*width, *height)),
             Self::Discarded => None,
+        }
+    }
+
+    /// How many frames it holds: an animated GIF's count, 1 for any other
+    /// picture, 0 for a discard's answer.
+    pub fn frame_count(&self) -> usize {
+        match self {
+            Self::Frames { delays, .. } => delays.len(),
+            Self::Discarded => 0,
+            _ => 1,
         }
     }
 
@@ -212,6 +257,10 @@ impl Payload {
         match self {
             Self::Rgba { data, .. } => u64::try_from(data.len()).ok(),
             Self::File { file, .. } => Some(file.bytes()),
+            Self::Frames { data, .. } => match data {
+                FrameData::Memory(d) => u64::try_from(d.len()).ok(),
+                FrameData::File(f) => Some(f.bytes()),
+            },
             Self::Discarded => None,
         }
     }
@@ -222,7 +271,8 @@ impl Payload {
     /// whether every pixel is opaque ([`convert::from_reply`]). `out` grows
     /// at most once, to the picture's size, and not at all when it already
     /// has room. `None` for a discard's answer, and for a file that cannot
-    /// be read whole or hands over more or fewer bytes than its size.
+    /// be read whole or hands over more or fewer bytes than its size. An
+    /// animated GIF's frames are copied by [`copy_frames`](Self::copy_frames).
     pub fn copy_into(&self, mut out: Vec<u32>) -> Option<(Vec<u32>, bool)> {
         let (width, height) = self.size()?;
         let pixels = usize::try_from(u64::from(width).checked_mul(u64::from(height))?).ok()?;
@@ -244,8 +294,67 @@ impl Payload {
                 });
                 (whole && !over && out.len() == pixels).then_some((out, alphas == 0xff))
             }
-            Self::Discarded => None,
+            Self::Frames { .. } | Self::Discarded => None,
         }
+    }
+
+    /// The one copy of an animated GIF's frames into memory only the
+    /// console holds, which the caller reserved under the budget and the
+    /// frame allowance: each frame's pixels in the store's format, each
+    /// color clamped to its alpha, and whether every pixel of it is opaque,
+    /// read in one pass over the frames. `None` for any other payload, and
+    /// for frames that cannot be read whole or hand over more or fewer
+    /// bytes than they need.
+    pub fn copy_frames(&self) -> Option<Vec<(Vec<u32>, bool)>> {
+        let Self::Frames {
+            width,
+            height,
+            delays,
+            data,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        let per = usize::try_from(u64::from(*width).checked_mul(u64::from(*height))?).ok()?;
+        let mut frames: Vec<(Vec<u32>, u8)> = Vec::new();
+        frames.try_reserve_exact(delays.len()).ok()?;
+        for _ in 0..delays.len() {
+            let mut out = Vec::new();
+            out.try_reserve_exact(per).ok()?;
+            frames.push((out, 0xff));
+        }
+        let mut at = 0usize;
+        let mut over = false;
+        let mut sink = |mut run: &[u8]| {
+            while !run.is_empty() {
+                let Some((out, alphas)) = frames.get_mut(at) else {
+                    over = true;
+                    return;
+                };
+                let room = per.saturating_sub(out.len()).saturating_mul(4);
+                let (take, rest) = run.split_at(room.min(run.len()));
+                convert::extend_from_reply(take, out, alphas);
+                run = rest;
+                if out.len() == per {
+                    at = at.saturating_add(1);
+                }
+            }
+        };
+        let whole = match data {
+            FrameData::Memory(d) => {
+                sink(d);
+                true
+            }
+            FrameData::File(f) => f.read(&mut sink),
+        };
+        let done = whole && !over && frames.iter().all(|(f, _)| f.len() == per);
+        done.then(|| {
+            frames
+                .into_iter()
+                .map(|(f, alphas)| (f, alphas == 0xff))
+                .collect()
+        })
     }
 }
 
@@ -268,11 +377,40 @@ impl Reply {
     /// size than the pixels the request described, or whose data is not
     /// its width times its height times 4 bytes; a picture a discard did
     /// not ask for; or a discard's answer to a request that was no
-    /// discard. A discard is answered [`Payload::Discarded`].
+    /// discard. A discard is answered [`Payload::Discarded`]. An animated
+    /// GIF's frames fit only a request that asked for frames: at least two
+    /// and at most `max_frames`, those past the first within
+    /// `max_frame_bytes`, and exactly their count times a picture's bytes.
     pub fn checked(self, request: &Request) -> Self {
         let fits = match &self {
             Self::Ok(payload) if request.discard => *payload == Payload::Discarded,
             Self::Ok(Payload::Discarded) => false,
+            Self::Ok(Payload::Frames {
+                width,
+                height,
+                delays,
+                ..
+            }) => {
+                let frame = u64::from(*width)
+                    .checked_mul(u64::from(*height))
+                    .and_then(|n| n.checked_mul(4));
+                let count = u64::try_from(delays.len()).unwrap_or(u64::MAX);
+                let total = frame.and_then(|f| f.checked_mul(count));
+                let past = frame.and_then(|f| f.checked_mul(count.saturating_sub(1)));
+                request.any_image
+                    && request.frames.is_some_and(|l| {
+                        count >= 2
+                            && count <= u64::from(l.max_frames)
+                            && past.is_some_and(|p| p <= l.max_frame_bytes)
+                    })
+                    && *width > 0
+                    && *height > 0
+                    && *width <= request.largest.0
+                    && *height <= request.largest.1
+                    && frame.is_some_and(|f| f <= request.largest_bytes)
+                    && total.is_some()
+                    && self_bytes(&self) == total
+            }
             Self::Ok(picture) => {
                 let (width, height) = picture.size().unwrap_or_default();
                 let len = u64::from(width)
@@ -295,7 +433,20 @@ impl Reply {
     }
 }
 
+/// The bytes a reply's picture holds.
+fn self_bytes(reply: &Reply) -> Option<u64> {
+    match reply {
+        Reply::Ok(payload) => payload.bytes(),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "a test fails by panicking"
+)]
 mod tests {
     use super::*;
 
@@ -310,6 +461,7 @@ mod tests {
             exact: false,
             discard: false,
             any_image: false,
+            frames: None,
             pixels: None,
             largest: (2, 2),
             largest_bytes: 16,
@@ -350,6 +502,92 @@ mod tests {
         assert_eq!(discarded.clone().checked(&discard), discarded);
         assert_eq!(rgba(1, 1, 4).checked(&discard), Reply::Failed);
         assert_eq!(Reply::Unreadable.checked(&discard), Reply::Unreadable);
+    }
+
+    fn frames(width: u32, height: u32, count: usize, bytes: usize) -> Reply {
+        Reply::Ok(Payload::Frames {
+            width,
+            height,
+            delays: vec![5; count],
+            loops: Some(0),
+            data: FrameData::Memory(vec![0xff; bytes]),
+        })
+    }
+
+    // covers: image.iterm2
+    #[test]
+    fn frames_fit_only_a_request_that_asked_for_them_within_its_bounds() {
+        let ask = Request {
+            medium: Medium::Direct(Vec::new()),
+            any_image: true,
+            frames: Some(FrameLimits {
+                max_frames: 3,
+                max_frame_bytes: 32,
+            }),
+            ..request(false)
+        };
+        // 2 by 2 pixels, 16 bytes a frame
+        assert_eq!(frames(2, 2, 3, 48).checked(&ask), frames(2, 2, 3, 48));
+        for (reply, why) in [
+            (frames(2, 2, 4, 64), "more than max_frames"),
+            (frames(2, 2, 1, 16), "one frame is no animation"),
+            (frames(2, 2, 3, 47), "bytes short of the count"),
+            (frames(2, 2, 3, 49), "bytes past the count"),
+            (frames(3, 2, 2, 48), "wider than the largest"),
+        ] {
+            assert_eq!(reply.checked(&ask), Reply::Failed, "{why}");
+        }
+        let tight = Request {
+            frames: Some(FrameLimits {
+                max_frames: 3,
+                max_frame_bytes: 31,
+            }),
+            ..ask.clone()
+        };
+        assert_eq!(frames(2, 2, 3, 48).checked(&tight), Reply::Failed);
+        let still = Request {
+            frames: None,
+            ..ask.clone()
+        };
+        assert_eq!(frames(2, 2, 2, 32).checked(&still), Reply::Failed);
+        // a one-frame picture still fits a request that asked for frames
+        assert_eq!(rgba(2, 2, 16).checked(&ask), rgba(2, 2, 16));
+    }
+
+    #[test]
+    fn frames_are_copied_once_each_clamped_with_its_own_opacity() {
+        let data = [
+            [0xff, 0, 0, 0xff, 0, 0xff, 0, 0xff],
+            [0x80, 0x80, 0x80, 0x40, 0, 0, 0, 0],
+        ]
+        .concat();
+        let payload = Payload::Frames {
+            width: 2,
+            height: 1,
+            delays: vec![1, 2],
+            loops: None,
+            data: FrameData::Memory(data.clone()),
+        };
+        let got = payload.copy_frames().unwrap();
+        assert_eq!(
+            got,
+            [
+                (vec![0xffff_0000, 0xff00_ff00], true),
+                (vec![0x4040_4040, 0], false)
+            ]
+        );
+        let with = |bytes: Vec<u8>| Payload::Frames {
+            width: 2,
+            height: 1,
+            delays: vec![1, 2],
+            loops: None,
+            data: FrameData::Memory(bytes),
+        };
+        assert_eq!(with(data[..12].to_vec()).copy_frames(), None);
+        assert_eq!(
+            with([data.as_slice(), &[0; 4]].concat()).copy_frames(),
+            None
+        );
     }
 
     #[test]

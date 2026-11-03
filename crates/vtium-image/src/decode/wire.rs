@@ -15,7 +15,8 @@
 //!   [`Medium::Direct`] is empty.
 //! - A reply is a [`ReplyHeader`]: the outcome, the size of a decoded
 //!   picture, the bytes ignored, whether its memory file is a pooled one,
-//!   and a reason for vtium's log. The pixels travel in the memory file.
+//!   each frame's delay and the loop count of an animated GIF, and a reason
+//!   for vtium's log. The pixels travel in the memory file.
 //!
 //! Request layout, after the kind and the length:
 //!
@@ -23,7 +24,7 @@
 //! |---|---|
 //! | 8 | version, `u32` |
 //! | 12 | medium letter, `u8` |
-//! | 13 | flags, `u8`: [`INFLATE`], [`PNG`], [`EXACT`], [`DISCARD`], [`ANY_IMAGE`] |
+//! | 13 | flags, `u8`: [`INFLATE`], [`PNG`], [`EXACT`], [`DISCARD`], [`ANY_IMAGE`], [`FRAMES`] |
 //! | 14 | the pixel description's layout, `u8`: 0 for none, 3 for RGB, 4 for RGBA |
 //! | 15 | its alpha, `u8`: 0 straight, 1 premultiplied |
 //! | 16 | the request's id, `u64` |
@@ -34,19 +35,23 @@
 //! | 56 | the largest width and height, `u32` each |
 //! | 64 | the described width and height, `u32` each |
 //! | 72 | the name's length, `u32` |
-//! | 76 | reserved, `u32`, 0 |
-//! | 80 | the name |
+//! | 76 | `max_frames`, `u32`, 0 without [`FRAMES`] |
+//! | 80 | `max_frame_bytes`, `u64`, 0 without [`FRAMES`] |
+//! | 88 | the name |
 //!
 //! A described picture's zlib compression travels as the [`INFLATE`] flag.
 //!
 //! Reply layout: version at 8, status at 12, the id at 16, width and height
 //! at 24 and 28, the bytes ignored at 32, the pooled flag at 36 and three
-//! reserved bytes, the reason's length at 40, then the reason.
+//! reserved bytes, the reason's length at 40, the frame count at 44, the
+//! loop count at 48, whether the GIF gives one at 50 and a reserved byte,
+//! then each frame's delay, 2 bytes a frame, then the reason. A reply with
+//! a picture counts one frame or more, and any other reply none.
 
-use super::{Alpha, Description, Layout, Medium, Request};
+use super::{Alpha, Description, FrameLimits, Layout, Medium, Request};
 
 /// The wire's version, which both ends of one build share.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// The helper's first packet.
 pub const KIND_HELLO: u32 = 1;
@@ -65,7 +70,10 @@ pub const EXACT: u8 = 0x04;
 pub const DISCARD: u8 = 0x08;
 /// Decode a PNG, JPEG or GIF file by its first bytes (ADR-1103).
 pub const ANY_IMAGE: u8 = 0x10;
-const FLAGS: u8 = INFLATE | PNG | EXACT | DISCARD | ANY_IMAGE;
+/// Return every frame of an animated GIF (ADR-1101 D7), only beside
+/// [`ANY_IMAGE`].
+pub const FRAMES: u8 = 0x20;
+const FLAGS: u8 = INFLATE | PNG | EXACT | DISCARD | ANY_IMAGE | FRAMES;
 
 /// The longest name of a file or shared-memory object, in bytes: the C
 /// reference's `KMSCON_IMAGE_NAME_MAX`.
@@ -78,11 +86,18 @@ pub const HEADER: usize = 8;
 /// The bytes of a hello.
 pub const HELLO_BYTES: usize = 20;
 /// The bytes of a request before its name.
-pub const REQUEST_FIXED: usize = 80;
-/// The bytes of a reply before its reason.
-pub const REPLY_FIXED: usize = 44;
-/// The most bytes any packet takes.
-pub const PACKET_MAX: usize = REQUEST_FIXED + NAME_MAX;
+pub const REQUEST_FIXED: usize = 88;
+/// The bytes of a reply before its delays and its reason.
+pub const REPLY_FIXED: usize = 52;
+/// The most frames a reply counts: ADR-1102's `FRAMES_MAX`.
+pub const REPLY_FRAMES_MAX: usize = 1024;
+/// The most bytes any packet takes: a request with the longest name, or a
+/// reply with the most frames and the longest reason.
+pub const PACKET_MAX: usize = {
+    let request = REQUEST_FIXED + NAME_MAX;
+    let reply = REPLY_FIXED + 2 * REPLY_FRAMES_MAX + REASON_MAX;
+    if request > reply { request } else { reply }
+};
 
 /// Why a packet is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,6 +172,13 @@ pub struct ReplyHeader {
     /// The memory file is one of a stream's pooled files, sealed against
     /// shrinking and growing only, which the console reads with `pread`.
     pub pooled: bool,
+    /// Each frame's delay in hundredths of a second, one for each frame the
+    /// reply's picture holds: one for a still picture, more for an animated
+    /// GIF, none for a reply without a picture.
+    pub delays: Vec<u16>,
+    /// An animated GIF's loop count, 0 meaning forever, or `None` when it
+    /// gives none or the reply is no animation.
+    pub loops: Option<u16>,
     /// At most [`REASON_MAX`] bytes for vtium's log.
     pub reason: Vec<u8>,
 }
@@ -244,6 +266,7 @@ fn flags(request: &Request) -> u8 {
         (request.exact, EXACT),
         (request.discard, DISCARD),
         (request.any_image, ANY_IMAGE),
+        (request.frames.is_some(), FRAMES),
     ]
     .into_iter()
     .filter_map(|(on, bit)| on.then_some(bit))
@@ -292,7 +315,11 @@ pub fn encode_request(id: u64, request: &Request) -> Result<Vec<u8>, Malformed> 
     put32(&mut out, width);
     put32(&mut out, height);
     put32(&mut out, len32(name.len()));
-    put32(&mut out, 0);
+    let limits = request
+        .frames
+        .map_or((0, 0), |l| (l.max_frames, l.max_frame_bytes));
+    put32(&mut out, limits.0);
+    put64(&mut out, limits.1);
     out.extend_from_slice(name);
     decode_request(&out)?;
     Ok(out)
@@ -315,9 +342,6 @@ pub fn decode_request(packet: &[u8]) -> Result<(u64, Request), Malformed> {
     let flags = get8(packet, 13);
     if flags & !FLAGS != 0 {
         return Err(Malformed("a request with an unknown flag"));
-    }
-    if get32(packet, 76) != 0 {
-        return Err(Malformed("a request with a reserved field set"));
     }
     let name_len = usize::try_from(get32(packet, 72)).unwrap_or(usize::MAX);
     if REQUEST_FIXED.checked_add(name_len) != Some(packet.len()) {
@@ -352,12 +376,34 @@ pub fn decode_request(packet: &[u8]) -> Result<(u64, Request), Malformed> {
         exact: on(EXACT),
         discard: on(DISCARD),
         any_image: on(ANY_IMAGE),
+        frames: frame_limits(packet, on(FRAMES))?,
         pixels,
         largest: (get32(packet, 56), get32(packet, 60)),
         largest_bytes: get64(packet, 48),
     };
     valid(&request)?;
     Ok((get64(packet, 16), request))
+}
+
+/// The frame bounds at offsets 76 and 80: present only with [`FRAMES`],
+/// with `max_frames` from 1 to [`REPLY_FRAMES_MAX`], and both 0 without it.
+fn frame_limits(packet: &[u8], on: bool) -> Result<Option<FrameLimits>, Malformed> {
+    let (max_frames, max_frame_bytes) = (get32(packet, 76), get64(packet, 80));
+    if !on {
+        return if max_frames == 0 && max_frame_bytes == 0 {
+            Ok(None)
+        } else {
+            Err(Malformed("frame bounds without the frames flag"))
+        };
+    }
+    let count = usize::try_from(max_frames).unwrap_or(usize::MAX);
+    if count == 0 || count > REPLY_FRAMES_MAX {
+        return Err(Malformed("a request whose max_frames is out of bounds"));
+    }
+    Ok(Some(FrameLimits {
+        max_frames,
+        max_frame_bytes,
+    }))
 }
 
 /// The pixel description at offsets 14, 15 and 64, if any.
@@ -389,7 +435,12 @@ fn valid(r: &Request) -> Result<(), Malformed> {
     let direct = matches!(r.medium, Medium::Direct(_));
     if r.discard {
         let removable = matches!(r.medium, Medium::TempFile(_) | Medium::SharedMemory(_));
-        let alone = !(r.inflate || r.png || r.exact || r.any_image || r.pixels.is_some());
+        let alone = !(r.inflate
+            || r.png
+            || r.exact
+            || r.any_image
+            || r.frames.is_some()
+            || r.pixels.is_some());
         if !removable || !alone || r.offset != 0 || r.max != 0 || r.min != 0 {
             return Err(Malformed("a discard with anything but its name"));
         }
@@ -416,16 +467,26 @@ fn valid(r: &Request) -> Result<(), Malformed> {
     if r.exact && !r.inflate {
         return Err(Malformed("exact without inflate"));
     }
+    if r.frames.is_some() && !r.any_image {
+        return Err(Malformed("the frames flag without the any-image flag"));
+    }
     if r.min > r.largest_bytes {
         return Err(Malformed("a request that needs more bytes than its budget"));
     }
     Ok(())
 }
 
-/// The reply's bytes; the reason is cut at [`REASON_MAX`].
+/// The reply's bytes; the reason is cut at [`REASON_MAX`], and the delays
+/// at [`REPLY_FRAMES_MAX`].
 pub fn encode_reply(reply: &ReplyHeader) -> Vec<u8> {
     let reason = reply.reason.get(..REASON_MAX).unwrap_or(&reply.reason);
-    let total = REPLY_FIXED.saturating_add(reason.len());
+    let delays = reply
+        .delays
+        .get(..REPLY_FRAMES_MAX)
+        .unwrap_or(&reply.delays);
+    let total = REPLY_FIXED
+        .saturating_add(delays.len().saturating_mul(2))
+        .saturating_add(reason.len());
     let mut out = Vec::with_capacity(total);
     put32(&mut out, KIND_REPLY);
     put32(&mut out, len32(total));
@@ -437,22 +498,53 @@ pub fn encode_reply(reply: &ReplyHeader) -> Vec<u8> {
     put32(&mut out, reply.ignored);
     out.extend_from_slice(&[u8::from(reply.pooled), 0, 0, 0]);
     put32(&mut out, len32(reason.len()));
+    put32(&mut out, len32(delays.len()));
+    out.extend_from_slice(&reply.loops.unwrap_or(0).to_le_bytes());
+    out.extend_from_slice(&[u8::from(reply.loops.is_some()), 0]);
+    for d in delays {
+        out.extend_from_slice(&d.to_le_bytes());
+    }
     out.extend_from_slice(reason);
     out
 }
 
 /// The reply in `packet`, or why it is refused: a length that is not its
-/// fields and its reason, a reason past [`REASON_MAX`], another version,
-/// an unknown status, a pooled flag other than 0 or 1, or a reserved byte
-/// set.
+/// fields, its delays and its reason, a reason past [`REASON_MAX`], more
+/// frames than [`REPLY_FRAMES_MAX`], another version, an unknown status, a
+/// pooled or loop flag other than 0 or 1, a loop count without its flag,
+/// or a reserved byte set.
 pub fn decode_reply(packet: &[u8]) -> Result<ReplyHeader, Malformed> {
     header(packet, KIND_REPLY, REPLY_FIXED)?;
     let reason_len = usize::try_from(get32(packet, 40)).unwrap_or(usize::MAX);
-    if reason_len > REASON_MAX || REPLY_FIXED.checked_add(reason_len) != Some(packet.len()) {
+    let frames = usize::try_from(get32(packet, 44)).unwrap_or(usize::MAX);
+    if frames > REPLY_FRAMES_MAX {
+        return Err(Malformed("a reply with more frames than it may count"));
+    }
+    let delays_end = REPLY_FIXED.saturating_add(frames.saturating_mul(2));
+    if reason_len > REASON_MAX || delays_end.checked_add(reason_len) != Some(packet.len()) {
         return Err(Malformed(
-            "a reply whose length is not its fields and its reason",
+            "a reply whose length is not its fields, its delays and its reason",
         ));
     }
+    let loops = match (
+        get8(packet, 50),
+        u16::from_le_bytes([get8(packet, 48), get8(packet, 49)]),
+    ) {
+        (0, 0) => None,
+        (1, n) => Some(n),
+        _ => return Err(Malformed("a reply with an unknown loop flag")),
+    };
+    if get8(packet, 51) != 0 {
+        return Err(Malformed("a reply with a reserved byte set"));
+    }
+    let delays = packet
+        .get(REPLY_FIXED..delays_end)
+        .unwrap_or_default()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&b| u16::from_le_bytes(b))
+        .collect();
     let status =
         Status::from_wire(get32(packet, 12)).ok_or(Malformed("a reply with an unknown status"))?;
     let pooled = match get8(packet, 36) {
@@ -470,7 +562,9 @@ pub fn decode_reply(packet: &[u8]) -> Result<ReplyHeader, Malformed> {
         height: get32(packet, 28),
         ignored: get32(packet, 32),
         pooled,
-        reason: packet.get(REPLY_FIXED..).unwrap_or_default().to_vec(),
+        delays,
+        loops,
+        reason: packet.get(delays_end..).unwrap_or_default().to_vec(),
     })
 }
 
@@ -494,6 +588,7 @@ mod tests {
             exact: false,
             discard: false,
             any_image: false,
+            frames: None,
             pixels: Some(Description {
                 layout: Layout::Rgba,
                 alpha: Alpha::Straight,
@@ -593,6 +688,87 @@ mod tests {
         });
     }
 
+    // covers: image.iterm2
+    #[test]
+    fn a_request_for_frames_comes_back_and_its_bounds_are_held() {
+        let gif = Request {
+            medium: Medium::Direct(Vec::new()),
+            offset: 0,
+            max: 0,
+            min: 0,
+            any_image: true,
+            frames: Some(FrameLimits {
+                max_frames: 1024,
+                max_frame_bytes: 1 << 40,
+            }),
+            pixels: None,
+            ..file(b"")
+        };
+        let packet = encode_request(3, &gif).unwrap();
+        assert_eq!(packet[13] & FRAMES, FRAMES);
+        assert_eq!(decode_request(&packet).unwrap(), (3, gif.clone()));
+        let refuse = |r: Request| encode_request(1, &r).unwrap_err();
+        refuse(Request {
+            any_image: false,
+            png: true,
+            ..gif.clone()
+        });
+        for max_frames in [0, 1025] {
+            refuse(Request {
+                frames: Some(FrameLimits {
+                    max_frames,
+                    max_frame_bytes: 0,
+                }),
+                ..gif.clone()
+            });
+        }
+        // bounds without the flag
+        let mut bad = encode_request(
+            1,
+            &Request {
+                frames: None,
+                ..gif
+            },
+        )
+        .unwrap();
+        bad[80] = 1;
+        assert!(decode_request(&bad).is_err());
+    }
+
+    #[test]
+    fn a_reply_without_a_loop_count_or_frames_comes_back() {
+        let reply = ReplyHeader {
+            status: Status::Corrupt,
+            id: 1,
+            width: 0,
+            height: 0,
+            ignored: 0,
+            pooled: false,
+            delays: Vec::new(),
+            loops: None,
+            reason: Vec::new(),
+        };
+        let packet = encode_reply(&reply);
+        assert_eq!(packet.len(), REPLY_FIXED);
+        assert_eq!(decode_reply(&packet).unwrap(), reply);
+        // a loop count without its flag
+        let mut bad = packet.clone();
+        bad[48] = 3;
+        assert!(decode_reply(&bad).is_err());
+        // the most frames a reply may count fit a packet
+        let most = ReplyHeader {
+            delays: vec![1; REPLY_FRAMES_MAX + 5],
+            reason: vec![b'x'; REASON_MAX],
+            ..reply
+        };
+        let packet = encode_reply(&most);
+        assert!(packet.len() <= PACKET_MAX);
+        assert_eq!(
+            decode_reply(&packet).unwrap().delays.len(),
+            REPLY_FRAMES_MAX
+        );
+    }
+
     #[test]
     fn a_packet_that_is_short_long_or_unknown_is_refused() {
         let packet = encode_request(1, &file(b"/a")).unwrap();
@@ -604,12 +780,13 @@ mod tests {
         assert!(decode_request(&long).is_err());
         for (at, value) in [
             (0, 9),
-            (8, 2),
+            (8, 1),
             (12, b'x'),
             (13, 0x80),
             (14, 2),
             (15, 2),
             (76, 1),
+            (80, 1),
         ] {
             let mut bad = packet.clone();
             bad[at] = value;
@@ -626,6 +803,8 @@ mod tests {
             height: 3,
             ignored: 4,
             pooled: true,
+            delays: vec![7, 0, 65535],
+            loops: Some(0),
             reason: b"why".to_vec(),
         };
         let packet = encode_reply(&reply);
@@ -638,7 +817,16 @@ mod tests {
             decode_reply(&encode_reply(&long)).unwrap().reason.len(),
             REASON_MAX
         );
-        for (at, value) in [(12, 6), (36, 2), (37, 1), (40, 2), (8, 0)] {
+        for (at, value) in [
+            (12, 6),
+            (36, 2),
+            (37, 1),
+            (40, 2),
+            (8, 0),
+            (44, 4),
+            (50, 2),
+            (51, 1),
+        ] {
             let mut bad = packet.clone();
             bad[at] = value;
             assert!(decode_reply(&bad).is_err(), "byte {at} set to {value}");

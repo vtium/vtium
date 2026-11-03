@@ -160,11 +160,13 @@ pub struct Started {
 }
 
 /// Starts a helper from `program` as `account`, its memory cap set for
-/// `max_bytes`, with vtium's `TMPDIR` as its argument.
+/// `max_bytes` and its largest file at `largest_file`, with vtium's
+/// `TMPDIR` as its argument.
 pub fn start(
     program: &Program,
     account: &Account,
     max_bytes: u64,
+    largest_file: u64,
     tmpdir: Option<&Path>,
 ) -> Result<Started, String> {
     let (ours, theirs) = rustix::net::socketpair(
@@ -192,10 +194,10 @@ pub fn start(
         arg.push(dir);
         command.arg(arg);
     }
+    // the largest memory file the helper fills is a reply of `max_bytes`
+    // and an animated GIF's frames past the first (ADR-1101 D3), which the
+    // caller adds, and the memory cap counts no memory file's pages
     let cap = memory_cap(max_bytes);
-    // the largest memory file the helper fills is a reply of `max_bytes`,
-    // and the memory cap counts no memory file's pages
-    let largest_file = max_bytes;
     // built here, before the fork, so the child allocates nothing
     let groups: Option<Vec<Gid>> = account
         .groups

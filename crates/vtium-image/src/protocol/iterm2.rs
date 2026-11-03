@@ -358,6 +358,7 @@ impl Handler for Iterm2 {
             exact: false,
             discard: false,
             any_image: true,
+            frames: None,
             pixels: None,
             largest: graphic(ctx),
             largest_bytes: ctx.store().limit().saturating_sub(IMAGE_OVERHEAD),

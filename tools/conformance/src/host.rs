@@ -213,6 +213,7 @@ mod tests {
             exact: false,
             discard: false,
             any_image: false,
+            frames: None,
             pixels: None,
             largest: (10_000, 10_000),
             largest_bytes: 1 << 30,
