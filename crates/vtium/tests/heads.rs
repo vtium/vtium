@@ -41,6 +41,8 @@ const BOUND: Duration = Duration::from_secs(10);
 struct Memory {
     w: u32,
     h: u32,
+    /// The refresh rate of its mode, in mHz.
+    refresh_mhz: u32,
     connector: &'static str,
     card: &'static str,
     dpi: f64,
@@ -87,6 +89,7 @@ impl Memory {
         Memory {
             w,
             h,
+            refresh_mhz: 60_000,
             connector,
             card,
             dpi: 72.0,
@@ -140,6 +143,16 @@ impl Memory {
         self.events.push(Event::Redraw(ID));
     }
 
+    /// A new refresh rate in place, `mhz`, at the same size, as a modeset
+    /// that falls back to a default mode of the same size sets it: the
+    /// display keeps its buffer, which is age 0 at the new mode, and the
+    /// owner is told to redraw.
+    fn set_refresh(&mut self, mhz: u32) {
+        self.refresh_mhz = mhz;
+        self.age = 0;
+        self.events.push(Event::Redraw(ID));
+    }
+
     /// Pays a clear the sleep owed, once no token holds the buffer.
     fn pay_clear(&mut self) {
         if self.clear_owed && Arc::strong_count(&self.drawn) == 1 {
@@ -170,7 +183,7 @@ impl Video for Memory {
         Some((self.w, self.h))
     }
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
-        Some(60_000)
+        Some(self.refresh_mhz)
     }
     fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
         Some((self.dpi, self.dpi))
@@ -1174,6 +1187,49 @@ fn a_display_whose_mode_changes_in_place_draws_whole_at_its_new_size() {
         after,
         (winch + 1, "20 80".to_owned()),
         "one SIGWINCH, and the pty at the new size"
+    );
+}
+
+/// vtium/vtium#216: a display whose mode changes in place to a new refresh
+/// rate at the same size paces its frames at the new rate. The grid and
+/// the renderer stay as they were, and the display's next frame is drawn
+/// whole.
+#[test]
+fn a_display_whose_refresh_rate_changes_in_place_paces_at_its_new_rate() {
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "the session runs");
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0),
+        "the display draws"
+    );
+    let intervals = |s: &Seat| -> Vec<Option<Duration>> {
+        s.app
+            .heads()
+            .iter()
+            .flat_map(Head::refresh_intervals)
+            .collect()
+    };
+    assert_eq!(intervals(&s), [Some(Duration::from_nanos(16_666_666))]);
+    let (frames, lent) = {
+        let m = s.memory("/dev/mem0");
+        (m.frames, m.ages.len())
+    };
+    s.memory("/dev/mem0").set_refresh(30_000);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws again after its mode changed"
+    );
+    assert_eq!(
+        intervals(&s),
+        [Some(Duration::from_nanos(33_333_333))],
+        "the view paces at 30 Hz"
+    );
+    assert_eq!(s.app.grid(), (40, 10), "the grid keeps its size");
+    assert_eq!(
+        s.memory("/dev/mem0").ages.get(lent),
+        Some(&0),
+        "the first frame after is drawn whole"
     );
 }
 

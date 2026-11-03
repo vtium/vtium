@@ -1764,10 +1764,12 @@ impl App {
                 }
             }
             // A modeset or a wake-up may have given the display a new
-            // mode in place, on the same connector. Its view then draws
-            // with a new renderer at the display's new size, and the head
-            // is laid out again: a view left at the old size never draws,
-            // because every token the display lends has the new size.
+            // mode in place, on the same connector. Its view takes the
+            // display's refresh rate again, which paces its frames. At a
+            // new size it draws with a new renderer at that size, and the
+            // head is laid out again: a view left at the old size never
+            // draws, because every token the display lends has the new
+            // size.
             Event::Redraw(id) => {
                 let key = (node.to_owned(), id);
                 let mode = self
@@ -1798,9 +1800,12 @@ impl App {
                         continue;
                     };
                     v.lost = true;
+                    if let Some((_, refresh)) = mode {
+                        v.set_refresh(refresh);
+                    }
                     match (new, font) {
-                        (Some((size, refresh)), Some(Ok(font))) => {
-                            v.resize(font, size, refresh, render);
+                        (Some((size, _)), Some(Ok(font))) => {
+                            v.resize(font, size, render);
                             resized = Some(h);
                         }
                         // With no font at its height the view keeps its
