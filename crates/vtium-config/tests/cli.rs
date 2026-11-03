@@ -169,7 +169,8 @@ fn as_root_the_tui_does_not_open() {
     use std::ffi::OsString;
     use vtium_config::cli::root_refusal;
     let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
-    for words in [&[][..], &["--no-banner"]] {
+    // an empty command word is no command, so it opens the TUI too
+    for words in [&[][..], &["--no-banner"], &[""], &["--", ""]] {
         let why = root_refusal(0, &args(words)).expect("refused as root");
         assert!(why.contains("as yourself") && why.contains("sudo"), "{why}");
         assert_eq!(root_refusal(1000, &args(words)), None);
@@ -210,6 +211,7 @@ fn the_binary_run_as_root_refuses_paths_programs_and_the_tui() {
         (&["--vtium", "/bin/true", "apply", "/tmp/d"], "--vtium"),
         (&["--run-with-signals", "/bin/sh"], "--run-with-signals"),
         (&[], "as yourself"),
+        (&[""], "as yourself"),
     ] {
         let Some(o) = as_namespace_root(args) else {
             return;

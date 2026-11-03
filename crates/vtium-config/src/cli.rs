@@ -135,8 +135,8 @@ pub const VALUE_OPTIONS: [ValueOption; 8] = [
 
 /// Why vtium-config, run with the effective uid `euid`, refuses
 /// `args`: a path or program option of [`VALUE_OPTIONS`], the step that releases the
-/// TUI's signals and runs another program, or no command, which opens the
-/// TUI; `None` when it takes them.
+/// TUI's signals and runs another program, or no command or an empty
+/// one, which opens the TUI; `None` when it takes them.
 /// It refuses only as root, an effective uid of 0; `main` runs it first.
 pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
     if euid != 0 {
@@ -159,9 +159,10 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
             None => None,
         }
     });
-    // the TUI runs as the user from start to end (ADR-1201 D5)
+    // the TUI runs as the user from start to end (ADR-1201 D5); an empty
+    // command word is no command, which `run` opens the TUI for
     let tui = parse_args(args)
-        .is_ok_and(|o| o.words.is_empty())
+        .is_ok_and(|o| o.words.first().is_none_or(String::is_empty))
         .then(|| "run vtium config as yourself; it asks for sudo when it saves".to_owned());
     named.or(tui)
 }
