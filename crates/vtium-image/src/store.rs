@@ -1500,27 +1500,27 @@ impl Geometry {
                 .unwrap_or(0)
         };
         let (mut cols, mut rows, mut dw, mut dh);
-        match (place.cols, place.rows) {
+        match (drawn, place.cols, place.rows) {
             // a drawn size the protocol worked out, at the box's top left
-            _ if let Some((w, h)) = drawn => {
+            (Some((w, h)), _, _) => {
                 (cols, rows) = (0, 0);
                 (dw, dh) = (u64::from(w), u64::from(h));
             }
-            (0, 0) => {
+            (None, 0, 0) => {
                 (cols, rows) = (0, 0);
                 (dw, dh) = (u64::from(sw), u64::from(sh));
             }
-            (c, 0) => {
+            (None, c, 0) => {
                 (cols, rows) = (c, 0);
                 dw = u64::from(c).saturating_mul(cw64);
                 dh = scale(dw, sh64, sw64);
             }
-            (0, r) => {
+            (None, 0, r) => {
                 (cols, rows) = (0, r);
                 dh = u64::from(r).saturating_mul(ch64);
                 dw = scale(dh, sw64, sh64);
             }
-            (c, r) => {
+            (None, c, r) => {
                 (cols, rows) = (c, r);
                 let bw = u64::from(c)
                     .saturating_mul(cw64)
