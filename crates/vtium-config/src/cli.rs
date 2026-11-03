@@ -41,6 +41,7 @@ Options:
   --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
   --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
   --sys DIR             sysfs, where displays are measured, in place of /sys
+  --helper PROGRAM      the glyph helper the tool starts, in place of this binary's serve
   --no-banner           no banner at a terminal (NO_COLOR also turns it off)
   --help, --version
 ";
@@ -57,6 +58,7 @@ struct Options {
     vconsole_conf: Option<PathBuf>,
     kernel_cmdline: Option<PathBuf>,
     sys: Option<PathBuf>,
+    helper: Option<PathBuf>,
     words: Vec<String>,
 }
 
@@ -73,6 +75,7 @@ impl Options {
             "--vconsole-conf" => self.vconsole_conf = Some(value.into()),
             "--kernel-cmdline" => self.kernel_cmdline = Some(value.into()),
             "--sys" => self.sys = Some(value.into()),
+            "--helper" => self.helper = Some(value.into()),
             // the table's test reads every name, so none lands here
             _ => {}
         }
@@ -105,8 +108,9 @@ impl Options {
     /// The glyph helper, this binary run as `serve`, finding sources where
     /// the options name them.
     fn helper(&self) -> crate::specimen::Helper {
-        let program =
-            std::env::current_exe().unwrap_or_else(|_| PathBuf::from("/usr/bin/vtium-config"));
+        let program = self.helper.clone().unwrap_or_else(|| {
+            std::env::current_exe().unwrap_or_else(|_| PathBuf::from("/usr/bin/vtium-config"))
+        });
         let mut options: Vec<OsString> = Vec::new();
         for dir in &self.kbd_dirs {
             options.extend(["--kbd-dir".into(), dir.into()]);
@@ -138,7 +142,7 @@ pub struct ValueOption {
 /// by the refusal. Run as root, vtium-config takes none of the flagged
 /// ones, so `sudo vtium-config` reads and writes only the system's
 /// directories and runs only the console it was built with.
-pub const VALUE_OPTIONS: [ValueOption; 9] = [
+pub const VALUE_OPTIONS: [ValueOption; 10] = [
     ValueOption {
         name: "--configdir",
         path: true,
@@ -173,6 +177,10 @@ pub const VALUE_OPTIONS: [ValueOption; 9] = [
     },
     ValueOption {
         name: "--sys",
+        path: true,
+    },
+    ValueOption {
+        name: "--helper",
         path: true,
     },
 ];

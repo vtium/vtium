@@ -361,3 +361,39 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
     assert_eq!(lines[5], "unifont\tbuilt in\t");
     assert_eq!(lines[6], "unscii-8\tbuilt in\t");
 }
+
+/// A helper that never answers, or answers one frit and then stalls,
+/// marks no frit as drawing nothing: the answers that came are kept, and
+/// each frit still unanswered after the helper's wait is unknown.
+#[test]
+fn fonts_keeps_the_answers_that_came_and_marks_the_rest_unknown() {
+    let f = fixture("fonts-stalled", None);
+    for (name, script, first) in [
+        ("silent", "exec sleep 30", "spare\treads\tunknown: "),
+        (
+            // one sources answer, kind 11 with no payload, then nothing
+            "one-then-stalls",
+            "printf '\\013\\000\\000\\000\\000\\000\\000\\000'\nexec sleep 30",
+            "spare\treads\t\n",
+        ),
+    ] {
+        let helper = f.root.join(name);
+        std::fs::write(&helper, format!("#!/bin/sh\n{script}\n")).expect("the stand-in");
+        std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .expect("its mode");
+        let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
+        assert_eq!(ran.status, 0, "{name}: {}", ran.err);
+        assert!(!ran.out.contains("draws nothing"), "{name}: {}", ran.out);
+        let lines: Vec<&str> = ran.out.lines().collect();
+        assert!(
+            format!("{}\n", lines[0]).starts_with(first),
+            "{name}: {}",
+            ran.out
+        );
+        assert!(
+            lines[1].starts_with("tiny\treads\tunknown: the helper did not answer in time"),
+            "{name}: {}",
+            ran.out
+        );
+    }
+}

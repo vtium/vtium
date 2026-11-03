@@ -12,7 +12,7 @@
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -181,13 +181,13 @@ fn send(stdin: &mut dyn Write, r: &ServeRequest) -> Result<(), String> {
         .map_err(|e| format!("the helper: {e}"))
 }
 
-/// Starts `helper` under its own sandbox, runs `talk` on its pipes, and
-/// ends it; `talk`'s answer, or why there is none, within
-/// [`HELPER_WAIT`].
-fn with_helper<T: Send + 'static>(
-    helper: &Helper,
-    talk: impl FnOnce(&mut dyn Write, &mut dyn Read) -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
+/// Starts `helper` under its own sandbox, with an empty environment, `/`
+/// as its directory and its three pipes: this process opens every
+/// descriptor close-on-exec, the TUI's copies of the terminal included, so
+/// the process that parses fonts holds none of the user's terminal, and the
+/// helper sheds any other descriptor it is given as it starts
+/// ([`crate::serve::SHED_VAR`]).
+fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout), String> {
     let mut child = Command::new(&helper.program)
         .args(&helper.options)
         .arg(crate::serve::SERVE_ARG)
@@ -198,10 +198,24 @@ fn with_helper<T: Send + 'static>(
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("{}: {e}", helper.program.display()))?;
-    let (mut stdin, mut stdout) = match (child.stdin.take(), child.stdout.take()) {
-        (Some(i), Some(o)) => (i, o),
-        _ => return Err("the helper's pipes".to_owned()),
-    };
+    match (child.stdin.take(), child.stdout.take()) {
+        (Some(i), Some(o)) => Ok((child, i, o)),
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err("the helper's pipes".to_owned())
+        }
+    }
+}
+
+/// Starts `helper` under its own sandbox, runs `talk` on its pipes, and
+/// ends it; `talk`'s answer, or why there is none, within
+/// [`HELPER_WAIT`].
+fn with_helper<T: Send + 'static>(
+    helper: &Helper,
+    talk: impl FnOnce(&mut dyn Write, &mut dyn Read) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let (mut child, mut stdin, mut stdout) = start(helper)?;
     let (done, answer) = mpsc::channel();
     std::thread::spawn(move || {
         let result = talk(&mut stdin, &mut stdout);
@@ -216,45 +230,79 @@ fn with_helper<T: Send + 'static>(
     result
 }
 
-/// The sources of `frit` the helper at `helper` leaves out, each this
-/// machine's lack or refusal, as the helper finds them under its own
-/// sandbox; why the frit draws nothing, when no source is left.
-pub fn sources(helper: &Helper, frit: &FritText) -> Result<Vec<LeftOut>, String> {
-    sources_of(helper, vec![frit.clone()])?
-        .pop()
-        .unwrap_or_else(|| Err("the helper did not answer".to_owned()))
+/// What the helper said of one frit's sources.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Sources {
+    /// The helper read the frit: the sources it left out, which this
+    /// machine lacks or refuses, none when it has them all.
+    LeftOut(Vec<LeftOut>),
+    /// The helper read the frit and found no source of it it can draw from,
+    /// or the frit does not read: why.
+    DrawsNothing(String),
+    /// No answer came for the frit: the helper did not start, failed, or
+    /// stalled before it answered; why. Nothing is known of its sources.
+    Unknown(String),
 }
 
-/// The sources each of `frits` lacks or refuses, or why it draws nothing,
-/// asked of one helper at `helper` over one pipe within one
-/// [`HELPER_WAIT`], since the helper reads each frit once and answers each
-/// sources query at once; each frit's answer, or the session's failure.
-pub fn sources_of(
-    helper: &Helper,
-    frits: Vec<FritText>,
-) -> Result<Vec<Result<Vec<LeftOut>, String>>, String> {
-    with_helper(helper, move |stdin, stdout| {
-        let empty = Cell {
-            width: 0,
-            height: 0,
-        };
-        for frit in &frits {
-            send(stdin, &request(SOURCES, frit, empty, Vec::new()))?;
-        }
-        let mut answers = Vec::with_capacity(frits.len());
-        while answers.len() < frits.len() {
-            let (kind, payload) = frame(stdout)?;
-            match kind {
-                FRAME_SOURCES => answers.push(Ok(text(&payload)
-                    .lines()
-                    .filter_map(LeftOut::parse)
-                    .collect())),
-                FRAME_FAILED => answers.push(Err(text(&payload))),
-                _ => {}
+/// The sources each of `frits` lacks or refuses, asked of one helper at
+/// `helper` over one pipe, since the helper reads each frit once and
+/// answers each sources query at once. Each answer is waited for at most
+/// [`HELPER_WAIT`]; the answers that came are kept, and once one does not
+/// come, or the helper cannot be started, every frit still unanswered is
+/// [`Sources::Unknown`].
+pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
+    let count = frits.len();
+    let mut answers = Vec::with_capacity(count);
+    let session = start(helper).map(|(child, mut stdin, mut stdout)| {
+        let (arrived, answer) = mpsc::channel();
+        std::thread::spawn(move || {
+            let empty = Cell {
+                width: 0,
+                height: 0,
+            };
+            for frit in &frits {
+                if send(&mut stdin, &request(SOURCES, frit, empty, Vec::new())).is_err() {
+                    return;
+                }
             }
+            for _ in 0..frits.len() {
+                let found = loop {
+                    match frame(&mut stdout) {
+                        Ok((FRAME_SOURCES, payload)) => {
+                            break Sources::LeftOut(
+                                text(&payload).lines().filter_map(LeftOut::parse).collect(),
+                            );
+                        }
+                        Ok((FRAME_FAILED, payload)) => break Sources::DrawsNothing(text(&payload)),
+                        Ok(_) => {}
+                        Err(_) => return,
+                    }
+                };
+                if arrived.send(found).is_err() {
+                    return;
+                }
+            }
+        });
+        (child, answer)
+    });
+    let why = match session {
+        Ok((mut child, answer)) => {
+            while answers.len() < count {
+                match answer.recv_timeout(HELPER_WAIT) {
+                    Ok(found) => answers.push(found),
+                    Err(_) => break,
+                }
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            "the helper did not answer in time".to_owned()
         }
-        Ok(answers)
-    })
+        Err(why) => why,
+    };
+    while answers.len() < count {
+        answers.push(Sources::Unknown(why.clone()));
+    }
+    answers
 }
 
 /// A frit's specimen as the helper drew it at one height: the glyphs it

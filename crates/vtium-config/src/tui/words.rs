@@ -42,6 +42,7 @@ pub fn sources_missing(n: usize) -> String {
     }
 }
 pub const DRAWS_NOTHING: &str = "no source on this machine";
+pub const SOURCES_UNKNOWN: &str = "sources not checked";
 
 /// Marks the choice that a save writes.
 pub const TO_SAVE: &str = "to save";

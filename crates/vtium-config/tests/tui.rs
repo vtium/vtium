@@ -16,7 +16,7 @@ use std::time::Duration;
 use vtium_config::draft::Plan;
 use vtium_config::kitty;
 use vtium_config::serve::LeftOut;
-use vtium_config::specimen::{Picture, Summary};
+use vtium_config::specimen::{Picture, Sources, Summary};
 use vtium_config::tui::model::{self, DpiFrom, Font, FontState, Inputs};
 use vtium_config::tui::port::{Port, Wake, drive};
 use vtium_font::Cell;
@@ -281,14 +281,14 @@ impl Port for Console {
             .into_iter()
             .map(|font| {
                 let left = match font.as_str() {
-                    "proof" => Ok(vec![LeftOut {
+                    "proof" => Sources::LeftOut(vec![LeftOut {
                         missing: true,
                         line: 27,
                         spelling: "font:JetBrains Mono".into(),
                         why: "no such family".into(),
                     }]),
-                    "tiny5" => Err("no source left".into()),
-                    _ => Ok(Vec::new()),
+                    "tiny5" => Sources::DrawsNothing("no source left".into()),
+                    _ => Sources::LeftOut(Vec::new()),
                 };
                 (font, left)
             })

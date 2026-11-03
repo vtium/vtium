@@ -296,18 +296,15 @@ pub fn find_sources(
         .iter()
         .filter_map(|(_, t)| t.as_ref().ok().cloned())
         .collect();
-    let mut answers = match crate::specimen::sources_of(helper, readable) {
-        Ok(answers) => answers.into_iter(),
-        Err(why) => vec![Err(why); names.len()].into_iter(),
-    };
+    let mut answers = crate::specimen::sources_of(helper, readable).into_iter();
     texts
         .into_iter()
         .map(|(name, text)| {
             let found = match text {
-                Ok(_) => answers
-                    .next()
-                    .unwrap_or_else(|| Err("the helper did not answer".to_owned())),
-                Err(why) => Err(why),
+                Ok(_) => answers.next().unwrap_or_else(|| {
+                    crate::specimen::Sources::Unknown("the helper did not answer".to_owned())
+                }),
+                Err(why) => crate::specimen::Sources::DrawsNothing(why),
             };
             (name, found)
         })

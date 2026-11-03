@@ -695,3 +695,89 @@ fn a_terminal_that_closes_ends_the_tui() {
         "the hangup's status, or a failed write's: {code}"
     );
 }
+
+/// The glyph helper the TUI starts holds only its three pipes, never a copy
+/// of the user's terminal, which a font could write to; and while that
+/// helper does not answer, the TUI goes on taking keys, and marks no frit
+/// as drawing nothing, only its sources as not checked.
+#[test]
+fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken() {
+    let (master, slave) = pair(80, 25);
+    let (root, fonts) = fixture("silent-helper");
+    // a stand-in for the helper, which records its pid and never answers
+    let helper = root.join("helper");
+    std::fs::write(&helper, "#!/bin/sh\necho $$ > \"$0.pid\"\nexec sleep 30\n").expect("helper");
+    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("its mode");
+    let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+    let child = tui_with(
+        &slave,
+        &root,
+        &[
+            "--configdir".as_ref(),
+            root.as_os_str(),
+            "--frits".as_ref(),
+            fonts.as_os_str(),
+            "--helper".as_ref(),
+            helper.as_os_str(),
+        ],
+    );
+    c.until("decided", |s| s.screen.contains("live preview: on"));
+    // the stand-in, once it is sleep, holds what the TUI gave it
+    let pid_file = root.join("helper.pid");
+    let deadline = now() + Duration::from_secs(10);
+    let pid = loop {
+        let pid = std::fs::read_to_string(&pid_file).unwrap_or_default();
+        let pid = pid.trim().to_owned();
+        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+        if !pid.is_empty() && comm.trim() == "sleep" {
+            break pid;
+        }
+        assert!(now() < deadline, "the helper never started");
+        std::thread::yield_now();
+    };
+    let mut fds: Vec<(u32, String)> = std::fs::read_dir(format!("/proc/{pid}/fd"))
+        .expect("its descriptors")
+        .flatten()
+        .filter_map(|e| {
+            let n = e.file_name().to_str()?.parse().ok()?;
+            let to = std::fs::read_link(e.path()).ok()?;
+            Some((n, to.to_string_lossy().into_owned()))
+        })
+        .collect();
+    fds.sort();
+    let numbers: Vec<u32> = fds.iter().map(|(n, _)| *n).collect();
+    assert_eq!(
+        numbers,
+        [0, 1, 2],
+        "only its stdin and stdout pipes and stderr: {fds:?}"
+    );
+    assert!(
+        fds.iter().all(|(_, to)| !to.starts_with("/dev/pts")),
+        "no terminal: {fds:?}"
+    );
+    // a key reaches the TUI while the helper is silent
+    c.key(UP);
+    c.until("switched", |s| s.font == "tiny5");
+    // once its wait is out, no frit is said to draw nothing
+    c.until("gave up on the helper", |s| {
+        s.screen.contains("sources not checked")
+    });
+    assert!(
+        !c.screen().contains("no source on this machine"),
+        "{}",
+        c.screen()
+    );
+    c.key(b"q");
+    assert_eq!(status(child), 0);
+    c.drained(&slave);
+}
+
+/// Now, for a wait bounded only so the test fails instead of hanging.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the wait for the stand-in helper is bounded so the test fails instead of hanging"
+)]
+fn now() -> std::time::Instant {
+    std::time::Instant::now()
+}

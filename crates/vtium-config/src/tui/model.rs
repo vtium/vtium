@@ -135,7 +135,7 @@ pub enum Event {
 }
 
 /// The sources a frit lacks or refuses, or why it draws nothing here.
-pub type SourcesFound = Result<Vec<crate::serve::LeftOut>, String>;
+pub type SourcesFound = crate::specimen::Sources;
 
 /// One thing the loop does for the state machine.
 #[derive(Clone, Debug, PartialEq, Eq)]

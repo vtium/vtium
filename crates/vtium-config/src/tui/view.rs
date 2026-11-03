@@ -11,6 +11,7 @@
 use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Saving, View, setting_keys};
 use super::words;
 use crate::draft::changes;
+use crate::specimen::Sources;
 
 /// The smallest grid the full screen is drawn in: below it, one line. The
 /// views fit the 320x240 floor's 40 columns (ADR-1201 D3), and from 25
@@ -138,10 +139,15 @@ fn body(app: &App) -> Body {
                 .iter()
                 .map(|f| {
                     let mut note = match (&f.state, app.sources.get(&f.name)) {
-                        (FontState::Reads, Some(Ok(left))) if !left.is_empty() => {
+                        (FontState::Reads, Some(Sources::LeftOut(left))) if !left.is_empty() => {
                             format!("{}, {}", words::READS, words::sources_missing(left.len()))
                         }
-                        (FontState::Reads, Some(Err(_))) => words::DRAWS_NOTHING.to_owned(),
+                        (FontState::Reads, Some(Sources::DrawsNothing(_))) => {
+                            words::DRAWS_NOTHING.to_owned()
+                        }
+                        (FontState::Reads, Some(Sources::Unknown(_))) => {
+                            format!("{}, {}", words::READS, words::SOURCES_UNKNOWN)
+                        }
                         (FontState::Reads, _) => words::READS.to_owned(),
                         (FontState::BuiltIn, _) => words::BUILT_IN.to_owned(),
                         (FontState::Refused(why), _) => words::does_not_read(why),

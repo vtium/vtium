@@ -17,6 +17,7 @@ use vtium_settings::{Edit, edit_conf, setting, switch};
 
 use crate::draft::{FileEdit, Plan, Removal};
 use crate::frit::{FRIT_BYTES_MAX, Frit, RESERVED, valid_name};
+use crate::specimen::Sources;
 use crate::tui::{Paths, model::FontState};
 
 /// The usage error `why`, as every command reports one.
@@ -60,8 +61,13 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
             FontState::BuiltIn => ("built in".to_owned(), String::new()),
             FontState::Refused(why) => (format!("does not read: {why}"), String::new()),
             FontState::Reads => match found.next().map(|(_, f)| f) {
-                Some(Ok(left)) => ("reads".to_owned(), left_out_text(&left)),
-                Some(Err(why)) => (format!("draws nothing: {why}"), String::new()),
+                Some(Sources::LeftOut(left)) => ("reads".to_owned(), left_out_text(&left)),
+                Some(Sources::DrawsNothing(why)) => {
+                    (format!("draws nothing: {why}"), String::new())
+                }
+                // no answer came: nothing is known of its sources, and it
+                // is not said to draw nothing
+                Some(Sources::Unknown(why)) => ("reads".to_owned(), format!("unknown: {why}")),
                 None => ("reads".to_owned(), String::new()),
             },
         };
