@@ -52,7 +52,7 @@ const CLUSTER_BYTES: Bound = Bound {
 const PLACEHOLDER: Bound = Bound {
     name: "PLACEHOLDER_MARKS",
     value: 3,
-    what: "Codepoints a cluster that starts with U+10EEEE, the kitty graphics protocol's Unicode placeholder, keeps after it whatever the line's cluster budget: its picture row, its picture column and the top byte of its image id",
+    what: "Codepoints a cluster that starts with U+10EEEE, the kitty graphics protocol's Unicode placeholder, keeps after it whatever the line's cluster budget, in a build with images: its picture row, its picture column and the top byte of its image id. A build without images keeps such a cluster within the budget, as any other",
     past: "Codepoints past the third are dropped, so the cluster takes at most 17 bytes of its line's arena with its length byte; the line's budget of `CLUSTER_BYTES_PER_CELL` counts every other cluster",
     cite: "ADR-1001, \"Placeholder cells\" (the maintainer, 2026-11-02); ADR-1100, D13",
 };
@@ -94,7 +94,7 @@ const SB_MEMORY_MIN_BOUND: Bound = Bound {
     value: 1 << 20,
     what: "The least byte budget `sb-memory` sets the scrollback",
     past: "A smaller `sb-memory` is clamped up to it, with a warning",
-    cite: "The operator's fence, vtium/vtium#131 (2026-10-28): about 138 rows at the 7,560-byte worst case, a screen of hostile rows on a minspec display, and thousands of plain lines",
+    cite: "The operator's fence, vtium/vtium#131 (2026-10-28): about 138 rows at the 7,560-byte worst case of a build without images (about 100 at the 10,450-byte worst case of a build with images), a screen of hostile rows on a minspec display, and thousands of plain lines",
 };
 
 const SB_MEMORY_MAX_BOUND: Bound = Bound {

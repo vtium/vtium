@@ -388,10 +388,13 @@ fn a_screen_row_costs_at_most_its_bound() {
         assert_eq!(row, Line::bytes_max(cols), "at {cols} columns");
     }
     #[cfg(target_pointer_width = "64")]
-    assert_eq!(
-        GRIDS.map(|(cols, _)| Line::bytes_max(cols)),
-        [15_428, 7_328, 3_728]
-    );
+    {
+        #[cfg(feature = "images")]
+        let want = [15_428, 7_328, 3_728];
+        #[cfg(not(feature = "images"))]
+        let want = [9_648, 4_608, 2_368];
+        assert_eq!(GRIDS.map(|(cols, _)| Line::bytes_max(cols)), want);
+    }
 }
 
 // A rewrap moves clusters with their cells, so a row it builds may name
@@ -788,14 +791,29 @@ fn the_worst_default_scrollback_fits_the_minspec_peak() {
     assert_eq!(figures[0].1, SB_MEMORY_DEFAULT);
     #[cfg(target_pointer_width = "64")]
     {
-        assert_eq!(worst_row(), 10_450);
-        assert_eq!(
-            figures,
+        // with images, a screen row may hold placeholder clusters outside
+        // its budget (ADR-1001, "Placeholder cells")
+        #[cfg(feature = "images")]
+        let want = (
+            10_450,
             [
                 (1_547_136, 4_653_056, 16_741_248),
                 (459_360, 5_767_168, 15_984_416),
                 (233_760, 5_963_776, 13_330_816),
-            ]
+            ],
+        );
+        #[cfg(not(feature = "images"))]
+        let want = (
+            7_560,
+            [
+                (992_256, 5_242_880, 16_776_192),
+                (296_160, 5_898_240, 14_461_216),
+                (152_160, 6_029_312, 12_569_216),
+            ],
+        );
+        assert_eq!(
+            (worst_row(), figures.as_slice()),
+            (want.0, want.1.as_slice())
         );
     }
 }

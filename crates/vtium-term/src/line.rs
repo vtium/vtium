@@ -20,9 +20,9 @@
 //! keeps the longest run of its first codepoints that fits, and at least
 //! its first codepoint.
 //!
-//! A cluster that starts with U+10EEEE, the kitty graphics protocol's
-//! Unicode placeholder, sits outside that budget (ADR-1001, "Placeholder
-//! cells"): it keeps the placeholder and its first [`PLACEHOLDER_MARKS`]
+//! In a build with images, a cluster that starts with U+10EEEE, the kitty
+//! graphics protocol's Unicode placeholder, sits outside that budget
+//! (ADR-1001, "Placeholder cells"): it keeps the placeholder and its first [`PLACEHOLDER_MARKS`]
 //! codepoints after it, at most [`PLACEHOLDER_BYTES_MAX`] bytes, whatever
 //! the other clusters take, since those marks carry its picture's row, its
 //! column and the top byte of its image id. A line counts the cells that
@@ -239,9 +239,10 @@ impl Tables {
 pub(crate) const PLACEHOLDER: char = '\u{10EEEE}';
 
 /// Whether the cluster `s` is a placeholder cluster: one that starts with
-/// [`PLACEHOLDER`].
+/// [`PLACEHOLDER`], in a build with images. A build without images keeps
+/// U+10EEEE as any private-use character, its marks within the budget.
 pub(crate) fn is_placeholder(s: &str) -> bool {
-    s.starts_with(PLACEHOLDER)
+    cfg!(feature = "images") && s.starts_with(PLACEHOLDER)
 }
 
 /// What a line keeps of the placeholder cluster `s`: the placeholder and
@@ -314,8 +315,18 @@ impl Line {
     /// at, by capacity. A row that `write` and `erase` fill reaches it; a
     /// row a rewrap built and a later write compacted holds fewer styles
     /// and links and stays under it. `tests/memory.rs` drives rows on both
-    /// paths and holds each to it.
+    /// paths and holds each to it. In a build with images, every cell may
+    /// name a placeholder cluster ([`bytes_max_in`](Self::bytes_max_in)).
     pub const fn bytes_max(cols: usize) -> usize {
+        Self::bytes_max_in(cols, cfg!(feature = "images"))
+    }
+
+    /// [`bytes_max`](Self::bytes_max) in a build with images (`images`
+    /// true) or without: with images, every cell may name a placeholder
+    /// cluster, which raises the arena's limit by [`PLACEHOLDER_BYTES_MAX`]
+    /// a cell (ADR-1001, "Placeholder cells"), so a row holds 128 + 90
+    /// bytes a cell at most where it holds 128 + 56 without.
+    pub const fn bytes_max_in(cols: usize, images: bool) -> usize {
         let cols = if cols == 0 {
             1
         } else if cols > COLUMNS_MAX {
@@ -324,12 +335,11 @@ impl Line {
             cols
         };
         let tables = cols.saturating_mul(TABLE_GROWTH);
-        // every cell may name a placeholder cluster, which raises the
-        // arena's limit by `PLACEHOLDER_BYTES_MAX` a cell
+        let placeholder = if images { PLACEHOLDER_BYTES_MAX } else { 0 };
         let entry = size_of::<Style>()
             .saturating_add(size_of::<LinkId>())
             .saturating_add(CLUSTER_BYTES_PER_CELL)
-            .saturating_add(PLACEHOLDER_BYTES_MAX);
+            .saturating_add(placeholder);
         size_of::<Self>()
             .saturating_add(cols.saturating_mul(size_of::<Cell>()))
             .saturating_add(size_of::<Tables>())
@@ -1701,10 +1711,11 @@ mod tests {
             .collect()
     }
 
-    // ADR-1001, "Placeholder cells": a placeholder cluster keeps its first
-    // three marks wherever it starts in its line, after other clusters
-    // have spent the budget, and drops the marks past them; the budget
-    // still cuts every other cluster.
+    // ADR-1001, "Placeholder cells": in a build with images, a placeholder
+    // cluster keeps its first three marks wherever it starts in its line,
+    // after other clusters have spent the budget, and drops the marks past
+    // them; the budget still cuts every other cluster.
+    #[cfg(feature = "images")]
     #[test]
     fn a_placeholder_keeps_three_marks_whatever_the_budget() {
         let mut line = Line::new(LineId::new(1), 4);
@@ -1759,9 +1770,57 @@ mod tests {
         assert_eq!(line.cluster_bytes(), 24 + 9);
     }
 
+    // In a build without images, U+10EEEE is a private-use character like
+    // any other: a cluster that starts with it keeps only what the line's
+    // budget leaves, and the line counts no placeholder.
+    #[cfg(not(feature = "images"))]
+    #[test]
+    fn without_images_a_placeholder_cluster_keeps_only_what_the_budget_allows() {
+        let mut line = Line::new(LineId::new(1), 4);
+        let heavy = accented(31);
+        line.write(
+            0,
+            Glyph::Cluster(&heavy),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        let five = placeholder(5);
+        line.write(
+            1,
+            Glyph::Cluster(&five),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        assert_eq!(
+            line.glyph(line.cell(1)),
+            Glyph::Char(PLACEHOLDER),
+            "the budget is spent"
+        );
+        // five cells' budget, 30 bytes, holds the 25 the cluster takes
+        let mut line = Line::new(LineId::new(1), 5);
+        line.write(
+            0,
+            Glyph::Cluster(&five),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        assert_eq!(
+            line.glyph(line.cell(0)),
+            Glyph::Cluster(&five),
+            "all five marks fit"
+        );
+        assert_eq!(tables(&line).placeholders, 0);
+        assert_eq!(tables(&line).live(), five.len() + 1);
+        assert_eq!(Line::bytes_max(170), 9_648);
+    }
+
     // The arena's limit takes 17 bytes for each cell that names a
     // placeholder, so a row of placeholders, rewritten in new styles and
     // links, compacts within it and its tables reach `Line::bytes_max`.
+    #[cfg(feature = "images")]
     #[test]
     fn a_row_of_placeholders_holds_to_its_raised_limit() {
         let cols = 17;

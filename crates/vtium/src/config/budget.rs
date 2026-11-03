@@ -119,11 +119,17 @@ mod tests {
     fn unread_memory_holds_the_default_with_a_warning_naming_meminfo() {
         set_test_memory(None);
         assert_eq!(sb_memory(&Config::default()), vtium_term::SB_MEMORY_DEFAULT);
+        // a build with images prices placeholder cells into a screen row,
+        // so its default is lower (ADR-1001, "Placeholder cells")
+        #[cfg(feature = "images")]
+        let most = "4653056";
+        #[cfg(not(feature = "images"))]
+        let most = "5242880";
         assert_eq!(
-            memory_warning().as_deref(),
-            Some(
-                "cannot read the machine's memory from /proc/meminfo; sb-memory is at most 4653056"
-            )
+            memory_warning(),
+            Some(format!(
+                "cannot read the machine's memory from /proc/meminfo; sb-memory is at most {most}"
+            ))
         );
         set_test_memory(Some(512 << 20));
         assert_eq!(memory_warning(), None);

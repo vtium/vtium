@@ -63,6 +63,12 @@ pub const MINSPEC_REST: usize = 10_038 << 10;
 /// [`Line::bytes_max`], each screen `rows` rows, inside the screen's own
 /// bounds.
 pub const fn screens_bytes_max(cols: usize, rows: usize) -> usize {
+    screens_bytes_max_in(cols, rows, cfg!(feature = "images"))
+}
+
+/// [`screens_bytes_max`] in a build with images (`images` true) or
+/// without ([`Line::bytes_max_in`]).
+const fn screens_bytes_max_in(cols: usize, rows: usize, images: bool) -> usize {
     let rows = if rows == 0 {
         1
     } else if rows > ROWS_MAX {
@@ -70,12 +76,16 @@ pub const fn screens_bytes_max(cols: usize, rows: usize) -> usize {
     } else {
         rows
     };
-    lines_bytes_max(cols, rows, rows.saturating_mul(2))
+    lines_bytes_max_in(cols, rows, rows.saturating_mul(2), images)
 }
 
 /// The most bytes `lines` rows of `cols` cells hold, with the change ages
 /// of a screen of `cols` by `rows`.
 pub(crate) const fn lines_bytes_max(cols: usize, rows: usize, lines: usize) -> usize {
+    lines_bytes_max_in(cols, rows, lines, cfg!(feature = "images"))
+}
+
+const fn lines_bytes_max_in(cols: usize, rows: usize, lines: usize, images: bool) -> usize {
     let cols = if cols == 0 {
         1
     } else if cols > COLUMNS_MAX {
@@ -84,7 +94,7 @@ pub(crate) const fn lines_bytes_max(cols: usize, rows: usize, lines: usize) -> u
         cols
     };
     lines
-        .saturating_mul(Line::bytes_max(cols))
+        .saturating_mul(Line::bytes_max_in(cols, images))
         .saturating_add(Damage::heap_bytes_for(cols, rows))
 }
 
@@ -131,9 +141,25 @@ pub(crate) const fn sb_memory_held(screens: usize) -> usize {
 /// `sb-memory`'s default at [`MINSPEC_GRID`], and on every larger grid:
 /// what the peak leaves after the minspec grid's two screens at their
 /// worst. It is the budget a scrollback starts with, and the most
-/// `sb-memory` may be when the machine's memory cannot be read.
-pub const SB_MEMORY_DEFAULT: usize =
-    sb_memory_left(screens_bytes_max(MINSPEC_GRID.0, MINSPEC_GRID.1));
+/// `sb-memory` may be when the machine's memory cannot be read. It is
+/// [`SB_MEMORY_DEFAULT_IMAGES`] in a build with images and
+/// [`SB_MEMORY_DEFAULT_MINSPEC`] without.
+pub const SB_MEMORY_DEFAULT: usize = if cfg!(feature = "images") {
+    SB_MEMORY_DEFAULT_IMAGES
+} else {
+    SB_MEMORY_DEFAULT_MINSPEC
+};
+
+/// [`SB_MEMORY_DEFAULT`] in a build without images, 5,242,880 bytes on
+/// 64-bit targets.
+pub const SB_MEMORY_DEFAULT_MINSPEC: usize =
+    sb_memory_left(screens_bytes_max_in(MINSPEC_GRID.0, MINSPEC_GRID.1, false));
+
+/// [`SB_MEMORY_DEFAULT`] in a build with images, whose screen rows may
+/// hold kitty placeholder clusters outside their budget (ADR-1001,
+/// "Placeholder cells"): 4,653,056 bytes on 64-bit targets.
+pub const SB_MEMORY_DEFAULT_IMAGES: usize =
+    sb_memory_left(screens_bytes_max_in(MINSPEC_GRID.0, MINSPEC_GRID.1, true));
 
 const _: () = assert!(SB_MEMORY_MIN <= SB_MEMORY_DEFAULT && SB_MEMORY_DEFAULT <= SB_MEMORY_MAX);
 
@@ -1374,13 +1400,20 @@ mod tests {
     }
 
     // What 16 MiB leaves after the rest of the process, the minspec grid's
-    // two screens at their worst and a full link store, 4,653,056 bytes
-    // (4.44 MiB) now that a screen row prices placeholder cells; a smaller
-    // grid leaves more.
+    // two screens at their worst and a full link store: 5 MiB without
+    // images, and 4,653,056 bytes (4.44 MiB) with them, whose screen rows
+    // may hold placeholder cells; a smaller grid leaves more.
     #[test]
     fn the_default_budget_is_what_the_minspec_peak_leaves() {
         #[cfg(target_pointer_width = "64")]
-        assert_eq!(SB_MEMORY_DEFAULT, 4_653_056);
+        {
+            assert_eq!(SB_MEMORY_DEFAULT_MINSPEC, 5_242_880);
+            assert_eq!(SB_MEMORY_DEFAULT_IMAGES, 4_653_056);
+            #[cfg(feature = "images")]
+            assert_eq!(SB_MEMORY_DEFAULT, 4_653_056);
+            #[cfg(not(feature = "images"))]
+            assert_eq!(SB_MEMORY_DEFAULT, 5_242_880);
+        }
         let screens = screens_bytes_max(MINSPEC_GRID.0, MINSPEC_GRID.1);
         let rest = MINSPEC_PEAK - MINSPEC_REST - screens - LINKS_BYTES_MAX;
         assert!((SB_MEMORY_DEFAULT..SB_MEMORY_DEFAULT + (64 << 10)).contains(&rest));
@@ -1389,7 +1422,7 @@ mod tests {
     }
 
     // Above minspec's grids the default stays at the minspec grid's value:
-    // a 3840x2160 display in 8x16 cells keeps 4.44 MiB, where the peak alone
+    // a 3840x2160 display in 8x16 cells keeps that value, where the peak alone
     // would leave it the fence's 1 MiB floor.
     #[test]
     fn a_grid_past_minspec_keeps_the_minspec_default() {

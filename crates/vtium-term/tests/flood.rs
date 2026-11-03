@@ -36,8 +36,8 @@
 //!   budget, where ADR-1001 took 1,020. The shapes below reach twice the
 //!   budget in a row and about 1.4 times it on average.
 //!
-//! A placeholder cluster, one that starts with U+10EEEE, sits outside the
-//! budget (ADR-1001, "Placeholder cells"): it keeps up to
+//! In a build with images, a placeholder cluster, one that starts with
+//! U+10EEEE, sits outside the budget (ADR-1001, "Placeholder cells"): it keeps up to
 //! `PLACEHOLDER_BYTES_MAX` bytes whatever the other clusters take, and a
 //! line's arena compacts at twice its budget and that much for each cell
 //! that names one. So every bound above gains `PLACEHOLDER_BYTES_MAX` a
@@ -65,8 +65,12 @@ fn named_bytes(line: &Line) -> usize {
 }
 
 /// The bytes the placeholder clusters a line's cells name take, length
-/// bytes included, and the cells that name them.
+/// bytes included, and the cells that name them; none without images,
+/// where U+10EEEE's clusters count toward the budget.
 fn placeholder_bytes(line: &Line) -> (usize, usize) {
+    if !cfg!(feature = "images") {
+        return (0, 0);
+    }
     line.cells()
         .iter()
         .filter_map(|&c| match line.glyph(c) {
