@@ -704,9 +704,19 @@ fn a_terminal_that_closes_ends_the_tui() {
 fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken() {
     let (master, slave) = pair(80, 25);
     let (root, fonts) = fixture("silent-helper");
-    // a stand-in for the helper, which records its pid and never answers
+    // A stand-in for the helper, which never answers. The shell lists the
+    // descriptors it inherited before it becomes sleep, because sleep holds
+    // descriptors of its own while it starts (the dynamic loader holds each
+    // library open while it maps it). `ls`, a child of the shell, takes the
+    // list, so the shell's descriptors do not change while it is taken, and
+    // the shell renames the list into place, so the test reads either no
+    // list or the whole of it.
     let helper = root.join("helper");
-    std::fs::write(&helper, "#!/bin/sh\necho $$ > \"$0.pid\"\nexec sleep 30\n").expect("helper");
+    std::fs::write(
+        &helper,
+        "#!/bin/sh\nls -l /proc/$$/fd > \"$0.fds.part\"\nmv \"$0.fds.part\" \"$0.fds\"\nexec sleep 30\n",
+    )
+    .expect("helper");
     std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
         .expect("its mode");
     let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
@@ -723,27 +733,30 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
         ],
     );
     c.until("decided", |s| s.screen.contains("live preview: on"));
-    // the stand-in, once it is sleep, holds what the TUI gave it
-    let pid_file = root.join("helper.pid");
+    // the stand-in lists what the TUI gave it
+    let fds_file = root.join("helper.fds");
     let deadline = now() + Duration::from_secs(10);
-    let pid = loop {
-        let pid = std::fs::read_to_string(&pid_file).unwrap_or_default();
-        let pid = pid.trim().to_owned();
-        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
-        if !pid.is_empty() && comm.trim() == "sleep" {
-            break pid;
+    let listed = loop {
+        if let Ok(listed) = std::fs::read_to_string(&fds_file) {
+            break listed;
         }
         assert!(now() < deadline, "the helper never started");
         std::thread::yield_now();
     };
-    let mut fds: Vec<(u32, String)> = std::fs::read_dir(format!("/proc/{pid}/fd"))
-        .expect("its descriptors")
-        .flatten()
-        .filter_map(|e| {
-            let n = e.file_name().to_str()?.parse().ok()?;
-            let to = std::fs::read_link(e.path()).ok()?;
-            Some((n, to.to_string_lossy().into_owned()))
+    // Each line of `ls -l` reads "... <number> -> <target>". The shell also
+    // holds the script it reads, on a descriptor of its own (bash keeps it on
+    // 255) that it closes when it becomes sleep. That entry is the shell's,
+    // not the TUI's, so the test leaves it out.
+    let script = std::fs::canonicalize(&helper).expect("the stand-in's path");
+    let script = script.to_string_lossy();
+    let mut fds: Vec<(u32, String)> = listed
+        .lines()
+        .filter_map(|line| {
+            let (left, to) = line.split_once(" -> ")?;
+            let n = left.split_whitespace().last()?.parse().ok()?;
+            Some((n, to.to_owned()))
         })
+        .filter(|(_, to)| *to != script)
         .collect();
     fds.sort();
     let numbers: Vec<u32> = fds.iter().map(|(n, _)| *n).collect();
