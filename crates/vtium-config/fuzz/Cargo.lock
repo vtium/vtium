@@ -527,26 +527,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
-name = "vtium-font"
-version = "0.1.0-alpha.1"
-dependencies = [
- "miniz_oxide",
-]
-
-[[package]]
-name = "vtium-platform"
-version = "0.1.0-alpha.1"
-dependencies = [
- "calloop",
- "drm-ffi",
- "libc",
- "log",
- "rustix",
- "udev",
- "xkbcommon",
-]
-
-[[package]]
 name = "vtium-config"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -569,6 +549,26 @@ dependencies = [
  "libfuzzer-sys",
  "miniz_oxide",
  "vtium-config",
+]
+
+[[package]]
+name = "vtium-font"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "miniz_oxide",
+]
+
+[[package]]
+name = "vtium-platform"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "calloop",
+ "drm-ffi",
+ "libc",
+ "log",
+ "rustix",
+ "udev",
+ "xkbcommon",
 ]
 
 [[package]]

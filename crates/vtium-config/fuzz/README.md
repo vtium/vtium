@@ -2,6 +2,8 @@
 
 Two cargo-fuzz targets in their own workspace, so the main workspace and CI never build them or pull `libfuzzer-sys`. A cluster the helper shapes is text a program wrote to the terminal (ADR-1301 D1), so `shape` drives clusters through HarfRust and swash as the helper does. A BDF font is a file anyone can name in a frit, so `bdf` drives any bytes through vtium-config's own BDF reader (ADR-1200 D14). Run each on nightly from this directory: `cargo +nightly fuzz run shape`, `cargo +nightly fuzz run bdf`.
 
+From the repository's root, `make fuzz FUZZ_TARGETS=vtium-config:shape` runs a target from a fresh corpus outside the repository and appends a row to `runs.tsv`, the record of how long each run lasted, against which commit, and what it found.
+
 | Path | What it is |
 |---|---|
 | `fuzz_targets/shape.rs` | Any input as clusters for the test font of `tests/common/ttf.rs`, or as the font itself asked for a fixed set of clusters, rasterised with each cluster shaped: no panic. Its first byte picks which. |

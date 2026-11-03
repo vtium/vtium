@@ -1,0 +1,34 @@
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.00s
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.00s
+     Running `target/x86_64-unknown-linux-gnu/release/parse -artifact_prefix=/src/vtium/crates/vtium-parse/fuzz/artifacts/parse/ -max_total_time=5 -print_final_stats=1 /tmp/vtium-fuzz-vtium-parse-parse-k2v8q1`
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1661512386
+INFO: Loaded 1 modules   (2423 inline 8-bit counters): 2423 [0x563d750d66b0, 0x563d750d7027), 
+INFO: Loaded 1 PC tables (2423 PCs): 2423 [0x563d750d7028,0x563d750e0798), 
+INFO:        0 files found in /tmp/vtium-fuzz-vtium-parse-parse-k2v8q1
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: A corpus is not provided, starting from an empty corpus
+#2	INITED cov: 19 ft: 20 corp: 1/1b exec/s: 0 rss: 47Mb
+	NEW_FUNC[1/3]: 0x563d74f343f0 in core::ptr::drop_glue::<alloc::vec::Vec<parse::common::Act>> /rustc/f9ceb4a4d45a471eed7bd8c40dddb7c38e749e21/library/core/src/ptr/mod.rs:844
+#187893	NEW    cov: 841 ft: 4231 corp: 1183/29Kb lim: 116 exec/s: 37578 rss: 636Mb L: 96/107 MS: 1 ChangeBinInt-
+#187939	REDUCE cov: 841 ft: 4231 corp: 1183/29Kb lim: 116 exec/s: 37587 rss: 636Mb L: 14/107 MS: 1 EraseBytes-
+#187980	REDUCE cov: 841 ft: 4231 corp: 1183/29Kb lim: 116 exec/s: 37596 rss: 636Mb L: 6/107 MS: 1 EraseBytes-
+#188168	REDUCE cov: 841 ft: 4233 corp: 1184/29Kb lim: 116 exec/s: 37633 rss: 636Mb L: 107/107 MS: 3 ShuffleBytes-CrossOver-CrossOver-
+#188501	REDUCE cov: 841 ft: 4233 corp: 1184/29Kb lim: 116 exec/s: 37700 rss: 636Mb L: 9/107 MS: 3 InsertByte-ChangeBinInt-EraseBytes-
+#188576	NEW    cov: 841 ft: 4236 corp: 1185/29Kb lim: 116 exec/s: 37715 rss: 636Mb L: 107/107 MS: 5 ChangeByte-ChangeByte-ChangeBit-ChangeASCIIInt-CopyPart-
+#188620	REDUCE cov: 841 ft: 4236 corp: 1185/29Kb lim: 116 exec/s: 37724 rss: 636Mb L: 58/107 MS: 4 InsertRepeatedBytes-EraseBytes-ChangeBit-EraseBytes-
+#189057	REDUCE cov: 841 ft: 4236 corp: 1185/29Kb lim: 116 exec/s: 37811 rss: 636Mb L: 26/107 MS: 2 InsertByte-EraseBytes-
+#189087	DONE   cov: 841 ft: 4236 corp: 1185/29Kb lim: 116 exec/s: 31514 rss: 636Mb
+###### Recommended dictionary. ######
+"\267\000" # Uses: 609
+"\027\000" # Uses: 551
+"\377\377\377\032" # Uses: 466
+"\013\000\000\000\000\000\000\000" # Uses: 2
+"\000\033" # Uses: 1
+###### End of recommended dictionary. ######
+Done 189087 runs in 6 second(s)
+stat::number_of_executed_units: 189087
+stat::average_exec_per_sec:     31514
+stat::new_units_added:          1935
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              636

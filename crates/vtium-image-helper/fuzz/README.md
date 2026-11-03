@@ -2,6 +2,8 @@
 
 cargo-fuzz targets in their own workspace, so the main workspace and CI never build them or pull `libfuzzer-sys`. ADR-1101 D6 gives each decoding path a fuzz target that covers every crate on that path, run in-process and outside the helper's memory cap. Run them on nightly from this directory, with a corpus directory of your own first and the seeds after it, for example `cargo +nightly fuzz run png corpus/png seeds/png`. A fuzzer rarely writes a PNG whose checksums hold, or a JPEG or zlib stream whose structure holds, so the seeds give it whole files to mutate from. The JPEGs that once crashed the decoder are in `../tests/fixtures/jpeg/`, which a run of the `jpeg` target can add as one more corpus directory. The decoders take the worker's proof that it has locked itself in; cargo-fuzz builds the crate with `cfg(fuzzing)`, under which the targets make one with `Locked::unsandboxed`.
 
+From the repository's root, `make fuzz FUZZ_TARGETS=vtium-image-helper:png` runs a target from a fresh corpus outside the repository, copies in the seeds this README names, and appends a row to `runs.tsv`, the record of how long each run lasted, against which commit, and what it found.
+
 | Path | What it is |
 |---|---|
 | `fuzz_targets/png.rs` | Any input as a PNG file, alone, as any image, and inside zlib (`png`, `fdeflate`, `miniz_oxide`): no panic, and a picture is exactly its size's premultiplied pixels within the bounds its header was checked against. |
