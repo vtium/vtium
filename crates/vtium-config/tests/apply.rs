@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use vtium_config::apply::{
-    Route, Targets, invoking_user, route, save_argv, trusted_owners, write_draft,
+    Route, Targets, invoking_user, owner_trusted, route, save_argv, trusted_owners, write_draft,
 };
 
 #[path = "common/console.rs"]
@@ -469,4 +469,12 @@ fn the_user_a_draft_belongs_to_comes_from_sudo_pkexec_or_doas() {
     assert_eq!(invoking_user(env(&[("DOAS_USER", "mallory")]), users), None);
     assert_eq!(invoking_user(env(&[("SUDO_UID", "lots")]), users), None);
     assert_eq!(invoking_user(env(&[]), users), None);
+}
+
+#[test]
+fn a_file_of_another_owner_is_refused() {
+    assert!(owner_trusted(1000, &[0, 1000]));
+    assert!(owner_trusted(0, &[0, 1000]));
+    assert!(!owner_trusted(1234, &[0, 1000]));
+    assert!(!owner_trusted(1000, &[0]));
 }

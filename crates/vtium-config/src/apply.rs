@@ -311,11 +311,16 @@ fn owners() -> Vec<u32> {
     trusted_owners(rustix::process::geteuid().as_raw(), invoking)
 }
 
+/// Whether a file owned by `uid` is one of `owners`'.
+pub fn owner_trusted(uid: u32, owners: &[u32]) -> bool {
+    owners.contains(&uid)
+}
+
 /// Refuses `fd`, named `name` in messages, when its owner is not one of
 /// `owners`.
 fn owned(fd: &OwnedFd, name: &str, owners: &[u32]) -> Result<rustix::fs::Stat, String> {
     let stat = rustix::fs::fstat(fd).map_err(|e| format!("{name}: {e}"))?;
-    if !owners.contains(&stat.st_uid) {
+    if !owner_trusted(stat.st_uid, owners) {
         return Err(format!(
             "{name} belongs to user {}, neither root nor the user who made the draft",
             stat.st_uid
