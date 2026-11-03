@@ -1,0 +1,12 @@
+# playtest-bitmap: the playtest's bitmap font set (ADR-1501 D6). Terminus
+# at 8x16 for Latin, Greek and Cyrillic, from Arch Linux's terminus-font
+# package, then the built-in GNU Unifont for every other script. The
+# playtest records the Terminus file's SHA-256 and package with every pass.
+#
+# checks: whole-multiple bitmaps; marks placed by vtium's rules
+
+name=playtest-bitmap
+license=OFL-1.1
+
+source=file:/usr/share/kbd/consolefonts/ter-v16n.psf.gz
+source=builtin:unifont

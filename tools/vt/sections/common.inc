@@ -91,6 +91,46 @@ kitty_send() {
 	done
 }
 
+# A language page (ADR-1501 D7): the sentence of the language CODE in
+# text/udhr-article1.tsv, its meaning in English, then a few of its words in
+# each style SGR gives, two styles to a row, then Unicode's superscript and
+# subscript characters, and the font set the walk switched to for the page
+# (PLAYTEST_FRIT) with what that font set checks, from the frit's
+# "# checks:" lines. A style marked * is one vtium does not draw yet: it
+# looks plain, or upright for italic, and the page says so.
+language_page() {
+	local dir code name sentence words english supsub frit checks
+	dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+	while IFS=$'\t' read -r code name sentence words english supsub; do
+		[ "$code" = "$1" ] && break
+	done <"$dir/text/udhr-article1.tsv"
+	[ "$code" = "$1" ] || { printf 'no language %s in text/udhr-article1.tsv\n' "$1"; return 1; }
+	# label, SGR, and the column the cell starts at
+	cell() { printf '%s[%dG%-10s%s[%sm%s%s[0m' "$esc" "$3" "$1" "$esc" "$2" "$words" "$esc"; }
+	row() { cell "$1" "$2" 1; cell "$3" "$4" 41; printf '\n'; }
+	printf '%s, from the Universal Declaration of Human Rights:\n' "$name"
+	printf '%s\n' "$sentence"
+	printf 'In English: All human beings are born free and equal in dignity and rights.\n'
+	printf 'Below, the words for "%s" in each style:\n' "$english"
+	row plain 0 bold 1
+	row 'italic*' 3 'b italic*' '1;3'
+	row dim 2 reverse 7
+	row underline 4 double 4:2
+	row curly 4:3 dotted 4:4
+	row dashed 4:5 'red line' '4;58:5:196'
+	row struck 9 'overline*' 53
+	row 'SGR 73*' 73 'SGR 74*' 74
+	printf '%-10s%s\n' Unicode: "$supsub"
+	printf '* not drawn yet: italic stays upright, the rest look plain. Bold is widened.\n'
+	frit=${PLAYTEST_FRIT:-}
+	if [ -n "$frit" ] && [ -f "$dir/frits/$frit.vtfrit" ]; then
+		checks=$(sed -n 's/^# checks: //p' "$dir/frits/$frit.vtfrit" | paste -sd' ' -)
+		printf 'Font %s: %s\n' "$frit" "$checks"
+	else
+		printf 'Font: the console'"'"'s own; the walk named no font set for this page.\n'
+	fi
+}
+
 # Ends a page this build cannot show: says why, on the page, and exits 77,
 # which demo.sh records as skip, never as no.
 cannot_show() {
