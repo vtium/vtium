@@ -4,6 +4,22 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034 # blink_style and blink_source are read by those that source this
 
+# The checkout this file is in, whose key table gives vtium's defaults.
+blink_checkout=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)
+
+# blink-text's default, from the checkout's key table
+# (crates/vtium-settings/src/keys.rs, which docs/config.md is generated from),
+# so the pages name the default the build has; ACCEPT_VTIUM_KEYS names another
+# table, for the tests. Nothing when the table cannot be read or gives none.
+blink_default() {
+	local keys=${ACCEPT_VTIUM_KEYS:-$blink_checkout/crates/vtium-settings/src/keys.rs} d
+	d=$(awk '/name: "blink-text",/ { found = 1 }
+		found && match($0, /default: Default::Text\("[a-z]+"\)/) {
+			print substr($0, RSTART + 24, RLENGTH - 26); exit
+		}' "$keys" 2>/dev/null)
+	case $d in full | partial | off) printf '%s' "$d" ;; esac
+}
+
 # Sets blink_style to full, partial or off, the style blinking text draws in,
 # and blink_source to where that comes from. vtium reads blink-text= and the
 # blink switch from vtium.conf in its config directory, the last line of each
@@ -13,15 +29,18 @@
 # vtium (tools/vt/config/vtium.conf), else /etc/vtium/vtium.conf.
 # ACCEPT_BLINK_TEXT and ACCEPT_BLINK, which a review run sets from the vtium
 # options it was given, stand for the command line. Without any of them the
-# style is vtium's default, partial.
+# style is vtium's default (blink_default), or unknown when the key table gives
+# none. A file in the checkout is named by its path there.
 blink_style() {
-	local conf=${ACCEPT_VTIUM_CONF:-/etc/vtium/vtium.conf} line key value text='' blink='' text_why='' off_why=''
-	blink_style=partial
+	local conf=${ACCEPT_VTIUM_CONF:-/etc/vtium/vtium.conf} line key value text='' blink='' text_why='' off_why='' name
+	name=${conf#"$blink_checkout"/}
+	blink_style=$(blink_default)
 	blink_source="vtium's default"
+	[ -n "$blink_style" ] || blink_style=unknown blink_source="not known: the checkout's key table gives no default for blink-text"
 	if [ ! -e "$conf" ]; then
-		blink_source="vtium's default; $conf does not exist"
+		blink_source+="; $name does not exist"
 	elif [ ! -r "$conf" ] || [ ! -f "$conf" ]; then
-		blink_source="vtium's default, assumed: $conf cannot be read as you, so a blink-text= line there is not known"
+		blink_source+=", assumed: $name cannot be read as you"
 	else
 		while IFS= read -r line || [ -n "$line" ]; do
 			line=${line%%#*}
@@ -32,9 +51,9 @@ blink_style() {
 			value=${value//[[:space:]]/}
 			case $key in
 			# a value vtium cannot use is ignored, keeping the one before
-			blink-text) case $value in full | partial | off) text=$value text_why="blink-text=$value in $conf" ;; esac ;;
+			blink-text) case $value in full | partial | off) text=$value text_why="blink-text=$value in $name" ;; esac ;;
 			blink) blink=on ;;
-			no-blink) blink=off off_why="no-blink in $conf" ;;
+			no-blink) blink=off off_why="no-blink in $name" ;;
 			esac
 		done <"$conf"
 	fi
@@ -57,6 +76,7 @@ blink_right() {
 	case $blink_style in
 	full) printf 'blinking text disappears in the off phase, about once a second, and comes back' ;;
 	off) printf 'blinking text stays steady and never changes' ;;
-	*) printf 'blinking text dims halfway to its background about once a second and never disappears' ;;
+	partial) printf 'blinking text dims halfway to its background about once a second and never disappears' ;;
+	*) printf 'the page cannot say, since the blink style is not known; judge the rest of the page' ;;
 	esac
 }

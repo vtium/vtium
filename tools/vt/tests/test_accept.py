@@ -31,6 +31,7 @@ VT = os.path.join(ROOT, "tools", "vt")
 ACCEPT_SH = os.path.join(VT, "accept.sh")
 FEEDBACK_SH = os.path.join(VT, "feedback.sh")
 SECTIONS = os.path.join(VT, "sections")
+KEYS = os.path.join(ROOT, "crates", "vtium-settings", "src", "keys.rs")
 
 DA1_TEXT = b"\x1b[?62;22c"
 DA1_PICTURES = b"\x1b[?62;4;22c"
@@ -76,6 +77,10 @@ class Pty:
         # here FRITS, and to nothing else; its query names the font in use.
         self.frits = frits
         self.font = "unifont"
+        # bytes the stand-in sends right after its next answer to the cursor
+        # position query, in the same write: input that arrives while the
+        # walk draws a page, before its prompt
+        self.after_dsr = b""
         # out is what is left after the last wait_for; seen is everything.
         self.out = b""
         self.seen = b""
@@ -113,6 +118,8 @@ class Pty:
                 return
             at, q, a = min(found)
             self.answered += at + len(q)
+            if q == b"\x1b[6n" and self.after_dsr:
+                a, self.after_dsr = a + self.after_dsr, b""
             os.write(self.fd, a if a is not None else b"\x1b]50;" + self.font.encode() + b"\x07")
 
     def wait_for(self, text, timeout=10):
@@ -427,6 +434,77 @@ class Walk(Case):
         self.assertEqual(d.finish(), 0)
         _, text = self.record()
         self.assertEqual(self.rows(text), [("10-one", "no", "see https://example.org/q?y=n"), ("20-two", "-", "")])
+
+    def test_a_paste_at_a_prompt_any_key_answers_moves_nothing(self):
+        # The title's "press a key" and a skipped page's "any key: next page"
+        # take any key, but a paste is no key: it neither quits the walk at
+        # the title nor moves it past the skipped page.
+        d = self.walk(self.env(), "unshown", "reverse")
+        d.wait_for(b"press a key to start the pass")
+        d.paste(b"qqq")
+        d.send(b" ")
+        d.wait_for(b"no pictures here")
+        d.wait_for(b"recorded as skip  any key: next page")
+        d.paste(b"nnn")
+        d.send(b"q")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"page four", d.seen)
+        _, text = self.record()
+        self.assertEqual(self.rows(text), [("30-unshown", "skip", "this build cannot show this page"),
+                                           ("40-reverse", "-", "")])
+
+    def test_a_paste_that_starts_before_the_prompt_answers_nothing(self):
+        # The paste's start and first letters arrive while the page is drawn,
+        # before its prompt, so drain reads them; the rest arrives once the
+        # prompt is shown, and read_key drops it.
+        d = self.walk(self.env(), "one", "two")
+        d.wait_for(b"press a key to start the pass")
+        d.after_dsr = b"\x1b[200~nnn"
+        d.send(b" ")
+        d.wait_for(b"page one")
+        d.wait_for(ASK)
+        self.assertEqual(d.after_dsr, b"")
+        d.send(b"yyy\x1b[201~")
+        d.send(b"r")
+        d.wait_for(b"[1/2] one")
+        d.wait_for(ASK)
+        _, text = self.record()
+        self.assertEqual(self.rows(text), [("10-one", "-", ""), ("20-two", "-", "")])
+        d.send(b"q")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+
+    def test_a_paste_in_a_comment_with_the_line_editors_paste_off(self):
+        # With enable-bracketed-paste off in the user's inputrc, the walk
+        # leaves the terminal's bracketed paste off while the line editor
+        # reads, so the paste comes as plain lines, never as markers. The
+        # inputrc also binds the start marker to self-insert, as a line editor
+        # that does not know it would take it, so a marker reaching it would
+        # land in the comment as junk. The paste's "." line ends the comment
+        # and its y, after it, answers nothing.
+        inputrc = os.path.join(self.tmp, "inputrc")
+        write(inputrc, 'set enable-bracketed-paste off\n"\\e[200~": self-insert\n"\\e[201~": self-insert\n')
+        d = self.walk(self.env(INPUTRC=inputrc), "one", "two")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"page one")
+        d.wait_for(ASK)
+        d.send(b"c")
+        d.wait_for(b"> ")
+        d.paste(b"a\r.\ry")
+        d.wait_for(b"y yes  n no  u unsure  s skip")
+        d.send(b"n")
+        d.wait_for(b"page two")
+        d.wait_for(ASK)
+        d.send(b"q")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        _, text = self.record()
+        self.assertEqual(self.rows(text), [("10-one", "no", "a"), ("20-two", "-", "")])
 
     def test_a_terminal_smaller_than_80x25_is_named_on_the_title_and_each_page(self):
         d = self.walk(self.env(), "one", size=(24, 80))
@@ -1016,6 +1094,58 @@ class Blink(Case):
                              ACCEPT_BLINK_TEXT="off").stdout)
         self.assertIn("Blink: off.", out)
         self.assertIn("The blink style is --blink-text=off on vtium's command line.", out)
+
+    def keys_with(self, default):
+        """A copy of the checkout's key table with blink-text's default set to
+        DEFAULT, or with none when DEFAULT is None."""
+        text = read(KEYS)
+        at = text.index('name: "blink-text",')
+        line = re.compile(r'default: Default::Text\("[a-z]+"\),')
+        m = line.search(text, at)
+        new = "" if default is None else f'default: Default::Text("{default}"),'
+        path = os.path.join(self.tmp, "keys.rs")
+        write(path, text[:m.start()] + new + text[m.end():])
+        return path
+
+    def test_the_default_is_the_key_tables(self):
+        # The default the pages name is the one the checkout's key table
+        # gives vtium, read independently of blink.inc here.
+        text = read(KEYS)
+        at = text.index('name: "blink-text",')
+        table = re.compile(r'default: Default::Text\("([a-z]+)"\)').search(text, at).group(1)
+        missing = os.path.join(self.tmp, "none.conf")
+        out = flat(self.page("35-blink.sh", ACCEPT_VTIUM_CONF=missing).stdout)
+        self.assertIn(f"Blink: {table}.", out)
+        self.assertIn("The blink style is vtium's default;", out)
+        # a table with another default moves the page with it
+        for default in ("full", "off", "partial"):
+            with self.subTest(default=default):
+                out = flat(self.page("35-blink.sh", ACCEPT_VTIUM_CONF=missing,
+                                     ACCEPT_VTIUM_KEYS=self.keys_with(default)).stdout)
+                self.assertIn(f"Blink: {default}.", out)
+                self.assertIn("The blink style is vtium's default;", out)
+        # a table that gives none: the page says it cannot tell
+        out = flat(self.page("35-blink.sh", ACCEPT_VTIUM_CONF=missing, ACCEPT_VTIUM_KEYS=self.keys_with(None)).stdout)
+        self.assertIn("Blink: unknown.", out)
+        self.assertIn("the checkout's key table gives no default for blink-text", out)
+
+    def test_partial_names_the_1_bit_display_and_each_page_fits(self):
+        bit = "On a 1-bit display vtium draws partial as full: blinking text hides."
+        cases = {"full": "blink-text=full\n", "partial": "blink-text=partial\n", "off": "blink-text=off\n"}
+        for value, text in cases.items():
+            with self.subTest(value=value):
+                conf = self.conf(text)
+                out = flat(self.page("35-blink.sh", ACCEPT_VTIUM_CONF=conf).stdout)
+                (self.assertIn if value == "partial" else self.assertNotIn)(bit, out)
+        # every page that blinks fits its 17 rows and 80 columns with the
+        # longest source line, a file that cannot be read
+        conf = self.conf("blink-text=off\n", 0o000)
+        for f in ("10-sgr.sh", "35-blink.sh"):
+            with self.subTest(page=f):
+                lines = self.page(f, ACCEPT_VTIUM_CONF=conf).stdout.split("\n")[:-1]
+                self.assertLessEqual(len(lines), 17)
+                for line in lines:
+                    self.assertLessEqual(widest(line), 80, line)
 
     def test_the_record_keeps_the_style_and_a_compare_names_a_change(self):
         for value in ("full", "partial"):

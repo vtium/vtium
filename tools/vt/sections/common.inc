@@ -148,5 +148,9 @@ cannot_show() {
 blink_line() {
 	blink_style
 	printf 'Blink: %s. Right: %s.\n' "$blink_style" "$(blink_right)" | fold -s -w 80
+	# vtium-render's mono.rs: at 1 bit a cell is lit or unlit, so partial
+	# blinks as full
+	[ "$blink_style" != partial ] ||
+		printf 'On a 1-bit display vtium draws partial as full: blinking text hides.\n'
 	printf 'The blink style is %s.\n' "$blink_source" | fold -s -w 80
 }

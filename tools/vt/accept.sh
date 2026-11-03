@@ -90,6 +90,8 @@ small_mark() {
 # walk drops it whole, so a pasted y, n, c or q never answers a page.
 read_key() {
 	local c seq=
+	# the rest of a paste whose start drain dropped
+	[ -z "$in_paste" ] || skip_paste
 	IFS= read -rsn1 key </dev/tty || exit 0
 	[ "$key" = $'\033' ] || return 0
 	if IFS= read -rsn1 -t 0.05 c </dev/tty && [ "$c" = '[' ]; then
@@ -108,9 +110,12 @@ read_key() {
 
 # Reads a paste after its start, up to and with its end, ESC [ 201 ~, and drops
 # it. A paste whose end does not come within a second of its last byte ends
-# there.
+# there, so a terminal that never sends the end cannot hang the walk; a paste
+# that pauses longer than that between two of its bytes has its rest read as
+# keys.
 skip_paste() {
 	local c tail=
+	in_paste=
 	while IFS= read -rsn1 -d '' -t 1 c </dev/tty; do
 		tail=$tail$c
 		[ ${#tail} -le 6 ] || tail=${tail:1}
@@ -119,15 +124,31 @@ skip_paste() {
 }
 
 # Discards keys already typed, so a key pressed before a prompt appeared does
-# not answer it, and any paste among them whole, though it arrives over more
-# than one read.
+# not answer it, and any paste among them. A paste whose start drain reads and
+# whose end has not come when drain stops leaves in_paste set, and read_key
+# drops the rest of it, however long after the prompt it arrives. drain stops
+# once 50 ms pass with no byte, so a paste's start marker split across writes
+# more than 50 ms apart is not seen as one, and the paste's text after it is
+# read as keys; terminals write the marker in one write, with the paste.
+in_paste=
 drain() {
 	local c tail=
 	while IFS= read -rsn1 -d '' -t 0.05 c </dev/tty; do
 		tail=$tail$c
 		[ ${#tail} -le 6 ] || tail=${tail:1}
-		[ "$tail" != $'\033[200~' ] || { skip_paste; tail=; }
+		case $tail in
+		*$'\033[200~') in_paste=1 tail='' ;;
+		*$'\033[201~') in_paste='' tail='' ;;
+		esac
 	done
+}
+
+# Reads one key, as read_key does, for a prompt that any key answers: an
+# escape sequence or a paste, which read_key returns as ESC, is no key there,
+# so a paste never moves the walk on.
+read_any_key() {
+	read_key
+	while [ "$key" = $'\033' ]; do read_key; done
 }
 
 # Shows PROMPT in reverse video on the current line and waits for a key; q ends
@@ -135,7 +156,7 @@ drain() {
 page_end() {
 	[ -z "$nopage" ] || return 0
 	printf '\033[7m %s \033[0m' "$1"
-	read_key
+	read_any_key
 	case $key in q | Q) clear_screen; exit 0 ;; esac
 }
 
@@ -540,14 +561,22 @@ prompt() {
 # stays in view. Ctrl-D on an empty line or a line holding only "." ends it.
 # Ctrl-D reaches the line editor as a key, never as the end of the walk's
 # input. The line editor shows what is typed only while the terminal's echo is
-# on, so echo is on for the comment. A paste is comment text: the line editor
-# takes a bracketed paste whole into the line, a pasted address with it, and
-# turns bracketed paste off when it returns a line, so the walk turns it on
-# again after the comment.
+# on, so echo is on for the comment. A paste is comment text. The walk turns
+# the terminal's bracketed paste off while the line editor reads, and the line
+# editor turns it on again for itself when its enable-bracketed-paste setting
+# allows, as it does by default; it then takes a paste into the line whole,
+# keeping its first line when it has several, so a pasted "." line never ends
+# the comment. With that setting off in the user's inputrc, the terminal sends
+# a paste as plain text, never markers the line editor would take as junk: its
+# lines are typed lines, and what follows a "." line among them reaches the
+# answer prompt in the same write, where drain drops it. The line editor turns
+# bracketed paste off when it returns a line, so the walk turns it on again
+# after the comment.
 read_comment() {
 	local line lines=()
 	prompt 'comment: end it with Ctrl-D or a line holding only .'
 	printf '\n'
+	[ -z "$bracketed" ] || printf '\033[?2004l' >/dev/tty
 	stty echo </dev/tty 2>/dev/null
 	while :; do
 		if ! IFS= read -r -e -p '> ' line </dev/tty; then
@@ -625,7 +654,7 @@ unshown() {
 	printf '\n'
 	drain
 	prompt 'recorded as skip  any key: next page  b back  q quit'
-	read_key
+	read_any_key
 	case $key in
 	b | B) [ "$1" -eq 0 ] && go=next || go=back ;;
 	q | Q) go=quit ;;
@@ -820,7 +849,7 @@ if [ -n "$resume" ]; then
 	done
 else
 	prompt 'press a key to start the pass, q to quit'
-	read_key
+	read_any_key
 	case $key in q | Q) clear_screen; exit 0 ;; esac
 fi
 [ -n "$resume" ] || new_pass

@@ -30,7 +30,6 @@ row '5;4:3;58:5:196' '5;4:3;58:5:196' 'red curly line'
 row '5;9' '5;9' 'struck through'
 row '5' '5' '日本語 中文'
 row '5' '5' "e$acute a$tilde$grave n"
-echo
 printf '  %-15s steady  \033[5mblink: here\033[25m, steady from here on\033[0m\n' '5, then 25'
 printf '  %-15s steady  %s  steady\n' 'no SGR' 'blink: none, a reference'
 blink_line
