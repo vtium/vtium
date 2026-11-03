@@ -55,6 +55,22 @@
 //! when it sent a request and resumed it after the reply
 //! (`src/terminal_image.c:58-92, 100-122`).
 //!
+//! **Notes.** A handler that drops or ignores what a program sent says
+//! why, and vtium-term hands the host a note the first time each
+//! protocol's reason comes and again each time its count reaches a power
+//! of ten, so a program that sends a bad picture every frame costs the
+//! journal a line for each tenfold. At each image turn the head writes
+//! each console's notes to vtium's log under the target `image`, with the
+//! head's name and the console's id ([`log_notes`]). A note whose reason
+//! the operator can act on, a setting, a bound, the budget, memory or the
+//! image helper refusing a picture that then never draws, goes out at info
+//! level, which vtium shows by default. A note about what the program sent
+//! breaking its protocol goes out at debug level, since only the program's
+//! author can act on it. The C reference logged every picture it did not
+//! store or place at debug level (libtsm `eeaf293`,
+//! `src/tsm/tsm-vte-image.c:161-171`), where an operator whose pictures
+//! never drew found no word of why.
+//!
 //! [`crate::app::App`] opens the program `image-helper` names once at
 //! start and makes each console's host from it
 //! ([`crate::app::App::set_image_helpers`] puts a test's stand-in in its
@@ -130,7 +146,7 @@ mod built {
     use std::time::{Duration, Instant};
 
     use vtium_image::decode::{Reply, Request};
-    use vtium_image::{Iterm2, Kitty, Limits, Sixel, Switches};
+    use vtium_image::{Cause, Iterm2, Kitty, Limits, Sixel, Switches};
     use vtium_platform::calloop::generic::Generic;
     use vtium_platform::calloop::{Interest, LoopHandle, Mode, PostAction, RegistrationToken};
     use vtium_platform::image_helper::{ImageHost, Program, Session};
@@ -488,7 +504,8 @@ mod built {
             }
             self.watch = None;
             if self.out.take().is_some() {
-                term.terminal.image_reply(Reply::Failed);
+                term.terminal.abandon_image_request();
+                // what the ended program would have read goes nowhere
                 term.terminal.take_replies();
             }
         }
@@ -538,12 +555,57 @@ mod built {
                     handle,
                 );
             }
+            // after every turn, so a note a reply made reaches the log
+            // this turn, and one loop reads every console, shown or hidden
+            for console in std::iter::once(&mut self.console).chain(&mut self.hidden) {
+                log_notes(&self.name, console.id, &mut console.term);
+            }
         }
 
         /// When each request out of the head's consoles fails unanswered.
         pub(crate) fn image_due(&self) -> impl Iterator<Item = Instant> + '_ {
             self.consoles().filter_map(|c| c.pictures.due())
         }
+    }
+
+    /// Writes the notes the image handlers of console `id` of head `head`
+    /// left on `term` to vtium's log, a line each: at info level when the
+    /// operator can act on the reason, and at debug level when only the
+    /// program's author can.
+    pub(crate) fn log_notes(head: &str, id: u64, term: &mut Term) {
+        for note in term.terminal.take_image_notes() {
+            let level = match note.cause {
+                Cause::Console => log::Level::Info,
+                Cause::Program => log::Level::Debug,
+            };
+            let name = note.protocol.name();
+            let why = &note.why;
+            match note.count {
+                1 => say(
+                    level,
+                    format_args!("head {head}: console {id}: {name}: {why}"),
+                ),
+                n => say(
+                    level,
+                    format_args!("head {head}: console {id}: {name}: {why} ({n} times)"),
+                ),
+            }
+        }
+    }
+
+    /// Writes a line of the image log at `level`. Under test it also keeps
+    /// the line, for the tests to read back.
+    fn say(level: log::Level, line: std::fmt::Arguments<'_>) {
+        log::log!(target: "image", level, "{line}");
+        #[cfg(test)]
+        SAID.with(|s| s.borrow_mut().push((level, line.to_string())));
+    }
+
+    #[cfg(test)]
+    thread_local! {
+        /// The lines the image log wrote on this thread, with their level.
+        static SAID: std::cell::RefCell<Vec<(log::Level, String)>> =
+            const { std::cell::RefCell::new(Vec::new()) };
     }
 
     #[cfg(test)]
@@ -602,6 +664,112 @@ mod built {
                 ..all
             };
             assert!(!iterm2(on, 1 << 20, false).iterm2, "it goes off again");
+        }
+
+        /// The lines the image log wrote on this thread since the last
+        /// call, with their level.
+        fn said() -> Vec<(log::Level, String)> {
+            SAID.with(|s| std::mem::take(&mut *s.borrow_mut()))
+        }
+
+        /// A console's terminal with the three handlers, every protocol on,
+        /// and an image helper when `helper`.
+        #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+        fn console(helper: bool) -> Term {
+            let clock: crate::term::Clock = Rc::new(Instant::now);
+            let mut terminal = Terminal::new(8, 4, 0);
+            install(&mut terminal, &settings());
+            terminal.screen_mut().set_image_limit(1 << 20);
+            terminal.set_image_helper(helper);
+            terminal.set_image_switches(Switches {
+                sixel: true,
+                kitty: true,
+                iterm2: true,
+            });
+            Term::new(
+                terminal,
+                crate::sync::Sync::new(Duration::ZERO, 0),
+                crate::blink::Blink::new(false),
+                clock,
+            )
+        }
+
+        // ADR-1103 D1: a picture a protocol answers nothing for is dropped
+        // without a word to the program, and its reason goes to vtium's
+        // log. A string that breaks the protocol is the program's to fix,
+        // so it goes out at debug level, as the C reference logged its
+        // dropped pictures (libtsm `eeaf293`,
+        // `src/tsm/tsm-vte-image.c:161-171`).
+        #[test]
+        fn a_refused_pictures_note_reaches_the_log_once_and_repeats_do_not_flood_it() {
+            let mut term = console(true);
+            let _ = said();
+            let refused = b"\x1b]1337;File=size=3:QUJD\x07";
+            term.terminal.input(refused);
+            log_notes("main", 3, &mut term);
+            let why = "head main: console 3: iTerm2: an iTerm2 picture without inline=1";
+            assert_eq!(said(), [(log::Level::Debug, why.to_owned())]);
+            log_notes("main", 3, &mut term);
+            assert_eq!(said(), [], "logged once");
+            // 1,000 refusals, a turn each, log at the 10th, 100th and 1,000th
+            for _ in 1..1000 {
+                term.terminal.input(refused);
+                log_notes("main", 3, &mut term);
+            }
+            let lines: Vec<_> = said().into_iter().map(|(_, line)| line).collect();
+            assert_eq!(
+                lines,
+                [
+                    format!("{why} (10 times)"),
+                    format!("{why} (100 times)"),
+                    format!("{why} (1000 times)"),
+                ]
+            );
+        }
+
+        // A picture the console refuses never draws, and the operator can
+        // act on why, so the note goes out at info level, which vtium shows
+        // by default, even when the program asked for no answer: here a
+        // kitty PNG with `q=2` on a console with no image helper.
+        #[test]
+        fn a_picture_the_console_refuses_is_logged_where_the_operator_sees_it() {
+            let mut term = console(false);
+            let _ = said();
+            term.terminal
+                .input(b"\x1b_Ga=T,f=100,i=1,q=2;iVBORw0KGgo=\x1b\\");
+            assert_eq!(term.terminal.take_replies(), b"");
+            log_notes("main", 3, &mut term);
+            assert_eq!(
+                said(),
+                [(
+                    log::Level::Info,
+                    "head main: console 3: kitty graphics: no image helper reads a kitty \
+                     picture's file, PNG or zlib payload"
+                        .to_owned()
+                )]
+            );
+        }
+
+        // A session that ends with a request out drops it with no reply:
+        // the helper did not fail, so nothing reaches the log, where a
+        // handed-back FAILED would log "the image helper fails" at info.
+        #[test]
+        #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+        fn a_session_that_ends_with_a_request_out_logs_nothing() {
+            let mut term = console(true);
+            term.terminal
+                .input(b"\x1b_Ga=t,f=100,i=1,q=2;iVBORw0KGgo=\x1b\\");
+            let request = term.terminal.take_image_request();
+            assert!(request.is_some(), "a request is out");
+            let mut pictures = Pictures {
+                out: request.map(|r| (r, Instant::now())),
+                ..Pictures::default()
+            };
+            let _ = said();
+            pictures.end_session(&mut term);
+            assert!(!term.terminal.image_request_pending());
+            log_notes("main", 3, &mut term);
+            assert_eq!(said(), []);
         }
 
         #[test]

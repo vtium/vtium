@@ -4,7 +4,8 @@
 
 #![cfg(feature = "images")]
 
-use vtium_term::images::{Kitty, Switches};
+use vtium_term::images::decode::{Payload, Reply};
+use vtium_term::images::{Cause, Kitty, Limits, Switches};
 use vtium_term::{ImageString, Terminal};
 
 /// A terminal of `cols` by `rows` cells of 8 by 16 pixels that offers
@@ -137,5 +138,179 @@ fn a_child_above_a_parent_below_a_scrolled_back_view_is_drawn() {
         boxes(&t),
         vec![(4, 4)],
         "the parent is below the view and its child is in it"
+    );
+}
+
+// The C reference logged the data past s and v at debug level, since a
+// program can send it every frame (libtsm `eeaf293`,
+// `src/tsm/tsm-kitty.c:806-826`). vtium's handler notes it for the log,
+// once for each upload, and answers as if it had not come.
+#[test]
+fn data_past_the_pixels_is_noted_for_the_log_and_answered_ok() {
+    let mut t = term(12, 4);
+    let past = "a kitty upload's data past the pixels s and v call for, ignored";
+    // one RGB pixel is 3 bytes; AAAAAAAA decodes to 6
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=1;AAAAAAAA\x1b\\");
+    assert_eq!(t.take_replies(), b"\x1b_Gi=1;OK\x1b\\");
+    let notes = t.take_image_notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(
+        (
+            notes[0].protocol,
+            notes[0].cause,
+            notes[0].why.as_str(),
+            notes[0].count
+        ),
+        (ImageString::Kitty, Cause::Program, past, 1)
+    );
+    // a second is counted, and reaches no log
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=1;AAAAAAAA\x1b\\");
+    assert_eq!(t.take_image_notes(), []);
+    // the query counts the bytes and notes the same
+    let mut t = term(12, 4);
+    t.input(b"\x1b_Ga=q,f=24,s=1,v=1,i=2;AAAAAAAA\x1b\\");
+    assert_eq!(t.take_replies(), b"\x1b_Gi=2;OK\x1b\\");
+    assert_eq!(t.take_image_notes().len(), 1);
+    // in chunks, the bytes past arriving in the last
+    let mut t = term(12, 4);
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=3,m=1;AAAA\x1b\\\x1b_Gm=0;AAAA\x1b\\");
+    assert_eq!(t.take_replies(), b"\x1b_Gi=3;OK\x1b\\");
+    assert_eq!(t.take_image_notes().len(), 1);
+    // exactly the pixels: no note
+    let mut t = term(12, 4);
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=1;AAAA\x1b\\");
+    t.input(b"\x1b_Ga=q,f=24,s=1,v=1,i=2;AAAA\x1b\\");
+    assert_eq!(t.take_image_notes(), []);
+}
+
+// A program may ask for no answer, with `q=2` or no id, so a picture the
+// budget refuses is noted for the log whether or not the program hears
+// ENOSPC: the picture never draws, and the operator can raise the budget.
+#[test]
+fn a_picture_the_budget_refuses_is_noted_even_unanswered() {
+    let mut t = term(12, 4);
+    t.screen_mut().set_image_limit(4096);
+    let mut s = b"\x1b_Ga=t,f=32,s=64,v=64,q=2;".to_vec();
+    s.extend(b"AAAA".repeat(64 * 64 * 4 / 3));
+    s.extend(b"\x1b\\");
+    t.input(&s);
+    assert_eq!(t.take_replies(), b"");
+    let notes: Vec<_> = t
+        .take_image_notes()
+        .into_iter()
+        .map(|n| (n.cause, n.why))
+        .collect();
+    assert_eq!(
+        notes,
+        [(
+            Cause::Console,
+            "the budget refuses a kitty picture".to_owned()
+        )]
+    );
+}
+
+/// The notes the kitty handler wrote, as (cause, reason).
+fn kitty_notes(t: &mut Terminal) -> Vec<(Cause, String)> {
+    t.take_image_notes()
+        .into_iter()
+        .map(|n| {
+            assert_eq!(n.protocol, ImageString::Kitty);
+            (n.cause, n.why)
+        })
+        .collect()
+}
+
+/// A terminal with an image helper, which has taken one PNG upload's
+/// request, `q=2` so the program hears nothing.
+fn requested() -> Terminal {
+    let mut t = term(12, 4);
+    t.set_image_helper(true);
+    t.input(b"\x1b_Ga=t,f=100,i=1,q=2;iVBORw0KGgo=\x1b\\");
+    assert!(t.take_image_request().is_some());
+    t
+}
+
+// A helper that fails leaves a picture that never draws, which the operator
+// can act on; a request the console drops when its program has gone is no
+// failure, and notes nothing.
+#[test]
+fn a_failing_helper_is_noted_and_an_abandoned_request_is_not() {
+    let mut t = requested();
+    t.image_reply(Reply::Failed);
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "the image helper fails on a kitty picture".to_owned()
+        )]
+    );
+    let mut t = requested();
+    t.image_reply(Reply::TooLarge);
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "the image helper finds a kitty picture past its bounds".to_owned()
+        )]
+    );
+    let mut t = requested();
+    t.abandon_image_request();
+    assert!(!t.image_request_pending());
+    assert_eq!(t.take_replies(), b"");
+    assert_eq!(kitty_notes(&mut t), []);
+    assert_eq!(
+        t.screen().images().bytes(),
+        0,
+        "the upload's bytes are given back"
+    );
+}
+
+// A picture past `max-graphic-size`, or a box past `BOX_CELLS_MAX`, is
+// refused with EINVAL, which a program with `q=2` never hears, so the
+// handler notes the bound the operator can raise.
+#[test]
+fn a_picture_past_vtiums_bounds_is_noted() {
+    let mut t = term(12, 4);
+    t.set_image_limits(Limits {
+        graphic: (8, 8),
+        ..Limits::default()
+    });
+    t.input(b"\x1b_Ga=t,f=24,s=16,v=1,q=2;AAAA\x1b\\");
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "a kitty picture past max-graphic-size".to_owned()
+        )]
+    );
+    // a key the program got wrong is its own, and notes nothing
+    t.input(b"\x1b_Ga=t,f=24,i=1,I=2,s=1,v=1,q=2;AAAA\x1b\\");
+    assert_eq!(kitty_notes(&mut t), []);
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=5,q=2;AAAA\x1b\\");
+    t.input(b"\x1b_Ga=p,i=5,c=10001,r=1,q=2\x1b\\");
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "a kitty picture's box passes BOX_CELLS_MAX".to_owned()
+        )]
+    );
+    // a decoded picture past a `max-graphic-size` lowered since its request
+    let mut t = requested();
+    t.set_image_limits(Limits {
+        graphic: (8, 8),
+        ..Limits::default()
+    });
+    t.image_reply(Reply::Ok(Payload::Rgba {
+        width: 16,
+        height: 16,
+        data: vec![0; 16 * 16 * 4],
+    }));
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "a kitty picture past max-graphic-size".to_owned()
+        )]
     );
 }

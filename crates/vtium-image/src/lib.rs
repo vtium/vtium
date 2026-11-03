@@ -54,7 +54,9 @@ pub use bounds::{
     IMAGE_OVERHEAD, IMAGE_SIDE_MAX, IMAGES_PER_BUFFER, ITERM2_FILE_MAX, ITERM2_PARTS_MAX,
     PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER, RELATIVE_DEPTH_MAX, auto_limit,
 };
-pub use handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
+pub use handler::{
+    Cause, Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches,
+};
 pub use image::{
     ImageKey, LineKey, NewImage, Pixels, Place, PlaceholderRun, PlacementKey, Refusal,
 };

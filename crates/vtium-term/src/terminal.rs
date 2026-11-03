@@ -50,7 +50,7 @@ use modes::{Modes, SavedModes};
 use reply::Query;
 
 #[cfg(feature = "images")]
-pub use images::ImageString;
+pub use images::{ImageNote, ImageString};
 
 /// DECSCUSR's cursor styles: the host's default, or a shape that blinks or
 /// stays steady.

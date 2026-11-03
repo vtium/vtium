@@ -11,18 +11,24 @@
 //! handler, so a transfer in parts it belonged to ends (ADR-1103, D1). While a handler's
 //! request to the image helper is out, the input call takes nothing more,
 //! so a later string cannot land before an earlier image.
+//!
+//! A handler that drops what a program sent, where its protocol answers
+//! nothing, says why through [`Context::note`]. The terminal counts each
+//! protocol's reasons and hands the host a note for the host's log the
+//! first time a reason comes and again each time its count reaches a power
+//! of ten ([`Terminal::take_image_notes`]).
 
 use core::fmt;
 
 use vtium_image::decode::{Reply, Request};
 use vtium_image::{
-    Context, Edit, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Store, Switches,
+    Cause, Context, Edit, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Store, Switches,
 };
 use vtium_parse::{Chunk, Intermediates, Params, StringEnd};
 
 use super::reply::Query;
 use super::{State, Terminal, modes};
-use crate::bounds::INPUT_WORK_MAX;
+use crate::bounds::{IMAGE_NOTE_BYTES_MAX, IMAGE_NOTE_REASONS_MAX, INPUT_WORK_MAX};
 
 /// The control strings the router sends to a handler.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,8 +41,102 @@ pub enum ImageString {
     Iterm2,
 }
 
+impl ImageString {
+    /// The protocol's name, for a log line.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Sixel => "sixel",
+            Self::Kitty => "kitty graphics",
+            Self::Iterm2 => "iTerm2",
+        }
+    }
+}
+
+/// Why a handler dropped what a program sent, for the host's log.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageNote {
+    /// The protocol whose handler wrote the note.
+    pub protocol: ImageString,
+    /// Who can act on the reason: the program's author, or the operator.
+    pub cause: Cause,
+    /// The handler's reason, at most `IMAGE_NOTE_BYTES_MAX` bytes of it.
+    pub why: String,
+    /// How many notes of this protocol and reason the terminal has had,
+    /// this one included: 1, or a power of ten.
+    pub count: u64,
+}
+
+/// The handlers' notes: how often each protocol's reason has come, and
+/// the notes the host has not taken.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Notes {
+    /// Each protocol, cause and reason the terminal has had, with its
+    /// count, at most `IMAGE_NOTE_REASONS_MAX` of them. RIS keeps them, so
+    /// a program cannot start a count again.
+    seen: Vec<(ImageString, Cause, String, u64)>,
+    /// The notes the host has not taken. They need no bound of their own:
+    /// each counted reason puts one out at counts 1, 10, 100 and so on, the
+    /// 20 powers of ten a `u64` holds, so at most `IMAGE_NOTE_REASONS_MAX` ×
+    /// 20, 1,280, wait between two takes.
+    out: Vec<ImageNote>,
+}
+
+impl Notes {
+    /// Counts `why` from `protocol`'s handler, and keeps a note for the host
+    /// when the count is 1 or a power of ten. A new reason once the table
+    /// is full is counted nowhere and reaches no log.
+    fn add(&mut self, protocol: ImageString, cause: Cause, why: &str) {
+        let why = cut(why, IMAGE_NOTE_BYTES_MAX);
+        let full = self.seen.len() >= IMAGE_NOTE_REASONS_MAX;
+        let found = self
+            .seen
+            .iter_mut()
+            .find(|(p, c, w, _)| *p == protocol && *c == cause && w == why);
+        let count = match found {
+            Some((_, _, _, n)) => {
+                *n = n.saturating_add(1);
+                *n
+            }
+            None if full => return,
+            None => {
+                self.seen.push((protocol, cause, why.to_owned(), 1));
+                1
+            }
+        };
+        if power_of_ten(count) {
+            self.out.push(ImageNote {
+                protocol,
+                cause,
+                why: why.to_owned(),
+                count,
+            });
+        }
+    }
+
+    fn take(&mut self) -> Vec<ImageNote> {
+        core::mem::take(&mut self.out)
+    }
+}
+
+/// `s` cut to at most `max` bytes, at a character's boundary.
+fn cut(s: &str, max: usize) -> &str {
+    let mut end = s.len().min(max);
+    while !s.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    s.get(..end).unwrap_or_default()
+}
+
+/// Whether `n` is 1, 10, 100 and so on.
+fn power_of_ten(mut n: u64) -> bool {
+    while n >= 10 && n.is_multiple_of(10) {
+        n /= 10;
+    }
+    n == 1
+}
+
 /// The handlers, the string being fed, the protocol switches, the limits,
-/// and the request out.
+/// the request out, and the notes for the host's log.
 #[derive(Clone)]
 pub(super) struct Router {
     sixel: Option<Box<dyn Handler>>,
@@ -58,6 +158,7 @@ pub(super) struct Router {
     /// The request out, the handler it answers, and whether the host has
     /// taken it.
     awaiting: Option<(ImageString, Request, bool)>,
+    notes: Notes,
 }
 
 impl Default for Router {
@@ -78,6 +179,7 @@ impl Default for Router {
             registers: None,
             helper: false,
             awaiting: None,
+            notes: Notes::default(),
         }
     }
 }
@@ -95,12 +197,13 @@ impl fmt::Debug for Router {
             .field("registers", &self.registers)
             .field("helper", &self.helper)
             .field("awaiting", &self.awaiting)
+            .field("notes", &self.notes)
             .finish()
     }
 }
 
 /// Two routers compare by their handlers, each in its state, by what they
-/// route and by what is out.
+/// route, by what is out and by their notes.
 impl PartialEq for Router {
     fn eq(&self, other: &Self) -> bool {
         let same = |a: &Option<Box<dyn Handler>>, b: &Option<Box<dyn Handler>>| match (a, b) {
@@ -119,6 +222,7 @@ impl PartialEq for Router {
             && self.registers == other.registers
             && self.helper == other.helper
             && self.awaiting == other.awaiting
+            && self.notes == other.notes
     }
 }
 
@@ -222,6 +326,10 @@ impl Context for Ctx<'_> {
 
     fn add_work(&mut self, work: u64) {
         self.state.screen.add_image_work(work);
+    }
+
+    fn note(&mut self, cause: Cause, why: &str) {
+        self.state.images.notes.add(self.which, cause, why);
     }
 }
 
@@ -582,6 +690,26 @@ impl Terminal {
             }
             _ => None,
         }
+    }
+
+    /// The notes the handlers wrote since the last call, in order, for the
+    /// host's log: each the first time its protocol and reason came, and
+    /// each time their count reached a power of ten, so a program that sends
+    /// the same bad picture every frame costs the log a line for each tenfold.
+    pub fn take_image_notes(&mut self) -> Vec<ImageNote> {
+        self.state.images.notes.take()
+    }
+
+    /// Drops the request out with no reply, as when the program that made
+    /// it has gone: the handler that asked is cancelled, gives back what it
+    /// held and writes nothing, and input goes on. A handed-back `FAILED`
+    /// would instead say the helper failed, in a reply to the program and
+    /// a note for the log.
+    pub fn abandon_image_request(&mut self) {
+        let Some((which, _, _)) = self.state.images.awaiting.take() else {
+            return;
+        };
+        self.state.with_handler(which, |h, ctx| h.cancel(ctx));
     }
 
     /// Whether a request is out.
@@ -1263,5 +1391,137 @@ mod tests {
             iterm2: false,
         });
         assert_eq!(t.screen().images().bytes(), 0);
+    }
+
+    /// A handler that notes `why` at each string's finish.
+    #[derive(Clone, Debug, PartialEq)]
+    struct Refuse(&'static str);
+
+    impl Handler for Refuse {
+        fn start(&mut self, _: &mut dyn Context, _: Intro<'_>) {}
+        fn feed(&mut self, _: &mut dyn Context, _: Chunk<'_>) {}
+        fn finish(&mut self, ctx: &mut dyn Context) {
+            ctx.note(Cause::Program, self.0);
+        }
+        fn cancel(&mut self, _: &mut dyn Context) {}
+        fn decoded(&mut self, _: &mut dyn Context, _: Reply) {}
+        fn clone_box(&self) -> Box<dyn Handler> {
+            Box::new(self.clone())
+        }
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+        fn same(&self, other: &dyn Handler) -> bool {
+            other.as_any().downcast_ref::<Self>() == Some(self)
+        }
+    }
+
+    /// A terminal whose sixel handler refuses every picture with `why`.
+    fn refusing(why: &'static str) -> Terminal {
+        let mut t = Terminal::new(8, 4, 0);
+        t.screen_mut().set_image_limit(1 << 20);
+        t.set_image_switches(Switches {
+            sixel: true,
+            kitty: false,
+            iterm2: false,
+        });
+        t.set_image_handler(ImageString::Sixel, Some(Box::new(Refuse(why))));
+        t
+    }
+
+    const SIXEL: &[u8] = b"\x1bPq#0~\x1b\\";
+
+    #[test]
+    fn a_handlers_note_reaches_the_host_once_with_its_protocol() {
+        let mut t = refusing("a refused picture");
+        assert_eq!(t.take_image_notes(), []);
+        let _ = t.input(SIXEL);
+        let note = ImageNote {
+            protocol: ImageString::Sixel,
+            cause: Cause::Program,
+            why: "a refused picture".to_owned(),
+            count: 1,
+        };
+        assert_eq!(t.take_image_notes(), [note]);
+        assert_eq!(t.take_image_notes(), [], "taken once");
+    }
+
+    #[test]
+    fn a_reason_that_repeats_reaches_the_host_at_each_power_of_ten() {
+        let mut t = refusing("a refused picture");
+        let mut counts = Vec::new();
+        for _ in 0..12_345 {
+            let _ = t.input(SIXEL);
+            counts.extend(t.take_image_notes().into_iter().map(|n| n.count));
+        }
+        assert_eq!(counts, [1, 10, 100, 1000, 10_000]);
+        // RIS keeps the count, so a program cannot start it again
+        let _ = t.input(b"\x1bc");
+        for _ in 0..(100_000 - 12_345) {
+            let _ = t.input(SIXEL);
+        }
+        let notes = t.take_image_notes();
+        assert_eq!(notes.iter().map(|n| n.count).collect::<Vec<_>>(), [100_000]);
+    }
+
+    #[test]
+    fn each_protocol_and_reason_is_counted_on_its_own() {
+        let mut t = refusing("one reason");
+        let _ = t.input(SIXEL);
+        t.set_image_handler(ImageString::Sixel, Some(Box::new(Refuse("another"))));
+        let _ = t.input(SIXEL);
+        let _ = t.input(SIXEL);
+        let whys: Vec<_> = t
+            .take_image_notes()
+            .into_iter()
+            .map(|n| (n.why, n.count))
+            .collect();
+        assert_eq!(
+            whys,
+            [("one reason".to_owned(), 1), ("another".to_owned(), 1)]
+        );
+        let mut notes = Notes::default();
+        notes.add(ImageString::Kitty, Cause::Program, "one reason");
+        notes.add(ImageString::Iterm2, Cause::Program, "one reason");
+        assert_eq!(notes.take().len(), 2, "the same reason from two protocols");
+        notes.add(ImageString::Kitty, Cause::Console, "one reason");
+        let causes: Vec<_> = notes
+            .take()
+            .into_iter()
+            .map(|n| (n.cause, n.count))
+            .collect();
+        assert_eq!(
+            causes,
+            [(Cause::Console, 1)],
+            "the same reason under another cause"
+        );
+    }
+
+    #[test]
+    fn the_notes_hold_a_bounded_count_of_reasons_and_bytes() {
+        let mut notes = Notes::default();
+        let reasons: Vec<String> = (0..IMAGE_NOTE_REASONS_MAX + 10)
+            .map(|i| format!("reason {i}"))
+            .collect();
+        for _ in 0..3 {
+            for why in &reasons {
+                notes.add(ImageString::Sixel, Cause::Console, why);
+            }
+        }
+        let taken = notes.take();
+        assert_eq!(
+            taken.len(),
+            IMAGE_NOTE_REASONS_MAX,
+            "one note for each reason it counts"
+        );
+        assert!(taken.iter().all(|n| n.count == 1));
+        assert_eq!(notes.seen.len(), IMAGE_NOTE_REASONS_MAX);
+        // a long reason is cut at a character's boundary
+        let mut notes = Notes::default();
+        let long = "é".repeat(IMAGE_NOTE_BYTES_MAX);
+        notes.add(ImageString::Iterm2, Cause::Console, &long);
+        let why = notes.take().pop().map(|n| n.why).unwrap_or_default();
+        assert!(why.len() <= IMAGE_NOTE_BYTES_MAX && why.len() + 2 > IMAGE_NOTE_BYTES_MAX);
+        assert!(long.starts_with(&why));
     }
 }
