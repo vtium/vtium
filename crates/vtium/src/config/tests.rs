@@ -63,7 +63,8 @@ fn tier3_guest_configurations() {
             0,
             false,
         ),
-        (TIER3_MIN, None, Some("monospace"), 0, false),
+        // no font-name: vconsole's font, else the built-ins (ADR-1200 D9)
+        (TIER3_MIN, None, None, 0, false),
     ];
     for (text, engine, name, size, hwaccel) in cases {
         let l = main_file(text);
@@ -134,7 +135,9 @@ fn defaults() {
     assert_eq!(c.number(&SYNC_TIMEOUT), Some(200));
     assert_eq!(c.number(&DPMS_TIMEOUT), Some(600));
     assert_eq!(c.number(&FONT_SIZE), Some(0));
-    assert_eq!(c.text(&FONT_NAME), Some("monospace"));
+    // unset: vconsole's font, else the built-ins, where the C reference
+    // asked fontconfig for "monospace" (src/config.c:1424)
+    assert_eq!(c.text(&FONT_NAME), None);
     assert_eq!(c.text(&RENDER_TIMER), Some("none"));
     assert_eq!(c.text(&GLYPH_CACHE), None);
     assert_eq!(c.text(&DISPLAY_DEPTH), Some("auto"));

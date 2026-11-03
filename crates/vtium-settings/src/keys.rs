@@ -1077,7 +1077,7 @@ pub const FONT_NAME: Key = Key {
     name: "font-name",
     short: None,
     kind: Kind::Text,
-    default: Default::Text("monospace"),
+    default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-font",
     what: "The font: a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the helper generates at run time; a kbd font's name, or with `font-engine=psf` a PSF font's path, that no frit bears becomes a one-source frit. Unset, vconsole's font; with none, or a name that is neither, vtium draws its built-in fonts and logs the name and why.",

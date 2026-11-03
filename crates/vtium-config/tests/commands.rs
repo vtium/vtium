@@ -123,6 +123,7 @@ fn config_prints_a_key_s_value_and_where_it_comes_from() {
         ("allow-font-ops", "allow-font-ops\toff\tvtium.conf"),
         ("font-hinting", "font-hinting\tunset\tdefault"),
         ("sb-size", "sb-size\t1000\tdefault"),
+        ("font-name", "font-name\tunset\tdefault"),
     ] {
         let ran = f.run(&["config", key]);
         assert_eq!(ran.status, 0, "{key}: {}", ran.err);
