@@ -3264,7 +3264,7 @@ class Guide(Case):
                 g.wait_for(b"Press Enter to end.")
                 g.send(b"\r")
                 self.assertEqual(g.finish(), 1)
-        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vtium-config", "vt", "open", "home", "login-shell"]))
+        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vtium-config", "vtium-image", "vt", "open", "home", "login-shell"]))
         self.assertEqual(os.listdir(open_dir), [])
 
     def test_a_run_on_a_terminal(self):
