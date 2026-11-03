@@ -13,38 +13,52 @@
 # from crates/vtium/install/vtium@.service and vtium-getty@.service,
 # records what it did in a manifest, /var/lib/vtium-dev-install/ttyN, then
 # stops and disables getty@ttyN and enables and starts vtium-dev@ttyN.
+# When the binary has pictures, which install reads from the binary itself
+# (it names /usr/local/bin/vtium-dev-image), install also copies the image
+# helper VTIUM_VT_IMAGE to that path, writes the sysusers file
+# /etc/sysusers.d/vtium-dev-image.conf, a copy of
+# crates/vtium/install/vtium-image.conf, and runs systemd-sysusers on it,
+# which creates the vtium-image account the helper runs as at the login
+# prompt (ADR-1101 D2). An install of a binary without pictures removes the
+# image helper and the sysusers file an earlier install wrote, since every
+# VT runs the one binary.
 # uninstall reads the manifest and undoes all of it: vtium-dev@ttyN stopped
 # and disabled, getty@ttyN enabled and started again where it was before, and
-# the files removed once no other VT's manifest needs them. Both remove the
-# helper an install made before the tool was renamed vtium-config left at
-# /usr/local/bin/vtium-dev-vitrify, while it is still the file that install
-# wrote (ADR-1201 D12). One run at a
+# the files removed once no other VT's manifest needs them. It leaves the
+# vtium-image account, since systemd-sysusers never removes an account. Both
+# remove the helper an install made before the tool was renamed vtium-config
+# left at /usr/local/bin/vtium-dev-vitrify, while it is still the file that
+# install wrote (ADR-1201 D12). One run at a
 # time reads and changes the install: each holds a lock on
 # /var/lib/vtium-dev-install, and a second run refuses while the first runs.
 #
 # Every name is the development install's own, so the packaged vtium, whose
-# package owns /usr/bin/vtium, /usr/bin/vtium-config, vtium@.service and
-# vtium-getty@.service, can run on another VT at the same time. The binary
-# looks for its helper at the path it was built with, so install refuses a
-# binary that does not name /usr/local/bin/vtium-dev-config, and make
-# vt-install builds one that does. The names kmsconvt@ and kmsconvt-getty@
-# are left alone: they belong to the C reference's package. The template
-# alias /etc/systemd/system/autovt@.service is left alone too, whichever
-# console it names: a getty, the C reference's console, or the packaged vtium
-# after vtium console enable --all. Enabling vtium-dev@ttyN adds the per-VT
-# alias autovt@ttyN.service -> vtium-dev@.service, so that logind, which
-# starts autovt@ttyN on a VT nothing holds, starts vtium-dev there and never
-# the console the template names. The review runs borrow that VT (vt.sh).
-# Neither command touches /etc/vtium/vtium.conf, which vtium reads.
+# package owns /usr/bin/vtium, /usr/bin/vtium-config, /usr/bin/vtium-image,
+# vtium@.service and vtium-getty@.service, can run on another VT at the same
+# time. The binary looks for its helpers at the paths it was built with, so
+# install refuses a binary that does not name
+# /usr/local/bin/vtium-dev-config, and a binary built with images that does
+# not name /usr/local/bin/vtium-dev-image, and make vt-install builds one
+# that names the development install's own helpers. The names kmsconvt@ and
+# kmsconvt-getty@ are left alone: they belong to the C reference's package.
+# The template alias /etc/systemd/system/autovt@.service is left alone too,
+# whichever console it names: a getty, the C reference's console, or the
+# packaged vtium after vtium console enable --all. Enabling vtium-dev@ttyN
+# adds the per-VT alias autovt@ttyN.service -> vtium-dev@.service, so that
+# logind, which starts autovt@ttyN on a VT nothing holds, starts vtium-dev
+# there and never the console the template names. The review runs borrow
+# that VT (vt.sh). Neither command touches /etc/vtium/vtium.conf, which
+# vtium reads.
 #
 # Each command that changes anything runs through sudo and is printed first.
 # --dry-run (make DRY_RUN=1) asks what it would ask and prints the units and
 # every command, and runs none of them.
 #
 # For the tests, VTIUM_VT_STANDINS names a directory of stand-ins: sudo,
-# systemctl and loginctl run from there, "active" stands for the VT on
-# screen, "root" is the directory the installed paths are under, and an
-# "install" directory there, when present, stands for crates/vtium/install.
+# systemctl, loginctl and systemd-sysusers run from there, "active" stands
+# for the VT on screen, "root" is the directory the installed paths are
+# under, and an "install" directory there, when present, stands for
+# crates/vtium/install.
 set -euo pipefail
 
 usage() {
@@ -88,21 +102,21 @@ standins=${VTIUM_VT_STANDINS:-}
 	die "run it as yourself, not as root or under sudo; it asks sudo for each step that needs root"
 # As root, the script runs the stand-ins as root, so only root or the user
 # who ran sudo may have written them, as run-vt.sh asks of the binary. It
-# runs sudo, systemctl and loginctl from the stand-ins' directory by path,
-# and the tests put the directory first on PATH, so any other file there
-# runs when the script calls a command of that name. The check therefore
-# covers the directory and every regular file and symlink in it, and reads
-# a symlink's owner and mode from the file it names; a symlink that names no
-# file is refused, since its owner cannot be read. Three programs are found
-# through PATH before the check is done: bash, which runs this script, id,
-# which says whether this is root, and stat, which the check reads the
-# owners with. For those three the script trusts PATH, as root trusts its
-# PATH.
+# runs sudo, systemctl, loginctl and systemd-sysusers from the stand-ins'
+# directory by path, and the tests put the directory first on PATH, so any
+# other file there runs when the script calls a command of that name. The
+# check therefore covers the directory and every regular file and symlink in
+# it, and reads a symlink's owner and mode from the file it names; a symlink
+# that names no file is refused, since its owner cannot be read. Three
+# programs are found through PATH before the check is done: bash, which runs
+# this script, id, which says whether this is root, and stat, which the
+# check reads the owners with. For those three the script trusts PATH, as
+# root trusts its PATH.
 if [ -n "$standins" ] && [ "$(id -u)" -eq 0 ]; then
 	sudo_uid=${SUDO_UID:-0}
 	[[ $sudo_uid =~ ^[0-9]+$ ]] || die "SUDO_UID is '$sudo_uid', not a uid"
 	shopt -s dotglob nullglob
-	checked=("$standins" "$standins/sudo" "$standins/systemctl" "$standins/loginctl")
+	checked=("$standins" "$standins/sudo" "$standins/systemctl" "$standins/loginctl" "$standins/systemd-sysusers")
 	for f in "$standins"/*; do
 		[ ! -f "$f" ] && [ ! -L "$f" ] || checked+=("$f")
 	done
@@ -120,6 +134,7 @@ if [ -n "$standins" ]; then
 	sudo=$standins/sudo
 	systemctl=$standins/systemctl
 	loginctl=$standins/loginctl
+	sysusers=$standins/systemd-sysusers
 	active_file=$standins/active
 	root=$standins/root
 	[ ! -d "$standins/install" ] || src=$standins/install
@@ -129,12 +144,21 @@ else
 	sudo=sudo
 	systemctl=systemctl
 	loginctl=loginctl
+	sysusers=systemd-sysusers
 	active_file=/sys/class/tty/tty0/active
 	root=
 	own=(-o root -g root)
 fi
 bin_path=/usr/local/bin/vtium-dev
 helper_path=/usr/local/bin/vtium-dev-config
+image_path=/usr/local/bin/vtium-dev-image
+# A line only a build with images carries: what vtium logs when it cannot
+# open its image helper (crates/vtium-platform/src/image_helper/start.rs, a
+# module built only with images). The tests hold it to that file.
+images_marker='cannot open the image helper '
+# The image helper's account, under a name of the development install's
+# own, so it never masks a packaged /usr/lib/sysusers.d/vtium-image.conf.
+sysusers_path=/etc/sysusers.d/vtium-dev-image.conf
 unit_dir=/etc/systemd/system
 state_dir=$vt_install_state
 unit=vtium-dev@tty$vt.service
@@ -148,6 +172,12 @@ manifest=$state_dir/tty$vt
 record=$state_dir/files
 # What install writes, by its path on the machine; uninstall removes these.
 files=("$bin_path" "$helper_path" "$unit_dir/vtium-dev@.service" "$unit_dir/vtium-dev-getty@.service")
+# What install writes only for a binary with pictures. Every VT runs the one
+# binary, so an install of a binary without pictures, and uninstall, remove
+# them as they remove the retired files below; an install of a binary with
+# pictures moves them into files.
+pictures=("$image_path" "$sysusers_path")
+dropped=("${pictures[@]}")
 # What an install made before the tool was renamed vtium-config (ADR-1201
 # D12) wrote under a name vt-install no longer uses. Install and uninstall
 # remove each one the record still holds unchanged, and keep any other.
@@ -199,7 +229,7 @@ put() {
 # its manifest.
 leftovers() {
 	local f t
-	for f in "${files[@]}" "${retired[@]}"; do
+	for f in "${files[@]}" "${dropped[@]}" "${retired[@]}"; do
 		t=$root$(staged "$f")
 		[ ! -e "$t" ] && [ ! -L "$t" ] || printf '%s\n' "$t"
 	done
@@ -266,12 +296,12 @@ written() {
 	[ -f "$root$1" ] && [ ! -L "$root$1" ] && recorded "$1" | grep -qxF -- "$(checksum "$1")"
 }
 
-# Removes each retired file that is still the one install wrote, and names
-# one the record holds that changed since; one the record does not hold is
-# someone else's, and stays without a word.
+# Removes each dropped and retired file that is still the one install wrote,
+# and names one the record holds that changed since; one the record does not
+# hold is someone else's, and stays without a word.
 retire() {
 	local f
-	for f in "${retired[@]}"; do
+	for f in "${dropped[@]}" "${retired[@]}"; do
 		[ -e "$root$f" ] || [ -L "$root$f" ] || continue
 		if written "$f"; then
 			as_root rm -f -- "$root$f"
@@ -345,7 +375,11 @@ if [ "$action" = uninstall ]; then
 	done
 	as_root rm -f -- "$root$manifest"
 	if [ -n "$others" ]; then
-		echo "vt-uninstall: kept ${files[*]}: vt-install holds $(paste -sd' ' <<<"$others") as well"
+		kept=("${files[@]}")
+		for f in "${dropped[@]}"; do
+			[ ! -e "$root$f" ] || kept+=("$f")
+		done
+		echo "vt-uninstall: kept ${kept[*]}: vt-install holds $(paste -sd' ' <<<"$others") as well"
 	else
 		# Only a file that is still the one install wrote goes; one changed
 		# since is someone's edit, and stays.
@@ -374,14 +408,15 @@ if [ "$action" = uninstall ]; then
 	exit 0
 fi
 
-# program VARIABLE WHAT HOW: the program the variable names, as an absolute
-# path, once it is checked to be one only root or the user could have
-# written, since once installed HOW.
+# program VARIABLE WHAT HOW [BUILT]: the program the variable names, as an
+# absolute path, once it is checked to be one only root or the user could
+# have written, since once installed HOW. BUILT says which make command
+# builds it, make vt-install when not given.
 program() {
 	local p=${!1:-} owner mode
 	[ -n "$p" ] || die "$1 names $2; make vt-install sets it"
 	p=$(readlink -m -- "$p")
-	[ -f "$p" ] && [ -x "$p" ] || die "no $2 at $p: make vt-install builds it"
+	[ -f "$p" ] && [ -x "$p" ] || die "no $2 at $p: ${4:-make vt-install} builds it"
 	read -r owner mode < <(stat -c '%u %a' -- "$p")
 	[ "$owner" -eq 0 ] || [ "$owner" -eq "$(id -u)" ] ||
 		die "$p belongs to uid $owner, neither root nor you; $3"
@@ -395,6 +430,23 @@ helper=$(program VTIUM_VT_CONFIG "glyph helper" "vtium, as root, would start it"
 # packaged helper, or none.
 grep -qaF -- "$helper_path" "$bin" ||
 	die "$bin does not look for its glyph helper at $helper_path, so it would start another build's helper or none; make vt-install builds one that looks there"
+# The image helper is found the same way, at VTIUM_IMAGE
+# (crates/vtium/src/head/images.rs), whose default is the packaged
+# /usr/bin/vtium-image. Every build names the path it was built with, since
+# the image-helper key's default names it, but only a build with images
+# starts the helper. make vt-dev-console sets VTIUM_IMAGE to the development
+# install's path exactly when it builds with images, so a binary that names
+# that path has pictures and gets the helper. A build with images that names
+# another path would start the packaged helper, another build's, or none.
+image=
+if grep -qaF -- "$image_path" "$bin"; then
+	image=$(program VTIUM_VT_IMAGE "image helper" "vtium, as root, would start it" "make vt-install FEATURES=images")
+	[ -f "$src/vtium-image.conf" ] || die "no $src/vtium-image.conf, the image helper's sysusers file"
+	files+=("${pictures[@]}")
+	dropped=()
+elif grep -qaF -- "$images_marker" "$bin"; then
+	die "$bin is built with images but does not look for its image helper at $image_path, so it would start the packaged helper, another build's, or none; make vt-install FEATURES=images builds one that looks there"
+fi
 
 # The C reference's console, or the packaged vtium, on the VT would fight
 # this one for it.
@@ -439,6 +491,15 @@ trap 'rm -rf -- "$tmp"' EXIT
 	--note "make vt-uninstall removes it." --source "$src" "$tmp" ||
 	die "the units could not be generated (above), so nothing is installed"
 built=$(git -C "$checkout" describe --always --dirty 2>/dev/null) || built=unknown
+# The image helper's sysusers file: the shipped one under an opening comment
+# of its own, so the account is the one the package creates.
+if [ -n "$image" ]; then
+	{
+		echo "# Written by make vt-install (tools/vt/vt-install.sh) from crates/vtium/install/vtium-image.conf."
+		echo "# make vt-uninstall removes it, and leaves the account: systemd-sysusers never removes one."
+		cat "$src/vtium-image.conf"
+	} >"$tmp/sysusers"
+fi
 
 # What getty@ttyN was before, so uninstall puts it back: the first install
 # on this VT records it, and a reinstall keeps that record.
@@ -465,6 +526,10 @@ fi
 	for f in vtium-dev@.service vtium-dev-getty@.service; do
 		printf '%s  %s\n' "$(sha256sum <"$tmp/$f" | cut -d' ' -f1)" "$unit_dir/$f"
 	done
+	if [ -n "$image" ]; then
+		printf '%s  %s\n' "$(sha256sum <"$image" | cut -d' ' -f1)" "$image_path"
+		printf '%s  %s\n' "$(sha256sum <"$tmp/sysusers" | cut -d' ' -f1)" "$sysusers_path"
+	fi
 } >"$tmp/files"
 
 if [ -n "$dry" ]; then
@@ -473,6 +538,7 @@ if [ -n "$dry" ]; then
 		printf '\n--- %s/%s\n' "$unit_dir" "$f"
 		cat "$tmp/$f"
 	done
+	[ -z "$image" ] || { printf '\n--- %s\n' "$sysusers_path"; cat "$tmp/sysusers"; }
 	[ -z "$write_manifest" ] || { printf '\n--- %s\n' "$manifest"; cat "$tmp/manifest"; }
 	printf '\n--- %s\n' "$record"
 	cat "$tmp/files"
@@ -520,22 +586,35 @@ manifest_written=1
 # run or after it. The record goes before the copies, holding each file's
 # checksum from before and after, so a copy that fails leaves every file in a
 # state the record knows: uninstall removes it, and a second run replaces it.
+# It keeps what the record held for each file that retire removes, so retire
+# still finds a file that changed since install wrote it, and names it.
 {
 	cat "$tmp/files"
-	for f in "${files[@]}" "${retired[@]}"; do
+	for f in "${files[@]}"; do
 		! written "$f" || printf '%s  %s\n' "$(checksum "$f")" "$f"
+	done
+	for f in "${dropped[@]}" "${retired[@]}"; do
+		recorded "$f" | sed "s|\$|  $f|"
 	done
 } >"$tmp/files.both"
 put "$tmp/files.both" "$record" 0644
+# The helpers go in before the binary that starts them.
 put "$helper" "$helper_path" 0755
+if [ -n "$image" ]; then
+	put "$image" "$image_path" 0755
+	put "$tmp/sysusers" "$sysusers_path" 0644
+fi
 put "$bin" "$bin_path" 0755
 for f in vtium-dev@.service vtium-dev-getty@.service; do
 	put "$tmp/$f" "$unit_dir/$f" 0644
 done
-# The new helper is in place, so the one under its old name goes. The copies
-# are done, so the record holds only what is there now.
+# The new binary is in place, so the helper under its old name goes, and so
+# do the image helper and its sysusers file when the new binary has no
+# pictures. The copies are done, so the record holds only what is there now.
 retire
 put "$tmp/files" "$record" 0644
+# The account exists before vtium starts its image helper as it.
+[ -z "$image" ] || as_root "$sysusers" "$root$sysusers_path"
 as_root "$systemctl" daemon-reload
 # vtium starts first. Its Conflicts=getty@%i stops the getty, and its
 # After=getty@%i makes that stop finish before vtium starts, so the getty's
