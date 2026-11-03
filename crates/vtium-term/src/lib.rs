@@ -93,8 +93,6 @@ pub use damage::{Age, Damage};
 pub use frame::{Cursor, CursorShape, Frame, FrameCell, Overlay, dim};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 pub use palette::{PALETTE_NAMES, Palette, Special};
-#[cfg(feature = "images")]
-pub use placeholder::PlaceholderRun;
 pub use screen::{Erase, Screen, WidthMethod};
 pub use scrollback::{
     MINSPEC_GRID, MINSPEC_PEAK, MINSPEC_REST, SB_MEMORY_DEFAULT, SB_MEMORY_DEFAULT_IMAGES,
@@ -114,3 +112,7 @@ pub use unicode::UNICODE_VERSION;
 /// vtium-term (ADR-1100).
 #[cfg(feature = "images")]
 pub use vtium_image as images;
+/// A run of kitty placeholder cells, as vtium-term reads it and hands it
+/// to the image store (ADR-1100, D13).
+#[cfg(feature = "images")]
+pub use vtium_image::PlaceholderRun;

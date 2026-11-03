@@ -9,13 +9,13 @@
 #[cfg(feature = "images")]
 mod with {
     use vtium_image::{
-        FramePlacement, ImageKey, LineKey, NewImage, Place, PlacementKey, Refusal, Rows, Screens,
-        Store,
+        FramePlacement, ImageKey, LineKey, NewImage, Place, PlaceholderRun, PlacementKey, Refusal,
+        Rows, Screens, Store,
     };
 
     use super::super::Screen;
     use crate::line::{Line, LineId};
-    use crate::placeholder::{self, PlaceholderRun};
+    use crate::placeholder;
     use crate::scrollback::{Change, Move};
 
     fn key(line: &Line) -> LineKey {
