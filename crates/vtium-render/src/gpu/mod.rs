@@ -5,9 +5,14 @@
 //! EGL and GBM lives in vtium-platform. The binary implements [`Gl`] with an
 //! adapter over vtium-platform's GL type, and checks each call through a
 //! [`Ledger`], as [`StandIn`], the tests' GL, does.
+//!
+//! A display's frame passes through the [`Pipeline`]'s five slots: pictures
+//! at another size, composition into the upright frame, color, spatial
+//! effects, and present into the display's buffer.
 
 mod gl;
 mod ledger;
+mod pipeline;
 mod stand_in;
 
 pub use gl::{
@@ -15,4 +20,7 @@ pub use gl::{
     InputKind, Limits, Program, Quad, Size, Source, Texture, Value,
 };
 pub use ledger::{Checked, Ledger, Resolved, TargetInfo, TextureInfo};
+#[cfg(feature = "images")]
+pub use pipeline::PictureStep;
+pub use pipeline::{Color, Config, Pipeline, Spatial, Work};
 pub use stand_in::{Call, StandIn};
