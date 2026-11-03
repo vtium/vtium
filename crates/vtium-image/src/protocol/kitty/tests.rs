@@ -1720,3 +1720,121 @@ fn a_frames_buffered_payload_is_charged_to_the_frame_allowance_and_evicts_nothin
         "the payload's bytes went back when the helper answered"
     );
 }
+
+/// Frame `n` of image 1's pixels.
+fn frame_of(h: &mut Host, n: u32) -> Vec<u32> {
+    let key = key(h);
+    h.store
+        .frame_pixels(key, n)
+        .unwrap()
+        .pixels
+        .as_slice()
+        .to_vec()
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_composition_lays_frame_r_onto_frame_c_and_gives_c_a_new_pixel_revision() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=4,v=4,i=1;{}", red(16)));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1;{}", rgba([0, 0, 0xff, 0xff], 16)),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1;{}", rgba([0, 0xff, 0, 0xff], 16)),
+    );
+    let _ = h.take();
+    let (two, three) = (frame_of(&mut h, 2), frame_of(&mut h, 3));
+    let key = key(&mut h);
+    let revision = |h: &Host, n| h.store.frame_pixels(key, n).unwrap().revision;
+    let (r2, r3) = (revision(&h, 2), revision(&h, 3));
+    // r is the source and c the destination
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=3,w=2,h=1,C=1");
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    assert_eq!(frame_of(&mut h, 2), two, "the source keeps its pixels");
+    let mut want = three.clone();
+    want[..2].copy_from_slice(&two[..2]);
+    assert_eq!(frame_of(&mut h, 3), want);
+    assert_eq!(revision(&h, 2), r2);
+    assert!(
+        revision(&h, 3) > r3,
+        "the destination's pixel revision moves"
+    );
+}
+
+// covers: image.kitty-animation
+#[test]
+fn an_edit_of_the_root_frame_gives_it_a_new_pixel_revision() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=4,v=4,i=1;{}", red(16)));
+    let key = key(&mut h);
+    let before = h.store.frame_pixels(key, 1).unwrap();
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,r=1,s=1,v=1;{}", rgba([0, 0, 0xff, 0xff], 1)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
+    let after = h.store.frame_pixels(key, 1).unwrap();
+    assert_eq!(after.pixels.as_slice()[0], 0xff00_00ff);
+    assert!(after.revision > before.revision);
+    // a composition onto the root moves it again
+    send(&mut k, &mut h, &format!("a=f,i=1;{}", red(16)));
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=1,w=1,h=1,C=1");
+    let again = h.store.frame_pixels(key, 1).unwrap();
+    assert_eq!(again.pixels.as_slice()[0], 0xffff_0000);
+    assert!(again.revision > after.revision);
+}
+
+// covers: image.kitty-animation
+#[test]
+fn an_animation_command_moves_its_images_use_clock() {
+    // three pictures of 256 by 256, under a budget whose allowance, 640 KiB,
+    // holds two whole frames of them
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    for id in 1..=3 {
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=t,s=256,v=256,i={id};{}", red(256 * 256)),
+        );
+    }
+    h.store.set_limit(128 << 10);
+    let whole = rgba([0, 0, 0xff, 0xff], 256 * 256);
+    send(&mut k, &mut h, &format!("a=f,i=1;{whole}"));
+    send(&mut k, &mut h, &format!("a=f,i=2;{whole}"));
+    // a control names image 1, so image 2 is now used least recently, and
+    // its frames go for image 3's
+    send(&mut k, &mut h, "a=a,i=1,s=1");
+    send(&mut k, &mut h, &format!("a=f,i=3;{whole}"));
+    let frames = |h: &mut Host, id| {
+        let key = h.store.find_image(id, 0).unwrap();
+        h.store.animation(key).unwrap().frames
+    };
+    assert_eq!(
+        (frames(&mut h, 1), frames(&mut h, 2), frames(&mut h, 3)),
+        (2, 1, 2)
+    );
+}
+
+// covers: image.kitty-animation
+#[test]
+fn z_on_an_edit_sets_the_gap_of_the_frame_it_edits() {
+    let (mut k, mut h) = animated();
+    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1;{}", red(1)));
+    let key = key(&mut h);
+    assert_eq!(h.store.frame_gap(key, 2), Some(40));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,r=2,z=77,s=1,v=1;{}", red(1)),
+    );
+    assert_eq!(h.store.frame_gap(key, 2), Some(77));
+    // z=0 keeps the gap
+    send(&mut k, &mut h, &format!("a=f,i=1,r=2,s=1,v=1;{}", red(1)));
+    assert_eq!(h.store.frame_gap(key, 2), Some(77));
+}
