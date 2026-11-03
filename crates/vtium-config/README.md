@@ -1,11 +1,16 @@
 # vtium-config
 
-The program that generates vtium's glyphs at run time (ADR-1200, ADR-1301 D2), its own binary outside the minspec build. Its `serve` command is the helper the console starts: it takes a frit's text from the console, finds and reads the frit's sources, parses each bitmap font and rasterises each outline font, and sends the glyphs at the cell asked for in the glyph chunk format, written with vtium-font's writer. Its `set` command switches the running console's frit. Every decoder lives here; the console reads only the helper's glyphs and its own built-in fonts. The crate forbids unsafe code; the console font ioctls it needs live in vtium-platform's `src/vt/font.rs`.
+The font and settings tool of ADR-1201, which users reach as `vtium config`, and the program that generates vtium's glyphs at run time (ADR-1200, ADR-1301 D2), its own binary outside the minspec build. With no command at a terminal it opens its TUI, a full-screen program drawn in the terminal's text cells, which lists the frits (font set files) and the built-in fonts, switches the live console to each font the user highlights, previews sizes as pictures, and saves what the user keeps into vtium.conf and the head file through `apply`. Its `serve` command is the helper the console starts: it takes a frit's text from the console, finds and reads the frit's sources, parses each bitmap font and rasterises each outline font, and sends the glyphs at the cell asked for in the glyph chunk format, written with vtium-font's writer. Its `set` command switches the running console's frit. Every decoder lives here; the console reads only the helper's glyphs and its own built-in fonts. The crate forbids unsafe code; the console font ioctls it needs live in vtium-platform's `src/vt/font.rs`.
 
 | Path | What it is |
 |---|---|
 | `src/main.rs` | The binary: the command line, or the parser when run as `vtium-config --parse`. |
 | `src/cli.rs` | The commands, their options and exit codes. |
+| `src/tui/` | The TUI (ADR-1201 D3, D4, D7): `model.rs`, the state machine that takes keys, replies, resizes, signals and the end of a wait and returns what the loop does; `view.rs`, its screen as rows of text and the bytes that draw them; `input.rs`, the decoder of keys and replies; `words.rs`, the catalog of what it says; `port.rs`, the one loop and the real terminal, raw on the alternate screen with its signals held; `mod.rs`, what it starts from. |
+| `src/draft.rs` | What a save changes: each file before and after, and the lines that differ, which the save view shows. |
+| `src/apply.rs` | The draft a save becomes, the argv of the privileged step, and `apply DIR`, which checks a draft and installs it. |
+| `src/kitty.rs` | Kitty graphics' direct transmission of raw pixels, the bytes that show and delete a size's picture. |
+| `src/specimen.rs` | A size's specimen, drawn by the helper under its own sandbox and laid out from the glyphs it answers with. |
 | `src/frit.rs` | Frits in vtium.conf's line syntax, read strictly. |
 | `src/sources.rs` | Each source found and read: kbd names as `setfont` finds them, files, vconsole.conf and the kernel command line, the kernel's VT font behind the `Consoles` seam, the built-ins. |
 | `src/child.rs` | The parser's child process, `--parse`: its limits and the request it reads. Its parent's side waits in `tests/common/parser.rs` until `preview` (#120) or `new` (#121) takes it back. |
@@ -24,6 +29,11 @@ The program that generates vtium's glyphs at run time (ADR-1200, ADR-1301 D2), i
 | `tests/parser.rs`, `tests/common/parser.rs` | The parser's child as its parent runs it: a child that dies, fails, answers badly, overruns its deadline or floods stderr fails its source, and it holds an empty environment and only its pipes. A child that leaves a process holding its stdout is reaped as it exits, and that process is ended with it. |
 | `tests/serve.rs` | `serve` run as the console runs it, under its own sandbox. |
 | `tests/switch.rs` | `set` on a real pty in raw mode, answered by vtium-term's terminal, the frits it checks a name against, and its refusals before the terminal is touched. |
+| `tests/tui.rs` | The TUI's real loop driven headlessly: scripted keys in, vtium-term or a terminal that answers only DA1 on the other side, and the state's effects read in the bytes written and the screen. |
+| `tests/tui_pty.rs` | The real binary's TUI on a pty with vtium-term answering: the start bytes, live switching and the font given back on q, Ctrl-C and SIGTERM, no OSC 50 to another terminal, `set`'s check of the terminal, and a whole save through a stand-in for sudo. |
+| `tests/screens/` | The TUI's screens at 80x25 and 100x30, vtium's own goldens, each provisional until the maintainer reviews the layout, as `provisional.tsv` lists. |
+| `tests/apply.rs` | `apply` in a temporary directory standing in for `/etc/vtium`: one changed line, a target changed since the draft, a check that fails, a write that fails before its rename, links and bounds. |
+| `tests/specimen.rs` | Specimens drawn by the real helper. |
 | `tests/outline.rs`, `tests/common/ttf.rs` | Outline rasterising on a TrueType font with COLR color glyphs written in the test. |
 | `tests/shaping.rs` | Clusters shaped on a TrueType font with `ccmp`, joining forms and a precomposed letter written in the test. |
 | `gen-shaping/` | The generator of `src/shaping/data.rs` from the Unicode Character Database, its own workspace, run by hand. |
@@ -36,14 +46,36 @@ The program that generates vtium's glyphs at run time (ADR-1200, ADR-1301 D2), i
 
 | Command | Runs as | Does |
 |---|---|---|
-| `set NAME` | the session's user | Switches the running console to a frit or a built-in font (ADR-1200 D5). NAME is checked first as the console checks it, `unifont`, `unscii-8`, or a frit's name whose `NAME.vtfrit` is a regular file in the frits' directory, and the command fails naming that file when it is neither. It then writes `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to `/dev/tty`, reads the reply in raw mode for at most a second, and puts the terminal's mode back, dropping input left unread first; SIGTERM, SIGHUP, SIGINT and SIGQUIT are held while the terminal is raw and act once its mode is back. It prints `set NAME` when the reply names NAME, else `failed`, the name, and the font the console kept or that no reply came, which the console's `allow-font-ops` off or a terminal that is not vtium gives. |
+| none, at a terminal | the user | Opens the TUI ([The TUI](#the-tui)). With no command and stdin or stdout not a terminal, it says that no command was given and exits 2. |
+| `set NAME` | the session's user | Switches the running console to a frit or a built-in font (ADR-1200 D5). NAME is checked first as the console checks it, `unifont`, `unscii-8`, or a frit's name whose `NAME.vtfrit` is a regular file in the frits' directory, and the command fails naming that file when it is neither. It then asks the terminal what it is with XTVERSION and DA1, and sends nothing more to a terminal that does not name vtium. To vtium it writes `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to `/dev/tty`, reads the reply in raw mode for at most a second, and puts the terminal's mode back, dropping input left unread first; SIGTERM, SIGHUP, SIGINT and SIGQUIT are held while the terminal is raw and act once its mode is back. It prints `set NAME` when the reply names NAME, else `failed`, the name, and why: the font the console kept, no reply because the console's `allow-font-ops` is off, or a terminal that is not vtium. |
+| `apply DIR` | root, through `sudo` | Checks the draft in DIR and installs it ([Saving](#saving)). |
 | `serve` | the account ADR-1200 D15 names | The helper ([The helper](#the-helper)). The console starts it; it takes no argument. |
 
 `set` prints one line, tab-separated, and exits 0 on success, 1 on a failure and 2 on a usage error. The store's commands, `create`, `install`, `list`, `verify` and `remove`, are gone with the store (ADR-1200 D3, D12, retired), and each is an unknown command.
 
-The frits are in `/etc/vtium/fonts`, changed at build time with `VTIUM_FONT_FRITS`, as the console's are. `--frits DIR` names another for `set`, and `--kbd-dir DIR` (repeatable), `--font-dir DIR` (repeatable), `--vconsole-conf FILE` and `--kernel-cmdline FILE` replace the paths `serve` finds sources in.
+The frits are in `/etc/vtium/fonts`, changed at build time with `VTIUM_FONT_FRITS`, as the console's are. `--frits DIR` names another for `set`, the TUI and `apply`; `--configdir DIR` names another directory than `/etc/vtium` for vtium.conf and `heads.conf`; `--sudo PROGRAM` replaces `sudo` in the TUI's privileged step; `--vtium PROGRAM` names the console binary `apply` checks files with, `/usr/bin/vtium` unless `VTIUM_PROGRAM` set another at build time; and `--kbd-dir DIR` (repeatable), `--font-dir DIR` (repeatable), `--vconsole-conf FILE` and `--kernel-cmdline FILE` replace the paths `serve` finds sources in.
 
 When stdin and stdout are both terminals, the tool opens with a banner of its name in glass (`src/banner.rs`, vtium/vtium#112). `--no-banner` or a non-empty `NO_COLOR` turns it off, and it never precedes `--version`, never shows in a Chinese, Japanese or Korean locale, and never reaches a pipe.
+
+## The TUI
+
+The TUI runs as the user from start to end. At start it writes four requests at once, XTVERSION, the OSC 50 query, kitty's graphics query and DA1, and waits at most a second for DA1's reply, which every terminal of the VT100 line sends after the others. In a vtium console that answers the OSC 50 query, each font the user highlights is sent as `OSC 50 ; NAME ST` and the query, one switch at a time: the next goes when the last one's reply comes, and names whatever is highlighted then. A reply that names another font marks the font as kept by the console. With `allow-font-ops` off the TUI says so and offers to turn it on as a saved change; in any other terminal it sends no OSC 50 but the query at start. Leaving by `q`, by Ctrl-C, or by SIGINT, SIGTERM, SIGQUIT or SIGHUP switches the console back to the font the start query named and waits for the reply; a panic writes the switch back from the panic hook, since a release build aborts on a panic. Nothing can give the font back after SIGKILL or once the terminal is gone.
+
+Its views are the fonts, the sizes, the font keys of vtium.conf, each head's profile from `heads.conf`, and the save view, which lists each file a save changes and each line that changes, and the command it runs. Where the terminal answered kitty's graphics query, each size shows a specimen picture at the pixel height that size gives at vtium.conf's `display-dpi`, else at 96 dots per inch: the helper draws the glyphs under its own sandbox ([The helper](#the-helper)), so the TUI's process parses no font, and the picture goes as kitty graphics' raw pixels, `a=T,f=32,t=d`, in chunks, and is deleted with `a=d` when the highlight moves or the TUI leaves. The words the TUI shows are in `src/tui/words.rs`.
+
+## Saving
+
+A save becomes a draft, a directory the user owns under `$XDG_STATE_HOME/vtium/drafts`, which holds the whole edited vtium.conf and `heads.conf` and a `MANIFEST` that names each file with the SHA-256 of the installed file it replaces. The TUI writes the draft and runs one command, built as an argv and never as a shell string: `sudo vtium-config --no-banner --configdir DIR --frits DIR --vtium PROGRAM apply DRAFT`. It leaves its alternate screen while sudo asks for the password, runs the command in a process group of its own in the terminal's foreground so that Ctrl-C reaches sudo and not the TUI, through `--run-with-signals`, which releases the signals the TUI holds in the child alone, and shows what the command printed when it fails.
+
+vtium.conf is edited line by line by vtium-settings's `edit_conf`, and a head's `profile =` line by `set_profile`, the head file's one writer, so every comment, blank line and line ending stays.
+
+`apply DRAFT`:
+
+1. reads the draft without following a link, takes only regular files with names it knows, and bounds each, since root is reading a directory the user owns;
+2. refuses the draft, writing nothing, when a file it replaces has changed since the draft was made, naming the file;
+3. checks every file before it writes any: each frit with the helper's frit reader, and vtium.conf and the head file with the console's own `vtium check-config`, run on root's copies of exactly the bytes it then writes;
+4. writes the frits, then the head file, then vtium.conf, each through vtium-settings's `install_file`: a new file beside the old one, mode 0644, flushed and renamed over it, the old one kept as `NAME.bak`;
+5. prints one line a file, `wrote PATH`, `failed PATH` with the reason, or `not written PATH` after a failure, and exits 0 when it wrote them all. The draft stays, so it can be applied again.
 
 ## Frits
 
@@ -129,6 +161,11 @@ The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency; bzip2 an
 - **A glyph is one or two cells wide by its own advance.** The C reference drew each glyph at the width the terminal gave its cell; the helper draws a glyph before the terminal asks for a width, so a glyph advancing past one and a half cells is sent two cells wide, and `Font` fits it to the width the terminal gives (ADR-1300).
 
 ## What this slice leaves for later
+
+- ADR-1201's other commands, `fonts`, `check FILE`, `config KEY [VALUE]`, `config --unset KEY`, `remove-frit NAME`, and `new`'s guided flow as the TUI's new-frit view; `preview` as the TUI's picture renderer; and drafts made by a command run as a user.
+- vtium.conf's keys shown with their defaults and descriptions: the console's key table, `crates/vtium/src/config/keys.rs`, moves into vtium-settings first, and vtium.conf's line splitter with it, which `edit_conf` mirrors until then.
+- The density read from the displays' EDID in sysfs, the specimen's line in the locale's script, the text summary of each size's cell and grid where the terminal draws no pictures, and each font's missing sources in the font list.
+- A session's end returning its console to the configured font (ADR-1201 D11) is the console's, in crates/vtium.
 
 - Styles other than regular (an outline font's bold and italic faces, ADR-1000's `text.outline`) are refused by name. So the W rule's cell takes only the first source's face today; ADR-1200 D17 has it take the bold face too, the wider of the two, once `style=` names one, and `outline::cell_width` already takes the widest of the faces it is given.
 - vtium.conf's `font-hinting`, and a profile's, over the frit's `hinting=` (ADR-1200 D1): the helper hints as the frit says, since no request carries the console's setting yet.
