@@ -184,10 +184,17 @@ impl Drop for Raw<'_> {
     }
 }
 
-/// The frits' directory the build names, `font-frits`'s default in the
-/// key table the console reads.
-pub fn default_frits() -> PathBuf {
-    PathBuf::from(vtium_settings::keys::FRITS)
+/// The frits' directory the console reads with the vtium.conf in
+/// `configdir`: the file's `font-frits`, read as the console reads it,
+/// else the key's default, the directory the build names. A vtium.conf
+/// that cannot be read names no directory, so the default stands.
+pub fn frits_dir(configdir: &Path) -> PathBuf {
+    let key = &vtium_settings::keys::FONT_FRITS;
+    crate::tui::read_conf(&configdir.join("vtium.conf"))
+        .ok()
+        .flatten()
+        .and_then(|text| vtium_settings::setting(&text, key.name))
+        .map_or_else(|| PathBuf::from(vtium_settings::keys::FRITS), PathBuf::from)
 }
 
 /// The frit file `name` names in `frits`, for a frit's name.
@@ -202,14 +209,9 @@ fn known(name: &str, frits: &Path) -> bool {
         || frit_file(frits, name).is_some_and(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file()))
 }
 
-/// `set` with its words, the frits' directory `--frits` named, if any,
-/// writing to `out` and `err`; returns the exit status.
-pub fn command(
-    words: &[String],
-    frits: Option<&Path>,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> u8 {
+/// `set` with its words and the frits' directory, writing to `out` and
+/// `err`; returns the exit status.
+pub fn command(words: &[String], frits: &Path, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let [name] = words else {
         let _ = writeln!(
             err,
@@ -217,12 +219,11 @@ pub fn command(
         );
         return 2;
     };
-    let frits = frits.map_or_else(default_frits, Path::to_owned);
     let fail = |err: &mut dyn Write, why: &str| {
         let _ = writeln!(err, "vtium-config: {why}");
         1
     };
-    if !known(name, &frits) {
+    if !known(name, frits) {
         let file = frits.join(format!("{name}.vtfrit"));
         return fail(
             err,

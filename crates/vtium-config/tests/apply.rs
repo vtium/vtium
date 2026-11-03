@@ -408,7 +408,7 @@ fn only_the_system_s_directories_are_installed_through_sudo() {
     let f = fixture("route", None);
     let system = Targets {
         configdir: PathBuf::from("/etc/vtium"),
-        frits: vtium_config::switch::default_frits(),
+        frits: vtium_config::switch::frits_dir(Path::new("/etc/vtium")),
         vtium: vtium_config::apply::VTIUM.into(),
     };
     let sudo: OsString = "sudo".into();

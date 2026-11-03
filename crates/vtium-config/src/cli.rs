@@ -33,7 +33,7 @@ the command that installs it; run as root, it installs at once.
 
 Options:
   --configdir DIR       the directory of vtium.conf and heads.conf, in place of /etc/vtium
-  --frits DIR           the frits directory, in place of the system's
+  --frits DIR           the frits directory, in place of vtium.conf's font-frits
   --sudo PROGRAM        the program that runs apply as root, in place of sudo
   --vtium PROGRAM       the console binary apply checks files with, in place of /usr/bin/vtium
   --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
@@ -83,12 +83,13 @@ impl Options {
 
     /// Where the TUI and `apply` read and write, as the options name them.
     fn paths(&self) -> crate::tui::Paths {
+        let configdir = self.configdir.clone().unwrap_or_else(default_configdir);
         crate::tui::Paths {
-            configdir: self.configdir.clone().unwrap_or_else(default_configdir),
             frits: self
                 .frits
                 .clone()
-                .unwrap_or_else(crate::switch::default_frits),
+                .unwrap_or_else(|| crate::switch::frits_dir(&configdir)),
+            configdir,
             drafts: crate::tui::default_drafts(),
             sudo: self
                 .sudo
@@ -326,7 +327,7 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         }
         "new" => crate::commands::new(&rest, &o.paths(), cli.out, cli.err),
         "preview" => crate::preview::command(&rest, &o.paths(), cli.out, cli.err),
-        "set" => crate::switch::command(&rest, o.frits.as_deref(), cli.out, cli.err),
+        "set" => crate::switch::command(&rest, &o.paths().frits, cli.out, cli.err),
         "apply" => crate::apply::command(&rest, &o.paths().targets(), cli.out, cli.err),
         crate::serve::SERVE_ARG => cli.serve(&rest),
         "" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {

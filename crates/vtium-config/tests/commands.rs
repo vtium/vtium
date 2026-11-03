@@ -286,6 +286,93 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
     }
 }
 
+/// vtium.conf's `font-frits` names the frits' directory the console
+/// reads, so with no `--frits` every command lists, writes and removes
+/// frits there, and never in the build's default directory.
+#[test]
+fn font_frits_names_the_directory_every_command_acts_in() {
+    let f = fixture("font-frits", None);
+    let elsewhere = f.root.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).expect("the frits' directory");
+    std::fs::write(elsewhere.join("gone.vtfrit"), "source=builtin:unifont\n").expect("a frit");
+    std::fs::write(
+        f.etc().join("vtium.conf"),
+        format!("font-frits={}\n", elsewhere.display()),
+    )
+    .expect("vtium.conf");
+    // the fixture's options less --frits
+    let run = |args: &[&str]| {
+        let o = Command::new(BIN)
+            .arg("--configdir")
+            .arg(f.etc())
+            .arg("--vtium")
+            .arg(vtium())
+            .args(args)
+            .env("XDG_STATE_HOME", f.root.join("state"))
+            .output()
+            .expect("the binary runs");
+        Ran {
+            status: o.status.code().unwrap_or(-1),
+            out: String::from_utf8_lossy(&o.stdout).into_owned(),
+            err: String::from_utf8_lossy(&o.stderr).into_owned(),
+        }
+    };
+    // apply, run as the drafting command printed it would be run, with no
+    // --frits either
+    let apply = |ran: &Ran| {
+        assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+        let line = |tag: &str| {
+            ran.out
+                .lines()
+                .find_map(|l| l.strip_prefix(tag))
+                .expect("the line")
+                .to_owned()
+        };
+        assert!(
+            line("run\t").contains(&format!("--frits {} ", elsewhere.display())),
+            "{}",
+            ran.out
+        );
+        run(&["apply", &line("draft\t")])
+    };
+    let listed = run(&["fonts"]);
+    assert_eq!(listed.status, 0, "{}", listed.err);
+    let names: Vec<&str> = listed
+        .out
+        .lines()
+        .filter_map(|l| l.split('\t').next())
+        .collect();
+    assert_eq!(names, ["gone", "unifont", "unscii-8"], "{}", listed.out);
+    let made = run(&["new", "builtin:unscii-8", "--name", "made"]);
+    assert!(
+        made.out.starts_with(&format!(
+            "write\t{}\n",
+            elsewhere.join("made.vtfrit").display()
+        )),
+        "{}{}",
+        made.out,
+        made.err
+    );
+    assert_eq!(apply(&made).status, 0);
+    assert!(elsewhere.join("made.vtfrit").is_file());
+    let removed = run(&["remove-frit", "gone"]);
+    assert!(
+        removed.out.starts_with(&format!(
+            "remove\t{}\n",
+            elsewhere.join("gone.vtfrit").display()
+        )),
+        "{}{}",
+        removed.out,
+        removed.err
+    );
+    assert_eq!(apply(&removed).status, 0);
+    assert!(!elsewhere.join("gone.vtfrit").exists());
+    // the fixture's own frits, in the directory --frits would name, are
+    // untouched
+    assert!(f.etc().join("fonts/tiny.vtfrit").is_file());
+    assert!(!f.etc().join("fonts/made.vtfrit").exists());
+}
+
 #[test]
 fn check_judges_a_frit_and_a_vtium_conf_and_writes_nothing() {
     let f = fixture("check", None);
