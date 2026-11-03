@@ -70,8 +70,9 @@ pub struct FramePlacement {
     pub revision: u64,
     /// The number of the frame shown, 1 for the root frame and for a
     /// picture that is not animated (ADR-1102, D3). The store fills in the
-    /// root frame; the binary's snapshot puts the frame its animation clock
-    /// chose with [`show`](Self::show).
+    /// image's current frame, the one `a=a` with `c` made current; the
+    /// binary's snapshot puts the frame its animation clock chose with
+    /// [`show`](Self::show).
     pub frame: u32,
     /// That frame's pixel revision: the store's revision when a command last
     /// changed what the frame shows. The image's key, `frame` and

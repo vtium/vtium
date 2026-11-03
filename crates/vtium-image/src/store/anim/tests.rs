@@ -753,7 +753,8 @@ fn a_frame_entry_names_its_pixels_by_image_frame_and_pixel_revision() {
     assert!(plain.animation.is_none(), "no animation command named it");
     send(&mut s, key, data(0, 0, 1, 1, BLUE)).unwrap();
     let mut entry = s.frame(rows, 80).remove(0);
-    // the store fills in the root frame and the animation's state
+    // the store fills in the image's current frame, still the root, and
+    // the animation's state
     assert_eq!((entry.frame, entry.pixel_revision), (1, root.revision));
     assert!(entry.pixels.same(&root.pixels));
     assert_eq!(entry.animation, s.animation(key));
