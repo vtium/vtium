@@ -46,14 +46,15 @@ fn faults(tally: &Tally) -> String {
 }
 
 #[test]
-fn the_interface_holds_for_vtium_replay_on_the_copied_corpus() {
+fn the_interface_holds_for_vtium_replay_on_the_copied_corpus_and_vtiums_own_cases() {
     let texts = texts();
     let spec = spec(&texts);
     let corpus = Corpus::open(&Path::new(TOOL).join("corpus")).unwrap_or_else(|e| panic!("{e}"));
+    let own = Corpus::open(&Path::new(TOOL).join("vtium")).unwrap_or_else(|e| panic!("{e}"));
     let check = interface::check(
         &spec,
         &strs(&texts),
-        &corpus,
+        &[&corpus, &own],
         &vtium_conformance::describe(),
     );
     assert!(check.faults().is_empty(), "{}", check.faults().join("\n"));

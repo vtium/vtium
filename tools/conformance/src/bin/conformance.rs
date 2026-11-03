@@ -202,7 +202,13 @@ fn check_describe(spec: &Spec) -> Result<(), String> {
 fn check_interface(spec: &Spec, corpus: &Corpus) -> Result<bool, String> {
     let texts = texts()?;
     let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
-    let check = interface::check(spec, &texts, corpus, &vtium_conformance::describe());
+    let own = Corpus::open(&Path::new(TOOL).join(OWN_CASES))?;
+    let check = interface::check(
+        spec,
+        &texts,
+        &[corpus, &own],
+        &vtium_conformance::describe(),
+    );
     let faults = check.faults();
     for fault in &faults {
         println!("FAIL replay-interface: {fault}");

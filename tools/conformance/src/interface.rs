@@ -1,5 +1,6 @@
-//! The interface check: vtium-replay and the copied goldens against the
-//! interface's own blocks, beside the verdict on each case.
+//! The interface check: vtium-replay, the copied goldens and vtium's own
+//! goldens against the interface's own blocks, beside the verdict on each
+//! case.
 //!
 //! Every line of every golden is a form of its kind in the grammar, the
 //! kinds come in the order of the view's `structure`, and each block keeps
@@ -26,8 +27,8 @@ mod refusals;
 
 pub use refusals::{exit_code, refusals};
 
-/// The copied goldens by view; the draw2 goldens were not copied, as
-/// vtium has no draw2 view.
+/// The goldens by view, in the copied corpus and in vtium's own cases;
+/// the draw2 goldens were not copied, as vtium has no draw2 view.
 const GOLDENS: [(&str, &str); 2] = [("screen", "golden"), ("frame", "golden-frame")];
 
 /// What one check counted, and the faults it found.
@@ -84,16 +85,22 @@ impl Check {
 }
 
 /// Runs every check: `texts` are the interface's documents, in order,
-/// `describe` what vtium-replay's `--describe` prints.
-pub fn check(spec: &Spec, texts: &[&str], corpus: &Corpus, describe: &str) -> Check {
+/// `corpora` the copied corpus and vtium's own cases, whose goldens are
+/// read, and `describe` what vtium-replay's `--describe` prints.
+pub fn check(spec: &Spec, texts: &[&str], corpora: &[&Corpus], describe: &str) -> Check {
     let declared: BTreeSet<String> = describe
         .lines()
         .filter_map(|l| l.strip_prefix("feature "))
         .map(str::to_owned)
         .collect();
-    let (goldens, golden_faults) = goldens(spec, corpus);
+    let (mut goldens_read, mut golden_faults) = (0usize, Vec::new());
+    for corpus in corpora {
+        let (count, faults) = goldens(spec, corpus);
+        goldens_read = goldens_read.saturating_add(count);
+        golden_faults.extend(faults);
+    }
     Check {
-        goldens,
+        goldens: goldens_read,
         golden_faults,
         examples: examples(texts, spec, &declared),
         palettes: palettes(texts),
@@ -102,9 +109,16 @@ pub fn check(spec: &Spec, texts: &[&str], corpus: &Corpus, describe: &str) -> Ch
     }
 }
 
-/// Every golden of the copied views against the grammar, sized by
-/// `cases.list`.
+/// Every golden of `corpus` against the grammar, sized by its
+/// `cases.list`. A fault names the golden by the corpus's directory, such
+/// as `vtium/golden/kit-anim.txt`.
 fn goldens(spec: &Spec, corpus: &Corpus) -> (usize, Vec<String>) {
+    let set = corpus
+        .root
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
     let sizes: BTreeMap<&str, (usize, usize)> = corpus
         .cases
         .iter()
@@ -119,31 +133,31 @@ fn goldens(spec: &Spec, corpus: &Corpus) -> (usize, Vec<String>) {
                 .filter(|p| p.extension().is_some_and(|x| x == "txt"))
                 .collect(),
             Err(e) => {
-                faults.push(format!("{dir}/: {e}"));
+                faults.push(format!("{set}/{dir}/: {e}"));
                 continue;
             }
         };
         files.sort();
         if files.is_empty() {
-            faults.push(format!("no goldens in {dir}/"));
+            faults.push(format!("no goldens in {set}/{dir}/"));
         }
         for path in files {
             count = count.saturating_add(1);
             let file = path.file_name().unwrap_or_default().to_string_lossy();
             let stem = path.file_stem().unwrap_or_default().to_string_lossy();
             let Some(&(cols, rows)) = sizes.get(stem.as_ref()) else {
-                faults.push(format!("{dir}/{file}: no case in cases.list"));
+                faults.push(format!("{set}/{dir}/{file}: no case in cases.list"));
                 continue;
             };
             let text = match std::fs::read_to_string(&path) {
                 Ok(text) => text,
                 Err(e) => {
-                    faults.push(format!("{dir}/{file}: {e}"));
+                    faults.push(format!("{set}/{dir}/{file}: {e}"));
                     continue;
                 }
             };
             if let Some(fault) = check_output(spec, view, &text, cols, rows, false) {
-                faults.push(format!("{dir}/{file}: {fault}"));
+                faults.push(format!("{set}/{dir}/{file}: {fault}"));
             }
         }
     }
