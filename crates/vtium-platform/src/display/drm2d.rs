@@ -1189,10 +1189,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if let Some(o) = self.outputs.iter_mut().find(|o| o.id.0 == id) {
                 o.available = true;
                 needs |= !o.online;
-                // A connector that lists other modes than those the
-                // display's mode was chosen from, as when a monitor is
-                // swapped faster than its disconnect is seen, gets its
-                // mode chosen again from the new list, as at its bind.
+                // The same monitor listing other modes than those the
+                // display's mode was chosen from, as after a DisplayPort
+                // link is trained again, gets its mode chosen again from
+                // the new list. Under `use-original-mode` the mode vtium
+                // set stands in for the mode the console left, which is
+                // gone by now, so the display keeps its mode where the new
+                // list has it.
                 if conn.modes != o.modes {
                     let wanted = self.policy.wanted.as_ref().and_then(|f| f(&o.name));
                     let use_original = self.policy.use_original;
