@@ -444,7 +444,7 @@ const OVERLAY_SHELL: &[u8] = concat!(
 /// display in the 24x54 cell of the operator's 7680x2160 one, as its top
 /// band where the bars are: 3840x540, 160 by 10 cells, which keeps a large
 /// golden small. Each glyph is unifont's tripled on its cell's bottom rows,
-/// as vtium-vitrify places a bitmap font in a larger cell.
+/// as vtium-config places a bitmap font in a larger cell.
 const fn small(name: &'static str, desc: &'static str, overlay: Overlay) -> Case {
     Case {
         screen: Screen {
@@ -1053,7 +1053,7 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new(
                 "vitrified-320x240",
-                "The small-320x240 screen drawn from the glyphs vtium-vitrify's engine generates from a frit naming the 8x8 PSF2 test font, with the built-in Unscii-8 filling the characters it lacks (ADR-1301 D2, vtium/vtium#126, vtium/vtium#145). Correct: as small-320x240 in the same 40 by 30 cells of 8x8, the box, shades, Braille and sextants still sprites, since the sprites win over a fill font's glyphs; but `中` and the snowman, which neither font holds, drawn as Unscii-8's U+25A1, the missing glyph, where small-320x240 draws `?`.",
+                "The small-320x240 screen drawn from the glyphs vtium-config's engine generates from a frit naming the 8x8 PSF2 test font, with the built-in Unscii-8 filling the characters it lacks (ADR-1301 D2, vtium/vtium#126, vtium/vtium#145). Correct: as small-320x240 in the same 40 by 30 cells of 8x8, the box, shades, Braille and sextants still sprites, since the sprites win over a fill font's glyphs; but `中` and the snowman, which neither font holds, drawn as Unscii-8's U+25A1, the missing glyph, where small-320x240 draws `?`.",
                 SMALL_40,
                 40,
                 30,
@@ -1071,7 +1071,7 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new(
                 "vitrified-640x480",
-                "The small-640x480 screen drawn from the glyphs vtium-vitrify's engine generates from a frit naming the 8x16 PSF1 test font, with the built-in unifont filling the characters it lacks (ADR-1301 D2, vtium/vtium#126, vtium/vtium#145). Correct: as small-640x480 in the same 80 by 30 cells of 8x16, the boxes, shades and Braille still sprites, since the sprites win over a fill font's glyphs; but `中文` in unifont's two-cell glyphs and the snowman and the note in its one-cell glyphs, where small-640x480 draws `?`.",
+                "The small-640x480 screen drawn from the glyphs vtium-config's engine generates from a frit naming the 8x16 PSF1 test font, with the built-in unifont filling the characters it lacks (ADR-1301 D2, vtium/vtium#126, vtium/vtium#145). Correct: as small-640x480 in the same 80 by 30 cells of 8x16, the boxes, shades and Braille still sprites, since the sprites win over a fill font's glyphs; but `中文` in unifont's two-cell glyphs and the snowman and the note in its one-cell glyphs, where small-640x480 draws `?`.",
                 SMALL_80,
                 80,
                 30,

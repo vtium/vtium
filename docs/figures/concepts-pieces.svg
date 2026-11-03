@@ -24,7 +24,7 @@
 <text x="732" y="80" font-size="14" text-anchor="middle" fill="#1f2933">the frits</text>
 <text x="732" y="100" font-size="13" text-anchor="middle" fill="#1f2933">/etc/vtium/fonts</text>
 <rect x="632" y="168" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
-<text x="732" y="192" font-size="14" text-anchor="middle" fill="#1f2933">vtium-vitrify</text>
+<text x="732" y="192" font-size="14" text-anchor="middle" fill="#1f2933">vtium-config</text>
 <text x="732" y="212" font-size="13" text-anchor="middle" fill="#1f2933">new, under sudo</text>
 <line x1="732" y1="166" x2="732" y2="114" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <text x="742" y="145" font-size="13" fill="#1f2933">a frit</text>
@@ -40,15 +40,15 @@
 <line x1="240" y1="430" x2="410" y2="312" stroke="#2f6fb0" stroke-width="1.5"/>
 <line x1="436" y1="386" x2="436" y2="312" stroke="#2f6fb0" stroke-width="1.5"/>
 <rect x="40" y="350" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
-<text x="140" y="375" font-size="14" text-anchor="middle" fill="#1f2933">vtium-vitrify set</text>
+<text x="140" y="375" font-size="14" text-anchor="middle" fill="#1f2933">vtium-config set</text>
 <rect x="40" y="410" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
 <text x="140" y="435" font-size="14" text-anchor="middle" fill="#1f2933">vtium-clipboard</text>
 <rect x="336" y="386" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
 <text x="436" y="411" font-size="14" text-anchor="middle" fill="#1f2933">shell and programs</text>
 <rect x="632" y="350" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
-<text x="732" y="375" font-size="14" text-anchor="middle" fill="#1f2933">vtium-vitrify preview</text>
+<text x="732" y="375" font-size="14" text-anchor="middle" fill="#1f2933">vtium-config preview</text>
 <rect x="632" y="410" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
-<text x="732" y="434" font-size="14" text-anchor="middle" fill="#1f2933">vtium-vitrify new</text>
+<text x="732" y="434" font-size="14" text-anchor="middle" fill="#1f2933">vtium-config new</text>
 <text x="732" y="454" font-size="13" text-anchor="middle" fill="#1f2933">and its templates</text>
 <path d="M 632 438 L 600 438 L 600 196 L 630 196" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <text x="590" y="292" font-size="13" text-anchor="end" fill="#1f2933">a frit,</text>

@@ -266,7 +266,7 @@
 #font-frits=/etc/vtium/fonts
 
 ## The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why and draws its built-in font. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with.
-#font-helper=/usr/bin/vtium-vitrify
+#font-helper=/usr/bin/vtium-config
 
 ## The font's size in points, 1/72 inch, drawn at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and over a frit's `cell=`; 0 picks one from the display's size.
 #font-size=0
@@ -277,7 +277,7 @@
 ## Height added to each row, over a frit's `line-spacing=`: a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=` decides, 0 where it states none.
 #font-line-spacing=
 
-## Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.
+## Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-config set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.
 #allow-font-ops
 
 ## Where the six sprite ranges draw from: `font`, the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.

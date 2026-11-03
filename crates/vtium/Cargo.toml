@@ -50,4 +50,4 @@ calloop = { version = "=0.14.4", default-features = false }
 # The glyph helper's serve mode, which `tests/boot.rs` runs in a process of
 # its own as the helper an outline frit asks, so the console's tests meet
 # the checks the real helper makes.
-vtium-vitrify = { path = "../vtium-vitrify" }
+vtium-config = { path = "../vtium-config" }

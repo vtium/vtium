@@ -893,10 +893,10 @@ mod tests {
         let density = check_config::MEASURED_DENSITY;
         assert_eq!(note(&["--font-helper=/bin/sh"]), [density]);
         assert_eq!(
-            note(&["--font-helper=bin/vtium-vitrify"]),
+            note(&["--font-helper=bin/vtium-config"]),
             [
                 density,
-                "font-helper: the helper's path bin/vtium-vitrify is not absolute, so vtium does not start it; vtium would draw its built-in font, and the start checks again for the account it runs as"
+                "font-helper: the helper's path bin/vtium-config is not absolute, so vtium does not start it; vtium would draw its built-in font, and the start checks again for the account it runs as"
             ]
         );
         assert_eq!(
@@ -907,7 +907,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            run_with(&["--font-helper=bin/vtium-vitrify"], ""),
+            run_with(&["--font-helper=bin/vtium-config"], ""),
             (Vec::new(), 0)
         );
     }
@@ -1016,7 +1016,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("vtium-check-helper-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let program = dir.join("vtium-vitrify");
+        let program = dir.join("vtium-config");
         std::fs::write(&program, "").unwrap();
         // owned by the test's account, as a build is
         let owner = std::fs::metadata(&program)

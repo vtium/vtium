@@ -24,7 +24,7 @@ vtium-font = { workspace = true, features = ["psf"] }
 vtium-render.workspace = true
 # generates the test PSF fonts' glyphs through the engine the helper runs,
 # for the screens drawn from sets
-vtium-vitrify = { path = "../../crates/vtium-vitrify" }
+vtium-config = { path = "../../crates/vtium-config" }
 # the small displays' PSF fonts, built in memory
 vtium-testfont = { path = "../testfont" }
 # provenance.tsv's reading and checks, which tier 1's copies use too

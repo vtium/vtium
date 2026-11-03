@@ -33,7 +33,7 @@ The packages install these files:
 | File | What it is |
 |---|---|
 | `/usr/bin/vtium` | the console, with its subcommands `vtium console`, `vtium check-config`, `vtium blank` and `vtium wake` |
-| `/usr/bin/vtium-vitrify` | the glyph helper, which draws a font's glyphs for the console, and its command `vtium-vitrify set`, which switches the font |
+| `/usr/bin/vtium-config` | the glyph helper, which draws a font's glyphs for the console, and its command `vtium-config set`, which switches the font |
 | `/usr/lib/systemd/system/vtium@.service` | the unit that runs vtium on one VT in place of its getty |
 | `/usr/lib/systemd/system/vtium-getty@.service` | the fallback that starts a getty on the VT when vtium fails |
 | `/etc/vtium/vtium.conf.example` | the example configuration, which lists every key at its default, commented out |
@@ -180,7 +180,7 @@ It exits 1 when it finds a problem and 0 when it finds none.
 
 ## Fonts
 
-vtium draws fonts from frits. A frit (a font set file) is a short text file, `/etc/vtium/fonts/NAME.vtfrit`, that lists a font's sources in order. The `font-name` key names the frit by its NAME, and the `font-frits` key names another directory than `/etc/vtium/fonts`. The console parses no font file itself. It starts the glyph helper, `vtium-vitrify serve`, which reads the frit's sources and sends the console ready-made glyphs for its cell size.
+vtium draws fonts from frits. A frit (a font set file) is a short text file, `/etc/vtium/fonts/NAME.vtfrit`, that lists a font's sources in order. The `font-name` key names the frit by its NAME, and the `font-frits` key names another directory than `/etc/vtium/fonts`. The console parses no font file itself. It starts the glyph helper, `vtium-config serve`, which reads the frit's sources and sends the console ready-made glyphs for its cell size.
 
 With no `font-name` set, vtium draws the console font that `vconsole.font=` on the kernel command line or `FONT=` in `/etc/vconsole.conf` names, and with neither, its built-in fonts, Unifont and Unscii-8.
 
@@ -203,7 +203,7 @@ font-name=monoid
 
 The helper tries the sources in order, and each later source draws only the characters the earlier ones lack. The built-in Unifont and Unscii-8 draw every character that no source has. `name=` names the frit, and the file's name, `monoid`, is the default. `license=` records the font's license.
 
-`source=font:FAMILY` finds a kbd console font of that name first. Without one, it finds an outline font file, `.ttf`, `.otf`, `.ttc` or `.otc`, whose name is the family, or the family followed by `Regular`, with case, spaces, `-` and `_` ignored. So `font:Monoid Nerd Font Mono` finds `MonoidNerdFontMono-Regular.ttf`. [crates/vtium-vitrify/README.md](../crates/vtium-vitrify/README.md#frits) lists every source form and frit key.
+`source=font:FAMILY` finds a kbd console font of that name first. Without one, it finds an outline font file, `.ttf`, `.otf`, `.ttc` or `.otc`, whose name is the family, or the family followed by `Regular`, with case, spaces, `-` and `_` ignored. So `font:Monoid Nerd Font Mono` finds `MonoidNerdFontMono-Regular.ttf`. [crates/vtium-config/README.md](../crates/vtium-config/README.md#frits) lists every source form and frit key.
 
 When vtium runs as root, as its unit runs it, it starts the helper as the user `nobody`. The helper looks for outline fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. A font installed in your home directory, for example under `~/.local/share/fonts`, never reaches it, so copy that font into `/usr/local/share/fonts`:
 
@@ -228,15 +228,15 @@ font-name=eurlatgr
 
 ### Switching and zooming
 
-`vtium-vitrify set NAME` switches the console it runs in to the frit NAME, or to a built-in font, `unifont` or `unscii-8`:
+`vtium-config set NAME` switches the console it runs in to the frit NAME, or to a built-in font, `unifont` or `unscii-8`:
 
 ```
-$ vtium-vitrify set monoid
+$ vtium-config set monoid
 ```
 
 It writes xterm's font sequence, OSC 50, to its own terminal, and vtium takes it while the `allow-font-ops` key is on, as it is by default.
 
-**Note:** Run `vtium-vitrify set` inside a vtium console. Run in another terminal, such as a desktop terminal, it sends the sequence to that terminal, and prints `failed` when no answer comes.
+**Note:** Run `vtium-config set` inside a vtium console. Run in another terminal, such as a desktop terminal, it sends the sequence to that terminal, and prints `failed` when no answer comes.
 
 Ctrl+= and Ctrl+- zoom the console on screen in and out, and so does Ctrl with the mouse wheel. A zoom survives logging out and in again: the new login starts in the same console, and vtium resets only the terminal there and keeps the console's grid and zoom. A zoom is lost when vtium itself starts again, at a restart of its unit or a reboot. vtium saves no zoom and no font switch, so `font-name` and `font-size` decide the font and its size each time vtium starts. Set `font-size` ([Size](#size)) for a size that lasts.
 

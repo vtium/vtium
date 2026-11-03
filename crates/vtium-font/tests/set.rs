@@ -42,7 +42,7 @@ fn psf_bits(psf: &Psf, i: u32) -> Vec<u8> {
     out
 }
 
-/// `psf` vitrified as `vtium-vitrify` will: one 1-bit strike at its own
+/// `psf` vitrified as `vtium-config` will: one 1-bit strike at its own
 /// size, every codepoint it draws mapped, glyphs shared as the font shares
 /// them, and the policy the font gets by default.
 fn vitrify_psf(name: &str, psf: &Psf) -> Vec<u8> {

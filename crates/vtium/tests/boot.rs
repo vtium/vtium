@@ -5049,12 +5049,12 @@ fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
     );
 }
 
-/// The outline font fixture vtium-vitrify's tests measure: a subset of
+/// The outline font fixture vtium-config's tests measure: a subset of
 /// DejaVu Sans Mono whose W rule gives 9 columns at 16 pixels and 12 at
 /// 22.
 fn dejavu() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../vtium-vitrify/tests/fixtures/DejaVuSansMono-W-M-0.ttf")
+        .join("../vtium-config/tests/fixtures/DejaVuSansMono-W-M-0.ttf")
 }
 
 /// The fonts of an outline frit `t` drawing [`dejavu`], served by
@@ -5957,7 +5957,7 @@ fn osc_50_query_names_the_current_frit() {
     assert!(replied(&mut h, "ter-v16n"), "{:?}", h.app.screen_text());
 }
 
-// ADR-1200 D5: `vtium-vitrify set` writes the frit and then the query in
+// ADR-1200 D5: `vtium-config set` writes the frit and then the query in
 // one write; the query's reply names the new frit
 #[test]
 fn a_query_after_osc_50_names_the_new_frit() {

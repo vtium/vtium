@@ -24,7 +24,7 @@ vtium's first release is the pre-release v0.1.0-alpha.1. A checkout builds and r
 - **Handing the display back without a VT switch,** through the `setBackground` sequence ([the hand-back issue](https://github.com/vtium/vtium/issues/36)).
 - **Showing a link's address in the console:** Ctrl+click copies an OSC 8 link's address, Ctrl+Shift+Up and Ctrl+Shift+Down move the view between the prompts OSC 133 marks, and the link under the pointer draws a dashed underline. The renderer does not yet draw the overlay row that shows the link's address while Ctrl is held ([ADR-1002](docs/architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
 
-Also not built yet: glyph ink reaching into the next cell ([ADR-1302](docs/architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md), decided), ligatures and shaping across cells, the bold and italic faces of outline fonts, the kitty keyboard protocol, bidirectional text, input methods, `vtiumctl`, the font builder and preview (`vtium-vitrify new` and `preview`), `vtium-clipboard`, and reloading the head file without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
+Also not built yet: glyph ink reaching into the next cell ([ADR-1302](docs/architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md), decided), ligatures and shaping across cells, the bold and italic faces of outline fonts, the kitty keyboard protocol, bidirectional text, input methods, `vtiumctl`, the font builder and preview (`vtium-config new` and `preview`), `vtium-clipboard`, and reloading the head file without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
 
 ## What it does
 
@@ -66,12 +66,12 @@ vtium reads keyboards and pointers directly from their devices, with libxkbcommo
 
 ### Fonts
 
-The console parses no font file. A frit (a font set file, `/etc/vtium/fonts/NAME.vtfrit`) lists a font's sources in order, and later sources fill the characters the earlier ones lack. A helper program, `vtium-vitrify serve`, reads the sources and rasterizes them at run time, and sends the console ready-to-draw glyphs for its cell size. The console checks each answer and keeps the glyphs in memory for the boot.
+The console parses no font file. A frit (a font set file, `/etc/vtium/fonts/NAME.vtfrit`) lists a font's sources in order, and later sources fill the characters the earlier ones lack. A helper program, `vtium-config serve`, reads the sources and rasterizes them at run time, and sends the console ready-to-draw glyphs for its cell size. The console checks each answer and keeps the glyphs in memory for the boot.
 
 - When vtium runs as root, the helper runs as `nobody`. The console restarts a crashed helper at most 3 times a boot, and draws its built-in fonts meanwhile.
 - The helper reads PSF and raw console fonts, kbd font names, BDF fonts, the kernel's own VT font, and outline fonts by family or file, color emoji included (COLR version 0, CBDT and sbix). It rasterizes outlines with swash and shapes each grapheme cluster with HarfRust.
 - Unifont and Unscii-8 are built into the console. They draw the first frame and every character a frit lacks.
-- `vtium-vitrify set` switches the running console's font through OSC 50, and Ctrl+= and Ctrl+- zoom it.
+- `vtium-config set` switches the running console's font through OSC 50, and Ctrl+= and Ctrl+- zoom it.
 
 ### Pictures
 
@@ -161,7 +161,7 @@ The state vtium shows follows only from the bytes a program sends: the same stre
 
 Building needs Rust 1.88 or later and clang, and the first build fetches a Debian sysroot with glibc 2.36 to link against ([tools/arm/README.md](tools/arm/README.md)); `make install-tree` also needs `tic`. On a machine with systemd and logind, `make vt-shell` builds the minspec binary, picks the VT where `make vt-install` put a development build of vtium, or a free VT on a machine without one, asks for sudo, and runs your own shell in vtium there. Exit the shell to end the run, and the VT's own service starts again. [docs/vt-review.md](docs/vt-review.md) describes this and the other VT runs. [crates/vtium/README.md](crates/vtium/README.md#setting-it-up) says how to give an installed vtium a VT, or every VT, and how ssh behaves from it.
 
-`make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-vitrify`, the VT unit and its getty fallback, the terminfo entry and the example configuration. vtium reads its configuration from `/etc/vtium/vtium.conf`, which takes the C reference's keys and adds vtium's own ([docs/config.md](docs/config.md)).
+`make install-tree` stages what a system installs under `target/install-tree`: the console, `vtium-config`, the VT unit and its getty fallback, the terminfo entry and the example configuration. vtium reads its configuration from `/etc/vtium/vtium.conf`, which takes the C reference's keys and adds vtium's own ([docs/config.md](docs/config.md)).
 
 [AGENTS.md](AGENTS.md) gives every gate and test command.
 

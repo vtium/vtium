@@ -32,7 +32,7 @@ vtium's platform layer: everything that touches the kernel and the session. This
 | `src/vt/kernel.rs` | `KernelVt`: the kernel's VT behind the guard that restores it, its signals, its keys, its tty and the VT shown; `Restore` for a panic hook. |
 | `src/vt/shown.rs` | tty0's `active`: the VT the kernel shows, opened, read from its start and parsed. |
 | `src/vt/tty.rs` | `Tty`: a VT's tty through the VT and keyboard ioctls, and the VT to use when none is configured. |
-| `src/vt/font.rs` | The console font's ioctls, `KDFONTOP` and `GIO_UNIMAP`, behind a trait so vtium-vitrify's `console:` source is tested against a stand-in kernel. |
+| `src/vt/font.rs` | The console font's ioctls, `KDFONTOP` and `GIO_UNIMAP`, behind a trait so vtium-config's `console:` source is tested against a stand-in kernel. |
 | `src/vt/fake_vt.rs` | `FakeVt`: the VT of a system without kernel VTs. |
 | `src/vt/fake.rs` | The stand-in VT: each call recorded, the modes it leaves, and failures planted where a test wants them. |
 | `src/vt/tests.rs` | The VT against the stand-in: the modes left on every exit, a failed setup's included, the release and acquire, the VT shown, the switch keys, a hangup and the fake VT. |
@@ -46,7 +46,7 @@ vtium's platform layer: everything that touches the kernel and the session. This
 | `src/input/fake.rs` | Stand-in input devices: queued events, set bitmaps and recorded LED writes. |
 | `src/input/tests.rs` | Keys through the built-in keymap, compose, the repeat, the LEDs, the pointer kinds, and the devices' sleep, wake-up and hangup. |
 | `src/ioctl.rs` | The ioctls rustix does not wrap, each with its request number checked against the kernel's headers, and the evdev codes vtium reads. |
-| `src/fds.rs` | `cloexec_above_stdio`: every descriptor from 3 up marked close-on-exec, through `close_range(2)` or, on a kernel without `CLOSE_RANGE_CLOEXEC`, each one `/proc/self/fd` lists, so vtium-vitrify's parser inherits none of the descriptors its parent was handed. |
+| `src/fds.rs` | `cloexec_above_stdio`: every descriptor from 3 up marked close-on-exec, through `close_range(2)` or, on a kernel without `CLOSE_RANGE_CLOEXEC`, each one `/proc/self/fd` lists, so vtium-config's parser inherits none of the descriptors its parent was handed. |
 | `src/mmap.rs` | `Mapping`: the crate's one mmap, of a dumb buffer or the framebuffer. |
 | `src/rt_signal.rs` | `SIGRTMIN+n`, which calloop's signal source cannot name: `RtSignals`, a loop source over a signalfd of its own that blocks them in the thread that makes it; `Process`, another process held by its pidfd and signalled through it, so a process that took its pid since is never signalled; and `raise`, which signals the calling thread alone, for a test. |
 | `src/power.rs` | The power keys' requests: init's Ctrl+Alt+Del and power-off signals to PID 1, the kernel's restart, and suspend through logind or a shell writing `/sys/power/state`, reaped from the loop through its pidfd. |

@@ -198,7 +198,7 @@ FORBIDDEN = "#!/bin/bash\n" + RECORD + "exit 1\n"
 # VTIUM_CONSOLE=1 in its environment, and a word that is $VTIUM_HEAD or
 # $VTIUM_CONSOLE replaced by its value).
 BIN = """#!/bin/bash
-# Built to start its glyph helper at /usr/local/bin/vtium-dev-vitrify, as make
+# Built to start its glyph helper at /usr/local/bin/vtium-dev-config, as make
 # vt-install builds it.
 echo $$ >"$BIN_PID"
 # The run's lock is root's; vtium, and the login and shell it starts, never
@@ -338,8 +338,8 @@ class Stage:
         self.bin = os.path.join(tmp, "vtium")
         write(self.bin, BIN)
         # The stand-in glyph helper, which vt-install copies and never runs.
-        self.helper = os.path.join(tmp, "vtium-vitrify")
-        write(self.helper, "#!/bin/sh\n# the stand-in vtium-vitrify\n")
+        self.helper = os.path.join(tmp, "vtium-config")
+        write(self.helper, "#!/bin/sh\n# the stand-in vtium-config\n")
         self.dir = os.path.join(tmp, "vt")
         self.calls = os.path.join(tmp, "calls")
         self.bin_args = os.path.join(tmp, "bin-args")
@@ -781,16 +781,16 @@ class RunVt(Case):
         self.assertEqual(p.returncode, 0, p.stderr)
         stage = os.path.join(self.s.standins, "run-vtium-vt")
         for line in (f"+ rm -rf -- {stage}", f"+ install -d -m 0755 -- {stage} {stage}/terminfo",
-                     f"+ install -m 0755 -- {helper} {stage}/vtium-vitrify"):
+                     f"+ install -m 0755 -- {helper} {stage}/vtium-config"):
             self.assertIn(line, p.stdout)
-        self.assertIn(f" --font-helper={stage}/vtium-vitrify ", p.stdout)
+        self.assertIn(f" --font-helper={stage}/vtium-config ", p.stdout)
         self.assertFalse(os.path.exists(stage))
         # A real run: vtium gets the copy's path, and the copy, the compiled
         # entry and their directory are gone once the run ends.
         p = self.run_vt(f"--helper={helper}", "8")
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
-        self.assertIn(f"--font-helper={stage}/vtium-vitrify", argv)
+        self.assertIn(f"--font-helper={stage}/vtium-config", argv)
         self.assertNotIn("--term=kmscon", argv)
         self.assertFalse(os.path.exists(stage))
         # Without --helper, vtium starts the helper it was built with.
@@ -1377,7 +1377,7 @@ class VtSh(Case):
         answers = os.path.join(self.s.tmp, "answers")
         write(answers, "\n\ny" "all drawn\n" "\necho hello vtium\nexit\n" "n\n" "\n", 0o644)
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-check", "GUIDE=start",
-                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=4"],
+                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}", "VT=4"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=answers, ACTIVE_UNITS="getty@tty4.service"),
                            capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -1394,7 +1394,7 @@ class VtSh(Case):
         # demo.sh reads its keys from the terminal make runs in.
         env = self.s.env(BIN_MODE="session", BIN_STDIN="/dev/null", TERM="linux", ACTIVE_UNITS="kmsconvt@tty5.service")
         d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-demo", f"VTIUM_BIN={self.s.bin}",
-                 f"VTIUM_VITRIFY_BIN={self.s.helper}"], env)
+                 f"VTIUM_CONFIG_BIN={self.s.helper}"], env)
         d.wait_for(b"Switch to VT 5 now")
         d.wait_for(b"press a key for the first section", timeout=20)
         d.send(b" ")
@@ -1417,7 +1417,7 @@ class VtSh(Case):
         self.s.locale("LANG=de_DE.UTF-8\n")
         self.s.runtime_dir_path = self.s.runtime_dir()
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-shell", f"VTIUM_BIN={self.s.bin}",
-                            f"VTIUM_VITRIFY_BIN={self.s.helper}", "VT=4"],
+                            f"VTIUM_CONFIG_BIN={self.s.helper}", "VT=4"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell,
                                           ACTIVE_UNITS="getty@tty4.service"),
                            capture_output=True, text=True, timeout=30)
@@ -1448,8 +1448,8 @@ class Make(Case):
     def make(self, *args, **env):
         # The review targets build the helper unless one is named; these
         # tests name the stand-in's, as they name the binary.
-        if not any(a.startswith(("VTIUM_VITRIFY_BIN=", "VITRIFY_RELEASE=")) for a in args) and "VTIUM_VITRIFY_BIN" not in env:
-            args = (*args, f"VTIUM_VITRIFY_BIN={self.s.helper}")
+        if not any(a.startswith(("VTIUM_CONFIG_BIN=", "CONFIG_RELEASE=")) for a in args) and "VTIUM_CONFIG_BIN" not in env:
+            args = (*args, f"VTIUM_CONFIG_BIN={self.s.helper}")
         return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
                               capture_output=True, text=True, timeout=30, start_new_session=True)
 
@@ -1474,16 +1474,16 @@ class Make(Case):
         self.assertIn(f"--helper={self.s.helper} ", p.stdout)
 
     def test_the_default_helper_is_the_release_build(self):
-        # VITRIFY_RELEASE points the default helper at the stand-in, which the
+        # CONFIG_RELEASE points the default helper at the stand-in, which the
         # stand-in cargo "builds"; run-vt.sh runs vtium with the copy it makes.
-        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"VITRIFY_RELEASE={self.s.helper}")
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.s.calls_of("cargo"), ["build --release -p vtium-vitrify --target x86_64-unknown-linux-gnu"])
+        self.assertEqual(self.s.calls_of("cargo"), ["build --release -p vtium-config --target x86_64-unknown-linux-gnu"])
         self.assertIn(f"--helper={self.s.helper} ", p.stdout)
-        self.assertIn(f"--font-helper={self.s.standins}/run-vtium-vt/vtium-vitrify ", p.stdout)
-        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", VTIUM_VITRIFY_BIN=self.s.helper)
+        self.assertIn(f"--font-helper={self.s.standins}/run-vtium-vt/vtium-config ", p.stdout)
+        p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", VTIUM_CONFIG_BIN=self.s.helper)
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("VTIUM_VITRIFY_BIN is set in the environment", p.stderr)
+        self.assertIn("VTIUM_CONFIG_BIN is set in the environment", p.stderr)
 
     def test_another_binary_is_run_as_it_is(self):
         p = self.make("vt-demo", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
@@ -1528,7 +1528,7 @@ class Install(Case):
     UNIT = "etc/systemd/system/vtium-dev@.service"
     FALLBACK = "etc/systemd/system/vtium-dev-getty@.service"
     BIN = "usr/local/bin/vtium-dev"
-    HELPER = "usr/local/bin/vtium-dev-vitrify"
+    HELPER = "usr/local/bin/vtium-dev-config"
     STATE = "var/lib/vtium-dev-install"
     # Every file vt-install writes, by its path under the root.
     FILES = (BIN, HELPER, UNIT, FALLBACK)
@@ -1578,7 +1578,7 @@ class Install(Case):
         return out
 
     def vt_install(self, *args, **env):
-        env = dict(dict(VTIUM_VT_BIN=self.s.bin, VTIUM_VT_VITRIFY=self.s.helper), **env)
+        env = dict(dict(VTIUM_VT_BIN=self.s.bin, VTIUM_VT_CONFIG=self.s.helper), **env)
         return subprocess.run(["bash", VT_INSTALL, *args], env=self.s.env(**env),
                               capture_output=True, text=True, timeout=20, cwd=self.s.tmp)
 
@@ -2267,7 +2267,7 @@ exec "$@"
                 self.assertEqual(self.s.calls_of("cargo"), [])
                 self.assertEqual(self.s.calls_of("sudo"), [])
         p = subprocess.run(["bash", VT_INSTALL, "install", "--dry-run", "4"],
-                           env=dict(real, VTIUM_VT_BIN=self.s.bin, VTIUM_VT_VITRIFY=self.s.helper),
+                           env=dict(real, VTIUM_VT_BIN=self.s.bin, VTIUM_VT_CONFIG=self.s.helper),
                            capture_output=True, text=True, timeout=20, cwd=self.s.tmp)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("run it as yourself, not as root", p.stderr)
@@ -2277,7 +2277,7 @@ exec "$@"
         p = self.vt_install("install", "--dry-run", "4", **sudo_uid)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
-                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}"], env=self.s.env(**sudo_uid),
+                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}"], env=self.s.env(**sudo_uid),
                            capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
@@ -2288,11 +2288,11 @@ exec "$@"
         p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1"],
                            env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
         self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertIn("vt-install: as root under the tests' stand-ins, name the binary and the helper with VTIUM_BIN=PATH VTIUM_VITRIFY_BIN=PATH", p.stderr)
+        self.assertIn("vt-install: as root under the tests' stand-ins, name the binary and the helper with VTIUM_BIN=PATH VTIUM_CONFIG_BIN=PATH", p.stderr)
         self.assertNotIn("cargo", p.stdout)
         self.assertNotIn("sysroot", p.stdout)
         # Naming one of the two still leaves the other to build.
-        for named in (f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}"):
+        for named in (f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}"):
             with self.subTest(named=named):
                 p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
                                     named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
@@ -2361,7 +2361,7 @@ exec "$@"
     def test_make_runs_it_with_the_binary_named_and_no_build(self):
         make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, *a],
                                               env=self.s.env(**e), capture_output=True, text=True, timeout=30)
-        p = make("vt-install", "VT=4", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}")
+        p = make("vt-install", "VT=4", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("restart vtium-dev@tty4.service", p.stdout)
         self.assertEqual(self.s.calls_of("cargo"), [])
@@ -2369,46 +2369,46 @@ exec "$@"
         p = make("vt-uninstall", "DRY_RUN=1")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("VT=N names the VT", p.stderr)
-        p = make("vt-install", "VT=4", "DRY_RUN=yes", f"VTIUM_BIN={self.s.bin}", f"VTIUM_VITRIFY_BIN={self.s.helper}")
+        p = make("vt-install", "VT=4", "DRY_RUN=yes", f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("DRY_RUN=yes: 1 or nothing", p.stderr)
         p = make("vt-install", "VT=4", "DRY_RUN=1", VTIUM_BIN=self.s.bin)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("VTIUM_BIN is set in the environment", p.stderr)
-        p = make("vt-install", "VT=4", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", VTIUM_VITRIFY_BIN=self.s.helper)
+        p = make("vt-install", "VT=4", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", VTIUM_CONFIG_BIN=self.s.helper)
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("VTIUM_VITRIFY_BIN is set in the environment", p.stderr)
+        self.assertIn("VTIUM_CONFIG_BIN is set in the environment", p.stderr)
         self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
 
     # A stand-in cargo that records, beside its arguments, the helper path
     # the build bakes in.
-    CARGO_ENV = "#!/bin/bash\n" + 'printf "%s\\n" "cargo VTIUM_VITRIFY=${VTIUM_VITRIFY-unset} $*" >>"$CALLS"\n'
+    CARGO_ENV = "#!/bin/bash\n" + 'printf "%s\\n" "cargo VTIUM_FONT_HELPER=${VTIUM_FONT_HELPER-unset} $*" >>"$CALLS"\n'
 
     def test_make_builds_the_development_console_and_its_helper_by_default(self):
         write(os.path.join(self.s.standins, "cargo"), self.CARGO_ENV)
-        # VTIUM_DEV and VITRIFY_RELEASE point the defaults at the stand-ins,
+        # VTIUM_DEV and CONFIG_RELEASE point the defaults at the stand-ins,
         # which the stand-in cargo "builds".
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
-                            f"VTIUM_DEV={self.s.bin}", f"VITRIFY_RELEASE={self.s.helper}"],
+                            f"VTIUM_DEV={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}"],
                            env=self.s.env(), capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         builds = self.s.calls_of("cargo")
         # The console starts its helper at the installed helper's path, and
         # builds in a target directory of its own, so the minspec build that
         # the review runs use is never replaced.
-        self.assertIn("VTIUM_VITRIFY=/usr/local/bin/vtium-dev-vitrify rustc --profile minspec -p vtium --bin vtium "
+        self.assertIn("VTIUM_FONT_HELPER=/usr/local/bin/vtium-dev-config rustc --profile minspec -p vtium --bin vtium "
                       "--target x86_64-unknown-linux-gnu --target-dir target/vt-dev -- -C link-arg=-Wl,-z,pack-relative-relocs",
                       builds)
-        self.assertIn("VTIUM_VITRIFY=unset build --release -p vtium-vitrify --target x86_64-unknown-linux-gnu", builds)
+        self.assertIn("VTIUM_FONT_HELPER=unset build --release -p vtium-config --target x86_64-unknown-linux-gnu", builds)
         self.assertEqual(len(builds), 2, builds)
         self.assertIn("+ sudo " + self.s.standins + "/systemctl restart vtium-dev@tty4.service", p.stdout)
 
     def test_a_binary_that_starts_another_helper_is_refused(self):
-        # The minspec build starts /usr/bin/vtium-vitrify, the packaged
+        # The minspec build starts /usr/bin/vtium-config, the packaged
         # helper.
-        write(self.s.bin, BIN.replace("/usr/local/bin/vtium-dev-vitrify", "/usr/bin/vtium-vitrify"))
+        write(self.s.bin, BIN.replace("/usr/local/bin/vtium-dev-config", "/usr/bin/vtium-config"))
         self.refused(self.vt_install("install", "4"),
-                     "does not look for its glyph helper at /usr/local/bin/vtium-dev-vitrify")
+                     "does not look for its glyph helper at /usr/local/bin/vtium-dev-config")
         for f in (*self.FILES, self.STATE):
             self.assertFalse(os.path.exists(self.at(f)), f)
 
@@ -2418,9 +2418,9 @@ exec "$@"
                      f"{self.s.helper} is writable by group or others (mode 775); vtium, as root, would start it")
         os.chmod(self.s.helper, 0o755)
         open(self.s.calls, "w").close()
-        self.refused(self.vt_install("install", "4", VTIUM_VT_VITRIFY=""), "VTIUM_VT_VITRIFY names glyph helper")
+        self.refused(self.vt_install("install", "4", VTIUM_VT_CONFIG=""), "VTIUM_VT_CONFIG names glyph helper")
         open(self.s.calls, "w").close()
-        self.refused(self.vt_install("install", "4", VTIUM_VT_VITRIFY=self.s.helper + "-missing"), "no glyph helper at")
+        self.refused(self.vt_install("install", "4", VTIUM_VT_CONFIG=self.s.helper + "-missing"), "no glyph helper at")
 
     def test_a_vt_the_packaged_vtium_holds_is_refused(self):
         why = "VT 4 refused: the packaged vtium@tty4 holds it; sudo systemctl disable --now vtium@tty4 frees it"
@@ -2450,7 +2450,7 @@ class Package(Case):
     STAGED = sorted([
         "etc/vtium/vtium.conf.example",
         "usr/bin/vtium",
-        "usr/bin/vtium-vitrify",
+        "usr/bin/vtium-config",
         "usr/lib/systemd/system/vtium@.service",
         "usr/lib/systemd/system/vtium-getty@.service",
         "usr/share/doc/vtium/examples/71-vtium-local.rules",
@@ -2459,7 +2459,7 @@ class Package(Case):
     ])
 
     # A stand-in cargo that records the helper paths each build bakes in.
-    CARGO = "#!/bin/bash\n" + ('printf "%s\\n" "cargo VTIUM_VITRIFY=${VTIUM_VITRIFY-unset} '
+    CARGO = "#!/bin/bash\n" + ('printf "%s\\n" "cargo VTIUM_FONT_HELPER=${VTIUM_FONT_HELPER-unset} '
                                'VTIUM_IMAGE=${VTIUM_IMAGE-unset} $*" >>"$CALLS"\n')
 
     def setUp(self):
@@ -2473,7 +2473,7 @@ class Package(Case):
         its glyph helper at helper, and the helper; with image, a console
         that also starts its image helper there, and the image helper."""
         files = [("minspec/vtium", f"#!/bin/sh\n# starts {helper}\n" + (f"# and {image}\n" if image else "")),
-                 ("release/vtium-vitrify", "#!/bin/sh\n# the helper\n")]
+                 ("release/vtium-config", "#!/bin/sh\n# the helper\n")]
         if image:
             files.append(("release/vtium-image", "#!/bin/sh\n# the image helper\n"))
         for path, text in files:
@@ -2491,7 +2491,7 @@ class Package(Case):
         return sorted(out)
 
     def test_install_stages_what_the_package_ships_and_nothing_the_c_references_packages_own(self):
-        self.built("/usr/bin/vtium-vitrify")
+        self.built("/usr/bin/vtium-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.staged(), self.STAGED)
@@ -2501,7 +2501,7 @@ class Package(Case):
         # PREFIX is.
         for f in self.staged():
             self.assertFalse(f.startswith(("etc/kmscon/", "usr/share/terminfo/")) or "kmsconvt" in f, f)
-        for f in ("usr/bin/vtium", "usr/bin/vtium-vitrify"):
+        for f in ("usr/bin/vtium", "usr/bin/vtium-config"):
             self.assertTrue(os.access(os.path.join(self.dest, f), os.X_OK), f)
         unit = read(os.path.join(self.dest, "usr/lib/systemd/system/vtium@.service")).splitlines()
         self.assertTrue(unit[0].startswith("# Generated by make install from crates/vtium/install/vtium@.service"))
@@ -2519,12 +2519,12 @@ class Package(Case):
         # build in a target directory of their own with the host's toolchain.
         builds = self.s.calls_of("cargo")
         self.assertEqual(builds, [
-            f"VTIUM_VITRIFY=/usr/bin/vtium-vitrify VTIUM_IMAGE=unset rustc --profile minspec -p vtium --bin vtium "
+            f"VTIUM_FONT_HELPER=/usr/bin/vtium-config VTIUM_IMAGE=unset rustc --profile minspec -p vtium --bin vtium "
             f"--target-dir {self.build} -- -C link-arg=-Wl,-z,pack-relative-relocs",
-            f"VTIUM_VITRIFY=unset VTIUM_IMAGE=unset build --release -p vtium-vitrify --target-dir {self.build}"])
+            f"VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --release -p vtium-config --target-dir {self.build}"])
 
     def test_install_passes_the_prefix_and_the_package_builds_flags_through(self):
-        self.built("/opt/vt/bin/vtium-vitrify", "/opt/vt/bin/vtium-image")
+        self.built("/opt/vt/bin/vtium-config", "/opt/vt/bin/vtium-image")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/opt/vt", f"INSTALL_TARGET_DIR={self.build}",
                       "CARGO_BUILD_FLAGS=--frozen", "FEATURES=images")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2540,16 +2540,16 @@ class Package(Case):
             self.assertIn(f, self.staged())
         self.assertTrue(os.access(os.path.join(self.dest, "opt/vt/bin/vtium-image"), os.X_OK))
         self.assertEqual(self.s.calls_of("cargo"), [
-            f"VTIUM_VITRIFY=/opt/vt/bin/vtium-vitrify VTIUM_IMAGE=/opt/vt/bin/vtium-image rustc --frozen "
+            f"VTIUM_FONT_HELPER=/opt/vt/bin/vtium-config VTIUM_IMAGE=/opt/vt/bin/vtium-image rustc --frozen "
             f"--profile minspec -p vtium --bin vtium --target-dir {self.build} --features images "
             "-- -C link-arg=-Wl,-z,pack-relative-relocs",
-            f"VTIUM_VITRIFY=unset VTIUM_IMAGE=unset build --frozen --release -p vtium-vitrify -p vtium-image-helper "
+            f"VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --frozen --release -p vtium-config -p vtium-image-helper "
             f"--target-dir {self.build}"])
 
     def test_install_finds_images_in_features_separated_by_commas(self):
         # cargo takes --features images,logind as it takes "images logind",
         # so make install stages the image helper for either form.
-        self.built("/usr/bin/vtium-vitrify", "/usr/bin/vtium-image")
+        self.built("/usr/bin/vtium-config", "/usr/bin/vtium-image")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
                       "FEATURES=images,logind")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2560,21 +2560,21 @@ class Package(Case):
     def test_a_minspec_install_stages_no_image_helper(self):
         # A console built without images starts no image helper, so the
         # package ships neither the helper nor its account file (ADR-1101 D1).
-        self.built("/usr/bin/vtium-vitrify")
+        self.built("/usr/bin/vtium-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual([f for f in self.staged() if "vtium-image" in f], [])
         self.assertNotIn("-p vtium-image-helper", " ".join(self.s.calls_of("cargo")))
 
     def test_install_refuses_a_console_that_starts_another_helper(self):
-        self.built("/usr/local/bin/vtium-dev-vitrify")
+        self.built("/usr/local/bin/vtium-dev-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
         self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertIn("does not start its helper at /usr/bin/vtium-vitrify", p.stderr)
+        self.assertIn("does not start its helper at /usr/bin/vtium-config", p.stderr)
         self.assertEqual(self.staged(), [])
 
     def test_install_with_images_refuses_a_console_that_starts_another_image_helper(self):
-        self.built("/usr/bin/vtium-vitrify", "/usr/local/bin/vtium-image")
+        self.built("/usr/bin/vtium-config", "/usr/local/bin/vtium-image")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
                       "FEATURES=images")
         self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2598,7 +2598,7 @@ class Package(Case):
                     self.assertEqual(self.s.calls_of("cargo"), [])
 
     def test_install_names_the_license_for_the_package(self):
-        self.built("/usr/bin/vtium-vitrify")
+        self.built("/usr/bin/vtium-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
                       "PKGNAME=vtium-git")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -2888,7 +2888,7 @@ class Guide(Case):
                 g.wait_for(b"Press Enter to end.")
                 g.send(b"\r")
                 self.assertEqual(g.finish(), 1)
-        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vtium-vitrify", "vt", "open", "home", "login-shell"]))
+        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vtium-config", "vt", "open", "home", "login-shell"]))
         self.assertEqual(os.listdir(open_dir), [])
 
     def test_a_run_on_a_terminal(self):
