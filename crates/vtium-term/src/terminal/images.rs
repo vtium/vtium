@@ -3,9 +3,12 @@
 //!
 //! The router sends DCS `q` with no intermediate to the sixel handler,
 //! an APC string whose first byte is `G` to the kitty graphics handler,
-//! and a complete OSC `1337;File=` to the iTerm2 compatibility handler,
+//! and a complete OSC `1337;File=`, `1337;MultipartFile=`,
+//! `1337;FilePart=` or `1337;FileEnd` to the iTerm2 compatibility handler,
 //! each only while its protocol is switched on and a handler is
-//! installed; every other string stays as it was. While a handler's
+//! installed; every other string stays as it was. An OSC 1337 string that
+//! vtium drops, past the OSC bound or cut short, cancels the iTerm2
+//! handler, so a transfer in parts it belonged to ends (ADR-1103, D1). While a handler's
 //! request to the image helper is out, the input call takes nothing more,
 //! so a later string cannot land before an earlier image.
 
@@ -28,7 +31,7 @@ pub enum ImageString {
     Sixel,
     /// APC `G`: the kitty graphics protocol.
     Kitty,
-    /// OSC `1337;File=`: iTerm2's inline images.
+    /// OSC `1337;File=` and the transfer in parts: iTerm2's inline images.
     Iterm2,
 }
 
@@ -436,13 +439,18 @@ impl State {
         self.image_end(end);
     }
 
-    /// A complete OSC `1337;File=` goes to the iTerm2 handler while it is
-    /// on, whole: returns whether it did.
+    /// A complete OSC `1337;File=`, `1337;MultipartFile=`,
+    /// `1337;FilePart=` or `1337;FileEnd` goes to the iTerm2 handler while
+    /// it is on, whole: returns whether it did.
     pub(super) fn image_osc(&mut self, data: &[u8]) -> bool {
         let Some(args) = data.strip_prefix(b"1337;") else {
             return false;
         };
-        if !args.starts_with(b"File=") || !self.image_offered(ImageString::Iterm2) {
+        let picture = [&b"File="[..], b"MultipartFile=", b"FilePart="]
+            .iter()
+            .any(|p| args.starts_with(p))
+            || args == b"FileEnd";
+        if !picture || !self.image_offered(ImageString::Iterm2) {
             return false;
         }
         self.with_handler(ImageString::Iterm2, |h, ctx| {
@@ -451,6 +459,15 @@ impl State {
             h.finish(ctx);
         });
         true
+    }
+
+    /// An OSC string vtium drops, past the OSC bound or cut short, of which
+    /// `data` is the first bytes: one of number 1337 cancels the iTerm2
+    /// handler, which ends a transfer in parts it is gathering.
+    pub(super) fn image_osc_dropped(&mut self, data: &[u8]) {
+        if matches!(data.strip_prefix(b"1337"), Some([] | [b';', ..])) {
+            self.with_handler(ImageString::Iterm2, |h, ctx| h.cancel(ctx));
+        }
     }
 
     /// The input call stops while a request is out, and once its image
@@ -1173,5 +1190,75 @@ mod tests {
             t.state.clone() == t.state,
             "a clone keeps the handler's state"
         );
+    }
+
+    /// An 8 by 4 terminal with the iTerm2 handler on, a helper, and a
+    /// transfer in parts open with one part received.
+    fn transferring() -> Terminal {
+        let mut t = Terminal::new(8, 4, 16);
+        t.screen_mut().set_image_limit(1 << 20);
+        t.set_image_switches(Switches {
+            sixel: true,
+            kitty: false,
+            iterm2: true,
+        });
+        t.set_image_helper(true);
+        t.set_image_handler(
+            ImageString::Iterm2,
+            Some(Box::new(vtium_image::Iterm2::default())),
+        );
+        let _ = t.input(b"\x1b]1337;MultipartFile=inline=1\x07\x1b]1337;FilePart=QUJD\x07");
+        assert!(t.screen().images().bytes() > 0, "the part is held");
+        t
+    }
+
+    // covers: image.iterm2
+    #[test]
+    fn the_parts_of_a_transfer_reach_the_iterm2_handler() {
+        let mut t = transferring();
+        // text and other strings between the parts leave the transfer
+        let _ = t.input(b"text\x1b]1337;SetUserVar=a=Yg==\x07\x1b]1337;FilePart=REVG\x1b\\");
+        let _ = t.input(b"\x1b]1337;FileEnd\x07");
+        let request = t.take_image_request().map(|r| (r.medium, r.any_image));
+        assert_eq!(
+            request,
+            Some((vtium_image::decode::Medium::Direct(b"ABCDEF".to_vec()), true))
+        );
+    }
+
+    #[test]
+    fn an_osc_1337_string_dropped_while_a_transfer_is_open_abandons_it() {
+        // cut by CAN, by SUB, and by another string's start
+        for cut in [&b"\x18"[..], b"\x1a", b"\x1b[m"] {
+            let mut t = transferring();
+            let mut bytes = b"\x1b]1337;FilePart=QUJD".to_vec();
+            bytes.extend_from_slice(cut);
+            let _ = t.input(&bytes);
+            assert_eq!(t.screen().images().bytes(), 0, "{cut:?}");
+            let _ = t.input(b"\x1b]1337;FileEnd\x07");
+            assert_eq!(t.take_image_request(), None, "{cut:?}");
+        }
+        // one past the OSC bound, which vtium-parse marks truncated
+        let mut t = transferring();
+        let mut long = b"\x1b]1337;FilePart=".to_vec();
+        long.resize(vtium_parse::OSC_MAX + 64, b'A');
+        long.extend_from_slice(b"\x07");
+        let _ = t.input(&long);
+        assert_eq!(t.screen().images().bytes(), 0);
+        // a dropped string of another number leaves the transfer
+        let mut t = transferring();
+        let _ = t.input(b"\x1b]52;c;QUJD\x18");
+        assert!(t.screen().images().bytes() > 0);
+    }
+
+    #[test]
+    fn switching_iterm2_off_abandons_a_transfer() {
+        let mut t = transferring();
+        t.set_image_switches(Switches {
+            sixel: true,
+            kitty: false,
+            iterm2: false,
+        });
+        assert_eq!(t.screen().images().bytes(), 0);
     }
 }
