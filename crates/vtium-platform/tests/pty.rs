@@ -42,7 +42,7 @@ fn main() {
         .skip(1)
         .filter(|a| !a.starts_with('-'))
         .collect();
-    let cases: [(&str, fn()); 10] = [
+    let cases: [(&str, fn()); 11] = [
         // first: no thread has started yet
         (
             "sigterm_is_served_while_the_loop_waits",
@@ -80,6 +80,10 @@ fn main() {
         (
             "closing_the_pty_signals_a_leader_its_child_handed_the_pty_to",
             closing_the_pty_signals_a_leader_its_child_handed_the_pty_to,
+        ),
+        (
+            "closing_a_pty_with_no_session_signals_its_child",
+            closing_a_pty_with_no_session_signals_its_child,
         ),
     ];
     let mut ran = 0;
@@ -284,6 +288,31 @@ fn child(role: &str) {
                 libc::sigaction(libc::SIGHUP, &default, std::ptr::null_mut());
                 assert!(libc::setsid() > 0, "setsid");
                 assert_eq!(libc::ioctl(0, libc::TIOCSCTTY, 0), 0, "TIOCSCTTY");
+            }
+            record_first_sighup(&mut out);
+        }
+        // Leads the pty's session and gives the pty up, as a session
+        // leader may: the kernel then clears the pty's session, so the pty
+        // has none while this process runs on. Then does what "hup-first"
+        // does.
+        "no-session" => {
+            #[expect(
+                unsafe_code,
+                reason = "the signal handlers and the tty ioctl are libc calls"
+            )]
+            // SAFETY: the process has one thread, so the dispositions it
+            // sets are the process's; the sigaction is owned and
+            // initialised before use.
+            unsafe {
+                // Giving the pty up sends SIGHUP to the pty's foreground
+                // process group, this process's own, so SIGHUP is
+                // ignored meanwhile.
+                let mut ignore: libc::sigaction = std::mem::zeroed();
+                ignore.sa_sigaction = libc::SIG_IGN;
+                let mut default: libc::sigaction = std::mem::zeroed();
+                libc::sigaction(libc::SIGHUP, &ignore, &mut default);
+                assert_eq!(libc::ioctl(0, libc::TIOCNOTTY), 0, "TIOCNOTTY");
+                libc::sigaction(libc::SIGHUP, &default, std::ptr::null_mut());
             }
             record_first_sighup(&mut out);
         }
@@ -890,6 +919,30 @@ fn closing_the_pty_signals_a_leader_its_child_handed_the_pty_to() {
         first,
         format!("{} {}", libc::SI_USER, std::process::id()),
         "the first SIGHUP is the parent's (si_code 0, its pid), not the forwarding child's (pid {forwarder}) nor the kernel's hangup (si_code 128)"
+    );
+}
+
+// A child that leads the pty's session can give the pty up, and the
+// kernel then clears the pty's session: closing the master signals no
+// session leader, since there is none. Dropping the pty sends SIGHUP to
+// the child itself while it runs, so the child still hears of the
+// hang-up, and the first SIGHUP it finds is its parent's.
+fn closing_a_pty_with_no_session_signals_its_child() {
+    let scratch = Scratch::new("no-session");
+    let record = scratch.join("record");
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    let mut child = role("no-session");
+    child.env("VTIUM_PTY_OUT", &record);
+    open(&lp, &mut h, child);
+    turn_until(&mut lp, &mut h, 500, |h| h.term.taken.ends_with(b"!"));
+    h.pty = None;
+    turn_until(&mut lp, &mut h, 500, |_| record.exists());
+    let first = fs::read_to_string(&record).expect("the record");
+    assert_eq!(
+        first,
+        format!("{} {}", libc::SI_USER, std::process::id()),
+        "the first SIGHUP is the parent's (si_code 0, its pid)"
     );
 }
 

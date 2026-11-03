@@ -4,6 +4,7 @@
 //! each head its own grid at its own displays' density.
 
 use std::any::Any;
+use std::cell::Cell;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -22,7 +23,7 @@ use vtium_platform::display::{
 };
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
-use vtium_platform::vt::FakeVt;
+use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 
 #[path = "common/scratch.rs"]
 mod scratch;
@@ -416,6 +417,78 @@ fn two_displays() -> [(&'static str, Memory); 2] {
 struct Seat {
     lp: Loop<App>,
     app: App,
+    /// How many VT releases vtium has acknowledged.
+    released: Rc<Cell<u32>>,
+}
+
+/// The fake VT, which counts each release vtium acknowledges. The fake
+/// VT's `is_active` is false from the moment a release is asked for, so
+/// it cannot tell whether vtium has acknowledged the release yet.
+struct CountingVt {
+    vt: FakeVt,
+    /// The events `events` hands out, taken from the fake VT.
+    events: Vec<VtEvent>,
+    /// A release asked for and neither acknowledged nor refused.
+    pending: bool,
+    released: Rc<Cell<u32>>,
+}
+
+impl Vt for CountingVt {
+    fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+        self.events.extend(self.vt.events());
+        if self.events.contains(&VtEvent::Release) {
+            self.pending = true;
+        }
+        self.events.drain(..)
+    }
+
+    fn acknowledge_release(&mut self) -> io::Result<()> {
+        if std::mem::take(&mut self.pending) {
+            self.released.set(self.released.get() + 1);
+        }
+        self.vt.acknowledge_release()
+    }
+
+    fn refuse_release(&mut self) -> io::Result<()> {
+        self.pending = false;
+        self.vt.refuse_release()
+    }
+
+    fn activate(&mut self) -> io::Result<Switch> {
+        self.vt.activate()
+    }
+
+    fn leave(&mut self) -> io::Result<Switch> {
+        self.vt.leave()
+    }
+
+    fn wait(&mut self) -> io::Result<Switch> {
+        self.vt.wait()
+    }
+
+    fn is_active(&self) -> bool {
+        self.vt.is_active()
+    }
+
+    fn key(&mut self, key: &KeyEvent) -> bool {
+        self.vt.key(key)
+    }
+
+    fn is_own_key(&self, key: &KeyEvent) -> bool {
+        self.vt.is_own_key(key)
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        self.vt.restore()
+    }
+
+    fn bell(&mut self) {
+        self.vt.bell();
+    }
+
+    fn number(&self) -> Option<u16> {
+        self.vt.number()
+    }
 }
 
 impl Seat {
@@ -474,13 +547,14 @@ impl Seat {
         assert_eq!(loaded.reports, [], "the seat's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-        let mut app = App::new(
-            loaded.config,
-            Box::new(FakeVt::with_number(1)),
-            lp.handle(),
-            Rc::new(now),
-            env,
-        );
+        let released = Rc::new(Cell::new(0));
+        let vt = CountingVt {
+            vt: FakeVt::with_number(1),
+            events: Vec::new(),
+            pending: false,
+            released: Rc::clone(&released),
+        };
+        let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), Rc::new(now), env);
         app.set_font_sources(fonts);
         if let Some(start) = rules {
             app.set_heads(start);
@@ -491,7 +565,7 @@ impl Seat {
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(now());
-        Seat { lp, app }
+        Seat { lp, app, released }
     }
 
     /// Turns the loop until `done` holds, at most `limit`.
@@ -1430,8 +1504,9 @@ fn a_frame_composing_holds_up_no_vt_release() {
         s.until_memory("/dev/mem0", SECOND, |m| !m.awake),
         "asleep for the release"
     );
+    let released = Rc::clone(&s.released);
     assert!(
-        s.until(SECOND, |a| !a.vt.is_active()),
+        s.until(SECOND, |_| released.get() == 1),
         "the release acknowledged"
     );
     assert!(
@@ -1506,7 +1581,7 @@ input class:keyboard -> roaming
         "the slow head's display asleep for the release"
     );
     assert!(!s.memory("/dev/mem1").awake, "both asleep");
-    assert!(!s.app.vt.is_active(), "the release acknowledged");
+    assert_eq!(s.released.get(), 1, "the release acknowledged");
     s.app.set_draw_hook("slow", None);
     let fast = s.memory("/dev/mem1").frames;
     s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
