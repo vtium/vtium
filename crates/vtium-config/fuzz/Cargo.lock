@@ -528,18 +528,20 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "vtium-config"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "bzip2",
  "harfrust",
  "lzma-rust2",
  "miniz_oxide",
+ "nix",
  "rustix",
  "ruzstd",
  "skrifa",
  "swash",
  "vtium-font",
  "vtium-platform",
+ "vtium-settings",
 ]
 
 [[package]]
@@ -553,14 +555,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-font"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "miniz_oxide",
 ]
 
 [[package]]
 name = "vtium-platform"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "calloop",
  "drm-ffi",
@@ -569,6 +571,13 @@ dependencies = [
  "rustix",
  "udev",
  "xkbcommon",
+]
+
+[[package]]
+name = "vtium-settings"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "rustix",
 ]
 
 [[package]]

@@ -16,7 +16,7 @@ If you are new to vtium, [docs/why-vtium.md](docs/why-vtium.md) says why you mig
 
 ## Status
 
-vtium's first release is the pre-release v0.1.0-alpha.1. Pictures from files and shared memory, kitty animation, iTerm2's inline images and the `vtium config` tool's TUI came after it. A checkout builds and runs everything on this page except these, which are designed and landing:
+vtium's latest release is the pre-release v0.1.0-alpha.2. It adds pictures from files and shared memory, kitty animation, iTerm2's inline images and the `vtium config` tool's TUI to the first, v0.1.0-alpha.1. A checkout builds and runs everything on this page except these, which are designed and landing:
 
 - **The GPU renderer,** on glow over EGL and GBM ([the GPU path's issue](https://github.com/vtium/vtium/issues/33)). Today every build draws on the CPU.
 - **libseat,** for seat access through seatd or logind ([the libseat issue](https://github.com/vtium/vtium/issues/34)). Today vtium opens the VT, the cards and the input devices itself, as root.
