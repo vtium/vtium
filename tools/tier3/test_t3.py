@@ -4845,6 +4845,28 @@ class RebaselinedTest(unittest.TestCase):
             with self.subTest(declared=declared, variants=variants):
                 self.assertEqual(t3.tree_features(declared, variants), want)
 
+    def test_provisional_rate(self):
+        # A provisional golden passes the case's pixels, but not its
+        # figures: mpv-sixel of a re-baselined variant is still judged on
+        # its rate, so a video that showed no frame fails, and one that
+        # kept up stays provisional.
+        variant = "2d-1280x800"
+        golden = t3_evaluate.golden_for(variant, "mpv-sixel", t3_evaluate.VTIUM_GOLDEN)[0]
+        self.assertIn("%s/mpv-sixel" % variant, t3_evaluate.PROVISIONAL)
+        ppm = os.path.join(self.dir.name, "mpv-sixel.ppm")
+        t3_qemu.write_ppm(ppm, t3img.read(golden))
+        fine = {"mpv_frames": 150, "mpv_per_s": 29.1, "presented_per_s": 59.0,
+                "kmscon_cpu_ms_per_mpv_frame": 6.733}
+        for figures, status in ((dict(fine, mpv_frames=0), "fail"), (fine, "provisional"),
+                                (dict(fine, kmscon_cpu_ms_per_mpv_frame=375.8), "fail")):
+            with self.subTest(figures=figures), \
+                    mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")):
+                entry = t3_evaluate.evaluate(variant, "mpv-sixel", ppm,
+                                             {"bench": {"mpv-sixel": figures}}, LOG,
+                                             t3_evaluate.VTIUM_GOLDEN)
+                self.assertEqual(entry["status"], status)
+                self.assertIn("judged, it would be pass", entry["note"])
+
     def test_console_pid(self):
         # acceptance.inc's kmscon_pid finds the console a benchmark screen
         # runs under: the nearest ancestor named vtium, or kmscon, and none

@@ -168,9 +168,10 @@ VARIANTS = {
         "tree_features": ["images"],
         "rebaselined": True,
     },
-    # The 7680x2160 display with DejaVu Sans Mono at 32 points, a 19x38 cell,
-    # near the 20x40 of Monoid at 30 the operator runs: pictures sized from
-    # the cell (sixel) are checked at a cell other than the 10x19 of the rest.
+    # The 7680x2160 display with DejaVu Sans Mono at 32 points, a 20x38 cell
+    # (the C reference drew 19x38), near the 20x40 of Monoid at 30 the
+    # operator runs: pictures sized from the cell (sixel) are checked at a
+    # cell other than the 10x19 of the rest.
     "2d-7680x2160-font32": {
         "device": "virtio-vga,xres=7680,yres=2160,edid=on,max_hostmem=1G",
         "display": "none",

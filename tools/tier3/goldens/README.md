@@ -195,7 +195,7 @@ The configurations state `display-dpi=86`, so DejaVu Sans Mono at 16 points draw
 | `2d-7680x2160-font32/sixel-evict.png` | 49,350 | 43,887 | the 20x38 grid where the C reference's was 19x38 (W rule) |
 | `2d-7680x2160-font32/sixel-evict-rotated.png` | 54,431 | 48,999 | the 20x38 grid where the C reference's was 19x38 (W rule) |
 | `2d-7680x2160-font32/sixel-evict-history.png` | 4,224,347 | 4,220,873 | the 20x38 grid where the C reference's was 19x38 (W rule); the letters; picture 1 is still drawn in the scrollback, where the C reference had evicted it for a scaled copy (no eviction) |
-| `2d-7680x2160-font32/sixel-evict-zoomed.png` | 25,458 | 15,994 | the 20x38 grid where the C reference's was 19x38 (W rule); Ctrl+= zooms to a 20x39 cell, as the C reference did, and the letters' anti-aliasing |
+| `2d-7680x2160-font32/sixel-evict-zoomed.png` | 25,458 | 15,994 | vtium draws a 20x38 grid where the C reference drew 19x38 (W rule), and Ctrl+= zooms both to a 20x39 cell, in which the letters' anti-aliasing differs. |
 | `2d-7680x2160-font32/photos.png` | 222,434 | 92,737 | the 20x38 grid where the C reference's was 19x38 (W rule) |
 | `2d-7680x2160-font32/photo-scroll.png` | 116,417 | 97,690 | the 20x38 grid where the C reference's was 19x38 (W rule) |
 | `2d-7680x2160-font32/photo-scrollback.png` | 178,659 | 112,695 | the 20x38 grid where the C reference's was 19x38 (W rule) |
