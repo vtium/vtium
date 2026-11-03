@@ -2911,6 +2911,55 @@ fn a_drag_ends_without_its_button_and_at_a_vt_release() {
     assert_eq!(selected(&h).as_deref(), Some("sec"));
 }
 
+/// vtium/vtium#229's review: with the fake VT released and its pointers
+/// still open, vtium delivers no pointer action to the console, so a
+/// program tracking the mouse gets no report of a move, a click or the
+/// wheel from a pointer device, as the C reference's pointer callback
+/// returned while its terminal was not awake (`src/terminal.c:1610`).
+/// Taken back, the VT's console gets the next key alone.
+#[test]
+fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
+    let (mut h, released) = Harness::counting(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\ngot:%s.\\r\\n\",$0;exit}'; read x",
+    ]);
+    assert!(h.until(BOUND, |a| {
+        a.screen_text().iter().any(|l| l.ends_with("ready"))
+    }));
+    let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
+    h.app.input_event(switch.clone(), now());
+    assert!(h.until(BOUND, |_| released.get() == 1), "released");
+    assert!(!h.app.vt.is_active());
+    let mouse = Path::new("/dev/input/event9");
+    for event in [
+        over(2, 0, None),
+        press(Button::Left, false),
+        release(Button::Left),
+        PointerEvent::Wheel(1),
+        PointerEvent::Sync,
+    ] {
+        h.app.device_input(mouse, InputEvent::Pointer(event), now());
+    }
+    h.app.input_event(switch, now());
+    assert!(h.until(BOUND, |a| a.vt.is_active()), "taken back");
+    // The acquire wakes the display and the terminals.
+    assert!(h.until_memory(BOUND, |m| m.awake), "awake");
+    h.type_str("q");
+    assert!(
+        h.until(BOUND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l.starts_with("got:"))),
+        "{:?}",
+        h.app.screen_text()
+    );
+    assert!(shows(&h.app, "got:."), "{:?}", h.app.screen_text());
+}
+
 /// A selection a program sets with OSC 52 is pasted as any paste is:
 /// filtered, so its end marker and C0 controls arrive as spaces, each LF
 /// as CR, and bracketed. Shift+Insert pastes once a press, however long

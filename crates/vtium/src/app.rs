@@ -2516,9 +2516,19 @@ impl App {
     /// b1f7a7c5).
     fn pointer_to(&mut self, h: Option<usize>, event: PointerEvent, mods: InputMods, now: Instant) {
         match event {
+            // While the terminals are not awake, a VT the user released or
+            // displays blanked, the pointer's action reaches no program and
+            // selects, pastes or zooms nothing, as a key reaches none (the
+            // C reference's pointer callback returned while its terminal
+            // was not awake, `src/terminal.c:1610`). It may end a blank,
+            // which wakes the terminals first.
             PointerEvent::Moved { .. } | PointerEvent::Button { .. } | PointerEvent::Wheel(_) => {
                 self.activity(now);
+                if !self.awake {
+                    return;
+                }
             }
+            PointerEvent::Sync if !self.awake => return,
             PointerEvent::Sync => {}
             // The seat's pointers hide together, on every head: the hide
             // comes from no one device.
@@ -2547,8 +2557,13 @@ impl App {
     }
 
     /// The user's input reaches every device, which retries a failed
-    /// wake-up, and the blank.
+    /// wake-up, and the blank. While the VT is another's, as a released
+    /// fake VT is with its keyboards still open, it reaches neither: the
+    /// displays are not vtium's to wake.
     fn activity(&mut self, now: Instant) {
+        if !self.vt.is_active() {
+            return;
+        }
         for video in self.videos.values_mut() {
             if let Err(e) = video.input() {
                 log::warn!("cannot wake the displays: {e}");
@@ -3969,6 +3984,9 @@ mod tests {
         pixels: Arc<Mutex<Vec<u8>>>,
         events: Vec<Event>,
         awake: bool,
+        /// The user's input told it, and its displays unblanked.
+        inputs: u32,
+        unblanks: u32,
     }
 
     impl Still {
@@ -3981,6 +3999,8 @@ mod tests {
                 pixels: Arc::new(Mutex::new(vec![0; 320 * 160 * 4])),
                 events: Vec::new(),
                 awake: false,
+                inputs: 0,
+                unblanks: 0,
             }
         }
     }
@@ -4053,9 +4073,11 @@ mod tests {
             Ok(())
         }
         fn unblank(&mut self) -> io::Result<()> {
+            self.unblanks = self.unblanks.saturating_add(1);
             Ok(())
         }
         fn input(&mut self) -> io::Result<()> {
+            self.inputs = self.inputs.saturating_add(1);
             Ok(())
         }
         fn hotplug(&mut self) -> io::Result<()> {
@@ -4708,6 +4730,59 @@ mod tests {
         app.vt = Box::new(Bells::default());
         app.set_input(input());
         assert!(!awake(&app), "closed until the VT is taken");
+    }
+
+    // vtium/vtium#229's review: while the fake VT is released, with its
+    // keyboards and pointers still open, the user's input wakes none of
+    // the displays the other session owns, a blank that fired meanwhile
+    // included, and a key or a pointer action tells no device
+    #[test]
+    fn input_on_a_released_fake_vt_wakes_no_display() {
+        let key = |keysym: u32, mods: InputMods| {
+            InputEvent::Key(KeyEvent {
+                keycode: 0,
+                ascii: 0,
+                mods,
+                keysyms: vec![keysym],
+                codepoints: vec![None],
+                repeat: false,
+            })
+        };
+        let still = |app: &mut App| {
+            let v = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            let s = v.as_any().downcast_mut::<Still>().unwrap();
+            (s.inputs, s.unblanks)
+        };
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        app.input_event(
+            key(0xffc9, InputMods::CTRL.union(InputMods::LOGO)),
+            Instant::now(),
+        );
+        app.turn(Instant::now());
+        assert!(!app.vt.is_active(), "Ctrl+Super+F12 released the VT");
+        // The blank's timer fires while the VT is another's.
+        assert!(app.blank.blank_now());
+        let before = still(&mut app);
+        app.input_event(key(u32::from('a'), InputMods::empty()), Instant::now());
+        let moved = PointerEvent::Moved {
+            x: 4,
+            y: 4,
+            held: None,
+        };
+        app.input_event(InputEvent::Pointer(moved), Instant::now());
+        app.turn(Instant::now());
+        assert_eq!(
+            still(&mut app),
+            before,
+            "no device told, no display unblanked"
+        );
+        assert!(app.blank.blanked(), "the blank stands");
     }
 
     #[test]
