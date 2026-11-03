@@ -1377,7 +1377,7 @@ impl Store {
             if p.spot == Spot::Virtual
                 && let Some(image) = buf.images.get(&p.image)
             {
-                self.changed_virtual.insert((b == ALT, image.id));
+                self.note_virtual(b, image.id);
             }
         }
         for image in buf.images.values() {

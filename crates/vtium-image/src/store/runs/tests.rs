@@ -426,3 +426,23 @@ fn a_delete_by_cell_takes_a_virtual_parents_child_by_the_runs_handed_with_it() {
     // the runs are not kept past the call
     assert!(s.runs.iter().all(Vec::is_empty));
 }
+
+// covers: image.kitty-placeholders
+#[test]
+fn the_changes_nobody_takes_stay_within_the_images_the_store_can_hold() {
+    let (f, mut s) = (Fake::new(), store());
+    let bound = usize::try_from(crate::IMAGES_PER_BUFFER).unwrap() * 2;
+    // a program that sends image k, places it virtually and deletes it,
+    // for one id after another, with nobody taking the changes
+    for id in 1..=u32::try_from(bound).unwrap() + 100 {
+        let key = image(&mut s, &f, id, 1, 1);
+        virtual_placement(&mut s, &f, key, 1, 1, 0);
+        let delete = Delete {
+            select: Select::Id { id, placement: 0 },
+            free: true,
+        };
+        s.kitty_delete(delete, f.screens());
+    }
+    assert_eq!(s.image_count(), 0);
+    assert_eq!(s.take_changed_virtual().len(), bound);
+}

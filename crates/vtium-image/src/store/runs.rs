@@ -24,6 +24,7 @@ use std::collections::BTreeMap;
 
 use super::relative::Located;
 use super::{ALT, Buffer, Placement, Rows, Screens, Spot, Store};
+use crate::bounds::IMAGES_PER_BUFFER;
 use crate::image::{LineKey, PlaceholderRun, PlacementKey};
 use crate::rules::rules;
 
@@ -236,7 +237,18 @@ impl Store {
             .get(b)
             .and_then(|buf| buf.images.get(&p.image))
             .map_or(0, |i| i.id);
-        if id != 0 {
+        self.note_virtual(b, id);
+    }
+
+    /// Notes that the placeholder cells of kitty image `id` in buffer `b`
+    /// changed. The notes hold at most as many images as both buffers can
+    /// hold at once, twice [`IMAGES_PER_BUFFER`], so they stay bounded when
+    /// nobody takes them; one event changes at most the images it touches,
+    /// so a store whose changes are taken after every event never meets the
+    /// bound.
+    pub(super) fn note_virtual(&mut self, b: usize, id: u32) {
+        let bound = usize::try_from(IMAGES_PER_BUFFER.saturating_mul(2)).unwrap_or(usize::MAX);
+        if id != 0 && self.changed_virtual.len() < bound {
             self.changed_virtual.insert((b == ALT, id));
         }
     }
