@@ -162,6 +162,10 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// The retries ran out with [`Event::WakeFailed`], and nothing has set
     /// the displays since: the next input tries again.
     wake_failed: bool,
+    /// The displays the last legacy modeset could not set, at the mode
+    /// chosen or at the mode they were set to. The wake-up retries try them
+    /// again, and none is asked to redraw until a modeset sets it.
+    unset: Vec<DisplayId>,
     events: Vec<Event>,
     timers: Timers,
     link: Option<Box<dyn Link>>,
@@ -218,6 +222,7 @@ impl<K: Kms> Drm2d<K> {
             retries: None,
             waking: false,
             wake_failed: false,
+            unset: Vec::new(),
             events: Vec::new(),
             timers: Timers::default(),
             link: None,
@@ -912,7 +917,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.settle();
             return;
         }
-        let woken = self.try_wake(scan).is_ok();
+        // A legacy display left unset counts as not woken.
+        let woken = self.try_wake(scan).is_ok() && !self.unset_any();
         if woken && !self.owing() {
             self.retries = None;
         } else if tried.saturating_add(1) >= crate::WAKE_RETRIES {
@@ -1728,6 +1734,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             };
             (set, Vec::new())
         };
+        self.unset = unset;
         if set.is_ok() {
             // A modeset brings every display on.
             self.blanked = false;
@@ -1736,8 +1743,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             for o in &mut self.outputs {
                 o.down = false;
             }
-            self.announce_set(&unset);
-            if self.owing() {
+            self.announce();
+            if self.owing() || self.unset_any() {
                 self.retry(false);
             }
         }
@@ -1758,6 +1765,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Whether a display is owed a mode, which the retries try again.
     fn owing(&self) -> bool {
         self.outputs.iter().any(|o| o.owed.is_some())
+    }
+
+    /// Whether a display the last legacy modeset could not set is still
+    /// bound.
+    fn unset_any(&self) -> bool {
+        self.outputs.iter().any(|o| self.unset.contains(&o.id))
     }
 
     /// Gives each display back the mode it is set to where a scan chose
@@ -1826,17 +1839,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Announces each display online: new ones as added, and those whose
     /// buffers hold nothing known to be redrawn. A display powered down is
-    /// told to redraw when it is powered on.
+    /// told to redraw when it is powered on, and one the last legacy
+    /// modeset could not set once a modeset sets it.
     fn announce(&mut self) {
-        self.announce_set(&[]);
-    }
-
-    /// Announces each display online as [`Drm2d::announce`] does, but those
-    /// in `unset`, which a legacy modeset could not set: one of them is
-    /// told to redraw once a modeset sets it.
-    fn announce_set(&mut self, unset: &[DisplayId]) {
         for o in self.outputs.iter_mut().filter(|o| o.online) {
-            if unset.contains(&o.id) {
+            if self.unset.contains(&o.id) {
                 continue;
             }
             let redraw = std::mem::take(&mut o.redraw);

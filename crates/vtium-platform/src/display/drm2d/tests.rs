@@ -4341,6 +4341,49 @@ fn a_legacy_display_not_set_at_a_wake_up_is_not_redrawn() {
     );
 }
 
+// vtium/vtium#216: on a legacy card, a wake-up that cannot set a display's
+// CRTC, at its new mode or at the mode it was set to, or with no new mode
+// at the mode it is set to, wakes the card, which keeps DRM master, but the
+// display counts as not set: the retries try it again, and once they run
+// out they report WakeFailed, so the next key press tries again and sets
+// it.
+#[test]
+fn a_legacy_display_not_set_at_a_wake_up_fails_the_wake_up() {
+    for (new, size) in [(true, (800, 600)), (false, (640, 480))] {
+        let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+        card.state().atomic = false;
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        v.sleep();
+        v.events().for_each(drop);
+        if new {
+            let swapped = vec![mode(800, 600, 60, true)];
+            v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+        }
+        v.card().state().set_crtc_errors.extend([Errno::BUSY; 1000]);
+        v.wake_up().unwrap();
+        assert_eq!(events(&mut v), [Event::Awake], "new mode: {new}");
+        assert!(v.waits().1, "new mode: {new}: the display is tried again");
+        let (seen, tries) = run_the_retries(&mut v);
+        assert_eq!(seen, [Event::WakeFailed], "new mode: {new}");
+        assert_eq!(tries, crate::WAKE_RETRIES, "new mode: {new}");
+        assert!(v.wake_failed, "new mode: {new}");
+        assert!(
+            v.card().state().master && v.awake,
+            "new mode: {new}: the card stays awake"
+        );
+        v.card().state().set_crtc_errors.clear();
+        v.input().unwrap();
+        assert_eq!(
+            events(&mut v),
+            [Event::Redraw(DisplayId(A))],
+            "new mode: {new}"
+        );
+        let last = v.card().state().set_crtcs.last().unwrap().3;
+        assert_eq!(last.size(), size, "new mode: {new}: the key press sets it");
+        assert!(!v.waits().1 && !v.wake_failed, "new mode: {new}");
+    }
+}
+
 // vtium/vtium#216: a wake-up retried while another process held DRM
 // master, which wakes the card at the mode the display is set to because
 // its new mode cannot be set, reports the card awake once: the retries
