@@ -56,14 +56,23 @@ const PICTURE_SCREENS: Bound = Bound {
     cite: "`image_budget_cache_limit` (image_budget.c:105-110) and bbulk's pictures (bbulk.c:71); ADR-1100 D5",
 };
 
+const PRESENT_FRAMES: Bound = Bound {
+    name: "PRESENT_HISTORY",
+    value: 3,
+    what: "Frames whose composed rectangles the GPU path's present keeps, to draw what a buffer of that age lacks, in a build with `gpu`",
+    past: "A buffer older than the history is presented whole",
+    cite: "`display-buffers`, at most 3 buffers a display (ADR-1401 D2); ADR-1303 D6",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 5] = [
+pub(crate) const BOUNDS: [Bound; 6] = [
     POOL_BYTES,
     ROW_SCRATCH,
     TIMER_SAMPLES,
     POINTER_SIDE,
     PICTURE_SCREENS,
+    PRESENT_FRAMES,
 ];
 
 /// Bytes each glyph pool may hold in the performance profile.
@@ -78,6 +87,10 @@ pub const RENDER_TIMER_SAMPLES: usize = TIMER_SAMPLES.value;
 /// Screens of 4-byte pixels a display's copies of pictures hold.
 #[cfg(feature = "images")]
 pub const PICTURE_CACHE_SCREENS: usize = PICTURE_SCREENS.value;
+
+/// Frames of composed rectangles the GPU path's present keeps.
+#[cfg(feature = "gpu")]
+pub const PRESENT_HISTORY: usize = PRESENT_FRAMES.value;
 
 /// The pointer's longest side in pixels.
 #[expect(clippy::cast_possible_truncation, reason = "the bound is 64")]
