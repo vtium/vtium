@@ -1,0 +1,3 @@
+# the GPU path against the CPU path's drawing (ADR-1303 D1): 3 per cent of the screen's pixels
+max_delta=1
+max_pixels=1075
