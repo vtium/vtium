@@ -5080,6 +5080,49 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // ADR-1200 D17, the fix branch's re-review: the answers, and not the
+    // frit's text, say which kind a frit is. Frit `t`'s text guesses
+    // bitmap (`source=kbd:x`), as `font-name=/path/x.ttf` makes a frit
+    // whose first source is in fact an outline font. With an outline cell
+    // held at one height, a head at another height has no answer and asks
+    // at its own, and a head at the first height, still guessing bitmap,
+    // gets that cell, whatever failed at the other height.
+    #[test]
+    fn an_outline_answer_holds_at_its_height_alone_whatever_the_text_guesses() {
+        let (_lp, mut app, dir) = late_seat("late-kind");
+        let at = 16;
+        let outline = Ok(helper::OwnCell::Outline(vtium_font::Cell {
+            width: 9,
+            height: at,
+        }));
+        let failures = [
+            Err(helper::NoCell {
+                why: "no answer in time".to_owned(),
+                late: true,
+            }),
+            Err(helper::NoCell {
+                why: "no such font".to_owned(),
+                late: false,
+            }),
+        ];
+        let frit = app.frits.get_mut("t").unwrap();
+        frit.own.clear();
+        frit.own.insert(at, outline.clone());
+        // The second head, at 20, asks at its own height.
+        assert_eq!(frit.answer_at(20, false), None, "the second head asks");
+        for failed in failures {
+            frit.own.insert(20, failed.clone());
+            // A third head at 16 takes the outline cell held there.
+            assert_eq!(
+                frit.answer_at(at, false),
+                Some(outline.clone()),
+                "the third head, beside {failed:?} at 20"
+            );
+            assert_eq!(frit.answer_at(20, false), Some(failed));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn display_depth_overrides_what_the_device_says() {
         let config = |args: &[&str]| {
