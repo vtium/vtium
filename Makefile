@@ -103,10 +103,18 @@ minspec install-tree vt-dev-console config-release image-release: export PKG_CON
 FEATURES :=
 # The acceptance pass shows pictures by default (ADR-1501 D5): make vt-accept
 # builds the console with images unless make's command line names FEATURES,
-# so make vt-accept FEATURES= is a pass of the minspec build.
+# so make vt-accept FEATURES= is a pass of the minspec build. A binary named
+# with VTIUM_BIN is run as it is, so its features are the ones it was built
+# with: images when it carries the line only a build with images carries
+# (VT_IMAGES_MARKER), else none, and the run gives it the image helper only
+# when it has pictures.
 ifneq ($(filter vt-accept,$(MAKECMDGOALS)),)
 ifneq ($(origin FEATURES),command line)
+ifeq ($(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),)
+FEATURES := $(if $(shell grep -qaF -- '$(VT_IMAGES_MARKER)' '$(VTIUM_BIN)' 2>/dev/null && echo images),images)
+else
 FEATURES := images
+endif
 endif
 endif
 

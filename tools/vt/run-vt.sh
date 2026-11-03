@@ -651,8 +651,11 @@ helper_opt=()
 # directory of root's alone and names it, so the review sees both. The copy
 # runs as root and is readable by everyone, so a frit must be a regular file
 # of root's or the user's, never a symlink or a file with another hard link,
-# which could name a file the user may not read, such as /etc/shadow.
+# which could name a file the user may not read, such as /etc/shadow. OSC 50
+# names a frit by its file name, so a system frit with the name of one of the
+# acceptance pass's is refused: the walk would judge whichever was copied last.
 frit_files=()
+declare -A frit_from=()
 for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
 	[ -e "$f" ] || [ -L "$f" ] || continue
 	[ ! -L "$f" ] || die "$f is a symlink; the run copies only a frit that is a file of its own"
@@ -663,6 +666,9 @@ for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
 	[ "$links" -eq 1 ] || die "$f has $links hard links; the run copies only a frit that is a file of its own"
 	(( (8#$mode & 8#022) == 0 )) ||
 		die "$f is writable by group or others (mode $mode); vtium, as root, would read it"
+	[ -z "${frit_from[${f##*/}]:-}" ] ||
+		die "$f and ${frit_from[${f##*/}]} are both named ${f##*/}; OSC 50 names a frit by its file name, so rename the system's"
+	frit_from[${f##*/}]=$f
 	frit_files+=("$f")
 done
 helper_opt+=(--font-frits="$stage/frits")

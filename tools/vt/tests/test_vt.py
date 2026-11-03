@@ -366,6 +366,8 @@ class Stage:
         write(self.image, "#!/bin/sh\n# the stand-in vtium-image\n")
         self.dir = os.path.join(tmp, "vt")
         self.passes = os.path.join(tmp, "passes")
+        self.caller_home = os.path.join(tmp, "caller-home")
+        os.mkdir(self.caller_home, 0o700)
         self.calls = os.path.join(tmp, "calls")
         self.bin_args = os.path.join(tmp, "bin-args")
         self.signals = os.path.join(tmp, "signals")
@@ -388,6 +390,9 @@ class Stage:
             VTIUM_VT_DIR=self.dir,
             # the acceptance passes, which vt.sh hands the session
             ACCEPT_DIR=self.passes,
+            # A home of the tests' own, so nothing a test runs can write under
+            # the real one, such as the passes directory's default.
+            HOME=self.caller_home,
             CALLS=self.calls,
             COUNT=os.path.join(self.tmp, "count"),
             BIN_ARGS=self.bin_args,
@@ -883,6 +888,12 @@ class RunVt(Case):
         os.chmod(frit, 0o664)
         self.refused(self.run_vt("--dry-run", "8"), "is writable by group or others")
         os.chmod(frit, 0o644)
+        # A system frit named as one of the acceptance pass's is refused:
+        # OSC 50 would reach whichever was copied last.
+        same = os.path.join(fonts, "acceptance-outline.vtfrit")
+        write(same, "font=/usr/share/fonts/y.ttf\n")
+        self.refused(self.run_vt("--dry-run", "8"), "are both named acceptance-outline.vtfrit")
+        os.unlink(same)
         self.assertFalse(os.path.exists(stage))
 
     def test_a_helper_another_user_could_have_written_is_refused(self):
@@ -1479,7 +1490,10 @@ class VtSh(Case):
         self.assertEqual(self.s.changes(), ["stop getty@tty4.service", "start getty@tty4.service"])
 
     def test_the_acceptance_pass_runs_and_its_pass_reaches_the_caller(self):
-        # accept.sh reads its keys from the terminal make runs in.
+        # accept.sh reads its keys from the terminal make runs in. The
+        # binary carries the line only a build with pictures carries, so the
+        # pass records it with images.
+        write(self.s.bin, BIN + "# cannot open the image helper {name}: {e}\n")
         env = self.s.env(BIN_MODE="session", BIN_STDIN="/dev/null", TERM="linux", ACTIVE_UNITS="kmsconvt@tty5.service")
         d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-accept", f"VTIUM_BIN={self.s.bin}",
                  f"VTIUM_CONFIG_BIN={self.s.helper}", f"VTIUM_IMAGE_BIN={self.s.image}"], env)
@@ -1597,6 +1611,26 @@ class Make(Case):
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.s.calls_of("cargo"), [])
+
+    def test_a_named_binary_is_recorded_with_the_features_it_was_built_with(self):
+        # A binary named with VTIUM_BIN is run as it is: without the line only
+        # a build with pictures carries, the pass records no features and
+        # vtium gets no image helper, and with it, images and the helper.
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(" --features= ", p.stdout)
+        self.assertNotIn("--image", p.stdout)
+        self.assertEqual(self.s.calls_of("cargo"), [])
+        write(self.s.bin, BIN + "# cannot open the image helper {name}: {e}\n")
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(" --features=images ", p.stdout)
+        self.assertIn(f" --image={self.s.image} ", p.stdout)
+        self.assertIn(f" --image-helper={self.s.standins}/run-vtium-vt/vtium-image ", p.stdout)
+        # FEATURES on make's command line is taken as it is named.
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "FEATURES=")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(" --features= ", p.stdout)
 
     def test_vt_check_without_a_guide_fails_before_the_build(self):
         p = self.make("vt-check")
@@ -3436,7 +3470,7 @@ class Guide(Case):
                 g.wait_for(b"Press Enter to end.")
                 g.send(b"\r")
                 self.assertEqual(g.finish(), 1)
-        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vtium-config", "vtium-image", "vt", "open", "home", "login-shell"]))
+        self.assertEqual(sorted(os.listdir(self.s.tmp)), sorted(["standins", "vtium", "vtium-config", "vtium-image", "vt", "open", "home", "login-shell", "caller-home"]))
         self.assertEqual(os.listdir(open_dir), [])
 
     def test_a_run_on_a_terminal(self):
