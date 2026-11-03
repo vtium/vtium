@@ -617,6 +617,29 @@ impl Copy {
     }
 }
 
+/// What names the frit `name` and so keeps it from being removed:
+/// vtium.conf's `font-name` in `conf`, or a head's `profile =` line in the
+/// head file `heads`, since a head's profile other than `default` draws the
+/// frit of its name; `None` when nothing does. The head file is read as
+/// the console reads it, what survives its errors included.
+pub fn naming(name: &str, conf: Option<&str>, heads: Option<&str>) -> Option<String> {
+    if conf
+        .and_then(|c| vtium_settings::setting(c, "font-name"))
+        .as_deref()
+        == Some(name)
+    {
+        return Some("vtium.conf's font-name".to_owned());
+    }
+    let heads = vtium_settings::reading(heads?.as_bytes())
+        .parsed
+        .config
+        .heads;
+    heads
+        .iter()
+        .find(|h| h.profile != "default" && h.profile == name)
+        .map(|h| format!("head {}'s profile", h.name))
+}
+
 /// A file read from the draft, checked, waiting to be written.
 struct Staged {
     target: PathBuf,
@@ -741,20 +764,26 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             )
         })?;
     }
-    // a frit vtium.conf names after the save is never removed
+    // a frit vtium.conf or a head names after the save is never removed
     let conf_text = match &conf {
         Some(c) => String::from_utf8_lossy(c.bytes.as_deref().unwrap_or_default()).into_owned(),
         None => std::fs::read_to_string(targets.configdir.join("vtium.conf")).unwrap_or_default(),
     };
-    if let Some(named) = vtium_settings::setting(&conf_text, "font-name")
-        && let Some(path) = removals
-            .iter()
-            .find(|p| p.file_stem().and_then(|s| s.to_str()) == Some(named.as_str()))
-    {
-        return Err(format!(
-            "{} is the frit vtium.conf's font-name names, so it is not removed",
-            path.display()
-        ));
+    let heads_text = match &heads {
+        Some(h) => String::from_utf8_lossy(h.bytes.as_deref().unwrap_or_default()).into_owned(),
+        None => std::fs::read_to_string(targets.configdir.join("heads.conf")).unwrap_or_default(),
+    };
+    for path in &removals {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if let Some(by) = naming(stem, Some(&conf_text), Some(&heads_text)) {
+            return Err(format!(
+                "{} is the frit {by} names, so it is not removed",
+                path.display()
+            ));
+        }
     }
     // step 4: frits, the head file, vtium.conf, then removals
     let order: Vec<Staged> = frits

@@ -201,6 +201,16 @@ fn remove_frit_removes_a_frit_but_not_the_one_font_name_names() {
         assert_eq!(ran.status, 1, "{name}: {}", ran.out);
         assert!(ran.err.contains(says), "{name}: {}", ran.err);
     }
+    // a head's profile draws the frit of its name
+    std::fs::write(
+        f.etc().join("heads.conf"),
+        "version = 1\n[head spare]\nprofile = spare\n[rules]\ndisplay * -> spare\n",
+    )
+    .expect("heads.conf");
+    let ran = f.run(&["remove-frit", "spare"]);
+    assert_eq!(ran.status, 1, "{}", ran.out);
+    assert!(ran.err.contains("head spare's profile"), "{}", ran.err);
+    std::fs::remove_file(f.etc().join("heads.conf")).expect("no head file");
     let ran = f.run(&["remove-frit", "spare"]);
     assert!(
         ran.out.starts_with(&format!(

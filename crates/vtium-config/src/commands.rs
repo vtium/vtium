@@ -249,7 +249,8 @@ pub fn config(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dy
 }
 
 /// `remove-frit NAME`: removes the frit `NAME.vtfrit`, refusing a built-in
-/// font, a name with no frit, and the frit vtium.conf's `font-name` names.
+/// font, a name with no frit, and a frit vtium.conf's `font-name` or a
+/// head's profile names.
 pub fn remove_frit(
     words: &[String],
     paths: &Paths,
@@ -270,23 +271,19 @@ pub fn remove_frit(
         Ok(bytes) => bytes,
         Err(why) => return failed(err, &why),
     };
-    match conf(paths) {
-        Ok((_, text)) => {
-            if text
-                .as_deref()
-                .and_then(|t| setting(t, "font-name"))
-                .as_deref()
-                == Some(name)
-            {
+    let heads = crate::tui::read_conf(&paths.configdir.join("heads.conf"));
+    match (conf(paths), heads) {
+        (Ok((_, text)), Ok(heads)) => {
+            if let Some(by) = crate::apply::naming(name, text.as_deref(), heads.as_deref()) {
                 return failed(
                     err,
                     &format!(
-                        "{name} is the frit vtium.conf's font-name names, so it is not removed; name another font first"
+                        "{name} is the frit {by} names, so it is not removed; name another font there first"
                     ),
                 );
             }
         }
-        Err(why) => return failed(err, &why),
+        (Err(why), _) | (_, Err(why)) => return failed(err, &why),
     }
     let plan = Plan {
         files: Vec::new(),
