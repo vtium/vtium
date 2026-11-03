@@ -47,18 +47,23 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
     if !words.is_empty() {
         return usage(err, "fonts takes no argument");
     }
-    for font in crate::tui::fonts(&paths.frits) {
+    let fonts = crate::tui::fonts(&paths.frits);
+    let reading: Vec<String> = fonts
+        .iter()
+        .filter(|f| f.state == FontState::Reads)
+        .map(|f| f.name.clone())
+        .collect();
+    // one helper answers for every frit, under one wait
+    let mut found = crate::tui::find_sources(&paths.frits, &paths.helper, &reading).into_iter();
+    for font in fonts {
         let (state, left_out) = match &font.state {
             FontState::BuiltIn => ("built in".to_owned(), String::new()),
             FontState::Refused(why) => (format!("does not read: {why}"), String::new()),
-            FontState::Reads => {
-                match crate::tui::frit_text(&paths.frits, &font.name)
-                    .and_then(|frit| crate::specimen::sources(&paths.helper, &frit))
-                {
-                    Ok(left) => ("reads".to_owned(), left_out_text(&left)),
-                    Err(why) => (format!("draws nothing: {why}"), String::new()),
-                }
-            }
+            FontState::Reads => match found.next().map(|(_, f)| f) {
+                Some(Ok(left)) => ("reads".to_owned(), left_out_text(&left)),
+                Some(Err(why)) => (format!("draws nothing: {why}"), String::new()),
+                None => ("reads".to_owned(), String::new()),
+            },
         };
         let _ = writeln!(out, "{}\t{state}\t{left_out}", font.name);
     }

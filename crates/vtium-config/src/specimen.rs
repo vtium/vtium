@@ -220,28 +220,40 @@ fn with_helper<T: Send + 'static>(
 /// machine's lack or refusal, as the helper finds them under its own
 /// sandbox; why the frit draws nothing, when no source is left.
 pub fn sources(helper: &Helper, frit: &FritText) -> Result<Vec<LeftOut>, String> {
-    let frit = frit.clone();
+    sources_of(helper, vec![frit.clone()])?
+        .pop()
+        .unwrap_or_else(|| Err("the helper did not answer".to_owned()))
+}
+
+/// The sources each of `frits` lacks or refuses, or why it draws nothing,
+/// asked of one helper at `helper` over one pipe within one
+/// [`HELPER_WAIT`], since the helper reads each frit once and answers each
+/// sources query at once; each frit's answer, or the session's failure.
+pub fn sources_of(
+    helper: &Helper,
+    frits: Vec<FritText>,
+) -> Result<Vec<Result<Vec<LeftOut>, String>>, String> {
     with_helper(helper, move |stdin, stdout| {
-        let query = request(
-            SOURCES,
-            &frit,
-            Cell {
-                width: 0,
-                height: 0,
-            },
-            Vec::new(),
-        );
-        send(stdin, &query)?;
-        loop {
+        let empty = Cell {
+            width: 0,
+            height: 0,
+        };
+        for frit in &frits {
+            send(stdin, &request(SOURCES, frit, empty, Vec::new()))?;
+        }
+        let mut answers = Vec::with_capacity(frits.len());
+        while answers.len() < frits.len() {
             let (kind, payload) = frame(stdout)?;
             match kind {
-                FRAME_SOURCES => {
-                    return Ok(text(&payload).lines().filter_map(LeftOut::parse).collect());
-                }
-                FRAME_FAILED => return Err(text(&payload)),
+                FRAME_SOURCES => answers.push(Ok(text(&payload)
+                    .lines()
+                    .filter_map(LeftOut::parse)
+                    .collect())),
+                FRAME_FAILED => answers.push(Err(text(&payload))),
                 _ => {}
             }
         }
+        Ok(answers)
     })
 }
 

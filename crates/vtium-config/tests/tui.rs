@@ -63,6 +63,11 @@ struct Console {
     cell_px: Option<(u32, u32)>,
     /// Each summary the TUI asked for: the font and the pixel height.
     summaries: Vec<(String, u32)>,
+    /// Each sources query the TUI made.
+    sources_asked: Vec<Vec<String>>,
+    /// The helper's answer to a sources query never comes, as a slow one
+    /// has not yet.
+    hold_sources: bool,
 }
 
 impl Console {
@@ -95,6 +100,8 @@ impl Console {
             pictures: Vec::new(),
             cell_px: Some((8, 16)),
             summaries: Vec::new(),
+            sources_asked: Vec::new(),
+            hold_sources: false,
         }
     }
 
@@ -265,17 +272,28 @@ impl Port for Console {
         })
     }
 
-    fn sources(&mut self, font: &str) -> Result<Vec<LeftOut>, String> {
-        match font {
-            "proof" => Ok(vec![LeftOut {
-                missing: true,
-                line: 27,
-                spelling: "font:JetBrains Mono".into(),
-                why: "no such family".into(),
-            }]),
-            "tiny5" => Err("no source left".into()),
-            _ => Ok(Vec::new()),
+    fn sources(&mut self, fonts: Vec<String>) {
+        self.sources_asked.push(fonts.clone());
+        if self.hold_sources {
+            return;
         }
+        let found = fonts
+            .into_iter()
+            .map(|font| {
+                let left = match font.as_str() {
+                    "proof" => Ok(vec![LeftOut {
+                        missing: true,
+                        line: 27,
+                        spelling: "font:JetBrains Mono".into(),
+                        why: "no such family".into(),
+                    }]),
+                    "tiny5" => Err("no source left".into()),
+                    _ => Ok(Vec::new()),
+                };
+                (font, left)
+            })
+            .collect();
+        self.pending.push_back(Wake::Sourced(found));
     }
 }
 
@@ -918,6 +936,23 @@ fn without_pictures_a_size_shows_its_cell_grid_and_coverage() {
     assert_eq!(heights, [8, 9, 11, 12, 13, 15, 16]);
     assert!(c.summaries.iter().all(|(f, _)| f == "unifont"));
     assert!(c.pictures.is_empty());
+}
+
+/// The sources query does not hold the keys up: while the helper has not
+/// answered, a key switches the console and a signal leaves (ADR-1201 D3).
+#[test]
+fn keys_reach_the_tui_while_the_helper_finds_the_sources() {
+    let mut c = console().keys(&[UP]);
+    c.hold_sources = true;
+    // the script runs out with the answer still to come, and SIGTERM leaves
+    assert_eq!(run(&mut c), 128 + 15);
+    assert_eq!(
+        c.sources_asked,
+        [["minspec-16", "proof", "tiny5"].map(String::from).to_vec()]
+    );
+    assert_eq!(c.switches(), ["tiny5", "unifont"]);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("proof      reads\n"), "{screen}");
 }
 
 /// Each frit that reads is noted with the sources the helper says this

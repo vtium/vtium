@@ -21,6 +21,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use rustix::termios::{OptionalActions, QueueSelector, Termios, tcflush, tcgetattr, tcsetattr};
+use vtium_platform::calloop::channel::{Event as Sent, Sender, channel};
 use vtium_platform::calloop::generic::Generic;
 use vtium_platform::calloop::{Interest, Mode, PostAction};
 use vtium_platform::event_loop::{Loop, Signal};
@@ -35,6 +36,8 @@ use crate::draft::Plan;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Wake {
     Bytes(Vec<u8>),
+    /// The sources each frit lacks, which [`Port::sources`] asked for.
+    Sourced(Vec<(String, super::model::SourcesFound)>),
     Resize,
     Signal(i32),
     Timeout,
@@ -70,8 +73,10 @@ pub trait Port {
     /// What the font `font` gives at `height` pixels, for a terminal that
     /// draws no pictures.
     fn summary(&mut self, font: &str, height: u32) -> Result<crate::specimen::Summary, String>;
-    /// The sources the frit `font` lacks or refuses.
-    fn sources(&mut self, font: &str) -> Result<Vec<crate::serve::LeftOut>, String>;
+    /// Asks which sources each frit of `fonts` lacks or refuses, without
+    /// waiting: the answers come later, as [`Wake::Sourced`], and the loop
+    /// reads keys meanwhile.
+    fn sources(&mut self, fonts: Vec<String>);
 }
 
 /// Alternate screen, cursor hidden; and back.
@@ -109,16 +114,7 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                             summary,
                         }));
                     }
-                    Effect::Sources(fonts) => {
-                        let found = fonts
-                            .into_iter()
-                            .map(|f| {
-                                let left = port.sources(&f);
-                                (f, left)
-                            })
-                            .collect();
-                        queue.extend(app.event(Event::Sourced(found)));
-                    }
+                    Effect::Sources(fonts) => port.sources(fonts),
                     Effect::Save(plan) => {
                         port.write(&view::paint(&view::screen(&app)))?;
                         let result = port.save(&plan);
@@ -140,6 +136,7 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                     vec![Event::Resize { cols, rows }]
                 }
                 Wake::Signal(n) => vec![Event::Signal(n)],
+                Wake::Sourced(found) => vec![Event::Sourced(found)],
                 Wake::Timeout => vec![Event::Timeout],
             };
             for event in events {
@@ -196,20 +193,24 @@ pub type Painter =
 /// Summarizes a font's specimen at a pixel height.
 pub type Summarizer = Box<dyn FnMut(&str, u32) -> Result<crate::specimen::Summary, String>>;
 
-/// Finds the sources a frit lacks.
-pub type Finder = Box<dyn FnMut(&str) -> Result<Vec<crate::serve::LeftOut>, String>>;
+/// Finds the sources each frit lacks, on a thread of its own.
+pub type Finder = Box<dyn FnOnce(Vec<String>) -> Vec<(String, super::model::SourcesFound)> + Send>;
 
 /// What the real port asks the glyph helper through.
 pub struct Tools {
     pub painter: Painter,
     pub summarizer: Summarizer,
-    pub finder: Finder,
+    /// Taken by the one sources query a run makes.
+    pub finder: Option<Finder>,
 }
 
 /// The terminal on standard input and output.
 pub struct Tty {
     saver: Saver,
     tools: Tools,
+    /// Where the source finder's thread sends its answers, which the loop
+    /// reads as [`Wake::Sourced`].
+    sourced: Sender<Vec<(String, super::model::SourcesFound)>>,
     input: OwnedFd,
     raw: Termios,
     saved: Termios,
@@ -270,6 +271,15 @@ impl Tty {
                 }
             })
             .map_err(|e| io::Error::other(e.to_string()))?;
+        let (sourced, answers) = channel();
+        events
+            .handle()
+            .insert_source(answers, |sent, _, w: &mut Woken| {
+                if let Sent::Msg(found) = sent {
+                    w.wakes.push(Wake::Sourced(found));
+                }
+            })
+            .map_err(|e| io::Error::other(e.to_string()))?;
         tcsetattr(&input, OptionalActions::Now, &raw)?;
         if let Ok(mut r) = RESTORE.lock() {
             *r = Some(Restore {
@@ -286,6 +296,7 @@ impl Tty {
         let mut tty = Tty {
             saver,
             tools,
+            sourced,
             input,
             raw,
             saved,
@@ -442,8 +453,13 @@ impl Port for Tty {
         (self.tools.summarizer)(font, height)
     }
 
-    fn sources(&mut self, font: &str) -> Result<Vec<crate::serve::LeftOut>, String> {
-        (self.tools.finder)(font)
+    fn sources(&mut self, fonts: Vec<String>) {
+        if let Some(finder) = self.tools.finder.take() {
+            let sourced = self.sourced.clone();
+            std::thread::spawn(move || {
+                let _ = sourced.send(finder(fonts));
+            });
+        }
     }
 
     fn on_panic(&mut self, bytes: Vec<u8>) {

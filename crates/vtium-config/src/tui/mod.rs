@@ -247,13 +247,43 @@ pub fn summarizer(
     })
 }
 
-/// The TUI's source finder: the sources each frit lacks or refuses, as the
-/// helper finds them.
+/// The sources each frit of `names` in `frits` lacks or refuses, or why it
+/// draws nothing, asked of one helper under one wait.
+pub fn find_sources(
+    frits: &Path,
+    helper: &crate::specimen::Helper,
+    names: &[String],
+) -> Vec<(String, model::SourcesFound)> {
+    let texts: Vec<(String, Result<crate::serve::FritText, String>)> = names
+        .iter()
+        .map(|n| (n.clone(), frit_text(frits, n)))
+        .collect();
+    let readable: Vec<crate::serve::FritText> = texts
+        .iter()
+        .filter_map(|(_, t)| t.as_ref().ok().cloned())
+        .collect();
+    let mut answers = match crate::specimen::sources_of(helper, readable) {
+        Ok(answers) => answers.into_iter(),
+        Err(why) => vec![Err(why); names.len()].into_iter(),
+    };
+    texts
+        .into_iter()
+        .map(|(name, text)| {
+            let found = match text {
+                Ok(_) => answers
+                    .next()
+                    .unwrap_or_else(|| Err("the helper did not answer".to_owned())),
+                Err(why) => Err(why),
+            };
+            (name, found)
+        })
+        .collect()
+}
+
+/// The TUI's source finder, which runs on a thread of its own while the
+/// TUI goes on reading keys (ADR-1201 D3).
 pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
-    Box::new(move |font| {
-        let frit = frit_text(&frits, font)?;
-        crate::specimen::sources(&helper, &frit)
-    })
+    Box::new(move |names| find_sources(&frits, &helper, &names))
 }
 
 /// Opens the TUI on the terminal at `view` and runs it until the user
@@ -284,7 +314,7 @@ pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8
             locale(),
             inputs.display,
         ),
-        finder: finder(paths.frits.clone(), paths.helper.clone()),
+        finder: Some(finder(paths.frits.clone(), paths.helper.clone())),
     };
     let mut tty = match port::Tty::open(saver, tools) {
         Ok(tty) => tty,
