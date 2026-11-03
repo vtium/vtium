@@ -1289,7 +1289,8 @@ class VtiumGoldenTest(unittest.TestCase):
                  "heads-kiosk/cjk"]
         images = ["images-640x480/" + s for s in ("img-sixel", "img-kitty", "img-relative",
                                                   "img-overwrite", "img-delete", "img-scroll",
-                                                  "img-scrollback", "img-png")]
+                                                  "img-scrollback", "img-tmux-pane",
+                                                  "img-png")]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
                                                "sysvinit-two-vts/cjk"] + moved + frit + devices
@@ -4316,6 +4317,15 @@ class PictureGoldenTest(unittest.TestCase):
         for col in (3, 20):
             with self.subTest(scrollback=col):
                 self.placed(img, "bands", col, 2)
+
+    def test_tmux_page(self):
+        # tmux has exited and the page cleared: grey text on black, no
+        # colored pixel of the video left anywhere
+        img = self.golden("img-tmux-pane")
+        colored = [(x, y) for y in range(img.height) for x in range(img.width)
+                   if len(set(self.pixel(img, x, y))) > 1]
+        self.assertEqual(colored[:4], [])
+        self.assertNotEqual(img.data, bytes(len(img.data)))
 
     def test_png(self):
         img = self.golden("img-png")
