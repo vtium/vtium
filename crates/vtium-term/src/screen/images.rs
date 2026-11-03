@@ -13,6 +13,8 @@ mod with {
         Rows, Screens, Store,
     };
 
+    use std::collections::BTreeSet;
+
     use super::super::Screen;
     use crate::line::{Line, LineId};
     use crate::placeholder;
@@ -224,7 +226,13 @@ mod with {
         /// as the store's other changes mark it. The cells read count as
         /// input work (D5).
         pub fn mark_placeholders(&mut self, alt: bool, image: u32) {
-            if alt != self.flags.alternate {
+            self.mark_placeholders_of(alt, &BTreeSet::from([image]));
+        }
+
+        /// [`mark_placeholders`](Self::mark_placeholders) for every kitty
+        /// image id of `images` at once, through one read of the screen.
+        fn mark_placeholders_of(&mut self, alt: bool, images: &BTreeSet<u32>) {
+            if alt != self.flags.alternate || images.is_empty() {
                 return;
             }
             if self.scrollback.offset() != 0 {
@@ -232,7 +240,7 @@ mod with {
                 return;
             }
             for (y, run) in self.screen_runs(alt) {
-                if run.image != image {
+                if !images.contains(&run.image) {
                     continue;
                 }
                 let x0 = usize::try_from(run.col).unwrap_or(usize::MAX);
@@ -510,9 +518,17 @@ mod with {
         /// Ends a screen event: what the pieces it cut owe is settled, and
         /// the cells under every box the store changed are marked.
         fn images_settled(&mut self) {
-            for (alt, id) in self.images.take_changed_virtual() {
-                self.mark_placeholders(alt, id);
-            }
+            // one read of the shown screen marks every changed image's cells;
+            // a buffer not shown has no cells on the display
+            let shown = self.flags.alternate;
+            let changed: BTreeSet<u32> = self
+                .images
+                .take_changed_virtual()
+                .into_iter()
+                .filter(|&(alt, _)| alt == shown)
+                .map(|(_, id)| id)
+                .collect();
+            self.mark_placeholders_of(shown, &changed);
             if self.images.owes() {
                 let (main, alt) = (self.keys(false), self.keys(true));
                 let screens = Screens {

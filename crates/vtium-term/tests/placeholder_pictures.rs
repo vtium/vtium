@@ -210,3 +210,33 @@ fn ed_2_on_the_alternate_screen_leaves_the_main_buffers_child() {
     t.input(b"\x1b[?1049l");
     assert!(entries(&t).contains(&(1, 6, 1, 1, 0)), "{:?}", entries(&t));
 }
+
+/// The image work of deleting, with one kitty delete by id range, `k`
+/// virtual placements of one-cell images, each shown by one placeholder
+/// cell on a screen of 40 by 10 cells.
+fn range_delete_work(k: usize) -> u64 {
+    let mut t = term(40, 10);
+    let mut cells = String::from("\x1b[H");
+    for id in 1..=k {
+        transmit(&mut t, u32::try_from(id).expect("an id"), 1, 1);
+        t.input(format!("\x1b_Ga=p,U=1,i={id},c=1,r=1,q=2\x1b\\").as_bytes());
+        cells += &format!("\x1b[38;5;{id}m{}", cell(0, 0));
+    }
+    t.input(cells.as_bytes());
+    assert_eq!(t.screen().placements().len(), k);
+    t.input(format!("\x1b_Ga=d,d=R,x=1,y={k},q=2\x1b\\").as_bytes());
+    assert_eq!(t.screen().placements().len(), 0);
+    t.screen().images().work()
+}
+
+// D13, "Damage": the cells of every virtual placement one event changes
+// are marked through one read of the screen, so deleting 128 of them costs
+// about what deleting one does, the store's own visits apart.
+// covers: image.kitty-placeholders
+#[test]
+fn one_read_marks_the_cells_of_every_virtual_placement_an_event_changes() {
+    let (one, many) = (range_delete_work(1), range_delete_work(128));
+    // 400 cells a screen read; the store visits each image and placement a
+    // few times
+    assert!(many < one + 16 * 128, "one {one}, many {many}");
+}
