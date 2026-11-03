@@ -101,9 +101,7 @@ jobs:
       # key follows Cargo.lock, the toolchain and this job, so every job still
       # builds and tests everything it did.
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --workspace --all-features --all-targets --locked
-      - name: minspec build
-        run: cargo build --profile minspec --locked
+      - run: make msrv
 
   adr:
     runs-on: ubuntu-latest

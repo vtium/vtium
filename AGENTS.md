@@ -57,6 +57,7 @@ cargo fmt --all --check \
   && cargo test --workspace --all-features \
   && cargo test --workspace \
   && cargo build --profile minspec \
+  && make msrv \
   && docs/scripts/adr lint --check \
   && docs/scripts/adr cite --check \
   && docs/scripts/issue-refs \

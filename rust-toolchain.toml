@@ -1,6 +1,6 @@
 # The toolchain the gates and CI run on. Cargo.toml's rust-version is the
-# oldest Rust vtium builds on, and CI's msrv job checks it. CONTRIBUTING.md
-# says how to move this pin.
+# oldest Rust vtium builds on, and `make msrv`, a gate that CI also runs,
+# checks it. CONTRIBUTING.md says how to move this pin.
 [toolchain]
 channel = "1.99.1"
 profile = "minimal"

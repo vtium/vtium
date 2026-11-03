@@ -22,7 +22,7 @@ docs/scripts/adr lint --check
 docs/scripts/coverage
 ```
 
-`rust-toolchain.toml` pins the Rust toolchain that the gates and CI run on, and rustup installs it the first time you run cargo in the checkout. `rust-version` in `Cargo.toml` is the oldest Rust that vtium builds on, and CI's `msrv` job builds the workspace, its tests included, and the minspec profile with it. To move the pin, change `channel` in `rust-toolchain.toml`, fix what the gates then report, and put both in one commit.
+`rust-toolchain.toml` pins the Rust toolchain that the gates and CI run on, and rustup installs it the first time you run cargo in the checkout. `rust-version` in `Cargo.toml` is the oldest Rust that vtium builds on, and `make msrv` builds the workspace, its tests included, and the minspec profile with it. `make msrv` is one of the gates, and CI's `msrv` job runs it. To move the pin, change `channel` in `rust-toolchain.toml`, fix what the gates then report, and put both in one commit.
 
 `docs/scripts/adr cite --check` also passes before a change is merged. [AGENTS.md](AGENTS.md) describes the working loop: the worktrees, the tiers and their commands, the VT review, and how work reaches main.
 
