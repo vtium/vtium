@@ -551,25 +551,280 @@ fn a_delete_answers_only_an_error() {
     assert!(h.store.is_empty());
 }
 
-#[test]
-fn animation_is_refused_for_now() {
+/// `n` RGBA pixels of `rgba`, as base64.
+fn rgba(rgba: [u8; 4], n: usize) -> String {
+    b64(&rgba.repeat(n))
+}
+
+/// A host holding image 1, 256 by 256 pixels of opaque red, too large for
+/// D1's first rule, so a small frame stays a change; replies taken.
+fn animated() -> (Kitty, Host) {
     let (mut k, mut h) = (Kitty::default(), Host::new());
-    send(&mut k, &mut h, &format!("a=t,s=1,v=1,i=1;{}", red(1)));
-    let _ = h.take();
-    for keys in ["a=a,i=1", "a=c,i=1"] {
-        send(&mut k, &mut h, keys);
-        assert_eq!(
-            h.take(),
-            "\x1b_Gi=1;EINVAL:invalid argument\x1b\\",
-            "{keys}"
-        );
-    }
-    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1;{}", red(1)));
+    h.store.set_limit(4 << 20);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,s=256,v=256,i=1;{}", red(256 * 256)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    (k, h)
+}
+
+fn key(h: &mut Host) -> crate::ImageKey {
+    h.store.find_image(1, 0).unwrap()
+}
+
+// covers: image.kitty-animation
+#[test]
+fn animation_commands_are_answered_as_a_put_is() {
+    let (mut k, mut h) = animated();
+    // a frame on the default color, then one on frame 2, each answered
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,s=2,v=1;{}", rgba([0, 0, 0xff, 0xff], 2)),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,x=4,y=4,s=1,v=1,c=2;{}", red(1)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
+    let key = key(&mut h);
+    assert_eq!(h.store.animation(key).unwrap().frames, 3);
+    // a control and a composition
+    send(&mut k, &mut h, "a=a,i=1,c=3,s=3,v=2,r=1,z=80");
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=3,w=2,h=1");
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
+    let st = h.store.animation(key).unwrap();
+    assert_eq!((st.current, st.run, st.loops), (3, crate::Run::Looping, 2));
+    assert_eq!(h.store.frame_gap(key, 1), Some(80));
+    // ENOENT for a missing image or frame, EINVAL for a rectangle out of
+    // the image, a frame past FRAMES_MAX's room aside
+    send(&mut k, &mut h, &format!("a=f,i=9,s=1,v=1;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1,c=7;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1,r=7;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,i=1,x=256,s=1,v=1;{}", red(1)));
+    send(&mut k, &mut h, "a=a,i=1,c=4");
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=5");
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=2,x=1,w=4,h=4");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=9;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;EINVAL:invalid argument\x1b\\\
+         \x1b_Gi=1;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;EINVAL:invalid argument\x1b\\"
+    );
+    assert_eq!(h.store.animation(key).unwrap().frames, 3);
+    // every animation command must name its image: with neither i nor I it
+    // is refused, and with no id there is nothing to answer
+    let before = h.store.clone();
+    send(&mut k, &mut h, &format!("a=f,s=1,v=1;{}", red(1)));
+    send(&mut k, &mut h, "a=a,c=1");
+    send(&mut k, &mut h, "a=c,r=1,c=2");
+    assert_eq!(h.take(), "");
+    assert!(h.store == before);
+    // an image number names the newest image of that number, answered
+    // with its id
+    send(&mut k, &mut h, &format!("a=t,s=1,v=1,I=5;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), "\x1b_Gi=2,I=5;OK\x1b\\\x1b_Gi=2,I=5;OK\x1b\\");
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_frame_without_s_and_v_reaches_the_images_edge() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=3,v=2,i=1;{}", red(6)));
+    // from x=1, the frame's data is 2 by 2
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,x=1;{}", rgba([0, 0, 0xff, 0xff], 4)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
+    let key = key(&mut h);
+    let p = h.store.frame_pixels(key, 2).unwrap();
+    assert_eq!(
+        p.pixels.as_slice(),
+        &[0, 0xff00_00ff, 0xff00_00ff, 0, 0xff00_00ff, 0xff00_00ff]
+    );
+    // data short of the rectangle is refused
+    send(&mut k, &mut h, &format!("a=f,i=1;{}", red(5)));
     assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
-    // a delete of animation frames deletes nothing
-    send(&mut k, &mut h, "a=p,i=1,C=1");
-    send(&mut k, &mut h, "a=d,d=F,i=1");
-    assert_eq!(h.boxes().len(), 1);
+    assert_eq!(h.store.frame_bytes(), 3 * 2 * 4 + crate::FRAME_OVERHEAD);
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_frame_in_chunks_holds_one_reservation_and_answers_once() {
+    let (mut k, mut h) = animated();
+    let data = rgba([0, 0, 0xff, 0xff], 16);
+    let (a, b) = data.split_at(20);
+    send(&mut k, &mut h, &format!("a=f,i=1,s=4,v=4,m=1;{a}"));
+    assert_eq!(h.store.frame_bytes(), 4 * 4 * 4 + crate::FRAME_OVERHEAD);
+    assert_eq!(h.take(), "");
+    send(&mut k, &mut h, &format!("a=f,m=0;{b}"));
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let key = key(&mut h);
+    assert_eq!(h.store.animation(key).unwrap().frames, 2);
+    // another command ends an upload in chunks and gives back what it holds
+    let held = h.store.frame_bytes();
+    send(&mut k, &mut h, &format!("a=f,i=1,s=4,v=4,m=1;{a}"));
+    send(&mut k, &mut h, "a=a,i=1,s=1");
+    assert_eq!(h.store.frame_bytes(), held);
+    assert_eq!(h.store.animation(key).unwrap().frames, 2);
+}
+
+// covers: image.kitty-animation
+#[test]
+fn d_f_deletes_every_frame_but_the_root_and_needs_an_image() {
+    for d in ["f", "F"] {
+        let (mut k, mut h) = animated();
+        send(&mut k, &mut h, "a=p,i=1,C=1");
+        for _ in 0..3 {
+            send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1;{}", red(1)));
+        }
+        send(&mut k, &mut h, "a=a,i=1,c=3,s=3");
+        let _ = h.take();
+        let key = key(&mut h);
+        let st = h.store.animation(key).unwrap();
+        // with neither i nor I, nothing
+        send(&mut k, &mut h, &format!("a=d,d={d}"));
+        assert_eq!(h.store.animation(key).unwrap(), st);
+        send(&mut k, &mut h, &format!("a=d,d={d},i=1"));
+        assert_eq!(h.take(), "", "a delete answers only an error");
+        let gone = h.store.animation(key).unwrap();
+        assert_eq!(
+            (gone.frames, gone.current, gone.run),
+            (1, 1, crate::Run::Stopped)
+        );
+        assert_eq!(
+            (gone.frame_stamp, gone.run_stamp),
+            (st.frame_stamp + 1, st.run_stamp + 1)
+        );
+        assert_eq!(h.store.frame_bytes(), 0);
+        // the image and its placement stay, whichever case
+        assert_eq!(h.store.image_count(), 1);
+        assert_eq!(h.boxes().len(), 1);
+    }
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_frame_from_the_helper_is_reserved_of_the_allowance_and_stored() {
+    let (mut k, mut h) = animated();
+    h.helper = true;
+    // as kitty's icat sends a GIF's frames: shared memory, on frame 1
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,t=s,f=24,s=2,v=1,c=1,z=100,i=1;{}", b64(b"shm")),
+    );
+    let r = h.requests.pop().unwrap();
+    assert_eq!(r.pixels.map(|p| (p.width, p.height)), Some((2, 1)));
+    let budget = h.store.bytes();
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 2,
+            height: 1,
+            data: vec![0, 0, 0xff, 0xff, 0, 0, 0xff, 0xff],
+        }),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let key = key(&mut h);
+    assert_eq!(h.store.frame_gap(key, 2), Some(100));
+    assert_eq!(
+        &h.store.frame_pixels(key, 2).unwrap().pixels.as_slice()[..3],
+        &[0xff00_00ff, 0xff00_00ff, 0xffff_0000]
+    );
+    assert_eq!(h.store.bytes(), budget, "a frame is never in the budget");
+    // a PNG frame that leaves the image is EINVAL once its size is known
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,t=f,f=100,x=255,i=1;{}", b64(b"/p")),
+    );
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 2,
+            height: 1,
+            data: vec![0; 8],
+        }),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
+    assert_eq!(h.store.animation(key).unwrap().frames, 2);
+}
+
+// covers: image.kitty-animation
+#[test]
+fn frames_and_controls_fed_whole_or_cut_end_in_the_same_store_whatever_is_drawn() {
+    let stream = [
+        format!("a=t,s=256,v=256,i=1;{}", red(256 * 256)),
+        format!("a=f,i=1,s=3,v=2,x=5,y=7;{}", rgba([0, 0x80, 0, 0x80], 6)),
+        format!("a=f,i=1,s=2,v=2,c=2,X=1;{}", rgba([0, 0, 0xff, 0xff], 4)),
+        format!("a=f,i=1,r=3,s=1,v=1,x=9;{}", rgba([0xff, 0xff, 0, 0x40], 1)),
+        "a=a,i=1,r=1,z=50".to_string(),
+        "a=a,i=1,s=3,v=1,c=2".to_string(),
+        "a=c,i=1,r=3,c=2,w=4,h=4".to_string(),
+        format!(
+            "a=f,i=1,s=256,v=128,Y=4278190335;{}",
+            rgba([0, 0, 0, 0], 256 * 128)
+        ),
+        "a=a,i=1,s=1".to_string(),
+        // a change frame stays, so a drawn run's cache holds it at the end
+        format!("a=f,i=1,s=1,v=1,c=4,x=3;{}", red(1)),
+    ];
+    let run = |cuts: u64, draw: bool| {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        h.store.set_limit(4 << 20);
+        let mut seed = cuts;
+        for (n, cmd) in stream.iter().enumerate() {
+            let bytes = cmd.as_bytes();
+            let mut pieces = Vec::new();
+            let mut at = 0;
+            while at < bytes.len() && cuts > 0 {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                let step = 1 + (seed >> 33) as usize % 97;
+                let end = (at + step).min(bytes.len());
+                pieces.push(&bytes[at..end]);
+                at = end;
+            }
+            if cuts == 0 {
+                pieces.push(bytes);
+            }
+            string(&mut k, &mut h, &pieces);
+            if draw && n > 0 {
+                let key = h.store.find_image(1, 0).unwrap();
+                let frames = h.store.animation(key).map_or(1, |a| a.frames);
+                for f in 1..=frames {
+                    let _ = h.store.frame_pixels(key, f);
+                }
+            }
+        }
+        (h.take(), h.store, k)
+    };
+    let whole = run(0, false);
+    let key = whole.1.clone().find_image(1, 0).unwrap();
+    assert_eq!(whole.1.animation(key).unwrap().frames, 5);
+    for (cuts, draw) in [
+        (0, true),
+        (1, false),
+        (7, true),
+        (31, false),
+        (1_000_003, true),
+    ] {
+        let cut = run(cuts, draw);
+        assert_eq!(cut.0, whole.0, "cuts {cuts}");
+        assert!(cut.1 == whole.1, "cuts {cuts}, drawn {draw}");
+        assert_eq!(cut.2, whole.2);
+        assert_eq!(cut.1.frame_bytes(), whole.1.frame_bytes());
+    }
 }
 
 // covers: image.kitty

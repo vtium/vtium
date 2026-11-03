@@ -280,13 +280,6 @@ impl Command {
         self.format == 100 || self.compression == b'z'
     }
 
-    /// The part of the protocol whose own work answers it later:
-    /// animation (kitty animation's record). Until then it is refused with
-    /// EINVAL, as the C reference refused it.
-    pub(super) fn later(&self) -> bool {
-        matches!(self.action, b'f' | b'a' | b'c')
-    }
-
     /// A put makes a relative placement: it names a parent image with `P`
     /// (D13). An id of 0 names no image anywhere in the protocol, so `P=0`
     /// is no parent, and `Q`, `H` and `V` without a parent do nothing.
@@ -300,24 +293,24 @@ impl Command {
     }
 
     /// What is refused before any data is read: a key that cannot be read;
-    /// `i` with `I`, as the spec asks; [`later`](Self::later)'s part; a `U`
-    /// other than 0 or 1, and `U=1` with a parent, since a virtual placement
-    /// is never a relative one (D13); a raw format without `s` and `v` or
-    /// past `max-graphic-size`; and a placement whose pixel offset lies
-    /// outside its cell or whose box passes [`BOX_CELLS_MAX`].
+    /// `i` with `I`, as the spec asks; a `U` other than 0 or 1, and `U=1` with a parent, since a virtual
+    /// placement is never a relative one (D13); a raw format without `s` and
+    /// `v`, which a frame's data alone may leave out, or past
+    /// `max-graphic-size`; and a placement whose pixel offset lies outside
+    /// its cell or whose box passes [`BOX_CELLS_MAX`].
     pub(super) fn refusal(&self, ctx: &dyn Context) -> Option<Error> {
         if self.bad
             || (self.id != 0 && self.number != 0)
-            || self.later()
             || self.virtual_placement > 1
             || (self.virtual_placement() && self.relative())
         {
             return Some(Error::Invalid);
         }
         let (max_w, max_h) = graphic(ctx);
+        let sized = self.action == b'f' || (self.width != 0 && self.height != 0);
         if self.transmits()
             && self.format != 100
-            && (self.width == 0 || self.height == 0 || self.width > max_w || self.height > max_h)
+            && (!sized || self.width > max_w || self.height > max_h)
         {
             return Some(Error::Invalid);
         }

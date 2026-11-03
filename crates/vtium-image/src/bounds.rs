@@ -107,6 +107,54 @@ const CAP: Bound = Bound {
     cite: "The maintainer, 2026-11-01, as the C reference's budget had it",
 };
 
+const FRAMES_COUNT: Bound = Bound {
+    name: "FRAMES_MAX",
+    value: 1024,
+    what: "Frames one kitty animation holds, its root frame included",
+    past: "A new frame is refused with ENOSPC and the animation stays as it was",
+    cite: "ADR-1102, D1: a starting value, held as a named constant",
+};
+
+const FRAME_WHOLE: Bound = Bound {
+    name: "FRAME_WHOLE_MAX",
+    value: 65_536,
+    what: "Bytes of a whole frame at or below which every frame of the image is composed into whole pixels when its command arrives, as a picture of 128 by 128 pixels is",
+    past: "A larger image keeps a frame as the change the program sent, unless another of D1's rules composes it",
+    cite: "The maintainer, 2026-11-02: a starting value (ADR-1102, D1)",
+};
+
+const FRAME_CHAIN: Bound = Bound {
+    name: "FRAME_CHAIN_MAX",
+    value: 8,
+    what: "Layers composing any frame applies, counted from the nearest whole frame or color beneath it",
+    past: "A frame that would apply more is composed into whole pixels when its command arrives",
+    cite: "The maintainer, 2026-11-02: a starting value (ADR-1102, D1)",
+};
+
+const FRAME_CACHE: Bound = Bound {
+    name: "FRAME_CACHE_FRAMES",
+    value: 2,
+    what: "Composed frames the store keeps for each image that holds a change frame, and the whole frames the frame allowance charges that image for its cache",
+    past: "The frame composed longest ago leaves the cache",
+    cite: "The maintainer, 2026-11-02: a starting value (ADR-1102, D1)",
+};
+
+const FRAME_ALLOWANCE: Bound = Bound {
+    name: "FRAME_ALLOWANCE_FACTOR",
+    value: 5,
+    what: "Times the console's image budget that its frame allowance holds, for the frames past each animation's root frame",
+    past: "A frame command frees other animations' frames, least recently used first, or is refused with ENOSPC",
+    cite: "The maintainer, 2026-11-01, as kitty keeps its frames under a quota of five times its base (ADR-1102, D1)",
+};
+
+const FRAME_CHARGE: Bound = Bound {
+    name: "FRAME_OVERHEAD",
+    value: 64,
+    what: "Bytes of the frame allowance each whole frame, and each layer of a change frame, costs beside its pixels",
+    past: "Counted in every frame reservation",
+    cite: "ADR-1102, D1: a starting value",
+};
+
 /// Every bound, in the README's order.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const BOUNDS: &[Bound] = &[
@@ -121,6 +169,12 @@ pub(crate) const BOUNDS: &[Bound] = &[
     FRAMES,
     FLOOR,
     CAP,
+    FRAMES_COUNT,
+    FRAME_WHOLE,
+    FRAME_CHAIN,
+    FRAME_CACHE,
+    FRAME_ALLOWANCE,
+    FRAME_CHARGE,
 ];
 
 /// Images one buffer holds.
@@ -145,6 +199,18 @@ pub const AUTO_FRAMES: u64 = FRAMES.value;
 pub const AUTO_FLOOR: u64 = FLOOR.value;
 /// The most bytes `auto` allows.
 pub const AUTO_CAP: u64 = CAP.value;
+/// Frames an animation holds, its root included.
+pub const FRAMES_MAX: u64 = FRAMES_COUNT.value;
+/// Bytes of a whole frame at or below which frames are stored whole.
+pub const FRAME_WHOLE_MAX: u64 = FRAME_WHOLE.value;
+/// Layers composing a frame applies at most.
+pub const FRAME_CHAIN_MAX: u64 = FRAME_CHAIN.value;
+/// Composed frames cached for each image with a change frame.
+pub const FRAME_CACHE_FRAMES: u64 = FRAME_CACHE.value;
+/// Times the image budget the frame allowance holds.
+pub const FRAME_ALLOWANCE_FACTOR: u64 = FRAME_ALLOWANCE.value;
+/// Bytes a whole frame or a layer costs beside its pixels.
+pub const FRAME_OVERHEAD: u64 = FRAME_CHARGE.value;
 
 /// The budget `image-storage-limit = auto` gives a console whose head has
 /// displays of the sizes `displays` lists, in pixels: [`AUTO_FRAMES`]

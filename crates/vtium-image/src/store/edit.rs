@@ -16,7 +16,7 @@
 //! handler's function returns, settles the store and marks the cells under
 //! every box it changed, as it does after a screen event.
 
-use super::{Screens, Store};
+use super::{Compose, Control, NewFrame, Screens, Store};
 use crate::image::{ImageKey, NewImage, Place, PlacementKey, Refusal};
 use crate::rules::Protocol;
 use crate::store::Reservation;
@@ -136,6 +136,42 @@ impl<'a> Edit<'a> {
             }
         };
         Some((buffer, self.store.spare_reservation(protocol, id, bytes)))
+    }
+
+    /// Reserves `bytes` of the frame allowance for a frame's data on
+    /// `image`, before the data is allocated, holding the image until the
+    /// reservation is spent (ADR-1102, D1).
+    pub(crate) fn frame_reserve(
+        &mut self,
+        image: ImageKey,
+        bytes: u64,
+    ) -> Result<Reservation, Refusal> {
+        self.store.frame_reserve(image, bytes)
+    }
+
+    /// Stores a frame's data, `a=f`, on the image `reservation` was made
+    /// for, and returns the frame's number.
+    pub(crate) fn add_frame(
+        &mut self,
+        frame: NewFrame,
+        reservation: Reservation,
+    ) -> Result<u32, Refusal> {
+        self.store.add_frame(frame, reservation)
+    }
+
+    /// A composition of frames, `a=c`.
+    pub(crate) fn compose_frames(&mut self, image: ImageKey, c: Compose) -> Result<(), Refusal> {
+        self.store.compose_frames(image, c)
+    }
+
+    /// An animation control, `a=a`.
+    pub(crate) fn control_animation(&mut self, image: ImageKey, c: Control) -> Result<(), Refusal> {
+        self.store.control_animation(image, c)
+    }
+
+    /// `d=f` and `d=F`: every frame of `image` but its root goes.
+    pub(crate) fn delete_frames(&mut self, image: ImageKey) {
+        self.store.delete_frames(image);
     }
 
     /// The box of a placement of the buffer in use, in columns and rows,
