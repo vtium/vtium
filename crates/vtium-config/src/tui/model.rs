@@ -694,7 +694,7 @@ impl App {
         if !edits.is_empty() {
             let old = self.inputs.conf.clone();
             let new = edit_conf(old.as_deref().unwrap_or_default(), &edits)
-                .map_err(|e| format!("{e:?}"))?;
+                .map_err(|e| super::words::conf_edit(&e))?;
             if old.as_deref() != Some(&new) {
                 files.push(FileEdit {
                     path: self.inputs.conf_path.clone(),

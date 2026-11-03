@@ -853,3 +853,19 @@ fn at_the_40x30_floor_no_key_or_sentence_is_cut() {
         assert!(rows[1].contains("Heads"), "the tabs fit: {:?}", rows[1]);
     }
 }
+
+#[test]
+fn an_edit_vtium_conf_cannot_take_is_said_in_words() {
+    use vtium_config::tui::words::conf_edit;
+    use vtium_settings::ConfEdit;
+    let key = conf_edit(&ConfEdit::BadKey("Font".into()));
+    assert!(key.contains("Font") && !key.contains("BadKey"), "{key}");
+    let value = conf_edit(&ConfEdit::BadValue {
+        key: "font-name".into(),
+        value: "a#b".into(),
+    });
+    assert!(
+        value.contains("font-name") && value.contains("a#b") && !value.contains("BadValue"),
+        "{value}"
+    );
+}

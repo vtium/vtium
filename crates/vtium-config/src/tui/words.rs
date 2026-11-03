@@ -107,3 +107,15 @@ pub const KEYS_SMALL: &str = "Enter keep  q back";
 
 /// What leaving shows while the console's font comes back.
 pub const LEAVING: &str = "Putting the console's font back.";
+
+/// Why vtium.conf cannot take an edit.
+pub fn conf_edit(e: &vtium_settings::ConfEdit) -> String {
+    match e {
+        vtium_settings::ConfEdit::BadKey(key) => format!(
+            "vtium.conf has no key named {key:?}: a key is lowercase letters, digits and -."
+        ),
+        vtium_settings::ConfEdit::BadValue { key, value } => format!(
+            "{value:?} cannot be written for {key}, since vtium would read it back as something else."
+        ),
+    }
+}
