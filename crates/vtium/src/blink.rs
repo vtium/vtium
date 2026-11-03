@@ -45,9 +45,9 @@ pub struct Arm {
 /// `blink-decorations`.
 pub fn text_blink(config: &Config) -> TextBlink {
     let style = match config.text(&BLINK_TEXT) {
-        Some("partial") => BlinkStyle::Partial,
+        Some("full") => BlinkStyle::Full,
         Some("off") => BlinkStyle::Off,
-        _ => BlinkStyle::Full,
+        _ => BlinkStyle::Partial,
     };
     TextBlink {
         style,
@@ -190,11 +190,11 @@ mod tests {
 
     #[test]
     fn the_keys_choose_the_renderers_options() {
-        let full = TextBlink {
-            style: BlinkStyle::Full,
+        let partial = TextBlink {
+            style: BlinkStyle::Partial,
             decorations: false,
         };
-        assert_eq!(text_blink(&config(&[])), full);
+        assert_eq!(text_blink(&config(&[])), partial);
         assert_eq!(text_blink(&config(&[])), TextBlink::default());
         for (word, style) in [
             ("full", BlinkStyle::Full),
@@ -202,7 +202,7 @@ mod tests {
             ("off", BlinkStyle::Off),
         ] {
             let arg = format!("--blink-text={word}");
-            assert_eq!(text_blink(&config(&[&arg])), TextBlink { style, ..full });
+            assert_eq!(text_blink(&config(&[&arg])), TextBlink { style, ..partial });
             let both = config(&[&arg, "--blink-decorations"]);
             let want = TextBlink {
                 style,

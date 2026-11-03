@@ -507,11 +507,11 @@ pub const BLINK_TEXT: Key = Key {
     name: "blink-text",
     short: None,
     kind: Kind::Choice(&["full", "partial", "off"]),
-    default: Default::Text("full"),
+    default: Default::Text("partial"),
     scope: Scope::Anywhere,
     reader: "vtium-render",
     what: "How text with SGR 5 or 6 draws in the blink's off phase: `full` hides it, `partial` draws it halfway to its background as SGR 2 does, and `off` draws it steady. The cursor blinks as `blink` says either way.",
-    cite: "src/render/bbulk.c:1521; the operator on vtium/vtium#81",
+    cite: "src/render/bbulk.c:1521, which hid the glyph; the operator on vtium/vtium#81; the maintainer's decision of 2026-11-03",
 };
 
 pub const BLINK_DECORATIONS: Key = Key {

@@ -59,9 +59,10 @@ pub struct DecorationColors {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BlinkStyle {
     /// The glyph hides.
-    #[default]
     Full,
-    /// The glyph draws halfway to its background, as SGR 2 draws it.
+    /// The glyph draws halfway to its background, as SGR 2 draws it. The
+    /// default, the maintainer's decision of 2026-11-03.
+    #[default]
     Partial,
     /// The glyph stays: blinking text draws steady.
     Off,
