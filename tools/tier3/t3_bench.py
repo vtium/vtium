@@ -185,17 +185,26 @@ def flood_verdict(figures):
 def pane_verdict(figures):
     """Why a screen that changes one pane damaged more than that pane, or an
     empty list: no frame drawn in the window, which leaves nothing to judge,
-    or a mean damage per frame larger than the pane's pixels. The damage
+    a mean damage per frame over the window larger than the pane's pixels,
+    or one render-timer second whose mean damage per frame is larger
+    ("damage_px_seconds"), as when a single full-screen redraw falls in the
+    window and the window's mean hides it among the pane's frames. The damage
     the render timer counts is what a frame drew into its buffer, which is
     as many frames old as the display keeps buffers, so the variant keeps
     two and a frame counts the pane's changes of two frames, still within
     the pane; with three, a frame would also count the third."""
     if not figures.get("frames"):
         return ["no frame was drawn while the pane played, so there is no damage to judge"]
+    why = []
     if figures["damage_px_mean"] > figures["pane_px"]:
-        return ["the console damaged %d pixels a frame on the mean, more than the playing "
-                "pane's %d" % (figures["damage_px_mean"], figures["pane_px"])]
-    return []
+        why.append("the console damaged %d pixels a frame on the mean, more than the playing "
+                   "pane's %d" % (figures["damage_px_mean"], figures["pane_px"]))
+    over = [d for d in figures.get("damage_px_seconds", []) if d > figures["pane_px"]]
+    if over:
+        why.append("in %d second(s) of the window the console damaged more than the playing "
+                   "pane's %d pixels a frame on the mean, at most %d"
+                   % (len(over), figures["pane_px"], max(over)))
+    return why
 
 
 def measure(serial_text, event_line, config):
@@ -223,6 +232,11 @@ def measure(serial_text, event_line, config):
                 out["kmscon_cpu_ms"] / counts["tmux_sixels"], 3)
     if "pane_px" in counts:
         out["pane_px"] = counts["pane_px"]
+        # each render-timer second's mean damage per frame, of the seconds
+        # that overlap the window and drew a frame
+        out["damage_px_seconds"] = [
+            int(x["damage_px_mean"]) for x in timer_lines(serial_text)
+            if x["frames"] and x["t"] > start and x["t"] - x["interval_ms"] / 1000 < end]
         if out.get("damage_px_mean") is not None and counts["pane_px"]:
             out["damage_of_pane_pct"] = round(100 * out["damage_px_mean"] / counts["pane_px"], 1)
     if out["intervals"]:

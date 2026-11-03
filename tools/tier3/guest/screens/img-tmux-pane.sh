@@ -13,8 +13,8 @@
 # playing pane changes, so each frame vtium draws must damage that pane's
 # pixels and no more. The screen reports its window on the event port as a
 # benchmark, with the pane's size in pixels (pane_px), and the harness fails
-# the case when the render timer's mean damage per frame over the window is
-# larger than the pane (t3_bench.pane_verdict). The window opens 2.5 s after
+# the case when the render timer's mean damage per frame, over the window or
+# in any one second of it, is larger than the pane (t3_bench.pane_verdict). The window opens 2.5 s after
 # tmux drew its panes and closes 2 s before tmux exits, so neither full
 # redraw falls in a second of the render timer that overlaps it. The render
 # timer's damage covers what a frame drew into its buffer, which is older by
