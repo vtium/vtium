@@ -1,4 +1,4 @@
-# Sourced by the playtest's pages (tools/vt/sections/*.sh, ADR-1501) that ask
+# Sourced by the acceptance pass's pages (tools/vt/sections/*.sh, ADR-1501) that ask
 # the terminal something or place things by row; it draws nothing itself.
 # shellcheck shell=bash
 # shellcheck disable=SC2034 # esc and top are read by the pages that source this
@@ -19,11 +19,11 @@ ask() {
 	printf '%s' "$reply"
 }
 
-# The row the page starts on, in top: DEMO_TOP, which demo.sh sets to the
+# The row the page starts on, in top: ACCEPT_TOP, which accept.sh sets to the
 # row below its two header rows, else the cursor's row as the terminal
 # reports it, else 1.
 top_row() {
-	local r=${DEMO_TOP:-}
+	local r=${ACCEPT_TOP:-}
 	[[ $r =~ ^[1-9][0-9]*$ ]] || {
 		r=$(ask "$esc[6n" R)
 		r=${r##*[}
@@ -95,7 +95,7 @@ kitty_send() {
 # text/udhr-article1.tsv, its meaning in English, then a few of its words in
 # each style SGR gives, two styles to a row, then Unicode's superscript and
 # subscript characters, and the font set the walk switched to for the page
-# (PLAYTEST_FRIT) with what that font set checks, from the frit's
+# (ACCEPT_FRIT) with what that font set checks, from the frit's
 # "# checks:" lines. A style marked * is one vtium does not draw yet: it
 # looks plain, or upright for italic, and the page says so.
 language_page() {
@@ -122,7 +122,7 @@ language_page() {
 	row 'SGR 73*' 73 'SGR 74*' 74
 	printf '%-10s%s\n' Unicode: "$supsub"
 	printf '* not drawn yet: italic stays upright, the rest look plain. Bold is widened.\n'
-	frit=${PLAYTEST_FRIT:-}
+	frit=${ACCEPT_FRIT:-}
 	if [ -n "$frit" ] && [ -f "$dir/frits/$frit.vtfrit" ]; then
 		checks=$(sed -n 's/^# checks: //p' "$dir/frits/$frit.vtfrit" | paste -sd' ' -)
 		printf 'Font %s: %s\n' "$frit" "$checks"
@@ -132,7 +132,7 @@ language_page() {
 }
 
 # Ends a page this build cannot show: says why, on the page, and exits 77,
-# which demo.sh records as skip, never as no.
+# which accept.sh records as skip, never as no.
 cannot_show() {
 	printf '\n  This build cannot show this page.\n  %s\n' "$1"
 	printf '  The page is recorded as skip, not as no.\n'

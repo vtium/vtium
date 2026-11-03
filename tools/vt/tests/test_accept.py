@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Tests the playtest (ADR-1501): demo.sh's walk through the pages, the pass
+"""Tests the acceptance pass (ADR-1501): accept.sh's walk through the pages, the pass
 record it writes, the resume, and feedback.sh's reading and comparing of
 records, all on a pseudo-terminal with scripted keys and no VT or sudo. The
-walk runs over stand-in pages (PLAYTEST_PAGES), and the real pages in
+walk runs over stand-in pages (ACCEPT_PAGES), and the real pages in
 tools/vt/sections are checked on their own: their guidance, their size, and
 what they send when a terminal says it shows pictures and when it says it
 does not.
 
-    python3 -I tools/vt/tests/test_playtest.py [-v] [TestCase.test_name ...]
+    python3 -I tools/vt/tests/test_accept.py [-v] [TestCase.test_name ...]
 """
 
 import fcntl
@@ -27,7 +27,7 @@ import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 VT = os.path.join(ROOT, "tools", "vt")
-DEMO_SH = os.path.join(VT, "demo.sh")
+ACCEPT_SH = os.path.join(VT, "accept.sh")
 FEEDBACK_SH = os.path.join(VT, "feedback.sh")
 SECTIONS = os.path.join(VT, "sections")
 
@@ -98,7 +98,7 @@ class Pty:
         while True:
             rest = self.seen[self.answered:]
             found = [(rest.find(q), q, a) for q, a in ((b"\x1b[c", self.da1), (b"\x1b[6n", b"\x1b[10;1R"),
-                                                       (b"\x1b]50;?\x07", None))
+                                                       (b"\x1b[14t", b"\x1b[4;400;640t"), (b"\x1b]50;?\x07", None))
                      if rest.find(q) >= 0]
             switch = re.search(rb"\x1b\]50;([^?\x07][^\x07]*)\x07", rest)
             if switch and (not found or switch.start() < min(found)[0]):
@@ -142,7 +142,10 @@ ASK = b"y yes  n no  u unsure  s skip  c comment  r redraw  b back  q quit"
 
 class Case(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="vtium-playtest-")
+        self.tmp = tempfile.mkdtemp(prefix="vtium-accept-")
+        self.sysfs = os.path.join(self.tmp, "sys")
+        self.proc = os.path.join(self.tmp, "proc")
+        self.machine()
         self.passes = os.path.join(self.tmp, "passes")
         self.pages = os.path.join(self.tmp, "pages")
         os.mkdir(self.pages)
@@ -152,14 +155,48 @@ class Case(unittest.TestCase):
     def tearDown(self):
         subprocess.run(["rm", "-rf", "--", self.tmp], check=True)
 
+    def machine(self, kernel="7.2.14-test"):
+        """A stand-in /sys and /proc: a machine with one GPU, one display
+        connected and one not, and the kernel KERNEL."""
+        def put(path, data):
+            path = os.path.join(self.sysfs, path)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(data if isinstance(data, bytes) else data.encode())
+        if not os.path.isdir(self.sysfs):
+            put("class/dmi/id/sys_vendor", "Example Boards\n")
+            put("class/dmi/id/product_name", "EB-1\n")
+            put("class/dmi/id/product_version", "2.0\n")
+            dev = os.path.join(self.sysfs, "devices/pci0000:00/0000:03:00.0")
+            os.makedirs(dev)
+            os.makedirs(os.path.join(self.sysfs, "bus/pci/drivers/amdgpu"))
+            os.symlink(os.path.join(self.sysfs, "bus/pci/drivers/amdgpu"), os.path.join(dev, "driver"))
+            put("devices/pci0000:00/0000:03:00.0/vendor", "0x1002\n")
+            put("devices/pci0000:00/0000:03:00.0/device", "0x744c\n")
+            os.makedirs(os.path.join(self.sysfs, "class/drm/card0"))
+            os.symlink(dev, os.path.join(self.sysfs, "class/drm/card0/device"))
+            # an EDID: Dell (DEL), product 0xA0F1, named DELL U2723QE
+            edid = bytearray(128)
+            edid[0:8] = b"\x00\xff\xff\xff\xff\xff\xff\x00"
+            v = (ord("D") - 64) << 10 | (ord("E") - 64) << 5 | (ord("L") - 64)
+            edid[8:12] = bytes([v >> 8, v & 255, 0xF1, 0xA0])
+            edid[72:90] = b"\x00\x00\x00\xfc\x00" + b"DELL U2723QE\n"
+            put("class/drm/card0-DP-1/status", "connected\n")
+            put("class/drm/card0-DP-1/modes", "3840x2160\n1920x1080\n")
+            put("class/drm/card0-DP-1/edid", bytes(edid))
+            put("class/drm/card0-HDMI-A-1/status", "disconnected\n")
+        os.makedirs(os.path.join(self.proc, "sys/kernel"), exist_ok=True)
+        write(os.path.join(self.proc, "sys/kernel/osrelease"), kernel + "\n")
+
     def env(self, label="vtium dev build v1-test", **extra):
         env = {"PATH": os.environ["PATH"], "TERM": "linux", "HOME": self.tmp,
-               "PLAYTEST_DIR": self.passes, "PLAYTEST_PAGES": self.pages, "DEMO_LABEL": label}
+               "ACCEPT_SYSFS": self.sysfs, "ACCEPT_PROC": self.proc,
+               "ACCEPT_DIR": self.passes, "ACCEPT_PAGES": self.pages, "ACCEPT_LABEL": label}
         env.update(extra)
         return env
 
     def walk(self, env, *argv, da1=DA1_TEXT, frits=("unifont",)):
-        return Pty(["/bin/bash", DEMO_SH, *argv], env, da1, frits)
+        return Pty(["/bin/bash", ACCEPT_SH, *argv], env, da1, frits)
 
     def record(self):
         """The one record in the passes directory, and its path."""
@@ -183,10 +220,10 @@ class Case(unittest.TestCase):
 
 
 class Walk(Case):
-    """demo.sh's pass: the keys, the record, back, quit and resume."""
+    """accept.sh's pass: the keys, the record, back, quit and resume."""
 
     def test_a_pass_records_each_answer_its_comment_and_the_build(self):
-        d = self.walk(self.env(DEMO_VT="5", DEMO_BINARY="/build/vtium", DEMO_FEATURES="images"))
+        d = self.walk(self.env(ACCEPT_VT="5", ACCEPT_BINARY="/build/vtium", ACCEPT_FEATURES="images"))
         d.wait_for(b"press a key to start the pass")
         d.send(b" ")
         d.wait_for(b"page one")
@@ -215,7 +252,7 @@ class Walk(Case):
         self.assertEqual(d.finish(), 0)
         path, text = self.record()
         lines = text.splitlines()
-        self.assertRegex(lines[0], r"^# vtium playtest pass \d{8}T\d{6}-\d+$")
+        self.assertRegex(lines[0], r"^# vtium acceptance pass \d{8}T\d{6}-\d+$")
         meta = {m.group(1): m.group(2) for m in (re.match(r"^- ([a-z0-9]+): (.*)$", l) for l in lines) if m}
         self.assertEqual(meta["label"], "vtium dev build v1-test")
         self.assertEqual(meta["vt"], "5")
@@ -386,7 +423,7 @@ class Walk(Case):
         self.assertEqual(self.rows(text), [("10-one", "skip", "")])
 
 
-RECORD = """# vtium playtest pass {id}
+RECORD = """# vtium acceptance pass {id}
 
 - pass: {id}
 - label: {label}
@@ -476,7 +513,7 @@ class Feedback(Case):
 
     def test_a_comment_reads_back_as_it_was_typed(self):
         typed = "a | b \\ c & d <br> e &lt; f\\n g"
-        # As demo.sh writes it: & < > as entities, \ and | escaped.
+        # As accept.sh writes it: & < > as entities, \ and | escaped.
         cell = typed.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         cell = cell.replace("\\", "\\\\").replace("|", "\\|") + "<br>second"
         self.put("20261101T100000-1", "v1", [("10-sgr", "no", cell)])
@@ -542,7 +579,7 @@ def responder_run(page, answers, timeout=20):
     sent."""
     pid, fd = pty.fork()
     if pid == 0:
-        os.execve("/bin/bash", ["/bin/bash", page], {"PATH": os.environ["PATH"], "TERM": "linux", "DEMO_TOP": "3"})
+        os.execve("/bin/bash", ["/bin/bash", page], {"PATH": os.environ["PATH"], "TERM": "linux", "ACCEPT_TOP": "3"})
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 25, 80, 0, 0))
     seen, answered, end = b"", 0, time.monotonic() + timeout
     while time.monotonic() < end:
@@ -675,7 +712,7 @@ class Frits(Case):
         write(os.path.join(self.pages, "frits", "refused.vtfrit"), "name=refused\nsource=builtin:unifont\n")
         write(os.path.join(self.pages, "10-lang.sh"),
               "# look-for: the words\n# wrong-looks-like: anything else\n# frits: outline absent refused\n"
-              "printf 'drawn in %s\\n' \"$PLAYTEST_FRIT\"\n")
+              "printf 'drawn in %s\\n' \"$ACCEPT_FRIT\"\n")
         write(os.path.join(self.pages, "20-plain.sh"),
               "# look-for: plain\n# wrong-looks-like: anything else\nprintf 'page plain\\n'\n")
 
@@ -770,8 +807,8 @@ class Languages(Case):
             text = read(os.path.join(SECTIONS, f))
             code = re.search(r"^language_page (\S+)$", text, re.M).group(1)
             self.assertIn(code, codes)
-            self.assertIn("# frits: playtest-outline playtest-bitmap\n", text)
-        for frit in ("playtest-outline", "playtest-bitmap"):
+            self.assertIn("# frits: acceptance-outline acceptance-bitmap\n", text)
+        for frit in ("acceptance-outline", "acceptance-bitmap"):
             self.assertTrue(os.path.isfile(os.path.join(SECTIONS, "frits", frit + ".vtfrit")))
 
     def test_the_text_is_whole_and_each_excerpt_is_in_its_sentence(self):
@@ -788,13 +825,66 @@ class Languages(Case):
     def test_a_language_page_shows_every_style_and_says_which_are_not_drawn(self):
         p = subprocess.run(["bash", os.path.join(SECTIONS, "84-greek.sh")], capture_output=True, timeout=20,
                            stdin=subprocess.DEVNULL,
-                           env={"PATH": os.environ["PATH"], "PLAYTEST_FRIT": "playtest-bitmap", "DEMO_TOP": "3"})
+                           env={"PATH": os.environ["PATH"], "ACCEPT_FRIT": "acceptance-bitmap", "ACCEPT_TOP": "3"})
         self.assertEqual(p.returncode, 0, p.stderr)
         out = p.stdout.decode()
         for sgr in ("0", "1", "3", "1;3", "2", "7", "4", "4:2", "4:3", "4:4", "4:5", "4;58:5:196", "9", "53", "73", "74"):
             self.assertIn(f"\x1b[{sgr}mελεύθεροι και ίσοι\x1b[0m", out)
         self.assertIn("* not drawn yet: italic stays upright, the rest look plain.", out)
-        self.assertIn("Font playtest-bitmap: whole-multiple bitmaps; marks placed by vtium's rules", out)
+        self.assertIn("Font acceptance-bitmap: whole-multiple bitmaps; marks placed by vtium's rules", out)
+
+
+class Hardware(Case):
+    """What a pass records of the machine it ran on."""
+
+    HARDWARE = ("- machine: Example Boards EB-1 2.0\n"
+                "- kernel: 7.2.14-test\n"
+                "- gpu: card0 driver amdgpu, 0x1002:0x744c at 0000:03:00.0\n"
+                "- display: DP-1, preferred mode 3840x2160, EDID make DEL product 0xA0F1 model DELL U2723QE\n"
+                "- text-area: 640x400 pixels, as vtium reports it (XTWINOPS 14)\n")
+
+    def one_pass(self, quit=False):
+        d = self.walk(self.env(), "one", "two")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(ASK)
+        d.send(b"q" if quit else b"y")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+
+    def test_a_pass_names_its_hardware_and_says_it_is_evidence_about_it_only(self):
+        self.one_pass()
+        _, text = self.record()
+        self.assertIn(self.HARDWARE, text)
+        self.assertRegex(text, r"- hardware: [0-9a-f]{64}; this pass is evidence about the hardware above only\n")
+
+    def test_a_pass_never_resumes_on_other_hardware(self):
+        self.one_pass(quit=True)
+        self.machine(kernel="7.3.0-test")
+        d = self.walk(self.env(), "one", "two")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"r resume it", d.seen)
+
+    def test_compare_warns_when_two_passes_ran_on_different_hardware(self):
+        self.one_pass()
+        first, _ = self.record()
+        os.rename(first, os.path.join(self.tmp, "first.md"))
+        self.machine(kernel="7.3.0-test")
+        self.one_pass()
+        p = self.feedback("--compare", os.path.join(self.tmp, "first.md"), self.record()[0])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("\nWARNING: the two passes ran on different hardware, and each is evidence about its own only:\n"
+                      "  A: kernel: 7.2.14-test\n  B: kernel: 7.3.0-test\n", p.stdout)
+        # the same hardware twice: no warning
+        self.one_pass()
+        newest = sorted(n for n in os.listdir(self.passes) if n.endswith(".md"))
+        p = self.feedback("--compare", *[os.path.join(self.passes, n) for n in newest[-2:]])
+        self.assertNotIn("WARNING", p.stdout)
 
 
 if __name__ == "__main__":

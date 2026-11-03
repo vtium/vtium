@@ -4,7 +4,7 @@
 # look-for: of each character.
 # wrong-looks-like: A character cut, squeezed into one cell or overlapping its
 # wrong-looks-like: neighbour, boxes, or a decoration under half a character.
-# frits: playtest-outline playtest-bitmap
+# frits: acceptance-outline acceptance-bitmap
 # A language page (ADR-1501 D7): the first sentence of Article 1 of the
 # Universal Declaration of Human Rights in this language, then a few of its
 # words in every style, drawn once in each of the frits above, which the

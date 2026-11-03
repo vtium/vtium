@@ -1,5 +1,5 @@
 #!/bin/bash
-# Reads the playtest's pass records (ADR-1501), the markdown files demo.sh
+# Reads the acceptance pass's records (ADR-1501), the markdown files accept.sh
 # writes: a list of what the pass ran on, then a table of each page's answer
 # (yes, no, unsure, skip, or - for none yet) and comment.
 #
@@ -7,20 +7,21 @@
 #                                           answer and comment (default: the newest)
 #   feedback.sh [--dir DIR] --list          every pass, oldest first
 #   feedback.sh [--dir DIR] --compare A B   the pages whose answer differs from
-#                                           pass A to pass B; exits 1 when a page
-#                                           went from yes to no
+#                                           pass A to pass B, warning first when they
+#                                           ran on different hardware; exits 1 when
+#                                           a page went from yes to no
 #   feedback.sh [--dir DIR] --compare       the same for the two newest passes
 #   feedback.sh [--dir DIR] --newest LABEL  the path of the newest pass of LABEL
 #   feedback.sh --tsv PASS                  the pass as tab-separated lines
 #
 # PASS is a pass's id in DIR, or the path of a record, such as one committed
-# under docs/playtest/. DIR is PLAYTEST_DIR, else
-# $XDG_STATE_HOME/vtium/playtest (~/.local/state/vtium/playtest), where
-# demo.sh keeps the passes. The newest pass is the one started last.
+# under docs/acceptance/. DIR is ACCEPT_DIR, else
+# $XDG_STATE_HOME/vtium/acceptance (~/.local/state/vtium/acceptance), where
+# accept.sh keeps the passes. The newest pass is the one started last.
 set -euo pipefail
 
 usage() {
-	sed -n '6,15s/^# \{0,1\}//p' "$0" >&2
+	sed -n '6,16s/^# \{0,1\}//p' "$0" >&2
 	exit 2
 }
 
@@ -29,7 +30,7 @@ die() {
 	exit 2
 }
 
-dir=${PLAYTEST_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/playtest}
+dir=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
 mode=show
 args=()
 while [ $# -gt 0 ]; do
@@ -48,7 +49,7 @@ done
 # A record as tab-separated lines: "#KEY value" for each line of its list,
 # then "PAGE answer comment" for each row of its table, the comment with its
 # backslashes doubled and each line break as \n. The cells' escapes, as
-# demo.sh writes them, are undone: \\ and \| in the comment, then <br>, &lt;,
+# accept.sh writes them, are undone: \\ and \| in the comment, then <br>, &lt;,
 # &gt; and &amp;.
 tsv() {
 	awk '
@@ -201,6 +202,9 @@ compare)
 		tsv "$b" | sed 's/^/B\t/'
 	} | awk -F'\t' "$lines"'
 	$2 == "#font" || $2 == "#frit" { fonts[$1, $3] = 1; order_f[++nf] = $1 SUBSEP $3; next }
+	$2 == "#machine" || $2 == "#kernel" || $2 == "#gpu" || $2 == "#display" {
+		hw[$1, substr($2, 2) ": " $3] = 1; order_h[++nh] = $1 SUBSEP substr($2, 2) ": " $3; next
+	}
 	$2 ~ /^#/ { meta[$1, substr($2, 2)] = $3; next }
 	{
 		if (!(($2) in seen)) { seen[$2] = 1; order[++n] = $2 }
@@ -212,6 +216,13 @@ compare)
 		for (s = 1; s <= 2; s++) {
 			side = s == 1 ? "A" : "B"
 			printf "%s  %s  %s, %s answered\n", side, meta[side, "pass"], meta[side, "label"], meta[side, "answered"]
+		}
+		for (i = 1; i <= nh; i++) {
+			split(order_h[i], k, SUBSEP)
+			other = k[1] == "A" ? "B" : "A"
+			if ((other, k[2]) in hw) continue
+			if (!hhead++) printf "\nWARNING: the two passes ran on different hardware, and each is evidence about its own only:\n"
+			printf "  %s: %s\n", k[1], k[2]
 		}
 		printf "\n%-24s  %-7s  %-7s\n", "page", "A", "B"
 		for (i = 1; i <= n; i++) {

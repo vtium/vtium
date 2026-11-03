@@ -4,7 +4,7 @@
 # look-for: their letters; no mark is cut at the row's top.
 # wrong-looks-like: A mark beside its letter, cut off, missing or drawn as a
 # wrong-looks-like: box, or a letter in another font.
-# frits: playtest-outline playtest-bitmap
+# frits: acceptance-outline acceptance-bitmap
 # A language page (ADR-1501 D7): the first sentence of Article 1 of the
 # Universal Declaration of Human Rights in this language, then a few of its
 # words in every style, drawn once in each of the frits above, which the

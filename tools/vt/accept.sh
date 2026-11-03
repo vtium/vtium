@@ -1,5 +1,5 @@
 #!/bin/bash
-# The playtest (ADR-1501): the operator walks every page in sections/, in file
+# The acceptance pass (ADR-1501): the operator walks every page in sections/, in file
 # name order, in one pass, and answers each with one key. Below each page a
 # footer gives the page's guidance, held in its file: what a correct screen
 # looks like (its "# look-for:" lines) and what a defect looks like
@@ -16,8 +16,8 @@
 # did, and switches back to the console's own font after. A frit whose font
 # files are missing, or that vtium does not switch to, makes the page a skip
 # that says why. Every answer rewrites the pass's record, a markdown file
-# named after the pass in the passes directory: PLAYTEST_DIR, else
-# $XDG_STATE_HOME/vtium/playtest (~/.local/state/vtium/playtest). The record
+# named after the pass in the passes directory: ACCEPT_DIR, else
+# $XDG_STATE_HOME/vtium/acceptance (~/.local/state/vtium/acceptance). The record
 # holds the build, the terminal, and each page's answer and comment; a pass
 # quit part way keeps its answers, and the next run with the same label
 # offers to resume it at its first unanswered page. feedback.sh prints a
@@ -26,25 +26,25 @@
 # It runs in any terminal as any user and needs nothing from vtium, so the same
 # pages can be compared in vtium and in another terminal.
 #
-#   demo.sh [PAGE...]   PAGE is a file name without the number and .sh, such
+#   accept.sh [PAGE...]   PAGE is a file name without the number and .sh, such
 #                       as sgr; with none, every page runs
 #
-# DEMO_LABEL names the terminal on the title page and in the record; run-vt.sh
-# sets it to "vtium dev build <git describe>". DEMO_VT, DEMO_BINARY and
-# DEMO_FEATURES, when set, name the VT, the binary and its features in the
-# record. DEMO_NOPROMPT=1 shows the guidance, asks nothing and records
-# nothing: any key goes to the next page and q quits. DEMO_NOPAGE=1 also waits
+# ACCEPT_LABEL names the terminal on the title page and in the record; run-vt.sh
+# sets it to "vtium dev build <git describe>". ACCEPT_VT, ACCEPT_BINARY and
+# ACCEPT_FEATURES, when set, name the VT, the binary and its features in the
+# record. ACCEPT_NOPROMPT=1 shows the guidance, asks nothing and records
+# nothing: any key goes to the next page and q quits. ACCEPT_NOPAGE=1 also waits
 # for no key and leaves the last page on the screen, for checking the pages
-# outside a VT. PLAYTEST_PAGES names another directory of pages, for the
+# outside a VT. ACCEPT_PAGES names another directory of pages, for the
 # tests.
 set -u
 shopt -u patsub_replacement 2>/dev/null || true
 
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
-nopage=${DEMO_NOPAGE:-}
-noprompt=${DEMO_NOPROMPT:-$nopage}
-passes=${PLAYTEST_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/playtest}
-label=${DEMO_LABEL:-unlabelled}
+nopage=${ACCEPT_NOPAGE:-}
+noprompt=${ACCEPT_NOPROMPT:-$nopage}
+passes=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
+label=${ACCEPT_LABEL:-unlabelled}
 pass=
 record=
 rows=25
@@ -152,7 +152,7 @@ draw_page() {
 	local frit=${frits[$1]}
 	reset_terminal
 	unshown_why=
-	# DEMO_NOPROMPT draws a frit's page in the font the terminal has.
+	# ACCEPT_NOPROMPT draws a frit's page in the font the terminal has.
 	if [ -n "$frit" ] && [ -z "$noprompt" ]; then
 		switch_font "$frit" || unshown_why=$why
 	else
@@ -168,7 +168,7 @@ draw_page() {
 		status=77
 		return
 	fi
-	DEMO_TOP=3 PLAYTEST_FRIT=$frit bash "${pages[$1]}" || status=$?
+	ACCEPT_TOP=3 ACCEPT_FRIT=$frit bash "${pages[$1]}" || status=$?
 	[ "$status" -eq 0 ] || [ "$status" -eq 77 ] ||
 		printf '\n\033[31m(the page exited with status %d)\033[0m\n' "$status"
 }
@@ -287,6 +287,67 @@ restore_font() {
 	current=
 }
 
+# The machine the pass runs on, as lines for the record: its model, its
+# kernel, each GPU or display controller with its kernel driver, and each
+# connected display with its connector, its preferred mode and the make and
+# model its EDID gives, then the text area vtium reports. A pass is evidence
+# about this hardware only (ADR-1501 D3). ACCEPT_SYSFS and ACCEPT_PROC name
+# other roots for /sys and /proc, for the tests.
+hardware_lines=()
+hardware=
+hardware_scan() {
+	local sys=${ACCEPT_SYSFS:-/sys} proc=${ACCEPT_PROC:-/proc} d card c v name area slot
+	hardware_lines=()
+	v=
+	for name in sys_vendor product_name product_version; do
+		[ ! -r "$sys/class/dmi/id/$name" ] || v+=" $(one_line "$(cat "$sys/class/dmi/id/$name")")"
+	done
+	hardware_lines+=("- machine: ${v# }")
+	[ -n "${v# }" ] || hardware_lines[-1]="- machine: not given by /sys/class/dmi"
+	hardware_lines+=("- kernel: $(cat "$proc/sys/kernel/osrelease" 2>/dev/null || echo unknown)")
+	for card in "$sys"/class/drm/card[0-9]*; do
+		[[ ${card##*/} =~ ^card[0-9]+$ ]] || continue
+		d=$card/device
+		slot=$(readlink "$d" 2>/dev/null) slot=${slot##*/}
+		name=
+		if [ -z "${ACCEPT_SYSFS:-}" ] && [ -n "$slot" ] && command -v lspci >/dev/null; then
+			name=$(lspci -s "$slot" 2>/dev/null | cut -d' ' -f2- | head -n 1)
+		fi
+		v=$(readlink "$d/driver" 2>/dev/null) v=${v##*/}
+		hardware_lines+=("- gpu: ${card##*/} driver ${v:-none}, $(cat "$d/vendor" 2>/dev/null || echo ?):$(cat "$d/device" 2>/dev/null || echo ?) at ${slot:-?}${name:+, $(one_line "$name")}")
+		for c in "$card"-*; do
+			[ "$(cat "$c/status" 2>/dev/null)" = connected ] || continue
+			hardware_lines+=("- display: ${c##*/card[0-9]-}, preferred mode $(head -n 1 "$c/modes" 2>/dev/null || echo unknown), $(edid_name "$c/edid")")
+		done
+	done
+	area=$(ask_terminal $'\033[14t' t)
+	[[ $area =~ \[4\;([0-9]+)\;([0-9]+)$ ]] && area="${BASH_REMATCH[2]}x${BASH_REMATCH[1]} pixels" || area="no answer"
+	hardware_lines+=("- text-area: $area, as vtium reports it (XTWINOPS 14)")
+	hardware=$(printf '%s\n' "${hardware_lines[@]}" | grep -v '^- text-area' | sha256sum) hardware=${hardware%% *}
+}
+
+# The make and model an EDID file holds: the manufacturer's three letters,
+# the product code and the monitor's name descriptor, or why there are none.
+edid_name() {
+	local b o i n v
+	[ -s "$1" ] || { printf 'no EDID'; return; }
+	read -ra b < <(od -An -tu1 -v "$1" | tr -s ' \n' '  ')
+	[ ${#b[@]} -ge 128 ] || { printf 'EDID too short'; return; }
+	v=$((b[8] << 8 | b[9]))
+	printf 'EDID make %b%b%b' "\\x$(printf %x $(((v >> 10 & 31) + 64)))" \
+		"\\x$(printf %x $(((v >> 5 & 31) + 64)))" "\\x$(printf %x $(((v & 31) + 64)))"
+	printf ' product 0x%04X' $((b[10] | b[11] << 8))
+	for o in 54 72 90 108; do
+		[ "${b[o]}" -eq 0 ] && [ "${b[o + 1]}" -eq 0 ] && [ "${b[o + 3]}" -eq 252 ] || continue
+		n=
+		for ((i = o + 5; i < o + 18; i++)); do
+			[ "${b[i]}" -ne 10 ] || break
+			[ "${b[i]}" -lt 32 ] || [ "${b[i]}" -gt 126 ] || n+=$(printf "\\x$(printf %x "${b[i]}")")
+		done
+		printf ' model %s' "$(printf '%b' "${n% }")"
+	done
+}
+
 # A value for one line of the record's list: tabs and line breaks become
 # spaces.
 one_line() {
@@ -351,14 +412,16 @@ write_record() {
 	for i in "${!pages[@]}"; do [ -z "${answers[$i]:-}" ] || n=$((n + 1)); done
 	tmp=$passes/.$pass.md.new
 	{
-		printf '# vtium playtest pass %s\n\n' "$pass"
+		printf '# vtium acceptance pass %s\n\n' "$pass"
 		printf -- '- pass: %s\n' "$pass"
 		printf -- '- label: %s\n' "$(one_line "$label")"
-		printf -- '- vt: %s\n' "$(one_line "${DEMO_VT:-not given}")"
-		printf -- '- binary: %s\n' "$(one_line "${DEMO_BINARY:-not given}")"
-		printf -- '- features: %s\n' "$(one_line "${DEMO_FEATURES:-not given}")"
+		printf -- '- vt: %s\n' "$(one_line "${ACCEPT_VT:-not given}")"
+		printf -- '- binary: %s\n' "$(one_line "${ACCEPT_BINARY:-not given}")"
+		printf -- '- features: %s\n' "$(one_line "${ACCEPT_FEATURES:-not given}")"
 		printf -- '- terminal: TERM=%s, %s rows by %s columns\n' "$(one_line "${TERM:-unset}")" "$rows" "$cols"
 		printf -- '- da1: %s\n' "${da1:-no answer}"
+		printf '%s\n' "${hardware_lines[@]}"
+		printf -- '- hardware: %s; this pass is evidence about the hardware above only\n' "$hardware"
 		printf -- '- font-start: %s\n' "${font_start:-no answer to the OSC 50 query}"
 		[ ${#font_lines[@]} -eq 0 ] || printf '%s\n' "${font_lines[@]}"
 		printf -- '- fonts: %s\n' "$fonts"
@@ -402,6 +465,7 @@ resumable() {
 		'#pass') pass=$v ;;
 		'#started') started=$v ;;
 		'#fonts') [ "$v" = "$fonts" ] || return 1 ;;
+		'#hardware') [ "${v%%;*}" = "$hardware" ] || return 1 ;;
 		'#'*) ;;
 		*)
 			found=
@@ -539,7 +603,7 @@ summary() {
 	local i id nt left=0
 	reset_terminal
 	clear_screen
-	printf '\033[1mvtium playtest: pass %s\033[0m\n\n' "$pass"
+	printf '\033[1mvtium acceptance pass %s\033[0m\n\n' "$pass"
 	for i in "${!pages[@]}"; do
 		id=$(entry_id "$i")
 		nt=${notes[$i]:-}
@@ -567,8 +631,8 @@ summary() {
 # The entries: each page, once in each frit its "# frits:" line names.
 pages=()
 frits=()
-frit_dir=${PLAYTEST_PAGES:-$here/sections}/frits
-for f in "${PLAYTEST_PAGES:-$here/sections}"/*.sh; do
+frit_dir=${ACCEPT_PAGES:-$here/sections}/frits
+for f in "${ACCEPT_PAGES:-$here/sections}"/*.sh; do
 	take=
 	if [ $# -eq 0 ]; then
 		take=1
@@ -587,7 +651,7 @@ for f in "${PLAYTEST_PAGES:-$here/sections}"/*.sh; do
 		done
 	fi
 done
-[ ${#pages[@]} -gt 0 ] || { echo "playtest: no such page: $*" >&2; exit 2; }
+[ ${#pages[@]} -gt 0 ] || { echo "accept: no such page: $*" >&2; exit 2; }
 # The page files, each once.
 files=()
 for f in "${pages[@]}"; do
@@ -622,7 +686,7 @@ if [ -n "$noprompt" ]; then
 		if [ "$i" -lt $((${#pages[@]} - 1)) ]; then
 			page_end 'press a key for next, q to quit'
 		else
-			page_end 'end of the playtest: press a key to finish'
+			page_end 'end of the acceptance pass: press a key to finish'
 		fi
 	done
 	[ -n "$nopage" ] || clear_screen
@@ -638,6 +702,7 @@ da1=${da1##*\?}
 font_start=$(query_font)
 [[ $font_start =~ ^[[:alnum:]._+-]{1,64}$ ]] || font_start=
 font_sums
+hardware_scan
 
 start=0
 resume=
@@ -649,7 +714,7 @@ if [ -n "$recording" ] && resumable; then
 fi
 
 clear_screen
-printf '\033[1mvtium playtest\033[0m\n\n'
+printf '\033[1mvtium acceptance pass\033[0m\n\n'
 printf '  running   %s\n' "$label"
 printf '  terminal  TERM=%s, %s rows by %s columns\n' "${TERM:-unset}" "$rows" "$cols"
 [ $# -eq 0 ] || printf '  pages     named on the command line\n'

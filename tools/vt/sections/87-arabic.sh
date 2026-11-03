@@ -4,7 +4,7 @@
 # look-for: letters stand apart, left to right: expected today.
 # wrong-looks-like: Boxes, dots missing or under the wrong letter, the small
 # wrong-looks-like: vowel stroke away from its letter, or a letter cut off.
-# frits: playtest-outline playtest-bitmap
+# frits: acceptance-outline acceptance-bitmap
 # A language page (ADR-1501 D7): the first sentence of Article 1 of the
 # Universal Declaration of Human Rights in this language, then a few of its
 # words in every style, drawn once in each of the frits above, which the

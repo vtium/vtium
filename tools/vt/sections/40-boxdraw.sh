@@ -6,7 +6,7 @@
 # Box drawing, shades and block elements, which vtium draws as sprites the
 # cell's full size, joined cell to cell (the C reference's boxdraw screen).
 printf '┌'; for _ in $(seq 30); do printf '─'; done; printf '┐\n'
-printf '│ %-29s│\n' 'vtium playtest'
+printf '│ %-29s│\n' 'vtium acceptance'
 printf '├'; for _ in $(seq 30); do printf '─'; done; printf '┤\n'
 printf '│ %-29s│\n' 'box drawing'
 printf '└'; for _ in $(seq 30); do printf '─'; done; printf '┘\n'

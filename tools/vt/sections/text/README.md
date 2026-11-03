@@ -1,6 +1,6 @@
 # The language pages' text
 
-`udhr-article1.tsv` holds the text the playtest's language pages show (ADR-1501 D7): for each language, the first sentence of Article 1 of the Universal Declaration of Human Rights, a few words of it that each style line shows, those words in English, and a line of Unicode's superscript and subscript characters. Lines starting with `#` are comments, and the fields are separated by tabs.
+`udhr-article1.tsv` holds the text the acceptance pass's language pages show (ADR-1501 D7): for each language, the first sentence of Article 1 of the Universal Declaration of Human Rights, a few words of it that each style line shows, those words in English, and a line of Unicode's superscript and subscript characters. Lines starting with `#` are comments, and the fields are separated by tabs.
 
 Each sentence is copied from the UDHR in XML project, github.com/eric-muller/udhr at commit 588b3f4b2d0467aff54842a4b926551b69d5a66a, file `data/udhr/udhr_<code>.xml`, the first `para` of the first `article`, up to and including its first full stop, in Unicode's NFC form. The codes are `eng`, `vie`, `ell_monotonic`, `rus`, `heb`, `arb`, `hin`, `tha`, `cmn_hans`, `jpn` and `kor`. The English meaning every page gives is the English file's sentence: "All human beings are born free and equal in dignity and rights."
 

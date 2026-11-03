@@ -4,7 +4,7 @@
 # look-for: without spaces, as Thai is written.
 # wrong-looks-like: Boxes, dotted circles, a mark in a cell of its own beside
 # wrong-looks-like: its letter, or a mark cut at the row's edge.
-# frits: playtest-outline playtest-bitmap
+# frits: acceptance-outline acceptance-bitmap
 # A language page (ADR-1501 D7): the first sentence of Article 1 of the
 # Universal Declaration of Human Rights in this language, then a few of its
 # words in every style, drawn once in each of the frits above, which the

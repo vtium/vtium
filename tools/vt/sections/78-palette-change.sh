@@ -5,7 +5,7 @@
 # wrong-looks-like: or the color 9 words changed too.
 # A palette change, OSC 4, after the text was written: vtium resolves a cell's
 # palette color when it draws, so the text already on screen takes the new
-# color. demo.sh resets the palette (OSC 104) before the next page.
+# color. accept.sh resets the palette (OSC 104) before the next page.
 printf '  These words are written in color 1, which starts red:\n'
 printf '    \033[31mcolor 1, color 1, color 1, color 1, color 1\033[0m\n'
 printf '    \033[30;41m on color 1 \033[0m and \033[4;31munderlined in color 1\033[0m\n'

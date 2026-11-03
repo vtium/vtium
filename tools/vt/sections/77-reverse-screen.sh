@@ -4,7 +4,7 @@
 # look-for: color; "reversed" is light letters on dark.
 # wrong-looks-like: Only some rows inverted, a dark background left at the
 # wrong-looks-like: edges, or a colored word that lost its color.
-# Reverse video for the whole screen, DECSCNM (DEC private mode 5). demo.sh
+# Reverse video for the whole screen, DECSCNM (DEC private mode 5). accept.sh
 # turns it off again (CSI ? 5 l) before the next page.
 printf '\033[?5h'
 printf '  DECSCNM, mode 5, shows the whole screen in reverse video.\n\n'
