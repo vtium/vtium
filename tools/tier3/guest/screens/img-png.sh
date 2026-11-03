@@ -7,7 +7,9 @@
 # look-for: i=42;OK; at column 43, the quarters from a PNG temporary file,
 # look-for: i=43;OK, with "removed" under it; at column 63, the quarters from
 # look-for: raw pixels compressed with zlib, i=44;OK. Row 10 gives the reply to
-# look-for: a file the session's user cannot read, i=45;EBADF and its message.
+# look-for: a file the session's user cannot read, i=45;EBADF and its message,
+# look-for: and row 11 the reply to a file on rpc_pipefs the user can read,
+# look-for: i=46;EBADF and its message.
 # wrong-looks-like: No pictures (the screen says the kitty graphics protocol
 # wrong-looks-like: is not offered), a missing picture with a reply other than
 # wrong-looks-like: OK (the image helper did not start, read or decode), a
@@ -19,7 +21,10 @@
 # read, and raw pixels compressed with zlib (o=z), which the helper inflates.
 # The files are tools/tier3/t3_pictures.py's, readable by the session's
 # user, whom the helper runs as; /etc/shadow, which that user cannot read,
-# is refused with EBADF. Each command asks for its reply (no q), which the
+# is refused with EBADF, and so is a file on rpc_pipefs (ADR-1101 D5),
+# which the guest mounts and lets everyone read, so that only the helper's
+# refusal of that filesystem keeps it from being read. Each command asks for
+# its reply (no q), which the
 # screen prints under its picture and reports on the event port.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/img-common.inc"
 kitty_offered
@@ -61,3 +66,9 @@ at 10 1
 kitty_ask "a=T,i=45,C=1,f=100,t=f" "$(b64 /etc/shadow)"
 reply_event "$reply"
 printf 'a file the user cannot read: %s\n' "$reply"
+rpc=/run/t3-rpc/gssd/clntXX/info
+if [ -r "$rpc" ]; then readable=readable; else readable=unreadable; fi
+reply_event "rpc_pipefs $readable"
+kitty_ask "a=T,i=46,C=1,f=100,t=f" "$(b64 "$rpc")"
+reply_event "$reply"
+printf 'a file on rpc_pipefs the user can read: %s\n' "$reply"

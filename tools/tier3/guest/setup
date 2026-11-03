@@ -24,6 +24,17 @@ if [ -f /usr/lib/sysusers.d/vtium-image.conf ]; then
     fi
     images="helper /usr/bin/vtium-image mode $(stat -c %a /usr/bin/vtium-image), account"
     images="$images vtium-image uid $(id -u vtium-image) gid $(id -g vtium-image)"
+    # A variant whose helper runs as nobody before login removes the account
+    # again, as an administrator might, before vtium starts (ADR-1101 D2).
+    if [ -f "$disc"/no-image-account ]; then
+        userdel vtium-image
+        if getent group vtium-image > /dev/null; then groupdel vtium-image; fi
+        if id vtium-image > /dev/null 2>&1; then
+            printf 'TIER3-INSTALL-FAIL the account vtium-image is still there\n' > /dev/ttyS0
+            exit 1
+        fi
+        images="${images%%, account*}, account vtium-image removed"
+    fi
 fi
 # A variant drawing with the test fonts names them in its config.
 if [ -d "$disc"/fonts ]; then
@@ -62,6 +73,18 @@ if [ -f "$disc"/udev-examples ]; then
         /usr/share/doc/vtium/examples/vtium.hwdb > /etc/udev/hwdb.d/vtium.hwdb
     grep -qx 'evdev:input:b0011v0001p0001\*' /etc/udev/hwdb.d/vtium.hwdb
     systemd-hwdb update
+fi
+# A variant whose img-png screen reads a file on rpc_pipefs mounts it as
+# root, which the screen's user cannot, and lets everyone read its one
+# regular file, so only the image helper's refusal of the filesystem keeps
+# the file from being read (ADR-1101 D5, D10).
+if [ -f "$disc"/rpc-pipefs ]; then
+    if ! out=$({ modprobe sunrpc && mkdir -p /run/t3-rpc \
+                 && mount -t rpc_pipefs rpc_pipefs /run/t3-rpc \
+                 && chmod 0444 /run/t3-rpc/gssd/clntXX/info; } 2>&1); then
+        printf 'TIER3-INSTALL-FAIL rpc_pipefs: %s\n' "$out" > /dev/ttyS0
+        exit 1
+    fi
 fi
 # A power variant's kernel settings, such as kernel.ctrl-alt-del for the
 # hard reboot, set before the console starts.

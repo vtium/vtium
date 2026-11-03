@@ -11,6 +11,7 @@ import time
 import t3_bench
 import t3_devices
 import t3_heads
+import t3_images
 import t3_pointer
 import t3_pictures
 import t3_power
@@ -299,14 +300,23 @@ DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
 # helper and its sysusers file in the tree (ADR-1101 D1, D2), and the disc
 # carries the test pictures t3_pictures.py writes ("pictures"). It draws
 # PICTURE_SCREENS, whose last, img-png, vt-restore is compared with
-# (t3_evaluate.RESTORED). Its configuration keeps two display buffers, so
+# (t3_evaluate.RESTORED). Before login, the agent (guest/t3-agent) writes
+# pictures to the login prompt's pty ("prelogin", t3_images). Its guest
+# mounts rpc_pipefs for img-png, which reads a file there ("rpc_pipefs"). Its configuration keeps two display buffers, so
 # img-tmux-pane's damage per frame counts two frames' changes, not three
 # (t3_bench.pane_verdict).
 VARIANTS["images-640x480"] = dict(DEVICES, device="virtio-vga,xres=640,yres=480,edid=on",
                                   conf="kmscon-images.conf",
                                   images=True, tree_features=["images"], pictures=True,
-                                  screens=PICTURE_SCREENS)
-IMAGE_VARIANTS = ["images-640x480"]
+                                  screens=PICTURE_SCREENS, agent=True, prelogin=True,
+                                  rpc_pipefs=True)
+# The same machine and tree with the account vtium-image removed after
+# systemd-sysusers made it ("image_account": "nobody"), so the image helper
+# runs as nobody before login (ADR-1101 D2, D10). Its one case is the check
+# before login, so the driver never logs in ("login": False).
+VARIANTS["images-640x480-nobody"] = dict(VARIANTS["images-640x480"], image_account="nobody",
+                                         login=False, screens=[], rpc_pipefs=False)
+IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody"]
 
 # The head file (ADR-1401) on the guest's real KMS device and systemd
 # (t3_heads), on the device variants' machine, each run only when named.
@@ -426,12 +436,14 @@ def variant_cases(variant):
     a golden followed by the same case on each of its other outputs, then
     the mirror check for a variant that runs it, the pointer case for one
     that runs it, and its other checks (t3_devices.CHECKS, t3_heads.CHECKS).
-    A head-file variant's first screen comes first, and one whose console
-    gives no login has no case but that and its checks."""
+    A head-file variant's first screen comes first, as does an images
+    variant's check before login (t3_images), and one whose console gives
+    no login has no case but those and its checks."""
     v = VARIANTS[variant]
     if "power" in v:
         return list(v["power"])
-    first = [v["first"]] if "first" in v else []
+    first = ([v["first"]] if "first" in v else []) + (
+        [t3_images.CASE] if v.get("prelogin") else [])
     if not v.get("login", True):
         return first + list(v.get("checks", []))
     out = first + (CASES if "screens" not in v else cases(screens_of(variant)))
@@ -520,25 +532,34 @@ def check_install(line, impl):
 
 # guest/setup's account of the image helper (its "images" field) once
 # systemd-sysusers has made the helper's account from the tree's sysusers
-# file: the helper, its mode, and the account's ids, neither of them 0.
-IMAGE_HELPER = re.compile(r"helper /usr/bin/vtium-image mode 755, account vtium-image "
-                          r"uid [1-9]\d* gid [1-9]\d*")
+# file: the helper, its mode, and the account's ids, neither of them 0, or,
+# in a variant whose pre-login account is nobody ("image_account"), that
+# setup removed the account again.
+IMAGE_HELPER = {
+    "vtium-image": re.compile(r"helper /usr/bin/vtium-image mode 755, account vtium-image "
+                              r"uid [1-9]\d* gid [1-9]\d*"),
+    "nobody": re.compile(r"helper /usr/bin/vtium-image mode 755, account vtium-image "
+                         r"removed"),
+}
 
 
 def check_guest(variant, installed):
     """Raises when the guest's account (check_install) shows it is not the
     guest `variant` names: a variant whose console is built with images
-    needs the image helper installed and its account made (IMAGE_HELPER);
+    needs the image helper installed and its account made, or removed in
+    one whose pre-login account is nobody (IMAGE_HELPER);
     under sysvinit, PID 1 must be init, systemd's /run/systemd/system must
     be absent, and a udev daemon must run, or none in a variant without
     udev."""
     v = VARIANTS[variant]
     if "images" in v.get("tree_features", ()):
         helper = installed.get("images", "not reported")
-        if not IMAGE_HELPER.fullmatch(helper):
+        account = v.get("image_account", "vtium-image")
+        if not IMAGE_HELPER[account].fullmatch(helper):
             raise RuntimeError("the guest's image helper is %r; the variant needs "
-                               "/usr/bin/vtium-image and the account vtium-image (ADR-1101 D2)"
-                               % helper)
+                               "/usr/bin/vtium-image and the account vtium-image%s "
+                               "(ADR-1101 D2)" % (helper, " removed" if account == "nobody"
+                                                   else ""))
     if v.get("guest") != "sysvinit":
         return
     if installed.get("init", "").split()[:1] != ["init"] or installed.get("systemd") != "no":
@@ -576,6 +597,10 @@ def build_disc(variant, work, impl):
     shutil.copy(os.path.join(GUEST, "t3"), disc)
     if VARIANTS[variant].get("pictures"):
         t3_pictures.write(os.path.join(disc, "screens", "pictures"))
+    if VARIANTS[variant].get("image_account") == "nobody":
+        open(os.path.join(disc, "no-image-account"), "w").close()
+    if VARIANTS[variant].get("rpc_pipefs"):
+        open(os.path.join(disc, "rpc-pipefs"), "w").close()
     if VARIANTS[variant].get("guest") == "sysvinit":
         shutil.copy(os.path.join(GUEST_SYSVINIT, "setup"), disc)
         shutil.copy(os.path.join(GUEST_SYSVINIT, "t3-console"), disc)
@@ -842,6 +867,8 @@ def run_variant(variant, timing, impl, log):
                 path = os.path.join(work, v["first"] + ".ppm")
                 wait_stable(vm, path, settle=2.0, timeout=90, want=not_blank)
                 caps[v["first"]] = path
+        if v.get("prelogin"):
+            prompt = check_prelogin(variant, vm, work, prompt, caps, errors, log)
         phase("console")
         if "power" in v:
             press_power_keys(vm, v["power"], work, caps, errors, notes, log, phase)
@@ -884,6 +911,31 @@ def run_variant(variant, timing, impl, log):
     if errors_all:
         meta["error"] = "; ".join(errors_all)
     return caps, meta
+
+
+def check_prelogin(variant, vm, work, prompt, caps, errors, log):
+    """The prelogin case (t3_images): the agent writes two pictures to the
+    login prompt's pty and reports the pty's owner and the image helpers'
+    accounts, and the screen is captured once it differs from `prompt`.
+    The capture is kept when t3_images.judge passes it; `errors` gets why
+    otherwise. Returns the screen now shown, the login prompt the login
+    starts from."""
+    case = t3_images.CASE
+    path = os.path.join(work, case + ".ppm")
+    try:
+        answer = vm.ask(t3_images.CASE)
+        log("%s: the agent answered %s" % (case, "; ".join(answer)))
+        shown = wait_stable(vm, path, want=lambda img: img.data != prompt.data)
+    except RuntimeError as e:
+        errors[case] = str(e)
+        return wait_stable(vm, path)
+    why = t3_images.judge(answer, shown, VARIANTS[variant].get("image_account",
+                                                              "vtium-image"))
+    if why:
+        errors[case] = why
+    else:
+        caps[case] = path
+    return shown
 
 
 def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):

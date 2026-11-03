@@ -25,6 +25,10 @@
 #   limit            sends SIGKILL to each new vtium on tty2 until its unit
 #                    stops restarting, and once the unit failed on its start
 #                    limit, starts it once more
+#   prelogin         writes two kitty pictures to the pty of the login prompt
+#                    on tty2, as a program there would, before anyone logs in
+#                    (the images variants, t3_images.py), then reports the
+#                    pty's owner and the account each image helper runs as
 # Any other request, spelled even one character differently, answers
 # "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
 # port, as the harness's self-test does with a pty.
@@ -141,6 +145,39 @@ limit() {
     fi
 }
 
+# The images variants' pictures before login (ADR-1101 D2, D10): the
+# quarters PNG read from a file (t=f) at row 12, column 5, which vtium must
+# refuse while the pty's owner is root, and the same PNG sent inline at
+# column 25, which the image helper decodes as vtium-image, or as nobody
+# when that account is gone. Both carry q=2, so no reply reaches the login
+# prompt's input; the cursor is saved and restored around them. Then the
+# owner of the pty, and the account of each process running
+# /usr/bin/vtium-image, waiting up to 5 s for the first.
+prelogin() {
+    local pts pics=/usr/local/share/tier3/pictures p users=
+    pts=$(ps -C login -o tty= | awk 'NR == 1 { print $1 }')
+    if [ -z "$pts" ] || [ ! -c "/dev/$pts" ]; then
+        echo "refused: no login prompt on a pty"
+        return
+    fi
+    {
+        printf '\e7\e[12;5H\033_Ga=T,i=91,q=2,C=1,f=100,t=f;%s\033\\' \
+            "$(printf %s "$pics/quad.png" | base64 -w0)"
+        printf '\033[12;25H\033_Ga=T,i=92,q=2,C=1,f=100;%s\033\\\e8' \
+            "$(base64 -w0 "$pics/quad.png")"
+    } > "/dev/$pts"
+    echo "pty /dev/$pts $(stat -c %U "/dev/$pts")"
+    for _ in $(seq 50); do
+        for p in /proc/[0-9]*; do
+            [ "$(readlink "$p/exe" 2>/dev/null)" = /usr/bin/vtium-image ] \
+                && users+=" $(stat -c %U "$p")"
+        done
+        [ -n "$users" ] && break
+        sleep 0.1
+    done
+    echo "helpers${users:- none}"
+}
+
 answer() {
     local n=$1 request=$2 pid
     case "$request" in
@@ -163,6 +200,7 @@ answer() {
             systemctl reset-failed "${units[0]}" && echo "reset ${units[0]}"
             ;;
         limit) limit ;;
+        prelogin) prelogin ;;
         # A reader of the second keyboard's evdev node, apart from the agent
         # and its port, which ends when the keyboard is pulled out; the
         # answer comes once it has opened the node and counted none.

@@ -39,6 +39,7 @@ import t3_bench  # noqa: E402
 import t3_devices  # noqa: E402
 import t3_evaluate  # noqa: E402
 import t3_heads  # noqa: E402
+import t3_images  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_pictures  # noqa: E402
 import t3_pointer  # noqa: E402
@@ -3389,7 +3390,8 @@ class HeadsTest(unittest.TestCase):
         requests = ["kill TERM", "kill KILL; touch pwned", "$(touch %s/pwned-sub)" % d.name,
                     "`touch %s/pwned-tick`" % d.name, "state ", "start now", "Start",
                     "hangup && touch pwned-and", "watch /dev/input/event0", "Watch",
-                    "limit 99", "Limit", "reset-failed getty@tty2.service", "reset-failed;id"]
+                    "limit 99", "Limit", "reset-failed getty@tty2.service", "reset-failed;id",
+                    "prelogin now", "Prelogin", "prelogin;id"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -3977,7 +3979,7 @@ class ImagesVariantTest(unittest.TestCase):
 
     def test_cases(self):
         self.assertEqual(t3_scenario.variant_cases(self.VARIANT), [
-            "img-sixel", "img-kitty", "img-relative", "img-overwrite", "img-delete",
+            "prelogin", "img-sixel", "img-kitty", "img-relative", "img-overwrite", "img-delete",
             "img-scroll", "img-scrollback", "img-scrollforward", "img-tmux-pane", "img-png",
             "vt-switch", "vt-restore"])
         v = t3_scenario.VARIANTS[self.VARIANT]
@@ -4180,6 +4182,83 @@ class ImagesVariantTest(unittest.TestCase):
         with open(os.path.join(t3_common.GUEST, "screens", "img-common.inc")) as f:
             self.assertIn("echo T3-NO-PICTURES", f.read())
 
+    def test_prelogin(self):
+        # Before login the file's picture is refused, the inline one drawn,
+        # and the helper runs as the variant's pre-login account
+        # (ADR-1101 D2, D10).
+        self.assertEqual(t3_scenario.variant_cases("images-640x480-nobody"), ["prelogin"])
+        v = t3_scenario.VARIANTS["images-640x480-nobody"]
+        self.assertEqual((v["image_account"], v["login"], v["agent"], v["prelogin"]),
+                         ("nobody", False, True, True))
+        self.assertIn("prelogin", t3_evaluate.NO_GOLDEN)
+        quad = t3_pictures.PICTURES["quad"]
+
+        def screen(*at):
+            data = bytearray(640 * 480 * 3)
+            for col, row in at:
+                for y, line in enumerate(quad.pixels):
+                    for x, p in enumerate(line):
+                        i = (((row - 1) * 16 + y) * 640 + (col - 1) * 8 + x) * 3
+                        data[i:i + 3] = bytes(t3_pictures.eight(p))
+            return t3img.Image(640, 480, bytes(data))
+
+        good = ["pty /dev/pts/0 root", "helpers vtium-image"]
+        right = screen(t3_images.INLINE_AT)
+        self.assertIsNone(t3_images.judge(good, right, "vtium-image"))
+        self.assertIsNone(t3_images.judge(["pty /dev/pts/0 root", "helpers nobody"], right,
+                                          "nobody"))
+        for answer, img, account, why in (
+                (good, right, "nobody", "run as vtium-image; they must run as nobody"),
+                (["pty /dev/pts/0 root", "helpers none"], right, "vtium-image",
+                 "run as nobody at all"),
+                (["pty /dev/pts/0 root", "helpers vtium-image tester"], right, "vtium-image",
+                 "run as vtium-image tester"),
+                (["pty /dev/pts/0 tester", "helpers vtium-image"], right, "vtium-image",
+                 "not root's"),
+                (["refused: no login prompt on a pty"], right, "vtium-image", "refused"),
+                (good, screen(), "vtium-image", "the inline picture shows 0 of its 3072"),
+                (good, screen(t3_images.INLINE_AT, t3_images.FILE_AT), "vtium-image",
+                 "the picture read from a file shows 3072 pixels")):
+            with self.subTest(why):
+                self.assertIn(why, t3_images.judge(answer, img, account))
+        # the agent writes the pictures where the judge looks, and setup
+        # removes the account for a variant whose helper runs as nobody
+        with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
+            agent = f.read()
+        self.assertIn("prelogin) prelogin ;;", agent)
+        self.assertIn("\\e[%d;%dH\\033_Ga=T,i=91,q=2,C=1,f=100,t=f;" % t3_images.FILE_AT[::-1],
+                      agent)
+        self.assertIn("\\033[%d;%dH\\033_Ga=T,i=92,q=2,C=1,f=100;" % t3_images.INLINE_AT[::-1],
+                      agent)
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        self.assertIn('if [ -f "$disc"/no-image-account ]; then\n        userdel vtium-image',
+                      setup)
+        self.assertIn("mount -t rpc_pipefs rpc_pipefs /run/t3-rpc", setup)
+        t3_scenario.check_guest("images-640x480-nobody", {
+            "images": "helper /usr/bin/vtium-image mode 755, account vtium-image removed"})
+        with self.assertRaisesRegex(RuntimeError, "account vtium-image removed"):
+            t3_scenario.check_guest("images-640x480-nobody", {"images": self.HELPER})
+        with self.assertRaisesRegex(RuntimeError, "image helper is"):
+            t3_scenario.check_guest(self.VARIANT, {
+                "images": "helper /usr/bin/vtium-image mode 755, account vtium-image removed"})
+        # the discs carry the flags setup reads
+        with tempfile.TemporaryDirectory() as d:
+            tree = os.path.join(d, "tree")
+            write_tree(tree, ImplementationTest.TREE)
+            impl = t3_impl.tree(tree, os.path.join(d, "tree.tar"))
+            impl["fonts"] = os.path.join(d, "fonts")
+            os.makedirs(impl["fonts"])
+            disc = os.path.join(d, "disc")
+            with mock.patch.object(t3_scenario, "make_iso"):
+                for variant, want in ((self.VARIANT, {"rpc-pipefs", "t3-agent"}),
+                                      ("images-640x480-nobody",
+                                       {"no-image-account", "t3-agent"})):
+                    t3_scenario.build_disc(variant, d, impl)
+                    names = set(os.listdir(disc)) & {"rpc-pipefs", "no-image-account",
+                                                     "t3-agent"}
+                    self.assertEqual(names, want, variant)
+
     def test_refusal_fails_a_provisional_case(self):
         # A provisional golden judges nothing, but a picture screen that
         # drew no picture in a variant with images fails all the same.
@@ -4231,11 +4310,12 @@ class ImagesVariantTest(unittest.TestCase):
         # FEATURES adds, and runs the images variant unless VARIANTS names
         # others.
         bare = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS")}
+        both = ["images-640x480", "images-640x480-nobody"]
         for argv, features, variants in (
-                ([], "images", "images-640x480"),
-                (["FEATURES=logind"], "images logind", "images-640x480"),
-                (["FEATURES=images,logind"], "images logind", "images-640x480"),
-                (["VARIANTS=2d-potato-min"], "images", "2d-potato-min")):
+                ([], "images", both),
+                (["FEATURES=logind"], "images logind", both),
+                (["FEATURES=images,logind"], "images logind", both),
+                (["VARIANTS=2d-potato-min"], "images", ["2d-potato-min"])):
             with self.subTest(argv):
                 r = subprocess.run(["make", "-n", "--no-print-directory", "tier3-images"] + argv,
                                    cwd=t3_common.ROOT, capture_output=True, text=True,
@@ -4246,7 +4326,7 @@ class ImagesVariantTest(unittest.TestCase):
                 args = shlex.split(runs[0].split("/t3.py run ", 1)[1])
                 last = len(args) - 1 - args[::-1].index("--features")
                 self.assertEqual(args[last + 1], features)
-                self.assertEqual(args[last + 2:], ["--tree-target", "install-tree", variants])
+                self.assertEqual(args[last + 2:], ["--tree-target", "install-tree"] + variants)
 
 
 class PictureGoldenTest(unittest.TestCase):

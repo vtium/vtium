@@ -472,11 +472,12 @@ tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: 
 	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held)
 
 # vtium's pictures on tier 3: the tree's console built with images, and with
-# any other features FEATURES names, then the images variant, which draws
-# sixel and kitty pictures and pictures the image helper decodes.
+# any other features FEATURES names, then the images variants, which draw
+# sixel and kitty pictures and pictures the image helper decodes, and check
+# the helper's account before login.
 .PHONY: tier3-images
-tier3-images: tier3-image ## Tier 3's pictures: the install tree built with images, then the images variant on the minspec machine at 640x480
-	$(T3_RUN) --features '$(sort images $(subst $(comma), ,$(FEATURES)))' --tree-target install-tree $(or $(VARIANTS),images-640x480)
+tier3-images: tier3-image ## Tier 3's pictures: the install tree built with images, then the images variants on the minspec machine at 640x480
+	$(T3_RUN) --features '$(sort images $(subst $(comma), ,$(FEATURES)))' --tree-target install-tree $(or $(VARIANTS),images-640x480 images-640x480-nobody)
 
 # Each row of tools/tier3/provenance.tsv against its source in a kmscon
 # checkout, read with git; a review step when the copies change, never a gate.

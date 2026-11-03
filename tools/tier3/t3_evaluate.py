@@ -8,6 +8,7 @@ import subprocess
 import t3_bench
 import t3_devices
 import t3_heads
+import t3_images
 import t3_pointer
 import t3_power
 import t3img
@@ -107,7 +108,8 @@ DRAWS_PICTURES = IMAGE_SCREENS + PICTURE_SCREENS
 # fails, whether or not its golden is reviewed yet.
 REPLIES = {
     "img-png": ["i=41;OK", "i=42;OK", "i=43;OK", "removed", "i=44;OK",
-                "i=45;EBADF:Failed to read image file"],
+                "i=45;EBADF:Failed to read image file", "rpc_pipefs readable",
+                "i=46;EBADF:Failed to read image file"],
     "img-delete": ["i=32;OK", "i=33;ENOENT:image not found"],
 }
 
@@ -173,11 +175,13 @@ CHECKS = {
     **t3_pointer.CHECKS,
     **t3_devices.CHECKS,
     **t3_heads.CHECKS,
+    **t3_images.CHECKS,
 }
 # The checks without a golden: each passes when its capture was taken, or,
 # on a guest with no display to capture, when the scenario reports it
 # passed (the variant's metadata, "passed").
 NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
+             *t3_images.CHECKS,
              *t3_heads.CHECKS}
 
 DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
