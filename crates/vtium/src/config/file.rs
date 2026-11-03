@@ -2,63 +2,15 @@
 //! one key a line, `key=value` or a switch's `key` or `no-key`; `#` starts
 //! a comment anywhere but where it opens a `#rrggbb` color value; spaces,
 //! tabs and carriage returns around the key and the value are dropped.
+//! vtium-settings' `split_line` reads each line, the one reading vtium-config's
+//! editor shares.
 
 use std::path::Path;
 
+use vtium_settings::split_line as split;
+
 use super::keys::{Kind, Scope};
 use super::{Assignment, LINE_MAX, Origin, Problem, Reports, Value, value};
-
-/// Whether `s` starts with `#rrggbb` ended by the line, a blank or a
-/// comment.
-fn begins_rgb(s: &[u8]) -> bool {
-    match s {
-        [b'#', rgb @ ..] if rgb.len() >= 6 => {
-            let (digits, rest) = rgb.split_at(6);
-            digits.iter().all(u8::is_ascii_hexdigit)
-                && matches!(rest.first(), None | Some(b' ' | b'\t' | b'\r' | b'#'))
-        }
-        _ => false,
-    }
-}
-
-fn trim(s: &[u8]) -> &[u8] {
-    let blank = |b: &u8| matches!(b, b' ' | b'\t' | b'\r');
-    let start = s.iter().position(|b| !blank(b)).unwrap_or(s.len());
-    let end = s
-        .iter()
-        .rposition(|b| !blank(b))
-        .map_or(start, |e| e.saturating_add(1));
-    s.get(start..end).unwrap_or_default()
-}
-
-/// One line's key and value, comment and blanks dropped: `None` for a
-/// blank or comment line.
-fn split(line: &[u8]) -> Option<(&[u8], Option<&[u8]>)> {
-    let end = line.iter().position(|&b| b == b'#' || b == b'=');
-    let (key, rest) = match end {
-        Some(at) => line.split_at(at),
-        None => (line, &[][..]),
-    };
-    let value = match rest.split_first() {
-        Some((b'=', after)) => {
-            let lead = after
-                .iter()
-                .position(|b| !matches!(b, b' ' | b'\t'))
-                .unwrap_or(after.len());
-            let body = after.get(lead..).unwrap_or_default();
-            let skip = usize::from(begins_rgb(body));
-            let stop = body
-                .iter()
-                .skip(skip)
-                .position(|&b| b == b'#')
-                .map_or(body.len(), |p| p.saturating_add(skip));
-            Some(trim(body.get(..stop).unwrap_or_default()))
-        }
-        _ => None,
-    };
-    let key = trim(key);
-    (!key.is_empty() || value.is_some()).then_some((key, value))
-}
 
 /// The values a file's bytes give, in order, with what they could not
 /// give reported.

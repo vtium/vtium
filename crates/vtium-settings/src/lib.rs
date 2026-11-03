@@ -33,7 +33,12 @@
 //! is the file's one writer, which sets a head's profile and keeps every
 //! other byte (ADR-1201 D6), and [`install_file`] replaces a configuration
 //! file in one rename. [`edit_conf`] edits vtium.conf line by line, keeping
-//! every byte a change does not need (ADR-1201 D5).
+//! every byte a change does not need (ADR-1201 D5), and [`split_line`] is
+//! the one reading of a vtium.conf line, which the console's reader and
+//! the editor share. [`keys`] is the table of every key vtium.conf and the
+//! console's command line take, with its type, default, bound and
+//! description, which the console reads its configuration by and
+//! vtium-config shows (ADR-1201 D1).
 //!
 //! ```
 //! use vtium_settings::{Class, Identity, Place, parse};
@@ -51,6 +56,7 @@ mod error;
 mod file;
 mod findings;
 mod identity;
+pub mod keys;
 mod matching;
 mod messages;
 mod outcome;
@@ -62,7 +68,7 @@ pub use bounds::{
     CONSOLES_MAX, CONSOLES_TOTAL_DEFAULT, ERRORS_MAX, FILE_MAX, HEAD_CONSOLES_DEFAULT, HEADS_MAX,
     LINE_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX,
 };
-pub use conf::{ConfEdit, Edit, edit_conf, setting, switch};
+pub use conf::{ConfEdit, Edit, edit_conf, setting, split_line, switch};
 pub use config::{Config, Font, Head, Rule, TEMPLATE, Target, WhenDisplayLost};
 pub use error::{
     At, AtStart, Drops, Error, Fate, Note, PolicyFault, Problem, Quoted, Rejected, Remark, Renamed,

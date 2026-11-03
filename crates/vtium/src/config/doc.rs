@@ -8,7 +8,7 @@ use super::keys::{
 };
 use super::{FILE_MAX, LINE_MAX};
 
-const SOURCE: &str = "crates/vtium/src/config/keys.rs";
+const SOURCE: &str = "crates/vtium-settings/src/keys.rs";
 const BLESS: &str = "VTIUM_BLESS=1 cargo test -p vtium generated_files";
 
 fn kind(k: &Key) -> String {

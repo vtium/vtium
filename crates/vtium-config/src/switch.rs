@@ -162,10 +162,10 @@ impl Drop for Raw<'_> {
     }
 }
 
-/// The frits' directory, set at build time with `VTIUM_FONT_FRITS` as
-/// the console's is.
+/// The frits' directory the build names, `font-frits`'s default in the
+/// key table the console reads.
 pub fn default_frits() -> PathBuf {
-    PathBuf::from(option_env!("VTIUM_FONT_FRITS").unwrap_or("/etc/vtium/fonts"))
+    PathBuf::from(vtium_settings::keys::FRITS)
 }
 
 /// The frit file `name` names in `frits`, for a frit's name.

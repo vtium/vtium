@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use vtium_settings::{ConfEdit, Edit, edit_conf, setting, switch};
+use vtium_settings::{ConfEdit, Edit, edit_conf, setting, split_line, switch};
 
 fn example() -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium/install/vtium.conf.example");
@@ -178,4 +178,33 @@ fn switch_reads_the_last_line_that_sets_it() {
     assert_eq!(switch("no-bell\n  bell\n", "bell"), Some(true));
     assert_eq!(switch("#no-bell\n", "bell"), None);
     assert_eq!(switch(&example(), "allow-font-ops"), None);
+}
+
+/// A line reads as the console reads it: the key and the value with their
+/// blanks dropped, a comment cut, a color's `#` kept, a switch with no
+/// value, and a blank or comment line as nothing.
+#[test]
+fn a_line_splits_into_its_key_and_value_as_the_console_reads_it() {
+    let split = |l: &str| {
+        split_line(l.as_bytes()).map(|(k, v)| {
+            (
+                String::from_utf8_lossy(k).into_owned(),
+                v.map(|v| String::from_utf8_lossy(v).into_owned()),
+            )
+        })
+    };
+    let pair = |k: &str, v: Option<&str>| Some((k.to_owned(), v.map(str::to_owned)));
+    assert_eq!(
+        split(" font-size = 12 # big\r"),
+        pair("font-size", Some("12"))
+    );
+    assert_eq!(
+        split("palette-red=#ff0000 # red"),
+        pair("palette-red", Some("#ff0000"))
+    );
+    assert_eq!(split("no-allow-font-ops"), pair("no-allow-font-ops", None));
+    assert_eq!(split("login="), pair("login", Some("")));
+    assert_eq!(split("=x"), pair("", Some("x")));
+    assert_eq!(split("  # a comment"), None);
+    assert_eq!(split(""), None);
 }
