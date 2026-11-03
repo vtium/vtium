@@ -40,9 +40,9 @@ printf 'image 32 placed again'
 at 9 13
 kitty_ask "a=p,i=32,C=1"
 second=$reply
-report "$reply"
+reply_event "$reply"
 at 13 1
 kitty_ask "a=p,i=33,C=1"
-report "$reply"
+reply_event "$reply"
 printf 'image 33 placed again: %s\n' "$reply"
 printf 'image 32 placed again: %s\n' "$second"

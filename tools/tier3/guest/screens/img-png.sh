@@ -33,31 +33,31 @@ for r in 3 4 5; do
 done
 at 3 3
 kitty_ask "a=T,i=41,C=1,f=100" "$(pic64 quad.png)"
-report "$reply"
+reply_event "$reply"
 at 7 3
 printf '%s' "$reply"
 at 3 23
 kitty_ask "a=T,i=42,C=1,f=100,t=f" "$(b64 "$pics/disc.png")"
-report "$reply"
+reply_event "$reply"
 at 7 23
 printf '%s' "$reply"
 tmp=$(mktemp --suffix=.png /tmp/tty-graphics-protocol-XXXXXX)
 cp "$pics/quad.png" "$tmp"
 at 3 43
 kitty_ask "a=T,i=43,C=1,f=100,t=t" "$(b64 "$tmp")"
-report "$reply"
+reply_event "$reply"
 at 7 43
 printf '%s' "$reply"
 at 8 43
 if [ -e "$tmp" ]; then kept=kept; rm -f "$tmp"; else kept=removed; fi
-report "$kept"
+reply_event "$kept"
 printf '%s' "$kept"
 at 3 63
 kitty_ask "a=T,i=44,C=1,f=32,s=64,v=48,o=z" "$(pic64 quad.rgba.z)"
-report "$reply"
+reply_event "$reply"
 at 7 63
 printf '%s' "$reply"
 at 10 1
 kitty_ask "a=T,i=45,C=1,f=100,t=f" "$(b64 /etc/shadow)"
-report "$reply"
+reply_event "$reply"
 printf 'a file the user cannot read: %s\n' "$reply"

@@ -35,11 +35,12 @@ SMALL_SCREENS = ["small-console", "sgr", "boxdraw", "underline-styles", "underli
 # The screens of vtium's images variant (guest/screens/img-*.sh), which send
 # the test pictures t3_pictures.py writes: a sixel picture, kitty pictures
 # sent directly, relative placements, text and an erase over pictures,
-# deletes, pictures scrolled partly off the top, and pictures the image
-# helper reads and decodes. img-png is last, so vt-restore shows pictures
+# deletes, pictures scrolled partly off the top, one pane of a tmux grid
+# playing video, whose damage is measured, and pictures the image helper
+# reads and decodes. img-png is last, so vt-restore shows pictures
 # redrawn after the VT switch (RESTORED).
 PICTURE_SCREENS = ["img-sixel", "img-kitty", "img-relative", "img-overwrite", "img-delete",
-                   "img-scroll", "img-png"]
+                   "img-scroll", "img-tmux-pane", "img-png"]
 # Cases captured after a screen is drawn, by pressing keys: each is (screen,
 # case, the chords pressed before its capture), captured once the screen has
 # changed, so a key that changes nothing fails its case. After the last, the
@@ -60,7 +61,7 @@ KEYED = [
 KEYS_AFTER = {"sixel-evict": [("ctrl", "minus")]}
 # The screens that are also benchmark scenarios: each reports its
 # window on the event port, and the report carries its figures (t3_bench.py).
-BENCHMARKS = ["mpv-sixel", "tmux-2x2", "tmux-3x3", "s1-scroll", "flood"]
+BENCHMARKS = ["mpv-sixel", "tmux-2x2", "tmux-3x3", "s1-scroll", "flood", "img-tmux-pane"]
 # The benchmark screens judged by A2's criterion, that the console is
 # not the bottleneck (t3_bench.bottleneck); the tmux grids report their
 # figures only, since tmux redraws every pane's pictures itself.

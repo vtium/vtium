@@ -299,8 +299,11 @@ DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
 # helper and its sysusers file in the tree (ADR-1101 D1, D2), and the disc
 # carries the test pictures t3_pictures.py writes ("pictures"). It draws
 # PICTURE_SCREENS, whose last, img-png, vt-restore is compared with
-# (t3_evaluate.RESTORED).
+# (t3_evaluate.RESTORED). Its configuration keeps two display buffers, so
+# img-tmux-pane's damage per frame counts two frames' changes, not three
+# (t3_bench.pane_verdict).
 VARIANTS["images-640x480"] = dict(DEVICES, device="virtio-vga,xres=640,yres=480,edid=on",
+                                  conf="kmscon-images.conf",
                                   images=True, tree_features=["images"], pictures=True,
                                   screens=PICTURE_SCREENS)
 IMAGE_VARIANTS = ["images-640x480"]
@@ -642,7 +645,7 @@ def bench_figures(vm, caps, conf, images=True):
     for name in BENCHMARKS:
         if name in caps:
             line = next((e for e in events if e.startswith("T3-BENCH %s " % name)), None)
-            refused = name in IMAGE_SCREENS and reported_not_offered(events, name)
+            refused = name in DRAWS_PICTURES and reported_not_offered(events, name)
             if not images and name in IMAGE_SCREENS:
                 out[name] = not_offered(events, name, line)
             elif refused:

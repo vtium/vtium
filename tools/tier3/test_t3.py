@@ -194,7 +194,7 @@ class DescribeTest(unittest.TestCase):
     def test_benchmarks_are_screens(self):
         # A benchmark is drawn and compared like any screen, before cjk.
         for name in t3_evaluate.BENCHMARKS:
-            self.assertIn(name, t3_evaluate.SCREENS[:-1])
+            self.assertIn(name, t3_evaluate.SCREENS[:-1] + t3_evaluate.PICTURE_SCREENS[:-1])
 
     def test_kit_not_in_caption(self):
         # The demo's kit line names the review kit a page belongs to.
@@ -2315,6 +2315,34 @@ class PointerTest(unittest.TestCase):
 
 class BenchTest(unittest.TestCase):
     EVENT = "T3-BENCH s1-scroll lines=20000 start=100.00 end=102.00"
+
+    def test_pane_damage(self):
+        # img-tmux-pane (vtium/vtium#30): the mean damage per frame over the
+        # window must stay within the playing pane's pixels. Two panes'
+        # worth of damage fails, as does a window in which nothing was drawn.
+        event = ("T3-BENCH img-tmux-pane start=100.00 end=102.00 mpv_frames=60 "
+                 "mpv_dropped=0 tmux_sixels=60 pane_px=69888")
+        conf = ["render-timer=log", "display-buffers=2"]
+        for damage, want in ((58101, None), (69888, None), (69889, "more than the playing pane"),
+                             (139776, "139776 pixels a frame on the mean, more than the "
+                                      "playing pane's 69888")):
+            with self.subTest(damage):
+                serial = "\n".join([timer_line(100.6, 30, 30, damage=(damage, 22.0)),
+                                    timer_line(101.6, 30, 30, damage=(damage, 22.0))])
+                got = t3_bench.measure(serial, event, conf)
+                self.assertEqual((got["pane_px"], got["damage_px_mean"]), (69888, damage))
+                if want:
+                    self.assertIn(want, got["error"])
+                else:
+                    self.assertNotIn("error", got)
+        got = t3_bench.measure(timer_line(100.6, 0, 0), event, conf)
+        self.assertIn("no frame was drawn while the pane played", got["error"])
+        # the variant keeps two display buffers, so a frame's damage counts
+        # two frames' changes
+        with open(os.path.join(t3_common.GUEST, "kmscon-images.conf")) as f:
+            self.assertIn("display-buffers=2\n", f.read())
+        self.assertEqual(t3_scenario.VARIANTS["images-640x480"]["conf"], "kmscon-images.conf")
+        self.assertIn("img-tmux-pane", t3_evaluate.BENCHMARKS)
     MPV = "T3-BENCH mpv-sixel start=100.00 end=102.00 mpv_frames=60 mpv_dropped=2 kmscon_cpu_ms=500"
     CONF = ["font-size=16", "render-timer=log"]
 
@@ -3949,8 +3977,8 @@ class ImagesVariantTest(unittest.TestCase):
     def test_cases(self):
         self.assertEqual(t3_scenario.variant_cases(self.VARIANT), [
             "img-sixel", "img-kitty", "img-relative", "img-overwrite", "img-delete",
-            "img-scroll", "img-scrollback", "img-scrollforward", "img-png", "vt-switch",
-            "vt-restore"])
+            "img-scroll", "img-scrollback", "img-scrollforward", "img-tmux-pane", "img-png",
+            "vt-switch", "vt-restore"])
         v = t3_scenario.VARIANTS[self.VARIANT]
         self.assertEqual((v["device"], v["cpus"], v["memory_mb"], v["images"], v["goldens"]),
                          ("virtio-vga,xres=640,yres=480,edid=on", 1, 512, True,
@@ -4090,10 +4118,14 @@ class ImagesVariantTest(unittest.TestCase):
                 self.assertFalse(os.path.exists(pictures))
 
     def test_screens_name_written_pictures(self):
-        # Every picture a screen sends is one t3_pictures.py writes.
+        # Every picture a screen sends is one t3_pictures.py writes; the
+        # tmux screen alone plays a clip and sends none of them.
         for screen in t3_evaluate.PICTURE_SCREENS:
             with open(os.path.join(t3_common.GUEST, "screens", screen + ".sh")) as f:
                 text = f.read()
+            if screen == "img-tmux-pane":
+                self.assertNotIn("img-common.inc", text)
+                continue
             named = set(re.findall(r'\$pics/([\w.]+)', text) + re.findall(r'pic64 ([\w.]+)', text))
             with self.subTest(screen):
                 self.assertTrue(named)
@@ -4152,7 +4184,8 @@ class ImagesVariantTest(unittest.TestCase):
         for screen, replies in t3_evaluate.REPLIES.items():
             with self.subTest(screen), open(os.path.join(t3_common.GUEST, "screens",
                                                          screen + ".sh")) as f:
-                self.assertEqual(len(re.findall(r'^report "', f.read(), re.M)), len(replies))
+                self.assertEqual(len(re.findall(r'^reply_event "', f.read(), re.M)),
+                                 len(replies))
 
     def test_make_target(self):
         # make tier3-images builds the tree with images and any features

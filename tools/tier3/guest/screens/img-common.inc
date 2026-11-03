@@ -33,7 +33,7 @@ pic64() {
 # Reports $1, a kitty reply or what the screen found, on the event port under
 # tier 3, where the driver holds it to the replies the screen must get
 # (t3_evaluate.REPLIES), whether or not the screen's golden is reviewed yet.
-report() {
+reply_event() {
 	[ -n "$T3_EVENTS" ] && echo "T3-REPLY $1" >"$T3_EVENTS"
 	return 0
 }
