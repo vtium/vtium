@@ -1667,3 +1667,38 @@ fn a_child_above_a_parent_below_the_view_draws_from_the_lines_below() {
         .collect();
     assert_eq!(drawn, [(4, 1)], "the child on line 2, the view's row 4");
 }
+
+// covers: image.iterm2
+#[test]
+fn a_drawn_size_draws_the_picture_at_it_and_the_box_covers_the_cells_it_reaches() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    // 64 by 48 pixels drawn at 30 by 20: four columns and two rows at 8 by
+    // 16, the picture stretched to the size given from the box's top left
+    let img = add(&mut s, &f, Protocol::SIXEL, 64, 48, 0);
+    let place = Place {
+        col: 1,
+        row: 1,
+        ..Place::default()
+    };
+    let drawn = Link::Drawn {
+        width: 30,
+        height: 20,
+    };
+    s.place_at(img, place, drawn, f.screens(), COLS).unwrap();
+    let frame = s.frame(f.rows(), COLS);
+    let p = &frame[0];
+    assert_eq!((p.col, p.row, p.cols, p.rows), (1, 1, 4, 2));
+    assert_eq!((p.offset_x, p.offset_y), (0, 0));
+    assert_eq!((p.drawn_width, p.drawn_height), (30, 20));
+    assert_eq!((p.crop_width, p.crop_height), (64, 48));
+    // a drawn size past the largest box is refused
+    let wide = Link::Drawn {
+        width: u32::try_from(BOX_CELLS_MAX * 8 + 1).unwrap(),
+        height: 16,
+    };
+    assert_eq!(
+        s.place_at(img, Place::default(), wide, f.screens(), COLS),
+        Err(Placing::Refused(Refusal::Invalid))
+    );
+}

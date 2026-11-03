@@ -46,6 +46,11 @@ pub(super) enum Spot {
 pub(crate) enum Link {
     /// At the screen cell the put names.
     Cell,
+    /// At the screen cell the put names, the source drawn at exactly
+    /// `width` by `height` pixels from the box's top left and the box
+    /// covering the cells it reaches, as an iTerm2 picture's keys size it
+    /// (ADR-1103, D3). The put's box in cells is ignored.
+    Drawn { width: u32, height: u32 },
     /// A relative placement of the placement of kitty image id `image`
     /// whose placement id is `placement`, `cols` columns and `rows` rows
     /// from its origin. A `placement` of 0 names that image's placement

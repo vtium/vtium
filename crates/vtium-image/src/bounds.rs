@@ -155,6 +155,22 @@ const FRAME_CHARGE: Bound = Bound {
     cite: "ADR-1102, D1: a starting value",
 };
 
+const ITERM2_FILE: Bound = Bound {
+    name: "ITERM2_FILE_MAX",
+    value: 16 << 20,
+    what: "Bytes of decoded file an iTerm2 picture holds, 16 MiB, whether it comes in one `File=` string or in parts",
+    past: "A transfer in parts is abandoned and gives its reservation back, and the picture does not show",
+    cite: "ADR-1103, D1: a bound of vtium's own, where iTerm2's documentation gives none",
+};
+
+const ITERM2_PARTS: Bound = Bound {
+    name: "ITERM2_PARTS_MAX",
+    value: 65_536,
+    what: "`FilePart=` strings one iTerm2 transfer in parts takes",
+    past: "The transfer is abandoned and gives its reservation back",
+    cite: "ADR-1103, D1",
+};
+
 /// Every bound, in the README's order.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const BOUNDS: &[Bound] = &[
@@ -175,6 +191,8 @@ pub(crate) const BOUNDS: &[Bound] = &[
     FRAME_CACHE,
     FRAME_ALLOWANCE,
     FRAME_CHARGE,
+    ITERM2_FILE,
+    ITERM2_PARTS,
 ];
 
 /// Images one buffer holds.
@@ -211,6 +229,10 @@ pub const FRAME_CACHE_FRAMES: u64 = FRAME_CACHE.value;
 pub const FRAME_ALLOWANCE_FACTOR: u64 = FRAME_ALLOWANCE.value;
 /// Bytes a whole frame or a layer costs beside its pixels.
 pub const FRAME_OVERHEAD: u64 = FRAME_CHARGE.value;
+/// Bytes of decoded file an iTerm2 picture holds.
+pub const ITERM2_FILE_MAX: u64 = ITERM2_FILE.value;
+/// `FilePart=` strings an iTerm2 transfer takes.
+pub const ITERM2_PARTS_MAX: u64 = ITERM2_PARTS.value;
 
 /// The budget `image-storage-limit = auto` gives a console whose head has
 /// displays of the sizes `displays` lists, in pixels: [`AUTO_FRAMES`]
