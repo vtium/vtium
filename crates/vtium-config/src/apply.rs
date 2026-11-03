@@ -765,9 +765,9 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             &String::from_utf8_lossy(c.bytes.as_deref().unwrap_or_default()),
             key,
         );
-        let before = std::fs::read_to_string(targets.configdir.join("vtium.conf"))
+        let before = std::fs::read(targets.configdir.join("vtium.conf"))
             .ok()
-            .and_then(|text| vtium_settings::setting(&text, key));
+            .and_then(|bytes| vtium_settings::setting(&String::from_utf8_lossy(&bytes), key));
         if after != before {
             return Err(FRITS_MOVE_FIRST.to_owned());
         }

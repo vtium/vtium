@@ -796,12 +796,20 @@ fn a_save_that_moves_the_frits_and_changes_a_frit_is_refused() {
         .push(("made".to_owned(), "source=builtin:unifont\n".to_owned()));
     let why = app.plan().expect_err("a new frit and a new directory");
     assert!(why.contains("font-frits"), "{why}");
-    // the same value as vtium.conf's is no move
+    // a save that leaves font-frits alone is no move
     let (mut app, _) = App::new(inputs(), 80, 25);
     app.pending.removals.push("tiny5".to_owned());
     app.pending
         .set("font-name", Change::Set("proof".to_owned()));
     assert!(app.plan().is_ok());
+    // nor is one that sets it to the value vtium.conf already names
+    let mut named = inputs();
+    named.conf = Some("# mine\nfont-name=unifont\nfont-frits=/srv/frits\n".into());
+    let (mut app, _) = App::new(named, 80, 25);
+    app.pending
+        .set("font-frits", Change::Set("/srv/frits".to_owned()));
+    app.pending.removals.push("tiny5".to_owned());
+    assert!(app.plan().is_ok(), "{:?}", app.plan());
 }
 
 #[test]

@@ -260,6 +260,46 @@ fn a_draft_that_moves_the_frits_and_changes_a_frit_is_refused() {
     assert!(fonts.join("tiny.vtfrit").exists(), "nothing removed");
 }
 
+/// With no frits' directory, as when vtium.conf's font-frits is relative,
+/// `apply` run as `sudo` runs it, with no `--frits`, refuses a draft that
+/// writes a frit, naming vtium.conf and the key, and writes nothing.
+#[test]
+fn a_draft_with_a_frit_and_no_frits_directory_is_refused() {
+    let f = fixture("no-frits-dir", Some("font-frits=fonts\n"));
+    let fonts = f.fonts();
+    let plan = Plan {
+        files: vec![FileEdit {
+            path: fonts.join("made.vtfrit"),
+            old: None,
+            new: "source=builtin:unifont\n".to_owned(),
+        }],
+        removals: Vec::new(),
+    };
+    let draft = f.draft(&plan);
+    let mut bare = f.targets.clone();
+    bare.frits = Err("no directory".to_owned());
+    assert!(
+        !bare.options().iter().any(|o| o == "--frits"),
+        "{:?}",
+        bare.options()
+    );
+    // run beside the fixture's fonts, where a relative font-frits would land
+    let out = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+        .args(bare.options())
+        .arg("apply")
+        .arg(&draft)
+        .current_dir(&f.targets.configdir)
+        .output()
+        .expect("the binary runs");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(
+        err.contains("vtium.conf") && err.contains("font-frits"),
+        "{err}"
+    );
+    assert!(!fonts.join("made.vtfrit").exists(), "nothing written");
+}
+
 #[test]
 fn a_head_file_and_vtium_conf_install_head_file_first() {
     let f = fixture(
