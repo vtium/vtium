@@ -79,7 +79,7 @@ related: []
 
 ## Context
 
-vtium's GPU path replaces the C reference's GPU renderer, gltex, which drew through GL on the C reference's drm3d display backend. ADR-1300 D6 already decides how the GPU path stores glyphs and blends a cell: gltex's four pools, under the CPU path's budgets, and a shader that does the CPU path's integer arithmetic so both paths draw the same bytes. ADR-1401 D2 decides how a frame reaches a display: the display lends its buffer to the head's render thread as a token, and on the GPU path the thread imports that buffer as an EGL image and draws into it.
+vtium's GPU path takes the place of the C reference's GPU renderer, gltex, which drew through GL on the C reference's drm3d display backend, and goes past it. gltex is the record of how the C reference set up EGL and GBM, what failed and how it fell back; it is not a limit on the pipeline, and no slot is narrowed to fit what gltex did. ADR-1300 D6 already decides how the GPU path stores glyphs and blends a cell: gltex's four pools, under the CPU path's budgets, and a shader that does the CPU path's integer arithmetic so both paths draw the same bytes. ADR-1401 D2 decides how a frame reaches a display: the display lends its buffer to the head's render thread as a token, and on the GPU path the thread imports that buffer as an EGL image and draws into it.
 
 The maintainer decided on 2026-11-03 how a frame flows through the GPU path, as a pipeline of slots, so that later work, such as color correction or a CRT look, fills a slot without changing the frame's structure (the frame shader's issue waits on this record). This record writes that pipeline down with each slot's inputs and its no-op, and decides what the pipeline needs around it: where unsafe GL code lives, which crates bind GL, EGL and GBM, how vtium chooses between the CPU and GPU paths, and what vtium calls each path in its log. Nothing of the GPU path is built yet, and the section on the starting state lists what the code holds today.
 
@@ -198,7 +198,7 @@ The line vtium logs for each display it draws names the path that draws it, whic
 
 The work this record governs builds the pipeline with every optional slot holding its no-op, and both picture steps. Each step that later fills the color or spatial slot comes in an issue of its own, which decides what D4 and D5 leave to it.
 
-The work comes in slices. Slices 1 to 6 need nothing from the seat work, the work that opens devices through libseat, and slice 7 waits for it. The slices below are this record's agent's proposal; the maintainer and the steering session set the final order.
+The work comes in slices. Slices 1 to 6 build and test on their own, and slice 7 waits for the work that builds outline-font text and re-baselines its goldens. The content of slices 1 to 6 is this record's agent's proposal; the maintainer and the steering session set the final order.
 
 1. **The trait and the skeleton.** vtium-render's `gpu` feature, the `Gl` trait, the stand-in GL, and the five slots wired with their no-ops.
 2. **EGL and GBM.** vtium-platform's `gpu` feature: the render node, GBM, EGL, the context, the `Gl` implementation over glow, the GPU kind of buffer token and the dma-buf import.
@@ -206,7 +206,7 @@ The work comes in slices. Slices 1 to 6 need nothing from the seat work, the wor
 4. **The turn.** Present at all four orientations; a turned grid on the same pixels as the CPU path's; a set-up that fails during a turn tried again and the frame redrawn.
 5. **Pictures.** Both picture steps, the CPU copy matched byte for byte, GPU scaling within the tolerance at every scale, a picture shrunk past 2:1 among them.
 6. **Choosing the path.** `hwaccel` acted on, the fall-back at start and during a run, the staging copy, and the renderer's name in the log.
-7. **Tier 3's GL variant.** The `gl-1280x800` variant passes on vtium under virgl.
+7. **Tier 3's GL variant.** The `gl-1280x800` variant passes on vtium under virgl. It waits for the outline-font work because its goldens are outline-font text: the C reference drew them with gltex and the pango engine in DejaVu Sans Mono at 16 (`tools/tier3/guest/kmscon-gl.conf:4-6`, the goldens copied from the C fork's `fork/tier3/golden/gl-1280x800/` at b1f7a7c5 in `tools/tier3/provenance.tsv`), and vtium's text screens fail the C reference's outline-font goldens on the font until that work re-baselines them (`tools/tier3/README.md`, the paragraph on `make tier3`). Which goldens then judge the GL variant is Open questions, item 8.
 
 ## The starting state
 
@@ -215,7 +215,7 @@ This record's agent checked each line against integration at 6d706694 on 2026-11
 - No crate has a `gpu` feature. vtium-render's features are `performance-cache` and `images`; vtium-platform's are `logind` and `images`; the binary's are `images` and `logind`.
 - No manifest and no line of `Cargo.lock` names glow, an EGL binding or a GBM binding.
 - vtium-render forbids unsafe code (`crates/vtium-render/src/lib.rs:1`), and keeps doing so under D7.
-- The scaled-copy cache's key already names a picture's pixels by its image, its frame and its pixel revision (`crates/vtium-render/src/picture/copies.rs:21-31`), as ADR-1102 D3 decides. The gap check before this record found the key at an older path without the frame and the pixel revision; the work on animation frames closed that gap, and the GPU path's textures key on the same three values.
+- The scaled-copy cache's key already names a picture's pixels by its image, its frame and its pixel revision (`crates/vtium-render/src/picture/copies.rs:21-31`), as ADR-1102 D3 decides. The gap check before this record found the key at an older path without the frame and the pixel revision; commit 51a4d284 closed that gap, and the GPU path's textures key on the same three values.
 - The log line for each display hard-codes `text renderer [bbulk]` (`crates/vtium/src/app.rs:1195`).
 - The `hwaccel` key exists, off by default, among the keys not built yet (`crates/vtium/src/config/keys.rs:565-574`, `crates/vtium/src/config/keys.rs:1510`), and `vtium check-config` warns "hwaccel is not built yet; vtium draws in software" (`crates/vtium/src/notice.rs:180`).
 - The display's buffer token has its CPU kind only; its comment says the GPU kind is not built (`crates/vtium-platform/src/display/token.rs:17-19`).
@@ -223,10 +223,15 @@ This record's agent checked each line against integration at 6d706694 on 2026-11
 
 ## Where vtium departs from the C reference
 
+The pipeline goes past gltex in each item below. The first four have no counterpart in gltex at all.
+
+- **A color slot and a spatial slot,** reserved on the GPU path and folded into its one present pass, and a color slot on the CPU path too. gltex had nowhere to put a color correction or an effect.
+- **Two picture steps,** one of them drawing the CPU path's scaled copy so the whole GPU frame can be checked byte for byte; gltex had one way to draw a picture, and its pixels were never compared with bbulk's.
+- **The CPU path's pixels.** The GPU path blends with the CPU path's integer arithmetic (ADR-1300 D6); gltex's float blend could differ from bbulk's by rounding.
+- **Composition draws only what changed,** into an upright frame kept between frames; gltex cleared and redrew the whole screen every frame.
 - **The turn happens once, at present,** on a finished upright frame, where gltex rotated every quad in its vertex shader. The turned grid sits on the CPU path's pixels.
 - **A turn keeps the GPU's glyphs and pictures.** gltex dropped and rebuilt all its GL state on a turn.
 - **A scaled picture is filtered as the CPU path filters it,** within a tolerance, a picture shrunk past 2:1 included; gltex sampled every scaled picture bilinear and skipped texels past 2:1.
-- **The upright frame is kept,** so the composition draws only what changed; gltex cleared and redrew the whole screen every frame.
 - **A display always draws.** A failed GPU set-up or a GPU failure during a run puts the head on the CPU path; the C reference gave a display no screen when gltex could not be made, and a failed gltex set-up drew nothing until it succeeded.
 - **The render thread draws through a render node** into buffers the display lends, where drm3d drew through EGL window surfaces on the card itself (ADR-1401 D2 records the buffers).
 - **No `mediump` fall-back.** A GPU without `highp` in fragment shaders draws on the CPU path (ADR-1300 D6); gltex drew with `mediump`.
@@ -251,7 +256,8 @@ Each item is left open for the maintainer, with this record's recommendation.
 4. **How large the picture textures may grow, and what a picture too large for a texture does.** *Recommendation:* the textures of both picture steps count against ADR-1100 D5's per-display bound, twice the display's screen in RGBA, and a picture whose own pixels pass that bound or the GPU's largest texture is drawn from the CPU copy, at its drawn size, as gltex fell back to a texture at the drawn size. That one picture then matches the CPU path byte for byte.
 5. **Linking the GPU libraries or loading them at start.** Linked, a `gpu` build does not start on a machine without libEGL and libgbm. Loaded when the GPU path starts, the same build runs there on the CPU path, at the cost of a small loader for libgbm's few calls in place of the gbm crate, and more unsafe code. *Recommendation:* load them at start, so a packager ships one `gpu` build to every machine.
 6. **Trying the GPU again after a failure during a run.** *Recommendation:* not within the run; a failure mid-run is a driver fault that a retry is likely to meet again, and flipping between paths would show the user two renderers. The second probe asks the maintainer.
-7. **The renderer's names in the log.** The C reference's names, `bbulk` for the CPU path and `gltex` for the GPU path, are what tier 3's variants look for and what the C reference's logs show. vtium's own names, such as `cpu` and `gpu`, say plainly what draws, and need tier 3's variants changed. *Recommendation:* keep `bbulk` and `gltex`, since docs/architecture.md already maps each vtium path to the C component it replaces.
+7. **The renderer's names in the log.** The C reference's names, `bbulk` for the CPU path and `gltex` for the GPU path, are what tier 3's variants look for and what the C reference's logs show. vtium's own names, such as `cpu` and `gpu`, say plainly what draws, and need the `renderer` field of tier 3's variants changed in one place (`tools/tier3/t3_scenario.py`). *Recommendation:* vtium's own names. vtium's GPU path draws the CPU path's pixels through a pipeline gltex never had, so a log that says `gltex` tells its reader something false.
+8. **Which goldens judge tier 3's GL variant.** The C reference's GL goldens were drawn by gltex, whose floating-point blend could differ from bbulk's by rounding (ADR-1300 D6), and vtium's GPU path draws the CPU path's pixels. The GL variant's configuration differs from `2d-1280x800`'s only by `hwaccel` (`tools/tier3/guest/kmscon.conf`, `kmscon-gl.conf`), at the same size. The outline-font work's scope names the goldens of tier 3's 2D variants and not the GL one's. *Recommendation:* judge `gl-1280x800` against `2d-1280x800`'s re-baselined goldens, since the two paths agree byte for byte, and keep the C reference's GL goldens as a record of what gltex drew; the maintainer decides it with the outline-font work's re-baseline.
 
 ## Consequences
 
