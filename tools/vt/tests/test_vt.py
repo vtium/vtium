@@ -31,6 +31,8 @@ import unittest
 
 # The longest any test waits on another process. It only makes a broken test fail instead of hanging.
 WAIT_BOUND = 120
+# The same for a run of make, which may build with cargo on a loaded machine.
+BUILD_BOUND = 1800
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 VT = os.path.join(ROOT, "tools", "vt")
@@ -1572,7 +1574,7 @@ class VtSh(Case):
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-check", "GUIDE=start",
                             f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}", "VT=4"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=answers, ACTIVE_UNITS="getty@tty4.service"),
-                           capture_output=True, text=True, timeout=WAIT_BOUND)
+                           capture_output=True, text=True, timeout=BUILD_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         log = read(os.path.join(self.s.dir, "vt-check.log"))
         self.assertRegex(log, r"=== vtium starts and runs a shell, .*, guide " + os.path.join(VT, "checks", "start.guide"))
@@ -1624,7 +1626,7 @@ class VtSh(Case):
                             f"VTIUM_CONFIG_BIN={self.s.helper}", "VT=4"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell,
                                           ACTIVE_UNITS="getty@tty4.service"),
-                           capture_output=True, text=True, timeout=WAIT_BOUND)
+                           capture_output=True, text=True, timeout=BUILD_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         log = os.path.join(self.s.dir, "vt-") + r"[0-9T]+-tty4-\w{6}"
         self.assertRegex(p.stdout, r"health: 0 'panicked at' lines in vtium's log\n"
@@ -1658,7 +1660,7 @@ class Make(Case):
         if not any(a.startswith(("VTIUM_IMAGE_BIN=", "IMAGE_RELEASE=")) for a in args) and "VTIUM_IMAGE_BIN" not in env:
             args = (*args, f"VTIUM_IMAGE_BIN={self.s.image}")
         return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
-                              capture_output=True, text=True, timeout=WAIT_BOUND, start_new_session=True)
+                              capture_output=True, text=True, timeout=BUILD_BOUND, start_new_session=True)
 
     def test_help_lists_the_targets(self):
         p = self.make("help")
@@ -2568,7 +2570,7 @@ exec "$@"
             with self.subTest(target=target):
                 open(self.s.calls, "w").close()
                 p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, target, "VT=4", "DRY_RUN=1"],
-                                   env=real, capture_output=True, text=True, timeout=WAIT_BOUND)
+                                   env=real, capture_output=True, text=True, timeout=BUILD_BOUND)
                 self.assertNotEqual(p.returncode, 0)
                 self.assertIn(f"{target}: run it as yourself, not as root", p.stderr)
                 self.assertEqual(self.s.calls_of("cargo"), [])
@@ -2585,7 +2587,7 @@ exec "$@"
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
                             f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}"], env=self.s.env(**sudo_uid),
-                           capture_output=True, text=True, timeout=WAIT_BOUND)
+                           capture_output=True, text=True, timeout=BUILD_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
     def test_make_as_root_under_the_stand_ins_builds_nothing(self):
@@ -2593,7 +2595,7 @@ exec "$@"
         # make -n prints each recipe it would run and runs none, so a build
         # that make does not refuse shows in its output.
         p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1"],
-                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=BUILD_BOUND)
         self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("vt-install: as root under the tests' stand-ins, name the binary and the helper with VTIUM_BIN=PATH VTIUM_CONFIG_BIN=PATH", p.stderr)
         self.assertNotIn("cargo", p.stdout)
@@ -2602,13 +2604,13 @@ exec "$@"
         for named in (f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}"):
             with self.subTest(named=named):
                 p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
-                                    named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
+                                    named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=BUILD_BOUND)
                 self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
                 self.assertIn("name the binary and the helper", p.stderr)
                 self.assertNotIn("cargo", p.stdout)
         # vt-uninstall builds nothing, so it reaches the script.
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-uninstall", "VT=4", "DRY_RUN=1"],
-                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=BUILD_BOUND)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("make vt-install did not install vtium on VT 4", p.stderr)
 
@@ -2667,7 +2669,7 @@ exec "$@"
 
     def test_make_runs_it_with_the_binary_named_and_no_build(self):
         make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, *a],
-                                              env=self.s.env(**e), capture_output=True, text=True, timeout=WAIT_BOUND)
+                                              env=self.s.env(**e), capture_output=True, text=True, timeout=BUILD_BOUND)
         p = make("vt-install", "VT=4", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("restart vtium-dev@tty4.service", p.stdout)
@@ -2697,7 +2699,7 @@ exec "$@"
         # which the stand-in cargo "builds".
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
                             f"VTIUM_DEV={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}"],
-                           env=self.s.env(), capture_output=True, text=True, timeout=WAIT_BOUND)
+                           env=self.s.env(), capture_output=True, text=True, timeout=BUILD_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         builds = self.s.calls_of("cargo")
         # The console starts its helper at the installed helper's path, and
@@ -2845,7 +2847,7 @@ exec "$@"
         # make vt-dev-console checks the built console for the same line,
         # read from vt-install.sh.
         p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-dev-console", "FEATURES=images"],
-                           env=self.s.env(), capture_output=True, text=True, timeout=WAIT_BOUND)
+                           env=self.s.env(), capture_output=True, text=True, timeout=BUILD_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f"grep -qaF '{marker}' ", p.stdout)
 
@@ -3037,7 +3039,7 @@ fi
                                f"VTIUM_DEV={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}",
                                f"IMAGE_RELEASE={self.s.image}"],
                               env=self.s.env(CARGO_SRC=src, CARGO_OUT=self.s.bin, **env),
-                              capture_output=True, text=True, timeout=WAIT_BOUND)
+                              capture_output=True, text=True, timeout=BUILD_BOUND)
 
     def test_make_builds_a_console_with_pictures_and_its_image_helper(self):
         p = self.make_vt_install("FEATURES=images")
@@ -3084,7 +3086,7 @@ fi
         self.pictures()
         make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
                                                f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}", *a],
-                                              env=self.s.env(**e), capture_output=True, text=True, timeout=WAIT_BOUND)
+                                              env=self.s.env(**e), capture_output=True, text=True, timeout=BUILD_BOUND)
         p = make(f"VTIUM_IMAGE_BIN={self.s.image}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f"+ sudo install -D -m 0755 -- {self.s.image} ", p.stdout)
@@ -3097,14 +3099,14 @@ fi
         sudo_uid = self.as_root()
         named = (f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}")
         p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
-                            "FEATURES=images", *named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
+                            "FEATURES=images", *named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=BUILD_BOUND)
         self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("with images in FEATURES the image helper with VTIUM_IMAGE_BIN=PATH", p.stderr)
         self.assertNotIn("cargo", p.stdout)
         self.pictures()
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
                             "FEATURES=images", *named, f"VTIUM_IMAGE_BIN={self.s.image}"],
-                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=BUILD_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f"+ sudo {self.s.standins}/systemd-sysusers {self.at(self.SYSUSERS)}", p.stdout)
         # As root, the systemd-sysusers it runs is a stand-in only root or
@@ -3158,7 +3160,7 @@ class Package(Case):
 
     def make(self, *args, **env):
         return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
-                              capture_output=True, text=True, timeout=WAIT_BOUND, start_new_session=True)
+                              capture_output=True, text=True, timeout=BUILD_BOUND, start_new_session=True)
 
     def staged(self):
         out = []
