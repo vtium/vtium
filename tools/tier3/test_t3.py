@@ -4338,6 +4338,8 @@ class PictureGoldenTest(unittest.TestCase):
 
     VARIANT = "images-640x480"
     BLACK = (0, 0, 0)
+    # The default foreground, which the text over the pictures is drawn in.
+    GLYPH = (229, 229, 229)
 
     def golden(self, screen):
         return t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT, screen + ".png"))
@@ -4365,6 +4367,17 @@ class PictureGoldenTest(unittest.TestCase):
         self.assertEqual(wrong[:4], [], "%s at column %d, row %d: %d pixels differ"
                          % (name, col, row, len(wrong)))
 
+    def shows_through(self, img, name, col, row):
+        """Assert text drawn under picture `name`, placed at cell (`col`,
+        `row`), shows where the picture is clear: some of its clear pixels
+        are glyph pixels."""
+        pic = t3_pictures.PICTURES[name]
+        left, top = (col - 1) * 8, (row - 1) * 16
+        lit = [(x, y) for y, line in enumerate(pic.pixels) for x, p in enumerate(line)
+               if p is None and self.pixel(img, left + x, top + y) == self.GLYPH]
+        self.assertTrue(lit, "no text shows through %s's clear pixels at column %d, row %d"
+                        % (name, col, row))
+
     def blank(self, img, col, row, cols, rows):
         """Assert the cells from (`col`, `row`), `cols` by `rows`, are black."""
         left, top = (col - 1) * 8, (row - 1) * 16
@@ -4376,6 +4389,7 @@ class PictureGoldenTest(unittest.TestCase):
         img = self.golden("img-sixel")
         self.placed(img, "quad", 5, 3)
         self.placed(img, "disc", 44, 3)
+        self.shows_through(img, "disc", 44, 3)
 
     def test_kitty(self):
         img = self.golden("img-kitty")
@@ -4417,6 +4431,13 @@ class PictureGoldenTest(unittest.TestCase):
         # on the rows nothing was written on
         self.placed(img, "quad", 23, 3)
         self.placed(img, "quad", 43, 3, rows=list(range(0, 16)) + list(range(32, 48)))
+        # on row 4 of the picture below text, columns 43 to 50, the # glyphs
+        # are drawn over the picture, which shows between them
+        seen = {self.pixel(img, x, y) for x in range(42 * 8, 50 * 8) for y in range(48, 64)}
+        self.assertIn(self.GLYPH, seen)
+        self.assertTrue({t3_pictures.eight(c) for c in (t3_pictures.RED, t3_pictures.GREEN,
+                                                        t3_pictures.BLUE, t3_pictures.YELLOW)}
+                        <= seen)
 
     def test_delete(self):
         img = self.golden("img-delete")
@@ -4449,6 +4470,7 @@ class PictureGoldenTest(unittest.TestCase):
         img = self.golden("img-png")
         self.placed(img, "quad", 3, 3)
         self.placed(img, "disc", 23, 3)
+        self.shows_through(img, "disc", 23, 3)
         self.placed(img, "quad", 43, 3)
         self.placed(img, "quad", 63, 3)
 
