@@ -150,6 +150,25 @@ pub fn gather(paths: &Paths) -> Result<Inputs, String> {
     })
 }
 
+/// The TUI's painter: a font's specimen, drawn by the glyph helper this
+/// binary is, from the frit in `frits` or the built-in font of that name.
+fn painter(frits: PathBuf) -> port::Painter {
+    Box::new(move |font, height| {
+        let text = if RESERVED.contains(&font) {
+            format!("source=builtin:{font}\n")
+        } else {
+            let path = frits.join(format!("{font}.vtfrit"));
+            Frit::load(&path).map_err(|e| e.to_string())?.text
+        };
+        let program = std::env::current_exe().map_err(|e| e.to_string())?;
+        let frit = crate::serve::FritText {
+            name: font.to_owned(),
+            text,
+        };
+        crate::specimen::draw(&program, &frit, height)
+    })
+}
+
 /// Opens the TUI on the terminal and runs it until the user leaves;
 /// returns the exit status.
 pub fn run(paths: &Paths, err: &mut dyn std::io::Write) -> u8 {
@@ -161,7 +180,7 @@ pub fn run(paths: &Paths, err: &mut dyn std::io::Write) -> u8 {
         }
     };
     let saver = crate::apply::saver(paths.clone());
-    let mut tty = match port::Tty::open(saver) {
+    let mut tty = match port::Tty::open(saver, painter(paths.frits.clone())) {
         Ok(tty) => tty,
         Err(e) => {
             let _ = writeln!(err, "vtium-config: the terminal: {e}");

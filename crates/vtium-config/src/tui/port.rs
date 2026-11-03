@@ -56,6 +56,8 @@ pub trait Port {
     fn save(&mut self, plan: &Plan) -> Result<usize, String>;
     /// What to write if the TUI panics: the switch back to the start font.
     fn on_panic(&mut self, bytes: Vec<u8>);
+    /// The specimen of the font `font` at `height` pixels.
+    fn picture(&mut self, font: &str, height: u32) -> Result<crate::specimen::Picture, String>;
 }
 
 /// Alternate screen, cursor hidden; and back.
@@ -79,6 +81,10 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                     Effect::Exit(status) => {
                         port.on_panic(give_back(&app));
                         return Ok(status);
+                    }
+                    Effect::Picture { font, height } => {
+                        let picture = port.picture(&font, height);
+                        queue.extend(app.event(Event::Pictured(picture)));
                     }
                     Effect::Save(plan) => {
                         port.write(&view::paint(&view::screen(&app)))?;
@@ -149,9 +155,13 @@ struct Woken {
     wakes: Vec<Wake>,
 }
 
+/// Draws a font's specimen at a pixel height.
+pub type Painter = Box<dyn FnMut(&str, u32) -> Result<crate::specimen::Picture, String>>;
+
 /// The terminal on standard input and output.
 pub struct Tty {
     saver: Saver,
+    painter: Painter,
     input: OwnedFd,
     raw: Termios,
     saved: Termios,
@@ -171,7 +181,7 @@ impl Tty {
     /// Takes the terminal: raw mode, the alternate screen, the signals
     /// held. `saver` writes a draft and runs the privileged step through
     /// the runner it is given.
-    pub fn open(saver: Saver) -> io::Result<Tty> {
+    pub fn open(saver: Saver, painter: Painter) -> io::Result<Tty> {
         let input = rustix::io::dup(std::io::stdin().as_fd())?;
         let saved = tcgetattr(&input)?;
         let mut raw = saved.clone();
@@ -227,6 +237,7 @@ impl Tty {
         }));
         let mut tty = Tty {
             saver,
+            painter,
             input,
             raw,
             saved,
@@ -359,6 +370,10 @@ impl Port for Tty {
         let result = (self.saver)(plan, &mut run);
         self.cooked(false).map_err(|e| e.to_string())?;
         result
+    }
+
+    fn picture(&mut self, font: &str, height: u32) -> Result<crate::specimen::Picture, String> {
+        (self.painter)(font, height)
     }
 
     fn on_panic(&mut self, bytes: Vec<u8>) {

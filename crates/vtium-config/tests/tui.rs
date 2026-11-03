@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use vtium_config::draft::Plan;
+use vtium_config::kitty;
+use vtium_config::specimen::Picture;
 use vtium_config::tui::model::{self, DpiFrom, Font, FontState, Inputs};
 use vtium_config::tui::port::{Port, Wake, drive};
 use vtium_term::Glyph;
@@ -49,6 +51,11 @@ struct Console {
     /// The screen when the script ran out, after which the console sends
     /// SIGTERM.
     seen: Option<String>,
+    /// The console answers kitty's graphics query, as vtium built with
+    /// `images` does.
+    graphics: bool,
+    /// Each specimen the TUI asked for: the font and the pixel height.
+    pictures: Vec<(String, u32)>,
 }
 
 impl Console {
@@ -77,6 +84,8 @@ impl Console {
             save_result: Ok(1),
             panic_bytes: Vec::new(),
             seen: None,
+            graphics: false,
+            pictures: Vec::new(),
         }
     }
 
@@ -153,7 +162,16 @@ impl Port for Console {
                     }
                     rest = &rest[taken..];
                 }
-                let replies = t.take_replies();
+                let mut replies = t.take_replies();
+                if self.graphics && bytes.windows(4).any(|w| w == b"a=q,") {
+                    // the graphics query's answer comes before DA1's
+                    let at = replies
+                        .windows(3)
+                        .position(|w| w == b"\x1b[?")
+                        .unwrap_or(replies.len());
+                    let ok = format!("\x1b_Gi={};OK\x1b\\", model::QUERY_ID);
+                    replies.splice(at..at, ok.into_bytes());
+                }
                 if !replies.is_empty() {
                     self.pending.push_back(Wake::Bytes(replies));
                 }
@@ -210,6 +228,15 @@ impl Port for Console {
 
     fn on_panic(&mut self, bytes: Vec<u8>) {
         self.panic_bytes = bytes;
+    }
+
+    fn picture(&mut self, font: &str, height: u32) -> Result<Picture, String> {
+        self.pictures.push((font.to_owned(), height));
+        Ok(Picture {
+            width: 2,
+            height: 1,
+            rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
+        })
     }
 }
 
@@ -631,4 +658,89 @@ fn a_failed_command_s_words_show_in_the_save_view() {
         screen.contains("font-size=\"lots\" is not a whole number"),
         "{screen}"
     );
+}
+
+/// The bytes that show the stand-in's picture at the size view's place.
+fn shown() -> Vec<u8> {
+    let mut b = b"\x1b[4;26H".to_vec();
+    b.extend(kitty::show(
+        kitty::IMAGE_ID,
+        2,
+        1,
+        &[255, 0, 0, 255, 0, 0, 255, 255],
+    ));
+    b
+}
+
+fn count(haystack: &[u8], needle: &[u8]) -> usize {
+    haystack
+        .windows(needle.len())
+        .filter(|w| *w == needle)
+        .count()
+}
+
+#[test]
+fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
+    let mut c = console().keys(&[b"\t", DOWN, DOWN, b"\t", b"q"]);
+    c.graphics = true;
+    assert_eq!(run(&mut c), 0);
+    // 6 pt and 7 pt at 96 dpi, unifont highlighted in the font view
+    assert_eq!(
+        c.pictures,
+        [("unifont".to_owned(), 8), ("unifont".to_owned(), 9)]
+    );
+    assert_eq!(
+        kitty::show(kitty::IMAGE_ID, 2, 1, &[255, 0, 0, 255, 0, 0, 255, 255]),
+        b"\x1b_Ga=T,f=32,t=d,i=1201,s=2,v=1,C=1,q=2,m=0;/wAA/wAA//8=\x1b\\"
+    );
+    assert_eq!(count(&c.written, &shown()), 2);
+    // deleted when the next size comes and when the view is left
+    assert_eq!(count(&c.written, &kitty::delete(kitty::IMAGE_ID)), 2);
+    let last_show = c
+        .written
+        .windows(shown().len())
+        .rposition(|w| w == shown())
+        .expect("shown");
+    let last_delete = c
+        .written
+        .windows(kitty::delete(kitty::IMAGE_ID).len())
+        .rposition(|w| w == kitty::delete(kitty::IMAGE_ID))
+        .expect("deleted");
+    assert!(last_delete > last_show, "the last picture is deleted");
+}
+
+#[test]
+fn leaving_with_a_picture_deletes_it_before_the_font_comes_back() {
+    let mut c = console().keys(&[UP, b"\t", DOWN, b"q"]);
+    c.graphics = true;
+    assert_eq!(run(&mut c), 0);
+    let text = String::from_utf8_lossy(&c.written).into_owned();
+    let delete = text
+        .rfind("\x1b_Ga=d,d=I,i=1201,q=2\x1b\\")
+        .expect("deleted");
+    let back = text.rfind("\x1b]50;unifont\x1b\\").expect("the font back");
+    assert!(delete < back, "deleted, then the font given back");
+}
+
+#[test]
+fn automatic_has_no_picture() {
+    let mut c = console().keys(&[b"\t", DOWN, UP]);
+    c.graphics = true;
+    run(&mut c);
+    assert_eq!(c.pictures.len(), 1, "6 pt only");
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        screen.contains("Automatic lets vtium pick the size"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn without_kitty_graphics_no_picture_is_sent_and_the_view_says_so() {
+    let mut c = console().keys(&[b"\t", DOWN, DOWN]);
+    run(&mut c);
+    assert!(c.pictures.is_empty());
+    assert_eq!(count(&c.written, b"\x1b_Ga=T"), 0);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("draws no pictures"), "{screen}");
 }

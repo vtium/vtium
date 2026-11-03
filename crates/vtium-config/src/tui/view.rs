@@ -8,7 +8,7 @@
 //! previewed font can leave, draws one line naming the font and the keys
 //! that keep it or go back, so the user can always get out.
 
-use super::model::{App, FontState, Live, SETTING_KEYS, SIZES, View};
+use super::model::{App, DpiFrom, FontState, Live, SETTING_KEYS, SIZES, View};
 use super::words;
 use crate::draft::changes;
 
@@ -127,9 +127,19 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                     }
                 })
                 .collect();
+            rows.push(plain(""));
             if !app.graphics {
-                rows.push(plain(""));
                 rows.push(plain(format!(" {}", words::NO_PICTURES)));
+            } else if app.size() == 0 {
+                rows.push(plain(format!(" {}", words::AUTOMATIC_PICTURE)));
+            } else {
+                let (dpi, from) = app.inputs.dpi;
+                let from = match from {
+                    DpiFrom::Conf => words::DPI_FROM_CONF,
+                    DpiFrom::Edid => words::DPI_FROM_EDID,
+                    DpiFrom::Assumed => words::DPI_ASSUMED,
+                };
+                rows.push(plain(format!(" {}", words::density(dpi, from))));
             }
             (rows, app.size_at)
         }
@@ -226,6 +236,12 @@ fn save_rows(app: &App) -> Vec<Row> {
         )));
     }
     rows
+}
+
+/// Where the size view's picture goes, row and column from 1: beside the
+/// list of sizes, below the rule under the tabs.
+pub fn picture_at(_app: &App) -> (usize, usize) {
+    (4, 26)
 }
 
 /// The screen for `app`: exactly `app.rows` rows, none wider than

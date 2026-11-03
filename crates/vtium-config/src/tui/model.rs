@@ -97,6 +97,8 @@ pub enum Event {
     Timeout,
     /// The save ended: the files written, or why none was.
     Saved(Result<usize, String>),
+    /// The specimen [`Effect::Picture`] asked for, or why there is none.
+    Pictured(Result<crate::specimen::Picture, String>),
 }
 
 /// One thing the loop does for the state machine.
@@ -110,6 +112,9 @@ pub enum Effect {
     /// Writes the draft and runs the privileged step, then sends
     /// [`Event::Saved`].
     Save(Plan),
+    /// Draws the specimen of the font `font` at `height` pixels, then
+    /// sends [`Event::Pictured`].
+    Picture { font: String, height: u32 },
     /// Leaves, with this exit status.
     Exit(u8),
 }
@@ -216,6 +221,8 @@ pub struct App {
     pub saving: bool,
     /// The TUI is leaving with this status once the font is back.
     pub leaving: Option<u8>,
+    /// A specimen picture is on the screen.
+    pub picture: bool,
     /// OSC 50 replies still due before the TUI may leave.
     replies_due: usize,
 }
@@ -250,6 +257,7 @@ impl App {
             report: Vec::new(),
             saving: false,
             leaving: None,
+            picture: false,
             replies_due: 0,
         };
         (app, vec![Effect::Write(probe()), Effect::Wait(WAIT)])
@@ -329,7 +337,62 @@ impl App {
             }
             Event::Timeout => self.timeout(),
             Event::Saved(result) => self.saved(result),
+            Event::Pictured(result) => self.pictured(result),
         }
+    }
+
+    /// The size the size view highlights, in points, 0 for automatic.
+    pub fn size(&self) -> u32 {
+        match self.size_at {
+            0 => 0,
+            i => SIZES.get(i.saturating_sub(1)).copied().unwrap_or(0),
+        }
+    }
+
+    /// The specimen for the highlighted size, where the terminal draws
+    /// kitty graphics and the size is not automatic; otherwise the picture
+    /// on the screen, if any, is deleted.
+    fn ask_picture(&mut self) -> Vec<Effect> {
+        let font = self.font().map(|f| f.name.clone());
+        match (self.view, self.graphics, self.size(), font) {
+            (View::Sizes, true, points @ 1.., Some(font)) => vec![Effect::Picture {
+                font,
+                height: crate::specimen::pixel_height(points, self.inputs.dpi.0),
+            }],
+            _ => self.drop_picture(),
+        }
+    }
+
+    /// Deletes the picture on the screen, if any.
+    fn drop_picture(&mut self) -> Vec<Effect> {
+        if std::mem::take(&mut self.picture) {
+            vec![Effect::Write(crate::kitty::delete(crate::kitty::IMAGE_ID))]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn pictured(&mut self, result: Result<crate::specimen::Picture, String>) -> Vec<Effect> {
+        let mut out = self.drop_picture();
+        if self.view != View::Sizes || self.leaving.is_some() {
+            return out;
+        }
+        match result {
+            Ok(p) => {
+                let (row, col) = super::view::picture_at(self);
+                let mut bytes = format!("\x1b[{row};{col}H").into_bytes();
+                bytes.extend(crate::kitty::show(
+                    crate::kitty::IMAGE_ID,
+                    p.width,
+                    p.height,
+                    &p.rgba,
+                ));
+                self.picture = true;
+                out.push(Effect::Write(bytes));
+            }
+            Err(why) => self.message = Some(super::words::no_picture(why)),
+        }
+        out
     }
 
     fn reply(&mut self, reply: Reply) -> Vec<Effect> {
@@ -430,9 +493,17 @@ impl App {
             return Vec::new();
         }
         let changed = self.in_flight.is_some() || self.shown_font != self.start_font;
+        let mut bytes = self
+            .drop_picture()
+            .into_iter()
+            .flat_map(|e| match e {
+                Effect::Write(b) => b,
+                _ => Vec::new(),
+            })
+            .collect::<Vec<u8>>();
         match (&self.live, &self.start_font) {
             (Live::On, Some(start)) if changed => {
-                let bytes = switch(start);
+                bytes.extend(switch(start));
                 self.replies_due = usize::from(self.in_flight.is_some()).saturating_add(1);
                 self.leaving = Some(status);
                 self.message = Some(super::words::LEAVING.to_owned());
@@ -440,7 +511,12 @@ impl App {
             }
             _ => {
                 self.leaving = Some(status);
-                vec![Effect::Exit(status)]
+                let mut out = Vec::new();
+                if !bytes.is_empty() {
+                    out.push(Effect::Write(bytes));
+                }
+                out.push(Effect::Exit(status));
+                out
             }
         }
     }
@@ -461,11 +537,13 @@ impl App {
                     at.saturating_add(n).saturating_sub(1) % n
                 };
                 self.view = View::TABS.get(next).copied().unwrap_or(View::Fonts);
-                return self.follow();
+                let mut out = self.ask_picture();
+                out.extend(self.follow());
+                return out;
             }
             Key::Char('s') if self.view != View::Save => {
                 self.view = View::Save;
-                return Vec::new();
+                return self.drop_picture();
             }
             Key::Char('o') if self.live == Live::OpsOff => {
                 self.pending.allow_font_ops = Some(true);
@@ -478,15 +556,16 @@ impl App {
             View::Fonts => self.fonts_key(key),
             View::Sizes => {
                 let n = SIZES.len().saturating_add(1);
+                let before = self.size_at;
                 self.size_at = step(self.size_at, n, key);
                 if key == Key::Enter {
-                    let size = match self.size_at {
-                        0 => 0,
-                        i => SIZES.get(i.saturating_sub(1)).copied().unwrap_or(0),
-                    };
-                    self.pending.font_size = Some(size);
+                    self.pending.font_size = Some(self.size());
                 }
-                Vec::new()
+                if self.size_at == before {
+                    Vec::new()
+                } else {
+                    self.ask_picture()
+                }
             }
             View::Settings => {
                 self.setting_at = step(self.setting_at, SETTING_KEYS.len(), key);

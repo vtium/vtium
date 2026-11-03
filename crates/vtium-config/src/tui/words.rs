@@ -50,6 +50,11 @@ pub const NO_PICTURES: &str =
 pub fn density(dpi: u32, from: impl Display) -> String {
     format!("Pictures are drawn at {dpi} dpi, {from}.")
 }
+pub fn no_picture(why: impl Display) -> String {
+    format!("No picture of this size: {why}")
+}
+pub const AUTOMATIC_PICTURE: &str =
+    "Automatic lets vtium pick the size from the display, so it has no picture.";
 pub const DPI_FROM_CONF: &str = "from vtium.conf's display-dpi";
 pub const DPI_FROM_EDID: &str = "measured from the display";
 pub const DPI_ASSUMED: &str = "assumed, since no display reports its size";
