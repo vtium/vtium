@@ -3121,15 +3121,18 @@ fn keys_at_an_ended_console_start_nothing() {
     assert_eq!(s.app.finished(), None, "large runs on");
 }
 
-/// D1 and D5: a hidden console's program starts again at that console's
-/// own size. Console 2, zoomed to 20 by 5, is hidden behind console 1 when
-/// its program exits, and the program started again reads 5 rows of 20.
+/// D1 and D5, and ADR-1201 D11: a hidden console's program starts again
+/// at that console's own size, which its session's end returns to the
+/// configured size. Console 2, zoomed in to 20 by 5, is hidden behind
+/// console 1, zoomed out to 40 by 20, when its program exits, and the
+/// program started again reads 10 rows of 40, 16 points' grid: neither its
+/// zoom nor the shown console's.
 // covers: platform.heads
 #[test]
-fn a_hidden_console_starts_again_at_its_own_size() {
+fn a_hidden_console_starts_again_at_the_configured_size() {
     let dir = Scratch::new("heads-own-size");
     let script = format!(
-        "d={d}; echo \"size:$(stty size)\"; \
+        "d={d}; if [ -e $d/done ]; then w=again; else w=size; fi; echo \"$w:$(stty size)\"; \
          if [ $VTIUM_CONSOLE = 2 ] && [ ! -e $d/done ]; then \
          while [ ! -e $d/go ]; do sleep 0.02; done; : > $d/done; exit 0; fi; \
          while read a; do echo \"got:$a\"; done",
@@ -3146,25 +3149,44 @@ fn a_hidden_console_starts_again_at_its_own_size() {
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     let sizes = |a: &App| console_lines(a, "small", "size:");
     assert!(s.until(SECOND, |a| sizes(a).iter().all(Option::is_some)));
+    // Each key acts within the input call: the chord shows another
+    // console, the zoom lays it out again.
     let key = |s: &mut Seat, event: InputEvent| {
         s.app.device_input(Path::new(KBD_SMALL), event, now());
-        s.until(Duration::from_millis(50), |_| false);
+    };
+    let zoom = |c: char| {
+        InputEvent::Key(KeyEvent {
+            mods: Mods::CTRL,
+            ..char_key(c)
+        })
     };
     key(&mut s, ctrl_super(RIGHT));
-    let equal = InputEvent::Key(KeyEvent {
-        mods: Mods::CTRL,
-        ..char_key('=')
-    });
-    key(&mut s, equal);
-    assert_eq!(grid(&s.app, "small"), Some((20, 5)), "console 2 zoomed");
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    key(&mut s, zoom('='));
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)), "console 2 zoomed in");
     key(&mut s, ctrl_super(LEFT));
     assert_eq!(consoles(&s.app, "small"), Some((2, 0)));
+    key(&mut s, zoom('-'));
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 20)),
+        "console 1 zoomed out"
+    );
     std::fs::write(dir.join("go"), "").expect("the go mark");
-    let again = s.until(Duration::from_secs(3), |a| {
-        dir.join("done").exists() && sizes(a).get(1) == Some(&Some("size:5 20".to_owned()))
+    let again = |a: &App| console_lines(a, "small", "again:");
+    let restarted = s.until(Duration::from_secs(3), |a| {
+        again(a).get(1) == Some(&Some("again:10 40".to_owned()))
     });
-    let seen = sizes(&s.app);
-    assert!(again, "console 2 started again at 5 rows of 20: {seen:?}");
+    let seen = again(&s.app);
+    assert!(
+        restarted,
+        "console 2 started again at 10 rows of 40: {seen:?}"
+    );
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 20)),
+        "console 1 keeps its zoom"
+    );
 }
 
 /// D1, pending the operator's read (ADR-1401's item 1): every console
@@ -5888,4 +5910,506 @@ fn a_display_left_dark_at_its_bind_lights_when_the_lit_one_goes() {
         "the small dark again"
     );
     assert_eq!(s.app.cells().len(), 1);
+}
+
+/// The head file of the session-end tests: head small, of `n` consoles,
+/// on the small display, with its keyboard.
+fn small_consoles(n: usize) -> String {
+    format!(
+        "version = 1\n[head small]\nconsoles = {n}\n[rules]\ndisplay card:mem-small -> small\ninput path:kbd-small -> small\n"
+    )
+}
+
+/// What each console of the session-end tests runs: it counts its starts
+/// in `dir`'s `starts.N`, where N is its console's id, and shows its pty's
+/// size as it starts, as `size:ROWS COLS` and as `runK:ROWS COLS` for its
+/// Kth start; asks OSC 50 for the font that the file `switch.N` names, and
+/// removes the file, so the console's next session asks nothing; where
+/// `exit.N` is there, removes it and exits once `go.N` appears, removing
+/// that too; and otherwise echoes each line it reads, ending at `q`.
+fn switching(dir: &Path) -> String {
+    format!(
+        "d={d}; n=$VTIUM_CONSOLE; echo x >> $d/starts.$n; \
+         echo \"size:$(stty size)\"; echo \"run$(wc -l < $d/starts.$n):$(stty size)\"; \
+         f=$d/switch.$n; if [ -e $f ]; then x=$(cat $f); rm $f; printf \"\\033]50;$x\\007\"; fi; \
+         if [ -e $d/exit.$n ]; then rm $d/exit.$n; \
+         while [ ! -e $d/go.$n ]; do sleep 0.02; done; rm $d/go.$n; exit 0; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    )
+}
+
+/// The line console `id` of head small shows for its `run`th start, once
+/// it does.
+fn run_line(app: &App, id: usize, run: usize) -> Option<String> {
+    console_lines(app, "small", &format!("run{run}:"))
+        .get(id - 1)
+        .cloned()
+        .flatten()
+}
+
+/// A directory of its own for `test`, holding the frits a, b and c, each
+/// in its own cell, 10x20, 16x32 and 20x40, so each draws its own grid on
+/// the small display at `font-size=0`, and `conf` as its vtium.conf; the
+/// directory and the font sources, whose stand-in helper answers nothing.
+fn reset_fixture(test: &str, conf: &str) -> (Scratch, Sources) {
+    let (dir, fonts, _) = frits(test, &[]);
+    for (name, cell) in [("a", "10x20"), ("b", "16x32"), ("c", "20x40")] {
+        std::fs::write(
+            dir.join(format!("{name}.vtfrit")),
+            format!("source=kbd:x\ncell={cell}\n"),
+        )
+        .expect("a frit");
+    }
+    std::fs::write(dir.join("vtium.conf"), conf).expect("vtium.conf");
+    (dir, fonts)
+}
+
+/// The seat on the small display alone, its configuration read from
+/// `dir`'s vtium.conf with no `font-size` on its command line, running the
+/// head file `heads` with every console running [`switching`]. At a
+/// session's end the seat reads the configuration again through the same
+/// reader (ADR-1201 D11); the seat and the count of those reads.
+fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) {
+    let script = switching(dir);
+    let configdir = format!("--configdir={}", dir.display());
+    let args: Vec<OsString> = [
+        configdir.as_str(),
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        &script,
+    ]
+    .iter()
+    .map(OsString::from)
+    .collect();
+    let loaded = config::load(&args, None, &mut config::read_file);
+    assert_eq!(loaded.reports, [], "the seat's configuration");
+    let lp: Loop<App> = Loop::new().expect("a loop");
+    let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
+    let released = Rc::new(Cell::new(0));
+    let vt = CountingVt {
+        vt: FakeVt::with_number(1),
+        events: Vec::new(),
+        pending: false,
+        released: Rc::clone(&released),
+    };
+    let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), Rc::new(now), env);
+    app.set_font_sources(fonts);
+    let reads = Rc::new(Cell::new(0));
+    let counted = Rc::clone(&reads);
+    app.set_config_reader(Box::new(move || {
+        counted.set(counted.get() + 1);
+        config::load(&args, None, &mut config::read_file)
+    }));
+    app.set_heads(start(heads));
+    app.add_video(
+        PathBuf::from("/dev/mem0"),
+        Box::new(Memory::new(320, 160, "MEM-1", "mem-small")),
+    );
+    app.vt.activate().expect("the fake VT");
+    app.start();
+    app.turn(now());
+    let mut s = Seat { lp, app, released };
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    (s, reads)
+}
+
+/// The `size:` line of each console of head small, in the ring's order.
+fn sizes(app: &App) -> Vec<Option<String>> {
+    console_lines(app, "small", "size:")
+}
+
+/// Ends the session of the console small shows: a line it echoes first,
+/// then `q`, and waits for the console's next session to show its size,
+/// the line gone with the hard reset of the restart. Returns that size.
+fn end_shown_session(s: &mut Seat) -> String {
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(s.until(SECOND, |a| head_shows(a, "small", "got:x")));
+    s.type_on(KBD_SMALL, "q\r");
+    let restarted = |a: &App| {
+        !head_shows(a, "small", "got:x")
+            && a.head("small")
+                .is_some_and(|h| h.screen_text().iter().any(|l| l.starts_with("size:")))
+    };
+    assert!(s.until(SECOND, restarted), "the session started again");
+    let text = s
+        .app
+        .head("small")
+        .map(Head::screen_text)
+        .unwrap_or_default();
+    text.into_iter()
+        .find(|l| l.starts_with("size:"))
+        .unwrap_or_default()
+}
+
+/// ADR-1201 D11: an OSC 50 switch lasts for the session. When the session
+/// in the console it came from ends, vtium returns the head to the font
+/// vtium.conf configures, at its size, before the console's next session
+/// starts: the next login's pty is the configured font's grid.
+// covers: text.font-change
+#[test]
+fn a_sessions_end_returns_its_switch_to_the_configured_font() {
+    let (dir, fonts) = reset_fixture("reset-switch", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, reads) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)));
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:8 32", "the next login starts in a's grid");
+    assert_eq!(s.app.font_name(), "a");
+    assert_eq!(s.app.cells(), [(10, 20)]);
+    assert_eq!(reads.get(), 1, "vtium.conf read again once");
+}
+
+/// ADR-1201 D11: the size comes back with the font, so a zoom made in the
+/// session is undone at its end, before the next login starts.
+// covers: text.font-change
+#[test]
+fn a_sessions_end_undoes_its_zoom() {
+    let (dir, fonts) = reset_fixture("reset-zoom", "font-size=16\n");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(SECOND, |a| sizes(a) == [Some("size:10 40".to_owned())]));
+    let equal = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('=')
+    });
+    s.app.device_input(Path::new(KBD_SMALL), equal, now());
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)), "zoomed");
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:10 40", "the next login starts at 16 points");
+    assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// ADR-1201 D11: one font for a head. A session ending in another console
+/// of the head than the one the switch came from leaves the font, so it
+/// never changes under another session.
+#[test]
+fn a_session_ending_in_another_console_leaves_the_font() {
+    let (dir, fonts) = reset_fixture("reset-other", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, reads) = reset_seat(&dir, &small_consoles(2), fonts);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)));
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:5 20", "console 2's next login starts in b");
+    assert_eq!(s.app.font_name(), "b");
+    assert_eq!(reads.get(), 0, "nothing to return, nothing read");
+}
+
+/// ADR-1201 D11: a session ending in a head's only console returns the
+/// font, wherever the switch came from: here from console 2, which closed.
+#[test]
+fn a_session_ending_in_a_heads_only_console_returns_the_font() {
+    let (dir, fonts) = reset_fixture("reset-only", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.2"), "b").expect("the switch");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(2), fonts);
+    assert!(s.until(SECOND, |a| sizes(a).iter().all(Option::is_some)));
+    // Console 2's request waits for it to be shown.
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "console 2 closed");
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:8 32");
+    assert_eq!(s.app.font_name(), "a");
+}
+
+/// ADR-1201 D11: vtium.conf is read again at the session's end, so a font
+/// saved since the start is the font the next login draws.
+#[test]
+fn a_sessions_end_takes_the_font_vtium_conf_names_now() {
+    let (dir, fonts) = reset_fixture("reset-edited", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    std::fs::write(dir.join("vtium.conf"), "font-name=c\nfont-size=0\n").expect("the edit");
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:4 16", "the next login starts in c's grid");
+    assert_eq!(s.app.font_name(), "c");
+}
+
+/// ADR-1201 D11: a font key that does not read is reported and dropped, as
+/// it is at the start: `font-size=big` falls back to its default, 0, and
+/// the head returns to a in a's own cell.
+#[test]
+fn a_font_key_that_does_not_read_at_a_sessions_end_is_reported_and_dropped() {
+    let (dir, fonts) = reset_fixture("reset-unread", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    std::fs::write(dir.join("vtium.conf"), "font-name=a\nfont-size=big\n").expect("the edit");
+    logged();
+    let size = end_shown_session(&mut s);
+    let report = format!(
+        "{}:2: font-size=\"big\" is not a whole number, ignored",
+        dir.join("vtium.conf").display()
+    );
+    let lines = logged();
+    assert!(lines.iter().any(|l| l.ends_with(&report)), "{lines:?}");
+    assert_eq!(size, "size:8 32");
+    assert_eq!(s.app.font_name(), "a");
+}
+
+/// ADR-1201 D11: with nothing switched or zoomed, a session's end returns
+/// nothing: vtium.conf is not read again, and the font stays, though the
+/// file names another now.
+#[test]
+fn a_sessions_end_with_nothing_switched_or_zoomed_reads_and_reloads_nothing() {
+    let (dir, fonts) = reset_fixture("reset-none", "font-name=a\nfont-size=0\n");
+    let (mut s, reads) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(SECOND, |a| sizes(a) == [Some("size:8 32".to_owned())]));
+    std::fs::write(dir.join("vtium.conf"), "font-name=c\nfont-size=0\n").expect("the edit");
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:8 32");
+    assert_eq!(s.app.font_name(), "a");
+    assert_eq!(reads.get(), 0, "vtium.conf not read again");
+}
+
+/// ADR-1201 D11 and ADR-1401 D8: a hang-up ends the session too. The head
+/// loses its display under `when-display-lost = hangup`, and its session,
+/// which switched the font, starts again in the configured font, which the
+/// display draws when it comes back.
+#[test]
+fn a_hang_up_returns_the_font_before_the_session_starts_again() {
+    let (dir, fonts) = reset_fixture("reset-hangup", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let heads = small_consoles(1).replace(
+        "consoles = 1\n",
+        "consoles = 1\nwhen-display-lost = hangup\n",
+    );
+    let (mut s, _) = reset_seat(&dir, &heads, fonts);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    assert!(s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0));
+    s.unplug("/dev/mem0", now());
+    assert!(
+        s.until(SECOND, |a| run_line(a, 1, 2).is_some()),
+        "hung up and started again"
+    );
+    let frames = s.memory("/dev/mem0").frames;
+    s.plug("/dev/mem0", now());
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.frames > frames),
+        "drawn again on its return"
+    );
+    assert_eq!(s.app.font_name(), "a");
+    assert_eq!(grid(&s.app, "small"), Some((32, 8)));
+}
+
+/// The lines in `dir`'s `starts.N`: how many times console N's session
+/// started.
+fn starts(dir: &Path, id: u32) -> usize {
+    std::fs::read_to_string(dir.join(format!("starts.{id}")))
+        .map(|t| t.lines().count())
+        .unwrap_or(0)
+}
+
+/// ADR-1201 D11: an OSC 50 request goes with the session that sent it. A
+/// hidden console's request waits for the console to be shown, and when
+/// the session ends first, its next session shows in the configured font.
+#[test]
+fn a_hidden_consoles_request_goes_with_its_session() {
+    let (dir, fonts) = reset_fixture("reset-stale", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.2"), "b").expect("the switch");
+    std::fs::write(dir.join("exit.2"), "").expect("the exit");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(2), fonts);
+    assert!(s.until(SECOND, |a| run_line(a, 2, 1).is_some()));
+    std::fs::write(dir.join("go.2"), "").expect("the go mark");
+    assert!(
+        s.until(SECOND, |_| starts(&dir, 2) == 2),
+        "console 2 started again"
+    );
+    assert_eq!(s.app.font_name(), "a");
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(
+        s.until(SECOND, |a| head_shows(a, "small", "got:x")),
+        "console 2's new session runs, shown"
+    );
+    assert_eq!(
+        s.app.font_name(),
+        "a",
+        "the ended session's request is gone"
+    );
+}
+
+/// ADR-1201 D11: closing a console ends its session, so closing the
+/// console the switch came from returns the head to the configured font at
+/// once, and nothing stays recorded against the closed console: a session
+/// ending later in another console reads nothing again and starts in the
+/// configured font.
+#[test]
+fn closing_the_console_a_switch_came_from_returns_the_font() {
+    let (dir, fonts) = reset_fixture("reset-close", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.2"), "b").expect("the switch");
+    let (mut s, reads) = reset_seat(&dir, &small_consoles(3), fonts);
+    assert!(s.until(SECOND, |a| sizes(a).iter().all(Option::is_some)));
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    press_chord(&mut s, KBD_SMALL, BACKSPACE);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)), "console 3 shown");
+    assert_eq!(s.app.font_name(), "a");
+    assert_eq!(grid(&s.app, "small"), Some((32, 8)));
+    assert_eq!(reads.get(), 1);
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:8 32");
+    assert_eq!(reads.get(), 1, "nothing recorded against console 2");
+}
+
+/// ADR-1201 D11 and ADR-1200 D16: a configured `font-size` wins over a
+/// frit's own cell, so when a zoom returns after vtium.conf's `font-size`
+/// changed from 0 to 16, the next login draws frit a at 16 points in the
+/// built-in font's 8x16 cell, as a fresh start with that file does.
+#[test]
+fn a_zoom_returning_after_a_font_size_edit_draws_as_a_fresh_start() {
+    let (dir, fonts) = reset_fixture("reset-sized", "font-name=a\nfont-size=16\n");
+    let (fresh, _) = reset_seat(&dir, &small_consoles(1), fonts.clone());
+    assert_eq!(
+        (grid(&fresh.app, "small"), fresh.app.cells()),
+        (Some((40, 10)), vec![(8, 16)]),
+        "a fresh start at 16 points"
+    );
+    drop(fresh);
+    std::fs::write(dir.join("vtium.conf"), "font-name=a\nfont-size=0\n").expect("the edit");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert_eq!(grid(&s.app, "small"), Some((32, 8)), "a's own cell");
+    let zoom = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('=')
+    });
+    s.app.device_input(Path::new(KBD_SMALL), zoom, now());
+    assert_eq!(grid(&s.app, "small"), Some((16, 4)), "zoomed");
+    std::fs::write(dir.join("vtium.conf"), "font-name=a\nfont-size=16\n").expect("the edit");
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:10 40");
+    assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// ADR-1201 D11: the switch's console need not be shown when its session
+/// ends. Console 2 switches the font, console 1 is shown again, and console
+/// 2's session ends while hidden: the head returns to a, and console 2's
+/// next session starts in a's grid.
+#[test]
+fn a_hidden_console_that_switched_returns_the_font_at_its_sessions_end() {
+    let (dir, fonts) = reset_fixture("reset-hidden", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.2"), "b").expect("the switch");
+    std::fs::write(dir.join("exit.2"), "").expect("the exit");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(2), fonts);
+    assert!(s.until(SECOND, |a| run_line(a, 2, 1).is_some()));
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    press_chord(&mut s, KBD_SMALL, LEFT);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 0)));
+    std::fs::write(dir.join("go.2"), "").expect("the go mark");
+    assert!(
+        s.until(SECOND, |a| run_line(a, 2, 2).is_some()),
+        "console 2 started again"
+    );
+    assert_eq!(s.app.font_name(), "a");
+    assert_eq!(run_line(&s.app, 2, 2).as_deref(), Some("run2:8 32"));
+}
+
+/// ADR-1201 D11: a hidden console's return leaves the shown console's
+/// zoom. Console 2, zoomed in, ends while console 1, zoomed out, is shown;
+/// console 1 keeps its zoom when it is laid out again after a console
+/// switch.
+#[test]
+fn a_hidden_consoles_return_leaves_the_shown_consoles_zoom() {
+    let (dir, fonts) = reset_fixture("reset-keep-zoom", "font-size=16\n");
+    std::fs::write(dir.join("exit.2"), "").expect("the exit");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(2), fonts);
+    assert!(s.until(SECOND, |a| run_line(a, 2, 1).is_some()));
+    let zoom = |c: char| {
+        InputEvent::Key(KeyEvent {
+            mods: Mods::CTRL,
+            ..char_key(c)
+        })
+    };
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    s.app.device_input(Path::new(KBD_SMALL), zoom('='), now());
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)), "console 2 zoomed in");
+    press_chord(&mut s, KBD_SMALL, LEFT);
+    s.app.device_input(Path::new(KBD_SMALL), zoom('-'), now());
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 20)),
+        "console 1 zoomed out"
+    );
+    std::fs::write(dir.join("go.2"), "").expect("the go mark");
+    assert!(
+        s.until(SECOND, |a| run_line(a, 2, 2).is_some()),
+        "console 2 started again"
+    );
+    assert_eq!(run_line(&s.app, 2, 2).as_deref(), Some("run2:10 40"));
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 10)),
+        "console 2 at 16 points"
+    );
+    press_chord(&mut s, KBD_SMALL, LEFT);
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 20)),
+        "console 1 keeps its zoom"
+    );
+}
+
+/// ADR-1201 D11: the re-read takes the three font keys alone; every other
+/// key of vtium.conf waits for the next start.
+#[test]
+fn a_sessions_end_takes_only_the_font_keys_from_vtium_conf() {
+    let (dir, fonts) = reset_fixture("reset-only-font", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    assert!(s.app.config().switch(&config::keys::ALLOW_FONT_OPS));
+    std::fs::write(
+        dir.join("vtium.conf"),
+        "font-name=c\nfont-size=0\nno-allow-font-ops\n",
+    )
+    .expect("the edit");
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:4 16");
+    assert_eq!(s.app.font_name(), "c");
+    assert!(
+        s.app.config().switch(&config::keys::ALLOW_FONT_OPS),
+        "allow-font-ops waits for the next start"
+    );
+}
+
+/// ADR-1201 D11: the re-read reports what touches the font alone. Lines
+/// about other keys, a line with no key, and the count of the reports past
+/// the most kept wait for the next start, so the log never says "more
+/// reports" with nothing before it.
+#[test]
+fn a_sessions_end_reports_only_what_touches_the_font() {
+    let (dir, fonts) = reset_fixture("reset-quiet", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    let noise = "sb-size=abc\n".repeat(70);
+    std::fs::write(
+        dir.join("vtium.conf"),
+        format!("font-name=a\nfont-size=big\n=x\n{noise}"),
+    )
+    .expect("the edit");
+    logged();
+    end_shown_session(&mut s);
+    let lines = logged();
+    let conf = dir.join("vtium.conf");
+    let reports: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with(&conf.display().to_string()) || l.contains("more reports"))
+        .collect();
+    assert_eq!(
+        reports,
+        [&format!(
+            "{}:2: font-size=\"big\" is not a whole number, ignored",
+            conf.display()
+        )],
+        "{lines:?}"
+    );
 }

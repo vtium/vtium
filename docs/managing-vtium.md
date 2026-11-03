@@ -238,7 +238,9 @@ It writes xterm's font sequence, OSC 50, to its own terminal, and vtium takes it
 
 **Note:** Run `vtium config set` inside a vtium console. Run in another terminal, such as a desktop terminal, it sends the sequence to that terminal, and prints `failed` when no answer comes.
 
-Ctrl+= and Ctrl+- zoom the console on screen in and out, and so does Ctrl with the mouse wheel. A zoom survives logging out and in again: the new login starts in the same console, and vtium resets only the terminal there and keeps the console's grid and zoom. A zoom is lost when vtium itself starts again, at a restart of its unit or a reboot. vtium saves no zoom and no font switch, so `font-name` and `font-size` decide the font and its size each time vtium starts. Set `font-size` ([Size](#size)) for a size that lasts.
+Ctrl+= and Ctrl+- zoom the console on screen in and out, and so does Ctrl with the mouse wheel.
+
+A font switch and a zoom last until you log out. When the session in a console ends, vtium reads `font-name`, `font-size` and `font-engine` from `vtium.conf` again and returns that console to the font and size they give before the next login prompt appears. So a font you saved with `vtium config` is the font the next login sees, and a font you only tried is gone. When a screen has several consoles, logging out of one console returns the font only if the switch came from that console, or if it is the only console left. Closing the console the switch came from with Ctrl+Super+Backspace returns the font too, and so does vtium hanging up a screen's sessions when its last display goes under `when-display-lost = hangup`. A font key that vtium cannot read is logged and skipped, as at the start. vtium reads the other keys of `vtium.conf` only when it starts again. Set `font-name` and `font-size` ([Size](#size)) for a font and size that last.
 
 ## Usage
 

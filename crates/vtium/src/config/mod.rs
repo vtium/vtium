@@ -198,6 +198,36 @@ pub enum Problem {
     More(usize),
 }
 
+impl Problem {
+    /// The key the problem names, where it names one.
+    pub fn key(&self) -> Option<&str> {
+        match self {
+            Problem::UnknownKey(k) => Some(k),
+            Problem::CommandLineOnly(k)
+            | Problem::NeedsValue(k)
+            | Problem::TakesNoValue(k)
+            | Problem::TooLong(k)
+            | Problem::ControlCharacter(k)
+            | Problem::NotANumber { key: k, .. }
+            | Problem::Clamped { key: k, .. }
+            | Problem::NotAChoice { key: k, .. }
+            | Problem::BadCommand { key: k, .. }
+            | Problem::BadValue { key: k, .. } => Some(k),
+            Problem::NoKey
+            | Problem::Nul
+            | Problem::NotUtf8
+            | Problem::LineTooLong
+            | Problem::FileTooLong
+            | Problem::Unreadable(_)
+            | Problem::NotAFile
+            | Problem::StrayArgument(_)
+            | Problem::LoginWithoutCommand
+            | Problem::BadSeatName(_)
+            | Problem::More(_) => None,
+        }
+    }
+}
+
 /// The longest stretch of a value a report quotes.
 const QUOTE_MAX: usize = 64;
 
@@ -375,6 +405,16 @@ impl Config {
     fn get(&self, key: &Key) -> Option<&Value> {
         self.read.borrow_mut().insert(key.name);
         self.values.get(key.name).and_then(|(v, _)| v.as_ref())
+    }
+
+    /// Takes `keys` as `from` holds them, each value with where it came
+    /// from; every other key keeps its own.
+    pub fn take_keys(&mut self, from: &Config, keys: &[&Key]) {
+        for key in keys {
+            if let Some(v) = from.values.get(key.name) {
+                self.values.insert(key.name, v.clone());
+            }
+        }
     }
 
     /// The names of the keys whose value was asked for so far.

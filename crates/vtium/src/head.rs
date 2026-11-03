@@ -121,6 +121,9 @@ pub struct Head {
     next_id: u64,
     /// A new console's `font-size`, as configured: in points, or `0`.
     configured: (Option<u32>, bool),
+    /// The head file's own `font-size` for the head, which wins over
+    /// vtium.conf's (ADR-1401 D3).
+    own_size: Option<u32>,
     /// The consoles the head opens at its start, its file's `consoles`
     /// within the caps.
     pub(crate) wanted: usize,
@@ -208,6 +211,11 @@ pub struct Head {
     pub(crate) refont: bool,
     /// OSC 50's refusals since its last switch: only the first is logged.
     pub(crate) font_refused: u64,
+    /// The console the last OSC 50 switch came from, while the head draws
+    /// the font it chose: the end of that console's session, or of the
+    /// session in the head's only console, returns the head to its
+    /// configured font (ADR-1201 D11).
+    pub(crate) switched: Option<u64>,
     pub(crate) orientation: Orientation,
     pub(crate) grid: (usize, usize),
     /// Runs before each of the head's frames is composed: a test's
@@ -324,6 +332,21 @@ fn screen_text(console: &Console) -> Vec<String> {
         .collect()
 }
 
+/// The size a console of a head draws at, from the head file's own
+/// `font-size` for the head, `own`, else `config`'s: in points, unless
+/// `font-size=0` or unset picks it from the displays; and whether a
+/// `font-size` other than 0 is configured.
+pub(crate) fn configured_size(own: Option<u32>, config: &Config) -> (Option<u32>, bool, bool) {
+    let size = own
+        .map(u64::from)
+        .or_else(|| config.number(&keys::FONT_SIZE));
+    let points = size
+        .filter(|&n| n != 0)
+        .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
+    let auto_size = size.unwrap_or(0) == 0;
+    (points, auto_size, !auto_size)
+}
+
 /// What [`Head`]'s `draw_hook` runs.
 pub type DrawHook = std::sync::Arc<dyn Fn() + Send + std::marker::Sync>;
 
@@ -337,14 +360,7 @@ impl Head {
         font: &vtium_settings::Font,
         term: Term,
     ) -> Head {
-        let size = font
-            .size
-            .map(u64::from)
-            .or_else(|| config.number(&keys::FONT_SIZE));
-        let points = size
-            .filter(|&n| n != 0)
-            .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
-        let auto_size = size.unwrap_or(0) == 0;
+        let (points, auto_size, sized) = configured_size(font.size, config);
         let fit = Fit {
             grid: GRID,
             font_size: 0,
@@ -359,6 +375,7 @@ impl Head {
             at: 0,
             next_id: 2,
             configured: (points, auto_size),
+            own_size: font.size,
             wanted: 1,
             login: None,
             ended_notice: crate::notice::session_ended(),
@@ -388,13 +405,14 @@ impl Head {
             font_size: 0,
             points,
             auto_size,
-            sized: size.unwrap_or(0) != 0,
+            sized,
             has_font: false,
             step: 16,
             cell: CELL,
             font: None,
             refont: false,
             font_refused: 0,
+            switched: None,
             orientation: Orientation::Normal,
             grid: GRID,
             draw_hook: None,
@@ -1728,6 +1746,65 @@ mod tests {
         );
         head.show(0, false);
         assert_eq!(head.pty_size().cell_width, CELL.0, "the first's own again");
+    }
+
+    // ADR-1201 D11: where the configured font draws nothing at its size,
+    // the return at a session's end puts back all it changed: the font and
+    // the switch that chose it, the shown console's size, the ended hidden
+    // console's fit, and the configured size, so the next console opens
+    // and the next session ends as before.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_return_that_cannot_draw_puts_back_all_it_changed() {
+        let load = |args: &[&str]| {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+        };
+        let config = load(&["--font-size=0"]);
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term());
+        let zoomed = Fit {
+            grid: (20, 5),
+            font_size: 32,
+            cell: (16, 32),
+            points: None,
+            auto_size: false,
+        };
+        head.hidden.push(Console::new(2, term(), zoomed));
+        head.font = Some(Chosen::Builtin(Some("unscii-8")));
+        head.switched = Some(2);
+        (head.points, head.auto_size, head.font_size) = (None, false, 24);
+        let before = |h: &Head| {
+            (
+                h.fresh_fit(),
+                h.sized(),
+                h.switched,
+                (h.points, h.auto_size, h.font_size),
+                h.hidden.first().map(|c| c.fit),
+                h.chosen().name(16, "C").to_owned(),
+            )
+        };
+        let was = before(&head);
+        let mut kept = head.keep(2);
+        head.reconfigure(&load(&["--font-size=12"]));
+        head.switched = None;
+        kept.font = Some(head.font.replace(Chosen::Builtin(Some("unifont"))));
+        let fresh = head.fresh_fit();
+        head.configured_size(
+            2,
+            Fit {
+                grid: (40, 10),
+                ..fresh
+            },
+        );
+        head.configured_size(1, fresh);
+        head.font_size = 16;
+        assert_ne!(before(&head), was, "the return changed each");
+        head.refont = false;
+        head.put_back(kept);
+        assert_eq!(before(&head), was);
+        assert!(head.refont, "every renderer is rebuilt");
     }
 
     // ADR-1401 D5, binary-review's finding 3: the console the close chord
