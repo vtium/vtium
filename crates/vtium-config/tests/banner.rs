@@ -62,23 +62,27 @@ fn run(args: &[&str], stdout_is_pty: bool) -> (String, String, Option<i32>) {
     let mut master = File::from(master);
     let mut chunk = [0; 4096];
     // The wait is bounded only so that a command that never ends fails the
-    // test instead of hanging it.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    // test instead of hanging it: it counts one-second turns without output.
+    let mut quiet_turns = 0;
     loop {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
         let mut fds = [PollFd::new(&master, PollFlags::IN)];
-        let timeout = Timespec {
-            tv_sec: left.as_secs() as i64,
-            tv_nsec: i64::from(left.subsec_nanos()),
+        let turn = Timespec {
+            tv_sec: 1,
+            tv_nsec: 0,
         };
-        if poll(&mut fds, Some(&timeout)).expect("poll the pty") == 0 {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!(
-                "vtium-config {args:?} did not end in 20 s; it wrote {:?}",
-                String::from_utf8_lossy(&screen)
-            );
+        if poll(&mut fds, Some(&turn)).expect("poll the pty") == 0 {
+            quiet_turns += 1;
+            if quiet_turns == 20 {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!(
+                    "vtium-config {args:?} wrote nothing for 20 turns; it wrote {:?}",
+                    String::from_utf8_lossy(&screen)
+                );
+            }
+            continue;
         }
+        quiet_turns = 0;
         match master.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => screen.extend_from_slice(&chunk[..n]),
