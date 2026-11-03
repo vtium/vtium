@@ -4950,10 +4950,12 @@ mod tests {
     // ADR-1200 D17 (the maintainer, 2026-11-03), fix round 1 of the work
     // that keeps a late answer: a late answer lays out again only the
     // heads drawing the frit that take a cell from it. An outline cell for
-    // a height no head draws at lays out nothing; a bitmap first source's
-    // own cell lays out the head drawing the frit and not the head drawing
-    // another frit, which still wants its own cell. `refont`, which a
-    // layout takes, marks each head.
+    // a height no head draws at, given to frit `u`, lays out nothing; a
+    // bitmap first source's own cell, given to frit `t`, lays out the head
+    // drawing `t` and not the head drawing `u`, which still wants its own
+    // cell. Each frit gets one kind of answer, as one frit's first source
+    // answers one kind for the whole boot. `refont`, which a layout takes,
+    // marks each head.
     #[test]
     fn a_late_cell_lays_out_only_the_heads_that_take_it() {
         let (_lp, mut app, dir) = late_seat("late-heads");
@@ -4977,7 +4979,7 @@ mod tests {
             width: 9,
             height: other,
         };
-        app.late_cell("t", other, Ok(helper::OwnCell::Outline(outline)));
+        app.late_cell("u", other, Ok(helper::OwnCell::Outline(outline)));
         assert_eq!(
             marked(&app),
             [true, true],
