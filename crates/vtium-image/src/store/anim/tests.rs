@@ -500,6 +500,36 @@ fn the_cache_is_charged_its_full_bound_whatever_it_holds() {
     assert_eq!(anim(&s, key).cache.len(), 0);
 }
 
+// D1: the cache drops the frame asked for longest ago, so a frame asked
+// for again, as every entry asks for the image's current frame, stays
+// while other frames come and go.
+// covers: image.kitty-animation
+#[test]
+fn the_cache_drops_the_frame_asked_for_longest_ago() {
+    let mut s = store(1 << 20);
+    let key = image(&mut s, 1, 256, 256, RED);
+    for n in 0..3u32 {
+        send(&mut s, key, data(n, 0, 1, 1, BLUE)).unwrap();
+    }
+    assert_eq!(
+        [kind(&s, key, 2), kind(&s, key, 3), kind(&s, key, 4)],
+        ["change"; 3]
+    );
+    let asked = |s: &Store, n: u32| s.frame_pixels(key, n).unwrap().pixels;
+    let two = asked(&s, 2);
+    let three = asked(&s, 3);
+    assert!(
+        asked(&s, 2).same(&two),
+        "frame 2, asked again, from the cache"
+    );
+    let _four = asked(&s, 4);
+    assert!(
+        asked(&s, 2).same(&two),
+        "frame 3 left the cache, not frame 2"
+    );
+    assert!(!asked(&s, 3).same(&three), "frame 3 composed again");
+}
+
 // covers: image.kitty-animation
 #[test]
 fn controls_set_the_state_and_move_the_stamps_by_what_they_set() {
