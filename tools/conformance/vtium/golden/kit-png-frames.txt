@@ -1,0 +1,67 @@
+checkpoint 222
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+host: 1 t=d flags=png O=0 max=0 min=0 name= len=33
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 6 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 2 above-text kitty image 0 opaque
+placement 1 row 0 col 0 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 3 above-text kitty image 0 opaque
+image 0 8x16 digest f567d9c5
+checkpoint 442
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+host: 2 t=d flags=png O=0 max=0 min=0 name= len=33
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 6 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 2 above-text kitty image 0 opaque
+placement 1 row 0 col 0 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 3 above-text kitty image 0 opaque
+image 0 8x16 digest 1dfdf7c5
+checkpoint 662
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+host: 3 t=d flags=png O=0 max=0 min=0 name= len=33
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 6 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 2 above-text kitty image 0 opaque
+placement 1 row 0 col 0 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 3 above-text kitty image 0 opaque
+image 0 8x16 digest 36cfd9c5
+checkpoint 882
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+host: 4 t=d flags=png O=0 max=0 min=0 name= len=33
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 6 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 2 above-text kitty image 0 opaque
+placement 1 row 0 col 0 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 3 above-text kitty image 0 opaque
+image 0 8x16 digest 8d83d9c5
+checkpoint 978
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 7 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 2 above-text kitty image 0 opaque
+placement 1 row 0 col 1 box 3x2 at 4,0 size 16x32 src 0,0 8x16 cell 8x16 z 3 above-text kitty image 0 opaque
+image 0 8x16 digest 8d83d9c5
+checkpoint 1002
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
