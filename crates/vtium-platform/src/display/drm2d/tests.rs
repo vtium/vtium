@@ -3853,6 +3853,121 @@ fn a_connector_that_lists_new_modes_takes_its_new_preferred_mode() {
     assert_eq!(age(&mut v, A), 0, "drawn whole");
 }
 
+/// A directory of its own for a test's sysfs, named for the test.
+fn sysfs_dir(test: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("vtium-drm2d-{test}-{}", std::process::id()))
+}
+
+/// Writes connector `name`'s EDID under `dir`, as sysfs shows it: maker
+/// AAA, product 1, serial string `serial`, `cm` across and down.
+fn write_edid(dir: &std::path::Path, name: &str, serial: &[u8; 10], cm: (u8, u8)) {
+    let conn = dir.join(format!("card1-{name}"));
+    std::fs::create_dir_all(&conn).unwrap();
+    let mut edid = vec![0u8; 128];
+    edid[..8].copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
+    edid[8..12].copy_from_slice(&[0x04, 0x21, 0x01, 0x00]);
+    (edid[21], edid[22]) = cm;
+    edid[54..59].copy_from_slice(b"\0\0\0\xff\0");
+    edid[59..69].copy_from_slice(serial);
+    edid[69..72].copy_from_slice(b"\n  ");
+    edid[127] = 0u8.wrapping_sub(edid.iter().fold(0u8, |s, &b| s.wrapping_add(b)));
+    std::fs::write(conn.join("edid"), &edid).unwrap();
+}
+
+/// [`one`], its connector HDMI-A-1 showing monitor `serial`, 60 by 34 cm,
+/// through the sysfs at `dir`; asleep.
+fn one_showing(dir: &std::path::Path, serial: &[u8; 10]) -> Drm2d<FakeCard> {
+    write_edid(dir, "HDMI-A-1", serial, (60, 34));
+    let v = one();
+    v.card().state().sysfs = Some(dir.to_path_buf());
+    v
+}
+
+/// The serial string display `id`'s identity names, if any.
+fn serial(v: &Drm2d<FakeCard>, id: u32) -> Option<String> {
+    v.identity(DisplayId(id))
+        .and_then(|i| i.edid.as_ref())
+        .map(|e| e.to_string())
+}
+
+// vtium/vtium#216: a connector that shows another monitor than the one its
+// display was bound to, as when a monitor is swapped faster than its
+// disconnect is seen, is let go and bound again as the new monitor: the
+// owner hears it removed and added, and the display takes the new
+// monitor's identity, density and mode.
+#[test]
+fn a_connector_showing_another_monitor_is_bound_again() {
+    let dir = sysfs_dir("another-monitor");
+    let mut v = awake(one_showing(&dir, b"MONITOR001"));
+    assert_eq!(serial(&v, A).as_deref(), Some("AAA:0x0001:MONITOR001"));
+    write_edid(&dir, "HDMI-A-1", b"MONITOR002", (30, 17));
+    let swapped = vec![mode(800, 600, 60, true)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+    v.poll().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        events(&mut v),
+        [Event::Removed(DisplayId(A)), Event::Added(DisplayId(A))]
+    );
+    assert_eq!(serial(&v, A).as_deref(), Some("AAA:0x0001:MONITOR002"));
+    assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
+    // 800 pixels across 30 cm, where 640 across 60 cm gave 27
+    assert_eq!(
+        v.density(DisplayId(A)).map(|d| d.dpi().0.round()),
+        Some(68.0)
+    );
+    flip(&mut v);
+    assert_eq!(token_size(&mut v, A), (800, 600));
+    assert_eq!(age(&mut v, A), 0);
+}
+
+// vtium/vtium#216: the same monitor keeps its display. With the same modes
+// a hotplug sets nothing; with an EDID that cannot be read for a moment it
+// sets nothing; with new modes, as after a DisplayPort link is trained
+// again, its mode is chosen again in place and it is told to redraw.
+#[test]
+fn the_same_monitor_keeps_its_display() {
+    let dir = sysfs_dir("same-monitor");
+    let mut v = awake(one_showing(&dir, b"MONITOR001"));
+    let commits = v.card().state().commits.len();
+    v.poll().unwrap();
+    std::fs::remove_file(dir.join("card1-HDMI-A-1").join("edid")).unwrap();
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), []);
+    assert_eq!(v.card().state().commits.len(), commits, "nothing set");
+    write_edid(&dir, "HDMI-A-1", b"MONITOR001", (60, 34));
+    let retrained = vec![mode(800, 600, 60, true), mode(640, 480, 60, false)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = retrained;
+    v.poll().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
+    assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
+    assert_eq!(serial(&v, A).as_deref(), Some("AAA:0x0001:MONITOR001"));
+}
+
+// vtium/vtium#216: a connector left dark that shows another monitor is
+// asked of the dark rule again, as the new monitor: here the rule leaves
+// only the first monitor dark, so the second is lit.
+#[test]
+fn a_dark_connector_showing_another_monitor_is_asked_again() {
+    let dir = sysfs_dir("another-dark-monitor");
+    let mut v = one_showing(&dir, b"MONITOR001");
+    v.set_dark(Box::new(|d: &Identity| {
+        d.edid
+            .as_ref()
+            .is_some_and(|e| e.to_string().ends_with("MONITOR001"))
+    }));
+    let mut v = awake(v);
+    assert_eq!(v.dark().count(), 1);
+    assert_eq!(v.displays().count(), 0);
+    write_edid(&dir, "HDMI-A-1", b"MONITOR002", (60, 34));
+    v.poll().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A))]);
+    assert_eq!(v.dark().count(), 0);
+    assert_eq!(serial(&v, A).as_deref(), Some("AAA:0x0001:MONITOR002"));
+}
+
 /// The test-only commits the card has been sent.
 fn tests_sent(v: &Drm2d<FakeCard>) -> usize {
     v.card()

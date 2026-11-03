@@ -31,7 +31,7 @@ use drm_ffi::{
 };
 use rustix::io::Errno;
 
-use super::edid::Edid;
+use super::edid::{Edid, EdidId};
 use super::kms::{Connector, CrtcEvent, Encoder, Kms, Object, Property, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
 use super::path;
@@ -1149,6 +1149,43 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if !conn.connected || conn.modes.is_empty() {
                 continue;
             }
+            // A connector that shows another monitor than the one its
+            // display or dark entry was bound to, as when a monitor is
+            // swapped faster than its disconnect is seen, is let go and
+            // bound again below, as the new monitor, so the head file's
+            // rules, the dark rule, its density and its mode follow it.
+            let swapped = self
+                .outputs
+                .iter()
+                .find(|o| o.id.0 == id)
+                .is_some_and(|o| self.another_monitor(&o.name, self.known_edid(o.id)));
+            if swapped {
+                let (gone, kept) = std::mem::take(&mut self.outputs)
+                    .into_iter()
+                    .partition(|o| o.id.0 == id);
+                self.outputs = kept;
+                for o in gone {
+                    log::info!("display {} shows another monitor", o.name);
+                    if o.announced {
+                        self.events.push(Event::Removed(o.id));
+                    }
+                    self.identities.retain(|(i, _)| *i != o.id);
+                    self.free(o);
+                    changed = true;
+                }
+            } else if self.dark.iter().find(|d| d.id == id).is_some_and(|d| {
+                self.another_monitor(&d.identity.connector, d.identity.edid.as_ref())
+            }) {
+                self.dark.retain(|d| {
+                    if d.id == id {
+                        log::info!(
+                            "display {}, left dark, shows another monitor",
+                            d.identity.connector
+                        );
+                    }
+                    d.id != id
+                });
+            }
             if let Some(o) = self.outputs.iter_mut().find(|o| o.id.0 == id) {
                 o.available = true;
                 needs |= !o.online;
@@ -1271,6 +1308,24 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.announce();
             Ok(())
         }
+    }
+
+    /// The monitor display `id` was bound to, as its EDID named it.
+    fn known_edid(&self, id: DisplayId) -> Option<&EdidId> {
+        self.identities
+            .iter()
+            .find(|(i, _)| *i == id)
+            .and_then(|(_, identity)| identity.edid.as_ref())
+    }
+
+    /// Whether connector `name`'s EDID in sysfs now names another monitor
+    /// than `known`. A connector whose EDID cannot be read, as for a moment
+    /// while a monitor is plugged in, counts as showing the same one.
+    fn another_monitor(&self, name: &str, known: Option<&EdidId>) -> bool {
+        self.card
+            .sysfs()
+            .and_then(|dir| Edid::sysfs(&dir, name))
+            .is_some_and(|now| known != Some(&now.id))
     }
 
     /// Connector `id`, or `None` where the card cannot give it. One gone
