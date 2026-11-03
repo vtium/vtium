@@ -183,7 +183,7 @@ The binaries and the units are shared by every VT that holds vtium-dev. When `ls
 | File | Target | What it is |
 |---|---|---|
 | `PREFIX/bin/vtium` | install | the console, built with the minspec profile and `FEATURES`, which starts its helper at `PREFIX/bin/vtium-config` |
-| `PREFIX/bin/vtium-config` | install | the glyph helper |
+| `PREFIX/bin/vtium-config` | install | the font and settings tool, which `vtium config` runs and which is also the glyph helper |
 | `PREFIX/lib/systemd/system/vtium@.service`, `vtium-getty@.service` | install | the VT unit and its getty fallback, made by `tools/vt/units.sh`: `ExecStart=` runs `PREFIX/bin/vtium`, `Conflicts=` and `After=` name `kmsconvt@%i.service`, and `DefaultInstance=name-a-VT/vtium@ttyN` names no VT, so `systemctl enable vtium@.service` with no VT named fails and links nothing on any machine (below) |
 | `/etc/vtium/vtium.conf.example` | install | the example configuration, which stays in `/etc` whatever `PREFIX` is, because vtium reads its configuration from `/etc/vtium` alone |
 | `PREFIX/share/doc/vtium/examples/` | install | the example udev rules and hwdb fragment, which are documentation and never active (ADR-1401 D4) |
