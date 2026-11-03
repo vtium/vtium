@@ -463,9 +463,12 @@ fn a_notice_is_uploaded_whole_once_then_over_what_the_frame_redraws_beneath_it()
     let area = n.rect();
     assert_eq!((area.x, area.y, area.width), (0, 0, DISPLAY.width));
     g.frame(&mut s, 0, &[]).unwrap();
-    // a new notice is uploaded whole, after the frame's draws
-    g.frame(&mut s, 1, std::slice::from_ref(&n)).unwrap();
-    assert_eq!(g.calls(), &[Call::FillTexture(area)]);
+    // a new notice is uploaded whole over a frame that changes nothing
+    // else, and presented
+    let (damage, _) = g.frame(&mut s, 1, std::slice::from_ref(&n)).unwrap();
+    assert_eq!(damage, [area]);
+    assert_eq!(g.calls()[0], Call::FillTexture(area));
+    assert_eq!(g.quads(&["target_size", "frame"]).len(), 1);
     // a frame that draws nothing beneath it uploads nothing
     s.text(0, 2, "z", plain());
     g.frame(&mut s, 1, std::slice::from_ref(&n)).unwrap();

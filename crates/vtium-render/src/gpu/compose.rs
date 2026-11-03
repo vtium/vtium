@@ -336,17 +336,24 @@ impl Composition {
         if let Some(a) = work.arrow {
             self.draw_arrow(gl, a, &drawn)?;
         }
-        self.upload_overlays(gl, work.overlays, &drawn)?;
+        let uploaded = self.upload_overlays(gl, work.overlays, &drawn)?;
         self.overlays = work.overlays.to_vec();
         self.whole = false;
-        Ok(if whole {
-            vec![frame]
-        } else {
-            work.changed
-                .iter()
-                .filter_map(|&r| meet(r, frame))
-                .collect()
-        })
+        if whole {
+            return Ok(vec![frame]);
+        }
+        // a notice uploaded where the frame drew nothing changed too
+        let mut changed: Vec<Rect> = work
+            .changed
+            .iter()
+            .filter_map(|&r| meet(r, frame))
+            .collect();
+        for u in uploaded {
+            if !changed.iter().any(|&c| meet(c, u) == Some(u)) {
+                changed.push(u);
+            }
+        }
+        Ok(changed)
     }
 
     /// The cells' quads, a draw for each texture of glyphs and tile.
@@ -430,13 +437,15 @@ impl Composition {
     }
 
     /// Each notice uploaded over what the frame drew beneath it, or whole
-    /// when it is new or changed since the last frame.
+    /// when it is new or changed since the last frame. Gives the parts it
+    /// uploaded.
     fn upload_overlays<G: Gl>(
         &self,
         gl: &mut G,
         overlays: &[Placed],
         drawn: &[Rect],
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<Rect>, Error> {
+        let mut uploaded = Vec::new();
         let under = drawn.iter().copied().reduce(bounds);
         for o in overlays {
             let area = o.rect();
@@ -448,6 +457,7 @@ impl Composition {
             let Some(part) = part.and_then(|p| meet(p, self.size.rect())) else {
                 continue;
             };
+            uploaded.push(part);
             for (tile, target) in &self.tiles {
                 let Some(m) = meet(part, tile.held) else {
                     continue;
@@ -464,7 +474,7 @@ impl Composition {
                 gl.fill_texture(texture, local(m, tile), &bytes, stride)?;
             }
         }
-        Ok(())
+        Ok(uploaded)
     }
 
     /// Frees what it holds in GL.

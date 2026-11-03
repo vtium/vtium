@@ -630,6 +630,18 @@ pub struct Picture {
 }
 
 impl Picture {
+    /// A picture `width` by `height` of `pixels`, row by row, each
+    /// `0x00RRGGBB`: what the console drew, read back from a buffer, as
+    /// tier 2 reads its overlay. `None` when their count is not its area.
+    pub fn from_pixels(width: u32, height: u32, pixels: Vec<u32>) -> Option<Picture> {
+        let area = u64::from(width).saturating_mul(u64::from(height));
+        (u64::try_from(pixels.len()).ok() == Some(area)).then_some(Picture {
+            width,
+            height,
+            pixels,
+        })
+    }
+
     pub fn width(&self) -> u32 {
         self.width
     }
