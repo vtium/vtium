@@ -14,7 +14,7 @@ With no command at a terminal, opens the interactive tool.
 
 Commands:
   fonts                              list the frits and built-in fonts, and the sources each lacks
-  check FILE                         check a frit (NAME.vtfrit) or a vtium.conf, writing nothing
+  check FILE                         check a frit (NAME.vtfrit), a head file (heads.conf) or a vtium.conf, writing nothing
   config KEY [VALUE]                 print a vtium.conf key's value, or set it
   config --unset KEY                 leave a vtium.conf key at its default
   new FONT... [--name NAME] [--cell WxH] [--size POINTS]

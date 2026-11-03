@@ -413,6 +413,42 @@ fn check_judges_a_frit_and_a_vtium_conf_and_writes_nothing() {
     assert!(!f.root.join("state/vtium").exists(), "check writes nothing");
 }
 
+/// A file named `heads.conf` is a head file, checked by the console's own
+/// `vtium check-config` as a candidate, through the reader, parser and
+/// evaluator the console's start runs, against the vtium.conf in the
+/// configuration directory: each error names the file and its line, and
+/// a head file that reads is ok.
+#[test]
+fn check_judges_a_head_file_as_the_console_reads_it() {
+    let f = fixture("check-heads", None);
+    let dir = f.root.join("candidate");
+    std::fs::create_dir_all(&dir).expect("the directory");
+    let heads = dir.join("heads.conf");
+    std::fs::write(
+        &heads,
+        "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput * -> desk\n",
+    )
+    .expect("a head file");
+    let ran = f.run(&["check", heads.to_str().expect("a path")]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert_eq!(ran.out, format!("ok\t{}\n", heads.display()));
+    std::fs::write(
+        &heads,
+        "version = 1\n[head desk]\nfrobnicate = 2\n[rules]\ndisplay * -> desk\n",
+    )
+    .expect("a head file");
+    let ran = f.run(&["check", heads.to_str().expect("a path")]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.out.contains(&format!("{}:3:", heads.display())),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+    assert!(!ran.out.contains("ok\t"), "{}", ran.out);
+    assert!(!f.root.join("state/vtium").exists(), "check writes nothing");
+}
+
 #[test]
 fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
     let f = fixture("fonts", None);

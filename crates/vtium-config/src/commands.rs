@@ -92,9 +92,10 @@ pub fn left_out_text(left: &[crate::serve::LeftOut]) -> String {
 }
 
 /// `check FILE`: a frit, a file named `*.vtfrit`, read strictly by the
-/// helper's frit reader; any other file as vtium.conf, checked by the
-/// console's own `vtium check-config` on a copy of it, each problem named
-/// with FILE and its line. Writes nothing.
+/// helper's frit reader; a head file, a file named `heads.conf`, and any
+/// other file as vtium.conf, each judged by the console's own `vtium
+/// check-config`, each problem named with FILE and its line. Writes
+/// nothing.
 pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let [file] = words else {
         return usage(err, "check takes one file");
@@ -112,6 +113,12 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
             Err(e) => failed(err, &e.to_string()),
         };
     }
+    // the head file is the console's check's candidate as it is: the check
+    // reads it with the reader, parser and evaluator the start runs, and
+    // judges it against the vtium.conf in the configuration directory
+    if path.file_name().is_some_and(|n| n == "heads.conf") {
+        return console_check(paths, &paths.configdir, Some(path), None, file, out, err);
+    }
     let text = match crate::tui::read_conf(path) {
         Ok(Some(text)) => text,
         Ok(None) => return failed(err, &format!("{file}: no such file")),
@@ -121,21 +128,40 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
         Ok(copy) => copy,
         Err(why) => return failed(err, &why),
     };
-    let ran = std::process::Command::new(&paths.vtium)
-        .arg("check-config")
-        .arg("--configdir")
-        .arg(copy.dir())
-        .stdin(std::process::Stdio::null())
-        .output();
-    let ran = match ran {
+    let copied = copy.path.to_string_lossy().into_owned();
+    console_check(paths, copy.dir(), None, Some(&copied), file, out, err)
+}
+
+/// Runs the console's `vtium check-config` on the vtium.conf in `confdir`
+/// and the head file `heads`, the installed one where it names none, and
+/// prints each problem it reports, `copied`'s path named as `file`, then
+/// `ok FILE` when it found none.
+fn console_check(
+    paths: &Paths,
+    confdir: &Path,
+    heads: Option<&Path>,
+    copied: Option<&str>,
+    file: &str,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let mut command = std::process::Command::new(&paths.vtium);
+    command.arg("check-config").arg("--configdir").arg(confdir);
+    if let Some(heads) = heads {
+        command.arg(heads);
+    }
+    let ran = match command.stdin(std::process::Stdio::null()).output() {
         Ok(ran) => ran,
         Err(e) => {
             return failed(err, &format!("{}: {e}", paths.vtium.to_string_lossy()));
         }
     };
-    let copied = copy.path.to_string_lossy().into_owned();
     for line in String::from_utf8_lossy(&ran.stderr).lines() {
-        let _ = writeln!(out, "{}", line.replace(&copied, file));
+        let line = match copied {
+            Some(copied) => line.replace(copied, file),
+            None => line.to_owned(),
+        };
+        let _ = writeln!(out, "{line}");
     }
     if ran.status.success() {
         let _ = writeln!(out, "ok\t{file}");
