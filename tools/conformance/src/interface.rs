@@ -191,8 +191,19 @@ pub fn check_output(
 /// before it and within the columns; placements and images numbered from
 /// 0 after the last row; checkpoints not decreasing. The screen view is
 /// printed at `cols` by `rows`, the command line's; the others at their
-/// `size` line's.
+/// `size` line's. INTERFACE-vtium.md's `anim` lines keep their own rules
+/// ([`AnimLines`]).
 pub fn numbering(lines: &[&str], view: &str, cols: usize, rows: usize) -> Option<String> {
+    let mut anim = AnimLines::default();
+    for (n, line) in lines.iter().enumerate() {
+        let fields: Vec<&str> = line.split(' ').collect();
+        if let Some(fault) = anim.line(n.saturating_add(1), &fields) {
+            return Some(fault);
+        }
+    }
+    if let Some(fault) = anim.end() {
+        return Some(fault);
+    }
     let (mut cols, mut rows) = (cols, rows);
     // the row of the block so far: None before any block, -1 before its first row
     let mut row: Option<i64> = None;
@@ -281,6 +292,90 @@ pub fn numbering(lines: &[&str], view: &str, cols: usize, rows: usize) -> Option
     match row {
         Some(r) if r != last_row => Some(format!("the output ends after row {r} of {rows}")),
         _ => None,
+    }
+}
+
+/// The rules of INTERFACE-vtium.md's `anim` lines: an image's
+/// `anim M frames F current C ...` line comes straight after its `image M`
+/// line, with C at most F; its `anim M frame K ...` lines follow it, K
+/// counting 1, 2, 3 up to F, exactly F of them.
+#[derive(Debug, Default)]
+struct AnimLines {
+    /// The number of the `image` line just read.
+    image: Option<i64>,
+    /// The image whose frame lines are read, its frames and the frame
+    /// whose line comes next.
+    frames: Option<(i64, i64, i64)>,
+}
+
+impl AnimLines {
+    /// The fault of line `n`, split into `f`, if any.
+    fn line(&mut self, n: usize, f: &[&str]) -> Option<String> {
+        let num = |i: usize| f.get(i).and_then(|s| s.parse::<i64>().ok());
+        let kind = f.first().copied().unwrap_or_default();
+        let after_image = self.image.take();
+        let frame_line = kind == "anim" && f.get(2) == Some(&"frame");
+        if !frame_line && let Some(fault) = self.unfinished(&format!("line {n}")) {
+            return Some(fault);
+        }
+        match kind {
+            "image" => {
+                self.image = num(1);
+                self.frames = None;
+            }
+            "anim" if frame_line => {
+                let (m, k) = (num(1)?, num(3)?);
+                let Some((image, total, next)) = self.frames.filter(|(i, _, _)| *i == m) else {
+                    return Some(format!(
+                        "line {n}: anim {m} frame {k} with no anim {m} frames line before it"
+                    ));
+                };
+                if k != next {
+                    return Some(format!(
+                        "line {n}: anim {m} frame {k} where anim {image} frame {next} belongs"
+                    ));
+                }
+                if k > total {
+                    return Some(format!(
+                        "line {n}: anim {m} frame {k} past its {total} frames"
+                    ));
+                }
+                self.frames = Some((image, total, next.saturating_add(1)));
+            }
+            "anim" => {
+                let (m, total, current) = (num(1)?, num(3)?, num(5)?);
+                if after_image != Some(m) {
+                    return Some(format!(
+                        "line {n}: anim {m} frames does not follow image {m}'s line"
+                    ));
+                }
+                if current > total {
+                    return Some(format!(
+                        "line {n}: anim {m} current {current} past its {total} frames"
+                    ));
+                }
+                self.frames = Some((m, total, 1));
+            }
+            _ => self.frames = None,
+        }
+        None
+    }
+
+    /// The fault of an image whose frame lines stop short of its frames,
+    /// found `at` a line.
+    fn unfinished(&self, at: &str) -> Option<String> {
+        let (m, total, next) = self.frames?;
+        (next <= total).then(|| {
+            format!(
+                "{at}: anim {m} lists {} of its {total} frames",
+                next.saturating_sub(1)
+            )
+        })
+    }
+
+    /// The fault of an output that ends with an image's frame lines short.
+    fn end(&self) -> Option<String> {
+        self.unfinished("the output's end")
     }
 }
 
@@ -585,10 +680,97 @@ pub fn controls(spec: &Spec) -> Tally {
             ),
         ),
     ];
+    // anim lines (INTERFACE-vtium.md), each bad output breaking one rule,
+    // which its fault must name
+    let image = format!("{GOOD}image 0 4x2 digest 00000000\n");
+    let head = |m: u32, f: u32, c: u32| {
+        format!("anim {m} frames {f} current {c} run stopped loops 1 stamps 0 0\n")
+    };
+    let frame = |m: u32, k: u32| format!("anim {m} frame {k} gap 0 digest 00000000\n");
+    let good_anim = format!("{image}{}{}{}", head(0, 2, 2), frame(0, 1), frame(0, 2));
+    let anim = [
+        (
+            "a frame line before its image's anim frames line",
+            format!("{image}{}{}{}", frame(0, 1), head(0, 1, 1), frame(0, 1)),
+            "anim 0 frame 1 with no anim 0 frames line before it",
+        ),
+        (
+            "frame lines with no anim frames line",
+            format!("{image}{}", frame(0, 1)),
+            "anim 0 frame 1 with no anim 0 frames line before it",
+        ),
+        (
+            "a frame past the image's frames",
+            format!("{image}{}{}{}", head(0, 1, 1), frame(0, 1), frame(0, 2)),
+            "anim 0 frame 2 past its 1 frames",
+        ),
+        (
+            "a frame listed twice",
+            format!(
+                "{image}{}{}{}{}",
+                head(0, 2, 1),
+                frame(0, 1),
+                frame(0, 1),
+                frame(0, 2)
+            ),
+            "anim 0 frame 1 where anim 0 frame 2 belongs",
+        ),
+        (
+            "fewer frame lines than frames",
+            format!("{image}{}{}", head(0, 2, 1), frame(0, 1)),
+            "anim 0 lists 1 of its 2 frames",
+        ),
+        (
+            "an anim number other than its image's",
+            format!("{image}{}{}", head(1, 1, 1), frame(1, 1)),
+            "anim 1 frames does not follow image 1's line",
+        ),
+        (
+            "two anim frames lines for one image",
+            format!(
+                "{image}{}{}{}{}",
+                head(0, 1, 1),
+                frame(0, 1),
+                head(0, 1, 1),
+                frame(0, 1)
+            ),
+            "anim 0 frames does not follow image 0's line",
+        ),
+        (
+            "anim 0 after image 1",
+            format!(
+                "{image}image 1 4x2 digest 00000000\n{}{}",
+                head(0, 1, 1),
+                frame(0, 1)
+            ),
+            "anim 0 frames does not follow image 0's line",
+        ),
+        (
+            "a current frame past the frames",
+            format!("{image}{}{}", head(0, 1, 2), frame(0, 1)),
+            "anim 0 current 2 past its 1 frames",
+        ),
+    ];
     let mut tally = Tally {
-        count: bad.len().saturating_add(2),
+        count: bad.len().saturating_add(anim.len()).saturating_add(3),
         ..Tally::default()
     };
+    if let Some(fault) = check_output(spec, "screen", &good_anim, 4, 2, false) {
+        tally.faults.push(format!(
+            "control: the grammar rejects good anim lines: {fault}"
+        ));
+    }
+    for (what, text, why) in &anim {
+        match check_output(spec, "screen", text, 4, 2, false) {
+            None => tally
+                .faults
+                .push(format!("control: the grammar accepts {what}")),
+            Some(fault) if !fault.contains(why) => tally.faults.push(format!(
+                "control: the check rejects {what} for another reason: {fault}"
+            )),
+            Some(_) => {}
+        }
+    }
     if let Some(fault) = check_output(spec, "screen", GOOD, 4, 2, false) {
         tally.faults.push(format!(
             "control: the grammar rejects a good output: {fault}"
