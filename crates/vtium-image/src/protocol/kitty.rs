@@ -31,6 +31,10 @@
 //!   ignores them, and answers as if they had not come. The handler notes
 //!   them for vtium's log ([`Context::note`]), as the C reference logged
 //!   them at debug level (libtsm `eeaf293`, `src/tsm/tsm-kitty.c:806-826`).
+//! - **Notes for the operator.** A program may leave a command unanswered
+//!   with `q=2` or no id, so the handler also notes the refusals an
+//!   operator can act on: the budget's ENOSPC, a payload or file that needs
+//!   the image helper while none runs, and a helper that fails.
 //! - **Replies.** Only a command that carries `i` or `I` is answered; `q=1`
 //!   leaves out OK and `q=2` every reply. An `a=q` without `i` reads nothing
 //!   and is answered under no `q`, as kitty 0.49.2 behaved when the C
@@ -71,7 +75,7 @@ use crate::decode::base64::{Base64, Sink};
 use crate::decode::convert::{Alpha, Layout};
 use crate::decode::raw::Raw;
 use crate::decode::{Description, Medium, Payload, Reply, Request};
-use crate::handler::{Context, Handler, Intro};
+use crate::handler::{Cause, Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place, Refusal};
 use crate::protocol::chunk_work;
 use crate::rules::Protocol;
@@ -98,6 +102,10 @@ const HOST_FIRST: u64 = 4096;
 
 /// The note for an upload's bytes past the pixels its keys call for.
 const PAST: &str = "a kitty upload's data past the pixels s and v call for, ignored";
+
+/// The note for a payload or a file that only the image helper reads,
+/// while no helper runs.
+const NO_HELPER: &str = "no image helper reads a kitty picture's file, PNG or zlib payload";
 
 /// Where the string is in its reading.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -236,6 +244,7 @@ impl Sink for UploadSink<'_, '_> {
             } => {
                 // a later string without a helper buffers nothing more
                 if !self.ctx.helper() {
+                    self.ctx.note(Cause::Console, NO_HELPER);
                     self.fail(Error::Invalid);
                     return;
                 }
@@ -387,6 +396,7 @@ impl Kitty {
         let cmd = self.upload.cmd;
         if cmd.for_helper() {
             if !ctx.helper() {
+                ctx.note(Cause::Console, NO_HELPER);
                 self.upload.mode = Mode::Skip(Err(Error::Invalid));
                 return;
             }
@@ -450,7 +460,7 @@ impl Kitty {
             Mode::Skip(answer) => reply(ctx, &cmd, cmd.id, answer),
             Mode::Count { len, want, past } => {
                 if past {
-                    ctx.note(PAST);
+                    ctx.note(Cause::Program, PAST);
                 }
                 let answer = if len < want {
                     Err(Error::Invalid)
@@ -468,12 +478,13 @@ impl Kitty {
                     if let Some(r) = reservation {
                         ctx.unreserve(r);
                     }
+                    ctx.note(Cause::Console, NO_HELPER);
                     reply(ctx, &cmd, cmd.id, Err(Error::Invalid));
                 }
             }
             Mode::Raw { raw, reservation } => {
                 if raw.ignored() {
-                    ctx.note(PAST);
+                    ctx.note(Cause::Program, PAST);
                 }
                 // raw data must hold every pixel the keys call for
                 if !raw.complete() {
@@ -528,7 +539,10 @@ impl Kitty {
         }
         match name_error {
             Some(e) => reply(ctx, &cmd, cmd.id, Err(e)),
-            None if !helper => reply(ctx, &cmd, cmd.id, Err(Error::BadFile)),
+            None if !helper => {
+                ctx.note(Cause::Console, NO_HELPER);
+                reply(ctx, &cmd, cmd.id, Err(Error::BadFile));
+            }
             None => self.request(ctx, &cmd, medium, None, None),
         }
     }
@@ -1102,6 +1116,9 @@ impl Handler for Kitty {
                 None => return reply(ctx, &cmd, cmd.id, Err(Error::BadFile)),
             },
             other => {
+                if other == Reply::Failed {
+                    ctx.note(Cause::Console, "the image helper fails on a kitty picture");
+                }
                 let e = outcome(&other, named, inflate);
                 return reply(ctx, &cmd, cmd.id, Err(e));
             }

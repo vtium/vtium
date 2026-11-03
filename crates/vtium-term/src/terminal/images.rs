@@ -22,7 +22,7 @@ use core::fmt;
 
 use vtium_image::decode::{Reply, Request};
 use vtium_image::{
-    Context, Edit, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Store, Switches,
+    Cause, Context, Edit, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Store, Switches,
 };
 use vtium_parse::{Chunk, Intermediates, Params, StringEnd};
 
@@ -57,6 +57,8 @@ impl ImageString {
 pub struct ImageNote {
     /// The protocol whose handler wrote the note.
     pub protocol: ImageString,
+    /// Who can act on the reason: the program's author, or the operator.
+    pub cause: Cause,
     /// The handler's reason, at most `IMAGE_NOTE_BYTES_MAX` bytes of it.
     pub why: String,
     /// How many notes of this protocol and reason the terminal has had,
@@ -68,10 +70,10 @@ pub struct ImageNote {
 /// the notes the host has not taken.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Notes {
-    /// Each protocol and reason the terminal has had, with its count, at
-    /// most `IMAGE_NOTE_REASONS_MAX` of them. RIS keeps them, so a program
-    /// cannot start a count again.
-    seen: Vec<(ImageString, String, u64)>,
+    /// Each protocol, cause and reason the terminal has had, with its
+    /// count, at most `IMAGE_NOTE_REASONS_MAX` of them. RIS keeps them, so
+    /// a program cannot start a count again.
+    seen: Vec<(ImageString, Cause, String, u64)>,
     /// The notes the host has not taken.
     out: Vec<ImageNote>,
 }
@@ -80,27 +82,28 @@ impl Notes {
     /// Counts `why` from `protocol`'s handler, and keeps a note for the host
     /// when the count is 1 or a power of ten. A new reason once the table
     /// is full is counted nowhere and reaches no log.
-    fn add(&mut self, protocol: ImageString, why: &str) {
+    fn add(&mut self, protocol: ImageString, cause: Cause, why: &str) {
         let why = cut(why, IMAGE_NOTE_BYTES_MAX);
         let full = self.seen.len() >= IMAGE_NOTE_REASONS_MAX;
         let found = self
             .seen
             .iter_mut()
-            .find(|(p, w, _)| *p == protocol && w == why);
+            .find(|(p, c, w, _)| *p == protocol && *c == cause && w == why);
         let count = match found {
-            Some((_, _, n)) => {
+            Some((_, _, _, n)) => {
                 *n = n.saturating_add(1);
                 *n
             }
             None if full => return,
             None => {
-                self.seen.push((protocol, why.to_owned(), 1));
+                self.seen.push((protocol, cause, why.to_owned(), 1));
                 1
             }
         };
         if power_of_ten(count) {
             self.out.push(ImageNote {
                 protocol,
+                cause,
                 why: why.to_owned(),
                 count,
             });
@@ -322,8 +325,8 @@ impl Context for Ctx<'_> {
         self.state.screen.add_image_work(work);
     }
 
-    fn note(&mut self, why: &str) {
-        self.state.images.notes.add(self.which, why);
+    fn note(&mut self, cause: Cause, why: &str) {
+        self.state.images.notes.add(self.which, cause, why);
     }
 }
 
@@ -1383,7 +1386,7 @@ mod tests {
         fn start(&mut self, _: &mut dyn Context, _: Intro<'_>) {}
         fn feed(&mut self, _: &mut dyn Context, _: Chunk<'_>) {}
         fn finish(&mut self, ctx: &mut dyn Context) {
-            ctx.note(self.0);
+            ctx.note(Cause::Program, self.0);
         }
         fn cancel(&mut self, _: &mut dyn Context) {}
         fn decoded(&mut self, _: &mut dyn Context, _: Reply) {}
@@ -1420,6 +1423,7 @@ mod tests {
         let _ = t.input(SIXEL);
         let note = ImageNote {
             protocol: ImageString::Sixel,
+            cause: Cause::Program,
             why: "a refused picture".to_owned(),
             count: 1,
         };
@@ -1462,8 +1466,8 @@ mod tests {
             [("one reason".to_owned(), 1), ("another".to_owned(), 1)]
         );
         let mut notes = Notes::default();
-        notes.add(ImageString::Kitty, "one reason");
-        notes.add(ImageString::Iterm2, "one reason");
+        notes.add(ImageString::Kitty, Cause::Program, "one reason");
+        notes.add(ImageString::Iterm2, Cause::Program, "one reason");
         assert_eq!(notes.take().len(), 2, "the same reason from two protocols");
     }
 
@@ -1475,7 +1479,7 @@ mod tests {
             .collect();
         for _ in 0..3 {
             for why in &reasons {
-                notes.add(ImageString::Sixel, why);
+                notes.add(ImageString::Sixel, Cause::Console, why);
             }
         }
         let taken = notes.take();
@@ -1489,7 +1493,7 @@ mod tests {
         // a long reason is cut at a character's boundary
         let mut notes = Notes::default();
         let long = "é".repeat(IMAGE_NOTE_BYTES_MAX);
-        notes.add(ImageString::Iterm2, &long);
+        notes.add(ImageString::Iterm2, Cause::Console, &long);
         let why = notes.take().pop().map(|n| n.why).unwrap_or_default();
         assert!(why.len() <= IMAGE_NOTE_BYTES_MAX && why.len() + 2 > IMAGE_NOTE_BYTES_MAX);
         assert!(long.starts_with(&why));

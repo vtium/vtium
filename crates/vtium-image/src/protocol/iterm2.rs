@@ -51,7 +51,7 @@ use crate::bounds::{
 };
 use crate::decode::base64::{Base64, Sink};
 use crate::decode::{FrameLimits, Medium, Payload, Reply, Request};
-use crate::handler::{Context, Handler, Intro};
+use crate::handler::{Cause, Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage};
 use crate::protocol::{chunk_work, place_scrolling};
 use crate::rules::Protocol;
@@ -152,9 +152,22 @@ impl Sink for Fill<'_> {
     }
 
     fn error(&mut self) {
-        self.failed = Some("base64 that does not decode");
+        self.failed = Some(BAD_BASE64);
     }
 }
+
+/// Who can act on a failure of [`fill`]: base64 that does not decode is
+/// the program's, and a bound, the budget or memory is the console's.
+fn fill_cause(why: &str) -> Cause {
+    if why == BAD_BASE64 {
+        Cause::Program
+    } else {
+        Cause::Console
+    }
+}
+
+/// The reason for base64 that does not decode.
+const BAD_BASE64: &str = "base64 that does not decode";
 
 /// Decodes `text` into `file` through `base64`, ending the base64 too when
 /// `last`; why it failed, if it did.
@@ -220,18 +233,18 @@ impl Iterm2 {
         self.drop_transfer(ctx);
         let (keys, base64) = split_keys(text);
         let Some(base64) = base64 else {
-            return ctx.note("an iTerm2 File= string with no ':'");
+            return ctx.note(Cause::Program, "an iTerm2 File= string with no ':'");
         };
         let keys = Keys::parse(keys);
         if !keys.inline {
-            return ctx.note("an iTerm2 picture without inline=1");
+            return ctx.note(Cause::Program, "an iTerm2 picture without inline=1");
         }
         let mut file = File::default();
         match fill(ctx, &mut Base64::new(), &mut file, base64, true) {
             Ok(()) => self.ready = Some((keys, file)),
             Err(why) => {
                 file.release(ctx);
-                ctx.note(why);
+                ctx.note(fill_cause(why), why);
             }
         }
     }
@@ -241,7 +254,7 @@ impl Iterm2 {
         self.drop_transfer(ctx);
         let keys = Keys::parse(split_keys(text).0);
         if !keys.inline {
-            return ctx.note("an iTerm2 picture without inline=1");
+            return ctx.note(Cause::Program, "an iTerm2 picture without inline=1");
         }
         self.transfer = Some(Transfer {
             keys,
@@ -261,12 +274,12 @@ impl Iterm2 {
             t.parts = t.parts.saturating_add(1);
             if t.parts > ITERM2_PARTS_MAX {
                 self.drop_transfer(ctx);
-                return ctx.note("an iTerm2 transfer passes ITERM2_PARTS_MAX");
+                return ctx.note(Cause::Console, "an iTerm2 transfer passes ITERM2_PARTS_MAX");
             }
         }
         if let Err(why) = fill(ctx, &mut t.base64, &mut t.file, text, last) {
             self.drop_transfer(ctx);
-            return ctx.note(why);
+            return ctx.note(fill_cause(why), why);
         }
         if last && let Some(t) = self.transfer.take() {
             self.ready = Some((t.keys, t.file));
@@ -280,7 +293,7 @@ impl Iterm2 {
         // max-graphic-size may have been lowered since the request
         let (max_w, max_h) = graphic(ctx);
         if size.0 > max_w || size.1 > max_h {
-            return ctx.note("an iTerm2 picture past max-graphic-size");
+            return ctx.note(Cause::Console, "an iTerm2 picture past max-graphic-size");
         }
         // the box its keys give is checked first, so a picture the store
         // would refuse scrolls nothing, reserves nothing and is not copied
@@ -288,16 +301,22 @@ impl Iterm2 {
         let (dw, dh) = drawn(keys, size, cell, ctx.grid());
         let fits = |d: u64, c: u32| d <= BOX_CELLS_MAX.saturating_mul(u64::from(c));
         let (Ok(draw_width), Ok(draw_height)) = (u32::try_from(dw), u32::try_from(dh)) else {
-            return ctx.note("an iTerm2 picture's box passes BOX_CELLS_MAX");
+            return ctx.note(
+                Cause::Console,
+                "an iTerm2 picture's box passes BOX_CELLS_MAX",
+            );
         };
         if !fits(dw, cell.0) || !fits(dh, cell.1) {
-            return ctx.note("an iTerm2 picture's box passes BOX_CELLS_MAX");
+            return ctx.note(
+                Cause::Console,
+                "an iTerm2 picture's box passes BOX_CELLS_MAX",
+            );
         }
         let count = u64::from(size.0).saturating_mul(u64::from(size.1));
         let charge = count.saturating_mul(4).saturating_add(IMAGE_OVERHEAD);
         // the budget refuses before a byte of the picture is copied
         let Ok(reservation) = ctx.reserve(Protocol::SIXEL, 0, charge) else {
-            return ctx.note("the budget refuses an iTerm2 picture");
+            return ctx.note(Cause::Console, "the budget refuses an iTerm2 picture");
         };
         // and the frame allowance before a byte of the frames past the
         // first; refused, the picture is its first frame, still
@@ -314,7 +333,10 @@ impl Iterm2 {
             if let Some(r) = ahead {
                 ctx.unreserve(r);
             }
-            return ctx.note("an iTerm2 picture's reply file does not read whole");
+            return ctx.note(
+                Cause::Console,
+                "an iTerm2 picture's reply file does not read whole",
+            );
         };
         let (pixels, opaque) = copied.remove(0);
         let read = u64::try_from(frames)
@@ -335,14 +357,17 @@ impl Iterm2 {
             if let Some(r) = ahead {
                 ctx.unreserve(r);
             }
-            return ctx.note("the store refuses an iTerm2 picture");
+            return ctx.note(Cause::Console, "the store refuses an iTerm2 picture");
         };
         if let (Some(ahead), Payload::Frames { delays, loops, .. }) = (ahead, payload) {
             animate(ctx, key, size, ahead, copied, delays, *loops);
         }
         let tall = usize::try_from(dh.div_ceil(u64::from(cell.1.max(1)))).unwrap_or(usize::MAX);
         if !place_scrolling(ctx, key, Some((draw_width, draw_height)), tall, false) {
-            ctx.note("the store refuses an iTerm2 picture's place");
+            ctx.note(
+                Cause::Console,
+                "the store refuses an iTerm2 picture's place",
+            );
         }
     }
 }
@@ -406,7 +431,10 @@ fn animate(
     let each = layer_cost(size.0, size.1);
     let n = frames.len();
     let Some(reservations) = ctx.edit(|e| e.split_frames(ahead, key, each, n)).flatten() else {
-        return ctx.note("the frame allowance refuses an iTerm2 picture's frames");
+        return ctx.note(
+            Cause::Console,
+            "the frame allowance refuses an iTerm2 picture's frames",
+        );
     };
     let mut reservations = reservations.into_iter();
     for ((pixels, opaque), delay) in frames.into_iter().zip(delays.iter().skip(1)) {
@@ -431,7 +459,10 @@ fn animate(
                 ctx.unreserve(r);
             }
             ctx.edit(|e| e.delete_frames(key));
-            return ctx.note("the store refuses an iTerm2 picture's frame");
+            return ctx.note(
+                Cause::Console,
+                "the store refuses an iTerm2 picture's frame",
+            );
         }
     }
     let control = Control {
@@ -445,7 +476,10 @@ fn animate(
         ctx.edit(|e| e.control_animation(key, control)),
         Some(Ok(()))
     ) {
-        ctx.note("the store refuses an iTerm2 picture's animation");
+        ctx.note(
+            Cause::Console,
+            "the store refuses an iTerm2 picture's animation",
+        );
     }
 }
 
@@ -478,7 +512,7 @@ impl Handler for Iterm2 {
         };
         if !ctx.helper() {
             file.release(ctx);
-            return ctx.note("no image helper decodes an iTerm2 picture");
+            return ctx.note(Cause::Console, "no image helper decodes an iTerm2 picture");
         }
         let File {
             data, reservation, ..
@@ -521,9 +555,21 @@ impl Handler for Iterm2 {
         match reply {
             Reply::Ok(payload) => match payload.size() {
                 Some(size) => Self::store(ctx, &keys, &payload, size),
-                None => ctx.note("an iTerm2 picture answered with no picture"),
+                None => ctx.note(Cause::Console, "an iTerm2 picture answered with no picture"),
             },
-            _ => ctx.note("the image helper does not decode an iTerm2 picture"),
+            Reply::Unreadable | Reply::TooShort | Reply::Corrupt => ctx.note(
+                Cause::Program,
+                "the image helper cannot decode an iTerm2 picture's file",
+            ),
+            Reply::TooLarge => ctx.note(
+                Cause::Console,
+                "the image helper finds an iTerm2 picture past its bounds",
+            ),
+            Reply::OverBudget => ctx.note(Cause::Console, "the budget refuses an iTerm2 picture"),
+            Reply::Failed => ctx.note(
+                Cause::Console,
+                "the image helper fails on an iTerm2 picture",
+            ),
         }
     }
 

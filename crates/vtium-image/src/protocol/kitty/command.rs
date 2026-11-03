@@ -4,7 +4,7 @@
 use core::fmt::Write as _;
 
 use crate::bounds::{BOX_CELLS_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX};
-use crate::handler::{Context, ReplyKind};
+use crate::handler::{Cause, Context, ReplyKind};
 
 /// What a command is answered when it fails: each a fixed message of the
 /// closed set of kitty replies (D6).
@@ -361,6 +361,10 @@ pub(super) fn charge(pixels: u64) -> u64 {
 /// image that already exists, so every answer to it, a refusal as well as
 /// an OK, names that image's id; `id` names it only when no image is found.
 pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answer) {
+    // noted whether or not the program hears it
+    if answer == Err(Error::NoSpace) {
+        ctx.note(Cause::Console, "the budget refuses a kitty picture");
+    }
     if (cmd.id == 0 && cmd.number == 0) || cmd.dropped() {
         return;
     }

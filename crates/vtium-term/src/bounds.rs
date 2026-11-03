@@ -206,7 +206,7 @@ const IMAGE_NOTE_REASONS: Bound = Bound {
     value: 64,
     what: "Reasons, each with its protocol, that a terminal in a build with images counts the notes of, where an image handler says why it dropped what a program sent",
     past: "A note with a new reason is counted nowhere and reaches no log; the reasons already counted keep their counts",
-    cite: "vtium's own: vtium-image's handlers write fewer than 30 fixed reasons, so they never reach it; it keeps a handler that writes reasons of its own from growing the table",
+    cite: "vtium's own: vtium-image's handlers write about 30 fixed reasons, so they never reach it; it keeps a handler that writes reasons of its own from growing the table",
 };
 
 const IMAGE_NOTE_BYTES: Bound = Bound {

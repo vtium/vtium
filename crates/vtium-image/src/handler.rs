@@ -97,6 +97,20 @@ pub struct SixelState {
     pub registers: u32,
 }
 
+/// Who can act on a note's reason, which sets how loudly vtium logs it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cause {
+    /// What the program sent breaks its protocol, such as an iTerm2
+    /// string without `inline=1`. Only the program's author can act on it,
+    /// so vtium logs it at debug level.
+    Program,
+    /// The console refused a picture the program sent as its protocol
+    /// asks: a setting, one of vtium's bounds, the image budget, memory or
+    /// the image helper. The picture never draws, and the operator can act
+    /// on it, so vtium logs it at info level, which a default build shows.
+    Console,
+}
+
 /// What a handler reaches, which vtium-term implements over one terminal.
 ///
 /// A handler changes the store only through
@@ -144,14 +158,14 @@ pub trait Context {
     fn limits(&self) -> Limits;
     /// Adds what the handler did to the input call's work (D5).
     fn add_work(&mut self, work: u64);
-    /// Says why a handler dropped or ignored what a program sent where its
-    /// protocol tells the program nothing, for vtium's log at debug level
-    /// (ADR-1103, D1). `why` is a fixed phrase, so that each repeat of a
-    /// reason reads the same: vtium-term counts each protocol's reasons and
-    /// hands the host a note the first time a reason comes and each time
-    /// its count reaches a power of ten. The default keeps nothing.
-    fn note(&mut self, why: &str) {
-        let _ = why;
+    /// Says why a handler dropped or ignored what a program sent, for
+    /// vtium's log, at the level its [`Cause`] gives (ADR-1103, D1). `why`
+    /// is a fixed phrase, so that each repeat of a reason reads the same:
+    /// vtium-term counts each protocol's reasons and hands the host a note
+    /// the first time a reason comes and each time its count reaches a
+    /// power of ten. The default keeps nothing.
+    fn note(&mut self, cause: Cause, why: &str) {
+        let _ = (cause, why);
     }
 }
 

@@ -4,7 +4,7 @@
 
 #![cfg(feature = "images")]
 
-use vtium_term::images::{Kitty, Switches};
+use vtium_term::images::{Cause, Kitty, Switches};
 use vtium_term::{ImageString, Terminal};
 
 /// A terminal of `cols` by `rows` cells of 8 by 16 pixels that offers
@@ -154,8 +154,13 @@ fn data_past_the_pixels_is_noted_for_the_log_and_answered_ok() {
     let notes = t.take_image_notes();
     assert_eq!(notes.len(), 1, "{notes:?}");
     assert_eq!(
-        (notes[0].protocol, notes[0].why.as_str(), notes[0].count),
-        (ImageString::Kitty, past, 1)
+        (
+            notes[0].protocol,
+            notes[0].cause,
+            notes[0].why.as_str(),
+            notes[0].count
+        ),
+        (ImageString::Kitty, Cause::Program, past, 1)
     );
     // a second is counted, and reaches no log
     t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=1;AAAAAAAA\x1b\\");
@@ -175,4 +180,30 @@ fn data_past_the_pixels_is_noted_for_the_log_and_answered_ok() {
     t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=1;AAAA\x1b\\");
     t.input(b"\x1b_Ga=q,f=24,s=1,v=1,i=2;AAAA\x1b\\");
     assert_eq!(t.take_image_notes(), []);
+}
+
+// A program may ask for no answer, with `q=2` or no id, so a picture the
+// budget refuses is noted for the log whether or not the program hears
+// ENOSPC: the picture never draws, and the operator can raise the budget.
+#[test]
+fn a_picture_the_budget_refuses_is_noted_even_unanswered() {
+    let mut t = term(12, 4);
+    t.screen_mut().set_image_limit(4096);
+    let mut s = b"\x1b_Ga=t,f=32,s=64,v=64,q=2;".to_vec();
+    s.extend(b"AAAA".repeat(64 * 64 * 4 / 3));
+    s.extend(b"\x1b\\");
+    t.input(&s);
+    assert_eq!(t.take_replies(), b"");
+    let notes: Vec<_> = t
+        .take_image_notes()
+        .into_iter()
+        .map(|n| (n.cause, n.why))
+        .collect();
+    assert_eq!(
+        notes,
+        [(
+            Cause::Console,
+            "the budget refuses a kitty picture".to_owned()
+        )]
+    );
 }

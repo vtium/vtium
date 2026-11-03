@@ -22,8 +22,8 @@
 //!
 //! Sixel answers nothing, so a picture that ends with no size, or that the
 //! budget or the store refuses, is dropped without a word to the program,
-//! and the handler notes why for vtium's log ([`Context::note`]), as the C
-//! reference logged a sixel picture it did not store or place at debug
+//! and the handler notes why for vtium's log ([`Context::note`]). The C
+//! reference logged a sixel picture it did not store or place, at debug
 //! level (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:161-171`).
 
 use vtium_parse::Chunk;
@@ -31,7 +31,7 @@ use vtium_parse::Chunk;
 use crate::bounds::IMAGE_SIDE_MAX;
 use crate::decode::Reply;
 use crate::decode::sixel::{Budget, Decoder, Empty, Palette, Picture};
-use crate::handler::{Context, Handler, Intro};
+use crate::handler::{Cause, Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place};
 use crate::protocol::{chunk_work, place_scrolling};
 use crate::rules::Protocol;
@@ -234,8 +234,10 @@ impl Handler for Sixel {
                     ctx.unreserve(r);
                 }
                 match empty {
-                    Empty::NoData => ctx.note("a sixel picture with no size"),
-                    Empty::Refused => ctx.note("the budget refuses a sixel picture"),
+                    Empty::NoData => ctx.note(Cause::Program, "a sixel picture with no size"),
+                    Empty::Refused => {
+                        ctx.note(Cause::Console, "the budget refuses a sixel picture");
+                    }
                     Empty::Idle => {}
                 }
                 return;
@@ -254,10 +256,10 @@ impl Handler for Sixel {
             opaque: (!transparent).then_some(true),
         };
         let Ok(key) = ctx.add_image(image, self.held.take()) else {
-            return ctx.note("the store refuses a sixel picture");
+            return ctx.note(Cause::Console, "the store refuses a sixel picture");
         };
         if !place(ctx, key, width, height) {
-            ctx.note("the store refuses a sixel picture's place");
+            ctx.note(Cause::Console, "the store refuses a sixel picture's place");
         }
     }
 
