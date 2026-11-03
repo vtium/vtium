@@ -21,9 +21,9 @@ use vtium_font::set::{Set, SetFace, builtin, builtin_name};
 use vtium_font::{Cell, Face, Format, Style};
 
 use crate::serve::{
-    ASK, FRAME_BYTES_MAX, FRAME_DONE, FRAME_FAILED, FRAME_GLYPHS, FRAME_NO_OWN_CELL,
-    FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SOURCES, FritText, LeftOut, OWN_CELL, SOURCES,
-    ServeRequest,
+    ASK, FRAME_BYTES_MAX, FRAME_DONE, FRAME_DRAWS_NOTHING, FRAME_FAILED, FRAME_GLYPHS,
+    FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SOURCES, FRAME_WARNING, FritText,
+    LeftOut, OWN_CELL, SOURCES, ServeRequest,
 };
 
 /// The specimen's lines in every locale: Latin, digits and box drawing.
@@ -248,8 +248,12 @@ pub enum Sources {
 /// `helper` over one pipe, since the helper reads each frit once and
 /// answers each sources query at once. Each answer is waited for at most
 /// [`HELPER_WAIT`]; the answers that came are kept, and once one does not
-/// come, or the helper cannot be started, every frit still unanswered is
-/// [`Sources::Unknown`].
+/// come, the helper fails, ends, or cannot be started, every frit still
+/// unanswered is [`Sources::Unknown`], with why. A failed frame is the
+/// helper's own failure, as when it fails as it starts, and never a frit's
+/// answer: a frit the helper draws nothing from has a frame of its own. A
+/// warning is skipped, and a frame of any other kind is the helper's
+/// failure too.
 pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
     let count = frits.len();
     let mut answers = Vec::with_capacity(count);
@@ -261,7 +265,8 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
                 height: 0,
             };
             for frit in &frits {
-                if send(&mut stdin, &request(SOURCES, frit, empty, Vec::new())).is_err() {
+                if let Err(why) = send(&mut stdin, &request(SOURCES, frit, empty, Vec::new())) {
+                    let _ = arrived.send(Err(why));
                     return;
                 }
             }
@@ -269,16 +274,31 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
                 let found = loop {
                     match frame(&mut stdout) {
                         Ok((FRAME_SOURCES, payload)) => {
-                            break Sources::LeftOut(
+                            break Ok(Sources::LeftOut(
                                 text(&payload).lines().filter_map(LeftOut::parse).collect(),
-                            );
+                            ));
                         }
-                        Ok((FRAME_FAILED, payload)) => break Sources::DrawsNothing(text(&payload)),
-                        Ok(_) => {}
-                        Err(_) => return,
+                        Ok((FRAME_DRAWS_NOTHING, payload)) => {
+                            break Ok(Sources::DrawsNothing(text(&payload)));
+                        }
+                        Ok((FRAME_FAILED, payload)) => {
+                            break Err(format!("the helper failed: {}", text(&payload)));
+                        }
+                        // a warning a frit's text gave comes before its
+                        // answer; any other kind answers no sources query,
+                        // and taking the next frame as this frit's answer
+                        // would give each later frit the one before's
+                        Ok((FRAME_WARNING, _)) => {}
+                        Ok((kind, _)) => {
+                            break Err(format!(
+                                "the helper sent a frame of kind {kind}, which answers no sources query"
+                            ));
+                        }
+                        Err(why) => break Err(why),
                     }
                 };
-                if arrived.send(found).is_err() {
+                let failed = found.is_err();
+                if arrived.send(found).is_err() || failed {
                     return;
                 }
             }
@@ -287,15 +307,24 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
     });
     let why = match session {
         Ok((mut child, answer)) => {
-            while answers.len() < count {
-                match answer.recv_timeout(HELPER_WAIT) {
-                    Ok(found) => answers.push(found),
-                    Err(_) => break,
+            let why = loop {
+                if answers.len() >= count {
+                    break String::new();
                 }
-            }
+                match answer.recv_timeout(HELPER_WAIT) {
+                    Ok(Ok(found)) => answers.push(found),
+                    Ok(Err(why)) => break why,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        break "the helper did not answer in time".to_owned();
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        break "the helper ended without an answer".to_owned();
+                    }
+                }
+            };
             let _ = child.kill();
             let _ = child.wait();
-            "the helper did not answer in time".to_owned()
+            why
         }
         Err(why) => why,
     };

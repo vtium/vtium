@@ -12,6 +12,7 @@
 
 use std::fs::OpenOptions;
 use std::io::{IsTerminal, Write};
+use std::path::Path;
 
 use crate::serve::FritText;
 use crate::specimen::{PICTURE_MAX, Sample, Summary, pixel_height};
@@ -27,11 +28,17 @@ const IMAGE_BASE: u32 = 12_010;
 
 /// The frit `font` names: a frit or a built-in font in `paths`' frits, or
 /// a one-source frit of a source as `new` takes it.
+/// A name a frit could bear is looked for in the frits' directory, so it
+/// fails when there is none.
 fn frit_for(paths: &Paths, font: &str) -> Result<FritText, String> {
-    let is_frit = crate::frit::RESERVED.contains(&font)
-        || (crate::frit::valid_name(font) && paths.frits.join(format!("{font}.vtfrit")).is_file());
-    if is_frit {
-        return crate::tui::frit_text(&paths.frits, font);
+    if crate::frit::RESERVED.contains(&font) {
+        return crate::tui::frit_text(Path::new(""), font);
+    }
+    if crate::frit::valid_name(font) {
+        let frits = paths.frits.as_ref().map_err(Clone::clone)?;
+        if frits.join(format!("{font}.vtfrit")).is_file() {
+            return crate::tui::frit_text(frits, font);
+        }
     }
     let name = match crate::commands::name_from(font) {
         n if n.is_empty() => "preview".to_owned(),

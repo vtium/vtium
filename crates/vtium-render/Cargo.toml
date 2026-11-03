@@ -27,3 +27,6 @@ performance-cache = []
 # draws a frame's image placements, keeps their scaled copies and marks the
 # cells they change (ADR-1100 D1, D10); the minspec build leaves it out
 images = ["dep:vtium-image", "vtium-term/images"]
+# the GPU path's frame, its safe `Gl` trait and the tests' stand-in GL
+# (ADR-1303 D7); off by default, so the minspec build compiles none of it
+gpu = []

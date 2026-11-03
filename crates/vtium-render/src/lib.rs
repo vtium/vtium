@@ -52,6 +52,10 @@
 //! device memory is never read. A [`Canvas`] keeps them in memory, for
 //! tests and tier 2; a [`Mapped`] writes them into a mapped dumb buffer.
 //!
+//! With the `gpu` feature, the [`gpu`] module holds the GPU path: the safe
+//! `Gl` trait it draws through and the pipeline of slots each frame passes
+//! (ADR-1303).
+//!
 //! # Bounds
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
@@ -65,6 +69,8 @@ mod cache;
 mod compose;
 mod damage;
 mod deco;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 mod mono;
 mod notice;
 #[cfg(feature = "images")]

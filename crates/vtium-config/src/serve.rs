@@ -76,7 +76,9 @@
 //!          answer, one line for each source left out, `missing` or
 //!          `refused`, a tab, the source's line in the frit, a tab, its
 //!          spelling, a tab and why (UTF-8, empty when none is left out);
-//!          kind 3 a failure (UTF-8 reason)
+//!          kind 12 a sources query's answer for a frit the helper draws
+//!          nothing from (UTF-8 reason); kind 3 a failure (UTF-8 reason),
+//!          the helper's own, as when it fails as it starts
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
@@ -154,6 +156,12 @@ pub const FRAME_WARNING: u32 = 9;
 pub const FRAME_OUTLINE_CELL: u32 = 10;
 /// A sources query's answer: each source left out, one a line.
 pub const FRAME_SOURCES: u32 = 11;
+/// A sources query's answer for a frit the helper draws nothing from: the
+/// frit does not read, or none of its sources is on this machine; the
+/// reason, as UTF-8. It is a kind of its own so that [`FRAME_FAILED`],
+/// which the helper also sends when it fails as it starts, is never taken
+/// as a frit's answer.
+pub const FRAME_DRAWS_NOTHING: u32 = 12;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// A fill: the cell's coverage, in order, around the asks.
@@ -1391,7 +1399,7 @@ impl Work<'_> {
                             engine.left_out().iter().map(LeftOut::line_text).collect();
                         write_frame(out, FRAME_SOURCES, lines.join("\n").as_bytes())
                     }
-                    Err(why) => failed(out, &why.clone()),
+                    Err(why) => reason(out, FRAME_DRAWS_NOTHING, &why.clone()),
                 };
             }
             _ => {
@@ -1783,6 +1791,35 @@ mod tests {
         not_utf8[16] = 0xff;
         assert!(ServeRequest::read(&mut &not_utf8[..]).is_err());
         assert!(ServeRequest::read(&mut &good[..good.len() - 1]).is_err());
+    }
+
+    /// A sources query is answered for every frit: the sources left out of
+    /// one that reads, and for one the helper draws nothing from, because
+    /// no source of it is on this machine or it does not read, a frame of
+    /// its own, never the failed frame the helper sends for its own
+    /// failure.
+    #[test]
+    fn a_frit_that_draws_nothing_has_an_answer_of_its_own() {
+        let ask = |text: &str| ServeRequest {
+            cell: Cell {
+                width: 0,
+                height: 0,
+            },
+            ..request(SOURCES, frit(text), &[])
+        };
+        let kinds: Vec<u32> = run(&[
+            ask("source=builtin:unifont\n"),
+            ask("source=file:/nonexistent/vtium.psf\n"),
+            ask("no-such-key=1\n"),
+        ])
+        .iter()
+        .map(|f| f.0)
+        .filter(|&k| k != FRAME_WARNING)
+        .collect();
+        assert_eq!(
+            kinds,
+            [FRAME_SOURCES, FRAME_DRAWS_NOTHING, FRAME_DRAWS_NOTHING]
+        );
     }
 
     /// A sources query carries a cell of 0 by 0 and names nothing: one

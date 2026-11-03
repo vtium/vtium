@@ -1,6 +1,6 @@
 # vtium-render
 
-vtium's renderer: frames from `vtium-term` in, display pixels out. This crate holds the CPU compositor (vtium/vtium#16), which ADR-1300 decides: a drawn-glyph cache, decorations as sprites, the cursor's shapes, the pointer, four orientations, damage handed to the display as clips, and the render timer. It forbids unsafe code and denies the determinism lints. It draws into anything that takes a run of pixels (`Target`), never reads it, and opens no device: the display backends are vtium/vtium#18, and the GPU path, behind a feature, is vtium/vtium#33.
+vtium's renderer: frames from `vtium-term` in, display pixels out. This crate holds the CPU compositor (vtium/vtium#16), which ADR-1300 decides: a drawn-glyph cache, decorations as sprites, the cursor's shapes, the pointer, four orientations, damage handed to the display as clips, and the render timer. It forbids unsafe code and denies the determinism lints. It draws into anything that takes a run of pixels (`Target`), never reads it, and opens no device: the display backends are vtium/vtium#18. The GPU path's frame and the `Gl` trait it draws through are behind the `gpu` feature (vtium/vtium#33, ADR-1303).
 
 | Path | What it is |
 |---|---|
@@ -21,6 +21,12 @@ vtium's renderer: frames from `vtium-term` in, display pixels out. This crate ho
 | `src/picture/mod.rs` | With `images`: where each of a frame's placements draws on the display, the cells a picture that moved or changed draws again, and a picture's pixels a display line at a time. |
 | `src/picture/scale.rs` | With `images`: scaling and turning a picture in integer arithmetic. |
 | `src/picture/copies.rs` | With `images`: the scaled-copy cache, its eviction and `PictureCounts`. |
+| `src/gpu/mod.rs` | With `gpu`: the GPU path's public names (ADR-1303). |
+| `src/gpu/gl.rs` | With `gpu`: the `Gl` trait the GPU path draws through, its handles, `Limits`, `Quad`, `Draw`, `Batch` and `Error`. |
+| `src/gpu/ledger.rs` | With `gpu`: `Ledger`, a context's live handles and the checks every `Gl` implementation makes before a call reaches GL. |
+| `src/gpu/stand_in.rs` | With `gpu`: `StandIn`, the tests' GL, which records its calls and draws no pixels. |
+| `src/gpu/pipeline.rs` | With `gpu`: `Pipeline`, a display's frame through the five slots, and what fills each slot. |
+| `src/gpu/glsl/` | With `gpu`: the shaders, `quad.vert` for every batch of quads and present's fragment shader in two pieces, which the color and spatial steps join between. |
 | `src/bounds.rs` | Every bound, with its value, what happens past it and its citation: the one source for the constants and for the table below. |
 | `tests/` | The integration tests and the C reference's digests: see its README. |
 
@@ -60,6 +66,34 @@ The `images` feature draws a frame's image placements (ADR-1100 D4, D5, D9; vtiu
 
 Tests: `tests/pictures.rs`, `tests/picture_frames.rs`, `tests/picture_goldens.rs`, and the scaler's, the cache's and the frame-alone scaling's in `src/picture/`.
 
+### The GPU path
+
+The `gpu` feature adds the GPU path's frame. It is off by default: the minspec build and a default build compile none of it and link no GL. `cargo test -p vtium-render --features gpu` runs its tests.
+
+vtium-render forbids unsafe code, so it never calls GL itself. It draws through the `Gl` trait, which speaks the renderer's terms: textures of a stated format and size, filled a rectangle at a time; the upright frame and an imported display buffer as targets to draw into; programs compiled from vtium-render's own shader source with named inputs; a batch of quads drawn through a program; the GPU's limits; and a read of a rectangle back to memory, for tests. The binary implements the trait with an adapter over vtium-platform's safe GL type, which holds the unsafe calls to GL, EGL and GBM (ADR-1303 D7).
+
+Every handle the trait gives out, a texture, a target or a program, is an owned value that names the context that made it. A handle cannot be copied, and freeing it consumes it. Each implementation keeps a `Ledger` of its context's live handles and passes every call through it before the call reaches GL. This is the one list of what the ledger refuses:
+
+- a handle another context made, or one that was freed;
+- a texture or upright frame past the GPU's largest texture or viewport, and a display buffer past its largest renderbuffer or viewport;
+- an upload outside its texture, short of its bytes, or with rows a part of a pixel apart;
+- a program that lists an input twice, or whose shaders declare no uniform of the input's name and type, or declare it as an array, and any program on a GPU without `highp` in fragment shaders;
+- a draw that gives one of its program's inputs no value, a value twice, a value of the wrong kind, or a value for an input the program lacks, and a draw that reads the texture it draws into;
+- a read outside its target, or into a buffer of the wrong length;
+- every call once the context is lost.
+
+A real driver refuses more than the ledger can see, and only a real GL shows those refusals: a shader that does not compile or a program that does not link, a uniform the driver dropped because nothing uses it (its location is -1), and a texture or framebuffer that is incomplete. The stand-in compiles any text it is given. Part 2 of slice 0, which builds the adapter, proves the shaders compile and link on llvmpipe. The ledger never gives a serial out twice, so a freed handle never names a newer object, even where GL reuses the freed object's name. The upright frame is a target that holds its own texture, and freeing the target frees the texture.
+
+GL reports most of its errors late, through an error flag. The renderer reads that flag only at the boundaries ADR-1303 D7 names, through `Gl::check`: once after a batch of allocations and uploads, once after the composition's draws and once at the end of a frame, and only when the batch made a call, so a frame that changes nothing makes no call at all. A check after every call would make a threaded driver wait for the GPU each time; the C reference's gltex checked once a frame, after its draws (`gltex.c:2337-2396`). Each error carries its kind, out of memory, a lost context, another GL error, a refused handle, a limit, a misuse, a failed compile or a failed import, and the batch whose check found it, so the head can sort it as ADR-1303 D9 decides. A frame that drew ends with `Gl::submit`, which sends its queued commands to the GPU before the display flips the buffer; the adapter chooses how, such as `glFlush` or an EGL fence.
+
+`StandIn` is the tests' GL. It keeps a ledger as the adapter does, so it refuses every call the list above names, records the calls that pass and draws no pixels. A test can give it smaller limits, to drive a frame past the largest texture; can raise a GL error that the next check reports; and can make the next texture, frame, import or compile fail with a kind it chooses (`StandIn::fail_next`), as a driver would. Pixels are judged on a real GL, Mesa's llvmpipe, in tier 2, once the composition and present draw.
+
+A display's frame passes through the `Pipeline`'s five slots in a fixed order: pictures at another size, composition into the upright frame, color, spatial effects, and present into the display's buffer (ADR-1303 D1). A slot with nothing to do holds a no-op that makes no GL call, joins no shader source and changes no pixel. The color and spatial slots hold only their no-ops until the frame shader's record defines their steps; a step that is switched on joins its GLSL into present's fragment shader, between its head and its `main`, when the pipeline is set up, so an empty slot adds no pass and no instruction. `Spatial::reach` gives how far the spatial step reads, which sets the overlap of the upright frame's tiles, and `Spatial::presents_whole` whether every present draws the whole buffer. Slot 1 is empty until the picture steps fill it.
+
+The pipeline's set-up makes the upright frame, the display's size in RGBA8, compiles present's program and checks once. Each frame clears every rectangle the composition redraws to the border's color, and draws the whole upright frame when it is new or the border's color changes, as the CPU path draws whole when the background changes. Present then copies into the display's buffer what that buffer lacks: the rectangles composed over the buffer's age, or the whole buffer at age 0 or at an age past `PRESENT_HISTORY` frames, whether or not this frame composed anything, as the CPU path draws the whole picture into a buffer at age 0. A frame that composes nothing into a buffer that lacks nothing makes no call, and does not count for the ages that follow. Present takes its size from the buffer, and the pipeline refuses a buffer of another size than the display's. Present reads each pixel of the upright frame by integer coordinates, with no filtering (`texelFetch`). A frame that fails leaves the upright frame and the buffers unknown, so the next frame composes and presents whole (ADR-1303 D3, D9).
+
+The quads of every program reach the vertex shader as instances of a strip of four vertices, each quad's destination at attribute location 0 and its source and parameters at 1 and 2, with the corner taken from `gl_VertexID`. vtium-render draws only into textures and imported buffers, where GL's row 0 is the first row in memory. vtium-render calls that row the top, as a display buffer does. Tests: `tests/gpu_gl.rs`, `tests/gpu_pipeline.rs` and the ledger's own in `src/gpu/ledger.rs`.
+
 ## Departures
 
 - **A full cache draws the glyph uncached.** A glyph that would evict one the frame draws, or that alone passes its pool's byte ceiling, is drawn from the font without being cached. The C reference drew such a cell blank and drew it again on the next frame (bbulk.c:1426-1432), and its GPU renderer drew blank past its hard stop (gltex.c:860-930). No specification covers a cache. The reason: a blank cell makes the cache change pixels (ADR-1300 D3). Test: `tests/cache.rs`, every frame at a cache of 1 and 7 glyphs against a cache of none.
@@ -90,6 +124,7 @@ Tests: `tests/pictures.rs`, `tests/picture_frames.rs`, `tests/picture_goldens.rs
 
 ## Not yet
 
+- **The GPU path draws no cells, pointer, notices or pictures yet, and no turned display.** The pipeline's composition clears what it redraws to the border's color and draws nothing else; the cells, the arrow and the notices, the frame's tiles past the largest texture, the turn and both picture steps are ADR-1303 D11's later parts of slice 0. Until the tiles come, a display whose frame passes the largest texture or viewport fails the pipeline's set-up with a limit error; the pipeline draws only upright displays. The depth reduction for a 1-bit display (ADR-1301) is not yet in present.
 - **Conceal and overline are not drawn.** A concealed cell shows its text, and an overline draws nothing. Both are vtium/vtium#37's: a concealed cell draws as its background, and an overline as a decoration beside the underline.
 - **Rapid blink (SGR 6) blinks at SGR 5's rate.** ADR-1000's `sgr.rapid-blink` asks for a faster phase, which is vtium/vtium#37's; `tests/blink.rs` pins the shared phase until then.
 - **`Frame::palette()` is owed.** The frame does not expose its palette, so the owner passes the default foreground and background in `DrawState`. The frame types the renderers read are vtium/vtium#10's.
@@ -107,4 +142,5 @@ The frame comes from a program, the font from a file and the cell size from the 
 | `RENDER_TIMER_SAMPLES` | 1024 | Frames whose time the render timer keeps in an interval, for the median and the 95th percentile | Later frames count in the mean and the maximum only | `RENDER_TIMER_SAMPLES`, render_timer.h |
 | `POINTER_SIDE_MAX` | 64 | Pixels on the longest side of the pointer's arrow, which is a cell tall | The arrow stays this tall over taller cells | `VIDEO_CURSOR_MAX_SIZE` (video.h:172), the C reference's largest hardware cursor and I-beam |
 | `PICTURE_CACHE_SCREENS` | 2 | Screens of the display, in 4-byte pixels, that its scaled and turned copies of pictures hold, in a build with `images` | The copy no placement of the frame shows that was placed longest ago is evicted; a copy that still does not fit is scaled for each frame it draws and not kept | `image_budget_cache_limit` (image_budget.c:105-110) and bbulk's pictures (bbulk.c:71); ADR-1100 D5 |
+| `PRESENT_HISTORY` | 3 | Frames whose composed rectangles the GPU path's present keeps, to draw what a buffer of that age lacks, in a build with `gpu` | A buffer older than the history is presented whole | `display-buffers`, at most 3 buffers a display (ADR-1401 D2); ADR-1303 D6 |
 <!-- end of bounds table -->

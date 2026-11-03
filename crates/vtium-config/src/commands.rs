@@ -48,14 +48,18 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
     if !words.is_empty() {
         return usage(err, "fonts takes no argument");
     }
-    let fonts = crate::tui::fonts(&paths.frits);
+    let frits = match &paths.frits {
+        Ok(frits) => frits,
+        Err(why) => return failed(err, why),
+    };
+    let fonts = crate::tui::fonts(frits);
     let reading: Vec<String> = fonts
         .iter()
         .filter(|f| f.state == FontState::Reads)
         .map(|f| f.name.clone())
         .collect();
     // one helper answers for every frit, under one wait
-    let mut found = crate::tui::find_sources(&paths.frits, &paths.helper, &reading).into_iter();
+    let mut found = crate::tui::find_sources(frits, &paths.helper, &reading).into_iter();
     for font in fonts {
         let (state, left_out) = match &font.state {
             FontState::BuiltIn => ("built in".to_owned(), String::new()),
@@ -92,9 +96,10 @@ pub fn left_out_text(left: &[crate::serve::LeftOut]) -> String {
 }
 
 /// `check FILE`: a frit, a file named `*.vtfrit`, read strictly by the
-/// helper's frit reader; any other file as vtium.conf, checked by the
-/// console's own `vtium check-config` on a copy of it, each problem named
-/// with FILE and its line. Writes nothing.
+/// helper's frit reader; a head file, a file named `heads.conf`, and any
+/// other file as vtium.conf, each judged by the console's own `vtium
+/// check-config`, each problem named with FILE and its line. Writes
+/// nothing.
 pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let [file] = words else {
         return usage(err, "check takes one file");
@@ -112,6 +117,12 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
             Err(e) => failed(err, &e.to_string()),
         };
     }
+    // the head file is the console's check's candidate as it is: the check
+    // reads it with the reader, parser and evaluator the start runs, and
+    // judges it against the vtium.conf in the configuration directory
+    if path.file_name().is_some_and(|n| n == "heads.conf") {
+        return console_check(paths, &paths.configdir, Some(path), None, file, out, err);
+    }
     let text = match crate::tui::read_conf(path) {
         Ok(Some(text)) => text,
         Ok(None) => return failed(err, &format!("{file}: no such file")),
@@ -121,21 +132,40 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
         Ok(copy) => copy,
         Err(why) => return failed(err, &why),
     };
-    let ran = std::process::Command::new(&paths.vtium)
-        .arg("check-config")
-        .arg("--configdir")
-        .arg(copy.dir())
-        .stdin(std::process::Stdio::null())
-        .output();
-    let ran = match ran {
+    let copied = copy.path.to_string_lossy().into_owned();
+    console_check(paths, copy.dir(), None, Some(&copied), file, out, err)
+}
+
+/// Runs the console's `vtium check-config` on the vtium.conf in `confdir`
+/// and the head file `heads`, the installed one where it names none, and
+/// prints each problem it reports, `copied`'s path named as `file`, then
+/// `ok FILE` when it found none.
+fn console_check(
+    paths: &Paths,
+    confdir: &Path,
+    heads: Option<&Path>,
+    copied: Option<&str>,
+    file: &str,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let mut command = std::process::Command::new(&paths.vtium);
+    command.arg("check-config").arg("--configdir").arg(confdir);
+    if let Some(heads) = heads {
+        command.arg(heads);
+    }
+    let ran = match command.stdin(std::process::Stdio::null()).output() {
         Ok(ran) => ran,
         Err(e) => {
             return failed(err, &format!("{}: {e}", paths.vtium.to_string_lossy()));
         }
     };
-    let copied = copy.path.to_string_lossy().into_owned();
     for line in String::from_utf8_lossy(&ran.stderr).lines() {
-        let _ = writeln!(out, "{}", line.replace(&copied, file));
+        let line = match copied {
+            Some(copied) => line.replace(copied, file),
+            None => line.to_owned(),
+        };
+        let _ = writeln!(out, "{line}");
     }
     if ran.status.success() {
         let _ = writeln!(out, "ok\t{file}");
@@ -259,9 +289,28 @@ pub fn config(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dy
     }
 }
 
+/// Why the frit `name` is not removed, as `remove-frit` and the TUI's
+/// remove key both refuse it: a built-in font's name, a name that is no
+/// frit's, and a frit that `conf`, vtium.conf, names in `font-name` or
+/// that `heads`, the head file, names as a head's profile; `None` when
+/// none of these refuses it.
+pub fn removal_refusal(name: &str, conf: Option<&str>, heads: Option<&str>) -> Option<String> {
+    if RESERVED.contains(&name) {
+        return Some(format!("{name} is a built-in font, not a frit"));
+    }
+    if !valid_name(name) {
+        return Some(format!("{name:?} is no frit's name"));
+    }
+    crate::apply::naming(name, conf, heads).map(|by| {
+        format!(
+            "{name} is the frit {by} names, so it is not removed; name another font there first"
+        )
+    })
+}
+
 /// `remove-frit NAME`: removes the frit `NAME.vtfrit`, refusing a built-in
 /// font, a name with no frit, and a frit vtium.conf's `font-name` or a
-/// head's profile names.
+/// head's profile names ([`removal_refusal`]).
 pub fn remove_frit(
     words: &[String],
     paths: &Paths,
@@ -271,13 +320,14 @@ pub fn remove_frit(
     let [name] = words else {
         return usage(err, "remove-frit takes one frit's name");
     };
-    if RESERVED.contains(&name.as_str()) {
-        return failed(err, &format!("{name} is a built-in font, not a frit"));
+    // the name is judged before it names a file
+    if let Some(why) = removal_refusal(name, None, None) {
+        return failed(err, &why);
     }
-    if !valid_name(name) {
-        return failed(err, &format!("{name:?} is no frit's name"));
-    }
-    let path = paths.frits.join(format!("{name}.vtfrit"));
+    let path = match &paths.frits {
+        Ok(frits) => frits.join(format!("{name}.vtfrit")),
+        Err(why) => return failed(err, why),
+    };
     let old = match read_bounded(&path) {
         Ok(bytes) => bytes,
         Err(why) => return failed(err, &why),
@@ -285,13 +335,8 @@ pub fn remove_frit(
     let heads = crate::tui::read_conf(&paths.configdir.join("heads.conf"));
     match (conf(paths), heads) {
         (Ok((_, text)), Ok(heads)) => {
-            if let Some(by) = crate::apply::naming(name, text.as_deref(), heads.as_deref()) {
-                return failed(
-                    err,
-                    &format!(
-                        "{name} is the frit {by} names, so it is not removed; name another font there first"
-                    ),
-                );
+            if let Some(why) = removal_refusal(name, text.as_deref(), heads.as_deref()) {
+                return failed(err, &why);
             }
         }
         (Err(why), _) | (_, Err(why)) => return failed(err, &why),
@@ -447,7 +492,11 @@ pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> 
             "{name:?} cannot name a frit: 1 to 64 letters, digits, '.', '_', '+' and '-', and not a built-in font's name"
         ));
     }
-    let path = paths.frits.join(format!("{name}.vtfrit"));
+    let path = paths
+        .frits
+        .as_ref()
+        .map_err(Clone::clone)?
+        .join(format!("{name}.vtfrit"));
     let frit = Frit::parse(text.as_bytes(), &path, name).map_err(|e| e.to_string())?;
     if frit.name != name {
         return Err(format!(

@@ -48,6 +48,25 @@ pub const SOURCES_UNKNOWN: &str = "sources not checked";
 pub const TO_SAVE: &str = "to save";
 /// Marks what vtium.conf names now.
 pub const SAVED: &str = "saved";
+/// Marks a frit a save removes.
+pub const TO_REMOVE: &str = "to remove";
+
+/// The fonts view's remove key, `r`.
+pub fn remove_pending(name: impl Display) -> String {
+    format!("{name} is removed when you save; r again keeps it.")
+}
+pub fn remove_dropped(name: impl Display) -> String {
+    format!("{name} is kept.")
+}
+pub fn remove_refused(why: impl Display) -> String {
+    format!("Not removed: {why}")
+}
+pub fn remove_replaced(name: impl Display) -> String {
+    format!("{name} is replaced by a new frit in this save")
+}
+pub fn remove_unread(name: impl Display) -> String {
+    format!("{name}.vtfrit could not be read when the tool started")
+}
 
 /// The size that lets vtium choose.
 pub const AUTOMATIC: &str = "automatic";
@@ -134,13 +153,16 @@ pub fn saved(files: usize) -> String {
         format!("Saved {files} files.")
     }
 }
+pub fn removed_file(name: impl Display) -> String {
+    format!("removed, the old file kept as {name}.vtfrit.bak")
+}
 pub const COMMAND_SAID: &str = "The command said:";
 pub fn save_failed(why: impl Display) -> String {
     format!("Nothing was saved: {why}")
 }
 
 /// The keys, on the last line of each view.
-pub const KEYS_FONTS: &str = "Enter keep  Tab next  s save  q leave, undo";
+pub const KEYS_FONTS: &str = "Enter keep  r remove  Tab next  s save  q leave, undo";
 pub const KEYS_SIZES: &str = "Enter keep  Tab next  s save  q leave, undo";
 pub const KEYS_SETTINGS: &str = "Enter change  Tab next  s save  q leave, undo";
 pub const KEYS_HEADS: &str = "Left Right profile  Tab next  s save  q leave";
