@@ -374,14 +374,27 @@ impl Kitty {
         };
         let cmd = self.upload.cmd;
         if cmd.for_helper() {
-            self.upload.mode = if ctx.helper() {
-                Mode::Host {
-                    data: Vec::new(),
-                    cap: 0,
-                    reservation: None,
-                }
-            } else {
-                Mode::Skip(Err(Error::Invalid))
+            if !ctx.helper() {
+                self.upload.mode = Mode::Skip(Err(Error::Invalid));
+                return;
+            }
+            // a frame's payload is kept of the frame allowance, in a
+            // reservation that holds its image from the first byte; a
+            // picture's grows of the image budget as it arrives
+            let reservation = match frame {
+                Some(key) => match ctx.edit(|e| e.frame_reserve(key, 0)).and_then(Result::ok) {
+                    Some(r) => Some(r),
+                    None => {
+                        self.upload.mode = Mode::Skip(Err(Error::NoSpace));
+                        return;
+                    }
+                },
+                None => None,
+            };
+            self.upload.mode = Mode::Host {
+                data: Vec::new(),
+                cap: 0,
+                reservation,
             };
             return;
         }

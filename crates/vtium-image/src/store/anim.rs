@@ -724,7 +724,11 @@ impl Store {
     /// with ENOSPC, and otherwise it frees whole animations, least recently
     /// used first, until the bytes fit. The frames of image `own` and every
     /// root frame stay.
-    fn reserve_frames(&mut self, bytes: u64, own: (usize, ImageKey)) -> Result<(), Refusal> {
+    pub(super) fn reserve_frames(
+        &mut self,
+        bytes: u64,
+        own: (usize, ImageKey),
+    ) -> Result<(), Refusal> {
         let limit = self.frame_limit();
         if self.frame_used.saturating_add(bytes) <= limit {
             self.frame_used = self.frame_used.saturating_add(bytes);

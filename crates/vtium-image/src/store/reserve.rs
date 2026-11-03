@@ -150,8 +150,10 @@ impl Store {
         }
     }
 
-    /// Reserves `more` bytes for a reservation's payload as it grows. A
-    /// copy of a reservation already spent is refused as
+    /// Reserves `more` bytes for a reservation's payload as it grows: of
+    /// the image budget, or for a frame reservation of the frame allowance,
+    /// whose freeing never takes the frames of the image the frame goes to
+    /// (ADR-1102, D1). A copy of a reservation already spent is refused as
     /// [`Refusal::Invalid`], and nothing is reserved.
     pub fn grow(
         &mut self,
@@ -159,8 +161,14 @@ impl Store {
         more: u64,
         screens: Screens<'_>,
     ) -> Result<(), Refusal> {
-        if reservation.frames || !self.reservations.contains_key(&reservation.id) {
+        if !self.reservations.contains_key(&reservation.id) {
             return Err(Refusal::Invalid);
+        }
+        if reservation.frames {
+            let image = reservation.old.ok_or(Refusal::Invalid)?;
+            self.reserve_frames(more, (reservation.buffer, image))?;
+            self.add_to(reservation, more);
+            return Ok(());
         }
         self.settle(screens);
         let added = self.reserve_bytes(more, None, screens)?;

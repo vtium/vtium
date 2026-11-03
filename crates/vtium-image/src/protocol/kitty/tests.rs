@@ -1671,3 +1671,52 @@ fn a_reply_file_too_short_or_too_long_is_ebadf_and_gives_its_bytes_back() {
         assert_eq!(h.store.bytes(), 0, "the budget is whole again");
     }
 }
+
+// covers: image.kitty-animation
+#[test]
+fn a_frames_buffered_payload_is_charged_to_the_frame_allowance_and_evicts_nothing() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    // a budget of image 1, 256 by 256, image 2, 64 by 64, and 1 KiB more
+    let limit = (256 * 256 * 4 + IMAGE_OVERHEAD) + (64 * 64 * 4 + IMAGE_OVERHEAD) + 1024;
+    h.store.set_limit(limit);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,s=256,v=256,i=1;{}", red(256 * 256)),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,s=64,v=64,i=2;{}", red(64 * 64)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\");
+    let budget = h.store.bytes();
+    // a zlib frame sent directly: its 64 KiB payload is kept for the helper
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,o=z,f=32,s=256,v=256;{}", b64(&[0x5a; 64 << 10])),
+    );
+    assert_eq!(h.store.image_count(), 2, "the payload evicted no image");
+    assert_eq!(h.store.bytes(), budget, "nor took any of the budget");
+    assert!(h.store.frame_bytes() >= 64 << 10, "the allowance holds it");
+    assert_eq!(h.requests.len(), 1);
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 256,
+            height: 256,
+            data: [0, 0, 0xff, 0xff].repeat(256 * 256),
+        }),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let key = h.store.find_image(1, 0).unwrap();
+    assert_eq!(h.store.animation(key).unwrap().frames, 2);
+    assert_eq!(h.store.image_count(), 2);
+    assert_eq!(
+        h.store.frame_bytes(),
+        256 * 256 * 4 + crate::FRAME_OVERHEAD,
+        "the payload's bytes went back when the helper answered"
+    );
+}
