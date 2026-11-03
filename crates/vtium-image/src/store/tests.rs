@@ -1702,3 +1702,103 @@ fn a_drawn_size_draws_the_picture_at_it_and_the_box_covers_the_cells_it_reaches(
         Err(Placing::Refused(Refusal::Invalid))
     );
 }
+
+/// A picture under the sixel tag, 8 by 16 pixels of `root`, with a second
+/// whole frame of `second`, as an iTerm2 picture's animated GIF is stored.
+fn animated(s: &mut Store, f: &Fake, root: u32, second: Vec<u32>) -> ImageKey {
+    let mut new = image(Protocol::SIXEL, 8, 16, 0);
+    new.pixels = vec![root; 8 * 16];
+    let key = s.add_image(new, None, f.screens()).expect("stored");
+    let r = s
+        .frame_reserve(key, anim::layer_cost(8, 16))
+        .expect("reserved");
+    let frame = NewFrame {
+        x: 0,
+        y: 0,
+        width: 8,
+        height: 16,
+        opaque: all_opaque(&second),
+        pixels: second,
+        replace: true,
+        base: 0,
+        background: 0,
+        edit: 0,
+        gap: 0,
+    };
+    assert_eq!(s.add_frame(frame, r), Ok(2));
+    key
+}
+
+// covers: image.iterm2
+#[test]
+fn an_animated_picture_covers_a_cell_only_where_every_frame_covers_it() {
+    const RED: u32 = 0xffff_0000;
+    let f = Fake::new(4);
+    // a still opaque picture over an older one removes it
+    let mut s = store(1 << 20);
+    let old = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, old, 0, 0);
+    let still = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, still, 0, 0);
+    assert_eq!(
+        shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(),
+        [still]
+    );
+    // an animated one whose second frame has one clear pixel keeps it,
+    // since that frame neither covers the cell nor hides the pixel beneath
+    let mut s = store(1 << 20);
+    let old = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, old, 0, 0);
+    let mut second = vec![RED; 8 * 16];
+    second[0] = 0;
+    let gif = animated(&mut s, &f, RED, second);
+    put(&mut s, &f, gif, 0, 0);
+    assert_eq!(
+        shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(),
+        [old, gif]
+    );
+    // with both frames opaque it covers the cell and removes it
+    let mut s = store(1 << 20);
+    let old = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, old, 0, 0);
+    let gif = animated(&mut s, &f, RED, vec![RED; 8 * 16]);
+    put(&mut s, &f, gif, 0, 0);
+    assert_eq!(shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(), [gif]);
+}
+
+// covers: image.iterm2
+#[test]
+fn an_animated_picture_draws_nothing_only_where_every_frame_draws_nothing() {
+    const RED: u32 = 0xffff_0000;
+    let f = Fake::new(4);
+    // an older picture whose first frame is clear and whose second is not,
+    // under a newer picture with clear pixels of its own: it still shows
+    let mut s = store(1 << 20);
+    let mut second = vec![0; 8 * 16];
+    second[5] = RED;
+    let gif = animated(&mut s, &f, 0, second);
+    put(&mut s, &f, gif, 0, 0);
+    // larger than the older picture, so the check of its two frames ends
+    // before the bound of the pixels it may read
+    let mut over = image(Protocol::SIXEL, 16, 32, 0);
+    over.pixels = vec![0; 16 * 32];
+    over.pixels[0] = RED;
+    let top = s.add_image(over, None, f.screens()).expect("stored");
+    put(&mut s, &f, top, 0, 0);
+    assert_eq!(
+        shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(),
+        [gif, top]
+    );
+    // with every frame clear it draws nothing and goes
+    let mut s = store(1 << 20);
+    let gif = animated(&mut s, &f, 0, vec![0; 8 * 16]);
+    put(&mut s, &f, gif, 0, 0);
+    // larger than the older picture, so the check of its two frames ends
+    // before the bound of the pixels it may read
+    let mut over = image(Protocol::SIXEL, 16, 32, 0);
+    over.pixels = vec![0; 16 * 32];
+    over.pixels[0] = RED;
+    let top = s.add_image(over, None, f.screens()).expect("stored");
+    put(&mut s, &f, top, 0, 0);
+    assert_eq!(shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(), [top]);
+}

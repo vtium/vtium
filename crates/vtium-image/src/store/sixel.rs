@@ -22,8 +22,14 @@
 //! picture scaled into its box covers a cell fully when the cell lies
 //! inside it and every pixel of the image is opaque, and is never taken
 //! for empty.
+//!
+//! A picture with frames, an iTerm2 picture's animated GIF, shows any of
+//! them as the animation clock picks (ADR-1103, D4). It covers a cell
+//! fully only when every one of its frames covers that cell fully, hides a
+//! pixel beneath only where every frame is opaque, and draws nothing in a
+//! place only when every frame draws nothing there.
 
-use super::{Geometry, Image, Placement, Rows, Store};
+use super::{FramePixels, Geometry, Placement, Rows, Store};
 use crate::image::{ImageKey, Place, PlacementKey};
 use crate::rules::{Protocol, rules, same};
 
@@ -99,10 +105,34 @@ impl Rect {
     }
 }
 
+/// One frame of a picture, as the rules here read it: its own size, its
+/// pixels, and whether every one of them is opaque.
+#[derive(Clone, Copy, Debug)]
+struct Pic<'a> {
+    width: u32,
+    height: u32,
+    pixels: &'a [u32],
+    opaque: bool,
+}
+
+/// Each frame of a picture `width` by `height`, from the frames the store
+/// gives it, the image's own pixels first.
+fn pics(frames: &[FramePixels], (width, height): (u32, u32)) -> Vec<Pic<'_>> {
+    frames
+        .iter()
+        .map(|f| Pic {
+            width,
+            height,
+            pixels: f.pixels.as_slice(),
+            opaque: f.opaque,
+        })
+        .collect()
+}
+
 /// The image pixels of a picture drawn at its own size under box row `y`,
 /// from box column `x0` to `x1`: one row of the image, or nothing where
 /// the row lies outside it.
-fn row_of<'a>(img: &'a Image, d: &Drawn, y: i64, x0: i64, x1: i64) -> &'a [u32] {
+fn row_of<'a>(img: &Pic<'a>, d: &Drawn, y: i64, x0: i64, x1: i64) -> &'a [u32] {
     let width = i64::from(img.width);
     let row = d.sy.saturating_add(y.saturating_sub(d.y));
     let at = |x: i64| {
@@ -113,7 +143,7 @@ fn row_of<'a>(img: &'a Image, d: &Drawn, y: i64, x0: i64, x1: i64) -> &'a [u32] 
         return &[];
     }
     match (at(x0), at(x1)) {
-        (Some(a), Some(b)) => img.pixels.as_slice().get(a..b).unwrap_or_default(),
+        (Some(a), Some(b)) => img.pixels.get(a..b).unwrap_or_default(),
         _ => &[],
     }
 }
@@ -123,7 +153,7 @@ fn row_of<'a>(img: &'a Image, d: &Drawn, y: i64, x0: i64, x1: i64) -> &'a [u32] 
 /// `cap`; returns whether it stopped, and adds the pixels it read to
 /// `read`.
 fn scan(
-    img: &Image,
+    img: &Pic<'_>,
     d: &Drawn,
     r: Rect,
     read: &mut usize,
@@ -153,10 +183,10 @@ fn cell(col: u32, row: u32, (cw, ch): (u32, u32)) -> Rect {
 }
 
 /// The runs of a new placement's box cells its picture covers fully with
-/// opaque pixels, as (box row, first column, last column), and the pixels
-/// read to find them.
+/// opaque pixels in every frame, as (box row, first column, last column),
+/// and the pixels read to find them.
 fn covered(
-    img: &Image,
+    frames: &[Pic<'_>],
     d: &Drawn,
     g: &Geometry,
     size: (u32, u32),
@@ -165,7 +195,8 @@ fn covered(
     let mut read = 0usize;
     // a cell is covered only inside the drawn picture, and only a picture
     // drawn at its own size can be read cell by cell
-    if !img.opaque && d.scaled {
+    let opaque = frames.iter().all(|f| f.opaque);
+    if !opaque && d.scaled {
         return (runs, read);
     }
     for row in 0..g.rows {
@@ -174,8 +205,9 @@ fn covered(
             let full = col < g.cols && {
                 let r = cell(col, row, size);
                 r.inside(d)
-                    && (img.opaque
-                        || !scan(img, d, r, &mut read, usize::MAX, |px| px >> 24 != 0xff))
+                    && frames.iter().all(|f| {
+                        f.opaque || !scan(f, d, r, &mut read, usize::MAX, |px| px >> 24 != 0xff)
+                    })
             };
             match (full, start) {
                 (true, None) => start = Some(col),
@@ -207,8 +239,9 @@ impl Store {
         let Some(img) = self.image(b, image) else {
             return;
         };
-        let protocol = img.protocol.0;
-        let (runs, read) = covered(img, &Drawn::new(g, place), g, self.cell);
+        let (protocol, size) = (img.protocol.0, (img.width, img.height));
+        let frames = self.frames_of(image);
+        let (runs, read) = covered(&pics(&frames, size), &Drawn::new(g, place), g, self.cell);
         self.count(read);
         let height = u32::try_from(rows.screen.len()).unwrap_or(u32::MAX);
         for (row, first, last) in runs {
@@ -242,8 +275,9 @@ impl Store {
         let Some(top) = self.image(b, image) else {
             return;
         };
+        let top_frames = self.frames_of(image);
         let over = Over {
-            img: top,
+            frames: pics(&top_frames, (top.width, top.height)),
             drawn: Drawn::new(g, place),
             col: place.col,
             row: i64::from(place.row),
@@ -265,7 +299,11 @@ impl Store {
             let Some(img) = self.image(b, p.image) else {
                 continue;
             };
-            if !shows_past(img, p, row, &over, &mut read, cap) {
+            let frames = self.frames_of(p.image);
+            let shows = pics(&frames, (img.width, img.height))
+                .iter()
+                .any(|f| shows_past(f, p, row, &over, &mut read, cap));
+            if !shows {
                 hidden.push(key);
             }
         }
@@ -273,6 +311,15 @@ impl Store {
         for key in hidden {
             self.free_placement(b, key, true);
         }
+    }
+
+    /// Every frame of image `key`, its own pixels first: one for a still
+    /// picture.
+    fn frames_of(&self, key: ImageKey) -> Vec<FramePixels> {
+        let count = self.animation(key).map_or(1, |a| a.frames.max(1));
+        (1..=count)
+            .filter_map(|n| self.frame_pixels(key, n))
+            .collect()
     }
 
     /// The placements of `protocol`'s kind whose box meets the box `g`
@@ -321,23 +368,24 @@ impl Store {
     }
 }
 
-/// The new picture an older one may lie under: its image, where it is
+/// The new picture an older one may lie under: its frames, where it is
 /// drawn in its box, its box's screen column and row, and the cell size.
 struct Over<'a> {
-    img: &'a Image,
+    frames: Vec<Pic<'a>>,
     drawn: Drawn,
     col: u32,
     row: i64,
     cell: (u32, u32),
 }
 
-/// Whether placement `p` of `img`, its top on screen row `row`, shows a
-/// pixel once `over` is drawn: a pixel of its picture inside its box with
-/// alpha above 0 that no opaque pixel of `over` hides. A picture drawn
+/// Whether placement `p` of `img`, one frame of its picture, its top on
+/// screen row `row`, shows a pixel once `over` is drawn: a pixel inside its
+/// box with alpha above 0 that no pixel of `over` opaque in every frame
+/// hides. A picture drawn
 /// scaled, or in another cell size than `over`, is taken to show one, and
 /// so is one whose check would read `read` past `cap`.
 fn shows_past(
-    img: &Image,
+    img: &Pic<'_>,
     p: &Placement,
     row: i64,
     over: &Over<'_>,
@@ -407,7 +455,7 @@ fn shows_past(
         x1: visible.x1.min(covering.x1),
         y1: visible.y1.min(covering.y1),
     };
-    if inside.is_empty() || over.img.opaque {
+    if inside.is_empty() || over.frames.iter().all(|f| f.opaque) {
         return false;
     }
     if o.scaled {
@@ -415,21 +463,26 @@ fn shows_past(
     }
     for y in inside.y0..inside.y1 {
         let mine = row_of(img, &d, y, inside.x0, inside.x1);
-        let theirs = row_of(
-            over.img,
-            o,
-            y.saturating_sub(dy),
-            inside.x0.saturating_sub(dx),
-            inside.x1.saturating_sub(dx),
-        );
         *read = read.saturating_add(mine.len());
-        if mine.len() != theirs.len()
-            || mine
-                .iter()
-                .zip(theirs)
-                .any(|(&m, &t)| m >> 24 != 0 && t >> 24 != 0xff)
-            || *read >= cap
-        {
+        // a set pixel shows where any frame of the new picture is clear
+        for f in &over.frames {
+            let theirs = row_of(
+                f,
+                o,
+                y.saturating_sub(dy),
+                inside.x0.saturating_sub(dx),
+                inside.x1.saturating_sub(dx),
+            );
+            if mine.len() != theirs.len()
+                || mine
+                    .iter()
+                    .zip(theirs)
+                    .any(|(&m, &t)| m >> 24 != 0 && t >> 24 != 0xff)
+            {
+                return true;
+            }
+        }
+        if *read >= cap {
             return true;
         }
     }
