@@ -1736,6 +1736,66 @@ mod tests {
         assert!(ServeRequest::read(&mut &good[..good.len() - 1]).is_err());
     }
 
+    /// A sources query carries a cell of 0 by 0 and names nothing: one
+    /// at a width or a height, or naming a codepoint or a held range, is
+    /// refused as it is read.
+    #[test]
+    fn a_sources_query_naming_anything_is_refused() {
+        let empty = Cell {
+            width: 0,
+            height: 0,
+        };
+        let query = ServeRequest {
+            cell: empty,
+            ..request(SOURCES, frit("source=builtin:unifont\n"), &[])
+        };
+        assert_eq!(
+            ServeRequest::read(&mut &query.encode()[..]),
+            Ok(Some(query.clone()))
+        );
+        for (what, bad) in [
+            (
+                "a width",
+                ServeRequest {
+                    cell: Cell {
+                        width: 1,
+                        height: 0,
+                    },
+                    ..query.clone()
+                },
+            ),
+            (
+                "a height",
+                ServeRequest {
+                    cell: Cell {
+                        width: 0,
+                        height: 16,
+                    },
+                    ..query.clone()
+                },
+            ),
+            (
+                "a codepoint",
+                ServeRequest {
+                    codepoints: vec![0x41],
+                    ..query.clone()
+                },
+            ),
+            (
+                "a held range",
+                ServeRequest {
+                    held: vec![(0x41, 0x42)],
+                    ..query.clone()
+                },
+            ),
+        ] {
+            assert!(
+                ServeRequest::read(&mut &bad.encode()[..]).is_err(),
+                "{what}"
+            );
+        }
+    }
+
     // ADR-1200 D21: an ask names clusters whole, each checked as it is
     // read, and no other request names one
     #[test]
