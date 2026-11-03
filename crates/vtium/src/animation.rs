@@ -136,7 +136,8 @@ impl Play {
     /// gapless frames (D4). A looping animation goes back to frame 1 after
     /// its last, unless that ends its last loop: `v=n` plays the frames
     /// `n` − 1 times, and `v=1` plays them for ever. A loading one waits
-    /// on its last frame.
+    /// on its last frame. An animation with no frame that shows but the
+    /// one on show waits, so the clock arms nothing for it.
     fn step(&self, frames: &impl Frames, key: ImageKey) -> Step {
         let count = self.seen.frames.max(1);
         let mut at = self.frame;
@@ -156,6 +157,11 @@ impl Play {
                 at = at.saturating_add(1);
             }
             if Play::gap(frames, key, at) > 0 {
+                // Back at the frame on show: no other frame shows, so
+                // there is nothing to play.
+                if at == self.frame {
+                    return Step::Wait;
+                }
                 return Step::To(at, wrapped);
             }
         }

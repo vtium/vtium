@@ -243,6 +243,63 @@ fn a_gapless_frame_is_passed_over() {
     assert_eq!(due(&c, &t), None);
 }
 
+/// Runs the loop as it would for 4 s from `t0`: a turn at each time the
+/// clock arms, and returns the wakes and the turns that asked for a draw.
+fn four_seconds(c: &mut AnimationClock, t: &Terminal, t0: Instant) -> (usize, usize) {
+    let (mut wakes, mut draws) = (0, 0);
+    while let Some(at) = due(c, t).filter(|&d| d < ms(t0, 4000)) {
+        wakes += 1;
+        if c.turn(t.screen().images(), at, true) {
+            draws += 1;
+        }
+        assert!(wakes < 10_000, "the clock spins");
+    }
+    (wakes, draws)
+}
+
+// D3, D4: an animation with only one frame that shows has nothing to play,
+// so the clock never wakes the loop for it: frames 2 and 3 gapless, or a
+// picture with no other frame and a gap; with the root frame gapless and
+// one frame that shows, the clock moves to that frame once and waits.
+// covers: image.kitty-animation
+#[test]
+fn one_frame_that_shows_wakes_the_loop_for_nothing() {
+    let t0 = Instant::now();
+    let mut t = term();
+    let key = three_frames(&mut t, [30, -1, -1]);
+    feed(&mut t, &["a=a,i=1,s=3".into()]);
+    let mut c = clock(&t, t0);
+    assert_eq!(
+        four_seconds(&mut c, &t, t0),
+        (0, 0),
+        "frames 2 and 3 gapless"
+    );
+    assert_eq!(c.frame(key), Some(1));
+
+    let mut t = term();
+    feed(
+        &mut t,
+        &[
+            format!("a=T,f=32,s=2,v=2,i=1;{}", fill(2, 2, RED)),
+            "a=a,i=1,r=1,z=30".into(),
+            "a=a,i=1,s=3".into(),
+        ],
+    );
+    let mut c = clock(&t, t0);
+    assert_eq!(
+        four_seconds(&mut c, &t, t0),
+        (0, 0),
+        "a picture of one frame"
+    );
+
+    let mut t = term();
+    let key = three_frames(&mut t, [-1, 40, -1]);
+    feed(&mut t, &["a=a,i=1,s=3".into()]);
+    let mut c = clock(&t, t0);
+    assert_eq!(four_seconds(&mut c, &t, t0), (1, 1), "on to frame 2, once");
+    assert_eq!(c.frame(key), Some(2));
+}
+
 // D3: an animation no command runs, or one stopped, keeps its frame and
 // arms no timer however many turns pass.
 // covers: image.kitty-animation
