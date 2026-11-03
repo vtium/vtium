@@ -481,7 +481,6 @@ mod tests {
                 data: vec![1, 2, 3, 0xff],
             })
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A fixture picture of `width` by `height`, its pixels all 0.
