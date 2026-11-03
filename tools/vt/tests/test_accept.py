@@ -12,6 +12,7 @@ does not.
 
 import fcntl
 import hashlib
+import math
 import os
 import pty
 import re
@@ -60,15 +61,16 @@ def write(path, text, mode=0o644):
 
 
 class Pty:
-    """A program on a pseudo-terminal of 80x25, read up to each prompt before
+    """A program on a pseudo-terminal of 80x25, or SIZE as (rows, columns),
+    read up to each prompt before
     it is answered. It answers DA1 with da1 and the cursor position query
     with row 10, as a terminal would."""
 
-    def __init__(self, argv, env, da1=DA1_TEXT, frits=("unifont",)):
+    def __init__(self, argv, env, da1=DA1_TEXT, frits=("unifont",), size=(25, 80)):
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.execve(argv[0], argv, env)
-        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 25, 80, 0, 0))
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", *size, 0, 0))
         self.da1 = da1
         # As vtium does: OSC 50 switches to a frit in its frits directory,
         # here FRITS, and to nothing else; its query names the font in use.
@@ -195,8 +197,8 @@ class Case(unittest.TestCase):
         env.update(extra)
         return env
 
-    def walk(self, env, *argv, da1=DA1_TEXT, frits=("unifont",)):
-        return Pty(["/bin/bash", ACCEPT_SH, *argv], env, da1, frits)
+    def walk(self, env, *argv, da1=DA1_TEXT, frits=("unifont",), size=(25, 80)):
+        return Pty(["/bin/bash", ACCEPT_SH, *argv], env, da1, frits, size)
 
     def record(self):
         """The one record in the passes directory, and its path."""
@@ -258,7 +260,7 @@ class Walk(Case):
         self.assertEqual(meta["vt"], "5")
         self.assertEqual(meta["binary"], "/build/vtium")
         self.assertEqual(meta["features"], "images")
-        self.assertEqual(meta["terminal"], "TERM=linux, 25 rows by 80 columns")
+        self.assertEqual(meta["terminal"], "TERM=linux, 25 rows by 80 columns at the start")
         self.assertEqual(meta["da1"], "62;22")
         self.assertEqual(meta["answered"], "4 of 4")
         self.assertEqual(os.path.basename(path), meta["pass"] + ".md")
@@ -317,6 +319,67 @@ class Walk(Case):
         self.assertEqual(d.finish(), 0)
         _, text = self.record()
         self.assertEqual(self.rows(text)[:2], [("10-one", "no", ""), ("20-two", "-", "")])
+
+    def test_an_empty_comment_keeps_the_comment_the_page_had(self):
+        d = self.walk(self.env(), "one", "two")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"page one")
+        d.wait_for(ASK)
+        d.send(b"c")
+        d.wait_for(b"> ")
+        d.send(b"first comment\r")
+        d.wait_for(b"> ")
+        d.send(b".\r")
+        d.wait_for(b"y yes  n no  u unsure  s skip")
+        d.send(b"n")
+        d.wait_for(b"page two")
+        d.wait_for(ASK)
+        d.send(b"b")
+        d.wait_for(b"page one")
+        d.wait_for(ASK)
+        # A comment ended at once is empty: the page is drawn again, and the
+        # comment it had stands with the answer that follows.
+        d.send(b"c")
+        d.wait_for(b"> ")
+        d.send(b".\r")
+        d.wait_for(b"page one")
+        d.wait_for(ASK)
+        d.send(b"n")
+        d.wait_for(b"page two")
+        d.wait_for(ASK)
+        d.send(b"q")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        _, text = self.record()
+        self.assertEqual(self.rows(text), [("10-one", "no", "first comment"), ("20-two", "-", "")])
+
+    def test_a_terminal_smaller_than_80x25_is_named_on_the_title_and_each_page(self):
+        d = self.walk(self.env(), "one", size=(24, 80))
+        d.wait_for(b"The terminal is smaller than 80x25")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"(80x24, smaller than 80x25)")
+        d.wait_for(b"page one")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        _, text = self.record()
+        self.assertIn("- terminal: TERM=linux, 24 rows by 80 columns at the start\n", text)
+        # at 80x25 neither shows
+        os.unlink(self.record()[0])
+        d = self.walk(self.env(), "one")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"smaller than 80x25", d.seen)
 
     def quit_after_one(self, label="vtium dev build v1-test"):
         d = self.walk(self.env(label))
@@ -408,6 +471,25 @@ class Walk(Case):
         self.assertEqual(d.finish(), 0)
         self.assertEqual([n for n in os.listdir(self.tmp) if n.endswith(".md")], [])
 
+    def test_nothing_is_recorded_in_a_directory_others_may_read(self):
+        # The passes directory is the user's alone: one that group or others
+        # may read or enter is refused, though it is the user's own.
+        os.mkdir(self.passes, 0o755)
+        os.chmod(self.passes, 0o755)
+        d = self.walk(self.env())
+        d.wait_for(b"is a symlink, or not a directory of yours alone")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(ASK)
+        d.send(b"q")
+        d.wait_for(b"not recorded")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertEqual(os.listdir(self.passes), [])
+
     def test_the_build_is_read_from_the_terminal_when_it_shows_pictures(self):
         d = self.walk(self.env(), "one", da1=DA1_PICTURES)
         d.wait_for(b"press a key to start the pass")
@@ -430,7 +512,7 @@ RECORD = """# vtium acceptance pass {id}
 - vt: 5
 - binary: not given
 - features: not given
-- terminal: TERM=xterm-vtium, 25 rows by 80 columns
+- terminal: TERM=xterm-vtium, 25 rows by 80 columns at the start
 - da1: 62;22
 - started: 2026-11-03T10:00:00-07:00
 - updated: 2026-11-03T10:20:00-07:00
@@ -568,6 +650,69 @@ def widest(line):
     return most
 
 
+def extent(text, top=3, cell=(10, 20)):
+    """The last row (1-based) and the furthest column a page's output reaches
+    on a terminal whose cell is CELL pixels (width, height), starting at row
+    TOP: text and cursor moves as a terminal makes them, and each picture the
+    rows and columns it covers."""
+    ESCAPE = re.compile(r"\x1b(\[([0-9;:?$ ]*)([@-~])|\][^\x07\x1b]*(\x07|\x1b\\)|([P_])([^\x1b]*)\x1b\\|[()][0-9A-Z]|.)")
+    row, col, rows, cols, last = top, 0, top, 0, 1
+    at = 0
+    def cover(r, c):
+        nonlocal rows, cols
+        rows, cols = max(rows, r), max(cols, c)
+    while at < len(text):
+        m = ESCAPE.match(text, at)
+        if m:
+            at = m.end()
+            if m.group(3):
+                p = [int(x) if x.isdigit() else 0 for x in (m.group(2) or "").split(";")]
+                f = m.group(3)
+                if f in "Hf":
+                    row = p[0] or 1
+                    col = (p[1] if len(p) > 1 and p[1] else 1) - 1
+                elif f == "G":
+                    col = (p[0] or 1) - 1
+                elif f == "d":
+                    row = p[0] or 1
+                elif f in "BE":
+                    row += p[0] or 1
+                elif f == "A":
+                    row -= p[0] or 1
+                elif f == "C":
+                    col += p[0] or 1
+                elif f == "b":
+                    col += (p[0] or 1) * last
+                    cover(row, col)
+            elif m.group(4) and m.group(0).startswith("\x1b]1337;File="):
+                keys = dict(kv.split("=", 1) for kv in m.group(0)[len("\x1b]1337;File="):].split(":")[0].split(";") if "=" in kv)
+                cover(row + int(keys.get("height", 1)) - 1, col + int(keys.get("width", 1)))
+            elif m.group(5) == "_" and m.group(6).startswith("G"):
+                keys = dict(kv.split("=", 1) for kv in m.group(6)[1:].split(";")[0].split(",") if "=" in kv)
+                if keys.get("a") in ("T", "p"):
+                    cover(row + int(keys.get("r", 1)) - 1, col + int(keys.get("c", 1)))
+            elif m.group(5) == "P":
+                raster = re.search(r'"\d+;\d+;(\d+);(\d+)', m.group(6))
+                if raster:
+                    w, h = int(raster.group(1)), int(raster.group(2))
+                    cover(row + math.ceil(h / cell[1]) - 1, col + math.ceil(w / cell[0]))
+            continue
+        ch = text[at]
+        at += 1
+        if ch == "\r":
+            col = 0
+        elif ch == "\n":
+            row += 1
+            cover(row, col)
+        elif unicodedata.combining(ch) or ord(ch) < 0x20 or ch in "‍︎️":
+            continue
+        else:
+            last = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+            col += last
+            cover(row, col)
+    return rows, cols
+
+
 TEXT = os.path.join(SECTIONS, "text", "udhr-article1.tsv")
 LANGUAGES = [l.split("\t") for l in read(TEXT).splitlines() if not l.startswith("#")]
 SENTENCES = {l[2] for l in LANGUAGES}
@@ -621,7 +766,7 @@ class Pages(Case):
                 for key in ("look-for", "wrong-looks-like"):
                     joined = " ".join(re.findall(rf"^# {key}: (.*)$", text, re.M))
                     self.assertTrue(joined, f"no # {key}: lines")
-                    # two rows of the footer at 80 columns, after its label
+                    # four rows of the footer at 80 columns, after its label
                     self.assertLessEqual(len(joined), 4 * 69, key)
                 p = subprocess.run(["bash", os.path.join(SECTIONS, f)], capture_output=True, timeout=20,
                                    stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"]})
@@ -692,6 +837,22 @@ class Pages(Case):
                 self.assertNotIn(b"cannot show", seen)
                 for s in sent:
                     self.assertIn(s, seen)
+
+
+    def test_each_picture_page_fits_80x25_as_it_draws_its_pictures(self):
+        # As a build with pictures draws them, with a cell 10 pixels wide and
+        # 20 tall: every row and column the text and the pictures cover, from
+        # the row the walk starts the page on, within the 17 rows and 80
+        # columns a page has.
+        answers = [(KITTY_QUERY, b"\x1b_Gi=31;OK\x1b\\" + DA1_PICTURES), (b"\x1b[c", DA1_PICTURES),
+                   (HELPER_QUERY, b"\x1b_Gi=32;OK\x1b\\"), (b"\x1b[16t", b"\x1b[6;20;10t")]
+        for f in self.picture_pages():
+            with self.subTest(page=f):
+                status, seen = responder_run(os.path.join(SECTIONS, f), answers)
+                self.assertEqual(status, 0, seen[-500:])
+                rows, cols = extent(seen.decode(errors="replace"), top=3, cell=(10, 20))
+                self.assertLessEqual(rows, 3 + 17 - 1)
+                self.assertLessEqual(cols, 80)
 
 
 class Frits(Case):

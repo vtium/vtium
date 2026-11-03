@@ -72,6 +72,14 @@ read_size() {
 	[[ $rows =~ ^[1-9][0-9]*$ && $cols =~ ^[1-9][0-9]*$ ]] || { rows=25; cols=80; }
 }
 
+# A mark for a page's header when the terminal is smaller than the 80x25 the
+# pages are made for: a font switch changes the grid, so the size is read
+# before each page.
+small_mark() {
+	[ "$rows" -lt 25 ] || [ "$cols" -lt 80 ] || return 0
+	printf '  \033[31m(%sx%s, smaller than 80x25)\033[0m' "$cols" "$rows"
+}
+
 # Reads one key into $key. An escape sequence (an arrow key, a late reply from
 # the terminal) is read whole and returned as ESC, so its bytes are never taken
 # for keys.
@@ -160,7 +168,7 @@ draw_page() {
 	fi
 	read_size
 	clear_screen
-	printf '\033[1m[%d/%d] %s\033[0m\n\n' $(($1 + 1)) ${#pages[@]} "$(entry_name "$1")"
+	printf '\033[1m[%d/%d] %s\033[0m%s\n\n' $(($1 + 1)) ${#pages[@]} "$(entry_name "$1")" "$(small_mark)"
 	status=0
 	if [ -n "$unshown_why" ]; then
 		printf '  This build cannot show this page.\n  %s\n' "$unshown_why"
@@ -418,7 +426,7 @@ write_record() {
 		printf -- '- vt: %s\n' "$(one_line "${ACCEPT_VT:-not given}")"
 		printf -- '- binary: %s\n' "$(one_line "${ACCEPT_BINARY:-not given}")"
 		printf -- '- features: %s\n' "$(one_line "${ACCEPT_FEATURES:-not given}")"
-		printf -- '- terminal: TERM=%s, %s rows by %s columns\n' "$(one_line "${TERM:-unset}")" "$rows" "$cols"
+		printf -- '- terminal: TERM=%s, %s rows by %s columns at the start\n' "$(one_line "${TERM:-unset}")" "$start_rows" "$start_cols"
 		printf -- '- da1: %s\n' "${da1:-no answer}"
 		printf '%s\n' "${hardware_lines[@]}"
 		printf -- '- hardware: %s; this pass is evidence about the hardware above only\n' "$hardware"
@@ -519,7 +527,7 @@ ask_keys='y yes  n no  u unsure  s skip  c comment  r redraw  b back  q quit'
 # back or quits; go says which. When the footer does not fit below the page,
 # it gets a screen of its own.
 ask() {
-	local i=$1 row
+	local i=$1 row kept
 	note=${notes[$i]:-}
 	while :; do
 		read_size
@@ -548,9 +556,11 @@ ask() {
 			u | U) rate "$i" unsure; go=next; return ;;
 			s | S) rate "$i" skip; go=next; return ;;
 			c | C)
+				kept=$note
 				read_comment
-				# An empty comment changes nothing: the page again.
-				[ -n "$note" ] || continue 2
+				# An empty comment keeps the comment the page had, and
+				# the page is drawn again.
+				[ -n "$note" ] || { note=$kept; continue 2; }
 				ask_answer "$i"
 				go=next
 				return
@@ -660,6 +670,8 @@ done
 
 [ -n "$noprompt" ] || init_passes
 read_size
+# The size the pass starts at, for the record; each page reads it again.
+start_rows=$rows start_cols=$cols
 
 # Echo stays off for the whole run, so neither a key typed between prompts nor
 # the terminal's answer to cursor_row lands on a page. read_comment turns it on
@@ -717,6 +729,10 @@ clear_screen
 printf '\033[1mvtium acceptance pass\033[0m\n\n'
 printf '  running   %s\n' "$label"
 printf '  terminal  TERM=%s, %s rows by %s columns\n' "${TERM:-unset}" "$rows" "$cols"
+if [ -n "$(small_mark)" ]; then
+	printf '  \033[31mThe terminal is smaller than 80x25: a page may be cut, and its\n'
+	printf '  questions moved to a screen of their own.\033[0m\n'
+fi
 [ $# -eq 0 ] || printf '  pages     named on the command line\n'
 echo
 printf '  Each page says below it what right and wrong look like. Answer each with\n'
