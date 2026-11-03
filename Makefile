@@ -236,6 +236,18 @@ arm arm-test: export PKG_CONFIG_armv7_unknown_linux_gnueabihf = $(ARM_WRAP)/armv
 arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link against (VTIUM_ARM_SYSROOTS=DIR)
 	tools/arm/sysroot fetch arm64 armhf
 
+# The oldest Rust vtium builds on: the rust-version Cargo.toml declares. The
+# build has a target directory of its own, so the gates' other builds keep
+# theirs.
+MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"$$/\1/p' Cargo.toml)
+
+.PHONY: msrv
+msrv: ## Build the workspace, its tests and the minspec profile with the oldest Rust vtium builds on, Cargo.toml's rust-version, in target/msrv (rustup installs that Rust when it is missing)
+	@[ -n "$(MSRV)" ] || { echo "msrv: Cargo.toml declares no rust-version" >&2; exit 1; }
+	@rustup run $(MSRV) rustc --version >/dev/null 2>&1 || rustup toolchain install $(MSRV) --profile minimal --no-self-update
+	cargo +$(MSRV) build --workspace --all-features --all-targets --locked --target-dir target/msrv
+	cargo +$(MSRV) build --profile minspec --locked --target-dir target/msrv
+
 .PHONY: arm
 arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
 	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec $(addprefix --target ,$(ARM_TARGETS))
@@ -530,6 +542,7 @@ cargo clippy --workspace --all-features --all-targets -- -D warnings
 cargo test --workspace --all-features
 cargo test --workspace
 cargo build --profile minspec
+make msrv
 docs/scripts/adr lint --check
 docs/scripts/adr cite --check
 docs/scripts/issue-refs
