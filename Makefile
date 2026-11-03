@@ -26,6 +26,9 @@ VTIUM_DEV_DIR := $(or $(CARGO_TARGET_DIR),target)/vt-dev
 VTIUM_DEV := $(VTIUM_DEV_DIR)/$(X86_TARGET)/minspec/vtium
 VTIUM_DEV_HELPER := /usr/local/bin/vtium-dev-config
 VTIUM_DEV_IMAGE := /usr/local/bin/vtium-dev-image
+# The line only a build with images carries, by which make vt-install tells a
+# console with images: tools/vt/vt-install.sh names it.
+VT_IMAGES_MARKER := $(shell sed -n "s/^images_marker='\(.*\)'$$/\1/p" tools/vt/vt-install.sh)
 CONFIG_RELEASE := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-config
 IMAGE_RELEASE := $(or $(CARGO_TARGET_DIR),target)/$(X86_TARGET)/release/vtium-image
 VT_GOALS := vt-demo vt-login vt-check vt-shell
@@ -410,7 +413,9 @@ $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 
 # The development console: the minspec build, with FEATURES, made to start
 # its helper at VTIUM_DEV_HELPER and, with images in FEATURES, its image
-# helper at VTIUM_DEV_IMAGE, which vt-install installs.
+# helper at VTIUM_DEV_IMAGE, which vt-install installs. The console carries
+# VT_IMAGES_MARKER exactly when it is built with images, as vt-install reads
+# it.
 .PHONY: vt-dev-console
 vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
 	tools/arm/sysroot fetch amd64
@@ -419,6 +424,9 @@ vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86
 	$(call check-glibc,$(VTIUM_DEV))
 ifneq ($(IMAGES),)
 	grep -qaF '$(VTIUM_DEV_IMAGE)' $(VTIUM_DEV) || { echo "$(VTIUM_DEV) does not start its image helper at $(VTIUM_DEV_IMAGE)" >&2; exit 1; }
+	grep -qaF '$(VT_IMAGES_MARKER)' $(VTIUM_DEV) || { echo "$(VTIUM_DEV) is built with images but lacks the line '$(VT_IMAGES_MARKER)' that vt-install tells such a build by (tools/vt/vt-install.sh)" >&2; exit 1; }
+else
+	! grep -qaF '$(VT_IMAGES_MARKER)' $(VTIUM_DEV) || { echo "$(VTIUM_DEV) is built without images but carries the line '$(VT_IMAGES_MARKER)' that vt-install tells a build with images by (tools/vt/vt-install.sh)" >&2; exit 1; }
 endif
 
 .PHONY: vt-install

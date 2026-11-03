@@ -377,7 +377,7 @@ if [ "$action" = uninstall ]; then
 	if [ -n "$others" ]; then
 		kept=("${files[@]}")
 		for f in "${dropped[@]}"; do
-			[ ! -e "$root$f" ] || kept+=("$f")
+			[ -z "$(recorded "$f")" ] || kept+=("$f")
 		done
 		echo "vt-uninstall: kept ${kept[*]}: vt-install holds $(paste -sd' ' <<<"$others") as well"
 	else
@@ -431,13 +431,15 @@ helper=$(program VTIUM_VT_CONFIG "glyph helper" "vtium, as root, would start it"
 grep -qaF -- "$helper_path" "$bin" ||
 	die "$bin does not look for its glyph helper at $helper_path, so it would start another build's helper or none; make vt-install builds one that looks there"
 # The image helper is found the same way, at VTIUM_IMAGE
-# (crates/vtium/src/head/images.rs), whose default is the packaged
-# /usr/bin/vtium-image. Every build names the path it was built with, since
-# the image-helper key's default names it, but only a build with images
-# starts the helper. make vt-dev-console sets VTIUM_IMAGE to the development
-# install's path exactly when it builds with images, so a binary that names
-# that path has pictures and gets the helper. A build with images that names
-# another path would start the packaged helper, another build's, or none.
+# (crates/vtium/src/head/images.rs and
+# crates/vtium-platform/src/image_helper/start.rs), whose default is the
+# packaged /usr/bin/vtium-image. Every build names the path it was built
+# with, since the image-helper key's default names it, but only a build with
+# images starts the helper. make vt-dev-console sets VTIUM_IMAGE to the
+# development install's path exactly when it builds with images, so a binary
+# that names that path has pictures and gets the helper. A build with images
+# that names another path would start the packaged helper, another build's,
+# or none.
 image=
 if grep -qaF -- "$image_path" "$bin"; then
 	image=$(program VTIUM_VT_IMAGE "image helper" "vtium, as root, would start it" "make vt-install FEATURES=images")
