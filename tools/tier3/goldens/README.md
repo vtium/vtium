@@ -31,12 +31,12 @@ The goldens of the guest without systemd (vtium/vtium#104, `../README.md`, The g
 | `sysvinit-no-udev/cjk.png` | The `cjk` screen, with no udev daemon. |
 | `sysvinit-two-vts/cjk.png` | The `cjk` screen, drawn by tty2's console with a second console started on tty3 at the boot (vtium/vtium#139). |
 
-The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are vtium's captures from `make tier3-minimal` on the branch that added them: 640x480, 8x16 cells, 80 by 30, the font the frit `dejavu-mono` generated at run time by the helper (ADR-1301 D2). They stay in `../provisional.tsv` until the operator reviews them.
+The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are vtium's captures from `make tier3-minimal`: 640x480, the font the frit `dejavu-mono` generated at run time by the helper (ADR-1301 D2). The frit states no cell, so `2d-640x480-frit` draws in DejaVu Sans Mono's own cell, 9x16, 71 by 30 (ADR-1200 D17), recaptured at e8560705; `2d-640x480-frit-held`, whose helper never answers, draws in the built-in font's 8x16 cell, 80 by 30, as captured on the branch that added them. They stay in `../provisional.tsv` until the operator reviews them.
 
 | Golden | What it shows |
 |---|---|
-| `2d-640x480-frit/small-console.png` | The `small-console` screen once the helper's glyphs have arrived: its letters, digits and Latin-1 in DejaVu Sans Mono, antialiased, on unifont's 8x16 cells; the box lines, blocks and shades as the sprites. |
-| `2d-640x480-frit/cjk.png` | The `cjk` screen in the same frit: `Latin then CJK:`, `end`, `ASCII` and the bars in DejaVu Sans Mono, and the Chinese, Japanese and Korean characters, which the font lacks, in the built-in unifont (vtium/vtium#141). |
+| `2d-640x480-frit/small-console.png` | The `small-console` screen once the helper's glyphs have arrived: its letters, digits and Latin-1 in DejaVu Sans Mono, antialiased, in 9x16 cells, so its 40-column ruler ends at x 360; the box lines, blocks and shades as the sprites. |
+| `2d-640x480-frit/cjk.png` | The `cjk` screen in the same frit and cell: `Latin then CJK:`, `end`, `ASCII` and the bars in DejaVu Sans Mono, and the Chinese, Japanese and Korean characters, which the font lacks, in the built-in unifont, each centered in its two 9-pixel cells (vtium/vtium#141). |
 | `2d-640x480-frit-held/small-console.png` | The `small-console` screen with a helper that never answers: the screen before the helper's first answer, all in the built-in unifont, pixel for pixel the reviewed `2d-640x480-psf16/small-console.png`. |
 | `2d-640x480-frit-held/cjk.png` | The `cjk` screen with a helper that never answers, all in the built-in unifont, pixel for pixel `2d-640x480-psf16/cjk.png`. |
 
