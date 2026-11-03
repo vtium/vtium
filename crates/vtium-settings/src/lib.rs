@@ -29,7 +29,10 @@
 //! places a set of devices and runs the guards over the result.
 //! [`Config::builtin`] is the compiled-in configuration, the parse of
 //! [`TEMPLATE`]. [`resolve`] decides what runs for each state the file can
-//! be in: missing, untrusted, valid, partly broken or broken.
+//! be in: missing, untrusted, valid, partly broken or broken. [`set_profile`]
+//! is the file's one writer, which sets a head's profile and keeps every
+//! other byte (ADR-1201 D6), and [`install_file`] replaces a configuration
+//! file in one rename.
 //!
 //! ```
 //! use vtium_settings::{Class, Identity, Place, parse};
@@ -51,6 +54,7 @@ mod messages;
 mod outcome;
 mod parse;
 mod place;
+mod write;
 
 pub use bounds::{
     CONSOLES_MAX, CONSOLES_TOTAL_DEFAULT, ERRORS_MAX, FILE_MAX, HEAD_CONSOLES_DEFAULT, HEADS_MAX,
@@ -71,3 +75,4 @@ pub use outcome::{
 };
 pub use parse::{Parsed, Reading, parse, reading};
 pub use place::{By, Disposition, Lockout, Place, Placed, Placement, rule_for};
+pub use write::{ProfileEdit, install_file, set_profile};

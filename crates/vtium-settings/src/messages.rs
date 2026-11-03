@@ -773,6 +773,31 @@ impl fmt::Display for Remark {
     }
 }
 
+impl fmt::Display for crate::write::ProfileEdit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use crate::error::Quoted;
+        use crate::write::ProfileEdit;
+        use syntax::{CHECK_CONFIG, HEAD_HEADING, NAME_PUNCTUATION, PROFILE};
+        match self {
+            ProfileEdit::Unreadable(_) => write!(
+                f,
+                "The head file holds errors, so vtium-config leaves it as it is. Run {CHECK_CONFIG} on the file to see them, and fix them first."
+            ),
+            ProfileEdit::NoHead(head) => write!(
+                f,
+                "The head file has no head named {head}. Each head is a {HEAD_HEADING} section; pick one of the heads it names.",
+                head = Quoted::new(head),
+            ),
+            ProfileEdit::BadName(name) => write!(
+                f,
+                "A {PROFILE}'s name is 1 to {max} letters, digits or {NAME_PUNCTUATION}, so vtium would refuse {name}. Choose a name of those characters.",
+                max = crate::bounds::NAME_MAX,
+                name = Quoted::new(name),
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;

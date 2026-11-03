@@ -268,7 +268,7 @@ fn key_value(line: &str) -> Option<(&str, &str)> {
 
 /// Whether `name` keeps the name rule: 1 to [`NAME_MAX`] of
 /// `A-Z a-z 0-9 . _ + -`.
-fn good_name(name: &str) -> bool {
+pub(crate) fn good_name(name: &str) -> bool {
     !name.is_empty()
         && name.chars().count() <= NAME_MAX
         && name
