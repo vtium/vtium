@@ -7,11 +7,15 @@
 //! [`runner`] runs them all and writes the [`report`]. [`colorset`] builds
 //! the vitrified set the color glyph screen draws with, and [`notices`]
 //! the words of the screens of vtium's notices and on-screen display.
+//! With the `gpu` feature, `gpu` draws the screens on the GPU path and
+//! judges them against the CPU path's drawing.
 
 pub mod colorset;
 pub mod compare;
 pub mod cref;
 pub mod draw;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 pub mod notices;
 pub mod ppm;
 pub mod report;

@@ -50,6 +50,10 @@ considered:
   - operator: aaronsb
     said: "Sorry agree on adding to the sub pixel thoughts and the adr I agree with too"
     via: operator, in session 2026-10-26, after reading the record and the subpixel proposal
+  - operator: aaronsb
+    said: "The GPU path's cell shader keeps D6's exact blend arithmetic: values held as whole numbers in highp floats, div255 with its shifts written as floors of divisions by 256, nearest sampling, no dithering, and each channel written as (c + 0.25) / 255, even though ADR-1303 now judges the GPU path within a tolerance."
+    via: the maintainer in the steering session, 2026-11-03; the team lead's summary in the brief for the GPU path's composition, not the maintainer's words
+    paraphrase: true
 observable:
   - "Tier 2 draws each screen with a cache of 0 glyphs and with the performance budgets, on the CPU path and on the GPU path under llvmpipe, and the two agree byte for byte"
   - "`cargo test -p vtium-render --test memory -- --nocapture` prints each profile's figures and fails when they change"

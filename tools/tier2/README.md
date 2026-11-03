@@ -26,6 +26,8 @@ make tier2-provenance            # the copies against their sources (KMSCON=../k
 | `src/compare.rs` | The comparison, its verdict, its regions and the diff image. |
 | `src/report.rs` | The report's JSON. |
 | `src/runner.rs` | The lists, the copies' checks, and judging every case. |
+| `src/gpu.rs` | The GPU path's screens: each drawn through `Renderer::draw_gpu` on a GL and judged against the CPU path's drawing within its own sidecar. |
+| `gpu/` | The GPU path's sidecars, `<screen>.tol`, one for each screen the GPU path draws: the starting tolerance of ADR-1303 D1, provisional until the maintainer confirms it on measured values. |
 | `src/bin/tier2.rs` | The commands. |
 | `provenance.tsv` | Each file under `reference/`: `PATH REPO COMMIT SOURCE SHA256`, the path from the repository root, as tier 1's `tools/conformance/provenance.tsv` gives them. |
 | `c-goldens.list` | The file names of the C reference's `tests/goldens/tier2/` at the commit `provenance.tsv` names, so `run` knows every C golden without reading the fork. |
@@ -87,6 +89,12 @@ Each list is checked before any case runs: a copied or pending golden `c-goldens
 
 Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxval of 255, with a side of 0 or past 16384, or with a raster shorter or longer than its header says; a sidecar line that is not `key=value`, an unknown or repeated key, a value that is not a decimal number, a `max_delta` past 255, one limit at 0 with the other not, and a mask that is empty, inverted or reaches past the golden. A mask that hides no difference is noted in the report.
 
+## The GPU path
+
+The GPU path is judged against the CPU path's drawing of the same screen, which the run judges exactly against the screen's golden (ADR-1303 D1, "How the GPU path is judged"). `src/gpu.rs` draws each screen as `draw` does, in every configuration that must draw the same bytes, through `Renderer::draw_gpu`: into two buffers the GL makes in memory, whose ages follow the swaps, a second part fed after two frames, and the console's overlay in a frame of its own after the last, as the GPU path takes it from the console. It reads the buffer shown last back and compares it with the CPU path's drawing within the GPU path's own sidecar, `gpu/<screen>.tol`; the golden's sidecar never judges the GPU path, and no mask hides a GPU difference. Each GPU sidecar holds the starting tolerance ADR-1303 proposes, a `max_delta` of 1 and a `max_pixels` of 3 per cent of the screen's pixels, rounded down, and a self-test holds each one to it, so a sidecar that widens fails until the record and the test change with it. The values stay provisional until the maintainer confirms them on the largest difference and the share of differing pixels measured on each screen.
+
+The GPU path draws an upright display in color: a turned screen waits for the turn, and a 1-bit screen for present's depth reduction, and `gpu::waits` says which. The self-tests draw through the whole GPU path on the tests' stand-in GL, which draws nothing and reads back zeros, and see the comparison fail: the judge sees a GPU path that draws nothing.
+
 ## vtium's goldens
 
 The goldens in `goldens/` are reviewed vtium output, kept byte for byte as the operator accepted them, which judge vtium as the copied goldens do; `goldens/README.md` gives who drew each and what it shows. No tool here draws a golden. A new screen's golden is vtium's output, lands in a commit of its own, and stays in `provisional.tsv` until the operator has reviewed it.
@@ -99,4 +107,4 @@ Moving a golden is a change to the judge: it lands in a commit of its own, with 
 - **fbdev.** vtium draws fbdev's XRGB8888 framebuffer with the same renderer and the same pixels as drm2d; other layouts are converted by `vtium-platform`, whose tests hold the conversion (vtium/vtium#18).
 - **The C reference's other text screens in unifont.** `emoji-mono` is the C reference's emoji screen with its color font turned off: in unifont it would draw as `emoji-unifont` does, and vtium's color glyphs are drawn by `emoji-rgba`, so it waits with the outline screens for vtium/vtium#24. `mosaic-spaced` and `emoji-spaced` set a cell taller than the font's line height, which vtium has no setting for. `osd` draws the render timer's figures over the screen, which `vtium-render` keeps (`RenderTimer::osd`) but does not draw.
 - **The picture screens** (`img-*`, `kitty-*`, `sixel-vte`) wait for pictures in the CPU compositor (vtium/vtium#30) and the sixel and kitty handlers (vtium/vtium#48, #49).
-- **The GPU path.** ADR-1300 asks tier 2 to draw each screen on the GPU path under llvmpipe as well (vtium/vtium#33).
+- **The GPU path's run.** `src/gpu.rs` draws each screen on the GPU path and judges it, but no command runs it yet: the GL it draws on, vtium-platform's under Mesa's llvmpipe, lands with part 2 of ADR-1303's slice 0, and `run` then judges each GPU case beside its CPU case.

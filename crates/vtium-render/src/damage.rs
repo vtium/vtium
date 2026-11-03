@@ -211,6 +211,16 @@ impl Cells {
     }
 }
 
+impl Cells {
+    /// Holds `damage` as the frame's damage, which the GPU path's present
+    /// gives, and gives it back.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn set_damage(&mut self, damage: Vec<Rect>) -> &[Rect] {
+        self.damage = damage;
+        &self.damage
+    }
+}
+
 fn union(a: Rect, b: Rect) -> Rect {
     let x = a.x.min(b.x);
     let y = a.y.min(b.y);
