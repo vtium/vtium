@@ -22,6 +22,7 @@ import os
 import pickle
 import re
 import shlex
+import shutil
 import socket
 import struct
 import subprocess
@@ -4163,16 +4164,17 @@ class ImagesVariantTest(unittest.TestCase):
         # images; the other variants run on either tree.
         for features, want in (([], ["images-640x480 needs a tree whose console is built with "
                                      "images, and the tree's was built with no features; make "
-                                     "tier3-images builds one"]),
+                                     "tier3 and make tier3-images build one"]),
                                (["logind"], ["images-640x480 needs a tree whose console is "
                                              "built with images, and the tree's was built with "
-                                             "logind; make tier3-images builds one"]),
+                                             "logind; make tier3 and make tier3-images build "
+                                             "one"]),
                                (["images"], []), (["images", "logind"], [])):
             with self.subTest(features):
                 impl = {"tree_features": features}
                 self.assertEqual(t3_scenario.check_tree_features([self.VARIANT], impl), want)
                 self.assertEqual(t3_scenario.check_tree_features(
-                    ["2d-potato-min", "2d-1366x768-potato"], impl), [])
+                    ["2d-potato-min", "2d-640x480-psf16"], impl), [])
 
     def test_run_refuses_a_tree_without_images(self):
         with tempfile.TemporaryDirectory() as d:
@@ -4728,6 +4730,127 @@ class PictureGoldenTest(unittest.TestCase):
         self.shows_through(img, "disc", 23, 3)
         self.placed(img, "quad", 43, 3)
         self.placed(img, "quad", 63, 3)
+
+
+class RebaselinedTest(unittest.TestCase):
+    """The default display variants: their console built with images, the
+    goldens that judge each case, and the benchmark's CPU figure."""
+
+    VARIANT = "2d-1366x768-potato"
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.vtium = os.path.join(self.dir.name, "goldens")
+        self.c = os.path.join(self.dir.name, "c-goldens")
+        for root in (self.vtium, self.c):
+            os.makedirs(os.path.join(root, self.VARIANT))
+
+    def golden(self, root, screen):
+        t3img.write_png(os.path.join(root, self.VARIANT, screen + ".png"),
+                        t3img.Image(8, 8, bytes(8 * 8 * 3)))
+
+    def test_default_variants(self):
+        # Every default variant draws the image screens, so its console is
+        # built with images; the four 2D ones are re-baselined, and the GL
+        # one, which ADR-1303 D11 judges later, is not.
+        for name in t3_scenario.DEFAULT_VARIANTS:
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                self.assertEqual(v["tree_features"], ["images"])
+                self.assertEqual(v.get("rebaselined", False), name != "gl-1280x800")
+                self.assertNotIn("goldens", v)
+                self.assertEqual(t3_scenario.check_tree_features([name], {"tree_features": []}),
+                                 ["%s needs a tree whose console is built with images, and the "
+                                  "tree's was built with no features; make tier3 and make "
+                                  "tier3-images build one" % name])
+
+    def test_density(self):
+        # The default variants' configurations state the density that draws
+        # DejaVu Sans Mono at 16 points in the C reference's 10x19 cell:
+        # 16 x 86 / 72 = 19.1 pixels, and 32 points in its 38-pixel cell.
+        for name in t3_scenario.DEFAULT_VARIANTS:
+            with self.subTest(name):
+                with open(os.path.join(t3_common.GUEST, t3_scenario.VARIANTS[name]["conf"])) as f:
+                    conf = f.read()
+                self.assertIn("\ndisplay-dpi=86\n", conf)
+                size = int(re.search(r"^font-size=(\d+)$", conf, re.M).group(1))
+                self.assertEqual(round(size * 86 / 72), {16: 19, 32: 38}[size])
+
+    def test_golden_root(self):
+        # A re-baselined variant's case is judged by vtium's golden where
+        # goldens/ holds it, and by the C reference's where it does not;
+        # vt-restore follows cjk's, photo-scrollforward photo-scroll's.
+        self.golden(self.vtium, "cjk")
+        self.golden(self.vtium, "photo-scroll")
+        self.golden(self.c, "sgr")
+        with mock.patch.object(t3_scenario, "VTIUM_GOLDEN", self.vtium), \
+                mock.patch.object(t3_evaluate, "GOLDEN", self.c):
+            for case, root in (("cjk", self.vtium), ("vt-restore", self.vtium),
+                               ("photo-scroll", self.vtium),
+                               ("photo-scrollforward", self.vtium), ("sgr", None),
+                               ("emoji", None), ("vt-switch", None)):
+                with self.subTest(case):
+                    self.assertEqual(t3_scenario.golden_root(self.VARIANT, case), root)
+            # a variant not re-baselined never takes vtium's, even where one is
+            os.makedirs(os.path.join(self.vtium, "gl-1280x800"))
+            t3img.write_png(os.path.join(self.vtium, "gl-1280x800", "cjk.png"),
+                            t3img.Image(8, 8, bytes(8 * 8 * 3)))
+            self.assertIsNone(t3_scenario.golden_root("gl-1280x800", "cjk"))
+            # the report names the golden that judged each case
+            meta = t3_scenario.failure_meta("no boot")
+            goldens = {e["name"].split("/", 1)[1]: e["golden"]
+                       for e in t3_scenario.evaluate_variant(self.VARIANT, {}, meta, LOG)}
+        self.assertEqual(goldens["vt-restore"],
+                         t3_common.rel(os.path.join(self.vtium, self.VARIANT, "cjk.png")))
+        self.assertEqual(goldens["sgr"],
+                         t3_common.rel(os.path.join(self.c, self.VARIANT, "sgr.png")))
+
+    def test_rebaselined_goldens_are_cases(self):
+        # A golden under goldens/ of a re-baselined variant must be one of
+        # its cases, and the C reference's golden of the same case stays in
+        # c-goldens/ as the record without being one no case draws.
+        self.golden(self.vtium, "cjk")
+        self.golden(self.vtium, "stray")
+        cases = {v: c for v, c in t3_scenario.vtium_golden_cases().items() if v == self.VARIANT}
+        self.assertIn(self.VARIANT, t3_scenario.vtium_golden_cases())
+        self.assertIn(self.VARIANT, t3_scenario.c_golden_cases())
+        self.assertEqual(t3_evaluate.check_goldens(cases, self.vtium),
+                         ["%s is a golden no case draws" % t3_common.rel(
+                             os.path.join(self.vtium, self.VARIANT, "stray.png"))])
+        self.golden(self.c, "cjk")
+        self.assertEqual(t3_evaluate.check_goldens(
+            {self.VARIANT: t3_scenario.variant_cases(self.VARIANT)}, self.c), [])
+
+    def test_tree_features(self):
+        # A tree built for a run has the features declared and those its
+        # variants need, each once.
+        for declared, variants, want in (
+                (None, ["2d-potato-min"], []),
+                (None, t3_scenario.DEFAULT_VARIANTS, ["images"]),
+                (["logind"], [self.VARIANT], ["images", "logind"]),
+                (["images"], [self.VARIANT, "2d-potato-min"], ["images"]),
+                ([], ["images-640x480", "2d-640x480-psf16"], ["images"])):
+            with self.subTest(declared=declared, variants=variants):
+                self.assertEqual(t3.tree_features(declared, variants), want)
+
+    def test_console_pid(self):
+        # acceptance.inc's kmscon_pid finds the console a benchmark screen
+        # runs under: the nearest ancestor named vtium, or kmscon, and none
+        # under any other name, so the CPU figure is never another
+        # program's.
+        with open(os.path.join(t3_common.GUEST, "screens", "acceptance.inc")) as f:
+            func = re.search(r"^kmscon_pid\(\) \{\n.*?^\}\n", f.read(), re.M | re.S).group(0)
+        script = os.path.join(self.dir.name, "pid.sh")
+        with open(script, "w") as f:
+            f.write(func + "kmscon_pid || echo none\n")
+        for name, found in (("vtium", True), ("kmscon", True), ("vtium-config", False)):
+            with self.subTest(name):
+                console = os.path.join(self.dir.name, name)
+                shutil.copy("/bin/bash", console)
+                out = subprocess.run([console, "-c", "echo $$; bash %s; true" % shlex.quote(script)],
+                                     capture_output=True, text=True, check=True).stdout.split()
+                self.assertEqual(out[1], out[0] if found else "none")
 
 
 if __name__ == "__main__":

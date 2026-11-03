@@ -19,14 +19,19 @@ import t3img
 from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, ROOT, RUNDIR, rel
 from t3_evaluate import (BENCHMARKS, CASES, DRAWS_PICTURES, IMAGE_SCREENS, KEYED, KEYS_AFTER,
                          NO_GOLDEN, PICTURE_SCREENS, REPLIES, SCREENS, SHOWS, SMALL_SCREENS,
-                         VTIUM_GOLDEN, cases, evaluate, not_shown)
+                         VTIUM_GOLDEN, cases, evaluate, golden_for, not_shown)
 from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 
 # Display variants. Each boots its own guest from the base image, with its
 # own vCPUs and memory, and names the text renderer its console must log:
 # bbulk for the 2D variants, gltex on virgl for the GL one, which the C
 # reference drew with and vtium does not yet. Each draws every screen, the
-# image ones included (t3_evaluate.IMAGE_SCREENS).
+# image ones included (t3_evaluate.IMAGE_SCREENS), so its console is built
+# with images ("tree_features"). The C reference drew the 2D ones' goldens
+# in DejaVu Sans Mono through pango, and vtium draws the font through its
+# own glyph engine, so a case of theirs is judged by vtium's re-baselined
+# golden where goldens/ holds one ("rebaselined"), and by the C reference's
+# otherwise (golden_root).
 # The screens the frit variants draw: Latin text the frit's font holds, and
 # CJK it lacks, which the built-in unifont draws in its place (#141); cjk
 # last, as vt-restore compares with it.
@@ -40,6 +45,8 @@ VARIANTS = {
         "renderer": "bbulk",
         "cpus": 4,
         "memory_mb": 4096,
+        "tree_features": ["images"],
+        "rebaselined": True,
     },
     # The minspec machine: one vCPU and 512 MB at a common laptop size.
     # The vCPU is a core of the host, so it bounds parallelism and memory
@@ -51,6 +58,8 @@ VARIANTS = {
         "renderer": "bbulk",
         "cpus": 1,
         "memory_mb": 512,
+        "tree_features": ["images"],
+        "rebaselined": True,
     },
     # The same machine with the minimal configuration: unifont, and a PSF
     # console font, which make tier3-minimal runs. Their image screens draw
@@ -156,6 +165,8 @@ VARIANTS = {
         "renderer": "bbulk",
         "cpus": 4,
         "memory_mb": 4096,
+        "tree_features": ["images"],
+        "rebaselined": True,
     },
     # The 7680x2160 display with DejaVu Sans Mono at 32 points, a 19x38 cell,
     # near the 20x40 of Monoid at 30 the operator runs: pictures sized from
@@ -167,6 +178,8 @@ VARIANTS = {
         "renderer": "bbulk",
         "cpus": 4,
         "memory_mb": 4096,
+        "tree_features": ["images"],
+        "rebaselined": True,
     },
     "gl-1280x800": {
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
@@ -177,6 +190,7 @@ VARIANTS = {
         "capture": "vnc",
         "cpus": 4,
         "memory_mb": 4096,
+        "tree_features": ["images"],
     },
 }
 
@@ -472,15 +486,17 @@ def check_tree_features(variants, impl):
                          - set(impl["tree_features"]))
         if lacking:
             errors.append("%s needs a tree whose console is built with %s, and the tree's was "
-                          "built with %s; make tier3-images builds one"
+                          "built with %s; make tier3 and make tier3-images build one"
                           % (variant, " ".join(lacking),
                              " ".join(impl["tree_features"]) or "no features"))
     return errors
 
 
 def vtium_golden_cases():
-    """{variant: its cases} for every variant judged by vtium's goldens."""
-    return {v: variant_cases(v) for v in VARIANTS if VARIANTS[v].get("goldens")}
+    """{variant: its cases} for every variant judged by vtium's goldens,
+    wholly or where it has re-baselined one ("rebaselined")."""
+    return {v: variant_cases(v) for v in VARIANTS
+            if VARIANTS[v].get("goldens") or VARIANTS[v].get("rebaselined")}
 
 
 def c_golden_cases():
@@ -489,11 +505,27 @@ def c_golden_cases():
     return {v: variant_cases(v) for v in VARIANTS if not VARIANTS[v].get("goldens")}
 
 
+def golden_root(variant, case):
+    """The goldens that judge `case` of `variant`: vtium's for a variant
+    naming them ("goldens"); for a re-baselined variant ("rebaselined"),
+    vtium's where goldens/ holds the case's golden, and the C reference's,
+    None, where it does not; the C reference's for any other variant. The
+    C reference's golden of a re-baselined case stays in c-goldens/ as the
+    record of what the C reference drew."""
+    v = VARIANTS[variant]
+    if v.get("goldens"):
+        return v["goldens"]
+    if v.get("rebaselined"):
+        golden = golden_for(variant, case, VTIUM_GOLDEN)[0]
+        if golden is not None and os.path.exists(golden):
+            return VTIUM_GOLDEN
+    return None
+
+
 def evaluate_variant(variant, caps, meta, log):
-    """The report entries of `variant`'s cases from their captures, judged
-    by the C reference's goldens or, for a variant naming them, vtium's."""
-    root = VARIANTS[variant].get("goldens")
-    return [evaluate(variant, case, caps.get(case), meta, log, root)
+    """The report entries of `variant`'s cases from their captures, each
+    judged by the goldens golden_root names."""
+    return [evaluate(variant, case, caps.get(case), meta, log, golden_root(variant, case))
             for case in variant_cases(variant)]
 
 
