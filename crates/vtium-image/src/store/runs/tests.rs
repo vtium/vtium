@@ -446,3 +446,28 @@ fn the_changes_nobody_takes_stay_within_the_images_the_store_can_hold() {
     assert_eq!(s.image_count(), 0);
     assert_eq!(s.take_changed_virtual().len(), bound);
 }
+
+// covers: image.kitty-placeholders
+#[test]
+fn ed_2_and_d_a_take_a_virtual_parents_child_by_the_runs_handed_with_them() {
+    let runs = [run(11, 3, 2, 7, 0, 0)];
+    // ED 2: the child, at row 2, column 4, has a row on the screen's own
+    // lines only by the runs
+    let (f, mut s) = (Fake::new(), store());
+    family(&mut s, &f);
+    s.erase_screen(f.rows());
+    assert_eq!(s.placement_count(), 2, "no runs: the child has no cells");
+    s.with_runs([&runs, &[]], f.screens(), COLS, |s| s.erase_screen(f.rows()));
+    assert_eq!(s.placement_count(), 1, "the virtual parent stays");
+    // d=a: every placement on the screen
+    let (f, mut s) = (Fake::new(), store());
+    family(&mut s, &f);
+    let all = Delete {
+        select: Select::All,
+        free: false,
+    };
+    s.kitty_delete(all, f.screens());
+    assert_eq!(s.placement_count(), 2);
+    s.with_runs([&runs, &[]], f.screens(), COLS, |s| s.kitty_delete(all, f.screens()));
+    assert_eq!(s.placement_count(), 1);
+}

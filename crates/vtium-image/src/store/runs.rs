@@ -12,8 +12,9 @@
 //!   virtual placement's picture, fitted to its grid of cells, that lies
 //!   under the run's cells. A relative placement whose parent is virtual
 //!   draws from the origin the parent's runs give.
-//! - **For a decision,** a kitty delete by cell, row or column or a
-//!   reservation that may evict, [`Store::with_runs`] holds the runs read
+//! - **For a decision,** a kitty delete by cell, row or column or of
+//!   every placement on the screen, ED 2, or a reservation that may evict,
+//!   [`Store::with_runs`] holds the runs read
 //!   from the screen's own lines while the decision runs, so a virtual
 //!   parent's children are deleted and ranked by where they draw there.
 //!
@@ -174,8 +175,10 @@ impl Store {
 
     /// Runs `f` over the store with `runs`, the placeholder runs vtium-term
     /// read from the screen's own lines of the main and the alternate
-    /// buffer, held for the decisions `f` makes: a kitty delete by cell,
-    /// row or column, and a reservation that may evict (D13). The store
+    /// buffer, held for the decisions `f` makes that take a virtual parent's
+    /// children by the cells they draw on: a kitty delete by cell, row or
+    /// column or of every placement on the screen (`d=a`), ED 2, and a
+    /// reservation that may evict (D13). The store
     /// takes at most one run for each cell of `screens`' screen rows, `cols`
     /// wide, counts each run it takes as input work, and keeps none past
     /// the call. vtium-term reads the runs only while
