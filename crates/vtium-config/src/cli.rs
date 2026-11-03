@@ -2,20 +2,25 @@
 //! and exit 0 on success, 1 on a failure and 2 on a usage error.
 
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
 const USAGE: &str = "\
-Usage: vtium-config [OPTION]... COMMAND [ARG]...
+Usage: vtium-config [OPTION]... [COMMAND [ARG]...]
 
-Generates vtium's glyphs from frits, and switches the console's frit.
+Manages the vtium console's fonts and settings, trying each font on the live console.
+
+With no command at a terminal, opens the interactive tool.
 
 Commands:
   set NAME                           switch the running console to a frit or a built-in font
+  apply DIR                          check a saved draft and install it (as root)
   serve                              generate glyphs for the console (the console starts it)
 
 Options:
+  --configdir DIR       the directory of vtium.conf and heads.conf, in place of /etc/vtium
   --frits DIR           the frits directory, in place of the system's
+  --sudo PROGRAM        the program that runs apply as root, in place of sudo
   --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
   --font-dir DIR        an outline font directory, in place of the build's list (repeatable)
   --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
@@ -27,12 +32,38 @@ Options:
 /// What the command line asked for.
 #[derive(Debug, Default)]
 struct Options {
+    configdir: Option<PathBuf>,
+    sudo: Option<String>,
     frits: Option<PathBuf>,
     kbd_dirs: Vec<PathBuf>,
     font_dirs: Vec<PathBuf>,
     vconsole_conf: Option<PathBuf>,
     kernel_cmdline: Option<PathBuf>,
     words: Vec<String>,
+}
+
+impl Options {
+    /// Where the TUI and `apply` read and write, as the options name them.
+    fn paths(&self) -> crate::tui::Paths {
+        crate::tui::Paths {
+            configdir: self.configdir.clone().unwrap_or_else(default_configdir),
+            frits: self
+                .frits
+                .clone()
+                .unwrap_or_else(crate::switch::default_frits),
+            drafts: crate::tui::default_drafts(),
+            sudo: self
+                .sudo
+                .clone()
+                .unwrap_or_else(|| "sudo".to_owned())
+                .into(),
+        }
+    }
+}
+
+/// The directory of vtium.conf and the head file, as the console's.
+pub fn default_configdir() -> PathBuf {
+    PathBuf::from("/etc/vtium")
 }
 
 /// A usage error's message.
@@ -54,6 +85,8 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
                 .and_then(text)
         };
         match arg.as_str() {
+            "--configdir" => o.configdir = Some(value("--configdir")?.into()),
+            "--sudo" => o.sudo = Some(value("--sudo")?),
             "--frits" => o.frits = Some(value("--frits")?.into()),
             "--kbd-dir" => o.kbd_dirs.push(value("--kbd-dir")?.into()),
             "--font-dir" => o.font_dirs.push(value("--font-dir")?.into()),
@@ -95,6 +128,9 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         "--version" => cli.say(concat!("vtium-config ", env!("CARGO_PKG_VERSION"))),
         "set" => crate::switch::command(&rest, o.frits.as_deref(), cli.out, cli.err),
         crate::serve::SERVE_ARG => cli.serve(&rest),
+        "" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
+            crate::tui::run(&o.paths(), cli.err)
+        }
         "" => cli.usage("no command"),
         other => cli.usage(&format!("unknown command {other}")),
     }

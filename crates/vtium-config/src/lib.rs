@@ -22,12 +22,14 @@
 //! switches the running console among the frits. [`cli`] is the command
 //! line, and [`banner`] the art it opens with at a terminal.
 
+pub mod apply;
 pub mod banner;
 pub mod bdf;
 pub mod child;
 pub mod cli;
 pub mod cover;
 pub mod decode;
+pub mod draft;
 pub mod font;
 pub mod frit;
 pub mod glyphs;
@@ -37,3 +39,4 @@ pub mod serve;
 pub mod shaping;
 pub mod sources;
 pub mod switch;
+pub mod tui;

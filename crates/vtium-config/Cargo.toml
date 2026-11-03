@@ -1,6 +1,6 @@
 [package]
 name = "vtium-config"
-description = "Generates vtium's glyphs from frits at run time, and switches the console's frit"
+description = "Manages the vtium console's fonts and settings, trying each font on the live console, and generates its glyphs at run time"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,8 +17,12 @@ workspace = true
 # vtium-font's `psf` feature and the writer's deflate behind its
 # `deflate` feature, which only this tool enables (ADR-1200 D19).
 vtium-font = { workspace = true, features = ["psf", "deflate"] }
-# KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8).
+# KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8);
+# the TUI's event loop, which holds its signals (ADR-1201 D7).
 vtium-platform.workspace = true
+# vtium.conf's line editor and the head file's one writer and parser
+# (ADR-1201 D5, D6), the crate the console already links.
+vtium-settings.workspace = true
 # gzip's deflate, for compressed fonts and unimaps; vtium-font already
 # builds this version.
 miniz_oxide = "0.8.9"

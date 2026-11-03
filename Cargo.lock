@@ -669,6 +669,7 @@ dependencies = [
  "swash",
  "vtium-font",
  "vtium-platform",
+ "vtium-settings",
  "vtium-term",
 ]
 

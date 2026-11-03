@@ -62,7 +62,7 @@ pub use bounds::{
     CONSOLES_MAX, CONSOLES_TOTAL_DEFAULT, ERRORS_MAX, FILE_MAX, HEAD_CONSOLES_DEFAULT, HEADS_MAX,
     LINE_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX,
 };
-pub use conf::{ConfEdit, Edit, edit_conf, setting};
+pub use conf::{ConfEdit, Edit, edit_conf, setting, switch};
 pub use config::{Config, Font, Head, Rule, TEMPLATE, Target, WhenDisplayLost};
 pub use error::{
     At, AtStart, Drops, Error, Fate, Note, PolicyFault, Problem, Quoted, Rejected, Remark, Renamed,

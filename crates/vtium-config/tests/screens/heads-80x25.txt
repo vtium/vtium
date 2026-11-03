@@ -1,0 +1,25 @@
+ VTium Vitrifier                                               live preview: on
+  Fonts   Sizes   Settings   Heads
+-------------------------------------------------------------------------------
+ > desk             profile proof
+   panel            profile default
+
+ Left and Right choose the profile a head draws with.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-------------------------------------------------------------------------------
+ Left Right profile  Tab next  s save  q leave

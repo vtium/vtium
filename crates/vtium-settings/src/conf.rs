@@ -188,6 +188,22 @@ pub fn setting(text: &str, key: &str) -> Option<String> {
     })
 }
 
+/// Whether the switch `key` is on in the file `text`, by the last line
+/// that sets it, `key` or `no-key`; `None` when no line sets it.
+pub fn switch(text: &str, key: &str) -> Option<bool> {
+    lines(text).iter().rev().find_map(|l| {
+        let s = split(l.text.as_bytes())?;
+        if s.value.is_some() {
+            return None;
+        }
+        match key_of(&l.text, &s) {
+            k if k == key => Some(true),
+            k if k.strip_prefix("no-") == Some(key) => Some(false),
+            _ => None,
+        }
+    })
+}
+
 /// Makes `edits` to the vtium.conf `text`, in order, and returns the
 /// whole file with only the lines they need changed.
 pub fn edit_conf(text: &str, edits: &[Edit<'_>]) -> Result<String, ConfEdit> {

@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use vtium_settings::{ConfEdit, Edit, edit_conf, setting};
+use vtium_settings::{ConfEdit, Edit, edit_conf, setting, switch};
 
 fn example() -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium/install/vtium.conf.example");
@@ -170,4 +170,12 @@ fn a_value_vtium_would_read_back_otherwise_is_refused() {
             "{bad:?}"
         );
     }
+}
+
+#[test]
+fn switch_reads_the_last_line_that_sets_it() {
+    assert_eq!(switch("bell\nno-bell # quiet\n", "bell"), Some(false));
+    assert_eq!(switch("no-bell\n  bell\n", "bell"), Some(true));
+    assert_eq!(switch("#no-bell\n", "bell"), None);
+    assert_eq!(switch(&example(), "allow-font-ops"), None);
 }
