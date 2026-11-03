@@ -37,8 +37,10 @@ then exits with status 1. It exits with status 2 when FUZZ_TARGETS or FUZZ_TIME
 is malformed, before it runs anything.
 
 The commit column is `git rev-parse HEAD`, with "-dirty" appended when a
-tracked file differs from that commit. Changes to the runs.tsv files do not
-count, so that rows a run has just appended do not mark the next run dirty.
+tracked file differs from that commit or when the checkout holds a new file
+that git does not ignore, such as a fuzz target nobody has committed yet.
+Changes to the runs.tsv files, and new runs.tsv files, do not count, so that
+rows a run has just appended do not mark the next run dirty.
 The script reads the commit once, before the first target runs.
 
 VTIUM_FUZZ_ROOT names another checkout to work in; the tests use it.
@@ -63,7 +65,7 @@ DEFAULT_SECONDS = 60
 HEADER = (
     "# One row per fuzz run that tools/fuzz/run (make fuzz) appended:"
     " DATE, when the run started, in UTC;"
-    " COMMIT, the checkout's HEAD, with -dirty when a tracked file other than a runs.tsv differed from it;"
+    " COMMIT, the checkout's HEAD, with -dirty when a file other than a runs.tsv differed from it or was new and not ignored;"
     " TARGET, the fuzz target;"
     " SECONDS, how long libFuzzer ran, as libFuzzer counts it when the run ends on time and as the wall clock measures it when the run stops early;"
     " RUNS, how many inputs libFuzzer ran;"
@@ -207,9 +209,11 @@ RUNS_TSV = re.compile(r"^crates/[^/]+/fuzz/runs\.tsv$")
 def commit_of(root):
     git = ["git", "-C", str(root)]
     head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
-    # Tracked files whose content, staged or not, differs from HEAD.
+    # Tracked files whose content, staged or not, differs from HEAD, and new
+    # files that git does not ignore.
     changed = subprocess.run([*git, "diff", "HEAD", "--name-only", "--no-renames", "-z"], check=True, capture_output=True, text=True).stdout
-    dirty = any(p and not RUNS_TSV.match(p) for p in changed.split("\0"))
+    new = subprocess.run([*git, "ls-files", "--others", "--exclude-standard", "-z"], check=True, capture_output=True, text=True).stdout
+    dirty = any(p and not RUNS_TSV.match(p) for p in (changed + new).split("\0"))
     return head + ("-dirty" if dirty else "")
 
 

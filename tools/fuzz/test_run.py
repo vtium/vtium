@@ -188,14 +188,24 @@ class Dirty(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             c = Checkout(tmp)
             self.assertEqual(fuzzrun.commit_of(c.root), c.head)
-            # An untracked file and a changed runs.tsv leave the tree clean.
-            (c.root / "scratch.txt").write_text("x")
+            # A new runs.tsv, a changed runs.tsv and an ignored file leave the tree clean.
+            (c.root / "crates" / "b" / "fuzz" / "runs.tsv").write_text("# h\n")
+            (c.root / "target").mkdir()
+            (c.root / "target" / "out.log").write_text("x")
+            self.assertEqual(fuzzrun.commit_of(c.root), c.head)
             (c.root / "crates" / "a" / "fuzz" / "runs.tsv").write_text("# h\n")
             git(c.root, "add", "crates/a/fuzz/runs.tsv")
             git(c.root, "commit", "-q", "-m", "rows")
             head = git(c.root, "rev-parse", "HEAD")
             with open(c.root / "crates" / "a" / "fuzz" / "runs.tsv", "a") as f:
                 f.write("row\n")
+            self.assertEqual(fuzzrun.commit_of(c.root), head)
+            # A new file git does not ignore, such as an uncommitted fuzz target, marks it dirty.
+            target = c.root / "crates" / "a" / "fuzz" / "fuzz_targets" / "new.rs"
+            target.parent.mkdir()
+            target.write_text("fn main() {}\n")
+            self.assertEqual(fuzzrun.commit_of(c.root), head + "-dirty")
+            target.unlink()
             self.assertEqual(fuzzrun.commit_of(c.root), head)
             # A changed tracked file, staged or not, marks it dirty.
             manifest_path = c.root / "crates" / "b" / "fuzz" / "Cargo.toml"
