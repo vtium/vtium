@@ -1,8 +1,9 @@
 //! Text blink: in the off phase a blinking cell, SGR 5 or 6, draws as
 //! `blink-text` and `blink-decorations` say, except under the cursor, which
-//! shows it. By default it draws as a blank cell in its own colors, its
-//! underline and strike kept. Every expected color is a literal. FG and BG
-//! are odd in every channel, so a mix that rounds draws a different color.
+//! shows it. By default it draws halfway to its background, as SGR 2 draws
+//! it, its underline and strike kept. Every expected color is a literal. FG
+//! and BG are odd in every channel, so a mix that rounds draws a different
+//! color.
 
 mod common;
 
@@ -29,7 +30,7 @@ const GREEN_PX: u32 = 0x00_ff_00;
 const GREEN_DIM: u32 = 0x10_97_20;
 
 fn draw(s: &Screen, cursor_on: bool, blink_hidden: bool) -> Canvas {
-    draw_with(TextBlink::default(), s, cursor_on, blink_hidden)
+    draw_with(FULL, s, cursor_on, blink_hidden)
 }
 
 fn draw_with(blink: TextBlink, s: &Screen, cursor_on: bool, blink_hidden: bool) -> Canvas {
@@ -218,6 +219,20 @@ fn the_on_phase_draws_every_option_alike() {
             assert!(draw_with(b, &s, false, false) == want, "{b:?}");
         }
     }
+}
+
+// The default is partial, the maintainer's decision of 2026-11-03: the
+// renderer's default config dims blinking text in the off phase.
+// covers: sgr.blink.style
+#[test]
+fn the_default_blink_dims_the_text_halfway() {
+    assert_eq!(TextBlink::default(), PARTIAL);
+    assert_eq!(Config::default().blink, PARTIAL);
+    let s = options_row();
+    let off = draw_config(Config::default(), &s, false, true);
+    holds(&off, 0, &[BG_PX, DIM], "default");
+    holds(&off, 1, &[BG_PX, DIM, FG_PX], "default, decorations kept");
+    assert!(off == draw_with(PARTIAL, &s, false, true), "as partial");
 }
 
 // blink-text=off: blinking text draws steady in both phases.

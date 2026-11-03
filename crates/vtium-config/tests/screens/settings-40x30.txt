@@ -1,29 +1,29 @@
  VTium Vitrifier       live preview: on
-  Fonts  Sizes  Settings  Heads
+  Fonts  Sizes  Settings  Heads  New
 ---------------------------------------
- > font-name          unifont
-   font-size          (default)
-   font-frits         (default)
-   font-hinting       (default)
-   font-line-spacing  (default)
-   allow-font-ops     on
-   display-dpi        (default)
+ > font-name        unifont
+   font-size        0 (default)
+   font-frits       /etc/vtium/fonts
+                    (default)
+   font-hinting     unset (default)
+   font-line-spacing
+                    unset (default)
+   allow-font-ops   on (default)
+   display-dpi      unset (default)
+   glyph-source     unset (default)
+   glyph-source-box unset (default)
+   glyph-source-block
+                    unset (default)
+   glyph-source-braille
+                    unset (default)
 
- Fonts and Sizes set font-name and
- font-size; Enter turns allow-font-ops
- on or off.
-
-
-
-
-
-
-
-
-
-
-
-
+ Enter turns a switch on or off, steps
+ a choice, or types a value; an empty
+ value is the default.
+ The font: a frit's name, `NAME.vtfrit`
+ in `/etc/vtium/fonts`, whose glyphs
+ the helper generates at run time; a
+ kbd font's name, or with ...
 
 ---------------------------------------
  Enter change  Tab next  s save

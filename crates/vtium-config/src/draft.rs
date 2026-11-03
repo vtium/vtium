@@ -1,6 +1,7 @@
 //! What a save changes (ADR-1201 D5): the files of the configuration it
-//! replaces, each with its text before and after, and the lines that
-//! differ, which the TUI's save view shows before anything is written.
+//! writes, each with its text before and after, the frits it removes, and
+//! the lines that differ, which the TUI's save view and the commands show
+//! before anything is written.
 
 use std::path::PathBuf;
 
@@ -15,16 +16,33 @@ pub struct FileEdit {
     pub new: String,
 }
 
+/// A frit a save removes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Removal {
+    /// The installed frit, such as `/etc/vtium/fonts/old.vtfrit`.
+    pub path: PathBuf,
+    /// Its bytes as they were read, so `apply` refuses the removal when the
+    /// frit changed since.
+    pub old: Vec<u8>,
+}
+
 /// Everything one save changes.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Plan {
+    /// The files it writes: frits, vtium.conf and the head file.
     pub files: Vec<FileEdit>,
+    pub removals: Vec<Removal>,
 }
 
 impl Plan {
     /// Whether the save changes nothing.
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty()
+        self.files.is_empty() && self.removals.is_empty()
+    }
+
+    /// How many files the save writes or removes.
+    pub fn len(&self) -> usize {
+        self.files.len().saturating_add(self.removals.len())
     }
 }
 

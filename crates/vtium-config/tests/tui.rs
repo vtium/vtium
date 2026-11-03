@@ -15,9 +15,11 @@ use std::time::Duration;
 
 use vtium_config::draft::Plan;
 use vtium_config::kitty;
-use vtium_config::specimen::Picture;
+use vtium_config::serve::LeftOut;
+use vtium_config::specimen::{Picture, Sources, Summary};
 use vtium_config::tui::model::{self, DpiFrom, Font, FontState, Inputs};
 use vtium_config::tui::port::{Port, Wake, drive};
+use vtium_font::Cell;
 use vtium_term::Glyph;
 use vtium_term::Terminal;
 
@@ -59,6 +61,13 @@ struct Console {
     pictures: Vec<(String, u32, (u32, u32))>,
     /// The terminal's cell in pixels, as the terminal reports it.
     cell_px: Option<(u32, u32)>,
+    /// Each summary the TUI asked for: the font and the pixel height.
+    summaries: Vec<(String, u32)>,
+    /// Each sources query the TUI made.
+    sources_asked: Vec<Vec<String>>,
+    /// The helper's answer to a sources query never comes, as a slow one
+    /// has not yet.
+    hold_sources: bool,
 }
 
 impl Console {
@@ -90,6 +99,9 @@ impl Console {
             graphics: false,
             pictures: Vec::new(),
             cell_px: Some((8, 16)),
+            summaries: Vec::new(),
+            sources_asked: Vec::new(),
+            hold_sources: false,
         }
     }
 
@@ -246,6 +258,43 @@ impl Port for Console {
             rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
         })
     }
+
+    fn summary(&mut self, font: &str, height: u32) -> Result<Summary, String> {
+        self.summaries.push((font.to_owned(), height));
+        Ok(Summary {
+            cell: Cell {
+                width: 8,
+                height: 16,
+            },
+            grid: Some((80, 30)),
+            covered: 40,
+            of: 51,
+        })
+    }
+
+    fn sources(&mut self, fonts: Vec<String>) {
+        self.sources_asked.push(fonts.clone());
+        if self.hold_sources {
+            return;
+        }
+        let found = fonts
+            .into_iter()
+            .map(|font| {
+                let left = match font.as_str() {
+                    "proof" => Sources::LeftOut(vec![LeftOut {
+                        missing: true,
+                        line: 27,
+                        spelling: "font:JetBrains Mono".into(),
+                        why: "no such family".into(),
+                    }]),
+                    "tiny5" => Sources::DrawsNothing("no source left".into()),
+                    _ => Sources::LeftOut(Vec::new()),
+                };
+                (font, left)
+            })
+            .collect();
+        self.pending.push_back(Wake::Sourced(found));
+    }
 }
 
 const DOWN: &[u8] = b"\x1b[B";
@@ -282,6 +331,19 @@ fn inputs() -> Inputs {
         saving: model::Saving::Sudo("sudo /usr/bin/vtium-config apply DRAFT".into()),
         drafts: PathBuf::from("/home/me/.local/state/vtium/drafts"),
         dpi: (96, DpiFrom::Assumed),
+        frits: PathBuf::from("/etc/vtium/fonts"),
+        view: model::View::Fonts,
+        display: Some((640, 480)),
+        installed: [
+            ("broken", Some("source=builtin:unifont\ncolour=red\n")),
+            ("minspec-16", Some("source=builtin:unifont\n")),
+            ("proof", Some("source=font:JetBrains Mono\n")),
+            ("tiny5", Some("source=bdf:/x/Tiny5Mono.bdf\n")),
+            ("latin1", None),
+        ]
+        .into_iter()
+        .map(|(n, t)| (n.to_owned(), t.map(str::to_owned)))
+        .collect(),
     }
 }
 
@@ -530,6 +592,142 @@ fn a_head_s_profile_is_chosen_and_written_through_the_one_writer() {
     );
 }
 
+/// The settings view lists every key vtium.conf takes, from the console's
+/// own key table, the font keys first, each once.
+#[test]
+fn the_settings_view_lists_every_key_vtium_conf_takes() {
+    use vtium_settings::keys::{KEYS, Scope};
+    let listed: Vec<&str> = model::setting_keys().iter().map(|k| k.name).collect();
+    let takes: Vec<&str> = KEYS
+        .iter()
+        .filter(|k| k.scope == Scope::Anywhere)
+        .map(|k| k.name)
+        .collect();
+    assert_eq!(listed.len(), takes.len(), "{listed:?}");
+    for name in &takes {
+        assert_eq!(listed.iter().filter(|n| *n == name).count(), 1, "{name}");
+    }
+    assert_eq!(&listed[..model::FONT_KEYS.len()], &model::FONT_KEYS[..]);
+}
+
+#[test]
+fn a_setting_shows_its_default_and_what_it_does() {
+    let mut c = console().keys(&[b"\t", b"\t", DOWN]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("font-size"), "{screen}");
+    assert!(screen.contains("0 (default)"), "{screen}");
+    assert!(screen.contains("The font's size in points"), "{screen}");
+}
+
+/// Enter types a value for a key that takes one, a second Enter keeps it,
+/// a switch turns, a choice steps, and the save changes each line; typed
+/// text takes `q` and `s` as letters.
+#[test]
+fn a_typed_value_a_switch_and_a_choice_are_saved_like_a_font() {
+    let mut c = console().keys(&[
+        b"\t", b"\t", DOWN, DOWN, DOWN, b"\r", DOWN, b"\r", b"10", b"\r", DOWN, b"\r", DOWN, b"\r",
+        b"qs", b"\r", b"s", b"\r", b"q",
+    ]);
+    assert_eq!(run(&mut c), 0);
+    let plan = c.saves.first().expect("a save");
+    assert_eq!(
+        plan.files[0].new,
+        "# mine\nfont-name=unifont\nfont-hinting=light\nfont-line-spacing=10\nno-allow-font-ops\ndisplay-dpi=qs\n"
+    );
+}
+
+#[test]
+fn a_new_frit_is_typed_in_its_view_and_saved_into_the_frits() {
+    let mut c = console().keys(&[
+        b"\t",
+        b"\t",
+        b"\t",
+        b"\t",
+        b"quiet",
+        b"\r",
+        b"builtin:unscii-8",
+        b"\r",
+        b"Some Family",
+        b"\r",
+        b"\r",
+        b"\r",
+        b"\r",
+        b"\r",
+        b"\r",
+        b"q",
+    ]);
+    assert_eq!(run(&mut c), 0);
+    let plan = c.saves.first().expect("a save");
+    assert_eq!(plan.files.len(), 1);
+    assert_eq!(
+        plan.files[0].path,
+        PathBuf::from("/etc/vtium/fonts/quiet.vtfrit")
+    );
+    assert_eq!(
+        plan.files[0].new,
+        "# quiet: made by vtium-config new\nname=quiet\nsource=builtin:unscii-8\nsource=font:Some Family\n"
+    );
+}
+
+/// A new frit named as an installed one replaces it, the save showing the
+/// installed text it replaces, as the TUI gathered it at start; one whose
+/// installed file is not UTF-8 text is not replaced, and says why.
+#[test]
+fn a_new_frit_replaces_the_installed_one_of_its_name() {
+    let to_new = [b"\t".as_slice(), b"\t", b"\t", b"\t"];
+    let mut keys: Vec<&[u8]> = to_new.to_vec();
+    keys.extend([b"proof".as_slice(), b"\r", b"builtin:unifont"]);
+    // five fields to the add row, the add, and the save
+    keys.extend([b"\r".as_slice(); 7]);
+    keys.push(b"q");
+    let mut c = console().keys(&keys);
+    run(&mut c);
+    let plan = c.saves.first().expect("a save");
+    assert_eq!(
+        plan.files[0].path,
+        PathBuf::from("/etc/vtium/fonts/proof.vtfrit")
+    );
+    assert_eq!(
+        plan.files[0].old.as_deref(),
+        Some("source=font:JetBrains Mono\n")
+    );
+    let mut keys: Vec<&[u8]> = to_new.to_vec();
+    keys.extend([b"latin1".as_slice(), b"\r", b"builtin:unifont"]);
+    keys.extend([b"\r".as_slice(); 6]);
+    let mut c = console().keys(&keys);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains("the installed latin1.vtfrit is not UTF-8 text"),
+        "{screen}"
+    );
+    assert!(c.saves.is_empty());
+}
+
+#[test]
+fn a_new_frit_the_reader_refuses_stays_in_its_view_and_says_why() {
+    let mut c = console().keys(&[
+        b"\t", b"\t", b"\t", b"\t", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r",
+    ]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("The frit does not read"), "{screen}");
+    assert!(screen.contains("Source 1"), "{screen}");
+    assert!(c.saves.is_empty());
+}
+
+#[test]
+fn new_opens_the_tui_at_its_new_frit_view() {
+    let mut inputs = inputs();
+    inputs.view = model::View::New;
+    let mut c = console();
+    drive(&mut c, inputs).expect("the loop");
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("Add the frit to the save"), "{screen}");
+}
+
 #[test]
 fn nothing_kept_means_nothing_to_save() {
     let mut c = console().keys(&[b"s", b"\r", b"q"]);
@@ -590,12 +788,13 @@ fn reach(cols: usize, rows: usize, keys: &[&[u8]]) -> String {
 
 #[test]
 fn each_view_at_80x25_and_100x30() {
-    let scripts: [(&str, &[&[u8]]); 5] = [
+    let scripts: [(&str, &[&[u8]]); 6] = [
         ("fonts", &[]),
         ("sizes", &[b"\t"]),
         ("settings", &[b"\t", b"\t"]),
         ("heads", &[b"\t", b"\t", b"\t"]),
         ("save", &[UP, b"\r", b"s"]),
+        ("new", &[b"\t", b"\t", b"\t", b"\t"]),
     ];
     for (cols, rows) in [(40, 25), (40, 30), (80, 25), (100, 30)] {
         for (name, keys) in scripts {
@@ -604,7 +803,7 @@ fn each_view_at_80x25_and_100x30() {
             assert_eq!(lines.len(), rows, "{name} at {cols}x{rows}");
             assert!(lines.iter().all(|l| l.chars().count() <= cols), "{name}");
             assert!(lines[0].contains("VTium Vitrifier"), "{name}: {screen}");
-            assert!(lines[rows - 1].contains("q leave"), "{name}: {screen}");
+            assert!(lines[rows - 1].contains("leave"), "{name}: {screen}");
             golden(&format!("{name}-{cols}x{rows}"), &screen);
         }
     }
@@ -615,13 +814,18 @@ fn a_console_that_never_answers_the_give_back_is_left_after_the_wait() {
     use vtium_config::tui::input::{Input, Key, Reply};
     use vtium_config::tui::model::{App, Effect, Event};
     let (mut app, _) = App::new(inputs(), 80, 25);
+    let mut started = Vec::new();
     for r in [
         Reply::Version("vtium(test)".into()),
         Reply::Font("unifont".into()),
         Reply::Attributes,
     ] {
-        assert_eq!(app.event(Event::Input(Input::Reply(r))), []);
+        started.extend(app.event(Event::Input(Input::Reply(r))));
     }
+    // once the terminal is known, the helper is asked which sources each
+    // frit that reads lacks
+    let frits = ["minspec-16", "proof", "tiny5"].map(String::from).to_vec();
+    assert_eq!(started, [Effect::Sources(frits)]);
     let up = app.event(Event::Input(Input::Key(Key::Up)));
     assert_eq!(up, [Effect::Write(model::switch("tiny5"))]);
     assert_eq!(
@@ -725,6 +929,96 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
     assert!(last_delete > last_show, "the last picture is deleted");
 }
 
+/// Where the console cannot be switched live, the font view shows each
+/// highlighted font as a picture, at 12 points where nothing names a size,
+/// below the list; where it can, the console itself shows the font.
+#[test]
+fn a_font_the_console_cannot_switch_to_is_shown_as_a_picture() {
+    let mut c = Console::vtium(80, 25, false, "unifont").keys(&[UP, UP, UP, UP, b"q"]);
+    c.graphics = true;
+    assert_eq!(run(&mut c), 0);
+    let fonts: Vec<(&str, u32)> = c
+        .pictures
+        .iter()
+        .map(|(f, h, _)| (f.as_str(), *h))
+        .collect();
+    assert_eq!(
+        fonts,
+        [
+            ("unifont", 16),
+            ("tiny5", 16),
+            ("proof", 16),
+            ("minspec-16", 16)
+        ]
+    );
+    // below the six fonts' rows: row 11 to the room above the footer
+    let (_, _, (w, h)) = c.pictures[0];
+    assert_eq!((w, h), (79 * 8, 10 * 16));
+    // the broken frit, which does not read, gets none: each picture is
+    // deleted as the next font is highlighted
+    assert_eq!(count(&c.written, &kitty::delete(kitty::IMAGE_ID)), 4);
+    let mut live = console().keys(&[UP, b"q"]);
+    live.graphics = true;
+    run(&mut live);
+    assert!(live.pictures.is_empty(), "{:?}", live.pictures);
+}
+
+/// Where the terminal draws no pictures, a size shows what it gives: its
+/// cell, its grid and how much of the specimen the font draws itself.
+#[test]
+fn without_pictures_a_size_shows_its_cell_grid_and_coverage() {
+    let mut c = console().keys(&[b"\t", DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains(
+            "At this size the cell is 8x16 pixels, the display holds 80x30 cells, and the font draws 40 of the specimen's 51 characters itself."
+        ),
+        "{screen}"
+    );
+    // one summary a size, at 96 dpi: 6 to 12 pt and the highlighted font
+    let heights: Vec<u32> = c.summaries.iter().map(|(_, h)| *h).collect();
+    assert_eq!(heights, [8, 9, 11, 12, 13, 15, 16]);
+    assert!(c.summaries.iter().all(|(f, _)| f == "unifont"));
+    assert!(c.pictures.is_empty());
+}
+
+/// The sources query does not hold the keys up: while the helper has not
+/// answered, a key switches the console and a signal leaves (ADR-1201 D3).
+#[test]
+fn keys_reach_the_tui_while_the_helper_finds_the_sources() {
+    let mut c = console().keys(&[UP]);
+    c.hold_sources = true;
+    // the script runs out with the answer still to come, and SIGTERM leaves
+    assert_eq!(run(&mut c), 128 + 15);
+    assert_eq!(
+        c.sources_asked,
+        [["minspec-16", "proof", "tiny5"].map(String::from).to_vec()]
+    );
+    assert_eq!(c.switches(), ["tiny5", "unifont"]);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("proof      reads\n"), "{screen}");
+}
+
+/// Each frit that reads is noted with the sources the helper says this
+/// machine lacks, or that none of its sources is here.
+#[test]
+fn the_font_list_names_the_sources_a_frit_lacks() {
+    let mut c = console().keys(&[]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        screen.contains("proof      reads, 1 source missing"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("tiny5      no source on this machine"),
+        "{screen}"
+    );
+    assert!(screen.contains("minspec-16 reads\n"), "{screen}");
+}
+
 #[test]
 fn leaving_with_a_picture_deletes_it_before_the_font_comes_back() {
     let mut c = console().keys(&[UP, b"\t", DOWN, b"q"]);
@@ -781,12 +1075,46 @@ fn the_picture_never_reaches_the_footer_and_never_passes_the_cap() {
 #[test]
 fn display_dpi_outside_the_console_s_bounds_is_not_used() {
     use vtium_config::tui::density;
-    assert_eq!(density(Some("display-dpi=150\n")), (150, DpiFrom::Conf));
-    assert_eq!(density(Some("display-dpi=1000\n")), (1000, DpiFrom::Conf));
-    assert_eq!(density(Some("display-dpi=1001\n")), (96, DpiFrom::Assumed));
-    assert_eq!(density(Some("display-dpi=19\n")), (96, DpiFrom::Assumed));
-    assert_eq!(density(Some("display-dpi=lots\n")), (96, DpiFrom::Assumed));
-    assert_eq!(density(None), (96, DpiFrom::Assumed));
+    let none = &[];
+    assert_eq!(
+        density(Some("display-dpi=150\n"), none),
+        (150, DpiFrom::Conf)
+    );
+    assert_eq!(
+        density(Some("display-dpi=1000\n"), none),
+        (1000, DpiFrom::Conf)
+    );
+    assert_eq!(
+        density(Some("display-dpi=1001\n"), none),
+        (96, DpiFrom::Assumed)
+    );
+    assert_eq!(
+        density(Some("display-dpi=19\n"), none),
+        (96, DpiFrom::Assumed)
+    );
+    assert_eq!(
+        density(Some("display-dpi=lots\n"), none),
+        (96, DpiFrom::Assumed)
+    );
+    assert_eq!(density(None, none), (96, DpiFrom::Assumed));
+    // a display's EDID comes after display-dpi and before the assumption:
+    // the first display that states its size
+    use vtium_config::display::Display;
+    let displays = [
+        Display {
+            pixels: (1024, 768),
+            mm: None,
+        },
+        Display {
+            pixels: (2560, 1440),
+            mm: Some((600, 340)),
+        },
+    ];
+    assert_eq!(density(None, &displays), (108, DpiFrom::Edid));
+    assert_eq!(
+        density(Some("display-dpi=150\n"), &displays),
+        (150, DpiFrom::Conf)
+    );
 }
 
 #[test]

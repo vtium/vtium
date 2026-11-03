@@ -8,8 +8,9 @@
 //! [`CHUNK`] bytes, `m=1` on every chunk but the last. Text written over
 //! its cells and the erases the TUI draws with leave a kitty placement in
 //! place, so it stays while the screen is drawn again, until `a=d` deletes
-//! it. Every command carries `q=2`, so the terminal answers none of them,
-//! and the first `C=1`, so the cursor stays where it was.
+//! it. Every command carries `q=2`, so the terminal answers none of them.
+//! The TUI's first command carries `C=1`, so the cursor stays where it was;
+//! `preview`'s does not, so the cursor moves past the picture as past text.
 
 /// The image id the TUI's specimen takes.
 pub const IMAGE_ID: u32 = 1201;
@@ -43,8 +44,19 @@ pub fn base64(bytes: &[u8]) -> String {
 }
 
 /// The commands that send `rgba`, `width` by `height` pixels, as the image
-/// `id` and show it at the cursor.
+/// `id` and show it at the cursor, which stays where it was.
 pub fn show(id: u32, width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+    transmit(id, width, height, rgba, true)
+}
+
+/// As [`show`], with the cursor moved past the picture as text written
+/// there would move it, as `preview` prints a picture in its output.
+pub fn print(id: u32, width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+    transmit(id, width, height, rgba, false)
+}
+
+/// The commands that send and show a picture; `keep_cursor` adds `C=1`.
+fn transmit(id: u32, width: u32, height: u32, rgba: &[u8], keep_cursor: bool) -> Vec<u8> {
     let encoded = base64(rgba);
     let chunks: Vec<&[u8]> = encoded.as_bytes().chunks(CHUNK).collect();
     let mut out = Vec::with_capacity(
@@ -57,8 +69,11 @@ pub fn show(id: u32, width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
         let more = u8::from(i < last);
         if i == 0 {
             out.extend_from_slice(
-                format!("\x1b_Ga=T,f=32,t=d,i={id},s={width},v={height},C=1,q=2,m={more};")
-                    .as_bytes(),
+                format!(
+                    "\x1b_Ga=T,f=32,t=d,i={id},s={width},v={height},{}q=2,m={more};",
+                    if keep_cursor { "C=1," } else { "" }
+                )
+                .as_bytes(),
             );
         } else {
             out.extend_from_slice(format!("\x1b_Gm={more};").as_bytes());
