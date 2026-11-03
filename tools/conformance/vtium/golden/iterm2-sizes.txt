@@ -1,0 +1,200 @@
+checkpoint 106
+size 16x14
+cursor 0,0
+flags AUTO_WRAP
+host: 1 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||
+row 10 ||
+row 11 ||
+row 12 ||
+row 13 ||
+placement 0 row 0 col 0 box 2x1 at 0,0 size 16x8 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 0 opaque
+image 0 32x16 digest 65298dc5
+checkpoint 213
+size 16x14
+cursor 0,3
+flags AUTO_WRAP
+host: 2 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||
+row 10 ||
+row 11 ||
+row 12 ||
+row 13 ||
+placement 0 row 0 col 0 box 2x1 at 0,0 size 16x8 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 2 col 0 box 8x2 at 0,0 size 64x32 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 1 opaque
+image 0 32x16 digest 65298dc5
+image 1 32x16 digest 65298dc5
+checkpoint 322
+size 16x14
+cursor 0,4
+flags AUTO_WRAP
+host: 3 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||
+row 10 ||
+row 11 ||
+row 12 ||
+row 13 ||
+placement 0 row 0 col 0 box 2x1 at 0,0 size 16x8 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 2 col 0 box 8x2 at 0,0 size 64x32 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 1 opaque
+placement 2 row 4 col 0 box 3x1 at 0,0 size 20x10 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 2 opaque
+image 0 32x16 digest 65298dc5
+image 1 32x16 digest 65298dc5
+image 2 32x16 digest 65298dc5
+checkpoint 430
+size 16x14
+cursor 0,7
+flags AUTO_WRAP
+host: 4 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||
+row 10 ||
+row 11 ||
+row 12 ||
+row 13 ||
+placement 0 row 0 col 0 box 2x1 at 0,0 size 16x8 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 2 col 0 box 8x2 at 0,0 size 64x32 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 1 opaque
+placement 2 row 4 col 0 box 3x1 at 0,0 size 20x10 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 2 opaque
+placement 3 row 6 col 0 box 8x2 at 0,0 size 64x32 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 3 opaque
+image 0 32x16 digest 65298dc5
+image 1 32x16 digest 65298dc5
+image 2 32x16 digest 65298dc5
+image 3 32x16 digest 65298dc5
+checkpoint 545
+size 16x14
+cursor 0,8
+flags AUTO_WRAP
+host: 5 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||
+row 10 ||
+row 11 ||
+row 12 ||
+row 13 ||
+placement 0 row 0 col 0 box 2x1 at 0,0 size 16x8 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 2 col 0 box 8x2 at 0,0 size 64x32 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 1 opaque
+placement 2 row 4 col 0 box 3x1 at 0,0 size 20x10 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 2 opaque
+placement 3 row 6 col 0 box 8x2 at 0,0 size 64x32 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 3 opaque
+placement 4 row 8 col 0 box 4x1 at 0,0 size 32x16 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 4 opaque
+image 0 32x16 digest 65298dc5
+image 1 32x16 digest 65298dc5
+image 2 32x16 digest 65298dc5
+image 3 32x16 digest 65298dc5
+image 4 32x16 digest 65298dc5
+checkpoint 683
+size 16x14
+cursor 0,10
+flags AUTO_WRAP
+host: 6 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||
+row 10 ||
+row 11 ||
+row 12 ||
+row 13 ||
+placement 0 row 0 col 0 box 2x1 at 0,0 size 16x8 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 2 col 0 box 8x2 at 0,0 size 64x32 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 1 opaque
+placement 2 row 4 col 0 box 3x1 at 0,0 size 20x10 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 2 opaque
+placement 3 row 6 col 0 box 8x2 at 0,0 size 64x32 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 3 opaque
+placement 4 row 8 col 0 box 4x1 at 0,0 size 32x16 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 4 opaque
+placement 5 row 10 col 0 box 4x1 at 0,0 size 32x16 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 5 opaque
+image 0 32x16 digest 65298dc5
+image 1 32x16 digest 65298dc5
+image 2 32x16 digest 65298dc5
+image 3 32x16 digest 65298dc5
+image 4 32x16 digest 65298dc5
+image 5 32x16 digest 65298dc5
+checkpoint 779
+size 16x14
+cursor 0,0
+flags AUTO_WRAP
+host: 7 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||
+row 10 ||
+row 11 ||
+row 12 ||
+row 13 ||
+placement 0 row 0 col 0 box 4x1 at 0,0 size 32x16 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 0 opaque
+image 0 32x16 digest 65298dc5
+checkpoint 870
+size 16x14
+cursor 0,4
+flags AUTO_WRAP
+host: 8 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||
+row 10 ||
+row 11 ||
+row 12 ||
+row 13 ||
+placement 0 row 0 col 0 box 4x1 at 0,0 size 32x16 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 4 col 0 box 4x1 at 0,0 size 32x16 src 0,0 32x16 cell 8x16 z 0 above-text sixel image 1 opaque
+image 0 32x16 digest 65298dc5
+image 1 32x16 digest 65298dc5
