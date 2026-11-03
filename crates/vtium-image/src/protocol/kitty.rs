@@ -653,14 +653,13 @@ impl Kitty {
     }
 
     /// `a=a` and `a=c`: an animation control or a composition of frames on
-    /// the image `i` or `I` names, answered as a put is.
+    /// the image `i` or `I` names, answered as a put is, with the image's
+    /// id.
     fn animate(&mut self, ctx: &mut dyn Context) {
         let cmd = self.cmd;
-        let mut id = cmd.id;
         let answer = match cmd.refusal(ctx) {
             Some(e) => Err(e),
             None => animated(ctx, &cmd).and_then(|key| {
-                id = ctx.store().kitty_id(key).unwrap_or(cmd.id);
                 let done = if cmd.action == b'a' {
                     let control = Control {
                         current: cmd.cols,
@@ -687,7 +686,7 @@ impl Kitty {
                 done.unwrap_or(Err(Refusal::NoSpace)).map_err(error)
             }),
         };
-        reply(ctx, &cmd, id, answer);
+        reply(ctx, &cmd, cmd.id, answer);
     }
 
     /// The string ended with its terminator.
@@ -822,10 +821,6 @@ fn frame(
     (width, height, pixels, opaque): (u32, u32, Vec<u32>, bool),
     reservation: Reservation,
 ) {
-    let id = ctx
-        .find_image(cmd.id, cmd.number)
-        .and_then(|key| ctx.store().kitty_id(key))
-        .unwrap_or(cmd.id);
     let new = NewFrame {
         x: cmd.x,
         y: cmd.y,
@@ -844,7 +839,7 @@ fn frame(
         .unwrap_or(Err(Refusal::NoSpace))
         .map(|_| ())
         .map_err(error);
-    reply(ctx, cmd, id, answer);
+    reply(ctx, cmd, cmd.id, answer);
 }
 
 /// The helper's picture for `a=f`, `size` pixels: checked against the image

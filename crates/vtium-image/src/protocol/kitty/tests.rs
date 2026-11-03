@@ -1845,10 +1845,54 @@ fn z_on_an_edit_of_the_root_frame_sets_the_roots_gap() {
     let (mut k, mut h) = animated();
     let key = key(&mut h);
     assert_eq!(h.store.frame_gap(key, 1), Some(0));
-    send(&mut k, &mut h, &format!("a=f,i=1,r=1,z=55,s=1,v=1;{}", red(1)));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,r=1,z=55,s=1,v=1;{}", red(1)),
+    );
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     assert_eq!(h.store.frame_gap(key, 1), Some(55));
     // z=0 keeps it
     send(&mut k, &mut h, &format!("a=f,i=1,r=1,s=1,v=1;{}", red(1)));
     assert_eq!(h.store.frame_gap(key, 1), Some(55));
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_frames_refusal_names_the_image_as_its_success_does() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    send(&mut k, &mut h, &format!("a=t,s=1,v=1,I=5;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), "\x1b_Gi=1,I=5;OK\x1b\\\x1b_Gi=1,I=5;OK\x1b\\");
+    let einval = "\x1b_Gi=1,I=5;EINVAL:invalid argument\x1b\\";
+    let enoent = "\x1b_Gi=1,I=5;ENOENT:image not found\x1b\\";
+    // refused before the data: a rectangle out of the image, a missing frame
+    send(&mut k, &mut h, &format!("a=f,I=5,x=999,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), einval);
+    send(&mut k, &mut h, &format!("a=f,I=5,c=9,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), enoent);
+    // refused at the end: data short of its rectangle
+    send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=2;{}", red(1)));
+    assert_eq!(h.take(), einval);
+    // refused with a named medium, before the request and at the answer
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,I=5,t=f,f=100,x=9;{}", b64(b"/p")),
+    );
+    assert_eq!(h.take(), einval);
+    send(&mut k, &mut h, &format!("a=f,I=5,t=f,f=100;{}", b64(b"/p")));
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 2,
+            height: 1,
+            data: vec![0; 8],
+        }),
+    );
+    assert_eq!(h.take(), einval);
+    send(&mut k, &mut h, &format!("a=f,I=5,t=f,f=100;{}", b64(b"/p")));
+    k.decoded(&mut h, Reply::Corrupt);
+    assert_eq!(h.take(), einval);
 }

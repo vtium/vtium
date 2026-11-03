@@ -357,11 +357,20 @@ pub(super) fn charge(pixels: u64) -> u64 {
 
 /// Answers `cmd` with `answer` for the image of id `id`, 0 when there is
 /// none to name: `ESC _ G i=ID[,I=N][,p=P];MESSAGE ESC \`, each key only
-/// when it is set.
+/// when it is set. An animation command, `a=f`, `a=a` or `a=c`, names an
+/// image that already exists, so every answer to it, a refusal as well as
+/// an OK, names that image's id; `id` names it only when no image is found.
 pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answer) {
     if (cmd.id == 0 && cmd.number == 0) || cmd.dropped() {
         return;
     }
+    let id = if matches!(cmd.action, b'f' | b'a' | b'c') {
+        ctx.find_image(cmd.id, cmd.number)
+            .and_then(|key| ctx.store().kitty_id(key))
+            .unwrap_or(id)
+    } else {
+        id
+    };
     let quiet = match answer {
         Ok(()) => cmd.quiet >= 1,
         Err(_) => cmd.quiet >= 2,
