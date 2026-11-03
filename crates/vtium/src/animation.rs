@@ -21,8 +21,8 @@
 //!
 //! The clock arms its timer for the soonest frame change, at most once
 //! every [`ANIMATION_FLOOR_MS`], and arms none while nothing plays, while
-//! its console is hidden, or while the VT is another's or the displays are
-//! blanked. When its console is shown again, the clock works out from the
+//! its console is hidden, or while another program holds the VT or the
+//! displays are blanked. When its console is shown again, the clock works out from the
 //! time where each animation has got to and shows that frame, rather than
 //! playing the frames it missed.
 
