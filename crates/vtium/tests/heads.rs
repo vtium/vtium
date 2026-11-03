@@ -6377,3 +6377,37 @@ fn a_sessions_end_takes_only_the_font_keys_from_vtium_conf() {
         "allow-font-ops waits for the next start"
     );
 }
+
+/// ADR-1201 D11: the re-read reports what touches the font alone. Lines
+/// about other keys, a line with no key, and the count of the reports past
+/// the most kept wait for the next start, so the log never says "more
+/// reports" with nothing before it.
+#[test]
+fn a_sessions_end_reports_only_what_touches_the_font() {
+    let (dir, fonts) = reset_fixture("reset-quiet", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, _) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(SECOND, |a| a.font_name() == "b"), "switched to b");
+    let noise = "sb-size=abc\n".repeat(70);
+    std::fs::write(
+        dir.join("vtium.conf"),
+        format!("font-name=a\nfont-size=big\n=x\n{noise}"),
+    )
+    .expect("the edit");
+    logged();
+    end_shown_session(&mut s);
+    let lines = logged();
+    let conf = dir.join("vtium.conf");
+    let reports: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with(&conf.display().to_string()) || l.contains("more reports"))
+        .collect();
+    assert_eq!(
+        reports,
+        [&format!(
+            "{}:2: font-size=\"big\" is not a whole number, ignored",
+            conf.display()
+        )],
+        "{lines:?}"
+    );
+}

@@ -2957,11 +2957,11 @@ impl App {
     }
 
     /// Reads the configuration again with the reader vtium started with,
-    /// for its font keys alone (ADR-1201 D11): each report about a font key,
-    /// or about a line or a file that may have held one, is logged, and the
-    /// key is dropped as it is at the start. Every other key applies at the
-    /// next start. With no reader, the configuration vtium started with
-    /// stands.
+    /// for its font keys alone (ADR-1201 D11): each report naming a font
+    /// key, or a file that could not be read whole, is logged, and the key
+    /// is dropped as it is at the start. Every other key, its reports and
+    /// the count of reports past the most kept wait for the next start.
+    /// With no reader, the configuration vtium started with stands.
     fn reread_font_keys(&mut self) {
         const FONT_KEYS: [&crate::config::Key; 3] =
             [&keys::FONT_NAME, &keys::FONT_SIZE, &keys::FONT_ENGINE];
@@ -2969,9 +2969,14 @@ impl App {
             return;
         };
         let loaded = read();
+        use crate::config::Problem;
         let font_key = |k: &str| FONT_KEYS.iter().any(|f| f.name == k);
         for r in &loaded.reports {
-            if r.problem.key().is_none_or(font_key) {
+            let file = matches!(
+                r.problem,
+                Problem::Unreadable(_) | Problem::NotAFile | Problem::FileTooLong
+            );
+            if file || r.problem.key().is_some_and(font_key) {
                 crate::warn::warn(r);
             }
         }
