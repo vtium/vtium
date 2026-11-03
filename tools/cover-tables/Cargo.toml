@@ -1,9 +1,9 @@
-# The generator of vtium-vitrify's named cover= sets (ADR-1200 D1): it
+# The generator of vtium-config's named cover= sets (ADR-1200 D1): it
 # fetches Unicode's mapping files once and writes the range tables the
 # helper reads, with each file's provenance.
 [package]
 name = "vtium-cover-tables"
-description = "Generates vtium-vitrify's named cover= sets from Unicode's mapping files"
+description = "Generates vtium-config's named cover= sets from Unicode's mapping files"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

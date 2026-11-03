@@ -50,7 +50,7 @@ pub(crate) struct Caps {
 /// first; the others open, in the file's order, while the total is below
 /// `caps.total`, so the share is the file's alone, whatever order the
 /// displays come in.
-pub(crate) fn console_shares(rules: &vtium_config::Config, caps: Caps) -> Vec<usize> {
+pub(crate) fn console_shares(rules: &vtium_settings::Config, caps: Caps) -> Vec<usize> {
     let mut spare = caps.total.saturating_sub(rules.heads.len());
     rules
         .heads
@@ -95,7 +95,7 @@ pub(crate) fn scrollback_bytes(config: &Config, caps: Caps, heads: usize) -> usi
 /// D3), the consoles `caps` give it, and the scrollback cap and length
 /// and the bytes `scrollback` gives each console.
 pub(crate) fn heads(
-    rules: &vtium_config::Config,
+    rules: &vtium_settings::Config,
     config: &Config,
     scrollback: ((usize, usize), usize),
     caps: Caps,
@@ -107,7 +107,7 @@ pub(crate) fn heads(
         .iter()
         .zip(console_shares(rules, caps))
         .map(|(h, wanted)| {
-            let font = h.font(&vtium_config::Font::default());
+            let font = h.font(&vtium_settings::Font::default());
             let term = crate::head::terminal(config, lines, bytes, Rc::clone(clock));
             let mut head = Head::new(&h.name, config, &font, term);
             head.wanted = wanted;

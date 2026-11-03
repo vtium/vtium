@@ -261,6 +261,8 @@ related: []
 - **Pending the operator's read:** ten decisions that the amendment for the head-file wiring work and its slice S1 wrote while the operator was away: five leans and five calls. [For the operator's check](#for-the-operators-check) lists them, each with the place it changed, so the operator can confirm or overrule each one. The questions the amendments of 2026-11-01 raised, items 11 to 19, the maintainer answered the same day.
 - **Inversion:** Between "one grid for every display", the C reference's `multi-monitor` and today's vtium, and "a console process per display", which the kernel forbids (one DRM master per card, one VT shown on every display). vtium keeps one process and one VT and puts the terminals inside it, placed by rules a user writes or a tool writes for them.
 
+> Note 2026-11-02 (the rename): ADR-1201 D12 renamed the font tool vtium-vitrify to vtium-config. A user runs it as `vtium config`, the console starts its glyph helper as `vtium-config serve` at `/usr/bin/vtium-config` by default, and the console's build sets that path with VTIUM_FONT_HELPER where it set VTIUM_VITRIFY. The crate this record calls vtium-config, which reads and evaluates the head file, is now vtium-settings. This record keeps the names it was written with.
+
 ## Context
 
 The kernel's VTs are one system-wide set: one VT is shown on every display at once, and `Ctrl-Alt-F<n>` switches every display together. A card has one DRM master. A console per display therefore lives inside vtium: vtium holds its one kernel VT, takes every card of its seat while that VT is shown, drives every connector on them, and keeps its own consoles per display.

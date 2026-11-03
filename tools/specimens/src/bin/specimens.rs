@@ -13,10 +13,10 @@
 //! `DIR/PROFILE.png`. `check` draws the same files and compares them with
 //! what is committed; it exits 0 when no accepted profile moved, 1 when
 //! one did, and 2 when it cannot run. Both generate the desktop frit's and
-//! the tiny5 frit's glyphs through vtium-vitrify's engine from the fonts
+//! the tiny5 frit's glyphs through vtium-config's engine from the fonts
 //! `fetch-fonts` keeps in the cache, and skip the profiles drawn from them,
 //! saying why, without them.
-//! Both still take `--vitrify PATH`, which the Makefile passes, and ignore
+//! Both still take `--helper PATH`, which the Makefile passes, and ignore
 //! it. `card`
 //! writes a page of the card's bytes to standard output, for `cat` on a VT
 //! of that size.
@@ -44,11 +44,11 @@ fn specimens_dir() -> PathBuf {
     Path::new(HERE).join("../../docs/specimens")
 }
 
-/// The options after a command: `--review DIR`, and `--vitrify PATH`,
+/// The options after a command: `--review DIR`, and `--helper PATH`,
 /// taken once and ignored.
 #[derive(Default)]
 struct Options {
-    vitrify: bool,
+    helper: bool,
     review: Option<PathBuf>,
 }
 
@@ -58,7 +58,7 @@ fn options(args: &[String]) -> Option<Options> {
     while let Some(flag) = it.next() {
         let value = PathBuf::from(it.next()?);
         match flag.as_str() {
-            "--vitrify" if !o.vitrify => o.vitrify = true,
+            "--helper" if !o.helper => o.helper = true,
             "--review" if o.review.is_none() => o.review = Some(value),
             _ => return None,
         }

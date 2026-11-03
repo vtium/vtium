@@ -18,7 +18,7 @@
 //! Loads fonts and draws glyph bitmaps for the renderer: vitrified sets
 //! ([`set`], ADR-1200), the form the helper's glyphs reach the console in;
 //! PSF fonts, with
-//! the `psf` feature, which only vtium-vitrify enables, so the console
+//! the `psf` feature, which only vtium-config enables, so the console
 //! parses no font file (ADR-1200 D6); the built-in unifont, itself a set; and the sprites that draw box
 //! drawing, block elements, Braille, sextants, octants and the rest of
 //! Symbols for Legacy Computing's block shapes to fill their cell.

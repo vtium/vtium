@@ -501,7 +501,7 @@ mod tests {
         // Another program holding the VT is not vtium.
         .process(300, 1, "agetty", &["/dev/tty5"])
         // A name that only starts like it.
-        .process(400, 1, "vtium-vitrify", &["/dev/tty5"])
+        .process(400, 1, "vtium-config", &["/dev/tty5"])
         // The VT's number as a prefix of another's.
         .process(500, 1, "vtium", &["/dev/tty55"]);
         std::fs::write(p.0.join("self"), "").unwrap();

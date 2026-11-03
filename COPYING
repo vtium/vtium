@@ -88,11 +88,11 @@ under the MIT-style licences whose text is
 crates/vtium-term/gen-color-names/src/rgb-license.txt. names.rs carries the notice.
 
 DejaVu Sans Mono's subsets, the test fixtures
-crates/vtium-vitrify/tests/fixtures/DejaVuSansMono-W-M-0.ttf,
+crates/vtium-config/tests/fixtures/DejaVuSansMono-W-M-0.ttf,
 DejaVuSansMono-lam-shadda-fatha.ttf and DejaVuSansMono-ascii.ttf beside it:
 subsets of DejaVu Sans Mono 2.37, whose glyphs are Copyright (c) 2003 by
 Bitstream, Inc. under the Bitstream Vera Fonts licence, with DejaVu's changes
 in the public domain. The licence's text is
-crates/vtium-vitrify/tests/fixtures/DejaVuSansMono-LICENSE.txt, and the
+crates/vtium-config/tests/fixtures/DejaVuSansMono-LICENSE.txt, and the
 fixtures' README says how each subset was made. The tests read them; vtium
 installs none of them.
