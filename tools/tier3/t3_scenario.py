@@ -12,11 +12,13 @@ import t3_bench
 import t3_devices
 import t3_heads
 import t3_pointer
+import t3_pictures
 import t3_power
 import t3img
 from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, ROOT, RUNDIR, rel
-from t3_evaluate import (BENCHMARKS, CASES, IMAGE_SCREENS, KEYED, KEYS_AFTER, NO_GOLDEN,
-                         SCREENS, SMALL_SCREENS, VTIUM_GOLDEN, cases, evaluate)
+from t3_evaluate import (BENCHMARKS, CASES, DRAWS_PICTURES, IMAGE_SCREENS, KEYED, KEYS_AFTER,
+                         NO_GOLDEN, PICTURE_SCREENS, REPLIES, SCREENS, SMALL_SCREENS,
+                         VTIUM_GOLDEN, cases, evaluate)
 from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 
 # Display variants. Each boots its own guest from the base image, with its
@@ -291,6 +293,18 @@ VARIANTS.update({
 })
 DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
 
+# vtium's pictures on the minspec machine at 640x480 in the 8x16 test font,
+# judged by vtium's own goldens, run by make tier3-images. The tree's
+# console must be built with images ("tree_features"), which puts the image
+# helper and its sysusers file in the tree (ADR-1101 D1, D2), and the disc
+# carries the test pictures t3_pictures.py writes ("pictures"). It draws
+# PICTURE_SCREENS, whose last, img-png, vt-restore is compared with
+# (t3_evaluate.RESTORED).
+VARIANTS["images-640x480"] = dict(DEVICES, device="virtio-vga,xres=640,yres=480,edid=on",
+                                  images=True, tree_features=["images"], pictures=True,
+                                  screens=PICTURE_SCREENS)
+IMAGE_VARIANTS = ["images-640x480"]
+
 # The head file (ADR-1401) on the guest's real KMS device and systemd
 # (t3_heads), on the device variants' machine, each run only when named.
 # A variant names its head file ("heads", from the repository's root), the
@@ -421,7 +435,7 @@ def variant_cases(variant):
     if not v.get("vt_switch", True):
         out = [c for c in out if c not in ("vt-switch", "vt-restore")]
     if not v.get("images", True):
-        skipped = {case for screen, case, _ in KEYED if screen in IMAGE_SCREENS}
+        skipped = {case for screen, case, _ in KEYED if screen in DRAWS_PICTURES}
         out = [c for c in out if c not in skipped]
     outputs = v.get("outputs", [])
     out = [c for case in out for c in [case] + (
@@ -431,6 +445,22 @@ def variant_cases(variant):
     if v.get("pointer"):
         out = out + [t3_pointer.CASE]
     return out + list(v.get("checks", []))
+
+
+def check_tree_features(variants, impl):
+    """Every reason the tree `impl` (t3_impl.tree) cannot run `variants`: a
+    variant whose screens need the console built with features
+    ("tree_features") the tree's console was built without."""
+    errors = []
+    for variant in variants:
+        lacking = sorted(set(VARIANTS[variant].get("tree_features", ()))
+                         - set(impl["tree_features"]))
+        if lacking:
+            errors.append("%s needs a tree whose console is built with %s, and the tree's was "
+                          "built with %s; make tier3-images builds one"
+                          % (variant, " ".join(lacking),
+                             " ".join(impl["tree_features"]) or "no features"))
+    return errors
 
 
 def vtium_golden_cases():
@@ -485,12 +515,27 @@ def check_install(line, impl):
     return fields
 
 
+# guest/setup's account of the image helper (its "images" field) once
+# systemd-sysusers has made the helper's account from the tree's sysusers
+# file: the helper, its mode, and the account's ids, neither of them 0.
+IMAGE_HELPER = re.compile(r"helper /usr/bin/vtium-image mode 755, account vtium-image "
+                          r"uid [1-9]\d* gid [1-9]\d*")
+
+
 def check_guest(variant, installed):
     """Raises when the guest's account (check_install) shows it is not the
-    guest `variant` names: under sysvinit, PID 1 must be init, systemd's
-    /run/systemd/system must be absent, and a udev daemon must run, or none
-    in a variant without udev."""
+    guest `variant` names: a variant whose console is built with images
+    needs the image helper installed and its account made (IMAGE_HELPER);
+    under sysvinit, PID 1 must be init, systemd's /run/systemd/system must
+    be absent, and a udev daemon must run, or none in a variant without
+    udev."""
     v = VARIANTS[variant]
+    if "images" in v.get("tree_features", ()):
+        helper = installed.get("images", "not reported")
+        if not IMAGE_HELPER.fullmatch(helper):
+            raise RuntimeError("the guest's image helper is %r; the variant needs "
+                               "/usr/bin/vtium-image and the account vtium-image (ADR-1101 D2)"
+                               % helper)
     if v.get("guest") != "sysvinit":
         return
     if installed.get("init", "").split()[:1] != ["init"] or installed.get("systemd") != "no":
@@ -512,7 +557,8 @@ def build_disc(variant, work, impl):
     frits it builds, the frits it installs to be generated at run time, a
     `helper-held` file if its helper never answers, a `pointer` file if it
     reads the cursor plane, a
-    `no-udev` file if it runs without a udev daemon, a `two-vts` file
+    `no-udev` file if it runs without a udev daemon, the test pictures
+    (t3_pictures) in screens/pictures if it draws them, a `two-vts` file
     if it runs a second vtium on tty3 from the boot, a `udev-examples`
     file if it runs that check, whose guest installs the example hwdb
     fragment, its head file as `heads.conf` if it names one, and the agent
@@ -525,6 +571,8 @@ def build_disc(variant, work, impl):
                 os.path.join(disc, "vtium.conf"))
     shutil.copytree(os.path.join(GUEST, "screens"), os.path.join(disc, "screens"))
     shutil.copy(os.path.join(GUEST, "t3"), disc)
+    if VARIANTS[variant].get("pictures"):
+        t3_pictures.write(os.path.join(disc, "screens", "pictures"))
     if VARIANTS[variant].get("guest") == "sysvinit":
         shutil.copy(os.path.join(GUEST_SYSVINIT, "setup"), disc)
         shutil.copy(os.path.join(GUEST_SYSVINIT, "t3-console"), disc)
@@ -620,18 +668,45 @@ def not_offered(events, name, window):
 
 
 def reported_not_offered(events, name):
-    """The refusal screen `name` reported on the event port, T3-NO-SIXEL or
-    T3-NO-KITTY (sixel-common.inc, kitty-common.inc), after the screen before
-    it ended and before it ended itself; None when it reported none."""
+    """The refusal screen `name` reported on the event port, after the screen
+    before it ended and before it ended itself: T3-NO-SIXEL or T3-NO-KITTY
+    (sixel-common.inc, kitty-common.inc) when the terminal offers no
+    pictures, or T3-NO-PICTURES (img-common.inc) when the test pictures are
+    not on the disc; None when it reported none."""
     seen = None
     for e in events:
         if e == "T3-DONE %s" % name:
             return seen
         if e.startswith("T3-DONE "):
             seen = None
-        elif e in ("T3-NO-SIXEL", "T3-NO-KITTY"):
+        elif e in ("T3-NO-SIXEL", "T3-NO-KITTY", "T3-NO-PICTURES"):
             seen = e
     return None
+
+
+def screen_replies(events, name):
+    """What screen `name` reported on the event port (T3-REPLY,
+    img-common.inc), in order, after the screen before it ended and before
+    it ended itself."""
+    seen = []
+    for e in events:
+        if e == "T3-DONE %s" % name:
+            return seen
+        if e.startswith("T3-DONE "):
+            seen = []
+        elif e.startswith("T3-REPLY "):
+            seen.append(e[len("T3-REPLY "):])
+    return []
+
+
+def judge_replies(name, got):
+    """Why the replies screen `name` reported (`got`) are wrong, against
+    t3_evaluate.REPLIES, or None when they are the ones it must get."""
+    want = REPLIES[name]
+    if got == want:
+        return None
+    return "the screen reported %s; it must report %s" % (
+        ", ".join(got) or "no reply", ", ".join(want))
 
 
 def resident_kb(vm):
@@ -851,14 +926,23 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
         # nothing fails its case. An image screen that found images not
         # offered drew no picture for its keys to act on, so they are
         # not pressed and its keyed cases fail with the refusal; the
-        # screens after it still run.
-        refused = name in IMAGE_SCREENS and reported_not_offered(read_events(vm), name)
+        # screens after it still run. In a variant with images, the
+        # screen's own case fails with the refusal too, whatever its
+        # golden, provisional or not.
+        events = read_events(vm)
+        refused = name in DRAWS_PICTURES and reported_not_offered(events, name)
+        if refused and v.get("images", True):
+            errors[name] = "drew no picture (%s) in a variant with images" % refused
+        elif name in REPLIES and v.get("images", True):
+            why = judge_replies(name, screen_replies(events, name))
+            if why:
+                errors[name] = why
         for screen, case, chords in KEYED:
             if screen != name or case not in variant_cases(variant):
                 continue
             if refused:
-                errors[case] = ("not pressed: %s found images not offered (%s), and the "
-                                "keys act on pictures" % (name, refused))
+                errors[case] = ("not pressed: %s drew no picture (%s), and the keys act "
+                                "on pictures" % (name, refused))
                 continue
             for chord in chords:
                 vm.keys(*chord)

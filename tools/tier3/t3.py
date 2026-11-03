@@ -223,6 +223,9 @@ def run(args, log):
             impl = t3_impl.tree(tree, features=declared or [])
         else:
             impl = recorded_tree(tree, declared)
+        errors = t3_scenario.check_tree_features(variants, impl)
+        if errors:
+            raise SystemExit("\n".join(errors))
         impl["features"] = build_features(variants, log)
         impl["fonts"] = build_fonts(variants, log)
         log("tree: %s, binary %d B, %s installed"
