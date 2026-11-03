@@ -163,3 +163,50 @@ fn nothing_reads_runs_while_no_virtual_placement_has_a_child() {
     let mut child = with_child();
     assert!(delete_work(&mut child) > delete_work(&mut bare));
 }
+
+/// On the alternate screen of `t`: image 52, 2 by 2 cells, placed
+/// virtually with placement id 5, its grid of cells at row 1, column 3, and
+/// image 53 placed as its child at row 1, column 6.
+fn alternate_child(t: &mut Terminal) {
+    t.input(b"\x1b[?1049h");
+    transmit(t, 52, 2, 2);
+    t.input(b"\x1b_Ga=p,U=1,i=52,p=5,c=2,r=2,q=2\x1b\\");
+    let s = format!(
+        "\x1b[38;5;52m\x1b[58;5;5m\x1b[2;4H{}{}\x1b[3;4H{}{}\x1b[m",
+        cell(0, 0),
+        cell(0, 1),
+        cell(1, 0),
+        cell(1, 1)
+    );
+    t.input(s.as_bytes());
+    transmit(t, 53, 1, 1);
+    t.input(b"\x1b_Ga=p,i=53,p=1,P=52,Q=5,H=3,q=2\x1b\\");
+    assert!(entries(t).contains(&(1, 6, 1, 1, 0)), "{:?}", entries(t));
+}
+
+// D13: on the alternate screen, d=a takes a child of a virtual parent by
+// the cells it draws on, from the alternate buffer's runs.
+// covers: image.kitty-relative
+#[test]
+fn on_the_alternate_screen_a_delete_of_every_placement_removes_a_virtual_parents_child() {
+    let mut t = term(12, 6);
+    alternate_child(&mut t);
+    let before = t.screen().images().placement_count();
+    t.input(b"\x1b_Ga=d,d=a,q=2\x1b\\");
+    assert_eq!(t.screen().images().placement_count(), before - 1);
+    assert!(!entries(&t).contains(&(1, 6, 1, 1, 0)));
+}
+
+// D13: ED 2 on the alternate screen takes the alternate buffer's child of
+// a virtual parent, and the main buffer's own child stays.
+// covers: image.kitty-relative
+#[test]
+fn ed_2_on_the_alternate_screen_leaves_the_main_buffers_child() {
+    let mut t = with_child();
+    alternate_child(&mut t);
+    let before = t.screen().images().placement_count();
+    t.input(b"\x1b[2J");
+    assert_eq!(t.screen().images().placement_count(), before - 1);
+    t.input(b"\x1b[?1049l");
+    assert!(entries(&t).contains(&(1, 6, 1, 1, 0)), "{:?}", entries(&t));
+}
