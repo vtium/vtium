@@ -279,13 +279,19 @@ fn a_write_that_fails_before_its_rename_leaves_the_old_file_whole() {
 
 #[test]
 fn a_draft_holding_a_link_or_a_file_it_does_not_know_is_refused() {
-    let f = fixture("link", Some("font-size=10\n"));
+    let f = fixture("symbolic", Some("font-size=10\n"));
     let draft = f.draft(&f.conf_plan("font-size=12\n"));
+    // a valid vtium.conf of the user's own outside the draft, so only the
+    // refusal to follow a link stops it
+    let elsewhere = f.root.join("elsewhere.conf");
+    std::fs::write(&elsewhere, "font-size=12\n").expect("the file");
     let file = draft.join("vtium.conf");
     std::fs::remove_file(&file).expect("the draft's file");
-    std::os::unix::fs::symlink("/etc/passwd", &file).expect("a link");
+    std::os::unix::fs::symlink(&elsewhere, &file).expect("a link");
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
+    assert!(err.contains("vtium.conf") && err.contains("link"), "{err}");
+    assert!(out.is_empty(), "nothing is written: {out}");
     assert_eq!(f.conf(), "font-size=10\n");
 
     let draft = f.draft(&f.conf_plan("font-size=12\n"));
