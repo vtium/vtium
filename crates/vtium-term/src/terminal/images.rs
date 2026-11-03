@@ -74,7 +74,10 @@ pub(super) struct Notes {
     /// count, at most `IMAGE_NOTE_REASONS_MAX` of them. RIS keeps them, so
     /// a program cannot start a count again.
     seen: Vec<(ImageString, Cause, String, u64)>,
-    /// The notes the host has not taken.
+    /// The notes the host has not taken. They need no bound of their own:
+    /// each counted reason puts one out at counts 1, 10, 100 and so on, the
+    /// 20 powers of ten a `u64` holds, so at most `IMAGE_NOTE_REASONS_MAX` ×
+    /// 20, 1,280, wait between two takes.
     out: Vec<ImageNote>,
 }
 
@@ -695,6 +698,18 @@ impl Terminal {
     /// the same bad picture every frame costs the log a line for each tenfold.
     pub fn take_image_notes(&mut self) -> Vec<ImageNote> {
         self.state.images.notes.take()
+    }
+
+    /// Drops the request out with no reply, as when the program that made
+    /// it has gone: the handler that asked is cancelled, gives back what it
+    /// held and writes nothing, and input goes on. A handed-back `FAILED`
+    /// would instead say the helper failed, in a reply to the program and
+    /// a note for the log.
+    pub fn abandon_image_request(&mut self) {
+        let Some((which, _, _)) = self.state.images.awaiting.take() else {
+            return;
+        };
+        self.state.with_handler(which, |h, ctx| h.cancel(ctx));
     }
 
     /// Whether a request is out.
@@ -1469,6 +1484,17 @@ mod tests {
         notes.add(ImageString::Kitty, Cause::Program, "one reason");
         notes.add(ImageString::Iterm2, Cause::Program, "one reason");
         assert_eq!(notes.take().len(), 2, "the same reason from two protocols");
+        notes.add(ImageString::Kitty, Cause::Console, "one reason");
+        let causes: Vec<_> = notes
+            .take()
+            .into_iter()
+            .map(|n| (n.cause, n.count))
+            .collect();
+        assert_eq!(
+            causes,
+            [(Cause::Console, 1)],
+            "the same reason under another cause"
+        );
     }
 
     #[test]

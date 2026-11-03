@@ -326,6 +326,29 @@ impl Command {
         None
     }
 
+    /// Which of vtium's bounds refuses this command, where one does: the
+    /// picture's size past `max-graphic-size`, or its box past
+    /// `BOX_CELLS_MAX`. [`refusal`](Self::refusal) answers EINVAL for
+    /// both; this names the bound for the log, since the operator can act
+    /// on a setting where only the program's author can act on a bad key.
+    pub(super) fn bound(&self, ctx: &dyn Context) -> Option<&'static str> {
+        let (max_w, max_h) = graphic(ctx);
+        let sized = self.action == b'f' || (self.width != 0 && self.height != 0);
+        if self.transmits()
+            && self.format != 100
+            && sized
+            && (self.width > max_w || self.height > max_h)
+        {
+            return Some("a kitty picture past max-graphic-size");
+        }
+        if matches!(self.action, b'T' | b'p')
+            && (u64::from(self.cols) > BOX_CELLS_MAX || u64::from(self.rows) > BOX_CELLS_MAX)
+        {
+            return Some("a kitty picture's box passes BOX_CELLS_MAX");
+        }
+        None
+    }
+
     /// Whether this command continues the upload in chunks begun by
     /// `first`: it carries only `m` and `q`, and `a=f` too when the upload
     /// began with `a=f`, as the spec asks of animation frames.

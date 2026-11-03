@@ -33,8 +33,10 @@
 //!   them at debug level (libtsm `eeaf293`, `src/tsm/tsm-kitty.c:806-826`).
 //! - **Notes for the operator.** A program may leave a command unanswered
 //!   with `q=2` or no id, so the handler also notes the refusals an
-//!   operator can act on: the budget's ENOSPC, a payload or file that needs
-//!   the image helper while none runs, and a helper that fails.
+//!   operator can act on: the budget's ENOSPC, a picture past
+//!   `max-graphic-size` or a box past `BOX_CELLS_MAX`, a payload or file
+//!   that needs the image helper while none runs, and a helper that fails
+//!   or finds the picture past its bounds.
 //! - **Replies.** Only a command that carries `i` or `I` is answered; `q=1`
 //!   leaves out OK and `q=2` every reply. An `a=q` without `i` reads nothing
 //!   and is answered under no `q`, as kitty 0.49.2 behaved when the C
@@ -378,7 +380,7 @@ impl Kitty {
         if cmd.dropped() {
             return;
         }
-        if let Some(e) = cmd.refusal(ctx) {
+        if let Some(e) = refused(ctx, &cmd) {
             self.upload.mode = Mode::Skip(Err(e));
             return;
         }
@@ -523,7 +525,7 @@ impl Kitty {
             b't' => Medium::TempFile(name),
             _ => Medium::SharedMemory(name),
         };
-        let refusal = cmd.refusal(ctx).or_else(|| {
+        let refusal = refused(ctx, &cmd).or_else(|| {
             (cmd.action == b'f')
                 .then(|| frame_target(ctx, &mut cmd).err())
                 .flatten()
@@ -618,7 +620,7 @@ impl Kitty {
     fn put(&mut self, ctx: &mut dyn Context) {
         let cmd = self.cmd;
         let mut id = cmd.id;
-        let answer = match cmd.refusal(ctx) {
+        let answer = match refused(ctx, &cmd) {
             Some(e) => Err(e),
             None if cmd.id == 0 && cmd.number == 0 => Err(Error::Invalid),
             None => match ctx.find_image(cmd.id, cmd.number) {
@@ -694,7 +696,7 @@ impl Kitty {
     /// id.
     fn animate(&mut self, ctx: &mut dyn Context) {
         let cmd = self.cmd;
-        let answer = match cmd.refusal(ctx) {
+        let answer = match refused(ctx, &cmd) {
             Some(e) => Err(e),
             None => animated(ctx, &cmd).and_then(|key| {
                 let done = if cmd.action == b'a' {
@@ -996,6 +998,16 @@ fn place(ctx: &mut dyn Context, cmd: &Command, key: ImageKey, id: u32) -> Answer
     Ok(())
 }
 
+/// [`Command::refusal`], noting for the log a refusal that one of vtium's
+/// bounds makes ([`Command::bound`]), which the operator can act on.
+fn refused(ctx: &mut dyn Context, cmd: &Command) -> Option<Error> {
+    let e = cmd.refusal(ctx)?;
+    if let Some(why) = cmd.bound(ctx) {
+        ctx.note(Cause::Console, why);
+    }
+    Some(e)
+}
+
 /// The kitty answer to a helper's outcome other than OK. Too few bytes
 /// read from a named medium is a failure to read, EBADF, as kitty answers
 /// it; too few inflated, or sent directly, is EINVAL.
@@ -1116,8 +1128,15 @@ impl Handler for Kitty {
                 None => return reply(ctx, &cmd, cmd.id, Err(Error::BadFile)),
             },
             other => {
-                if other == Reply::Failed {
-                    ctx.note(Cause::Console, "the image helper fails on a kitty picture");
+                match other {
+                    Reply::Failed => {
+                        ctx.note(Cause::Console, "the image helper fails on a kitty picture");
+                    }
+                    Reply::TooLarge => ctx.note(
+                        Cause::Console,
+                        "the image helper finds a kitty picture past its bounds",
+                    ),
+                    _ => {}
                 }
                 let e = outcome(&other, named, inflate);
                 return reply(ctx, &cmd, cmd.id, Err(e));
@@ -1126,6 +1145,7 @@ impl Handler for Kitty {
         // max-graphic-size may have been lowered since the request
         let (max_w, max_h) = graphic(ctx);
         if size.0 > max_w || size.1 > max_h {
+            ctx.note(Cause::Console, "a kitty picture past max-graphic-size");
             return reply(ctx, &cmd, cmd.id, Err(Error::Invalid));
         }
         if cmd.action == b'q' {

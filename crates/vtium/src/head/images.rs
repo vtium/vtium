@@ -504,7 +504,8 @@ mod built {
             }
             self.watch = None;
             if self.out.take().is_some() {
-                term.terminal.image_reply(Reply::Failed);
+                term.terminal.abandon_image_request();
+                // what the ended program would have read goes nowhere
                 term.terminal.take_replies();
             }
         }
@@ -544,7 +545,6 @@ mod built {
             ) {
                 self.draw_now = true;
             }
-            log_notes(&self.name, shown.id, &mut shown.term);
             for console in &mut self.hidden {
                 console.pictures.turn(
                     &mut console.term,
@@ -554,6 +554,10 @@ mod built {
                     helpers,
                     handle,
                 );
+            }
+            // after every turn, so a note a reply made reaches the log
+            // this turn, and one loop reads every console, shown or hidden
+            for console in std::iter::once(&mut self.console).chain(&mut self.hidden) {
                 log_notes(&self.name, console.id, &mut console.term);
             }
         }
@@ -744,6 +748,28 @@ mod built {
                         .to_owned()
                 )]
             );
+        }
+
+        // A session that ends with a request out drops it with no reply:
+        // the helper did not fail, so nothing reaches the log, where a
+        // handed-back FAILED would log "the image helper fails" at info.
+        #[test]
+        #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+        fn a_session_that_ends_with_a_request_out_logs_nothing() {
+            let mut term = console(true);
+            term.terminal
+                .input(b"\x1b_Ga=t,f=100,i=1,q=2;iVBORw0KGgo=\x1b\\");
+            let request = term.terminal.take_image_request();
+            assert!(request.is_some(), "a request is out");
+            let mut pictures = Pictures {
+                out: request.map(|r| (r, Instant::now())),
+                ..Pictures::default()
+            };
+            let _ = said();
+            pictures.end_session(&mut term);
+            assert!(!term.terminal.image_request_pending());
+            log_notes("main", 3, &mut term);
+            assert_eq!(said(), []);
         }
 
         #[test]

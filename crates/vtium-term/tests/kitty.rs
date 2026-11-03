@@ -4,7 +4,8 @@
 
 #![cfg(feature = "images")]
 
-use vtium_term::images::{Cause, Kitty, Switches};
+use vtium_term::images::decode::{Payload, Reply};
+use vtium_term::images::{Cause, Kitty, Limits, Switches};
 use vtium_term::{ImageString, Terminal};
 
 /// A terminal of `cols` by `rows` cells of 8 by 16 pixels that offers
@@ -204,6 +205,112 @@ fn a_picture_the_budget_refuses_is_noted_even_unanswered() {
         [(
             Cause::Console,
             "the budget refuses a kitty picture".to_owned()
+        )]
+    );
+}
+
+/// The notes the kitty handler wrote, as (cause, reason).
+fn kitty_notes(t: &mut Terminal) -> Vec<(Cause, String)> {
+    t.take_image_notes()
+        .into_iter()
+        .map(|n| {
+            assert_eq!(n.protocol, ImageString::Kitty);
+            (n.cause, n.why)
+        })
+        .collect()
+}
+
+/// A terminal with an image helper, which has taken one PNG upload's
+/// request, `q=2` so the program hears nothing.
+fn requested() -> Terminal {
+    let mut t = term(12, 4);
+    t.set_image_helper(true);
+    t.input(b"\x1b_Ga=t,f=100,i=1,q=2;iVBORw0KGgo=\x1b\\");
+    assert!(t.take_image_request().is_some());
+    t
+}
+
+// A helper that fails leaves a picture that never draws, which the operator
+// can act on; a request the console drops when its program has gone is no
+// failure, and notes nothing.
+#[test]
+fn a_failing_helper_is_noted_and_an_abandoned_request_is_not() {
+    let mut t = requested();
+    t.image_reply(Reply::Failed);
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "the image helper fails on a kitty picture".to_owned()
+        )]
+    );
+    let mut t = requested();
+    t.image_reply(Reply::TooLarge);
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "the image helper finds a kitty picture past its bounds".to_owned()
+        )]
+    );
+    let mut t = requested();
+    t.abandon_image_request();
+    assert!(!t.image_request_pending());
+    assert_eq!(t.take_replies(), b"");
+    assert_eq!(kitty_notes(&mut t), []);
+    assert_eq!(
+        t.screen().images().bytes(),
+        0,
+        "the upload's bytes are given back"
+    );
+}
+
+// A picture past `max-graphic-size`, or a box past `BOX_CELLS_MAX`, is
+// refused with EINVAL, which a program with `q=2` never hears, so the
+// handler notes the bound the operator can raise.
+#[test]
+fn a_picture_past_vtiums_bounds_is_noted() {
+    let mut t = term(12, 4);
+    t.set_image_limits(Limits {
+        graphic: (8, 8),
+        ..Limits::default()
+    });
+    t.input(b"\x1b_Ga=t,f=24,s=16,v=1,q=2;AAAA\x1b\\");
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "a kitty picture past max-graphic-size".to_owned()
+        )]
+    );
+    // a key the program got wrong is its own, and notes nothing
+    t.input(b"\x1b_Ga=t,f=24,i=1,I=2,s=1,v=1,q=2;AAAA\x1b\\");
+    assert_eq!(kitty_notes(&mut t), []);
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=5,q=2;AAAA\x1b\\");
+    t.input(b"\x1b_Ga=p,i=5,c=10001,r=1,q=2\x1b\\");
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "a kitty picture's box passes BOX_CELLS_MAX".to_owned()
+        )]
+    );
+    // a decoded picture past a `max-graphic-size` lowered since its request
+    let mut t = requested();
+    t.set_image_limits(Limits {
+        graphic: (8, 8),
+        ..Limits::default()
+    });
+    t.image_reply(Reply::Ok(Payload::Rgba {
+        width: 16,
+        height: 16,
+        data: vec![0; 16 * 16 * 4],
+    }));
+    assert_eq!(
+        kitty_notes(&mut t),
+        [(
+            Cause::Console,
+            "a kitty picture past max-graphic-size".to_owned()
         )]
     );
 }
