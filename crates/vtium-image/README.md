@@ -90,6 +90,7 @@ These follow the kitty spec where it leaves a choice open. Each stays vtium's re
 - **A relative placement without `Q` follows the parent image's placement made last that has no placement id,** as D13 decides; with no such placement the put answers ENOPARENT.
 - **`P=0` names no parent,** as an id of 0 names no image anywhere in the protocol, so the put is an ordinary one, and `Q`, `H` and `V` do nothing.
 - **A raw frame without `s` or `v` reaches the image's right or bottom edge** from `x` or `y`. The spec says only that a frame's rectangle is the whole image where `x`, `y`, `s` and `v` are left out.
+- **A change "covers half the picture" when its layers' areas add up to half the image's or more** (ADR-1102, D1, the second rule). Layers that overlap count twice, so a frame can only be composed whole earlier than its covered pixels alone would make it, never later.
 - **`z` on any `a=f` sets the gap of the frame the command makes or edits,** the root frame's included; `z=0` keeps the gap the frame has, and a new frame's is 40.
 - **`a=a` sets a gap only with both `r` and `z`.** With `z` and no `r` it sets no gap, since `r=0` names no frame.
 - **`a=c` without `r` or `c` answers ENOENT,** as a composition whose source or destination does not exist does, since frame 0 does not exist. An `s` past 3 in `a=a` answers EINVAL.
