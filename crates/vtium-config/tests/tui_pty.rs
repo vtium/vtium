@@ -64,6 +64,8 @@ struct Seen {
     closed: bool,
     /// For each read that held an OSC 50 switch, how many it held.
     switches_per_read: Vec<usize>,
+    /// The NULs the test wrote to the terminal that the console has read.
+    marks: usize,
 }
 
 /// The console on a pty's master.
@@ -120,7 +122,11 @@ impl Console {
             assert!(t.set_font_name("unifont"));
             let mut buf = [0u8; 4096];
             while let Ok(n @ 1..) = reader.read(&mut buf) {
-                let bytes = &buf[..n];
+                // a NUL is the test's mark (`drained`), which the TUI never
+                // writes, so the console counts it and drops it
+                let marks = buf[..n].iter().filter(|&&b| b == 0).count();
+                let kept: Vec<u8> = buf[..n].iter().copied().filter(|&b| b != 0).collect();
+                let bytes = &kept[..];
                 let mut replies = Vec::new();
                 match kind {
                     Kind::Vtium { .. } => {
@@ -148,6 +154,7 @@ impl Console {
                     let (lock, cv) = &*shared;
                     let mut s = lock.lock().expect("the lock");
                     s.written.extend_from_slice(bytes);
+                    s.marks += marks;
                     let sets = String::from_utf8_lossy(bytes)
                         .split("\x1b]50;")
                         .skip(1)
@@ -196,6 +203,20 @@ impl Console {
             guard.screen,
             String::from_utf8_lossy(&guard.written)
         );
+    }
+
+    /// Waits until the console has read every byte written to the
+    /// terminal before now. The test keeps the terminal's other end open,
+    /// so the console never reads an end of file. A NUL written to the
+    /// terminal arrives after every byte written before it, so the test
+    /// writes one and waits for the console to read it.
+    fn drained(&self, slave: &File) {
+        let before = self.seen.0.lock().expect("the lock").marks;
+        let mut out = slave;
+        out.write_all(&[0]).expect("a mark");
+        self.until("read everything written to the terminal", |s| {
+            s.marks > before
+        });
     }
 
     fn key(&mut self, bytes: &[u8]) {
@@ -309,6 +330,7 @@ fn the_tui_starts_on_the_alternate_screen_with_the_four_requests() {
     );
     c.key(b"q");
     assert_eq!(status(child), 0);
+    c.drained(&slave);
     assert!(
         c.written().ends_with(b"\x1b[?25h\x1b[?1049l"),
         "the screen and cursor come back"
@@ -327,6 +349,7 @@ fn a_highlighted_font_switches_the_console_and_q_gives_the_start_font_back() {
     c.until("drew tiny5", |s| s.font == "tiny5");
     c.key(b"q");
     assert_eq!(status(child), 0);
+    c.drained(&slave);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
     assert_eq!(c.font(), "unifont");
     assert!(cooked(&slave));
@@ -334,11 +357,12 @@ fn a_highlighted_font_switches_the_console_and_q_gives_the_start_font_back() {
 
 #[test]
 fn ctrl_c_gives_the_start_font_back() {
-    let (mut c, child, _slave) = started("ctrl-c", Kind::Vtium { ops: true }, 80, 25);
+    let (mut c, child, slave) = started("ctrl-c", Kind::Vtium { ops: true }, 80, 25);
     c.key(UP);
     c.until("drew tiny5", |s| s.font == "tiny5");
     c.key(b"\x03");
     assert_eq!(status(child), 130);
+    c.drained(&slave);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
     assert_eq!(c.font(), "unifont");
 }
@@ -351,6 +375,7 @@ fn sigterm_from_another_terminal_gives_the_start_font_back() {
     let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
     rustix::process::kill_process(pid, rustix::process::Signal::TERM).expect("kill");
     assert_eq!(status(child), 143);
+    c.drained(&slave);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
     assert_eq!(c.font(), "unifont");
     assert!(cooked(&slave));
@@ -358,11 +383,12 @@ fn sigterm_from_another_terminal_gives_the_start_font_back() {
 
 #[test]
 fn a_terminal_that_answers_only_da1_gets_no_osc_50_switch() {
-    let (mut c, child, _slave) = started("da1", Kind::Da1Only, 80, 25);
+    let (mut c, child, slave) = started("da1", Kind::Da1Only, 80, 25);
     c.key(UP);
     c.key(UP);
     c.key(b"q");
     assert_eq!(status(child), 0);
+    c.drained(&slave);
     assert_eq!(c.switches(), Vec::<String>::new());
     assert_eq!(
         String::from_utf8_lossy(&c.written())
@@ -374,7 +400,7 @@ fn a_terminal_that_answers_only_da1_gets_no_osc_50_switch() {
 
 #[test]
 fn with_font_operations_off_no_osc_50_switch_goes() {
-    let (mut c, child, _slave) = started("ops-off", Kind::Vtium { ops: false }, 80, 25);
+    let (mut c, child, slave) = started("ops-off", Kind::Vtium { ops: false }, 80, 25);
     assert!(
         c.screen().contains("allow-font-ops is off"),
         "{}",
@@ -383,13 +409,14 @@ fn with_font_operations_off_no_osc_50_switch_goes() {
     c.key(UP);
     c.key(b"q");
     assert_eq!(status(child), 0);
+    c.drained(&slave);
     assert_eq!(c.switches(), Vec::<String>::new());
 }
 
 #[test]
 fn the_screen_fits_80x25_and_100x30() {
     for (cols, rows) in [(80u16, 25u16), (100, 30)] {
-        let (mut c, child, _slave) = started(
+        let (mut c, child, slave) = started(
             &format!("grid-{cols}"),
             Kind::Vtium { ops: true },
             cols,
@@ -418,6 +445,7 @@ fn the_screen_fits_80x25_and_100x30() {
         );
         c.key(b"q");
         assert_eq!(status(child), 0);
+        c.drained(&slave);
     }
 }
 
@@ -442,6 +470,7 @@ fn set(name: &str, kind: Kind) -> (i32, String, Vec<String>) {
         ))
         .output()
         .expect("setsid runs");
+    c.drained(&slave);
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -515,6 +544,7 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
     c.until("saved", |s| s.screen.contains("Saved 1 file."));
     c.key(b"q");
     assert_eq!(status(child), 0);
+    c.drained(&slave);
     // one line changed, the old file kept, and the console left in the
     // saved font
     assert_eq!(
@@ -573,6 +603,7 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     );
     c.key(b"q");
     assert_eq!(status(child), 0);
+    c.drained(&slave);
     let argv = std::fs::read_to_string(root.join("sudo.argv")).expect("the stand-in ran");
     let argv: Vec<&str> = argv.lines().collect();
     assert_eq!(argv.len(), 3, "{argv:?}");
@@ -589,12 +620,13 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
 
 #[test]
 fn two_keys_at_once_send_one_switch_and_the_next_after_its_reply() {
-    let (mut c, child, _slave) = started("in-flight", Kind::Vtium { ops: true }, 80, 25);
+    let (mut c, child, slave) = started("in-flight", Kind::Vtium { ops: true }, 80, 25);
     // two Ups in one write: tiny5, then proof once tiny5's reply is in
     c.key(&[UP, UP].concat());
     c.until("drew proof", |s| s.font == "proof");
     c.key(b"q");
     assert_eq!(status(child), 0);
+    c.drained(&slave);
     assert_eq!(c.switches(), ["tiny5", "proof", "unifont"]);
     let per_read = c.seen.0.lock().expect("the lock").switches_per_read.clone();
     assert!(
@@ -614,6 +646,7 @@ fn sighup_sigint_and_sigquit_give_the_start_font_back() {
         let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
         rustix::process::kill_process(pid, signal).expect("kill");
         assert_eq!(status(child), 128 + n, "signal {n}");
+        c.drained(&slave);
         assert_eq!(c.switches(), ["tiny5", "unifont"], "signal {n}");
         assert_eq!(c.font(), "unifont", "signal {n}");
         assert!(cooked(&slave), "signal {n}");
