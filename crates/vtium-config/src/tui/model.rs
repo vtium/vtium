@@ -508,9 +508,24 @@ impl App {
         }
     }
 
+    /// The size a font the console cannot switch to is pictured at in the
+    /// fonts view: the size a save names, else vtium.conf's `font-size`,
+    /// else `preview`'s.
+    fn preview_points(&self) -> u32 {
+        self.pending
+            .font_size()
+            .or_else(|| {
+                self.configured("font-size")
+                    .and_then(|s| s.parse::<u32>().ok())
+            })
+            .filter(|s| *s > 0)
+            .unwrap_or(crate::preview::POINTS)
+    }
+
     /// The specimen for the highlighted size, where the terminal draws
-    /// kitty graphics and the size is not automatic; otherwise the picture
-    /// on the screen, if any, is deleted.
+    /// kitty graphics and the size is not automatic, and for the
+    /// highlighted font where the console cannot be switched to it live
+    /// (D4); otherwise the picture on the screen, if any, is deleted.
     fn ask_picture(&mut self) -> Vec<Effect> {
         let font = self.font().map(|f| f.name.clone());
         let (cols, rows) = super::view::picture_area(self);
@@ -525,8 +540,15 @@ impl App {
                 .saturating_mul(ch)
                 .min(crate::specimen::PICTURE_MAX.1),
         );
-        match (self.view, self.graphics, self.size(), font) {
-            (View::Sizes, true, points @ 1.., Some(font)) if max.0 > 0 && max.1 > 0 => {
+        let readable = !matches!(self.font().map(|f| &f.state), Some(FontState::Refused(_)));
+        let not_live = matches!(self.live, Live::OpsOff | Live::NotVtium);
+        let points = match self.view {
+            View::Sizes => self.size(),
+            View::Fonts if not_live && readable => self.preview_points(),
+            _ => 0,
+        };
+        match (self.graphics, points, font) {
+            (true, 1.., Some(font)) if max.0 > 0 && max.1 > 0 => {
                 vec![Effect::Picture {
                     font,
                     height: crate::specimen::pixel_height(points, self.inputs.dpi.0),
@@ -548,7 +570,7 @@ impl App {
 
     fn pictured(&mut self, result: Result<crate::specimen::Picture, String>) -> Vec<Effect> {
         let mut out = self.drop_picture();
-        if self.view != View::Sizes || self.leaving.is_some() {
+        if !matches!(self.view, View::Sizes | View::Fonts) || self.leaving.is_some() {
             return out;
         }
         match result {
@@ -577,7 +599,7 @@ impl App {
                 Reply::Graphics(ok) => self.answers.graphics |= ok,
                 Reply::Attributes => {
                     self.decide();
-                    return Vec::new();
+                    return self.ask_picture();
                 }
             }
             return Vec::new();
@@ -634,7 +656,7 @@ impl App {
     fn timeout(&mut self) -> Vec<Effect> {
         if self.live == Live::Asking {
             self.decide();
-            return Vec::new();
+            return self.ask_picture();
         }
         match self.leaving {
             Some(status) => vec![Effect::Exit(status)],
@@ -813,6 +835,7 @@ impl App {
     }
 
     fn fonts_key(&mut self, key: Key) -> Vec<Effect> {
+        let before = self.font_at;
         let n = self.inputs.fonts.len();
         self.font_at = step(self.font_at, n, key);
         if key == Key::Enter
@@ -823,7 +846,11 @@ impl App {
             let name = font.name.clone();
             self.pending.set("font-name", Change::Set(name));
         }
-        self.follow()
+        let mut out = self.follow();
+        if matches!(self.live, Live::OpsOff | Live::NotVtium) && self.font_at != before {
+            out.extend(self.ask_picture());
+        }
+        out
     }
 
     /// A character or Backspace typed into the field being edited.

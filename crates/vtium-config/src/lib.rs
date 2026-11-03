@@ -36,6 +36,7 @@ pub mod frit;
 pub mod glyphs;
 pub mod kitty;
 pub mod outline;
+pub mod preview;
 pub mod resample;
 pub mod serve;
 pub mod shaping;

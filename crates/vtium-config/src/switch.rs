@@ -67,11 +67,28 @@ pub fn reply_name(bytes: &[u8]) -> Option<&[u8]> {
 /// named vtium. Every terminal of the VT100 line answers DA1, and replies
 /// come in the order of the requests, so no reply comes after DA1's.
 pub fn is_vtium(tty: &mut (impl Read + Write), deadline: Instant) -> io::Result<bool> {
+    use crate::tui::input::Reply;
+    let replies = ask(tty, b"\x1b[>q", deadline)?;
+    Ok(replies
+        .iter()
+        .any(|r| matches!(r, Reply::Version(v) if v.starts_with("vtium("))))
+}
+
+/// Writes `requests` and DA1 to `tty`, already raw, and reads until DA1's
+/// reply or `deadline`: the replies that came before DA1's. Every terminal
+/// of the VT100 line answers DA1, and replies come in the order of the
+/// requests, so a reply that has not come before DA1's will not come.
+pub fn ask(
+    tty: &mut (impl Read + Write),
+    requests: &[u8],
+    deadline: Instant,
+) -> io::Result<Vec<crate::tui::input::Reply>> {
     use crate::tui::input::{Decoder, Input, Reply};
-    tty.write_all(b"\x1b[>q\x1b[c")?;
+    tty.write_all(requests)?;
+    tty.write_all(b"\x1b[c")?;
     tty.flush()?;
     let mut decoder = Decoder::default();
-    let mut vtium = false;
+    let mut replies = Vec::new();
     let mut buf = [0u8; 256];
     let mut read = 0usize;
     while now() < deadline && read < READ_MAX {
@@ -83,13 +100,13 @@ pub fn is_vtium(tty: &mut (impl Read + Write), deadline: Instant) -> io::Result<
         read = read.saturating_add(n);
         for input in decoder.feed(buf.get(..n).unwrap_or_default()) {
             match input {
-                Input::Reply(Reply::Version(v)) => vtium = v.starts_with("vtium("),
-                Input::Reply(Reply::Attributes) => return Ok(vtium),
-                _ => {}
+                Input::Reply(Reply::Attributes) => return Ok(replies),
+                Input::Reply(r) => replies.push(r),
+                Input::Key(_) => {}
             }
         }
     }
-    Ok(vtium)
+    Ok(replies)
 }
 
 /// Asks the terminal behind `tty`, already raw, for `name`, and reads the
@@ -119,6 +136,11 @@ pub fn switch(tty: &mut (impl Read + Write), name: &str, deadline: Instant) -> i
 )]
 fn now() -> Instant {
     Instant::now()
+}
+
+/// The end of a wait of [`WAIT`] from now.
+pub fn deadline() -> Instant {
+    now().checked_add(WAIT).unwrap_or_else(now)
 }
 
 /// A terminal in raw mode, each read waiting at most a tenth of a second,

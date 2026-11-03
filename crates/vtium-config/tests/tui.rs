@@ -828,6 +828,40 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
     assert!(last_delete > last_show, "the last picture is deleted");
 }
 
+/// Where the console cannot be switched live, the font view shows each
+/// highlighted font as a picture, at 12 points where nothing names a size,
+/// below the list; where it can, the console itself shows the font.
+#[test]
+fn a_font_the_console_cannot_switch_to_is_shown_as_a_picture() {
+    let mut c = Console::vtium(80, 25, false, "unifont").keys(&[UP, UP, UP, UP, b"q"]);
+    c.graphics = true;
+    assert_eq!(run(&mut c), 0);
+    let fonts: Vec<(&str, u32)> = c
+        .pictures
+        .iter()
+        .map(|(f, h, _)| (f.as_str(), *h))
+        .collect();
+    assert_eq!(
+        fonts,
+        [
+            ("unifont", 16),
+            ("tiny5", 16),
+            ("proof", 16),
+            ("minspec-16", 16)
+        ]
+    );
+    // below the six fonts' rows: row 11 to the room above the footer
+    let (_, _, (w, h)) = c.pictures[0];
+    assert_eq!((w, h), (79 * 8, 10 * 16));
+    // the broken frit, which does not read, gets none: each picture is
+    // deleted as the next font is highlighted
+    assert_eq!(count(&c.written, &kitty::delete(kitty::IMAGE_ID)), 4);
+    let mut live = console().keys(&[UP, b"q"]);
+    live.graphics = true;
+    run(&mut live);
+    assert!(live.pictures.is_empty(), "{:?}", live.pictures);
+}
+
 #[test]
 fn leaving_with_a_picture_deletes_it_before_the_font_comes_back() {
     let mut c = console().keys(&[UP, b"\t", DOWN, b"q"]);

@@ -23,6 +23,7 @@ Commands:
   new --template                     print a frit to edit for new --from
   new                                at a terminal, open the interactive tool at its new frit
   remove-frit NAME                   remove a frit that vtium.conf does not name
+  preview FONT... [--size POINTS]    draw each font's specimen, as a picture where the terminal draws them
   set NAME                           switch the running console to a frit or a built-in font
   apply DIR                          check a saved draft and install it (as root)
   serve                              generate glyphs for the console (the console starts it)
@@ -289,6 +290,7 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
             }
         }
         "new" => crate::commands::new(&rest, &o.paths(), cli.out, cli.err),
+        "preview" => crate::preview::command(&rest, &o.paths(), cli.out, cli.err),
         "set" => crate::switch::command(&rest, o.frits.as_deref(), cli.out, cli.err),
         "apply" => crate::apply::command(&rest, &o.paths().targets(), cli.out, cli.err),
         crate::serve::SERVE_ARG => cli.serve(&rest),

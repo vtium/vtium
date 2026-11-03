@@ -343,10 +343,19 @@ fn save_rows(app: &App) -> Vec<Row> {
     rows
 }
 
-/// Where the size view's picture goes, row and column from 1: beside the
-/// list of sizes, below the rule under the tabs.
-pub fn picture_at(_app: &App) -> (usize, usize) {
-    (PICTURE_ROW, PICTURE_COL)
+/// Where a picture goes, row and column from 1: in the size view beside
+/// the list of sizes, below the rule under the tabs; in the fonts view
+/// below the list of fonts, whose notes reach across the screen.
+pub fn picture_at(app: &App) -> (usize, usize) {
+    match app.view {
+        View::Fonts => (
+            PICTURE_ROW
+                .saturating_add(body(app).list.len())
+                .saturating_add(1),
+            2,
+        ),
+        _ => (PICTURE_ROW, PICTURE_COL),
+    }
 }
 
 const PICTURE_ROW: usize = 4;
@@ -398,19 +407,20 @@ fn tabs(app: &App) -> Row {
     .collect()
 }
 
-/// The cells the picture may cover, columns and rows: from its place to
-/// the right edge, and down to the row above the message line, so it
-/// never covers the keys.
+/// The cells a picture may cover, columns and rows: from its place to the
+/// right edge, and down to the row above the message line, so it never
+/// covers the keys.
 pub fn picture_area(app: &App) -> (usize, usize) {
     // the rule, the keys, and the message at its longest
     let footer = 1usize
         .saturating_add(key_rows(app).len())
         .saturating_add(MESSAGE_ROWS);
+    let (row, col) = picture_at(app);
     (
-        app.cols.saturating_sub(PICTURE_COL.saturating_sub(1)),
+        app.cols.saturating_sub(col.saturating_sub(1)),
         app.rows
             .saturating_sub(footer)
-            .saturating_sub(PICTURE_ROW.saturating_sub(1)),
+            .saturating_sub(row.saturating_sub(1)),
     )
 }
 
