@@ -26,7 +26,7 @@ After an image's `image` line, a block prints that image's `anim` lines when an 
 
 `anim M frames F current C run RUN loops L stamps S T` is image M's animation as the store records it. F is the number of frames, the root frame included. C is the frame a command last made current, which `a=a` with `c` sets and which becomes 1 when the frames are deleted or freed. RUN is `stopped`, `loading` or `looping`, as the last `a=a` with `s` set it (`s=1`, `s=2` and `s=3`), and `stopped` when no command set it or the frames were deleted or freed. L is the loops the last `a=a` with `v` asked for: 1 plays forever, a larger number plays that many less one, and it starts at 1. S is the frame stamp, a count that the store moves each time a command makes a frame current, and T is the run stamp, a count that it moves each time a command sets the run state or the loops; deleting or freeing the frames moves both. Both start at 0 and follow from the bytes alone.
 
-`anim M frame K gap G digest HEX` is frame K of image M: its gap G in milliseconds, negative for a gapless frame and 0 for a root frame whose gap no command set, and the digest of its whole pixels, composed from its base and its changes as the store composes them for a display, hashed as the `image` line hashes an image's pixels. Frame 1's digest is the root frame's, the same as the `image` line's.
+`anim M frame K gap G digest HEX` is frame K of image M: its gap G in milliseconds, negative for a gapless frame and 0 for a root frame whose gap no command set, and the digest of its whole pixels, composed from its base and its changes as the store composes them for a display, hashed as the `image` line hashes an image's pixels.
 
 | Feature | What declaring it means |
 |---|---|
