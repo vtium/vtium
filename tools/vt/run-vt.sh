@@ -147,6 +147,7 @@ if [ -n "$standins" ]; then
 	run_user=$standins/run-user
 	dri=$standins/debugfs-dri
 	stage=$standins/run-vtium-vt
+	system_frits=$standins/vtium-fonts
 	system_terminfo=$standins/terminfo
 	# The tests run without root, so the staged files stay theirs.
 	own=()
@@ -164,6 +165,7 @@ else
 	run_user=/run/user
 	dri=/sys/kernel/debug/dri
 	stage=/run/vtium-vt
+	system_frits=/etc/vtium/fonts
 	system_terminfo=/usr/share/terminfo
 	own=(-o root -g root)
 fi
@@ -646,10 +648,22 @@ helper_opt=()
 # The acceptance pass switches the console among its own frits with OSC 50, which
 # vtium takes only for a frit in its frits directory (ADR-1200 D5,
 # ADR-1501 D6). The run stages the system's frits and the acceptance pass's into a
-# directory of root's alone and names it, so the review sees both.
+# directory of root's alone and names it, so the review sees both. The copy
+# runs as root and is readable by everyone, so a frit must be a regular file
+# of root's or the user's, never a symlink or a file with another hard link,
+# which could name a file the user may not read, such as /etc/shadow.
 frit_files=()
-for f in /etc/vtium/fonts/*.vtfrit "$here"/sections/frits/*.vtfrit; do
-	[ ! -f "$f" ] || frit_files+=("$f")
+for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
+	[ -e "$f" ] || [ -L "$f" ] || continue
+	[ ! -L "$f" ] || die "$f is a symlink; the run copies only a frit that is a file of its own"
+	[ -f "$f" ] || die "$f is not a regular file; the run copies only a frit that is a file of its own"
+	read -r owner mode links < <(stat -c '%u %a %h' -- "$f")
+	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
+		die "$f belongs to uid $owner, neither root nor $user; the run copies it as root"
+	[ "$links" -eq 1 ] || die "$f has $links hard links; the run copies only a frit that is a file of its own"
+	(( (8#$mode & 8#022) == 0 )) ||
+		die "$f is writable by group or others (mode $mode); vtium, as root, would read it"
+	frit_files+=("$f")
 done
 helper_opt+=(--font-frits="$stage/frits")
 debug_opt=()

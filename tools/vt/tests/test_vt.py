@@ -858,6 +858,33 @@ class RunVt(Case):
         os.chmod(self.s.image, 0o755)
         self.refused(self.run_vt(f"--image={self.s.image}-missing", "--dry-run", "8"), "no image helper at")
 
+    def test_a_frit_the_run_copies_as_root_is_a_file_of_its_own(self):
+        # The run copies the system's frits as root into a directory everyone
+        # reads, so a symlink or a second hard link, which could name a file
+        # the user may not read, is refused, and so is a frit another user
+        # could have written.
+        fonts = os.path.join(self.s.standins, "vtium-fonts")
+        os.mkdir(fonts)
+        stage = os.path.join(self.s.standins, "run-vtium-vt")
+        frit = os.path.join(fonts, "system.vtfrit")
+        write(frit, "font=/usr/share/fonts/x.ttf\n")
+        p = self.run_vt("--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertRegex(p.stdout, rf"\+ install -m 0644 -- {re.escape(frit)} .*/tools/vt/sections/frits/acceptance-bitmap\.vtfrit ")
+        secret = os.path.join(self.s.tmp, "secret")
+        write(secret, "not the user's to read\n")
+        link = os.path.join(fonts, "link.vtfrit")
+        os.symlink(secret, link)
+        self.refused(self.run_vt("--dry-run", "8"), "is a symlink")
+        os.unlink(link)
+        os.link(secret, link)
+        self.refused(self.run_vt("--dry-run", "8"), "has 2 hard links")
+        os.unlink(link)
+        os.chmod(frit, 0o664)
+        self.refused(self.run_vt("--dry-run", "8"), "is writable by group or others")
+        os.chmod(frit, 0o644)
+        self.assertFalse(os.path.exists(stage))
+
     def test_a_helper_another_user_could_have_written_is_refused(self):
         for mode in (0o775, 0o757):
             with self.subTest(mode=oct(mode)):
