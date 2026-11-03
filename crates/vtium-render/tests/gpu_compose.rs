@@ -193,6 +193,16 @@ fn a_frame_draws_each_cell_as_one_quad_through_the_cell_shader() {
         .filter(|c| matches!(c, Call::Draw { .. }))
         .count();
     assert_eq!(draws, 2 + 1, "two batches of cells, then present");
+    // the pipeline frees every texture, target and program it made
+    let Gpu {
+        mut gl,
+        pipeline,
+        buffer,
+        ..
+    } = g;
+    pipeline.free(&mut gl).unwrap();
+    gl.free_target(buffer).unwrap();
+    assert_eq!(gl.live(), (0, 0, 0));
 }
 
 #[test]
