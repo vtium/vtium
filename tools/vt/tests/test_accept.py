@@ -167,7 +167,7 @@ class Case(unittest.TestCase):
         self.sysfs = os.path.join(self.tmp, "sys")
         self.proc = os.path.join(self.tmp, "proc")
         self.machine()
-        self.passes = os.path.join(self.tmp, "passes")
+        self.passes = os.path.join(self.tmp, "my passes")
         self.pages = os.path.join(self.tmp, "pages")
         os.mkdir(self.pages)
         for name, text in PAGES.items():

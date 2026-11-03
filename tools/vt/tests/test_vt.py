@@ -29,6 +29,9 @@ import termios
 import time
 import unittest
 
+# The longest any test waits on another process. It only makes a broken test fail instead of hanging.
+WAIT_BOUND = 120
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 VT = os.path.join(ROOT, "tools", "vt")
 RUN_VT = os.path.join(VT, "run-vt.sh")
@@ -110,6 +113,9 @@ exit "${SYSTEMCTL_STATUS:-0}"
 LOGINCTL = "#!/bin/bash\n" + RECORD + """
 case $1 in
 list-sessions)
+	# The run lists the sessions after it has checked the files it copies and before it copies
+	# them, so a test that sets SWAP_FROM puts a file in a checked file's place in between.
+	[ -z "${SWAP_FROM:-}" ] || mv -f -- "$SWAP_FROM" "$SWAP_TO"
 	n=$(( $(cat "$COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$COUNT"
 	read -ra seq <<<"${SEQ:--}"; w=${seq[n - 1]:-${seq[-1]}}
 	case $w in
@@ -237,11 +243,15 @@ for f in /proc/$PPID/fd/*; do
 done
 echo "$h" >"${BIN_HOLD:-/dev/null}"
 printf '%s\\n' "$@" >"$BIN_ARGS"
+# The stage is gone when the run ends; a test that wants to read it names a directory for a copy.
+[ -z "${BIN_STAGE_COPY:-}" ] || cp -r "$VTIUM_VT_STANDINS/run-vtium-vt/." "$BIN_STAGE_COPY"
 printf '%b' "${BIN_LOG:-}"
 case ${BIN_MODE:-exit} in
 exit) exit "${BIN_STATUS:-0}" ;;
 wait)
 	trap 'echo TERM >>"$BIN_SIGNALS"; exit 0' TERM
+	# Signals are recorded from here on; a test that sends one waits for this file.
+	: >"${BIN_READY:-/dev/null}"
 	while :; do sleep 0.05; done ;;
 linger)
 	sleep "${BIN_LINGER:-20}" &
@@ -371,6 +381,7 @@ class Stage:
         self.calls = os.path.join(tmp, "calls")
         self.bin_args = os.path.join(tmp, "bin-args")
         self.signals = os.path.join(tmp, "signals")
+        self.bin_ready = os.path.join(tmp, "bin-ready")
         self.holds = os.path.join(tmp, "holds")
         self.bin_hold = os.path.join(tmp, "bin-hold")
 
@@ -397,6 +408,7 @@ class Stage:
             COUNT=os.path.join(self.tmp, "count"),
             BIN_ARGS=self.bin_args,
             BIN_SIGNALS=self.signals,
+            BIN_READY=self.bin_ready,
             BIN_PID=os.path.join(self.tmp, "bin-pid"),
             HOLDS=self.holds,
             BIN_HOLD=self.bin_hold,
@@ -465,15 +477,23 @@ class Case(unittest.TestCase):
         self.assertEqual(self.s.calls_of("chvt") + self.s.calls_of("fgconsole"), [])
         self._tmp.cleanup()
 
-    def run_vt(self, *args, timeout=20, **env):
+    def run_vt(self, *args, timeout=WAIT_BOUND, **env):
         return subprocess.run(["bash", RUN_VT, f"--bin={self.s.bin}", *args], env=self.s.env(**env),
                               capture_output=True, text=True, timeout=timeout, cwd=self.s.tmp,
                               start_new_session=True)
 
-    def vt_sh(self, *args, timeout=20, **env):
+    def vt_sh(self, *args, timeout=WAIT_BOUND, **env):
         return subprocess.run(["bash", VT_SH, *args], env=self.s.env(VTIUM_VT_BIN=self.s.bin, **env),
                               capture_output=True, text=True, timeout=timeout, cwd=self.s.tmp,
                               start_new_session=True)
+
+    def wait_ready(self):
+        """Waits until the stand-in vtium in wait mode has installed its signal trap: a signal sent
+        before that would kill it without a record. The bound only fails a broken test."""
+        end = time.monotonic() + WAIT_BOUND
+        while not os.path.exists(self.s.bin_ready) and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(os.path.exists(self.s.bin_ready), "vtium never started waiting")
 
     def refused(self, p, why):
         self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -629,12 +649,9 @@ class RunVt(Case):
     def interrupted(self, sig, status):
         proc = subprocess.Popen(["bash", RUN_VT, f"--bin={self.s.bin}", "8"], env=self.s.env(BIN_MODE="wait"),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp)
-        end = time.monotonic() + 10
-        while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
-            time.sleep(0.02)
-        self.assertTrue(os.path.exists(self.s.bin_args), "vtium never started")
+        self.wait_ready()
         proc.send_signal(sig)
-        out, err = proc.communicate(timeout=15)
+        out, err = proc.communicate(timeout=WAIT_BOUND)
         self.assertEqual(proc.returncode, status, out + err)
         self.assertEqual(read(self.s.signals), "TERM\n", "vtium was not stopped with SIGTERM")
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty8.service", "start kmsconvt@tty8.service"])
@@ -646,13 +663,10 @@ class RunVt(Case):
         proc = subprocess.Popen(["bash", RUN_VT, f"--bin={self.s.bin}", "8"], env=self.s.env(BIN_MODE="wait"),
                                 stdout=subprocess.PIPE, stderr=errors, cwd=self.s.tmp)
         errors.close()
-        end = time.monotonic() + 10
-        while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
-            time.sleep(0.02)
-        self.assertTrue(os.path.exists(self.s.bin_args), "vtium never started")
+        self.wait_ready()
         proc.stdout.close()
         proc.send_signal(signal.SIGHUP)
-        proc.wait(timeout=15)
+        proc.wait(timeout=WAIT_BOUND)
         err = read(os.path.join(self.s.tmp, "stderr"))
         self.assertEqual(proc.returncode, 129, err)
         self.assertEqual(read(self.s.signals), "TERM\n", "vtium was left running")
@@ -662,9 +676,7 @@ class RunVt(Case):
         first = subprocess.Popen(["bash", RUN_VT, f"--bin={self.s.bin}", "8"], env=self.s.env(BIN_MODE="wait"),
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=self.s.tmp)
         try:
-            end = time.monotonic() + 10
-            while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
-                time.sleep(0.02)
+            self.wait_ready()
             os.unlink(self.s.bin_args)
             p = self.run_vt("9", ACTIVE_UNITS="getty@tty9.service")
             self.refused(p, "another VT review run is in progress")
@@ -672,7 +684,7 @@ class RunVt(Case):
             self.assertNotIn("stop getty@tty9.service", self.s.changes())
         finally:
             first.send_signal(signal.SIGTERM)
-            first.wait(timeout=15)
+            first.wait(timeout=WAIT_BOUND)
         # Released when the first run ends.
         self.assertEqual(self.run_vt("9").returncode, 0)
 
@@ -743,7 +755,7 @@ class RunVt(Case):
                 "--image-storage-limit=auto", "--sync-timeout=500", "--dpms-timeout=15",
                 "--grab-paste=<Ctrl><Shift>V", "--pointer-hide-timeout=5",
                 "--pointer-hide-while-typing", "--no-pointer-hide-while-typing",
-                "--pointer-char=+", "--osd=full", "--osd-timeout=never", "--osd-timeout=10",
+                "--pointer-char=+", "--osd=full", "--osd-timeout=never", "--osd-timeout=WAIT_BOUND",
                 "--focus-mark=always", "--display-buffers=1", "--display-buffers=2", "--display-buffers=3"]
         p = self.run_vt("--dry-run", "8", "--", *opts)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -763,9 +775,9 @@ class RunVt(Case):
         self.refused(self.run_vt("8"), "writable by group or others")
         os.chmod(self.s.bin, 0o755)
         p = subprocess.run(["bash", RUN_VT, "--bin=" + os.path.join(self.s.tmp, "none"), "8"],
-                           env=self.s.env(), capture_output=True, text=True, timeout=20)
+                           env=self.s.env(), capture_output=True, text=True, timeout=WAIT_BOUND)
         self.refused(p, "no vtium binary at")
-        p = subprocess.run(["bash", RUN_VT, "8"], env=self.s.env(), capture_output=True, text=True, timeout=20)
+        p = subprocess.run(["bash", RUN_VT, "8"], env=self.s.env(), capture_output=True, text=True, timeout=WAIT_BOUND)
         self.refused(p, "--bin=PATH names the vtium binary")
         self.assertEqual(self.s.changes(), [])
 
@@ -782,7 +794,7 @@ class RunVt(Case):
                 if not standins:
                     del env["VTIUM_VT_STANDINS"]
                 p = subprocess.run(["bash", RUN_VT, f"--bin={self.s.bin}", "--dry-run", "13"], env=env,
-                                   capture_output=True, text=True, timeout=20, start_new_session=True)
+                                   capture_output=True, text=True, timeout=WAIT_BOUND, start_new_session=True)
                 self.refused(p, "VT must be a number from 2 to 12")
                 self.assertFalse(os.path.exists(os.path.join(self.s.tmp, "planted")))
 
@@ -820,6 +832,32 @@ class RunVt(Case):
         self.assertEqual(words, [f"ACCEPT_VTIUM_CONF={VT}/config/vtium.conf", "ACCEPT_BLINK_TEXT=off",
                                  "ACCEPT_BLINK=off", "ACCEPT_BLINK=on", "ACCEPT_BLINK_TEXT=full"])
 
+    def test_a_file_swapped_in_after_the_check_is_never_copied(self):
+        # The run checks the glyph helper, the image helper and the frits, then copies them as root.
+        # A file put in their place in between must not reach the stage: the copy is of the file
+        # that was checked.
+        fonts = os.path.join(self.s.standins, "vtium-fonts")
+        os.mkdir(fonts)
+        frit = os.path.join(fonts, "system.vtfrit")
+        write(frit, "font=/usr/share/fonts/checked.ttf\n")
+        os.chmod(frit, 0o644)
+        for what, path, staged in (("glyph helper", self.s.helper, "vtium-config"),
+                                   ("image helper", self.s.image, "vtium-image"),
+                                   ("frit", frit, "frits/system.vtfrit")):
+            with self.subTest(what=what):
+                checked = read(path)
+                swapped = os.path.join(self.s.tmp, "swapped")
+                write(swapped, "#!/bin/bash\n# the swapped-in file\n", 0o755)
+                seen = os.path.join(self.s.tmp, "stage-copy")
+                shutil.rmtree(seen, ignore_errors=True)
+                os.mkdir(seen)
+                p = self.run_vt(f"--helper={self.s.helper}", f"--image={self.s.image}", "8",
+                                SWAP_FROM=swapped, SWAP_TO=path, BIN_STAGE_COPY=seen)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertIn("swapped-in file", read(path), "the test did not swap the file")
+                self.assertEqual(read(os.path.join(seen, staged)), checked)
+                write(path, checked, 0o755 if what != "frit" else 0o644)
+
     def test_a_run_starts_the_helper_built_with_it_from_a_copy_of_roots(self):
         helper = self.s.helper
         p = self.run_vt(f"--helper={helper}", "--dry-run", "8")
@@ -831,8 +869,9 @@ class RunVt(Case):
         self.assertIn(f" --font-helper={stage}/vtium-config ", p.stdout)
         # the system's frits and the acceptance pass's, staged for OSC 50 (ADR-1501 D6)
         self.assertIn(f" --font-frits={stage}/frits ", p.stdout)
-        self.assertRegex(p.stdout, rf"\+ install -m 0644 -- .*/tools/vt/sections/frits/acceptance-bitmap\.vtfrit "
-                                   rf".*/tools/vt/sections/frits/acceptance-outline\.vtfrit {re.escape(stage)}/frits\n")
+        for name in ("acceptance-bitmap", "acceptance-outline"):
+            self.assertRegex(p.stdout, rf"\+ install -m 0644 -- \S+/tools/vt/sections/frits/{name}\.vtfrit "
+                                       rf"{re.escape(stage)}/frits/{name}\.vtfrit\n")
         self.assertFalse(os.path.exists(stage))
         # A real run: vtium gets the copy's path, and the copy, the compiled
         # entry and their directory are gone once the run ends.
@@ -886,7 +925,8 @@ class RunVt(Case):
         write(frit, "font=/usr/share/fonts/x.ttf\n")
         p = self.run_vt("--dry-run", "8")
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertRegex(p.stdout, rf"\+ install -m 0644 -- {re.escape(frit)} .*/tools/vt/sections/frits/acceptance-bitmap\.vtfrit ")
+        self.assertIn(f"+ install -m 0644 -- {frit} {stage}/frits/system.vtfrit\n", p.stdout)
+        self.assertRegex(p.stdout, rf"\+ install -m 0644 -- \S+/tools/vt/sections/frits/acceptance-bitmap\.vtfrit {re.escape(stage)}/frits/acceptance-bitmap\.vtfrit\n")
         secret = os.path.join(self.s.tmp, "secret")
         write(secret, "not the user's to read\n")
         link = os.path.join(fonts, "link.vtfrit")
@@ -925,7 +965,7 @@ class RunVt(Case):
         env = self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell)
         p = subprocess.run(["bash", "-c", 'umask 077; exec bash "$@"', "bash", RUN_VT, f"--bin={self.s.bin}",
                             f"--helper={self.s.helper}", "--shell", f"--transcript={t}", "8"],
-                           env=env, capture_output=True, text=True, timeout=30, cwd=self.s.tmp, start_new_session=True)
+                           env=env, capture_output=True, text=True, timeout=WAIT_BOUND, cwd=self.s.tmp, start_new_session=True)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         text = read(t).replace("\r", "")
         self.assertIn("terminfo: xterm-vtium\n", text)
@@ -965,7 +1005,7 @@ class RunVt(Case):
         self.refused(self.run_vt("--steps=1", "8"), "--steps goes with --guide")
 
     def test_a_login_ends_at_the_first_logout(self):
-        p = self.run_vt("--login", "8", BIN_MODE="wait", SEQ="- - 8 8 8:closing", timeout=30)
+        p = self.run_vt("--login", "8", BIN_MODE="wait", SEQ="- - 8 8 8:closing", timeout=WAIT_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("vt-login: session ended", p.stdout)
         self.assertEqual(read(self.s.signals), "TERM\n")
@@ -1142,7 +1182,7 @@ class RunVt(Case):
         try:
             # The output closes after the 5 s grace, long before the sleep
             # ends.
-            out, err = proc.communicate(timeout=15)
+            out, err = proc.communicate(timeout=WAIT_BOUND)
             self.assertEqual(proc.returncode, 0, out + err)
             self.assertIn("run-vt: something vtium started still holds its log open", out)
             self.assertEqual(sorted(os.listdir(drm)), ["001-went-0.state", "001-went-1.state",
@@ -1174,11 +1214,13 @@ class RunVt(Case):
         proc = subprocess.Popen(["bash", RUN_VT, f"--bin={self.s.bin}", f"--debug={drm}", "8"],
                                 env=self.s.env(BIN_MODE="wait", BIN_LOG="display HDMI-A-2 is gone\\n"),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp)
-        end = time.monotonic() + 10
+        end = time.monotonic() + WAIT_BOUND
         while not os.path.exists(os.path.join(drm, "001-went-1.state")) and time.monotonic() < end:
             time.sleep(0.02)
+        self.assertTrue(os.path.exists(os.path.join(drm, "001-went-1.state")), "no copy at the display line")
+        self.wait_ready()
         proc.send_signal(signal.SIGTERM)
-        out, err = proc.communicate(timeout=15)
+        out, err = proc.communicate(timeout=WAIT_BOUND)
         self.assertEqual(proc.returncode, 143, out + err)
         self.assertEqual(read(self.s.signals), "TERM\n", "vtium was not stopped with SIGTERM")
         self.assertEqual(sorted(os.listdir(drm)), ["001-went-0.state", "001-went-1.state", "end-0.state", "end-1.state"])
@@ -1412,16 +1454,29 @@ class VtSh(Case):
                                                                 ACTIVE_UNITS="kmsconvt@tty5.service"),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp,
                                 start_new_session=True)
-        end = time.monotonic() + 10
-        while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
-            time.sleep(0.02)
+        self.wait_ready()
         # Ctrl-C reaches the terminal's whole foreground process group.
         os.killpg(proc.pid, signal.SIGINT)
-        out, err = proc.communicate(timeout=15)
+        out, err = proc.communicate(timeout=WAIT_BOUND)
         self.assertEqual(proc.returncode, 130, out + err)
         self.assertIn("vt: interrupted", err)
         self.assertIn("vtium log: ", out)
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+
+    def test_a_home_directory_with_a_space_keeps_the_acceptance_passes(self):
+        # With no ACCEPT_DIR and no XDG_STATE_HOME, vt.sh keeps the passes under $HOME/.local/state.
+        home = os.path.join(self.s.tmp, "a home & more")
+        os.mkdir(home)
+        p = self.vt_sh(HOME=home, ACCEPT_DIR="", ACTIVE_UNITS="kmsconvt@tty5.service")
+        passes = os.path.join(home, ".local", "state", "vtium", "acceptance")
+        self.assertNotIn("--passes takes", p.stderr)
+        self.assertIn(f"ACCEPT_DIR={passes}", read(self.s.bin_args).splitlines())
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+        # A control character is still refused, before anything stops.
+        open(self.s.calls, "w").close()
+        p = self.run_vt("--passes=/tmp/a\nb", "--dry-run", "8")
+        self.refused(p, "--passes takes an absolute path without control characters")
+        self.refused(self.run_vt("--passes=relative", "--dry-run", "8"), "--passes takes an absolute path")
 
     def test_a_shell_dry_run_names_its_log_and_transcript(self):
         p = self.vt_sh(VTIUM_VT_SESSION="shell", VTIUM_VT_DRY_RUN="1")
@@ -1442,11 +1497,9 @@ class VtSh(Case):
                                                                 ACTIVE_UNITS="kmsconvt@tty5.service"),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp,
                                 start_new_session=True)
-        end = time.monotonic() + 10
-        while not os.path.exists(self.s.bin_args) and time.monotonic() < end:
-            time.sleep(0.02)
+        self.wait_ready()
         os.killpg(proc.pid, signal.SIGINT)
-        out, err = proc.communicate(timeout=15)
+        out, err = proc.communicate(timeout=WAIT_BOUND)
         self.assertEqual(proc.returncode, 0, out + err)
         self.assertIn("vt-shell: ended with Ctrl-C", out)
         self.assertRegex(out, r"vtium log: " + self.s.dir + r"/vt-[0-9T]+-tty5-\w{6}\.log\n"
@@ -1489,7 +1542,7 @@ class VtSh(Case):
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-check", "GUIDE=start",
                             f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}", "VT=4"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=answers, ACTIVE_UNITS="getty@tty4.service"),
-                           capture_output=True, text=True, timeout=30)
+                           capture_output=True, text=True, timeout=WAIT_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         log = read(os.path.join(self.s.dir, "vt-check.log"))
         self.assertRegex(log, r"=== vtium starts and runs a shell, .*, guide " + os.path.join(VT, "checks", "start.guide"))
@@ -1509,7 +1562,7 @@ class VtSh(Case):
         d = Pty(["/usr/bin/env", "make", "--no-print-directory", "-C", ROOT, "vt-accept", f"VTIUM_BIN={self.s.bin}",
                  f"VTIUM_CONFIG_BIN={self.s.helper}", f"VTIUM_IMAGE_BIN={self.s.image}"], env)
         d.wait_for(b"Switch to VT 5 now")
-        d.wait_for(b"press a key to start the pass", timeout=20)
+        d.wait_for(b"press a key to start the pass", timeout=WAIT_BOUND)
         d.send(b" ")
         d.page()
         d.wait_for(b"y yes  n no")
@@ -1541,7 +1594,7 @@ class VtSh(Case):
                             f"VTIUM_CONFIG_BIN={self.s.helper}", "VT=4"],
                            env=self.s.env(BIN_MODE="session", BIN_STDIN=typed, LOGIN_SHELL=self.s.login_shell,
                                           ACTIVE_UNITS="getty@tty4.service"),
-                           capture_output=True, text=True, timeout=30)
+                           capture_output=True, text=True, timeout=WAIT_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         log = os.path.join(self.s.dir, "vt-") + r"[0-9T]+-tty4-\w{6}"
         self.assertRegex(p.stdout, r"health: 0 'panicked at' lines in vtium's log\n"
@@ -1575,7 +1628,7 @@ class Make(Case):
         if not any(a.startswith(("VTIUM_IMAGE_BIN=", "IMAGE_RELEASE=")) for a in args) and "VTIUM_IMAGE_BIN" not in env:
             args = (*args, f"VTIUM_IMAGE_BIN={self.s.image}")
         return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
-                              capture_output=True, text=True, timeout=30, start_new_session=True)
+                              capture_output=True, text=True, timeout=WAIT_BOUND, start_new_session=True)
 
     def test_help_lists_the_targets(self):
         p = self.make("help")
@@ -1738,7 +1791,7 @@ class Install(Case):
     def vt_install(self, *args, **env):
         env = dict(dict(VTIUM_VT_BIN=self.s.bin, VTIUM_VT_CONFIG=self.s.helper, VTIUM_VT_IMAGE=self.s.image), **env)
         return subprocess.run(["bash", VT_INSTALL, *args], env=self.s.env(**env),
-                              capture_output=True, text=True, timeout=20, cwd=self.s.tmp)
+                              capture_output=True, text=True, timeout=WAIT_BOUND, cwd=self.s.tmp)
 
     def at(self, path):
         return os.path.join(self.root, path)
@@ -2190,7 +2243,7 @@ exec "$@"
             with self.subTest(unit=unit):
                 v = subprocess.run([REAL_ANALYZE, "verify", "--man=no", f"--root={self.root}",
                                     os.path.join(self.root, "etc/systemd/system", unit)],
-                                   capture_output=True, text=True, timeout=60)
+                                   capture_output=True, text=True, timeout=WAIT_BOUND)
                 self.assertEqual((v.returncode, v.stdout + v.stderr), (0, ""))
 
     def test_the_units_keep_every_shipped_line_but_the_ones_it_renames(self):
@@ -2485,14 +2538,14 @@ exec "$@"
             with self.subTest(target=target):
                 open(self.s.calls, "w").close()
                 p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, target, "VT=4", "DRY_RUN=1"],
-                                   env=real, capture_output=True, text=True, timeout=30)
+                                   env=real, capture_output=True, text=True, timeout=WAIT_BOUND)
                 self.assertNotEqual(p.returncode, 0)
                 self.assertIn(f"{target}: run it as yourself, not as root", p.stderr)
                 self.assertEqual(self.s.calls_of("cargo"), [])
                 self.assertEqual(self.s.calls_of("sudo"), [])
         p = subprocess.run(["bash", VT_INSTALL, "install", "--dry-run", "4"],
                            env=dict(real, VTIUM_VT_BIN=self.s.bin, VTIUM_VT_CONFIG=self.s.helper),
-                           capture_output=True, text=True, timeout=20, cwd=self.s.tmp)
+                           capture_output=True, text=True, timeout=WAIT_BOUND, cwd=self.s.tmp)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("run it as yourself, not as root", p.stderr)
         self.assertEqual(self.s.calls_of("sudo"), [])
@@ -2502,7 +2555,7 @@ exec "$@"
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
                             f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}"], env=self.s.env(**sudo_uid),
-                           capture_output=True, text=True, timeout=30)
+                           capture_output=True, text=True, timeout=WAIT_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
     def test_make_as_root_under_the_stand_ins_builds_nothing(self):
@@ -2510,7 +2563,7 @@ exec "$@"
         # make -n prints each recipe it would run and runs none, so a build
         # that make does not refuse shows in its output.
         p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1"],
-                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
         self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("vt-install: as root under the tests' stand-ins, name the binary and the helper with VTIUM_BIN=PATH VTIUM_CONFIG_BIN=PATH", p.stderr)
         self.assertNotIn("cargo", p.stdout)
@@ -2519,13 +2572,13 @@ exec "$@"
         for named in (f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}"):
             with self.subTest(named=named):
                 p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
-                                    named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+                                    named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
                 self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
                 self.assertIn("name the binary and the helper", p.stderr)
                 self.assertNotIn("cargo", p.stdout)
         # vt-uninstall builds nothing, so it reaches the script.
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-uninstall", "VT=4", "DRY_RUN=1"],
-                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("make vt-install did not install vtium on VT 4", p.stderr)
 
@@ -2584,7 +2637,7 @@ exec "$@"
 
     def test_make_runs_it_with_the_binary_named_and_no_build(self):
         make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, *a],
-                                              env=self.s.env(**e), capture_output=True, text=True, timeout=30)
+                                              env=self.s.env(**e), capture_output=True, text=True, timeout=WAIT_BOUND)
         p = make("vt-install", "VT=4", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("restart vtium-dev@tty4.service", p.stdout)
@@ -2614,7 +2667,7 @@ exec "$@"
         # which the stand-in cargo "builds".
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
                             f"VTIUM_DEV={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}"],
-                           env=self.s.env(), capture_output=True, text=True, timeout=60)
+                           env=self.s.env(), capture_output=True, text=True, timeout=WAIT_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         builds = self.s.calls_of("cargo")
         # The console starts its helper at the installed helper's path, and
@@ -2762,7 +2815,7 @@ exec "$@"
         # make vt-dev-console checks the built console for the same line,
         # read from vt-install.sh.
         p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-dev-console", "FEATURES=images"],
-                           env=self.s.env(), capture_output=True, text=True, timeout=30)
+                           env=self.s.env(), capture_output=True, text=True, timeout=WAIT_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f"grep -qaF '{marker}' ", p.stdout)
 
@@ -2954,7 +3007,7 @@ fi
                                f"VTIUM_DEV={self.s.bin}", f"CONFIG_RELEASE={self.s.helper}",
                                f"IMAGE_RELEASE={self.s.image}"],
                               env=self.s.env(CARGO_SRC=src, CARGO_OUT=self.s.bin, **env),
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=WAIT_BOUND)
 
     def test_make_builds_a_console_with_pictures_and_its_image_helper(self):
         p = self.make_vt_install("FEATURES=images")
@@ -3001,7 +3054,7 @@ fi
         self.pictures()
         make = lambda *a, **e: subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
                                                f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}", *a],
-                                              env=self.s.env(**e), capture_output=True, text=True, timeout=30)
+                                              env=self.s.env(**e), capture_output=True, text=True, timeout=WAIT_BOUND)
         p = make(f"VTIUM_IMAGE_BIN={self.s.image}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f"+ sudo install -D -m 0755 -- {self.s.image} ", p.stdout)
@@ -3014,14 +3067,14 @@ fi
         sudo_uid = self.as_root()
         named = (f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}")
         p = subprocess.run(["make", "-n", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
-                            "FEATURES=images", *named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+                            "FEATURES=images", *named], env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
         self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("with images in FEATURES the image helper with VTIUM_IMAGE_BIN=PATH", p.stderr)
         self.assertNotIn("cargo", p.stdout)
         self.pictures()
         p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
                             "FEATURES=images", *named, f"VTIUM_IMAGE_BIN={self.s.image}"],
-                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=30)
+                           env=self.s.env(**sudo_uid), capture_output=True, text=True, timeout=WAIT_BOUND)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f"+ sudo {self.s.standins}/systemd-sysusers {self.at(self.SYSUSERS)}", p.stdout)
         # As root, the systemd-sysusers it runs is a stand-in only root or
@@ -3075,7 +3128,7 @@ class Package(Case):
 
     def make(self, *args, **env):
         return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
-                              capture_output=True, text=True, timeout=60, start_new_session=True)
+                              capture_output=True, text=True, timeout=WAIT_BOUND, start_new_session=True)
 
     def staged(self):
         out = []
@@ -3223,14 +3276,14 @@ class Package(Case):
                     os.symlink(f"/usr/lib/systemd/system/{holder}", os.path.join(etc, "autovt@.service"))
                     before = ["autovt@.service"]
                 e = subprocess.run([REAL_SYSTEMCTL, f"--root={root}", "enable", "vtium@.service"],
-                                   capture_output=True, text=True, timeout=30)
+                                   capture_output=True, text=True, timeout=WAIT_BOUND)
                 self.assertNotEqual(e.returncode, 0, e.stdout + e.stderr)
                 links = sorted(os.path.relpath(os.path.join(d, n), etc) for d, _, ns in os.walk(etc) for n in ns)
                 self.assertEqual(links, before)
                 # One VT named is enabled as before: its wants and its own
                 # autovt link, which points at vtium@.
                 e = subprocess.run([REAL_SYSTEMCTL, f"--root={root}", "enable", "vtium@tty3.service"],
-                                   capture_output=True, text=True, timeout=30)
+                                   capture_output=True, text=True, timeout=WAIT_BOUND)
                 self.assertEqual(e.returncode, 0, e.stdout + e.stderr)
                 links = sorted(os.path.relpath(os.path.join(d, n), etc) for d, _, ns in os.walk(etc) for n in ns)
                 self.assertEqual(links, sorted(before + ["autovt@tty3.service", "getty.target.wants/vtium@tty3.service"]))
@@ -3261,7 +3314,7 @@ class Package(Case):
 
     def units(self, *args, out=None):
         out = out or os.path.join(self.s.tmp, "units")
-        return out, subprocess.run(["bash", UNITS_SH, *args, out], capture_output=True, text=True, timeout=20,
+        return out, subprocess.run(["bash", UNITS_SH, *args, out], capture_output=True, text=True, timeout=WAIT_BOUND,
                                    env=self.s.env())
 
     def test_units_makes_the_packaged_and_the_development_units_from_one_source(self):
@@ -3355,7 +3408,7 @@ class Package(Case):
         for unit in ("vtium@tty4.service", "vtium-getty@tty4.service"):
             with self.subTest(unit=unit):
                 v = subprocess.run([REAL_ANALYZE, "verify", "--man=no", f"--root={root}", os.path.join(unit_dir, unit)],
-                                   capture_output=True, text=True, timeout=60)
+                                   capture_output=True, text=True, timeout=WAIT_BOUND)
                 self.assertEqual((v.returncode, v.stdout + v.stderr), (0, ""))
 
 
@@ -3384,7 +3437,7 @@ class Pty:
             self.seen += data
         return True
 
-    def wait_for(self, text, timeout=10):
+    def wait_for(self, text, timeout=WAIT_BOUND):
         end = time.monotonic() + timeout
         while text not in self.out:
             if time.monotonic() > end or not self.pump(end - time.monotonic()):
@@ -3400,7 +3453,7 @@ class Pty:
         self.wait_for(b"\x1b[6n")
         self.send(b"\x1b[14;1R")
 
-    def finish(self, timeout=10):
+    def finish(self, timeout=WAIT_BOUND):
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             pid, status = os.waitpid(self.pid, os.WNOHANG)
@@ -3421,7 +3474,7 @@ class Guide(Case):
         path = os.path.join(self.s.tmp, "t.guide")
         write(path, text, 0o644)
         return subprocess.run(["bash", GUIDE_SH, "--check", path], env=self.s.env(GUIDE_STEPS=steps),
-                              capture_output=True, text=True, timeout=10)
+                              capture_output=True, text=True, timeout=WAIT_BOUND)
 
     def test_every_guide_in_the_tree_passes_its_check(self):
         checks = os.path.join(VT, "checks")
@@ -3430,7 +3483,7 @@ class Guide(Case):
         for g in guides:
             with self.subTest(guide=g):
                 p = subprocess.run(["bash", GUIDE_SH, "--check", os.path.join(checks, g)],
-                                   capture_output=True, text=True, timeout=10)
+                                   capture_output=True, text=True, timeout=WAIT_BOUND)
                 self.assertEqual(p.returncode, 0, p.stderr)
 
     def test_broken_guides_are_refused(self):
@@ -3544,7 +3597,10 @@ class Guide(Case):
 
     def test_a_run_step_runs_its_command_on_the_guides_terminal(self):
         guide = os.path.join(self.s.tmp, "t.guide")
-        ran = "printf 'ran %s on %s\\n' $((6 * 7)) \"$(tty)\"; sleep 2"
+        # The command ends when the test creates this file, after it has typed its keys.
+        release = os.path.join(self.s.tmp, "release")
+        ran = ("printf 'ran %s on %s\\n' $((6 * 7)) \"$(tty)\"; "
+               f"while [ ! -e {release} ]; do sleep 0.05; done")
         write(guide, "title: Run guide\n"
                      f"step: Ran\nrun: {ran}\ndo: keep still\nexpect: ran 42\n"
                      "step: Failed\nrun: echo VT {vt}; exit 3\nexpect: VT 6\n"
@@ -3569,6 +3625,7 @@ class Guide(Case):
         # A key pressed while the command runs is not drawn on the picture,
         # and answers nothing.
         g.send(b"yz")
+        open(release, "w").close()
         g.wait_for(b"[y]es [n]o [s]kip: ")
         self.assertNotIn(b"yz", g.seen)
         g.send(b"n")
@@ -3595,7 +3652,7 @@ class Guide(Case):
             g.wait_for(out + b"\r\n")
             # The key goes in once sleep runs: bash ignores Ctrl-\, so one
             # sent between echo and sleep would reach no program.
-            end = time.monotonic() + 10
+            end = time.monotonic() + WAIT_BOUND
             while subprocess.run(["pgrep", "-s", str(g.pid), "-x", "sleep"], capture_output=True).returncode:
                 self.assertLess(time.monotonic(), end, "sleep never started")
                 time.sleep(0.02)

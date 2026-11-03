@@ -247,8 +247,11 @@ done
 	die "--label takes up to 80 letters, digits, spaces and ._+:/@-, not '$label'"
 [[ $features =~ ^[a-z0-9\ ,_-]{0,80}$ ]] ||
 	die "--features takes up to 80 lowercase letters, digits, spaces and ,_-, not '$features'"
-[[ -z $passes || $passes =~ ^/[[:alnum:]/._+@-]{0,200}$ ]] ||
-	die "--passes takes an absolute path of letters, digits and /._+@-, not '$passes'"
+# The path reaches the session as one word of its own (ACCEPT_DIR=...), never through a shell, so
+# a space or any other printable character is safe in it. A control character, a newline above
+# all, is refused because it would garble the lines the run prints.
+[[ -z $passes || ( $passes == /* && $passes != *[[:cntrl:]]* && ${#passes} -le 4000 ) ]] ||
+	die "--passes takes an absolute path without control characters, not '$passes'"
 [ -z "$login" ] || [ -z "$guide" ] || die "--guide runs the guided checks, with no login"
 [ -z "$shell" ] || [ -z "$login$guide" ] || die "--shell runs your shell, with no login and no guide"
 [ -z "$transcript" ] || [ -n "$shell" ] || die "--transcript goes with --shell"
@@ -324,12 +327,35 @@ read -r owner mode < <(stat -c '%u %a' -- "$bin")
 	die "$bin belongs to uid $owner, neither root nor $user; it would run as root"
 (( (8#$mode & 8#022) == 0 )) ||
 	die "$bin is writable by group or others (mode $mode); it would run as root"
+# pin FILE opens FILE once and sets pinned to the open file's name, /dev/fd/N.
+# Every check of a file that root copies reads that open file, and the copy
+# reads it too, so a file swapped in at FILE after the check is never copied.
+# A file that is no longer what FILE names once it is open, such as a symlink
+# put there in the meantime, is refused.
+pinned=
+pinned_fds=()
+pin() {
+	local fd
+	exec {fd}<"$1" || die "cannot open $1"
+	pinned=/dev/fd/$fd
+	pinned_fds+=("$fd")
+	[ "$(stat -L -c '%d:%i' -- "$pinned")" = "$(stat -c '%d:%i' -- "$1")" ] ||
+		die "$1 changed or is a symlink; the run copies only the file it checked"
+}
+# copy MODE OPEN NAME DEST installs the open file OPEN at DEST, and shows NAME,
+# the path the file was found at, as its source.
+copy() {
+	show install -m "$1" "${own[@]}" -- "$3" "$4"
+	[ -n "$dry" ] || install -m "$1" "${own[@]}" -- "$2" "$4"
+}
 # The helper is held to the same rules: vtium, as root, starts it as nobody,
 # from the copy this run makes.
 if [ -n "$helper" ]; then
 	helper=$(readlink -m -- "$helper")
 	[ -f "$helper" ] && [ -x "$helper" ] || die "no glyph helper at $helper: build it first (make config-release)"
-	read -r owner mode < <(stat -c '%u %a' -- "$helper")
+	pin "$helper"; helper_src=$pinned
+	[ -f "$helper_src" ] && [ -x "$helper_src" ] || die "no glyph helper at $helper: build it first (make config-release)"
+	read -r owner mode < <(stat -L -c '%u %a' -- "$helper_src")
 	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
 		die "$helper belongs to uid $owner, neither root nor $user; vtium, as root, would start it"
 	(( (8#$mode & 8#022) == 0 )) ||
@@ -339,12 +365,44 @@ fi
 if [ -n "$image" ]; then
 	image=$(readlink -m -- "$image")
 	[ -f "$image" ] && [ -x "$image" ] || die "no image helper at $image: build it first (make image-release)"
-	read -r owner mode < <(stat -c '%u %a' -- "$image")
+	pin "$image"; image_src=$pinned
+	[ -f "$image_src" ] && [ -x "$image_src" ] || die "no image helper at $image: build it first (make image-release)"
+	read -r owner mode < <(stat -L -c '%u %a' -- "$image_src")
 	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
 		die "$image belongs to uid $owner, neither root nor $user; vtium, as root, would start it"
 	(( (8#$mode & 8#022) == 0 )) ||
 		die "$image is writable by group or others (mode $mode); vtium, as root, would start it"
 fi
+# The acceptance pass switches the console among its own frits with OSC 50, which
+# vtium takes only for a frit in its frits directory (ADR-1200 D5,
+# ADR-1501 D6). The run stages the system's frits and the acceptance pass's into a
+# directory of root's alone and names it, so the review sees both. The copy
+# runs as root and is readable by everyone, so a frit must be a regular file
+# of root's or the user's, never a symlink or a file with another hard link,
+# which could name a file the user may not read, such as /etc/shadow. OSC 50
+# names a frit by its file name, so a system frit with the name of one of the
+# acceptance pass's is refused: the walk would judge whichever was copied last.
+frit_files=()
+frit_srcs=()
+declare -A frit_from=()
+for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
+	[ -e "$f" ] || [ -L "$f" ] || continue
+	[ ! -L "$f" ] || die "$f is a symlink; the run copies only a frit that is a file of its own"
+	[ -f "$f" ] || die "$f is not a regular file; the run copies only a frit that is a file of its own"
+	pin "$f"
+	[ -f "$pinned" ] || die "$f is not a regular file; the run copies only a frit that is a file of its own"
+	read -r owner mode links < <(stat -L -c '%u %a %h' -- "$pinned")
+	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
+		die "$f belongs to uid $owner, neither root nor $user; the run copies it as root"
+	[ "$links" -eq 1 ] || die "$f has $links hard links; the run copies only a frit that is a file of its own"
+	(( (8#$mode & 8#022) == 0 )) ||
+		die "$f is writable by group or others (mode $mode); vtium, as root, would read it"
+	[ -z "${frit_from[${f##*/}]:-}" ] ||
+		die "$f and ${frit_from[${f##*/}]} are both named ${f##*/}; OSC 50 names a frit by its file name, so rename the system's"
+	frit_from[${f##*/}]=$f
+	frit_files+=("$f")
+	frit_srcs+=("$pinned")
+done
 # vtium names itself TERM=xterm-vtium; the run compiles that entry from the
 # checkout, as the package does, for the sessions it starts itself.
 terminfo_src=$checkout/crates/vtium/install/xterm-vtium.ti
@@ -656,32 +714,6 @@ once=(--oneshot)
 helper_opt=()
 [ -z "$helper" ] || helper_opt=(--font-helper="$stage/vtium-config")
 [ -z "$image" ] || helper_opt+=(--image-helper="$stage/vtium-image")
-# The acceptance pass switches the console among its own frits with OSC 50, which
-# vtium takes only for a frit in its frits directory (ADR-1200 D5,
-# ADR-1501 D6). The run stages the system's frits and the acceptance pass's into a
-# directory of root's alone and names it, so the review sees both. The copy
-# runs as root and is readable by everyone, so a frit must be a regular file
-# of root's or the user's, never a symlink or a file with another hard link,
-# which could name a file the user may not read, such as /etc/shadow. OSC 50
-# names a frit by its file name, so a system frit with the name of one of the
-# acceptance pass's is refused: the walk would judge whichever was copied last.
-frit_files=()
-declare -A frit_from=()
-for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
-	[ -e "$f" ] || [ -L "$f" ] || continue
-	[ ! -L "$f" ] || die "$f is a symlink; the run copies only a frit that is a file of its own"
-	[ -f "$f" ] || die "$f is not a regular file; the run copies only a frit that is a file of its own"
-	read -r owner mode links < <(stat -c '%u %a %h' -- "$f")
-	[ "$owner" -eq 0 ] || [ "$owner" -eq "$uid" ] ||
-		die "$f belongs to uid $owner, neither root nor $user; the run copies it as root"
-	[ "$links" -eq 1 ] || die "$f has $links hard links; the run copies only a frit that is a file of its own"
-	(( (8#$mode & 8#022) == 0 )) ||
-		die "$f is writable by group or others (mode $mode); vtium, as root, would read it"
-	[ -z "${frit_from[${f##*/}]:-}" ] ||
-		die "$f and ${frit_from[${f##*/}]} are both named ${f##*/}; OSC 50 names a frit by its file name, so rename the system's"
-	frit_from[${f##*/}]=$f
-	frit_files+=("$f")
-done
 helper_opt+=(--font-frits="$stage/frits")
 debug_opt=()
 [ -z "$debug" ] || debug_opt=(--debug)
@@ -702,11 +734,15 @@ stage_made=1
 	umask 022
 	act rm -rf -- "$stage"
 	act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo" "$stage/frits"
-	[ ${#frit_files[@]} -eq 0 ] || act install -m 0644 "${own[@]}" -- "${frit_files[@]}" "$stage/frits"
-	[ -z "$helper" ] || act install -m 0755 "${own[@]}" -- "$helper" "$stage/vtium-config"
-	[ -z "$image" ] || act install -m 0755 "${own[@]}" -- "$image" "$stage/vtium-image"
+	for i in "${!frit_files[@]}"; do
+		copy 0644 "${frit_srcs[i]}" "${frit_files[i]}" "$stage/frits/${frit_files[i]##*/}"
+	done
+	[ -z "$helper" ] || copy 0755 "$helper_src" "$helper" "$stage/vtium-config"
+	[ -z "$image" ] || copy 0755 "$image_src" "$image" "$stage/vtium-image"
 	act tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_src"
 )
+# Nothing vtium starts inherits the files that were copied.
+for fd in "${pinned_fds[@]}"; do exec {fd}<&-; done
 show "${cmd[@]}"
 [ -z "$dry" ] || exit 0
 # Under --debug, vtium's output goes through watch_log, which closes the lock
