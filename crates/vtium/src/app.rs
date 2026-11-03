@@ -3041,6 +3041,28 @@ impl App {
         if self.blank.fire(now) {
             self.blank_now(now);
         }
+        #[cfg(feature = "images")]
+        self.animate(now);
+    }
+
+    /// Each console's animation clock at this turn (ADR-1102 D3): the
+    /// shown console's plays while the VT is ours, its displays are lit
+    /// and it has one, and a hidden console's only answers its program's
+    /// commands. A frame that changes on a shown console draws its head.
+    #[cfg(feature = "images")]
+    fn animate(&mut self, now: Instant) {
+        let lit = self.awake && !self.blank.blanked();
+        for head in &mut self.heads {
+            let shown = lit && !head.views.is_empty();
+            let term = &mut head.console.term;
+            let frames = term.terminal.screen().images();
+            head.draw_now |= term.animation.turn(frames, now, shown);
+            for console in &mut head.hidden {
+                let term = &mut console.term;
+                term.animation
+                    .turn(term.terminal.screen().images(), now, false);
+            }
+        }
     }
 
     fn draw(&mut self, now: Instant) {
@@ -3260,6 +3282,11 @@ impl App {
             due.extend(head.brief_due);
             #[cfg(feature = "images")]
             due.extend(head.image_due());
+            #[cfg(feature = "images")]
+            {
+                let term = &head.console.term;
+                due.extend(term.animation.due(term.terminal.screen().images()));
+            }
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
@@ -4131,6 +4158,126 @@ mod tests {
             !natural(&["--no-natural-scrolling"], Some(b"natural-scrolling\n")),
             "the command line over the file"
         );
+    }
+
+    /// Image 1, 8 by 16 pixels, with a second frame: the root frame shows
+    /// 30 ms and frame 2 40 ms, and the animation loops; with `still`, the
+    /// picture alone.
+    #[cfg(feature = "images")]
+    fn animated(still: bool) -> Vec<u8> {
+        let pixels = "AAAA".repeat(8 * 16 * 4 / 3) + "AAA=";
+        let mut apcs = vec![format!("a=T,f=32,s=8,v=16,i=1,q=2;{pixels}")];
+        if !still {
+            apcs.push(format!("a=f,i=1,f=32,s=8,v=16,z=40,q=2;{pixels}"));
+            apcs.push("a=a,i=1,r=1,z=30,q=2".to_owned());
+            apcs.push("a=a,i=1,s=3,q=2".to_owned());
+        }
+        apcs.iter()
+            .flat_map(|a| format!("\x1b_G{a}\x1b\\").into_bytes())
+            .collect()
+    }
+
+    /// Turns `app` at `t` until its head's render thread has handed back
+    /// every frame it composed, so the next turn's frame can be taken.
+    #[cfg(feature = "images")]
+    fn settle(lp: &mut Loop<App>, app: &mut App, t: Instant) {
+        let back = |app: &App| app.heads.iter().all(|h| h.frames_out() == 0);
+        for _ in 0..1000 {
+            if back(app) {
+                break;
+            }
+            lp.dispatch(Some(Duration::from_millis(10)), app).unwrap();
+            app.turn(t);
+        }
+        assert!(back(app), "the render thread handed every frame back");
+    }
+
+    /// The seat on one display, shown, with `bytes` written to its console
+    /// and drawn at a turn at `t`.
+    #[cfg(feature = "images")]
+    fn drawn(bytes: &[u8], t: Instant) -> (Loop<App>, App) {
+        let (mut lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        settle(&mut lp, &mut app, t);
+        let term = app.term_mut().unwrap();
+        let taken = term.terminal.input(bytes);
+        assert_eq!(taken, bytes.len());
+        assert_eq!(
+            term.terminal.screen().placements().len(),
+            1,
+            "kitty is offered"
+        );
+        // as the pty's output does
+        term.changed = true;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        (lp, app)
+    }
+
+    /// What the animation clock of the shown console arms, and the frame it
+    /// shows of the console's one picture.
+    #[cfg(feature = "images")]
+    fn clock(app: &App) -> (Option<Instant>, Option<u32>) {
+        let term = app.term().unwrap();
+        let store = term.terminal.screen().images();
+        let key = term.terminal.screen().placements().first().unwrap().image;
+        (term.animation.due(store), term.animation.frame(key))
+    }
+
+    // ADR-1102 D3: the loop wakes for the clock's next frame change, and a
+    // still picture arms nothing, so the loop waits for its other timers.
+    // covers: image.kitty-animation
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_loop_wakes_for_an_animations_frames_and_never_for_a_still_picture() {
+        let t = Instant::now();
+        let (_lp, app) = drawn(&animated(false), t);
+        assert_eq!(clock(&app), (Some(t + Duration::from_millis(30)), Some(1)));
+        assert_eq!(app.next_wake(t), Some(Duration::from_millis(30)));
+        let (_lp, still) = drawn(&animated(true), t);
+        assert_eq!(clock(&still), (None, None));
+        // the blink timers, armed after `t`, come next
+        assert!(still.next_wake(t) >= Some(Duration::from_millis(500)));
+    }
+
+    // ADR-1102 D3: a turn when a frame is due moves the clock on; while
+    // the VT is another's the clock arms no timer, and shown again it
+    // shows the frame the time puts it on at the first turn, armed for the
+    // next change.
+    // covers: image.kitty-animation
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_vt_switch_away_stops_the_clock_and_back_it_skips_to_the_time() {
+        let t = Instant::now();
+        let ms = |n: u64| t + Duration::from_millis(n);
+        let (_lp, mut app) = drawn(&animated(false), t);
+        app.turn(ms(30));
+        assert_eq!(clock(&app), (Some(ms(70)), Some(2)));
+        app.vt.leave().unwrap();
+        app.turn(ms(40));
+        // the device reports itself asleep, and the VT goes
+        let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        let still = still.as_any().downcast_mut::<Still>().unwrap();
+        still.events.push(Event::Asleep);
+        app.turn(ms(40));
+        assert!(!app.awake && !app.vt.is_active(), "the VT is let go");
+        assert_eq!(clock(&app), (None, Some(2)));
+        assert!(
+            app.next_wake(ms(40))
+                .is_none_or(|d| d >= Duration::from_secs(1))
+        );
+        app.turn(ms(5000));
+        assert_eq!(clock(&app), (None, Some(2)), "no frame while away");
+        app.vt.activate().unwrap();
+        // 10,045 ms is 143 loops of 70 ms and 35 ms more: frame 2, from 10,040.
+        app.turn(ms(10_045));
+        assert_eq!(clock(&app), (Some(ms(10_080)), Some(2)));
+        app.turn(ms(10_080));
+        assert_eq!(clock(&app), (Some(ms(10_110)), Some(1)));
     }
 
     // ADR-1401 D8: the loop wakes when a head's `when-display-lost` time runs out.
