@@ -135,7 +135,7 @@ const FRAME_CACHE: Bound = Bound {
     name: "FRAME_CACHE_FRAMES",
     value: 2,
     what: "Composed frames the store keeps for each image that holds a change frame, and the whole frames the frame allowance charges that image for its cache",
-    past: "The frame composed longest ago leaves the cache",
+    past: "The frame asked for longest ago leaves the cache",
     cite: "The maintainer, 2026-11-02: a starting value (ADR-1102, D1)",
 };
 

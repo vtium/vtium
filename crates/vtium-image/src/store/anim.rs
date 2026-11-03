@@ -139,15 +139,23 @@ impl Cache {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Frame `frame` at `revision`, which becomes the frame asked for last.
+    /// The image's current frame, which every frame entry asks for, then
+    /// stays while the clock shows other frames, so a snapshot composes it
+    /// once.
     fn get(&self, frame: u32, revision: u64) -> Option<Pixels> {
-        self.lock()
+        let mut cache = self.lock();
+        let at = cache
             .iter()
-            .find(|(f, r, _)| (*f, *r) == (frame, revision))
-            .map(|(_, _, p)| p.clone())
+            .position(|(f, r, _)| (*f, *r) == (frame, revision))?;
+        let hit = cache.remove(at);
+        let pixels = hit.2.clone();
+        cache.push(hit);
+        Some(pixels)
     }
 
     /// Keeps `pixels` as frame `frame` at `revision`, dropping the frame
-    /// composed longest ago past the bound.
+    /// asked for longest ago past the bound.
     fn put(&self, frame: u32, revision: u64, pixels: Pixels) {
         let mut cache = self.lock();
         cache.retain(|(f, _, _)| *f != frame);

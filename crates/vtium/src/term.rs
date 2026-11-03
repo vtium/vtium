@@ -46,6 +46,10 @@ pub struct Term {
     pub sync: Sync,
     pub coalesce: Coalesce,
     pub blink: Blink,
+    /// Which frame each animated picture of the console shows (ADR-1102
+    /// D3).
+    #[cfg(feature = "images")]
+    pub animation: crate::animation::AnimationClock,
     clock: Clock,
     /// The pty holds output the last input call left.
     pub unparsed: bool,
@@ -66,6 +70,8 @@ impl Term {
             sync,
             coalesce: Coalesce::default(),
             blink,
+            #[cfg(feature = "images")]
+            animation: crate::animation::AnimationClock::default(),
             clock,
             unparsed: false,
             changed: false,
@@ -785,7 +791,12 @@ impl View {
             return Prepared::Nothing;
         };
         let (snapshot, upto) = snapshot.get_or_insert_with(|| {
-            let taken = Snapshot::take(&term.terminal);
+            #[cfg_attr(not(feature = "images"), expect(unused_mut, reason = "no pictures"))]
+            let mut taken = Snapshot::take(&term.terminal);
+            // Each animated picture shows the frame the clock chose.
+            #[cfg(feature = "images")]
+            term.animation
+                .show(&mut taken.placements, term.terminal.screen().images());
             (Arc::new(taken), term.terminal.screen_mut().checkpoint())
         });
         let since = std::mem::replace(&mut self.since, *upto);
@@ -1819,5 +1830,77 @@ mod tests {
         // its tip's fill, one pixel below the hotspot at 7,7
         assert_eq!(video.pixel(7, 8) & 0xff_ff_ff, 0xff_ff_ff);
         assert_eq!(video.swaps, [1]);
+    }
+
+    // ADR-1102 D3: the snapshot carries the frame the animation clock
+    // chose, so the display draws that frame's pixels: a picture of one
+    // cell whose root frame is red and whose frame 2 is green shows red,
+    // then green once the clock moves on, though the store's current frame
+    // stays 1.
+    // covers: image.kitty-animation
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_display_draws_the_frame_the_clock_chose() {
+        use vtium_term::ImageString;
+        use vtium_term::images::{Kitty, Switches};
+
+        let (mut term, mut view) = view();
+        let t = &mut term.terminal;
+        t.screen_mut().set_image_limit(1 << 24);
+        t.screen_mut().set_image_cell(8, 16).unwrap();
+        t.set_image_switches(Switches {
+            sixel: false,
+            kitty: true,
+            iterm2: false,
+        });
+        t.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+        let mut s = String::from("\x1b[?25l");
+        // 8 by 16 pixels of `rgba`, in base64.
+        let fill = |rgba: [u8; 4]| {
+            let bytes = rgba.repeat(128);
+            let abc = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut out = String::new();
+            for c in bytes.chunks(3) {
+                let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
+                let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+                for i in 0..4 {
+                    out.push(if i <= c.len() {
+                        char::from(abc[((n >> (18 - 6 * i)) & 63) as usize])
+                    } else {
+                        '='
+                    });
+                }
+            }
+            out
+        };
+        for apc in [
+            format!("a=T,f=32,s=8,v=16,i=1,q=2;{}", fill([255, 0, 0, 255])),
+            format!("a=f,i=1,f=32,s=8,v=16,z=40,q=2;{}", fill([0, 255, 0, 255])),
+            "a=a,i=1,r=1,z=30,q=2".to_owned(),
+            "a=a,i=1,s=3,q=2".to_owned(),
+        ] {
+            s.push_str(&format!("\x1b_G{apc}\x1b\\"));
+        }
+        t.input(s.as_bytes());
+        let mut video = Plane::new(false);
+        let t0 = Instant::now();
+        let color = |video: &Plane| video.pixel(5, 8) & 0xff_ff_ff;
+        assert!(
+            !term
+                .animation
+                .turn(term.terminal.screen().images(), t0, true)
+        );
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(color(&video), 0xff_00_00, "the root frame");
+        let later = t0 + Duration::from_millis(30);
+        assert!(
+            term.animation
+                .turn(term.terminal.screen().images(), later, true)
+        );
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(color(&video), 0x00_ff_00, "frame 2, the clock's");
+        let key = term.terminal.screen().placements()[0].image;
+        let store = term.terminal.screen().images();
+        assert_eq!(store.animation(key).map(|a| a.current), Some(1));
     }
 }
