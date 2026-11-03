@@ -155,6 +155,17 @@ done
 echo "$h" >>"${SETPRIV_HOLD:-/dev/null}"
 while [ $# -gt 0 ] && [ "$1" != -- ]; do [ "$1" != --reset-env ] || unset VTIUM_HEAD VTIUM_CONSOLE; shift; done
 shift
+# Hooks for the tests of the reading, each named by the path its command reads:
+# RFORGE is a report the stand-in writes in place of the real one (for RFORGE_FOR, else for every
+# read); RSUBST_FOR gives that read the contents and report of the file RSUBST_DATA; RLINK_FOR is
+# made a symlink to RLINK_TARGET just before it is read.
+if [ -n "${RLINK_FOR:-}" ] && [[ " $* " == *" $RLINK_FOR "* ]]; then ln -sf -- "$RLINK_TARGET" "$RLINK_FOR"; fi
+if [ -n "${RFORGE:-}" ] && [[ -z "${RFORGE_FOR:-}" || " $* " == *" $RFORGE_FOR "* ]]; then
+	echo "$RFORGE" >&3; echo x >&4; exit 0
+fi
+if [ -n "${RSUBST_FOR:-}" ] && [[ " $* " == *" $RSUBST_FOR "* ]]; then
+	/usr/bin/stat -L -c "file %u %a %h %F" "$RSUBST_DATA" >&3; cat "$RSUBST_DATA" >&4; exit 0
+fi
 # RSWAP_AFTER names a file whose read by the user is the command being run: once it ends, the
 # file at RSWAP_TO is replaced by RSWAP_FROM, so a test can change a file between the read and
 # the checks that follow.
@@ -889,6 +900,75 @@ class RunVt(Case):
                     else:
                         self.refused(p, "is writable by group or others")
                     os.chmod(path, 0o755)
+
+    def read_dirs(self):
+        return [n for n in os.listdir(self.s.standins) if n.startswith("run-vt-read.")]
+
+    def test_a_report_that_is_not_numbers_is_refused_and_run_by_no_one(self):
+        # Root reads the owner, mode and link count the user's process reports as numbers, so a report
+        # that holds shell syntax is refused before anything evaluates it.
+        pwned = os.path.join(self.s.tmp, "pwned")
+        for report in (f"file 0 0)+x[$(touch {pwned})]+(0 1 regular file", "file x 755 1 regular file",
+                       f"file 0 755 1$(touch {pwned}) regular file", "file 0 7555555 1 regular file"):
+            with self.subTest(report=report):
+                p = self.run_vt("--dry-run", "8", RFORGE=report)
+                self.refused(p, "is not an owner, mode and link count")
+                self.assertFalse(os.path.exists(pwned))
+
+    def test_a_file_that_is_not_regular_is_refused(self):
+        fonts = os.path.join(self.s.standins, "vtium-fonts")
+        os.mkdir(fonts)
+        frit = os.path.join(fonts, "system.vtfrit")
+        write(frit, "font=/usr/share/fonts/x.ttf\n", 0o644)
+        report = f"file {os.getuid()} 755 1 directory"
+        for what, path, args in (("vtium", self.s.bin, []), ("glyph helper", self.s.helper, [f"--helper={self.s.helper}"]),
+                                 ("image helper", self.s.image, [f"--image={self.s.image}"])):
+            with self.subTest(what=what):
+                p = self.run_vt(*args, "--dry-run", "8", RFORGE=report, RFORGE_FOR=path)
+                self.refused(p, f"{path} is not a regular file")
+
+    def test_a_symlink_put_at_a_path_just_before_it_is_read_is_refused(self):
+        fonts = os.path.join(self.s.standins, "vtium-fonts")
+        os.mkdir(fonts)
+        frit = os.path.join(fonts, "system.vtfrit")
+        write(frit, "font=/usr/share/fonts/x.ttf\n", 0o644)
+        other = os.path.join(self.s.tmp, "other")
+        write(other, "#!/bin/bash\n", 0o755)
+        for what, path, args in (("vtium", self.s.bin, []), ("glyph helper", self.s.helper, [f"--helper={self.s.helper}"]),
+                                 ("image helper", self.s.image, [f"--image={self.s.image}"]), ("frit", frit, [])):
+            with self.subTest(what=what):
+                kept = read(path)
+                p = self.run_vt(*args, "--dry-run", "8", RLINK_FOR=path, RLINK_TARGET=other)
+                self.refused(p, "is a symlink")
+                os.unlink(path)
+                write(path, kept, 0o755)
+
+    def test_tic_compiles_what_was_read(self):
+        # The terminfo source is read as the user like the other files, and tic compiles that copy.
+        ti = os.path.join(ROOT, "crates", "vtium", "install", "xterm-vtium.ti")
+        other = os.path.join(self.s.tmp, "other.ti")
+        write(other, "xterm-vtium|substituted description,\n\tam,\n", 0o644)
+        seen = os.path.join(self.s.tmp, "stage-copy")
+        os.mkdir(seen)
+        p = self.run_vt("8", RSUBST_FOR=ti, RSUBST_DATA=other, BIN_STAGE_COPY=seen)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        compiled = [os.path.join(d, f) for d, _, fs in os.walk(os.path.join(seen, "terminfo")) for f in fs]
+        self.assertEqual(len(compiled), 1)
+        with open(compiled[0], "rb") as f:
+            self.assertIn(b"substituted description", f.read())
+
+    def test_the_directory_the_files_are_read_into_is_removed(self):
+        self.assertEqual(self.run_vt("--dry-run", "8").returncode, 0)
+        self.assertEqual(self.read_dirs(), [])
+        self.assertEqual(self.run_vt("8").returncode, 0)
+        self.assertEqual(self.read_dirs(), [])
+        os.chmod(self.s.helper, 0o775)
+        self.refused(self.run_vt(f"--helper={self.s.helper}", "8"), "is writable by group or others")
+        self.assertEqual(self.read_dirs(), [])
+        os.chmod(self.s.helper, 0o755)
+        open(self.s.calls, "w").close()
+        self.interrupted(signal.SIGTERM, 143)
+        self.assertEqual(self.read_dirs(), [])
 
     def test_a_run_starts_the_helper_built_with_it_from_a_copy_of_roots(self):
         helper = self.s.helper

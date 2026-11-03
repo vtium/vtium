@@ -322,10 +322,12 @@ fi
 # bounding set and no-new-privs are left alone: sudo works in the shell.
 drop=("$setpriv" --reuid="$uid" --regid="$gid" --init-groups --inh-caps=-all --reset-env)
 
-# Everything root runs or copies is first read as the user, so the user's own
-# permissions decide what is read: a symlink to a file the user may not read, a
-# second hard link to one, or a swapped-in file all fail to open, and no check
-# races a change, because root checks only what it holds. read_dir is a
+# vtium, the glyph helper, the image helper, the frits and the terminfo source
+# that root runs, copies or compiles are first read as the user, so the user's
+# own permissions decide what is read: a symlink to a file the user may not
+# read, or a second hard link to one, fails to open, and no check races a
+# change, because root checks only what it holds. The files of the checkout
+# itself, such as this script and the --configdir, are not read this way. read_dir is a
 # directory of root's alone, removed when the run ends. Run without root
 # (a dry run, the tests), the reader is the caller itself.
 reader=()
@@ -340,13 +342,14 @@ trap 'rm -rf -- "$read_dir"' EXIT
 read_n=0
 # fetch FILE reads FILE as the user into a file of root's, $fetched, and sets
 # fkind to symlink or file, with fowner, fmode, flinks and ftype from the open
-# file. The user's shell opens FILE once, reports whether the path is a symlink,
-# reports the open file's owner, mode and link count, and copies that open file,
-# so the checks and the copy are of one file. A symlink swapped in a moment
-# later gains nothing: the user's own permissions decided what was opened.
-# Only a user who cannot read FILE makes fetch fail.
-fetch_script='exec 5<"$1" || exit 1
-if [ -L "$1" ]; then echo symlink >&3; exit 0; fi
+# file. The user's shell reports whether the path is a symlink (the policy is
+# that the run uses only a file of its own, so the test is made before the open
+# it governs), then opens FILE once, reports the open file's owner, mode, link
+# count and type, and copies that open file, so the checks and the copy are of
+# one file. fetch dies on a report that is not what the shell writes, because
+# root reads the report as numbers; it fails when the user cannot read FILE.
+fetch_script='if [ -L "$1" ]; then echo symlink >&3; exit 0; fi
+exec 5<"$1" || exit 1
 /usr/bin/stat -L -c "file %u %a %h %F" /dev/fd/5 >&3 || exit 1
 exec /bin/cat <&5 >&4'
 fetched=
@@ -357,6 +360,8 @@ fetch() {
 	fkind='' fowner='' fmode='' flinks='' ftype=''
 	read -r fkind fowner fmode flinks ftype <"$fetched.meta"
 	[ -n "$fkind" ] || return 1
+	[[ $fkind == symlink || ( $fkind == file && $fowner =~ ^[0-9]+$ && $fmode =~ ^[0-7]{3,4}$ && $flinks =~ ^[0-9]+$ ) ]] ||
+		die "the report on $1 is not an owner, mode and link count"
 }
 # copy MODE SOURCE NAME DEST installs SOURCE, the copy root holds, at DEST, and
 # shows NAME, the path the file was found at, as its source.
@@ -364,8 +369,9 @@ copy() {
 	show install -m "$1" "${own[@]}" -- "$3" "$4"
 	[ -n "$dry" ] || install -m "$1" "${own[@]}" -- "$2" "$4"
 }
-# check_file NAME FILE_AS_SHOWN WHO: the owner and mode checks, on what was read.
+# check_file NAME WHY: the type, owner and mode checks, on what was read.
 check_file() {
+	[[ $ftype == regular* ]] || die "$1 is not a regular file; $2"
 	[ "$fowner" -eq 0 ] || [ "$fowner" -eq "$uid" ] ||
 		die "$1 belongs to uid $fowner, neither root nor $user; $2"
 	(( (8#$fmode & 8#022) == 0 )) ||
@@ -434,6 +440,9 @@ done
 # checkout, as the package does, for the sessions it starts itself.
 terminfo_src=$checkout/crates/vtium/install/xterm-vtium.ti
 [ -f "$terminfo_src" ] || die "no $terminfo_src, the terminfo entry the sessions read"
+fetch "$terminfo_src" || die "$user cannot read $terminfo_src"
+[ "$fkind" = file ] || die "$terminfo_src is a symlink; tic compiles only the file it checked"
+terminfo_copy=$fetched
 # The run does not pass TERMINFO to /bin/login's session, so a login session
 # reads the system's entries: the packaged one when it is installed, and
 # kmscon's, which the machine keeps, when it is not.
@@ -765,7 +774,8 @@ stage_made=1
 	copy 0755 "$bin_src" "$bin" "$stage/vtium"
 	[ -z "$helper" ] || copy 0755 "$helper_src" "$helper" "$stage/vtium-config"
 	[ -z "$image" ] || copy 0755 "$image_src" "$image" "$stage/vtium-image"
-	act tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_src"
+	show tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_src"
+	[ -n "$dry" ] || tic -x -e xterm-vtium -o "$stage/terminfo" "$terminfo_copy"
 )
 rm -rf -- "$read_dir"
 show "${cmd[@]}"
