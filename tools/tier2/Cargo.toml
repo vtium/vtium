@@ -21,7 +21,9 @@ vtium-term.workspace = true
 # the small displays draw their PSF fonts through the PSF loader, which the
 # console leaves out
 vtium-font = { workspace = true, features = ["psf"] }
-vtium-render.workspace = true
+# the GPU path's frame, drawn on a GL and judged against the CPU path's
+# (ADR-1303 D1)
+vtium-render = { workspace = true, features = ["gpu"] }
 # generates the test PSF fonts' glyphs through the engine the helper runs,
 # for the screens drawn from sets
 vtium-config = { path = "../../crates/vtium-config" }

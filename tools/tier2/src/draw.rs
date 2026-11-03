@@ -344,16 +344,52 @@ fn configs(orientation: Orientation) -> [(&'static str, Config); 4] {
     ]
 }
 
-/// Draws `screen`, and checks it draws the same in every configuration.
+/// What draws a screen's frames for one configuration: the CPU path
+/// ([`Cpu`]), or the GPU path (`crate::gpu`).
+pub trait Paint {
+    /// Draws `screen` with fonts `make_font` makes, in `config`, and gives
+    /// the picture the display shows last.
+    fn paint<F: Face, M: Fn() -> Font<F>>(
+        &mut self,
+        screen: &Screen,
+        make_font: &M,
+        config: Config,
+    ) -> Result<Image, String>;
+}
+
+/// The CPU path, as the console draws on it: each frame into a buffer in
+/// memory.
+pub struct Cpu;
+
+impl Paint for Cpu {
+    fn paint<F: Face, M: Fn() -> Font<F>>(
+        &mut self,
+        screen: &Screen,
+        make_font: &M,
+        config: Config,
+    ) -> Result<Image, String> {
+        draw_config(screen, make_font, config)
+    }
+}
+
+/// Draws `screen` on the CPU path, and checks it draws the same in every
+/// configuration.
 pub fn draw(screen: &Screen) -> Result<Image, String> {
+    draw_on(screen, &mut Cpu)
+}
+
+/// Draws `screen` through `painter`, and checks it draws the same in every
+/// configuration.
+pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, String> {
+    let p = painter;
     match screen.font {
-        FontKind::Unifont => draw_with(screen, || Font::new(Unifont::new(16))),
+        FontKind::Unifont => draw_with(screen, || Font::new(Unifont::new(16)), p),
         FontKind::Sprites { width, height } => {
-            draw_with(screen, || Font::new(SpritesOnly(Cell { width, height })))
+            draw_with(screen, || Font::new(SpritesOnly(Cell { width, height })), p)
         }
         FontKind::Psf(font) => {
             let psf = Psf::parse(&font.bytes()?).map_err(|e| format!("{font:?}: {e}"))?;
-            draw_with(screen, || Font::new(psf.clone()))
+            draw_with(screen, || Font::new(psf.clone()), p)
         }
         FontKind::Set { font, fill } => {
             let set =
@@ -361,12 +397,12 @@ pub fn draw(screen: &Screen) -> Result<Image, String> {
             let set = Arc::new(set);
             let height = set.cells().first().map_or(16, |c| c.height);
             let face = SetFace::new(set, height).ok_or_else(|| format!("{font:?}: no strike"))?;
-            draw_with(screen, || Font::new(face.clone()))
+            draw_with(screen, || Font::new(face.clone()), p)
         }
         FontKind::ColorSet { height } => {
             let face = SetFace::new(crate::colorset::set()?, height)
                 .ok_or("the color set has no strike")?;
-            draw_with(screen, || Font::new(face.clone()))
+            draw_with(screen, || Font::new(face.clone()), p)
         }
         FontKind::Frit {
             builtin,
@@ -386,15 +422,19 @@ pub fn draw(screen: &Screen) -> Result<Image, String> {
                 .ok_or_else(|| engine.none_at(cell))?;
             let set = Arc::new(Set::from_bytes(bytes).map_err(|e| format!("{builtin}: {e}"))?);
             let face = SetFace::new(set, height).ok_or_else(|| format!("{builtin}: no strike"))?;
-            draw_with(screen, || Font::new(face.clone()))
+            draw_with(screen, || Font::new(face.clone()), p)
         }
     }
 }
 
-fn draw_with<F: Face>(screen: &Screen, font: impl Fn() -> Font<F>) -> Result<Image, String> {
+fn draw_with<F: Face>(
+    screen: &Screen,
+    font: impl Fn() -> Font<F>,
+    painter: &mut impl Paint,
+) -> Result<Image, String> {
     let mut first: Option<(&str, Image)> = None;
     for (name, config) in configs(screen.orientation) {
-        let img = draw_config(screen, &font, config)?;
+        let img = painter.paint(screen, &font, config)?;
         match &first {
             None => first = Some((name, img)),
             Some((_, want)) if *want == img => {}
@@ -503,18 +543,23 @@ fn check_sprites<F: Face>(font: &Font<F>, term: &Terminal) -> Result<(), String>
     Ok(())
 }
 
-fn draw_config<F: Face>(
-    screen: &Screen,
-    make_font: &impl Fn() -> Font<F>,
-    config: Config,
-) -> Result<Image, String> {
-    let font = make_font();
-    let mut term = Terminal::new(screen.cols, screen.rows, 0);
-    let config = Config {
+/// The configuration `config` for `screen`: its decoration colors and its
+/// display's depth.
+pub(crate) fn screen_config(screen: &Screen, config: Config) -> Config {
+    Config {
         decorations: screen.decorations.colors(),
         depth: screen.depth,
         ..config
-    };
+    }
+}
+
+/// `screen`'s terminal with its bytes fed and its pointer set, and its
+/// display's size, turned, for `font`.
+pub(crate) fn prepare<F: Face>(
+    screen: &Screen,
+    font: &Font<F>,
+) -> Result<(Terminal, u32, u32), String> {
+    let mut term = Terminal::new(screen.cols, screen.rows, 0);
     // as a host sets it at start: the screen's method, and what RIS
     // returns to
     term.set_default_width_method(screen.width_method);
@@ -526,7 +571,7 @@ fn draw_config<F: Face>(
         term.screen_mut().set_pointer(Some(at), false);
     }
     if matches!(screen.font, FontKind::Sprites { .. }) {
-        check_sprites(&font, &term)?;
+        check_sprites(font, &term)?;
     }
     let cell = font.cell();
     let (w, h) = screen.display.unwrap_or((
@@ -537,6 +582,36 @@ fn draw_config<F: Face>(
         Orientation::Right | Orientation::Left => (h, w),
         _ => (w, h),
     };
+    Ok((term, w, h))
+}
+
+/// Feeds `screen`'s second part.
+pub(crate) fn feed_next(term: &mut Terminal, next: &[u8]) -> Result<(), String> {
+    feed(term, next)
+}
+
+/// What the console draws over `screen`'s last frame: a head's overlay or
+/// a notice alone.
+pub(crate) fn console_overlay(screen: &Screen) -> Result<Option<vtium::term::Overlay>, String> {
+    match (screen.overlay, screen.alone) {
+        (Some(_), Some(_)) => Err("a head's overlay and a notice alone on one screen".to_owned()),
+        (Some(overlay), None) => Ok(Some(overlay.console()?)),
+        (None, Some(notice)) => Ok(Some(vtium::term::Overlay::alone(
+            notice()?,
+            OverlayColors::default(),
+        ))),
+        (None, None) => Ok(None),
+    }
+}
+
+fn draw_config<F: Face>(
+    screen: &Screen,
+    make_font: &impl Fn() -> Font<F>,
+    config: Config,
+) -> Result<Image, String> {
+    let font = make_font();
+    let config = screen_config(screen, config);
+    let (mut term, w, h) = prepare(screen, &font)?;
     let mut display = Display::new(w, h);
     let mut r = Renderer::new(font, w, h, config);
     let mut since = Age::NEVER;
@@ -557,18 +632,7 @@ fn draw_config<F: Face>(
             return Err("the frames drawn in turn differ from a fresh draw".to_owned());
         }
     }
-    let overlay = match (screen.overlay, screen.alone) {
-        (Some(_), Some(_)) => {
-            return Err("a head's overlay and a notice alone on one screen".to_owned());
-        }
-        (Some(overlay), None) => Some(overlay.console()?),
-        (None, Some(notice)) => Some(vtium::term::Overlay::alone(
-            notice()?,
-            OverlayColors::default(),
-        )),
-        (None, None) => None,
-    };
-    if let Some(overlay) = overlay {
+    if let Some(overlay) = console_overlay(screen)? {
         let front = &mut display.buffers[display.back ^ 1];
         let grid = (screen.cols, screen.rows);
         let drawn = overlay.draw(&r, grid, screen.orientation, front);
