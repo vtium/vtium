@@ -43,7 +43,7 @@ The font and settings tool of ADR-1201, which users reach as `vtium config`, and
 | `tests/outline.rs`, `tests/common/ttf.rs` | Outline rasterising on a TrueType font with COLR color glyphs written in the test. |
 | `tests/shaping.rs` | Clusters shaped on a TrueType font with `ccmp`, joining forms and a precomposed letter written in the test. |
 | `gen-shaping/` | The generator of `src/shaping/data.rs` from the Unicode Character Database, its own workspace, run by hand. |
-| `fuzz/` | The fuzz targets, its own workspace (`fuzz/README.md`): `shape` drives clusters through the shaper and the rasteriser, and `bdf` drives any bytes through the BDF reader. |
+| `fuzz/` | The fuzz targets, its own workspace (`fuzz/README.md`): `shape` drives clusters through the shaper and the rasteriser, `bdf` drives any bytes through the BDF reader, and `serve` drives any bytes through the glyph helper's request parser. |
 | `frits/` | The frits vtium ships: `minspec-16` and `minspec-8`, minspec's curated symbols and emoji over the built-in fonts, `proof`, vtium/vtium#23's desktop frit, and `tiny5`, an example of the smallest font, the pixel font Tiny5 Mono at its own 6x9 cell, never a default (vtium/vtium#217). |
 
 `cargo test -p vtium-config` runs every test.
