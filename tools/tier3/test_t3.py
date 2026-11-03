@@ -1287,10 +1287,13 @@ class VtiumGoldenTest(unittest.TestCase):
                  "heads-closed-broken/panic", "heads-policy-typo/policy-panic",
                  "heads-closed-unmatched/no-display-notice",
                  "heads-kiosk/cjk"]
+        images = ["images-640x480/" + s for s in ("img-sixel", "img-kitty", "img-relative",
+                                                  "img-overwrite", "img-delete", "img-scroll",
+                                                  "img-scrollback", "img-png")]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
                                                "sysvinit-two-vts/cjk"] + moved + frit + devices
-                                              + heads))
+                                              + heads + images))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
@@ -4172,6 +4175,121 @@ class ImagesVariantTest(unittest.TestCase):
                 last = len(args) - 1 - args[::-1].index("--features")
                 self.assertEqual(args[last + 1], features)
                 self.assertEqual(args[last + 2:], ["--tree-target", "install-tree", variants])
+
+
+class PictureGoldenTest(unittest.TestCase):
+    """The images variant's goldens, read where each screen places its
+    pictures: the pixels of t3_pictures.py's pictures, cell for cell, at
+    the 8x16 cells of 640x480. A golden that shows a picture a cell off, cut
+    where nothing cut it, or missing fails here, whether or not the golden
+    is still provisional."""
+
+    VARIANT = "images-640x480"
+    BLACK = (0, 0, 0)
+
+    def golden(self, screen):
+        return t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT, screen + ".png"))
+
+    @staticmethod
+    def pixel(img, x, y):
+        i = (y * img.width + x) * 3
+        return tuple(img.data[i:i + 3])
+
+    def placed(self, img, name, col, row, rows=None, part=None):
+        """Assert picture `name` is drawn at its own size with its top left
+        corner at cell (`col`, `row`), counted from 1, its opaque pixels in
+        their colors: only its pixel rows `rows` (a range) when given, and
+        only the pixel box `part` (x0, y0, x1, y1) of it, drawn at the cell,
+        when given."""
+        pic = t3_pictures.PICTURES[name]
+        x0, y0, x1, y1 = part or (0, 0, pic.width, pic.height)
+        left, top = (col - 1) * 8, (row - 1) * 16
+        wrong = []
+        for y in rows or range(y0, y1):
+            for x in range(x0, x1):
+                p = pic.pixels[y][x]
+                if p and self.pixel(img, left + x - x0, top + y - y0) != t3_pictures.eight(p):
+                    wrong.append((x, y))
+        self.assertEqual(wrong[:4], [], "%s at column %d, row %d: %d pixels differ"
+                         % (name, col, row, len(wrong)))
+
+    def blank(self, img, col, row, cols, rows):
+        """Assert the cells from (`col`, `row`), `cols` by `rows`, are black."""
+        left, top = (col - 1) * 8, (row - 1) * 16
+        lit = [(x, y) for y in range(top, top + rows * 16) for x in range(left, left + cols * 8)
+               if self.pixel(img, x, y) != self.BLACK]
+        self.assertEqual(lit[:4], [], "cells at column %d, row %d not blank" % (col, row))
+
+    def test_sixel(self):
+        img = self.golden("img-sixel")
+        self.placed(img, "quad", 5, 3)
+        self.placed(img, "disc", 44, 3)
+
+    def test_kitty(self):
+        img = self.golden("img-kitty")
+        self.placed(img, "quad", 5, 3)
+        self.placed(img, "quad", 30, 3)
+        self.placed(img, "quad", 5, 8, part=(32, 24, 64, 48))
+        # scaled to 16x6 cells: each quarter's color fills the middle of its
+        # quarter of the box
+        left, top = 29 * 8, 7 * 16
+        for (qx, qy), color in (((0, 0), t3_pictures.RED), ((1, 0), t3_pictures.GREEN),
+                                ((0, 1), t3_pictures.BLUE), ((1, 1), t3_pictures.YELLOW)):
+            for x in range(left + qx * 64 + 8, left + qx * 64 + 56, 7):
+                for y in range(top + qy * 48 + 8, top + qy * 48 + 40, 7):
+                    self.assertEqual(self.pixel(img, x, y), t3_pictures.eight(color), (x, y))
+
+    def test_relative(self):
+        img = self.golden("img-relative")
+        for col, row in ((3, 4), (49, 12)):
+            with self.subTest(parent=(col, row)):
+                self.placed(img, "parent", col, row)
+                self.placed(img, "child", col + 8, row + 1)
+                self.placed(img, "child", col + 6, row + 3)
+        # the moved chain left nothing where it was first placed
+        self.blank(img, 41, 4, 16, 5)
+
+    def test_overwrite(self):
+        img = self.golden("img-overwrite")
+        # the sixel: its top row whole, its middle row cut by the text, and
+        # 4 cells of its bottom row cut by the erase
+        self.placed(img, "quad", 3, 3, rows=range(0, 16))
+        pic = [t3_pictures.eight(c) for c in (t3_pictures.RED, t3_pictures.GREEN,
+                                              t3_pictures.BLUE, t3_pictures.YELLOW)]
+        row4 = [self.pixel(img, x, y) for x in range(16, 80) for y in range(48, 64)]
+        self.assertFalse(set(row4) & set(pic), "the text left the sixel under it")
+        self.placed(img, "quad", 3, 5, rows=range(32, 48), part=(0, 32, 16, 48))
+        self.blank(img, 5, 5, 4, 1)
+        self.placed(img, "quad", 9, 5, rows=range(32, 48), part=(48, 32, 64, 48))
+        # the kitty picture above text is whole; the one below text is whole
+        # on the rows nothing was written on
+        self.placed(img, "quad", 23, 3)
+        self.placed(img, "quad", 43, 3, rows=list(range(0, 16)) + list(range(32, 48)))
+
+    def test_delete(self):
+        img = self.golden("img-delete")
+        self.placed(img, "quad", 3, 3)
+        self.placed(img, "quad", 13, 9)
+        for col in (13, 23, 33):
+            with self.subTest(col):
+                self.blank(img, col, 3, 8, 3)
+
+    def test_scroll(self):
+        img = self.golden("img-scroll")
+        for col in (3, 20):
+            with self.subTest(col):
+                self.placed(img, "bands", col, 1, part=(0, 32, 64, 96))
+        img = self.golden("img-scrollback")
+        for col in (3, 20):
+            with self.subTest(scrollback=col):
+                self.placed(img, "bands", col, 2)
+
+    def test_png(self):
+        img = self.golden("img-png")
+        self.placed(img, "quad", 3, 3)
+        self.placed(img, "disc", 23, 3)
+        self.placed(img, "quad", 43, 3)
+        self.placed(img, "quad", 63, 3)
 
 
 if __name__ == "__main__":
