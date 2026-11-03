@@ -240,3 +240,42 @@ fn a_change_to_a_virtual_placement_marks_its_images_placeholder_cells() {
         "the alternate buffer is not shown"
     );
 }
+
+/// Each placeholder cell the runs cover, as (image, placement, picture row,
+/// picture column), in reading order.
+fn cells_read(t: &Terminal) -> Vec<(u32, Option<u32>, u32, u32)> {
+    t.screen()
+        .placeholder_runs()
+        .iter()
+        .flat_map(|r| (0..r.cells).map(move |i| (r.image, r.placement, r.row, r.column + i)))
+        .collect()
+}
+
+// ADR-1100, D13 (the maintainer, 2026-11-02): mark inheritance continues
+// across a soft wrap, so a picture row whose cells after the first carry no
+// marks reads the same cells after a resize rewraps it over two rows; a
+// hard line break restarts it.
+// covers: image.kitty-placeholders
+#[test]
+fn a_picture_row_rewrapped_by_a_resize_reads_the_same_cells() {
+    let mut t = Terminal::new(10, 4, 0);
+    let s = format!(
+        "\x1b[1;3H\x1b[38;5;42m\x1b[58;5;7m{}{}\r\n{}",
+        cell(&[1, 0, 2]),
+        cell(&[]).repeat(7),
+        cell(&[]),
+    );
+    t.input(s.as_bytes());
+    let before = cells_read(&t);
+    let id = (2 << 24) | 42;
+    let want: Vec<_> = (0..8)
+        .map(|c| (id, Some(7), 1, c))
+        .chain([(42, Some(7), 0, 0)])
+        .collect();
+    assert_eq!(before, want);
+    t.screen_mut().resize(6, 4);
+    assert_eq!(t.screen().placeholder_runs().len(), 3, "the row is split over two");
+    assert_eq!(cells_read(&t), before);
+    t.screen_mut().resize(10, 4);
+    assert_eq!(cells_read(&t), before);
+}

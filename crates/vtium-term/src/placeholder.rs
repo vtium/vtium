@@ -57,7 +57,7 @@
 use vtium_image::LineKey;
 
 use crate::cell::Cell;
-use crate::line::{Glyph, Line, PLACEHOLDER};
+use crate::line::{Glyph, Line, LineFlags, PLACEHOLDER};
 use crate::style::Color;
 
 /// The row and column diacritics, in increasing code point order: a
@@ -400,7 +400,9 @@ struct Said {
 /// out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Read {
-    col: usize,
+    /// The column after the cell's: where a cell that inherits from it
+    /// stands. 0 for a cell carried over a soft wrap from the row before.
+    next: usize,
     fg: Color,
     underline: Color,
     row: u32,
@@ -459,11 +461,20 @@ fn said(line: &Line, cell: Cell) -> Option<Said> {
 /// - a cell with a row and a column takes its top byte, when the neighbor
 ///   is on the same row of the picture and in the column before.
 ///
-/// A row, column or top byte that no rule gives is 0.
+/// A row, column or top byte that no rule gives is 0. When the row before
+/// soft-wrapped into this one and its last cell is a placeholder, that cell
+/// is the left neighbor of this row's first cell, so a picture row that a
+/// wrap splits keeps counting its columns (the maintainer, 2026-11-02); a
+/// hard line break restarts them.
 #[derive(Default)]
 struct Reader {
     left: Option<Read>,
 }
+
+/// The last placeholder cell of a row that soft-wrapped, which the next
+/// row's first cell may inherit from ([`Reader`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Carry(Option<Read>);
 
 impl Reader {
     fn read(&mut self, col: usize, said: Option<Said>) -> Option<Read> {
@@ -473,7 +484,7 @@ impl Reader {
         };
         let left = self
             .left
-            .filter(|l| l.col.checked_add(1) == Some(col))
+            .filter(|l| l.next == col)
             .filter(|l| l.fg == s.fg && l.underline == s.underline);
         let next = |l: Read| l.column.saturating_add(1);
         let (row, column, high) = match (s.row, s.column, s.high, left) {
@@ -486,7 +497,7 @@ impl Reader {
             (None, _, _, None) => (0, 0, 0),
         };
         let read = Read {
-            col,
+            next: col.saturating_add(1),
             fg: s.fg,
             underline: s.underline,
             row,
@@ -500,15 +511,20 @@ impl Reader {
 
 /// Reads the runs of placeholder cells on `line`, the line `key` names, in
 /// its first `cols` columns, and hands each to `out`, left to right. A cell
-/// that names no image belongs to no run. Returns the cells it visited.
+/// that names no image belongs to no run. `carry` holds what the row read
+/// before this one hands on across a soft wrap, and this row leaves in it
+/// what it hands to the next. Returns the cells it visited.
 pub(crate) fn runs(
     line: &Line,
     key: LineKey,
     cols: usize,
+    carry: &mut Carry,
     out: &mut impl FnMut(PlaceholderRun),
 ) -> usize {
     let cols = cols.min(line.len());
-    let mut reader = Reader::default();
+    let mut reader = Reader {
+        left: carry.0.take(),
+    };
     let mut open: Option<PlaceholderRun> = None;
     for col in 0..cols {
         let read = reader.read(col, said(line, line.cell(col)));
@@ -550,6 +566,12 @@ pub(crate) fn runs(
     }
     if let Some(run) = open {
         out(run);
+    }
+    if line.flags().contains(LineFlags::WRAPPED) {
+        carry.0 = reader
+            .left
+            .filter(|l| l.next == cols)
+            .map(|l| Read { next: 0, ..l });
     }
     cols
 }

@@ -15,7 +15,7 @@ mod with {
 
     use super::super::Screen;
     use crate::line::{Line, LineId};
-    use crate::placeholder::{self, PlaceholderRun};
+    use crate::placeholder::{self, Carry, PlaceholderRun};
     use crate::scrollback::{Change, Move};
 
     fn key(line: &Line) -> LineKey {
@@ -148,8 +148,11 @@ mod with {
         /// store draws each virtual placement where its runs lie.
         pub fn placeholder_runs(&self) -> Vec<PlaceholderRun> {
             let mut out = Vec::new();
+            let mut carry = Carry::default();
             for line in self.view() {
-                placeholder::runs(line, key(line), self.cols, &mut |r| out.push(r));
+                placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
+                    out.push(r);
+                });
             }
             out
         }
@@ -195,11 +198,12 @@ mod with {
             let lines = if alt { &self.alt } else { &self.main };
             let mut out = Vec::new();
             let mut read = 0usize;
+            let mut carry = Carry::default();
             for (y, line) in lines.iter().take(self.rows).enumerate() {
-                read =
-                    read.saturating_add(placeholder::runs(line, key(line), self.cols, &mut |r| {
-                        out.push((y, r));
-                    }));
+                let cells = placeholder::runs(line, key(line), self.cols, &mut carry, &mut |r| {
+                    out.push((y, r));
+                });
+                read = read.saturating_add(cells);
             }
             self.images
                 .add_work(u64::try_from(read).unwrap_or(u64::MAX));
