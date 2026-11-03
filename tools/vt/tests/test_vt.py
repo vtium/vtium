@@ -807,7 +807,18 @@ class RunVt(Case):
                                          "--init-groups", "--inh-caps=-all", "--reset-env", "--", *CARRY,
                                          "/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
                                          "ACCEPT_LABEL=vtium dev build abc", "ACCEPT_VT=8", f"ACCEPT_BINARY={self.s.bin}",
-                                         "ACCEPT_FEATURES=none", "/bin/bash", os.path.join(VT, "accept.sh")])
+                                         "ACCEPT_FEATURES=none", f"ACCEPT_VTIUM_CONF={VT}/config/vtium.conf",
+                                         "/bin/bash", os.path.join(VT, "accept.sh")])
+
+    def test_the_acceptance_pass_reads_the_blink_style_vtium_is_given(self):
+        # The run's config, which --configdir gives vtium, and the blink
+        # options among vtium's, in their order, so the last of each wins.
+        p = self.run_vt("8", "--", "--blink-text=off", "--no-blink", "--blink", "--blink-text=full")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        words = [a for a in argv if a.startswith(("ACCEPT_VTIUM_CONF=", "ACCEPT_BLINK"))]
+        self.assertEqual(words, [f"ACCEPT_VTIUM_CONF={VT}/config/vtium.conf", "ACCEPT_BLINK_TEXT=off",
+                                 "ACCEPT_BLINK=off", "ACCEPT_BLINK=on", "ACCEPT_BLINK_TEXT=full"])
 
     def test_a_run_starts_the_helper_built_with_it_from_a_copy_of_roots(self):
         helper = self.s.helper

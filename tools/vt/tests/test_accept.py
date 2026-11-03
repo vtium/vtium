@@ -928,6 +928,122 @@ class Pages(Case):
                 self.assertLessEqual(cols, 80)
 
 
+def flat(text):
+    """TEXT with each run of spaces and line breaks one space, as a page's
+    folded lines read."""
+    return " ".join(text.split())
+
+
+def sgr_blinks(text):
+    """Whether TEXT sets SGR 5 or 6, blinking text, in any SGR sequence; the
+    5 of an extended color (38;5;N, 48;5;N, 58;5;N) is no blink."""
+    for m in re.finditer(r"\x1b\[([0-9;:]*)m", text):
+        params = m.group(1).split(";")
+        i = 0
+        while i < len(params):
+            p = params[i]
+            if p in ("38", "48", "58"):
+                i += 3 if params[i + 1:i + 2] == ["5"] else 5
+                continue
+            if p in ("5", "6"):
+                return True
+            i += 1
+    return False
+
+
+class Blink(Case):
+    """The pages that blink text name the blink style vtium draws it in, read
+    from the config file vtium reads (tools/vt/blink.inc), and the record
+    keeps it."""
+
+    def page(self, name, **env):
+        return subprocess.run(["bash", os.path.join(SECTIONS, name)], capture_output=True, text=True, timeout=20,
+                              stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"], **env})
+
+    def conf(self, text, mode=0o644):
+        path = os.path.join(self.tmp, "vtium.conf")
+        if os.path.exists(path):
+            os.unlink(path)
+        write(path, text, mode)
+        return path
+
+    def test_every_page_that_blinks_text_names_the_style(self):
+        pages = [f for f in sorted(os.listdir(SECTIONS)) if f.endswith(".sh")]
+        blinking = []
+        for f in pages:
+            p = self.page(f)
+            if sgr_blinks(p.stdout):
+                blinking.append(f)
+                with self.subTest(page=f):
+                    self.assertIn("\nBlink: ", p.stdout)
+                    self.assertIn('"Blink:" line', read(os.path.join(SECTIONS, f)))
+        self.assertEqual(blinking, ["10-sgr.sh", "35-blink.sh"])
+
+    def test_each_style_and_where_it_comes_from(self):
+        right = {
+            "full": "Blink: full. Right: blinking text disappears in the off phase, about once a second, and comes back.",
+            "partial": "Blink: partial. Right: blinking text dims halfway to its background about once a second and "
+                       "never disappears.",
+            "off": "Blink: off. Right: blinking text stays steady and never changes.",
+        }
+        for value in ("full", "partial", "off"):
+            with self.subTest(value=value):
+                # the last blink-text= line wins; comments and a value vtium
+                # cannot use are ignored, and spaces around = are dropped
+                conf = self.conf(f"# blink-text=nonsense\nblink-text=full\n  blink-text = {value}  # the operator's\n"
+                                 "blink-text=sideways\n#blink-text=off\n")
+                for f in ("10-sgr.sh", "35-blink.sh"):
+                    out = self.page(f, ACCEPT_VTIUM_CONF=conf).stdout
+                    self.assertIn(right[value], flat(out))
+                    self.assertIn(f"The blink style is blink-text={value} in {conf}.", flat(out))
+        missing = os.path.join(self.tmp, "none.conf")
+        out = self.page("35-blink.sh", ACCEPT_VTIUM_CONF=missing).stdout
+        self.assertIn(right["partial"], flat(out))
+        self.assertIn(f"The blink style is vtium's default; {missing} does not exist.", flat(out))
+        # a file the user cannot read is said to be one, and the default assumed
+        if os.geteuid() != 0:
+            conf = self.conf("blink-text=off\n", 0o000)
+            out = flat(self.page("35-blink.sh", ACCEPT_VTIUM_CONF=conf).stdout)
+            self.assertIn("Blink: partial.", out)
+            self.assertIn(f"{conf} cannot be read as you", out)
+        # the blink switch off keeps every blinking text steady
+        conf = self.conf("blink-text=full\nno-blink\n")
+        out = flat(self.page("35-blink.sh", ACCEPT_VTIUM_CONF=conf).stdout)
+        self.assertIn("Blink: off.", out)
+        self.assertIn(f"The blink style is no-blink in {conf}.", out)
+        # vtium's command line wins over the file
+        out = flat(self.page("35-blink.sh", ACCEPT_VTIUM_CONF=conf, ACCEPT_BLINK="on",
+                             ACCEPT_BLINK_TEXT="off").stdout)
+        self.assertIn("Blink: off.", out)
+        self.assertIn("The blink style is --blink-text=off on vtium's command line.", out)
+
+    def test_the_record_keeps_the_style_and_a_compare_names_a_change(self):
+        for value in ("full", "partial"):
+            conf = self.conf(f"blink-text={value}\n")
+            d = self.walk(self.env(ACCEPT_VTIUM_CONF=conf), "one")
+            d.wait_for(b"press a key to start the pass")
+            d.send(b" ")
+            d.wait_for(ASK)
+            d.send(b"y")
+            d.wait_for(b"q exit")
+            d.send(b"q")
+            self.assertEqual(d.finish(), 0)
+        names = sorted(n for n in os.listdir(self.passes) if n.endswith(".md"))
+        self.assertEqual(len(names), 2)
+        texts = [read(os.path.join(self.passes, n)) for n in names]
+        self.assertIn(f"- blink-text: full (blink-text=full in {conf}); the pages that blink text are judged in it\n",
+                      texts[0])
+        self.assertIn(f"- blink-text: partial (blink-text=partial in {conf}); the pages that blink text are judged in "
+                      "it\n", texts[1])
+        p = self.feedback("--compare", *(os.path.join(self.passes, n) for n in names))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("the blink style differs, so a changed blink page may come from it:\n  A: full (", p.stdout)
+        self.assertIn("\n  B: partial (", p.stdout)
+        # the same style twice: no such lines
+        p = self.feedback("--compare", os.path.join(self.passes, names[1]), os.path.join(self.passes, names[1]))
+        self.assertNotIn("blink style differs", p.stdout)
+
+
 class Frits(Case):
     """A page walked once in each font set its "# frits:" line names."""
 

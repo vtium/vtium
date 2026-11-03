@@ -622,6 +622,17 @@ terminfo=(TERMINFO="$stage/terminfo")
 # features, beside the label (ADR-1501 D5).
 accept=(ACCEPT_LABEL="vtium $label" ACCEPT_VT="$vt" ACCEPT_BINARY="$bin" ACCEPT_FEATURES="${features:-none}")
 [ -z "$passes" ] || accept+=(ACCEPT_DIR="$passes")
+# The pages that blink text name the style vtium draws it in (blink.inc): from
+# the config this run gives vtium, which --configdir names, and from the blink
+# options given to vtium, the last of each winning as it does in vtium.
+accept+=(ACCEPT_VTIUM_CONF="$here/config/vtium.conf")
+for o in "${extra[@]}"; do
+	case $o in
+	--blink-text=*) accept+=(ACCEPT_BLINK_TEXT="${o#*=}") ;;
+	--blink) accept+=(ACCEPT_BLINK=on) ;;
+	--no-blink) accept+=(ACCEPT_BLINK=off) ;;
+	esac
+done
 session=(/usr/bin/env "${terminfo[@]}" "${accept[@]}" /bin/bash "$here/accept.sh")
 if [ -n "$guide" ]; then
 	session=(/usr/bin/env "${terminfo[@]}" GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}

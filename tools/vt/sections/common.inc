@@ -138,3 +138,15 @@ cannot_show() {
 	printf '  The page is recorded as skip, not as no.\n'
 	exit 77
 }
+
+# shellcheck source=tools/vt/blink.inc
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../blink.inc"
+
+# For a page that blinks text: the blink style vtium draws it in, what that
+# looks like when it is right, and where the style comes from (blink.inc),
+# each folded to 80 columns.
+blink_line() {
+	blink_style
+	printf 'Blink: %s. Right: %s.\n' "$blink_style" "$(blink_right)" | fold -s -w 80
+	printf 'The blink style is %s.\n' "$blink_source" | fold -s -w 80
+}

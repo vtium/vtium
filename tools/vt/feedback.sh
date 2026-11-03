@@ -8,7 +8,8 @@
 #   feedback.sh [--dir DIR] --list          every pass, oldest first
 #   feedback.sh [--dir DIR] --compare A B   the pages whose answer differs from
 #                                           pass A to pass B, warning first when they
-#                                           ran on different hardware; exits 1 when
+#                                           ran on different hardware and naming a
+#                                           blink style that differs; exits 1 when
 #                                           a page went from yes to no
 #   feedback.sh [--dir DIR] --compare       the same for the two newest passes
 #   feedback.sh [--dir DIR] --newest LABEL  the path of the newest pass of LABEL
@@ -246,6 +247,10 @@ compare)
 			if ((other, k[2]) in fonts) continue
 			if (!fhead++) printf "\nfont files that differ, so a changed page may come from a font update:\n"
 			printf "  %s: %s\n", k[1], k[2]
+		}
+		if (meta["A", "blink-text"] != meta["B", "blink-text"]) {
+			printf "\nthe blink style differs, so a changed blink page may come from it:\n"
+			printf "  A: %s\n  B: %s\n", meta["A", "blink-text"] == "" ? "(not recorded)" : meta["A", "blink-text"], meta["B", "blink-text"] == "" ? "(not recorded)" : meta["B", "blink-text"]
 		}
 		printf "\n"
 		if (nw) {

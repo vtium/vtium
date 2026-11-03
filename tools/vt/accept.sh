@@ -41,6 +41,8 @@ set -u
 shopt -u patsub_replacement 2>/dev/null || true
 
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+# shellcheck source=tools/vt/blink.inc
+. "$here/blink.inc"
 nopage=${ACCEPT_NOPAGE:-}
 noprompt=${ACCEPT_NOPROMPT:-$nopage}
 passes=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
@@ -465,6 +467,7 @@ write_record() {
 		printf '%s\n' "${hardware_lines[@]}"
 		printf -- '- hardware: %s; this pass is evidence about the hardware above only\n' "$hardware"
 		printf -- '- font-start: %s\n' "${font_start:-no answer to the OSC 50 query}"
+		printf -- '- blink-text: %s (%s); the pages that blink text are judged in it\n' "$blink_style" "$(one_line "$blink_source")"
 		[ ${#font_lines[@]} -eq 0 ] || printf '%s\n' "${font_lines[@]}"
 		printf -- '- fonts: %s\n' "$fonts"
 		printf -- '- started: %s\n' "$started"
@@ -756,6 +759,8 @@ font_start=$(query_font)
 [[ $font_start =~ ^[[:alnum:]._+-]{1,64}$ ]] || font_start=
 font_sums
 hardware_scan
+# The blink style the pages that blink text name, for the record.
+blink_style
 
 start=0
 resume=

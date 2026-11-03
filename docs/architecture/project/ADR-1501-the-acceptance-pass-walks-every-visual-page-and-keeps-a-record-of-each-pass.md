@@ -103,6 +103,8 @@ A page is one file, `tools/vt/sections/NN-name.sh`. `NN` orders the pages and `n
 - places anything by absolute row from the row it starts on, which the walk passes it as `ACCEPT_TOP`, and which `common.inc`'s `top_row` asks of the terminal when the page runs alone;
 - asks the terminal what it needs through `tools/vt/sections/common.inc` (DA1, the cell size, a kitty query, whether the image helper decodes), and exits 77 through `cannot_show` when the build cannot show it.
 
+A page that blinks text (SGR 5 or 6) names, below what it draws, the blink style vtium draws it in and what that looks like when it is right: `full` hides the text in the off phase, `partial` dims it halfway to its background and never hides it, and `off` keeps it steady. `tools/vt/blink.inc` reads the style as the user from the config file vtium reads, the last `blink-text=` line and the `blink` switch winning as they do in vtium, then from the blink options on vtium's command line; a review run names its own config, `tools/vt/config/vtium.conf`, and passes its blink options, and a pass run by hand reads `/etc/vtium/vtium.conf`. Without any of them the style is vtium's default, partial; a file the user cannot read is said to be one.
+
 A change that makes vtium draw something new adds its page.
 
 These are the pages, and the ADR-1000 rows each one shows:
@@ -154,7 +156,7 @@ A pass is one walk through the pages, named by the time it started and the walk'
 
 The record holds, in order:
 
-1. a list: the pass, the label (`ACCEPT_LABEL`, which a review run sets to `vtium dev build <git describe>`), the VT, the binary and its features (`ACCEPT_VT`, `ACCEPT_BINARY` and `ACCEPT_FEATURES`, or `not given`), the terminal's `TERM` and size, its DA1 answer, the font OSC 50's query named at the start, each font set the pass uses with its frit file's SHA-256, each font file it names with its SHA-256 and the package that owns it (or `missing`), one SHA-256 over those font lines, the hardware (below), when the pass started, when it was last written, and how many pages it has answered;
+1. a list: the pass, the label (`ACCEPT_LABEL`, which a review run sets to `vtium dev build <git describe>`), the VT, the binary and its features (`ACCEPT_VT`, `ACCEPT_BINARY` and `ACCEPT_FEATURES`, or `not given`), the terminal's `TERM` and size, its DA1 answer, the font OSC 50's query named at the start, the blink style the pages that blink text are judged in and where it comes from, each font set the pass uses with its frit file's SHA-256, each font file it names with its SHA-256 and the package that owns it (or `missing`), one SHA-256 over those font lines, the hardware (below), when the pass started, when it was last written, and how many pages it has answered;
 2. a table of every page in order, with its answer (yes, no, unsure, skip, or `-` for none yet) and its comment, in which `&`, `<` and `>` are entities, a backslash and `|` are escaped with a backslash, and each line break is `<br>`;
 3. what each page shows when it is right, its `# look-for:` text, so the record reads on its own after the pages change.
 
