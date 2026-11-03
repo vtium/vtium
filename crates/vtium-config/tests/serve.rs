@@ -447,11 +447,7 @@ fn an_asks_clusters_are_shaped_and_drawn_whole() {
 /// handed it a copy of the user's terminal, it starts itself again without
 /// it before it reads a request.
 #[test]
-#[expect(
-    clippy::unwrap_used,
-    clippy::indexing_slicing,
-    reason = "a test fails by panicking"
-)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn the_helper_sheds_a_descriptor_it_inherits() {
     use vtium_config::serve::{FRAME_SOURCES, SOURCES};
     let scratch = Scratch::new("shed");
