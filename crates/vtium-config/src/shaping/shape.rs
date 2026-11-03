@@ -62,6 +62,8 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
     let shaper_data = ShaperData::new(&face);
     let shaper = shaper_data.shaper(&face).build();
     let charmap = font.charmap();
+    // each letter's glyphs shaped on its own, as a joining form is judged
+    let mut alone: BTreeMap<u32, Vec<u16>> = BTreeMap::new();
     let mut out = Vec::new();
     for ask in asks {
         let (glyphs, advance) = shape(&shaper, &ask.key);
@@ -69,16 +71,16 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
             && glyphs.iter().all(|a| a.g != 0)
             && match ask.kind {
                 // one glyph, a ligature or a form, which none of the
-                // cluster's own scalar values draws alone; a joining form
-                // keeps the glyphs of the marks on its letter besides it
+                // cluster's own scalar values draws alone
                 Kind::Emoji => only_own(&glyphs, &ask.key, &charmap),
                 Kind::Joining => {
-                    let letters: Vec<At> = glyphs
-                        .iter()
-                        .filter(|a| a.mark.is_none())
-                        .copied()
-                        .collect();
-                    only_own(&letters, &ask.key, &charmap)
+                    let mut alone = |c: u32| {
+                        alone
+                            .entry(c)
+                            .or_insert_with(|| letters(&shape(&shaper, &[c]).0))
+                            .clone()
+                    };
+                    joined(&glyphs, &ask.key, &charmap, &mut alone)
                 }
                 Kind::Marks => true,
             };
@@ -143,6 +145,15 @@ fn shape(shaper: &harfrust::Shaper<'_>, key: &[u32]) -> (Vec<At>, i32) {
     (glyphs, pen)
 }
 
+/// The glyphs of `glyphs` that come from no mark.
+fn letters(glyphs: &[At]) -> Vec<u16> {
+    glyphs
+        .iter()
+        .filter(|a| a.mark.is_none())
+        .map(|a| a.g)
+        .collect()
+}
+
 /// Whether `glyphs` is one glyph that none of `key`'s scalar values draws
 /// alone in `charmap`: a ligature, or a form the font shaped.
 fn only_own(glyphs: &[At], key: &[u32], charmap: &swash::Charmap<'_>) -> bool {
@@ -150,6 +161,34 @@ fn only_own(glyphs: &[At], key: &[u32], charmap: &swash::Charmap<'_>) -> bool {
         [a] => key.iter().all(|&c| charmap.map(c) != a.g),
         _ => false,
     }
+}
+
+/// Whether the joining cluster `key`, shaped to `glyphs`, is a form the
+/// font shaped. Its glyphs that come from no mark are its letter, and they
+/// must all come from one character, or from one ligature, which HarfRust
+/// numbers by its first character: a font may draw a letter as several
+/// glyphs, as Noto Naskh Arabic draws beh's joined forms as a dotless body
+/// and a separate dot. The letter's glyphs must also differ from what each
+/// of the cluster's letters draws alone, as `alone` shapes it, and must not
+/// be one glyph that one of `key`'s scalar values maps to in `charmap`.
+/// The glyphs of the marks on the letter stay beside it.
+fn joined(
+    glyphs: &[At],
+    key: &[u32],
+    charmap: &swash::Charmap<'_>,
+    alone: &mut impl FnMut(u32) -> Vec<u16>,
+) -> bool {
+    let mut from = glyphs.iter().filter(|a| a.mark.is_none()).map(|a| a.from);
+    let Some(first) = from.next() else {
+        return false;
+    };
+    let ids = letters(glyphs);
+    from.all(|f| f == first)
+        && !matches!(ids.as_slice(), [g] if key.iter().any(|&c| charmap.map(c) == *g))
+        && key
+            .iter()
+            .filter(|&&c| c != super::ZWJ && super::mark_side(c).is_none())
+            .all(|&c| alone(c) != ids)
 }
 
 /// Draws each shaped cluster at `cell`, adding its glyph to `glyphs`, one
@@ -833,5 +872,87 @@ mod tests {
                 );
             }
         }
+    }
+
+    // A joining cluster that the font draws as its letter alone draws is
+    // left out, though no scalar value maps to the glyph it shapes to:
+    // this font replaces beh's glyph under `ccmp` wherever beh stands and
+    // has no joined forms, so beh keyed with U+200D on either side shapes
+    // to the same glyph as beh alone, and the console draws beh by its
+    // codepoint instead
+    #[test]
+    fn a_joining_cluster_drawn_as_its_letter_alone_is_left_out() {
+        let mut f = ttf::test_mono();
+        let beh = u16::try_from(f.glyphs.len()).expect("a glyph id");
+        f.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 300));
+        f.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 400));
+        f.cmap.push((0x628, beh));
+        f.cmap.sort_unstable();
+        f.gsub = vec![(*b"ccmp", ttf::Lookup::Single(vec![(beh, beh + 1)]))];
+        let keys: [&[u32]; 2] = [&[0x628, 0x200d], &[0x200d, 0x628]];
+        let o = rasterise(&OutlineRequest {
+            font: f.build().into(),
+            family: "Test Mono".to_owned(),
+            cells: vec![(0, 20)],
+            clusters: keys.iter().map(|k| super::super::ask(k)).collect(),
+            ..OutlineRequest::default()
+        })
+        .expect("rasterised");
+        assert!(
+            o.strikes[0].clusters.is_empty(),
+            "{:x?}",
+            o.strikes[0].clusters
+        );
+    }
+
+    // A joining form the font draws as several glyphs from the letter's
+    // own character is kept: Noto Naskh Arabic draws beh's joined forms as
+    // a dotless body and a separate dot, both from the beh. The subset in
+    // `src/shaping/fixtures/` holds beh (U+0628), fatha (U+064E) and
+    // U+200D. Beh's initial, medial and final forms, and its initial form
+    // with a fatha, each draw one cell wide, each unlike the others and
+    // unlike the isolated beh, and the fatha adds ink above the initial
+    // form where the bare form has none
+    #[test]
+    fn a_joining_form_the_font_draws_as_several_glyphs_is_kept() {
+        const BEH: u32 = 0x628;
+        const FATHA: u32 = 0x64e;
+        const ZWJ: u32 = 0x200d;
+        let data = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/shaping/fixtures/NotoNaskhArabic-beh-fatha.ttf"),
+        )
+        .expect("the fixture");
+        let forms: [&[u32]; 4] = [
+            &[BEH, ZWJ],
+            &[ZWJ, BEH, ZWJ],
+            &[ZWJ, BEH],
+            &[BEH, FATHA, ZWJ],
+        ];
+        let asks = forms.iter().map(|k| super::super::ask(k)).collect();
+        let o = rasterise(&OutlineRequest {
+            font: data.into(),
+            cells: vec![(12, 24)],
+            clusters: asks,
+            ..OutlineRequest::default()
+        })
+        .expect("rasterised");
+        let s = &o.strikes[0];
+        let (_, beh) = s.map.iter().find(|(c, _)| *c == BEH).expect("beh mapped");
+        let mut drawn = vec![s.glyphs[*beh as usize].pixels.clone()];
+        for key in forms {
+            assert_eq!(super::super::kind(key), Kind::Joining, "{key:x?}");
+            let g = cluster(&o, key).unwrap_or_else(|| panic!("{key:x?} kept"));
+            assert!(!g.wide && !g.color, "{key:x?}: one cell, a mask");
+            drawn.push(g.pixels.clone());
+        }
+        let bare = cluster(&o, forms[0]).expect("the initial beh");
+        let vocalised = cluster(&o, forms[3]).expect("the initial beh with a fatha");
+        drawn.sort();
+        drawn.dedup();
+        assert_eq!(drawn.len(), 5, "each form drawn apart");
+        let fatha =
+            (0..24).any(|y| inked(bare, 12, y).is_empty() && !inked(vocalised, 12, y).is_empty());
+        assert!(fatha, "the fatha's ink where the bare form has none");
     }
 }
