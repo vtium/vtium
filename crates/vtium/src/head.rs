@@ -17,7 +17,7 @@ pub mod images;
 pub(crate) mod route;
 pub(crate) mod session;
 
-use vtium_config::{By, Place, WhenDisplayLost};
+use vtium_settings::{By, Place, WhenDisplayLost};
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -331,7 +331,12 @@ impl Head {
     /// The head `name` for `config`, its one console's terminal `term`,
     /// and the font keys `font` (ADR-1401 D3): its session starts at its
     /// first display.
-    pub(crate) fn new(name: &str, config: &Config, font: &vtium_config::Font, term: Term) -> Head {
+    pub(crate) fn new(
+        name: &str,
+        config: &Config,
+        font: &vtium_settings::Font,
+        term: Term,
+    ) -> Head {
         let size = font
             .size
             .map(u64::from)
@@ -409,7 +414,7 @@ impl Head {
     /// reaches. Its notice stays for as long as it is lit (D7), on a
     /// screen with no cursor.
     pub(crate) fn notice_screen(config: &Config, term: Term) -> Head {
-        let mut head = Head::new("", config, &vtium_config::Font::default(), term);
+        let mut head = Head::new("", config, &vtium_settings::Font::default(), term);
         head.notice_only = true;
         head.console.term.terminal.input(b"\x1b[?25l");
         head
@@ -1296,12 +1301,12 @@ impl Head {
 /// three levels resolve to, and the rules that outcome runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Start {
-    pub outcome: vtium_config::Outcome,
+    pub outcome: vtium_settings::Outcome,
     /// The file's own rules, what survives of them, the compiled-in
     /// configuration, or, for a run of nothing, no rule under the closed
     /// policy, so no input is delivered and the display guard lights the
     /// boot display for the notice alone.
-    pub rules: vtium_config::Config,
+    pub rules: vtium_settings::Config,
     /// The panic screen's report, for a broken closed file (ADR-1401 D7).
     pub(crate) report: Option<vtium_render::NoticeReport>,
 }
@@ -1310,8 +1315,8 @@ impl Start {
     /// The start of a trusted head file at `path` whose bytes are `bytes`:
     /// each error, warning and note logged with its line.
     pub fn trusted(path: &std::path::Path, bytes: &[u8]) -> Start {
-        use vtium_config::at;
-        let reading = vtium_config::reading(bytes);
+        use vtium_settings::at;
+        let reading = vtium_settings::reading(bytes);
         for e in &reading.errors.errors {
             log::error!("{}", at(path, e.line(), e));
         }
@@ -1325,13 +1330,13 @@ impl Start {
         for n in &reading.parsed.notes {
             log::info!("{}", at(path, Some(n.line()), n));
         }
-        let read = vtium_config::Read::Trusted(reading.trusted());
+        let read = vtium_settings::Read::Trusted(reading.trusted());
         let mut start = Start::of(&read, reading.parsed.config);
-        if start.outcome.line == Some(vtium_config::Line::ClosedOff) {
+        if start.outcome.line == Some(vtium_settings::Line::ClosedOff) {
             // a policy line vtium cannot read is why the file is closed and
             // broken, so its error comes first, then the rest in their order
-            let unreadable = |e: &&vtium_config::Error| {
-                matches!(e.problem, vtium_config::Problem::UnreadablePolicy(_))
+            let unreadable = |e: &&vtium_settings::Error| {
+                matches!(e.problem, vtium_settings::Problem::UnreadablePolicy(_))
             };
             let errors = &reading.errors.errors;
             let first: Vec<String> = errors
@@ -1352,16 +1357,16 @@ impl Start {
 
     /// The start on the path `read`, `file` being what survives of a
     /// trusted file.
-    fn of(read: &vtium_config::Read, file: vtium_config::Config) -> Start {
-        use vtium_config::Runs;
-        let outcome = vtium_config::resolve(read);
+    fn of(read: &vtium_settings::Read, file: vtium_settings::Config) -> Start {
+        use vtium_settings::Runs;
+        let outcome = vtium_settings::resolve(read);
         let rules = match outcome.runs {
             Runs::File | Runs::NoHead | Runs::Survivors => file,
-            Runs::Builtin => vtium_config::Config::builtin(),
-            Runs::Off => vtium_config::Config {
-                policy: vtium_config::Policy::Closed,
+            Runs::Builtin => vtium_settings::Config::builtin(),
+            Runs::Off => vtium_settings::Config {
+                policy: vtium_settings::Policy::Closed,
                 survivors: true,
-                ..vtium_config::Config::default()
+                ..vtium_settings::Config::default()
             },
         };
         Start {
@@ -1374,7 +1379,7 @@ impl Start {
     /// The console line the start shows, from the catalog: `None` for a
     /// silent start.
     pub fn line(&self) -> Option<&'static str> {
-        self.outcome.line.map(vtium_config::Line::text)
+        self.outcome.line.map(vtium_settings::Line::text)
     }
 
     /// The notice the start shows: its console line and the next step,
@@ -1395,8 +1400,8 @@ impl Start {
 
 /// The notice of an outcome's console line `line` (ADR-1401 D7): the line
 /// as the catalog words it, then what to do next about vtium's head file.
-pub fn outcome_notice(line: vtium_config::Line) -> String {
-    let next = line.next(std::path::Path::new(vtium_config::HEAD_FILE));
+pub fn outcome_notice(line: vtium_settings::Line) -> String {
+    let next = line.next(std::path::Path::new(vtium_settings::HEAD_FILE));
     format!("{}\n{next}", line.text())
 }
 
@@ -1405,12 +1410,12 @@ pub fn outcome_notice(line: vtium_config::Line) -> String {
 /// compiled-in configuration, silently; a file that fails the ownership
 /// check, or that cannot be read as a file, is never read and runs the
 /// shipped rules; a trusted file runs what its policy and its errors leave
-/// ([`vtium_config::resolve`]). Each error is logged with its line, and
+/// ([`vtium_settings::resolve`]). Each error is logged with its line, and
 /// the file is never written.
-pub fn rules(path: &std::path::Path, trust: &vtium_config::Trust) -> Start {
-    use vtium_config::{Problem, Read, at};
-    let builtin = vtium_config::Config::builtin;
-    match vtium_config::inspect(path, trust) {
+pub fn rules(path: &std::path::Path, trust: &vtium_settings::Trust) -> Start {
+    use vtium_settings::{Problem, Read, at};
+    let builtin = vtium_settings::Config::builtin;
+    match vtium_settings::inspect(path, trust) {
         Ok(None) => Start::of(&Read::Missing, builtin()),
         Ok(Some(inspected)) => match inspected.trusted {
             Ok(()) => Start::trusted(path, &inspected.bytes),
@@ -1434,8 +1439,8 @@ pub fn rules(path: &std::path::Path, trust: &vtium_config::Trust) -> Start {
 /// a display no rule claims carries the rule that would give it the first
 /// head, ready to paste.
 pub fn place_display(
-    rules: &vtium_config::Config,
-    display: &vtium_config::Identity,
+    rules: &vtium_settings::Config,
+    display: &vtium_settings::Identity,
 ) -> Result<usize, String> {
     let placed = rules.walk(display);
     let name = display.connector.as_deref().unwrap_or("?").escape_debug();
@@ -1446,7 +1451,7 @@ pub fn place_display(
         )),
         _ => {
             let target = rules.heads.first().map_or("console", |h| h.name.as_str());
-            let rule = vtium_config::rule_for(display, target).map_or_else(
+            let rule = vtium_settings::rule_for(display, target).map_or_else(
                 || "it offers no value a rule can name".to_owned(),
                 |rule| format!("the rule `{rule}` gives it a head"),
             );
@@ -1516,7 +1521,7 @@ mod tests {
     /// A head file in a fixture directory of its own, and the trust that
     /// reads it as the start reads root's files.
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
-    fn fixture(name: &str, text: Option<&str>) -> (PathBuf, vtium_config::Trust) {
+    fn fixture(name: &str, text: Option<&str>) -> (PathBuf, vtium_settings::Trust) {
         use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("vtium-head-rules-{name}-{}", std::process::id()));
@@ -1527,7 +1532,7 @@ mod tests {
             std::fs::write(&file, text).unwrap();
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
         }
-        let trust = vtium_config::Trust::owner(rustix::process::geteuid().as_raw()).below(&dir);
+        let trust = vtium_settings::Trust::owner(rustix::process::geteuid().as_raw()).below(&dir);
         (file, trust)
     }
 
@@ -1553,12 +1558,12 @@ mod tests {
         let ran = rules(&absent, &trust);
         assert_eq!(
             (ran.rules, ran.outcome.line),
-            (vtium_config::Config::builtin(), None)
+            (vtium_settings::Config::builtin(), None)
         );
         assert!(!absent.exists(), "nothing written");
         let (bad, trust) = fixture("partly", Some(partly));
         let ran = rules(&bad, &trust);
-        assert_eq!(ran.outcome.runs, vtium_config::Runs::Survivors);
+        assert_eq!(ran.outcome.runs, vtium_settings::Runs::Survivors);
         assert_eq!(
             ran.line(),
             Some("config partly invalid, running what's valid")
@@ -1586,7 +1591,7 @@ mod tests {
             std::path::Path::new("/etc/vtium/heads.conf"),
             text.as_bytes(),
         );
-        assert_eq!(start.outcome.line, Some(vtium_config::Line::ClosedOff));
+        assert_eq!(start.outcome.line, Some(vtium_settings::Line::ClosedOff));
         let shown = start.notice().unwrap_or_default();
         assert_eq!(shown, PANIC);
         assert!(
@@ -1603,7 +1608,7 @@ mod tests {
         );
         assert_eq!(
             start.notice(),
-            Some(outcome_notice(vtium_config::Line::Partly))
+            Some(outcome_notice(vtium_settings::Line::Partly))
         );
     }
 
@@ -1617,14 +1622,14 @@ mod tests {
         // past the file bound, with no `version` and a stray top-level line
         // before the policy line: three errors would sort ahead of it
         let mut text = String::from("junk\npolicy = opne\n");
-        while text.len() <= vtium_config::FILE_MAX {
+        while text.len() <= vtium_settings::FILE_MAX {
             text.push_str("# padding past the bound\n");
         }
         let start = Start::trusted(
             std::path::Path::new("/etc/vtium/heads.conf"),
             text.as_bytes(),
         );
-        assert_eq!(start.outcome.line, Some(vtium_config::Line::ClosedOff));
+        assert_eq!(start.outcome.line, Some(vtium_settings::Line::ClosedOff));
         let items = start.report().map(|r| r.items.clone()).unwrap_or_default();
         assert_eq!(items.len(), PANIC_ERRORS_MAX, "{items:?}");
         assert!(
@@ -1681,7 +1686,7 @@ mod tests {
             screen.overlay().notice,
             Some(vtium_render::Notice::new("vtium: no display for any head"))
         );
-        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term());
+        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term());
         head.add_notice(&report.text());
         assert_eq!(
             head.overlay().notice,
@@ -1698,7 +1703,7 @@ mod tests {
         let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
         let clock: Clock = std::rc::Rc::new(Instant::now);
         let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
-        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term());
+        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term());
         let zoomed = Fit {
             grid: (40, 10),
             font_size: 32,
@@ -1733,7 +1738,7 @@ mod tests {
         let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
         let clock: Clock = std::rc::Rc::new(Instant::now);
         let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
-        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term());
+        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term());
         head.hidden.push(Console::new(2, term(), head.fresh_fit()));
         head.focused = true;
         for console in head.consoles_mut() {
@@ -1762,7 +1767,7 @@ mod tests {
     fn a_head_keeps_each_notice_once_and_the_newest_few() {
         let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
         let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
-        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term);
+        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term);
         for n in 0..6 {
             head.add_notice(&format!("n{n}"));
             head.add_notice(&format!("n{n}"));
@@ -1796,7 +1801,7 @@ mod tests {
         assert_eq!(loaded.reports, [], "{args:?}");
         let config = loaded.config;
         let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
-        let mut head = Head::new("h", &config, &vtium_config::Font::default(), term);
+        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term);
         let draw = |head: &Head| {
             let face: DisplayFace = Box::new(vtium_font::Unifont::new(16));
             let renderer =
@@ -1893,15 +1898,15 @@ mod tests {
 
     #[test]
     fn a_display_left_dark_is_logged_and_one_no_rule_claims_with_the_rule_to_paste() {
-        let rules = vtium_config::parse(
+        let rules = vtium_settings::parse(
             "version = 1\n[head desk]\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-1 -> off\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n",
         )
         .map(|p| p.config)
         .unwrap_or_default();
-        let display = |connector: &str| vtium_config::Identity {
+        let display = |connector: &str| vtium_settings::Identity {
             connector: Some(connector.to_owned()),
             card: Some("pci-0000:03:00.0".to_owned()),
-            ..vtium_config::Identity::display()
+            ..vtium_settings::Identity::display()
         };
         assert_eq!(place_display(&rules, &display("DP-2")), Ok(0));
         assert_eq!(
@@ -1912,9 +1917,9 @@ mod tests {
             place_display(&rules, &display("HDMI-A-1")),
             Err("display HDMI-A-1 matches no rule of the head file and is left dark; the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` gives it a head".to_owned())
         );
-        let bare = vtium_config::Identity {
+        let bare = vtium_settings::Identity {
             connector: Some("fb\u{1b}".to_owned()),
-            ..vtium_config::Identity::display()
+            ..vtium_settings::Identity::display()
         };
         assert_eq!(
             place_display(&rules, &bare),

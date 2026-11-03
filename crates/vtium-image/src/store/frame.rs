@@ -2,8 +2,11 @@
 
 use std::collections::BTreeMap;
 
-use super::{Animation, FramePixels, Located, Placement, Rows, Store};
-use crate::image::{ImageKey, LineKey, Pixels, PlacementKey};
+use std::borrow::Cow;
+
+use super::runs::{RUN_KEY_FIRST, Virtuals, origins, run_placement};
+use super::{Animation, FramePixels, Located, Placement, Rows, Spot, Store};
+use crate::image::{ImageKey, LineKey, Pixels, PlaceholderRun, PlacementKey};
 use crate::rules::{Layer, rules};
 
 /// A placement as a frame shows it: what the rules resolved, so the
@@ -67,8 +70,9 @@ pub struct FramePlacement {
     pub revision: u64,
     /// The number of the frame shown, 1 for the root frame and for a
     /// picture that is not animated (ADR-1102, D3). The store fills in the
-    /// root frame; the binary's snapshot puts the frame its animation clock
-    /// chose with [`show`](Self::show).
+    /// image's current frame, the one `a=a` with `c` made current; the
+    /// binary's snapshot puts the frame its animation clock chose with
+    /// [`show`](Self::show).
     pub frame: u32,
     /// That frame's pixel revision: the store's revision when a command last
     /// changed what the frame shows. The image's key, `frame` and
@@ -130,6 +134,31 @@ impl Store {
         below: &[LineKey],
         cols: usize,
     ) -> Vec<FramePlacement> {
+        self.frame_with_runs(view, below, &[], cols)
+    }
+
+    /// [`frame_with_below`](Self::frame_with_below), given also `runs`, the
+    /// runs of kitty placeholder cells vtium-term read from the rows the
+    /// view shows (ADR-1100, D13). Each run of a virtual placement of the
+    /// buffer in use becomes an entry: the part of the placement's picture,
+    /// fitted to its grid of cells, under the run's cells, anchored at the
+    /// run's line and first column. A run whose image or virtual placement
+    /// is not found, or whose line the view does not show, makes no entry,
+    /// and the cells of a run outside the grid or the screen, or that the
+    /// fitted picture does not reach, draw nothing. The entries take their
+    /// virtual placement's place in the draw order, row by row, then column
+    /// by column, and each has a key of its own among the frame's entries,
+    /// from [`RUN_KEY_FIRST`](super::runs::RUN_KEY_FIRST) up. A relative
+    /// placement whose parent is virtual draws from the origin its parent's
+    /// runs give, and draws nothing when none of them is handed. The frame
+    /// takes at most one run for each cell of the view.
+    pub fn frame_with_runs(
+        &self,
+        view: Rows<'_>,
+        below: &[LineKey],
+        runs: &[PlaceholderRun],
+        cols: usize,
+    ) -> Vec<FramePlacement> {
         let Some(buf) = self.buffers.get(self.active()) else {
             return Vec::new();
         };
@@ -143,9 +172,10 @@ impl Store {
             .enumerate()
             .map(|(i, &k)| (k, i))
             .collect();
+        let place = |k: &PlacementKey| order.get(k).copied().unwrap_or(usize::MAX);
         let screen = view.screen.iter().zip(0i64..);
         let above = view.above.iter().zip((1i64..).map(i64::wrapping_neg));
-        let mut found: Vec<(usize, i64, PlacementKey)> = Vec::new();
+        let mut found: Vec<Found<'_>> = Vec::new();
         let mut line_rows: BTreeMap<LineKey, i64> = BTreeMap::new();
         for (line, row) in screen.chain(above) {
             if !buf.children.is_empty() {
@@ -157,7 +187,7 @@ impl Store {
                 };
                 let in_cols = usize::try_from(p.col).is_ok_and(|c| c < cols);
                 if in_cols && row.saturating_add(i64::from(p.rows)) > 0 {
-                    found.push((order.get(&k).copied().unwrap_or(usize::MAX), row, k));
+                    found.push(Found::own(place(&k), row, k, p));
                 }
             }
         }
@@ -167,47 +197,141 @@ impl Store {
                 line_rows.insert(*line, row);
             }
         }
+        // the runs the view's cells can hold, on the view's own rows
+        let cap = view.screen.len().saturating_mul(cols);
+        let runs = runs.get(..runs.len().min(cap)).unwrap_or_default();
+        let virtuals = if runs.is_empty() {
+            None
+        } else {
+            Some(Virtuals::of(buf))
+        };
+        let screen_rows: BTreeMap<LineKey, i64> = if runs.is_empty() {
+            BTreeMap::new()
+        } else {
+            view.screen.iter().copied().zip(0i64..).collect()
+        };
+        let row_of = |line: LineKey| screen_rows.get(&line).copied();
+        let origins = match &virtuals {
+            Some(v) if !buf.children.is_empty() => origins(v, runs, row_of),
+            _ => BTreeMap::new(),
+        };
         let width = i64::try_from(cols).unwrap_or(i64::MAX);
-        let mut moved: BTreeMap<PlacementKey, (Placement, u64)> = BTreeMap::new();
         for &k in buf.children.values().flatten() {
-            let (
-                Some(p),
+            let Some(p) = buf.placements.get(&k) else {
+                continue;
+            };
+            let (top, col, revision) = match buf.locate(k) {
                 Some(Located::At {
                     line,
                     row,
                     col,
                     revision,
                     ..
-                }),
-            ) = (buf.placements.get(&k), buf.locate(k))
-            else {
-                continue;
-            };
-            let Some(top) = line_rows.get(&line).map(|r| r.saturating_add(row)) else {
-                continue;
+                }) => match line_rows.get(&line) {
+                    Some(r) => (r.saturating_add(row), col, revision),
+                    None => continue,
+                },
+                Some(Located::Floating {
+                    root,
+                    row,
+                    col,
+                    revision,
+                }) => match origins.get(&root) {
+                    Some(&(top, left)) => {
+                        (top.saturating_add(row), left.saturating_add(col), revision)
+                    }
+                    None => continue,
+                },
+                None => continue,
             };
             let shows = top.saturating_add(i64::from(p.rows)) > 0 && top < height && col < width;
             let Some(placed) = shows.then(|| at_column(p, col)).flatten() else {
                 continue;
             };
-            found.push((order.get(&k).copied().unwrap_or(usize::MAX), top, k));
-            moved.insert(k, (placed, revision));
+            found.push(Found {
+                order: place(&k),
+                row: top,
+                col: placed.col,
+                key: k,
+                placement: Cow::Owned(placed),
+                revision,
+            });
         }
-        found.sort_unstable();
+        if let Some(virtuals) = &virtuals {
+            for run in runs {
+                let (Some(k), Some(row)) = (virtuals.find(run), row_of(run.line)) else {
+                    continue;
+                };
+                let Some(placed) = buf
+                    .placements
+                    .get(&k)
+                    .and_then(|p| run_placement(p, run, cols))
+                else {
+                    continue;
+                };
+                found.push(Found {
+                    order: place(&k),
+                    row,
+                    col: placed.col,
+                    key: k,
+                    revision: placed.revision,
+                    placement: Cow::Owned(placed),
+                });
+            }
+        }
+        found.sort_by_key(|f| (f.order, f.row, f.col, f.key));
+        let mut next_run = RUN_KEY_FIRST;
         found
             .into_iter()
-            .filter_map(|(_, row, k)| {
-                let (p, revision) = match moved.get(&k) {
-                    Some((p, revision)) => (p, *revision),
-                    None => {
-                        let p = buf.placements.get(&k)?;
-                        (p, p.revision)
-                    }
+            .filter_map(|f| {
+                let image = buf.images.get(&f.placement.image)?;
+                // a run's entry takes a key of its own among the frame's
+                let key = if f.placement.spot == Spot::Virtual {
+                    let key = PlacementKey(next_run);
+                    next_run = next_run.saturating_add(1);
+                    key
+                } else {
+                    f.key
                 };
-                let image = buf.images.get(&p.image)?;
-                Some(entry(k, p, image, row, revision))
+                let shown = self.shown(f.placement.image, image);
+                Some(entry(key, &f.placement, image, f.row, f.revision, shown))
             })
             .collect()
+    }
+
+    /// The frame an entry of `image`, whose key is `key`, shows: the image's
+    /// current frame, as the commands set it, when that is a frame past the
+    /// root; the binary's animation clock may put another in its place
+    /// (ADR-1102, D3).
+    fn shown(&self, key: ImageKey, image: &super::Image) -> Option<FramePixels> {
+        let current = image.anim.as_deref()?.state().current;
+        (current > 1)
+            .then(|| self.frame_pixels(key, current))
+            .flatten()
+    }
+}
+
+/// A placement found for a frame: its place in the draw order, its view
+/// row and column, its key, the placement as it draws and its revision.
+struct Found<'a> {
+    order: usize,
+    row: i64,
+    col: u32,
+    key: PlacementKey,
+    placement: Cow<'a, Placement>,
+    revision: u64,
+}
+
+impl<'a> Found<'a> {
+    fn own(order: usize, row: i64, key: PlacementKey, p: &'a Placement) -> Self {
+        Self {
+            order,
+            row,
+            col: p.col,
+            key,
+            placement: Cow::Borrowed(p),
+            revision: p.revision,
+        }
     }
 }
 
@@ -239,6 +363,7 @@ fn entry(
     image: &super::Image,
     row: i64,
     revision: u64,
+    shown: Option<FramePixels>,
 ) -> FramePlacement {
     let dw = i64::try_from(p.dw).unwrap_or(i64::MAX).max(1);
     let dh = i64::try_from(p.dh).unwrap_or(i64::MAX).max(1);
@@ -303,10 +428,12 @@ fn entry(
         image_width: image.width,
         image_height: image.height,
         opaque: image.opaque && image.anim.as_deref().is_none_or(super::Anim::opaque),
-        pixels: image.pixels.clone(),
+        pixels: shown
+            .as_ref()
+            .map_or_else(|| image.pixels.clone(), |f| f.pixels.clone()),
         revision: revision.max(image.revision),
-        frame: 1,
-        pixel_revision: image.revision,
+        frame: shown.as_ref().map_or(1, |f| f.frame),
+        pixel_revision: shown.as_ref().map_or(image.revision, |f| f.revision),
         animation: image.anim.as_deref().map(super::Anim::state),
     }
 }

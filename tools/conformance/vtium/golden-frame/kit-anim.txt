@@ -26,9 +26,6 @@ row 2 ||
 row 3 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
 image 0 4x2 digest a5161af5
-anim 0 frames 2 current 1 run stopped loops 1 stamps 0 0
-anim 0 frame 1 gap 0 digest a5161af5
-anim 0 frame 2 gap 40 digest f2b70bb5
 checkpoint 239
 size 12x4
 cursor 0,0
@@ -43,10 +40,6 @@ row 2 ||
 row 3 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
 image 0 4x2 digest a5161af5
-anim 0 frames 3 current 1 run stopped loops 1 stamps 0 0
-anim 0 frame 1 gap 0 digest a5161af5
-anim 0 frame 2 gap 40 digest f2b70bb5
-anim 0 frame 3 gap 40 digest 72187175
 checkpoint 297
 size 12x4
 cursor 0,0
@@ -60,16 +53,12 @@ row 1 ||
 row 2 ||
 row 3 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
-image 0 4x2 digest a5161af5
-anim 0 frames 3 current 3 run looping loops 1 stamps 1 1
-anim 0 frame 1 gap 100 digest a5161af5
-anim 0 frame 2 gap 40 digest f2b70bb5
-anim 0 frame 3 gap 40 digest 72187175
-checkpoint 330
+image 0 4x2 digest 72187175
+checkpoint 346
 size 12x4
 cursor 0,0
 flags AUTO_WRAP
-reply 1b5f47693d313b4f4b1b5c
+reply 1b5f47693d313b4f4b1b5c1b5f47693d313b4f4b1b5c
 palette legacy fg=#e5e5e5 bg=#000000
 changed 0
 frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
@@ -79,11 +68,7 @@ row 2 ||
 row 3 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque changed
 image 0 4x2 digest e8332d6b
-anim 0 frames 3 current 3 run looping loops 1 stamps 1 1
-anim 0 frame 1 gap 100 digest e8332d6b
-anim 0 frame 2 gap 40 digest f2b70bb5
-anim 0 frame 3 gap 40 digest 72187175
-checkpoint 362
+checkpoint 378
 size 12x4
 cursor 0,0
 flags AUTO_WRAP
@@ -97,11 +82,7 @@ row 2 ||
 row 3 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque changed
 image 0 4x2 digest f14b80e5
-anim 0 frames 3 current 3 run looping loops 1 stamps 1 1
-anim 0 frame 1 gap 100 digest f14b80e5
-anim 0 frame 2 gap 40 digest f2b70bb5
-anim 0 frame 3 gap 40 digest 72187175
-checkpoint 390
+checkpoint 406
 size 12x4
 cursor 0,0
 flags AUTO_WRAP
@@ -114,12 +95,8 @@ row 1 ||
 row 2 ||
 row 3 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
-image 0 4x2 digest f14b80e5
-anim 0 frames 3 current 3 run looping loops 1 stamps 2 1
-anim 0 frame 1 gap 100 digest f14b80e5
-anim 0 frame 2 gap 40 digest f2b70bb5
-anim 0 frame 3 gap 40 digest 72187175
-checkpoint 422
+image 0 4x2 digest 72187175
+checkpoint 438
 size 12x4
 cursor 0,0
 flags AUTO_WRAP
@@ -133,117 +110,7 @@ row 2 ||
 row 3 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
 image 0 4x2 digest f14b80e5
-anim 0 frames 1 current 1 run stopped loops 1 stamps 3 2
-anim 0 frame 1 gap 100 digest f14b80e5
-checkpoint 542
-size 12x4
-cursor 0,0
-flags AUTO_WRAP
-reply 1b5f47693d313b4f4b1b5c1b5f47693d313b4f4b1b5c
-palette legacy fg=#e5e5e5 bg=#000000
-changed 0
-frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
-row 0 ||
-row 1 ||
-row 2 ||
-row 3 ||
-placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
-image 0 4x2 digest f14b80e5
-anim 0 frames 3 current 1 run stopped loops 1 stamps 3 2
-anim 0 frame 1 gap 100 digest f14b80e5
-anim 0 frame 2 gap -1 digest 32055f85
-anim 0 frame 3 gap 60 digest 6270e251
-checkpoint 634
-size 12x4
-cursor 0,0
-flags AUTO_WRAP
-reply 1b5f47693d313b4f4b1b5c1b5f47693d313b4f4b1b5c
-palette legacy fg=#e5e5e5 bg=#000000
-changed 0
-frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
-row 0 ||
-row 1 ||
-row 2 ||
-row 3 ||
-placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
-image 0 4x2 digest f14b80e5
-anim 0 frames 3 current 1 run stopped loops 1 stamps 3 2
-anim 0 frame 1 gap 100 digest f14b80e5
-anim 0 frame 2 gap -1 digest b34092a3
-anim 0 frame 3 gap 150 digest 2ad0ad51
-checkpoint 678
-size 12x4
-cursor 0,0
-flags AUTO_WRAP
-reply 1b5f47693d313b4f4b1b5c
-palette legacy fg=#e5e5e5 bg=#000000
-changed 0
-frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
-row 0 ||
-row 1 ||
-row 2 ||
-row 3 ||
-placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
-image 0 4x2 digest f14b80e5
-anim 0 frames 3 current 1 run stopped loops 1 stamps 3 2
-anim 0 frame 1 gap 100 digest f14b80e5
-anim 0 frame 2 gap -1 digest 3ecf56db
-anim 0 frame 3 gap 150 digest 2ad0ad51
-checkpoint 694
-size 12x4
-cursor 0,0
-flags AUTO_WRAP
-reply 1b5f47693d313b4f4b1b5c
-palette legacy fg=#e5e5e5 bg=#000000
-changed 0
-frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
-row 0 ||
-row 1 ||
-row 2 ||
-row 3 ||
-placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
-image 0 4x2 digest f14b80e5
-anim 0 frames 3 current 1 run loading loops 1 stamps 3 3
-anim 0 frame 1 gap 100 digest f14b80e5
-anim 0 frame 2 gap -1 digest 3ecf56db
-anim 0 frame 3 gap 150 digest 2ad0ad51
-checkpoint 710
-size 12x4
-cursor 0,0
-flags AUTO_WRAP
-reply 1b5f47693d313b4f4b1b5c
-palette legacy fg=#e5e5e5 bg=#000000
-changed 0
-frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
-row 0 ||
-row 1 ||
-row 2 ||
-row 3 ||
-placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
-image 0 4x2 digest f14b80e5
-anim 0 frames 3 current 1 run loading loops 3 stamps 3 4
-anim 0 frame 1 gap 100 digest f14b80e5
-anim 0 frame 2 gap -1 digest 3ecf56db
-anim 0 frame 3 gap 150 digest 2ad0ad51
-checkpoint 730
-size 12x4
-cursor 0,0
-flags AUTO_WRAP
-reply 1b5f47693d313b4f4b1b5c
-palette legacy fg=#e5e5e5 bg=#000000
-changed 0
-frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
-row 0 ||
-row 1 ||
-row 2 ||
-row 3 ||
-placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
-image 0 4x2 digest f14b80e5
-anim 0 frames 3 current 2 run stopped loops 3 stamps 4 5
-anim 0 frame 1 gap 100 digest f14b80e5
-anim 0 frame 2 gap -1 digest 3ecf56db
-anim 0 frame 3 gap 150 digest 2ad0ad51
-checkpoint 746
+checkpoint 438
 size 12x4
 cursor 0,0
 flags AUTO_WRAP
@@ -256,5 +123,3 @@ row 2 ||
 row 3 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 4x2 src 0,0 4x2 cell 8x16 z 0 above-text kitty image 0 opaque
 image 0 4x2 digest f14b80e5
-anim 0 frames 1 current 1 run stopped loops 3 stamps 5 6
-anim 0 frame 1 gap 100 digest f14b80e5

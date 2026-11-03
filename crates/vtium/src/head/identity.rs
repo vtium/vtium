@@ -1,15 +1,15 @@
 //! A device as the head file's rules see it: vtium-platform's identities
 //! of a display and of an input, read from udev, sysfs, the device and the
-//! KMS connector, mapped into vtium-config's [`Identity`] (ADR-1401 D4).
+//! KMS connector, mapped into vtium-settings's [`Identity`] (ADR-1401 D4).
 //!
 //! The start walks each device through the rules with what these give, and
 //! `vtium check-config` reads the devices present through the same mapping,
 //! so a rule matches the same device in both.
 
-use vtium_config::{Class, Classes, Edid, Identity, UsbSerial};
 use vtium_platform::display::{self, Serial};
 use vtium_platform::input::Class as Udev;
 use vtium_platform::udev::InputIdentity;
+use vtium_settings::{Class, Classes, Edid, Identity, UsbSerial};
 
 /// What the display guard reads of a display's card beside the display's
 /// own identity (D9).
@@ -137,8 +137,8 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::Path;
 
-    use vtium_config::{Place, parse};
     use vtium_platform::input::Classes as UdevClasses;
+    use vtium_settings::{Place, parse};
 
     use super::*;
 

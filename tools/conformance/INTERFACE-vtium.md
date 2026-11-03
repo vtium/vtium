@@ -22,7 +22,7 @@ A program sets the clipboard with OSC 52 (`osc.52.write` in ADR-1000), and a hos
 
 A kitty animation is an image with frames past its own pixels: a program adds and edits frames with `a=f`, composes one frame onto another with `a=c`, sets the gaps, the run state and the loops with `a=a`, and deletes the frames with `d=f` or `d=F` (ADR-1102). The image's own pixels are its first frame, the *root frame*. The store records what these commands say and never which frame is on show, which an animation clock in the vtium binary picks, so a replay, which has no clock, prints the store's record. The C reference refused `a=f`, `a=a` and `a=c` with EINVAL, so its goldens hold no `anim` line.
 
-After an image's `image` line, a block prints that image's `anim` lines when an animation command has named the image: one line for the animation, then one line for each frame, from 1, the root frame, to the last. An image that no animation command named prints none. A block prints `anim` lines only for the images it prints `image` lines for, the images its placements show. The interface check holds the order: an image's `anim M frames` line comes straight after its `image M` line and only there, its current frame is one of its frames, and its frame lines follow it numbered 1, 2, 3 and so on, exactly as many as its frames.
+After an image's `image` line, a block prints that image's `anim` lines when an animation command has named the image: one line for the animation, then one line for each frame, from 1, the root frame, to the last. An image that no animation command named prints none. A block prints `anim` lines only for the images it prints `image` lines for, the images its placements show. An animated image's placements show its current frame, so its `image` line hashes that frame's pixels, the same digest as the current frame's `anim` line. The interface check holds the order: an image's `anim M frames` line comes straight after its `image M` line and only there, its current frame is one of its frames, and its frame lines follow it numbered 1, 2, 3 and so on, exactly as many as its frames.
 
 `anim M frames F current C run RUN loops L stamps S T` is image M's animation as the store records it. F is the number of frames, the root frame included. C is the frame a command last made current, which `a=a` with `c` sets and which becomes 1 when the frames are deleted or freed. RUN is `stopped`, `loading` or `looping`, as the last `a=a` with `s` set it (`s=1`, `s=2` and `s=3`), and `stopped` when no command set it or the frames were deleted or freed. L is the loops the last `a=a` with `v` asked for: 1 plays forever, a larger number plays that many less one, and it starts at 1. S is the frame stamp, a count that the store moves each time a command makes a frame current, and T is the run stamp, a count that it moves each time a command sets the run state or the loops; deleting or freeing the frames moves both. Both start at 0 and follow from the bytes alone.
 
@@ -32,7 +32,7 @@ After an image's `image` line, a block prints that image's `anim` lines when an 
 |---|---|
 | `kitty-animation` | The kitty graphics protocol's `a=f`, `a=c`, `a=a`, `d=f` and `d=F` act on an image's frames, and blocks print `anim` lines. |
 
-A worked example: a 2 by 1 image, then a frame on a clear canvas with its right pixel green and a gap of 80 ms, then `a=a` running it in a loop with frame 2 current.
+A worked example: a 2 by 1 image, then a frame on a clear canvas with its right pixel green and a gap of 80 ms, then `a=a` running it in a loop with frame 2 current, which its placement then shows.
 
 ```example kitty-animation
 size 4 1
@@ -49,7 +49,7 @@ cursor 0,0
 flags AUTO_WRAP
 row 0 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 2x1 src 0,0 2x1 cell 2x1 z 0 above-text kitty image 0
-image 0 2x1 digest bc648309
+image 0 2x1 digest f052c40d
 anim 0 frames 2 current 2 run looping loops 1 stamps 1 1
 anim 0 frame 1 gap 0 digest bc648309
 anim 0 frame 2 gap 80 digest f052c40d

@@ -6,7 +6,7 @@ minspec's display floor, a 320x240 SPI panel, in the example frit tiny5: 320x240
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 320x240, 24-bit color | small color LCD | 6x9 | 53x26 | `tiny5`, the frit [`tiny5.vtfrit`](../../../crates/vtium-vitrify/frits/tiny5.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png), [screen-5.png](screen-5.png), [screen-6.png](screen-6.png), [screen-7.png](screen-7.png), [screen-8.png](screen-8.png), [screen-9.png](screen-9.png), [screen-10.png](screen-10.png), [screen-11.png](screen-11.png), [screen-12.png](screen-12.png) |
+| 320x240, 24-bit color | small color LCD | 6x9 | 53x26 | `tiny5`, the frit [`tiny5.vtfrit`](../../../crates/vtium-config/frits/tiny5.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png), [screen-5.png](screen-5.png), [screen-6.png](screen-6.png), [screen-7.png](screen-7.png), [screen-8.png](screen-8.png), [screen-9.png](screen-9.png), [screen-10.png](screen-10.png), [screen-11.png](screen-11.png), [screen-12.png](screen-12.png) |
 
 ## Why this font
 
@@ -17,11 +17,11 @@ This profile shows an example of the smallest font, the frit `tiny5`, which is p
 [vtium.conf](vtium.conf):
 
 ```ini
-# The frit tiny5: crates/vtium-vitrify/frits/tiny5.vtfrit in
+# The frit tiny5: crates/vtium-config/frits/tiny5.vtfrit in
 # /etc/vtium/fonts, with Tiny5 Mono's BDF file installed where its
 # source= line says. It draws at its own 6x9 cell.
 font-name=tiny5
 font-size=0
 ```
 
-The screens here draw the glyphs vtium-vitrify's engine, the one the helper runs (ADR-1301 D2), generates from the shipped frit and Tiny5 Mono's BDF file, pinned by commit and SHA-256, which `make specimens-fonts` fetches, with the frit's `source=` line pointed at the fetched copy (`tools/specimens/README.md`); where that file is absent the check skips this profile while it is provisional, and fails it once accepted.
+The screens here draw the glyphs vtium-config's engine, the one the helper runs (ADR-1301 D2), generates from the shipped frit and Tiny5 Mono's BDF file, pinned by commit and SHA-256, which `make specimens-fonts` fetches, with the frit's `source=` line pointed at the fetched copy (`tools/specimens/README.md`); where that file is absent the check skips this profile while it is provisional, and fails it once accepted.

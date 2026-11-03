@@ -23,15 +23,15 @@ if [ -d "$disc"/frits ]; then
     install -Dm644 -t /etc/vtium/fonts "$disc"/frits/*.vtfrit
 fi
 # A variant whose font is a frit generated at run time installs it with no
-# set built (ADR-1301 D2). One that holds the helper replaces vtium-vitrify
+# set built (ADR-1301 D2). One that holds the helper replaces vtium-config
 # with a program that never answers, so the screens show what the console
 # draws before any answer.
 if [ -d "$disc"/deferred-frits ]; then
     install -Dm644 -t /etc/vtium/fonts "$disc"/deferred-frits/*.vtfrit
 fi
 if [ -f "$disc"/helper-held ]; then
-    printf '#!/bin/sh\nexec /usr/bin/sleep 3600\n' > /usr/bin/vtium-vitrify
-    chmod 755 /usr/bin/vtium-vitrify
+    printf '#!/bin/sh\nexec /usr/bin/sleep 3600\n' > /usr/bin/vtium-config
+    chmod 755 /usr/bin/vtium-config
 fi
 # The pointer variant's screens read the display's DRM atomic state as
 # tester (screens/pointer.sh), so debugfs is opened to them.

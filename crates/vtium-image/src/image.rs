@@ -21,6 +21,29 @@ impl LineKey {
     }
 }
 
+/// A run of kitty placeholder cells, as vtium-term reads it from the text
+/// and hands it to the store (ADR-1100, D13): side-by-side placeholder
+/// cells on one row that name the same image and placement, lie on one row
+/// of the picture and show consecutive columns of it. The store never sees
+/// a cell; it learns of placeholders only through runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlaceholderRun {
+    /// The line that holds the run.
+    pub line: LineKey,
+    /// The screen column of the run's first cell.
+    pub col: u32,
+    /// The cells in the run.
+    pub cells: u32,
+    /// The kitty image id the cells name, all 32 bits.
+    pub image: u32,
+    /// The kitty placement id the cells name, or none.
+    pub placement: Option<u32>,
+    /// The picture row of the run, and the picture column of its first
+    /// cell, in the virtual placement's grid of cells.
+    pub row: u32,
+    pub column: u32,
+}
+
 /// An image's key: counted up by its store and never reused, so a frame
 /// that still names it names no other image.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

@@ -24,11 +24,12 @@ mod frame;
 pub(crate) mod kitty;
 mod relative;
 mod reserve;
+mod runs;
 mod sixel;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::bounds::{
     BOX_CELLS_MAX, CELL_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX, IMAGES_PER_BUFFER, PLACEMENT_OVERHEAD,
@@ -210,6 +211,9 @@ struct Buffer {
     /// Each placement's relative placements, its children, in the order
     /// they were made (D13); every relative placement is in it once.
     children: BTreeMap<PlacementKey, Vec<PlacementKey>>,
+    /// The relative placements whose parent is a virtual placement: every
+    /// chain that ends at a virtual placement starts with one (D13).
+    virtual_children: usize,
     /// The stack at each layer and z, bottom to top (D4).
     stacks: BTreeMap<(Layer, i32), Vec<PlacementKey>>,
     /// How many placements are each height in rows, all of them and those
@@ -341,11 +345,43 @@ impl Buffer {
         }
     }
 
-    /// Adds or replaces a placement, keeping the height counts.
+    /// Adds or replaces a placement, keeping the height counts, and the
+    /// count of virtual placements' children when a replacement makes a
+    /// parent virtual or no longer virtual.
     fn put(&mut self, key: PlacementKey, p: Placement) {
         self.count_height(key, false);
+        let was = self.is_virtual(key);
+        let now = p.spot == Spot::Virtual;
         self.placements.insert(key, p);
         self.count_height(key, true);
+        let kids = self.children.get(&key).map_or(0, Vec::len);
+        if was && !now {
+            self.virtual_children = self.virtual_children.saturating_sub(kids);
+        } else if now && !was {
+            self.virtual_children = self.virtual_children.saturating_add(kids);
+        }
+    }
+
+    fn is_virtual(&self, key: PlacementKey) -> bool {
+        self.placements
+            .get(&key)
+            .is_some_and(|p| p.spot == Spot::Virtual)
+    }
+
+    /// Adds relative placement `key` to its parent `parent`'s children.
+    fn link(&mut self, key: PlacementKey, parent: PlacementKey) {
+        self.children.entry(parent).or_default().push(key);
+        if self.is_virtual(parent) {
+            self.virtual_children = self.virtual_children.saturating_add(1);
+        }
+    }
+
+    /// Forgets placement `key`'s list of children, as it goes.
+    fn drop_children(&mut self, key: PlacementKey) {
+        let kids = self.children.remove(&key).map_or(0, |list| list.len());
+        if self.is_virtual(key) {
+            self.virtual_children = self.virtual_children.saturating_sub(kids);
+        }
     }
 
     /// Removes a placement, keeping the height counts.
@@ -408,6 +444,14 @@ pub struct Store {
     reservations: BTreeMap<u64, u64>,
     /// The number the next reservation gets.
     next_reservation: u64,
+    /// The placeholder runs vtium-term read from each buffer's screen lines
+    /// for the decision under way, held only through
+    /// [`with_runs`](Self::with_runs) (ADR-1100, D13).
+    runs: [Vec<crate::image::PlaceholderRun>; 2],
+    /// The buffer and kitty image id of each virtual placement changed
+    /// since vtium-term last took them, for it to mark that image's
+    /// placeholder cells (D13).
+    changed_virtual: BTreeSet<(bool, u32)>,
 }
 
 /// Two stores compare by what they hold; the work an input call counted
@@ -468,6 +512,8 @@ impl Store {
             evicting: false,
             reservations: BTreeMap::new(),
             next_reservation: 0,
+            runs: [Vec::new(), Vec::new()],
+            changed_virtual: BTreeSet::new(),
         }
     }
 
@@ -893,10 +939,14 @@ impl Store {
             id: place.id,
             revision,
         };
+        self.virtual_changed(b, &placement);
         let key = match replaced {
             Some(k) => {
                 // the old box and every box that follows it change
                 self.mark_family(b, k, true);
+                if let Some(old) = self.placement(b, k).cloned() {
+                    self.virtual_changed(b, &old);
+                }
                 if let Some(buf) = self.buffers.get_mut(b) {
                     buf.unstack(k);
                     buf.detach(k);
@@ -921,7 +971,7 @@ impl Store {
             Some(buf) => {
                 match spot {
                     Spot::Line(line) => buf.attach(key, line),
-                    Spot::Child { parent, .. } => buf.children.entry(parent).or_default().push(key),
+                    Spot::Child { parent, .. } => buf.link(key, parent),
                     Spot::Virtual => {}
                 }
                 buf.stack_arrival(key)
@@ -1077,7 +1127,7 @@ impl Store {
             let rows = screens.of(b);
             let height = rows.height();
             let tops = self.tops(b, rows);
-            let drawn = self.drawn(b, &tops);
+            let drawn = self.drawn(b, rows, &tops);
             let Some(buf) = self.buffers.get(b) else {
                 continue;
             };
@@ -1266,8 +1316,9 @@ impl Store {
         buf.detach(key);
         buf.unstack(key);
         buf.unlink(key);
-        buf.children.remove(&key);
+        buf.drop_children(key);
         let p = buf.take(key)?;
+        self.virtual_changed(b, &p);
         self.pending.retain(|&(pb, pk, _)| (pb, pk) != (b, key));
         self.changed.extend(region);
         self.bump();
@@ -1356,8 +1407,13 @@ impl Store {
             return;
         };
         let buf = core::mem::take(buf);
-        for &k in buf.placements.keys() {
+        for (&k, p) in &buf.placements {
             self.changed.extend(buf.region(k));
+            if p.spot == Spot::Virtual
+                && let Some(image) = buf.images.get(&p.image)
+            {
+                self.note_virtual(b, image.id);
+            }
         }
         for image in buf.images.values() {
             self.owed = self.owed.saturating_sub(image.owed);

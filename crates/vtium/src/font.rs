@@ -146,7 +146,7 @@ pub fn auto_size(width: u32, height: u32, smallest: u32) -> u32 {
 }
 
 /// The frits' directory vtium is built with, `font-frits`'s default: set
-/// at build time with `VTIUM_FONT_FRITS`, as vtium-vitrify's is.
+/// at build time with `VTIUM_FONT_FRITS`, as vtium-config's is.
 pub const FRITS: &str = match option_env!("VTIUM_FONT_FRITS") {
     Some(dir) => dir,
     None => "/etc/vtium/fonts",
@@ -179,13 +179,13 @@ pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
     (frit_name(name) && std::fs::metadata(&path).is_ok_and(|m| m.is_file())).then_some(path)
 }
 
-/// The smallest and largest side of a frit's `cell=`, vtium-vitrify's
+/// The smallest and largest side of a frit's `cell=`, vtium-config's
 /// `FRIT_CELL_MIN` and `FRIT_CELL_MAX`.
 pub const FRIT_CELL_MIN: u32 = 6;
 pub const FRIT_CELL_MAX: u32 = 96;
 
 /// The frit at `path`'s text: a regular file of at most `FILE_MAX`
-/// bytes, as vtium-vitrify's `FRIT_BYTES_MAX`, in UTF-8.
+/// bytes, as vtium-config's `FRIT_BYTES_MAX`, in UTF-8.
 pub fn frit_text(path: &Path) -> Result<String, String> {
     let bytes = crate::config::read_file(path)
         .map_err(|e| e.to_string())?
@@ -223,7 +223,7 @@ fn frit_line<'a>(text: &'a str, key: &str) -> Result<Option<(usize, &'a str)>, S
 }
 
 /// One side of a frit's cell, or its size, in pixels: digits only, no
-/// leading zero, [`FRIT_CELL_MIN`] to [`FRIT_CELL_MAX`], as vtium-vitrify
+/// leading zero, [`FRIT_CELL_MIN`] to [`FRIT_CELL_MAX`], as vtium-config
 /// reads it.
 fn frit_side(s: &str) -> Option<u32> {
     s.parse::<u32>()
@@ -233,7 +233,7 @@ fn frit_side(s: &str) -> Option<u32> {
 
 /// The cell a frit's `text` states, `cell=WIDTHxHEIGHT` (#145); `None`
 /// when it states none; an error naming the line for a value
-/// vtium-vitrify refuses, or a second `cell=`.
+/// vtium-config refuses, or a second `cell=`.
 pub fn frit_cell(text: &str) -> Result<Option<Cell>, String> {
     let Some((n, value)) = frit_line(text, "cell")? else {
         return Ok(None);
@@ -253,7 +253,7 @@ pub fn frit_cell(text: &str) -> Result<Option<Cell>, String> {
 
 /// The size a frit's `text` starts at, `size=` (ADR-1200 D1), in points;
 /// `None` when it states none; an error naming the line for a value
-/// vtium-vitrify refuses, or a second `size=`.
+/// vtium-config refuses, or a second `size=`.
 pub fn frit_size(text: &str) -> Result<Option<u32>, String> {
     let Some((n, value)) = frit_line(text, "size")? else {
         return Ok(None);
@@ -313,7 +313,7 @@ fn frit_outline(text: &str) -> bool {
 /// `cell=`, a cell smaller than the built-in Unscii-8's 8x8, which the
 /// built-in is cropped to until the glyphs land, and a `builtin:` source
 /// whose own cell does not fit it, which gives nothing. Whether a font
-/// file's glyphs fit is vtium-vitrify's to check.
+/// file's glyphs fit is vtium-config's to check.
 pub fn frit_warnings(name: &str, text: &str) -> Vec<String> {
     let cell = match frit_cell(text) {
         Ok(Some(cell)) => cell,

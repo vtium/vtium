@@ -55,7 +55,9 @@ pub use bounds::{
     RELATIVE_DEPTH_MAX, auto_limit,
 };
 pub use handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
-pub use image::{ImageKey, LineKey, NewImage, Pixels, Place, PlacementKey, Refusal};
+pub use image::{
+    ImageKey, LineKey, NewImage, Pixels, Place, PlaceholderRun, PlacementKey, Refusal,
+};
 pub use protocol::kitty::Kitty;
 pub use protocol::sixel::Sixel;
 pub use rules::{Layer, Protocol, RegionScroll, Rules, rules};

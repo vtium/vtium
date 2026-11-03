@@ -1,5 +1,5 @@
 //! The glyph helper's stand-in for the integration tests that start one:
-//! vtium-vitrify's real serve mode, run by the test binary itself in a
+//! vtium-config's real serve mode, run by the test binary itself in a
 //! process of its own, so each answer is the one the real helper gives.
 //! Each test binary that includes this module has its own
 //! [`the_helper_stand_in`], which its [`real_helper`] starts.
@@ -13,7 +13,7 @@ use std::time::Duration;
 const STAND_IN: &str = "VTIUM_TEST_HELPER";
 
 /// The glyph helper the outline tests run: this test binary again, its
-/// [`the_helper_stand_in`] alone, which serves with vtium-vitrify's real
+/// [`the_helper_stand_in`] alone, which serves with vtium-config's real
 /// serve mode, so each answer is the one the real helper gives. With
 /// `go`, a FIFO, its first answer waits until the test opens `go` to
 /// write, and the kind of each frame it sends is appended to `kinds`, one
@@ -100,10 +100,10 @@ fn the_helper_stand_in() {
         go: (!go.is_empty()).then(|| PathBuf::from(go)),
         pending: Vec::new(),
     };
-    let status = vtium_vitrify::serve::serve(
+    let status = vtium_config::serve::serve(
         std::io::stdin(),
         &mut out,
-        &vtium_vitrify::serve::Paths::default(),
+        &vtium_config::serve::Paths::default(),
         Duration::from_secs(5),
     );
     std::process::exit(i32::from(status));

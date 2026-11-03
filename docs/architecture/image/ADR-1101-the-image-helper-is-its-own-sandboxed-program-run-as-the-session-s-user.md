@@ -117,6 +117,8 @@ related: []
 
 > Edited 2026-11-01, after the fresh review and the maintainer's answers (`considered`): the crash limit ends with the console's session, not the boot (D8); the parent helper, not the landlocked worker, removes a shared-memory object (D4, D5); the owner check is stated as the protection (D5); the crate holds `unsafe` in one module (D1); the helper starts through `/proc/self/fd`, as the font helper does (D1, D3); the armv7 helper runs without seccomp (D9); the decoders and the crates they pull in are named (D6). The earlier text is in git at 991986ba.
 
+> Note 2026-11-02 (the rename): ADR-1201 D12 renamed the font tool vtium-vitrify to vtium-config. A user runs it as `vtium config`, the console starts its glyph helper as `vtium-config serve` at `/usr/bin/vtium-config` by default, and the console's build sets that path with VTIUM_FONT_HELPER where it set VTIUM_VITRIFY. This record keeps the names it was written with.
+
 ## Context
 
 ADR-1100 D7 sends PNG, zlib, files, temporary files, shared memory and iTerm2's formats to an image helper, so the console, which runs as root, never opens a file a program names and never decodes a format whose decoder faces a program's bytes. ADR-1400 D2 carries the C reference's helper forward and left four questions to the helper's own record: whether it is a second program or vtium itself, the pre-login account's name, whether seccomp or landlock narrows it, and what to do about the removal of shared-memory objects that any program writing to the terminal can ask for. ADR-1100 D12 says the helper "needs its own record, which decides its sandbox". The maintainer decided all four on 2026-11-01.
