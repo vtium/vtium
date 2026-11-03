@@ -5,6 +5,15 @@ use std::ffi::OsString;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // A descriptor the process inherited without close-on-exec would reach
+    // every program vtium-config starts, the glyph helper that parses fonts
+    // among them. Marking them all here, before any command runs, leaves each
+    // child holding only what its spawn hands it. vtium-config hands no child
+    // an inherited descriptor on purpose.
+    if let Err(e) = vtium_platform::cloexec_above_stdio() {
+        eprintln!("vtium-config: cannot mark the inherited descriptors close-on-exec: {e}");
+        return ExitCode::from(1);
+    }
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     if args.len() == 1
         && args
