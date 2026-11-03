@@ -20,7 +20,7 @@
 set -euo pipefail
 
 usage() {
-	sed -n '7,17s/^# \{0,1\}//p' "$0" >&2
+	sed -n '6,15s/^# \{0,1\}//p' "$0" >&2
 	exit 2
 }
 
