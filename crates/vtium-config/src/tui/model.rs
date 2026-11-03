@@ -13,7 +13,7 @@ use vtium_settings::keys::{self, Kind, Scope};
 use vtium_settings::{Edit, edit_conf, parse, set_profile, setting, switch as conf_switch};
 
 use super::input::{Input, Key, Reply};
-use crate::draft::{FileEdit, Plan};
+use crate::draft::{FileEdit, Plan, Removal};
 
 /// How long the TUI waits for the terminal's answers at start, and for
 /// the console's font to come back when it leaves: `set`'s wait.
@@ -87,10 +87,10 @@ pub struct Inputs {
     /// The first display's size in pixels, which a size's grid is counted
     /// on, where a display is connected.
     pub display: Option<(u32, u32)>,
-    /// Each frit installed in the frits' directory, by its name, as text,
-    /// or `None` for one that is not UTF-8: what a new frit of that name
-    /// replaces.
-    pub installed: std::collections::BTreeMap<String, Option<String>>,
+    /// Each frit installed in the frits' directory, by its name, as its
+    /// bytes: what a new frit of that name replaces, and what a removal
+    /// removes.
+    pub installed: std::collections::BTreeMap<String, Vec<u8>>,
 }
 
 /// How a save is installed, as the save view shows it: the command a
@@ -260,6 +260,8 @@ pub struct Pending {
     pub profiles: Vec<(String, String)>,
     /// New frits, each its name and text.
     pub frits: Vec<(String, String)>,
+    /// Installed frits a save removes, by name.
+    pub removals: Vec<String>,
 }
 
 impl Pending {
@@ -903,6 +905,10 @@ impl App {
     }
 
     fn fonts_key(&mut self, key: Key) -> Vec<Effect> {
+        if key == Key::Char('r') {
+            self.remove_key();
+            return Vec::new();
+        }
         let before = self.font_at;
         let n = self.inputs.fonts.len();
         self.font_at = step(self.font_at, n, key);
@@ -919,6 +925,53 @@ impl App {
             out.extend(self.ask_picture());
         }
         out
+    }
+
+    /// `r` in the fonts view: the highlighted frit is removed when the user
+    /// saves, or, when a save already removes it, no longer is. The TUI
+    /// refuses what `remove-frit` refuses, by vtium.conf and the head file
+    /// both as they are and as the save leaves them, and a frit the save
+    /// replaces with a new one. The save view lists the frit's file among
+    /// what the save changes, and `apply` removes it, as it removes the
+    /// frit of `remove-frit`'s draft.
+    fn remove_key(&mut self) {
+        let Some(name) = self.font().map(|f| f.name.clone()) else {
+            return;
+        };
+        if let Some(at) = self.pending.removals.iter().position(|n| *n == name) {
+            self.pending.removals.remove(at);
+            self.message = Some(super::words::remove_dropped(&name));
+            return;
+        }
+        let refused = crate::commands::removal_refusal(
+            &name,
+            self.inputs.conf.as_deref(),
+            self.inputs.heads.as_deref(),
+        )
+        .or_else(|| {
+            self.pending
+                .frits
+                .iter()
+                .any(|(n, _)| *n == name)
+                .then(|| super::words::remove_replaced(&name))
+        })
+        .or_else(|| {
+            (!self.inputs.installed.contains_key(&name)).then(|| super::words::remove_unread(&name))
+        });
+        if let Some(why) = refused {
+            self.message = Some(super::words::remove_refused(why));
+            return;
+        }
+        self.pending.removals.push(name.clone());
+        // the save as it would be with the removal: refused when what the
+        // save leaves in vtium.conf or the head file names the frit
+        match self.plan() {
+            Ok(_) => self.message = Some(super::words::remove_pending(&name)),
+            Err(why) => {
+                self.pending.removals.retain(|n| *n != name);
+                self.message = Some(super::words::remove_refused(why));
+            }
+        }
     }
 
     /// A character or Backspace typed into the field being edited.
@@ -1020,7 +1073,12 @@ impl App {
         let read =
             if !crate::frit::valid_name(&name) || crate::frit::RESERVED.contains(&name.as_str()) {
                 Err(super::words::NEW_BAD_NAME.to_owned())
-            } else if self.inputs.installed.get(&name) == Some(&None) {
+            } else if self
+                .inputs
+                .installed
+                .get(&name)
+                .is_some_and(|b| std::str::from_utf8(b).is_err())
+            {
                 Err(super::words::new_replaces_binary(&name))
             } else {
                 crate::frit::Frit::parse(text.as_bytes(), &path, &name)
@@ -1030,6 +1088,7 @@ impl App {
         match read {
             Ok(()) => {
                 self.pending.frits.retain(|(n, _)| *n != name);
+                self.pending.removals.retain(|n| *n != name);
                 self.pending.frits.push((name.clone(), text));
                 self.new_frit = NewFrit::default();
                 self.message = Some(super::words::new_added(&name));
@@ -1048,7 +1107,11 @@ impl App {
         // them in the order they are installed
         for (name, text) in &p.frits {
             let path = self.inputs.frits.join(format!("{name}.vtfrit"));
-            let old = self.inputs.installed.get(name).cloned().flatten();
+            let old = self
+                .inputs
+                .installed
+                .get(name)
+                .and_then(|b| String::from_utf8(b.clone()).ok());
             files.push(FileEdit {
                 path,
                 old,
@@ -1091,10 +1154,35 @@ impl App {
                 });
             }
         }
-        Ok(Plan {
-            files,
-            removals: Vec::new(),
-        })
+        // a frit is removed only when the save leaves nothing naming it
+        let after = |path: &PathBuf, now: &Option<String>| {
+            files
+                .iter()
+                .find(|f| f.path == *path)
+                .map(|f| f.new.clone())
+                .or_else(|| now.clone())
+        };
+        let conf = after(&self.inputs.conf_path, &self.inputs.conf);
+        let heads = after(&self.inputs.heads_path, &self.inputs.heads);
+        let mut removals = Vec::new();
+        for name in &p.removals {
+            if let Some(why) =
+                crate::commands::removal_refusal(name, conf.as_deref(), heads.as_deref())
+            {
+                return Err(why);
+            }
+            let old = self
+                .inputs
+                .installed
+                .get(name)
+                .cloned()
+                .ok_or_else(|| super::words::remove_unread(name))?;
+            removals.push(Removal {
+                path: self.inputs.frits.join(format!("{name}.vtfrit")),
+                old,
+            });
+        }
+        Ok(Plan { files, removals })
     }
 
     fn saved(&mut self, result: Result<usize, String>) -> Vec<Effect> {
@@ -1110,6 +1198,14 @@ impl App {
                         }
                     }
                 }
+                // a removed frit leaves the list
+                let removed = std::mem::take(&mut self.pending.removals);
+                self.inputs.fonts.retain(|f| !removed.contains(&f.name));
+                for name in &removed {
+                    self.inputs.installed.remove(name);
+                    self.sources.remove(name);
+                }
+                self.font_at = self.font_at.min(self.inputs.fonts.len().saturating_sub(1));
                 // the saved font is the console's from here, the font
                 // leaving gives back (D4)
                 if self.live == Live::On

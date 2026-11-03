@@ -259,9 +259,28 @@ pub fn config(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dy
     }
 }
 
+/// Why the frit `name` is not removed, as `remove-frit` and the TUI's
+/// remove key both refuse it: a built-in font's name, a name that is no
+/// frit's, and a frit that `conf`, vtium.conf, names in `font-name` or
+/// that `heads`, the head file, names as a head's profile; `None` when
+/// none of these refuses it.
+pub fn removal_refusal(name: &str, conf: Option<&str>, heads: Option<&str>) -> Option<String> {
+    if RESERVED.contains(&name) {
+        return Some(format!("{name} is a built-in font, not a frit"));
+    }
+    if !valid_name(name) {
+        return Some(format!("{name:?} is no frit's name"));
+    }
+    crate::apply::naming(name, conf, heads).map(|by| {
+        format!(
+            "{name} is the frit {by} names, so it is not removed; name another font there first"
+        )
+    })
+}
+
 /// `remove-frit NAME`: removes the frit `NAME.vtfrit`, refusing a built-in
 /// font, a name with no frit, and a frit vtium.conf's `font-name` or a
-/// head's profile names.
+/// head's profile names ([`removal_refusal`]).
 pub fn remove_frit(
     words: &[String],
     paths: &Paths,
@@ -271,11 +290,9 @@ pub fn remove_frit(
     let [name] = words else {
         return usage(err, "remove-frit takes one frit's name");
     };
-    if RESERVED.contains(&name.as_str()) {
-        return failed(err, &format!("{name} is a built-in font, not a frit"));
-    }
-    if !valid_name(name) {
-        return failed(err, &format!("{name:?} is no frit's name"));
+    // the name is judged before it names a file
+    if let Some(why) = removal_refusal(name, None, None) {
+        return failed(err, &why);
     }
     let path = paths.frits.join(format!("{name}.vtfrit"));
     let old = match read_bounded(&path) {
@@ -285,13 +302,8 @@ pub fn remove_frit(
     let heads = crate::tui::read_conf(&paths.configdir.join("heads.conf"));
     match (conf(paths), heads) {
         (Ok((_, text)), Ok(heads)) => {
-            if let Some(by) = crate::apply::naming(name, text.as_deref(), heads.as_deref()) {
-                return failed(
-                    err,
-                    &format!(
-                        "{name} is the frit {by} names, so it is not removed; name another font there first"
-                    ),
-                );
+            if let Some(why) = removal_refusal(name, text.as_deref(), heads.as_deref()) {
+                return failed(err, &why);
             }
         }
         (Err(why), _) | (_, Err(why)) => return failed(err, &why),

@@ -129,10 +129,10 @@ pub fn fonts(dir: &Path) -> Vec<Font> {
     out
 }
 
-/// Each frit installed in `dir`, by its name: its text, or `None` for one
-/// that is not UTF-8. A file past the frit's bound, or not a regular file,
-/// is left out, as [`fonts`] leaves it.
-pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Option<String>> {
+/// Each frit installed in `dir`, by its name: its bytes, which a new frit
+/// of that name replaces and a removal removes. A file past the frit's
+/// bound, or not a regular file, is left out, as [`fonts`] leaves it.
+pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     use std::io::Read;
     let mut out = std::collections::BTreeMap::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -156,7 +156,7 @@ pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Option<String
         let read = std::fs::File::open(&path)
             .and_then(|f| f.take(max.saturating_add(1)).read_to_end(&mut bytes));
         if read.is_ok() && bytes.len() <= crate::frit::FRIT_BYTES_MAX {
-            out.insert(name.to_owned(), String::from_utf8(bytes).ok());
+            out.insert(name.to_owned(), bytes);
         }
     }
     out
