@@ -235,9 +235,10 @@ impl Screen {
     /// ED 2: the whole screen. The rows it clears whole lose their prompt
     /// marks (ADR-1002, "Prompt marks").
     pub fn erase_screen(&mut self, which: Erase) {
+        let held = (which == Erase::All).then(|| self.images_before_erase_screen());
         let whole = self.erase_region((0, 0), (self.cols, self.rows), which);
-        if which == Erase::All {
-            self.images_erase_screen();
+        if let Some(held) = held {
+            self.images_erase_screen(held);
         }
         for &y in &whole {
             if let Some(line) = self.line_mut(y) {

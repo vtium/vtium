@@ -4,6 +4,7 @@
 //! each head its own grid at its own displays' density.
 
 use std::any::Any;
+use std::cell::Cell;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -21,11 +22,14 @@ use vtium_platform::display::{
 };
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
-use vtium_platform::vt::FakeVt;
+use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 use vtium_settings::Class;
 
+#[path = "common/scratch.rs"]
+mod scratch;
 #[path = "common/helper.rs"]
 mod stand_in;
+use scratch::Scratch;
 use stand_in::real_helper;
 
 const ID: DisplayId = DisplayId(1);
@@ -41,6 +45,8 @@ const BOUND: Duration = Duration::from_secs(10);
 struct Memory {
     w: u32,
     h: u32,
+    /// The refresh rate of its mode, in mHz.
+    refresh_mhz: u32,
     connector: &'static str,
     card: &'static str,
     dpi: f64,
@@ -87,6 +93,7 @@ impl Memory {
         Memory {
             w,
             h,
+            refresh_mhz: 60_000,
             connector,
             card,
             dpi: 72.0,
@@ -140,6 +147,16 @@ impl Memory {
         self.events.push(Event::Redraw(ID));
     }
 
+    /// A new refresh rate in place, `mhz`, at the same size, as a modeset
+    /// that falls back to a default mode of the same size sets it: the
+    /// display keeps its buffer, which is age 0 at the new mode, and the
+    /// owner is told to redraw.
+    fn set_refresh(&mut self, mhz: u32) {
+        self.refresh_mhz = mhz;
+        self.age = 0;
+        self.events.push(Event::Redraw(ID));
+    }
+
     /// Pays a clear the sleep owed, once no token holds the buffer.
     fn pay_clear(&mut self) {
         if self.clear_owed && Arc::strong_count(&self.drawn) == 1 {
@@ -170,7 +187,7 @@ impl Video for Memory {
         Some((self.w, self.h))
     }
     fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
-        Some(60_000)
+        Some(self.refresh_mhz)
     }
     fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
         Some((self.dpi, self.dpi))
@@ -413,6 +430,120 @@ fn two_displays() -> [(&'static str, Memory); 2] {
 struct Seat {
     lp: Loop<App>,
     app: App,
+    /// How many VT releases vtium has acknowledged.
+    released: Rc<Cell<u32>>,
+}
+
+impl Drop for Seat {
+    /// Ends the session of each head's shown console, with its process
+    /// group, and reaps it, before the seat's app drops. The app's ptys,
+    /// dropped, send their sessions SIGHUP and wait for none of them, so
+    /// without this a session could outlive its test.
+    fn drop(&mut self) {
+        let sessions: Vec<u32> = self
+            .app
+            .heads()
+            .iter()
+            .filter_map(|h| h.pty().and_then(|p| p.child_id()))
+            .collect();
+        for pid in sessions {
+            end_session(pid);
+        }
+    }
+}
+
+/// Kills the session `pid` leads, its whole process group, with SIGKILL,
+/// and reaps the leader. `pid` is a pty's child id, which the pty holds
+/// until it reaps the child, so no other process can have taken it: the
+/// pidfd opened here names the session.
+fn end_session(pid: u32) {
+    use rustix::io::Errno;
+    use rustix::process::{PidfdFlags, Signal, WaitId, WaitIdOptions};
+    use std::os::fd::AsFd;
+    let Some(pid) = i32::try_from(pid)
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+    else {
+        return;
+    };
+    let Ok(pidfd) = rustix::process::pidfd_open(pid, PidfdFlags::empty()) else {
+        return;
+    };
+    // The session's leader leads its process group too.
+    let _ = rustix::process::kill_process_group(pid, Signal::KILL);
+    while let Err(Errno::INTR) =
+        rustix::process::waitid(WaitId::PidFd(pidfd.as_fd()), WaitIdOptions::EXITED)
+    {}
+}
+
+/// The fake VT, which counts each release vtium acknowledges. The fake
+/// VT's `is_active` is false from the moment a release is asked for, so
+/// it cannot tell whether vtium has acknowledged the release yet.
+struct CountingVt {
+    vt: FakeVt,
+    /// The events `events` hands out, taken from the fake VT.
+    events: Vec<VtEvent>,
+    /// A release asked for and neither acknowledged nor refused.
+    pending: bool,
+    released: Rc<Cell<u32>>,
+}
+
+impl Vt for CountingVt {
+    fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+        self.events.extend(self.vt.events());
+        if self.events.contains(&VtEvent::Release) {
+            self.pending = true;
+        }
+        self.events.drain(..)
+    }
+
+    fn acknowledge_release(&mut self) -> io::Result<()> {
+        if std::mem::take(&mut self.pending) {
+            self.released.set(self.released.get() + 1);
+        }
+        self.vt.acknowledge_release()
+    }
+
+    fn refuse_release(&mut self) -> io::Result<()> {
+        self.pending = false;
+        self.vt.refuse_release()
+    }
+
+    fn activate(&mut self) -> io::Result<Switch> {
+        self.vt.activate()
+    }
+
+    fn leave(&mut self) -> io::Result<Switch> {
+        self.vt.leave()
+    }
+
+    fn wait(&mut self) -> io::Result<Switch> {
+        self.vt.wait()
+    }
+
+    fn is_active(&self) -> bool {
+        self.vt.is_active()
+    }
+
+    fn key(&mut self, key: &KeyEvent) -> bool {
+        self.vt.key(key)
+    }
+
+    fn is_own_key(&self, key: &KeyEvent) -> bool {
+        self.vt.is_own_key(key)
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        self.vt.restore()
+    }
+
+    fn bell(&mut self) {
+        self.vt.bell();
+    }
+
+    fn number(&self) -> Option<u16> {
+        self.vt.number()
+    }
 }
 
 impl Seat {
@@ -471,13 +602,14 @@ impl Seat {
         assert_eq!(loaded.reports, [], "the seat's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-        let mut app = App::new(
-            loaded.config,
-            Box::new(FakeVt::with_number(1)),
-            lp.handle(),
-            Rc::new(now),
-            env,
-        );
+        let released = Rc::new(Cell::new(0));
+        let vt = CountingVt {
+            vt: FakeVt::with_number(1),
+            events: Vec::new(),
+            pending: false,
+            released: Rc::clone(&released),
+        };
+        let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), Rc::new(now), env);
         app.set_font_sources(fonts);
         if let Some(start) = rules {
             app.set_heads(start);
@@ -488,7 +620,7 @@ impl Seat {
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(now());
-        Seat { lp, app }
+        Seat { lp, app, released }
     }
 
     /// Turns the loop until `done` holds, at most `limit`.
@@ -825,10 +957,8 @@ fn a_head_with_no_display_starts_no_session() {
 /// The frits `names`, each of one built-in source, in a directory of its
 /// own, and a stand-in helper that writes its pid to the directory's
 /// `starts` as it starts and answers nothing; the sources and the file.
-fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
-    let dir = std::env::temp_dir().join(format!("vtium-heads-{test}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("the frits' directory");
+fn frits(test: &str, names: &[&str]) -> (Scratch, Sources, PathBuf) {
+    let dir = Scratch::new(&format!("heads-{test}"));
     for name in names {
         std::fs::write(
             dir.join(format!("{name}.vtfrit")),
@@ -847,11 +977,11 @@ fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
         account: None,
     };
     let fonts = Sources {
-        frits: dir,
+        frits: dir.to_path_buf(),
         helper: Some(helper),
         ..no_fonts()
     };
-    (fonts, starts)
+    (dir, fonts, starts)
 }
 
 /// D3 and D6: the more specific setting wins. A head's profile names its
@@ -860,7 +990,7 @@ fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
 /// own.
 #[test]
 fn a_heads_profile_names_its_frit_over_vtium_confs_font() {
-    let (fonts, starts) = frits("profile", &["t"]);
+    let (_dir, fonts, starts) = frits("profile", &["t"]);
     let heads = "version = 1
 [head small]
 [head large]
@@ -885,9 +1015,6 @@ display card:mem-large -> large
         "the large head's frit started its helper"
     );
     drop(s);
-    if let Some(dir) = starts.parent() {
-        let _ = std::fs::remove_dir_all(dir);
-    }
 }
 
 /// ADR-1200 D17, binary-recheck's finding 4: a bitmap frit asks for its
@@ -916,7 +1043,7 @@ fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
             .expect("the go FIFO");
         }
         let fonts = Sources {
-            frits: dir.clone(),
+            frits: dir.to_path_buf(),
             helper: Some(real_helper(&kinds, held.then_some(go.as_path()))),
             ..no_fonts()
         };
@@ -956,7 +1083,6 @@ input class:keyboard -> roaming
         assert_eq!(s.app.font_name(), "t", "{case}");
         assert_eq!(unknown(&logged()), again, "{case}: the switch back");
         drop(s);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
@@ -978,7 +1104,7 @@ fn with_no_head_file_the_seat_runs_the_compiled_in_heads() {
 /// killed and reaped, so no process, a zombie included, keeps its pid.
 #[test]
 fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
-    let (fonts, starts) = frits("share", &["t", "u"]);
+    let (_dir, fonts, starts) = frits("share", &["t", "u"]);
     let heads = "version = 1
 [head a]
 profile = t
@@ -1022,9 +1148,6 @@ display card:mem-c -> c
         pids.iter().all(gone),
         "each helper killed and reaped: {pids:?}"
     );
-    if let Some(dir) = starts.parent() {
-        let _ = std::fs::remove_dir_all(dir);
-    }
 }
 
 /// D3: a display the rules leave dark is never unblanked. A framebuffer's
@@ -1174,6 +1297,49 @@ fn a_display_whose_mode_changes_in_place_draws_whole_at_its_new_size() {
         after,
         (winch + 1, "20 80".to_owned()),
         "one SIGWINCH, and the pty at the new size"
+    );
+}
+
+/// vtium/vtium#216: a display whose mode changes in place to a new refresh
+/// rate at the same size paces its frames at the new rate. The grid and
+/// the renderer stay as they were, and the display's next frame is drawn
+/// whole.
+#[test]
+fn a_display_whose_refresh_rate_changes_in_place_paces_at_its_new_rate() {
+    let small = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&[], small, MODE_SCRIPT);
+    assert!(s.until(SECOND, |a| shows(a, "ready")), "the session runs");
+    assert!(
+        s.until_memory("/dev/mem0", SECOND, |m| m.frames > 0),
+        "the display draws"
+    );
+    let intervals = |s: &Seat| -> Vec<Option<Duration>> {
+        s.app
+            .heads()
+            .iter()
+            .flat_map(Head::refresh_intervals)
+            .collect()
+    };
+    assert_eq!(intervals(&s), [Some(Duration::from_nanos(16_666_666))]);
+    let (frames, lent) = {
+        let m = s.memory("/dev/mem0");
+        (m.frames, m.ages.len())
+    };
+    s.memory("/dev/mem0").set_refresh(30_000);
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws again after its mode changed"
+    );
+    assert_eq!(
+        intervals(&s),
+        [Some(Duration::from_nanos(33_333_333))],
+        "the view paces at 30 Hz"
+    );
+    assert_eq!(s.app.grid(), (40, 10), "the grid keeps its size");
+    assert_eq!(
+        s.memory("/dev/mem0").ages.get(lent),
+        Some(&0),
+        "the first frame after is drawn whole"
     );
 }
 
@@ -1436,8 +1602,9 @@ fn a_frame_composing_holds_up_no_vt_release() {
         s.until_memory("/dev/mem0", SECOND, |m| !m.awake),
         "asleep for the release"
     );
+    let released = Rc::clone(&s.released);
     assert!(
-        s.until(SECOND, |a| !a.vt.is_active()),
+        s.until(SECOND, |_| released.get() == 1),
         "the release acknowledged"
     );
     assert!(
@@ -1512,7 +1679,7 @@ input class:keyboard -> roaming
         "the slow head's display asleep for the release"
     );
     assert!(!s.memory("/dev/mem1").awake, "both asleep");
-    assert!(!s.app.vt.is_active(), "the release acknowledged");
+    assert_eq!(s.released.get(), 1, "the release acknowledged");
     s.app.set_draw_hook("slow", None);
     let fast = s.memory("/dev/mem1").frames;
     s.app.input_event(InputEvent::Key(ctrl_super_f12), now());
@@ -2028,10 +2195,7 @@ fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_
 // covers: platform.heads
 #[test]
 fn closing_a_console_hangs_up_its_session_alone() {
-    let d = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("vtium-heads-close-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).expect("a marker directory");
+    let d = Scratch::new("heads-close");
     let script = format!(
         "trap 'echo > {d}/hup-$VTIUM_HEAD-$VTIUM_CONSOLE; exit 0' HUP; \
          echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\"; done",
@@ -2058,7 +2222,6 @@ fn closing_a_console_hangs_up_its_session_alone() {
     assert!(!hup("large", 1), "the large head's runs on");
     s.type_on(KBD_SMALL, "on\r");
     assert!(s.until(SECOND, |a| head_shows(a, "small", "got:on")));
-    let _ = std::fs::remove_dir_all(&d);
 }
 
 /// D5 and binary-review's finding 2: a session the open chord cannot
@@ -2071,10 +2234,7 @@ fn closing_a_console_hangs_up_its_session_alone() {
 // covers: platform.heads
 #[test]
 fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("vtium-heads-unstartable-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let dir = Scratch::new("heads-unstartable");
     let login = dir.join("login");
     script_file(
         &login,
@@ -2102,7 +2262,6 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
     s.type_on(KBD_LARGE, "on\r");
     assert!(s.until(SECOND, |a| head_shows(a, "large", "got:on")));
     assert_eq!(s.app.finished(), None, "vtium runs on");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A login script at `dir/login` that turns on mode 1004, prints its
@@ -2142,12 +2301,8 @@ fn script_file(path: &Path, text: &str) {
 }
 
 /// A scratch directory for test `name`, on disk under the build's own.
-fn scratch_dir(name: &str) -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("vtium-heads-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a scratch directory");
-    dir
+fn scratch_dir(name: &str) -> Scratch {
+    Scratch::new(&format!("heads-{name}"))
 }
 
 /// Head small of [`CLAIMED`] with three consoles running [`focus_login`]
@@ -2197,7 +2352,6 @@ fn a_failed_open_tells_the_console_shown_nothing() {
             .is_some_and(|l| l.ends_with('x') && !l.contains("^[[O")),
         "console 1's program got no focus-out before the line: {got:?}"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// D5, binary-recheck's R1: a failed open from the middle of a ring of
@@ -2236,7 +2390,6 @@ fn a_failed_open_mid_ring_keeps_the_order_and_uses_up_its_id() {
         told_ids(&s.app, "small")
     );
     assert_eq!(s.app.finished(), None);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// D5, the maintainer's answer of 2026-11-01: on a head's last console
@@ -2844,9 +2997,7 @@ display card:mem-c -> c
 // covers: platform.heads
 #[test]
 fn under_respawn_a_hidden_consoles_program_starts_again_in_its_place() {
-    let dir = std::env::temp_dir().join(format!("vtium-heads-hidden-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("the marks' directory");
+    let dir = Scratch::new("heads-hidden");
     let script = format!(
         "d={d}; echo $VTIUM_CONSOLE >> $d/starts; \
          if [ $VTIUM_CONSOLE = 2 ] && [ ! -e $d/once ]; then : > $d/once; exit 0; fi; \
@@ -2866,7 +3017,6 @@ fn under_respawn_a_hidden_consoles_program_starts_again_in_its_place() {
     };
     let started = s.until(Duration::from_secs(3), |_| starts().len() == 4);
     let seen = starts();
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(started, "small's two, large's one, and 2 again: {seen:?}");
     assert_eq!(seen, ["1", "1", "2", "2"], "2 started again as 2");
     assert_eq!(
@@ -2977,9 +3127,7 @@ fn keys_at_an_ended_console_start_nothing() {
 // covers: platform.heads
 #[test]
 fn a_hidden_console_starts_again_at_its_own_size() {
-    let dir = std::env::temp_dir().join(format!("vtium-heads-own-size-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("the marks' directory");
+    let dir = Scratch::new("heads-own-size");
     let script = format!(
         "d={d}; echo \"size:$(stty size)\"; \
          if [ $VTIUM_CONSOLE = 2 ] && [ ! -e $d/done ]; then \
@@ -3016,7 +3164,6 @@ fn a_hidden_console_starts_again_at_its_own_size() {
         dir.join("done").exists() && sizes(a).get(1) == Some(&Some("size:5 20".to_owned()))
     });
     let seen = sizes(&s.app);
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(again, "console 2 started again at 5 rows of 20: {seen:?}");
 }
 
@@ -3069,8 +3216,8 @@ display card:mem-large -> large
 /// login alone, and the other head's session runs on.
 #[test]
 fn under_respawn_a_session_ending_restarts_its_head_alone() {
-    let marker = std::env::temp_dir().join(format!("vtium-heads-respawn-{}", std::process::id()));
-    let _ = std::fs::remove_file(&marker);
+    let dir = Scratch::new("heads-respawn");
+    let marker = dir.join("marker");
     let small = format!(
         "if [ -e {m} ]; then echo again; read x; else : > {m}; echo first; fi",
         m = marker.display()
@@ -3082,7 +3229,6 @@ fn under_respawn_a_session_ending_restarts_its_head_alone() {
     );
     assert!(head_shows(&s.app, "large", "large"), "large runs on");
     assert!(!head_shows(&s.app, "large", "again"));
-    let _ = std::fs::remove_file(&marker);
 }
 
 /// The operator's answers (2026-10-30): under oneshot a head whose
@@ -3091,8 +3237,8 @@ fn under_respawn_a_session_ending_restarts_its_head_alone() {
 #[test]
 fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
     // Large's program ends once the test writes this file.
-    let go = std::env::temp_dir().join(format!("vtium-oneshot-go-{}", std::process::id()));
-    std::fs::remove_file(&go).ok();
+    let dir = Scratch::new("heads-oneshot");
+    let go = dir.join("go");
     let large = format!(
         "echo large; while [ ! -e {} ]; do sleep 0.05; done",
         go.display()
@@ -3111,7 +3257,6 @@ fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
         s.until(BOUND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
         "the last head's program ended"
     );
-    std::fs::remove_file(&go).ok();
 }
 
 /// A seat whose head `looping` has one console whose program keeps
@@ -3120,8 +3265,6 @@ fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
 /// of the other head's consoles have set their trap, so the exit comes
 /// after them; every start after the first exits at once.
 fn crash_loop(dir: &Path, looping: &str, policy: &str) -> Seat {
-    let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).expect("the marks' directory");
     let script = format!(
         "d={d}; if [ \"$VTIUM_HEAD\" = {looping} ]; then \
          while [ ! -e $d/ready-1 ] || [ ! -e $d/ready-2 ]; do sleep 0.01; done; exit 1; fi; \
@@ -3159,16 +3302,12 @@ input path:kbd-roaming -> roaming
 #[test]
 fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
     for (looping, other) in [("small", "large"), ("large", "small")] {
-        let dir = std::env::temp_dir().join(format!(
-            "vtium-heads-crash-loop-{}-{looping}",
-            std::process::id()
-        ));
+        let dir = Scratch::new(&format!("heads-crash-loop-{looping}"));
         let mut s = crash_loop(&dir, looping, "open");
         let finished = s.until(Duration::from_secs(3), |a| a.finished().is_some());
         let marks = [dir.join("hup-1"), dir.join("hup-2")];
         let hung_up = finished && s.until(SECOND, |_| marks.iter().all(|m| m.exists()));
         let marked = marks.iter().map(|m| m.exists()).collect::<Vec<_>>();
-        let _ = std::fs::remove_dir_all(&dir);
         assert!(finished, "{looping}'s crash loop ended vtium");
         assert_eq!(
             consoles(&s.app, other).map(|(n, _)| n),
@@ -3199,10 +3338,7 @@ fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
 // covers: platform.heads.policy
 #[test]
 fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() {
-    let dir = std::env::temp_dir().join(format!(
-        "vtium-heads-crash-loop-keys-{}",
-        std::process::id()
-    ));
+    let dir = Scratch::new("heads-crash-loop-keys");
     let mut s = crash_loop(&dir, "small", "closed");
     let roaming = "/dev/input/event6";
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
@@ -3212,7 +3348,6 @@ fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() 
     let shown = s.until(Duration::from_secs(4), |a| {
         a.notice_screen().and_then(Head::notice) == Some(stopped.as_str())
     });
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(shown, "the crash loop stopped the seat");
     // the isolated head's keyboard first, so its check stands alone
     for node in [KBD_SMALL, KBD_LARGE, roaming] {
@@ -3242,10 +3377,7 @@ fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() 
 // covers: platform.heads.policy
 #[test]
 fn under_closed_a_crash_loop_stops_every_head_and_holds_the_vt() {
-    let dir = std::env::temp_dir().join(format!(
-        "vtium-heads-crash-loop-closed-{}",
-        std::process::id()
-    ));
+    let dir = Scratch::new("heads-crash-loop-closed");
     let mut s = crash_loop(&dir, "small", "closed");
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
     let marks = [dir.join("hup-1"), dir.join("hup-2")];
@@ -3255,7 +3387,6 @@ fn under_closed_a_crash_loop_stops_every_head_and_holds_the_vt() {
         a.notice_screen().and_then(Head::notice) == Some(stopped.as_str())
     });
     s.until(Duration::from_millis(300), |_| false);
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(hung_up, "large's consoles hung up, shown and hidden");
     assert!(shown, "the notice on the notice screen");
     assert_eq!(s.app.finished(), None, "vtium holds its VT");
@@ -3287,17 +3418,13 @@ fn under_closed_a_crash_loop_stops_every_head_and_holds_the_vt() {
 // covers: platform.heads.policy
 #[test]
 fn after_a_closed_crash_loop_a_vt_switch_away_and_back_changes_nothing() {
-    let dir = std::env::temp_dir().join(format!(
-        "vtium-heads-crash-loop-vt-switch-{}",
-        std::process::id()
-    ));
+    let dir = Scratch::new("heads-crash-loop-vt-switch");
     let mut s = crash_loop(&dir, "small", "closed");
     s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
     let stopped = vtium::notice::stopped();
     let shown = s.until(Duration::from_secs(4), |a| {
         a.notice_screen().and_then(Head::notice) == Some(stopped.as_str())
     });
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(shown, "the crash loop stopped the seat");
     // A turn takes the release and puts the displays to sleep, and the next
     // reads them asleep and lets the VT go, so the activation takes it back.
@@ -3457,9 +3584,10 @@ display card:mem-small -> one
     assert!(s.until(SECOND, |a| head_shows(a, "one", "asked")));
 }
 
-/// The files a [`losing`] seat's sessions write, removed when dropped,
-/// whether the test passed or not.
+/// The files a [`losing`] seat's sessions write, in a directory of the
+/// test's own, removed when dropped, whether the test passed or not.
 struct Files {
+    dir: PathBuf,
     script: PathBuf,
     /// Written at a session's SIGHUP.
     mark: PathBuf,
@@ -3486,11 +3614,37 @@ impl Files {
 }
 
 impl Drop for Files {
+    /// Retires the directory and removes it. The [`losing`] test drops
+    /// its files before its seat, whose drop ends the sessions it shows
+    /// and sends SIGHUP to any other, which then writes its mark by the
+    /// directory's path; once the directory is retired, that write fails.
     fn drop(&mut self) {
-        for path in [&self.script, &self.mark, &self.starts] {
-            let _ = std::fs::remove_file(path);
-        }
+        let _ = std::fs::remove_dir_all(scratch::retire(&self.dir));
     }
+}
+
+/// A session still running when its test ends writes by the path of a
+/// scratch directory after the guard has started removing it. The guard
+/// retires the directory first, so the late write fails and nothing is
+/// left beside the retired directory once it is removed.
+#[test]
+fn a_write_after_a_scratch_directory_is_retired_fails_and_leaves_nothing() {
+    let dir = Scratch::new("heads-retire");
+    let old = dir.to_path_buf();
+    std::fs::write(old.join("starts"), "1\n").expect("a session's write");
+    let gone = scratch::retire(&old);
+    assert_ne!(gone, old, "the directory is renamed");
+    let late = std::fs::write(old.join("hup"), "\n");
+    assert_eq!(
+        late.map_err(|e| e.kind()),
+        Err(std::io::ErrorKind::NotFound),
+        "a write by the old path after the rename fails"
+    );
+    assert!(!old.exists(), "the late write brought nothing back");
+    std::fs::remove_dir_all(&gone).expect("the retired directory removed");
+    assert!(!gone.exists() && !old.exists(), "nothing is left");
+    drop(dir);
+    assert!(!old.exists(), "the guard's own drop leaves nothing");
 }
 
 /// A head losing a display (ADR-1401 D8): the seat booted with `args`,
@@ -3502,19 +3656,21 @@ impl Drop for Files {
 /// guard never acts (D9). Returns the seat, booted, and the sessions'
 /// files.
 fn losing(test: &str, args: &[&str], keys: &str, mirrored: bool) -> (Seat, Files) {
-    let dir = std::env::temp_dir();
-    let path = |ext: &str| dir.join(format!("vtium-heads-{test}-{}.{ext}", std::process::id()));
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("vtium-heads-losing-{test}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the test's directory");
     let files = Files {
-        script: path("sh"),
-        mark: path("hup"),
-        starts: path("starts"),
+        script: dir.join("session.sh"),
+        mark: dir.join("hup"),
+        starts: dir.join("starts"),
+        dir,
     };
-    let _ = std::fs::remove_file(&files.mark);
-    let _ = std::fs::remove_file(&files.starts);
     std::fs::write(
         &files.script,
         format!(
-            "echo $VTIUM_CONSOLE >> {starts}\ntrap 'echo > {m}; exit 0' HUP\necho ready\n\
+            "echo $VTIUM_CONSOLE >> {starts}\n\
+             trap 'echo > {m}; exit 0' HUP\necho ready\n\
              while :; do read a; [ \"$a\" = q ] && exit 0; echo \"got:$a\"; done\n",
             starts = files.starts.display(),
             m = files.mark.display()

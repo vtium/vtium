@@ -740,6 +740,12 @@ impl Head {
         self.views.values().filter(|v| v.away()).count()
     }
 
+    /// The refresh interval that paces each of the head's displays'
+    /// frames, in the order of their nodes and ids, for tests.
+    pub fn refresh_intervals(&self) -> Vec<Option<Duration>> {
+        self.views.values().map(|v| v.refresh).collect()
+    }
+
     /// The URI the shown console's overlay row shows, for tests.
     pub fn link_overlay(&self) -> Option<String> {
         let terminal = &self.console.term.terminal;

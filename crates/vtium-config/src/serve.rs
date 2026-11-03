@@ -1451,6 +1451,35 @@ mod tests {
     use vtium_font::Face;
     use vtium_font::set::{Set, SetFace};
 
+    /// A directory of a test's own, `vtium-serve-<name>-<pid>` in the
+    /// temporary directory, removed when the test ends, whether it passes
+    /// or fails.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Scratch {
+            let dir =
+                std::env::temp_dir().join(format!("vtium-serve-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+    }
+
+    impl std::ops::Deref for Scratch {
+        type Target = Path;
+
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     /// The frames in `bytes`, kind and payload.
     fn frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
         let mut out = Vec::new();
@@ -1675,8 +1704,7 @@ mod tests {
     // a bdf: source is parsed where the other fonts are, not as it is read
     #[test]
     fn a_bdf_source_is_parsed_when_the_frit_loads() {
-        let dir = std::env::temp_dir().join(format!("vtium-serve-bdf-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("bdf");
         let (good, bad) = (dir.join("good.bdf"), dir.join("bad.bdf"));
         std::fs::write(&good, crate::bdf::tests::bdf("")).unwrap();
         std::fs::write(&bad, "STARTFONT 2.1\nCHARS 1\n").unwrap();
@@ -1688,7 +1716,6 @@ mod tests {
             )
         };
         let (good, bad) = (load(&good), load(&bad));
-        let _ = std::fs::remove_dir_all(&dir);
         assert!(good.unwrap().coverage().contains(&0x41));
         let e = bad.err().unwrap();
         assert!(e.contains("CHARSET_REGISTRY"), "{e}");
@@ -1700,8 +1727,7 @@ mod tests {
     // out quietly, as a frit names fonts a machine may not install
     #[test]
     fn a_source_refused_is_a_warning_and_a_missing_one_is_not() {
-        let dir = std::env::temp_dir().join(format!("vtium-serve-refused-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("refused");
         let bad = dir.join("bad.bdf");
         std::fs::write(&bad, "STARTFONT 2.1\nCHARS 1\n").unwrap();
         let text = format!(
@@ -1711,7 +1737,6 @@ mod tests {
         );
         let engine = Engine::load(&frit(&text), &Paths::default(), None);
         let frames = run(&[request(ASK, frit(&text), &['A'])]);
-        let _ = std::fs::remove_dir_all(&dir);
         let warnings = engine.unwrap().warnings().to_vec();
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         let w = &warnings[0];
@@ -1733,8 +1758,7 @@ mod tests {
     // warning that names its window, the 16 MiB limit and what to do
     #[test]
     fn a_zstd_font_with_too_large_a_window_warns_how_to_fix_it() {
-        let dir = std::env::temp_dir().join(format!("vtium-serve-window-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("window");
         let wide = dir.join("wide.bdf.zst");
         let bdf = crate::bdf::tests::bdf("");
         std::fs::write(
@@ -1744,7 +1768,6 @@ mod tests {
         .unwrap();
         let text = format!("source=builtin:unifont\nsource=bdf:{}\n", wide.display());
         let engine = Engine::load(&frit(&text), &Paths::default(), None);
-        let _ = std::fs::remove_dir_all(&dir);
         let warnings = engine.unwrap().warnings().to_vec();
         assert_eq!(
             warnings,
@@ -1773,8 +1796,7 @@ mod tests {
     // into the codepoint's and the cluster's, each sent, and ends
     #[test]
     fn an_oversize_set_of_a_codepoint_and_clusters_is_cut_and_ends() {
-        let dir = std::env::temp_dir().join(format!("vtium-serve-cut-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("cut");
         let font = dir.join("shaping.ttf");
         std::fs::write(&font, super::ttf::test_shaping().build()).unwrap();
         let engine = Engine::load(
@@ -1782,7 +1804,6 @@ mod tests {
             &Paths::default(),
             None,
         );
-        let _ = std::fs::remove_dir_all(&dir);
         let engine = engine.unwrap();
         let cell = Cell {
             width: 12,
@@ -1829,9 +1850,8 @@ mod tests {
 
     /// The frit `t` whose sources are `sources`, each a PSF2 font written
     /// to a file of its own as `(width, height)`, or a source's spelling.
-    fn psf_frit(name: &str, sources: &[Result<(u32, u32), &str>]) -> (FritText, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("vtium-serve-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+    fn psf_frit(name: &str, sources: &[Result<(u32, u32), &str>]) -> (FritText, Scratch) {
+        let dir = Scratch::new(name);
         let mut text = String::new();
         for (i, source) in sources.iter().enumerate() {
             match source {
@@ -1855,13 +1875,9 @@ mod tests {
     // with no cell= takes its first source's own cell, asked of the helper
     #[test]
     fn a_cell_query_answers_the_frits_own_cell() {
-        let (psf, dir) = psf_frit("own-psf", &[Ok((8, 16))]);
-        let (mixed, mixed_dir) = psf_frit("own-mixed", &[Ok((8, 16)), Err("builtin:unscii-8")]);
+        let (psf, _dir) = psf_frit("own-psf", &[Ok((8, 16))]);
+        let (mixed, _mixed_dir) = psf_frit("own-mixed", &[Ok((8, 16)), Err("builtin:unscii-8")]);
         let frames = run(&[query(psf), query(mixed)]);
-        let _ = (
-            std::fs::remove_dir_all(dir),
-            std::fs::remove_dir_all(mixed_dir),
-        );
         assert_eq!(
             frames,
             [
@@ -1879,12 +1895,11 @@ mod tests {
     // with no own cell, and the reason names it
     #[test]
     fn a_frit_whose_sources_do_not_fit_its_first_has_no_own_cell() {
-        let (frit, dir) = psf_frit("own-unfit", &[Ok((8, 8)), Err("builtin:unifont")]);
+        let (frit, _dir) = psf_frit("own-unfit", &[Ok((8, 8)), Err("builtin:unifont")]);
         let frames = run(&[
             query(frit),
             query(self::frit("source=file:/nonexistent/x.psf\n")),
         ]);
-        let _ = std::fs::remove_dir_all(dir);
         assert_eq!(
             frames.iter().map(|f| f.0).collect::<Vec<_>>(),
             [FRAME_NO_OWN_CELL, FRAME_NO_OWN_CELL]
@@ -1913,9 +1928,8 @@ mod tests {
         name: &str,
         text: &str,
         fonts: &[Result<super::ttf::Font, &str>],
-    ) -> (FritText, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("vtium-serve-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+    ) -> (FritText, Scratch) {
+        let dir = Scratch::new(name);
         let mut text = text.to_owned();
         for (i, font) in fonts.iter().enumerate() {
             match font {
@@ -1937,13 +1951,12 @@ mod tests {
     // give 9.3, inked over 10 pixels, and 19.5 at 20 give 11.7, over 12
     #[test]
     fn an_outline_frits_cell_query_answers_the_w_rule_at_the_height_asked() {
-        let (frit, dir) = outline_frit("own-outline", "", &[Ok(super::ttf::test_mono())]);
+        let (frit, _dir) = outline_frit("own-outline", "", &[Ok(super::ttf::test_mono())]);
         let frames = run(&[
             query_at(frit.clone(), 16),
             query_at(frit.clone(), 20),
             query(frit),
         ]);
-        let _ = std::fs::remove_dir_all(dir);
         assert_eq!(
             frames[..2],
             [
@@ -1975,7 +1988,7 @@ mod tests {
             psf.text,
             font(&psf_dir).display()
         ));
-        let (outline_first, dir) = outline_frit(
+        let (outline_first, _dir) = outline_frit(
             "own-first-outline",
             "",
             &[Ok(super::ttf::test_mono()), Err("builtin:unifont")],
@@ -1985,10 +1998,6 @@ mod tests {
             query(bitmap_first),
             query_at(outline_first, 10),
         ]);
-        let _ = (
-            std::fs::remove_dir_all(psf_dir),
-            std::fs::remove_dir_all(dir),
-        );
         assert_eq!(
             frames,
             [
@@ -2011,10 +2020,9 @@ mod tests {
             descent: 0,
             ..super::ttf::test_mono()
         };
-        let (broken, dir) = outline_frit("own-broken", "", &[Ok(flat)]);
+        let (broken, _dir) = outline_frit("own-broken", "", &[Ok(flat)]);
         let broken = frit(&format!("{}source=builtin:unscii-8\n", broken.text));
         let frames = run(&[query_at(broken.clone(), 16), query_at(broken, 16)]);
-        let _ = std::fs::remove_dir_all(dir);
         assert_eq!(
             frames,
             [
@@ -2022,13 +2030,12 @@ mod tests {
                 (FRAME_OWN_CELL, cell_bytes(8, 8)),
             ]
         );
-        let (good, dir) = outline_frit(
+        let (good, _dir) = outline_frit(
             "own-failed",
             "",
             &[Ok(super::ttf::test_mono()), Err("builtin:unscii-8")],
         );
         let engine = Engine::load(&good, &Paths::default(), None).unwrap();
-        let _ = std::fs::remove_dir_all(dir);
         assert_eq!(
             engine.own_cell(16),
             Ok(OwnCell::Outline(Cell {
@@ -2067,7 +2074,7 @@ mod tests {
             .push(super::ttf::Glyph::rect(600, -150, 0, 450, 700));
         font.cmap.push((0x4c, 8));
         font.cmap.sort_unstable();
-        let (frit, dir) = outline_frit("ink", "", &[Ok(font)]);
+        let (frit, _dir) = outline_frit("ink", "", &[Ok(font)]);
         let cell = Cell {
             width: 12,
             height: 20,
@@ -2076,7 +2083,6 @@ mod tests {
             cell,
             ..request(ASK, frit, &['L', 'A'])
         }]);
-        let _ = std::fs::remove_dir_all(dir);
         assert_eq!(frames[0].0, FRAME_GLYPHS);
         let set = Arc::new(Set::from_bytes(frames[0].1.clone()).unwrap());
         let face = SetFace::new(set, 20).unwrap();
@@ -2101,7 +2107,7 @@ mod tests {
         font.cmap.push((0x5f, 8));
         font.cmap.push((0x61, 9));
         font.cmap.sort_unstable();
-        let (frit, dir) = outline_frit("baseline", "", &[Ok(font)]);
+        let (frit, _dir) = outline_frit("baseline", "", &[Ok(font)]);
         let cell = Cell {
             width: 7,
             height: 12,
@@ -2115,7 +2121,6 @@ mod tests {
             .iter()
             .map(|&c| Set::from_bytes(run(&[ask(c)])[0].1.clone()).unwrap())
             .collect();
-        let _ = std::fs::remove_dir_all(dir);
         for set in &sets {
             let strike = set.strikes().next().unwrap();
             assert_eq!(strike.baseline, 9, "{:?}", set.clusters().count());
@@ -2186,7 +2191,7 @@ mod tests {
             .push(super::ttf::Glyph::rect(600, 0, -200, 600, -100));
         font.cmap.push((0x5f, 8));
         font.cmap.sort_unstable();
-        let (frit, dir) = outline_frit("two-heights", "", &[Ok(font)]);
+        let (frit, _dir) = outline_frit("two-heights", "", &[Ok(font)]);
         let at = |h| ServeRequest {
             cell: Cell {
                 width: 7,
@@ -2195,7 +2200,6 @@ mod tests {
             ..request(ASK, frit.clone(), &['A'])
         };
         let frames = run(&[at(10), at(12), at(10)]);
-        let _ = std::fs::remove_dir_all(dir);
         let bases: Vec<u32> = frames
             .iter()
             .filter(|f| f.0 == FRAME_GLYPHS)
@@ -2222,9 +2226,8 @@ mod tests {
             .push(super::ttf::Glyph::rect(600, 0, -200, 600, -100));
         font.cmap.push((0x5f, 8));
         font.cmap.sort_unstable();
-        let (frit, dir) = outline_frit("first-baseline", "", &[Ok(font), Err("builtin:unscii-8")]);
+        let (frit, _dir) = outline_frit("first-baseline", "", &[Ok(font), Err("builtin:unscii-8")]);
         let engine = Engine::load(&frit, &Paths::default(), None).unwrap();
-        let _ = std::fs::remove_dir_all(dir);
         let cell = Cell {
             width: 7,
             height: 12,
@@ -2243,7 +2246,7 @@ mod tests {
     // own cell whatever cell= says
     #[test]
     fn a_frit_that_states_its_cell_is_drawn_at_it() {
-        let (frit, dir) =
+        let (frit, _dir) =
             outline_frit("own-stated", "cell=10x20\n", &[Ok(super::ttf::test_mono())]);
         let stated = Cell {
             width: 10,
@@ -2254,7 +2257,6 @@ mod tests {
             ..request(ASK, frit.clone(), &['W'])
         }]);
         let queried = run(&[query_at(frit, 20)]);
-        let _ = std::fs::remove_dir_all(dir);
         assert_eq!(
             asked.iter().map(|f| f.0).collect::<Vec<_>>(),
             [FRAME_GLYPHS, FRAME_DONE]

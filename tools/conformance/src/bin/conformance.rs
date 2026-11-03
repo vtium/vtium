@@ -39,13 +39,14 @@ const OWN: [&str; 1] = ["tools/conformance/probes/vtium.replay"];
 const BUILD: [(&str, bool); 1] = [("images", true)];
 /// Features interface 1 lets an implementation without images, or
 /// without the draw2 view, leave out.
-const OPTIONAL: [&str; 6] = [
+const OPTIONAL: [&str; 7] = [
     "view-draw2",
     "damage-exact",
     "images",
     "sixel",
     "kitty-graphics",
     "image-host",
+    "kitty-animation",
 ];
 
 const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--rounds N]
@@ -201,7 +202,13 @@ fn check_describe(spec: &Spec) -> Result<(), String> {
 fn check_interface(spec: &Spec, corpus: &Corpus) -> Result<bool, String> {
     let texts = texts()?;
     let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
-    let check = interface::check(spec, &texts, corpus, &vtium_conformance::describe());
+    let own = Corpus::open(&Path::new(TOOL).join(OWN_CASES))?;
+    let check = interface::check(
+        spec,
+        &texts,
+        &[corpus, &own],
+        &vtium_conformance::describe(),
+    );
     let faults = check.faults();
     for fault in &faults {
         println!("FAIL replay-interface: {fault}");

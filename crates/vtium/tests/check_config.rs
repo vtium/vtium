@@ -5,20 +5,23 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+#[path = "common/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 /// A head file that checks clean, but for the notes outside the status.
 const CLEAN_HEADS: &str =
     "version = 1\n[head console]\n[rules]\ndisplay * -> console\ninput * -> roaming\n";
 
-fn dir(name: &str, conf: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("vtium-check-{name}-{}", std::process::id()));
-    std::fs::create_dir_all(&d).expect("a directory");
+fn dir(name: &str, conf: &str) -> Scratch {
+    let d = Scratch::new(&format!("check-{name}"));
     std::fs::write(d.join("vtium.conf"), conf).expect("a configuration");
     std::fs::write(d.join("heads.conf"), CLEAN_HEADS).expect("a head file");
     d
 }
 
 /// `vtium check-config -c DIR DIR/heads.conf`, then `extra`.
-fn check(dir: &PathBuf, extra: &[&str]) -> Output {
+fn check(dir: &Path, extra: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_vtium"))
         .arg("check-config")
         .arg("-c")
@@ -35,7 +38,6 @@ fn a_clean_configuration_exits_zero_and_says_nothing() {
     let out = check(&d, &[]);
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&out.stderr), "");
-    std::fs::remove_dir_all(d).ok();
 }
 
 #[test]
@@ -62,7 +64,6 @@ fn each_warning_is_printed_and_it_exits_one() {
         ),
         "{err}"
     );
-    std::fs::remove_dir_all(d).ok();
 }
 
 #[test]
@@ -71,7 +72,6 @@ fn help_says_it_only_checks() {
     let out = check(&d, &["--help"]);
     assert_eq!(out.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&out.stderr).contains("It only checks"));
-    std::fs::remove_dir_all(d).ok();
 }
 
 /// The syscalls that change a file or its metadata by name or by a
@@ -136,7 +136,6 @@ fn syscall(line: &str) -> Option<(&str, &str)> {
 fn it_opens_nothing_under_dev_and_writes_nothing() {
     let d = dir("strace", "font-size=16\n");
     let Some(trace) = traced(&d, &[]) else {
-        std::fs::remove_dir_all(d).ok();
         return;
     };
     let calls = calls(&trace);
@@ -164,7 +163,6 @@ fn it_opens_nothing_under_dev_and_writes_nothing() {
         assert!(!(open && writing), "opened {path} to write: {line}");
         assert!(!WRITES.contains(call), "changed {path}: {line}");
     }
-    std::fs::remove_dir_all(d).ok();
 }
 
 /// The check's help lists no device: it reads the configuration, and
@@ -173,7 +171,6 @@ fn it_opens_nothing_under_dev_and_writes_nothing() {
 fn help_lists_no_device() {
     let d = dir("strace-help", "font-size=16\n");
     let Some(trace) = traced(&d, &["--help"]) else {
-        std::fs::remove_dir_all(d).ok();
         return;
     };
     let calls = calls(&trace);
@@ -187,7 +184,6 @@ fn help_lists_no_device() {
             "read {path}: {line}"
         );
     }
-    std::fs::remove_dir_all(d).ok();
 }
 
 /// The trace of `vtium check-config -c DIR DIR/heads.conf`, then `extra`,
@@ -253,19 +249,18 @@ fn check_config_after_the_options_still_checks() {
     let d = dir("after", "");
     let out = Command::new(env!("CARGO_BIN_EXE_vtium"))
         .arg("-c")
-        .arg(&d)
+        .arg(&*d)
         .args(["check-config", "--help"])
         .output()
         .expect("vtium runs");
     assert_eq!(out.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&out.stderr).contains("It only checks"));
     assert_eq!(String::from_utf8_lossy(&out.stdout), "");
-    std::fs::remove_dir_all(d).ok();
 }
 
 /// A head file in a directory of its own, as a candidate is checked
 /// before it is installed (ADR-1401 D7), in place of the clean one.
-fn head_file(name: &str, text: &str) -> (PathBuf, PathBuf) {
+fn head_file(name: &str, text: &str) -> (Scratch, PathBuf) {
     let d = dir(name, "");
     let file = d.join("heads.conf");
     std::fs::write(&file, text).expect("a head file");
@@ -311,7 +306,6 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
         "The file already has a `[rules]` section, and may have only one.",
     );
     assert!(!err.contains("is no option"), "{err}");
-    std::fs::remove_dir_all(d).ok();
 }
 
 // ADR-1401 D7: a policy line vtium cannot read makes the file closed and
@@ -339,7 +333,6 @@ fn check_config_names_a_policy_line_it_cannot_read_and_exits_1() {
         named.iter().any(|l| l.contains("closed and broken")),
         "{err}"
     );
-    std::fs::remove_dir_all(d).ok();
 }
 
 // ADR-1401 D7: each error says what it drops, and standard output ends on
@@ -395,7 +388,6 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
         ],
         "{notes}"
     );
-    std::fs::remove_dir_all(d).ok();
 }
 
 // ADR-1401 D9, D10: a head's `consoles` past vtium.conf's
@@ -425,7 +417,6 @@ input * -> roaming
     let out = check(&d, &["--head-consoles-max=5"]);
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&out.stderr), "");
-    std::fs::remove_dir_all(d).ok();
 }
 
 // ADR-1401 D4, D7: input sent to a head by `name` alone is a note on
@@ -445,5 +436,4 @@ fn a_candidate_with_only_notes_exits_0_and_prints_them_on_stdout() {
         file.display()
     );
     assert!(notes.lines().any(|l| l == weak), "{notes}");
-    std::fs::remove_dir_all(d).ok();
 }

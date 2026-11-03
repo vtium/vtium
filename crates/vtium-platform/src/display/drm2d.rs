@@ -31,7 +31,7 @@ use drm_ffi::{
 };
 use rustix::io::Errno;
 
-use super::edid::Edid;
+use super::edid::{Edid, EdidId};
 use super::kms::{Connector, CrtcEvent, Encoder, Kms, Object, Property, Request, Resources};
 use super::mode::{self, Mode, ModePolicy};
 use super::path;
@@ -156,11 +156,16 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     owed: bool,
     /// Wake-ups tried again so far, while retrying.
     retries: Option<usize>,
-    /// The retries are a wake-up's; else a failed hotplug's or unblank's.
+    /// The retries are a wake-up's; else a failed hotplug's or unblank's,
+    /// or a mode owed's.
     waking: bool,
     /// The retries ran out with [`Event::WakeFailed`], and nothing has set
     /// the displays since: the next input tries again.
     wake_failed: bool,
+    /// The displays the last legacy modeset could not set, at the mode
+    /// chosen or at the mode they were set to. The wake-up retries try them
+    /// again, and none is asked to redraw until a modeset sets it.
+    unset: Vec<DisplayId>,
     events: Vec<Event>,
     timers: Timers,
     link: Option<Box<dyn Link>>,
@@ -217,6 +222,7 @@ impl<K: Kms> Drm2d<K> {
             retries: None,
             waking: false,
             wake_failed: false,
+            unset: Vec::new(),
             events: Vec::new(),
             timers: Timers::default(),
             link: None,
@@ -860,12 +866,15 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.awake = true;
         // Another program held the displays: what the buffers hold counts
         // as unknown, and each display is drawn whole, so a token lent
-        // before comes back too late.
-        for o in &mut self.outputs {
-            o.ages = Ages::default();
-            o.lease = o.lease.wrapping_add(1);
-            o.clear_owed = false;
-            o.redraw = true;
+        // before comes back too late. A retry runs under the master the
+        // card kept, so no other program drew into the buffers.
+        if scan == Scan::WakeUp {
+            for o in &mut self.outputs {
+                o.ages = Ages::default();
+                o.lease = o.lease.wrapping_add(1);
+                o.clear_owed = false;
+                o.redraw = true;
+            }
         }
         if let Err(e) = self.scan(scan) {
             if scan == Scan::WakeUp {
@@ -876,6 +885,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
         if scan == Scan::WakeUp {
             self.wake_failed = false;
+            // The card is awake, so a retry from here on, of a mode owed,
+            // is a modeset's.
+            self.waking = false;
             self.events.push(Event::Awake);
         }
         Ok(())
@@ -902,13 +914,26 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             log::debug!("blanked: the retried modeset waits for input");
             self.owed = true;
             self.retries = None;
-        } else if self.try_wake(scan).is_ok() {
+            self.settle();
+            return;
+        }
+        // A legacy display left unset counts as not woken.
+        let woken = self.try_wake(scan).is_ok() && !self.unset_any();
+        if woken && !self.owing() {
             self.retries = None;
         } else if tried.saturating_add(1) >= crate::WAKE_RETRIES {
-            log::error!("cannot wake the display after {tried} retries");
             self.retries = None;
-            self.wake_failed = true;
-            self.events.push(Event::WakeFailed);
+            if woken {
+                // The card is awake and every display is set, but some at
+                // the mode they were set to rather than the mode owed.
+                for o in &mut self.outputs {
+                    o.hold_back_owed();
+                }
+            } else {
+                log::error!("cannot wake the display after {tried} retries");
+                self.wake_failed = true;
+                self.events.push(Event::WakeFailed);
+            }
         } else {
             self.retries = Some(tried.saturating_add(1));
         }
@@ -1140,6 +1165,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             d.available = false;
         }
         let mut needs = scan != Scan::Hotplug;
+        // The set of displays changed: one was bound or let go.
+        let mut changed = false;
         for &id in &res.connectors {
             let Some(conn) = self.connector(id) else {
                 continue;
@@ -1147,9 +1174,71 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if !conn.connected || conn.modes.is_empty() {
                 continue;
             }
+            // A connector that shows another monitor than the one its
+            // display or dark entry was bound to, as when a monitor is
+            // swapped faster than its disconnect is seen, is let go and
+            // bound again below, as the new monitor, so the head file's
+            // rules, the dark rule, its density and its mode follow it.
+            let swapped = self
+                .outputs
+                .iter()
+                .find(|o| o.id.0 == id)
+                .is_some_and(|o| self.another_monitor(&o.name, self.known_edid(o.id)));
+            if swapped {
+                let (gone, kept) = std::mem::take(&mut self.outputs)
+                    .into_iter()
+                    .partition(|o| o.id.0 == id);
+                self.outputs = kept;
+                for o in gone {
+                    log::info!("display {} shows another monitor", o.name);
+                    if o.announced {
+                        self.events.push(Event::Removed(o.id));
+                    }
+                    self.identities.retain(|(i, _)| *i != o.id);
+                    self.free(o);
+                    changed = true;
+                }
+            } else if self.dark.iter().find(|d| d.id == id).is_some_and(|d| {
+                self.another_monitor(&d.identity.connector, d.identity.edid.as_ref())
+            }) {
+                self.dark.retain(|d| {
+                    if d.id == id {
+                        log::info!(
+                            "display {}, left dark, shows another monitor",
+                            d.identity.connector
+                        );
+                    }
+                    d.id != id
+                });
+            }
             if let Some(o) = self.outputs.iter_mut().find(|o| o.id.0 == id) {
                 o.available = true;
                 needs |= !o.online;
+                // The same monitor listing other modes than those the
+                // display's mode was chosen from, as after a DisplayPort
+                // link is trained again, gets its mode chosen again from
+                // the new list. Under `use-original-mode` the mode vtium
+                // set stands in for the mode the console left, which is
+                // gone by now, so the display keeps its mode where the new
+                // list has it.
+                if conn.modes != o.modes {
+                    let wanted = self.policy.wanted.as_ref().and_then(|f| f(&o.name));
+                    let use_original = self.policy.use_original;
+                    if let Some(choice) =
+                        mode::choose(&conn.modes, Some(&o.mode), wanted, use_original)
+                    {
+                        if choice.current != o.mode {
+                            let (w, h) = choice.current.size();
+                            log::info!("display {} lists new modes: setting {w}x{h}", o.name);
+                            o.mode = choice.current;
+                            needs = true;
+                        }
+                        o.choice = choice;
+                        o.held = None;
+                        o.owed = None;
+                    }
+                    o.modes = conn.modes;
+                }
                 continue;
             }
             if let Some(d) = self.dark.iter_mut().find(|d| d.id == id) {
@@ -1189,6 +1278,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 self.identities.push((o.id, identity));
                 self.outputs.push(o);
                 needs = true;
+                changed = true;
             }
         }
         self.scanned = true;
@@ -1209,6 +1299,28 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 self.events.push(Event::Removed(o.id));
             }
             self.free(o);
+            changed = true;
+        }
+        // A mode held back is tried again as the card wakes, as another
+        // program may have changed what the card can set, and when the set
+        // of displays changes, which frees or takes the card's bandwidth.
+        if scan == Scan::WakeUp || changed {
+            for o in &mut self.outputs {
+                if let Some(held) = o.held.take() {
+                    o.mode = held;
+                    needs = true;
+                }
+            }
+        }
+        // A mode owed is tried again by the retries and as the card wakes.
+        // It stays owed until a modeset sets it, so a modeset that waits
+        // for a flip keeps the retries running.
+        if scan != Scan::Hotplug {
+            for o in &mut self.outputs {
+                if let Some(owed) = o.owed {
+                    o.mode = owed;
+                }
+            }
         }
         let outputs = &self.outputs;
         self.identities
@@ -1235,6 +1347,24 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.announce();
             Ok(())
         }
+    }
+
+    /// The monitor display `id` was bound to, as its EDID named it.
+    fn known_edid(&self, id: DisplayId) -> Option<&EdidId> {
+        self.identities
+            .iter()
+            .find(|(i, _)| *i == id)
+            .and_then(|(_, identity)| identity.edid.as_ref())
+    }
+
+    /// Whether connector `name`'s EDID in sysfs now names another monitor
+    /// than `known`. A connector whose EDID cannot be read, as for a moment
+    /// while a monitor is plugged in, counts as showing the same one.
+    fn another_monitor(&self, name: &str, known: Option<&EdidId>) -> bool {
+        self.card
+            .sysfs()
+            .and_then(|dir| Edid::sysfs(&dir, name))
+            .is_some_and(|now| known != Some(&now.id))
     }
 
     /// Connector `id`, or `None` where the card cannot give it. One gone
@@ -1377,8 +1507,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             pipe: crtc_index,
             planes,
             mode: choice.current,
+            set: None,
+            held: None,
+            owed: None,
             mm,
             choice,
+            modes: conn.modes.clone(),
             mode_blob: 0,
             buffers: Vec::new(),
             back: 0,
@@ -1556,14 +1690,31 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Sets every display's mode, then announces each display set. Where
     /// the displays online and the new ones cannot be set together, the
     /// new ones are left off until the next hotplug and the rest are set
-    /// alone.
+    /// alone. A display whose new mode cannot be set stays at the mode it
+    /// is set to: held back where the card refused the mode, and else owed
+    /// it, which starts the wake-up retries.
     fn modeset(&mut self) -> io::Result<()> {
-        let set = if self.legacy {
-            self.legacy_modeset();
-            Ok(())
+        // The legacy calls set each display on its own, so the displays set
+        // are announced whatever failed for another.
+        let (set, unset) = if self.legacy {
+            (Ok(()), self.legacy_modeset())
         } else {
-            let set = self.atomic_modeset_or_default();
-            match set {
+            let mut set = self.atomic_modeset_or_default();
+            // A display whose new mode the card refuses, as its default
+            // too, stays at the mode it is set to, and the modeset is tried
+            // again, so the others are set and nothing is retried.
+            if refused(&set) && self.hold_back() {
+                set = self.atomic_modeset_or_default();
+            }
+            // A display whose new mode failed for another reason, as where
+            // its buffers cannot be made, stays at the mode it is set to,
+            // which needs no new buffers, and the modeset is tried again,
+            // so the card is set and stays awake while the retries try the
+            // new mode.
+            if set.is_err() && self.keep_set_modes() {
+                set = self.atomic_modeset_or_default();
+            }
+            let set = match set.map_err(Failure::into_inner) {
                 Err(e) if errno(&e) != Some(Errno::ACCESS) && self.mixed() => {
                     let (online, new) = std::mem::take(&mut self.outputs)
                         .into_iter()
@@ -1577,10 +1728,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                         self.free(o);
                     }
                     self.atomic_modeset_or_default()
+                        .map_err(Failure::into_inner)
                 }
                 set => set,
-            }
+            };
+            (set, Vec::new())
         };
+        self.unset = unset;
         if set.is_ok() {
             // A modeset brings every display on.
             self.blanked = false;
@@ -1590,8 +1744,44 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.down = false;
             }
             self.announce();
+            if self.owing() || self.unset_any() {
+                self.retry(false);
+            }
         }
         set
+    }
+
+    /// Gives each display back the mode it is set to where a scan chose
+    /// another whose modeset failed for another reason than the card
+    /// refusing it, owing it that mode. Whether any display did.
+    fn keep_set_modes(&mut self) -> bool {
+        let mut any = false;
+        for o in &mut self.outputs {
+            any |= o.keep_set_mode();
+        }
+        any
+    }
+
+    /// Whether a display is owed a mode, which the retries try again.
+    fn owing(&self) -> bool {
+        self.outputs.iter().any(|o| o.owed.is_some())
+    }
+
+    /// Whether a display the last legacy modeset could not set is still
+    /// bound.
+    fn unset_any(&self) -> bool {
+        self.outputs.iter().any(|o| self.unset.contains(&o.id))
+    }
+
+    /// Gives each display back the mode it is set to where a scan chose
+    /// another that the card refused, holding that mode back. Whether any
+    /// display did.
+    fn hold_back(&mut self) -> bool {
+        let mut any = false;
+        for o in &mut self.outputs {
+            any |= o.hold_back();
+        }
+        any
     }
 
     /// Whether some displays are online and some are new.
@@ -1604,8 +1794,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// dark connectors set off, it is tried without them first, so a dark
     /// connector never costs the lit displays (ADR-1401 D9); the first
     /// such failure is logged as a warning, later ones at debug level.
-    fn atomic_modeset_or_default(&mut self) -> io::Result<()> {
-        let refused = |set: &Result<(), Failure>| matches!(set, Err(Failure::Test(e)) if errno(e) != Some(Errno::ACCESS));
+    fn atomic_modeset_or_default(&mut self) -> Result<(), Failure> {
         let mut dark = !self.dark.is_empty();
         let mut set = self.atomic_modeset(dark);
         if dark && refused(&set) {
@@ -1627,7 +1816,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             set = self.atomic_modeset(false);
         }
         if !refused(&set) {
-            return set.map_err(Failure::into_inner);
+            return set;
         }
         log::warn!("retrying the modeset with each display's default mode");
         let modes: Vec<Mode> = self.outputs.iter().map(|o| o.mode).collect();
@@ -1639,15 +1828,24 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             for (o, mode) in self.outputs.iter_mut().zip(modes) {
                 o.mode = mode;
             }
+        } else {
+            // The card refused the modes chosen, so none is owed.
+            for o in &mut self.outputs {
+                o.owed = None;
+            }
         }
-        retried.map_err(Failure::into_inner)
+        retried
     }
 
     /// Announces each display online: new ones as added, and those whose
     /// buffers hold nothing known to be redrawn. A display powered down is
-    /// told to redraw when it is powered on.
+    /// told to redraw when it is powered on, and one the last legacy
+    /// modeset could not set once a modeset sets it.
     fn announce(&mut self) {
         for o in self.outputs.iter_mut().filter(|o| o.online) {
+            if self.unset.contains(&o.id) {
+                continue;
+            }
             let redraw = std::mem::take(&mut o.redraw);
             if o.announced {
                 if redraw && o.dpms_on() {
@@ -1696,8 +1894,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Gives `o` the new buffers of a modeset that took: the first is on
     /// screen, and none holds anything drawn. A token out for an old buffer
-    /// comes back too late, and the old buffer stays until it does.
+    /// comes back too late, and the old buffer stays until it does. A
+    /// display that keeps its buffers at a new mode, as one whose refresh
+    /// rate alone changed, is drawn whole too: its buffers are age 0 and it
+    /// is told to redraw, so its owner reads the new rate.
     fn install(&self, o: &mut Output<S::Memory>, made: Option<Vec<Buffer<S::Memory>>>) {
+        let was = o.set.replace(o.mode);
+        // Set to another mode than before, the display owes nothing.
+        if was != Some(o.mode) {
+            o.owed = None;
+        }
         if let Some(made) = made {
             let old = std::mem::replace(&mut o.buffers, made);
             self.release(old);
@@ -1706,6 +1912,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             o.lease = o.lease.wrapping_add(1);
             o.clear_owed = false;
             o.fresh = false;
+            o.redraw = true;
+        } else if was.is_some_and(|was| was != o.mode) {
+            o.ages = Ages::default();
             o.redraw = true;
         }
     }
@@ -1941,9 +2150,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         outcome
     }
 
-    /// The legacy modeset: each CRTC in turn, with no flip event.
-    fn legacy_modeset(&mut self) {
+    /// The legacy modeset: each CRTC in turn, with no flip event. A
+    /// display whose new mode cannot be set is set at the mode it is set
+    /// to: held back where the card refused the mode with `EINVAL`, and
+    /// else owed it. Returns the displays it could not set.
+    fn legacy_modeset(&mut self) -> Vec<DisplayId> {
         self.legacy_dark();
+        let mut unset = Vec::new();
         let mut outputs = std::mem::take(&mut self.outputs);
         let driven: Vec<u32> = outputs
             .iter()
@@ -1951,54 +2164,76 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .map(|o| o.crtc)
             .collect();
         for o in &mut outputs {
-            log::info!(
-                "preparing the modeset of {} at {}x{}",
-                o.name,
-                o.size().0,
-                o.size().1
-            );
-            let made = match self.stage(o) {
-                Ok(made) => made,
-                Err(e) => {
-                    log::error!("cannot allocate buffers for {}: {e}", o.name);
-                    continue;
-                }
+            let mut set = self.legacy_set(o, &driven);
+            let again = match &set {
+                Ok(()) => false,
+                Err(Failure::Test(_)) => o.hold_back(),
+                Err(Failure::Other(_)) => o.keep_set_mode(),
             };
-            // A display that returns is set from off, as the atomic
-            // modeset sets it, where the card can turn its CRTC off; a
-            // CRTC a display online drives stays on.
-            if o.returning {
-                let on = self.connector_crtc(o.id.0);
-                if let Some(crtc) = on.filter(|c| !driven.contains(c))
-                    && let Err(e) = self.card.disable_crtc(crtc)
-                {
-                    log::debug!("cannot turn the CRTC of {} off first: {e}", o.name);
-                }
+            if again {
+                set = self.legacy_set(o, &driven);
             }
-            // Another program may have left its cursor on the CRTC.
-            if let Err(e) = self.card.hide_cursor(o.crtc) {
-                log::warn!("cannot hide the hardware cursor: {e}");
-            }
-            let fb = Self::staged_fb(o, made.as_ref());
-            match self.card.set_crtc(o.crtc, fb, o.id.0, &o.mode) {
-                Ok(()) => {
-                    self.install(o, made);
-                    o.online = true;
-                    o.returning = false;
-                    o.modeset_flip = true;
-                    // The CRTC is on, whatever DPMS it was at.
-                    if !o.dpms_on() {
-                        o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));
-                        o.powered_on();
-                    }
-                }
-                Err(e) => {
-                    log::error!("cannot set the CRTC of {}: {e}", o.name);
-                    self.release(made.unwrap_or_default());
-                }
+            if set.is_err() {
+                unset.push(o.id);
             }
         }
         self.outputs = outputs;
+        unset
+    }
+
+    /// Sets one display's CRTC at its mode, with new buffers where the mode
+    /// needs them. The card refusing the mode, which it does by failing the
+    /// CRTC set with `EINVAL`, fails as [`Failure::Test`].
+    fn legacy_set(&self, o: &mut Output<S::Memory>, driven: &[u32]) -> Result<(), Failure> {
+        log::info!(
+            "preparing the modeset of {} at {}x{}",
+            o.name,
+            o.size().0,
+            o.size().1
+        );
+        let made = self.stage(o).map_err(|e| {
+            log::error!("cannot allocate buffers for {}: {e}", o.name);
+            Failure::Other(e)
+        })?;
+        // A display that returns is set from off, as the atomic modeset
+        // sets it, where the card can turn its CRTC off; a CRTC a display
+        // online drives stays on.
+        if o.returning {
+            let on = self.connector_crtc(o.id.0);
+            if let Some(crtc) = on.filter(|c| !driven.contains(c))
+                && let Err(e) = self.card.disable_crtc(crtc)
+            {
+                log::debug!("cannot turn the CRTC of {} off first: {e}", o.name);
+            }
+        }
+        // Another program may have left its cursor on the CRTC.
+        if let Err(e) = self.card.hide_cursor(o.crtc) {
+            log::warn!("cannot hide the hardware cursor: {e}");
+        }
+        let fb = Self::staged_fb(o, made.as_ref());
+        match self.card.set_crtc(o.crtc, fb, o.id.0, &o.mode) {
+            Ok(()) => {
+                self.install(o, made);
+                o.online = true;
+                o.returning = false;
+                o.modeset_flip = true;
+                // The CRTC is on, whatever DPMS it was at.
+                if !o.dpms_on() {
+                    o.dpms = o.dpms.map(|(prop, _)| (prop, Dpms::On));
+                    o.powered_on();
+                }
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("cannot set the CRTC of {}: {e}", o.name);
+                self.release(made.unwrap_or_default());
+                if errno(&e) == Some(Errno::INVAL) {
+                    Err(Failure::Test(e))
+                } else {
+                    Err(Failure::Other(e))
+                }
+            }
+        }
     }
 
     #[cfg(test)]
@@ -2012,10 +2247,18 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 }
 
-/// How an atomic modeset failed: its test-only commit, or anything else.
+/// How a modeset failed: the card refused it, as an atomic modeset's
+/// test-only commit or a legacy CRTC set failing with `EINVAL`, or
+/// anything else.
 enum Failure {
     Test(io::Error),
     Other(io::Error),
+}
+
+/// Whether the card refused a modeset: its test commit failed, other than
+/// as refused while another process holds DRM master.
+fn refused(set: &Result<(), Failure>) -> bool {
+    matches!(set, Err(Failure::Test(e)) if errno(e) != Some(Errno::ACCESS))
 }
 
 impl Failure {

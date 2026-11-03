@@ -16,6 +16,8 @@ use vtium_term::{Age, Attrs, Glyph, LinkId, Style, UnderlineStyle, Width};
 
 const FG: &str = "e0a040";
 const BG: &str = "203040";
+/// The screen's default foreground.
+const DEFAULT_FG: &str = "c0c0c0";
 
 /// U+10EEEE with the row and column diacritics for row 0 and column 1:
 /// the first and second marks of kitty's `rowcolumn-diacritics.txt`.
@@ -59,7 +61,7 @@ fn screen(glyph: Glyph<'_>, st: Style) -> Screen {
 
 /// The same screen, with column 1 in `link`.
 fn linked(glyph: Glyph<'_>, st: Style, link: Option<LinkId>) -> Screen {
-    let mut s = Screen::new(3, 1, rgb("c0c0c0"), rgb("101010"));
+    let mut s = Screen::new(3, 1, rgb(DEFAULT_FG), rgb("101010"));
     s.text(0, 0, "a", style(rgb(FG), rgb(BG)));
     s.lines[0].write(1, glyph, Width::Narrow, &st, link);
     s.damage.mark_cell(0, 1);
@@ -117,11 +119,14 @@ fn the_cursor_draws_over_a_placeholder_cell() {
         s
     };
     let blank = |st: Style| screen(Glyph::Char(' '), st);
-    let plain = style(rgb(FG), rgb(BG));
+    // The cell's foreground names its image, so vtium-term resolves it as
+    // the default foreground (ADR-1100 D13), and the cursor draws as over a
+    // blank cell in the default foreground.
+    let plain = style(rgb(DEFAULT_FG), rgb(BG));
 
-    // a block swaps the background with the foreground
+    // a block swaps the background with the default foreground
     let s = at_placeholder(CursorShape::Block);
-    assert!(draw(&s, true) == draw(&blank(style(rgb(BG), rgb(FG))), false));
+    assert!(draw(&s, true) == draw(&blank(style(rgb(BG), rgb(DEFAULT_FG))), false));
 
     // an underline cursor draws its single line, though the cell's own
     // underline is not drawn

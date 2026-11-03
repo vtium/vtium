@@ -72,6 +72,8 @@ mod frame;
 mod line;
 mod links;
 mod palette;
+#[cfg(feature = "images")]
+mod placeholder;
 mod screen;
 mod scrollback;
 mod style;
@@ -93,8 +95,9 @@ pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 pub use palette::{PALETTE_NAMES, Palette, Special};
 pub use screen::{Erase, Screen, WidthMethod};
 pub use scrollback::{
-    MINSPEC_GRID, MINSPEC_PEAK, MINSPEC_REST, SB_MEMORY_DEFAULT, SB_SIZE_DEFAULT, sb_memory,
-    sb_memory_cap, sb_memory_default, sb_size, sb_size_cap, screens_bytes_max,
+    MINSPEC_GRID, MINSPEC_PEAK, MINSPEC_REST, SB_MEMORY_DEFAULT, SB_MEMORY_DEFAULT_IMAGES,
+    SB_MEMORY_DEFAULT_MINSPEC, SB_SIZE_DEFAULT, sb_memory, sb_memory_cap, sb_memory_default,
+    sb_size, sb_size_cap, screens_bytes_max,
 };
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
 pub use termcap::{Termcap, TermcapError};
@@ -109,3 +112,7 @@ pub use unicode::UNICODE_VERSION;
 /// vtium-term (ADR-1100).
 #[cfg(feature = "images")]
 pub use vtium_image as images;
+/// A run of kitty placeholder cells, as vtium-term reads it and hands it
+/// to the image store (ADR-1100, D13).
+#[cfg(feature = "images")]
+pub use vtium_image::PlaceholderRun;

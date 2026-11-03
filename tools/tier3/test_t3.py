@@ -30,6 +30,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zlib
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,7 +39,9 @@ import t3_bench  # noqa: E402
 import t3_devices  # noqa: E402
 import t3_evaluate  # noqa: E402
 import t3_heads  # noqa: E402
+import t3_images  # noqa: E402
 import t3_impl  # noqa: E402
+import t3_pictures  # noqa: E402
 import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
 import t3_qemu  # noqa: E402
@@ -192,7 +195,7 @@ class DescribeTest(unittest.TestCase):
     def test_benchmarks_are_screens(self):
         # A benchmark is drawn and compared like any screen, before cjk.
         for name in t3_evaluate.BENCHMARKS:
-            self.assertIn(name, t3_evaluate.SCREENS[:-1])
+            self.assertIn(name, t3_evaluate.SCREENS[:-1] + t3_evaluate.PICTURE_SCREENS[:-1])
 
     def test_kit_not_in_caption(self):
         # The demo's kit line names the review kit a page belongs to.
@@ -329,6 +332,8 @@ class ImplementationTest(unittest.TestCase):
 
     UNIT = t3_impl.VT_UNIT
     TREE = {"usr/bin/vtium": "12345678", UNIT: "[Service]\n", "usr/share/doc/x": "abc"}
+    # what make install-tree adds to it with images in FEATURES (ADR-1101 D1)
+    IMAGES = {f: "x" for f in t3_impl.IMAGE_FILES}
     LINE = "[  12.3] TIER3-INSTALL-OK packages: ; kernel: 6.17.2-arch1-1; tree: %s"
 
     def setUp(self):
@@ -400,6 +405,7 @@ class ImplementationTest(unittest.TestCase):
                              {"binary_bytes": budget, "met": met})
         # A tree whose console is built with features is no minspec tree:
         # the budget does not judge it, however large its binary.
+        write_tree(self.tree, self.IMAGES)
         impl = t3_impl.tree(self.tree, self.tar, features=["logind", "images"])
         impl["binary_bytes"] = budget + 1
         self.assertFalse(t3_impl.judged_by_budget(impl))
@@ -737,6 +743,7 @@ class ImplementationTest(unittest.TestCase):
         self.assertTrue(t3.summary(impl, {}).startswith(
             "tree %s: binary 2368120 B, within the budget of %d B; "
             % (t3_common.rel(self.tree), budget)))
+        write_tree(self.tree, self.IMAGES)
         impl = t3_impl.tree(self.tree, self.tar, features=["images"])
         impl["binary_bytes"] = budget + 1
         self.assertTrue(t3.summary(impl, {}).startswith(
@@ -816,8 +823,15 @@ class ImplementationTest(unittest.TestCase):
             seen.append((args, cwd, os.path.exists(tree)))
             return subprocess.CompletedProcess(args, 0)
 
+        # build_tree removes the tree's record first; the test's record is
+        # its own, so the last real run's stays for make tier3-run
+        record = os.path.join(self.dir.name, "tree.json")
+        self.addCleanup(mock.patch.object(t3_common, "TREE_RECORD", record).stop)
+        mock.patch.object(t3_common, "TREE_RECORD", record).start()
+        write_tree(self.dir.name, {"tree.json": "{}"})
         with mock.patch.object(t3.subprocess, "run", side_effect=make):
             t3.build_tree("install-tree", tree, [], lambda msg: None)
+            self.assertFalse(os.path.exists(record))
             write_tree(tree, {"stale": "from an earlier build"})
             t3.build_tree("install-tree", tree, ["images", "logind"], lambda msg: None)
         # FEATURES is always given, empty for the minspec tree, so make's
@@ -975,7 +989,9 @@ class ProvenanceTest(unittest.TestCase):
 
         def make(argv, cwd):
             destdir = [a for a in argv if a.startswith("DESTDIR=")][0][len("DESTDIR="):]
-            write_tree(destdir, ImplementationTest.TREE)
+            features = [a for a in argv if a.startswith("FEATURES=")][0][len("FEATURES="):]
+            write_tree(destdir, dict(ImplementationTest.TREE, **(
+                ImplementationTest.IMAGES if "images" in features.split() else {})))
             return subprocess.CompletedProcess(argv, 0)
 
         def variants(names, jobs, impl, deadline, log):
@@ -1056,6 +1072,7 @@ class ProvenanceTest(unittest.TestCase):
         named = os.path.join(self.root, "named")
         write_tree(named, ImplementationTest.TREE)
         self.assertEqual(t3_impl.describe(self.run_tree(tree=named))["features"], [])
+        write_tree(named, ImplementationTest.IMAGES)
         impl = self.run_tree(tree=named, features="images")
         self.assertEqual((self.built, t3_impl.describe(impl)["features"]), ([], ["images"]))
 
@@ -1271,10 +1288,14 @@ class VtiumGoldenTest(unittest.TestCase):
                  "heads-closed-broken/panic", "heads-policy-typo/policy-panic",
                  "heads-closed-unmatched/no-display-notice",
                  "heads-kiosk/cjk"]
+        images = ["images-640x480/" + s for s in ("img-sixel", "img-kitty", "img-relative",
+                                                  "img-overwrite", "img-delete", "img-scroll",
+                                                  "img-scrollback", "img-tmux-pane",
+                                                  "img-png")]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
                                                "sysvinit-two-vts/cjk"] + moved + frit + devices
-                                              + heads))
+                                              + heads + images))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
@@ -1679,7 +1700,8 @@ class VariantTest(unittest.TestCase):
         for name in t3_evaluate.IMAGE_SCREENS:
             self.assertIn(name, t3_evaluate.CASES)
         for screen, case, _ in t3_evaluate.KEYED:
-            self.assertIn(case, t3_evaluate.CASES)
+            self.assertIn(case, t3_evaluate.CASES if screen in t3_evaluate.SCREENS
+                          else t3_scenario.variant_cases("images-640x480"))
 
     def test_failed_variant_fails_every_case(self):
         # A variant that could not run fails every case, the image ones too.
@@ -2295,6 +2317,59 @@ class PointerTest(unittest.TestCase):
 
 class BenchTest(unittest.TestCase):
     EVENT = "T3-BENCH s1-scroll lines=20000 start=100.00 end=102.00"
+
+    def test_pane_damage(self):
+        # img-tmux-pane (vtium/vtium#30): the mean damage per frame over the
+        # window must stay within the playing pane's pixels. Two panes'
+        # worth of damage fails, as does a window in which nothing was drawn.
+        event = ("T3-BENCH img-tmux-pane start=100.00 end=102.00 mpv_frames=60 "
+                 "mpv_dropped=0 tmux_sixels=60 pane_px=69888")
+        conf = ["render-timer=log", "display-buffers=2"]
+        for damage, want in ((58101, None), (69888, None), (69889, "more than the playing pane"),
+                             (139776, "139776 pixels a frame on the mean, more than the "
+                                      "playing pane's 69888")):
+            with self.subTest(damage):
+                serial = "\n".join([timer_line(100.6, 30, 30, damage=(damage, 22.0)),
+                                    timer_line(101.6, 30, 30, damage=(damage, 22.0))])
+                got = t3_bench.measure(serial, event, conf)
+                self.assertEqual((got["pane_px"], got["damage_px_mean"]), (69888, damage))
+                if want:
+                    self.assertIn(want, got["error"])
+                else:
+                    self.assertNotIn("error", got)
+        got = t3_bench.measure(timer_line(100.6, 0, 0), event, conf)
+        self.assertIn("no frame was drawn while the pane played", got["error"])
+        # One second of full-screen redraws among the pane's, wholly inside
+        # the window, 100.0 to 103.0 s: the window's mean stays within the
+        # pane, the second's does not, and the case fails.
+        wide = event.replace("end=102.00", "end=103.00")
+        serial = "\n".join([timer_line(100.6, 60, 60, damage=(40000, 13.0)),
+                            timer_line(102.0, 1, 1, damage=(307200, 100.0)),
+                            timer_line(103.0, 60, 60, damage=(40000, 13.0))])
+        got = t3_bench.measure(serial, wide, conf)
+        self.assertLess(got["damage_px_mean"], 69888)
+        self.assertEqual(got["damage_px_seconds"], [307200, 40000])
+        self.assertEqual(got["error"], "in 1 second(s) of the window the console damaged more "
+                                       "than the playing pane's 69888 pixels a frame on the "
+                                       "mean, at most 307200")
+        # The same second straddling the window's start (99.6 to 100.6 s) or
+        # its end (102.6 to 103.6 s) also holds frames from outside it, so
+        # it does not count for the rule of each second, and the case passes
+        # on the window's mean.
+        for edge in (100.6, 103.6):
+            with self.subTest(edge=edge):
+                serial = "\n".join([timer_line(edge, 1, 1, damage=(307200, 100.0)),
+                                    timer_line(102.0, 60, 60, damage=(40000, 13.0))])
+                got = t3_bench.measure(serial, wide, conf)
+                self.assertLess(got["damage_px_mean"], 69888)
+                self.assertEqual(got["damage_px_seconds"], [40000])
+                self.assertNotIn("error", got)
+        # the variant keeps two display buffers, so a frame's damage counts
+        # two frames' changes
+        with open(os.path.join(t3_common.GUEST, "kmscon-images.conf")) as f:
+            self.assertIn("display-buffers=2\n", f.read())
+        self.assertEqual(t3_scenario.VARIANTS["images-640x480"]["conf"], "kmscon-images.conf")
+        self.assertIn("img-tmux-pane", t3_evaluate.BENCHMARKS)
     MPV = "T3-BENCH mpv-sixel start=100.00 end=102.00 mpv_frames=60 mpv_dropped=2 kmscon_cpu_ms=500"
     CONF = ["font-size=16", "render-timer=log"]
 
@@ -3340,7 +3415,8 @@ class HeadsTest(unittest.TestCase):
         requests = ["kill TERM", "kill KILL; touch pwned", "$(touch %s/pwned-sub)" % d.name,
                     "`touch %s/pwned-tick`" % d.name, "state ", "start now", "Start",
                     "hangup && touch pwned-and", "watch /dev/input/event0", "Watch",
-                    "limit 99", "Limit", "reset-failed getty@tty2.service", "reset-failed;id"]
+                    "limit 99", "Limit", "reset-failed getty@tty2.service", "reset-failed;id",
+                    "prelogin now", "Prelogin", "prelogin;id"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -3822,6 +3898,625 @@ class HeadsTest(unittest.TestCase):
         self.assertTrue(drop)
         self.assertTrue(why[0].startswith("the console set up a display on a guest with none"))
         self.assertEqual(t3_scenario.resident({}, [])["first_screen"], None)
+
+
+def sixel_pixels(data):
+    """The pixels a sixel string sets, {(x, y): (r, g, b) percentages}: a
+    reader of the plain forms t3_pictures.py writes, `#N;2;r;g;b` color
+    definitions, `#N` selections, `!N` repeats, `$` and `-`, apart from the
+    picture writer it checks."""
+    body = data.decode()
+    body = body[body.index("q") + 1:body.rindex("\x1b\\")]
+    tokens = re.findall(r'"[\d;]+|#\d+(?:;\d+)*|!\d+.|[?-~]|\$|-', body)
+    colors, out, color, x, top = {}, {}, None, 0, 0
+    for t in tokens:
+        if t.startswith('"'):
+            continue
+        if t.startswith("#"):
+            parts = [int(v) for v in t[1:].split(";")]
+            if len(parts) == 5:
+                colors[parts[0]] = tuple(parts[2:])
+            color = parts[0]
+        elif t == "$":
+            x = 0
+        elif t == "-":
+            x, top = 0, top + 6
+        else:
+            n, ch = (int(t[1:-1]), t[-1]) if t.startswith("!") else (1, t)
+            for _ in range(n):
+                bits = ord(ch) - 63
+                for dy in range(6):
+                    if bits >> dy & 1:
+                        out[(x, top + dy)] = colors[color]
+                x += 1
+    return out
+
+
+class PicturesTest(unittest.TestCase):
+    """The test pictures of the images variant (t3_pictures.py): pinned, a
+    whole number of cells, and each file a faithful copy of its picture."""
+
+    def test_pinned(self):
+        # The images variant's goldens hold these pixels, so a change to the
+        # pictures moves them: this digest changes in the same commit as
+        # the goldens.
+        self.assertEqual(t3_pictures.digest(),
+                         "76eb38dd0e3d1b6dec0b7ede466c82ad2dc325704e8d732c351e8077846c1658")
+        self.assertEqual(sorted(t3_pictures.files()), [
+            "bands.rgba", "bands.six", "child.rgba", "disc.png", "disc.six", "parent.rgba",
+            "quad.png", "quad.rgba", "quad.rgba.z", "quad.six"])
+
+    def test_whole_cells(self):
+        # Every picture is a whole number of the variant's 8x16 cells, and
+        # every one sent as sixel a whole number of 6-row bands.
+        sixels = {n.split(".")[0] for n in t3_pictures.files() if n.endswith(".six")}
+        self.assertEqual(sixels, {"quad", "bands", "disc"})
+        for name, pic in t3_pictures.PICTURES.items():
+            with self.subTest(name):
+                self.assertEqual((pic.width % 8, pic.height % 16), (0, 0))
+                if name in sixels:
+                    self.assertEqual(pic.height % 6, 0)
+
+    def test_files(self):
+        # Each file holds its picture: the sixel's set pixels in their
+        # colors, the raw and inflated pixels byte for byte, the PNG's
+        # colors where the picture is opaque and black where it is clear.
+        files = t3_pictures.files()
+        for name, data in files.items():
+            pic = t3_pictures.PICTURES[name.split(".")[0]]
+            with self.subTest(name):
+                if name.endswith(".six"):
+                    want = {(x, y): p for y, row in enumerate(pic.pixels)
+                            for x, p in enumerate(row) if p}
+                    self.assertEqual(sixel_pixels(data), want)
+                    self.assertIn(b'"1;1;%d;%d' % (pic.width, pic.height), data)
+                elif name.endswith(".rgba"):
+                    self.assertEqual(len(data), pic.width * pic.height * 4)
+                    self.assertEqual(data, pic.rgba())
+                elif name.endswith(".z"):
+                    self.assertEqual(zlib.decompress(data), pic.rgba())
+                else:
+                    img = t3img.read_png(data)
+                    self.assertEqual((img.width, img.height), (pic.width, pic.height))
+                    rgba = pic.rgba()
+                    self.assertEqual(img.data, bytes(b for i, b in enumerate(rgba) if i % 4 != 3))
+        self.assertEqual(t3_pictures.eight(t3_pictures.ORANGE), (255, 128, 0))
+        # a clear pixel is clear in the raw pixels and the PNG alike
+        self.assertIsNone(t3_pictures.PICTURES["disc"].pixels[0][0])
+        self.assertEqual(t3_pictures.PICTURES["disc"].rgba()[:4], b"\0\0\0\0")
+
+    def test_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            names = t3_pictures.write(os.path.join(d, "p"))
+            self.assertEqual(names, sorted(t3_pictures.files()))
+            for name in names:
+                with open(os.path.join(d, "p", name), "rb") as f:
+                    self.assertEqual(f.read(), t3_pictures.files()[name])
+
+
+class ImagesVariantTest(unittest.TestCase):
+    """The images variant (t3_scenario.VARIANTS["images-640x480"]): its
+    cases, the tree it needs, the guest's account of the image helper, the
+    pictures on its disc and the make target that runs it."""
+
+    VARIANT = "images-640x480"
+    HELPER = ("helper /usr/bin/vtium-image mode 755, account vtium-image uid 969 gid 969")
+
+    def test_cases(self):
+        self.assertEqual(t3_scenario.variant_cases(self.VARIANT), [
+            "prelogin", "img-sixel", "img-kitty", "img-relative", "img-overwrite", "img-delete",
+            "img-scroll", "img-scrollback", "img-scrollforward", "img-tmux-pane", "img-png",
+            "vt-switch", "vt-restore"])
+        v = t3_scenario.VARIANTS[self.VARIANT]
+        self.assertEqual((v["device"], v["cpus"], v["memory_mb"], v["images"], v["goldens"]),
+                         ("virtio-vga,xres=640,yres=480,edid=on", 1, 512, True,
+                          t3_evaluate.VTIUM_GOLDEN))
+        self.assertEqual(v["tree_features"], ["images"])
+        for screen in t3_evaluate.PICTURE_SCREENS:
+            with self.subTest(screen):
+                self.assertIn(screen, t3_evaluate.DRAWS_PICTURES)
+                self.assertNotIn(screen, t3_evaluate.SCREENS)
+                self.assertTrue(os.path.isfile(os.path.join(t3_common.GUEST, "screens",
+                                                            screen + ".sh")))
+                caption, wrong = t3_evaluate.describe(screen)
+                self.assertIn("Correct: ", caption)
+                self.assertTrue(wrong)
+
+    def test_restore(self):
+        # vt-restore is compared with the last screen a variant draws: the
+        # images variant's img-png, every other variant's cjk.
+        self.assertEqual(t3_evaluate.same_as("vt-restore", self.VARIANT), "img-png")
+        self.assertEqual(t3_evaluate.same_as("img-scrollforward", self.VARIANT), "img-scroll")
+        self.assertEqual(t3_evaluate.golden_for(self.VARIANT, "vt-restore",
+                                                t3_evaluate.VTIUM_GOLDEN)[0],
+                         os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT, "img-png.png"))
+        for variant in t3_scenario.VARIANTS:
+            if "vt-restore" in t3_scenario.variant_cases(variant):
+                with self.subTest(variant):
+                    self.assertEqual(t3_evaluate.same_as("vt-restore", variant),
+                                     t3_scenario.screens_of(variant)[-1])
+        entry = t3_evaluate.evaluate(self.VARIANT, "vt-restore", None, {}, LOG,
+                                     t3_evaluate.VTIUM_GOLDEN)
+        self.assertIn("the img-png screen redrawn", entry["description"])
+
+    def test_restore_must_match_before(self):
+        # vt-restore fails, whatever its golden, when the screen after the
+        # switch back is not the screen before it, as when a console draws
+        # its text again and drops a picture.
+        before = t3img.Image(4, 2, bytes(range(24)))
+        dropped = t3img.Image(4, 2, bytes(range(21)) + b"\0\0\0")
+        self.assertIsNone(t3_scenario.restore_differs(before, t3img.Image(4, 2, before.data)))
+        self.assertEqual(t3_scenario.restore_differs(before, dropped),
+                         "the screen after the switch back differs from the screen before "
+                         "the switch in 1 pixels")
+        self.assertIn("differs", t3_scenario.restore_differs(before, t3img.Image(2, 2,
+                                                                                bytes(12))))
+        tty3 = t3img.Image(4, 2, bytes(24))
+
+        class VM:
+            def keys(self, *chord):
+                pass
+
+            def wait_serial(self, line, timeout):
+                pass
+
+            def screendump(self, path, output=None):
+                return tty3
+
+        for after, want in ((before, None), (dropped, "in 1 pixels")):
+            with self.subTest(want), tempfile.TemporaryDirectory() as d:
+                shown = iter([tty3, after])
+                caps, errors = {}, {}
+                with mock.patch.object(t3_scenario, "wait_stable",
+                                       lambda vm, path, **kw: next(shown)):
+                    t3_scenario.switch_vts(self.VARIANT, VM(), d, before, caps, errors,
+                                           lambda name: None)
+                self.assertIn("vt-restore", caps)
+                if want:
+                    self.assertIn(want, errors["vt-restore"])
+                else:
+                    self.assertNotIn("vt-restore", errors)
+
+    def test_scrollback_keys(self):
+        self.assertIn(("img-scroll", "img-scrollback", [("shift", "pgup")]), t3_evaluate.KEYED)
+        self.assertIn(("img-scroll", "img-scrollforward", [("shift", "pgdn")]),
+                      t3_evaluate.KEYED)
+        for case in ("img-scrollback", "img-scrollforward"):
+            self.assertIn(case, t3_evaluate.CHECKS)
+            self.assertNotIn(case, t3_evaluate.NO_GOLDEN)
+
+    def test_tree_features(self):
+        # The variant runs only on a tree whose console is built with
+        # images; the other variants run on either tree.
+        for features, want in (([], ["images-640x480 needs a tree whose console is built with "
+                                     "images, and the tree's was built with no features; make "
+                                     "tier3-images builds one"]),
+                               (["logind"], ["images-640x480 needs a tree whose console is "
+                                             "built with images, and the tree's was built with "
+                                             "logind; make tier3-images builds one"]),
+                               (["images"], []), (["images", "logind"], [])):
+            with self.subTest(features):
+                impl = {"tree_features": features}
+                self.assertEqual(t3_scenario.check_tree_features([self.VARIANT], impl), want)
+                self.assertEqual(t3_scenario.check_tree_features(
+                    ["2d-potato-min", "2d-1366x768-potato"], impl), [])
+
+    def test_run_refuses_a_tree_without_images(self):
+        with tempfile.TemporaryDirectory() as d:
+            tree = os.path.join(d, "tree")
+            write_tree(tree, ImplementationTest.TREE)
+            args = t3.main.__globals__["argparse"].Namespace(
+                variants=[self.VARIANT], tree=tree, tree_target=None, features=None, jobs=1,
+                deadline=60)
+            with mock.patch.object(t3_scenario, "base_of", return_value=(tree, "x")), \
+                    mock.patch.object(t3_impl, "RUNDIR", d), \
+                    mock.patch.object(t3, "preflight", return_value=[]), \
+                    mock.patch.object(t3_runner, "run_variants") as run, \
+                    mock.patch.object(t3_runner, "run_lock", contextlib.nullcontext), \
+                    mock.patch.object(t3_runner, "raise_on_sigterm"):
+                with self.assertRaisesRegex(SystemExit, "needs a tree whose console is built "
+                                                        "with images"):
+                    t3.run(args, LOG)
+                run.assert_not_called()
+
+    def test_image_files(self):
+        # A tree built with images holds the helper and its sysusers file,
+        # and a tree built without holds neither (ADR-1101 D1).
+        base = dict(ImplementationTest.TREE)
+        helper = {f: "x" for f in t3_impl.IMAGE_FILES}
+        with tempfile.TemporaryDirectory() as d:
+            for files, features, why in (
+                    (base, ["images"], "holds no /usr/bin/vtium-image, "
+                                       "/usr/lib/sysusers.d/vtium-image.conf"),
+                    (dict(base, **{t3_impl.IMAGE_FILES[1]: "x"}), ["images"],
+                     "holds no /usr/bin/vtium-image \\(ADR-1101"),
+                    (dict(base, **helper), [], "built without images, installs "
+                                               "/usr/bin/vtium-image, /usr/lib/sysusers.d"),
+                    (dict(base, **{t3_impl.IMAGE_FILES[0]: "x"}), ["logind"],
+                     "installs /usr/bin/vtium-image, which only")):
+                with self.subTest(files=sorted(files), features=features):
+                    tree = os.path.join(d, "t%d" % len(os.listdir(d)))
+                    write_tree(tree, files)
+                    with self.assertRaisesRegex(SystemExit, why):
+                        t3_impl.tree(tree, os.path.join(d, "x.tar"), features=features)
+            tree = os.path.join(d, "good")
+            write_tree(tree, dict(base, **helper))
+            impl = t3_impl.tree(tree, os.path.join(d, "x.tar"), features=["images"])
+            self.assertEqual(impl["tree_features"], ["images"])
+
+    def test_check_guest(self):
+        t3_scenario.check_guest(self.VARIANT, {"images": self.HELPER})
+        t3_scenario.check_guest("2d-640x480-psf16", {"images": "none"})
+        for helper in (None, "none", self.HELPER.replace("969 gid", "0 gid"),
+                       self.HELPER.replace("gid 969", "gid 0"),
+                       self.HELPER.replace("755", "4755")):
+            with self.subTest(helper):
+                installed = {} if helper is None else {"images": helper}
+                with self.assertRaisesRegex(RuntimeError, "the guest's image helper is"):
+                    t3_scenario.check_guest(self.VARIANT, installed)
+        # guest/setup's report line carries the field, and check_install
+        # reads it
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            text = f.read()
+        self.assertIn("systemd-sysusers /usr/lib/sysusers.d/vtium-image.conf", text)
+        self.assertIn('"images: $images;"', text)
+        impl = {"tree_sha256": "a" * 64}
+        line = ("TIER3-INSTALL-OK packages: ; kernel: 7.2.11-arch1-1; images: %s; tree: %s"
+                % (self.HELPER, "a" * 64))
+        self.assertEqual(t3_scenario.check_install(line, impl)["images"], self.HELPER)
+
+    def test_disc(self):
+        # The disc carries the test pictures beside the screens; a variant
+        # without "pictures" carries none.
+        with tempfile.TemporaryDirectory() as d:
+            tree = os.path.join(d, "tree")
+            write_tree(tree, ImplementationTest.TREE)
+            impl = t3_impl.tree(tree, os.path.join(d, "tree.tar"))
+            impl["fonts"] = os.path.join(d, "fonts")
+            os.makedirs(impl["fonts"])
+            with mock.patch.object(t3_scenario, "make_iso"):
+                t3_scenario.build_disc(self.VARIANT, d, impl)
+                pictures = os.path.join(d, "disc", "screens", "pictures")
+                self.assertEqual(sorted(os.listdir(pictures)), sorted(t3_pictures.files()))
+                with open(os.path.join(pictures, "quad.six"), "rb") as f:
+                    self.assertEqual(f.read(), t3_pictures.files()["quad.six"])
+                t3_scenario.build_disc("2d-640x480-psf16", d, impl)
+                self.assertFalse(os.path.exists(pictures))
+
+    def test_screens_name_written_pictures(self):
+        # Every picture a screen sends is one t3_pictures.py writes; the
+        # tmux screen alone plays a clip and sends none of them.
+        for screen in t3_evaluate.PICTURE_SCREENS:
+            with open(os.path.join(t3_common.GUEST, "screens", screen + ".sh")) as f:
+                text = f.read()
+            if screen == "img-tmux-pane":
+                self.assertNotIn("img-common.inc", text)
+                continue
+            named = set(re.findall(r'\$pics/([\w.]+)', text) + re.findall(r'pic64 ([\w.]+)', text))
+            with self.subTest(screen):
+                self.assertTrue(named)
+                self.assertLessEqual(named, set(t3_pictures.files()))
+
+    def test_missing_pictures(self):
+        # A screen whose pictures are missing reports it, and its keys are
+        # not pressed.
+        events = ["T3-DONE img-scroll-before", "T3-NO-PICTURES", "T3-RSS img-scroll 1",
+                  "T3-DONE img-scroll"]
+        self.assertEqual(t3_scenario.reported_not_offered(events, "img-scroll"),
+                         "T3-NO-PICTURES")
+        with open(os.path.join(t3_common.GUEST, "screens", "img-common.inc")) as f:
+            self.assertIn("echo T3-NO-PICTURES", f.read())
+
+    def test_prelogin(self):
+        # Before login the file's picture is refused, the inline one drawn,
+        # and the helper runs as the variant's pre-login account
+        # (ADR-1101 D2, D10).
+        self.assertEqual(t3_scenario.variant_cases("images-640x480-nobody"), ["prelogin"])
+        v = t3_scenario.VARIANTS["images-640x480-nobody"]
+        self.assertEqual((v["image_account"], v["login"], v["agent"], v["prelogin"]),
+                         ("nobody", False, True, True))
+        self.assertIn("prelogin", t3_evaluate.NO_GOLDEN)
+        quad = t3_pictures.PICTURES["quad"]
+
+        def screen(*at):
+            data = bytearray(640 * 480 * 3)
+            for col, row in at:
+                for y, line in enumerate(quad.pixels):
+                    for x, p in enumerate(line):
+                        i = (((row - 1) * 16 + y) * 640 + (col - 1) * 8 + x) * 3
+                        data[i:i + 3] = bytes(t3_pictures.eight(p))
+            return t3img.Image(640, 480, bytes(data))
+
+        good = ["pty /dev/pts/0 root", "helpers vtium-image"]
+        right = screen(t3_images.INLINE_AT)
+        self.assertIsNone(t3_images.judge(good, right, "vtium-image"))
+        self.assertIsNone(t3_images.judge(["pty /dev/pts/0 root", "helpers nobody"], right,
+                                          "nobody"))
+        for answer, img, account, why in (
+                (good, right, "nobody", "run as vtium-image; they must run as nobody"),
+                (["pty /dev/pts/0 root", "helpers none"], right, "vtium-image",
+                 "run as nobody at all"),
+                (["pty /dev/pts/0 root", "helpers vtium-image tester"], right, "vtium-image",
+                 "run as vtium-image tester"),
+                (["pty /dev/pts/0 tester", "helpers vtium-image"], right, "vtium-image",
+                 "not root's"),
+                (["refused: no login prompt on a pty"], right, "vtium-image", "refused"),
+                (good, screen(), "vtium-image", "the inline picture shows 0 of its 3072"),
+                (good, screen(t3_images.INLINE_AT, t3_images.FILE_AT), "vtium-image",
+                 "the picture read from a file shows 3072 pixels")):
+            with self.subTest(why):
+                self.assertIn(why, t3_images.judge(answer, img, account))
+        # the agent writes the pictures where the judge looks, and setup
+        # removes the account for a variant whose helper runs as nobody
+        with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
+            agent = f.read()
+        self.assertIn("prelogin) prelogin ;;", agent)
+        self.assertIn("\\e[%d;%dH\\033_Ga=T,i=91,q=2,C=1,f=100,t=f;" % t3_images.FILE_AT[::-1],
+                      agent)
+        self.assertIn("\\033[%d;%dH\\033_Ga=T,i=92,q=2,C=1,f=100;" % t3_images.INLINE_AT[::-1],
+                      agent)
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        self.assertIn('if [ -f "$disc"/no-image-account ]; then\n        userdel vtium-image',
+                      setup)
+        self.assertIn("mount -t rpc_pipefs rpc_pipefs /run/t3-rpc", setup)
+        t3_scenario.check_guest("images-640x480-nobody", {
+            "images": "helper /usr/bin/vtium-image mode 755, account vtium-image removed"})
+        with self.assertRaisesRegex(RuntimeError, "account vtium-image removed"):
+            t3_scenario.check_guest("images-640x480-nobody", {"images": self.HELPER})
+        with self.assertRaisesRegex(RuntimeError, "image helper is"):
+            t3_scenario.check_guest(self.VARIANT, {
+                "images": "helper /usr/bin/vtium-image mode 755, account vtium-image removed"})
+        # the discs carry the flags setup reads
+        with tempfile.TemporaryDirectory() as d:
+            tree = os.path.join(d, "tree")
+            write_tree(tree, ImplementationTest.TREE)
+            impl = t3_impl.tree(tree, os.path.join(d, "tree.tar"))
+            impl["fonts"] = os.path.join(d, "fonts")
+            os.makedirs(impl["fonts"])
+            disc = os.path.join(d, "disc")
+            with mock.patch.object(t3_scenario, "make_iso"):
+                for variant, want in ((self.VARIANT, {"rpc-pipefs", "t3-agent"}),
+                                      ("images-640x480-nobody",
+                                       {"no-image-account", "t3-agent"})):
+                    t3_scenario.build_disc(variant, d, impl)
+                    names = set(os.listdir(disc)) & {"rpc-pipefs", "no-image-account",
+                                                     "t3-agent"}
+                    self.assertEqual(names, want, variant)
+
+    def test_refusal_fails_a_provisional_case(self):
+        # A provisional golden judges nothing, but a picture screen that
+        # drew no picture in a variant with images fails all the same.
+        why = "drew no picture (T3-NO-PICTURES) in a variant with images"
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(t3_evaluate, "RUNDIR", d), \
+                mock.patch.dict(t3_evaluate.PROVISIONAL, {self.VARIANT + "/img-sixel": "x"}):
+            golden = os.path.join(d, "goldens", self.VARIANT, "img-sixel.png")
+            os.makedirs(os.path.dirname(golden))
+            t3img.write_png(golden, t3img.Image(8, 8, bytes(8 * 8 * 3)))
+            root = os.path.join(d, "goldens")
+            entry = t3_evaluate.evaluate(self.VARIANT, "img-sixel", golden, {}, LOG, root)
+            self.assertEqual(entry["status"], "provisional")
+            entry = t3_evaluate.evaluate(self.VARIANT, "img-sixel", golden,
+                                         {"errors": {"img-sixel": why}}, LOG, root)
+            self.assertEqual((entry["status"], entry["error"]), ("fail", why))
+        with open(os.path.join(t3_common.HERE, "t3_scenario.py")) as f:
+            self.assertIn('errors[name] = "drew no picture (%s) in a variant with images"',
+                          f.read())
+
+    def test_replies(self):
+        # The replies a screen reported after the screen before it ended,
+        # in order, held to REPLIES: a picture the helper did not decode,
+        # a temporary file it kept, a delete that freed the wrong image,
+        # or a reply missing, each fails.
+        want = t3_evaluate.REPLIES["img-png"]
+        events = ["T3-REPLY i=1;OK", "T3-DONE img-delete", "T3-RSS img-png 1"] + [
+            "T3-REPLY " + r for r in want] + ["T3-DONE img-png"]
+        self.assertEqual(t3_scenario.screen_replies(events, "img-png"), want)
+        self.assertEqual(t3_scenario.screen_replies(events, "img-delete"), ["i=1;OK"])
+        self.assertEqual(t3_scenario.screen_replies(events[:-1], "img-png"), [])
+        self.assertIsNone(t3_scenario.judge_replies("img-png", want))
+        for got in ([want[0], "i=42;EINVAL:image data could not be decoded"] + want[2:],
+                    want[:3] + ["kept"] + want[4:], want[:-1], []):
+            with self.subTest(got):
+                self.assertRegex(t3_scenario.judge_replies("img-png", got),
+                                 "^the screen reported .*; it must report i=41;OK, ")
+        self.assertEqual(t3_scenario.judge_replies("img-delete", []),
+                         "the screen reported no reply; it must report i=32;OK, "
+                         "i=33;ENOENT:image not found")
+        # each screen reports as many times as REPLIES lists for it
+        for screen, replies in t3_evaluate.REPLIES.items():
+            with self.subTest(screen), open(os.path.join(t3_common.GUEST, "screens",
+                                                         screen + ".sh")) as f:
+                self.assertEqual(len(re.findall(r'^reply_event "', f.read(), re.M)),
+                                 len(replies))
+
+    def test_make_target(self):
+        # make tier3-images builds the tree with images and any features
+        # FEATURES adds, and runs the images variant unless VARIANTS names
+        # others.
+        bare = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS")}
+        both = ["images-640x480", "images-640x480-nobody"]
+        for argv, features, variants in (
+                ([], "images", both),
+                (["FEATURES=logind"], "images logind", both),
+                (["FEATURES=images,logind"], "images logind", both),
+                (["VARIANTS=2d-potato-min"], "images", ["2d-potato-min"])):
+            with self.subTest(argv):
+                r = subprocess.run(["make", "-n", "--no-print-directory", "tier3-images"] + argv,
+                                   cwd=t3_common.ROOT, capture_output=True, text=True,
+                                   check=True, env=bare)
+                runs = [l for l in r.stdout.replace("\\\n", " ").splitlines()
+                        if "/t3.py run " in l]
+                self.assertEqual(len(runs), 1)
+                args = shlex.split(runs[0].split("/t3.py run ", 1)[1])
+                last = len(args) - 1 - args[::-1].index("--features")
+                self.assertEqual(args[last + 1], features)
+                self.assertEqual(args[last + 2:], ["--tree-target", "install-tree"] + variants)
+
+
+class PictureGoldenTest(unittest.TestCase):
+    """The images variant's goldens, read where each screen places its
+    pictures: the pixels of t3_pictures.py's pictures, cell for cell, at
+    the 8x16 cells of 640x480. A golden that shows a picture a cell off, cut
+    where nothing cut it, or missing fails here, whether or not the golden
+    is still provisional."""
+
+    VARIANT = "images-640x480"
+    BLACK = (0, 0, 0)
+    # The default foreground, which the text over the pictures is drawn in.
+    GLYPH = (229, 229, 229)
+
+    def golden(self, screen):
+        return t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT, screen + ".png"))
+
+    @staticmethod
+    def pixel(img, x, y):
+        i = (y * img.width + x) * 3
+        return tuple(img.data[i:i + 3])
+
+    def placed(self, img, name, col, row, rows=None, part=None):
+        """Assert picture `name` is drawn at its own size with its top left
+        corner at cell (`col`, `row`), counted from 1, its opaque pixels in
+        their colors: only its pixel rows `rows` (a range) when given, and
+        only the pixel box `part` (x0, y0, x1, y1) of it, drawn at the cell,
+        when given."""
+        pic = t3_pictures.PICTURES[name]
+        x0, y0, x1, y1 = part or (0, 0, pic.width, pic.height)
+        left, top = (col - 1) * 8, (row - 1) * 16
+        wrong = []
+        for y in rows or range(y0, y1):
+            for x in range(x0, x1):
+                p = pic.pixels[y][x]
+                if p and self.pixel(img, left + x - x0, top + y - y0) != t3_pictures.eight(p):
+                    wrong.append((x, y))
+        self.assertEqual(wrong[:4], [], "%s at column %d, row %d: %d pixels differ"
+                         % (name, col, row, len(wrong)))
+
+    def shows_through(self, img, name, col, row):
+        """Assert text drawn under picture `name`, placed at cell (`col`,
+        `row`), shows where the picture is clear: some of its clear pixels
+        are glyph pixels."""
+        pic = t3_pictures.PICTURES[name]
+        left, top = (col - 1) * 8, (row - 1) * 16
+        lit = [(x, y) for y, line in enumerate(pic.pixels) for x, p in enumerate(line)
+               if p is None and self.pixel(img, left + x, top + y) == self.GLYPH]
+        self.assertTrue(lit, "no text shows through %s's clear pixels at column %d, row %d"
+                        % (name, col, row))
+
+    def blank(self, img, col, row, cols, rows):
+        """Assert the cells from (`col`, `row`), `cols` by `rows`, are black."""
+        left, top = (col - 1) * 8, (row - 1) * 16
+        lit = [(x, y) for y in range(top, top + rows * 16) for x in range(left, left + cols * 8)
+               if self.pixel(img, x, y) != self.BLACK]
+        self.assertEqual(lit[:4], [], "cells at column %d, row %d not blank" % (col, row))
+
+    def test_reads_every_golden(self):
+        # Each of the variant's goldens is read by a test of this class, so
+        # renaming or dropping one cannot leave a golden unchecked.
+        read = set()
+
+        class Recording(type(self)):
+            def golden(inner, screen):
+                read.add(screen)
+                return PictureGoldenTest.golden(inner, screen)
+
+        for name in dir(self):
+            if name.startswith("test_") and name != "test_reads_every_golden":
+                getattr(Recording(name), name)()
+        want = {t3_evaluate.same_as(c, self.VARIANT)
+                for c in t3_scenario.variant_cases(self.VARIANT)
+                if c not in t3_evaluate.NO_GOLDEN}
+        self.assertEqual(want, set(t3_evaluate.PICTURE_SCREENS) | {"img-scrollback"})
+        self.assertEqual(read, want)
+
+    def test_sixel(self):
+        img = self.golden("img-sixel")
+        self.placed(img, "quad", 5, 3)
+        self.placed(img, "disc", 44, 3)
+        self.shows_through(img, "disc", 44, 3)
+
+    def test_kitty(self):
+        img = self.golden("img-kitty")
+        self.placed(img, "quad", 5, 3)
+        self.placed(img, "quad", 30, 3)
+        self.placed(img, "quad", 5, 8, part=(32, 24, 64, 48))
+        # scaled to 16x6 cells: each quarter's color fills the middle of its
+        # quarter of the box
+        left, top = 29 * 8, 7 * 16
+        for (qx, qy), color in (((0, 0), t3_pictures.RED), ((1, 0), t3_pictures.GREEN),
+                                ((0, 1), t3_pictures.BLUE), ((1, 1), t3_pictures.YELLOW)):
+            for x in range(left + qx * 64 + 8, left + qx * 64 + 56, 7):
+                for y in range(top + qy * 48 + 8, top + qy * 48 + 40, 7):
+                    self.assertEqual(self.pixel(img, x, y), t3_pictures.eight(color), (x, y))
+
+    def test_relative(self):
+        img = self.golden("img-relative")
+        for col, row in ((3, 4), (49, 12)):
+            with self.subTest(parent=(col, row)):
+                self.placed(img, "parent", col, row)
+                self.placed(img, "child", col + 8, row + 1)
+                self.placed(img, "child", col + 6, row + 3)
+        # the moved chain left nothing where it was first placed
+        self.blank(img, 41, 4, 16, 5)
+
+    def test_overwrite(self):
+        img = self.golden("img-overwrite")
+        # the sixel: its top row whole, its middle row cut by the text, and
+        # 4 cells of its bottom row cut by the erase
+        self.placed(img, "quad", 3, 3, rows=range(0, 16))
+        pic = [t3_pictures.eight(c) for c in (t3_pictures.RED, t3_pictures.GREEN,
+                                              t3_pictures.BLUE, t3_pictures.YELLOW)]
+        row4 = [self.pixel(img, x, y) for x in range(16, 80) for y in range(48, 64)]
+        self.assertFalse(set(row4) & set(pic), "the text left the sixel under it")
+        self.placed(img, "quad", 3, 5, rows=range(32, 48), part=(0, 32, 16, 48))
+        self.blank(img, 5, 5, 4, 1)
+        self.placed(img, "quad", 9, 5, rows=range(32, 48), part=(48, 32, 64, 48))
+        # the kitty picture above text is whole; the one below text is whole
+        # on the rows nothing was written on
+        self.placed(img, "quad", 23, 3)
+        self.placed(img, "quad", 43, 3, rows=list(range(0, 16)) + list(range(32, 48)))
+        # on row 4 of the picture below text, columns 43 to 50, the # glyphs
+        # are drawn over the picture, which shows between them
+        seen = {self.pixel(img, x, y) for x in range(42 * 8, 50 * 8) for y in range(48, 64)}
+        self.assertIn(self.GLYPH, seen)
+        self.assertTrue({t3_pictures.eight(c) for c in (t3_pictures.RED, t3_pictures.GREEN,
+                                                        t3_pictures.BLUE, t3_pictures.YELLOW)}
+                        <= seen)
+
+    def test_delete(self):
+        img = self.golden("img-delete")
+        self.placed(img, "quad", 3, 3)
+        self.placed(img, "quad", 13, 9)
+        for col in (13, 23, 33):
+            with self.subTest(col):
+                self.blank(img, col, 3, 8, 3)
+
+    def test_scroll(self):
+        img = self.golden("img-scroll")
+        for col in (3, 20):
+            with self.subTest(col):
+                self.placed(img, "bands", col, 1, part=(0, 32, 64, 96))
+        img = self.golden("img-scrollback")
+        for col in (3, 20):
+            with self.subTest(scrollback=col):
+                self.placed(img, "bands", col, 2)
+
+    def test_tmux_page(self):
+        # tmux has exited and the page cleared: grey text on black, no
+        # colored pixel of the video left anywhere
+        img = self.golden("img-tmux-pane")
+        colored = [(x, y) for y in range(img.height) for x in range(img.width)
+                   if len(set(self.pixel(img, x, y))) > 1]
+        self.assertEqual(colored[:4], [])
+        self.assertNotEqual(img.data, bytes(len(img.data)))
+
+    def test_png(self):
+        img = self.golden("img-png")
+        self.placed(img, "quad", 3, 3)
+        self.placed(img, "disc", 23, 3)
+        self.shows_through(img, "disc", 23, 3)
+        self.placed(img, "quad", 43, 3)
+        self.placed(img, "quad", 63, 3)
 
 
 if __name__ == "__main__":
