@@ -5,46 +5,7 @@ use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
-const USAGE: &str = "\
-Usage: vtium-config [OPTION]... [COMMAND [ARG]...]
-
-Manages the vtium console's fonts and settings, trying each font on the live console.
-
-With no command at a terminal, opens the interactive tool.
-
-Commands:
-  fonts                              list the frits and built-in fonts, and the sources each lacks
-  check FILE                         check a frit (NAME.vtfrit), a head file (heads.conf) or a vtium.conf, writing nothing
-  config KEY [VALUE]                 print a vtium.conf key's value, or set it
-  config --unset KEY                 leave a vtium.conf key at its default
-  new FONT... [--name NAME] [--cell WxH] [--size POINTS]
-                                     make a frit of fonts, each a family or a source
-  new --from FILE [--name NAME]      install the frit in FILE
-  new --template                     print a frit to edit for new --from
-  new                                at a terminal, open the interactive tool at its new frit
-  remove-frit NAME                   remove a frit that vtium.conf does not name
-  preview FONT... [--size POINTS]    draw each font's specimen, as a picture where the terminal draws them
-  set NAME                           switch the running console to a frit or a built-in font
-  apply DIR                          check a saved draft and install it (as root)
-  serve                              generate glyphs for the console (the console starts it)
-
-Run as a user, a command that changes something writes a draft and prints
-the command that installs it; run as root, it installs at once.
-
-Options:
-  --configdir DIR       the directory of vtium.conf and heads.conf, in place of /etc/vtium
-  --frits DIR           the frits directory, in place of vtium.conf's font-frits
-  --sudo PROGRAM        the program that runs apply as root, in place of sudo
-  --vtium PROGRAM       the console binary apply checks files with, in place of /usr/bin/vtium
-  --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
-  --font-dir DIR        an outline font directory, in place of the build's list (repeatable)
-  --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
-  --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
-  --sys DIR             sysfs, where displays are measured, in place of /sys
-  --helper PROGRAM      the glyph helper the tool starts, in place of this binary's serve
-  --no-banner           no banner at a terminal (NO_COLOR also turns it off)
-  --help, --version
-";
+use crate::help::Command;
 
 /// What the command line asked for.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -214,13 +175,11 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
             None => None,
         }
     });
-    // the TUI runs as the user from start to end (ADR-1201 D5); an empty
-    // command word is no command, which `run` opens the TUI for, and `new`
-    // alone opens it too
+    // the TUI runs as the user from start to end (ADR-1201 D5); `tui` opens
+    // it, and `new` alone opens it too
     let tui = parse_args(args)
         .is_ok_and(|o| match o.words.as_slice() {
-            [] => true,
-            [w] => w.is_empty() || w == "new",
+            [w] => w == "tui" || w == "new",
             _ => false,
         })
         .then(|| "run vtium config as yourself; it asks for sudo when it saves".to_owned());
@@ -274,7 +233,7 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
             continue;
         }
         match arg.as_str() {
-            // The banner reads it before the command line runs.
+            // It once turned the banner off; it does nothing now, and scripts still pass it.
             crate::banner::OFF => {}
             "--" => {
                 for rest in it.by_ref() {
@@ -312,35 +271,60 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     };
     let mut cli = Cli { o: &o, out, err };
     match command {
-        "--help" => cli.say(USAGE.trim_end()),
-        "--version" => cli.say(concat!("vtium-config ", env!("CARGO_PKG_VERSION"))),
-        "fonts" => crate::commands::fonts(&rest, &o.paths(), cli.out, cli.err),
-        "check" => crate::commands::check(&rest, &o.paths(), cli.out, cli.err),
-        "config" => crate::commands::config(&rest, &o.paths(), cli.out, cli.err),
-        "remove-frit" => crate::commands::remove_frit(&rest, &o.paths(), cli.out, cli.err),
-        "new" if rest.is_empty() => {
-            if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-                crate::tui::run(&o.paths(), crate::tui::model::View::New, cli.err)
-            } else {
-                cli.usage("new takes FONT..., --from FILE or --template away from a terminal")
-            }
-        }
-        "new" => crate::commands::new(&rest, &o.paths(), cli.out, cli.err),
-        "preview" => crate::preview::command(&rest, &o.paths(), cli.out, cli.err),
-        "set" => match o.paths().frits {
-            Ok(frits) => crate::switch::command(&rest, &frits, cli.out, cli.err),
-            Err(why) => {
-                let _ = writeln!(cli.err, "vtium-config: {why}");
-                1
-            }
+        "--help" => match rest.first() {
+            None => cli.say(crate::help::usage().trim_end()),
+            Some(topic) => match crate::help::topic(topic, cli.out) {
+                Ok(()) => 0,
+                Err(why) => {
+                    let _ = writeln!(cli.err, "vtium-config: {why}");
+                    2
+                }
+            },
         },
-        "apply" => crate::apply::command(&rest, &o.paths().targets(), cli.out, cli.err),
-        crate::serve::SERVE_ARG => cli.serve(&rest),
-        "" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
-            crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, cli.err)
+        "--version" => cli.say(concat!("vtium-config ", env!("CARGO_PKG_VERSION"))),
+        "" => cli.say(crate::help::usage().trim_end()),
+        other => match Command::from_name(other) {
+            Some(c) => cli.command(c, &rest),
+            None => cli.usage(&format!("unknown command {other}")),
+        },
+    }
+}
+
+impl Cli<'_> {
+    /// Runs `command` with its arguments `rest`.
+    fn command(mut self, command: Command, rest: &[String]) -> u8 {
+        let o = self.o;
+        match command {
+            Command::Fonts => crate::commands::fonts(rest, &o.paths(), self.out, self.err),
+            Command::Check => crate::commands::check(rest, &o.paths(), self.out, self.err),
+            Command::Config => crate::commands::config(rest, &o.paths(), self.out, self.err),
+            Command::RemoveFrit => {
+                crate::commands::remove_frit(rest, &o.paths(), self.out, self.err)
+            }
+            Command::New if rest.is_empty() => {
+                if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+                    crate::tui::run(&o.paths(), crate::tui::model::View::New, self.err)
+                } else {
+                    self.usage("new takes FONT..., --from FILE or --template away from a terminal")
+                }
+            }
+            Command::New => crate::commands::new(rest, &o.paths(), self.out, self.err),
+            Command::Preview => crate::preview::command(rest, &o.paths(), self.out, self.err),
+            Command::Set => match o.paths().frits {
+                Ok(frits) => crate::switch::command(rest, &frits, self.out, self.err),
+                Err(why) => {
+                    let _ = writeln!(self.err, "vtium-config: {why}");
+                    1
+                }
+            },
+            Command::Apply => crate::apply::command(rest, &o.paths().targets(), self.out, self.err),
+            Command::Serve => self.serve(rest),
+            Command::Tui if !rest.is_empty() => self.usage("tui takes no argument"),
+            Command::Tui if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
+                crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, self.err)
+            }
+            Command::Tui => self.usage("tui opens the interactive tool at a terminal only"),
         }
-        "" => cli.usage("no command"),
-        other => cli.usage(&format!("unknown command {other}")),
     }
 }
 

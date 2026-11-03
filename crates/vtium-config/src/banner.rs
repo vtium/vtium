@@ -1,13 +1,12 @@
-//! The banner (vtium/vtium#112): at an interactive terminal, vtium-config
-//! opens with its name in glass, panes of green and cyan glass behind
-//! letters that fall from ice white to deep teal, with a shine crossing
-//! them once.
+//! The banner (vtium/vtium#112): `vtium-config --help about` shows its name
+//! in glass, panes of green and cyan glass behind letters that fall from
+//! ice white to deep teal, with a shine crossing them once.
 //!
-//! It shows only when stdin and stdout are both terminals, and never with
-//! [`OFF`], `--version`, a non-empty `NO_COLOR`, a dpkg
-//! maintainer script's environment, a Chinese, Japanese or Korean locale,
-//! or a `TERM` that is unset, `dumb`, a monochrome VT or a terminfo name's
-//! monochrome form (`-m`, `-mono`). It follows the color depth the environment reports
+//! The picture is drawn only when stdin and stdout are both terminals, and
+//! never with a non-empty `NO_COLOR`, a dpkg maintainer script's
+//! environment, a Chinese, Japanese or Korean locale, or a `TERM` that is
+//! unset, `dumb`, a monochrome VT or a terminfo name's monochrome form
+//! (`-m`, `-mono`). It follows the color depth the environment reports
 //! ([`Depth`]), and takes the narrow form below [`Form::Wide`]'s width. It
 //! is static: no motion, and nothing waits on it.
 //!
@@ -18,11 +17,10 @@ use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::io::{IsTerminal, Write};
 
-/// The flag that turns the banner off.
+/// The flag that once turned the banner off. No command shows the banner
+/// by default now, so it does nothing; vtium-config still accepts it for
+/// the scripts that pass it.
 pub const OFF: &str = "--no-banner";
-
-/// Arguments whose output a script reads; the banner never precedes it.
-const MACHINE: [&str; 1] = ["--version"];
 
 /// The colors the terminal reports it draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,18 +69,10 @@ pub struct Terminal {
     pub columns: Option<u16>,
 }
 
-/// Whether and how to draw the banner for the command line `args`, at
-/// `terminal`, with the environment `env`; `None` keeps it hidden.
-pub fn plan(
-    args: &[OsString],
-    terminal: Terminal,
-    env: &dyn Fn(&str) -> Option<OsString>,
-) -> Option<Plan> {
+/// Whether and how to draw the banner at `terminal`, with the environment
+/// `env`; `None` keeps the picture out.
+pub fn plan(terminal: Terminal, env: &dyn Fn(&str) -> Option<OsString>) -> Option<Plan> {
     if !(terminal.stdin && terminal.stdout) {
-        return None;
-    }
-    let quiet = |a: &OsString| *a == *OFF || MACHINE.iter().any(|m| *a == **m);
-    if args.iter().take_while(|a| *a != "--").any(quiet) {
         return None;
     }
     let set = |name: &str| env(name).filter(|v| !v.is_empty());
@@ -130,9 +120,9 @@ pub fn plan(
     Some(Plan { depth, form })
 }
 
-/// Draws the banner on `out` when [`plan`] says to, reading the process's
-/// streams and environment.
-pub fn show(args: &[OsString], out: &mut dyn Write) {
+/// Answers `--help about`: draws the banner when [`plan`] says to, then
+/// names the program and says what it does.
+pub fn about(out: &mut dyn Write) {
     let stdout = std::io::stdout();
     let terminal = Terminal {
         stdin: std::io::stdin().is_terminal(),
@@ -142,11 +132,16 @@ pub fn show(args: &[OsString], out: &mut dyn Write) {
             .map(|w| w.ws_col)
             .filter(|&c| c > 0),
     };
-    if let Some(plan) = plan(args, terminal, &|name| std::env::var_os(name)) {
-        let _ = out.write_all(render(plan).as_bytes());
-        let _ = out.flush();
-    }
+    let text = match plan(terminal, &|name| std::env::var_os(name)) {
+        Some(plan) => format!("{}{PURPOSE}", render(plan)),
+        None => format!("vtium-config {}\n{PURPOSE}", env!("CARGO_PKG_VERSION")),
+    };
+    let _ = out.write_all(text.as_bytes());
+    let _ = out.flush();
 }
+
+/// What the program is and does, which `--help about` ends with.
+const PURPOSE: &str = "vtium-config sets up the vtium console: its fonts and frits, its settings and heads, checked before they are saved.\n";
 
 /// The banner `plan` draws: a blank line, the kicker, the art, the tagline
 /// with the version, and a blank line.
@@ -867,12 +862,8 @@ mod tests {
         columns: Some(80),
     };
 
-    fn args(words: &[&str]) -> Vec<OsString> {
-        words.iter().map(OsString::from).collect()
-    }
-
-    fn plan_for(words: &[&str], terminal: Terminal, vars: &[(&str, &str)]) -> Option<Plan> {
-        plan(&args(words), terminal, &env(vars))
+    fn plan_for(terminal: Terminal, vars: &[(&str, &str)]) -> Option<Plan> {
+        plan(terminal, &env(vars))
     }
 
     /// `text` with its control sequences taken out.
@@ -925,7 +916,7 @@ mod tests {
     #[test]
     fn shows_at_an_interactive_terminal() {
         assert_eq!(
-            plan_for(&["set", "x"], TTY, &[("TERM", "xterm-256color")]),
+            plan_for(TTY, &[("TERM", "xterm-256color")]),
             Some(Plan {
                 depth: Depth::Indexed256,
                 form: Form::Wide,
@@ -942,31 +933,17 @@ mod tests {
                 stdout,
                 columns: Some(80),
             };
-            assert_eq!(plan_for(&["set", "x"], t, &vars), None, "{stdin} {stdout}");
+            assert_eq!(plan_for(t, &vars), None, "{stdin} {stdout}");
         }
-    }
-
-    #[test]
-    fn hidden_by_the_flag_and_machine_readable_output() {
-        let vars = [("TERM", "xterm-256color")];
-        for words in [
-            &["--no-banner", "set", "x"][..],
-            &["--version"],
-            &["set", "--no-banner", "x"],
-        ] {
-            assert_eq!(plan_for(words, TTY, &vars), None, "{words:?}");
-        }
-        // After `--` they are words, not options.
-        assert!(plan_for(&["set", "--", "--version"], TTY, &vars).is_some());
     }
 
     #[test]
     fn hidden_under_no_color_when_it_is_set_and_not_empty() {
         let term = ("TERM", "xterm-256color");
-        assert_eq!(plan_for(&[], TTY, &[term, ("NO_COLOR", "1")]), None);
-        assert_eq!(plan_for(&[], TTY, &[term, ("NO_COLOR", "anything")]), None);
+        assert_eq!(plan_for(TTY, &[term, ("NO_COLOR", "1")]), None);
+        assert_eq!(plan_for(TTY, &[term, ("NO_COLOR", "anything")]), None);
         // no-color.org: an empty NO_COLOR is as if unset.
-        assert!(plan_for(&[], TTY, &[term, ("NO_COLOR", "")]).is_some());
+        assert!(plan_for(TTY, &[term, ("NO_COLOR", "")]).is_some());
     }
 
     #[test]
@@ -975,15 +952,15 @@ mod tests {
             ("TERM", "xterm-256color"),
             ("DPKG_MAINTSCRIPT_NAME", "postinst"),
         ];
-        assert_eq!(plan_for(&["set", "x"], TTY, &vars), None);
+        assert_eq!(plan_for(TTY, &vars), None);
     }
 
     #[test]
     fn hidden_without_a_color_terminal() {
         for term in ["", "dumb", "vt100", "vt220", "linux-m", "xterm-mono"] {
-            assert_eq!(plan_for(&[], TTY, &[("TERM", term)]), None, "{term:?}");
+            assert_eq!(plan_for(TTY, &[("TERM", term)]), None, "{term:?}");
         }
-        assert_eq!(plan_for(&[], TTY, &[]), None);
+        assert_eq!(plan_for(TTY, &[]), None);
     }
 
     #[test]
@@ -998,7 +975,7 @@ mod tests {
             &[("LC_ALL", ""), ("LC_CTYPE", "ko_KR.UTF-8")],
         ] {
             let vars: Vec<_> = locale.iter().copied().chain([term]).collect();
-            assert_eq!(plan_for(&[], TTY, &vars), None, "{locale:?}");
+            assert_eq!(plan_for(TTY, &vars), None, "{locale:?}");
         }
         // LC_ALL overrides LC_CTYPE, which overrides LANG.
         for locale in [
@@ -1008,13 +985,13 @@ mod tests {
             &[("LANG", "kok_IN.UTF-8")],
         ] {
             let vars: Vec<_> = locale.iter().copied().chain([term]).collect();
-            assert!(plan_for(&[], TTY, &vars).is_some(), "{locale:?}");
+            assert!(plan_for(TTY, &vars).is_some(), "{locale:?}");
         }
     }
 
     #[test]
     fn the_depth_follows_colorterm_and_term() {
-        let depth = |vars: &[(&str, &str)]| plan_for(&[], TTY, vars).map(|p| p.depth);
+        let depth = |vars: &[(&str, &str)]| plan_for(TTY, vars).map(|p| p.depth);
         for (vars, want) in [
             (
                 &[("TERM", "xterm"), ("COLORTERM", "truecolor")][..],
@@ -1056,7 +1033,7 @@ mod tests {
     fn the_narrow_form_below_the_wide_ones_width() {
         let vars = [("TERM", "xterm-256color")];
         let form = |columns: Option<u16>, vars: &[(&str, &str)]| {
-            plan_for(&[], Terminal { columns, ..TTY }, vars).map(|p| p.form)
+            plan_for(Terminal { columns, ..TTY }, vars).map(|p| p.form)
         };
         let wide = Form::Wide.columns();
         let narrow = Form::Narrow.columns();

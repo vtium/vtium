@@ -25,7 +25,7 @@ fn status(o: &Output) -> i32 {
 fn usage_errors_exit_2() {
     for args in [
         &["frobnicate"][..],
-        &[],
+        &["tui", "x"],
         &["--bogus", "set", "x"],
         &["--frits"],
         &["serve", "x"],
@@ -169,13 +169,16 @@ fn as_root_the_tui_does_not_open() {
     use std::ffi::OsString;
     use vtium_config::cli::root_refusal;
     let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
-    // an empty command word is no command, so it opens the TUI too
-    for words in [&[][..], &["--no-banner"], &[""], &["--", ""]] {
+    for words in [&["tui"][..], &["--no-banner", "tui"], &["new"]] {
         let why = root_refusal(0, &args(words)).expect("refused as root");
         assert!(why.contains("as yourself") && why.contains("sudo"), "{why}");
         assert_eq!(root_refusal(1000, &args(words)), None);
     }
     assert_eq!(root_refusal(0, &args(&["--version"])), None);
+    // with no command, vtium-config prints its help, which root may read
+    for words in [&[][..], &[""], &["--", ""]] {
+        assert_eq!(root_refusal(0, &args(words)), None, "{words:?}");
+    }
 }
 
 /// As root, the commands that read a file the user names, or that start
@@ -248,8 +251,7 @@ fn the_binary_run_as_root_refuses_paths_programs_and_the_tui() {
         ),
         (&["--vtium", "/bin/true", "apply", "/tmp/d"], "--vtium"),
         (&["--run-with-signals", "/bin/sh"], "--run-with-signals"),
-        (&[], "as yourself"),
-        (&[""], "as yourself"),
+        (&["tui"], "as yourself"),
         (&["new"], "as yourself"),
         (&["check", "/etc/shadow"], "as yourself"),
         (&["new", "--from", "/etc/shadow"], "as yourself"),
