@@ -3821,6 +3821,108 @@ fn a_mode_changed_in_place_asks_for_a_redraw_at_the_new_size() {
     assert_eq!(age(&mut v, A), 0, "drawn whole");
 }
 
+// vtium/vtium#216: a connector that stays connected while its list of
+// modes changes, as when a monitor is swapped faster than its disconnect
+// is seen, gets its mode chosen again from the new list. Here the new
+// monitor prefers 800x600, so A goes from 640x480 to 800x600, is told to
+// redraw and is not announced as added again. A hotplug that finds the
+// same list sets no mode.
+#[test]
+fn a_connector_that_lists_new_modes_takes_its_new_preferred_mode() {
+    let mut v = awake(one());
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+    let commits = v.card().state().commits.len();
+    v.poll().unwrap();
+    assert_eq!(
+        v.card().state().commits.len(),
+        commits,
+        "the same modes set nothing"
+    );
+    let swapped = vec![mode(800, 600, 60, true), mode(640, 480, 60, false)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        *c.blob(100, "MODE_ID").unwrap(),
+        mode_bytes(&mode(800, 600, 60, true).0)
+    );
+    assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
+    flip(&mut v);
+    assert_eq!(token_size(&mut v, A), (800, 600));
+    assert_eq!(age(&mut v, A), 0, "drawn whole");
+}
+
+// vtium/vtium#216: a new list of modes whose mode cannot be set, with the
+// mode chosen or the default, leaves the display at the mode it is set
+// to, which its buffers fit, and the next scan chooses from the list
+// again and sets it.
+#[test]
+fn a_new_mode_that_cannot_be_set_is_chosen_again_at_the_next_scan() {
+    let mut v = awake(one());
+    let swapped = vec![mode(800, 600, 60, true)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    assert!(v.poll().is_err());
+    assert_eq!(events(&mut v), []);
+    assert_eq!(
+        v.size(DisplayId(A)),
+        Some((640, 480)),
+        "the mode it is set to"
+    );
+    assert_eq!(token_size(&mut v, A), (640, 480));
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
+    assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
+    flip(&mut v);
+    assert_eq!(token_size(&mut v, A), (800, 600));
+}
+
+// vtium/vtium#216: a mode changed in place at the same size, with only a
+// new refresh rate, keeps the display's buffers but is told to redraw, so
+// its owner reads the new rate, and the display is drawn whole. Here A is
+// configured at 640x480 at 30 Hz, and the hotplug that brings B fails its
+// test commit, so every display falls back to its default mode and A goes
+// to 640x480 at 60 Hz.
+#[test]
+fn a_refresh_rate_changed_in_place_asks_for_a_redraw() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true), mode(640, 480, 30, false)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    card.state().listed.retain(|&c| c == A);
+    let policy = ModePolicy {
+        use_original: false,
+        wanted: Some(Box::new(|_: &str| {
+            Some(Wanted {
+                width: 640,
+                height: 480,
+                rate: Some(30),
+            })
+        })),
+    };
+    let mut v = awake(Drm2d::with(card, policy).unwrap());
+    assert_eq!(v.refresh_mhz(DisplayId(A)), Some(30_000));
+    let held = fbs(&v, A);
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Redraw(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
+    assert_eq!(
+        v.refresh_mhz(DisplayId(A)),
+        Some(60_000),
+        "the default mode"
+    );
+    assert_eq!(fbs(&v, A), held, "the buffers are kept");
+    flip(&mut v);
+    assert_eq!(token_size(&mut v, A), (640, 480));
+    assert_eq!(age(&mut v, A), 0, "drawn whole");
+}
+
 // With one buffer the sleep's clear finds the buffer lent, and a token
 // given back unused pays the clear it owes, as a late swap does.
 #[test]

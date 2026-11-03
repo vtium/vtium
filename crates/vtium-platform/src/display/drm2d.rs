@@ -1150,6 +1150,26 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if let Some(o) = self.outputs.iter_mut().find(|o| o.id.0 == id) {
                 o.available = true;
                 needs |= !o.online;
+                // A connector that lists other modes than those the
+                // display's mode was chosen from, as when a monitor is
+                // swapped faster than its disconnect is seen, gets its
+                // mode chosen again from the new list, as at its bind.
+                if conn.modes != o.modes {
+                    let wanted = self.policy.wanted.as_ref().and_then(|f| f(&o.name));
+                    let use_original = self.policy.use_original;
+                    if let Some(choice) =
+                        mode::choose(&conn.modes, Some(&o.mode), wanted, use_original)
+                    {
+                        if choice.current != o.mode {
+                            let (w, h) = choice.current.size();
+                            log::info!("display {} lists new modes: setting {w}x{h}", o.name);
+                            o.mode = choice.current;
+                            needs = true;
+                        }
+                        o.choice = choice;
+                    }
+                    o.modes = conn.modes;
+                }
                 continue;
             }
             if let Some(d) = self.dark.iter_mut().find(|d| d.id == id) {
@@ -1377,8 +1397,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             pipe: crtc_index,
             planes,
             mode: choice.current,
+            set: None,
             mm,
             choice,
+            modes: conn.modes.clone(),
             mode_blob: 0,
             buffers: Vec::new(),
             back: 0,
@@ -1581,6 +1603,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 set => set,
             }
         };
+        if set.is_err() {
+            for o in &mut self.outputs {
+                o.keep_set_mode();
+            }
+        }
         if set.is_ok() {
             // A modeset brings every display on.
             self.blanked = false;
@@ -1696,8 +1723,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Gives `o` the new buffers of a modeset that took: the first is on
     /// screen, and none holds anything drawn. A token out for an old buffer
-    /// comes back too late, and the old buffer stays until it does.
+    /// comes back too late, and the old buffer stays until it does. A
+    /// display that keeps its buffers at a new mode, as one whose refresh
+    /// rate alone changed, is drawn whole too: its buffers are age 0 and it
+    /// is told to redraw, so its owner reads the new rate.
     fn install(&self, o: &mut Output<S::Memory>, made: Option<Vec<Buffer<S::Memory>>>) {
+        let was = o.set.replace(o.mode);
         if let Some(made) = made {
             let old = std::mem::replace(&mut o.buffers, made);
             self.release(old);
@@ -1706,6 +1737,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             o.lease = o.lease.wrapping_add(1);
             o.clear_owed = false;
             o.fresh = false;
+            o.redraw = true;
+        } else if was.is_some_and(|was| was != o.mode) {
+            o.ages = Ages::default();
             o.redraw = true;
         }
     }
@@ -1995,6 +2029,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Err(e) => {
                     log::error!("cannot set the CRTC of {}: {e}", o.name);
                     self.release(made.unwrap_or_default());
+                    o.keep_set_mode();
                 }
             }
         }
