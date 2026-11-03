@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use vtium_font::{Face, Font, Missing, SpritePolicy};
@@ -540,13 +541,20 @@ fn refresh(refresh_mhz: Option<u32>) -> Option<std::time::Duration> {
         .map(std::time::Duration::from_nanos)
 }
 
+/// The number the next drawing any view makes takes. Numbering every
+/// drawing apart, across views, keeps a frame composing for a view that
+/// is gone from being shown by the view made after it for the same
+/// display, as when a monitor swapped on its connector is removed and
+/// added in one turn.
+static NEXT_DRAWING: AtomicU64 = AtomicU64::new(1);
+
 /// One display drawing the terminal.
 pub struct View {
     pub id: DisplayId,
     /// Here between frames; `None` while the render thread composes one.
     drawing: Option<Box<Drawing>>,
-    /// Counts the drawings the view made: a frame composed with an older
-    /// one is dropped.
+    /// The number of the drawing the view draws with, which no other
+    /// drawing has: a frame composed with another is dropped.
     generation: u64,
     /// The terminal's checkpoint after this view's last frame was taken.
     since: Age,
@@ -633,7 +641,7 @@ impl View {
         self.depth = renderer.depth();
         self.policy = (renderer.font().policy(), renderer.font().missing());
         self.drawing = Some(Box::new(Drawing { renderer }));
-        self.generation = self.generation.wrapping_add(1);
+        self.generation = NEXT_DRAWING.fetch_add(1, Ordering::Relaxed);
         self.forgotten.clear();
         self.arrived.clear();
         self.overlaid.clear();
@@ -1522,6 +1530,47 @@ mod tests {
         assert!(!video.out, "the token went back");
         draw(&mut term, &mut view, &mut video, None);
         assert_eq!(video.swaps, [1], "the display lends again");
+    }
+
+    // vtium/vtium#216: a frame composing while its view is replaced by a new
+    // one for the same display, as when a monitor swapped on its connector
+    // is removed and added in one turn, is not shown, and does not give the
+    // new view the old view's renderer: the new view draws with its own.
+    #[test]
+    fn a_frame_of_a_view_replaced_is_not_shown() {
+        let (mut term, mut old) = view();
+        let mut video = Plane::new(false);
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let Prepared::Job(job) = old.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &DrawState::default(),
+            None,
+            &Instant::now,
+        ) else {
+            panic!("a job");
+        };
+        drop(old);
+        let face: DisplayFace = Box::new(Unifont::new(32));
+        let mut new = View::new(
+            ID,
+            Font::new(face),
+            SIZE,
+            None,
+            RenderConfig::default(),
+            false,
+        );
+        let cell = new.cell();
+        let shown = new.present(job.compose(), &mut term, &mut video, true, &Instant::now);
+        assert_eq!(shown, Presented::default());
+        assert_eq!(video.swaps, [], "not shown");
+        assert!(!video.out, "the token went back");
+        assert!(!new.away(), "the new view keeps its drawing");
+        let drawn = new.drawing.as_ref().map(|d| d.renderer.font().cell());
+        assert_eq!(drawn, Some(cell), "with its own renderer");
     }
 
     // A job refused for a display that lost its picture keeps it lost, so
