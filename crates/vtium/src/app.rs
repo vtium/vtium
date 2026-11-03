@@ -100,7 +100,7 @@ use vtium_platform::input::{
 };
 use vtium_platform::pty::{Erase, Pty};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
-use vtium_platform::vt::{Switch, Vt, VtEvent};
+use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 use vtium_render::{Config as RenderConfig, Depth, DrawState, Orientation};
 use vtium_settings::{Policy, WhenDisplayLost};
 use vtium_term::{BlankRequest, BlankTimeout, Mods};
@@ -598,6 +598,18 @@ impl App {
     /// on the same command line and seat.
     pub fn set_config_reader(&mut self, read: Reread) {
         self.reread = Some(read);
+    }
+
+    /// The seat's keyboards and pointers. On a fake VT, the app holds one
+    /// wake-up of them for as long as it runs, as the C reference's fake
+    /// VT did, so they stay open while the VT is released and the
+    /// Ctrl+Super+F12 that takes it back can arrive. A kernel VT's
+    /// release closes them, and its acquire opens them again.
+    pub fn set_input(&mut self, mut input: vtium_platform::input::Input) {
+        if self.vt.get::<FakeVt>().is_some() {
+            input.wake_up();
+        }
+        self.input = Some(input);
     }
 
     /// The kernel's font, read from the VT while it was in text mode, for
@@ -3946,7 +3958,6 @@ mod tests {
 
     use vtium_platform::display::{Identity, Memory, Rect, SwapError, Swapped, Token};
     use vtium_platform::event_loop::Loop;
-    use vtium_platform::vt::FakeVt;
 
     use super::*;
 
@@ -4658,6 +4669,45 @@ mod tests {
         app.add_input(Path::new("/nonexistent/vtium-test/event9"), keyboard);
         app.report_focus();
         assert_eq!(app.heads.first().map(|h| h.focused), Some(false));
+    }
+
+    // vtium/vtium#229: on a fake VT the app holds one wake-up of the input
+    // for as long as it runs, as the C reference's fake VT did, so the
+    // keyboards stay open after Ctrl+Super+F12 releases it, and the same
+    // chord can take it back; a kernel VT's release closes them
+    #[test]
+    fn a_released_fake_vt_keeps_the_keyboards_open_to_take_it_back() {
+        use vtium_platform::input::{Direct, Input, InputConfig, Keymap};
+        let f12 = InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: InputMods::CTRL.union(InputMods::LOGO),
+            keysyms: vec![0xffc9],
+            codepoints: vec![None],
+            repeat: false,
+        });
+        let awake = |app: &App| app.input.as_ref().is_some_and(Input::is_awake);
+        let (_lp, mut app) = seat(None, no_fonts());
+        let input = || Input::new(Direct, Keymap::fallback().unwrap(), InputConfig::default());
+        app.set_input(input());
+        assert!(awake(&app), "open before the VT is first taken");
+        // the roaming keyboard's keys go to the head with the focus
+        app.focus = Some(0);
+        shown(&mut app);
+        assert!(app.vt.is_active() && awake(&app));
+        app.input_event(f12.clone(), Instant::now());
+        app.turn(Instant::now());
+        assert!(!app.vt.is_active(), "Ctrl+Super+F12 released the VT");
+        assert!(awake(&app), "the keyboards stay open while it is released");
+        app.input_event(f12, Instant::now());
+        app.turn(Instant::now());
+        assert!(app.vt.is_active() && awake(&app), "the chord took it back");
+        // A VT that is not the fake one holds nothing: its acquire opens the
+        // keyboards and its release closes them.
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.vt = Box::new(Bells::default());
+        app.set_input(input());
+        assert!(!awake(&app), "closed until the VT is taken");
     }
 
     #[test]
