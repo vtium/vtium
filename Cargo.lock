@@ -640,7 +640,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "vtium"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "calloop",
  "log",
@@ -657,7 +657,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-config"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "bzip2",
  "harfrust",
@@ -676,7 +676,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-conformance"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "regex",
  "rustix",
@@ -687,14 +687,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-cover-tables"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "vtium-font",
 ]
 
 [[package]]
 name = "vtium-font"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "miniz_oxide",
  "vtium-font",
@@ -702,14 +702,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-image"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "vtium-parse",
 ]
 
 [[package]]
 name = "vtium-image-helper"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "gif",
  "landlock",
@@ -725,11 +725,11 @@ dependencies = [
 
 [[package]]
 name = "vtium-parse"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 
 [[package]]
 name = "vtium-platform"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "calloop",
  "drm-ffi",
@@ -744,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-render"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "vtium-font",
  "vtium-image",
@@ -753,14 +753,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-settings"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "rustix",
 ]
 
 [[package]]
 name = "vtium-specimens"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "miniz_oxide",
  "vtium-config",
@@ -772,7 +772,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-term"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "vtium-image",
  "vtium-parse",
@@ -780,14 +780,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-testfont"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "vtium-font",
 ]
 
 [[package]]
 name = "vtium-tier2"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "vtium",
  "vtium-config",
