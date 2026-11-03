@@ -11,6 +11,7 @@ does not.
 """
 
 import fcntl
+import hashlib
 import os
 import pty
 import re
@@ -63,12 +64,16 @@ class Pty:
     it is answered. It answers DA1 with da1 and the cursor position query
     with row 10, as a terminal would."""
 
-    def __init__(self, argv, env, da1=DA1_TEXT):
+    def __init__(self, argv, env, da1=DA1_TEXT, frits=("unifont",)):
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.execve(argv[0], argv, env)
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 25, 80, 0, 0))
         self.da1 = da1
+        # As vtium does: OSC 50 switches to a frit in its frits directory,
+        # here FRITS, and to nothing else; its query names the font in use.
+        self.frits = frits
+        self.font = "unifont"
         # out is what is left after the last wait_for; seen is everything.
         self.out = b""
         self.seen = b""
@@ -88,16 +93,25 @@ class Pty:
         return True
 
     def answer(self):
-        """Answers every query seen since the last answer, in order."""
+        """Answers every query seen since the last answer, in order, and
+        takes each OSC 50 font switch."""
         while True:
             rest = self.seen[self.answered:]
-            found = [(rest.find(q), q, a) for q, a in ((b"\x1b[c", self.da1), (b"\x1b[6n", b"\x1b[10;1R"))
+            found = [(rest.find(q), q, a) for q, a in ((b"\x1b[c", self.da1), (b"\x1b[6n", b"\x1b[10;1R"),
+                                                       (b"\x1b]50;?\x07", None))
                      if rest.find(q) >= 0]
+            switch = re.search(rb"\x1b\]50;([^?\x07][^\x07]*)\x07", rest)
+            if switch and (not found or switch.start() < min(found)[0]):
+                self.answered += switch.end()
+                name = switch.group(1).decode()
+                if name in self.frits:
+                    self.font = name
+                continue
             if not found:
                 return
             at, q, a = min(found)
             self.answered += at + len(q)
-            os.write(self.fd, a)
+            os.write(self.fd, a if a is not None else b"\x1b]50;" + self.font.encode() + b"\x07")
 
     def wait_for(self, text, timeout=10):
         end = time.monotonic() + timeout
@@ -144,8 +158,8 @@ class Case(unittest.TestCase):
         env.update(extra)
         return env
 
-    def walk(self, env, *argv, da1=DA1_TEXT):
-        return Pty(["/bin/bash", DEMO_SH, *argv], env, da1)
+    def walk(self, env, *argv, da1=DA1_TEXT, frits=("unifont",)):
+        return Pty(["/bin/bash", DEMO_SH, *argv], env, da1, frits)
 
     def record(self):
         """The one record in the passes directory, and its path."""
@@ -517,6 +531,11 @@ def widest(line):
     return most
 
 
+TEXT = os.path.join(SECTIONS, "text", "udhr-article1.tsv")
+LANGUAGES = [l.split("\t") for l in read(TEXT).splitlines() if not l.startswith("#")]
+SENTENCES = {l[2] for l in LANGUAGES}
+
+
 def responder_run(page, answers, timeout=20):
     """Runs PAGE on a pseudo-terminal that answers each query in ANSWERS, a
     list of (query, answer), and returns its exit status and everything it
@@ -547,6 +566,7 @@ def responder_run(page, answers, timeout=20):
     return os.waitstatus_to_exitcode(status), seen
 
 
+PICTURES = ["95-sixel.sh", "96-kitty.sh", "97-kitty-layers.sh", "98-kitty-png.sh", "99-iterm2.sh"]
 KITTY_QUERY = b"\x1b_Gi=31,s=1,v=1,a=q,f=24;AAAA\x1b\\\x1b[c"
 HELPER_QUERY = b"\x1b_Gi=32,a=q,f=100;"
 
@@ -570,13 +590,19 @@ class Pages(Case):
                                    stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"]})
                 self.assertIn(p.returncode, (0, 77), p.stderr)
                 self.assertEqual(p.stderr, b"")
-                lines = p.stdout.decode().split("\n")
-                self.assertLessEqual(len(lines) - 1, 17)
-                # wide-margin puts characters at the right edge on purpose,
-                # and reads the width it does it at
-                if f != "55-wide-margin.sh":
-                    for line in lines:
-                        self.assertLessEqual(widest(line), 80, line)
+                lines = p.stdout.decode().split("\n")[:-1]
+                # a language page's sentence may wrap onto a second row;
+                # every other line fits its row
+                rows = 0
+                for line in lines:
+                    w = widest(line)
+                    rows += max(1, -(-w // 80))
+                    # wide-margin puts characters at the right edge on
+                    # purpose, and reads the width it does it at
+                    if f != "55-wide-margin.sh" and line not in SENTENCES:
+                        self.assertLessEqual(w, 80, line)
+                    self.assertLessEqual(w, 160, line)
+                self.assertLessEqual(rows, 17)
 
     def test_every_page_is_a_file_of_its_own_numbered_in_order(self):
         names = self.page_files()
@@ -585,7 +611,7 @@ class Pages(Case):
             self.assertRegex(n, r"^[0-9]{2}-[a-z0-9-]+\.sh$")
 
     def picture_pages(self):
-        return [f for f in self.page_files() if f.startswith("9")]
+        return [f for f in self.page_files() if f in PICTURES]
 
     def test_a_build_without_pictures_gets_skip_from_every_picture_page(self):
         for f in self.picture_pages():
@@ -598,7 +624,7 @@ class Pages(Case):
                 self.assertNotIn(b"\x1bPq", seen.replace(b"\x1bP0;1;0q", b"\x1bPq"))
 
     def test_the_helper_pages_skip_when_the_helper_does_not_decode(self):
-        for f in ("93-kitty-png.sh", "94-iterm2.sh"):
+        for f in ("98-kitty-png.sh", "99-iterm2.sh"):
             with self.subTest(page=f):
                 status, seen = responder_run(os.path.join(SECTIONS, f), [
                     (KITTY_QUERY, b"\x1b_Gi=31;OK\x1b\\" + DA1_PICTURES),
@@ -610,17 +636,18 @@ class Pages(Case):
         answers = [(KITTY_QUERY, b"\x1b_Gi=31;OK\x1b\\" + DA1_PICTURES), (b"\x1b[c", DA1_PICTURES),
                    (HELPER_QUERY, b"\x1b_Gi=32;OK\x1b\\"), (b"\x1b[16t", b"\x1b[6;20;10t")]
         want = {
-            "90-sixel.sh": [b'\x1bP0;1;0q"1;1;60;40#1;2;100;0;0', b'\x1bP0;1;0q"1;1;540;60#1;2;100;60;0'],
-            "91-kitty.sh": [b"\x1b_Ga=T,i=1,q=2,C=1,f=32,s=32,v=16,c=20,r=5,z=-1073741825,m=0;",
+            "95-sixel.sh": [b'\x1bP0;1;0q"1;1;60;40#1;2;100;0;0', b'\x1bP0;1;0q"1;1;540;60#1;2;100;60;0'],
+            "96-kitty.sh": [b"\x1b_Ga=T,i=1,q=2,C=1,f=32,s=32,v=16,c=20,r=5,z=-1073741825,m=0;",
                             b"\x1b_Ga=T,i=2,q=2,C=1,f=32,s=32,v=32,c=20,r=5,z=-1,m=1;", b"\x1b\\\x1b_Gm=0;",
                             b"\x1b_Ga=T,i=3,q=2,C=1,f=24,s=32,v=16,c=20,r=5,z=0,m=0;",
                             b"\x1b_Ga=p,i=1,q=2,c=4,r=2,z=-1073741825;\x1b\\<cursor"],
-            "92-kitty-layers.sh": [b"\x1b_Ga=t,i=5,f=32,s=32,v=24,q=2,m=0;", b"\x1b_Ga=d,d=i,i=5,p=3,q=2;\x1b\\"],
-            "93-kitty-png.sh": [b"\x1b_Ga=T,i=7,q=2,C=1,f=100,c=20,r=5,m=0;iVBORw0KGgo",
+            "97-kitty-layers.sh": [b"\x1b_Ga=t,i=5,f=32,s=32,v=24,q=2,m=0;", b"\x1b_Ga=d,d=i,i=5,p=3,q=2;\x1b\\"],
+            "98-kitty-png.sh": [b"\x1b_Ga=T,i=7,q=2,C=1,f=100,c=20,r=5,m=0;iVBORw0KGgo",
                                 b"\x1b_Ga=T,i=9,q=2,C=1,f=24,s=32,v=16,o=z,c=20,r=5,z=0,m=0;eNr"],
-            "94-iterm2.sh": [b"\x1b]1337;File=inline=1;width=20;height=5;preserveAspectRatio=0:iVBORw0KGgo"],
+            "99-iterm2.sh": [b"\x1b]1337;File=inline=1;width=20;height=5;preserveAspectRatio=0:iVBORw0KGgo"],
         }
-        self.assertEqual(sorted(want), self.picture_pages())
+        self.assertEqual(sorted(want), sorted(PICTURES))
+        self.assertEqual(self.picture_pages(), sorted(PICTURES))
         for f, sent in want.items():
             with self.subTest(page=f):
                 status, seen = responder_run(os.path.join(SECTIONS, f), answers)
@@ -628,6 +655,146 @@ class Pages(Case):
                 self.assertNotIn(b"cannot show", seen)
                 for s in sent:
                     self.assertIn(s, seen)
+
+
+class Frits(Case):
+    """A page walked once in each font set its "# frits:" line names."""
+
+    def setUp(self):
+        super().setUp()
+        for name in os.listdir(self.pages):
+            os.unlink(os.path.join(self.pages, name))
+        os.mkdir(os.path.join(self.pages, "frits"))
+        self.font = os.path.join(self.tmp, "font.ttf")
+        write(self.font, "the outline font's bytes\n")
+        self.gone = os.path.join(self.tmp, "gone.ttf")
+        write(os.path.join(self.pages, "frits", "outline.vtfrit"),
+              f"# checks: the outline font\nname=outline\nsource=outline:{self.font}\nsource=builtin:unifont\n")
+        write(os.path.join(self.pages, "frits", "absent.vtfrit"),
+              f"name=absent\nsource=outline:{self.gone}\n")
+        write(os.path.join(self.pages, "frits", "refused.vtfrit"), "name=refused\nsource=builtin:unifont\n")
+        write(os.path.join(self.pages, "10-lang.sh"),
+              "# look-for: the words\n# wrong-looks-like: anything else\n# frits: outline absent refused\n"
+              "printf 'drawn in %s\\n' \"$PLAYTEST_FRIT\"\n")
+        write(os.path.join(self.pages, "20-plain.sh"),
+              "# look-for: plain\n# wrong-looks-like: anything else\nprintf 'page plain\\n'\n")
+
+    def sha(self, path):
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+
+    def walk_all(self):
+        # vtium's frits directory holds outline and absent, not refused
+        d = self.walk(self.env(), frits=("unifont", "outline", "absent"))
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"[1/4] lang @ outline")
+        d.wait_for(b"drawn in outline")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"[2/4] lang @ absent")
+        d.wait_for(b"the font set absent needs files this machine lacks: " + self.gone.encode())
+        d.wait_for(b"recorded as skip  any key: next page")
+        d.send(b" ")
+        d.wait_for(b"[3/4] lang @ refused")
+        d.wait_for(b"vtium did not switch to the font set refused: OSC 50 named 'outline'")
+        d.wait_for(b"recorded as skip  any key: next page")
+        d.send(b" ")
+        d.wait_for(b"page plain")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        return d
+
+    def test_each_frit_is_its_own_entry_and_a_missing_or_refused_one_is_a_skip(self):
+        d = self.walk_all()
+        _, text = self.record()
+        self.assertEqual(self.rows(text), [
+            ("10-lang@outline", "yes", ""),
+            ("10-lang@absent", "skip", "the font set absent needs files this machine lacks: " + self.gone),
+            ("10-lang@refused", "skip", "vtium did not switch to the font set refused: OSC 50 named &#39;outline&#39;"
+             .replace("&#39;", "'")),
+            ("20-plain", "yes", ""),
+        ])
+        self.assertIn("- font-start: unifont\n", text)
+        self.assertIn(f"- frit: outline sha256 {self.sha(os.path.join(self.pages, 'frits', 'outline.vtfrit'))}\n",
+                      text)
+        self.assertRegex(text, rf"- font: outline {re.escape(self.font)} sha256 {self.sha(self.font)}( package .*)?\n")
+        self.assertIn(f"- font: absent {self.gone} missing\n", text)
+        # the console's own font comes back for the page that names none
+        seen = d.seen
+        self.assertIn(b"\x1b]50;unifont\x07", seen[seen.index(b"[3/4]"):seen.index(b"page plain")])
+
+    def test_a_pass_never_resumes_across_a_changed_font_file(self):
+        d = self.walk(self.env(), frits=("unifont", "outline"))
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"recorded as skip  any key: next page")
+        d.send(b"q")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        write(self.font, "the outline font, updated\n")
+        d = self.walk(self.env(), frits=("unifont", "outline"))
+        d.wait_for(b"press a key to start the pass")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"r resume it", d.seen)
+
+    def test_compare_names_the_font_files_that_changed(self):
+        self.walk_all()
+        first, _ = self.record()
+        os.rename(first, os.path.join(self.tmp, "first.md"))
+        write(self.font, "the outline font, updated\n")
+        self.walk_all()
+        p = self.feedback("--compare", os.path.join(self.tmp, "first.md"), self.record()[0])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("font files that differ, so a changed page may come from a font update:\n", p.stdout)
+        self.assertIn(f"  A: outline {self.font} sha256 ", p.stdout)
+        self.assertIn(f"  B: outline {self.font} sha256 {self.sha(self.font)}", p.stdout)
+
+
+class Languages(Case):
+    """The language pages and their text."""
+
+    def test_every_language_page_names_a_language_of_the_text_and_both_frits(self):
+        codes = [l[0] for l in LANGUAGES]
+        pages = [f for f in sorted(os.listdir(SECTIONS))
+                 if f.endswith(".sh") and "language_page" in read(os.path.join(SECTIONS, f))]
+        self.assertEqual(len(pages), 13)
+        for f in pages:
+            text = read(os.path.join(SECTIONS, f))
+            code = re.search(r"^language_page (\S+)$", text, re.M).group(1)
+            self.assertIn(code, codes)
+            self.assertIn("# frits: playtest-outline playtest-bitmap\n", text)
+        for frit in ("playtest-outline", "playtest-bitmap"):
+            self.assertTrue(os.path.isfile(os.path.join(SECTIONS, "frits", frit + ".vtfrit")))
+
+    def test_the_text_is_whole_and_each_excerpt_is_in_its_sentence(self):
+        by = {l[0]: l for l in LANGUAGES}
+        for code, fields in by.items():
+            with self.subTest(language=code):
+                self.assertEqual(len(fields), 6)
+                if code not in ("vietnamese-marks", "emoji"):
+                    self.assertIn(unicodedata.normalize("NFC", fields[3]), unicodedata.normalize("NFC", fields[2]))
+        self.assertEqual(by["vietnamese-marks"][2], unicodedata.normalize("NFD", by["vietnamese"][2]))
+        self.assertNotEqual(by["vietnamese-marks"][2], by["vietnamese"][2])
+        self.assertEqual(by["english"][2], "All human beings are born free and equal in dignity and rights.")
+
+    def test_a_language_page_shows_every_style_and_says_which_are_not_drawn(self):
+        p = subprocess.run(["bash", os.path.join(SECTIONS, "84-greek.sh")], capture_output=True, timeout=20,
+                           stdin=subprocess.DEVNULL,
+                           env={"PATH": os.environ["PATH"], "PLAYTEST_FRIT": "playtest-bitmap", "DEMO_TOP": "3"})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        out = p.stdout.decode()
+        for sgr in ("0", "1", "3", "1;3", "2", "7", "4", "4:2", "4:3", "4:4", "4:5", "4;58:5:196", "9", "53", "73", "74"):
+            self.assertIn(f"\x1b[{sgr}mελεύθεροι και ίσοι\x1b[0m", out)
+        self.assertIn("* not drawn yet: italic stays upright, the rest look plain.", out)
+        self.assertIn("Font playtest-bitmap: whole-multiple bitmaps; marks placed by vtium's rules", out)
 
 
 if __name__ == "__main__":

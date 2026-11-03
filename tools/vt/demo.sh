@@ -10,7 +10,12 @@
 #   r draws the page again   b goes back one page   q quits; the pass resumes later
 #
 # A page that exits 77 says on screen why this build cannot show it, and is
-# recorded as skip. Every answer rewrites the pass's record, a markdown file
+# recorded as skip. A page whose "# frits:" line names font sets (frits, in
+# sections/frits) is walked once in each: the walk switches the console to
+# the frit with OSC 50 before the page, checks with OSC 50's query that it
+# did, and switches back to the console's own font after. A frit whose font
+# files are missing, or that vtium does not switch to, makes the page a skip
+# that says why. Every answer rewrites the pass's record, a markdown file
 # named after the pass in the passes directory: PLAYTEST_DIR, else
 # $XDG_STATE_HOME/vtium/playtest (~/.local/state/vtium/playtest). The record
 # holds the build, the terminal, and each page's answer and comment; a pass
@@ -101,6 +106,17 @@ id_of() {
 	printf '%s' "${n%.sh}"
 }
 
+# Entry I's id in the record: the page's file name without .sh, and for a
+# page walked in a frit, @ and the frit's name.
+entry_id() {
+	printf '%s%s' "$(id_of "${pages[$1]}")" "${frits[$1]:+@${frits[$1]}}"
+}
+
+# Entry I's name on the screen.
+entry_name() {
+	printf '%s%s' "$(name_of "${pages[$1]}")" "${frits[$1]:+ @ ${frits[$1]}}"
+}
+
 # A page's metadata lines "# KEY: text", joined into one line.
 meta() {
 	sed -n "s/^# $1: //p" "$2" | paste -sd' ' -
@@ -131,12 +147,28 @@ footer_lines() {
 # Draws page I; status is the page's exit status, 77 when this build cannot
 # show it.
 status=0
+unshown_why=
 draw_page() {
+	local frit=${frits[$1]}
 	reset_terminal
+	unshown_why=
+	# DEMO_NOPROMPT draws a frit's page in the font the terminal has.
+	if [ -n "$frit" ] && [ -z "$noprompt" ]; then
+		switch_font "$frit" || unshown_why=$why
+	else
+		restore_font
+	fi
+	read_size
 	clear_screen
-	printf '\033[1m[%d/%d] %s\033[0m\n\n' $(($1 + 1)) ${#pages[@]} "$(name_of "${pages[$1]}")"
+	printf '\033[1m[%d/%d] %s\033[0m\n\n' $(($1 + 1)) ${#pages[@]} "$(entry_name "$1")"
 	status=0
-	DEMO_TOP=3 bash "${pages[$1]}" || status=$?
+	if [ -n "$unshown_why" ]; then
+		printf '  This build cannot show this page.\n  %s\n' "$unshown_why"
+		printf '  The page is recorded as skip, not as no.\n'
+		status=77
+		return
+	fi
+	DEMO_TOP=3 PLAYTEST_FRIT=$frit bash "${pages[$1]}" || status=$?
 	[ "$status" -eq 0 ] || [ "$status" -eq 77 ] ||
 		printf '\n\033[31m(the page exited with status %d)\033[0m\n' "$status"
 }
@@ -159,6 +191,100 @@ cursor_row() {
 	reply=${reply%;*}
 	[[ $reply =~ ^[0-9]+$ ]] || return 1
 	printf '%s' "$reply"
+}
+
+# The font OSC 50's query names, or nothing when the terminal does not
+# answer it: font operations are off, or the terminal is not vtium.
+query_font() {
+	local r
+	r=$(ask_terminal $'\033]50;?\a' $'\a')
+	[[ $r == *']50;'* ]] || return 0
+	printf '%s' "${r##*]50;}"
+}
+
+# The font files frit NAME names, a path a line: outline:, file: and bdf:
+# sources as they are, a kbd: source as the first file of its name in the
+# kbd console font directories, or kbd:NAME when there is none. font: and
+# builtin: sources name no file the walk can check.
+frit_files() {
+	local line value d s found
+	while IFS= read -r line || [ -n "$line" ]; do
+		[[ $line =~ ^source=(outline|file|bdf|kbd):(.+)$ ]] || continue
+		value=${BASH_REMATCH[2]}
+		if [ "${BASH_REMATCH[1]}" != kbd ]; then
+			printf '%s\n' "$value"
+			continue
+		fi
+		found=
+		for d in /usr/share/kbd/consolefonts /usr/lib/kbd/consolefonts; do
+			for s in '' .psf .psfu .psf.gz .psfu.gz; do
+				[ -n "$found" ] || [ ! -f "$d/$value$s" ] || found=$d/$value$s
+			done
+		done
+		printf '%s\n' "${found:-kbd:$value}"
+	done <"$frit_dir/$1.vtfrit"
+}
+
+# The lines the record gives the frits this walk uses: each frit file's
+# SHA-256, and each font file's SHA-256 and the package that owns it, so two
+# passes tell a change in vtium from a font update. missing[NAME] lists a
+# frit's files this machine lacks.
+font_lines=()
+declare -A missing=()
+font_sums() {
+	local name path sum pkg
+	for name in $(printf '%s\n' "${frits[@]}" | sed '/^$/d' | sort -u); do
+		if [ ! -f "$frit_dir/$name.vtfrit" ]; then
+			font_lines+=("- frit: $name missing from $frit_dir")
+			missing[$name]="$frit_dir/$name.vtfrit"
+			continue
+		fi
+		sum=$(sha256sum <"$frit_dir/$name.vtfrit") sum=${sum%% *}
+		font_lines+=("- frit: $name sha256 $sum")
+		while IFS= read -r path; do
+			if [ ! -f "$path" ]; then
+				font_lines+=("- font: $name $path missing")
+				missing[$name]+="${missing[$name]:+, }$path"
+				continue
+			fi
+			sum=$(sha256sum <"$path") sum=${sum%% *}
+			pkg=
+			if command -v pacman >/dev/null; then
+				pkg=$(pacman -Qo "$path" 2>/dev/null | sed -n 's/.* is owned by //p')
+			fi
+			font_lines+=("- font: $name $path sha256 $sum${pkg:+ package $pkg}")
+		done < <(frit_files "$name")
+	done
+	fonts=$(printf '%s\n' "${font_lines[@]}" | sha256sum) fonts=${fonts%% *}
+}
+
+# Switches the console to frit NAME and checks that it did; fails with why
+# set when its files are missing or vtium does not take it.
+why=
+current=
+switch_font() {
+	if [ -n "${missing[$1]:-}" ]; then
+		why="the font set $1 needs files this machine lacks: ${missing[$1]}"
+		return 1
+	fi
+	[ "$current" = "$1" ] && return 0
+	printf '\033]50;%s\a' "$1" >/dev/tty
+	# the switch is taken when the terminal reads it: a round trip first
+	cursor_row >/dev/null
+	local now
+	now=$(query_font)
+	if [ "$now" != "$1" ]; then
+		why="vtium did not switch to the font set $1: OSC 50 named '${now:-nothing}'"
+		return 1
+	fi
+	current=$1
+}
+
+# Switches the console back to the font it had when the walk started.
+restore_font() {
+	[ -n "$current" ] || return 0
+	[ -z "$font_start" ] || printf '\033]50;%s\a' "$font_start" >/dev/tty
+	current=
 }
 
 # A value for one line of the record's list: tabs and line breaks become
@@ -233,17 +359,20 @@ write_record() {
 		printf -- '- features: %s\n' "$(one_line "${DEMO_FEATURES:-not given}")"
 		printf -- '- terminal: TERM=%s, %s rows by %s columns\n' "$(one_line "${TERM:-unset}")" "$rows" "$cols"
 		printf -- '- da1: %s\n' "${da1:-no answer}"
+		printf -- '- font-start: %s\n' "${font_start:-no answer to the OSC 50 query}"
+		[ ${#font_lines[@]} -eq 0 ] || printf '%s\n' "${font_lines[@]}"
+		printf -- '- fonts: %s\n' "$fonts"
 		printf -- '- started: %s\n' "$started"
 		printf -- '- updated: %s\n' "$(date -Iseconds)"
 		printf -- '- answered: %d of %d\n\n' "$n" ${#pages[@]}
 		printf '| page | answer | comment |\n|---|---|---|\n'
 		for i in "${!pages[@]}"; do
-			printf '| %s | %s | %s |\n' "$(id_of "${pages[$i]}")" "${answers[$i]:--}" "$(cell "${notes[$i]:-}")"
+			printf '| %s | %s | %s |\n' "$(entry_id "$i")" "${answers[$i]:--}" "$(cell "${notes[$i]:-}")"
 		done
 		for f in "${extra[@]}"; do printf '%s\n' "$f"; done
 		printf '\n## What each page shows when it is right\n\n'
-		for i in "${!pages[@]}"; do
-			printf -- '- %s: %s\n' "$(id_of "${pages[$i]}")" "$(meta look-for "${pages[$i]}")"
+		for f in "${files[@]}"; do
+			printf -- '- %s: %s\n' "$(id_of "$f")" "$(meta look-for "$f")"
 		done
 	} >"$tmp" 2>/dev/null && mv -f -- "$tmp" "$record" || {
 		rm -f -- "$tmp"
@@ -272,11 +401,12 @@ resumable() {
 		case $k in
 		'#pass') pass=$v ;;
 		'#started') started=$v ;;
+		'#fonts') [ "$v" = "$fonts" ] || return 1 ;;
 		'#'*) ;;
 		*)
 			found=
 			for i in "${!pages[@]}"; do
-				[ "$(id_of "${pages[$i]}")" = "$k" ] || continue
+				[ "$(entry_id "$i")" = "$k" ] || continue
 				found=1
 				[ "$v" = - ] || answers[$i]=$v
 				notes[$i]=$(printf '%b' "$comment")
@@ -341,7 +471,7 @@ ask() {
 			read_key
 			clear_screen
 			printf '\033[1m[%d/%d] %s: questions\033[0m\n' $((i + 1)) ${#pages[@]} \
-				"$(name_of "${pages[$i]}")"
+				"$(entry_name "$i")"
 		fi
 		printf '%s\n' "${foot[@]}"
 		drain
@@ -375,7 +505,7 @@ ask() {
 # Page I said this build cannot show it: it is recorded as skip at once, with
 # that note, and any key goes on.
 unshown() {
-	note='this build cannot show this page'
+	note=${unshown_why:-this build cannot show this page}
 	rate "$1" skip
 	printf '\n'
 	drain
@@ -411,7 +541,7 @@ summary() {
 	clear_screen
 	printf '\033[1mvtium playtest: pass %s\033[0m\n\n' "$pass"
 	for i in "${!pages[@]}"; do
-		id=$(id_of "${pages[$i]}")
+		id=$(entry_id "$i")
 		nt=${notes[$i]:-}
 		nt=${nt//$'\n'/ / }
 		printf '  %-22s %-7s %s\n' "$id" "${answers[$i]:--}" "${nt:0:$((cols - 35))}"
@@ -434,17 +564,35 @@ summary() {
 	done
 }
 
+# The entries: each page, once in each frit its "# frits:" line names.
 pages=()
+frits=()
+frit_dir=${PLAYTEST_PAGES:-$here/sections}/frits
 for f in "${PLAYTEST_PAGES:-$here/sections}"/*.sh; do
+	take=
 	if [ $# -eq 0 ]; then
-		pages+=("$f")
+		take=1
 	else
 		for want in "$@"; do
-			[ "$(name_of "$f")" != "$want" ] || pages+=("$f")
+			[ "$(name_of "$f")" != "$want" ] || take=1
+		done
+	fi
+	[ -n "$take" ] || continue
+	set_frits=$(meta frits "$f")
+	if [ -z "$set_frits" ]; then
+		pages+=("$f") frits+=("")
+	else
+		for fr in $set_frits; do
+			pages+=("$f") frits+=("$fr")
 		done
 	fi
 done
 [ ${#pages[@]} -gt 0 ] || { echo "playtest: no such page: $*" >&2; exit 2; }
+# The page files, each once.
+files=()
+for f in "${pages[@]}"; do
+	[ "${files[*]: -1}" = "$f" ] || files+=("$f")
+done
 
 [ -n "$noprompt" ] || init_passes
 read_size
@@ -460,7 +608,7 @@ read_size
 # drops, and that read then waits for another key. Off for the whole run,
 # Ctrl-D is a key whenever it arrives.
 if [ -z "$nopage" ] && tty_mode=$(stty -g </dev/tty 2>/dev/null); then
-	trap 'reset_terminal; stty "$tty_mode" </dev/tty' EXIT
+	trap 'restore_font; reset_terminal; stty "$tty_mode" </dev/tty' EXIT
 	stty -echo -icanon min 1 time 0 </dev/tty
 fi
 
@@ -486,6 +634,10 @@ fi
 da1=$(ask_terminal $'\033[c' c)
 da1=${da1##*\?}
 [[ $da1 =~ ^[0-9\;]+$ ]] || da1=
+# The font to switch back to, and the frits' files, for the record.
+font_start=$(query_font)
+[[ $font_start =~ ^[[:alnum:]._+-]{1,64}$ ]] || font_start=
+font_sums
 
 start=0
 resume=
@@ -511,17 +663,20 @@ else
 	printf '  \033[31mThe pass is not recorded: %s.\033[0m\n' "$why_not"
 fi
 echo
-n=${#pages[@]} per=$(((${#pages[@]} + 2) / 3))
+names=()
+for f in "${files[@]}"; do names+=("$(name_of "$f")"); done
+n=${#pages[@]} per=$(((${#names[@]} + 3) / 4))
 for ((r = 0; r < per; r++)); do
 	line=
-	for ((c = 0; c < 3; c++)); do
+	for ((c = 0; c < 4; c++)); do
 		i=$((c * per + r))
-		[ "$i" -lt "$n" ] || continue
-		printf -v cell '%2d %-22s' $((i + 1)) "$(name_of "${pages[$i]}")"
+		[ "$i" -lt ${#names[@]} ] || continue
+		printf -v cell '%-18s' "${names[$i]:0:18}"
 		line+="  $cell"
 	done
 	printf '%s\n' "${line% }"
 done
+[ "$n" -eq ${#names[@]} ] || printf '  %d pages; the language pages are walked once in each font set.\n' "$n"
 echo
 if [ -n "$resume" ]; then
 	k=0

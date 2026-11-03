@@ -91,7 +91,7 @@ tsv() {
 		next
 	}
 	table { table = 0; done = 1 }
-	!table && !done && match($0, /^- [a-z0-9]+: /) {
+	!table && !done && match($0, /^- [a-z0-9-]+: /) {
 		key = substr($0, 3, RLENGTH - 4)
 		printf "#%s\t%s\n", key, substr($0, RLENGTH + 1)
 	}' "$1"
@@ -200,6 +200,7 @@ compare)
 		tsv "$a" | sed 's/^/A\t/'
 		tsv "$b" | sed 's/^/B\t/'
 	} | awk -F'\t' "$lines"'
+	$2 == "#font" || $2 == "#frit" { fonts[$1, $3] = 1; order_f[++nf] = $1 SUBSEP $3; next }
 	$2 ~ /^#/ { meta[$1, substr($2, 2)] = $3; next }
 	{
 		if (!(($2) in seen)) { seen[$2] = 1; order[++n] = $2 }
@@ -228,6 +229,13 @@ compare)
 			if (note["B", p] != "") lines("B: ", note["B", p])
 		}
 		if (!changed) printf "(every page has the same answer in both)\n"
+		for (i = 1; i <= nf; i++) {
+			split(order_f[i], k, SUBSEP)
+			other = k[1] == "A" ? "B" : "A"
+			if ((other, k[2]) in fonts) continue
+			if (!fhead++) printf "\nfont files that differ, so a changed page may come from a font update:\n"
+			printf "  %s: %s\n", k[1], k[2]
+		}
 		printf "\n"
 		if (nw) {
 			printf "%d page%s went from yes to no:", nw, nw == 1 ? "" : "s"
