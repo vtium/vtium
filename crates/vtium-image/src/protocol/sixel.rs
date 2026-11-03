@@ -6,15 +6,11 @@
 //! stored with that reservation and placed:
 //!
 //! - **With mode 80 (DECSDM) reset,** sixel scrolling is on: the
-//!   picture's top left is the cursor's cell, a pending wrap counting as
-//!   the last column. When the picture would pass the bottom margin, the
-//!   scroll region scrolls up first, as far as the region allows, so a
-//!   picture that fits the region moves whole; then it is placed, and the
-//!   cursor goes down a row fewer than the picture's rows, as that many
-//!   line feeds do, so an index covers what the region could not. The
-//!   cursor ends on the row holding the picture's last pixel row: at the
-//!   picture's left column, or with mode 8452 set in the column after its
-//!   right edge, at most the last column.
+//!   picture's top left is the cursor's cell, the scroll region scrolls
+//!   for a picture that would pass the bottom margin, and the cursor ends
+//!   on the row holding the picture's last pixel row, as
+//!   [`place_scrolling`] describes, in the column after the picture's
+//!   right edge with mode 8452 set.
 //! - **With mode 80 set,** the picture sits at the screen's top left, cut
 //!   to the screen, and the cursor stays where it is.
 //!
@@ -31,7 +27,7 @@ use crate::decode::Reply;
 use crate::decode::sixel::{Budget, Decoder, Palette, Picture};
 use crate::handler::{Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place};
-use crate::protocol::chunk_work;
+use crate::protocol::{chunk_work, place_scrolling};
 use crate::rules::Protocol;
 use crate::store::Reservation;
 
@@ -133,44 +129,8 @@ fn place(ctx: &mut dyn Context, image: ImageKey, width: u32, height: u32) {
         }
         return;
     }
-    let (cx, mut y) = ctx.cursor();
-    // a pending wrap leaves the cursor past the last column
-    let x = cx.min(cols.saturating_sub(1));
     let tall = usize::try_from(height.div_ceil(ch.max(1))).unwrap_or(usize::MAX);
-    let down = tall.saturating_sub(1);
-    // the region scrolls first, as far as it can, so a picture that fits
-    // it moves whole; index covers the rest
-    let m = ctx.margins();
-    if (m.top..=m.bottom).contains(&y) {
-        let room = m.bottom.saturating_sub(y);
-        if down > room {
-            let s = down.saturating_sub(room).min(y.saturating_sub(m.top));
-            ctx.scroll_up(s);
-            y = y.saturating_sub(s);
-        }
-    }
-    let at = Place {
-        col: to_u32(x),
-        row: to_u32(y),
-        ..Place::default()
-    };
-    let placed = ctx.edit(|e| e.place(image, at).map(|k| e.extent(k)));
-    let Some(Ok(Some((box_cols, _)))) = placed else {
-        ctx.drop_image(image);
-        return;
-    };
-    ctx.move_cursor(x, y);
-    ctx.index(down);
-    let (_, row) = ctx.cursor();
-    let box_cols = usize::try_from(box_cols).unwrap_or(usize::MAX);
-    let col = if !state.cursor_right {
-        x
-    } else if box_cols < cols.saturating_sub(x) {
-        x.saturating_add(box_cols)
-    } else {
-        cols.saturating_sub(1)
-    };
-    ctx.move_cursor(col, row);
+    place_scrolling(ctx, image, None, tall, state.cursor_right);
 }
 
 impl Handler for Sixel {

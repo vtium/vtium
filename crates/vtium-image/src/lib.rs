@@ -13,8 +13,8 @@
     clippy::unreachable,
     clippy::todo
 )]
-//! Inline images: the one pipeline sixel and the kitty graphics protocol
-//! feed (ADR-1100).
+//! Inline images: the one pipeline sixel, the kitty graphics protocol and
+//! iTerm2's pictures feed (ADR-1100).
 //!
 //! - The [store](Store): each console's images and placements, main and
 //!   alternate buffers, the budget over both and the eviction order, and
@@ -31,7 +31,7 @@
 //!   before any renderer sees them, and the [state](Animation) the binary's
 //!   animation clock plays from, with [`Store::frame_pixels`] for the
 //!   frame it chose.
-//! - The two [protocol] handlers, [`Sixel`] and [`Kitty`].
+//! - The three [protocol] handlers, [`Sixel`], [`Kitty`] and [`Iterm2`].
 //! - The [decode request and reply types](decode), which the image helper
 //!   answers.
 //! - Its bounds, named constants from the C reference's values, and the
@@ -51,13 +51,14 @@ mod store;
 pub use bounds::{
     AUTO_CAP, AUTO_FLOOR, AUTO_FRAMES, BOX_CELLS_MAX, CELL_MAX, FRAME_ALLOWANCE_FACTOR,
     FRAME_CACHE_FRAMES, FRAME_CHAIN_MAX, FRAME_OVERHEAD, FRAME_WHOLE_MAX, FRAMES_MAX,
-    IMAGE_OVERHEAD, IMAGE_SIDE_MAX, IMAGES_PER_BUFFER, PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER,
-    RELATIVE_DEPTH_MAX, auto_limit,
+    IMAGE_OVERHEAD, IMAGE_SIDE_MAX, IMAGES_PER_BUFFER, ITERM2_FILE_MAX, ITERM2_PARTS_MAX,
+    PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER, RELATIVE_DEPTH_MAX, auto_limit,
 };
 pub use handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
 pub use image::{
     ImageKey, LineKey, NewImage, Pixels, Place, PlaceholderRun, PlacementKey, Refusal,
 };
+pub use protocol::iterm2::Iterm2;
 pub use protocol::kitty::Kitty;
 pub use protocol::sixel::Sixel;
 pub use rules::{Layer, Protocol, RegionScroll, Rules, rules};

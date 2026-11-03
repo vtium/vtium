@@ -145,6 +145,14 @@ pub fn finish(
     let Some(reply) = reply else {
         return Outcome::failed(Status::Unreadable, "no reply file");
     };
+    if let Some(limits) = request.frames
+        && is_gif(&file)
+    {
+        return match animated(request, &file, size, limits, reply, locked) {
+            Ok(outcome) => Outcome { shm, ..outcome },
+            Err(f) => Outcome::failed(f.status, f.reason),
+        };
+    }
     match picture(request, &file, size, locked) {
         Ok((width, height, rgba, ignored)) => match write_reply(reply, &rgba) {
             Ok(true) => Outcome {
@@ -155,6 +163,8 @@ pub fn finish(
                 shm,
                 mismatch: false,
                 locked: false,
+                delays: Vec::new(),
+                loops: None,
                 reason: String::new(),
             },
             Ok(false) => Outcome {
@@ -218,6 +228,74 @@ fn picture(
     Ok((pic.width, pic.height, pic.rgba, ignored))
 }
 
+/// Whether `file` begins as a GIF does.
+fn is_gif(file: impl AsFd) -> bool {
+    let mut head = [0u8; 6];
+    matches!(rustix::io::pread(&file, &mut head, 0), Ok(6))
+        && (&head == b"GIF87a" || &head == b"GIF89a")
+}
+
+/// A GIF's frames for a request with the frames flag (ADR-1101 D6): each
+/// composed frame written into the fresh reply file as it is done, at its
+/// place one after another, the file cut to the first frame alone when the
+/// GIF comes back still, then sealed. Frames never go to a pooled file,
+/// since such a request never counts toward a stream.
+fn animated(
+    request: &Request,
+    file: impl AsFd,
+    size: u64,
+    limits: vtium_image::decode::FrameLimits,
+    reply: &ReplyFile,
+    locked: &Locked,
+) -> Result<Outcome, Failure> {
+    let ReplyFile::Fresh(out) = reply else {
+        return Err(Failure::new(
+            Status::OverBudget,
+            "frames for a pooled reply file",
+        ));
+    };
+    let (data, _) = read_bounded(request, &file, size)?;
+    let bounds = Bounds {
+        largest: request.largest,
+        max_bytes: request.largest_bytes,
+    };
+    let frame_bounds = decode::FrameBounds {
+        max_frames: limits.max_frames,
+        max_frame_bytes: limits.max_frame_bytes,
+    };
+    let write_failed = |e: std::io::Error| {
+        Failure::new(Status::OverBudget, format!("cannot write the reply: {e}"))
+    };
+    let frames = decode::gif_frames(&data, bounds, Some(frame_bounds), locked, &mut |n, rgba| {
+        let len = u64::try_from(rgba.len()).unwrap_or(u64::MAX);
+        let at = u64::from(n)
+            .checked_mul(len)
+            .ok_or_else(|| Failure::new(Status::OverBudget, "a frame past the file"))?;
+        pwrite_all(out, rgba, at).map_err(write_failed)
+    })?;
+    let frame_len = u64::from(frames.width)
+        .saturating_mul(u64::from(frames.height))
+        .saturating_mul(4);
+    let count = u64::try_from(frames.delays.len()).unwrap_or(u64::MAX);
+    rustix::fs::ftruncate(out, frame_len.saturating_mul(count))
+        .map_err(|e| write_failed(e.into()))?;
+    rustix::fs::fcntl_add_seals(out, SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE)
+        .map_err(|e| write_failed(e.into()))?;
+    let animation = frames.delays.len() > 1;
+    Ok(Outcome {
+        status: Status::Ok,
+        width: frames.width,
+        height: frames.height,
+        ignored: 0,
+        shm: None,
+        mismatch: false,
+        locked: false,
+        delays: if animation { frames.delays } else { Vec::new() },
+        loops: if animation { frames.loops } else { None },
+        reason: frames.still.unwrap_or_default(),
+    })
+}
+
 /// The bytes the request reads from `file` of `size` bytes, and those it
 /// leaves unread: from the offset to the lesser of the offset plus the
 /// most and the end, or to the end when the most is 0. An offset at or
@@ -272,11 +350,11 @@ fn read_bounded(request: &Request, file: impl AsFd, size: u64) -> Result<(Vec<u8
     Ok((data, ignored))
 }
 
-/// Writes all of `data` into `fd` at its start with `pwrite`.
-fn pwrite_all(fd: impl AsFd, data: &[u8]) -> std::io::Result<()> {
+/// Writes all of `data` into `fd` from byte `base` with `pwrite`.
+fn pwrite_all(fd: impl AsFd, data: &[u8], base: u64) -> std::io::Result<()> {
     let mut done = 0usize;
     while done < data.len() {
-        let at = u64::try_from(done).unwrap_or(u64::MAX);
+        let at = base.saturating_add(u64::try_from(done).unwrap_or(u64::MAX));
         match rustix::io::pwrite(&fd, data.get(done..).unwrap_or_default(), at) {
             Ok(0) => return Err(std::io::Error::other("no space")),
             Ok(n) => done = done.saturating_add(n),
@@ -296,7 +374,7 @@ pub fn write_reply(reply: &ReplyFile, rgba: &[u8]) -> std::io::Result<bool> {
     match reply {
         ReplyFile::Fresh(fd) => {
             rustix::fs::ftruncate(fd, len)?;
-            pwrite_all(fd, rgba)?;
+            pwrite_all(fd, rgba, 0)?;
             rustix::fs::fcntl_add_seals(
                 fd,
                 SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE,
@@ -308,7 +386,7 @@ pub fn write_reply(reply: &ReplyFile, rgba: &[u8]) -> std::io::Result<bool> {
             if size != len {
                 return Ok(false);
             }
-            pwrite_all(fd, rgba)?;
+            pwrite_all(fd, rgba, 0)?;
             Ok(true)
         }
     }
@@ -350,6 +428,7 @@ mod tests {
             exact: false,
             discard: false,
             any_image: false,
+            frames: None,
             pixels: Some(Description {
                 layout,
                 alpha: Alpha::Straight,
@@ -364,7 +443,7 @@ mod tests {
 
     fn inline(data: &[u8]) -> OwnedFd {
         let fd = memory_file("t").unwrap();
-        pwrite_all(&fd, data).unwrap();
+        pwrite_all(&fd, data, 0).unwrap();
         fd
     }
 

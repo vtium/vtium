@@ -1,0 +1,19 @@
+checkpoint 1048599
+size 12x4
+cursor 1,0
+flags AUTO_WRAP
+row 0 |a|
+row 1 ||
+row 2 ||
+row 3 ||
+checkpoint 1048665
+size 12x4
+cursor 1,0
+flags AUTO_WRAP
+host: 1 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 |a|
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 1 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text sixel image 0 opaque
+image 0 8x16 digest 9796e9c5

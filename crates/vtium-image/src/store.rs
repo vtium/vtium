@@ -21,6 +21,7 @@ mod anim;
 mod edit;
 mod events;
 mod frame;
+mod iterm2;
 pub(crate) mod kitty;
 mod relative;
 mod reserve;
@@ -839,7 +840,7 @@ impl Store {
         let img = self.image(b, image).ok_or(Refusal::NotFound)?;
         let (protocol, width, height) = (img.protocol.0, img.width, img.height);
         let line = match link {
-            Link::Cell => {
+            Link::Cell | Link::Drawn { .. } => {
                 let cols_ok = usize::try_from(place.col).is_ok_and(|c| c < cols);
                 let row = usize::try_from(place.row).ok();
                 let line = row.and_then(|r| rows.screen.get(r)).copied();
@@ -856,7 +857,11 @@ impl Store {
         {
             return Err(Refusal::Invalid.into());
         }
-        let geometry = Geometry::fit(&place, (width, height), (cw, ch))?;
+        let drawn = match link {
+            Link::Drawn { width, height } => Some((width, height)),
+            _ => None,
+        };
+        let geometry = Geometry::fit(&place, drawn, (width, height), (cw, ch))?;
         let replaced = if rules(protocol).ids && place.id != 0 {
             let count = self.buffers.get(b).map_or(0, |buf| buf.placements.len());
             self.count(count);
@@ -870,7 +875,7 @@ impl Store {
             None
         };
         let spot = match (link, line) {
-            (Link::Cell, Some(line)) => Spot::Line(line),
+            (Link::Cell | Link::Drawn { .. }, Some(line)) => Spot::Line(line),
             (
                 Link::Parent {
                     image,
@@ -1465,12 +1470,14 @@ struct Geometry {
 
 impl Geometry {
     /// The source cut to the image, and the box and the picture in it: at
-    /// the source's pixel size, fitted and centred in a box of both sides,
-    /// or one side given and the other following the source's aspect. A
+    /// the `drawn` size when one is given, at the source's pixel size,
+    /// fitted and centred in a box of both sides, or one side given and the
+    /// other following the source's aspect. A
     /// picture scaled to a sliver keeps a pixel; one scaled past the
     /// largest box is refused.
     fn fit(
         place: &Place,
+        drawn: Option<(u32, u32)>,
         (width, height): (u32, u32),
         (cw, ch): (u32, u32),
     ) -> Result<Self, Refusal> {
@@ -1494,6 +1501,11 @@ impl Geometry {
         };
         let (mut cols, mut rows, mut dw, mut dh);
         match (place.cols, place.rows) {
+            // a drawn size the protocol worked out, at the box's top left
+            _ if let Some((w, h)) = drawn => {
+                (cols, rows) = (0, 0);
+                (dw, dh) = (u64::from(w), u64::from(h));
+            }
             (0, 0) => {
                 (cols, rows) = (0, 0);
                 (dw, dh) = (u64::from(sw), u64::from(sh));

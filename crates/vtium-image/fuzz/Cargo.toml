@@ -31,3 +31,9 @@ bench = false
 
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "iterm2"
+path = "fuzz_targets/iterm2.rs"
+test = false
+doc = false

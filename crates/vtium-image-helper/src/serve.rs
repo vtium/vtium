@@ -91,9 +91,13 @@ struct Kind {
 
 impl Kind {
     /// The kind of `request`, or `None` for one that never counts toward
-    /// a stream: a discard, or anything but inline bytes.
+    /// a stream: a discard, anything but inline bytes, or a request for an
+    /// animated GIF's frames, whose reply file holds many (ADR-1101 D4).
     fn of(request: &Request) -> Option<Self> {
-        if request.discard || !matches!(request.medium, Medium::Direct(_)) {
+        if request.discard
+            || request.frames.is_some()
+            || !matches!(request.medium, Medium::Direct(_))
+        {
             return None;
         }
         Some(Self {
@@ -461,6 +465,13 @@ fn answer(
             0
         },
         pooled: picture && pooled,
+        // a picture counts its frames, one unless it is an animated GIF
+        delays: match (picture, outcome.delays.is_empty()) {
+            (false, _) => Vec::new(),
+            (true, true) => vec![0],
+            (true, false) => outcome.delays.clone(),
+        },
+        loops: if picture { outcome.loops } else { None },
         reason: outcome.reason.as_bytes().to_vec(),
     };
     let fds: Vec<BorrowedFd<'_>> = match (picture, reply) {
@@ -680,6 +691,7 @@ mod tests {
             exact: false,
             discard: false,
             any_image: false,
+            frames: None,
             pixels: Some(Description {
                 layout: Layout::Rgba,
                 alpha: Alpha::Straight,

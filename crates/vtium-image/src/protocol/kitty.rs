@@ -533,6 +533,7 @@ impl Kitty {
             exact: false,
             discard: discard.is_some(),
             any_image: false,
+            frames: None,
             pixels: None,
             largest: (max_w, max_h),
             largest_bytes: ctx.store().limit().saturating_sub(IMAGE_OVERHEAD),

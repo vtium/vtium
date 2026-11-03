@@ -17,7 +17,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use rustix::event::{PollFd, PollFlags, Timespec};
-use vtium_image::decode::{Alpha, Description, Layout, Medium, Payload, Reply, Request};
+use vtium_image::decode::{
+    Alpha, Description, FrameLimits, Layout, Medium, Payload, Reply, Request,
+};
 use vtium_platform::image_helper::{ImageHost, Program, Session};
 
 fn program() -> Program {
@@ -81,6 +83,7 @@ fn base(medium: Medium) -> Request {
         exact: false,
         discard: false,
         any_image: false,
+        frames: None,
         pixels: None,
         largest: (1000, 1000),
         largest_bytes: 16 << 20,
@@ -200,6 +203,7 @@ fn every_kind_of_request(host: &mut ImageHost) {
     // iTerm2's any image
     let r = Request {
         any_image: true,
+        frames: None,
         ..base(Medium::Direct(file.clone()))
     };
     assert_eq!(picture(ask(host, &r)), (2, 1, PREMULTIPLIED.to_vec()));
@@ -561,4 +565,122 @@ fn hide_landlock() {
     let enosys = SeccompAction::Errno(libc::ENOSYS as u32);
     let filter = SeccompFilter::new(rules, SeccompAction::Allow, enosys, arch).unwrap();
     seccompiler::apply_filter(&BpfProgram::try_from(filter).unwrap()).unwrap();
+}
+
+/// A GIF of `frames` frames, 16 by 16 pixels each in one palette color, its
+/// index from 1, delays 5, 6, 7 and on, and a loop count of 2.
+fn gif_file(frames: u8) -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let palette: Vec<u8> = (0..=frames).flat_map(|i| [i * 10, 0, 0]).collect();
+        let mut enc = gif::Encoder::new(&mut out, 16, 16, &palette).unwrap();
+        enc.set_repeat(gif::Repeat::Finite(2)).unwrap();
+        for i in 1..=frames {
+            let frame = gif::Frame {
+                width: 16,
+                height: 16,
+                delay: 4 + u16::from(i),
+                buffer: std::borrow::Cow::Owned(vec![i; 256]),
+                ..gif::Frame::default()
+            };
+            enc.write_frame(&frame).unwrap();
+        }
+    }
+    out
+}
+
+// covers: image.iterm2
+#[test]
+fn the_real_helper_returns_an_animated_gifs_frames_past_its_budget_of_one_picture() {
+    let mut host = ImageHost::new(Some(program()), None);
+    let file = gif_file(3);
+    // one 16 by 16 frame is 1,024 bytes, the most a picture may take, so
+    // the reply file of three frames passes it and needs the frames' room
+    let r = Request {
+        any_image: true,
+        frames: Some(FrameLimits {
+            max_frames: 1024,
+            max_frame_bytes: 2048,
+        }),
+        largest_bytes: 1024,
+        ..base(Medium::Direct(file.clone()))
+    };
+    let reply = ask(&mut host, &r);
+    let Reply::Ok(payload @ Payload::Frames { .. }) = reply else {
+        panic!("not frames: {reply:?}");
+    };
+    let Payload::Frames { delays, loops, .. } = &payload else {
+        unreachable!();
+    };
+    assert_eq!((delays.as_slice(), *loops), (&[5u16, 6, 7][..], Some(2)));
+    let frames = payload
+        .copy_frames(usize::MAX)
+        .expect("the frames read whole");
+    let red = |i: u32| 0xff00_0000 | (i * 10) << 16;
+    for (n, (pixels, opaque)) in frames.iter().enumerate() {
+        assert_eq!(pixels, &vec![red(n as u32 + 1); 256], "frame {n}");
+        assert!(opaque);
+    }
+    // one byte short of the frames past the first: its first frame, still
+    let still = Request {
+        frames: Some(FrameLimits {
+            max_frames: 1024,
+            max_frame_bytes: 2047,
+        }),
+        ..r.clone()
+    };
+    assert_eq!(picture(ask(&mut host, &still)).2.len(), 1024);
+    let two = Request {
+        frames: Some(FrameLimits {
+            max_frames: 2,
+            max_frame_bytes: 2048,
+        }),
+        ..r
+    };
+    assert_eq!(picture(ask(&mut host, &two)).2.len(), 1024);
+    // without the frames flag, the first frame
+    let first = Request {
+        any_image: true,
+        frames: None,
+        ..base(Medium::Direct(file))
+    };
+    assert_eq!(picture(ask(&mut host, &first)).0, 16);
+    assert_eq!(host.crashes(), 0);
+}
+
+#[test]
+fn requests_that_alternate_a_larger_budget_and_more_frame_room_restart_the_helper_once() {
+    let mut host = ImageHost::new(Some(program()), None);
+    let z = miniz_oxide::deflate::compress_to_vec_zlib(&STRAIGHT, 6);
+    let budget = Request {
+        largest_bytes: 32 << 20,
+        ..raw(Medium::Direct(z), Layout::Rgba, 2, 1, true)
+    };
+    let frames = Request {
+        any_image: true,
+        frames: Some(FrameLimits {
+            max_frames: 1024,
+            max_frame_bytes: 64 << 20,
+        }),
+        largest_bytes: 1 << 20,
+        ..base(Medium::Direct(gif_file(2)))
+    };
+    picture(ask(&mut host, &budget));
+    let first = host.pid().unwrap();
+    assert!(matches!(
+        ask(&mut host, &frames),
+        Reply::Ok(Payload::Frames { .. })
+    ));
+    let second = host.pid().unwrap();
+    assert_ne!(first, second, "its file cap was set from fewer bytes");
+    picture(ask(&mut host, &budget));
+    assert!(matches!(
+        ask(&mut host, &frames),
+        Reply::Ok(Payload::Frames { .. })
+    ));
+    assert_eq!(
+        host.pid().unwrap(),
+        second,
+        "the helper keeps the larger of each cap"
+    );
 }

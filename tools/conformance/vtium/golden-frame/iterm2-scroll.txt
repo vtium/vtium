@@ -1,0 +1,48 @@
+checkpoint 72
+size 12x6
+cursor 2,5
+flags AUTO_WRAP
+host: 1 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+palette legacy fg=#e5e5e5 bg=#000000
+changed 72
+frame-cursor 2,5 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+placement 0 row 1 col 2 box 2x5 at 0,0 size 16x80 src 0,0 16x80 cell 8x16 z 0 above-text sixel image 0 opaque changed
+image 0 16x80 digest 2c1707c5
+checkpoint 76
+size 12x6
+cursor 2,5
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 72
+frame-cursor 2,5 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 |ZZ|
+placement 0 row 0 col 2 box 2x5 at 0,0 size 16x80 src 0,0 16x80 cell 8x16 z 0 above-text sixel image 0 opaque changed
+image 0 16x80 digest 2c1707c5
+checkpoint 84
+size 12x6
+cursor 5,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 11
+frame-cursor 5,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 |   XY|
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 |ZZ|
+placement 0 row 0 col 2 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text sixel image 0 opaque changed
+placement 1 row 1 col 2 box 1x1 at 0,0 size 8x16 src 0,16 8x16 cell 8x16 z 0 above-text sixel image 0 opaque changed
+placement 2 row 2 col 2 box 2x3 at 0,0 size 16x48 src 0,32 16x48 cell 8x16 z 0 above-text sixel image 0 opaque changed
+image 0 16x80 digest 2c1707c5

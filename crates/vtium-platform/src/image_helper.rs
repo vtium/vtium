@@ -62,8 +62,10 @@ use rustix::net::{
     RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags, SendAncillaryBuffer,
     SendAncillaryMessage, SendFlags,
 };
-use vtium_image::decode::wire::{self, Hello, REASON_MAX, REPLY_FIXED, ReplyHeader, Status};
-use vtium_image::decode::{Medium, Payload, Reply, ReplyFile, ReplySource, Request};
+use vtium_image::decode::wire::{
+    self, Hello, REASON_MAX, REPLY_FIXED, REPLY_FRAMES_MAX, ReplyHeader, Status,
+};
+use vtium_image::decode::{FrameData, Medium, Payload, Reply, ReplyFile, ReplySource, Request};
 
 pub use identity::{
     Account, Facts, LOGIN_CLASSES, LoginSession, Me, PRELOGIN_ACCOUNTS, Prelogin, Refusal, Session,
@@ -89,6 +91,9 @@ struct Running {
     account: Account,
     /// Its memory cap was set from this.
     max_bytes: u64,
+    /// Its largest file was set to this: `max_bytes` and the frames past
+    /// the first of an animated GIF (ADR-1101 D3).
+    largest_file: u64,
     /// Its hello, once it has arrived.
     hello: Option<Hello>,
 }
@@ -232,7 +237,12 @@ impl ImageHost {
             log::debug!("an image request refused: {why:?}");
             Reply::Unreadable
         })?;
-        self.ensure(&account, request.largest_bytes)?;
+        let frames = request.frames.map_or(0, |l| l.max_frame_bytes);
+        self.ensure(
+            &account,
+            request.largest_bytes,
+            request.largest_bytes.saturating_add(frames),
+        )?;
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
         let packet = wire::encode_request(id, request).map_err(|why| {
@@ -262,26 +272,44 @@ impl ImageHost {
         Ok(())
     }
 
-    /// A helper running as `account` for requests of up to `max_bytes`:
-    /// the one running, unless its account differs or its cap was set from
-    /// fewer bytes, else a new one.
-    fn ensure(&mut self, account: &Account, max_bytes: u64) -> Result<(), Reply> {
-        let stale = self
-            .running
-            .as_ref()
-            .is_some_and(|r| r.account != *account || max_bytes > r.max_bytes);
+    /// A helper running as `account` for requests of up to `max_bytes`
+    /// whose reply files reach `largest_file`: the one running, unless its
+    /// account differs or either of its caps was set from fewer bytes, else
+    /// a new one. A helper started again for the same account takes the
+    /// larger of each cap, the old one's and the request's, so requests
+    /// that alternate a larger budget and more frame room restart it once.
+    fn ensure(
+        &mut self,
+        account: &Account,
+        max_bytes: u64,
+        largest_file: u64,
+    ) -> Result<(), Reply> {
+        let (mut max_bytes, mut largest_file) = (max_bytes, largest_file);
+        let stale = self.running.as_ref().is_some_and(|r| {
+            r.account != *account || max_bytes > r.max_bytes || largest_file > r.largest_file
+        });
         if stale {
+            if let Some(r) = self.running.as_ref().filter(|r| r.account == *account) {
+                max_bytes = max_bytes.max(r.max_bytes);
+                largest_file = largest_file.max(r.largest_file);
+            }
             self.kill();
         }
         if self.running.is_some() {
             return Ok(());
         }
         let program = self.program.as_ref().ok_or(Reply::Unreadable)?;
-        let started =
-            start::start(program, account, max_bytes, self.tmpdir.as_deref()).map_err(|why| {
-                log::warn!("{why}");
-                Reply::Unreadable
-            })?;
+        let started = start::start(
+            program,
+            account,
+            max_bytes,
+            largest_file,
+            self.tmpdir.as_deref(),
+        )
+        .map_err(|why| {
+            log::warn!("{why}");
+            Reply::Unreadable
+        })?;
         log::debug!(
             "image helper {} started as uid {}",
             started.pid.as_raw_nonzero(),
@@ -291,6 +319,7 @@ impl ImageHost {
             started,
             account: account.clone(),
             max_bytes,
+            largest_file,
             hello: None,
         });
         Ok(())
@@ -396,7 +425,16 @@ impl ImageHost {
                         }
                         continue;
                     }
-                    _ => return Some(self.crash("its first packet is no hello")),
+                    _ => {
+                        let why = match wire::hello_version(&packet.bytes) {
+                            Some(v) if v != wire::VERSION => format!(
+                                "its hello speaks wire version {v}, and vtium speaks version {}",
+                                wire::VERSION
+                            ),
+                            _ => "its first packet is no hello".to_owned(),
+                        };
+                        return Some(self.crash(&why));
+                    }
                 }
             }
             return Some(match self.check(packet) {
@@ -433,6 +471,22 @@ impl ImageHost {
                 "a reply with a descriptor it should not carry"
             });
         }
+        // a picture counts one frame or more, any other reply none; more
+        // than one only for a request that asked for frames, within its
+        // max_frames
+        let count = header.delays.len();
+        let frames_ok = if picture {
+            count == 1
+                || (count > 1
+                    && request.frames.is_some_and(|l| {
+                        u64::try_from(count).is_ok_and(|c| c <= u64::from(l.max_frames))
+                    }))
+        } else {
+            count == 0 && header.loops.is_none()
+        };
+        if !frames_ok {
+            return Err("a reply whose frame count does not fit its request");
+        }
         log_reason(out.id, &header);
         if let Some(failure) = header.status.failure() {
             return Ok(failure);
@@ -452,6 +506,15 @@ impl ImageHost {
                 request.medium.letter(),
                 header.ignored
             );
+        }
+        if count > 1 {
+            return Ok(Reply::Ok(Payload::Frames {
+                width: header.width,
+                height: header.height,
+                delays: header.delays,
+                loops: header.loops,
+                data: FrameData::File(file),
+            }));
         }
         Ok(Reply::Ok(Payload::File {
             width: header.width,
@@ -581,7 +644,10 @@ impl Broken {
 /// The next packet, `None` while none is waiting. Every descriptor that
 /// arrives is received, so any it should not carry is closed with it.
 fn receive(socket: impl AsFd) -> Result<Option<Packet>, Broken> {
-    let mut bytes = vec![0u8; REPLY_FIXED.saturating_add(REASON_MAX).saturating_add(1)];
+    let most = REPLY_FIXED
+        .saturating_add(REPLY_FRAMES_MAX.saturating_mul(2))
+        .saturating_add(REASON_MAX);
+    let mut bytes = vec![0u8; most.saturating_add(1)];
     let mut space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(REPLY_FDS))];
     let mut control = RecvAncillaryBuffer::new(&mut space);
     let got = loop {
@@ -627,9 +693,11 @@ fn receive(socket: impl AsFd) -> Result<Option<Packet>, Broken> {
 
 /// The picture of an OK reply in `fd`, checked before any of it is read: a
 /// size within `max-graphic-size` and the budget, and the size the request
-/// described if it did; a regular file; its seals, before its size, since
-/// until the shrink seal holds the helper could cut the file under a
-/// mapping and fault the root process; then exactly that size. Nothing is
+/// described if it did; for an animated GIF's frames, those past the first
+/// within the request's `max_frame_bytes`; a regular file; its seals,
+/// before its size, since until the shrink seal holds the helper could cut
+/// the file under a mapping and fault the root process; then exactly the
+/// frame count times a picture's bytes. Nothing is
 /// read here: the handler reads the file once, after it has reserved the
 /// picture's bytes ([`MemoryFile`]).
 fn checked_file(
@@ -650,11 +718,21 @@ fn checked_file(
     if !(request.png || request.any_image || request.pixels.is_some()) {
         return Err("a picture the request did not ask for");
     }
-    let bytes = u64::from(w)
+    let frame = u64::from(w)
         .checked_mul(u64::from(h))
         .and_then(|n| n.checked_mul(4))
         .filter(|&n| n <= request.largest_bytes)
         .ok_or("a reply larger than the budget")?;
+    let count = u64::try_from(header.delays.len().max(1)).unwrap_or(u64::MAX);
+    let past = frame
+        .checked_mul(count.saturating_sub(1))
+        .ok_or("frames larger than the frame allowance")?;
+    if past > request.frames.map_or(0, |l| l.max_frame_bytes) {
+        return Err("frames larger than the frame allowance");
+    }
+    let bytes = frame
+        .checked_mul(count)
+        .ok_or("frames larger than the frame allowance")?;
     let len = usize::try_from(bytes).map_err(|_| "a reply larger than the budget")?;
     let st = rustix::fs::fstat(&fd).map_err(|_| "a reply's descriptor cannot be read")?;
     if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile {

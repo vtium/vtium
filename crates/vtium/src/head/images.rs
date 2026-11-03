@@ -130,7 +130,7 @@ mod built {
     use std::time::{Duration, Instant};
 
     use vtium_image::decode::{Reply, Request};
-    use vtium_image::{Kitty, Limits, Sixel, Switches};
+    use vtium_image::{Iterm2, Kitty, Limits, Sixel, Switches};
     use vtium_platform::calloop::generic::Generic;
     use vtium_platform::calloop::{Interest, LoopHandle, Mode, PostAction, RegistrationToken};
     use vtium_platform::image_helper::{ImageHost, Program, Session};
@@ -233,6 +233,7 @@ mod built {
     pub(crate) fn install(terminal: &mut Terminal, settings: &Settings) {
         terminal.set_image_handler(ImageString::Sixel, Some(Box::new(Sixel::default())));
         terminal.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+        terminal.set_image_handler(ImageString::Iterm2, Some(Box::new(Iterm2::default())));
         terminal.set_image_limits(Limits {
             graphic: settings.graphic,
             registers: settings.registers,
@@ -256,7 +257,8 @@ mod built {
     /// The budget and switches `settings` give a head whose displays are
     /// `sizes` in pixels and which `draw` pictures, every one of them
     /// (ADR-1100 D5, D10). vtium-term offers no protocol while the budget
-    /// is 0, whatever its switch says.
+    /// is 0, whatever its switch says. The iTerm2 switch waits for each
+    /// console's helper ([`iterm2`]).
     pub(crate) fn offer(
         settings: &Settings,
         sizes: impl IntoIterator<Item = (u32, u32)>,
@@ -271,6 +273,18 @@ mod built {
             iterm2: false,
         };
         (limit, switches)
+    }
+
+    /// `switches` with iTerm2's turned on while sixel is offered, the budget
+    /// is above 0 and the console's host can start a helper, and off
+    /// otherwise (ADR-1103 D1): its pictures follow sixel's rules and decode
+    /// only in the helper. Turned off, the handler abandons a transfer in
+    /// parts it holds.
+    pub(crate) fn iterm2(switches: Switches, limit: u64, helper: bool) -> Switches {
+        Switches {
+            iterm2: switches.sixel && limit > 0 && helper,
+            ..switches
+        }
     }
 
     /// The loop watching a host's socket while a request is out, so the
@@ -364,7 +378,7 @@ mod built {
                 term,
                 Given {
                     limit,
-                    switches,
+                    switches: iterm2(switches, limit, helper),
                     cell,
                     helper,
                 },
@@ -558,6 +572,50 @@ mod built {
             assert_eq!(limit, vtium_image::AUTO_FLOOR);
             let (limit, _) = offer(&settings(), [(7680, 4320); 4], true);
             assert_eq!(limit, vtium_image::AUTO_CAP);
+        }
+
+        // covers: image.iterm2
+        #[test]
+        fn iterm2_is_on_while_sixel_is_offered_and_a_helper_can_start() {
+            let all = Switches {
+                sixel: true,
+                kitty: true,
+                iterm2: false,
+            };
+            assert!(iterm2(all, 1 << 20, true).iterm2);
+            assert_eq!(
+                iterm2(all, 1 << 20, true),
+                Switches {
+                    iterm2: true,
+                    ..all
+                }
+            );
+            assert!(!iterm2(all, 1 << 20, false).iterm2, "no helper");
+            assert!(!iterm2(all, 0, true).iterm2, "a budget of 0");
+            let no_sixel = Switches {
+                sixel: false,
+                ..all
+            };
+            assert!(!iterm2(no_sixel, 1 << 20, true).iterm2, "sixel off");
+            let on = Switches {
+                iterm2: true,
+                ..all
+            };
+            assert!(!iterm2(on, 1 << 20, false).iterm2, "it goes off again");
+        }
+
+        #[test]
+        fn a_consoles_terminal_takes_pictures_through_three_handlers() {
+            let mut terminal = Terminal::new(8, 4, 0);
+            install(&mut terminal, &settings());
+            let installed = |which, is: fn(&dyn core::any::Any) -> bool| {
+                terminal
+                    .image_handler(which)
+                    .is_some_and(|h| is(h.as_any()))
+            };
+            assert!(installed(ImageString::Sixel, |h| h.is::<Sixel>()));
+            assert!(installed(ImageString::Kitty, |h| h.is::<Kitty>()));
+            assert!(installed(ImageString::Iterm2, |h| h.is::<Iterm2>()));
         }
 
         #[test]

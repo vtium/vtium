@@ -42,6 +42,7 @@ fn request(medium: Medium) -> Request {
         exact: false,
         discard: false,
         any_image: false,
+        frames: None,
         pixels: None,
         largest: (100, 100),
         largest_bytes: 1 << 20,
@@ -130,6 +131,8 @@ fn header(pooled: bool) -> ReplyHeader {
         height: 1,
         ignored: 0,
         pooled,
+        delays: vec![0],
+        loops: None,
         reason: Vec::new(),
     }
 }
@@ -438,7 +441,7 @@ fn as_root() {
         gid: 0,
         groups: None,
     };
-    let started = match start::start(&program, &root, 64 << 20, None) {
+    let started = match start::start(&program, &root, 64 << 20, 64 << 20, None) {
         Ok(started) => started,
         Err(why) if why.contains("(os error 1)") => {
             let _ = std::fs::remove_dir_all(&dir);

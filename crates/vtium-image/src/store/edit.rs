@@ -16,7 +16,7 @@
 //! handler's function returns, settles the store and marks the cells under
 //! every box it changed, as it does after a screen event.
 
-use super::{Compose, Control, NewFrame, Screens, Store};
+use super::{Compose, Control, Link, NewFrame, Placing, Screens, Store};
 use crate::image::{ImageKey, NewImage, Place, PlacementKey, Refusal};
 use crate::rules::Protocol;
 use crate::store::Reservation;
@@ -104,6 +104,23 @@ impl<'a> Edit<'a> {
     /// [`Store::place`].
     pub fn place(&mut self, image: ImageKey, place: Place) -> Result<PlacementKey, Refusal> {
         self.store.place(image, place, self.screens, self.cols)
+    }
+
+    /// Places an image of the buffer in use as [`place`](Self::place) does,
+    /// the source drawn at exactly `width` by `height` pixels from the box's
+    /// top left and the box covering the cells the picture reaches, as an
+    /// iTerm2 picture's keys size it (ADR-1103, D3). The place's box in
+    /// cells is ignored.
+    pub(crate) fn place_drawn(
+        &mut self,
+        image: ImageKey,
+        place: Place,
+        (width, height): (u32, u32),
+    ) -> Result<PlacementKey, Refusal> {
+        let link = Link::Drawn { width, height };
+        self.store
+            .place_at(image, place, link, self.screens, self.cols)
+            .map_err(Placing::refusal)
     }
 
     /// The buffer of the image the store freed last, to fill again, when it
