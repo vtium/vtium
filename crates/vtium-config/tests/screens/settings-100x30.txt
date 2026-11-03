@@ -1,5 +1,5 @@
  VTium Vitrifier                                                                   live preview: on
-  Fonts   Sizes   Settings   Heads
+  Fonts  Sizes  Settings  Heads
 ---------------------------------------------------------------------------------------------------
  > font-name          unifont
    font-size          (default)

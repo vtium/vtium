@@ -1,12 +1,12 @@
  VTium Vitrifier                                               live preview: on
-  Fonts   Sizes   Settings   Heads   Save
+  Fonts  Sizes  Settings  Heads  Save
 -------------------------------------------------------------------------------
  /etc/vtium/vtium.conf
       2 - font-name=unifont
       2 + font-name=tiny5
 
  Enter runs this command, which asks for your password once:
-   sudo vtium-config apply DRAFT
+   sudo /usr/bin/vtium-config apply DRAFT
  DRAFT is a new directory under /home/me/.local/state/vtium/drafts.
 
 

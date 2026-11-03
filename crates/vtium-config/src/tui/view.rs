@@ -12,9 +12,12 @@ use super::model::{App, DpiFrom, FontState, Live, SETTING_KEYS, SIZES, Saving, V
 use super::words;
 use crate::draft::changes;
 
-/// The smallest grid the full screen is drawn in: below it, one line.
+/// The smallest grid the full screen is drawn in: below it, one line. The
+/// views fit the 320x240 floor's 40 columns (ADR-1201 D3), and from 25
+/// rows, the VGA console's 80x25 among them, every view shows its title,
+/// its tabs, its keys and its message whole.
 pub const MIN_COLS: usize = 40;
-pub const MIN_ROWS: usize = 10;
+pub const MIN_ROWS: usize = 25;
 
 /// One run of text on a row, shown in reverse video or not.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,6 +59,14 @@ fn sides(left: &str, right: &str, cols: usize) -> String {
 fn item(highlight: bool, name: &str, width: usize, note: &str) -> String {
     let mark = if highlight { '>' } else { ' ' };
     format!(" {mark} {name:<width$} {note}")
+}
+
+/// `text` as rows of the body, wrapped by words to the screen's width.
+fn prose(text: &str, cols: usize) -> Vec<Row> {
+    wrap(text, cols.saturating_sub(2), usize::MAX)
+        .into_iter()
+        .map(|l| plain(format!(" {l}")))
+        .collect()
 }
 
 /// The body's rows for `app`'s view, and the row to keep in sight.
@@ -129,9 +140,9 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                 .collect();
             rows.push(plain(""));
             if !app.graphics {
-                rows.push(plain(format!(" {}", words::NO_PICTURES)));
+                rows.extend(prose(words::NO_PICTURES, app.cols));
             } else if app.size() == 0 {
-                rows.push(plain(format!(" {}", words::AUTOMATIC_PICTURE)));
+                rows.extend(prose(words::AUTOMATIC_PICTURE, app.cols));
             } else {
                 let (dpi, from) = app.inputs.dpi;
                 let from = match from {
@@ -139,7 +150,7 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                     DpiFrom::Edid => words::DPI_FROM_EDID,
                     DpiFrom::Assumed => words::DPI_ASSUMED,
                 };
-                rows.push(plain(format!(" {}", words::density(dpi, from))));
+                rows.extend(prose(&words::density(dpi, from), app.cols));
             }
             (rows, app.size_at)
         }
@@ -166,13 +177,14 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                         plain(line)
                     }
                 })
-                .chain([plain(""), plain(format!(" {}", words::SETTINGS_HINT))])
+                .chain(std::iter::once(plain("")))
+                .chain(prose(words::SETTINGS_HINT, app.cols))
                 .collect();
             (rows, app.setting_at)
         }
         View::Heads => match (app.inputs.heads.is_some(), app.heads()) {
-            (false, _) => (vec![plain(format!(" {}", words::NO_HEAD_FILE))], 0),
-            (true, None) => (vec![plain(format!(" {}", words::HEAD_FILE_ERRORS))], 0),
+            (false, _) => (prose(words::NO_HEAD_FILE, app.cols), 0),
+            (true, None) => (prose(words::HEAD_FILE_ERRORS, app.cols), 0),
             (true, Some(heads)) => {
                 let rows = heads
                     .iter()
@@ -185,7 +197,8 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                             plain(line)
                         }
                     })
-                    .chain([plain(""), plain(format!(" {}", words::HEADS_HINT))])
+                    .chain(std::iter::once(plain("")))
+                    .chain(prose(words::HEADS_HINT, app.cols))
                     .collect();
                 (rows, app.head_at)
             }
@@ -199,14 +212,14 @@ fn body(app: &App) -> (Vec<Row>, usize) {
 fn save_rows(app: &App) -> Vec<Row> {
     let plan = match app.plan() {
         Ok(plan) => plan,
-        Err(why) => return vec![plain(format!(" {}", words::save_failed(why)))],
+        Err(why) => return prose(&words::save_failed(why), app.cols),
     };
     if plan.is_empty() {
-        return vec![plain(format!(" {}", words::NOTHING_TO_SAVE))];
+        return prose(words::NOTHING_TO_SAVE, app.cols);
     }
     let mut rows = Vec::new();
     for file in &plan.files {
-        rows.push(plain(format!(" {}", file.path.display())));
+        rows.extend(prose(&file.path.display().to_string(), app.cols));
         for c in changes(file.old.as_deref().unwrap_or_default(), &file.new) {
             if let Some(old) = &c.old {
                 rows.push(plain(format!("   {:>4} - {old}", c.line)));
@@ -218,7 +231,7 @@ fn save_rows(app: &App) -> Vec<Row> {
     }
     if !app.report.is_empty() {
         rows.push(plain(""));
-        rows.push(plain(format!(" {}", words::COMMAND_SAID)));
+        rows.extend(prose(words::COMMAND_SAID, app.cols));
         rows.extend(app.report.iter().map(|l| plain(format!("   {l}"))));
     }
     rows.push(plain(""));
@@ -256,13 +269,50 @@ const PICTURE_COL: usize = 26;
 /// the right edge, and down to the row above the message line, so it
 /// never covers the keys.
 pub fn picture_area(app: &App) -> (usize, usize) {
-    let footer = 3;
+    // the rule, the keys, and the message at its longest
+    let footer = 1usize
+        .saturating_add(key_rows(app).len())
+        .saturating_add(MESSAGE_ROWS);
     (
         app.cols.saturating_sub(PICTURE_COL.saturating_sub(1)),
         app.rows
             .saturating_sub(footer)
             .saturating_sub(PICTURE_ROW.saturating_sub(1)),
     )
+}
+
+/// The most rows the message line wraps to.
+const MESSAGE_ROWS: usize = 3;
+
+/// The view's keys in rows of at most the screen's width less its margin,
+/// each key and what it does kept whole on one row.
+fn key_rows(app: &App) -> Vec<String> {
+    let keys = match app.view {
+        View::Fonts => words::KEYS_FONTS,
+        View::Sizes => words::KEYS_SIZES,
+        View::Settings => words::KEYS_SETTINGS,
+        View::Heads => words::KEYS_HEADS,
+        View::Save => words::KEYS_SAVE,
+    };
+    let width = app.cols.saturating_sub(2).max(1);
+    let mut rows: Vec<String> = Vec::new();
+    for item in keys.split("  ") {
+        match rows.last_mut() {
+            Some(row)
+                if row
+                    .chars()
+                    .count()
+                    .saturating_add(2)
+                    .saturating_add(item.chars().count())
+                    <= width =>
+            {
+                row.push_str("  ");
+                row.push_str(item);
+            }
+            _ => rows.push(item.to_owned()),
+        }
+    }
+    rows
 }
 
 /// The screen for `app`: exactly `app.rows` rows, none wider than
@@ -297,10 +347,6 @@ pub fn screen(app: &App) -> Vec<Row> {
                 text: format!(" {name} "),
                 reverse: *v == app.view,
             });
-            tabs.push(Span {
-                text: " ".into(),
-                reverse: false,
-            });
         }
         if app.view == View::Save {
             tabs.push(Span {
@@ -313,25 +359,27 @@ pub fn screen(app: &App) -> Vec<Row> {
         let message = wrap(
             app.message.as_deref().unwrap_or(""),
             cols.saturating_sub(2),
-            3,
+            MESSAGE_ROWS,
         );
-        let room = rows.saturating_sub(5).saturating_sub(message.len());
+        let keys = key_rows(app);
+        let room = rows
+            .saturating_sub(4)
+            .saturating_sub(message.len())
+            .saturating_sub(keys.len());
         let (lines, keep) = body(app);
         let first = keep.saturating_add(1).saturating_sub(room);
         out.extend(lines.into_iter().skip(first).take(room));
-        while out.len() < rows.saturating_sub(2).saturating_sub(message.len()) {
+        while out.len()
+            < rows
+                .saturating_sub(1)
+                .saturating_sub(message.len())
+                .saturating_sub(keys.len())
+        {
             out.push(plain(""));
         }
         out.extend(message.into_iter().map(|l| plain(format!(" {l}"))));
         out.push(plain("-".repeat(cols)));
-        let keys = match app.view {
-            View::Fonts => words::KEYS_FONTS,
-            View::Sizes => words::KEYS_SIZES,
-            View::Settings => words::KEYS_SETTINGS,
-            View::Heads => words::KEYS_HEADS,
-            View::Save => words::KEYS_SAVE,
-        };
-        out.push(plain(format!(" {keys}")));
+        out.extend(keys.into_iter().map(|l| plain(format!(" {l}"))));
     }
     out.truncate(rows);
     while out.len() < rows {

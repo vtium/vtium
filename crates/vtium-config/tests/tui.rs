@@ -597,7 +597,7 @@ fn each_view_at_80x25_and_100x30() {
         ("heads", &[b"\t", b"\t", b"\t"]),
         ("save", &[UP, b"\r", b"s"]),
     ];
-    for (cols, rows) in [(80, 25), (100, 30)] {
+    for (cols, rows) in [(40, 30), (80, 25), (100, 30)] {
         for (name, keys) in scripts {
             let screen = reach(cols, rows, keys);
             let lines: Vec<&str> = screen.lines().collect();
@@ -695,8 +695,9 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
     // 6 pt and 7 pt at 96 dpi, unifont highlighted in the font view, in
-    // the area beside the list, 55 columns by 19 rows of 8x16 cells
-    let area = (55 * 8, 19 * 16);
+    // the area beside the list, 55 columns by 17 rows of 8x16 cells: down
+    // to the room the keys and the longest message leave
+    let area = (55 * 8, 17 * 16);
     assert_eq!(
         c.pictures,
         [
@@ -762,12 +763,12 @@ fn without_kitty_graphics_no_picture_is_sent_and_the_view_says_so() {
 
 #[test]
 fn the_picture_never_reaches_the_footer_and_never_passes_the_cap() {
-    // 80x25 at 8x16: rows 4 to 22 are the area, above the message line
+    // 80x25 at 8x16: rows 4 to 20 are the area, above the longest message
     let mut c = console().keys(&[b"\t", DOWN]);
     c.graphics = true;
     run(&mut c);
     let (_, _, (w, h)) = c.pictures[0].clone();
-    assert!(h <= (25 - 6) * 16 && w <= (80 - 25) * 8, "{w}x{h}");
+    assert!(h <= (25 - 8) * 16 && w <= (80 - 25) * 8, "{w}x{h}");
     // a terminal of very large cells is capped
     let mut c = console().keys(&[b"\t", DOWN]);
     c.graphics = true;
@@ -795,4 +796,58 @@ fn after_saving_a_font_leaving_puts_the_console_in_the_saved_font() {
     assert_eq!(run(&mut c), 0);
     assert_eq!(c.saves[0].files[0].new, "# mine\nfont-name=tiny5\n");
     assert_eq!(c.switches(), ["tiny5", "proof", "tiny5"]);
+}
+
+#[test]
+fn below_the_floor_one_line_shows_the_way_out() {
+    for grid in [(39, 30), (40, 24)] {
+        let mut c = Console::vtium(80, 25, true, "unifont")
+            .takes("unifont", (80, 25))
+            .takes("tiny5", grid)
+            .keys(&[UP]);
+        run(&mut c);
+        let screen = c.seen.clone().expect("the screen");
+        assert_eq!(
+            screen.lines().next(),
+            Some("tiny5  Enter keep  q back"),
+            "{grid:?}"
+        );
+    }
+}
+
+#[test]
+fn at_the_40x30_floor_no_key_or_sentence_is_cut() {
+    use vtium_config::tui::words;
+    let views: [(&[&[u8]], &str, &[&str]); 5] = [
+        (&[], words::KEYS_FONTS, &[]),
+        (&[b"\t"], words::KEYS_SIZES, &[words::NO_PICTURES]),
+        (
+            &[b"\t", b"\t"],
+            words::KEYS_SETTINGS,
+            &[words::SETTINGS_HINT],
+        ),
+        (
+            &[b"\t", b"\t", b"\t"],
+            words::KEYS_HEADS,
+            &[words::HEADS_HINT],
+        ),
+        (&[UP, b"\r", b"s"], words::KEYS_SAVE, &[words::SAVE_RUNS]),
+    ];
+    for (keys, key_line, sentences) in views {
+        let screen = reach(40, 30, keys);
+        let rows: Vec<&str> = screen.lines().collect();
+        assert_eq!(rows.len(), 30);
+        for item in key_line.split("  ") {
+            assert!(
+                rows.iter().any(|r| r.contains(item)),
+                "{item:?} whole:\n{screen}"
+            );
+        }
+        // a sentence wrapped by words reads whole once its rows are joined
+        let joined = rows.iter().map(|r| r.trim()).collect::<Vec<_>>().join(" ");
+        for sentence in sentences {
+            assert!(joined.contains(sentence), "{sentence:?}:\n{screen}");
+        }
+        assert!(rows[1].contains("Heads"), "the tabs fit: {:?}", rows[1]);
+    }
 }

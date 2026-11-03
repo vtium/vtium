@@ -1,5 +1,5 @@
  VTium Vitrifier                                                                   live preview: on
-  Fonts   Sizes   Settings   Heads
+  Fonts  Sizes  Settings  Heads
 ---------------------------------------------------------------------------------------------------
    broken     does not read: line 2: unknown key colour
    minspec-16 reads
