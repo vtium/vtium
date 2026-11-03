@@ -292,6 +292,10 @@ pub fn gif(data: &[u8], bounds: Bounds, locked: &Locked) -> Result<Picture, Fail
 /// `max_frame_bytes`; when either check fails, or a frame past the first
 /// does not decode, the GIF comes back as its first frame alone, with the
 /// reason in [`Frames::still`], and `write` has to keep only the first.
+/// Each frame's rectangle is read before its pixels are decoded, and the
+/// rectangles together may take at most `max_bytes` and `max_frame_bytes`
+/// of RGBA, whatever the canvas: past it, the first frame is `CORRUPT` and
+/// a later one leaves the GIF still.
 pub fn gif_frames(
     data: &[u8],
     bounds: Bounds,
@@ -327,10 +331,28 @@ pub fn gif_frames(
     let canvas_len = u64::try_from(len).unwrap_or(u64::MAX);
     let mut canvas = zeroed(len)?;
     let mut saved: Vec<u8> = Vec::new();
+    let mut buffer: Vec<u8> = Vec::new();
     let mut count = 0u32;
+    // what the frames' rectangles may take together: a picture, and the
+    // frames past the first when the request asked for them
+    let rect_limit = bounds
+        .max_bytes
+        .saturating_add(frames.map_or(0, |f| f.max_frame_bytes));
+    let mut rects = 0u64;
     loop {
-        let frame = match decoder.read_next_frame() {
-            Ok(Some(frame)) => frame,
+        // the frame's rectangle is read before its pixels, and the
+        // rectangles together are held to the bytes the frames may take,
+        // whatever the canvas, so a small canvas cannot make the decoder
+        // decode large rectangles one after another
+        let info = match decoder.next_frame_info() {
+            Ok(Some(f)) => Info {
+                left: f.left,
+                top: f.top,
+                width: f.width,
+                height: f.height,
+                dispose: f.dispose,
+                delay: f.delay,
+            },
             Ok(None) if count > 0 => break,
             Ok(None) => return Err(Failure::new(Status::Corrupt, "a GIF with no frame")),
             Err(e) if count == 0 => return Err(corrupt(e)),
@@ -339,6 +361,20 @@ pub fn gif_frames(
                 break;
             }
         };
+        let rect_bytes = u64::from(info.width)
+            .saturating_mul(u64::from(info.height))
+            .saturating_mul(4);
+        rects = rects.saturating_add(rect_bytes);
+        if rects > rect_limit {
+            if count == 0 {
+                return Err(Failure::new(
+                    Status::Corrupt,
+                    "a GIF frame's rectangle past the picture's bytes",
+                ));
+            }
+            out.still = Some("the frames' rectangles pass the bytes they may take".to_owned());
+            break;
+        }
         if count > 0 {
             let Some(bounds) = frames else {
                 break;
@@ -353,6 +389,20 @@ pub fn gif_frames(
                 break;
             }
         }
+        let need = decoder.buffer_size();
+        buffer.clear();
+        buffer
+            .try_reserve_exact(need)
+            .map_err(|_| Failure::new(Status::OverBudget, "cannot allocate a frame"))?;
+        buffer.resize(need, 0);
+        if let Err(e) = decoder.read_into_buffer(&mut buffer) {
+            if count == 0 {
+                return Err(corrupt(e));
+            }
+            out.still = Some(format!("a frame past the first does not decode: {e}"));
+            break;
+        }
+        let frame = &info;
         if frame.dispose == gif::DisposalMethod::Previous {
             saved.clear();
             saved
@@ -361,7 +411,7 @@ pub fn gif_frames(
             saved.extend_from_slice(&canvas);
         }
         let rect = Rect::of(frame, width, height);
-        lay(&mut canvas, width, frame, rect);
+        lay(&mut canvas, width, &buffer, rect);
         write(count, &canvas)?;
         out.delays.push(frame.delay);
         count = count.saturating_add(1);
@@ -377,6 +427,17 @@ pub fn gif_frames(
     Ok(out)
 }
 
+/// What a GIF frame's header says, read before its pixels.
+#[derive(Clone, Copy, Debug)]
+struct Info {
+    left: u16,
+    top: u16,
+    width: u16,
+    height: u16,
+    dispose: gif::DisposalMethod,
+    delay: u16,
+}
+
 /// A frame's rectangle clipped to the canvas: its left, top, the width and
 /// height that lie inside, and the frame's own width.
 #[derive(Clone, Copy, Debug)]
@@ -389,7 +450,7 @@ struct Rect {
 }
 
 impl Rect {
-    fn of(frame: &gif::Frame<'_>, width: u32, height: u32) -> Self {
+    fn of(frame: &Info, width: u32, height: u32) -> Self {
         let (left, top) = (usize::from(frame.left), usize::from(frame.top));
         let canvas_w = usize::try_from(width).unwrap_or(0);
         let canvas_h = usize::try_from(height).unwrap_or(0);
@@ -416,13 +477,14 @@ impl Rect {
     }
 }
 
-/// Lays `frame`'s pixels inside `rect` on `canvas`, premultiplied: a pixel
-/// with any alpha replaces the one beneath, a transparent one leaves it.
-fn lay(canvas: &mut [u8], width: u32, frame: &gif::Frame<'_>, rect: Rect) {
+/// Lays a frame's RGBA `pixels`, its rectangle's rows one after another,
+/// inside `rect` on `canvas`, premultiplied: a pixel with any alpha
+/// replaces the one beneath, a transparent one leaves it.
+fn lay(canvas: &mut [u8], width: u32, pixels: &[u8], rect: Rect) {
     let canvas_w = usize::try_from(width).unwrap_or(0);
     for y in 0..rect.height {
         let from = y.saturating_mul(rect.stride).saturating_mul(4);
-        let src = frame.buffer.get(from..).unwrap_or_default();
+        let src = pixels.get(from..).unwrap_or_default();
         let Some(dst) = canvas.get_mut(rect.row(y, canvas_w)) else {
             continue;
         };
@@ -808,6 +870,81 @@ pub(crate) mod tests {
             .status,
             Status::Corrupt
         );
+    }
+
+    /// A GIF of a 1 by 1 canvas whose frames have rectangles of `sides`
+    /// pixels square, each all palette color 1.
+    fn oversized(sides: &[u16]) -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let palette = [0u8, 0, 0, 0xff, 0, 0];
+            let mut enc = gif::Encoder::new(&mut out, 1, 1, &palette).unwrap();
+            for &side in sides {
+                let n = usize::from(side) * usize::from(side);
+                let frame = gif::Frame {
+                    width: side,
+                    height: side,
+                    buffer: std::borrow::Cow::Owned(vec![1; n]),
+                    ..gif::Frame::default()
+                };
+                enc.write_frame(&frame).unwrap();
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn frame_rectangles_past_the_bounds_stop_decoding_whatever_the_canvas() {
+        // a 1 by 1 canvas: 4 bytes a frame, and 100 for the frames past it
+        let tight = Bounds {
+            largest: (100, 100),
+            max_bytes: 4,
+        };
+        let frames = FrameBounds {
+            max_frames: 1024,
+            max_frame_bytes: 100,
+        };
+        let run = |file: &[u8]| {
+            let mut written = 0;
+            let got = gif_frames(
+                file,
+                tight,
+                Some(frames),
+                &Locked::unsandboxed(),
+                &mut |_, _| {
+                    written += 1;
+                    Ok(())
+                },
+            );
+            (got, written)
+        };
+        // a first frame whose rectangle passes 104 bytes is corrupt
+        let (got, written) = run(&oversized(&[6]));
+        assert_eq!(got.unwrap_err().status, Status::Corrupt);
+        assert_eq!(written, 0, "decoded nothing");
+        // 4 + 64 bytes of rectangles fit 104; a third of 64 does not, and
+        // the GIF comes back still before that frame is decoded
+        let (got, written) = run(&oversized(&[1, 4, 4]));
+        let got = got.unwrap();
+        assert_eq!(got.delays.len(), 1);
+        assert!(got.still.is_some());
+        assert_eq!(written, 2);
+        // without frames, the first rectangle is held to max_bytes alone
+        let (got, _) = {
+            let mut n = 0;
+            let g = gif_frames(
+                &oversized(&[2]),
+                tight,
+                None,
+                &Locked::unsandboxed(),
+                &mut |_, _| {
+                    n += 1;
+                    Ok(())
+                },
+            );
+            (g, n)
+        };
+        assert_eq!(got.unwrap_err().status, Status::Corrupt);
     }
 
     /// Bounds as wide as the jpeg fuzz target decodes under.
