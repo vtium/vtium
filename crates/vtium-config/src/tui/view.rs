@@ -71,7 +71,8 @@ const WHAT_ROWS: usize = 4;
 
 /// A list of `items`, each a name in a column of `width` and its note, the
 /// note wrapped by words under its column where it is longer than the
-/// line, with the item `at` highlighted; and the list's last row of that
+/// line, and starting on the row below a name longer than the column,
+/// with the item `at` highlighted; and the list's last row of that
 /// item, to keep in sight.
 fn list(items: &[(String, String)], at: usize, width: usize, cols: usize) -> (Vec<Row>, usize) {
     let column = width.saturating_add(4);
@@ -80,7 +81,14 @@ fn list(items: &[(String, String)], at: usize, width: usize, cols: usize) -> (Ve
     let mut keep = 0;
     for (i, (name, note)) in items.iter().enumerate() {
         let mark = if i == at { '>' } else { ' ' };
-        for (n, part) in wrap(note, room, usize::MAX).into_iter().enumerate() {
+        // a name longer than its column has its note on the rows below
+        let long = name.chars().count() > width;
+        let parts = std::iter::repeat_n(String::new(), usize::from(long)).chain(
+            wrap(note, room, usize::MAX)
+                .into_iter()
+                .filter(|p| !(long && p.is_empty())),
+        );
+        for (n, part) in parts.enumerate() {
             let line = if n == 0 {
                 format!(" {mark} {name:<width$} {part}")
             } else {
@@ -214,12 +222,14 @@ fn body(app: &App) -> Body {
                     (key.name.to_owned(), value)
                 })
                 .collect();
+            // the key's column takes at most half the screen
             let width = all
                 .iter()
                 .map(|k| k.name.chars().count())
                 .max()
                 .unwrap_or(0)
-                .min(24);
+                .min(24)
+                .min((cols / 2).saturating_sub(4));
             let (list, keep) = list(&items, app.setting_at, width, cols);
             let hint = if app.editing.is_some() {
                 words::EDITING
@@ -229,7 +239,7 @@ fn body(app: &App) -> Body {
             let what = all.get(app.setting_at).map_or("", |k| k.what);
             let mut tail = tail(hint, cols);
             tail.extend(
-                wrap(what, cols.saturating_sub(2), WHAT_ROWS)
+                cut(what, cols.saturating_sub(2), WHAT_ROWS)
                     .into_iter()
                     .map(|l| plain(format!(" {l}"))),
             );
@@ -537,6 +547,23 @@ fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
     }
     lines.push(line);
     lines.truncate(most.max(1));
+    lines
+}
+
+/// `text` wrapped as [`wrap`] wraps it, in at most `most` lines, the last
+/// ending in `...` where text was left out.
+fn cut(text: &str, width: usize, most: usize) -> Vec<String> {
+    let mut lines = wrap(text, width, usize::MAX);
+    if lines.len() > most {
+        lines.truncate(most);
+        if let Some(last) = lines.last_mut() {
+            let keep = width.saturating_sub(4);
+            while last.chars().count() > keep {
+                last.pop();
+            }
+            last.push_str(" ...");
+        }
+    }
     lines
 }
 
