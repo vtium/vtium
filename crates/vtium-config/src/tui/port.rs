@@ -284,8 +284,9 @@ pub fn run_with_signals(argv: &[OsString]) -> u8 {
 /// Runs `argv` with the signals the TUI holds released, in a process
 /// group of its own in the terminal's foreground, so the keys that
 /// interrupt it reach it and not the TUI, and waits for it: whether it
-/// succeeded.
-fn spawn_foreground(argv: &[OsString]) -> io::Result<bool> {
+/// succeeded, and what it printed, which the TUI shows once its screen is
+/// back. sudo asks for the password on the terminal itself.
+fn spawn_foreground(argv: &[OsString]) -> io::Result<(bool, String)> {
     use std::os::unix::process::CommandExt;
     if argv.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "no command"));
@@ -298,14 +299,20 @@ fn spawn_foreground(argv: &[OsString]) -> io::Result<bool> {
     if controlling {
         command.process_group(0);
     }
-    let mut child = command.spawn()?;
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let child = command.spawn()?;
     if controlling && let Some(pid) = rustix::process::Pid::from_raw(child.id().cast_signed()) {
         let _ = rustix::termios::tcsetpgrp(stdin.as_fd(), pid);
         // a child that read the terminal before it held the foreground was
         // stopped; it goes on
         let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::CONT);
     }
-    Ok(child.wait()?.success())
+    let out = child.wait_with_output()?;
+    let mut said = String::from_utf8_lossy(&out.stdout).into_owned();
+    said.push_str(&String::from_utf8_lossy(&out.stderr));
+    Ok((out.status.success(), said))
 }
 
 impl Port for Tty {
@@ -342,7 +349,7 @@ impl Port for Tty {
 
     fn save(&mut self, plan: &Plan) -> Result<usize, String> {
         self.cooked(true).map_err(|e| e.to_string())?;
-        let mut run = |argv: &[OsString]| -> io::Result<bool> {
+        let mut run = |argv: &[OsString]| -> io::Result<(bool, String)> {
             let result = spawn_foreground(argv);
             // the TUI takes the foreground back; SIGTTOU is held
             let stdin = std::io::stdin();

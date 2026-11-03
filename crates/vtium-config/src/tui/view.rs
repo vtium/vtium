@@ -206,6 +206,11 @@ fn save_rows(app: &App) -> Vec<Row> {
             }
         }
     }
+    if !app.report.is_empty() {
+        rows.push(plain(""));
+        rows.push(plain(format!(" {}", words::COMMAND_SAID)));
+        rows.extend(app.report.iter().map(|l| plain(format!("   {l}"))));
+    }
     rows.push(plain(""));
     if app.inputs.root {
         rows.push(plain(format!(" {}", words::SAVE_COMMAND_ROOT)));

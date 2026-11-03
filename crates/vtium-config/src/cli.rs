@@ -21,6 +21,7 @@ Options:
   --configdir DIR       the directory of vtium.conf and heads.conf, in place of /etc/vtium
   --frits DIR           the frits directory, in place of the system's
   --sudo PROGRAM        the program that runs apply as root, in place of sudo
+  --vtium PROGRAM       the console binary apply checks files with, in place of /usr/bin/vtium
   --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
   --font-dir DIR        an outline font directory, in place of the build's list (repeatable)
   --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
@@ -34,6 +35,7 @@ Options:
 struct Options {
     configdir: Option<PathBuf>,
     sudo: Option<String>,
+    vtium: Option<String>,
     frits: Option<PathBuf>,
     kbd_dirs: Vec<PathBuf>,
     font_dirs: Vec<PathBuf>,
@@ -56,6 +58,11 @@ impl Options {
                 .sudo
                 .clone()
                 .unwrap_or_else(|| "sudo".to_owned())
+                .into(),
+            vtium: self
+                .vtium
+                .clone()
+                .unwrap_or_else(|| crate::apply::VTIUM.to_owned())
                 .into(),
         }
     }
@@ -87,6 +94,7 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
         match arg.as_str() {
             "--configdir" => o.configdir = Some(value("--configdir")?.into()),
             "--sudo" => o.sudo = Some(value("--sudo")?),
+            "--vtium" => o.vtium = Some(value("--vtium")?),
             "--frits" => o.frits = Some(value("--frits")?.into()),
             "--kbd-dir" => o.kbd_dirs.push(value("--kbd-dir")?.into()),
             "--font-dir" => o.font_dirs.push(value("--font-dir")?.into()),
@@ -127,6 +135,7 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         "--help" => cli.say(USAGE.trim_end()),
         "--version" => cli.say(concat!("vtium-config ", env!("CARGO_PKG_VERSION"))),
         "set" => crate::switch::command(&rest, o.frits.as_deref(), cli.out, cli.err),
+        "apply" => crate::apply::command(&rest, &o.paths().targets(), cli.out, cli.err),
         crate::serve::SERVE_ARG => cli.serve(&rest),
         "" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
             crate::tui::run(&o.paths(), cli.err)

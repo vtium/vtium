@@ -209,6 +209,9 @@ pub struct App {
     pub pending: Pending,
     /// A line for the user, under the list.
     pub message: Option<String>,
+    /// What the last failed save's command printed, shown in the save
+    /// view.
+    pub report: Vec<String>,
     /// The TUI is saving: the privileged step runs.
     pub saving: bool,
     /// The TUI is leaving with this status once the font is back.
@@ -244,6 +247,7 @@ impl App {
             head_at: 0,
             pending: Pending::default(),
             message: None,
+            report: Vec::new(),
             saving: false,
             leaving: None,
             replies_due: 0,
@@ -616,10 +620,15 @@ impl App {
                     self.start_font = self.shown_font.clone();
                 }
                 self.pending = Pending::default();
+                self.report.clear();
                 self.view = View::Fonts;
                 self.message = Some(super::words::saved(files));
             }
-            Err(why) => self.message = Some(super::words::save_failed(why)),
+            Err(why) => {
+                let mut lines = why.lines().map(str::to_owned);
+                self.message = Some(super::words::save_failed(lines.next().unwrap_or_default()));
+                self.report = lines.filter(|l| !l.trim().is_empty()).collect();
+            }
         }
         Vec::new()
     }

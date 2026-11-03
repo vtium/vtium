@@ -89,6 +89,7 @@ pub fn saved(files: usize) -> String {
         format!("Saved {files} files.")
     }
 }
+pub const COMMAND_SAID: &str = "The command said:";
 pub fn save_failed(why: impl Display) -> String {
     format!("Nothing was saved: {why}")
 }

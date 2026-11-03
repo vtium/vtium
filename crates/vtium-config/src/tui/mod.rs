@@ -37,6 +37,19 @@ pub struct Paths {
     pub drafts: PathBuf,
     /// The program that runs `apply` as root: `sudo`, or a test's stand-in.
     pub sudo: OsString,
+    /// The console binary `apply` checks configuration files with.
+    pub vtium: OsString,
+}
+
+impl Paths {
+    /// Where a save installs, as `apply` takes it.
+    pub fn targets(&self) -> crate::apply::Targets {
+        crate::apply::Targets {
+            configdir: self.configdir.clone(),
+            frits: self.frits.clone(),
+            vtium: self.vtium.clone(),
+        }
+    }
 }
 
 /// The directory drafts go under: `$XDG_STATE_HOME/vtium/drafts`, else

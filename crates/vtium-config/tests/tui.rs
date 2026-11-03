@@ -368,7 +368,10 @@ fn leaving_with_a_switch_in_flight_waits_for_both_replies() {
     assert_eq!(run(&mut c), 0);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
     assert_eq!(c.log.last().map(String::as_str), Some("reply unifont"));
-    assert!(c.panic_bytes.is_empty(), "the font is back, so nothing is written again");
+    assert!(
+        c.panic_bytes.is_empty(),
+        "the font is back, so nothing is written again"
+    );
 }
 
 #[test]
@@ -609,4 +612,23 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
     assert_eq!(app.live, Live::Asking);
     app.event(Event::Timeout);
     assert_eq!(app.live, Live::NotVtium);
+}
+
+#[test]
+fn a_failed_command_s_words_show_in_the_save_view() {
+    let mut c = console().keys(&[UP, b"\r", b"s", b"\r"]);
+    c.save_result = Err(
+        "the command failed, and the draft stays in /d.\nvtium-config: the console's check refused the draft:\n/x/vtium.conf:2: font-size=\"lots\" is not a whole number, ignored".into(),
+    );
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        screen.contains("Nothing was saved: the command failed, and the draft stays in /d."),
+        "{screen}"
+    );
+    assert!(screen.contains("The command said:"), "{screen}");
+    assert!(
+        screen.contains("font-size=\"lots\" is not a whole number"),
+        "{screen}"
+    );
 }
