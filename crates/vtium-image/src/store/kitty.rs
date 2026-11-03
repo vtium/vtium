@@ -117,7 +117,7 @@ impl Store {
             chosen.clone()
         };
         let tops = self.tops(b, rows);
-        let drawn = self.drawn(b, &tops);
+        let drawn = self.drawn(b, rows, &tops);
         let Some(buf) = self.buffers.get(b) else {
             return;
         };

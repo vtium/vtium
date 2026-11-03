@@ -513,7 +513,7 @@ impl Store {
         let b = self.active();
         let height = rows.height();
         let tops = self.tops(b, rows);
-        let drawn = self.drawn(b, &tops);
+        let drawn = self.drawn(b, rows, &tops);
         let children = drawn.into_iter().filter_map(|(k, d)| match d {
             Drawn::At { top: Some(top), .. } => Some((k, top)),
             Drawn::At { top: None, .. } | Drawn::Nowhere => None,
