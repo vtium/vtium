@@ -2225,7 +2225,9 @@ exec "$@"
                 else:
                     # vt-install's record does not name it: someone else's.
                     record = self.at(self.STATE + "/files")
-                    write(record, "".join(l for l in open(record) if self.OLD_HELPER not in l), 0o644)
+                    with open(record) as f:
+                        kept_lines = [l for l in f if self.OLD_HELPER not in l]
+                    write(record, "".join(kept_lines), 0o644)
                 kept = read(self.at(self.OLD_HELPER))
                 p = self.vt_install("install", "4")
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
