@@ -14,32 +14,31 @@ use vtium_term::{SB_MEMORY_DEFAULT, SB_MEMORY_MAX, SB_MEMORY_MIN, SB_SIZE_DEFAUL
 use crate::{CONSOLES_MAX as CONSOLES_BOUND, CONSOLES_TOTAL_DEFAULT, HEAD_CONSOLES_DEFAULT};
 
 /// The frits' directory vtium is built with, `font-frits`'s default: set
-/// at build time with `VTIUM_FONT_FRITS`. The vtium crate holds its own
-/// `font::FRITS` equal to this when it is compiled.
+/// at build time with `VTIUM_FONT_FRITS`. The vtium crate's
+/// `font::FRITS` is this.
 pub const FRITS: &str = match option_env!("VTIUM_FONT_FRITS") {
     Some(dir) => dir,
     None => "/etc/vtium/fonts",
 };
 
 /// The glyph helper's program vtium is built with, `font-helper`'s
-/// default: set at build time with `VTIUM_FONT_HELPER`. The vtium crate
-/// holds its own `helper::PROGRAM` equal to this when it is compiled.
+/// default: set at build time with `VTIUM_FONT_HELPER`. The vtium crate's
+/// `helper::PROGRAM` is this.
 pub const HELPER_PROGRAM: &str = match option_env!("VTIUM_FONT_HELPER") {
     Some(path) => path,
     None => "/usr/bin/vtium-config",
 };
 
 /// The image helper's program vtium is built with, `image-helper`'s
-/// default: set at build time with `VTIUM_IMAGE`. The vtium crate holds
-/// its own `head::images::PROGRAM` equal to this when it is compiled.
+/// default: set at build time with `VTIUM_IMAGE`. The vtium crate's
+/// `head::images::PROGRAM` is this.
 pub const IMAGE_PROGRAM: &str = match option_env!("VTIUM_IMAGE") {
     Some(path) => path,
     None => "/usr/bin/vtium-image",
 };
 
 /// The terminal type vtium sets, `term`'s default, the name of its own
-/// terminfo entry. The vtium crate holds its `termcap::NAME` equal to this
-/// when it is compiled.
+/// terminfo entry. The vtium crate's `termcap::NAME` is this.
 pub const TERM_NAME: &str = "xterm-vtium";
 
 /// The most bytes a text value or a `login` command holds.

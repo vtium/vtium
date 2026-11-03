@@ -140,12 +140,9 @@ const FRAME_OUTLINE_CELL: u32 = 10;
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
 
-/// The helper's program vtium is built with, `font-helper`'s default: set
-/// at build time with `VTIUM_FONT_HELPER`.
-pub const PROGRAM: &str = match option_env!("VTIUM_FONT_HELPER") {
-    Some(path) => path,
-    None => "/usr/bin/vtium-config",
-};
+/// The helper's program vtium is built with, `font-helper`'s default, set
+/// at build time with `VTIUM_FONT_HELPER`: the key table's.
+pub const PROGRAM: &str = vtium_settings::keys::HELPER_PROGRAM;
 
 /// The account the helper runs as when the console is root: `nobody`,
 /// its uid and gid read from `passwd`.

@@ -63,12 +63,10 @@
 use crate::config::{Config, keys};
 
 /// The image helper's program vtium is built with, `image-helper`'s
-/// default: set at build time with `VTIUM_IMAGE`, as vtium-platform's
-/// `image_helper::PROGRAM` is, which a test holds equal to this.
-pub const PROGRAM: &str = match option_env!("VTIUM_IMAGE") {
-    Some(path) => path,
-    None => "/usr/bin/vtium-image",
-};
+/// default, set at build time with `VTIUM_IMAGE`: the key table's, as
+/// vtium-platform's `image_helper::PROGRAM` is, which a test holds equal
+/// to this.
+pub const PROGRAM: &str = vtium_settings::keys::IMAGE_PROGRAM;
 
 /// What the image keys give (ADR-1100 D11).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

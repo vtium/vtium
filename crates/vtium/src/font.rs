@@ -145,12 +145,10 @@ pub fn auto_size(width: u32, height: u32, smallest: u32) -> u32 {
     }
 }
 
-/// The frits' directory vtium is built with, `font-frits`'s default: set
-/// at build time with `VTIUM_FONT_FRITS`, as vtium-config's is.
-pub const FRITS: &str = match option_env!("VTIUM_FONT_FRITS") {
-    Some(dir) => dir,
-    None => "/etc/vtium/fonts",
-};
+/// The frits' directory vtium is built with, `font-frits`'s default, set
+/// at build time with `VTIUM_FONT_FRITS`: the key table's, which
+/// vtium-config reads too.
+pub const FRITS: &str = vtium_settings::keys::FRITS;
 
 /// The frits' directory `config` names, `font-frits`.
 pub fn frits(config: &Config) -> PathBuf {
