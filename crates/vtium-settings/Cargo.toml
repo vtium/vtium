@@ -18,5 +18,5 @@ rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"
 # The bounds and defaults the key table states: the cell's largest side,
 # and the scrollback's sizes. Constants only; both crates are vtium's own,
 # and vtium links them already.
-vtium-font = { workspace = true, default-features = false }
+vtium-font.workspace = true
 vtium-term.workspace = true
