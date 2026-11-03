@@ -2,9 +2,10 @@
 //! D6): a placement shows the frame its entry carries, and the renderer
 //! names what it keeps for a picture, its scaled copies and its record of
 //! what it last drew, by the image's key, the frame's number and the
-//! frame's pixel revision. Nothing in vtium-render runs a clock: each test
-//! puts the frame a clock would choose on the store's entry with
-//! `FramePlacement::show`, as the binary's snapshot does.
+//! frame's pixel revision. The store fills in the root frame, and the
+//! binary's animation clock will put the frame it chooses on the entry with
+//! `FramePlacement::show`. No clock does so yet, so each test calls `show`
+//! itself with the frame a clock would choose.
 #![cfg(feature = "images")]
 
 mod common;
@@ -36,12 +37,12 @@ fn font(scaled: bool) -> Font<Unifont> {
 }
 
 /// The store's frame entries for one `w` by `h` kitty picture, made in 8x16
-/// cells and placed at column `col`, row `row` of a screen of `cols` by
+/// cells, with a placement for each of `places`, on a screen of `cols` by
 /// `rows`. The store fills in frame 1, the root frame, at the image's own
 /// pixel revision.
 fn entries(
     (w, h): (u32, u32),
-    (col, row): (u32, u32),
+    places: &[Place],
     (cols, rows): (usize, usize),
 ) -> Vec<FramePlacement> {
     let keys: Vec<LineKey> = (1..=rows as u64).map(LineKey::new).collect();
@@ -68,13 +69,34 @@ fn entries(
         opaque: None,
     };
     let image = store.add_image(new, None, screens).unwrap();
-    let place = Place {
+    for place in places {
+        store.place(image, *place, screens, cols).unwrap();
+    }
+    store.frame(view, cols)
+}
+
+/// A placement at column `col`, row `row`, at the picture's own size.
+fn at(col: u32, row: u32) -> Place {
+    Place {
         col,
         row,
         ..Place::default()
-    };
-    store.place(image, place, screens, cols).unwrap();
-    store.frame(view, cols)
+    }
+}
+
+/// Two placements of one picture, drawn at two sizes: placement 1 at its
+/// own size at column 2, row 1, and placement 2 fitted to a box of 4 by 3
+/// cells at column 6, row 0.
+fn two_sizes() -> [Place; 2] {
+    [
+        Place { id: 1, ..at(2, 1) },
+        Place {
+            id: 2,
+            cols: 4,
+            rows: 3,
+            ..at(6, 0)
+        },
+    ]
 }
 
 /// Frame `n` of a `w` by `h` picture at pixel revision `revision`: the ramp
@@ -94,8 +116,8 @@ fn frame(n: u32, revision: u64, (w, h): (u32, u32)) -> FramePixels {
     }
 }
 
-/// The entries with `f` put on each, as the binary's snapshot puts the
-/// frame its clock chose.
+/// The entries with `f` put on each, as the binary's animation clock will
+/// put the frame it chooses.
 fn showing(entries: &[FramePlacement], f: &FramePixels) -> Vec<FramePlacement> {
     entries
         .iter()
@@ -205,7 +227,7 @@ fn two_snapshots_that_differ_only_in_the_frame_shown_draw_each_frames_pixels() {
     let side = (16, 24);
     for scaled in [false, true] {
         let mut p = Player::new(scaled);
-        let entry = entries(side, (2, 1), p.grid());
+        let entry = entries(side, &[at(2, 1)], p.grid());
         let cell = if scaled { (16, 32) } else { (8, 16) };
         let picture = box_px(&entry[0], cell);
         let cells = entry[0].cols * entry[0].rows;
@@ -242,13 +264,13 @@ fn two_snapshots_that_differ_only_in_the_frame_shown_draw_each_frames_pixels() {
 fn the_same_frame_shown_twice_is_scaled_once() {
     let side = (16, 24);
     let mut p = Player::new(true);
-    let entry = entries(side, (2, 1), p.grid());
+    let entry = entries(side, &[at(2, 1)], p.grid());
     let two = frame(2, entry[0].pixel_revision + 1, side);
     p.draw(&showing(&entry, &two));
     let n = p.counts();
     assert_eq!((n.scaled, n.kept, n.copies), (1, 1, 1));
     // a later snapshot of the same frame: its own entries, the same pixels
-    let again = showing(&entries(side, (2, 1), p.grid()), &two);
+    let again = showing(&entries(side, &[at(2, 1)], p.grid()), &two);
     let (damage, drawn) = p.draw(&again);
     assert_eq!((damage.len(), drawn), (0, 0));
     assert_eq!(p.counts().scaled, 1);
@@ -270,7 +292,7 @@ fn an_edit_to_the_frame_on_show_redraws_its_cells_from_the_new_pixels() {
     let side = (16, 24);
     for scaled in [false, true] {
         let mut p = Player::new(scaled);
-        let entry = entries(side, (2, 1), p.grid());
+        let entry = entries(side, &[at(2, 1)], p.grid());
         let cells = entry[0].cols * entry[0].rows;
         let rev = entry[0].pixel_revision;
         p.draw(&showing(&entry, &frame(2, rev + 1, side)));
@@ -300,7 +322,7 @@ fn an_animation_looping_over_its_frames_keeps_one_copy_for_each_frame() {
     let side = (16, 24);
     let frames = 6u32;
     let mut p = Player::new(true);
-    let entry = entries(side, (2, 1), p.grid());
+    let entry = entries(side, &[at(2, 1)], p.grid());
     let rev = entry[0].pixel_revision;
     let copy = 32 * 48 * 4;
     let mut edits = 0u64;
@@ -341,7 +363,7 @@ fn an_animation_too_large_for_the_cache_stays_within_its_bound() {
     let side = (80, 64);
     let mut p = Player::new(true);
     // placed at the grid's top left, the copy is the whole display
-    let entry = entries(side, (0, 0), p.grid());
+    let entry = entries(side, &[at(0, 0)], p.grid());
     let limit = PICTURE_CACHE_SCREENS as u64 * u64::from(SIZE.0 * SIZE.1) * 4;
     let copy = u64::from(SIZE.0 * SIZE.1) * 4;
     let rev = entry[0].pixel_revision;
@@ -368,4 +390,74 @@ fn an_animation_too_large_for_the_cache_stays_within_its_bound() {
         }
     }
     assert!(p.counts().evicted > 0);
+}
+
+// ADR-1102 D3: every placement of an image shows the same frame, and a
+// placement drawn at another size keeps a copy of its own of that frame; an
+// edit to the frame replaces the copies at both sizes
+// covers: image.kitty-animation
+#[test]
+fn two_placements_at_two_sizes_share_a_frame_and_its_edits() {
+    let side = (16, 24);
+    let mut p = Player::new(true);
+    let entry = entries(side, &two_sizes(), p.grid());
+    assert_eq!(entry.len(), 2);
+    assert_ne!(
+        (entry[0].drawn_width, entry[0].drawn_height),
+        (entry[1].drawn_width, entry[1].drawn_height)
+    );
+    let rev = entry[0].pixel_revision;
+    for (n, revision) in [
+        (2, rev + 1),
+        (2, rev + 4),
+        (1, rev),
+        (2, rev + 4),
+        (2, rev + 8),
+    ] {
+        let shown = if n == 1 {
+            entry.clone()
+        } else {
+            showing(&entry, &frame(n, revision, side))
+        };
+        p.draw(&shown);
+        assert_eq!(p.c, p.fresh(&shown), "frame {n}, revision {revision}");
+    }
+    // the root frame at two sizes, and frame 2 at its newest revision at two
+    let c = p.counts();
+    assert_eq!((c.copies, c.evicted), (4, 0), "{c:?}");
+}
+
+// Two placements of one image that show different frames, or different
+// revisions of one frame, in the same draw each draw their own pixels: a
+// copy that a placement in this draw shows is never dropped for another
+// placement's newer revision
+// covers: image.kitty-animation
+#[test]
+fn two_placements_showing_different_frames_in_one_draw_each_show_their_own() {
+    let side = (16, 24);
+    for scaled in [false, true] {
+        let mut p = Player::new(scaled);
+        let entry = entries(side, &two_sizes(), p.grid());
+        let rev = entry[0].pixel_revision;
+        let mix = |a: (u32, u64), b: (u32, u64)| {
+            let mut v = entry.clone();
+            for (e, (n, revision)) in v.iter_mut().zip([a, b]) {
+                if n != 1 {
+                    e.show(frame(n, revision, side));
+                }
+            }
+            v
+        };
+        for (a, b) in [
+            ((2, rev + 1), (3, rev + 2)),
+            ((3, rev + 2), (2, rev + 1)),
+            ((2, rev + 1), (2, rev + 5)),
+            ((2, rev + 5), (2, rev + 1)),
+            ((1, rev), (3, rev + 2)),
+        ] {
+            let shown = mix(a, b);
+            p.draw(&shown);
+            assert_eq!(p.c, p.fresh(&shown), "scaled {scaled}: {a:?} and {b:?}");
+        }
+    }
 }

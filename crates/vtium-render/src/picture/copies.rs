@@ -14,6 +14,9 @@ use std::collections::BTreeMap;
 /// Nothing about where the picture sits on the screen is in the key, so a
 /// picture that moves, scrolls off the top or is cut into pieces keeps its
 /// copy.
+// `Copies::drop_older` finds a frame's copies as one range of keys, so
+// `image`, `frame` and `pixel_revision` stay the first three fields, which
+// the derived order compares first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Key {
     pub(crate) image: u64,
@@ -108,12 +111,12 @@ impl Copies {
         self.entries.get(key).map(|e| e.pixels.as_slice())
     }
 
-    /// Makes room for `key`'s copy: first drops the copies of its frame at
-    /// an older pixel revision that no placement of this frame shows, as
-    /// the store never shows a frame's older pixels again, then evicts the
-    /// copies no placement of this frame shows, least recently placed first
-    /// and then by key, and only when that makes the copy fit. Whether it
-    /// fits.
+    /// Makes room for `key`'s copy, and says whether it fits. It first
+    /// drops the copies of the same animation frame at an older pixel
+    /// revision that no placement in this draw shows, since the store
+    /// never shows a frame's older pixels again. Then it evicts the copies
+    /// that no placement in this draw shows, least recently placed first
+    /// and then by key, and only when that makes the copy fit.
     pub(crate) fn room(&mut self, key: &Key) -> bool {
         self.drop_older(key);
         let bytes = key.bytes();
@@ -146,8 +149,8 @@ impl Copies {
         true
     }
 
-    /// Drops the copies of `key`'s image and frame at an older pixel
-    /// revision, except those a placement of this frame shows.
+    /// Drops the copies of `key`'s image and animation frame at an older
+    /// pixel revision, except those a placement in this draw shows.
     fn drop_older(&mut self, key: &Key) {
         let first = Key {
             image: key.image,
