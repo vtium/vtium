@@ -102,7 +102,7 @@ gltex, the GPU renderer, kept four pools: masks and color glyphs, each 1 or 2 ce
 - A cell draws its background, underline, glyph and strike, in that order, with the C reference's per-pixel arithmetic: `div255(t) = (t + 128 + ((t + 128) >> 8)) >> 8`; a mask cell is `div255(fg * a + bg * (255 - a))`; a cell of several layers composes its text layer premultiplied, then goes over its background as `src + div255(bg * (255 - a))`. These are the arithmetic tier 2's goldens were drawn with.
 - Device memory is never read.
 
-> Edited 2026-11-03: ADR-1303, proposed the same day from the maintainer's decision on the GPU path's pipeline, changes two of these for the GPU path once it is accepted. The GPU path composes into an upright frame and turns the frame only when it copies it to the display, so its glyphs are stored upright, never rotated, and a turn of the display keeps them; the CPU path keeps both rules as written here. The text above is unchanged.
+> Edited 2026-11-03: ADR-1303, proposed the same day from the maintainer's decision on the GPU path's pipeline, changes one of these for the GPU path once it is accepted: the orientation half of "A glyph is rotated once, when cached. A change of font, cell size or orientation empties the cache." The GPU path composes into an upright frame and turns it only when it presents it, so its glyphs are stored upright, never rotated, and a turn of the display keeps them; a change of font or cell size still empties its cache. The CPU path keeps the bullet as written. The text above is unchanged.
 
 ## Decision
 
