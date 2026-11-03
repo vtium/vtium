@@ -20,7 +20,5 @@ pub use gl::{
     InputKind, Limits, Program, Quad, Size, Source, Texture, Value,
 };
 pub use ledger::{Checked, Ledger, Resolved, TargetInfo, TextureInfo};
-#[cfg(feature = "images")]
-pub use pipeline::PictureStep;
 pub use pipeline::{Color, Config, Pipeline, Spatial, Work};
-pub use stand_in::{Call, StandIn};
+pub use stand_in::{Call, Op, StandIn};

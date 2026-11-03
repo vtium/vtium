@@ -18,7 +18,8 @@
 //!
 //! GL's errors are read at the batch boundaries D7 names: after the set-up's
 //! allocations, after the composition's draws and at the end of the frame,
-//! and only when the batch made a call.
+//! and only when the batch made a call. A frame that drew ends with
+//! [`Gl::submit`], so the display can show the buffer.
 //!
 //! This part builds the frame for an upright display whose frame fits one
 //! texture. The composition clears what it redraws to the border's color and
@@ -53,18 +54,6 @@ const PRESENT_INPUTS: [Input; 2] = [
         kind: InputKind::Texture,
     },
 ];
-
-/// Which step fills slot 1 (ADR-1303 D2).
-#[cfg(feature = "images")]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum PictureStep {
-    /// The GPU scales each picture's own pixels as it draws: the default.
-    #[default]
-    GpuScaling,
-    /// The GPU draws the CPU path's scaled copy one texel a pixel, so a
-    /// picture's pixels match the CPU path's byte for byte. Tests choose it.
-    CpuCopy,
-}
 
 /// Slot 3: a step that maps each pixel's color to a new one. Its no-op is
 /// the identity, which present leaves out.
@@ -139,8 +128,6 @@ impl Spatial {
 /// What the configuration puts in each slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Config {
-    #[cfg(feature = "images")]
-    pub pictures: PictureStep,
     pub color: Color,
     pub spatial: Spatial,
 }
@@ -155,13 +142,10 @@ pub struct Work<'a> {
     pub border: u32,
 }
 
-/// Slot 1, pictures at another size.
+/// Slot 1, pictures at another size. It is empty until the picture steps
+/// fill it (ADR-1303 D2).
 #[derive(Debug)]
-struct Pictures {
-    #[cfg(feature = "images")]
-    #[expect(dead_code, reason = "the picture steps fill the slot in a later part")]
-    step: PictureStep,
-}
+struct Pictures;
 
 impl Pictures {
     /// Makes and fills the textures this frame's pictures need, and gives how
@@ -225,7 +209,6 @@ impl Composition {
 #[derive(Debug)]
 struct Present {
     program: Program,
-    size: Size,
     /// The rectangles each recent frame composed, newest first.
     history: VecDeque<Vec<Rect>>,
 }
@@ -233,12 +216,7 @@ struct Present {
 impl Present {
     /// Compiles present's program, with the steps of `color` and `spatial`
     /// joined in.
-    fn new<G: Gl>(
-        gl: &mut G,
-        size: Size,
-        color: Color,
-        spatial: Spatial,
-    ) -> Result<Present, Error> {
+    fn new<G: Gl>(gl: &mut G, color: Color, spatial: Spatial) -> Result<Present, Error> {
         let fragment: Vec<&'static str> = [PRESENT_HEAD]
             .into_iter()
             .chain(spatial.source().iter().copied())
@@ -258,31 +236,43 @@ impl Present {
         })?;
         Ok(Present {
             program,
-            size,
             history: VecDeque::with_capacity(PRESENT_HISTORY),
         })
     }
 
     /// Copies into `target`, a buffer `age` frames old, what it lacks: the
-    /// rectangles composed over its age, `drawn` the newest; the whole buffer
-    /// at age 0, past the history, or when `whole`. Gives the rectangles it
-    /// drew, the frame's damage.
+    /// rectangles composed over its age, `composed` the newest, or the whole
+    /// buffer at age 0 or past the history; the whole buffer too when
+    /// `whole` and it lacks anything. Gives the rectangles it drew, the
+    /// frame's damage. A buffer that lacks nothing is not drawn, and the
+    /// frame does not count for the ages that follow, as on the CPU path.
     fn draw<G: Gl>(
         &mut self,
         gl: &mut G,
         frame: Option<&Texture>,
         target: &DrawTarget,
         age: u32,
-        drawn: Vec<Rect>,
+        composed: Vec<Rect>,
         whole: bool,
     ) -> Result<Vec<Rect>, Error> {
-        self.history.truncate(PRESENT_HISTORY.saturating_sub(1));
-        self.history.push_front(drawn);
+        self.history.push_front(composed);
         let age = usize::try_from(age).unwrap_or(usize::MAX);
-        let rects: Vec<Rect> = if whole || age == 0 || age > self.history.len() {
-            vec![self.size.rect()]
+        let unknown = age == 0 || age > self.history.len().min(PRESENT_HISTORY);
+        let lacking: Vec<Rect> = if unknown {
+            Vec::new()
         } else {
             self.history.iter().take(age).flatten().copied().collect()
+        };
+        if !unknown && lacking.is_empty() {
+            self.history.pop_front();
+            return Ok(lacking);
+        }
+        self.history.truncate(PRESENT_HISTORY);
+        let size = target.size();
+        let rects = if unknown || whole {
+            vec![size.rect()]
+        } else {
+            lacking
         };
         let frame = frame.ok_or_else(|| Error::new(ErrorKind::Misuse, "present reads no frame"))?;
         let quads: Vec<Quad> = rects.iter().map(|&r| quad(r)).collect();
@@ -292,7 +282,7 @@ impl Present {
             inputs: &[
                 (
                     "target_size",
-                    Value::Vec2([self.size.width as f32, self.size.height as f32]),
+                    Value::Vec2([size.width as f32, size.height as f32]),
                 ),
                 ("frame", Value::Texture(frame, Filter::Nearest)),
             ],
@@ -334,9 +324,10 @@ fn clip(r: Rect, size: Size) -> Option<Rect> {
 /// The GPU path's frame for one display, through its five slots.
 #[derive(Debug)]
 pub struct Pipeline {
+    /// The display's size, which every buffer it lends has.
+    display: Size,
     pictures: Pictures,
     composition: Composition,
-    color: Color,
     spatial: Spatial,
     present: Present,
 }
@@ -347,7 +338,7 @@ impl Pipeline {
     /// allocations are one batch, checked once.
     pub fn new<G: Gl>(gl: &mut G, size: Size, config: Config) -> Result<Pipeline, Error> {
         let composition = Composition::new(gl, size)?;
-        let present = match Present::new(gl, size, config.color, config.spatial) {
+        let present = match Present::new(gl, config.color, config.spatial) {
             Ok(p) => p,
             Err(e) => {
                 // the error that matters is the compile's
@@ -356,12 +347,9 @@ impl Pipeline {
             }
         };
         let pipeline = Pipeline {
-            pictures: Pictures {
-                #[cfg(feature = "images")]
-                step: config.pictures,
-            },
+            display: size,
+            pictures: Pictures,
             composition,
-            color: config.color,
             spatial: config.spatial,
             present,
         };
@@ -373,21 +361,12 @@ impl Pipeline {
         Ok(pipeline)
     }
 
-    /// The configuration's color step.
-    pub fn color(&self) -> Color {
-        self.color
-    }
-
-    /// The configuration's spatial step.
-    pub fn spatial(&self) -> Spatial {
-        self.spatial
-    }
-
     /// Draws one frame into `target`, the display's buffer `age` frames
     /// old (0 when its contents are unknown), and gives the rectangles of
     /// the buffer it drew: the frame's damage. A frame that composes nothing
-    /// changed nothing, makes no call and gives no damage, and the display
-    /// does not swap it.
+    /// into a buffer that lacks nothing makes no call and gives no damage,
+    /// and the display does not swap it. A buffer of another size than the
+    /// display's is refused.
     ///
     /// A frame that fails leaves the upright frame and the buffers unknown,
     /// so the next frame composes and presents whole (ADR-1303 D3, D9).
@@ -398,6 +377,12 @@ impl Pipeline {
         target: &DrawTarget,
         age: u32,
     ) -> Result<Vec<Rect>, Error> {
+        if target.size() != self.display {
+            return Err(Error::new(
+                ErrorKind::Misuse,
+                "the buffer's size is not the display's",
+            ));
+        }
         let drawn = self.slots(gl, work, target, age);
         if drawn.is_err() {
             self.redraw_whole();
@@ -416,10 +401,9 @@ impl Pipeline {
             gl.check(Batch::Uploads)?;
         }
         let composed = self.composition.draw(gl, work)?;
-        if composed.is_empty() {
-            return Ok(composed);
+        if !composed.is_empty() {
+            gl.check(Batch::Draws)?;
         }
-        gl.check(Batch::Draws)?;
         // slots 3 and 4 run inside present's one pass
         let damage = self.present.draw(
             gl,
@@ -429,7 +413,11 @@ impl Pipeline {
             composed,
             self.spatial.presents_whole(),
         )?;
+        if damage.is_empty() {
+            return Ok(damage);
+        }
         gl.check(Batch::Frame)?;
+        gl.submit(target)?;
         Ok(damage)
     }
 

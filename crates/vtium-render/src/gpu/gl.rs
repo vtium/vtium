@@ -5,8 +5,9 @@
 //! through this trait. The binary implements it with an adapter over
 //! vtium-platform's safe GL type, and the renderer's tests implement it with
 //! [`StandIn`](super::StandIn), which records the calls and draws nothing.
-//! Both check every call through one [`Ledger`](super::Ledger), so a test on
-//! the stand-in refuses exactly what the real context refuses.
+//! Both check every call through one [`Ledger`](super::Ledger). The crate's
+//! README lists what the ledger refuses, and what only a real driver can
+//! refuse, which the stand-in cannot see.
 //!
 //! Every handle the trait gives out, a [`Texture`], a [`DrawTarget`] or a
 //! [`Program`], is an owned value that names the context that made it. It
@@ -146,10 +147,16 @@ pub struct Texture(pub(super) Handle);
 #[derive(Debug, PartialEq, Eq)]
 pub struct DrawTarget {
     pub(super) handle: Handle,
+    pub(super) size: Size,
     pub(super) texture: Option<Texture>,
 }
 
 impl DrawTarget {
+    /// Its size in pixels.
+    pub fn size(&self) -> Size {
+        self.size
+    }
+
     /// The texture it draws into, for the upright frame, which a later pass
     /// reads; `None` for a display buffer.
     pub fn texture(&self) -> Option<&Texture> {
@@ -310,6 +317,9 @@ pub enum ErrorKind {
     Misuse,
     /// A shader that did not compile or a program that did not link.
     Compile,
+    /// A display buffer the context could not import (ADR-1303 D9's first
+    /// kind of failure, which a staging copy answers).
+    Import,
 }
 
 /// An error from a [`Gl`] call.
@@ -394,6 +404,11 @@ pub trait Gl {
 
     /// Draws a batch of quads.
     fn draw(&mut self, draw: &Draw<'_>) -> Result<(), Error>;
+
+    /// Ends the frame drawn into `target`: sends its queued commands to the
+    /// GPU, so that the display can show the buffer. The implementation
+    /// chooses how, such as `glFlush` or an EGL fence.
+    fn submit(&mut self, target: &DrawTarget) -> Result<(), Error>;
 
     /// Reads GL's errors since the last check, for the batch that just
     /// ended. The error names the batch.

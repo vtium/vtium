@@ -6,8 +6,8 @@
 
 use vtium_render::Rect;
 use vtium_render::gpu::{
-    Batch, Blend, Call, Color, Config, ErrorKind, Gl, Limits, Pipeline, Size, Spatial, StandIn,
-    Work,
+    Batch, Blend, Call, Color, Config, ErrorKind, Gl, Limits, Op, Pipeline, Quad, Size, Spatial,
+    StandIn, Work,
 };
 
 fn rect(x: u32, y: u32, width: u32, height: u32) -> Rect {
@@ -28,7 +28,20 @@ fn set_up(gl: &mut StandIn) -> Pipeline {
     p
 }
 
-fn present_draw(quads: usize) -> Call {
+/// Present's draw of `rects`: one quad for each, copying the upright
+/// frame's pixels to the same place.
+fn present_draw(rects: &[Rect]) -> Call {
+    let quads = rects
+        .iter()
+        .map(|r| {
+            let i = |v: u32| i32::try_from(v).unwrap();
+            Quad {
+                dst: [i(r.x), i(r.y), i(r.width), i(r.height)],
+                src: [r.x, r.y, r.width, r.height],
+                params: [0; 4],
+            }
+        })
+        .collect();
     Call::Draw {
         quads,
         blend: Blend::Replace,
@@ -84,8 +97,9 @@ fn empty_color_and_spatial_slots_join_no_source_and_make_no_call() {
         &[
             Call::Clear(DISPLAY.rect(), BORDER),
             Call::Check(Batch::Draws),
-            present_draw(1),
+            present_draw(&[DISPLAY.rect()]),
             Call::Check(Batch::Frame),
+            Call::Submit,
         ]
     );
 }
@@ -114,8 +128,9 @@ fn a_frame_checks_for_errors_after_the_composition_and_at_its_end() {
             Call::Clear(cells[0], BORDER),
             Call::Clear(cells[1], BORDER),
             Call::Check(Batch::Draws),
-            present_draw(2),
+            present_draw(&cells),
             Call::Check(Batch::Frame),
+            Call::Submit,
         ]
     );
 }
@@ -165,6 +180,96 @@ fn present_draws_what_a_buffer_lacks_over_its_age() {
     // a buffer of unknown contents, or older than the history, takes all
     assert_eq!(frame(&mut gl, &[a], 0), whole);
     assert_eq!(frame(&mut gl, &[a], 4), whole);
+}
+
+#[test]
+fn a_buffer_that_lacks_something_is_presented_though_nothing_was_composed() {
+    // the CPU path draws the whole picture into a buffer at age 0, after a
+    // console switch for one, and what a buffer lacks over its age, whether
+    // or not the frame changed anything (renderer.rs, `draw`)
+    let mut gl = StandIn::new();
+    let mut p = set_up(&mut gl);
+    let buffer = gl.import_buffer(&DISPLAY).unwrap();
+    let a = [rect(0, 0, 8, 16)];
+    let mut frame = |gl: &mut StandIn, redraw: &[Rect], age| {
+        let work = Work {
+            redraw,
+            border: BORDER,
+        };
+        p.frame(gl, &work, &buffer, age).unwrap()
+    };
+    frame(&mut gl, &[], 0);
+    frame(&mut gl, &a, 1);
+    gl.clear_calls();
+    assert_eq!(frame(&mut gl, &[], 0), [DISPLAY.rect()]);
+    assert_eq!(
+        gl.calls(),
+        &[
+            present_draw(&[DISPLAY.rect()]),
+            Call::Check(Batch::Frame),
+            Call::Submit,
+        ]
+    );
+    // the frame drawn last composed nothing, so a buffer two frames old
+    // lacks nothing, and one three frames old lacks the rectangle before it
+    gl.clear_calls();
+    assert_eq!(frame(&mut gl, &[], 2), []);
+    assert_eq!(gl.calls(), &[]);
+    assert_eq!(frame(&mut gl, &[], 3), a);
+}
+
+#[test]
+fn a_redrawn_rectangle_partly_off_the_frame_is_trimmed_to_it() {
+    let mut gl = StandIn::new();
+    let mut p = set_up(&mut gl);
+    let buffer = gl.import_buffer(&DISPLAY).unwrap();
+    let work = Work {
+        redraw: &[],
+        border: BORDER,
+    };
+    p.frame(&mut gl, &work, &buffer, 0).unwrap();
+    gl.clear_calls();
+    let work = Work {
+        redraw: &[rect(56, 24, 16, 16)],
+        border: BORDER,
+    };
+    let trimmed = rect(56, 24, 8, 8);
+    assert_eq!(p.frame(&mut gl, &work, &buffer, 1).unwrap(), [trimmed]);
+    assert_eq!(gl.calls()[0], Call::Clear(trimmed, BORDER));
+    assert_eq!(gl.calls()[2], present_draw(&[trimmed]));
+}
+
+#[test]
+fn a_buffer_of_another_size_than_the_display_is_refused() {
+    let mut gl = StandIn::new();
+    let mut p = set_up(&mut gl);
+    let work = Work {
+        redraw: &[],
+        border: BORDER,
+    };
+    for size in [Size::new(64, 31), Size::new(32, 64)] {
+        let buffer = gl.import_buffer(&size).unwrap();
+        gl.clear_calls();
+        let e = p.frame(&mut gl, &work, &buffer, 0).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Misuse);
+        assert_eq!(gl.calls(), &[]);
+    }
+}
+
+#[test]
+fn a_set_up_whose_present_fails_leaves_nothing_behind() {
+    let mut gl = StandIn::with_limits(Limits {
+        fragment_highp: false,
+        ..StandIn::LIMITS
+    });
+    let e = Pipeline::new(&mut gl, DISPLAY, Config::default()).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Limit);
+    assert_eq!(gl.live(), (0, 0, 0));
+    let mut gl = StandIn::new();
+    gl.fail_next(Op::Compile, ErrorKind::Compile);
+    let e = Pipeline::new(&mut gl, DISPLAY, Config::default()).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Compile);
+    assert_eq!(gl.live(), (0, 0, 0));
 }
 
 #[test]

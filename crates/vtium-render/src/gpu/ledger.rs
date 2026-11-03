@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::gl::{
-    ContextId, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Handle, Input, Limits, Program,
-    Size, Source, Texture, Value,
+    ContextId, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Handle, Input, InputKind,
+    Limits, Program, Size, Source, Texture, Value,
 };
 use crate::target::Rect;
 
@@ -278,6 +278,7 @@ impl Ledger {
         );
         Ok(DrawTarget {
             handle: h,
+            size,
             texture: Some(Texture(t)),
         })
     }
@@ -311,6 +312,7 @@ impl Ledger {
         );
         Ok(DrawTarget {
             handle: h,
+            size,
             texture: None,
         })
     }
@@ -345,9 +347,10 @@ impl Ledger {
         Ok(())
     }
 
-    /// Checks that each of `source`'s inputs is declared as a uniform once,
-    /// in one of its shaders, and that the GPU has `highp` in fragment
-    /// shaders, and on success runs `compile`.
+    /// Checks that each of `source`'s inputs is listed once and declared as
+    /// a uniform of its kind, not an array, in one of its shaders, and that
+    /// the GPU has `highp` in fragment shaders, and on success runs
+    /// `compile`.
     pub fn compile(
         &mut self,
         source: &Source<'_>,
@@ -365,10 +368,22 @@ impl Ledger {
             .chain(uniforms(&source.fragment_text()))
             .collect::<Vec<_>>();
         for (i, input) in source.inputs.iter().enumerate() {
-            if !declared.iter().any(|d| d == input.name) {
+            let Some(uniform) = declared.iter().find(|d| d.name == input.name) else {
                 return Err(misuse(format!(
                     "the program declares no uniform `{}`",
                     input.name
+                )));
+            };
+            if uniform.array {
+                return Err(misuse(format!(
+                    "`{}` is an array, which no input value fills",
+                    input.name
+                )));
+            }
+            if !glsl_types(input.kind).contains(&uniform.ty.as_str()) {
+                return Err(misuse(format!(
+                    "`{}` is declared a {}, not a {:?}",
+                    input.name, uniform.ty, input.kind
                 )));
             }
             if source
@@ -491,19 +506,92 @@ impl Ledger {
     }
 }
 
-/// The names of the uniforms `glsl` declares: each line that starts with
-/// `uniform`, its last word without the `;`.
-fn uniforms(glsl: &str) -> Vec<String> {
-    glsl.lines()
-        .map(str::trim)
-        .filter(|l| l.starts_with("uniform "))
-        .filter_map(|l| {
-            l.trim_end_matches(';')
-                .split_whitespace()
-                .last()
-                .map(str::to_owned)
-        })
-        .collect()
+/// The GLSL types an input of `kind` fills.
+fn glsl_types(kind: InputKind) -> &'static [&'static str] {
+    match kind {
+        InputKind::Texture => &["sampler2D", "isampler2D", "usampler2D"],
+        InputKind::Float => &["float"],
+        InputKind::Vec2 => &["vec2"],
+        InputKind::Vec4 => &["vec4"],
+        InputKind::IVec4 => &["ivec4"],
+        InputKind::UVec4 => &["uvec4"],
+    }
+}
+
+/// A uniform a shader declares.
+#[derive(Debug, PartialEq, Eq)]
+struct Uniform {
+    ty: String,
+    name: String,
+    array: bool,
+}
+
+/// `glsl` with each comment replaced by a space.
+fn without_comments(glsl: &str) -> String {
+    let mut out = String::with_capacity(glsl.len());
+    let mut rest = glsl;
+    loop {
+        let (at, line) = match (rest.find("//"), rest.find("/*")) {
+            (None, None) => {
+                out.push_str(rest);
+                return out;
+            }
+            (Some(l), Some(b)) => (l.min(b), l < b),
+            (Some(l), None) => (l, true),
+            (None, Some(b)) => (b, false),
+        };
+        let (before, after) = rest.split_at(at);
+        out.push_str(before);
+        out.push(' ');
+        rest = if line {
+            after.find('\n').map_or("", |n| after.split_at(n).1)
+        } else {
+            after
+                .get(2..)
+                .and_then(|a| a.split_once("*/"))
+                .map_or("", |(_, r)| r)
+        };
+    }
+}
+
+/// The uniforms `glsl` declares: each statement that starts with `uniform`,
+/// outside a block, read up to its `;` with the comments and preprocessor
+/// lines left out. A statement may declare several names, separated by
+/// commas, and a name may be an array.
+fn uniforms(glsl: &str) -> Vec<Uniform> {
+    let text = without_comments(glsl);
+    let mut found = Vec::new();
+    for statement in text.split(';') {
+        // a statement after a function's body starts after its last brace
+        let statement = statement.rsplit('}').next().unwrap_or("");
+        let decl = statement
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut words = decl.split_whitespace();
+        if words.next() != Some("uniform") || decl.contains('{') {
+            continue;
+        }
+        let Some(ty) = words.find(|w| !matches!(*w, "highp" | "mediump" | "lowp")) else {
+            continue;
+        };
+        let names: String = words.collect();
+        for name in names.split(',') {
+            let (name, array) = match name.split_once('[') {
+                Some((n, _)) => (n, true),
+                None => (name, false),
+            };
+            if !name.is_empty() {
+                found.push(Uniform {
+                    ty: ty.to_owned(),
+                    name: name.to_owned(),
+                    array,
+                });
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]
@@ -544,10 +632,39 @@ mod tests {
         let target = ledger.import_buffer(size, || Ok(3)).unwrap();
         let kept = DrawTarget {
             handle: copy(&target.handle),
+            size,
             texture: None,
         };
         ledger.free_target(target, |_, _| Ok(())).unwrap();
         assert_eq!(ledger.target(&kept).unwrap_err().kind, ErrorKind::Handle);
+    }
+
+    #[test]
+    fn uniforms_are_read_from_each_kind_of_declaration() {
+        let glsl = "#version 300 es\n\
+            // uniform vec4 commented;\n\
+            /* uniform vec4 also_commented; */\n\
+            uniform highp sampler2D frame; // the upright frame\n\
+            uniform vec2 a, b;\n\
+            uniform vec4 palette[16];\n\
+            uniform Colors { vec4 inside; };\n\
+            vec4 f(vec4 c) { return c; }\n\
+            uniform\n  uvec4 split_over_lines;\n";
+        let found = uniforms(glsl);
+        let got: Vec<(&str, &str, bool)> = found
+            .iter()
+            .map(|u| (u.ty.as_str(), u.name.as_str(), u.array))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("sampler2D", "frame", false),
+                ("vec2", "a", false),
+                ("vec2", "b", false),
+                ("vec4", "palette", true),
+                ("uvec4", "split_over_lines", false),
+            ]
+        );
     }
 
     #[test]

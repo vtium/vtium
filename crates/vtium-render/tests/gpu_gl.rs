@@ -4,8 +4,8 @@
 
 use vtium_render::Rect;
 use vtium_render::gpu::{
-    Batch, Blend, Call, Draw, ErrorKind, Filter, Format, Gl, Input, InputKind, Limits, Quad, Size,
-    Source, StandIn, Value,
+    Batch, Blend, Call, Draw, ErrorKind, Filter, Format, Gl, Input, InputKind, Limits, Op, Quad,
+    Size, Source, StandIn, Value,
 };
 
 const VERT: &str = "#version 300 es\nuniform vec2 target_size;\nvoid main() {}\n";
@@ -204,7 +204,7 @@ fn a_draw_gives_each_input_once_with_a_value_of_its_kind() {
     assert_eq!(
         gl.calls().last(),
         Some(&Call::Draw {
-            quads: 1,
+            quads: vec![Quad::default()],
             blend: Blend::Over,
             inputs: vec!["target_size", "picture"],
         })
@@ -248,21 +248,155 @@ fn a_gl_error_is_reported_by_the_next_check_with_its_batch() {
 #[test]
 fn a_lost_context_refuses_every_later_call() {
     let mut gl = StandIn::new();
-    let t = gl.create_texture(Format::Rgba8, Size::new(4, 4)).unwrap();
+    let texture = gl.create_texture(Format::Rgba8, Size::new(4, 4)).unwrap();
+    let frame = gl.create_frame(Size::new(4, 4)).unwrap();
+    let buffer = gl.import_buffer(&Size::new(4, 4)).unwrap();
+    let program = gl.compile(&source(&INPUTS)).unwrap();
     gl.raise(ErrorKind::ContextLost);
     assert_eq!(
         gl.check(Batch::Frame).unwrap_err().kind,
         ErrorKind::ContextLost
     );
-    assert_eq!(
-        gl.create_texture(Format::R8, Size::new(1, 1))
-            .unwrap_err()
-            .kind,
-        ErrorKind::ContextLost
+    gl.clear_calls();
+    let lost = |r: Result<(), vtium_render::gpu::Error>| r.unwrap_err().kind;
+    let mut out = [0; 4];
+    let size = ("target_size", Value::Vec2([4.0, 4.0]));
+    let pic = ("picture", Value::Texture(&texture, Filter::Nearest));
+    let draw = Draw {
+        target: &buffer,
+        program: &program,
+        inputs: &[size, pic],
+        quads: &[],
+        blend: Blend::Replace,
+        scissor: None,
+    };
+    let kinds = [
+        lost(gl.create_texture(Format::R8, Size::new(1, 1)).map(drop)),
+        lost(gl.fill_texture(&texture, rect(0, 0, 1, 1), &[0; 4], 4)),
+        lost(gl.create_frame(Size::new(4, 4)).map(drop)),
+        lost(gl.import_buffer(&Size::new(4, 4)).map(drop)),
+        lost(gl.compile(&source(&INPUTS)).map(drop)),
+        lost(gl.clear(&buffer, rect(0, 0, 1, 1), 0)),
+        lost(gl.draw(&draw)),
+        lost(gl.submit(&buffer)),
+        lost(gl.read(&buffer, rect(0, 0, 1, 1), &mut out)),
+        lost(gl.check(Batch::Frame)),
+        lost(gl.free_program(program)),
+        lost(gl.free_target(frame)),
+        lost(gl.free_texture(texture)),
+    ];
+    assert!(
+        kinds.iter().all(|&k| k == ErrorKind::ContextLost),
+        "{kinds:?}"
     );
-    assert_eq!(gl.free_texture(t).unwrap_err().kind, ErrorKind::ContextLost);
+    assert_eq!(gl.calls(), &[]);
+}
+
+#[test]
+fn an_input_must_be_declared_with_its_type() {
+    let mut gl = StandIn::new();
+    // `picture` is a sampler2D: real GL refuses a vec4 for it
+    let wrong = [
+        INPUTS[0],
+        Input {
+            name: "picture",
+            kind: InputKind::Vec4,
+        },
+    ];
     assert_eq!(
-        gl.check(Batch::Frame).unwrap_err().kind,
-        ErrorKind::ContextLost
+        gl.compile(&source(&wrong)).unwrap_err().kind,
+        ErrorKind::Misuse
     );
+    let frag: &str = "#version 300 es\nprecision highp float;\nuniform vec2 a, b; // a list\nuniform vec4 palette[16];\nout vec4 color;\nvoid main() {}\n";
+    let frags = [frag];
+    let lists = |inputs| Source {
+        vertex: &[VERT],
+        fragment: &frags,
+        inputs,
+    };
+    let a_b = [
+        Input {
+            name: "a",
+            kind: InputKind::Vec2,
+        },
+        Input {
+            name: "b",
+            kind: InputKind::Vec2,
+        },
+    ];
+    assert!(gl.compile(&lists(&a_b)).is_ok());
+    // no value fills an array
+    let palette = [Input {
+        name: "palette",
+        kind: InputKind::Vec4,
+    }];
+    assert_eq!(
+        gl.compile(&lists(&palette)).unwrap_err().kind,
+        ErrorKind::Misuse
+    );
+}
+
+#[test]
+fn a_draw_that_samples_another_contexts_texture_is_refused() {
+    let mut a = StandIn::new();
+    let mut b = StandIn::new();
+    let theirs = a.create_texture(Format::Rgba8, Size::new(4, 4)).unwrap();
+    // b's own first texture, which a's handle must not name
+    let _own = b.create_texture(Format::Rgba8, Size::new(4, 4)).unwrap();
+    let program = b.compile(&source(&INPUTS)).unwrap();
+    let target = b.import_buffer(&Size::new(4, 4)).unwrap();
+    b.clear_calls();
+    let e = b
+        .draw(&Draw {
+            target: &target,
+            program: &program,
+            inputs: &[
+                ("target_size", Value::Vec2([4.0, 4.0])),
+                ("picture", Value::Texture(&theirs, Filter::Nearest)),
+            ],
+            quads: &[],
+            blend: Blend::Replace,
+            scissor: None,
+        })
+        .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Handle);
+    assert_eq!(b.calls(), &[]);
+}
+
+#[test]
+fn a_submit_is_recorded_for_a_live_target_of_its_own() {
+    let mut a = StandIn::new();
+    let mut b = StandIn::new();
+    let target = a.import_buffer(&Size::new(4, 4)).unwrap();
+    let _own = b.import_buffer(&Size::new(4, 4)).unwrap();
+    a.submit(&target).unwrap();
+    assert_eq!(a.calls().last(), Some(&Call::Submit));
+    b.clear_calls();
+    assert_eq!(b.submit(&target).unwrap_err().kind, ErrorKind::Handle);
+    assert_eq!(b.calls(), &[]);
+}
+
+#[test]
+fn the_stand_in_fails_the_next_call_of_a_kind_as_a_driver_would() {
+    let size = Size::new(4, 4);
+    let cases = [
+        (Op::CreateTexture, ErrorKind::OutOfMemory),
+        (Op::CreateFrame, ErrorKind::OutOfMemory),
+        (Op::ImportBuffer, ErrorKind::Import),
+        (Op::Compile, ErrorKind::Compile),
+    ];
+    for (op, kind) in cases {
+        let mut gl = StandIn::new();
+        gl.fail_next(op, kind);
+        let call = |gl: &mut StandIn| match op {
+            Op::CreateTexture => gl.create_texture(Format::R8, size).map(|_| ()),
+            Op::CreateFrame => gl.create_frame(size).map(|_| ()),
+            Op::ImportBuffer => gl.import_buffer(&size).map(|_| ()),
+            Op::Compile => gl.compile(&source(&INPUTS)).map(|_| ()),
+        };
+        assert_eq!(call(&mut gl).unwrap_err().kind, kind, "{op:?}");
+        assert_eq!((gl.live(), gl.calls()), ((0, 0, 0), &[][..]), "{op:?}");
+        // only the next call fails
+        assert!(call(&mut gl).is_ok(), "{op:?}");
+    }
 }

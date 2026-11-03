@@ -1,9 +1,9 @@
 #version 300 es
 // One quad of a batch, drawn as an instance of a strip of four vertices.
 // The adapter gives each quad's fields at fixed locations (`Quad` in
-// gl.rs), and the corner comes from the vertex's index. Row 0 of every
-// target is its top: the renderer never draws to a window, so GL's
-// bottom-left origin is the first row in memory, as a display buffer's is.
+// gl.rs), and the corner comes from the vertex's index. vtium-render draws
+// only into textures and imported buffers, where GL's row 0 is the first row
+// in memory. vtium-render calls that row the top, as a display buffer does.
 precision highp float;
 precision highp int;
 

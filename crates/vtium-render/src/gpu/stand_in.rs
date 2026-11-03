@@ -1,15 +1,17 @@
 //! [`StandIn`], a GL context for the renderer's tests: it records the calls
 //! that reach it and draws no pixels (ADR-1303 D7).
 //!
-//! It refuses what the real context refuses, because both check each call
-//! through a [`Ledger`]. Its limits are whatever a test gives it, so a test
-//! can set a small largest texture and drive a frame past it. A test can
-//! also raise a GL error, which the next [`Gl::check`] reports, as GL's
-//! error flag does.
+//! It checks each call through a [`Ledger`], as the binary's adapter does,
+//! so it refuses every call the ledger refuses; the crate's README lists
+//! those, and what only a real driver refuses. Its limits are whatever a
+//! test gives it, so a test can set a small largest texture and drive a
+//! frame past it. A test can raise a GL error, which the next
+//! [`Gl::check`] reports, as GL's error flag does, and can make the next
+//! call of one kind fail as a driver would.
 
 use super::gl::{
-    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Format, Gl, Limits, Program, Size, Source,
-    Texture,
+    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Format, Gl, Limits, Program, Quad, Size,
+    Source, Texture,
 };
 use super::ledger::Ledger;
 use crate::target::Rect;
@@ -29,12 +31,23 @@ pub enum Call {
     Clear(Rect, u32),
     /// A draw: its quads, its blend and the names of its inputs.
     Draw {
-        quads: usize,
+        quads: Vec<Quad>,
         blend: Blend,
         inputs: Vec<&'static str>,
     },
     Check(Batch),
+    Submit,
     Read(Rect),
+}
+
+/// A call a test can make fail as a driver would, past the ledger's
+/// checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Op {
+    CreateTexture,
+    CreateFrame,
+    ImportBuffer,
+    Compile,
 }
 
 /// A GL context that records its calls and draws nothing.
@@ -44,6 +57,7 @@ pub struct StandIn {
     calls: Vec<Call>,
     next_name: u32,
     raised: Option<ErrorKind>,
+    failing: Vec<(Op, ErrorKind)>,
 }
 
 impl StandIn {
@@ -68,6 +82,7 @@ impl StandIn {
             calls: Vec::new(),
             next_name: 0,
             raised: None,
+            failing: Vec::new(),
         }
     }
 
@@ -92,6 +107,22 @@ impl StandIn {
         self.raised = Some(kind);
     }
 
+    /// Makes the next call of `op` fail with `kind`, as the driver would:
+    /// an import a driver cannot do fails with [`ErrorKind::Import`], a
+    /// shader it does not compile with [`ErrorKind::Compile`].
+    pub fn fail_next(&mut self, op: Op, kind: ErrorKind) {
+        self.failing.push((op, kind));
+    }
+
+    /// A new name for `op`, or the failure a test asked for.
+    fn make(&mut self, op: Op) -> Result<u32, Error> {
+        if let Some(i) = self.failing.iter().position(|(o, _)| *o == op) {
+            let (_, kind) = self.failing.remove(i);
+            return Err(Error::new(kind, format!("{op:?} failed for the test")));
+        }
+        Ok(self.name())
+    }
+
     fn name(&mut self) -> u32 {
         self.next_name = self.next_name.saturating_add(1);
         self.next_name
@@ -113,8 +144,8 @@ impl Gl for StandIn {
     }
 
     fn create_texture(&mut self, format: Format, size: Size) -> Result<Texture, Error> {
-        let name = self.name();
-        let t = self.ledger.create_texture(format, size, || Ok(name))?;
+        let name = self.make(Op::CreateTexture);
+        let t = self.ledger.create_texture(format, size, || name)?;
         self.calls.push(Call::CreateTexture(format, size));
         Ok(t)
     }
@@ -139,15 +170,15 @@ impl Gl for StandIn {
     }
 
     fn create_frame(&mut self, size: Size) -> Result<DrawTarget, Error> {
-        let names = (self.name(), self.name());
-        let t = self.ledger.create_frame(size, || Ok(names))?;
+        let names = self.make(Op::CreateFrame).map(|n| (n, n));
+        let t = self.ledger.create_frame(size, || names)?;
         self.calls.push(Call::CreateFrame(size));
         Ok(t)
     }
 
     fn import_buffer(&mut self, buffer: &Size) -> Result<DrawTarget, Error> {
-        let name = self.name();
-        let t = self.ledger.import_buffer(*buffer, || Ok(name))?;
+        let name = self.make(Op::ImportBuffer);
+        let t = self.ledger.import_buffer(*buffer, || name)?;
         self.calls.push(Call::ImportBuffer(*buffer));
         Ok(t)
     }
@@ -159,8 +190,8 @@ impl Gl for StandIn {
     }
 
     fn compile(&mut self, source: &Source<'_>) -> Result<Program, Error> {
-        let name = self.name();
-        let p = self.ledger.compile(source, || Ok(name))?;
+        let name = self.make(Op::Compile);
+        let p = self.ledger.compile(source, || name)?;
         self.calls.push(Call::Compile(source.fragment_text()));
         Ok(p)
     }
@@ -180,10 +211,16 @@ impl Gl for StandIn {
     fn draw(&mut self, draw: &Draw<'_>) -> Result<(), Error> {
         let checked = self.ledger.draw(draw)?;
         self.calls.push(Call::Draw {
-            quads: draw.quads.len(),
+            quads: draw.quads.to_vec(),
             blend: draw.blend,
             inputs: checked.inputs.iter().map(|(n, _)| *n).collect(),
         });
+        Ok(())
+    }
+
+    fn submit(&mut self, target: &DrawTarget) -> Result<(), Error> {
+        self.ledger.target(target)?;
+        self.calls.push(Call::Submit);
         Ok(())
     }
 
