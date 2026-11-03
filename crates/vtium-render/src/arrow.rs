@@ -66,6 +66,12 @@ impl Arrow {
     /// each pixel it covers at least half filled, outlined as the arrow is
     /// for the glyph's height, with its top left at the hotspot.
     pub fn glyph(glyph: &Glyph, orientation: Orientation) -> Arrow {
+        Arrow::upright_glyph(glyph).turned(orientation)
+    }
+
+    /// [`Arrow::glyph`] upright, as the GPU path draws it into the upright
+    /// frame (ADR-1303 D3).
+    pub fn upright_glyph(glyph: &Glyph) -> Arrow {
         let (gw, gh) = (i64::from(glyph.width()), i64::from(glyph.height()));
         let thk = (gh.clamp(8, i64::from(POINTER_SIDE_MAX)) / 32).saturating_add(1);
         let covered = |x: i64, y: i64| {
@@ -85,7 +91,7 @@ impl Arrow {
                 .and_then(|p| p.get(at))
                 .is_some_and(|&c| c >= 128)
         };
-        Arrow::filled(gw, gh, thk, covered, (thk, thk)).turned(orientation)
+        Arrow::filled(gw, gh, thk, covered, (thk, thk))
     }
 
     /// Whether it fills any pixel: a blank glyph's image fills none.
@@ -123,8 +129,10 @@ impl Arrow {
             .unwrap_or(0)
     }
 
-    /// The arrow pointing up and left.
-    fn upright(cell_height: u32) -> Arrow {
+    /// The arrow for cells `cell_height` pixels tall, upright, pointing up
+    /// and left: [`Arrow::new`] on an unturned display, and what the GPU
+    /// path draws into the upright frame (ADR-1303 D3).
+    pub fn upright(cell_height: u32) -> Arrow {
         let side = i64::from(POINTER_SIDE_MAX);
         let h = i64::from(cell_height).clamp(8, side);
         let thk = (h / 32).saturating_add(1);
@@ -182,7 +190,7 @@ impl Arrow {
 
     /// This arrow on a display turned as `o` says, which draws the grid's
     /// pixel `x`, `y` where [`Orientation`] puts it.
-    fn turned(self, o: Orientation) -> Arrow {
+    pub(crate) fn turned(self, o: Orientation) -> Arrow {
         if o == Orientation::Normal {
             return self;
         }

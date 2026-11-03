@@ -215,7 +215,7 @@ impl Kind {
         }
     }
 
-    const ALL: [Kind; 6] = [
+    pub(crate) const ALL: [Kind; 6] = [
         Kind::Single,
         Kind::Double,
         Kind::Curly,

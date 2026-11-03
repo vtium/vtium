@@ -8,17 +8,24 @@
 //!
 //! A display's frame passes through the [`Pipeline`]'s five slots: pictures
 //! at another size, composition into the upright frame, color, spatial
-//! effects, and present into the display's buffer.
+//! effects, and present into the display's buffer. The renderer decides
+//! what each frame draws, as on the CPU path, and draws it through the
+//! pipeline with `Renderer::draw_gpu`.
 
+pub(crate) mod compose;
 mod gl;
+pub(crate) mod glyphs;
 mod ledger;
 mod pipeline;
 mod stand_in;
+mod tile;
 
+pub use compose::{ArrowAt, Work};
 pub use gl::{
     Batch, Blend, ContextId, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Input,
     InputKind, Limits, Program, Quad, Size, Source, Texture, Value,
 };
 pub use ledger::{Checked, Ledger, Resolved, TargetInfo, TextureInfo};
-pub use pipeline::{Color, Config, Pipeline, Spatial, Work};
+pub use pipeline::{Color, Config, Pipeline, Spatial};
 pub use stand_in::{Call, Op, StandIn};
+pub use tile::{Tile, tiles};

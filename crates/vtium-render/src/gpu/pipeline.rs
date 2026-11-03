@@ -21,30 +21,25 @@
 //! and only when the batch made a call. A frame that drew ends with
 //! [`Gl::submit`], so the display can show the buffer.
 //!
-//! This part builds the frame for an upright display whose frame fits one
-//! texture. The composition clears what it redraws to the border's color and
-//! draws nothing else yet; the cells, the pointer and the notices, the turn,
-//! the tiles and the pictures come in the later parts of slice 0
-//! (ADR-1303 D11).
+//! The pipeline draws an upright display; the turn is part 4 of slice 0,
+//! and the picture steps part 5 (ADR-1303 D11).
 
 use std::collections::VecDeque;
 
+use super::compose::{Composition, TARGET_SIZE, Work};
 use super::gl::{
     Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Gl, Input, InputKind, Program, Quad,
-    Size, Source, Texture, Value,
+    Size, Source, Value,
 };
+use super::glyphs::{Glyphs, Spec};
+use super::tile::{Tile, meet};
 use crate::bounds::PRESENT_HISTORY;
+use crate::notice::Placed;
 use crate::target::Rect;
 
 const QUAD_VERT: &str = include_str!("glsl/quad.vert");
 const PRESENT_HEAD: &str = include_str!("glsl/present_head.frag");
 const PRESENT_MAIN: &str = include_str!("glsl/present_main.frag");
-
-/// The inputs every program over `quad.vert` takes.
-const TARGET_SIZE: Input = Input {
-    name: "target_size",
-    kind: InputKind::Vec2,
-};
 
 /// Present's own inputs, before those of the steps folded into it.
 const PRESENT_INPUTS: [Input; 2] = [
@@ -108,8 +103,9 @@ impl Spatial {
         }
     }
 
-    /// How many pixels from the pixel it writes the step reads: the overlap
-    /// between the upright frame's tiles (ADR-1303 D3).
+    /// How many pixels from the pixel it writes the step reads, on each
+    /// side. The upright frame's tiles overlap by twice it, so that every
+    /// pixel a tile owns has its neighbours in that tile (ADR-1303 D3).
     pub fn reach(self) -> u32 {
         match self {
             Spatial::None => 0,
@@ -132,16 +128,6 @@ pub struct Config {
     pub spatial: Spatial,
 }
 
-/// One frame's work for the slots.
-#[derive(Clone, Copy, Debug)]
-pub struct Work<'a> {
-    /// The rectangles of the upright frame that changed, in its pixels.
-    pub redraw: &'a [Rect],
-    /// The border's color, `0x00RRGGBB`, which each redrawn rectangle is
-    /// cleared to first.
-    pub border: u32,
-}
-
 /// Slot 1, pictures at another size. It is empty until the picture steps
 /// fill it (ADR-1303 D2).
 #[derive(Debug)]
@@ -152,56 +138,6 @@ impl Pictures {
     /// many calls that took. With no picture step built yet, none.
     fn prepare<G: Gl>(&mut self, _gl: &mut G) -> Result<usize, Error> {
         Ok(0)
-    }
-}
-
-/// Slot 2, composition into the upright frame.
-#[derive(Debug)]
-struct Composition {
-    /// The upright frame.
-    target: DrawTarget,
-    size: Size,
-    /// The border's color it last cleared to.
-    border: Option<u32>,
-    /// Whether the next frame draws the whole upright frame.
-    whole: bool,
-}
-
-impl Composition {
-    fn new<G: Gl>(gl: &mut G, size: Size) -> Result<Composition, Error> {
-        Ok(Composition {
-            target: gl.create_frame(size)?,
-            size,
-            border: None,
-            whole: true,
-        })
-    }
-
-    /// Draws what changed into the upright frame, and gives the rectangles
-    /// it drew. A new border color draws the whole frame, as it does on the
-    /// CPU path.
-    fn draw<G: Gl>(&mut self, gl: &mut G, work: &Work<'_>) -> Result<Vec<Rect>, Error> {
-        if self.border != Some(work.border) {
-            self.border = Some(work.border);
-            self.whole = true;
-        }
-        let rects = if self.whole {
-            vec![self.size.rect()]
-        } else {
-            work.redraw
-                .iter()
-                .filter_map(|&r| clip(r, self.size))
-                .collect()
-        };
-        for &r in &rects {
-            gl.clear(&self.target, r, work.border)?;
-        }
-        self.whole = false;
-        Ok(rects)
-    }
-
-    fn free<G: Gl>(self, gl: &mut G) -> Result<(), Error> {
-        gl.free_target(self.target)
     }
 }
 
@@ -243,13 +179,15 @@ impl Present {
     /// Copies into `target`, a buffer `age` frames old, what it lacks: the
     /// rectangles composed over its age, `composed` the newest, or the whole
     /// buffer at age 0 or past the history; the whole buffer too when
-    /// `whole` and it lacks anything. Gives the rectangles it drew, the
-    /// frame's damage. A buffer that lacks nothing is not drawn, and the
-    /// frame does not count for the ages that follow, as on the CPU path.
+    /// `whole` and it lacks anything, or when what it lacks includes the
+    /// whole. Each tile of the upright frame draws the part it owns. Gives
+    /// the rectangles it drew, the frame's damage. A buffer that lacks
+    /// nothing is not drawn, and the frame does not count for the ages that
+    /// follow, as on the CPU path.
     fn draw<G: Gl>(
         &mut self,
         gl: &mut G,
-        frame: Option<&Texture>,
+        composition: &Composition,
         target: &DrawTarget,
         age: u32,
         composed: Vec<Rect>,
@@ -257,6 +195,12 @@ impl Present {
     ) -> Result<Vec<Rect>, Error> {
         self.history.push_front(composed);
         let age = usize::try_from(age).unwrap_or(usize::MAX);
+        // The history holds every frame composed since the pipeline was
+        // made or last forgot its buffers, newest first, this frame's
+        // included, and the first of those frames composed the whole
+        // upright frame. A buffer `age` frames old lacks the newest `age`
+        // of them; at an age equal to the history's length, that includes
+        // the whole first one, as the CPU path's held serial does.
         let unknown = age == 0 || age > self.history.len().min(PRESENT_HISTORY);
         let lacking: Vec<Rect> = if unknown {
             Vec::new()
@@ -269,27 +213,38 @@ impl Present {
         }
         self.history.truncate(PRESENT_HISTORY);
         let size = target.size();
-        let rects = if unknown || whole {
-            vec![size.rect()]
+        let all = size.rect();
+        let rects = if unknown || whole || lacking.iter().any(|&r| meet(r, all) == Some(all)) {
+            vec![all]
         } else {
             lacking
         };
-        let frame = frame.ok_or_else(|| Error::new(ErrorKind::Misuse, "present reads no frame"))?;
-        let quads: Vec<Quad> = rects.iter().map(|&r| quad(r)).collect();
-        gl.draw(&Draw {
-            target,
-            program: &self.program,
-            inputs: &[
-                (
-                    "target_size",
-                    Value::Vec2([size.width as f32, size.height as f32]),
-                ),
-                ("frame", Value::Texture(frame, Filter::Nearest)),
-            ],
-            quads: &quads,
-            blend: Blend::Replace,
-            scissor: None,
-        })?;
+        for (tile, frame) in composition.tiles() {
+            let frame =
+                frame.ok_or_else(|| Error::new(ErrorKind::Misuse, "present reads no frame"))?;
+            let quads: Vec<Quad> = rects
+                .iter()
+                .filter_map(|&r| meet(r, tile.owned))
+                .map(|r| quad(r, tile))
+                .collect();
+            if quads.is_empty() {
+                continue;
+            }
+            gl.draw(&Draw {
+                target,
+                program: &self.program,
+                inputs: &[
+                    (
+                        "target_size",
+                        Value::Vec2([size.width as f32, size.height as f32]),
+                    ),
+                    ("frame", Value::Texture(frame, Filter::Nearest)),
+                ],
+                quads: &quads,
+                blend: Blend::Replace,
+                scissor: None,
+            })?;
+        }
         Ok(rects)
     }
 
@@ -299,26 +254,20 @@ impl Present {
     }
 }
 
-/// A quad that copies `r` of the upright frame to the same place.
-fn quad(r: Rect) -> Quad {
+/// A quad that copies `r` of the upright frame, which `tile` holds, to the
+/// same place on the display.
+fn quad(r: Rect, tile: &Tile) -> Quad {
     let i = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
     Quad {
         dst: [i(r.x), i(r.y), i(r.width), i(r.height)],
-        src: [r.x, r.y, r.width, r.height],
+        src: [
+            r.x.saturating_sub(tile.held.x),
+            r.y.saturating_sub(tile.held.y),
+            r.width,
+            r.height,
+        ],
         params: [0; 4],
     }
-}
-
-/// `r` cut to `size`, when anything of it is left.
-fn clip(r: Rect, size: Size) -> Option<Rect> {
-    let right = r.x.saturating_add(r.width).min(size.width);
-    let bottom = r.y.saturating_add(r.height).min(size.height);
-    (r.x < right && r.y < bottom).then(|| Rect {
-        x: r.x,
-        y: r.y,
-        width: right.saturating_sub(r.x),
-        height: bottom.saturating_sub(r.y),
-    })
 }
 
 /// The GPU path's frame for one display, through its five slots.
@@ -333,11 +282,13 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    /// Sets up the frame for a display of `size`: the upright frame, and
-    /// present's program with the configured steps joined in. Its
-    /// allocations are one batch, checked once.
+    /// Sets up the frame for a display of `size`: the upright frame in
+    /// tiles, the composition's programs, and present's program with the
+    /// configured steps joined in. Its allocations are one batch, checked
+    /// once.
     pub fn new<G: Gl>(gl: &mut G, size: Size, config: Config) -> Result<Pipeline, Error> {
-        let composition = Composition::new(gl, size)?;
+        let overlap = config.spatial.reach().saturating_mul(2);
+        let composition = Composition::new(gl, size, overlap)?;
         let present = match Present::new(gl, config.color, config.spatial) {
             Ok(p) => p,
             Err(e) => {
@@ -397,7 +348,12 @@ impl Pipeline {
         target: &DrawTarget,
         age: u32,
     ) -> Result<Vec<Rect>, Error> {
-        if self.pictures.prepare(gl)? > 0 {
+        let uploads = self
+            .pictures
+            .prepare(gl)?
+            .saturating_add(work.uploads)
+            .saturating_add(self.composition.prepare(gl, work)?);
+        if uploads > 0 {
             gl.check(Batch::Uploads)?;
         }
         let composed = self.composition.draw(gl, work)?;
@@ -407,7 +363,7 @@ impl Pipeline {
         // slots 3 and 4 run inside present's one pass
         let damage = self.present.draw(
             gl,
-            self.composition.target.texture(),
+            &self.composition,
             target,
             age,
             composed,
@@ -424,8 +380,35 @@ impl Pipeline {
     /// Makes the next frame compose the whole upright frame and present the
     /// whole buffer.
     pub fn redraw_whole(&mut self) {
-        self.composition.whole = true;
+        self.composition.redraw_whole();
         self.present.forget();
+    }
+
+    /// The display's size.
+    pub fn size(&self) -> Size {
+        self.display
+    }
+
+    /// Whether the next frame must compose the whole upright frame: it is
+    /// new, the last frame failed, or the border's color changes to
+    /// `border`. The renderer then draws the whole picture.
+    pub fn composes_whole(&self, border: u32) -> bool {
+        self.composition.needs_whole(border)
+    }
+
+    /// The areas of the last frame's notices and focus mark that `overlays`
+    /// no longer draws as they were, whose cells the next frame draws again.
+    pub fn overlays_gone(&self, overlays: &[Placed]) -> Vec<Rect> {
+        self.composition.overlays_gone(overlays)
+    }
+
+    /// The glyphs of the renderer `spec` names, for the renderer's back end.
+    pub(crate) fn glyphs<G: Gl>(
+        &mut self,
+        gl: &mut G,
+        spec: &Spec<'_>,
+    ) -> Result<&mut Glyphs, Error> {
+        self.composition.glyphs(gl, spec)
     }
 
     /// Frees what the pipeline holds in GL.

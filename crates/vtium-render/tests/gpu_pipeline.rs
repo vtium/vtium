@@ -54,10 +54,11 @@ fn set_up_makes_the_upright_frame_and_present_and_checks_once() {
     let mut gl = StandIn::new();
     let p = Pipeline::new(&mut gl, DISPLAY, Config::default()).unwrap();
     let calls = gl.calls();
-    assert_eq!(calls.len(), 3, "{calls:?}");
+    assert_eq!(calls.len(), 5, "{calls:?}");
     assert_eq!(calls[0], Call::CreateFrame(DISPLAY));
-    assert!(matches!(calls[1], Call::Compile(_)));
-    assert_eq!(calls[2], Call::Check(Batch::Uploads));
+    // the cell shader, the arrow's and present's
+    assert!(calls[1..4].iter().all(|c| matches!(c, Call::Compile(_))));
+    assert_eq!(calls[4], Call::Check(Batch::Uploads));
     p.free(&mut gl).unwrap();
     assert_eq!(gl.live(), (0, 0, 0));
 }
@@ -71,7 +72,7 @@ fn empty_color_and_spatial_slots_join_no_source_and_make_no_call() {
     let config = Config::default();
     assert_eq!((config.color, config.spatial), (Color::None, Spatial::None));
     let mut p = Pipeline::new(&mut gl, DISPLAY, config).unwrap();
-    let Call::Compile(fragment) = &gl.calls()[1] else {
+    let Call::Compile(fragment) = &gl.calls()[3] else {
         panic!("{:?}", gl.calls());
     };
     let bare = [
@@ -87,10 +88,7 @@ fn empty_color_and_spatial_slots_join_no_source_and_make_no_call() {
     gl.clear_calls();
     let buffer = gl.import_buffer(&DISPLAY).unwrap();
     gl.clear_calls();
-    let work = Work {
-        redraw: &[],
-        border: BORDER,
-    };
+    let work = Work::new(BORDER, &[], &[]);
     p.frame(&mut gl, &work, &buffer, 0).unwrap();
     assert_eq!(
         gl.calls(),
@@ -109,17 +107,11 @@ fn a_frame_checks_for_errors_after_the_composition_and_at_its_end() {
     let mut gl = StandIn::new();
     let mut p = set_up(&mut gl);
     let buffer = gl.import_buffer(&DISPLAY).unwrap();
-    let first = Work {
-        redraw: &[],
-        border: BORDER,
-    };
+    let first = Work::new(BORDER, &[], &[]);
     p.frame(&mut gl, &first, &buffer, 0).unwrap();
     gl.clear_calls();
     let cells = [rect(8, 0, 8, 16), rect(24, 16, 16, 16)];
-    let work = Work {
-        redraw: &cells,
-        border: BORDER,
-    };
+    let work = Work::new(BORDER, &cells, &cells);
     let damage = p.frame(&mut gl, &work, &buffer, 1).unwrap();
     assert_eq!(damage, cells);
     assert_eq!(
@@ -140,18 +132,12 @@ fn a_frame_that_changes_nothing_makes_no_call() {
     let mut gl = StandIn::new();
     let mut p = set_up(&mut gl);
     let buffer = gl.import_buffer(&DISPLAY).unwrap();
-    let work = Work {
-        redraw: &[],
-        border: BORDER,
-    };
+    let work = Work::new(BORDER, &[], &[]);
     p.frame(&mut gl, &work, &buffer, 0).unwrap();
     gl.clear_calls();
     // a rectangle wholly off the frame changes nothing either
     for redraw in [&[][..], &[rect(64, 0, 8, 8)]] {
-        let work = Work {
-            redraw,
-            border: BORDER,
-        };
+        let work = Work::new(BORDER, redraw, redraw);
         assert_eq!(p.frame(&mut gl, &work, &buffer, 1).unwrap(), []);
     }
     assert_eq!(gl.calls(), &[]);
@@ -164,10 +150,7 @@ fn present_draws_what_a_buffer_lacks_over_its_age() {
     let buffer = gl.import_buffer(&DISPLAY).unwrap();
     let whole = vec![DISPLAY.rect()];
     let mut frame = |gl: &mut StandIn, redraw: &[Rect], age| {
-        let work = Work {
-            redraw,
-            border: BORDER,
-        };
+        let work = Work::new(BORDER, redraw, redraw);
         p.frame(gl, &work, &buffer, age).unwrap()
     };
     assert_eq!(frame(&mut gl, &[], 0), whole);
@@ -192,10 +175,7 @@ fn a_buffer_that_lacks_something_is_presented_though_nothing_was_composed() {
     let buffer = gl.import_buffer(&DISPLAY).unwrap();
     let a = [rect(0, 0, 8, 16)];
     let mut frame = |gl: &mut StandIn, redraw: &[Rect], age| {
-        let work = Work {
-            redraw,
-            border: BORDER,
-        };
+        let work = Work::new(BORDER, redraw, redraw);
         p.frame(gl, &work, &buffer, age).unwrap()
     };
     frame(&mut gl, &[], 0);
@@ -223,16 +203,11 @@ fn a_redrawn_rectangle_partly_off_the_frame_is_trimmed_to_it() {
     let mut gl = StandIn::new();
     let mut p = set_up(&mut gl);
     let buffer = gl.import_buffer(&DISPLAY).unwrap();
-    let work = Work {
-        redraw: &[],
-        border: BORDER,
-    };
+    let work = Work::new(BORDER, &[], &[]);
     p.frame(&mut gl, &work, &buffer, 0).unwrap();
     gl.clear_calls();
-    let work = Work {
-        redraw: &[rect(56, 24, 16, 16)],
-        border: BORDER,
-    };
+    let r = [rect(56, 24, 16, 16)];
+    let work = Work::new(BORDER, &r, &r);
     let trimmed = rect(56, 24, 8, 8);
     assert_eq!(p.frame(&mut gl, &work, &buffer, 1).unwrap(), [trimmed]);
     assert_eq!(gl.calls()[0], Call::Clear(trimmed, BORDER));
@@ -243,10 +218,7 @@ fn a_redrawn_rectangle_partly_off_the_frame_is_trimmed_to_it() {
 fn a_buffer_of_another_size_than_the_display_is_refused() {
     let mut gl = StandIn::new();
     let mut p = set_up(&mut gl);
-    let work = Work {
-        redraw: &[],
-        border: BORDER,
-    };
+    let work = Work::new(BORDER, &[], &[]);
     for size in [Size::new(64, 31), Size::new(32, 64)] {
         let buffer = gl.import_buffer(&size).unwrap();
         gl.clear_calls();
@@ -280,17 +252,11 @@ fn a_new_border_color_composes_the_whole_frame() {
     let buffer = gl.import_buffer(&DISPLAY).unwrap();
     let cell = [rect(8, 0, 8, 16)];
     for border in [BORDER, BORDER] {
-        let work = Work {
-            redraw: &cell,
-            border,
-        };
+        let work = Work::new(border, &cell, &cell);
         p.frame(&mut gl, &work, &buffer, 1).unwrap();
     }
     gl.clear_calls();
-    let work = Work {
-        redraw: &cell,
-        border: 0x00ff_ffff,
-    };
+    let work = Work::new(0x00ff_ffff, &cell, &cell);
     p.frame(&mut gl, &work, &buffer, 1).unwrap();
     assert_eq!(gl.calls()[0], Call::Clear(DISPLAY.rect(), 0x00ff_ffff));
 }
@@ -303,10 +269,7 @@ fn a_frame_dropped_for_a_gl_error_is_followed_by_a_whole_one() {
     let mut p = set_up(&mut gl);
     let buffer = gl.import_buffer(&DISPLAY).unwrap();
     let cell = [rect(8, 0, 8, 16)];
-    let work = Work {
-        redraw: &cell,
-        border: BORDER,
-    };
+    let work = Work::new(BORDER, &cell, &cell);
     p.frame(&mut gl, &work, &buffer, 0).unwrap();
     gl.raise(ErrorKind::Gl);
     let e = p.frame(&mut gl, &work, &buffer, 1).unwrap_err();
@@ -320,14 +283,81 @@ fn a_frame_dropped_for_a_gl_error_is_followed_by_a_whole_one() {
 }
 
 #[test]
-fn a_display_past_the_largest_texture_is_refused_until_the_frame_is_tiled() {
-    // the tiles of ADR-1303 D3 come with the composition; until then the
-    // set-up says why and leaves nothing behind
+fn a_display_past_the_largest_texture_is_held_in_tiles() {
+    // ADR-1303 D3: each tile within the largest texture, and one tile and
+    // many take the same path
+    let mut gl = StandIn::with_limits(Limits {
+        texture: 24,
+        ..StandIn::LIMITS
+    });
+    let mut p = Pipeline::new(&mut gl, DISPLAY, Config::default()).unwrap();
+    let frames: Vec<&Call> = gl
+        .calls()
+        .iter()
+        .filter(|c| matches!(c, Call::CreateFrame(_)))
+        .collect();
+    assert_eq!(
+        frames,
+        [
+            &Call::CreateFrame(Size::new(24, 24)),
+            &Call::CreateFrame(Size::new(24, 24)),
+            &Call::CreateFrame(Size::new(16, 24)),
+            &Call::CreateFrame(Size::new(24, 8)),
+            &Call::CreateFrame(Size::new(24, 8)),
+            &Call::CreateFrame(Size::new(16, 8)),
+        ]
+    );
+    let buffer = gl.import_buffer(&DISPLAY).unwrap();
+    p.frame(&mut gl, &Work::new(BORDER, &[], &[]), &buffer, 0)
+        .unwrap();
+    gl.clear_calls();
+    // a rectangle across the first two tiles' seam is cleared in each, in
+    // its own pixels, and presented from each into its own part
+    let r = [rect(20, 4, 8, 8)];
+    let damage = p
+        .frame(&mut gl, &Work::new(BORDER, &r, &r), &buffer, 1)
+        .unwrap();
+    assert_eq!(damage, r);
+    let quad = |x: u32, src_x: u32| Quad {
+        dst: [x as i32, 4, 4, 8],
+        src: [src_x, 4, 4, 8],
+        params: [0; 4],
+    };
+    let draw = |q: Quad| Call::Draw {
+        quads: vec![q],
+        blend: Blend::Replace,
+        inputs: vec!["target_size", "frame"],
+    };
+    assert_eq!(
+        gl.calls(),
+        &[
+            Call::Clear(rect(20, 4, 4, 8), BORDER),
+            Call::Clear(rect(0, 4, 4, 8), BORDER),
+            Call::Check(Batch::Draws),
+            draw(quad(20, 20)),
+            draw(quad(24, 0)),
+            Call::Check(Batch::Frame),
+            Call::Submit,
+        ]
+    );
+    p.free(&mut gl).unwrap();
+    gl.free_target(buffer).unwrap();
+    assert_eq!(gl.live(), (0, 0, 0));
+}
+
+#[test]
+fn a_display_no_tile_can_hold_is_refused_and_leaves_nothing_behind() {
+    // the last tile's set-up fails: the ones made before it are freed
     let mut gl = StandIn::with_limits(Limits {
         texture: 32,
         ..StandIn::LIMITS
     });
+    gl.fail_next(Op::CreateFrame, ErrorKind::OutOfMemory);
     let e = Pipeline::new(&mut gl, DISPLAY, Config::default()).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::OutOfMemory);
+    assert_eq!(gl.live(), (0, 0, 0));
+    let mut gl = StandIn::new();
+    let e = Pipeline::new(&mut gl, Size::new(0, 32), Config::default()).unwrap_err();
     assert_eq!(e.kind, ErrorKind::Limit);
     assert_eq!(gl.live(), (0, 0, 0));
 }
