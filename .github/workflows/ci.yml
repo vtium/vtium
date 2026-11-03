@@ -10,8 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # libudev and libxkbcommon, which vtium-platform links, and libsystemd,
-      # which its logind feature links
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev
+      # which its logind feature links; and Mesa's EGL and llvmpipe, which
+      # the gpu feature's tests draw on (vtium-platform loads libEGL and
+      # libgbm at run time and links neither)
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
@@ -40,7 +42,9 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev
+      # As the check job's, Mesa's EGL and llvmpipe included: the gpu
+      # feature's tests draw on llvmpipe here too
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
