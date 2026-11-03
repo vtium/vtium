@@ -282,6 +282,8 @@ fn inputs() -> Inputs {
         saving: model::Saving::Sudo("sudo /usr/bin/vtium-config apply DRAFT".into()),
         drafts: PathBuf::from("/home/me/.local/state/vtium/drafts"),
         dpi: (96, DpiFrom::Assumed),
+        frits: PathBuf::from("/etc/vtium/fonts"),
+        view: model::View::Fonts,
     }
 }
 
@@ -530,6 +532,106 @@ fn a_head_s_profile_is_chosen_and_written_through_the_one_writer() {
     );
 }
 
+/// The settings view lists every key vtium.conf takes, from the console's
+/// own key table, the font keys first, each once.
+#[test]
+fn the_settings_view_lists_every_key_vtium_conf_takes() {
+    use vtium_settings::keys::{KEYS, Scope};
+    let listed: Vec<&str> = model::setting_keys().iter().map(|k| k.name).collect();
+    let takes: Vec<&str> = KEYS
+        .iter()
+        .filter(|k| k.scope == Scope::Anywhere)
+        .map(|k| k.name)
+        .collect();
+    assert_eq!(listed.len(), takes.len(), "{listed:?}");
+    for name in &takes {
+        assert_eq!(listed.iter().filter(|n| *n == name).count(), 1, "{name}");
+    }
+    assert_eq!(&listed[..model::FONT_KEYS.len()], &model::FONT_KEYS[..]);
+}
+
+#[test]
+fn a_setting_shows_its_default_and_what_it_does() {
+    let mut c = console().keys(&[b"\t", b"\t", DOWN]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("font-size"), "{screen}");
+    assert!(screen.contains("0 (default)"), "{screen}");
+    assert!(screen.contains("The font's size in points"), "{screen}");
+}
+
+/// Enter types a value for a key that takes one, a second Enter keeps it,
+/// a switch turns, a choice steps, and the save changes each line; typed
+/// text takes `q` and `s` as letters.
+#[test]
+fn a_typed_value_a_switch_and_a_choice_are_saved_like_a_font() {
+    let mut c = console().keys(&[
+        b"\t", b"\t", DOWN, DOWN, DOWN, b"\r", DOWN, b"\r", b"10", b"\r", DOWN, b"\r", DOWN, b"\r",
+        b"qs", b"\r", b"s", b"\r", b"q",
+    ]);
+    assert_eq!(run(&mut c), 0);
+    let plan = c.saves.first().expect("a save");
+    assert_eq!(
+        plan.files[0].new,
+        "# mine\nfont-name=unifont\nfont-hinting=light\nfont-line-spacing=10\nno-allow-font-ops\ndisplay-dpi=qs\n"
+    );
+}
+
+#[test]
+fn a_new_frit_is_typed_in_its_view_and_saved_into_the_frits() {
+    let mut c = console().keys(&[
+        b"\t",
+        b"\t",
+        b"\t",
+        b"\t",
+        b"quiet",
+        b"\r",
+        b"builtin:unscii-8",
+        b"\r",
+        b"Some Family",
+        b"\r",
+        b"\r",
+        b"\r",
+        b"\r",
+        b"\r",
+        b"\r",
+        b"q",
+    ]);
+    assert_eq!(run(&mut c), 0);
+    let plan = c.saves.first().expect("a save");
+    assert_eq!(plan.files.len(), 1);
+    assert_eq!(
+        plan.files[0].path,
+        PathBuf::from("/etc/vtium/fonts/quiet.vtfrit")
+    );
+    assert_eq!(
+        plan.files[0].new,
+        "# quiet: made by vtium-config new\nname=quiet\nsource=builtin:unscii-8\nsource=font:Some Family\n"
+    );
+}
+
+#[test]
+fn a_new_frit_the_reader_refuses_stays_in_its_view_and_says_why() {
+    let mut c = console().keys(&[
+        b"\t", b"\t", b"\t", b"\t", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r",
+    ]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("The frit does not read"), "{screen}");
+    assert!(screen.contains("Source 1"), "{screen}");
+    assert!(c.saves.is_empty());
+}
+
+#[test]
+fn new_opens_the_tui_at_its_new_frit_view() {
+    let mut inputs = inputs();
+    inputs.view = model::View::New;
+    let mut c = console();
+    drive(&mut c, inputs).expect("the loop");
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("Add the frit to the save"), "{screen}");
+}
+
 #[test]
 fn nothing_kept_means_nothing_to_save() {
     let mut c = console().keys(&[b"s", b"\r", b"q"]);
@@ -590,12 +692,13 @@ fn reach(cols: usize, rows: usize, keys: &[&[u8]]) -> String {
 
 #[test]
 fn each_view_at_80x25_and_100x30() {
-    let scripts: [(&str, &[&[u8]]); 5] = [
+    let scripts: [(&str, &[&[u8]]); 6] = [
         ("fonts", &[]),
         ("sizes", &[b"\t"]),
         ("settings", &[b"\t", b"\t"]),
         ("heads", &[b"\t", b"\t", b"\t"]),
         ("save", &[UP, b"\r", b"s"]),
+        ("new", &[b"\t", b"\t", b"\t", b"\t"]),
     ];
     for (cols, rows) in [(40, 25), (40, 30), (80, 25), (100, 30)] {
         for (name, keys) in scripts {
@@ -604,7 +707,7 @@ fn each_view_at_80x25_and_100x30() {
             assert_eq!(lines.len(), rows, "{name} at {cols}x{rows}");
             assert!(lines.iter().all(|l| l.chars().count() <= cols), "{name}");
             assert!(lines[0].contains("VTium Vitrifier"), "{name}: {screen}");
-            assert!(lines[rows - 1].contains("q leave"), "{name}: {screen}");
+            assert!(lines[rows - 1].contains("leave"), "{name}: {screen}");
             golden(&format!("{name}-{cols}x{rows}"), &screen);
         }
     }

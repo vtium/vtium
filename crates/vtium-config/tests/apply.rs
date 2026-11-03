@@ -92,6 +92,7 @@ impl Fixture {
                 old: std::fs::read_to_string(self.conf_path()).ok(),
                 new: new.to_owned(),
             }],
+            removals: Vec::new(),
         }
     }
 }
@@ -179,6 +180,7 @@ display * -> desk
                 new: "font-size=lots\n".into(),
             },
         ],
+        removals: Vec::new(),
     };
     let draft = f.draft(&plan);
     let (status, out, err) = f.apply(&draft);
@@ -208,6 +210,7 @@ fn a_head_file_with_errors_is_refused() {
             old: None,
             new: "[head desk]\n".into(),
         }],
+        removals: Vec::new(),
     });
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
@@ -244,6 +247,7 @@ fn a_head_file_and_vtium_conf_install_head_file_first() {
                 new: "version = 1\n[head desk]\nprofile = tiny\n[rules]\ndisplay * -> desk\ninput * -> desk\n".into(),
             },
         ],
+        removals: Vec::new(),
     };
     let draft = f.draft(&plan);
     let (status, out, err) = f.apply(&draft);
@@ -418,6 +422,7 @@ fn the_save_view_shows_the_command_the_save_runs() {
         drafts: PathBuf::from("/home/me/drafts"),
         sudo: "sudo".into(),
         vtium: system.vtium.clone(),
+        helper: vtium_config::specimen::Helper::at(&exe),
     };
     assert_eq!(
         saving(&paths),
@@ -430,6 +435,7 @@ fn the_save_view_shows_the_command_the_save_runs() {
         drafts: PathBuf::from("/home/me/drafts"),
         sudo: "sudo".into(),
         vtium: f.targets.vtium.clone(),
+        helper: vtium_config::specimen::Helper::at(&exe),
     };
     let want = save_argv(&Route::User, &exe, &f.targets, Path::new("DRAFT"))
         .iter()
@@ -560,6 +566,7 @@ fn a_frit_the_reader_refuses_quotes_nothing_it_holds() {
             old: None,
             new: "source=builtin:unscii-8\nSECRET-TOKEN-4242=1\n".into(),
         }],
+        removals: Vec::new(),
     });
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");

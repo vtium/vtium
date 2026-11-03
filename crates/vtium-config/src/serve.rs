@@ -39,11 +39,18 @@
 //! it has no request and no fill for [`HELPER_IDLE_MS`], or when the
 //! console closes its end and its work is done.
 //!
+//! A fifth request, a sources query, is vtium-config's own and the console
+//! never sends it: it asks which of a frit's sources this machine lacks or
+//! refuses, which `vtium config fonts` and the TUI's font list show
+//! (ADR-1201 D2, D3), so they learn it without parsing a font in their own
+//! process. It is answered at once, like a cell query.
+//!
 //! ```text
 //! request  magic "VTVSREQ3", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
-//!          query), frit name length u32, the name (ADR-1200 D1's
+//!          query, 5 sources query), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
-//!          u32 (0 for a cell query), cell height u32 (for a cell query,
+//!          u32 (0 for a cell or sources query), cell height u32 (for a
+//!          sources query 0, for a cell query
 //!          the height an outline font is drawn at, or 0), capabilities
 //!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
@@ -65,8 +72,11 @@
 //!          height u32); kind 7 no own cell (UTF-8 reason); kind 8 a stop
 //!          taken (its cell's width u32 and height u32), one for each
 //!          stop; kind 9 a warning the frit's text gave as it was read,
-//!          once for each frit read (UTF-8); kind 3 a failure (UTF-8
-//!          reason)
+//!          once for each frit read (UTF-8); kind 11 a sources query's
+//!          answer, one line for each source left out, `missing` or
+//!          `refused`, a tab, the source's line in the frit, a tab, its
+//!          spelling, a tab and why (UTF-8, empty when none is left out);
+//!          kind 3 a failure (UTF-8 reason)
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
@@ -142,6 +152,8 @@ pub const FRAME_WARNING: u32 = 9;
 /// answer when the frit's first source is an outline font: its width and
 /// height, the height the one asked for.
 pub const FRAME_OUTLINE_CELL: u32 = 10;
+/// A sources query's answer: each source left out, one a line.
+pub const FRAME_SOURCES: u32 = 11;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// A fill: the cell's coverage, in order, around the asks.
@@ -151,6 +163,10 @@ pub const STOP: u32 = 3;
 /// A cell query asks for the frit's own cell. It carries a width of 0, the
 /// height an outline font would be drawn at or 0, and no codepoints.
 pub const OWN_CELL: u32 = 4;
+/// A sources query asks which of the frit's sources this machine lacks or
+/// refuses. It carries a cell of 0 by 0 and no codepoints, and the console
+/// never sends it.
+pub const SOURCES: u32 = 5;
 /// What a fill draws after the screen's codepoints: printable Latin
 /// (Basic Latin, Latin-1 and Latin Extended-A), then box drawing, block
 /// elements and shades.
@@ -185,7 +201,7 @@ pub struct FritText {
 /// What the console sends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServeRequest {
-    /// [`ASK`], [`FILL`], [`STOP`] or [`OWN_CELL`].
+    /// [`ASK`], [`FILL`], [`STOP`], [`OWN_CELL`] or [`SOURCES`].
     pub kind: u32,
     pub frit: FritText,
     pub cell: Cell,
@@ -321,7 +337,7 @@ impl ServeRequest {
         }
         let mut f = Fields(r);
         let kind = f.u32()?;
-        if !matches!(kind, ASK | FILL | STOP | OWN_CELL) {
+        if !matches!(kind, ASK | FILL | STOP | OWN_CELL | SOURCES) {
             return Err("an unknown request kind".to_owned());
         }
         let n = f.count(NAME_BYTES_MAX, "a frit's name")?;
@@ -339,9 +355,12 @@ impl ServeRequest {
             width: f.u32()?,
             height: f.u32()?,
         };
-        let query = kind == OWN_CELL;
+        let query = matches!(kind, OWN_CELL | SOURCES);
         if query && (cell.width != 0 || cell.height > CELL_SIDE_MAX) {
             return Err("a cell query at a cell, or at a height past CELL_SIDE_MAX".to_owned());
+        }
+        if kind == SOURCES && cell.height != 0 {
+            return Err("a sources query at a height".to_owned());
         }
         if !query
             && (!(1..=CELL_SIDE_MAX).contains(&cell.width)
@@ -504,6 +523,49 @@ pub enum OwnCell {
     Outline(Cell),
 }
 
+/// A source [`Engine::load`] left out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LeftOut {
+    /// This machine does not have it; otherwise it has it and refused it.
+    pub missing: bool,
+    /// Its line in the frit.
+    pub line: usize,
+    /// Its value as the frit spells it, such as `font:JetBrains Mono`.
+    pub spelling: String,
+    pub why: String,
+}
+
+impl LeftOut {
+    /// The line a sources query answers for it.
+    pub fn line_text(&self) -> String {
+        let kind = if self.missing { "missing" } else { "refused" };
+        let clean = |t: &str| t.replace(['\t', '\n'], " ");
+        format!(
+            "{kind}\t{}\t{}\t{}",
+            self.line,
+            clean(&self.spelling),
+            clean(&self.why)
+        )
+    }
+
+    /// The source a sources query's line `text` names, `None` for a line
+    /// that is not one.
+    pub fn parse(text: &str) -> Option<LeftOut> {
+        let mut f = text.splitn(4, '\t');
+        let missing = match f.next()? {
+            "missing" => true,
+            "refused" => false,
+            _ => return None,
+        };
+        Some(LeftOut {
+            missing,
+            line: f.next()?.parse().ok()?,
+            spelling: f.next()?.to_owned(),
+            why: f.next()?.to_owned(),
+        })
+    }
+}
+
 /// A frit's sources, ready to draw at any cell.
 pub struct Engine {
     name: String,
@@ -515,6 +577,9 @@ pub struct Engine {
     failed: RefCell<BTreeMap<usize, String>>,
     /// What the frit's text gave as warnings, each naming its line.
     warnings: Vec<String>,
+    /// The sources [`Engine::load`] left out, each as a sources query
+    /// answers it.
+    left_out: Vec<LeftOut>,
     /// Each outline source's baseline at a cell's height, by its place in
     /// `sources` and the height (ADR-1302 D3): found once, from the
     /// source's printable ASCII, so every request draws it on one
@@ -630,6 +695,7 @@ impl Engine {
         };
         let mut sources = Vec::new();
         let mut why = Vec::new();
+        let mut left_out = Vec::new();
         for source in &frit.sources {
             let loaded = resolve(source, &host).and_then(|input| {
                 match input {
@@ -654,9 +720,21 @@ impl Engine {
             match loaded {
                 Ok(l) => sources.push((source.clone(), l)),
                 Err(SourceError::Missing(e)) => {
-                    why.push(format!("source={}: {e}", source.spelling))
+                    why.push(format!("source={}: {e}", source.spelling));
+                    left_out.push(LeftOut {
+                        missing: true,
+                        line: source.line,
+                        spelling: source.spelling.clone(),
+                        why: e,
+                    });
                 }
                 Err(SourceError::Failed(e)) => {
+                    left_out.push(LeftOut {
+                        missing: false,
+                        line: source.line,
+                        spelling: source.spelling.clone(),
+                        why: e.clone(),
+                    });
                     let line = format!("source={}: {e}", source.spelling);
                     warnings.push(format!(
                         "{}:{}: {line}; the source is left out",
@@ -692,6 +770,7 @@ impl Engine {
             coverage,
             failed: RefCell::default(),
             warnings,
+            left_out,
             baselines: RefCell::default(),
             hinting: frit.hinting,
         })
@@ -701,6 +780,12 @@ impl Engine {
     /// refused, each naming its line.
     pub fn warnings(&self) -> &[String] {
         &self.warnings
+    }
+
+    /// The sources the engine left out: those this machine does not have,
+    /// and those it has and refused.
+    pub fn left_out(&self) -> &[LeftOut] {
+        &self.left_out
     }
 
     /// Every codepoint the frit's sources give, sorted.
@@ -1252,6 +1337,16 @@ impl Work<'_> {
                         write_frame(out, FRAME_OUTLINE_CELL, &cell_payload(cell))
                     }
                     Err(why) => reason(out, FRAME_NO_OWN_CELL, &why),
+                };
+            }
+            SOURCES => {
+                return match self.engine(&request.frit) {
+                    Ok(engine) => {
+                        let lines: Vec<String> =
+                            engine.left_out().iter().map(LeftOut::line_text).collect();
+                        write_frame(out, FRAME_SOURCES, lines.join("\n").as_bytes())
+                    }
+                    Err(why) => failed(out, &why.clone()),
                 };
             }
             _ => {

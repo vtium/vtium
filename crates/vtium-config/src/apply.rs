@@ -159,6 +159,18 @@ pub fn write_draft(root: &Path, plan: &Plan, targets: &Targets) -> io::Result<Pa
             .map_or_else(|| "new".to_owned(), |old| hash(old.as_bytes()));
         manifest.push_str(&format!("write\t{name}\t{was}\n"));
     }
+    for removal in &plan.removals {
+        let name = name_for(targets, &removal.path)
+            .filter(|n| n.starts_with("fonts/"))
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("{} is no frit a draft removes", removal.path.display()),
+                )
+            })?;
+        let was = hash(&removal.old);
+        manifest.push_str(&format!("remove\t{name}\t{was}\n"));
+    }
     std::fs::write(dir.join(MANIFEST), manifest)?;
     Ok(dir)
 }
@@ -254,7 +266,7 @@ pub fn saver(paths: Paths) -> Saver {
         let program = std::env::current_exe().map_err(|e| e.to_string())?;
         let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
         match run(&argv) {
-            Ok((true, _)) => Ok(plan.files.len()),
+            Ok((true, _)) => Ok(plan.len()),
             Ok((false, said)) => Err(format!(
                 "the command failed, and the draft stays in {}.\n{}",
                 draft.display(),
@@ -517,6 +529,91 @@ pub fn command(
             let _ = writeln!(err, "vtium-config: {why}\nNothing was written.");
             1
         }
+    }
+}
+
+/// Makes `plan`, the change a command computed (ADR-1201 D2), writing to
+/// `out` and `err`; returns the exit status. Run as root, it installs the
+/// change at once through the steps `apply` takes, from a draft root makes
+/// in a directory of its own. Run as a user, it writes the change as a
+/// draft under `paths.drafts` and prints each file the draft writes or
+/// removes, the draft's directory, and the command that installs it.
+pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
+    if plan.is_empty() {
+        let _ = writeln!(out, "unchanged");
+        return 0;
+    }
+    let targets = paths.targets();
+    if rustix::process::geteuid().is_root() {
+        return match install_now(plan, &targets, out) {
+            Ok(true) => 0,
+            Ok(false) => 1,
+            Err(why) => {
+                let _ = writeln!(err, "vtium-config: {why}\nNothing was written.");
+                1
+            }
+        };
+    }
+    let draft = match write_draft(&paths.drafts, plan, &targets) {
+        Ok(draft) => draft,
+        Err(e) => {
+            let _ = writeln!(
+                err,
+                "vtium-config: the draft under {}: {e}",
+                paths.drafts.display()
+            );
+            return 1;
+        }
+    };
+    for file in &plan.files {
+        let _ = writeln!(out, "write\t{}", file.path.display());
+    }
+    for removal in &plan.removals {
+        let _ = writeln!(out, "remove\t{}", removal.path.display());
+    }
+    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
+    let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
+    let shown: Vec<String> = argv
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let _ = writeln!(out, "draft\t{}", draft.display());
+    let _ = writeln!(out, "run\t{}", shown.join(" "));
+    0
+}
+
+/// Installs `plan` at once, as root: the draft written into a directory of
+/// root's own under `/tmp`, then applied, so every file goes through the
+/// checks `apply` makes.
+fn install_now(plan: &Plan, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
+    let scratch = Scratch::system()?;
+    let draft = write_draft(&scratch.path, plan, targets)
+        .map_err(|e| format!("the draft under {}: {e}", scratch.path.display()))?;
+    apply(&draft, targets, out)
+}
+
+/// A copy of `bytes`, named `name`, in a directory of this process's own
+/// under the system's temporary directory, as `check` hands a file to the
+/// console's check; the directory goes when the copy is dropped.
+pub struct Copy {
+    scratch: Scratch,
+    pub path: PathBuf,
+}
+
+impl Copy {
+    pub fn new(name: &str, bytes: &[u8]) -> Result<Copy, String> {
+        let scratch = Scratch::new(
+            &std::env::temp_dir(),
+            &mut scratch_name,
+            rustix::process::geteuid().as_raw(),
+        )?;
+        let path = scratch.write(name, bytes)?;
+        Ok(Copy { scratch, path })
+    }
+
+    /// The directory that holds the copy.
+    pub fn dir(&self) -> &Path {
+        &self.scratch.path
     }
 }
 

@@ -13,9 +13,22 @@ Manages the vtium console's fonts and settings, trying each font on the live con
 With no command at a terminal, opens the interactive tool.
 
 Commands:
+  fonts                              list the frits and built-in fonts, and the sources each lacks
+  check FILE                         check a frit (NAME.vtfrit) or a vtium.conf, writing nothing
+  config KEY [VALUE]                 print a vtium.conf key's value, or set it
+  config --unset KEY                 leave a vtium.conf key at its default
+  new FONT... [--name NAME] [--cell WxH] [--size POINTS]
+                                     make a frit of fonts, each a family or a source
+  new --from FILE [--name NAME]      install the frit in FILE
+  new --template                     print a frit to edit for new --from
+  new                                at a terminal, open the interactive tool at its new frit
+  remove-frit NAME                   remove a frit that vtium.conf does not name
   set NAME                           switch the running console to a frit or a built-in font
   apply DIR                          check a saved draft and install it (as root)
   serve                              generate glyphs for the console (the console starts it)
+
+Run as a user, a command that changes something writes a draft and prints
+the command that installs it; run as root, it installs at once.
 
 Options:
   --configdir DIR       the directory of vtium.conf and heads.conf, in place of /etc/vtium
@@ -80,7 +93,29 @@ impl Options {
                 .clone()
                 .unwrap_or_else(|| crate::apply::VTIUM.to_owned())
                 .into(),
+            helper: self.helper(),
         }
+    }
+
+    /// The glyph helper, this binary run as `serve`, finding sources where
+    /// the options name them.
+    fn helper(&self) -> crate::specimen::Helper {
+        let program =
+            std::env::current_exe().unwrap_or_else(|_| PathBuf::from("/usr/bin/vtium-config"));
+        let mut options: Vec<OsString> = Vec::new();
+        for dir in &self.kbd_dirs {
+            options.extend(["--kbd-dir".into(), dir.into()]);
+        }
+        for dir in &self.font_dirs {
+            options.extend(["--font-dir".into(), dir.into()]);
+        }
+        if let Some(f) = &self.vconsole_conf {
+            options.extend(["--vconsole-conf".into(), f.into()]);
+        }
+        if let Some(f) = &self.kernel_cmdline {
+            options.extend(["--kernel-cmdline".into(), f.into()]);
+        }
+        crate::specimen::Helper { program, options }
     }
 }
 
@@ -160,9 +195,14 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
         }
     });
     // the TUI runs as the user from start to end (ADR-1201 D5); an empty
-    // command word is no command, which `run` opens the TUI for
+    // command word is no command, which `run` opens the TUI for, and `new`
+    // alone opens it too
     let tui = parse_args(args)
-        .is_ok_and(|o| o.words.first().is_none_or(String::is_empty))
+        .is_ok_and(|o| match o.words.as_slice() {
+            [] => true,
+            [w] => w.is_empty() || w == "new",
+            _ => false,
+        })
         .then(|| "run vtium config as yourself; it asks for sudo when it saves".to_owned());
     named.or(tui)
 }
@@ -204,7 +244,13 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
                     o.words.push(text(rest)?);
                 }
             }
-            a if a.starts_with('-') && a != "-" && !matches!(a, "--help" | "--version") => {
+            // after the command, an option this table does not name is the
+            // command's own, as `new --name`
+            a if a.starts_with('-')
+                && a != "-"
+                && o.words.is_empty()
+                && !matches!(a, "--help" | "--version") =>
+            {
                 return Err(Usage(format!("unknown option {a}")));
             }
             _ => o.words.push(arg),
@@ -231,11 +277,23 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     match command {
         "--help" => cli.say(USAGE.trim_end()),
         "--version" => cli.say(concat!("vtium-config ", env!("CARGO_PKG_VERSION"))),
+        "fonts" => crate::commands::fonts(&rest, &o.paths(), cli.out, cli.err),
+        "check" => crate::commands::check(&rest, &o.paths(), cli.out, cli.err),
+        "config" => crate::commands::config(&rest, &o.paths(), cli.out, cli.err),
+        "remove-frit" => crate::commands::remove_frit(&rest, &o.paths(), cli.out, cli.err),
+        "new" if rest.is_empty() => {
+            if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+                crate::tui::run(&o.paths(), crate::tui::model::View::New, cli.err)
+            } else {
+                cli.usage("new takes FONT..., --from FILE or --template away from a terminal")
+            }
+        }
+        "new" => crate::commands::new(&rest, &o.paths(), cli.out, cli.err),
         "set" => crate::switch::command(&rest, o.frits.as_deref(), cli.out, cli.err),
         "apply" => crate::apply::command(&rest, &o.paths().targets(), cli.out, cli.err),
         crate::serve::SERVE_ARG => cli.serve(&rest),
         "" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
-            crate::tui::run(&o.paths(), cli.err)
+            crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, cli.err)
         }
         "" => cli.usage("no command"),
         other => cli.usage(&format!("unknown command {other}")),

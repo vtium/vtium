@@ -39,6 +39,8 @@ pub struct Paths {
     pub sudo: OsString,
     /// The console binary `apply` checks configuration files with.
     pub vtium: OsString,
+    /// The glyph helper that draws specimens and finds a frit's sources.
+    pub helper: crate::specimen::Helper,
 }
 
 impl Paths {
@@ -64,7 +66,7 @@ pub fn default_drafts() -> PathBuf {
 }
 
 /// A configuration file's text, `None` when it does not exist.
-fn read_conf(path: &Path) -> Result<Option<String>, String> {
+pub fn read_conf(path: &Path) -> Result<Option<String>, String> {
     use std::io::Read;
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
@@ -161,8 +163,8 @@ pub fn density(conf: Option<&str>) -> (u32, DpiFrom) {
         )
 }
 
-/// What the TUI starts from, read from `paths`.
-pub fn gather(paths: &Paths) -> Result<Inputs, String> {
+/// What the TUI starts from, read from `paths`, opening at `view`.
+pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let conf_path = paths.configdir.join("vtium.conf");
     let heads_path = paths.configdir.join("heads.conf");
     let conf = read_conf(&conf_path)?;
@@ -177,6 +179,8 @@ pub fn gather(paths: &Paths) -> Result<Inputs, String> {
         saving: saving(paths),
         drafts: paths.drafts.clone(),
         dpi,
+        frits: paths.frits.clone(),
+        view,
     })
 }
 
@@ -184,29 +188,46 @@ pub fn gather(paths: &Paths) -> Result<Inputs, String> {
 /// set's.
 const SPECIMEN_FRIT: &str = "vtium-config-specimen";
 
-/// The TUI's painter: a font's specimen, drawn by the glyph helper at
-/// `program`, from the frit in `frits` or the built-in font of that name.
-pub fn painter(frits: PathBuf, program: PathBuf) -> port::Painter {
-    Box::new(move |font, height, max| {
-        let text = if RESERVED.contains(&font) {
-            format!("source=builtin:{font}\n")
-        } else {
-            let path = frits.join(format!("{font}.vtfrit"));
-            Frit::load(&path).map_err(|e| e.to_string())?.text
-        };
-        // the helper refuses a frit named for a built-in set, so the
-        // specimen's frit takes a name of its own
-        let frit = crate::serve::FritText {
+/// The frit `font` names, as the helper takes it: the frit in `frits`, or
+/// a frit of the one built-in font of that name. The helper refuses a frit
+/// named for a built-in set, so a built-in font's frit takes a name of its
+/// own.
+pub fn frit_text(frits: &Path, font: &str) -> Result<crate::serve::FritText, String> {
+    if RESERVED.contains(&font) {
+        return Ok(crate::serve::FritText {
             name: SPECIMEN_FRIT.to_owned(),
-            text,
-        };
-        crate::specimen::draw(&program, &frit, height, max)
+            text: format!("source=builtin:{font}\n"),
+        });
+    }
+    let path = frits.join(format!("{font}.vtfrit"));
+    let text = Frit::load(&path).map_err(|e| e.to_string())?.text;
+    Ok(crate::serve::FritText {
+        name: font.to_owned(),
+        text,
     })
 }
 
-/// Opens the TUI on the terminal and runs it until the user leaves;
-/// returns the exit status.
-pub fn run(paths: &Paths, err: &mut dyn std::io::Write) -> u8 {
+/// The locale the specimen's line and the built-in font follow: `LC_ALL`,
+/// else `LC_CTYPE`, else `LANG`, as the console reads it.
+pub fn locale() -> String {
+    ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
+        .unwrap_or_default()
+}
+
+/// The TUI's painter: a font's specimen in `locale`, drawn by `helper`,
+/// from the frit in `frits` or the built-in font of that name.
+pub fn painter(frits: PathBuf, helper: crate::specimen::Helper, locale: String) -> port::Painter {
+    Box::new(move |font, height, max| {
+        let frit = frit_text(&frits, font)?;
+        crate::specimen::draw(&helper, &frit, height, max, &locale)
+    })
+}
+
+/// Opens the TUI on the terminal at `view` and runs it until the user
+/// leaves; returns the exit status.
+pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8 {
     // the TUI runs as the user from start to end (ADR-1201 D5); main
     // refuses root before this, and so does this
     if rustix::process::geteuid().is_root() {
@@ -216,7 +237,7 @@ pub fn run(paths: &Paths, err: &mut dyn std::io::Write) -> u8 {
         );
         return 2;
     }
-    let inputs = match gather(paths) {
+    let inputs = match gather(paths, view) {
         Ok(inputs) => inputs,
         Err(why) => {
             let _ = writeln!(err, "vtium-config: {why}");
@@ -224,9 +245,8 @@ pub fn run(paths: &Paths, err: &mut dyn std::io::Write) -> u8 {
         }
     };
     let saver = crate::apply::saver(paths.clone());
-    let program =
-        std::env::current_exe().unwrap_or_else(|_| PathBuf::from("/usr/bin/vtium-config"));
-    let mut tty = match port::Tty::open(saver, painter(paths.frits.clone(), program)) {
+    let painter = painter(paths.frits.clone(), paths.helper.clone(), locale());
+    let mut tty = match port::Tty::open(saver, painter) {
         Ok(tty) => tty,
         Err(e) => {
             let _ = writeln!(err, "vtium-config: the terminal: {e}");

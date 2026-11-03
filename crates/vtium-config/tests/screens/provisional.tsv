@@ -19,3 +19,7 @@ sizes-40x25	the sizes view at 40x25, the VGA console's 25 rows at the floor's 40
 settings-40x25	the settings view at 40x25, the VGA console's 25 rows at the floor's 40 columns
 heads-40x25	the heads view at 40x25, the VGA console's 25 rows at the floor's 40 columns
 save-40x25	the save view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+new-80x25	the new-frit view at 80x25
+new-100x30	the new-frit view at 100x30
+new-40x30	the new-frit view at 40x30, the 320x240 floor's grid
+new-40x25	the new-frit view at 40x25, the VGA console's 25 rows at the floor's 40 columns

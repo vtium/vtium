@@ -219,6 +219,7 @@ fn the_binary_run_as_root_refuses_paths_programs_and_the_tui() {
         (&["--run-with-signals", "/bin/sh"], "--run-with-signals"),
         (&[], "as yourself"),
         (&[""], "as yourself"),
+        (&["new"], "as yourself"),
     ] {
         let Some(o) = as_namespace_root(args) else {
             return;

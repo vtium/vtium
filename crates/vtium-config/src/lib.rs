@@ -27,6 +27,7 @@ pub mod banner;
 pub mod bdf;
 pub mod child;
 pub mod cli;
+pub mod commands;
 pub mod cover;
 pub mod decode;
 pub mod draft;
