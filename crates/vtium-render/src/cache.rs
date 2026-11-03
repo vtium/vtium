@@ -20,8 +20,8 @@
 //! A glyph the font draws nothing for is remembered in a small table, so
 //! a screen that shows it does not ask the font again every frame, as the
 //! C reference's GPU renderer remembered such glyphs (`gltex.c`, the
-//! glyph cache's comment). A glyph refused for room is not remembered: the
-//! next frame may have the room.
+//! glyph cache's comment). Any arrival empties the table. A glyph refused
+//! for room is not remembered: the next frame may have the room.
 
 use vtium_font::{Face, Font, Style, Width};
 
@@ -303,22 +303,16 @@ impl<T: Held> GlyphCache<T> {
 
     /// Drops each glyph whose text, alone or in a cluster, holds one of
     /// `chars`, which are sorted: the characters the font now draws
-    /// differently. Every other glyph stays.
+    /// differently. Every other glyph stays, but every glyph the font drew
+    /// nothing for is asked for again.
     pub(crate) fn forget(&mut self, chars: &[char]) {
         if chars.is_empty() {
             return;
         }
-        for f in &mut self.failed {
-            let holds = f.as_ref().is_some_and(|f| {
-                f.text
-                    .chars()
-                    .iter()
-                    .any(|c| chars.binary_search(c).is_ok())
-            });
-            if holds {
-                *f = None;
-            }
-        }
+        // a glyph the font drew nothing for fell through the whole fallback
+        // chain, U+25A1, `?` and the last resort, so any arrival may give
+        // it a glyph
+        self.failed.clear();
         // eviction frees an entry in place, so the indices ahead stand
         for i in 0..self.entries.len() {
             let Ok(i) = u32::try_from(i) else { break };
@@ -960,5 +954,42 @@ mod tests {
         c.forget(&['a']);
         assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
         assert_eq!(c.take_counts().misses, 1);
+    }
+
+    /// A face that draws only `?`, once it has arrived.
+    struct Late(std::rc::Rc<core::cell::Cell<bool>>);
+
+    impl Face for Late {
+        fn cell(&self) -> vtium_font::Cell {
+            vtium_font::Cell {
+                width: 8,
+                height: 16,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            16
+        }
+        fn has_glyph(&self, c: char) -> bool {
+            c == '?' && self.0.get()
+        }
+        fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
+            (cluster == ['?'] && self.0.get())
+                .then(|| vtium_font::Glyph::mask(8, 16))
+                .flatten()
+        }
+    }
+
+    // a glyph the font cannot draw falls back to U+25A1, then `?`, then the
+    // last resort, so any arrival can give a remembered failure a glyph
+    #[test]
+    fn an_arrival_forgets_every_remembered_failure() {
+        let arrived = std::rc::Rc::new(core::cell::Cell::new(false));
+        let f = Font::new(Late(arrived.clone()));
+        let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
+        assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
+        arrived.set(true);
+        c.forget(&['?']);
+        c.begin_frame();
+        assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_some());
     }
 }

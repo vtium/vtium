@@ -18,6 +18,9 @@ use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 use crate::picture::{Mark, PictureCounts, Under};
 use crate::target::{Orientation, Rect, Target};
 
+#[cfg(feature = "gpu")]
+mod gpu;
+
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
 const BAR: char = '\u{258f}';
 
@@ -458,15 +461,9 @@ pub struct Renderer<F> {
     /// Display areas something other than the renderer drew over since the
     /// last frame ([`Renderer::redraw_area`]).
     touched: Vec<Rect>,
-    /// The glyph cache's budgets, which the GPU path's pools share.
+    /// What the GPU path keeps of this renderer's.
     #[cfg(feature = "gpu")]
-    budgets: Budgets,
-    /// Which renderer this is, for the GPU path's glyphs.
-    #[cfg(feature = "gpu")]
-    id: u64,
-    /// Characters the GPU path's glyphs forget on its next frame.
-    #[cfg(feature = "gpu")]
-    gpu_forget: Vec<char>,
+    gpu: gpu::State,
 }
 
 /// The pointer's image for cells `cell_height` tall, upright: the arrow,
@@ -484,11 +481,6 @@ fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> A
     .filter(Arrow::covers)
     .unwrap_or_else(|| Arrow::upright(cell_height))
 }
-
-/// The next renderer's id: it tells the GPU path's glyphs which renderer's
-/// font drew them, and never reaches a pixel.
-#[cfg(feature = "gpu")]
-static NEXT_RENDERER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// How many cells a cell `width` wide, after a cell `before` wide, draws
 /// over: 0 for the trailing half of a wide character, which the leading
@@ -594,11 +586,7 @@ impl<F: Face> Renderer<F> {
             changed: Vec::new(),
             touched: Vec::new(),
             #[cfg(feature = "gpu")]
-            budgets,
-            #[cfg(feature = "gpu")]
-            id: NEXT_RENDERER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            #[cfg(feature = "gpu")]
-            gpu_forget: Vec::new(),
+            gpu: gpu::State::new(budgets),
         }
     }
 
@@ -612,7 +600,7 @@ impl<F: Face> Renderer<F> {
         let arrived = sorted(chars);
         self.compose.cache.forget(&arrived);
         #[cfg(feature = "gpu")]
-        self.gpu_forget.extend_from_slice(&arrived);
+        self.gpu.forget(&arrived);
         self.changed.extend_from_slice(&arrived);
         self.changed.sort_unstable();
         self.changed.dedup();
@@ -636,7 +624,7 @@ impl<F: Face> Renderer<F> {
     pub fn forget_glyphs(&mut self, chars: &[char]) {
         self.compose.cache.forget(&sorted(chars));
         #[cfg(feature = "gpu")]
-        self.gpu_forget.extend_from_slice(chars);
+        self.gpu.forget(chars);
     }
 
     pub fn font(&self) -> &Font<F> {
@@ -726,6 +714,8 @@ impl<F: Face> Renderer<F> {
         state: &DrawState,
     ) -> Drawn<'_> {
         let start = Instant::now();
+        #[cfg(feature = "gpu")]
+        self.gpu.drew_on_cpu();
         let plan = self.plan(frame, age, state);
         let arrow = core::mem::take(&mut self.arrow);
         let mut line = core::mem::take(&mut self.pointer_line);
@@ -737,132 +727,6 @@ impl<F: Face> Renderer<F> {
         self.pointer_line = line;
         self.mono_line = mono_line;
         self.finish(&plan, (cells, rows), start)
-    }
-
-    /// Draws `frame` on the GPU path (ADR-1303): composes what changed into
-    /// `pipeline`'s upright frame through the same front end as
-    /// [`Renderer::draw`], with `overlays`, the console's notices and focus
-    /// mark, over it, and presents into `target`, the display's buffer `age`
-    /// frames old, what that buffer lacks. Gives the rectangles of the
-    /// buffer it drew and the frame's figures, as [`Renderer::draw`] does.
-    ///
-    /// A notice the last frame drew and this one does not, or draws
-    /// changed, has the cells beneath it drawn again. The renderer draws
-    /// the whole picture when the pipeline composes its upright frame
-    /// whole: when it is new, after a failed frame, or for a new border
-    /// color. The pipeline draws an upright display only; a turned one is
-    /// refused until the turn is built.
-    ///
-    /// A frame that fails leaves the pipeline to compose its next frame
-    /// whole, and the error says what failed, for the head to sort
-    /// (ADR-1303 D9).
-    #[cfg(feature = "gpu")]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the render timer's CPU time per frame"
-    )]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the CPU path's draw and the GPU's context, pipeline and notices"
-    )]
-    pub fn draw_gpu<G: crate::gpu::Gl>(
-        &mut self,
-        gl: &mut G,
-        pipeline: &mut crate::gpu::Pipeline,
-        frame: &Frame<'_>,
-        target: &crate::gpu::DrawTarget,
-        age: u32,
-        state: &DrawState,
-        overlays: &[crate::Placed],
-    ) -> Result<Drawn<'_>, crate::gpu::Error> {
-        use crate::gpu::{Error, ErrorKind, Size, Work};
-        let start = Instant::now();
-        if self.config.orientation != Orientation::Normal {
-            return Err(Error::new(
-                ErrorKind::Misuse,
-                "the GPU path draws an upright display only",
-            ));
-        }
-        let display = Size::new(self.layout.width, self.layout.height);
-        if pipeline.size() != display || target.size() != display {
-            return Err(Error::new(
-                ErrorKind::Misuse,
-                "the pipeline or the buffer is not the renderer's display",
-            ));
-        }
-        let border = pixel(mono::border(self.config.depth, state.background));
-        // a new renderer's glyphs replace another's, and the frame draws
-        // whole, before the renderer decides what it draws
-        if let Err(e) = pipeline.glyphs(gl, &self.gpu_spec()) {
-            pipeline.redraw_whole();
-            return Err(e);
-        }
-        for r in pipeline.overlays_gone(overlays) {
-            self.redraw_area(r);
-        }
-        // the upright frame holds the last frame composed, unless the
-        // pipeline composes it whole
-        let held = if pipeline.composes_whole(border) {
-            0
-        } else {
-            1
-        };
-        let plan = self.plan(frame, held, state);
-        let glyphs = pipeline.glyphs(gl, &self.gpu_spec())?;
-        glyphs.forget(&sorted(&core::mem::take(&mut self.gpu_forget)));
-        let mut back = crate::gpu::compose::GpuBack::new(gl, &mut *glyphs);
-        let counts = self.paint(&plan, frame, state, &mut back);
-        let (clear, cells, error) = (back.clear, back.cells, back.error);
-        glyphs.end_frame();
-        let uploads = glyphs.take_uploads();
-        let gpu_counts = glyphs.take_counts();
-        let drawn = self.finish(&plan, counts, start);
-        let (changed, stats) = (drawn.damage.to_vec(), drawn.stats);
-        if let Some(e) = error {
-            pipeline.redraw_whole();
-            return Err(e);
-        }
-        let arrow = plan.pointer.map(|p| crate::gpu::ArrowAt {
-            image: &self.upright_arrow,
-            x: p.at.x,
-            y: p.at.y,
-        });
-        let work = Work {
-            cells: &cells,
-            uploads,
-            ..Work::new(border, &clear, &changed)
-                .with_arrow(arrow)
-                .with_overlays(overlays)
-        };
-        let damage = pipeline.frame(gl, &work, target, age)?;
-        Ok(Drawn {
-            damage: self.cells.set_damage(damage),
-            stats: Stats {
-                misses: gpu_counts.misses,
-                uncached: gpu_counts.uncached,
-                ..stats
-            },
-        })
-    }
-
-    /// What the GPU path's glyphs need of this renderer.
-    #[cfg(feature = "gpu")]
-    fn gpu_spec(&self) -> crate::gpu::glyphs::Spec<'_> {
-        crate::gpu::glyphs::Spec {
-            owner: self.id,
-            budgets: self.budgets,
-            storage: self.config.storage,
-            fallback: Fallback::new(
-                self.config.depth,
-                self.font.cell(),
-                self.font.decorations().underline_thickness,
-            ),
-            cell: crate::gpu::Size::new(
-                u32::try_from(self.layout.cw).unwrap_or(1),
-                u32::try_from(self.layout.ch).unwrap_or(1),
-            ),
-            sprites: &self.compose.sprites,
-        }
     }
 
     /// The first half of a frame: where the grid sits, what the pointer

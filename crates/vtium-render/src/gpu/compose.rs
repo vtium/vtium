@@ -121,16 +121,6 @@ impl<'a> Work<'a> {
             uploads: 0,
         }
     }
-
-    /// The same work with the arrow `arrow`.
-    pub fn with_arrow(self, arrow: Option<ArrowAt<'a>>) -> Work<'a> {
-        Work { arrow, ..self }
-    }
-
-    /// The same work with the notices `overlays`.
-    pub fn with_overlays(self, overlays: &'a [Placed]) -> Work<'a> {
-        Work { overlays, ..self }
-    }
 }
 
 /// The upright frame and what composes into it.
@@ -244,14 +234,10 @@ impl Composition {
             .collect()
     }
 
-    /// The glyphs of the renderer `spec` names, made anew, the old ones
-    /// freed, when they belong to another renderer: a new font or cell
-    /// needs a new renderer, and the frame draws whole.
-    pub(crate) fn glyphs<G: Gl>(
-        &mut self,
-        gl: &mut G,
-        spec: &Spec<'_>,
-    ) -> Result<&mut Glyphs, Error> {
+    /// Makes the glyphs of the renderer `spec` names ready, made anew, the
+    /// old ones freed, when they belong to another renderer: a new font or
+    /// cell needs a new renderer, and the frame draws whole.
+    pub(crate) fn glyphs<G: Gl>(&mut self, gl: &mut G, spec: &Spec<'_>) -> Result<(), Error> {
         if self.glyphs.as_ref().map(Glyphs::owner) != Some(spec.owner) {
             if let Some(old) = self.glyphs.take() {
                 old.free(gl)?;
@@ -261,9 +247,14 @@ impl Composition {
         if self.glyphs.is_none() {
             self.glyphs = Some(Glyphs::new(gl, spec)?);
         }
+        Ok(())
+    }
+
+    /// The glyphs [`Composition::glyphs`] made ready.
+    pub(crate) fn held_glyphs(&mut self) -> Result<&mut Glyphs, Error> {
         self.glyphs
             .as_mut()
-            .ok_or_else(|| Error::new(ErrorKind::Misuse, "no glyphs"))
+            .ok_or_else(|| Error::new(ErrorKind::Misuse, "no glyphs made ready"))
     }
 
     /// The arrow's texture, uploaded when its image changed. Gives how many

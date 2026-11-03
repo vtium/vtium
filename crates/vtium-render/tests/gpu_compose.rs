@@ -578,6 +578,40 @@ fn a_turned_display_is_refused_until_the_turn_is_built() {
 }
 
 #[test]
+fn a_1_bit_display_is_refused_until_present_reduces_the_depth() {
+    let config = Config {
+        depth: Depth::One,
+        ..Config::default()
+    };
+    let mut g = Gpu::new(StandIn::LIMITS, config);
+    let e = g.frame(&mut screen(), 0, &[]).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Misuse);
+    assert_eq!(g.calls(), &[]);
+}
+
+#[test]
+fn a_frame_the_cpu_path_draws_makes_the_next_gpu_frame_whole() {
+    // the CPU path's frame moves the renderer's history on while the
+    // upright frame keeps the last GPU frame, and the glyphs forget nothing
+    // the CPU path's arrivals named
+    let mut g = Gpu::new(StandIn::LIMITS, Config::default());
+    let mut s = screen();
+    s.text(0, 0, "AB", plain());
+    g.frame(&mut s, 0, &[]).unwrap();
+    s.text(3, 0, "C", plain());
+    g.renderer.glyphs_changed(&['A']);
+    let mut canvas = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    g.renderer.draw(&s.frame(g.since), &mut canvas, 1, &g.state);
+    g.since = s.damage.checkpoint();
+    let (damage, stats) = g.frame(&mut s, 1, &[]).unwrap();
+    assert_eq!((damage, stats.cells), (vec![DISPLAY.rect()], 30));
+    assert!(
+        g.calls().contains(&Call::FreeTexture),
+        "the glyphs are made anew"
+    );
+}
+
+#[test]
 fn present_draws_one_whole_rectangle_where_a_buffer_lacks_the_whole_frame() {
     // a buffer two frames old lacks the whole first frame and the cell
     // after it: the whole buffer covers both

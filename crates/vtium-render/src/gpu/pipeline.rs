@@ -270,6 +270,15 @@ fn quad(r: Rect, tile: &Tile) -> Quad {
     }
 }
 
+/// What [`Pipeline::begin`] decided for a frame.
+#[derive(Debug)]
+pub(crate) struct Begun {
+    /// The composition draws the whole upright frame.
+    pub(crate) whole: bool,
+    /// Where the last frame's notices were that this one no longer draws.
+    pub(crate) gone: Vec<Rect>,
+}
+
 /// The GPU path's frame for one display, through its five slots.
 #[derive(Debug)]
 pub struct Pipeline {
@@ -389,26 +398,33 @@ impl Pipeline {
         self.display
     }
 
-    /// Whether the next frame must compose the whole upright frame: it is
-    /// new, the last frame failed, or the border's color changes to
-    /// `border`. The renderer then draws the whole picture.
-    pub fn composes_whole(&self, border: u32) -> bool {
-        self.composition.needs_whole(border)
-    }
-
-    /// The areas of the last frame's notices and focus mark that `overlays`
-    /// no longer draws as they were, whose cells the next frame draws again.
-    pub fn overlays_gone(&self, overlays: &[Placed]) -> Vec<Rect> {
-        self.composition.overlays_gone(overlays)
-    }
-
-    /// The glyphs of the renderer `spec` names, for the renderer's back end.
-    pub(crate) fn glyphs<G: Gl>(
+    /// Starts a frame of the renderer `spec` names: its glyphs, made anew
+    /// when the pipeline holds another renderer's, which composes the frame
+    /// whole. Gives whether the composition draws the whole upright frame,
+    /// so the renderer draws the whole picture, and the areas of the last
+    /// frame's notices and focus mark that `overlays` no longer draws as
+    /// they were, whose cells the renderer draws again. A start that fails
+    /// leaves the next frame to compose whole.
+    pub(crate) fn begin<G: Gl>(
         &mut self,
         gl: &mut G,
         spec: &Spec<'_>,
-    ) -> Result<&mut Glyphs, Error> {
-        self.composition.glyphs(gl, spec)
+        border: u32,
+        overlays: &[Placed],
+    ) -> Result<Begun, Error> {
+        if let Err(e) = self.composition.glyphs(gl, spec) {
+            self.redraw_whole();
+            return Err(e);
+        }
+        Ok(Begun {
+            whole: self.composition.needs_whole(border),
+            gone: self.composition.overlays_gone(overlays),
+        })
+    }
+
+    /// The glyphs [`Pipeline::begin`] made ready, for the renderer's back end.
+    pub(crate) fn glyphs(&mut self) -> Result<&mut Glyphs, Error> {
+        self.composition.held_glyphs()
     }
 
     /// Frees what the pipeline holds in GL.
