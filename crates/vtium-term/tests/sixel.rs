@@ -71,7 +71,7 @@ mod images {
     use super::common::rows;
     use super::*;
     use vtium_term::ImageString;
-    use vtium_term::images::{Limits, Sixel, Switches};
+    use vtium_term::images::{Cause, Limits, Sixel, Switches};
 
     const BLUE: u32 = 0xff00_00ff;
 
@@ -625,6 +625,73 @@ mod images {
         assert_eq!(t.screen().images().bytes(), 64 * 64 * 4);
         t.input(b);
         assert_eq!(t.screen().images().bytes(), 64 * 64 * 4 + 512);
+    }
+
+    /// The notes the handler wrote, as (cause, reason, count).
+    fn notes(t: &mut Terminal) -> Vec<(Cause, String, u64)> {
+        t.take_image_notes()
+            .into_iter()
+            .map(|n| {
+                assert_eq!(n.protocol, ImageString::Sixel);
+                (n.cause, n.why, n.count)
+            })
+            .collect()
+    }
+
+    // Sixel answers nothing, so the handler notes for the log why it drops
+    // a picture: a picture with no size is the program's doing, and one the
+    // budget refuses is the console's, which the operator can act on. The C
+    // reference logged a sixel picture it did not store (libtsm `eeaf293`,
+    // `src/tsm/tsm-vte-image.c:161-171`).
+    #[test]
+    fn a_dropped_picture_is_noted_for_the_log() {
+        let mut t = term(12, 6);
+        t.input(&solid(8, 6));
+        assert_eq!(notes(&mut t), [], "a stored picture notes nothing");
+        t.input(&sixel("0;0;0", ""));
+        assert_eq!(
+            notes(&mut t),
+            [(Cause::Program, "a sixel picture with no size".to_owned(), 1)]
+        );
+        // a budget too small for the picture's pixels
+        let mut t = term(12, 6);
+        t.screen_mut().set_image_limit(1024);
+        t.input(&solid(64, 64));
+        assert!(t.screen().placements().is_empty());
+        assert_eq!(
+            notes(&mut t),
+            [(
+                Cause::Console,
+                "the budget refuses a sixel picture".to_owned(),
+                1
+            )]
+        );
+        // a cancelled string is the program's own doing, and notes nothing
+        t.input(b"\x1bPq#0~\x18");
+        assert_eq!(notes(&mut t), []);
+    }
+
+    // A picture whose box passes the store's BOX_CELLS_MAX rows, in cells
+    // of 1 by 1 pixels, is stored and then refused its place; the operator
+    // can act on the cell size, so it is the console's.
+    #[test]
+    fn a_picture_the_store_refuses_a_place_is_noted_for_the_log() {
+        let mut t = term(12, 6);
+        t.screen_mut().set_image_cell(1, 1).expect("a cell");
+        t.set_image_limits(Limits {
+            graphic: (20_000, 20_000),
+            ..Limits::default()
+        });
+        t.input(&solid(1, 10_002));
+        assert!(t.screen().placements().is_empty());
+        assert_eq!(
+            notes(&mut t),
+            [(
+                Cause::Console,
+                "the store refuses a sixel picture's place".to_owned(),
+                1
+            )]
+        );
     }
 }
 
