@@ -82,12 +82,13 @@ pub const PATH_OPTIONS: [&str; 8] = [
     "--kernel-cmdline",
 ];
 
-/// Why vtium-config, run with `root` (an effective uid of 0), refuses
+/// Why vtium-config, run with the effective uid `euid`, refuses
 /// `args`: an option of [`PATH_OPTIONS`], the step that releases the
 /// TUI's signals and runs another program, or no command, which opens the
 /// TUI; `None` when it takes them.
-pub fn root_refusal(root: bool, args: &[OsString]) -> Option<String> {
-    if !root {
+/// It refuses only as root, an effective uid of 0; `main` runs it first.
+pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
+    if euid != 0 {
         return None;
     }
     let named = args.iter().find_map(|a| {

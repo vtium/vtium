@@ -13,8 +13,8 @@ fn main() -> ExitCode {
     {
         return ExitCode::from(vtium_config::child::run_parser());
     }
-    let root = rustix::process::geteuid().is_root();
-    if let Some(why) = vtium_config::cli::root_refusal(root, &args) {
+    let euid = rustix::process::geteuid().as_raw();
+    if let Some(why) = vtium_config::cli::root_refusal(euid, &args) {
         eprintln!("vtium-config: {why}");
         return ExitCode::from(2);
     }

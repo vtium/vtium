@@ -141,26 +141,26 @@ fn as_root_every_path_and_program_option_is_refused() {
         "--vconsole-conf",
         "--kernel-cmdline",
     ] {
-        let why = root_refusal(true, &args(&[option, "/tmp/x", "apply", "/tmp/d"]))
+        let why = root_refusal(0, &args(&[option, "/tmp/x", "apply", "/tmp/d"]))
             .unwrap_or_else(|| panic!("{option} is refused as root"));
         assert!(why.contains(option) && why.contains("/etc/vtium"), "{why}");
         let glued = format!("{option}=/tmp/x");
         assert!(
-            root_refusal(true, &args(&[&glued, "apply", "/tmp/d"])).is_some(),
+            root_refusal(0, &args(&[&glued, "apply", "/tmp/d"])).is_some(),
             "{glued}"
         );
         assert_eq!(
-            root_refusal(false, &args(&[option, "/tmp/x", "apply", "/tmp/d"])),
+            root_refusal(1000, &args(&[option, "/tmp/x", "apply", "/tmp/d"])),
             None
         );
     }
     let unblock = vtium_config::tui::port::UNBLOCK_ARG;
-    assert!(root_refusal(true, &args(&[unblock, "/bin/sh"])).is_some());
-    assert_eq!(root_refusal(false, &args(&[unblock, "/bin/sh"])), None);
+    assert!(root_refusal(0, &args(&[unblock, "/bin/sh"])).is_some());
+    assert_eq!(root_refusal(1000, &args(&[unblock, "/bin/sh"])), None);
     // the one command sudo runs, and the other commands, pass
-    assert_eq!(root_refusal(true, &args(&["apply", "/home/me/d"])), None);
+    assert_eq!(root_refusal(0, &args(&["apply", "/home/me/d"])), None);
     assert_eq!(
-        root_refusal(true, &args(&["--no-banner", "set", "proof"])),
+        root_refusal(0, &args(&["--no-banner", "set", "proof"])),
         None
     );
 }
@@ -173,9 +173,57 @@ fn as_root_the_tui_does_not_open() {
     use vtium_config::cli::root_refusal;
     let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
     for words in [&[][..], &["--no-banner"]] {
-        let why = root_refusal(true, &args(words)).expect("refused as root");
+        let why = root_refusal(0, &args(words)).expect("refused as root");
         assert!(why.contains("as yourself") && why.contains("sudo"), "{why}");
-        assert_eq!(root_refusal(false, &args(words)), None);
+        assert_eq!(root_refusal(1000, &args(words)), None);
     }
-    assert_eq!(root_refusal(true, &args(&["--version"])), None);
+    assert_eq!(root_refusal(0, &args(&["--version"])), None);
+}
+
+/// Runs the binary as root in an unprivileged user namespace, where its
+/// effective uid is 0, with `args`; `None` where the machine has user
+/// namespaces off.
+fn as_namespace_root(args: &[&str]) -> Option<Output> {
+    let probe = Command::new("unshare").args(["-r", "true"]).output().ok()?;
+    if !probe.status.success() {
+        eprintln!(
+            "SKIPPED: unshare -r cannot make a user namespace here: {}",
+            stderr(&probe)
+        );
+        return None;
+    }
+    Some(
+        Command::new("unshare")
+            .arg("-r")
+            .arg(BIN)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("unshare runs"),
+    )
+}
+
+#[test]
+fn the_binary_run_as_root_refuses_paths_programs_and_the_tui() {
+    for (args, says) in [
+        (
+            &["--configdir", "/tmp/x", "apply", "/tmp/d"][..],
+            "--configdir",
+        ),
+        (&["--vtium", "/bin/true", "apply", "/tmp/d"], "--vtium"),
+        (&["--run-with-signals", "/bin/sh"], "--run-with-signals"),
+        (&[], "as yourself"),
+    ] {
+        let Some(o) = as_namespace_root(args) else {
+            return;
+        };
+        assert_eq!(status(&o), 2, "{args:?}: {}", stderr(&o));
+        assert!(stderr(&o).contains(says), "{args:?}: {}", stderr(&o));
+    }
+    // and takes the one command sudo runs, failing on the draft alone
+    let Some(o) = as_namespace_root(&["apply", "/nonexistent-draft"]) else {
+        return;
+    };
+    assert_eq!(status(&o), 1, "{}", stderr(&o));
+    assert!(stderr(&o).contains("/nonexistent-draft"), "{}", stderr(&o));
 }
