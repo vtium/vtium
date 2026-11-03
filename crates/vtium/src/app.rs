@@ -2872,12 +2872,10 @@ impl App {
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
+        let mut kept = head.keep(id);
         let was_sized = head.sized();
         head.reconfigure(&self.config);
         let shown = head.console.id == id;
-        let kept = (head.points, head.auto_size, head.font_size);
-        let switched = head.switched;
-        let mut left = None;
         let new = if due.font {
             head.switched = None;
             Some(self.configured_font(h))
@@ -2891,12 +2889,15 @@ impl App {
         } else {
             None
         };
+        // The frit the head drew, where the font changed.
+        let mut left = None;
         if let Some(new) = new {
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
             if !same_font(head.chosen(), &new) || head.sized() != was_sized {
-                left = Some((head.frit().map(str::to_owned), head.font.replace(new)));
+                left = Some(head.frit().map(str::to_owned));
+                kept.font = Some(head.font.replace(new));
                 head.refont = true;
                 self.share(h);
                 self.retry_late_cell(h);
@@ -2911,20 +2912,18 @@ impl App {
                 return;
             };
             let tried = head.font_size;
-            (head.points, head.auto_size, head.font_size) = kept;
-            if let Some((_, old)) = left.take() {
-                head.font = old;
-                head.switched = switched;
-            }
-            head.refont = true;
+            head.put_back(kept);
             self.relayout(h);
+            self.prune();
             if let Some(head) = self.heads.get(h) {
                 log::warn!(
-                    "head {}: the configured font draws nothing at {tried} pixels: the font stays {}",
+                    "head {}: the configured font draws nothing at {tried} pixels: the font and the size stay {} at {}",
                     head.name(),
-                    head.chosen().name(head.font_size, &self.locale)
+                    head.chosen().name(head.font_size, &self.locale),
+                    head.font_size
                 );
             }
+            return;
         }
         let hidden = self
             .heads
@@ -2936,7 +2935,7 @@ impl App {
         {
             head.configured_size(id, hidden);
         }
-        if let Some((was, _)) = left {
+        if let Some(was) = left {
             self.prune();
             // The frit the head left, where another head still draws it,
             // keeps the cells of the heads drawing it alone.

@@ -151,6 +151,23 @@ pub(crate) struct Returns {
     pub(crate) size: bool,
 }
 
+/// What a return at a session's end may change of a head, kept so that
+/// it can be put back when the configured font draws nothing at its size
+/// (ADR-1201 D11).
+pub(crate) struct Kept {
+    /// The shown console's size: in points, `font-size=0`, and its height.
+    points: Option<u32>,
+    auto_size: bool,
+    font_size: u32,
+    configured: (Option<u32>, bool),
+    sized: bool,
+    switched: Option<u64>,
+    /// The hidden console whose session ended, and its fit.
+    hidden: Option<(u64, console::Fit)>,
+    /// The font the head drew, where the return replaced it.
+    pub(crate) font: Option<Option<crate::font::Chosen>>,
+}
+
 /// Whether vtium ends once its heads stand as `heads` do: once a head
 /// ended under `oneshot` and no head that started still runs. Under the
 /// respawn policy no head ends.
@@ -299,6 +316,47 @@ impl Head {
             font,
             size: font || resized,
         }
+    }
+
+    /// What a return at the end of console `id`'s session may change,
+    /// before it changes it.
+    pub(crate) fn keep(&self, id: u64) -> Kept {
+        Kept {
+            points: self.points,
+            auto_size: self.auto_size,
+            font_size: self.font_size,
+            configured: self.configured,
+            sized: self.sized,
+            switched: self.switched,
+            hidden: self
+                .hidden
+                .iter()
+                .find(|c| c.id == id)
+                .map(|c| (c.id, c.fit)),
+            font: None,
+        }
+    }
+
+    /// Puts back what [`Head::keep`] kept: the font, the switch that chose
+    /// it, the size the shown console and the ended one draw at, and the
+    /// configured size, so the head stands as before the return. Every
+    /// display's renderer is rebuilt.
+    pub(crate) fn put_back(&mut self, kept: Kept) {
+        self.points = kept.points;
+        self.auto_size = kept.auto_size;
+        self.font_size = kept.font_size;
+        self.configured = kept.configured;
+        self.sized = kept.sized;
+        self.switched = kept.switched;
+        if let Some((id, fit)) = kept.hidden
+            && let Some(c) = self.hidden.iter_mut().find(|c| c.id == id)
+        {
+            c.fit = fit;
+        }
+        if let Some(font) = kept.font {
+            self.font = font;
+        }
+        self.refont = true;
     }
 
     /// Takes the font size `config` configures, read again at a session's

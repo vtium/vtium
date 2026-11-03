@@ -1748,6 +1748,65 @@ mod tests {
         assert_eq!(head.pty_size().cell_width, CELL.0, "the first's own again");
     }
 
+    // ADR-1201 D11: where the configured font draws nothing at its size,
+    // the return at a session's end puts back all it changed: the font and
+    // the switch that chose it, the shown console's size, the ended hidden
+    // console's fit, and the configured size, so the next console opens
+    // and the next session ends as before.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_return_that_cannot_draw_puts_back_all_it_changed() {
+        let load = |args: &[&str]| {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+        };
+        let config = load(&["--font-size=0"]);
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term());
+        let zoomed = Fit {
+            grid: (20, 5),
+            font_size: 32,
+            cell: (16, 32),
+            points: None,
+            auto_size: false,
+        };
+        head.hidden.push(Console::new(2, term(), zoomed));
+        head.font = Some(Chosen::Builtin(Some("unscii-8")));
+        head.switched = Some(2);
+        (head.points, head.auto_size, head.font_size) = (None, false, 24);
+        let before = |h: &Head| {
+            (
+                h.fresh_fit(),
+                h.sized(),
+                h.switched,
+                (h.points, h.auto_size, h.font_size),
+                h.hidden.first().map(|c| c.fit),
+                h.chosen().name(16, "C").to_owned(),
+            )
+        };
+        let was = before(&head);
+        let mut kept = head.keep(2);
+        head.reconfigure(&load(&["--font-size=12"]));
+        head.switched = None;
+        kept.font = Some(head.font.replace(Chosen::Builtin(Some("unifont"))));
+        let fresh = head.fresh_fit();
+        head.configured_size(
+            2,
+            Fit {
+                grid: (40, 10),
+                ..fresh
+            },
+        );
+        head.configured_size(1, fresh);
+        head.font_size = 16;
+        assert_ne!(before(&head), was, "the return changed each");
+        head.refont = false;
+        head.put_back(kept);
+        assert_eq!(before(&head), was);
+        assert!(head.refont, "every renderer is rebuilt");
+    }
+
     // ADR-1401 D5, binary-review's finding 3: the console the close chord
     // closes is told nothing, as the C reference sent a closing session no
     // focus-out: no focus-out joins what it owed its program, and nothing
