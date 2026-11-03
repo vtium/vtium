@@ -3945,6 +3945,30 @@ fn the_same_monitor_keeps_its_display() {
     assert_eq!(serial(&v, A).as_deref(), Some("AAA:0x0001:MONITOR001"));
 }
 
+// vtium/vtium#216: a display bound while its EDID could not be read, whose
+// EDID can be read later, is bound again once, so the head file's EDID
+// rules can match it; the hotplug after that changes nothing.
+#[test]
+fn a_display_whose_edid_becomes_readable_is_bound_again_once() {
+    let dir = sysfs_dir("edid-later");
+    let v = one();
+    v.card().state().sysfs = Some(dir.clone());
+    let mut v = awake(v);
+    assert_eq!(serial(&v, A), None);
+    write_edid(&dir, "HDMI-A-1", b"MONITOR001", (60, 34));
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Removed(DisplayId(A)), Event::Added(DisplayId(A))]
+    );
+    assert_eq!(serial(&v, A).as_deref(), Some("AAA:0x0001:MONITOR001"));
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.poll().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(events(&mut v), []);
+}
+
 // vtium/vtium#216: a connector left dark that shows another monitor is
 // asked of the dark rule again, as the new monitor: here the rule leaves
 // only the first monitor dark, so the second is lit.
