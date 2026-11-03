@@ -14,6 +14,11 @@
 //! them, so a draw sets its inputs without asking the driver each time. A
 //! uniform the driver dropped, because nothing reads it, has no place, and
 //! a draw sets it as a no-op.
+//!
+//! Every error the context reports passes through one place,
+//! `PlatformGl::fail`. A lost context and an out-of-memory error both mark
+//! the ledger's context lost there, so every later call is refused before
+//! it reaches GL (ADR-1303 D9).
 
 use std::collections::BTreeMap;
 
@@ -35,16 +40,31 @@ pub struct PlatformGl {
     uniforms: BTreeMap<u32, Vec<(&'static str, Option<platform::Location>)>>,
 }
 
-fn error(e: platform::Error) -> Error {
-    let kind = match e.kind {
+/// The kind of a platform error, as vtium-render sorts it.
+fn kind(k: platform::ErrorKind) -> ErrorKind {
+    match k {
         platform::ErrorKind::OutOfMemory => ErrorKind::OutOfMemory,
         platform::ErrorKind::ContextLost => ErrorKind::ContextLost,
         platform::ErrorKind::Gl(_) => ErrorKind::Gl,
         platform::ErrorKind::Compile => ErrorKind::Compile,
         platform::ErrorKind::Import => ErrorKind::Import,
         platform::ErrorKind::Misuse => ErrorKind::Misuse,
-    };
-    Error::new(kind, e.detail)
+    }
+}
+
+/// A platform error met inside one of the ledger's calls. The ledger is
+/// borrowed while its closure runs, so the closure keeps the error here and
+/// gives the ledger a copy, and the adapter passes the kept error to
+/// [`PlatformGl::fail`] once the ledger's call has returned.
+#[derive(Default)]
+struct Met(Option<platform::Error>);
+
+impl Met {
+    fn keep(&mut self, e: platform::Error) -> Error {
+        let copy = Error::new(kind(e.kind), e.detail.clone());
+        self.0 = Some(e);
+        copy
+    }
 }
 
 fn rect(r: Rect) -> PlatformRect {
@@ -92,16 +112,26 @@ impl PlatformGl {
         &self.gl
     }
 
-    /// Passes `result` on, marking the ledger's context lost when it says
-    /// the context was lost, so every later call fails the same way.
-    fn seen<T>(&mut self, result: Result<T, Error>) -> Result<T, Error> {
-        if result
-            .as_ref()
-            .is_err_and(|e| e.kind == ErrorKind::ContextLost)
-        {
+    /// Every error the context reports passes here, to become vtium-render's.
+    /// A lost context and an out-of-memory error mark the ledger's context
+    /// lost, so every later call fails with [`ErrorKind::ContextLost`] and
+    /// reaches no GL: after `GL_OUT_OF_MEMORY` GL's state is undefined, and
+    /// the head leaves the GPU path for either (ADR-1303 D9).
+    fn fail(&mut self, e: platform::Error) -> Error {
+        let error = Error::new(kind(e.kind), e.detail);
+        if matches!(error.kind, ErrorKind::ContextLost | ErrorKind::OutOfMemory) {
             self.ledger.lose();
         }
-        result
+        error
+    }
+
+    /// The result of one of the ledger's calls, whose closure kept in `met`
+    /// any error the context reported.
+    fn settle<T>(&mut self, result: Result<T, Error>, met: Met) -> Result<T, Error> {
+        match met.0 {
+            Some(e) => Err(self.fail(e)),
+            None => result,
+        }
     }
 }
 
@@ -113,12 +143,12 @@ impl Gl for PlatformGl {
     }
 
     fn create_texture(&mut self, f: Format, size: Size) -> Result<Texture, Error> {
-        let gl = &mut self.gl;
+        let (gl, mut met) = (&mut self.gl, Met::default());
         let made = self.ledger.create_texture(f, size, || {
             gl.create_texture(format(f), size.width, size.height)
-                .map_err(error)
+                .map_err(|e| met.keep(e))
         });
-        self.seen(made)
+        self.settle(made, met)
     }
 
     fn fill_texture(
@@ -128,99 +158,98 @@ impl Gl for PlatformGl {
         pixels: &[u8],
         stride: usize,
     ) -> Result<(), Error> {
-        let gl = &mut self.gl;
+        let (gl, mut met) = (&mut self.gl, Met::default());
         let filled = self
             .ledger
             .fill_texture(texture, r, pixels.len(), stride, |info| {
-                gl.fill_texture(info.name, format(info.format), rect(r), pixels, stride)
-                    .map_err(error)
+                gl.fill_texture(info.name, rect(r), pixels, stride)
+                    .map_err(|e| met.keep(e))
             });
-        self.seen(filled)
+        self.settle(filled, met)
     }
 
     fn free_texture(&mut self, texture: Texture) -> Result<(), Error> {
-        let gl = &mut self.gl;
-        let freed = self
-            .ledger
-            .free_texture(texture, |info| gl.free_texture(info.name).map_err(error));
-        self.seen(freed)
+        let (gl, mut met) = (&mut self.gl, Met::default());
+        let freed = self.ledger.free_texture(texture, |info| {
+            gl.free_texture(info.name).map_err(|e| met.keep(e))
+        });
+        self.settle(freed, met)
     }
 
     fn create_frame(&mut self, size: Size) -> Result<DrawTarget, Error> {
-        let gl = &mut self.gl;
+        let (gl, mut met) = (&mut self.gl, Met::default());
         let made = self.ledger.create_frame(size, || {
-            gl.create_frame(size.width, size.height).map_err(error)
+            gl.create_frame(size.width, size.height)
+                .map_err(|e| met.keep(e))
         });
-        self.seen(made)
+        self.settle(made, met)
     }
 
     fn import_buffer(&mut self, buffer: &DmaBuf) -> Result<DrawTarget, Error> {
         let (width, height) = buffer.size();
-        let gl = &mut self.gl;
+        let (gl, mut met) = (&mut self.gl, Met::default());
         let made = self.ledger.import_buffer(Size::new(width, height), || {
-            gl.import(buffer).map_err(error)
+            gl.import(buffer).map_err(|e| met.keep(e))
         });
-        self.seen(made)
+        self.settle(made, met)
     }
 
     fn free_target(&mut self, target: DrawTarget) -> Result<(), Error> {
-        let gl = &mut self.gl;
+        let (gl, mut met) = (&mut self.gl, Met::default());
         let freed = self.ledger.free_target(target, |info, texture| {
             match texture {
                 Some(t) => gl.free_frame(info.name, t.name),
                 None => gl.free_import(info.name),
             }
-            .map_err(error)
+            .map_err(|e| met.keep(e))
         });
-        self.seen(freed)
+        self.settle(freed, met)
     }
 
     fn compile(&mut self, source: &Source<'_>) -> Result<Program, Error> {
-        let gl = &mut self.gl;
+        let (gl, mut met) = (&mut self.gl, Met::default());
         let uniforms = &mut self.uniforms;
         let made = self.ledger.compile(source, || {
             let program = gl
                 .compile(&source.vertex_text(), &source.fragment_text())
-                .map_err(error)?;
+                .map_err(|e| met.keep(e))?;
             let mut places = Vec::with_capacity(source.inputs.len());
             for input in source.inputs {
                 match gl.uniform_location(program, input.name) {
                     Ok(at) => places.push((input.name, at)),
                     Err(e) => {
                         let _ = gl.free_program(program);
-                        return Err(error(e));
+                        return Err(met.keep(e));
                     }
                 }
             }
             uniforms.insert(program, places);
             Ok(program)
         });
-        self.seen(made)
+        self.settle(made, met)
     }
 
     fn free_program(&mut self, program: Program) -> Result<(), Error> {
-        let gl = &mut self.gl;
+        let (gl, mut met) = (&mut self.gl, Met::default());
         let uniforms = &mut self.uniforms;
         let freed = self.ledger.free_program(program, |name| {
-            gl.free_program(name).map_err(error)?;
+            gl.free_program(name).map_err(|e| met.keep(e))?;
             uniforms.remove(&name);
             Ok(())
         });
-        self.seen(freed)
+        self.settle(freed, met)
     }
 
     fn clear(&mut self, target: &DrawTarget, r: Rect, color: u32) -> Result<(), Error> {
         let info = self.ledger.target(target)?;
-        let cleared = self
-            .gl
+        self.gl
             .clear(
                 info.name,
                 (info.size.width, info.size.height),
                 rect(r),
                 color,
             )
-            .map_err(error);
-        self.seen(cleared)
+            .map_err(|e| self.fail(e))
     }
 
     fn draw(&mut self, draw: &Draw<'_>) -> Result<(), Error> {
@@ -256,8 +285,7 @@ impl Gl for PlatformGl {
             })
             .collect();
         let size = checked.target.size;
-        let drawn = self
-            .gl
+        self.gl
             .draw(&platform::DrawCall {
                 framebuffer: checked.target.name,
                 size: (size.width, size.height),
@@ -270,8 +298,7 @@ impl Gl for PlatformGl {
                 },
                 scissor: draw.scissor.map(rect),
             })
-            .map_err(error);
-        self.seen(drawn)
+            .map_err(|e| self.fail(e))
     }
 
     /// `glFlush`. The display shows the buffer through its dma-buf, and the
@@ -279,23 +306,22 @@ impl Gl for PlatformGl {
     /// buffer out, as it waited for the C reference's `eglSwapBuffers`.
     fn submit(&mut self, target: &DrawTarget) -> Result<(), Error> {
         self.ledger.target(target)?;
-        let sent = self.gl.submit().map_err(error);
-        self.seen(sent)
+        self.gl.submit().map_err(|e| self.fail(e))
     }
 
     fn check(&mut self, batch: Batch) -> Result<(), Error> {
         self.ledger.alive()?;
-        let checked = self.gl.check().map_err(|e| Error {
+        self.gl.check().map_err(|e| Error {
             batch: Some(batch),
-            ..error(e)
-        });
-        self.seen(checked)
+            ..self.fail(e)
+        })
     }
 
     fn read(&mut self, target: &DrawTarget, r: Rect, out: &mut [u8]) -> Result<(), Error> {
         let info = self.ledger.read(target, r, out.len())?;
-        let read = self.gl.read(info.name, rect(r), out).map_err(error);
-        self.seen(read)
+        self.gl
+            .read(info.name, rect(r), out)
+            .map_err(|e| self.fail(e))
     }
 }
 
@@ -538,12 +564,11 @@ void main() {
     #[test]
     fn a_gl_error_a_check_finds_names_its_batch() {
         let mut gl = software();
-        // past the ledger's checks, a texture whose name GL never made
-        let ghost = gl
-            .ledger
-            .create_texture(Format::Rgba8, Size::new(1, 1), || Ok(9999))
-            .unwrap();
-        gl.fill_texture(&ghost, rect(0, 0, 1, 1), &[0; 4], 4)
+        // past the largest texture, made on the context beside the ledger:
+        // GL_INVALID_VALUE, which only a check reads
+        let past = gl.limits().texture + 1;
+        gl.gl
+            .create_texture(platform::TextureFormat::R8, past, 1)
             .unwrap();
         let e = gl.check(Batch::Uploads).unwrap_err();
         assert_eq!(
@@ -554,16 +579,30 @@ void main() {
         gl.check(Batch::Frame).unwrap();
     }
 
+    /// A lost context and an out-of-memory error from the context's check
+    /// both leave every later call refused, reaching no GL; any other GL
+    /// error does not.
     #[test]
-    fn a_lost_context_fails_every_later_call() {
+    fn a_lost_context_or_out_of_memory_from_check_fails_every_later_call() {
+        for raised in [
+            platform::ErrorKind::ContextLost,
+            platform::ErrorKind::OutOfMemory,
+        ] {
+            let mut gl = software();
+            gl.gl.raise(raised);
+            let e = gl.check(Batch::Frame).unwrap_err();
+            assert_eq!((e.kind, e.batch), (kind(raised), Some(Batch::Frame)), "{e}");
+            let e = gl.create_texture(Format::R8, Size::new(1, 1)).unwrap_err();
+            assert_eq!(e.kind, ErrorKind::ContextLost, "after {raised:?}");
+            assert_eq!(
+                gl.check(Batch::Frame).unwrap_err().kind,
+                ErrorKind::ContextLost
+            );
+        }
         let mut gl = software();
-        let lost = Err::<(), _>(Error::new(ErrorKind::ContextLost, "lost"));
-        assert!(gl.seen(lost).is_err());
-        let e = gl.create_texture(Format::R8, Size::new(1, 1)).unwrap_err();
-        assert_eq!(e.kind, ErrorKind::ContextLost);
-        assert_eq!(
-            gl.check(Batch::Frame).unwrap_err().kind,
-            ErrorKind::ContextLost
-        );
+        gl.gl.raise(platform::ErrorKind::Gl(0x0501));
+        assert_eq!(gl.check(Batch::Draws).unwrap_err().kind, ErrorKind::Gl);
+        gl.create_texture(Format::R8, Size::new(1, 1)).unwrap();
+        gl.check(Batch::Uploads).unwrap();
     }
 }
