@@ -1,0 +1,25 @@
+ VTium Vitrifier       live preview: on
+  Fonts  Sizes  Settings  Heads
+---------------------------------------
+ > font-name          unifont
+   font-size          (default)
+   font-frits         (default)
+   font-hinting       (default)
+   font-line-spacing  (default)
+   allow-font-ops     on
+   display-dpi        (default)
+
+ Fonts and Sizes set font-name and
+ font-size; Enter turns allow-font-ops
+ on or off.
+
+
+
+
+
+
+
+
+---------------------------------------
+ Enter change  Tab next  s save
+ q leave, undo

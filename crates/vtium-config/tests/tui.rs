@@ -597,7 +597,7 @@ fn each_view_at_80x25_and_100x30() {
         ("heads", &[b"\t", b"\t", b"\t"]),
         ("save", &[UP, b"\r", b"s"]),
     ];
-    for (cols, rows) in [(40, 30), (80, 25), (100, 30)] {
+    for (cols, rows) in [(40, 25), (40, 30), (80, 25), (100, 30)] {
         for (name, keys) in scripts {
             let screen = reach(cols, rows, keys);
             let lines: Vec<&str> = screen.lines().collect();
@@ -868,4 +868,34 @@ fn an_edit_vtium_conf_cannot_take_is_said_in_words() {
         value.contains("font-name") && value.contains("a#b") && !value.contains("BadValue"),
         "{value}"
     );
+}
+
+#[test]
+fn at_40x25_the_size_list_scrolls_and_its_sentence_shows_whole_or_not_at_all() {
+    use vtium_config::tui::words;
+    let joined = |screen: &str| screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
+    let top = reach(40, 25, &[b"\t"]);
+    assert!(joined(&top).contains(words::NO_PICTURES), "{top}");
+    // the last size scrolls into sight, and the sentence stays whole
+    let bottom = reach(40, 25, &[b"\t", b"\x1b[4~"]);
+    assert!(bottom.contains("> 32 pt"), "{bottom}");
+    let first = words::NO_PICTURES.split(", ").next().unwrap_or("");
+    assert_eq!(
+        joined(&bottom).contains(first),
+        joined(&bottom).contains(words::NO_PICTURES),
+        "whole or not at all:\n{bottom}"
+    );
+}
+
+#[test]
+fn at_40_columns_a_refused_frit_s_reason_wraps_by_words() {
+    for rows in [25, 30] {
+        let screen = reach(40, rows, &[]);
+        let joined = screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
+        assert!(
+            joined.contains("does not read: line 2: unknown key colour"),
+            "40x{rows}:\n{screen}"
+        );
+        assert!(screen.lines().all(|l| l.chars().count() <= 40));
+    }
 }

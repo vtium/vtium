@@ -14,3 +14,8 @@ sizes-40x30	the sizes view at 40x30, the 320x240 floor's grid
 settings-40x30	the settings view at 40x30, the 320x240 floor's grid
 heads-40x30	the heads view at 40x30, the 320x240 floor's grid
 save-40x30	the save view at 40x30, the 320x240 floor's grid
+fonts-40x25	the fonts view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+sizes-40x25	the sizes view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+settings-40x25	the settings view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+heads-40x25	the heads view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+save-40x25	the save view at 40x25, the VGA console's 25 rows at the floor's 40 columns

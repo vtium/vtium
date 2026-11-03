@@ -1,13 +1,13 @@
  VTium Vitrifier       live preview: on
   Fonts  Sizes  Settings  Heads
 ---------------------------------------
-   broken     does not read: line 2: un
+   broken     does not read: line 2:
+              unknown key colour
    minspec-16 reads
    proof      reads
    tiny5      reads
  > unifont    built in, saved
    unscii-8   built in
-
 
 
 

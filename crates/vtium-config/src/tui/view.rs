@@ -55,10 +55,41 @@ fn sides(left: &str, right: &str, cols: usize) -> String {
     format!("{left}{}{right}", " ".repeat(gap))
 }
 
-/// A list row: the name in a column of `width`, then the note.
-fn item(highlight: bool, name: &str, width: usize, note: &str) -> String {
-    let mark = if highlight { '>' } else { ' ' };
-    format!(" {mark} {name:<width$} {note}")
+/// A view's body: its list, the row of the list to keep in sight, and the
+/// sentences under it, which show whole or not at all.
+struct Body {
+    list: Vec<Row>,
+    keep: usize,
+    tail: Vec<Row>,
+}
+
+/// The fewest list rows a body keeps before it drops its sentences.
+const LIST_MIN: usize = 5;
+
+/// A list of `items`, each a name in a column of `width` and its note, the
+/// note wrapped by words under its column where it is longer than the
+/// line, with the item `at` highlighted; and the list's last row of that
+/// item, to keep in sight.
+fn list(items: &[(String, String)], at: usize, width: usize, cols: usize) -> (Vec<Row>, usize) {
+    let column = width.saturating_add(4);
+    let room = cols.saturating_sub(column).saturating_sub(1).max(8);
+    let mut rows = Vec::new();
+    let mut keep = 0;
+    for (i, (name, note)) in items.iter().enumerate() {
+        let mark = if i == at { '>' } else { ' ' };
+        for (n, part) in wrap(note, room, usize::MAX).into_iter().enumerate() {
+            let line = if n == 0 {
+                format!(" {mark} {name:<width$} {part}")
+            } else {
+                format!("{:column$}{part}", "")
+            };
+            rows.push(if i == at { marked(line) } else { plain(line) });
+            if i == at {
+                keep = rows.len().saturating_sub(1);
+            }
+        }
+    }
+    (rows, keep)
 }
 
 /// `text` as rows of the body, wrapped by words to the screen's width.
@@ -69,8 +100,16 @@ fn prose(text: &str, cols: usize) -> Vec<Row> {
         .collect()
 }
 
-/// The body's rows for `app`'s view, and the row to keep in sight.
-fn body(app: &App) -> (Vec<Row>, usize) {
+/// `text` as a body's sentences, with a blank row above them.
+fn tail(text: &str, cols: usize) -> Vec<Row> {
+    std::iter::once(plain(""))
+        .chain(prose(text, cols))
+        .collect()
+}
+
+/// The body of `app`'s view.
+fn body(app: &App) -> Body {
+    let cols = app.cols;
     match app.view {
         View::Fonts => {
             let width = app
@@ -82,12 +121,11 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                 .unwrap_or(0)
                 .clamp(8, 24);
             let configured = app.configured("font-name");
-            let rows = app
+            let items: Vec<(String, String)> = app
                 .inputs
                 .fonts
                 .iter()
-                .enumerate()
-                .map(|(i, f)| {
+                .map(|f| {
                     let mut note = match &f.state {
                         FontState::Reads => words::READS.to_owned(),
                         FontState::BuiltIn => words::BUILT_IN.to_owned(),
@@ -101,24 +139,23 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                     } else if configured.as_deref() == Some(&f.name) {
                         note = format!("{note}, {}", words::SAVED);
                     }
-                    let line = item(i == app.font_at, &f.name, width, &note);
-                    if i == app.font_at {
-                        marked(line)
-                    } else {
-                        plain(line)
-                    }
+                    (f.name.clone(), note)
                 })
                 .collect();
-            (rows, app.font_at)
+            let (list, keep) = list(&items, app.font_at, width, cols);
+            Body {
+                list,
+                keep,
+                tail: Vec::new(),
+            }
         }
         View::Sizes => {
             let configured = app
                 .configured("font-size")
                 .and_then(|s| s.parse::<u32>().ok());
-            let mut rows: Vec<Row> = std::iter::once(0)
+            let items: Vec<(String, String)> = std::iter::once(0)
                 .chain(SIZES)
-                .enumerate()
-                .map(|(i, size)| {
+                .map(|size| {
                     let name = match size {
                         0 => words::AUTOMATIC.to_owned(),
                         n => words::points(n),
@@ -130,19 +167,14 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                     } else {
                         ""
                     };
-                    let line = item(i == app.size_at, &name, 10, note);
-                    if i == app.size_at {
-                        marked(line)
-                    } else {
-                        plain(line)
-                    }
+                    (name, note.to_owned())
                 })
                 .collect();
-            rows.push(plain(""));
-            if !app.graphics {
-                rows.extend(prose(words::NO_PICTURES, app.cols));
+            let (list, keep) = list(&items, app.size_at, 10, cols);
+            let sentence = if !app.graphics {
+                words::NO_PICTURES.to_owned()
             } else if app.size() == 0 {
-                rows.extend(prose(words::AUTOMATIC_PICTURE, app.cols));
+                words::AUTOMATIC_PICTURE.to_owned()
             } else {
                 let (dpi, from) = app.inputs.dpi;
                 let from = match from {
@@ -150,15 +182,18 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                     DpiFrom::Edid => words::DPI_FROM_EDID,
                     DpiFrom::Assumed => words::DPI_ASSUMED,
                 };
-                rows.extend(prose(&words::density(dpi, from), app.cols));
+                words::density(dpi, from)
+            };
+            Body {
+                list,
+                keep,
+                tail: tail(&sentence, cols),
             }
-            (rows, app.size_at)
         }
         View::Settings => {
-            let rows = SETTING_KEYS
+            let items: Vec<(String, String)> = SETTING_KEYS
                 .iter()
-                .enumerate()
-                .map(|(i, key)| {
+                .map(|key| {
                     let value = match *key {
                         "font-name" => app.pending.font_name.clone(),
                         "font-size" => app.pending.font_size.map(|s| s.to_string()),
@@ -170,40 +205,45 @@ fn body(app: &App) -> (Vec<Row>, usize) {
                         "allow-font-ops" => words::OFF.to_owned(),
                         _ => value.unwrap_or_else(|| words::UNSET.to_owned()),
                     };
-                    let line = item(i == app.setting_at, key, 18, &value);
-                    if i == app.setting_at {
-                        marked(line)
-                    } else {
-                        plain(line)
-                    }
+                    ((*key).to_owned(), value)
                 })
-                .chain(std::iter::once(plain("")))
-                .chain(prose(words::SETTINGS_HINT, app.cols))
                 .collect();
-            (rows, app.setting_at)
+            let (list, keep) = list(&items, app.setting_at, 18, cols);
+            Body {
+                list,
+                keep,
+                tail: tail(words::SETTINGS_HINT, cols),
+            }
         }
         View::Heads => match (app.inputs.heads.is_some(), app.heads()) {
-            (false, _) => (prose(words::NO_HEAD_FILE, app.cols), 0),
-            (true, None) => (prose(words::HEAD_FILE_ERRORS, app.cols), 0),
+            (false, _) => Body {
+                list: prose(words::NO_HEAD_FILE, cols),
+                keep: 0,
+                tail: Vec::new(),
+            },
+            (true, None) => Body {
+                list: prose(words::HEAD_FILE_ERRORS, cols),
+                keep: 0,
+                tail: Vec::new(),
+            },
             (true, Some(heads)) => {
-                let rows = heads
+                let items: Vec<(String, String)> = heads
                     .iter()
-                    .enumerate()
-                    .map(|(i, (head, profile))| {
-                        let line = item(i == app.head_at, head, 16, &words::head_profile(profile));
-                        if i == app.head_at {
-                            marked(line)
-                        } else {
-                            plain(line)
-                        }
-                    })
-                    .chain(std::iter::once(plain("")))
-                    .chain(prose(words::HEADS_HINT, app.cols))
+                    .map(|(head, profile)| (head.clone(), words::head_profile(profile)))
                     .collect();
-                (rows, app.head_at)
+                let (list, keep) = list(&items, app.head_at, 16, cols);
+                Body {
+                    list,
+                    keep,
+                    tail: tail(words::HEADS_HINT, cols),
+                }
             }
         },
-        View::Save => (save_rows(app), 0),
+        View::Save => Body {
+            list: save_rows(app),
+            keep: 0,
+            tail: Vec::new(),
+        },
     }
 }
 
@@ -365,9 +405,22 @@ pub fn screen(app: &App) -> Vec<Row> {
             .saturating_sub(4)
             .saturating_sub(message.len())
             .saturating_sub(keys.len());
-        let (lines, keep) = body(app);
-        let first = keep.saturating_add(1).saturating_sub(room);
-        out.extend(lines.into_iter().skip(first).take(room));
+        let Body { list, keep, tail } = body(app);
+        // the sentences under the list show whole, while the list keeps
+        // at least LIST_MIN rows; otherwise they are dropped
+        let show_tail = !tail.is_empty()
+            && (list.len().saturating_add(tail.len()) <= room
+                || room >= LIST_MIN.saturating_add(tail.len()));
+        let list_room = if show_tail {
+            room.saturating_sub(tail.len())
+        } else {
+            room
+        };
+        let first = keep.saturating_add(1).saturating_sub(list_room);
+        out.extend(list.into_iter().skip(first).take(list_room));
+        if show_tail {
+            out.extend(tail);
+        }
         while out.len()
             < rows
                 .saturating_sub(1)
