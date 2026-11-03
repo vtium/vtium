@@ -4196,7 +4196,13 @@ mod tests {
     /// and drawn at a turn at `t`.
     #[cfg(feature = "images")]
     fn drawn(bytes: &[u8], t: Instant) -> (Loop<App>, App) {
-        let (mut lp, mut app) = seat(None, no_fonts());
+        drawn_under(None, bytes, t)
+    }
+
+    /// [`drawn`] under the head file `heads`.
+    #[cfg(feature = "images")]
+    fn drawn_under(heads: Option<&str>, bytes: &[u8], t: Instant) -> (Loop<App>, App) {
+        let (mut lp, mut app) = seat(heads, no_fonts());
         app.add_video(
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A")])),
@@ -4278,6 +4284,48 @@ mod tests {
         assert_eq!(clock(&app), (Some(ms(10_080)), Some(2)));
         app.turn(ms(10_080));
         assert_eq!(clock(&app), (Some(ms(10_110)), Some(1)));
+    }
+
+    // ADR-1102 D3: a hidden console's clock arms no timer and moves no
+    // frame, however many turns pass, while the shown console's plays.
+    // covers: image.kitty-animation
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_hidden_consoles_clock_arms_no_timer() {
+        let t = Instant::now();
+        let ms = |n: u64| t + Duration::from_millis(n);
+        let heads = "version = 1\n[head one]\nconsoles = 2\n";
+        let (_lp, mut app) = drawn_under(Some(heads), &animated(false), t);
+        assert_eq!(clock(&app), (Some(ms(30)), Some(1)));
+        let App {
+            heads,
+            config,
+            scrollback,
+            scrollback_bytes,
+            clock: seat_clock,
+            ..
+        } = &mut app;
+        let head = heads.first_mut().unwrap();
+        head.open_wanted(|| {
+            crate::head::terminal(
+                config,
+                *scrollback,
+                *scrollback_bytes,
+                Rc::clone(seat_clock),
+            )
+        });
+        assert_eq!(head.console_count(), 2);
+        head.show(1, true);
+        let hidden = |app: &App| {
+            let term = &app.heads.first().unwrap().hidden.first().unwrap().term;
+            let store = term.terminal.screen().images();
+            let key = term.terminal.screen().placements().first().unwrap().image;
+            (term.animation.due(store), term.animation.frame(key))
+        };
+        for n in [30, 70, 1000] {
+            app.turn(ms(n));
+            assert_eq!(hidden(&app), (None, Some(1)), "hidden at {n} ms");
+        }
     }
 
     // ADR-1401 D8: the loop wakes when a head's `when-display-lost` time runs out.

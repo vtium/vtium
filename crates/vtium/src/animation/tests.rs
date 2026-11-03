@@ -78,18 +78,29 @@ fn feed(t: &mut Terminal, cmds: &[String]) {
 /// green and blue, whose gaps are `gaps[1]` and `gaps[2]`, and the root
 /// frame's gap `gaps[0]` unless it is 0, its default.
 fn three_frames(t: &mut Terminal, gaps: [i32; 3]) -> ImageKey {
-    let mut cmds = vec![format!("a=T,f=32,s=2,v=2,i=1;{}", fill(2, 2, RED))];
+    three_frames_of(t, 1, gaps)
+}
+
+/// [`three_frames`] as image `id`, returning its key.
+fn three_frames_of(t: &mut Terminal, id: u32, gaps: [i32; 3]) -> ImageKey {
+    let before: Vec<ImageKey> = t.screen().placements().iter().map(|p| p.image).collect();
+    let mut cmds = vec![format!("a=T,f=32,s=2,v=2,i={id};{}", fill(2, 2, RED))];
     for (color, gap) in [(GREEN, gaps[1]), (BLUE, gaps[2])] {
         cmds.push(format!(
-            "a=f,i=1,f=32,s=2,v=2,z={gap};{}",
+            "a=f,i={id},f=32,s=2,v=2,z={gap};{}",
             fill(2, 2, color)
         ));
     }
     if gaps[0] != 0 {
-        cmds.push(format!("a=a,i=1,r=1,z={}", gaps[0]));
+        cmds.push(format!("a=a,i={id},r=1,z={}", gaps[0]));
     }
     feed(t, &cmds);
-    t.screen().placements()[0].image
+    let placed = t.screen().placements();
+    placed
+        .iter()
+        .map(|p| p.image)
+        .find(|k| !before.contains(k))
+        .unwrap()
 }
 
 fn ms(t0: Instant, n: u64) -> Instant {
@@ -420,10 +431,21 @@ fn a_loading_animation_goes_on_to_a_frame_that_arrives() {
     assert_eq!(due(&c, &t), None, "it waits on frame 4");
 }
 
-/// The store, counting the frames whose pixels it is asked for.
+/// The store, counting the frames whose pixels and gaps it is asked for.
 struct Counting<'a> {
     store: &'a Store,
     asked: Cell<usize>,
+    gaps: Cell<usize>,
+}
+
+impl<'a> Counting<'a> {
+    fn new(store: &'a Store) -> Counting<'a> {
+        Counting {
+            store,
+            asked: Cell::new(0),
+            gaps: Cell::new(0),
+        }
+    }
 }
 
 impl Frames for Counting<'_> {
@@ -431,6 +453,7 @@ impl Frames for Counting<'_> {
         self.store.animation(image)
     }
     fn gap(&self, image: ImageKey, frame: u32) -> Option<i32> {
+        self.gaps.set(self.gaps.get() + 1);
         self.store.frame_gap(image, frame)
     }
     fn pixels(&self, image: ImageKey, frame: u32) -> Option<FramePixels> {
@@ -451,10 +474,7 @@ fn the_snapshot_shows_the_clocks_frame_asked_once_per_image() {
     let key = three_frames(&mut t, [30, 40, 50]);
     feed(&mut t, &["a=p,i=1,p=2".into(), "a=a,i=1,s=3".into()]);
     let mut c = clock(&t, t0);
-    let counting = Counting {
-        store: t.screen().images(),
-        asked: Cell::new(0),
-    };
+    let counting = Counting::new(t.screen().images());
     let mut shown = t.screen().placements();
     assert_eq!(shown.len(), 2, "two placements of image 1");
     c.show(&mut shown, &counting);
@@ -511,4 +531,89 @@ fn the_stores_current_frame_is_composed_once_while_the_clock_plays_others() {
             "frame 2 composed again at snapshot {n}"
         );
     }
+}
+
+// D3: the timer fires at most once every ANIMATION_FLOOR_MS, whatever the
+// gaps: frames of 3 ms, and two pictures whose frames change every 13 and
+// 17 ms; each firing comes at least the floor after the one before, and a
+// frame whose time has gone is passed over.
+// covers: image.kitty-animation
+#[test]
+fn the_timer_fires_no_more_often_than_the_floor() {
+    let t0 = Instant::now();
+    let floor = Duration::from_millis(ANIMATION_FLOOR_MS);
+    let mut one = term();
+    three_frames(&mut one, [3, 3, 3]);
+    feed(&mut one, &["a=a,i=1,s=3".into()]);
+    let mut two = term();
+    three_frames_of(&mut two, 1, [13, 13, 13]);
+    three_frames_of(&mut two, 2, [17, 17, 17]);
+    feed(&mut two, &["a=a,i=1,s=3".into(), "a=a,i=2,s=3".into()]);
+    for t in [&one, &two] {
+        let mut c = clock(t, t0);
+        let mut last: Option<Instant> = None;
+        for _ in 0..100 {
+            let at = due(&c, t).unwrap();
+            if let Some(last) = last {
+                assert!(at >= last + floor, "{:?} after the last firing", at - last);
+            }
+            c.turn(t.screen().images(), at, true);
+            last = Some(at);
+        }
+    }
+}
+
+// D3: shown again after a year hidden, with frames of 1 ms, the clock skips
+// the whole loops by arithmetic: it asks for a few gaps, not one for each
+// frame it missed, and shows the frame the time puts it on.
+// covers: image.kitty-animation
+#[test]
+fn a_year_hidden_costs_a_few_gaps_to_catch_up() {
+    let t0 = Instant::now();
+    let mut t = term();
+    let key = three_frames(&mut t, [1, 1, 1]);
+    feed(&mut t, &["a=a,i=1,s=3".into()]);
+    let mut c = clock(&t, t0);
+    let year = 365 * 24 * 3600 * 1000;
+    c.turn(t.screen().images(), ms(t0, year / 2), false);
+    let counting = Counting::new(t.screen().images());
+    // 3 ms a loop: a year and 1 ms is frame 2
+    assert!(c.turn(&counting, ms(t0, year + 1), true));
+    assert_eq!(c.frame(key), Some(2));
+    assert!(
+        counting.gaps.get() < 100,
+        "{} gaps asked",
+        counting.gaps.get()
+    );
+}
+
+// D3: an animated picture that placeholder cells show through a virtual
+// placement plays as any other: the cell's entry shows the clock's frame.
+// covers: image.kitty-animation
+#[test]
+fn a_placeholder_picture_plays() {
+    let t0 = Instant::now();
+    let mut t = term();
+    let mut cmds = vec![format!("a=t,f=32,s=2,v=2,i=1;{}", fill(2, 2, RED))];
+    for color in [GREEN, BLUE] {
+        cmds.push(format!("a=f,i=1,f=32,s=2,v=2,z=40;{}", fill(2, 2, color)));
+    }
+    cmds.extend([
+        "a=a,i=1,r=1,z=30".into(),
+        "a=p,U=1,i=1,c=1,r=1".into(),
+        "a=a,i=1,s=3".into(),
+    ]);
+    feed(&mut t, &cmds);
+    t.input("\x1b[38;5;1m\u{10EEEE}\u{0305}\u{0305}\x1b[m".as_bytes());
+    let shown = t.screen().placements();
+    assert_eq!(shown.len(), 1, "the placeholder cell's entry");
+    let key = shown[0].image;
+    let mut c = clock(&t, t0);
+    assert_eq!(
+        turns(&mut c, &t, key, t0, &[30, 70]),
+        [(2, true), (3, true)]
+    );
+    let mut shown = t.screen().placements();
+    c.show(&mut shown, t.screen().images());
+    assert_eq!(shown[0].frame, 3);
 }
