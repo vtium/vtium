@@ -9,6 +9,7 @@ import t3_bench
 import t3_devices
 import t3_heads
 import t3_images
+import t3_pictures
 import t3_pointer
 import t3_power
 import t3img
@@ -108,7 +109,7 @@ DRAWS_PICTURES = IMAGE_SCREENS + PICTURE_SCREENS
 # decoded each picture, removed the temporary file and refused a file the
 # session's user cannot read (img-png); a delete kept one image's data and
 # freed another's (img-delete); vtium took every animation frame and control
-# (img-animation) and the virtual placement (img-placeholder); and each
+# (img-animation) and both virtual placements (img-placeholder); and each
 # iTerm2 picture left the cursor on the row of its last pixel row, at its
 # left column, where a dropped picture leaves it at row 3 (img-iterm2). A
 # screen that reports anything else fails, whether or not its golden is
@@ -121,8 +122,36 @@ REPLIES = {
     "img-animation": ["i=50;OK"] * 6 + ["i=51;OK"] * 4,
     "img-iterm2": ["png at row 5, column 3", "gif at row 5, column 15",
                    "parts at row 8, column 27", "pixels at row 4, column 47"],
-    "img-placeholder": ["i=60;OK"],
+    "img-placeholder": ["i=60;OK", "i=16909060,p=7;OK"],
 }
+
+# The pictures a picture screen must show before its capture is taken, each
+# (picture of t3_pictures.PICTURES, column, row), its top left corner at
+# that cell: the frame an animation stops on, which a capture taken while
+# it still played, or of an animation that never played, does not show, and
+# the pictures drawn through placeholder cells, which a console that drew
+# the cells as glyphs does not show. The driver captures such a screen once
+# it has settled showing them, and the case fails, whatever its golden says,
+# when it never does (t3_scenario.capture_screen).
+SHOWS = {
+    "img-animation": [("anim-stopped", 5, 3), ("anim-ended", 20, 3)],
+    "img-iterm2": [("quad-turned-twice", 15, 3)],
+    "img-placeholder": [("quad", 35, 3), ("child", 5, 9)],
+}
+
+
+def not_shown(name, img):
+    """Why capture `img` of screen `name` does not show the pictures SHOWS
+    lists for it, or None when it shows every one."""
+    missing = []
+    for picture, col, row in SHOWS.get(name, []):
+        wrong = t3_pictures.shows(img, picture, col, row)
+        if wrong:
+            missing.append("%s at column %d, row %d (%d pixels differ)"
+                           % (picture, col, row, len(wrong)))
+    if not missing:
+        return None
+    return "the screen settled without showing " + "; ".join(missing)
 
 
 def keyed(name):

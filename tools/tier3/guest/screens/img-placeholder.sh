@@ -33,8 +33,9 @@
 # third diacritic its top byte, 1. Its virtual placement has the placement
 # id 7, which its cells name with the underline color 7 (SGR 58).
 #
-# The first virtual placement asks for its reply, which the screen reports
-# on the event port; the other commands carry q=2.
+# Both virtual placements ask for their replies, which the screen reports
+# on the event port, the second's naming its placement (i=16909060,p=7;OK);
+# the transmissions carry q=2.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/img-common.inc"
 kitty_offered
 pictures_there
@@ -44,7 +45,7 @@ printf 'img-placeholder: kitty pictures drawn through Unicode placeholder cells\
 kitty_send "a=t,i=60,q=2,f=32,s=64,v=48" "$(pic64 quad.rgba)"
 ask_event "a=p,U=1,i=60,c=8,r=3"
 kitty_send "a=t,i=16909060,q=2,f=32,s=32,v=32" "$(pic64 child.rgba)"
-kitty_send "a=p,U=1,i=16909060,p=7,c=4,r=2,q=2"
+ask_event "a=p,U=1,i=16909060,p=7,c=4,r=2"
 
 printf '%s[38;5;60m' "$esc"
 at 3 5

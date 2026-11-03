@@ -99,6 +99,31 @@ class Picture:
         return ("".join(out) + "\x1b\\").encode()
 
 
+def shows(img, name, col, row, rows=None, part=None, cell=(8, 16)):
+    """Where `img`, a capture or golden (t3img.Image), fails to show picture
+    `name` at its own size with its top left corner at cell (`col`, `row`),
+    counted from 1, in cells of `cell` pixels: the (x, y) of each opaque
+    pixel of the picture that is not its color there, so an empty list
+    means the picture is shown. With `rows`, a range, only those pixel rows
+    of the picture count; with `part`, a pixel box (x0, y0, x1, y1), only
+    that part of it, drawn at the cell. Clear pixels are not checked."""
+    pic = PICTURES[name]
+    x0, y0, x1, y1 = part or (0, 0, pic.width, pic.height)
+    left, top = (col - 1) * cell[0], (row - 1) * cell[1]
+    wrong = []
+    for y in rows or range(y0, y1):
+        for x in range(x0, x1):
+            p = pic.pixels[y][x]
+            if not p:
+                continue
+            ix, iy = left + x - x0, top + y - y0
+            i = (iy * img.width + ix) * 3
+            if not (0 <= ix < img.width and 0 <= iy < img.height) \
+                    or tuple(img.data[i:i + 3]) != eight(p):
+                wrong.append((x, y))
+    return wrong
+
+
 def runs(chars):
     """`chars` with each run of 4 or more of one character written `!N` and
     the character, sixel's repeat introducer."""
@@ -221,9 +246,12 @@ def gif(frames, delay):
     table = 1 << bits
     minimum = max(2, bits)
     clear, end = 1 << minimum, (1 << minimum) + 1
-    # After a clear, each literal but the first adds an entry to the
-    # decoder's table; it widens its codes once the next entry is
-    # 1 << (minimum + 1), so a clear comes 3 literals before that.
+    # After a clear, the first literal adds no entry to the decoder's table
+    # and each later one adds one, from clear + 2. The decoder widens its
+    # codes once its next entry would be 1 << (minimum + 1), which the
+    # (1 << minimum) - 1th literal reaches, so (1 << minimum) - 2 literals
+    # fit. The writer sends one fewer before each clear, so a decoder that
+    # widens one code early reads the same width too.
     run = (1 << minimum) - 3
     out = bytearray(b"GIF89a")
     out += struct.pack("<HHBBB", width, height, 0x80 | ((bits - 1) << 4) | (bits - 1), 0, 0)

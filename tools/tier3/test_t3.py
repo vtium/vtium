@@ -14,6 +14,7 @@ cache and the logger a worker process receives (t3_common.py).
 """
 
 import argparse
+import base64
 import contextlib
 import hashlib
 import io
@@ -4407,6 +4408,119 @@ class ImagesVariantTest(unittest.TestCase):
                                                 re.M)),
                                  len(replies))
 
+    def bash(self, script, pics=""):
+        """The bytes `script` prints in bash after it sources
+        img-common.inc, with the test pictures read from `pics`."""
+        inc = os.path.join(t3_common.GUEST, "screens", "img-common.inc")
+        return subprocess.run(["bash", "-c", '. "$1"; pics=$2; ' + script, "bash", inc, pics],
+                              capture_output=True, check=True).stdout
+
+    def test_placeholder_bytes(self):
+        # A placeholder cell is U+10EEEE and a diacritic for each argument,
+        # the marks the first eight of vtium-term's table (ADR-1100 D13).
+        self.assertEqual(self.bash("placeholder 2 3 1"),
+                         "\U0010EEEE\u030E\u0310\u030D".encode())
+        self.assertEqual(self.bash("placeholder"), "\U0010EEEE".encode())
+        with open(os.path.join(t3_common.ROOT, "crates", "vtium-term", "src",
+                               "placeholder.rs")) as f:
+            table = f.read().split("DIACRITICS: [char; 297] = [", 1)[1]
+        first = [chr(int(h, 16)) for h in re.findall(r"'\\u\{([0-9A-Fa-f]+)\}'", table)[:8]]
+        self.assertEqual(len(first), 8)
+        for n, mark in enumerate(first):
+            with self.subTest(n):
+                self.assertEqual(self.bash("placeholder %d" % n),
+                                 ("\U0010EEEE" + mark).encode())
+
+    def test_iterm2_senders(self):
+        # iterm2_send sends one File= string; iterm2_parts sends
+        # MultipartFile=, FileParts of the length asked for, which rejoin
+        # to the file byte for byte, and FileEnd (ADR-1103 D1).
+        png = t3_pictures.files()["quad.png"]
+        with tempfile.TemporaryDirectory() as d:
+            t3_pictures.write(d)
+            one = self.bash('iterm2_send "inline=1;width=32px" quad.png', d)
+            parts = self.bash('iterm2_parts "inline=1;width=16;height=6" quad.png 30', d)
+        self.assertEqual(one, b"\x1b]1337;File=inline=1;width=32px:"
+                         + base64.b64encode(png) + b"\x07")
+        strings = parts.split(b"\x07")
+        self.assertEqual(strings[-1], b"")
+        self.assertEqual(strings[0], b"\x1b]1337;MultipartFile=inline=1;width=16;height=6")
+        self.assertEqual(strings[-2], b"\x1b]1337;FileEnd")
+        pieces = [p[len(b"\x1b]1337;FilePart="):] for p in strings[1:-2]]
+        self.assertTrue(all(p.startswith(b"\x1b]1337;FilePart=") for p in strings[1:-2]))
+        self.assertEqual([len(p) for p in pieces[:-1]], [30] * (len(pieces) - 1))
+        self.assertLessEqual(len(pieces[-1]), 30)
+        self.assertGreater(len(pieces), 2)
+        self.assertEqual(base64.b64decode(b"".join(pieces)), png)
+
+    def test_shows(self):
+        # Each screen SHOWS names is shown by its golden, and not by another
+        # screen's, so a capture of the wrong frame or of no picture fails.
+        self.assertEqual(sorted(t3_evaluate.SHOWS),
+                         ["img-animation", "img-iterm2", "img-placeholder"])
+        for name in t3_evaluate.SHOWS:
+            with self.subTest(name):
+                golden = t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT,
+                                                 name + ".png"))
+                self.assertIsNone(t3_evaluate.not_shown(name, golden))
+                other = t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT,
+                                                "img-kitty.png"))
+                self.assertRegex(t3_evaluate.not_shown(name, other),
+                                 "^the screen settled without showing ")
+
+    def test_capture_waits_for_the_pictures(self):
+        # The driver captures a screen SHOWS names once it has settled
+        # showing its pictures: a middle frame that holds still for a
+        # second is not taken, a screen that never shows them fails its
+        # case and the run goes on, and any other screen that never
+        # settles stops the run as before.
+        def paint(*pictures):
+            data = bytearray(640 * 480 * 3)
+            for name, col, row in pictures:
+                for y, line in enumerate(t3_pictures.PICTURES[name].pixels):
+                    for x, p in enumerate(line):
+                        if p:
+                            i = (((row - 1) * 16 + y) * 640 + (col - 1) * 8 + x) * 3
+                            data[i:i + 3] = bytes(t3_pictures.eight(p))
+            return t3img.Image(640, 480, bytes(data))
+
+        before = paint(("quad", 3, 3))
+        first, last = paint(("quad", 15, 3)), paint(("quad-turned-twice", 15, 3))
+
+        class Clock:
+            now = 0.0
+
+            def time(self):
+                return self.now
+
+            def sleep(self, seconds):
+                self.now += seconds
+
+        class VM:
+            def __init__(self, frames):
+                self.frames = frames
+
+            def screendump(self, path, output=None):
+                img = self.frames.pop(0) if len(self.frames) > 1 else self.frames[0]
+                t3_qemu.write_ppm(path, img)
+                return img
+
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(t3_qemu, "time", Clock()):
+            path = os.path.join(d, "img-iterm2.ppm")
+            img, why = t3_scenario.capture_screen(VM([first, first, last]), "img-iterm2", path,
+                                                  before)
+            self.assertEqual((img.data == last.data, why), (True, None))
+            # the quarters show where the last frame should, all but its white frame
+            img, why = t3_scenario.capture_screen(VM([first]), "img-iterm2", path, before)
+            self.assertEqual(img.data, first.data)
+            self.assertEqual(why, "the screen settled without showing quad-turned-twice at "
+                                  "column 15, row 3 (2852 pixels differ)")
+            with self.assertRaisesRegex(RuntimeError, "not in the expected state"):
+                t3_scenario.capture_screen(VM([before]), "img-kitty", path, before)
+        with open(os.path.join(t3_common.HERE, "t3_scenario.py")) as f:
+            self.assertIn("last, why = capture_screen(vm, name, path, last)", f.read())
+
     def test_make_target(self):
         # make tier3-images builds the tree with images and any features
         # FEATURES adds, and runs the images variant unless VARIANTS names
@@ -4456,16 +4570,8 @@ class PictureGoldenTest(unittest.TestCase):
         corner at cell (`col`, `row`), counted from 1, its opaque pixels in
         their colors: only its pixel rows `rows` (a range) when given, and
         only the pixel box `part` (x0, y0, x1, y1) of it, drawn at the cell,
-        when given."""
-        pic = t3_pictures.PICTURES[name]
-        x0, y0, x1, y1 = part or (0, 0, pic.width, pic.height)
-        left, top = (col - 1) * 8, (row - 1) * 16
-        wrong = []
-        for y in rows or range(y0, y1):
-            for x in range(x0, x1):
-                p = pic.pixels[y][x]
-                if p and self.pixel(img, left + x - x0, top + y - y0) != t3_pictures.eight(p):
-                    wrong.append((x, y))
+        when given (t3_pictures.shows)."""
+        wrong = t3_pictures.shows(img, name, col, row, rows=rows, part=part)
         self.assertEqual(wrong[:4], [], "%s at column %d, row %d: %d pixels differ"
                          % (name, col, row, len(wrong)))
 

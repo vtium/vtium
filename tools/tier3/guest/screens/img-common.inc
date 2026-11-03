@@ -41,9 +41,29 @@ reply_event() {
 }
 
 # Sends kitty command $1, which carries i, with the payload $2, and reports
-# its reply on the event port.
+# its reply on the event port, "no reply" when none comes within 3 seconds.
+# It reads the reply as kitty_ask does, and also takes one that names a
+# placement after the image (i=N,p=P;...), which kitty_ask skips while it
+# waits for i=N; alone. kitty_ask stays as it is, since kitty-common.inc is
+# a byte-for-byte copy of the C reference's harness (provenance.tsv).
 ask_event() {
-	kitty_ask "$1" "$2"
+	local mode r= id= n
+	[[ ,$1, =~ ,i=([0-9]+), ]] && id=${BASH_REMATCH[1]}
+	if [ -t 0 ] && mode=$(stty -g </dev/tty 2>/dev/null); then
+		stty -echo </dev/tty
+		kitty_send "$1" "$2" >/dev/tty
+		for ((n = 0; n < 8; n++)); do
+			IFS= read -rsd '\' -t 3 r </dev/tty || break
+			[[ $r == *"_Gi=$id;"* || $r == *"_Gi=$id,"* ]] && break
+		done
+		[[ $r == *"_Gi=$id;"* || $r == *"_Gi=$id,"* ]] || r=
+		stty "$mode" </dev/tty
+	else
+		kitty_send "$1" "$2"
+	fi
+	r=${r#*_G}
+	reply=${r%"$esc"}
+	[ -n "$reply" ] || reply='no reply'
 	reply_event "$reply"
 }
 
