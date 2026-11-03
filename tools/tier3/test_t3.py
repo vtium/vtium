@@ -4012,6 +4012,44 @@ class ImagesVariantTest(unittest.TestCase):
                                      t3_evaluate.VTIUM_GOLDEN)
         self.assertIn("the img-png screen redrawn", entry["description"])
 
+    def test_restore_must_match_before(self):
+        # vt-restore fails, whatever its golden, when the screen after the
+        # switch back is not the screen before it, as when a console draws
+        # its text again and drops a picture.
+        before = t3img.Image(4, 2, bytes(range(24)))
+        dropped = t3img.Image(4, 2, bytes(range(21)) + b"\0\0\0")
+        self.assertIsNone(t3_scenario.restore_differs(before, t3img.Image(4, 2, before.data)))
+        self.assertEqual(t3_scenario.restore_differs(before, dropped),
+                         "the screen after the switch back differs from the screen before "
+                         "the switch in 1 pixels")
+        self.assertIn("differs", t3_scenario.restore_differs(before, t3img.Image(2, 2,
+                                                                                bytes(12))))
+        tty3 = t3img.Image(4, 2, bytes(24))
+
+        class VM:
+            def keys(self, *chord):
+                pass
+
+            def wait_serial(self, line, timeout):
+                pass
+
+            def screendump(self, path, output=None):
+                return tty3
+
+        for after, want in ((before, None), (dropped, "in 1 pixels")):
+            with self.subTest(want), tempfile.TemporaryDirectory() as d:
+                shown = iter([tty3, after])
+                caps, errors = {}, {}
+                with mock.patch.object(t3_scenario, "wait_stable",
+                                       lambda vm, path, **kw: next(shown)):
+                    t3_scenario.switch_vts(self.VARIANT, VM(), d, before, caps, errors,
+                                           lambda name: None)
+                self.assertIn("vt-restore", caps)
+                if want:
+                    self.assertIn(want, errors["vt-restore"])
+                else:
+                    self.assertNotIn("vt-restore", errors)
+
     def test_scrollback_keys(self):
         self.assertIn(("img-scroll", "img-scrollback", [("shift", "pgup")]), t3_evaluate.KEYED)
         self.assertIn(("img-scroll", "img-scrollforward", [("shift", "pgdn")]),

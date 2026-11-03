@@ -998,10 +998,26 @@ def switch_vts(variant, vm, work, last, caps, errors, phase):
         lasts[o["suffix"]] = vm.screendump(tmp, t3_devices.capture(o))
     vm.keys("ctrl", "alt", "f2")
     path = os.path.join(work, "vt-restore.ppm")
-    wait_stable(vm, path, want=lambda img: img.data != away.data)
+    restored = wait_stable(vm, path, want=lambda img: img.data != away.data)
     caps["vt-restore"] = path
+    # The restored screen must also be the one tty2 showed before the
+    # switch, pixel for pixel, whether or not its golden is reviewed yet: a
+    # console that draws its text again and drops its pictures fails here.
+    why = restore_differs(last, restored)
+    if why:
+        errors["vt-restore"] = why
     capture_outputs(vm, outputs, work, "vt-restore", caps, lasts)
     phase("vt-restore")
+
+
+def restore_differs(before, after):
+    """Why the screen `after` the switch back is not the screen `before` the
+    switch, or None when the two are identical."""
+    stats, _, _ = t3img.compare(after, before)
+    if not stats["pixels"] and "size_mismatch" not in stats:
+        return None
+    return ("the screen after the switch back differs from the screen before the switch "
+            "in %s pixels" % stats.get("pixels", "all"))
 
 
 def run_checks(variant, vm, work, caps, errors, log, phase):
