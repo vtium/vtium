@@ -1,13 +1,12 @@
-//! The banner (vtium/vtium#112): `vtium-config --help about` shows its name in
-//! glass, panes of green and cyan glass behind
-//! letters that fall from ice white to deep teal, with a shine crossing
-//! them once.
+//! The banner (vtium/vtium#112): `vtium-config --help about` shows its name
+//! in glass, panes of green and cyan glass behind letters that fall from
+//! ice white to deep teal, with a shine crossing them once.
 //!
-//! The picture is drawn only when stdin
-//! and stdout are both terminals, and never with a non-empty `NO_COLOR`, a dpkg
-//! maintainer script's environment, a Chinese, Japanese or Korean locale,
-//! or a `TERM` that is unset, `dumb`, a monochrome VT or a terminfo name's
-//! monochrome form (`-m`, `-mono`). It follows the color depth the environment reports
+//! The picture is drawn only when stdin and stdout are both terminals, and
+//! never with a non-empty `NO_COLOR`, a dpkg maintainer script's
+//! environment, a Chinese, Japanese or Korean locale, or a `TERM` that is
+//! unset, `dumb`, a monochrome VT or a terminfo name's monochrome form
+//! (`-m`, `-mono`). It follows the color depth the environment reports
 //! ([`Depth`]), and takes the narrow form below [`Form::Wide`]'s width. It
 //! is static: no motion, and nothing waits on it.
 //!

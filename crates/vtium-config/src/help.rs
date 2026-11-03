@@ -12,12 +12,70 @@ struct Form {
 
 /// A command's help.
 struct Topic {
-    name: &'static str,
+    command: Command,
     forms: &'static [Form],
     /// What the command does, its arguments and its options, in whole
     /// sentences.
     detail: &'static str,
     example: &'static str,
+}
+
+/// The commands: the one list that the dispatch in `cli.rs`, the usage and
+/// `--help COMMAND` all read, so that a command cannot exist without a
+/// help topic (a test checks each has one).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Command {
+    Fonts,
+    Check,
+    Config,
+    New,
+    Tui,
+    RemoveFrit,
+    Preview,
+    Set,
+    Apply,
+    Serve,
+}
+
+impl Command {
+    /// Every command, in the order the usage lists them.
+    pub const ALL: [Command; 10] = [
+        Command::Fonts,
+        Command::Check,
+        Command::Config,
+        Command::New,
+        Command::Tui,
+        Command::RemoveFrit,
+        Command::Preview,
+        Command::Set,
+        Command::Apply,
+        Command::Serve,
+    ];
+
+    /// The word that runs the command.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Command::Fonts => "fonts",
+            Command::Check => "check",
+            Command::Config => "config",
+            Command::New => "new",
+            Command::Tui => "tui",
+            Command::RemoveFrit => "remove-frit",
+            Command::Preview => "preview",
+            Command::Set => "set",
+            Command::Apply => "apply",
+            Command::Serve => crate::serve::SERVE_ARG,
+        }
+    }
+
+    /// The command a command-line word names.
+    pub fn from_name(word: &str) -> Option<Command> {
+        Command::ALL.into_iter().find(|c| c.name() == word)
+    }
+
+    fn topic(self) -> Option<&'static Topic> {
+        TOPICS.iter().find(|t| t.command == self)
+    }
 }
 
 const fn form(synopsis: &'static str, does: &'static str) -> Form {
@@ -26,7 +84,7 @@ const fn form(synopsis: &'static str, does: &'static str) -> Form {
 
 const TOPICS: &[Topic] = &[
     Topic {
-        name: "fonts",
+        command: Command::Fonts,
         forms: &[form(
             "fonts",
             "list the frits and built-in fonts, and the sources each lacks",
@@ -35,7 +93,7 @@ const TOPICS: &[Topic] = &[
         example: "vtium-config fonts",
     },
     Topic {
-        name: "check",
+        command: Command::Check,
         forms: &[form(
             "check FILE",
             "check a frit (NAME.vtfrit), a head file (heads.conf) or a vtium.conf, writing nothing",
@@ -44,7 +102,7 @@ const TOPICS: &[Topic] = &[
         example: "vtium-config check /etc/vtium/vtium.conf",
     },
     Topic {
-        name: "config",
+        command: Command::Config,
         forms: &[
             form(
                 "config KEY [VALUE]",
@@ -59,7 +117,7 @@ const TOPICS: &[Topic] = &[
         example: "vtium-config config font-size 14",
     },
     Topic {
-        name: "new",
+        command: Command::New,
         forms: &[
             form(
                 "new FONT... [--name NAME] [--cell WxH] [--size POINTS]",
@@ -76,13 +134,13 @@ const TOPICS: &[Topic] = &[
         example: "vtium-config new unifont --name my-font --size 14",
     },
     Topic {
-        name: "tui",
+        command: Command::Tui,
         forms: &[form("tui", "at a terminal, open the interactive tool")],
         detail: "Opens the full-screen tool that lists the frits and the built-in fonts and tries each on the live console. It runs as you, never as root, asks for sudo when it saves, and needs a terminal on both standard input and standard output.",
         example: "vtium-config tui",
     },
     Topic {
-        name: "remove-frit",
+        command: Command::RemoveFrit,
         forms: &[form(
             "remove-frit NAME",
             "remove a frit that vtium.conf does not name",
@@ -91,7 +149,7 @@ const TOPICS: &[Topic] = &[
         example: "vtium-config remove-frit my-font",
     },
     Topic {
-        name: "preview",
+        command: Command::Preview,
         forms: &[form(
             "preview FONT... [--size POINTS]",
             "draw each font's specimen, as a picture where the terminal draws them",
@@ -100,7 +158,7 @@ const TOPICS: &[Topic] = &[
         example: "vtium-config preview unifont --size 16",
     },
     Topic {
-        name: "set",
+        command: Command::Set,
         forms: &[form(
             "set NAME",
             "switch the running console to a frit or a built-in font",
@@ -109,7 +167,7 @@ const TOPICS: &[Topic] = &[
         example: "vtium-config set unifont",
     },
     Topic {
-        name: "apply",
+        command: Command::Apply,
         forms: &[form(
             "apply DIR",
             "check a saved draft and install it (as root)",
@@ -118,7 +176,7 @@ const TOPICS: &[Topic] = &[
         example: "sudo vtium-config apply /home/me/.local/state/vtium/drafts/1",
     },
     Topic {
-        name: "serve",
+        command: Command::Serve,
         forms: &[form(
             "serve",
             "generate glyphs for the console (the console starts it)",
@@ -172,7 +230,7 @@ fn line(text: &mut String, f: &Form) {
 /// The usage `--help` and a bare `vtium-config` print.
 pub fn usage() -> String {
     let mut text = String::from(HEAD);
-    for topic in TOPICS {
+    for topic in Command::ALL.into_iter().filter_map(Command::topic) {
         for f in topic.forms {
             line(&mut text, f);
         }
@@ -186,7 +244,7 @@ pub fn usage() -> String {
 
 /// The names `--help` takes, for the message about an unknown one.
 fn names() -> String {
-    let mut names: Vec<&str> = TOPICS.iter().map(|t| t.name).collect();
+    let mut names: Vec<&str> = Command::ALL.into_iter().map(Command::name).collect();
     names.push(ABOUT);
     names.join(", ")
 }
@@ -201,7 +259,7 @@ pub fn topic(name: &str, out: &mut dyn std::io::Write) -> Result<(), String> {
         banner::about(out);
         return Ok(());
     }
-    let Some(t) = TOPICS.iter().find(|t| t.name == name) else {
+    let Some(t) = Command::from_name(name).and_then(Command::topic) else {
         return Err(format!("no help on {name}\nTopics: {}", names()));
     };
     let mut text = String::from("Usage:\n");
@@ -218,12 +276,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_command_the_usage_lists_has_a_topic() {
+    fn every_command_has_exactly_one_topic_and_a_usage_line() {
         let usage = usage();
-        for t in TOPICS {
-            for f in t.forms {
-                assert!(usage.contains(&format!("  {}", f.synopsis)), "{}", t.name);
+        for c in Command::ALL {
+            assert_eq!(
+                TOPICS.iter().filter(|t| t.command == c).count(),
+                1,
+                "{c:?} needs one help topic"
+            );
+            for f in c.topic().expect("a topic").forms {
+                assert!(usage.contains(&format!("  {}", f.synopsis)), "{c:?}");
             }
+            assert_eq!(Command::from_name(c.name()), Some(c));
         }
+        assert_eq!(TOPICS.len(), Command::ALL.len());
     }
 }

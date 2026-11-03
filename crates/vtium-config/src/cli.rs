@@ -5,6 +5,8 @@ use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
+use crate::help::Command;
+
 /// What the command line asked for.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Options {
@@ -280,35 +282,49 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
             },
         },
         "--version" => cli.say(concat!("vtium-config ", env!("CARGO_PKG_VERSION"))),
-        "fonts" => crate::commands::fonts(&rest, &o.paths(), cli.out, cli.err),
-        "check" => crate::commands::check(&rest, &o.paths(), cli.out, cli.err),
-        "config" => crate::commands::config(&rest, &o.paths(), cli.out, cli.err),
-        "remove-frit" => crate::commands::remove_frit(&rest, &o.paths(), cli.out, cli.err),
-        "new" if rest.is_empty() => {
-            if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-                crate::tui::run(&o.paths(), crate::tui::model::View::New, cli.err)
-            } else {
-                cli.usage("new takes FONT..., --from FILE or --template away from a terminal")
-            }
-        }
-        "new" => crate::commands::new(&rest, &o.paths(), cli.out, cli.err),
-        "preview" => crate::preview::command(&rest, &o.paths(), cli.out, cli.err),
-        "set" => match o.paths().frits {
-            Ok(frits) => crate::switch::command(&rest, &frits, cli.out, cli.err),
-            Err(why) => {
-                let _ = writeln!(cli.err, "vtium-config: {why}");
-                1
-            }
-        },
-        "apply" => crate::apply::command(&rest, &o.paths().targets(), cli.out, cli.err),
-        crate::serve::SERVE_ARG => cli.serve(&rest),
-        "tui" if !rest.is_empty() => cli.usage("tui takes no argument"),
-        "tui" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
-            crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, cli.err)
-        }
-        "tui" => cli.usage("tui opens the interactive tool at a terminal only"),
         "" => cli.say(crate::help::usage().trim_end()),
-        other => cli.usage(&format!("unknown command {other}")),
+        other => match Command::from_name(other) {
+            Some(c) => cli.command(c, &rest),
+            None => cli.usage(&format!("unknown command {other}")),
+        },
+    }
+}
+
+impl Cli<'_> {
+    /// Runs `command` with its arguments `rest`.
+    fn command(mut self, command: Command, rest: &[String]) -> u8 {
+        let o = self.o;
+        match command {
+            Command::Fonts => crate::commands::fonts(rest, &o.paths(), self.out, self.err),
+            Command::Check => crate::commands::check(rest, &o.paths(), self.out, self.err),
+            Command::Config => crate::commands::config(rest, &o.paths(), self.out, self.err),
+            Command::RemoveFrit => {
+                crate::commands::remove_frit(rest, &o.paths(), self.out, self.err)
+            }
+            Command::New if rest.is_empty() => {
+                if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+                    crate::tui::run(&o.paths(), crate::tui::model::View::New, self.err)
+                } else {
+                    self.usage("new takes FONT..., --from FILE or --template away from a terminal")
+                }
+            }
+            Command::New => crate::commands::new(rest, &o.paths(), self.out, self.err),
+            Command::Preview => crate::preview::command(rest, &o.paths(), self.out, self.err),
+            Command::Set => match o.paths().frits {
+                Ok(frits) => crate::switch::command(rest, &frits, self.out, self.err),
+                Err(why) => {
+                    let _ = writeln!(self.err, "vtium-config: {why}");
+                    1
+                }
+            },
+            Command::Apply => crate::apply::command(rest, &o.paths().targets(), self.out, self.err),
+            Command::Serve => self.serve(rest),
+            Command::Tui if !rest.is_empty() => self.usage("tui takes no argument"),
+            Command::Tui if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
+                crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, self.err)
+            }
+            Command::Tui => self.usage("tui opens the interactive tool at a terminal only"),
+        }
     }
 }
 
