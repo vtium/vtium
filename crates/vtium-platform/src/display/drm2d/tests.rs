@@ -4409,6 +4409,27 @@ fn a_mode_owed_that_the_card_refuses_is_not_retried() {
     assert!(!v.waits().1, "nothing is retried");
 }
 
+// vtium/vtium#216: a mode owed gives way to the next list of modes the
+// connector gives, as a mode held back does: here the new list no longer
+// has the mode owed, and the retries set nothing the monitor does not
+// list.
+#[test]
+fn a_mode_owed_gives_way_to_a_new_list() {
+    let mut v = awake(one());
+    new_modes_that_never_fit(&v);
+    v.poll().unwrap();
+    flip(&mut v);
+    v.card().state().dumb_errors.clear();
+    let relisted = vec![mode(640, 480, 60, true), mode(1024, 768, 60, false)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = relisted;
+    v.poll().unwrap();
+    flip(&mut v);
+    v.retry_wake();
+    flip(&mut v);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+    assert!(!v.waits().1, "nothing is left to retry");
+}
+
 // vtium/vtium#216: a hotplug that finds a new mode which keeps failing for
 // another reason than the card refusing it leaves the display running at
 // the mode it is set to. The retries try the new mode again without
