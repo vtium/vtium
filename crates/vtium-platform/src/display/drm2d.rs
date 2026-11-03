@@ -156,7 +156,8 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     owed: bool,
     /// Wake-ups tried again so far, while retrying.
     retries: Option<usize>,
-    /// The retries are a wake-up's; else a failed hotplug's or unblank's.
+    /// The retries are a wake-up's; else a failed hotplug's or unblank's,
+    /// or a mode owed's.
     waking: bool,
     /// The retries ran out with [`Event::WakeFailed`], and nothing has set
     /// the displays since: the next input tries again.
@@ -860,12 +861,15 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.awake = true;
         // Another program held the displays: what the buffers hold counts
         // as unknown, and each display is drawn whole, so a token lent
-        // before comes back too late.
-        for o in &mut self.outputs {
-            o.ages = Ages::default();
-            o.lease = o.lease.wrapping_add(1);
-            o.clear_owed = false;
-            o.redraw = true;
+        // before comes back too late. A retry runs under the master the
+        // card kept, so no other program drew into the buffers.
+        if scan == Scan::WakeUp {
+            for o in &mut self.outputs {
+                o.ages = Ages::default();
+                o.lease = o.lease.wrapping_add(1);
+                o.clear_owed = false;
+                o.redraw = true;
+            }
         }
         if let Err(e) = self.scan(scan) {
             if scan == Scan::WakeUp {
@@ -876,6 +880,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
         if scan == Scan::WakeUp {
             self.wake_failed = false;
+            // The card is awake, so a retry from here on, of a mode owed,
+            // is a modeset's.
+            self.waking = false;
             self.events.push(Event::Awake);
         }
         Ok(())
@@ -902,13 +909,25 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             log::debug!("blanked: the retried modeset waits for input");
             self.owed = true;
             self.retries = None;
-        } else if self.try_wake(scan).is_ok() {
+            self.settle();
+            return;
+        }
+        let woken = self.try_wake(scan).is_ok();
+        if woken && !self.owing() {
             self.retries = None;
         } else if tried.saturating_add(1) >= crate::WAKE_RETRIES {
-            log::error!("cannot wake the display after {tried} retries");
             self.retries = None;
-            self.wake_failed = true;
-            self.events.push(Event::WakeFailed);
+            if woken {
+                // The card is awake and every display is set, but some at
+                // the mode they were set to rather than the mode owed.
+                for o in &mut self.outputs {
+                    o.hold_back_owed();
+                }
+            } else {
+                log::error!("cannot wake the display after {tried} retries");
+                self.wake_failed = true;
+                self.events.push(Event::WakeFailed);
+            }
         } else {
             self.retries = Some(tried.saturating_add(1));
         }
@@ -1210,6 +1229,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                         }
                         o.choice = choice;
                         o.held = None;
+                        o.owed = None;
                     }
                     o.modes = conn.modes;
                 }
@@ -1283,6 +1303,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 if let Some(held) = o.held.take() {
                     o.mode = held;
                     needs = true;
+                }
+            }
+        }
+        // A mode owed is tried again by the retries and as the card wakes.
+        // It stays owed until a modeset sets it, so a modeset that waits
+        // for a flip keeps the retries running.
+        if scan != Scan::Hotplug {
+            for o in &mut self.outputs {
+                if let Some(owed) = o.owed {
+                    o.mode = owed;
                 }
             }
         }
@@ -1473,6 +1503,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             mode: choice.current,
             set: None,
             held: None,
+            owed: None,
             mm,
             choice,
             modes: conn.modes.clone(),
@@ -1653,7 +1684,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Sets every display's mode, then announces each display set. Where
     /// the displays online and the new ones cannot be set together, the
     /// new ones are left off until the next hotplug and the rest are set
-    /// alone.
+    /// alone. A display whose new mode cannot be set stays at the mode it
+    /// is set to: held back where the card refused the mode, and else owed
+    /// it, which starts the wake-up retries.
     fn modeset(&mut self) -> io::Result<()> {
         // The legacy calls set each display on its own, so the displays set
         // are announced whatever failed for another.
@@ -1663,9 +1696,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             let mut set = self.atomic_modeset_or_default();
             // A display whose new mode the card refuses, as its default
             // too, stays at the mode it is set to, and the modeset is tried
-            // again, so the others are set and nothing is retried. Any
-            // other failure goes to the wake-up retries.
+            // again, so the others are set and nothing is retried.
             if refused(&set) && self.hold_back() {
+                set = self.atomic_modeset_or_default();
+            }
+            // A display whose new mode failed for another reason, as where
+            // its buffers cannot be made, stays at the mode it is set to,
+            // which needs no new buffers, and the modeset is tried again,
+            // so the card is set and stays awake while the retries try the
+            // new mode.
+            if set.is_err() && self.keep_set_modes() {
                 set = self.atomic_modeset_or_default();
             }
             let set = match set.map_err(Failure::into_inner) {
@@ -1689,11 +1729,6 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             let took = set.is_ok();
             (set, took)
         };
-        if set.is_err() {
-            for o in &mut self.outputs {
-                o.keep_set_mode();
-            }
-        }
         if took {
             // A modeset brings every display on.
             self.blanked = false;
@@ -1703,8 +1738,27 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.down = false;
             }
             self.announce();
+            if self.owing() {
+                self.retry(false);
+            }
         }
         set
+    }
+
+    /// Gives each display back the mode it is set to where a scan chose
+    /// another whose modeset failed for another reason than the card
+    /// refusing it, owing it that mode. Whether any display did.
+    fn keep_set_modes(&mut self) -> bool {
+        let mut any = false;
+        for o in &mut self.outputs {
+            any |= o.keep_set_mode();
+        }
+        any
+    }
+
+    /// Whether a display is owed a mode, which the retries try again.
+    fn owing(&self) -> bool {
+        self.outputs.iter().any(|o| o.owed.is_some())
     }
 
     /// Gives each display back the mode it is set to where a scan chose
@@ -1761,6 +1815,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         if retried.is_err() {
             for (o, mode) in self.outputs.iter_mut().zip(modes) {
                 o.mode = mode;
+            }
+        } else {
+            // The card refused the modes chosen, so none is owed.
+            for o in &mut self.outputs {
+                o.owed = None;
             }
         }
         retried
@@ -1825,6 +1884,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// is told to redraw, so its owner reads the new rate.
     fn install(&self, o: &mut Output<S::Memory>, made: Option<Vec<Buffer<S::Memory>>>) {
         let was = o.set.replace(o.mode);
+        // Set to another mode than before, the display owes nothing.
+        if was != Some(o.mode) {
+            o.owed = None;
+        }
         if let Some(made) = made {
             let old = std::mem::replace(&mut o.buffers, made);
             self.release(old);

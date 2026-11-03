@@ -217,6 +217,12 @@ pub(super) struct Output<M> {
     /// tries this mode again only when the card wakes or the set of
     /// displays changes.
     pub(super) held: Option<Mode>,
+    /// A mode chosen from a new list of modes whose modeset failed for
+    /// another reason than the card refusing it, as where its buffers could
+    /// not be made. The display stays at `set`, the wake-up retries and a
+    /// wake-up try this mode again, and once the retries run out it is
+    /// held back.
+    pub(super) owed: Option<Mode>,
     /// The connector's physical size in millimetres, 0 where it has none.
     pub(super) mm: (u32, u32),
     pub(super) mode_blob: u32,
@@ -283,15 +289,14 @@ impl<M: AsMut<[u8]>> Output<M> {
 
     /// After a modeset that failed for another reason than the card
     /// refusing the mode, gives the display back the mode it is set to,
-    /// which its buffers fit, where a scan chose another, and forgets the
-    /// list the mode was chosen from, so the next scan, as the wake-up
-    /// retries run it, chooses again. Whether it did.
+    /// which its buffers fit, where a scan chose another, and owes it the
+    /// mode chosen, which the wake-up retries try again. Whether it did.
     pub(super) fn keep_set_mode(&mut self) -> bool {
         let Some(set) = self.set.filter(|&set| set != self.mode) else {
             return false;
         };
+        self.owed = Some(self.mode);
         self.mode = set;
-        self.modes.clear();
         true
     }
 
@@ -303,8 +308,28 @@ impl<M: AsMut<[u8]>> Output<M> {
             return false;
         };
         self.held = Some(self.mode);
+        self.owed = None;
         self.mode = set;
         true
+    }
+
+    /// Once the wake-up retries ran out, holds back the mode the display
+    /// is owed, as a mode the card refused is held back, and gives it the
+    /// mode it is set to, should a modeset still wait to set the mode owed.
+    pub(super) fn hold_back_owed(&mut self) {
+        let Some(owed) = self.owed.take() else {
+            return;
+        };
+        log::warn!(
+            "cannot set display {} to {}x{}; it stays at the mode it is set to",
+            self.name,
+            owed.size().0,
+            owed.size().1
+        );
+        self.held = Some(owed);
+        if let Some(set) = self.set {
+            self.mode = set;
+        }
     }
 
     pub(super) fn back_fb(&self) -> u32 {

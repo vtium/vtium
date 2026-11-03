@@ -4129,27 +4129,30 @@ fn drawable(v: &mut Drm2d<FakeCard>, id: u32) -> bool {
 }
 
 // vtium/vtium#216: a new mode that fails for a moment, as where one
-// buffer cannot be made, leaves the display at the mode it is set to,
-// which its buffers fit, and goes to the wake-up retries, whose next try
-// chooses the mode again and sets it.
+// buffer cannot be made, leaves the display set at the mode it is set to,
+// which its buffers fit, and starts the wake-up retries, whose next try
+// sets the new mode.
 #[test]
 fn a_new_mode_that_fails_for_a_moment_is_tried_again() {
     let mut v = awake(one());
     let swapped = vec![mode(800, 600, 60, true)];
     v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
     v.card().state().dumb_errors.push_back(Errno::NOMEM);
-    assert!(v.poll().is_err());
+    v.poll().unwrap();
     assert_eq!(events(&mut v), []);
     assert_eq!(
         v.size(DisplayId(A)),
         Some((640, 480)),
         "the mode it is set to"
     );
+    flip(&mut v);
+    v.events().for_each(drop);
     assert!(drawable(&mut v, A));
     assert!(v.retries.is_some(), "the retries run");
     v.retry_wake();
     assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
     assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
+    assert!(v.retries.is_none(), "nothing is left to retry");
     flip(&mut v);
     assert_eq!(token_size(&mut v, A), (800, 600));
 }
@@ -4195,6 +4198,202 @@ fn a_legacy_display_whose_new_mode_is_refused_holds_it_back() {
     let set = v.card().state().set_crtcs.len();
     v.poll().unwrap();
     assert_eq!(v.card().state().set_crtcs.len(), set, "nothing set");
+}
+
+/// Lists one mode of 800x600 alone on A's connector, whose buffers the
+/// card can never make: every dumb buffer asked for fails with ENOMEM.
+fn new_modes_that_never_fit(v: &Drm2d<FakeCard>) {
+    let swapped = vec![mode(800, 600, 60, true)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+    v.card().state().dumb_errors.extend([Errno::NOMEM; 1000]);
+}
+
+/// Runs the wake-up retries until they stop, completing the flips before
+/// each, as the card does well within a retry's interval, and returns the
+/// events they reported other than flips, and how many ran.
+fn run_the_retries(v: &mut Drm2d<FakeCard>) -> (Vec<Event>, usize) {
+    let mut seen = Vec::new();
+    let mut tries = 0;
+    while v.waits().1 {
+        assert!(tries < crate::WAKE_RETRIES, "the retries are bounded");
+        flip(v);
+        v.retry_wake();
+        tries += 1;
+        seen.extend(
+            events(v)
+                .into_iter()
+                .filter(|e| !matches!(e, Event::Flipped(_))),
+        );
+    }
+    (seen, tries)
+}
+
+// vtium/vtium#216: a wake-up whose new mode keeps failing for another
+// reason than the card refusing it, as where its buffers can never be
+// made, wakes the card at the mode the display is set to, which needs no
+// new buffers, and keeps DRM master. The retries try the new mode again
+// without letting the card go, and once they run out it is held back: no
+// wake-up is reported failed, and a key or a hotplug tries nothing. The
+// next wake-up tries it again.
+#[test]
+fn a_wake_up_whose_new_mode_keeps_failing_wakes_at_the_mode_set() {
+    let mut v = awake(one());
+    v.sleep();
+    flip(&mut v);
+    v.events().for_each(drop);
+    new_modes_that_never_fit(&v);
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A)), Event::Awake]);
+    assert!(v.card().state().master, "DRM master is kept");
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+    flip(&mut v);
+    assert_eq!(token_size(&mut v, A), (640, 480));
+    assert!(drawable(&mut v, A));
+    assert_eq!(v.waits(), (false, true), "the new mode is tried again");
+    logs::capture();
+    let (seen, tries) = run_the_retries(&mut v);
+    assert_eq!(seen, [], "no wake-up failed, and nothing to redraw");
+    assert_eq!(tries, crate::WAKE_RETRIES);
+    assert!(
+        !logs::at_least(Level::Error)
+            .iter()
+            .any(|l| l.contains("cannot wake")),
+        "nothing logs that the display did not wake"
+    );
+    assert!(v.card().state().master && v.awake);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+    let tried = tests_sent(&v);
+    v.input().unwrap();
+    v.poll().unwrap();
+    assert_eq!(tests_sent(&v), tried, "a key and a hotplug try nothing");
+    assert_eq!(v.waits(), (false, false));
+    v.card().state().dumb_errors.clear();
+    v.sleep();
+    flip(&mut v);
+    v.wake_up().unwrap();
+    assert_eq!(
+        v.size(DisplayId(A)),
+        Some((800, 600)),
+        "tried at the wake-up"
+    );
+}
+
+// vtium/vtium#216: a wake-up retried while another process held DRM
+// master, which wakes the card at the mode the display is set to because
+// its new mode cannot be set, reports the card awake once: the retries
+// that go on trying the new mode report nothing.
+#[test]
+fn a_retried_wake_up_at_the_mode_set_reports_awake_once() {
+    let mut v = awake(one());
+    v.sleep();
+    flip(&mut v);
+    v.events().for_each(drop);
+    new_modes_that_never_fit(&v);
+    v.card().state().master_elsewhere = true;
+    assert!(v.wake_up().is_err());
+    v.card().state().master_elsewhere = false;
+    v.retry_wake();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A)), Event::Awake]);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+    let (seen, _) = run_the_retries(&mut v);
+    assert_eq!(seen, [], "the card is reported awake once");
+    assert!(v.card().state().master && v.awake);
+}
+
+// vtium/vtium#216: a mode owed after a failure of another kind, which the
+// card then refuses when the retries try it again, is not tried again by
+// the retries. Where the card refuses its default mode too, it is held
+// back; where the card takes the default mode, which is here the mode the
+// display is set to, nothing is owed.
+#[test]
+fn a_mode_owed_that_the_card_refuses_is_not_retried() {
+    let mut v = awake(one());
+    let swapped = vec![mode(800, 600, 60, true)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+    v.card().state().dumb_errors.push_back(Errno::NOMEM);
+    v.poll().unwrap();
+    flip(&mut v);
+    v.card().state().commit_errors.extend([Errno::INVAL; 2]);
+    v.retry_wake();
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "held back");
+    assert!(!v.waits().1, "nothing is retried");
+    let tried = tests_sent(&v);
+    flip(&mut v);
+    v.poll().unwrap();
+    assert_eq!(tests_sent(&v), tried, "a hotplug tries nothing");
+
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    let policy = ModePolicy {
+        use_original: false,
+        wanted: Some(Box::new(|_: &str| {
+            Some(Wanted {
+                width: 800,
+                height: 600,
+                rate: None,
+            })
+        })),
+    };
+    let mut v = awake(Drm2d::with(card, policy).unwrap());
+    let swapped = vec![mode(640, 480, 60, true), mode(800, 600, 60, false)];
+    v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
+    v.card().state().dumb_errors.push_back(Errno::NOMEM);
+    v.poll().unwrap();
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+    flip(&mut v);
+    v.card().state().commit_errors.push_back(Errno::INVAL);
+    v.retry_wake();
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)), "the default mode");
+    assert!(!v.waits().1, "nothing is retried");
+}
+
+// vtium/vtium#216: a hotplug that finds a new mode which keeps failing for
+// another reason than the card refusing it leaves the display running at
+// the mode it is set to. The retries try the new mode again without
+// drawing the other displays whole at each try, and once they run out the
+// mode is held back: no wake-up is reported failed, and a key or a hotplug
+// starts nothing.
+#[test]
+fn a_hotplug_whose_new_mode_keeps_failing_holds_it_back_after_the_retries() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(800, 600, 60, true)]),
+    ]);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    for _ in 0..2 {
+        fill(&mut v, B, 1, &[DOT]).unwrap();
+        flip(&mut v);
+    }
+    v.events().for_each(drop);
+    let aged = age(&mut v, B);
+    assert_ne!(aged, 0, "B's buffers hold frames");
+    new_modes_that_never_fit(&v);
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), []);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+    flip(&mut v);
+    assert!(drawable(&mut v, A));
+    assert!(v.waits().1, "the new mode is tried again");
+    v.retry_wake();
+    flip(&mut v);
+    assert_eq!(age(&mut v, B), aged, "a retry leaves B's buffers known");
+    logs::capture();
+    let (seen, _) = run_the_retries(&mut v);
+    assert_eq!(seen, [], "no wake-up failed");
+    assert!(
+        !logs::at_least(Level::Error)
+            .iter()
+            .any(|l| l.contains("cannot wake")),
+        "nothing logs that the display did not wake"
+    );
+    assert!(!v.wake_failed);
+    flip(&mut v);
+    assert_eq!(age(&mut v, B), aged);
+    assert_eq!(v.size(DisplayId(A)), Some((640, 480)));
+    let tried = tests_sent(&v);
+    v.input().unwrap();
+    v.poll().unwrap();
+    assert_eq!(tests_sent(&v), tried, "a key and a hotplug try nothing");
+    assert_eq!(v.waits(), (false, false), "and start no retries");
 }
 
 // vtium/vtium#216: a mode changed in place at the same size, with only a
