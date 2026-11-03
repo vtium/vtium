@@ -4730,10 +4730,13 @@ mod tests {
     #[test]
     fn the_loop_wakes_when_a_heads_hangup_falls_due() {
         let (_lp, mut app) = seat(Some("version = 1\n[head a]\n"), no_fonts());
+        // The VT is vtium's, so the blank's countdown sets a wake later
+        // than 30 s, and the earliest of the two wins. The test takes the
+        // VT without a turn, which would start shorter timers, such as the
+        // blink's.
+        app.vt.activate().unwrap();
         let t = Instant::now();
-        // Nothing else is due within 30 s; the VT is not shown, so the
-        // blank's countdown sets no wake at all.
-        assert!(app.next_wake(t).is_none_or(|w| w > Duration::from_secs(30)));
+        assert!(app.next_wake(t).is_some_and(|w| w > Duration::from_secs(30)));
         if let Some(head) = app.heads.first_mut() {
             head.hangup_due = Some(t + Duration::from_secs(30));
         }
