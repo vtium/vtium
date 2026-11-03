@@ -1291,7 +1291,8 @@ class VtiumGoldenTest(unittest.TestCase):
         images = ["images-640x480/" + s for s in ("img-sixel", "img-kitty", "img-relative",
                                                   "img-overwrite", "img-delete", "img-scroll",
                                                   "img-scrollback", "img-tmux-pane",
-                                                  "img-png")]
+                                                  "img-animation", "img-iterm2",
+                                                  "img-placeholder", "img-png")]
         self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
                                                "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
                                                "sysvinit-two-vts/cjk"] + moved + frit + devices
@@ -4511,19 +4512,25 @@ class PictureGoldenTest(unittest.TestCase):
         self.placed(img, "disc", 44, 3)
         self.shows_through(img, "disc", 44, 3)
 
+    def scaled(self, img, col, row, width, height):
+        """Assert the quarters, scaled to `width` by `height` pixels with
+        their top left corner at cell (`col`, `row`), show each quarter's
+        color over the middle of its quarter of that box, away from the
+        edges a scaler blends."""
+        left, top = (col - 1) * 8, (row - 1) * 16
+        w, h = width // 2, height // 2
+        for (qx, qy), color in (((0, 0), t3_pictures.RED), ((1, 0), t3_pictures.GREEN),
+                                ((0, 1), t3_pictures.BLUE), ((1, 1), t3_pictures.YELLOW)):
+            for x in range(left + qx * w + w // 8, left + qx * w + w - w // 8, 3):
+                for y in range(top + qy * h + h // 6, top + qy * h + h - h // 6, 3):
+                    self.assertEqual(self.pixel(img, x, y), t3_pictures.eight(color), (x, y))
+
     def test_kitty(self):
         img = self.golden("img-kitty")
         self.placed(img, "quad", 5, 3)
         self.placed(img, "quad", 30, 3)
         self.placed(img, "quad", 5, 8, part=(32, 24, 64, 48))
-        # scaled to 16x6 cells: each quarter's color fills the middle of its
-        # quarter of the box
-        left, top = 29 * 8, 7 * 16
-        for (qx, qy), color in (((0, 0), t3_pictures.RED), ((1, 0), t3_pictures.GREEN),
-                                ((0, 1), t3_pictures.BLUE), ((1, 1), t3_pictures.YELLOW)):
-            for x in range(left + qx * 64 + 8, left + qx * 64 + 56, 7):
-                for y in range(top + qy * 48 + 8, top + qy * 48 + 40, 7):
-                    self.assertEqual(self.pixel(img, x, y), t3_pictures.eight(color), (x, y))
+        self.scaled(img, 30, 8, 128, 96)
 
     def test_relative(self):
         img = self.golden("img-relative")
@@ -4585,6 +4592,28 @@ class PictureGoldenTest(unittest.TestCase):
                    if len(set(self.pixel(img, x, y))) > 1]
         self.assertEqual(colored[:4], [])
         self.assertNotEqual(img.data, bytes(len(img.data)))
+
+    def test_animation(self):
+        # the quarters on the frame the screen stopped them on, and the
+        # child on the last of its frames, played once
+        img = self.golden("img-animation")
+        self.placed(img, "anim-stopped", 5, 3)
+        self.placed(img, "anim-ended", 20, 3)
+
+    def test_iterm2(self):
+        img = self.golden("img-iterm2")
+        self.placed(img, "quad", 3, 3)
+        self.placed(img, t3_pictures.GIF_FRAMES[-1], 15, 3)
+        self.scaled(img, 27, 3, 128, 96)
+        self.scaled(img, 47, 3, 32, 24)
+
+    def test_placeholder(self):
+        # the picture followed its cells from column 5 to 35, and the
+        # 32-bit image id drew the child
+        img = self.golden("img-placeholder")
+        self.placed(img, "quad", 35, 3)
+        self.blank(img, 5, 3, 8, 3)
+        self.placed(img, "child", 5, 9)
 
     def test_png(self):
         img = self.golden("img-png")
