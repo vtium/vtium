@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use vtium_config::apply::{Route, Targets, route, save_argv, write_draft};
+use vtium_config::apply::{Route, Targets, route, save_argv, trusted_owners, write_draft};
 
 #[path = "common/console.rs"]
 mod console;
@@ -176,8 +176,12 @@ display * -> desk
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
     assert!(
-        err.contains("font-size=\"lots\""),
-        "the console's own words: {err}"
+        err.contains("vtium.conf line 1") && err.contains("font-size"),
+        "{err}"
+    );
+    assert!(
+        !err.contains("lots"),
+        "root quotes nothing it read for the user: {err}"
     );
     assert_eq!(f.conf(), "font-size=10\n");
     assert!(!heads.exists(), "nothing is written when any file fails");
@@ -290,7 +294,11 @@ fn a_draft_holding_a_link_or_a_file_it_does_not_know_is_refused() {
     std::fs::write(&manifest, text.replace("vtium.conf", "../../evil")).expect("a bad name");
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
-    assert!(err.contains("evil"), "{err}");
+    assert!(err.contains("MANIFEST line 1"), "{err}");
+    assert!(
+        !err.contains("evil"),
+        "root quotes nothing it read for the user: {err}"
+    );
     assert_eq!(f.conf(), "font-size=10\n");
 }
 
@@ -357,4 +365,30 @@ fn only_the_system_s_directories_are_installed_through_sudo() {
     assert_eq!(route(&system, &sudo, true), Route::Root);
     assert_eq!(route(&f.targets, &sudo, false), Route::User);
     assert_eq!(route(&f.targets, &sudo, true), Route::User);
+}
+
+#[test]
+fn a_draft_file_hard_linked_elsewhere_is_refused_and_nothing_is_quoted() {
+    let f = fixture("hardlink", Some("font-size=10\n"));
+    let draft = f.draft(&f.conf_plan("font-size=12\n"));
+    // a file of the user's own outside the draft, linked in by a second name
+    let elsewhere = f.root.join("elsewhere.conf");
+    std::fs::write(&elsewhere, "font-size=12\nSECRET-TOKEN-7731\n").expect("the file");
+    let file = draft.join("vtium.conf");
+    std::fs::remove_file(&file).expect("the draft's file");
+    std::fs::hard_link(&elsewhere, &file).expect("a hard link");
+    let (status, out, err) = f.apply(&draft);
+    assert_eq!(status, 1, "{out}{err}");
+    assert!(err.contains("vtium.conf") && err.contains("link"), "{err}");
+    assert!(!format!("{out}{err}").contains("SECRET"), "{out}{err}");
+    assert_eq!(f.conf(), "font-size=10\n");
+}
+
+#[test]
+fn the_owners_a_draft_may_have_are_root_and_the_user_sudo_ran_for() {
+    assert_eq!(trusted_owners(0, Some(1000)), [0, 1000]);
+    assert_eq!(trusted_owners(0, None), [0]);
+    // run as a user, the user's own files, whatever SUDO_UID says
+    assert_eq!(trusted_owners(1000, Some(5)), [0, 1000]);
+    assert_eq!(trusted_owners(1000, None), [0, 1000]);
 }

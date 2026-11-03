@@ -73,7 +73,7 @@ vtium.conf is edited line by line by vtium-settings's `edit_conf`, and a head's 
 
 `apply DRAFT`:
 
-1. reads the draft without following a link, takes only regular files with names it knows, and bounds each, since root is reading a directory the user owns;
+1. reads the draft without following a link, takes only regular files with names it knows and no second name (a hard link), owned like the draft's directory by root or by the user sudo ran it for (`SUDO_UID`), and bounds each, since root is reading a directory the user owns; and since root read those files for the user, what it says of them names a file, a line and a key, and quotes nothing they hold;
 2. refuses the draft, writing nothing, when a file it replaces has changed since the draft was made, naming the file;
 3. checks every file before it writes any: each frit with the helper's frit reader, and vtium.conf and the head file with the console's own `vtium check-config`, run on root's copies of exactly the bytes it then writes;
 4. writes the frits, then the head file, then vtium.conf, each through vtium-settings's `install_file`: a new file beside the old one, mode 0644, flushed and renamed over it, the old one kept as `NAME.bak`;

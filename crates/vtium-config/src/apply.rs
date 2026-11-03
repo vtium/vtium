@@ -290,19 +290,57 @@ pub fn saver(paths: Paths) -> Saver {
     })
 }
 
+/// The owners a draft and its files may have: root, and the user `sudo`
+/// ran `apply` for, by `SUDO_UID`, when `apply` runs as root; root and the
+/// user `apply` runs as otherwise.
+pub fn trusted_owners(euid: u32, sudo_uid: Option<u32>) -> Vec<u32> {
+    match (euid, sudo_uid) {
+        (0, Some(uid)) if uid != 0 => vec![0, uid],
+        (0, _) => vec![0],
+        (uid, _) => vec![0, uid],
+    }
+}
+
+/// The owners of this process's drafts, from its effective uid and the
+/// `SUDO_UID` sudo sets.
+fn owners() -> Vec<u32> {
+    let sudo_uid = std::env::var("SUDO_UID").ok().and_then(|u| u.parse().ok());
+    trusted_owners(rustix::process::geteuid().as_raw(), sudo_uid)
+}
+
+/// Refuses `fd`, named `name` in messages, when its owner is not one of
+/// `owners`.
+fn owned(fd: &OwnedFd, name: &str, owners: &[u32]) -> Result<rustix::fs::Stat, String> {
+    let stat = rustix::fs::fstat(fd).map_err(|e| format!("{name}: {e}"))?;
+    if !owners.contains(&stat.st_uid) {
+        return Err(format!(
+            "{name} belongs to user {}, neither root nor the user who made the draft",
+            stat.st_uid
+        ));
+    }
+    Ok(stat)
+}
+
 /// A file of the draft read whole, at most `max` bytes, from the
-/// directory `dir`, never through a link and only a regular file.
-fn read_at(dir: &OwnedFd, name: &str, max: u64) -> Result<Vec<u8>, String> {
+/// directory `dir`: never through a symbolic link, only a regular file
+/// with no second name, owned by one of `owners`, so that root reads no
+/// file the user could not have written.
+fn read_at(dir: &OwnedFd, name: &str, max: u64, owners: &[u32]) -> Result<Vec<u8>, String> {
     let fd = rustix::fs::openat(
         dir,
         name,
         OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
         Mode::empty(),
     )
-    .map_err(|e| format!("{name}: {e}"))?;
-    let stat = rustix::fs::fstat(&fd).map_err(|e| format!("{name}: {e}"))?;
+    .map_err(|e| format!("{name}: {e}, and the draft holds no link"))?;
+    let stat = owned(&fd, name, owners)?;
     if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
         return Err(format!("{name}: not a regular file"));
+    }
+    if stat.st_nlink != 1 {
+        return Err(format!(
+            "{name} has another name, a hard link, and the draft holds no link"
+        ));
     }
     let mut bytes = Vec::new();
     File::from(fd)
@@ -331,9 +369,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
                 was: (*was).to_owned(),
             },
             _ => {
-                return Err(format!(
-                    "{MANIFEST}:{n}: not a line a draft holds: {line:?}"
-                ));
+                return Err(format!("{MANIFEST} line {n} is not a line a draft holds"));
             }
         };
         out.push(entry);
@@ -351,10 +387,68 @@ fn installed(path: &Path) -> Result<Option<String>, String> {
     }
 }
 
+/// A key's name in a message of the console's check, when it reads as
+/// one: lowercase letters, digits and `-`, as vtium.conf's keys are.
+fn key_in(message: &str) -> Option<&str> {
+    let is_key = |k: &str| {
+        (1..=64).contains(&k.len())
+            && k.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    };
+    let before_eq = message
+        .split('=')
+        .next()
+        .filter(|k| is_key(k) && message.contains('='));
+    let quoted = message
+        .strip_prefix("unknown key \"")
+        .and_then(|r| r.split('"').next())
+        .filter(|k| is_key(k));
+    before_eq.or(quoted)
+}
+
+/// What the console's check said of the files `copies` (each the copy's
+/// path and the name to give it), as root may say it: each refused line
+/// by its file, its line and its key, and no text the file holds, since
+/// root read the file for the user.
+fn summarize(stderr: &str, copies: &[(PathBuf, &str)]) -> String {
+    let mut out = Vec::new();
+    for line in stderr.lines() {
+        let Some((name, rest)) = copies
+            .iter()
+            .find_map(|(path, name)| line.strip_prefix(path.to_str()?).map(|rest| (*name, rest)))
+        else {
+            continue;
+        };
+        let said = match rest.strip_prefix(':').map(|r| r.split_once(':')) {
+            Some(Some((n, message))) if n.bytes().all(|b| b.is_ascii_digit()) && !n.is_empty() => {
+                match key_in(message.trim_start()) {
+                    Some(key) => {
+                        format!("{name} line {n}: the console's check refused the key {key}")
+                    }
+                    None => format!("{name} line {n}: the console's check refused this line"),
+                }
+            }
+            _ => format!("{name}: the console's check refused the file"),
+        };
+        if !out.contains(&said) {
+            out.push(said);
+        }
+    }
+    if out.is_empty() {
+        out.push("the console's check refused the draft".to_owned());
+    }
+    out.join("\n")
+}
+
 /// Runs the console's `vtium check-config` on the draft's configuration:
 /// vtium.conf in `confdir`, and the head file `heads` in the head file's
-/// place; the problems it names when the check fails.
-fn check_config(vtium: &OsString, confdir: &Path, heads: Option<&Path>) -> Result<(), String> {
+/// place; what it refused, as [`summarize`] says it, when the check fails.
+fn check_config(
+    vtium: &OsString,
+    confdir: &Path,
+    heads: Option<&Path>,
+    copies: &[(PathBuf, &str)],
+) -> Result<(), String> {
     let mut command = std::process::Command::new(vtium);
     command.arg("check-config").arg("--configdir").arg(confdir);
     if let Some(heads) = heads {
@@ -367,7 +461,7 @@ fn check_config(vtium: &OsString, confdir: &Path, heads: Option<&Path>) -> Resul
     if out.status.success() {
         Ok(())
     } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim_end().to_owned())
+        Err(summarize(&String::from_utf8_lossy(&out.stderr), copies))
     }
 }
 
@@ -412,7 +506,9 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
         Mode::empty(),
     )
     .map_err(|e| format!("{}: {e}", dir.display()))?;
-    let manifest = read_at(&draft, MANIFEST, MANIFEST_MAX)?;
+    let owners = owners();
+    owned(&draft, &dir.display().to_string(), &owners)?;
+    let manifest = read_at(&draft, MANIFEST, MANIFEST_MAX, &owners)?;
     let manifest = String::from_utf8(manifest).map_err(|_| format!("{MANIFEST}: not UTF-8"))?;
     let entries = entries(&manifest)?;
     let mut frits = Vec::new();
@@ -445,12 +541,22 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
                     Mode::empty(),
                 )
                 .map_err(|e| format!("fonts: {e}"))?;
-                let bytes = read_at(&fonts, file, u64::try_from(FRIT_BYTES_MAX).unwrap_or(0))?;
+                owned(&fonts, "fonts", &owners)?;
+                let bytes = read_at(
+                    &fonts,
+                    file,
+                    u64::try_from(FRIT_BYTES_MAX).unwrap_or(0),
+                    &owners,
+                )
+                .map_err(|e| format!("fonts/{e}"))?;
                 let stem = file.strip_suffix(".vtfrit").unwrap_or(file);
-                Frit::parse(&bytes, &path, stem).map_err(|e| e.to_string())?;
+                Frit::parse(&bytes, &path, stem).map_err(|e| match e.line {
+                    0 => format!("{name}: the frit reader refused it"),
+                    n => format!("{name} line {n}: the frit reader refused it"),
+                })?;
                 bytes
             }
-            None => read_at(&draft, name, CONF_MAX)?,
+            None => read_at(&draft, name, CONF_MAX, &owners)?,
         };
         let staged = Staged {
             target: path,
@@ -486,9 +592,26 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             }
             None => Some(targets.configdir.join("heads.conf")).filter(|p| p.exists()),
         };
-        let checked = check_config(&targets.vtium, &confdir, heads_file.as_deref());
+        let copies = [
+            (scratch.join("vtium.conf"), "vtium.conf"),
+            (scratch.join("heads.conf"), "heads.conf"),
+            (
+                targets.configdir.join("vtium.conf"),
+                "the installed vtium.conf",
+            ),
+            (
+                targets.configdir.join("heads.conf"),
+                "the installed heads.conf",
+            ),
+        ];
+        let checked = check_config(&targets.vtium, &confdir, heads_file.as_deref(), &copies);
         let _ = std::fs::remove_dir_all(&scratch);
-        checked.map_err(|why| format!("the console's check refused the draft:\n{why}"))?;
+        checked.map_err(|why| {
+            format!(
+                "the console's check refused the draft:\n{why}\nRun vtium check-config --configdir {} as yourself to read what it says.",
+                dir.display()
+            )
+        })?;
     }
     // a frit vtium.conf names after the save is never removed
     let conf_text = match &conf {
