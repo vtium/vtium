@@ -201,9 +201,25 @@ const INPUT_WORK: Bound = Bound {
     cite: "The C reference's `VTE_INPUT_WORK`, 2^24 a call; ADR-1100, D5",
 };
 
+const IMAGE_NOTE_REASONS: Bound = Bound {
+    name: "IMAGE_NOTE_REASONS_MAX",
+    value: 64,
+    what: "Reasons, each with its protocol, that a terminal in a build with images counts the notes of, where an image handler says why it dropped what a program sent",
+    past: "A note with a new reason is counted nowhere and reaches no log; the reasons already counted keep their counts",
+    cite: "vtium's own: vtium-image's handlers write fewer than 30 fixed reasons, so they never reach it; it keeps a handler that writes reasons of its own from growing the table",
+};
+
+const IMAGE_NOTE_BYTES: Bound = Bound {
+    name: "IMAGE_NOTE_BYTES_MAX",
+    value: 160,
+    what: "Bytes of one note's reason the terminal keeps, in a build with images",
+    past: "The reason is cut at the last character boundary at or before it",
+    cite: "vtium's own: vtium-image's handlers write no reason longer than 70 bytes",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 23] = [
+pub(crate) const BOUNDS: [Bound; 25] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -227,6 +243,8 @@ pub(crate) const BOUNDS: [Bound; 23] = [
     SGR_STACK,
     COLOR_STACK,
     INPUT_WORK,
+    IMAGE_NOTE_REASONS,
+    IMAGE_NOTE_BYTES,
 ];
 
 /// Cells a line holds, and columns a screen and its damage have. The
@@ -303,6 +321,16 @@ pub const REPLIES_PENDING_MAX: usize = REPLIES_PENDING.value;
 /// Image work an input call does before it stops, in a build with images.
 #[cfg_attr(not(feature = "images"), allow(dead_code))]
 pub(crate) const INPUT_WORK_MAX: u64 = INPUT_WORK.value as u64;
+
+/// Reasons a terminal counts the image handlers' notes of, in a build with
+/// images.
+#[cfg_attr(not(feature = "images"), allow(dead_code))]
+pub(crate) const IMAGE_NOTE_REASONS_MAX: usize = IMAGE_NOTE_REASONS.value;
+
+/// Bytes of one image note's reason a terminal keeps, in a build with
+/// images.
+#[cfg_attr(not(feature = "images"), allow(dead_code))]
+pub(crate) const IMAGE_NOTE_BYTES_MAX: usize = IMAGE_NOTE_BYTES.value;
 
 /// The most bytes of XTVERSION's text.
 pub const VERSION_MAX: usize = VERSION.value;

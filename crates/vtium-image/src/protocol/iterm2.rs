@@ -341,7 +341,9 @@ impl Iterm2 {
             animate(ctx, key, size, ahead, copied, delays, *loops);
         }
         let tall = usize::try_from(dh.div_ceil(u64::from(cell.1.max(1)))).unwrap_or(usize::MAX);
-        place_scrolling(ctx, key, Some((draw_width, draw_height)), tall, false);
+        if !place_scrolling(ctx, key, Some((draw_width, draw_height)), tall, false) {
+            ctx.note("the store refuses an iTerm2 picture's place");
+        }
     }
 }
 

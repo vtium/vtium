@@ -34,13 +34,14 @@ pub(crate) fn chunk_work(data: Chunk<'_>) -> u64 {
 /// on the row holding the picture's last pixel row: at the picture's left
 /// column, or with `cursor_right` in the column after its right edge, at
 /// most the last column. A placement the store refuses drops the image.
+/// Returns whether the picture was placed.
 pub(crate) fn place_scrolling(
     ctx: &mut dyn Context,
     image: ImageKey,
     drawn: Option<(u32, u32)>,
     tall: usize,
     cursor_right: bool,
-) {
+) -> bool {
     let (cols, _) = ctx.grid();
     let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     let (cx, mut y) = ctx.cursor();
@@ -72,7 +73,7 @@ pub(crate) fn place_scrolling(
     });
     let Some(Ok(Some((box_cols, _)))) = placed else {
         ctx.drop_image(image);
-        return;
+        return false;
     };
     ctx.move_cursor(x, y);
     ctx.index(down);
@@ -86,4 +87,5 @@ pub(crate) fn place_scrolling(
         cols.saturating_sub(1)
     };
     ctx.move_cursor(col, row);
+    true
 }

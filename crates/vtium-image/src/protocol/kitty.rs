@@ -26,6 +26,11 @@
 //!   the object, since the spec gives its removal to the terminal. Without
 //!   a helper, every named medium answers EBADF and PNG and zlib answer
 //!   EINVAL, as D7's "Without a helper" says.
+//! - **Data past the pixels.** A raw upload, or an `a=q` that counts one,
+//!   ignores the bytes past the pixels `s` and `v` call for, as kitty
+//!   ignores them, and answers as if they had not come. The handler notes
+//!   them for vtium's log ([`Context::note`]), as the C reference logged
+//!   them at debug level (libtsm `eeaf293`, `src/tsm/tsm-kitty.c:806-826`).
 //! - **Replies.** Only a command that carries `i` or `I` is answered; `q=1`
 //!   leaves out OK and `q=2` every reply. An `a=q` without `i` reads nothing
 //!   and is answered under no `q`, as kitty 0.49.2 behaved when the C
@@ -91,6 +96,9 @@ pub const NAME_MAX: usize = 4095;
 /// doubles as it fills.
 const HOST_FIRST: u64 = 4096;
 
+/// The note for an upload's bytes past the pixels its keys call for.
+const PAST: &str = "a kitty upload's data past the pixels s and v call for, ignored";
+
 /// Where the string is in its reading.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Phase {
@@ -123,8 +131,9 @@ enum Mode {
     Skip(Answer),
     /// `f=24` or `f=32` into the pending image, whose bytes are reserved.
     Raw { raw: Raw, reservation: Reservation },
-    /// `a=q`: the bytes counted, not kept.
-    Count { len: u64, want: u64 },
+    /// `a=q`: the bytes counted, not kept, and whether bytes past `want`
+    /// came.
+    Count { len: u64, want: u64, past: bool },
     /// PNG or zlib, kept for the helper; `cap` is the buffer's reserved
     /// size.
     Host {
@@ -216,7 +225,10 @@ impl Sink for UploadSink<'_, '_> {
         let n = u64::try_from(data.len()).unwrap_or(u64::MAX);
         match self.mode {
             Mode::Raw { raw, .. } => raw.push(data),
-            Mode::Count { len, want } => *len = len.saturating_add(n).min(*want),
+            Mode::Count { len, want, past } => {
+                *past |= n > want.saturating_sub(*len);
+                *len = len.saturating_add(n).min(*want);
+            }
             Mode::Host {
                 data: buf,
                 cap,
@@ -401,7 +413,11 @@ impl Kitty {
         let pixels = cmd.pixels();
         let want = pixels.saturating_mul(u64::from(cmd.bpp()));
         if cmd.action == b'q' {
-            self.upload.mode = Mode::Count { len: 0, want };
+            self.upload.mode = Mode::Count {
+                len: 0,
+                want,
+                past: false,
+            };
             return;
         }
         // a frame's data is reserved of the frame allowance, an image's of
@@ -432,7 +448,10 @@ impl Kitty {
         match core::mem::take(&mut self.upload.mode) {
             Mode::None => {}
             Mode::Skip(answer) => reply(ctx, &cmd, cmd.id, answer),
-            Mode::Count { len, want } => {
+            Mode::Count { len, want, past } => {
+                if past {
+                    ctx.note(PAST);
+                }
                 let answer = if len < want {
                     Err(Error::Invalid)
                 } else {
@@ -453,6 +472,9 @@ impl Kitty {
                 }
             }
             Mode::Raw { raw, reservation } => {
+                if raw.ignored() {
+                    ctx.note(PAST);
+                }
                 // raw data must hold every pixel the keys call for
                 if !raw.complete() {
                     ctx.unreserve(reservation);

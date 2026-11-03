@@ -19,12 +19,18 @@
 //! kept from one picture to the next until RIS or a change of the register
 //! count. A string that is cancelled, or that ends while sixel is not
 //! offered, stores nothing and gives back what it reserved.
+//!
+//! Sixel answers nothing, so a picture that ends with no size, or that the
+//! budget or the store refuses, is dropped without a word to the program,
+//! and the handler notes why for vtium's log ([`Context::note`]), as the C
+//! reference logged a sixel picture it did not store or place at debug
+//! level (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:161-171`).
 
 use vtium_parse::Chunk;
 
 use crate::bounds::IMAGE_SIDE_MAX;
 use crate::decode::Reply;
-use crate::decode::sixel::{Budget, Decoder, Palette, Picture};
+use crate::decode::sixel::{Budget, Decoder, Empty, Palette, Picture};
 use crate::handler::{Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place};
 use crate::protocol::{chunk_work, place_scrolling};
@@ -111,8 +117,9 @@ impl Sixel {
     }
 }
 
-/// A picture's place at the cursor, and the cursor after it.
-fn place(ctx: &mut dyn Context, image: ImageKey, width: u32, height: u32) {
+/// A picture's place at the cursor, and the cursor after it. Returns
+/// whether the picture was placed; the store drops one it refuses.
+fn place(ctx: &mut dyn Context, image: ImageKey, width: u32, height: u32) -> bool {
     let state = ctx.sixel();
     let (cols, rows) = ctx.grid();
     let (cw, ch) = ctx.cell_size();
@@ -126,11 +133,12 @@ fn place(ctx: &mut dyn Context, image: ImageKey, width: u32, height: u32) {
         };
         if ctx.place(image, at).is_err() {
             ctx.drop_image(image);
+            return false;
         }
-        return;
+        return true;
     }
     let tall = usize::try_from(height.div_ceil(ch.max(1))).unwrap_or(usize::MAX);
-    place_scrolling(ctx, image, None, tall, state.cursor_right);
+    place_scrolling(ctx, image, None, tall, state.cursor_right)
 }
 
 impl Handler for Sixel {
@@ -213,18 +221,25 @@ impl Handler for Sixel {
             picture.finish(&mut hold)
         };
         ctx.add_work(picture.work().saturating_sub(before));
-        let Ok(Picture {
+        let Picture {
             width,
             height,
             pixels,
             transparent,
-        }) = done
-        else {
-            // the decoder gave back what it held
-            if let Some(r) = self.held.take() {
-                ctx.unreserve(r);
+        } = match done {
+            Ok(picture) => picture,
+            Err(empty) => {
+                // the decoder gave back what it held
+                if let Some(r) = self.held.take() {
+                    ctx.unreserve(r);
+                }
+                match empty {
+                    Empty::NoData => ctx.note("a sixel picture with no size"),
+                    Empty::Refused => ctx.note("the budget refuses a sixel picture"),
+                    Empty::Idle => {}
+                }
+                return;
             }
-            return;
         };
         let image = NewImage {
             protocol: Protocol::SIXEL,
@@ -238,9 +253,11 @@ impl Handler for Sixel {
             // opaque; with P2 1 the store reads the pixels to find out
             opaque: (!transparent).then_some(true),
         };
-        let stored = ctx.add_image(image, self.held.take());
-        if let Ok(key) = stored {
-            place(ctx, key, width, height);
+        let Ok(key) = ctx.add_image(image, self.held.take()) else {
+            return ctx.note("the store refuses a sixel picture");
+        };
+        if !place(ctx, key, width, height) {
+            ctx.note("the store refuses a sixel picture's place");
         }
     }
 

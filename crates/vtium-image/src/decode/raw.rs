@@ -49,6 +49,8 @@ pub(crate) struct Raw {
     held: u8,
     /// Every pixel so far is opaque.
     opaque: bool,
+    /// Bytes past the pixels wanted arrived and were ignored.
+    past: bool,
 }
 
 impl Raw {
@@ -66,6 +68,7 @@ impl Raw {
             part: [0; 4],
             held: 0,
             opaque: true,
+            past: false,
         }
     }
 
@@ -97,6 +100,7 @@ impl Raw {
             .saturating_mul(bpp)
             .saturating_sub(usize::from(self.held));
         // bytes past the pixels wanted are ignored
+        self.past |= data.len() > room;
         let taken = data.get(..room.min(data.len())).unwrap_or_default();
         let whole = taken
             .len()
@@ -111,6 +115,11 @@ impl Raw {
             }
             self.held = u8::try_from(tail.len()).unwrap_or(0);
         }
+    }
+
+    /// Whether bytes past the pixels wanted arrived, which it ignored.
+    pub(crate) fn ignored(&self) -> bool {
+        self.past
     }
 
     /// Whether every pixel wanted has arrived.

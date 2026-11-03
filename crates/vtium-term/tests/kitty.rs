@@ -139,3 +139,40 @@ fn a_child_above_a_parent_below_a_scrolled_back_view_is_drawn() {
         "the parent is below the view and its child is in it"
     );
 }
+
+// The C reference logged the data past s and v at debug level, since a
+// program can send it every frame (libtsm `eeaf293`,
+// `src/tsm/tsm-kitty.c:806-826`). vtium's handler notes it for the log,
+// once for each upload, and answers as if it had not come.
+#[test]
+fn data_past_the_pixels_is_noted_for_the_log_and_answered_ok() {
+    let mut t = term(12, 4);
+    let past = "a kitty upload's data past the pixels s and v call for, ignored";
+    // one RGB pixel is 3 bytes; AAAAAAAA decodes to 6
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=1;AAAAAAAA\x1b\\");
+    assert_eq!(t.take_replies(), b"\x1b_Gi=1;OK\x1b\\");
+    let notes = t.take_image_notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(
+        (notes[0].protocol, notes[0].why.as_str(), notes[0].count),
+        (ImageString::Kitty, past, 1)
+    );
+    // a second is counted, and reaches no log
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=1;AAAAAAAA\x1b\\");
+    assert_eq!(t.take_image_notes(), []);
+    // the query counts the bytes and notes the same
+    let mut t = term(12, 4);
+    t.input(b"\x1b_Ga=q,f=24,s=1,v=1,i=2;AAAAAAAA\x1b\\");
+    assert_eq!(t.take_replies(), b"\x1b_Gi=2;OK\x1b\\");
+    assert_eq!(t.take_image_notes().len(), 1);
+    // in chunks, the bytes past arriving in the last
+    let mut t = term(12, 4);
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=3,m=1;AAAA\x1b\\\x1b_Gm=0;AAAA\x1b\\");
+    assert_eq!(t.take_replies(), b"\x1b_Gi=3;OK\x1b\\");
+    assert_eq!(t.take_image_notes().len(), 1);
+    // exactly the pixels: no note
+    let mut t = term(12, 4);
+    t.input(b"\x1b_Ga=t,f=24,s=1,v=1,i=1;AAAA\x1b\\");
+    t.input(b"\x1b_Ga=q,f=24,s=1,v=1,i=2;AAAA\x1b\\");
+    assert_eq!(t.take_image_notes(), []);
+}

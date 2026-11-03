@@ -626,6 +626,44 @@ mod images {
         t.input(b);
         assert_eq!(t.screen().images().bytes(), 64 * 64 * 4 + 512);
     }
+
+    /// The notes the handler wrote, as (reason, count).
+    fn notes(t: &mut Terminal) -> Vec<(String, u64)> {
+        t.take_image_notes()
+            .into_iter()
+            .map(|n| {
+                assert_eq!(n.protocol, ImageString::Sixel);
+                (n.why, n.count)
+            })
+            .collect()
+    }
+
+    // Sixel answers nothing, so the handler notes for the log why it drops
+    // a picture, as the C reference logged a sixel picture it did not store
+    // at debug level (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:161-171`).
+    #[test]
+    fn a_dropped_picture_is_noted_for_the_log() {
+        let mut t = term(12, 6);
+        t.input(&solid(8, 6));
+        assert_eq!(notes(&mut t), [], "a stored picture notes nothing");
+        t.input(&sixel("0;0;0", ""));
+        assert_eq!(
+            notes(&mut t),
+            [("a sixel picture with no size".to_owned(), 1)]
+        );
+        // a budget too small for the picture's pixels
+        let mut t = term(12, 6);
+        t.screen_mut().set_image_limit(1024);
+        t.input(&solid(64, 64));
+        assert!(t.screen().placements().is_empty());
+        assert_eq!(
+            notes(&mut t),
+            [("the budget refuses a sixel picture".to_owned(), 1)]
+        );
+        // a cancelled string is the program's own doing, and notes nothing
+        t.input(b"\x1bPq#0~\x18");
+        assert_eq!(notes(&mut t), []);
+    }
 }
 
 /// The decode measurement #48 asks for: each sixel frame named in
