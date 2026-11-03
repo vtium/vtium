@@ -24,11 +24,12 @@ mod frame;
 pub(crate) mod kitty;
 mod relative;
 mod reserve;
+mod runs;
 mod sixel;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::bounds::{
     BOX_CELLS_MAX, CELL_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX, IMAGES_PER_BUFFER, PLACEMENT_OVERHEAD,
@@ -408,6 +409,14 @@ pub struct Store {
     reservations: BTreeMap<u64, u64>,
     /// The number the next reservation gets.
     next_reservation: u64,
+    /// The placeholder runs vtium-term read from each buffer's screen lines
+    /// for the decision under way, held only through
+    /// [`with_runs`](Self::with_runs) (ADR-1100, D13).
+    runs: [Vec<crate::image::PlaceholderRun>; 2],
+    /// The buffer and kitty image id of each virtual placement changed
+    /// since vtium-term last took them, for it to mark that image's
+    /// placeholder cells (D13).
+    changed_virtual: BTreeSet<(bool, u32)>,
 }
 
 /// Two stores compare by what they hold; the work an input call counted
@@ -468,6 +477,8 @@ impl Store {
             evicting: false,
             reservations: BTreeMap::new(),
             next_reservation: 0,
+            runs: [Vec::new(), Vec::new()],
+            changed_virtual: BTreeSet::new(),
         }
     }
 
@@ -893,10 +904,14 @@ impl Store {
             id: place.id,
             revision,
         };
+        self.virtual_changed(b, &placement);
         let key = match replaced {
             Some(k) => {
                 // the old box and every box that follows it change
                 self.mark_family(b, k, true);
+                if let Some(old) = self.placement(b, k).cloned() {
+                    self.virtual_changed(b, &old);
+                }
                 if let Some(buf) = self.buffers.get_mut(b) {
                     buf.unstack(k);
                     buf.detach(k);
@@ -1077,7 +1092,7 @@ impl Store {
             let rows = screens.of(b);
             let height = rows.height();
             let tops = self.tops(b, rows);
-            let drawn = self.drawn(b, &tops);
+            let drawn = self.drawn(b, rows, &tops);
             let Some(buf) = self.buffers.get(b) else {
                 continue;
             };
@@ -1268,6 +1283,7 @@ impl Store {
         buf.unlink(key);
         buf.children.remove(&key);
         let p = buf.take(key)?;
+        self.virtual_changed(b, &p);
         self.pending.retain(|&(pb, pk, _)| (pb, pk) != (b, key));
         self.changed.extend(region);
         self.bump();
@@ -1356,8 +1372,13 @@ impl Store {
             return;
         };
         let buf = core::mem::take(buf);
-        for &k in buf.placements.keys() {
+        for (&k, p) in &buf.placements {
             self.changed.extend(buf.region(k));
+            if p.spot == Spot::Virtual
+                && let Some(image) = buf.images.get(&p.image)
+            {
+                self.changed_virtual.insert((b == ALT, image.id));
+            }
         }
         for image in buf.images.values() {
             self.owed = self.owed.saturating_sub(image.owed);

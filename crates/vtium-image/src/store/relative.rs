@@ -19,7 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{Buffer, Region, Store};
+use super::{Buffer, Region, Rows, Store};
 use crate::bounds::RELATIVE_DEPTH_MAX;
 use crate::image::{LineKey, PlacementKey, Refusal};
 
@@ -104,9 +104,16 @@ pub(super) enum Located {
         col: i64,
         revision: u64,
     },
-    /// It is a virtual placement or follows one: only placeholder cells
-    /// give it a place, which the store does not read.
-    Floating,
+    /// It is the virtual placement `root` or follows it: only placeholder
+    /// runs give it a place. Its box's top left is `row` rows and `col`
+    /// columns from the origin the runs of `root` give, and `revision` is
+    /// the latest revision along the chain.
+    Floating {
+        root: PlacementKey,
+        row: i64,
+        col: i64,
+        revision: u64,
+    },
 }
 
 /// Where a relative placement draws on the screen in use, for the store's
@@ -114,9 +121,11 @@ pub(super) enum Located {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Drawn {
     /// Its box's top left: the screen row, when the line its root is on is
-    /// among the rows the event gave, and the column.
+    /// among the rows the event gave, or when the runs handed with the
+    /// decision show its virtual root, and the column.
     At { top: Option<i64>, col: i64 },
-    /// It follows a virtual placement: it has no cells the store knows.
+    /// It follows a virtual placement that no run handed with the decision
+    /// shows: it has no cells the store knows.
     Nowhere,
 }
 
@@ -136,7 +145,14 @@ impl Buffer {
                     revision,
                 });
             }
-            Spot::Virtual => return Some(Located::Floating),
+            Spot::Virtual => {
+                return Some(Located::Floating {
+                    root: key,
+                    row: 0,
+                    col: 0,
+                    revision,
+                });
+            }
             Spot::Child { parent, cols, rows } => (parent, i64::from(cols), i64::from(rows)),
         };
         for _ in 0..RELATIVE_DEPTH_MAX {
@@ -154,7 +170,14 @@ impl Buffer {
                         revision,
                     });
                 }
-                Spot::Virtual => return Some(Located::Floating),
+                Spot::Virtual => {
+                    return Some(Located::Floating {
+                        root: parent,
+                        row,
+                        col,
+                        revision,
+                    });
+                }
                 Spot::Child {
                     parent: next,
                     cols,
@@ -358,13 +381,17 @@ impl Store {
     }
 
     /// Where each relative placement of buffer `b` draws, from the screen
-    /// rows of the placements on lines that `tops` gives.
+    /// rows of the placements on lines that `tops` gives, and, for one that
+    /// follows a virtual placement, from the origin the runs handed with
+    /// the decision give on `rows`, the screen's own lines (D13).
     pub(super) fn drawn(
         &mut self,
         b: usize,
+        rows: Rows<'_>,
         tops: &BTreeMap<PlacementKey, i64>,
     ) -> BTreeMap<PlacementKey, Drawn> {
         let mut out = BTreeMap::new();
+        let origins = self.decision_origins(b, rows);
         let Some(buf) = self.buffers.get(b) else {
             return out;
         };
@@ -374,7 +401,14 @@ impl Store {
                     top: tops.get(&root).map(|t| t.saturating_add(row)),
                     col,
                 },
-                _ => Drawn::Nowhere,
+                Some(Located::Floating { root, row, col, .. }) => match origins.get(&root) {
+                    Some(&(top, left)) => Drawn::At {
+                        top: Some(top.saturating_add(row)),
+                        col: left.saturating_add(col),
+                    },
+                    None => Drawn::Nowhere,
+                },
+                None => Drawn::Nowhere,
             };
             out.insert(k, drawn);
         }
