@@ -153,7 +153,7 @@ fn input_left_unread_is_dropped_before_the_mode_is_back() {
     assert_eq!(rustix::io::ioctl_fionread(&slave).expect("FIONREAD"), 0);
 }
 
-// A SIGTERM while `set` waits for the reply acts once the terminal's mode
+// A SIGTERM while `set` waits for an answer acts once the terminal's mode
 // is back: the command ends by it, and the terminal is cooked again.
 #[test]
 fn a_sigterm_during_the_wait_ends_set_with_the_mode_back() {
@@ -173,10 +173,11 @@ fn a_sigterm_during_the_wait_ends_set_with_the_mode_back() {
         .stderr(Stdio::null())
         .spawn()
         .expect("setsid runs");
-    // the request and the query, then the signal while it waits
+    // the question of what the terminal is, then the signal while set
+    // waits for its answer
     let mut got = Vec::new();
     let mut buf = [0u8; 64];
-    while !got.windows(6).any(|w| w == b"\x1b]50;?") {
+    while !got.windows(3).any(|w| w == b"\x1b[c") {
         let n = master.read(&mut buf).expect("the request");
         got.extend_from_slice(&buf[..n]);
     }

@@ -18,7 +18,6 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 use std::os::fd::{AsFd, OwnedFd};
 use std::sync::Mutex;
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use rustix::termios::{OptionalActions, QueueSelector, Termios, tcflush, tcgetattr, tcsetattr};
@@ -150,9 +149,6 @@ struct Woken {
     wakes: Vec<Wake>,
 }
 
-/// A command for the spawner thread: the argv, and where its status goes.
-type Spawn = (Vec<OsString>, mpsc::Sender<io::Result<bool>>);
-
 /// The terminal on standard input and output.
 pub struct Tty {
     saver: Saver,
@@ -161,7 +157,6 @@ pub struct Tty {
     saved: Termios,
     events: Loop<Woken>,
     deadline: Option<Instant>,
-    spawner: mpsc::Sender<Spawn>,
 }
 
 #[expect(
@@ -176,19 +171,7 @@ impl Tty {
     /// Takes the terminal: raw mode, the alternate screen, the signals
     /// held. `saver` writes a draft and runs the privileged step through
     /// the runner it is given.
-    pub fn open(
-        saver: Saver,
-    ) -> io::Result<Tty> {
-        // The spawner starts before any signal is held, so the privileged
-        // step it runs inherits no blocked signal.
-        let (spawner, commands) = mpsc::channel::<Spawn>();
-        std::thread::Builder::new()
-            .name("privileged-step".into())
-            .spawn(move || {
-                for (argv, reply) in commands {
-                    let _ = reply.send(spawn_foreground(&argv));
-                }
-            })?;
+    pub fn open(saver: Saver) -> io::Result<Tty> {
         let input = rustix::io::dup(std::io::stdin().as_fd())?;
         let saved = tcgetattr(&input)?;
         let mut raw = saved.clone();
@@ -249,7 +232,6 @@ impl Tty {
             saved,
             events,
             deadline: None,
-            spawner,
         };
         tty.write(ENTER)?;
         Ok(tty)
@@ -268,19 +250,51 @@ impl Tty {
     }
 }
 
-/// Runs `argv` in a process group of its own in the terminal's
-/// foreground, so the keys that interrupt it reach it and not the TUI,
-/// and waits for it: whether it succeeded.
+/// The word that makes vtium-config release the signals the TUI holds and
+/// run the command after it in its place.
+pub const UNBLOCK_ARG: &str = "--run-with-signals";
+
+/// The signals the TUI holds.
+const HELD: [Signal; 6] = [
+    Signal::SIGTERM,
+    Signal::SIGINT,
+    Signal::SIGQUIT,
+    Signal::SIGHUP,
+    Signal::SIGWINCH,
+    Signal::SIGTTOU,
+];
+
+/// [`UNBLOCK_ARG`]'s side: releases the signals a process inherits held
+/// from the TUI, then replaces itself with `argv`. A child inherits the
+/// signals its parent holds, and the TUI holds them in its own process so
+/// that none can end it between a release and a spawn; this step releases
+/// them in the child alone. Returns only when `argv` could not run.
+pub fn run_with_signals(argv: &[OsString]) -> u8 {
+    use std::os::unix::process::CommandExt;
+    // dropping a signal source releases the signals it holds
+    drop(vtium_platform::calloop::signals::Signals::new(&HELD));
+    let Some((program, args)) = argv.split_first() else {
+        return 2;
+    };
+    let why = std::process::Command::new(program).args(args).exec();
+    eprintln!("vtium-config: {}: {why}", program.to_string_lossy());
+    127
+}
+
+/// Runs `argv` with the signals the TUI holds released, in a process
+/// group of its own in the terminal's foreground, so the keys that
+/// interrupt it reach it and not the TUI, and waits for it: whether it
+/// succeeded.
 fn spawn_foreground(argv: &[OsString]) -> io::Result<bool> {
     use std::os::unix::process::CommandExt;
-    let (program, args) = argv
-        .split_first()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no command"))?;
+    if argv.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "no command"));
+    }
     let stdin = std::io::stdin();
     let controlling =
         rustix::termios::tcgetpgrp(stdin.as_fd()).is_ok_and(|fg| fg == rustix::process::getpgrp());
-    let mut command = std::process::Command::new(program);
-    command.args(args);
+    let mut command = std::process::Command::new(std::env::current_exe()?);
+    command.arg(UNBLOCK_ARG).args(argv);
     if controlling {
         command.process_group(0);
     }
@@ -328,13 +342,8 @@ impl Port for Tty {
 
     fn save(&mut self, plan: &Plan) -> Result<usize, String> {
         self.cooked(true).map_err(|e| e.to_string())?;
-        let spawner = self.spawner.clone();
         let mut run = |argv: &[OsString]| -> io::Result<bool> {
-            let (reply, status) = mpsc::channel();
-            spawner
-                .send((argv.to_vec(), reply))
-                .map_err(|e| io::Error::other(e.to_string()))?;
-            let result = status.recv().map_err(|e| io::Error::other(e.to_string()))?;
+            let result = spawn_foreground(argv);
             // the TUI takes the foreground back; SIGTTOU is held
             let stdin = std::io::stdin();
             let _ = rustix::termios::tcsetpgrp(stdin.as_fd(), rustix::process::getpgrp());

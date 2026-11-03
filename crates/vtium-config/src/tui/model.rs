@@ -346,6 +346,7 @@ impl App {
         };
         if self.leaving.is_some() {
             self.replies_due = self.replies_due.saturating_sub(1);
+            self.in_flight = None;
             self.shown_font = Some(name);
             return match (self.replies_due, self.leaving) {
                 (0, Some(status)) => vec![Effect::Exit(status)],

@@ -368,6 +368,7 @@ fn leaving_with_a_switch_in_flight_waits_for_both_replies() {
     assert_eq!(run(&mut c), 0);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
     assert_eq!(c.log.last().map(String::as_str), Some("reply unifont"));
+    assert!(c.panic_bytes.is_empty(), "the font is back, so nothing is written again");
 }
 
 #[test]

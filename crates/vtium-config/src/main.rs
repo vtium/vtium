@@ -13,6 +13,11 @@ fn main() -> ExitCode {
     {
         return ExitCode::from(vtium_config::child::run_parser());
     }
+    if let Some((first, rest)) = args.split_first()
+        && first == vtium_config::tui::port::UNBLOCK_ARG
+    {
+        return ExitCode::from(vtium_config::tui::port::run_with_signals(rest));
+    }
     vtium_config::banner::show(&args, &mut std::io::stdout());
     let status = vtium_config::cli::run(&args, &mut std::io::stdout(), &mut std::io::stderr());
     ExitCode::from(status)
