@@ -21,9 +21,7 @@ vtium-term.workspace = true
 # the small displays draw their PSF fonts through the PSF loader, which the
 # console leaves out
 vtium-font = { workspace = true, features = ["psf"] }
-# the GPU path's frame, drawn on a GL and judged against the CPU path's
-# (ADR-1303 D1)
-vtium-render = { workspace = true, features = ["gpu"] }
+vtium-render.workspace = true
 # generates the test PSF fonts' glyphs through the engine the helper runs,
 # for the screens drawn from sets
 vtium-config = { path = "../../crates/vtium-config" }
@@ -36,3 +34,9 @@ vtium-settings.workspace = true
 # the console's own overlay, which draws the notices and the on-screen
 # display, and the words of its notices and of the OSD's line
 vtium = { path = "../../crates/vtium" }
+
+[features]
+# the GPU path's screens, drawn on a GL and judged against the CPU path's
+# (ADR-1303 D1); off by default, so a workspace build keeps vtium-render
+# without its GPU path, as the minspec build has it
+gpu = ["vtium-render/gpu"]

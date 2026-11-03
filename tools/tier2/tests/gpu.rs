@@ -3,6 +3,7 @@
 //! judge sees a GPU path that draws nothing. The pixels are judged on a
 //! real GL; here the stand-in GL draws through the whole GPU path and reads
 //! back zeros.
+#![cfg(feature = "gpu")]
 
 use std::fs;
 use std::path::{Path, PathBuf};
