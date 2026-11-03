@@ -88,7 +88,7 @@ impl Options {
             frits: self
                 .frits
                 .clone()
-                .unwrap_or_else(|| crate::switch::frits_dir(&configdir)),
+                .map_or_else(|| crate::switch::frits_dir(&configdir), Ok),
             configdir,
             drafts: crate::tui::default_drafts(),
             sudo: self
@@ -327,7 +327,13 @@ pub fn run(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         }
         "new" => crate::commands::new(&rest, &o.paths(), cli.out, cli.err),
         "preview" => crate::preview::command(&rest, &o.paths(), cli.out, cli.err),
-        "set" => crate::switch::command(&rest, &o.paths().frits, cli.out, cli.err),
+        "set" => match o.paths().frits {
+            Ok(frits) => crate::switch::command(&rest, &frits, cli.out, cli.err),
+            Err(why) => {
+                let _ = writeln!(cli.err, "vtium-config: {why}");
+                1
+            }
+        },
         "apply" => crate::apply::command(&rest, &o.paths().targets(), cli.out, cli.err),
         crate::serve::SERVE_ARG => cli.serve(&rest),
         "" if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {

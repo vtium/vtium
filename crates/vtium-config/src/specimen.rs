@@ -22,8 +22,8 @@ use vtium_font::{Cell, Face, Format, Style};
 
 use crate::serve::{
     ASK, FRAME_BYTES_MAX, FRAME_DONE, FRAME_DRAWS_NOTHING, FRAME_FAILED, FRAME_GLYPHS,
-    FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SOURCES, FritText, LeftOut,
-    OWN_CELL, SOURCES, ServeRequest,
+    FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SOURCES, FRAME_WARNING, FritText,
+    LeftOut, OWN_CELL, SOURCES, ServeRequest,
 };
 
 /// The specimen's lines in every locale: Latin, digits and box drawing.
@@ -251,7 +251,9 @@ pub enum Sources {
 /// come, the helper fails, ends, or cannot be started, every frit still
 /// unanswered is [`Sources::Unknown`], with why. A failed frame is the
 /// helper's own failure, as when it fails as it starts, and never a frit's
-/// answer: a frit the helper draws nothing from has a frame of its own.
+/// answer: a frit the helper draws nothing from has a frame of its own. A
+/// warning is skipped, and a frame of any other kind is the helper's
+/// failure too.
 pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
     let count = frits.len();
     let mut answers = Vec::with_capacity(count);
@@ -282,7 +284,16 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
                         Ok((FRAME_FAILED, payload)) => {
                             break Err(format!("the helper failed: {}", text(&payload)));
                         }
-                        Ok(_) => {}
+                        // a warning a frit's text gave comes before its
+                        // answer; any other kind answers no sources query,
+                        // and taking the next frame as this frit's answer
+                        // would give each later frit the one before's
+                        Ok((FRAME_WARNING, _)) => {}
+                        Ok((kind, _)) => {
+                            break Err(format!(
+                                "the helper sent a frame of kind {kind}, which answers no sources query"
+                            ));
+                        }
                         Err(why) => break Err(why),
                     }
                 };

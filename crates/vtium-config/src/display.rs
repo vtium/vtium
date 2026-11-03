@@ -161,6 +161,13 @@ mod tests {
             let tool = Display { pixels, mm }.dpi().map(f64::from);
             assert_eq!(tool, console, "{cm:?} at {pixels:?}");
         }
+        // the figure itself: 5125 rows over 410 mm is 317.5 dpi, which
+        // rounds to 318
+        let panel = Display {
+            pixels: (3000, 5125),
+            mm: Edid::parse(&edid((60, 41))).and_then(|e| e.mm()),
+        };
+        assert_eq!(panel.dpi(), Some(318));
     }
 
     #[test]

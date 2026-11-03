@@ -184,17 +184,35 @@ impl Drop for Raw<'_> {
     }
 }
 
+/// The frits' directory, or why vtium-config knows of none: the commands
+/// that list, write or remove frits fail with the reason, and the others
+/// go on without it.
+pub type Frits = Result<PathBuf, String>;
+
 /// The frits' directory the console reads with the vtium.conf in
 /// `configdir`: the file's `font-frits`, read as the console reads it,
-/// else the key's default, the directory the build names. A vtium.conf
-/// that cannot be read names no directory, so the default stands.
-pub fn frits_dir(configdir: &Path) -> PathBuf {
-    let key = &vtium_settings::keys::FONT_FRITS;
-    crate::tui::read_conf(&configdir.join("vtium.conf"))
-        .ok()
-        .flatten()
-        .and_then(|text| vtium_settings::setting(&text, key.name))
-        .map_or_else(|| PathBuf::from(vtium_settings::keys::FRITS), PathBuf::from)
+/// else the key's default, the directory the build names. vtium-config
+/// takes `font-frits` only as an absolute path: a relative one would be
+/// read against whatever directory the tool runs in, and an empty one
+/// names that directory itself, so either is refused, naming vtium.conf
+/// and the key. A vtium.conf that cannot be read is refused with its
+/// reason, as the TUI's start refuses it.
+pub fn frits_dir(configdir: &Path) -> Frits {
+    let key = vtium_settings::keys::FONT_FRITS.name;
+    let conf = configdir.join("vtium.conf");
+    let Some(value) =
+        crate::tui::read_conf(&conf)?.and_then(|text| vtium_settings::setting(&text, key))
+    else {
+        return Ok(PathBuf::from(vtium_settings::keys::FRITS));
+    };
+    if Path::new(&value).is_absolute() {
+        Ok(PathBuf::from(value))
+    } else {
+        Err(format!(
+            "{}: {key}={value:?} is not an absolute path, so vtium-config does not know which directory the frits are in; set {key} to an absolute path, or name the directory with --frits",
+            conf.display()
+        ))
+    }
 }
 
 /// The frit file `name` names in `frits`, for a frit's name.

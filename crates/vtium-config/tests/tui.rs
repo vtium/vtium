@@ -776,6 +776,34 @@ fn r_refuses_what_remove_frit_refuses() {
     assert!(c.saves.is_empty(), "{:?}", c.saves);
 }
 
+/// A save that changes font-frits and also writes or removes a frit is
+/// refused: the frits would go to the directory font-frits named before
+/// the save, so the user saves the new directory first. A save that
+/// changes only one of the two is planned.
+#[test]
+fn a_save_that_moves_the_frits_and_changes_a_frit_is_refused() {
+    use vtium_config::tui::model::{App, Change};
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    app.pending
+        .set("font-frits", Change::Set("/srv/frits".to_owned()));
+    assert!(app.plan().is_ok());
+    app.pending.removals.push("tiny5".to_owned());
+    let why = app.plan().expect_err("a removal and a new directory");
+    assert!(why.contains("font-frits"), "{why}");
+    app.pending.removals.clear();
+    app.pending
+        .frits
+        .push(("made".to_owned(), "source=builtin:unifont\n".to_owned()));
+    let why = app.plan().expect_err("a new frit and a new directory");
+    assert!(why.contains("font-frits"), "{why}");
+    // the same value as vtium.conf's is no move
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    app.pending.removals.push("tiny5".to_owned());
+    app.pending
+        .set("font-name", Change::Set("proof".to_owned()));
+    assert!(app.plan().is_ok());
+}
+
 #[test]
 fn a_new_frit_the_reader_refuses_stays_in_its_view_and_says_why() {
     let mut c = console().keys(&[

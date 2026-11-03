@@ -1164,6 +1164,13 @@ impl App {
         };
         let conf = after(&self.inputs.conf_path, &self.inputs.conf);
         let heads = after(&self.inputs.heads_path, &self.inputs.heads);
+        // the frits' paths come from the directory the TUI started with
+        let key = keys::FONT_FRITS.name;
+        if !(p.frits.is_empty() && p.removals.is_empty())
+            && conf.as_deref().and_then(|c| setting(c, key)) != self.configured(key)
+        {
+            return Err(crate::apply::FRITS_MOVE_FIRST.to_owned());
+        }
         let mut removals = Vec::new();
         for name in &p.removals {
             if let Some(why) =

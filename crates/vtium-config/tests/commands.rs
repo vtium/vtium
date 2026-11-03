@@ -82,6 +82,27 @@ impl Fixture {
         }
     }
 
+    /// `vtium-config` with the fixture's configuration directory and
+    /// console but no `--frits`, run in `cwd`, its drafts under the
+    /// fixture's state directory.
+    fn run_bare(&self, cwd: &Path, args: &[&str]) -> Ran {
+        let o = Command::new(BIN)
+            .arg("--configdir")
+            .arg(self.etc())
+            .arg("--vtium")
+            .arg(vtium())
+            .args(args)
+            .current_dir(cwd)
+            .env("XDG_STATE_HOME", self.root.join("state"))
+            .output()
+            .expect("the binary runs");
+        Ran {
+            status: o.status.code().unwrap_or(-1),
+            out: String::from_utf8_lossy(&o.stdout).into_owned(),
+            err: String::from_utf8_lossy(&o.stderr).into_owned(),
+        }
+    }
+
     /// The draft a change printed, after checking that nothing is
     /// installed yet, then `apply` run on it as the printed command runs it.
     fn apply_printed(&self, ran: &Ran) -> Ran {
@@ -483,6 +504,96 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
     assert_eq!(lines[4], "tiny\treads\t");
     assert_eq!(lines[5], "unifont\tbuilt in\t");
     assert_eq!(lines[6], "unscii-8\tbuilt in\t");
+}
+
+/// A font-frits that is no absolute path names no directory vtium-config
+/// can act in: relative, it would be read against the directory the tool
+/// runs in, and empty it names that directory itself. Every command that
+/// lists, writes or removes frits fails, naming vtium.conf and the key,
+/// and drafts nothing, while `config` still reads and sets the key so the
+/// user can mend it. A vtium.conf that cannot be read fails them the same
+/// way, and never falls back to the build's directory.
+#[test]
+fn a_font_frits_that_is_no_absolute_path_fails_every_frits_command() {
+    for (name, conf) in [
+        ("relative", &b"font-frits=fonts\n"[..]),
+        ("empty", b"font-frits=\n"),
+        ("unreadable", b"font-frits=/srv/\xff\n"),
+    ] {
+        let f = fixture(&format!("frits-{name}"), None);
+        std::fs::write(f.etc().join("vtium.conf"), conf).expect("vtium.conf");
+        let cwd = f.root.join("cwd");
+        std::fs::create_dir_all(cwd.join("fonts")).expect("the directory");
+        std::fs::write(cwd.join("fonts/tiny.vtfrit"), "source=builtin:unscii-8\n").expect("a frit");
+        for args in [
+            &["new", "builtin:unscii-8", "--name", "made"][..],
+            &["remove-frit", "tiny"],
+            &["fonts"],
+            &["preview", "tiny"],
+            &["set", "tiny"],
+        ] {
+            let ran = f.run_bare(&cwd, args);
+            assert_eq!(ran.status, 1, "{name} {args:?}: {}{}", ran.out, ran.err);
+            // preview says each font's failure on its own line of output
+            let said = format!("{}{}", ran.out, ran.err);
+            let names = if name == "unreadable" {
+                "UTF-8"
+            } else {
+                "font-frits"
+            };
+            assert!(
+                said.contains("vtium.conf") && said.contains(names),
+                "{name} {args:?}: {said}"
+            );
+            assert!(
+                args[0] == "preview" || ran.out.is_empty(),
+                "{name} {args:?}: {}",
+                ran.out
+            );
+        }
+        assert!(!cwd.join("fonts/made.vtfrit").exists(), "{name}");
+        assert!(!cwd.join("made.vtfrit").exists(), "{name}");
+        assert!(
+            !f.root.join("state/vtium").exists(),
+            "{name}: nothing drafted"
+        );
+        if name != "unreadable" {
+            let set = f.run_bare(&cwd, &["config", "font-frits", "/srv/frits"]);
+            assert_eq!(set.status, 0, "{name}: {}{}", set.out, set.err);
+            assert!(set.out.contains("draft\t"), "{name}: {}", set.out);
+            assert!(!set.out.contains("--frits"), "{name}: {}", set.out);
+        }
+    }
+}
+
+/// A frame of a kind that answers no sources query, as from a helper of
+/// another version, is the helper's failure: it never shifts the next
+/// frit's answer onto the frit before it.
+#[test]
+fn a_frame_of_an_unknown_kind_marks_every_frit_unknown() {
+    let f = fixture("fonts-unknown-kind", None);
+    let helper = f.root.join("other");
+    // kind 99 with no payload, then a sources answer, kind 11, with none
+    std::fs::write(
+        &helper,
+        "#!/bin/sh\nprintf '\\143\\000\\000\\000\\000\\000\\000\\000\\013\\000\\000\\000\\000\\000\\000\\000'\nexec sleep 30\n",
+    )
+    .expect("the stand-in");
+    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("its mode");
+    let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
+    assert_eq!(ran.status, 0, "{}", ran.err);
+    let lines: Vec<&str> = ran.out.lines().collect();
+    assert!(
+        lines[0].starts_with("spare\treads\tunknown: ") && lines[0].contains("99"),
+        "{}",
+        ran.out
+    );
+    assert!(
+        lines[1].starts_with("tiny\treads\tunknown: "),
+        "{}",
+        ran.out
+    );
 }
 
 /// A helper that fails as it starts, as when it cannot set

@@ -42,7 +42,7 @@ fn fixture(name: &str, conf: Option<&str>) -> Fixture {
     Fixture {
         targets: Targets {
             configdir: etc,
-            frits: fonts,
+            frits: Ok(fonts),
             vtium: vtium().into(),
         },
         root,
@@ -50,6 +50,11 @@ fn fixture(name: &str, conf: Option<&str>) -> Fixture {
 }
 
 impl Fixture {
+    /// The fixture's frits directory.
+    fn fonts(&self) -> PathBuf {
+        self.targets.configdir.join("fonts")
+    }
+
     fn conf_path(&self) -> PathBuf {
         self.targets.configdir.join("vtium.conf")
     }
@@ -115,7 +120,7 @@ fn example(fonts: &Path) -> String {
 #[test]
 fn a_new_font_size_installs_with_one_line_changed_and_the_old_file_kept() {
     let f = fixture("one-line", None);
-    let before = example(&f.targets.frits);
+    let before = example(&f.fonts());
     std::fs::write(f.conf_path(), &before).expect("vtium.conf");
     let after = vtium_settings::edit_conf(&before, &[vtium_settings::Edit::Set("font-size", "12")])
         .expect("the edit");
@@ -224,6 +229,35 @@ fn fixture_fonts(name: &str) -> String {
         .join("etc/fonts")
         .display()
         .to_string()
+}
+
+/// A draft that changes vtium.conf's font-frits and also writes or
+/// removes a frit is refused before anything is written: its frits would
+/// go to the directory font-frits named before it.
+#[test]
+fn a_draft_that_moves_the_frits_and_changes_a_frit_is_refused() {
+    let f = fixture("move-frits", None);
+    let fonts = f.root.join("etc/fonts");
+    let mut plan = f.conf_plan("font-frits=/srv/frits\n");
+    plan.files.push(FileEdit {
+        path: fonts.join("made.vtfrit"),
+        old: None,
+        new: "source=builtin:unifont\n".to_owned(),
+    });
+    let (status, out, err) = f.apply(&f.draft(&plan));
+    assert_eq!(status, 1, "{out}{err}");
+    assert!(err.contains("font-frits"), "{err}");
+    assert!(!f.conf_path().exists(), "nothing written");
+    assert!(!fonts.join("made.vtfrit").exists(), "nothing written");
+    let mut plan = f.conf_plan("font-frits=/srv/frits\n");
+    plan.removals.push(Removal {
+        path: fonts.join("tiny.vtfrit"),
+        old: std::fs::read(fonts.join("tiny.vtfrit")).expect("the frit"),
+    });
+    let (status, out, err) = f.apply(&f.draft(&plan));
+    assert_eq!(status, 1, "{out}{err}");
+    assert!(err.contains("font-frits"), "{err}");
+    assert!(fonts.join("tiny.vtfrit").exists(), "nothing removed");
 }
 
 #[test]
@@ -337,7 +371,7 @@ fn a_draft_file_past_its_bound_is_refused() {
 #[test]
 fn a_frit_font_name_or_a_head_s_profile_names_is_not_removed() {
     let f = fixture("named-frit", Some("font-name=tiny\n"));
-    let fonts = f.targets.frits.clone();
+    let fonts = f.fonts();
     std::fs::write(fonts.join("desk.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     std::fs::write(fonts.join("spare.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     std::fs::write(
@@ -597,7 +631,7 @@ fn a_draft_reached_through_a_link_with_a_trailing_slash_is_refused() {
 #[test]
 fn a_frit_the_reader_refuses_quotes_nothing_it_holds() {
     let f = fixture("frit-secret", Some("font-size=10\n"));
-    let frit = f.targets.frits.join("leaky.vtfrit");
+    let frit = f.fonts().join("leaky.vtfrit");
     let draft = f.draft(&Plan {
         files: vec![FileEdit {
             path: frit.clone(),

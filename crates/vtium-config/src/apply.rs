@@ -60,6 +60,10 @@ pub type Saver = Box<dyn FnMut(&Plan, Runner<'_>) -> Result<usize, String>>;
 /// The draft's list of files.
 pub const MANIFEST: &str = "MANIFEST";
 
+/// Why a change that moves the frits' directory and also writes or
+/// removes a frit is refused, by the TUI's save and by `apply`.
+pub const FRITS_MOVE_FIRST: &str = "the change sets vtium.conf's font-frits to another directory and also writes or removes frits, which would go to the directory font-frits named before; save the font-frits change first, then change the frits";
+
 /// The most bytes of the manifest.
 const MANIFEST_MAX: u64 = 64 * 1024;
 
@@ -75,21 +79,22 @@ pub const VTIUM: &str = match option_env!("VTIUM_PROGRAM") {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Targets {
     pub configdir: PathBuf,
-    pub frits: PathBuf,
+    /// The frits' directory, or why there is none, in which case a draft
+    /// that writes or removes a frit is refused and any other installs.
+    pub frits: crate::switch::Frits,
     pub vtium: OsString,
 }
 
 impl Targets {
-    /// The options that name these targets, as `apply` takes them.
+    /// The options that name these targets, as `apply` takes them: with no
+    /// frits' directory, no `--frits`, so `apply` finds the same reason.
     pub fn options(&self) -> Vec<OsString> {
-        vec![
-            "--configdir".into(),
-            self.configdir.clone().into(),
-            "--frits".into(),
-            self.frits.clone().into(),
-            "--vtium".into(),
-            self.vtium.clone(),
-        ]
+        let mut options = vec!["--configdir".into(), self.configdir.clone().into()];
+        if let Ok(frits) = &self.frits {
+            options.extend(["--frits".into(), frits.clone().into()]);
+        }
+        options.extend(["--vtium".into(), self.vtium.clone()]);
+        options
     }
 }
 
@@ -117,11 +122,16 @@ fn known(name: &str) -> bool {
             .is_some_and(valid_name)
 }
 
-/// The installed path the draft's file `name` replaces.
-fn target(targets: &Targets, name: &str) -> PathBuf {
+/// The installed path the draft's file `name` replaces, or why a frit
+/// has none: there is no frits' directory.
+fn target(targets: &Targets, name: &str) -> Result<PathBuf, String> {
     match name.strip_prefix("fonts/") {
-        Some(frit) => targets.frits.join(frit),
-        None => targets.configdir.join(name),
+        Some(frit) => targets
+            .frits
+            .as_ref()
+            .map(|dir| dir.join(frit))
+            .map_err(Clone::clone),
+        None => Ok(targets.configdir.join(name)),
     }
 }
 
@@ -132,7 +142,11 @@ fn name_for(targets: &Targets, path: &Path) -> Option<String> {
         let name = path.file_name()?.to_str()?;
         return matches!(name, "vtium.conf" | "heads.conf").then(|| name.to_owned());
     }
-    if path.parent() == Some(targets.frits.as_path()) {
+    if targets
+        .frits
+        .as_ref()
+        .is_ok_and(|dir| path.parent() == Some(dir.as_path()))
+    {
         let name = format!("fonts/{}", path.file_name()?.to_str()?);
         return known(&name).then_some(name);
     }
@@ -693,7 +707,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             Entry::Write { name, was } => (name, was.clone()),
             Entry::Remove { name, was } => (name, Some(was.clone())),
         };
-        let path = target(targets, name);
+        let path = target(targets, name)?;
         // step 2: a file changed since the draft was made is never lost
         if installed(&path)? != was {
             return Err(format!(
@@ -739,6 +753,23 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             "heads.conf" => heads = Some(staged),
             "vtium.conf" => conf = Some(staged),
             _ => frits.push(staged),
+        }
+    }
+    // a draft that moves the frits' directory writes or removes no frit,
+    // whose path was taken from the directory before the move
+    if let Some(c) = &conf
+        && !(frits.is_empty() && removals.is_empty())
+    {
+        let key = vtium_settings::keys::FONT_FRITS.name;
+        let after = vtium_settings::setting(
+            &String::from_utf8_lossy(c.bytes.as_deref().unwrap_or_default()),
+            key,
+        );
+        let before = std::fs::read_to_string(targets.configdir.join("vtium.conf"))
+            .ok()
+            .and_then(|text| vtium_settings::setting(&text, key));
+        if after != before {
+            return Err(FRITS_MOVE_FIRST.to_owned());
         }
     }
     // step 3: the console's own check, on copies root made, so what is
@@ -1050,7 +1081,7 @@ mod tests {
         std::fs::create_dir(&drafts).unwrap();
         let targets = |vtium: &str| Targets {
             configdir: etc.clone(),
-            frits: fonts.clone(),
+            frits: Ok(fonts.clone()),
             vtium: vtium.into(),
         };
         let scratch = || Scratch::new(&drafts, &mut scratch_name, euid()).unwrap();

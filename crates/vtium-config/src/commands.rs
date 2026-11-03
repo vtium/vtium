@@ -48,14 +48,18 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
     if !words.is_empty() {
         return usage(err, "fonts takes no argument");
     }
-    let fonts = crate::tui::fonts(&paths.frits);
+    let frits = match &paths.frits {
+        Ok(frits) => frits,
+        Err(why) => return failed(err, why),
+    };
+    let fonts = crate::tui::fonts(frits);
     let reading: Vec<String> = fonts
         .iter()
         .filter(|f| f.state == FontState::Reads)
         .map(|f| f.name.clone())
         .collect();
     // one helper answers for every frit, under one wait
-    let mut found = crate::tui::find_sources(&paths.frits, &paths.helper, &reading).into_iter();
+    let mut found = crate::tui::find_sources(frits, &paths.helper, &reading).into_iter();
     for font in fonts {
         let (state, left_out) = match &font.state {
             FontState::BuiltIn => ("built in".to_owned(), String::new()),
@@ -320,7 +324,10 @@ pub fn remove_frit(
     if let Some(why) = removal_refusal(name, None, None) {
         return failed(err, &why);
     }
-    let path = paths.frits.join(format!("{name}.vtfrit"));
+    let path = match &paths.frits {
+        Ok(frits) => frits.join(format!("{name}.vtfrit")),
+        Err(why) => return failed(err, why),
+    };
     let old = match read_bounded(&path) {
         Ok(bytes) => bytes,
         Err(why) => return failed(err, &why),
@@ -485,7 +492,11 @@ pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> 
             "{name:?} cannot name a frit: 1 to 64 letters, digits, '.', '_', '+' and '-', and not a built-in font's name"
         ));
     }
-    let path = paths.frits.join(format!("{name}.vtfrit"));
+    let path = paths
+        .frits
+        .as_ref()
+        .map_err(Clone::clone)?
+        .join(format!("{name}.vtfrit"));
     let frit = Frit::parse(text.as_bytes(), &path, name).map_err(|e| e.to_string())?;
     if frit.name != name {
         return Err(format!(

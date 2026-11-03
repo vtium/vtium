@@ -32,7 +32,8 @@ pub const CONF_MAX: u64 = 1 << 20;
 pub struct Paths {
     /// The directory of vtium.conf and the head file.
     pub configdir: PathBuf,
-    pub frits: PathBuf,
+    /// The frits' directory, or why there is none.
+    pub frits: crate::switch::Frits,
     /// The directory drafts go under.
     pub drafts: PathBuf,
     /// The program that runs `apply` as root: `sudo`, or a test's stand-in.
@@ -207,10 +208,11 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let heads_path = paths.configdir.join("heads.conf");
     let conf = read_conf(&conf_path)?;
     let heads = read_conf(&heads_path)?;
+    let frits = paths.frits.clone()?;
     let displays = crate::display::displays(&paths.sys);
     let dpi = density(conf.as_deref(), &displays);
     Ok(Inputs {
-        fonts: fonts(&paths.frits),
+        fonts: fonts(&frits),
         conf_path,
         conf,
         heads_path,
@@ -218,10 +220,10 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         saving: saving(paths),
         drafts: paths.drafts.clone(),
         dpi,
-        frits: paths.frits.clone(),
+        installed: installed(&frits),
+        frits,
         view,
         display: displays.first().map(|d| d.pixels),
-        installed: installed(&paths.frits),
     })
 }
 
@@ -338,14 +340,14 @@ pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8
     };
     let saver = crate::apply::saver(paths.clone());
     let tools = port::Tools {
-        painter: painter(paths.frits.clone(), paths.helper.clone(), locale()),
+        painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
         summarizer: summarizer(
-            paths.frits.clone(),
+            inputs.frits.clone(),
             paths.helper.clone(),
             locale(),
             inputs.display,
         ),
-        finder: Some(finder(paths.frits.clone(), paths.helper.clone())),
+        finder: Some(finder(inputs.frits.clone(), paths.helper.clone())),
     };
     let mut tty = match port::Tty::open(saver, tools) {
         Ok(tty) => tty,
