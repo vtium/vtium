@@ -12,13 +12,13 @@
 //! again or takes the selection colors OSC 17 and 19 set, and dim draws
 //! the foreground halfway to the background.
 //!
-//! In a build with images, a kitty placeholder cell (ADR-1100, D13) draws
-//! as a blank cell with its background: its foreground and underline
-//! colors name an image and a placement, so the frame resolves its colors
-//! with the default foreground and no underline color, and it shows no
-//! glyph, underline or strike-through. Reverse video then shows what a
-//! blank cell with the same attributes shows, never the color that encodes
-//! the image id.
+//! In a build with images, a kitty placeholder cell's foreground and
+//! underline colors name an image and a placement (ADR-1100, D13), so the
+//! frame resolves its colors with the default foreground and no underline
+//! color. Reverse video then shows what a blank cell with the same
+//! attributes shows, never the color that encodes the image id. The cell
+//! keeps its glyph, by which the renderer knows to draw no text, underline
+//! or strike-through there.
 
 use core::ops::Range;
 
@@ -26,7 +26,7 @@ use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
 use crate::line::{Glyph, Line, LinkId};
 use crate::palette::{Palette, Special};
-use crate::style::{Attrs, Color, Rgb, Style, UnderlineStyle};
+use crate::style::{Attrs, Color, Rgb, Style};
 
 /// SGR 2's foreground: halfway from `fg` to `bg`, each channel the sum of
 /// the two halved (the C reference's `color_dim`). The renderer dims
@@ -229,7 +229,7 @@ impl<'a> Frame<'a> {
         let selected = self.selection.get(row).is_some_and(|r| r.contains(&col));
         let placeholder = is_placeholder(line, cell);
         let colors = self.resolve(drawn(line.style(cell), placeholder), selected);
-        Some(self.frame_cell(line, cell, row, col, colors, placeholder))
+        Some(self.frame_cell(line, cell, row, col, colors))
     }
 
     /// The cells of `row`, left to right, each as [`Frame::cell`] reads it;
@@ -258,7 +258,7 @@ impl<'a> Frame<'a> {
                         colors
                     }
                 };
-                self.frame_cell(line, cell, row, col, colors, placeholder)
+                self.frame_cell(line, cell, row, col, colors)
             })
     }
 
@@ -269,15 +269,10 @@ impl<'a> Frame<'a> {
         row: usize,
         col: usize,
         c: Colors,
-        placeholder: bool,
     ) -> FrameCell<'a> {
         let link = line.link(cell);
         FrameCell {
-            glyph: if placeholder {
-                Glyph::Empty
-            } else {
-                line.glyph(cell)
-            },
+            glyph: line.glyph(cell),
             width: cell.width(),
             fg: c.fg,
             bg: c.bg,
@@ -340,9 +335,9 @@ impl<'a> Frame<'a> {
     }
 }
 
-/// Whether `cell` of `line` is a kitty placeholder cell, which a frame
-/// draws as a blank cell (ADR-1100, D13). A build without images draws
-/// U+10EEEE as any private-use character.
+/// Whether `cell` of `line` is a kitty placeholder cell, whose colors a
+/// frame resolves as a blank cell's (ADR-1100, D13). A build without
+/// images draws U+10EEEE as any private-use character.
 fn is_placeholder(line: &Line, cell: Cell) -> bool {
     #[cfg(feature = "images")]
     {
@@ -356,19 +351,15 @@ fn is_placeholder(line: &Line, cell: Cell) -> bool {
 }
 
 /// The style a frame resolves a cell's colors from: a placeholder cell's
-/// with the default foreground and underline colors, which name its image
-/// and its placement, and no underline or strike-through.
+/// with the default foreground and underline colors, since those name its
+/// image and its placement.
 fn drawn(style: Style, placeholder: bool) -> Style {
     if !placeholder {
         return style;
     }
-    let mut attrs = style.attrs;
-    attrs.remove(Attrs::STRIKE);
-    attrs.set_underline(UnderlineStyle::None);
     Style {
         fg: Color::Default,
         underline_color: Color::Default,
-        attrs,
         ..style
     }
 }
@@ -910,13 +901,14 @@ mod tests {
 
     // ADR-1100, D13 (the maintainer, 2026-11-02): a placeholder cell's
     // foreground names its image, so under SGR 7, under DECSCNM and inside
-    // a selection drawn by swapping it draws the colors a space with the
-    // same background and attributes draws, and never the image id's
-    // color; it shows no glyph, underline or strike-through.
+    // a selection drawn by swapping it takes the colors a space with the
+    // same background and attributes takes, and never the image id's
+    // color. It keeps its glyph and attributes, by which the renderer draws
+    // no text, underline or strike-through there.
     // covers: image.kitty-placeholders
     #[cfg(feature = "images")]
     #[test]
-    fn a_placeholder_cell_draws_as_a_blank_cell_under_reverse_video() {
+    fn a_placeholder_cell_takes_a_blank_cells_colors_under_reverse_video() {
         use crate::style::UnderlineStyle;
         let mut attrs = Attrs::empty();
         attrs.insert(Attrs::INVERSE);
@@ -973,10 +965,9 @@ mod tests {
                     let at = format!("column {col}, reverse {reverse}, selection {selection:?}");
                     assert_eq!((cell.fg, cell.bg), (blank.fg, blank.bg), "{at}");
                     assert_ne!(cell.bg, Rgb::new(42, 42, 42), "{at}");
-                    assert_eq!(cell.glyph, Glyph::Empty, "{at}");
-                    assert_eq!(cell.attrs.underline(), UnderlineStyle::None, "{at}");
-                    assert!(!cell.attrs.contains(Attrs::STRIKE), "{at}");
+                    assert_eq!(cell.default_bg, blank.default_bg, "{at}");
                     assert_eq!(cell.underline_color, None, "{at}");
+                    assert_eq!(cell.attrs.underline(), UnderlineStyle::Single, "{at}");
                 }
             }
         }
