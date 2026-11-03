@@ -9,14 +9,20 @@
 #[cfg(feature = "images")]
 mod with {
     use vtium_image::{
-        FramePlacement, ImageKey, LineKey, NewImage, Place, PlacementKey, Refusal, Rows, Screens,
-        Store,
+        FramePlacement, ImageKey, LineKey, NewImage, Place, PlaceholderRun, PlacementKey, Refusal,
+        Rows, Screens, Store,
     };
+
+    use std::collections::BTreeSet;
 
     use super::super::Screen;
     use crate::line::{Line, LineId};
-    use crate::placeholder::{self, PlaceholderRun};
+    use crate::placeholder;
     use crate::scrollback::{Change, Move};
+
+    /// The placeholder runs ED 2 reads before its erase, for the store to
+    /// hold through its rule: `None` when nothing needs them.
+    pub(in crate::screen) type HeldRuns = Option<[Vec<PlaceholderRun>; 2]>;
 
     fn key(line: &Line) -> LineKey {
         LineKey::new(line.id().get())
@@ -58,19 +64,55 @@ mod with {
         }
 
         /// Runs `f` over the store with both buffers' lines, then settles
-        /// and marks what it changed, as a screen event does.
+        /// and marks what it changed, as a screen event does. While a buffer
+        /// holds a child of a virtual placement, `f` runs with the
+        /// placeholder runs read from that buffer's screen lines held, so a
+        /// kitty delete by cell, row or column or of every placement, and a
+        /// reservation that may evict, take the child by the cells it draws
+        /// on (ADR-1100, D13).
         pub(crate) fn with_images<R>(
             &mut self,
             f: impl FnOnce(&mut Store, Screens<'_>, usize) -> R,
         ) -> R {
+            let held = self.decision_runs([true, true]);
             let (main, alt) = (self.keys(false), self.keys(true));
             let screens = Screens {
                 main: main.rows(),
                 alt: alt.rows(),
             };
-            let out = f(&mut self.images, screens, self.cols);
+            let cols = self.cols;
+            let out = match &held {
+                Some([m, a]) => self
+                    .images
+                    .with_runs([m, a], screens, cols, |store| f(store, screens, cols)),
+                None => f(&mut self.images, screens, cols),
+            };
             self.images_settled();
             out
+        }
+
+        /// The placeholder runs of the screen lines of each buffer `which`
+        /// names, main then alternate, that holds a child of a virtual
+        /// placement, for the store to hold through a decision; `None`, with
+        /// nothing read, while no such buffer holds one.
+        fn decision_runs(&mut self, which: [bool; 2]) -> Option<[Vec<PlaceholderRun>; 2]> {
+            let need = [
+                which[0] && self.images.has_virtual_children(false),
+                which[1] && self.images.has_virtual_children(true),
+            ];
+            if !need[0] && !need[1] {
+                return None;
+            }
+            let mut read = |alt: bool, need: bool| {
+                if need {
+                    self.screen_placeholder_runs(alt)
+                } else {
+                    Vec::new()
+                }
+            };
+            let main = read(false, need[0]);
+            let alt = read(true, need[1]);
+            Some([main, alt])
         }
 
         /// Stores an image in the buffer in use.
@@ -117,7 +159,19 @@ mod with {
                 above: &above,
             };
             let below = self.below_view(self.images.reach_below());
-            self.images.frame_with_below(rows, &below, self.cols)
+            let runs = self.frame_runs();
+            self.images.frame_with_runs(rows, &below, &runs, self.cols)
+        }
+
+        /// The runs a frame hands the store: those on the rows the view
+        /// shows, read only while the shown buffer holds a virtual
+        /// placement, since only a virtual placement draws through them.
+        fn frame_runs(&self) -> Vec<PlaceholderRun> {
+            if self.images.has_virtual(self.flags.alternate) {
+                self.placeholder_runs()
+            } else {
+                Vec::new()
+            }
         }
 
         /// The keys of the `n` lines below the view's bottom, top to
@@ -183,7 +237,13 @@ mod with {
         /// as the store's other changes mark it. The cells read count as
         /// input work (D5).
         pub fn mark_placeholders(&mut self, alt: bool, image: u32) {
-            if alt != self.flags.alternate {
+            self.mark_placeholders_of(alt, &BTreeSet::from([image]));
+        }
+
+        /// [`mark_placeholders`](Self::mark_placeholders) for every kitty
+        /// image id of `images` at once, through one read of the screen.
+        fn mark_placeholders_of(&mut self, alt: bool, images: &BTreeSet<u32>) {
+            if alt != self.flags.alternate || images.is_empty() {
                 return;
             }
             if self.scrollback.offset() != 0 {
@@ -191,7 +251,7 @@ mod with {
                 return;
             }
             for (y, run) in self.screen_runs(alt) {
-                if run.image != image {
+                if !images.contains(&run.image) {
                     continue;
                 }
                 let x0 = usize::try_from(run.col).unwrap_or(usize::MAX);
@@ -377,13 +437,37 @@ mod with {
             self.scrollback.set_anchors(anchors);
         }
 
-        /// ED 2's own rule, after its erase.
-        pub(in crate::screen) fn images_erase_screen(&mut self) {
+        /// Before ED 2 erases the screen: the placeholder runs on the
+        /// screen in use, while it holds a child of a virtual placement,
+        /// read now, since ED 2 takes such a child by the cells it draws on
+        /// and its erase removes those cells (ADR-1100, D13).
+        pub(in crate::screen) fn images_before_erase_screen(&mut self) -> HeldRuns {
+            if !self.images.has_placements() {
+                return None;
+            }
+            let alt = self.flags.alternate;
+            self.decision_runs([!alt, alt])
+        }
+
+        /// ED 2's own rule, after its erase, with the runs read before it.
+        pub(in crate::screen) fn images_erase_screen(&mut self, held: HeldRuns) {
             if !self.images.has_placements() {
                 return;
             }
             let keys = self.active_keys();
-            self.images.erase_screen(keys.rows());
+            let rows = keys.rows();
+            match &held {
+                Some([m, a]) => {
+                    let (main, alt) = (self.keys(false), self.keys(true));
+                    let screens = Screens {
+                        main: main.rows(),
+                        alt: alt.rows(),
+                    };
+                    self.images
+                        .with_runs([m, a], screens, self.cols, |store| store.erase_screen(rows));
+                }
+                None => self.images.erase_screen(rows),
+            }
             self.images_settled();
         }
 
@@ -445,6 +529,17 @@ mod with {
         /// Ends a screen event: what the pieces it cut owe is settled, and
         /// the cells under every box the store changed are marked.
         fn images_settled(&mut self) {
+            // one read of the shown screen marks every changed image's cells;
+            // a buffer not shown has no cells on the display
+            let shown = self.flags.alternate;
+            let changed: BTreeSet<u32> = self
+                .images
+                .take_changed_virtual()
+                .into_iter()
+                .filter(|&(alt, _)| alt == shown)
+                .map(|(_, id)| id)
+                .collect();
+            self.mark_placeholders_of(shown, &changed);
             if self.images.owes() {
                 let (main, alt) = (self.keys(false), self.keys(true));
                 let screens = Screens {
@@ -491,12 +586,57 @@ mod with {
             }
         }
     }
+
+    #[cfg(test)]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    mod tests {
+        use crate::Terminal;
+        use crate::images::{Kitty, Switches};
+        use crate::terminal::ImageString;
+
+        // ADR-1100, D13: a frame reads the placeholder cells only while the
+        // shown buffer holds a virtual placement, so a screen of
+        // placeholder cells beside an ordinary kitty placement hands the
+        // store no runs, and one with a virtual placement hands them all.
+        // A frame counts no input work, so the test reads the runs the
+        // frame would hand.
+        // covers: image.kitty-placeholders
+        #[test]
+        fn a_frame_reads_runs_only_while_the_shown_buffer_holds_a_virtual_placement() {
+            let mut t = Terminal::new(12, 6, 0);
+            t.screen_mut().set_image_limit(1 << 30);
+            t.screen_mut().set_image_cell(8, 16).unwrap();
+            t.set_image_switches(Switches {
+                sixel: false,
+                kitty: true,
+                iterm2: false,
+            });
+            t.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+            let mut s = b"\x1b_Ga=t,f=24,s=8,v=16,i=42,q=2;".to_vec();
+            s.extend(b"////".repeat(128));
+            s.extend(b"\x1b\\\x1b_Ga=p,i=42,p=1,q=2\x1b\\");
+            t.input(&s);
+            t.input("\x1b[2;1H\x1b[38;5;42m\u{10EEEE}\u{0305}\u{0305}".as_bytes());
+            assert_eq!(t.screen().placeholder_runs().len(), 1);
+            assert!(t.screen().frame_runs().is_empty(), "no virtual placement");
+            t.input(b"\x1b_Ga=p,U=1,i=42,p=2,c=1,r=1,q=2\x1b\\");
+            assert_eq!(t.screen().frame_runs().len(), 1);
+            t.input(b"\x1b[?1049h");
+            assert!(
+                t.screen().frame_runs().is_empty(),
+                "the alternate buffer holds none"
+            );
+        }
+    }
 }
 
 #[cfg(not(feature = "images"))]
 mod without {
     use super::super::Screen;
     use crate::line::Line;
+
+    /// Without images, ED 2 holds no runs.
+    pub(in crate::screen) type HeldRuns = ();
 
     impl Screen {
         #[inline(always)]
@@ -523,7 +663,10 @@ mod without {
         pub(in crate::screen) fn images_dropped(&mut self) {}
 
         #[inline(always)]
-        pub(in crate::screen) fn images_erase_screen(&mut self) {}
+        pub(in crate::screen) fn images_before_erase_screen(&mut self) -> HeldRuns {}
+
+        #[inline(always)]
+        pub(in crate::screen) fn images_erase_screen(&mut self, _: HeldRuns) {}
 
         #[inline(always)]
         pub(in crate::screen) fn images_clear_scrollback(&mut self) {}

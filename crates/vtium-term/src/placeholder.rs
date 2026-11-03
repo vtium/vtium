@@ -54,7 +54,7 @@
 //! from UnicodeData.txt, lists every nonspacing mark with canonical
 //! combining class 230 and no decomposition mapping.
 
-use vtium_image::LineKey;
+use vtium_image::{LineKey, PlaceholderRun};
 
 use crate::cell::Cell;
 use crate::line::{Glyph, Line, LineFlags, PLACEHOLDER};
@@ -372,21 +372,6 @@ fn value(c: char) -> Option<u32> {
         .binary_search(&c)
         .ok()
         .and_then(|i| u32::try_from(i).ok())
-}
-
-/// A run of placeholder cells, as vtium-term hands it to the image store
-/// (ADR-1100, D13): the line that holds it and its first column, its
-/// cells, the image id with its top byte, the placement id, and the row
-/// and column in the picture of its first cell.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PlaceholderRun {
-    pub line: LineKey,
-    pub col: u32,
-    pub cells: u32,
-    pub image: u32,
-    pub placement: Option<u32>,
-    pub row: u32,
-    pub column: u32,
 }
 
 /// What a placeholder cell says on its own: its colors, and the values of

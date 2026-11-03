@@ -10,6 +10,9 @@ attr 2 3-4 fg=#00d787
 row 3 ||
 row 4 ||
 row 5 ||
+placement 0 row 1 col 3 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 2 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 16x32 digest 530fabc5
 checkpoint 2633
 size 12x6
 cursor 5,5
@@ -24,6 +27,11 @@ row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e�
 attr 4 3-4 fg=#00d787
 row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
 attr 5 3-4 fg=#00d787
+placement 0 row 1 col 3 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 2 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 2 row 4 col 3 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 3 row 5 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 16x32 digest 530fabc5
 checkpoint 2678
 size 12x6
 cursor 2,0
@@ -40,6 +48,12 @@ row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e�
 attr 4 3-4 fg=#00d787
 row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
 attr 5 3-4 fg=#00d787
+placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 1 col 3 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 2 row 2 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 3 row 4 col 3 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 4 row 5 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 16x32 digest 530fabc5
 checkpoint 2683
 size 12x6
 cursor 2,0
@@ -66,6 +80,12 @@ row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e�
 attr 5 0-2 inverse
 attr 5 3-4 fg=#00d787 inverse
 attr 5 5-11 inverse
+placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 1 col 3 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 2 row 2 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 3 row 4 col 3 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 4 row 5 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 16x32 digest 530fabc5
 checkpoint 2683
 size 12x6
 cursor 2,0
@@ -92,3 +112,9 @@ row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e�
 attr 5 0-2 inverse
 attr 5 3-4 fg=#00d787 inverse
 attr 5 5-11 inverse
+placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 1 col 3 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 2 row 2 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 3 row 4 col 3 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 4 row 5 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 16x32 digest 530fabc5

@@ -2,8 +2,9 @@
 //! D6): a placement shows the frame its entry carries, and the renderer
 //! names what it keeps for a picture, its scaled copies and its record of
 //! what it last drew, by the image's key, the frame's number and the
-//! frame's pixel revision. The store fills in the root frame, and the
-//! binary's animation clock will put the frame it chooses on the entry with
+//! frame's pixel revision. The store fills in the image's current frame, the
+//! root frame until `a=a` with `c` makes another current, and the binary's
+//! animation clock will put the frame it chooses on the entry with
 //! `FramePlacement::show`. No clock does so yet, so each test calls `show`
 //! itself with the frame a clock would choose.
 #![cfg(feature = "images")]
