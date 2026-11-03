@@ -10,6 +10,34 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// A directory of a test's own, `vtium-serve-<name>-<pid>` in the
+/// temporary directory, removed when the test ends, whether it passes or
+/// fails.
+struct Scratch(std::path::PathBuf);
+
+impl Scratch {
+    fn new(name: &str) -> Scratch {
+        let dir = std::env::temp_dir().join(format!("vtium-serve-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the test's directory");
+        Scratch(dir)
+    }
+}
+
+impl std::ops::Deref for Scratch {
+    type Target = std::path::Path;
+
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
 use vtium_vitrify::serve::{
@@ -99,8 +127,7 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
     reason = "a test fails by panicking"
 )]
 fn a_source_that_fails_as_it_draws_is_left_out_and_the_rest_answer() {
-    let dir = std::env::temp_dir().join(format!("vtium-serve-fails-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new("fails");
     // a font that maps A but gives no ascent or descent: it loads, and
     // fails when it is drawn
     let font = dir.join("flat.ttf");
@@ -135,7 +162,6 @@ fn a_source_that_fails_as_it_draws_is_left_out_and_the_rest_answer() {
         &Paths::default(),
         Duration::from_secs(5),
     );
-    let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(status, 0);
     let frames = frames(&out);
     let kinds: Vec<u32> = frames.iter().map(|f| f.0).collect();
@@ -293,8 +319,7 @@ fn each_fill_sends_the_cells_coverage_in_full_once() {
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn an_outline_frits_cell_query_answers_the_w_rule_at_its_height() {
-    let dir = std::env::temp_dir().join(format!("vtium-serve-outline-cell-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new("outline-cell");
     let font = dir.join("mono.ttf");
     std::fs::write(&font, ttf::test_mono().build()).unwrap();
     let query = |text: String, height: u32| ServeRequest {
@@ -323,7 +348,6 @@ fn an_outline_frits_cell_query_answers_the_w_rule_at_its_height() {
         &Paths::default(),
         Duration::from_secs(5),
     );
-    let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(status, 0);
     let frames = frames(&out);
     assert_eq!(
@@ -353,8 +377,7 @@ fn an_outline_frits_cell_query_answers_the_w_rule_at_its_height() {
     reason = "a test fails by panicking"
 )]
 fn an_asks_clusters_are_shaped_and_drawn_whole() {
-    let dir = std::env::temp_dir().join(format!("vtium-serve-clusters-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new("clusters");
     let font = dir.join("shaping.ttf");
     std::fs::write(&font, ttf::test_shaping().build()).unwrap();
     let key = |cs: &[char]| cs.iter().map(|&c| u32::from(c)).collect::<Vec<u32>>();
@@ -390,7 +413,6 @@ fn an_asks_clusters_are_shaped_and_drawn_whole() {
         &Paths::default(),
         Duration::from_secs(5),
     );
-    let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(status, 0);
     let frames = frames(&out);
     let kinds: Vec<u32> = frames.iter().map(|f| f.0).collect();

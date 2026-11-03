@@ -193,14 +193,33 @@ mod tests {
     /// does not draw them may skip them.
     const OUTLINE: &str = "320x240-tiny5\tnew\n1920x1080\tnew\n2560x1440\tnew\n";
 
+    /// A directory of a test's own, removed when the test ends, whether
+    /// it passes or fails.
+    struct Scratch(std::path::PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = Path;
+
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     /// A fresh drawing of the specimens in a directory of this test's own,
     /// with `provisional` as its provisional.tsv.
-    fn drawn(name: &str, provisional: &str) -> std::path::PathBuf {
+    fn drawn(name: &str, provisional: &str) -> Scratch {
         let dir =
             std::env::temp_dir().join(format!("vtium-specimens-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("provisional.tsv"), provisional).unwrap();
+        let dir = Scratch(dir);
         write(&dir, &sources()).unwrap();
         dir
     }
@@ -231,7 +250,6 @@ mod tests {
                 "simulated/320x240-gray4/screen-1.png: 1 pixels differ from the drawing",
             ]
         );
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // A moved pixel fails an accepted profile, and is drift in a
@@ -251,7 +269,6 @@ mod tests {
             ["800x480/screen-1.png: 1 pixels differ from the drawing"]
         );
         assert!(faults.failed());
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // A provisional profile whose set is not at hand is skipped and says
@@ -290,7 +307,6 @@ mod tests {
             "{:?}",
             faults.drift
         );
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // An accepted profile that cannot be drawn here fails with why: a skip
@@ -311,19 +327,17 @@ mod tests {
             ["1920x1080: accepted, and not drawn here: not built in this test"]
         );
         assert!(faults.failed());
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // A directory symbolic link back up the tree is listed, not walked.
     #[test]
     fn a_symlink_loop_is_not_walked() {
         let dir = drawn("loop", OUTLINE);
-        std::os::unix::fs::symlink(&dir, dir.join("320x240/loop")).unwrap();
+        std::os::unix::fs::symlink(&*dir, dir.join("320x240/loop")).unwrap();
         let faults = check(&dir, &sources()).unwrap();
         assert_eq!(
             faults.goldens,
             ["320x240/loop: not drawn by the profile table"]
         );
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

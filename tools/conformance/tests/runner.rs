@@ -11,11 +11,23 @@ use vtium_conformance::view::View;
 /// vtium's screen view of `ab` on a 4 by 1 screen, written out by hand.
 const AB: &str = "size 4x1\ncursor 2,0\nflags AUTO_WRAP\nrow 0 |ab|\n";
 
-/// A corpus of one case, `ab`, in a directory of its own.
-fn corpus(name: &str) -> Corpus {
+/// A test's own directory, removed when the test ends, whether it passes
+/// or fails.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A corpus of one case, `ab`, in a directory of its own, which goes when
+/// the [`Scratch`] returned with it is dropped.
+fn corpus(name: &str) -> (Scratch, Corpus) {
     let root =
         std::env::temp_dir().join(format!("vtium-conformance-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
+    let scratch = Scratch(root.clone());
     let write = |path: PathBuf, text: &[u8]| {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -25,7 +37,10 @@ fn corpus(name: &str) -> Corpus {
     write(root.join("cases.list"), b"# name cols rows\nab 4 1\n");
     write(root.join("cases/ab.bin"), b"ab");
     write(root.join("golden/ab.txt"), AB.as_bytes());
-    Corpus::open(&root).unwrap_or_else(|e| panic!("{e}"))
+    (
+        scratch,
+        Corpus::open(&root).unwrap_or_else(|e| panic!("{e}")),
+    )
 }
 
 fn replay(corpus: &Corpus) -> Result<String, vtium_conformance::Failure> {
@@ -51,7 +66,7 @@ fn pending(snapshot: &str) -> Expected {
 
 #[test]
 fn a_case_that_matches_its_golden_passes() {
-    let c = corpus("match");
+    let (_dir, c) = corpus("match");
     assert_eq!(judge(&replay(&c), AB, None), Verdict::Pass);
 }
 
@@ -59,7 +74,7 @@ fn a_case_that_matches_its_golden_passes() {
 // unlisted and passes once it is listed.
 #[test]
 fn a_difference_fails_unlisted_and_passes_listed() {
-    let c = corpus("plant");
+    let (_dir, c) = corpus("plant");
     let golden = AB.replace("|ab|", "|ac|");
     let got = replay(&c);
     assert!(matches!(judge(&got, &golden, None), Verdict::Fail(_)));
@@ -74,7 +89,7 @@ fn a_difference_fails_unlisted_and_passes_listed() {
 // regression in what the case does run is seen while the rest waits.
 #[test]
 fn a_pending_case_fails_on_any_change_from_its_snapshot() {
-    let c = corpus("snapshot");
+    let (_dir, c) = corpus("snapshot");
     let golden = AB.replace("|ab|", "|ac|");
     let got = replay(&c);
     let moved = pending(&AB.replace("|ab|", "|ad|"));
@@ -91,7 +106,7 @@ fn a_pending_case_fails_on_any_change_from_its_snapshot() {
 
 #[test]
 fn a_listed_departure_must_print_exactly_its_expected_output() {
-    let c = corpus("wrong");
+    let (_dir, c) = corpus("wrong");
     let golden = AB.replace("|ab|", "|ac|");
     let expected = departure(&AB.replace("|ab|", "|ad|"));
     assert!(matches!(
@@ -102,7 +117,7 @@ fn a_listed_departure_must_print_exactly_its_expected_output() {
 
 #[test]
 fn a_listed_case_that_matches_its_golden_fails_so_the_list_stays_true() {
-    let c = corpus("stale");
+    let (_dir, c) = corpus("stale");
     assert!(matches!(
         judge(&replay(&c), AB, Some(&departure(AB))),
         Verdict::Fail(_)
@@ -159,7 +174,7 @@ fn vtium_replay(args: &[&str]) -> (Option<i32>, String) {
 
 #[test]
 fn the_command_line_exits_as_the_interface_says() {
-    let c = corpus("cli");
+    let (_dir, c) = corpus("cli");
     let bin = c.root.join("cases/ab.bin");
     let bin = bin.to_str().unwrap_or_default();
     assert_eq!(vtium_replay(&["4", "1", bin]), (Some(0), AB.to_owned()));

@@ -32,6 +32,10 @@ use vtium_platform::image_helper::{Session, without_helper};
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
 use vtium_platform::vt::FakeVt;
 
+#[path = "common/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 const ID: DisplayId = DisplayId(3);
 
 /// How long a wait on the child or a frame may run before the test fails:
@@ -971,8 +975,7 @@ fn a_request_unanswered_for_two_seconds_fails_and_stops_the_helper() {
 // covers: image.helper
 #[test]
 fn a_session_ending_with_a_request_out_drops_it_and_the_next_starts_clean() {
-    let dir = std::env::temp_dir().join(format!("vtium-images-hangup-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let dir = Scratch::new("images-hangup");
     let mark = dir.join("ran");
     let script = dir.join("login");
     std::fs::write(
@@ -1023,7 +1026,6 @@ fn a_session_ending_with_a_request_out_drops_it_and_the_next_starts_clean() {
     assert_eq!((a.started, a.stopped), (2, 2));
     drop(a);
     assert_eq!(hosts.count(), 1, "the console keeps its host");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// ADR-1101 D8: a FAILED reply, as from a lost socket, and a reply that

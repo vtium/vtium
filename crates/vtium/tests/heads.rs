@@ -24,8 +24,11 @@ use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
 use vtium_platform::vt::FakeVt;
 
+#[path = "common/scratch.rs"]
+mod scratch;
 #[path = "common/helper.rs"]
 mod stand_in;
+use scratch::Scratch;
 use stand_in::real_helper;
 
 const ID: DisplayId = DisplayId(1);
@@ -825,10 +828,8 @@ fn a_head_with_no_display_starts_no_session() {
 /// The frits `names`, each of one built-in source, in a directory of its
 /// own, and a stand-in helper that writes its pid to the directory's
 /// `starts` as it starts and answers nothing; the sources and the file.
-fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
-    let dir = std::env::temp_dir().join(format!("vtium-heads-{test}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("the frits' directory");
+fn frits(test: &str, names: &[&str]) -> (Scratch, Sources, PathBuf) {
+    let dir = Scratch::new(&format!("heads-{test}"));
     for name in names {
         std::fs::write(
             dir.join(format!("{name}.vtfrit")),
@@ -847,11 +848,11 @@ fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
         account: None,
     };
     let fonts = Sources {
-        frits: dir,
+        frits: dir.to_path_buf(),
         helper: Some(helper),
         ..no_fonts()
     };
-    (fonts, starts)
+    (dir, fonts, starts)
 }
 
 /// D3 and D6: the more specific setting wins. A head's profile names its
@@ -860,7 +861,7 @@ fn frits(test: &str, names: &[&str]) -> (Sources, PathBuf) {
 /// own.
 #[test]
 fn a_heads_profile_names_its_frit_over_vtium_confs_font() {
-    let (fonts, starts) = frits("profile", &["t"]);
+    let (_dir, fonts, starts) = frits("profile", &["t"]);
     let heads = "version = 1
 [head small]
 [head large]
@@ -885,9 +886,6 @@ display card:mem-large -> large
         "the large head's frit started its helper"
     );
     drop(s);
-    if let Some(dir) = starts.parent() {
-        let _ = std::fs::remove_dir_all(dir);
-    }
 }
 
 /// ADR-1200 D17, binary-recheck's finding 4: a bitmap frit asks for its
@@ -916,7 +914,7 @@ fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
             .expect("the go FIFO");
         }
         let fonts = Sources {
-            frits: dir.clone(),
+            frits: dir.to_path_buf(),
             helper: Some(real_helper(&kinds, held.then_some(go.as_path()))),
             ..no_fonts()
         };
@@ -956,7 +954,6 @@ input class:keyboard -> roaming
         assert_eq!(s.app.font_name(), "t", "{case}");
         assert_eq!(unknown(&logged()), again, "{case}: the switch back");
         drop(s);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
@@ -978,7 +975,7 @@ fn with_no_head_file_the_seat_runs_the_compiled_in_heads() {
 /// killed and reaped, so no process, a zombie included, keeps its pid.
 #[test]
 fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
-    let (fonts, starts) = frits("share", &["t", "u"]);
+    let (_dir, fonts, starts) = frits("share", &["t", "u"]);
     let heads = "version = 1
 [head a]
 profile = t
@@ -1022,9 +1019,6 @@ display card:mem-c -> c
         pids.iter().all(gone),
         "each helper killed and reaped: {pids:?}"
     );
-    if let Some(dir) = starts.parent() {
-        let _ = std::fs::remove_dir_all(dir);
-    }
 }
 
 /// D3: a display the rules leave dark is never unblanked. A framebuffer's
@@ -2028,10 +2022,7 @@ fn under_open_the_chords_open_a_console_after_the_shown_one_and_close_the_shown_
 // covers: platform.heads
 #[test]
 fn closing_a_console_hangs_up_its_session_alone() {
-    let d = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("vtium-heads-close-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).expect("a marker directory");
+    let d = Scratch::new("heads-close");
     let script = format!(
         "trap 'echo > {d}/hup-$VTIUM_HEAD-$VTIUM_CONSOLE; exit 0' HUP; \
          echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\"; done",
@@ -2058,7 +2049,6 @@ fn closing_a_console_hangs_up_its_session_alone() {
     assert!(!hup("large", 1), "the large head's runs on");
     s.type_on(KBD_SMALL, "on\r");
     assert!(s.until(SECOND, |a| head_shows(a, "small", "got:on")));
-    let _ = std::fs::remove_dir_all(&d);
 }
 
 /// D5 and binary-review's finding 2: a session the open chord cannot
@@ -2071,10 +2061,7 @@ fn closing_a_console_hangs_up_its_session_alone() {
 // covers: platform.heads
 #[test]
 fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("vtium-heads-unstartable-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let dir = Scratch::new("heads-unstartable");
     let login = dir.join("login");
     script_file(
         &login,
@@ -2102,7 +2089,6 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
     s.type_on(KBD_LARGE, "on\r");
     assert!(s.until(SECOND, |a| head_shows(a, "large", "got:on")));
     assert_eq!(s.app.finished(), None, "vtium runs on");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A login script at `dir/login` that turns on mode 1004, prints its
@@ -2142,12 +2128,8 @@ fn script_file(path: &Path, text: &str) {
 }
 
 /// A scratch directory for test `name`, on disk under the build's own.
-fn scratch_dir(name: &str) -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("vtium-heads-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a scratch directory");
-    dir
+fn scratch_dir(name: &str) -> Scratch {
+    Scratch::new(&format!("heads-{name}"))
 }
 
 /// Head small of [`CLAIMED`] with three consoles running [`focus_login`]
@@ -2197,7 +2179,6 @@ fn a_failed_open_tells_the_console_shown_nothing() {
             .is_some_and(|l| l.ends_with('x') && !l.contains("^[[O")),
         "console 1's program got no focus-out before the line: {got:?}"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// D5, binary-recheck's R1: a failed open from the middle of a ring of
@@ -2236,7 +2217,6 @@ fn a_failed_open_mid_ring_keeps_the_order_and_uses_up_its_id() {
         told_ids(&s.app, "small")
     );
     assert_eq!(s.app.finished(), None);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// D5, the maintainer's answer of 2026-11-01: on a head's last console
@@ -2844,9 +2824,7 @@ display card:mem-c -> c
 // covers: platform.heads
 #[test]
 fn under_respawn_a_hidden_consoles_program_starts_again_in_its_place() {
-    let dir = std::env::temp_dir().join(format!("vtium-heads-hidden-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("the marks' directory");
+    let dir = Scratch::new("heads-hidden");
     let script = format!(
         "d={d}; echo $VTIUM_CONSOLE >> $d/starts; \
          if [ $VTIUM_CONSOLE = 2 ] && [ ! -e $d/once ]; then : > $d/once; exit 0; fi; \
@@ -2866,7 +2844,6 @@ fn under_respawn_a_hidden_consoles_program_starts_again_in_its_place() {
     };
     let started = s.until(Duration::from_secs(3), |_| starts().len() == 4);
     let seen = starts();
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(started, "small's two, large's one, and 2 again: {seen:?}");
     assert_eq!(seen, ["1", "1", "2", "2"], "2 started again as 2");
     assert_eq!(
@@ -2977,9 +2954,7 @@ fn keys_at_an_ended_console_start_nothing() {
 // covers: platform.heads
 #[test]
 fn a_hidden_console_starts_again_at_its_own_size() {
-    let dir = std::env::temp_dir().join(format!("vtium-heads-own-size-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("the marks' directory");
+    let dir = Scratch::new("heads-own-size");
     let script = format!(
         "d={d}; echo \"size:$(stty size)\"; \
          if [ $VTIUM_CONSOLE = 2 ] && [ ! -e $d/done ]; then \
@@ -3016,7 +2991,6 @@ fn a_hidden_console_starts_again_at_its_own_size() {
         dir.join("done").exists() && sizes(a).get(1) == Some(&Some("size:5 20".to_owned()))
     });
     let seen = sizes(&s.app);
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(again, "console 2 started again at 5 rows of 20: {seen:?}");
 }
 
@@ -3069,8 +3043,8 @@ display card:mem-large -> large
 /// login alone, and the other head's session runs on.
 #[test]
 fn under_respawn_a_session_ending_restarts_its_head_alone() {
-    let marker = std::env::temp_dir().join(format!("vtium-heads-respawn-{}", std::process::id()));
-    let _ = std::fs::remove_file(&marker);
+    let dir = Scratch::new("heads-respawn");
+    let marker = dir.join("marker");
     let small = format!(
         "if [ -e {m} ]; then echo again; read x; else : > {m}; echo first; fi",
         m = marker.display()
@@ -3082,7 +3056,6 @@ fn under_respawn_a_session_ending_restarts_its_head_alone() {
     );
     assert!(head_shows(&s.app, "large", "large"), "large runs on");
     assert!(!head_shows(&s.app, "large", "again"));
-    let _ = std::fs::remove_file(&marker);
 }
 
 /// The operator's answers (2026-10-30): under oneshot a head whose
@@ -3091,8 +3064,8 @@ fn under_respawn_a_session_ending_restarts_its_head_alone() {
 #[test]
 fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
     // Large's program ends once the test writes this file.
-    let go = std::env::temp_dir().join(format!("vtium-oneshot-go-{}", std::process::id()));
-    std::fs::remove_file(&go).ok();
+    let dir = Scratch::new("heads-oneshot");
+    let go = dir.join("go");
     let large = format!(
         "echo large; while [ ! -e {} ]; do sleep 0.05; done",
         go.display()
@@ -3111,7 +3084,6 @@ fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
         s.until(BOUND, |a| a.finished() == Some(vtium::app::Exit::Oneshot)),
         "the last head's program ended"
     );
-    std::fs::remove_file(&go).ok();
 }
 
 /// A seat whose head `looping` has one console whose program keeps
@@ -3120,8 +3092,6 @@ fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
 /// of the other head's consoles have set their trap, so the exit comes
 /// after them; every start after the first exits at once.
 fn crash_loop(dir: &Path, looping: &str, policy: &str) -> Seat {
-    let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).expect("the marks' directory");
     let script = format!(
         "d={d}; if [ \"$VTIUM_HEAD\" = {looping} ]; then \
          while [ ! -e $d/ready-1 ] || [ ! -e $d/ready-2 ]; do sleep 0.01; done; exit 1; fi; \
@@ -3159,16 +3129,12 @@ input path:kbd-roaming -> roaming
 #[test]
 fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
     for (looping, other) in [("small", "large"), ("large", "small")] {
-        let dir = std::env::temp_dir().join(format!(
-            "vtium-heads-crash-loop-{}-{looping}",
-            std::process::id()
-        ));
+        let dir = Scratch::new(&format!("heads-crash-loop-{looping}"));
         let mut s = crash_loop(&dir, looping, "open");
         let finished = s.until(Duration::from_secs(3), |a| a.finished().is_some());
         let marks = [dir.join("hup-1"), dir.join("hup-2")];
         let hung_up = finished && s.until(SECOND, |_| marks.iter().all(|m| m.exists()));
         let marked = marks.iter().map(|m| m.exists()).collect::<Vec<_>>();
-        let _ = std::fs::remove_dir_all(&dir);
         assert!(finished, "{looping}'s crash loop ended vtium");
         assert_eq!(
             consoles(&s.app, other).map(|(n, _)| n),
@@ -3199,10 +3165,7 @@ fn a_head_restarting_too_fast_ends_vtium_and_hangs_up_every_head() {
 // covers: platform.heads.policy
 #[test]
 fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() {
-    let dir = std::env::temp_dir().join(format!(
-        "vtium-heads-crash-loop-keys-{}",
-        std::process::id()
-    ));
+    let dir = Scratch::new("heads-crash-loop-keys");
     let mut s = crash_loop(&dir, "small", "closed");
     let roaming = "/dev/input/event6";
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
@@ -3212,7 +3175,6 @@ fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() 
     let shown = s.until(Duration::from_secs(4), |a| {
         a.notice_screen().and_then(Head::notice) == Some(stopped.as_str())
     });
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(shown, "the crash loop stopped the seat");
     // the isolated head's keyboard first, so its check stands alone
     for node in [KBD_SMALL, KBD_LARGE, roaming] {
@@ -3242,10 +3204,7 @@ fn after_a_closed_crash_loop_no_keyboard_switches_the_vt_or_reaches_a_session() 
 // covers: platform.heads.policy
 #[test]
 fn under_closed_a_crash_loop_stops_every_head_and_holds_the_vt() {
-    let dir = std::env::temp_dir().join(format!(
-        "vtium-heads-crash-loop-closed-{}",
-        std::process::id()
-    ));
+    let dir = Scratch::new("heads-crash-loop-closed");
     let mut s = crash_loop(&dir, "small", "closed");
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
     let marks = [dir.join("hup-1"), dir.join("hup-2")];
@@ -3255,7 +3214,6 @@ fn under_closed_a_crash_loop_stops_every_head_and_holds_the_vt() {
         a.notice_screen().and_then(Head::notice) == Some(stopped.as_str())
     });
     s.until(Duration::from_millis(300), |_| false);
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(hung_up, "large's consoles hung up, shown and hidden");
     assert!(shown, "the notice on the notice screen");
     assert_eq!(s.app.finished(), None, "vtium holds its VT");
@@ -3287,17 +3245,13 @@ fn under_closed_a_crash_loop_stops_every_head_and_holds_the_vt() {
 // covers: platform.heads.policy
 #[test]
 fn after_a_closed_crash_loop_a_vt_switch_away_and_back_changes_nothing() {
-    let dir = std::env::temp_dir().join(format!(
-        "vtium-heads-crash-loop-vt-switch-{}",
-        std::process::id()
-    ));
+    let dir = Scratch::new("heads-crash-loop-vt-switch");
     let mut s = crash_loop(&dir, "small", "closed");
     s.app.add_input(Path::new(KBD_LARGE), keyboard("kbd-large"));
     let stopped = vtium::notice::stopped();
     let shown = s.until(Duration::from_secs(4), |a| {
         a.notice_screen().and_then(Head::notice) == Some(stopped.as_str())
     });
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(shown, "the crash loop stopped the seat");
     // A turn takes the release and puts the displays to sleep, and the next
     // reads them asleep and lets the VT go, so the activation takes it back.
@@ -3457,14 +3411,17 @@ display card:mem-small -> one
     assert!(s.until(SECOND, |a| head_shows(a, "one", "asked")));
 }
 
-/// The files a [`losing`] seat's sessions write, removed when dropped,
-/// whether the test passed or not.
+/// The files a [`losing`] seat's sessions write, in a directory of the
+/// test's own, removed when dropped, whether the test passed or not.
 struct Files {
+    dir: PathBuf,
     script: PathBuf,
     /// Written at a session's SIGHUP.
     mark: PathBuf,
     /// A line at each session's start: its console's `VTIUM_CONSOLE`.
     starts: PathBuf,
+    /// A line at each session's start: its process id.
+    pids: PathBuf,
 }
 
 impl Files {
@@ -3486,11 +3443,42 @@ impl Files {
 }
 
 impl Drop for Files {
+    /// Ends every session the seat started that still runs, then removes
+    /// the directory. A session left running gets SIGHUP when the seat
+    /// drops and writes its mark, so without this the mark would be left
+    /// in the temporary directory once the files were removed.
     fn drop(&mut self) {
-        for path in [&self.script, &self.mark, &self.starts] {
-            let _ = std::fs::remove_file(path);
+        let pids = std::fs::read_to_string(&self.pids).unwrap_or_default();
+        for pid in pids.lines().filter_map(|l| l.parse().ok()) {
+            end_child(pid);
         }
+        let _ = std::fs::remove_dir_all(&self.dir);
     }
+}
+
+/// Kills the process `pid` with SIGKILL and reaps it, when it is a child
+/// of this test process that nobody has reaped yet. A child keeps its pid
+/// until it is reaped, so the pid names the session it was written for;
+/// the pid of a session the seat's loop already reaped may belong to
+/// another process by now, and waitid refuses it as no child of ours.
+fn end_child(pid: i32) {
+    use rustix::process::{PidfdFlags, Signal, WaitId, WaitIdOptions};
+    use std::os::fd::AsFd;
+    let Some(pid) = rustix::process::Pid::from_raw(pid) else {
+        return;
+    };
+    let Ok(pidfd) = rustix::process::pidfd_open(pid, PidfdFlags::empty()) else {
+        return;
+    };
+    let ours = rustix::process::waitid(
+        WaitId::PidFd(pidfd.as_fd()),
+        WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT,
+    );
+    if ours.is_err() {
+        return;
+    }
+    let _ = rustix::process::pidfd_send_signal(&pidfd, Signal::KILL);
+    let _ = rustix::process::waitid(WaitId::PidFd(pidfd.as_fd()), WaitIdOptions::EXITED);
 }
 
 /// A head losing a display (ADR-1401 D8): the seat booted with `args`,
@@ -3502,20 +3490,24 @@ impl Drop for Files {
 /// guard never acts (D9). Returns the seat, booted, and the sessions'
 /// files.
 fn losing(test: &str, args: &[&str], keys: &str, mirrored: bool) -> (Seat, Files) {
-    let dir = std::env::temp_dir();
-    let path = |ext: &str| dir.join(format!("vtium-heads-{test}-{}.{ext}", std::process::id()));
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("vtium-heads-losing-{test}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the test's directory");
     let files = Files {
-        script: path("sh"),
-        mark: path("hup"),
-        starts: path("starts"),
+        script: dir.join("session.sh"),
+        mark: dir.join("hup"),
+        starts: dir.join("starts"),
+        pids: dir.join("pids"),
+        dir,
     };
-    let _ = std::fs::remove_file(&files.mark);
-    let _ = std::fs::remove_file(&files.starts);
     std::fs::write(
         &files.script,
         format!(
-            "echo $VTIUM_CONSOLE >> {starts}\ntrap 'echo > {m}; exit 0' HUP\necho ready\n\
+            "echo $$ >> {pids}\necho $VTIUM_CONSOLE >> {starts}\n\
+             trap 'echo > {m}; exit 0' HUP\necho ready\n\
              while :; do read a; [ \"$a\" = q ] && exit 0; echo \"got:$a\"; done\n",
+            pids = files.pids.display(),
             starts = files.starts.display(),
             m = files.mark.display()
         ),
