@@ -1257,6 +1257,51 @@ fn read_requests(input: impl Read + Send + 'static) -> Requests {
     rx
 }
 
+/// The variable the helper sets when it starts itself again without the
+/// descriptors it inherited, so it does so once.
+pub const SHED_VAR: &str = "VTIUM_CONFIG_SERVE_SHED";
+
+/// The descriptors above standard error this process holds: each number
+/// `/proc/self/fd` lists that still names a file once the listing's own
+/// descriptor is closed.
+fn inherited() -> Vec<u32> {
+    let listed: Vec<u32> = std::fs::read_dir("/proc/self/fd")
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+                .filter(|&fd| fd > 2)
+                .collect()
+        })
+        .unwrap_or_default();
+    listed
+        .into_iter()
+        .filter(|fd| std::fs::read_link(format!("/proc/self/fd/{fd}")).is_ok())
+        .collect()
+}
+
+/// Leaves the helper holding only its three pipes, whatever its starter
+/// left open, as a terminal a font could write to: when it holds any
+/// descriptor above standard error, it marks every one close-on-exec and
+/// starts itself again, once, with the same arguments. Returns why it could
+/// not; `None` when it holds only its pipes, or after the one restart.
+fn shed_inherited() -> Option<String> {
+    use std::os::unix::process::CommandExt;
+    if std::env::var_os(SHED_VAR).is_some() || inherited().is_empty() {
+        return None;
+    }
+    if let Err(e) = vtium_platform::cloexec_above_stdio() {
+        return Some(format!("the helper cannot close what it inherited: {e}"));
+    }
+    let why = std::process::Command::new("/proc/self/exe")
+        .args(std::env::args_os().skip(1))
+        .env(SHED_VAR, "1")
+        .exec();
+    Some(format!(
+        "the helper cannot start again without what it inherited: {why}"
+    ))
+}
+
 /// Serves requests read from `input` until it ends and its work is done,
 /// or until `idle` passes with no request and no fill, writing the
 /// answers to `out`. Returns the exit status: 0 at the input's end or the
@@ -1506,6 +1551,10 @@ fn refuse_root(euid: Uid) -> Result<(), String> {
 /// a failed frame, so the console logs it.
 pub fn command(paths: &Paths) -> u8 {
     let mut out = io::stdout().lock();
+    if let Some(why) = shed_inherited() {
+        let _ = failed(&mut out, &why);
+        return 1;
+    }
     if let Err(e) = rustix::thread::set_no_new_privs(true) {
         let _ = failed(
             &mut out,

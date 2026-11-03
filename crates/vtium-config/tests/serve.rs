@@ -441,3 +441,73 @@ fn an_asks_clusters_are_shaped_and_drawn_whole() {
     assert_eq!(family.cells(), vtium_font::Width::Wide);
     assert_eq!(family.format(), vtium_font::Format::Rgba);
 }
+
+/// The helper holds only its three pipes, whatever its starter leaves
+/// open: given a descriptor that is not close-on-exec, as the TUI once
+/// handed it a copy of the user's terminal, it starts itself again without
+/// it before it reads a request.
+#[test]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "a test fails by panicking"
+)]
+fn the_helper_sheds_a_descriptor_it_inherits() {
+    use vtium_config::serve::{FRAME_SOURCES, SOURCES};
+    let scratch = Scratch::new("shed");
+    let file = std::fs::File::create(scratch.join("held")).unwrap();
+    // a copy that is not close-on-exec, which the child inherits
+    let leaked = rustix::io::dup(&file).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+        .arg("serve")
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    drop(leaked);
+    let query = ServeRequest {
+        kind: SOURCES,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: "source=builtin:unscii-8\n".to_owned(),
+        },
+        cell: Cell {
+            width: 0,
+            height: 0,
+        },
+        codepoints: Vec::new(),
+        clusters: Vec::new(),
+        held: Vec::new(),
+        console: None,
+    };
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(&query.encode()).unwrap();
+    stdin.flush().unwrap();
+    // once it answers, it is past its start
+    let mut stdout = child.stdout.take().unwrap();
+    let mut head = [0u8; 8];
+    stdout.read_exact(&mut head).unwrap();
+    assert_eq!(
+        u32::from_le_bytes(head[..4].try_into().unwrap()),
+        FRAME_SOURCES
+    );
+    let mut fds: Vec<(u32, String)> = std::fs::read_dir(format!("/proc/{}/fd", child.id()))
+        .unwrap()
+        .flatten()
+        .filter_map(|e| {
+            let n = e.file_name().to_str()?.parse().ok()?;
+            let to = std::fs::read_link(e.path()).ok()?;
+            Some((n, to.to_string_lossy().into_owned()))
+        })
+        .collect();
+    fds.sort();
+    assert_eq!(
+        fds.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+        [0, 1, 2],
+        "its stdin and stdout pipes and stderr alone: {fds:?}"
+    );
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+}

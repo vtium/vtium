@@ -231,7 +231,7 @@ impl Tty {
     /// held. `saver` writes a draft and runs the privileged step through
     /// the runner it is given.
     pub fn open(saver: Saver, tools: Tools) -> io::Result<Tty> {
-        let input = rustix::io::dup(std::io::stdin().as_fd())?;
+        let input = rustix::io::fcntl_dupfd_cloexec(std::io::stdin().as_fd(), 0)?;
         let saved = tcgetattr(&input)?;
         let mut raw = saved.clone();
         raw.make_raw();
@@ -248,7 +248,11 @@ impl Tty {
         // held so the TUI can take the terminal's foreground back after
         // the privileged step without being stopped
         events.on_signal(Signal::SIGTTOU, |_: &mut Woken| {})?;
-        let source = Generic::new(rustix::io::dup(&input)?, Interest::READ, Mode::Level);
+        let source = Generic::new(
+            rustix::io::fcntl_dupfd_cloexec(&input, 0)?,
+            Interest::READ,
+            Mode::Level,
+        );
         events
             .handle()
             .insert_source(source, |_, fd, w: &mut Woken| {
@@ -284,7 +288,7 @@ impl Tty {
         if let Ok(mut r) = RESTORE.lock() {
             *r = Some(Restore {
                 saved: saved.clone(),
-                tty: rustix::io::dup(&input)?,
+                tty: rustix::io::fcntl_dupfd_cloexec(&input, 0)?,
                 bytes: Vec::new(),
             });
         }
