@@ -36,13 +36,20 @@ pub struct Display {
 
 impl Display {
     /// Its density down the screen, in whole dots per inch, where its size
-    /// gives one inside the bounds the console believes.
+    /// gives a density inside the bounds the console believes on both
+    /// axes, as the console takes a display's density; a display with a
+    /// side out of bounds, a misreport, has none, and the console assumes
+    /// 96.
     pub fn dpi(&self) -> Option<u32> {
-        let (_, mm) = self.mm?;
-        let dpi = f64::from(self.pixels.1) * 25.4 / f64::from(mm);
-        (mm > 0 && (DPI_MIN..=DPI_MAX).contains(&dpi))
-            .then(|| format!("{:.0}", dpi.round()).parse().ok())
-            .flatten()
+        let (w, h) = self.mm?;
+        let axis = |px: u32, mm: u32| {
+            (mm > 0)
+                .then(|| f64::from(px) * 25.4 / f64::from(mm))
+                .filter(|dpi| (DPI_MIN..=DPI_MAX).contains(dpi))
+        };
+        axis(self.pixels.0, w)?;
+        let down = axis(self.pixels.1, h)?;
+        format!("{:.0}", down.round()).parse().ok()
     }
 }
 
@@ -152,6 +159,12 @@ mod tests {
             mm: Some((10, 10)),
         };
         assert_eq!(projector.dpi(), None, "past DPI_MAX");
+        // one side out of bounds is a misreport, as the console takes it
+        let one_side = Display {
+            pixels: (2560, 1440),
+            mm: Some((10, 340)),
+        };
+        assert_eq!(one_side.dpi(), None, "across past DPI_MAX");
     }
 
     #[test]
