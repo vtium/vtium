@@ -4,57 +4,55 @@
 //! holds only this hand-off, so the tool's code never enters it or the
 //! minspec size budget.
 //!
-//! vtium looks for the tool beside its own binary first, so a build runs
-//! the tool built with it, then at the path it was built with for its glyph
-//! helper, `/usr/bin/vtium-config` by default ([`helper::PROGRAM`]), since
-//! the tool is also the helper.
+//! vtium finds the tool as it finds the glyph helper, since the tool is
+//! the helper: at the path the `font-helper` key names, else the path vtium
+//! was built with, `/usr/bin/vtium-config` by default ([`helper::program`]).
+//! It opens and checks that file as it checks the helper
+//! ([`helper::open_program`]), refusing one that is not a regular file,
+//! that is setuid or setgid, that an account other than root or the user
+//! running it owns, or that its group or others may write, and it runs the
+//! file it opened, through `/proc/self/fd`, so a file swapped in after the
+//! check never runs. A user may type `sudo vtium config ...`, so the file
+//! that runs as root is one root could trust.
 
 use std::ffi::OsString;
 use std::io::{self, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::config::{self, Config};
 use crate::helper;
 use crate::notice::config_tool as text;
 
 /// The word that names the subcommand.
 pub const WORD: &str = "config";
 
-/// The tool's file name, beside the console binary.
-pub const NAME: &str = "vtium-config";
-
-/// Where `vtium config` looks for the tool, in order: beside the running
-/// binary `exe`, then at [`helper::PROGRAM`], each place once.
-pub fn candidates(exe: Option<&Path>) -> Vec<PathBuf> {
-    let mut places: Vec<PathBuf> = exe
-        .and_then(Path::parent)
-        .map(|dir| dir.join(NAME))
-        .into_iter()
-        .collect();
-    let built = PathBuf::from(helper::PROGRAM);
-    if !places.contains(&built) {
-        places.push(built);
-    }
-    places
-}
-
-/// Runs the first of `candidates` that is a file with `args`, through
-/// `exec`, which returns only when it could not run it. Returns the exit
-/// status vtium then ends with, 1, having said why on `err`.
-pub fn hand_off(
+/// Runs the tool `config` names for the glyph helper with `args`, as the
+/// effective user: opens and checks it, then hands `exec` the command that
+/// runs the opened file. `exec` returns only when it could not run it.
+/// Returns the exit status vtium then ends with, 1, having said why on
+/// `err`.
+pub fn run(
+    config: &Config,
     args: &[OsString],
-    candidates: &[PathBuf],
-    exec: impl FnOnce(&Path, &[OsString]) -> io::Error,
+    exec: impl FnOnce(&mut Command) -> io::Error,
     err: &mut dyn Write,
 ) -> i32 {
-    let Some(program) = candidates.iter().find(|p| p.is_file()) else {
-        let places: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
-        let _ = writeln!(err, "{}", text::missing(&places.join(", ")));
-        return 1;
+    let program = helper::program(config);
+    let me = rustix::process::geteuid().as_raw();
+    let file = match helper::open_program(&program, me) {
+        Ok(file) => file,
+        Err(why) => {
+            let _ = writeln!(err, "{}", text::refused(&why));
+            return 1;
+        }
     };
-    let why = exec(program, args);
-    let _ = writeln!(err, "{}", text::cannot_run(program.display(), why));
+    let fd = file.as_raw_fd();
+    let mut command = Command::new(format!("/proc/self/fd/{fd}"));
+    command.arg0(&program).args(args);
+    let why = exec(&mut command);
+    let _ = writeln!(err, "{}", text::cannot_run(program.display(), fd, why));
     1
 }
 
@@ -63,25 +61,40 @@ pub fn hand_off(
 pub fn subcommand(args: &[OsString]) -> Option<i32> {
     let (first, rest) = args.split_first()?;
     (first == WORD).then_some(())?;
-    let exe = std::env::current_exe().ok();
-    Some(hand_off(
+    // The configuration files alone: every word after `config` is the
+    // tool's. A file that does not read leaves the key at its default, as
+    // at a start.
+    let loaded = config::load(&[], Some("seat0"), &mut config::read_file);
+    Some(run(
+        &loaded.config,
         rest,
-        &candidates(exe.as_deref()),
-        |program, args| Command::new(program).arg0(NAME).args(args).exec(),
+        |command| command.exec(),
         &mut io::stderr(),
     ))
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "a test's set-up fails loudly")]
+#[expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test's set-up fails loudly"
+)]
 mod tests {
-    use std::cell::RefCell;
+    use std::cell::Cell;
     use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
 
     use super::*;
 
     fn words(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()
+    }
+
+    /// The configuration with `font-helper` naming `program`, and no file.
+    fn naming(program: &Path) -> Config {
+        let arg = OsString::from(format!("--font-helper={}", program.display()));
+        config::load(&[arg], None, &mut |_| Ok(None)).config
     }
 
     /// A directory of the test's own, emptied.
@@ -93,80 +106,96 @@ mod tests {
         dir
     }
 
-    #[test]
-    fn the_tool_beside_the_binary_comes_before_the_built_path() {
-        assert_eq!(
-            candidates(Some(Path::new("/opt/vt/bin/vtium"))),
-            [
-                PathBuf::from("/opt/vt/bin/vtium-config"),
-                PathBuf::from(helper::PROGRAM)
-            ]
-        );
-        // A binary installed beside the built path looks there once.
-        let beside = Path::new(helper::PROGRAM).with_file_name("vtium");
-        assert_eq!(candidates(Some(&beside)), [PathBuf::from(helper::PROGRAM)]);
-        // A binary whose path is unknown looks at the built path alone.
-        assert_eq!(candidates(None), [PathBuf::from(helper::PROGRAM)]);
-    }
-
-    #[test]
-    fn the_first_tool_found_runs_with_every_argument() {
-        let dir = scratch("found");
-        let missing = dir.join("absent").join(NAME);
-        let tool = dir.join(NAME);
-        fs::write(&tool, "").unwrap();
-        let ran = RefCell::new(None);
+    /// `run` on the tool at `program`: its status, what it wrote, and the
+    /// command it would have run, or `None` when it ran nothing.
+    fn tried(program: &Path, args: &[&str]) -> (i32, String, Option<Command>) {
+        let ran = Cell::new(None);
         let mut err = Vec::new();
-        let status = hand_off(
-            &words(&["set", "two words", "--help"]),
-            &[missing, tool.clone()],
-            |program, args| {
-                *ran.borrow_mut() = Some((program.to_owned(), args.to_vec()));
+        let status = run(
+            &naming(program),
+            &words(args),
+            |command| {
+                let mut copy = Command::new(command.get_program());
+                copy.args(command.get_args());
+                ran.set(Some(copy));
                 io::Error::from(io::ErrorKind::PermissionDenied)
             },
             &mut err,
         );
+        (status, String::from_utf8(err).unwrap(), ran.into_inner())
+    }
+
+    #[test]
+    fn a_trusted_tool_runs_from_its_opened_file_with_every_argument() {
+        let dir = scratch("trusted");
+        let tool = dir.join("vtium-config");
+        fs::write(&tool, "").unwrap();
+        fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+        let (status, err, ran) = tried(&tool, &["set", "two words", "--help"]);
+        let ran = ran.expect("it ran the tool");
+        // The opened file, not the path, which could name another file by
+        // the time of the exec.
+        let program = ran.get_program().to_string_lossy().into_owned();
+        assert!(program.starts_with("/proc/self/fd/"), "{program}");
         assert_eq!(
-            ran.into_inner(),
-            Some((tool.clone(), words(&["set", "two words", "--help"])))
+            ran.get_args().collect::<Vec<_>>(),
+            ["set", "two words", "--help"]
         );
         // The exec failed, so vtium says why and ends with 1.
         assert_eq!(status, 1);
-        let err = String::from_utf8(err).unwrap();
         assert!(
-            err.starts_with(&format!("vtium config: cannot run {}: ", tool.display())),
+            err.starts_with(&format!(
+                "vtium config: cannot start {} through {program}: ",
+                tool.display()
+            )),
             "{err}"
         );
         fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
-    fn no_tool_names_every_place_looked_and_runs_nothing() {
+    fn an_untrusted_tool_is_refused_and_nothing_runs() {
+        let dir = scratch("untrusted");
+        let tool = dir.join("vtium-config");
+        fs::write(&tool, "").unwrap();
+        for (mode, why) in [
+            (0o775, "may be written by its group or by others (mode 775)"),
+            (0o757, "may be written by its group or by others (mode 757)"),
+            (0o4755, "is setuid or setgid (mode 4755)"),
+            (0o2755, "is setuid or setgid (mode 2755)"),
+        ] {
+            fs::set_permissions(&tool, fs::Permissions::from_mode(mode)).unwrap();
+            let (status, err, ran) = tried(&tool, &["fonts"]);
+            assert!(ran.is_none(), "mode {mode:o} ran");
+            assert_eq!(status, 1);
+            assert_eq!(
+                err,
+                format!(
+                    "vtium config: the helper {} {why}, so vtium does not start it. vtium config runs vtium-config, the font and settings tool, from the glyph helper's path, which the font-helper key sets.\n",
+                    tool.display()
+                )
+            );
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_tool_a_directory_or_a_relative_path_is_refused() {
         let dir = scratch("missing");
-        let places = [dir.join("a").join(NAME), dir.join("b").join(NAME)];
-        // A directory by the tool's name is no tool.
-        fs::create_dir_all(&places[1]).unwrap();
-        let ran = RefCell::new(false);
-        let mut err = Vec::new();
-        let status = hand_off(
-            &words(&["fonts"]),
-            &places,
-            |_, _| {
-                *ran.borrow_mut() = true;
-                io::Error::from(io::ErrorKind::NotFound)
-            },
-            &mut err,
-        );
-        assert!(!ran.into_inner(), "it ran nothing");
-        assert_eq!(status, 1);
-        assert_eq!(
-            String::from_utf8(err).unwrap(),
-            format!(
-                "vtium config: no vtium-config at {}, {}. vtium config runs vtium-config, vtium's font and settings tool: install it beside vtium.\n",
-                places[0].display(),
-                places[1].display()
-            )
-        );
+        fs::create_dir_all(dir.join("dir")).unwrap();
+        for (program, why) in [
+            (dir.join("absent"), "cannot open the helper"),
+            (dir.join("dir"), "is not a regular file"),
+            (PathBuf::from("bin/vtium-config"), "is not absolute"),
+        ] {
+            let (status, err, ran) = tried(&program, &["fonts"]);
+            assert!(ran.is_none(), "{program:?} ran");
+            assert_eq!(status, 1);
+            assert!(
+                err.starts_with("vtium config: ") && err.contains(why),
+                "{err}"
+            );
+        }
         fs::remove_dir_all(dir).unwrap();
     }
 

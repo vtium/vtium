@@ -383,17 +383,19 @@ pub mod blank {
 pub mod config_tool {
     use std::fmt::Display;
 
-    /// No vtium-config at any of `places`, a list of paths.
-    pub fn missing(places: &str) -> String {
+    /// vtium refused the tool at the glyph helper's path for `why`, the
+    /// helper's own reason, which names the path.
+    pub fn refused(why: &str) -> String {
         format!(
-            "vtium config: no vtium-config at {places}. vtium config runs vtium-config, vtium's font and settings tool: install it beside vtium."
+            "vtium config: {why}. vtium config runs vtium-config, the font and settings tool, from the glyph helper's path, which the font-helper key sets."
         )
     }
 
-    /// vtium-config at `program` could not be run, for `why`.
-    pub fn cannot_run(program: impl Display, why: impl Display) -> String {
+    /// The tool at `program`, opened as descriptor `fd`, could not be
+    /// started, for `why`.
+    pub fn cannot_run(program: impl Display, fd: i32, why: impl Display) -> String {
         format!(
-            "vtium config: cannot run {program}: {why}. Check that it is vtium-config and that you may run it."
+            "vtium config: cannot start {program} through /proc/self/fd/{fd}: {why}; vtium config starts the tool from the file it opened, through /proc/self/fd, so /proc must be mounted."
         )
     }
 }
