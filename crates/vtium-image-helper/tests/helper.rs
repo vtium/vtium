@@ -480,10 +480,27 @@ fn a_helper_started_for_a_larger_budget_replaces_the_smaller_one() {
         first,
         "its memory cap was set from fewer bytes"
     );
-    assert!(
-        !Path::new(&format!("/proc/{first}")).exists(),
-        "the old helper is killed and reaped"
-    );
+    until_gone(first);
+}
+
+/// Waits, at most ten seconds, until the helper `pid` is killed and
+/// reaped. The host reaps a killed helper on a thread of its own when it
+/// has not died by the time the host looks, so the test waits for that
+/// thread, bounded only so a helper that is never reaped fails the test.
+fn until_gone(pid: u32) {
+    for _ in 0..1000 {
+        if !Path::new(&format!("/proc/{pid}")).exists() {
+            return;
+        }
+        let _ = rustix::event::poll(
+            &mut [],
+            Some(&Timespec {
+                tv_sec: 0,
+                tv_nsec: 10_000_000,
+            }),
+        );
+    }
+    panic!("the old helper {pid} is not killed and reaped in ten seconds");
 }
 
 #[test]
