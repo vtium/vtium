@@ -14,14 +14,14 @@ vtium (binary)
 │   └── vtium-font   glyphs: the built-in Unifont and Unscii-8, the glyph chunk format, sprites
 └── vtium-image      (feature `images`; not used by the binary yet)
 
-vtium-config (binary)   the glyph helper: every font decoder, the outline rasterizer and shaping
+vtium-config (binary)   the font and settings tool and the glyph helper: every font decoder, the outline rasterizer and shaping
 ├── vtium-font
 └── vtium-platform
 ```
 
 The tree is the workspace as built today. vtium-term takes vtium-image as an optional dependency, behind vtium-term's `images` feature. vtium-image depends on vtium-parse alone and names a line by an opaque key, so it never needs vtium-term (ADR-1100 D1, D10). The binary also lists vtium-image as an optional dependency, behind the binary's own `images` feature, and is to use it to send the image helper its requests and to work out the `auto` budget; no code in the binary uses it yet. Once a renderer draws placements, vtium-render is to reach the image types through vtium-term's frame. The minspec build links none of the image code.
 
-vtium-config is a binary of its own. The install tree carries it beside the console, outside the console's binary and outside the minspec size budget, which judges the console alone. The console starts it as its glyph helper, which reads a frit's fonts and sends their glyphs to the console (ADR-1200), so the font decoders and the rasterizer stay out of the console.
+vtium-config, the font and settings tool, is a binary of its own, which a user runs as `vtium config`: the console binary replaces itself with vtium-config and holds nothing of the tool but that hand-off (ADR-1201 D12). The install tree carries it beside the console, outside the console's binary and outside the minspec size budget, which judges the console alone. The console starts it as its glyph helper, which reads a frit's fonts and sends their glyphs to the console (ADR-1200), so the font decoders and the rasterizer stay out of the console.
 
 Only `vtium-platform` may use `unsafe`. Every other crate carries `#![forbid(unsafe_code)]`.
 

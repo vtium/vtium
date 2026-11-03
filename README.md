@@ -71,7 +71,7 @@ The console parses no font file. A frit (a font set file, `/etc/vtium/fonts/NAME
 - When vtium runs as root, the helper runs as `nobody`. The console restarts a crashed helper at most 3 times a boot, and draws its built-in fonts meanwhile.
 - The helper reads PSF and raw console fonts, kbd font names, BDF fonts, the kernel's own VT font, and outline fonts by family or file, color emoji included (COLR version 0, CBDT and sbix). It rasterizes outlines with swash and shapes each grapheme cluster with HarfRust.
 - Unifont and Unscii-8 are built into the console. They draw the first frame and every character a frit lacks.
-- `vtium-config set` switches the running console's font through OSC 50, and Ctrl+= and Ctrl+- zoom it.
+- `vtium config set` switches the running console's font through OSC 50, and Ctrl+= and Ctrl+- zoom it.
 
 ### Pictures
 

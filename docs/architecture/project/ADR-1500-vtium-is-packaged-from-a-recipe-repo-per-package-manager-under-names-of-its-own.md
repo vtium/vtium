@@ -149,6 +149,8 @@ related: []
   - *Not confident (shared head file):* the development vtium and the packaged one read the same `/etc/vtium/heads.conf`, so a key that only the newer build knows breaks the file for the older one.
 - **Inversion:** Between one install that the last build overwrites, as `make vt-install` over a package would, and a second machine for the packaged build. vtium keeps two installs on one machine under separate names, sharing the configuration.
 
+> Note 2026-11-02 (the rename): ADR-1201 D12 renamed the font tool vtium-vitrify to vtium-config. A user runs it as `vtium config`, the console starts its glyph helper as `vtium-config serve` at `/usr/bin/vtium-config` by default, and the console's build sets that path with VTIUM_FONT_HELPER where it set VTIUM_VITRIFY. The development install's helper is `/usr/local/bin/vtium-dev-config`, a review run copies its helper to `/run/vtium-vt/vtium-config`, and the crate this record calls vtium-config is now vtium-settings. This record keeps the names it was written with.
+
 ## Context
 
 The maintainer wants vtium installed on this machine the way a user installs it, through a package manager, and kept running there while development goes on. The package is a real test of what development alone never exercises: the maintainer's own head file and profiles in daily use, a package manager installing vtium's tree, upgrades under a running console, and removal. Arch is the package manager on this machine, and other package managers follow.

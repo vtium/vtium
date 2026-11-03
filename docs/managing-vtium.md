@@ -32,8 +32,8 @@ The packages install these files:
 
 | File | What it is |
 |---|---|
-| `/usr/bin/vtium` | the console, with its subcommands `vtium console`, `vtium check-config`, `vtium blank` and `vtium wake` |
-| `/usr/bin/vtium-config` | the glyph helper, which draws a font's glyphs for the console, and its command `vtium-config set`, which switches the font |
+| `/usr/bin/vtium` | the console, with its subcommands `vtium console`, `vtium check-config`, `vtium config`, `vtium blank` and `vtium wake` |
+| `/usr/bin/vtium-config` | the font and settings tool, which `vtium config` runs, with its command `vtium config set`, which switches the font; it is also the glyph helper, which draws a font's glyphs for the console |
 | `/usr/lib/systemd/system/vtium@.service` | the unit that runs vtium on one VT in place of its getty |
 | `/usr/lib/systemd/system/vtium-getty@.service` | the fallback that starts a getty on the VT when vtium fails |
 | `/etc/vtium/vtium.conf.example` | the example configuration, which lists every key at its default, commented out |
@@ -228,15 +228,15 @@ font-name=eurlatgr
 
 ### Switching and zooming
 
-`vtium-config set NAME` switches the console it runs in to the frit NAME, or to a built-in font, `unifont` or `unscii-8`:
+`vtium config set NAME` switches the console it runs in to the frit NAME, or to a built-in font, `unifont` or `unscii-8`:
 
 ```
-$ vtium-config set monoid
+$ vtium config set monoid
 ```
 
 It writes xterm's font sequence, OSC 50, to its own terminal, and vtium takes it while the `allow-font-ops` key is on, as it is by default.
 
-**Note:** Run `vtium-config set` inside a vtium console. Run in another terminal, such as a desktop terminal, it sends the sequence to that terminal, and prints `failed` when no answer comes.
+**Note:** Run `vtium config set` inside a vtium console. Run in another terminal, such as a desktop terminal, it sends the sequence to that terminal, and prints `failed` when no answer comes.
 
 Ctrl+= and Ctrl+- zoom the console on screen in and out, and so does Ctrl with the mouse wheel. A zoom survives logging out and in again: the new login starts in the same console, and vtium resets only the terminal there and keeps the console's grid and zoom. A zoom is lost when vtium itself starts again, at a restart of its unit or a reboot. vtium saves no zoom and no font switch, so `font-name` and `font-size` decide the font and its size each time vtium starts. Set `font-size` ([Size](#size)) for a size that lasts.
 
