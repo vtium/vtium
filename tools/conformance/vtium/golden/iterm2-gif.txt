@@ -15,6 +15,10 @@ row 8 ||
 row 9 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text sixel image 0 opaque
 image 0 8x16 digest bb18cac5
+anim 0 frames 3 current 1 run looping loops 1 stamps 0 1
+anim 0 frame 1 gap 100 digest bb18cac5
+anim 0 frame 2 gap 100 digest 9796e9c5
+anim 0 frame 3 gap 100 digest da180ec5
 checkpoint 152
 size 12x10
 cursor 0,4
@@ -33,6 +37,10 @@ row 9 ||
 placement 0 row 0 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text sixel image 0 opaque
 placement 1 row 1 col 0 box 8x4 at 0,0 size 64x64 src 0,0 64x64 cell 8x16 z 0 above-text sixel image 1 opaque
 image 0 8x16 digest bb18cac5
+anim 0 frames 3 current 1 run looping loops 1 stamps 0 1
+anim 0 frame 1 gap 100 digest bb18cac5
+anim 0 frame 2 gap 100 digest 9796e9c5
+anim 0 frame 3 gap 100 digest da180ec5
 image 1 64x64 digest 16223dc5
 checkpoint 255
 size 12x10
@@ -54,5 +62,13 @@ placement 1 row 1 col 0 box 8x4 at 0,0 size 64x64 src 0,0 64x64 cell 8x16 z 0 ab
 placement 2 row 5 col 0 box 2x1 at 0,0 size 16x16 src 0,0 8x8 cell 8x16 z 0 above-text sixel image 2 opaque
 placement 3 row 6 col 1 box 1x1 at 0,0 size 8x16 src 4,8 4x8 cell 8x16 z 0 above-text sixel image 2 opaque
 image 0 8x16 digest bb18cac5
+anim 0 frames 3 current 1 run looping loops 1 stamps 0 1
+anim 0 frame 1 gap 100 digest bb18cac5
+anim 0 frame 2 gap 100 digest 9796e9c5
+anim 0 frame 3 gap 100 digest da180ec5
 image 1 64x64 digest 16223dc5
 image 2 8x16 digest bb18cac5
+anim 2 frames 3 current 1 run looping loops 1 stamps 0 1
+anim 2 frame 1 gap 100 digest bb18cac5
+anim 2 frame 2 gap 100 digest 9796e9c5
+anim 2 frame 3 gap 100 digest da180ec5
