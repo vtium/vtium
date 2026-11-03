@@ -91,3 +91,133 @@ The goldens of the images variant (`../README.md`, Pictures) are vtium's capture
 | `images-640x480/img-iterm2.png` | Captured at 3d293dd5. From row 3: the quarters from the PNG at column 3, 8 cells by 3; the GIF's last frame at column 15, yellow top left, blue top right, green bottom left, red bottom right; the PNG sent in parts at twice its size at column 27, 16 cells by 6; and the PNG at half its size at column 47, 4 cells by a row and a half. Rows 11 to 15 give the cursor's place after each, rows 5, 5, 8 and 4, at columns 3, 15, 27 and 47, then the prompt. |
 | `images-640x480/img-placeholder.png` | Captured at 3d293dd5. The quarters at row 3, column 35, 8 cells by 3, drawn through placeholder cells, with nothing at column 5, where the cells were written before they moved; the child at row 9, column 5, 4 cells by 2, under the image id 16909060; a line of text under each, then the prompt. |
 | `images-640x480/img-png.png` | At row 3: the quarters from a PNG sent inline at column 3, the ring and disc from a PNG file at column 23 with dots at its corners, the quarters from a temporary file at column 43, with `removed` under its reply, and from zlib-compressed pixels at column 63, each over its reply `i=41;OK` to `i=44;OK`; on row 10, `a file the user cannot read: i=45;EBADF:Failed to read image file`; and on row 11, `a file on rpc_pipefs the user can read: i=46;EBADF:Failed to read image file`, the prompt under it on row 12. `vt-restore` is compared with it. Recaptured at d35826d6, when img-png added row 11. |
+
+## The default 2D variants, re-baselined (vtium/vtium#24)
+
+The C reference drew the goldens of `2d-1280x800`, `2d-1366x768-potato`, `2d-7680x2160` and `2d-7680x2160-font32` in DejaVu Sans Mono through pango. vtium draws the font through its own glyph engine and helper, so its letters differ from pango's by design, and these goldens are vtium's captures of the same screens, from `make tier3 VARIANTS="2d-1280x800 2d-1366x768-potato 2d-7680x2160 2d-7680x2160-font32"` at ee1fff50, whose consoles logged `vtium v0.1.0-alpha.1-447-gee1fff50`. A capture of each case was set beside the C reference's golden and read before it became a golden: a case is re-baselined only where every difference is the font engine or a departure a crate's README lists. The C reference's goldens stay in `../c-goldens/` as the record of what it drew, and judge every case these tables do not list (`../README.md`, Variants). Each golden stays in `../provisional.tsv` until the operator reviews it. `photo-scrollforward` is compared with `photo-scroll.png` and `vt-restore` with `cjk.png`.
+
+The configurations state `display-dpi=86`, so DejaVu Sans Mono at 16 points draws in the C reference's 10x19 cell and every screen keeps the C reference's grid; at 32 points the cell is 20x38. In each row, the first number counts the pixels that differ from the C reference's golden, and the second the pixels that differ by more than 32 levels in a channel, which the anti-aliasing of the same letter never reaches. The reasons name these departures and decisions:
+
+- **built-in font**: crates/vtium/README.md, "A character the frit lacks draws in the built-in font." The frit vtium makes for `font-name=DejaVu Sans Mono` names that font alone, where pango asked fontconfig for another font for each character DejaVu Sans Mono lacks.
+- **cluster**: crates/vtium/README.md, "A cluster draws its own glyph, keyed by its whole text."
+- **no eviction**: crates/vtium-render/README.md, "No scaled copy evicts a stored picture."
+- **W rule**: ADR-1200 D17. The cell is as wide as the wider of W's advance and W's ink at the cell's height. At 19 and 39 pixels that is the width pango gave, 10 and 20; at 20 and 38 pixels it is one pixel wider, 11 and 20 where pango gave 10 and 19.
+
+| Golden | Differing pixels | Over 32 levels | What moved and why |
+|---|---|---|---|
+| `2d-1280x800/boxdraw.png` | 967 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-1280x800/blocks.png` | 66 | 0 | the letters' anti-aliasing, at most 15 levels in a channel |
+| `2d-1280x800/mosaic.png` | 921 | 0 | the letters' anti-aliasing, at most 17 levels in a channel |
+| `2d-1280x800/wide-margin.png` | 10,478 | 625 | the letters; the CJK characters and the emoji, which DejaVu Sans Mono lacks, in the built-in unifont where pango fell back to WenQuanYi Micro Hei and Noto Color Emoji (built-in font) |
+| `2d-1280x800/combining.png` | 10,241 | 12 | the letters; `a` with U+0303 and U+0300 shows the grave above the tilde, where the C reference drew the tilde alone (cluster) |
+| `2d-1280x800/sync-hold.png` | 8,487 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/sixel.png` | 18,253 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/sixel-ramps.png` | 29,801 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/sixel-bound.png` | 3,484 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/sixel-evict.png` | 7,653 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/sixel-evict-rotated.png` | 7,653 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/sixel-evict-history.png` | 351,438 | 348,160 | the letters; picture 1 is still drawn in the scrollback, where the C reference had evicted it for a scaled copy (no eviction) |
+| `2d-1280x800/sixel-evict-zoomed.png` | 19,310 | 16,124 | Ctrl+= zooms to an 11x20 cell where the C reference zoomed to 10x20, so the zoomed text and the picture's place move (W rule) |
+| `2d-1280x800/photos.png` | 6,314 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-1280x800/photo-scroll.png` | 15,788 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-1280x800/photo-scrollback.png` | 15,364 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-1280x800/mpv-sixel.png` | 3,922 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-1280x800/tmux-2x2.png` | 4,022 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-1280x800/tmux-3x3.png` | 4,043 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-1280x800/kitty.png` | 8,339 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/kitty-photo.png` | 2,579 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/kitty-files.png` | 11,424 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/kitty-layers.png` | 12,509 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1280x800/s1-scroll.png` | 130,720 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-1280x800/flood.png` | 618 | 0 | the letters' anti-aliasing, at most 17 levels in a channel |
+| `2d-1280x800/cjk.png` | 4,071 | 1,897 | the letters; the CJK characters in the built-in unifont where pango drew WenQuanYi Micro Hei (built-in font) |
+| `2d-1366x768-potato/boxdraw.png` | 967 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-1366x768-potato/blocks.png` | 66 | 0 | the letters' anti-aliasing, at most 15 levels in a channel |
+| `2d-1366x768-potato/mosaic.png` | 921 | 0 | the letters' anti-aliasing, at most 17 levels in a channel |
+| `2d-1366x768-potato/wide-margin.png` | 10,527 | 625 | the letters; the CJK characters and the emoji, which DejaVu Sans Mono lacks, in the built-in unifont where pango fell back to WenQuanYi Micro Hei and Noto Color Emoji (built-in font) |
+| `2d-1366x768-potato/combining.png` | 10,241 | 12 | the letters; `a` with U+0303 and U+0300 shows the grave above the tilde, where the C reference drew the tilde alone (cluster) |
+| `2d-1366x768-potato/sync-hold.png` | 8,487 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/sixel.png` | 18,253 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/sixel-ramps.png` | 29,801 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/sixel-bound.png` | 3,484 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/sixel-evict.png` | 7,679 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/sixel-evict-rotated.png` | 7,679 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/sixel-evict-history.png` | 351,516 | 348,160 | the letters; picture 1 is still drawn in the scrollback, where the C reference had evicted it for a scaled copy (no eviction) |
+| `2d-1366x768-potato/sixel-evict-zoomed.png` | 18,813 | 15,759 | Ctrl+= zooms to an 11x20 cell where the C reference zoomed to 10x20, so the zoomed text and the picture's place move (W rule) |
+| `2d-1366x768-potato/photos.png` | 6,314 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-1366x768-potato/photo-scroll.png` | 15,887 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-1366x768-potato/photo-scrollback.png` | 15,339 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-1366x768-potato/mpv-sixel.png` | 3,879 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-1366x768-potato/tmux-2x2.png` | 4,022 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-1366x768-potato/tmux-3x3.png` | 4,043 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-1366x768-potato/kitty.png` | 8,339 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/kitty-photo.png` | 2,579 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/kitty-files.png` | 11,424 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/kitty-layers.png` | 12,509 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-1366x768-potato/s1-scroll.png` | 124,329 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-1366x768-potato/flood.png` | 618 | 0 | the letters' anti-aliasing, at most 17 levels in a channel |
+| `2d-1366x768-potato/cjk.png` | 4,071 | 1,897 | the letters; the CJK characters in the built-in unifont where pango drew WenQuanYi Micro Hei (built-in font) |
+| `2d-7680x2160/boxdraw.png` | 967 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-7680x2160/blocks.png` | 66 | 0 | the letters' anti-aliasing, at most 15 levels in a channel |
+| `2d-7680x2160/mosaic.png` | 921 | 0 | the letters' anti-aliasing, at most 17 levels in a channel |
+| `2d-7680x2160/wide-margin.png` | 15,628 | 625 | the letters; the CJK characters and the emoji, which DejaVu Sans Mono lacks, in the built-in unifont where pango fell back to WenQuanYi Micro Hei and Noto Color Emoji (built-in font) |
+| `2d-7680x2160/combining.png` | 10,241 | 12 | the letters; `a` with U+0303 and U+0300 shows the grave above the tilde, where the C reference drew the tilde alone (cluster) |
+| `2d-7680x2160/sync-hold.png` | 8,487 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/sixel.png` | 18,253 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/sixel-ramps.png` | 29,801 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/sixel-bound.png` | 3,484 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/sixel-evict.png` | 7,689 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/sixel-evict-rotated.png` | 7,689 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/sixel-evict-history.png` | 4,197,792 | 4,193,280 | the letters; picture 1 is still drawn in the scrollback, where the C reference had evicted it for a scaled copy (no eviction) |
+| `2d-7680x2160/sixel-evict-zoomed.png` | 19,165 | 16,118 | Ctrl+= zooms to an 11x20 cell where the C reference zoomed to 10x20, so the zoomed text and the picture's place move (W rule) |
+| `2d-7680x2160/photos.png` | 6,314 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-7680x2160/photo-scroll.png` | 47,820 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-7680x2160/photo-scrollback.png` | 47,013 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-7680x2160/mpv-sixel.png` | 4,007 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-7680x2160/tmux-2x2.png` | 4,022 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-7680x2160/tmux-3x3.png` | 4,043 | 0 | the letters' anti-aliasing, at most 18 levels in a channel |
+| `2d-7680x2160/kitty.png` | 8,339 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/kitty-photo.png` | 2,579 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/kitty-files.png` | 11,424 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/kitty-layers.png` | 12,509 | 0 | the letters' anti-aliasing, at most 25 levels in a channel |
+| `2d-7680x2160/s1-scroll.png` | 356,427 | 0 | the letters' anti-aliasing, at most 23 levels in a channel |
+| `2d-7680x2160/flood.png` | 618 | 0 | the letters' anti-aliasing, at most 17 levels in a channel |
+| `2d-7680x2160/cjk.png` | 4,071 | 1,897 | the letters; the CJK characters in the built-in unifont where pango drew WenQuanYi Micro Hei (built-in font) |
+| `2d-7680x2160-font32/boxdraw.png` | 14,313 | 13,476 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/blocks.png` | 37,041 | 36,809 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/mosaic.png` | 168,797 | 167,873 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/wide-margin.png` | 81,457 | 73,903 | the 20x38 grid where the C reference's was 19x38 (W rule); the letters; the CJK characters and the emoji, which DejaVu Sans Mono lacks, in the built-in unifont where pango fell back to WenQuanYi Micro Hei and Noto Color Emoji (built-in font) |
+| `2d-7680x2160-font32/combining.png` | 60,115 | 51,930 | the 20x38 grid where the C reference's was 19x38 (W rule); the letters; `a` with U+0303 and U+0300 shows the grave above the tilde, where the C reference drew the tilde alone (cluster) |
+| `2d-7680x2160-font32/sync-hold.png` | 70,642 | 64,387 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/sixel.png` | 233,199 | 219,148 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/sixel-ramps.png` | 967,893 | 355,154 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/sixel-bound.png` | 20,860 | 18,253 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/sixel-evict.png` | 49,350 | 43,887 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/sixel-evict-rotated.png` | 54,431 | 48,999 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/sixel-evict-history.png` | 4,224,347 | 4,220,873 | the 20x38 grid where the C reference's was 19x38 (W rule); the letters; picture 1 is still drawn in the scrollback, where the C reference had evicted it for a scaled copy (no eviction) |
+| `2d-7680x2160-font32/sixel-evict-zoomed.png` | 25,458 | 15,994 | vtium draws a 20x38 grid where the C reference drew 19x38 (W rule), and Ctrl+= zooms both to a 20x39 cell, in which the letters' anti-aliasing differs. |
+| `2d-7680x2160-font32/photos.png` | 222,434 | 92,737 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/photo-scroll.png` | 116,417 | 97,690 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/photo-scrollback.png` | 178,659 | 112,695 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/mpv-sixel.png` | 24,099 | 20,988 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/tmux-2x2.png` | 25,105 | 22,137 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/tmux-3x3.png` | 25,145 | 22,158 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/kitty.png` | 253,054 | 152,943 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/kitty-photo.png` | 133,874 | 43,337 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/kitty-files.png` | 449,028 | 213,824 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/kitty-layers.png` | 210,598 | 112,687 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/s1-scroll.png` | 1,079,582 | 952,474 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/flood.png` | 3,439 | 2,922 | the 20x38 grid where the C reference's was 19x38 (W rule) |
+| `2d-7680x2160-font32/cjk.png` | 18,953 | 16,779 | the 20x38 grid where the C reference's was 19x38 (W rule); the letters; the CJK characters in the built-in unifont where pango drew WenQuanYi Micro Hei (built-in font) |
+
+These cases of the four variants keep the C reference's goldens, and fail, until the work each row names lands; they are not re-baselined, because a golden of vtium's would record a defect or a missing feature as right.
+
+| Case | What differs | Owner |
+|---|---|---|
+| `sgr` | `italic` draws upright, as no frit names an italic face and vtium does not yet slant one; `bold` draws the regular face emboldened where pango drew DejaVu Sans Mono Bold; the underline sits on the cell's bottom row and not where the font's `post` table puts it | vtium/vtium#152 for the faces; the underline as for `underline-styles` |
+| `colour-forms` | `bold green on blue` draws the regular face emboldened | vtium/vtium#152 |
+| `underline-styles` | Every underline sits on the cell's bottom row, row 18 of 19, where the C reference drew it on row 15 from the font's `post` table: the console draws a frit's lines for the cell's height (`Decorations::for_height`) and not the lines the helper measures from the font; the bold row as in `colour-forms`. The two dashed lines will also show the dash departure, crates/vtium-render/README.md, "A dash runs from the cell's left edge for five eighths of it.", on the underline row only | crates/vtium (the console's `DeferredFace::decorations`), then vtium/vtium#152 |
+| `underline-colour` | The underlines on the bottom row, as in `underline-styles` | crates/vtium |
+| `strike` | The strike on row 9 of 19, half the cell, where the C reference drew it on row 11 from the font's `OS/2` table, for the same reason; the bold row as in `colour-forms` | crates/vtium, then vtium/vtium#152 |
+| `emoji` | Every emoji in the built-in unifont's black and white, where pango drew Noto Color Emoji; the underlined row as in `underline-styles` | the color emoji work of vtium/vtium#24 and the glyph cache in crates/vtium-render |
+| `sixel-article` | Italic, bold, the underlines, the strike and the emoji of its first paragraph, as above | as above |
