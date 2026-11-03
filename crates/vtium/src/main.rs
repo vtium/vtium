@@ -33,7 +33,7 @@ use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
 fn help() -> String {
     let mut out = String::from(
-        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]... [FILE]   check the configuration, apply nothing\n       vtium blank --vt N                      blank the displays of the vtium on VT N now\n       vtium wake --vt N                       wake the displays of the vtium on VT N\n       vtium console enable N|--all            give VT N, or every VT, to vtium@.service\n       vtium console disable N|--all           take VT N, or every VT, back\n       vtium console status                    show what each VT runs\n\n",
+        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]... [FILE]   check the configuration, apply nothing\n       vtium config [COMMAND] [ARG]...         run vtium-config, the font and settings tool\n       vtium blank --vt N                      blank the displays of the vtium on VT N now\n       vtium wake --vt N                       wake the displays of the vtium on VT N\n       vtium console enable N|--all            give VT N, or every VT, to vtium@.service\n       vtium console disable N|--all           take VT N, or every VT, back\n       vtium console status                    show what each VT runs\n\n",
     );
     for k in &KEYS {
         let arg = match k.kind {
@@ -59,8 +59,9 @@ fn clock() -> Clock {
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    if let Some(status) =
-        vtium::blank::subcommand(&args).or_else(|| vtium::console::subcommand(&args))
+    if let Some(status) = vtium::config_tool::subcommand(&args)
+        .or_else(|| vtium::blank::subcommand(&args))
+        .or_else(|| vtium::console::subcommand(&args))
     {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }

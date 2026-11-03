@@ -30,6 +30,7 @@ pub mod blink;
 pub mod check;
 pub mod child;
 pub mod config;
+pub mod config_tool;
 pub mod console;
 pub mod deferred;
 pub mod font;

@@ -34,6 +34,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/getty.rs` | The marker that keeps the unit's getty fallback off vtium's VT under a closed policy, `/run/vtium/ttyN.closed` |
 | `src/main.rs` | Start-up and the loop |
 | `src/blank.rs` | The blank and wake from outside the session: the signals the loop takes, and `vtium blank` and `vtium wake`, which find the vtium on a VT and signal it |
+| `src/config_tool.rs`, `tests/config_tool.rs` | `vtium config`, which replaces the console binary with vtium-config, the font and settings tool, by exec, handing it every word after `config` (ADR-1201 D12); it finds the tool beside the binary, else at the build's helper path |
 | `src/console.rs`, `src/console/text.rs`, `src/console/graphical.rs` | `vtium console`, which gives one VT or every VT to the packaged `vtium@.service` and takes them back, leaving alone the VTs that graphics hold (`graphical.rs`), through systemctl and three links it makes itself, keeping records of what it changed in `/var/lib/vtium/console/` (ADR-1500 D7); `src/console/tests.rs` runs it against a scratch root and a stand-in systemctl that does what systemd 262 was measured doing |
 | `tests/check_config.rs` | `vtium check-config` run as a binary: its warnings, exit status and help, and with strace on the machine, that it reads `/sys`, opens nothing under `/dev` and writes nothing, and that `--help` reads no device |
 | `tests/panic_hook.rs` | The panic hook's order, in a process of its own |

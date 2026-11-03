@@ -378,6 +378,26 @@ pub mod blank {
     }
 }
 
+/// What `vtium config` prints when it cannot hand its words to
+/// vtium-config (ADR-1201 D12).
+pub mod config_tool {
+    use std::fmt::Display;
+
+    /// No vtium-config at any of `places`, a list of paths.
+    pub fn missing(places: &str) -> String {
+        format!(
+            "vtium config: no vtium-config at {places}. vtium config runs vtium-config, vtium's font and settings tool: install it beside vtium."
+        )
+    }
+
+    /// vtium-config at `program` could not be run, for `why`.
+    pub fn cannot_run(program: impl Display, why: impl Display) -> String {
+        format!(
+            "vtium config: cannot run {program}: {why}. Check that it is vtium-config and that you may run it."
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
