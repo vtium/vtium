@@ -44,17 +44,21 @@ pub fn init(level: Level) {
 
 /// The build's revision: `git describe` as `make minspec` passes it in
 /// `VTIUM_REVISION`, or else the package version.
-pub const REVISION: &str = match option_env!("VTIUM_REVISION") {
+pub const REVISION: &str = checked(match option_env!("VTIUM_REVISION") {
     Some(r) => r,
     None => env!("CARGO_PKG_VERSION"),
-};
+});
 
-// The revision is one word of the log line, so a build with an empty one,
-// or one that would end the line or start another, fails.
-const _: () = assert!(
-    is_revision(REVISION),
-    "VTIUM_REVISION takes letters, digits and ._+- only"
-);
+/// `r`, which the build checks: the revision is one word of the log line,
+/// so a build with an empty one, or one that would end the line or start
+/// another, fails.
+const fn checked(r: &str) -> &str {
+    assert!(
+        is_revision(r),
+        "VTIUM_REVISION takes letters, digits and ._+- only"
+    );
+    r
+}
 
 /// Whether `r` is a revision: not empty, of letters, digits and `._+-`.
 const fn is_revision(r: &str) -> bool {
