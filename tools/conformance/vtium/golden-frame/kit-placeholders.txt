@@ -6,8 +6,8 @@ palette legacy fg=#e5e5e5 bg=#000000
 changed 72
 frame-cursor 5,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 ||
-row 1 ||
-row 2 ||
+row 1 |   􎻮̅̅􎻮̅̍|
+row 2 |   􎻮̍̅􎻮̍̍|
 row 3 ||
 row 4 ||
 row 5 ||
@@ -19,11 +19,11 @@ palette legacy fg=#e5e5e5 bg=#000000
 changed 10
 frame-cursor 5,5 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 ||
-row 1 ||
-row 2 ||
+row 1 |   􎻮̅̅􎻮̅̍|
+row 2 |   􎻮̍̅􎻮̍̍|
 row 3 ||
-row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e|
-row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e|
+row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̅̅􎻮|
+row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
 checkpoint 2678
 size 12x6
 cursor 2,0
@@ -31,14 +31,14 @@ flags AUTO_WRAP
 palette legacy fg=#e5e5e5 bg=#000000
 changed 2
 frame-cursor 2,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
-row 0 ||
+row 0 |􎻮̅̅|
 cells 0 0-0 w=1 fg=#0000ee bg=#e5e5e5 ul=#0000ee inverse
 cells 0 1-1 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5
-row 1 ||
-row 2 ||
+row 1 |   􎻮̅̅􎻮̅̍|
+row 2 |   􎻮̍̅􎻮̍̍|
 row 3 ||
-row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e|
-row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e|
+row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̅̅􎻮|
+row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
 checkpoint 2683
 size 12x6
 cursor 2,0
@@ -46,19 +46,19 @@ flags AUTO_WRAP|INVERSE
 palette legacy fg=#e5e5e5 bg=#000000
 changed 72
 frame-cursor 2,0 default visible w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 inverse
-row 0 ||
+row 0 |􎻮̅̅|
 cells 0 0-0 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5
 cells 0 1-1 w=1 fg=#0000ee bg=#e5e5e5 ul=#0000ee inverse
 cells 0 2-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
-row 1 ||
+row 1 |   􎻮̅̅􎻮̅̍|
 cells 1 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
-row 2 ||
+row 2 |   􎻮̍̅􎻮̍̍|
 cells 2 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
 row 3 ||
 cells 3 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
-row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e|
+row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̅̅􎻮|
 cells 4 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
-row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e|
+row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
 cells 5 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
 checkpoint 2683
 size 12x6
@@ -67,17 +67,17 @@ flags AUTO_WRAP|INVERSE
 palette legacy fg=#e5e5e5 bg=#000000
 changed 0
 frame-cursor 2,0 default visible w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 inverse
-row 0 ||
+row 0 |􎻮̅̅|
 cells 0 0-0 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5
 cells 0 1-1 w=1 fg=#0000ee bg=#e5e5e5 ul=#0000ee inverse
 cells 0 2-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
-row 1 ||
+row 1 |   􎻮̅̅􎻮̅̍|
 cells 1 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
-row 2 ||
+row 2 |   􎻮̍̅􎻮̍̍|
 cells 2 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
 row 3 ||
 cells 3 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
-row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e|
+row 4 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̅̅􎻮|
 cells 4 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
-row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e|
+row 5 |é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́é́́e􎻮̍􎻮|
 cells 5 0-11 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
