@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use vtium_font::set::{Set, SetFace};
+use vtium_font::set::{Set, SetFace, builtin, builtin_name};
 use vtium_font::{Cell, Face, Format, Style};
 
 use crate::serve::{
@@ -197,15 +197,27 @@ pub fn draw(program: &Path, frit: &FritText, height: u32) -> Result<Picture, Str
     let _ = child.kill();
     let _ = child.wait();
     let (sets, face_height) = result?;
-    let faces: Vec<SetFace> = sets
+    let mut faces: Vec<SetFace> = sets
         .into_iter()
         .filter_map(|s| SetFace::new(Arc::new(s), face_height))
         .collect();
+    // the built-in font draws every character the frit does not give, as
+    // the console draws it (ADR-1200 D7)
+    let cell_height = faces.first().map_or(face_height, |f| f.cell().height);
+    let locale = std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LC_CTYPE"))
+        .or_else(|_| std::env::var("LANG"))
+        .unwrap_or_default();
+    if let Some(face) =
+        builtin(builtin_name(cell_height, &locale)).and_then(|set| SetFace::new(set, face_height))
+    {
+        faces.push(face);
+    }
     lay_out(&faces)
 }
 
 /// The specimen's lines drawn with `faces`, the first that holds a
-/// character drawing it.
+/// character drawing it, in the first face's cell.
 fn lay_out(faces: &[SetFace]) -> Result<Picture, String> {
     let cell = faces
         .first()
