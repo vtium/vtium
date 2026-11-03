@@ -11,6 +11,14 @@
 //! RGB, inverse video and DECSCNM swap the two, the selection swaps them
 //! again or takes the selection colors OSC 17 and 19 set, and dim draws
 //! the foreground halfway to the background.
+//!
+//! In a build with images, a kitty placeholder cell (ADR-1100, D13) draws
+//! as a blank cell with its background: its foreground and underline
+//! colors name an image and a placement, so the frame resolves its colors
+//! with the default foreground and no underline color, and it shows no
+//! glyph, underline or strike-through. Reverse video then shows what a
+//! blank cell with the same attributes shows, never the color that encodes
+//! the image id.
 
 use core::ops::Range;
 
@@ -18,7 +26,7 @@ use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
 use crate::line::{Glyph, Line, LinkId};
 use crate::palette::{Palette, Special};
-use crate::style::{Attrs, Color, Rgb, Style};
+use crate::style::{Attrs, Color, Rgb, Style, UnderlineStyle};
 
 /// SGR 2's foreground: halfway from `fg` to `bg`, each channel the sum of
 /// the two halved (the C reference's `color_dim`). The renderer dims
@@ -219,8 +227,9 @@ impl<'a> Frame<'a> {
         }
         let cell = line.cell(col);
         let selected = self.selection.get(row).is_some_and(|r| r.contains(&col));
-        let colors = self.resolve(line.style(cell), selected);
-        Some(self.frame_cell(line, cell, row, col, colors))
+        let placeholder = is_placeholder(line, cell);
+        let colors = self.resolve(drawn(line.style(cell), placeholder), selected);
+        Some(self.frame_cell(line, cell, row, col, colors, placeholder))
     }
 
     /// The cells of `row`, left to right, each as [`Frame::cell`] reads it;
@@ -230,23 +239,26 @@ impl<'a> Frame<'a> {
         let line = self.line(row);
         let cols = line.map_or(0, |_| self.cols());
         let selection = self.selection.get(row);
-        let mut last: Option<(StyleIndex, bool, Colors)> = None;
+        let mut last: Option<(StyleIndex, bool, bool, Colors)> = None;
         line.into_iter()
             .flat_map(move |line| (0..cols).map(move |col| (line, col)))
             .map(move |(line, col)| {
                 let cell = line.cell(col);
                 let selected = selection.is_some_and(|r| r.contains(&col));
+                let placeholder = is_placeholder(line, cell);
                 let colors = match last {
-                    Some((style, sel, colors)) if style == cell.style() && sel == selected => {
+                    Some((style, sel, ph, colors))
+                        if style == cell.style() && sel == selected && ph == placeholder =>
+                    {
                         colors
                     }
                     _ => {
-                        let colors = self.resolve(line.style(cell), selected);
-                        last = Some((cell.style(), selected, colors));
+                        let colors = self.resolve(drawn(line.style(cell), placeholder), selected);
+                        last = Some((cell.style(), selected, placeholder, colors));
                         colors
                     }
                 };
-                self.frame_cell(line, cell, row, col, colors)
+                self.frame_cell(line, cell, row, col, colors, placeholder)
             })
     }
 
@@ -257,10 +269,15 @@ impl<'a> Frame<'a> {
         row: usize,
         col: usize,
         c: Colors,
+        placeholder: bool,
     ) -> FrameCell<'a> {
         let link = line.link(cell);
         FrameCell {
-            glyph: line.glyph(cell),
+            glyph: if placeholder {
+                Glyph::Empty
+            } else {
+                line.glyph(cell)
+            },
             width: cell.width(),
             fg: c.fg,
             bg: c.bg,
@@ -320,6 +337,39 @@ impl<'a> Frame<'a> {
             default_bg,
             selected,
         }
+    }
+}
+
+/// Whether `cell` of `line` is a kitty placeholder cell, which a frame
+/// draws as a blank cell (ADR-1100, D13). A build without images draws
+/// U+10EEEE as any private-use character.
+fn is_placeholder(line: &Line, cell: Cell) -> bool {
+    #[cfg(feature = "images")]
+    {
+        crate::placeholder::is_placeholder_cell(line, cell)
+    }
+    #[cfg(not(feature = "images"))]
+    {
+        let _ = (line, cell);
+        false
+    }
+}
+
+/// The style a frame resolves a cell's colors from: a placeholder cell's
+/// with the default foreground and underline colors, which name its image
+/// and its placement, and no underline or strike-through.
+fn drawn(style: Style, placeholder: bool) -> Style {
+    if !placeholder {
+        return style;
+    }
+    let mut attrs = style.attrs;
+    attrs.remove(Attrs::STRIKE);
+    attrs.set_underline(UnderlineStyle::None);
+    Style {
+        fg: Color::Default,
+        underline_color: Color::Default,
+        attrs,
+        ..style
     }
 }
 
@@ -856,5 +906,79 @@ mod tests {
         assert!(!frame.row_changed(0));
         assert!(frame.row_changed(1));
         assert_eq!(frame.line(1).unwrap().id(), LineId::new(2));
+    }
+
+    // ADR-1100, D13 (the maintainer, 2026-11-02): a placeholder cell's
+    // foreground names its image, so under SGR 7, under DECSCNM and inside
+    // a selection drawn by swapping it draws the colors a space with the
+    // same background and attributes draws, and never the image id's
+    // color; it shows no glyph, underline or strike-through.
+    // covers: image.kitty-placeholders
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_placeholder_cell_draws_as_a_blank_cell_under_reverse_video() {
+        use crate::style::UnderlineStyle;
+        let mut attrs = Attrs::empty();
+        attrs.insert(Attrs::INVERSE);
+        attrs.insert(Attrs::STRIKE);
+        attrs.set_underline(UnderlineStyle::Single);
+        let placeholder = Style {
+            fg: Color::Indexed(42),
+            bg: Color::Indexed(4),
+            underline_color: Color::Indexed(7),
+            attrs,
+        };
+        let mut blank_attrs = Attrs::empty();
+        blank_attrs.insert(Attrs::INVERSE);
+        let space = Style {
+            bg: Color::Indexed(4),
+            attrs: blank_attrs,
+            ..Style::DEFAULT
+        };
+        let mut line = Line::new(LineId::new(1), 4);
+        let cluster = "\u{10EEEE}\u{0305}\u{030D}";
+        line.write(
+            0,
+            Glyph::Cluster(cluster),
+            Width::Narrow,
+            &placeholder,
+            None,
+        );
+        line.write(
+            1,
+            Glyph::Char('\u{10EEEE}'),
+            Width::Narrow,
+            &placeholder,
+            None,
+        );
+        line.write(2, Glyph::Char(' '), Width::Narrow, &space, None);
+        let damage = Damage::new(4, 1);
+        let palette = palette();
+        for (reverse, selection) in [(false, None), (true, None), (false, Some(0..4))] {
+            let mut frame = Frame::new(
+                vec![&line],
+                &damage,
+                &palette,
+                Age::NEVER,
+                Cursor::default(),
+                reverse,
+            );
+            if let Some(cols) = selection.clone() {
+                frame = frame.with_selection(vec![cols]);
+            }
+            let blank = frame.cell(0, 2).unwrap();
+            let cells: Vec<FrameCell<'_>> = frame.cells(0).collect();
+            for (col, &read) in cells.iter().enumerate().take(2) {
+                for cell in [frame.cell(0, col).unwrap(), read] {
+                    let at = format!("column {col}, reverse {reverse}, selection {selection:?}");
+                    assert_eq!((cell.fg, cell.bg), (blank.fg, blank.bg), "{at}");
+                    assert_ne!(cell.bg, Rgb::new(42, 42, 42), "{at}");
+                    assert_eq!(cell.glyph, Glyph::Empty, "{at}");
+                    assert_eq!(cell.attrs.underline(), UnderlineStyle::None, "{at}");
+                    assert!(!cell.attrs.contains(Attrs::STRIKE), "{at}");
+                    assert_eq!(cell.underline_color, None, "{at}");
+                }
+            }
+        }
     }
 }

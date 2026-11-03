@@ -72,6 +72,8 @@ mod frame;
 mod line;
 mod links;
 mod palette;
+#[cfg(feature = "images")]
+mod placeholder;
 mod screen;
 mod scrollback;
 mod style;
@@ -91,6 +93,8 @@ pub use damage::{Age, Damage};
 pub use frame::{Cursor, CursorShape, Frame, FrameCell, Overlay, dim};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 pub use palette::{PALETTE_NAMES, Palette, Special};
+#[cfg(feature = "images")]
+pub use placeholder::PlaceholderRun;
 pub use screen::{Erase, Screen, WidthMethod};
 pub use scrollback::{
     MINSPEC_GRID, MINSPEC_PEAK, MINSPEC_REST, SB_MEMORY_DEFAULT, SB_SIZE_DEFAULT, sb_memory,
