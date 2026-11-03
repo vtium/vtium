@@ -47,7 +47,7 @@ use vtium_parse::Chunk;
 
 use self::keys::{Keys, drawn};
 use crate::bounds::{
-    FRAMES_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX, ITERM2_FILE_MAX, ITERM2_PARTS_MAX,
+    BOX_CELLS_MAX, FRAMES_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX, ITERM2_FILE_MAX, ITERM2_PARTS_MAX,
 };
 use crate::decode::base64::{Base64, Sink};
 use crate::decode::{FrameLimits, Medium, Payload, Reply, Request};
@@ -282,6 +282,17 @@ impl Iterm2 {
         if size.0 > max_w || size.1 > max_h {
             return ctx.note("an iTerm2 picture past max-graphic-size");
         }
+        // the box its keys give is checked first, so a picture the store
+        // would refuse scrolls nothing, reserves nothing and is not copied
+        let cell = ctx.cell_size();
+        let (dw, dh) = drawn(keys, size, cell, ctx.grid());
+        let fits = |d: u64, c: u32| d <= BOX_CELLS_MAX.saturating_mul(u64::from(c));
+        let (Ok(draw_width), Ok(draw_height)) = (u32::try_from(dw), u32::try_from(dh)) else {
+            return ctx.note("an iTerm2 picture's box passes BOX_CELLS_MAX");
+        };
+        if !fits(dw, cell.0) || !fits(dh, cell.1) {
+            return ctx.note("an iTerm2 picture's box passes BOX_CELLS_MAX");
+        }
         let count = u64::from(size.0).saturating_mul(u64::from(size.1));
         let charge = count.saturating_mul(4).saturating_add(IMAGE_OVERHEAD);
         // the budget refuses before a byte of the picture is copied
@@ -336,12 +347,6 @@ impl Iterm2 {
         if let (Some(ahead), Payload::Frames { delays, loops, .. }) = (ahead, payload) {
             animate(ctx, key, size, ahead, copied, delays, *loops);
         }
-        let cell = ctx.cell_size();
-        let (dw, dh) = drawn(keys, size, cell, ctx.grid());
-        let (Ok(draw_width), Ok(draw_height)) = (u32::try_from(dw), u32::try_from(dh)) else {
-            ctx.drop_image(key);
-            return ctx.note("an iTerm2 picture's box passes BOX_CELLS_MAX");
-        };
         let tall = usize::try_from(dh.div_ceil(u64::from(cell.1.max(1)))).unwrap_or(usize::MAX);
         place_scrolling(ctx, key, Some((draw_width, draw_height)), tall, false);
     }

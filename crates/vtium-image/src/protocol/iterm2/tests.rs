@@ -742,3 +742,21 @@ fn frames_that_do_not_read_whole_store_nothing() {
     assert_eq!(h.store.bytes(), 0);
     assert_eq!(h.store.frame_bytes(), 0);
 }
+
+#[test]
+fn a_box_past_the_largest_is_dropped_before_anything_scrolls_or_is_reserved() {
+    let (mut i, mut h) = (Iterm2::default(), Host::new());
+    h.cursor = (0, 3);
+    send(
+        &mut i,
+        &mut h,
+        &format!("File=height=10001;inline=1:{}", b64(FILE)),
+    );
+    let _ = taken(&mut h);
+    i.decoded(&mut h, animation(&[5, 5, 5], None));
+    assert!(h.above.is_empty(), "nothing scrolled");
+    assert_eq!(h.cursor, (0, 3));
+    assert_eq!(h.store.image_count(), 0);
+    assert_eq!(h.store.bytes(), 0, "nothing reserved");
+    assert_eq!(h.store.frame_bytes(), 0);
+}
