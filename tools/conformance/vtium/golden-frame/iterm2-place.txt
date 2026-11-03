@@ -1,0 +1,52 @@
+checkpoint 90
+size 12x6
+cursor 2,1
+flags AUTO_WRAP
+host: 1 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+palette legacy fg=#e5e5e5 bg=#000000
+changed 72
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ab|
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+placement 0 row 0 col 2 box 2x2 at 0,0 size 16x24 src 0,0 16x24 cell 8x16 z 0 above-text sixel image 0 opaque changed
+image 0 16x24 digest ee0924c5
+checkpoint 154
+size 12x6
+cursor 0,2
+flags AUTO_WRAP
+host: 2 t=d flags=any,frames O=0 max=0 min=0 name= len=28
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 0,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ab|
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+placement 0 row 0 col 2 box 2x2 at 0,0 size 16x24 src 0,0 16x24 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 2 col 0 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text sixel image 1 opaque changed
+image 0 16x24 digest ee0924c5
+image 1 8x16 digest 9796e9c5
+checkpoint 237
+size 12x6
+cursor 3,2
+flags AUTO_WRAP
+host: 3 t=d flags=any,frames O=0 max=0 min=0 name= len=30
+palette legacy fg=#e5e5e5 bg=#000000
+changed 5
+frame-cursor 3,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ab|
+row 1 ||
+row 2 |cde|
+row 3 ||
+row 4 ||
+row 5 ||
+placement 0 row 0 col 2 box 2x2 at 0,0 size 16x24 src 0,0 16x24 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 2 col 3 box 2x1 at 0,0 size 16x8 src 8,0 16x8 cell 8x16 z 0 above-text sixel image 1 opaque changed
+image 0 16x24 digest ee0924c5
+image 1 24x8 digest da2afa45

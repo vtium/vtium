@@ -303,8 +303,10 @@ pub fn scrollback(screen: &Screen) -> Vec<String> {
 
 /// The most cluster bytes a row of the scrollback and the screen names on
 /// average, for a widest screen of `widest` columns: twice the widest
-/// screen's budget a row, and the most a last row's few cells hold beyond
-/// `CLUSTER_BYTES_PER_CELL` each (`flood.rs` derives it).
+/// screen's budget a row, the most a last row's few cells hold beyond
+/// `CLUSTER_BYTES_PER_CELL` each, and in a build with images the
+/// placeholder clusters, which sit outside the budget,
+/// `PLACEHOLDER_BYTES_MAX` a cell (`flood.rs` derives it).
 pub fn row_bound(widest: usize) -> usize {
     use vtium_term::{CLUSTER_BYTES_PER_CELL, CLUSTER_MAX};
     let budget = CLUSTER_BYTES_PER_CELL * widest;
@@ -313,5 +315,14 @@ pub fn row_bound(widest: usize) -> usize {
         .map(|t| budget.min(cluster_max * t) - CLUSTER_BYTES_PER_CELL * t)
         .max()
         .unwrap_or(0);
-    2 * budget + last
+    2 * budget + last + PLACEHOLDER_BYTES_MAX * widest
 }
+
+/// The bytes a placeholder cluster takes in its line's arena at most, in
+/// a build with images: its length byte, U+10EEEE and three marks of up to
+/// 4 bytes (ADR-1001, "Placeholder cells"). A build without images keeps
+/// U+10EEEE's marks within the budget, so it adds nothing.
+#[cfg(feature = "images")]
+pub const PLACEHOLDER_BYTES_MAX: usize = 17;
+#[cfg(not(feature = "images"))]
+pub const PLACEHOLDER_BYTES_MAX: usize = 0;

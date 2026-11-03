@@ -4,7 +4,9 @@
 
 use std::path::Path;
 
-use vtium_term::images::{ImageKey, Kitty, Limits, NewImage, Place, Protocol, Sixel, Switches};
+use vtium_term::images::{
+    ImageKey, Iterm2, Kitty, Limits, NewImage, Place, Protocol, Sixel, Switches,
+};
 use vtium_term::{ImageString, Terminal};
 
 use crate::command::{self, Command};
@@ -29,17 +31,18 @@ pub(super) struct Images {
 
 impl Images {
     /// The reference host's image settings on `term`: the budget, the cell
-    /// size, the sixel and kitty handlers installed, both protocols on, and
-    /// the fixture host installed.
+    /// size, the sixel, kitty and iTerm2 handlers installed, the three
+    /// protocols on, and the fixture host installed.
     pub(super) fn new(term: &mut Terminal, fixtures: &Path) -> Self {
         term.set_image_handler(ImageString::Sixel, Some(Box::new(Sixel::default())));
         term.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+        term.set_image_handler(ImageString::Iterm2, Some(Box::new(Iterm2::default())));
         term.screen_mut().set_image_limit(BUDGET);
         let _ = term.screen_mut().set_image_cell(CELL.0, CELL.1);
         term.set_image_switches(Switches {
             sixel: true,
             kitty: true,
-            iterm2: false,
+            iterm2: true,
         });
         term.set_image_limits(Limits::default());
         term.set_image_helper(true);
@@ -193,14 +196,15 @@ mod tests {
     }
 
     #[test]
-    fn the_reference_host_installs_the_sixel_and_kitty_handlers() {
+    fn the_reference_host_installs_the_sixel_kitty_and_iterm2_handlers() {
         let t = host();
         let installed = |which, is: fn(&dyn core::any::Any) -> bool| {
             t.image_handler(which).is_some_and(|h| is(h.as_any()))
         };
         assert!(installed(ImageString::Sixel, |h| h.is::<Sixel>()));
         assert!(installed(ImageString::Kitty, |h| h.is::<Kitty>()));
-        assert!(t.image_handler(ImageString::Iterm2).is_none());
+        assert!(installed(ImageString::Iterm2, |h| h.is::<Iterm2>()));
+        assert!(t.image_switches().iterm2);
     }
 
     #[test]

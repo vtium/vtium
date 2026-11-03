@@ -1,2 +1,4 @@
 /target
 __pycache__/
+# Agents keep their scratch files in a directory named for them in their worktree.
+/.scratch-*/

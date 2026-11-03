@@ -119,11 +119,15 @@ mod tests {
     fn unread_memory_holds_the_default_with_a_warning_naming_meminfo() {
         set_test_memory(None);
         assert_eq!(sb_memory(&Config::default()), vtium_term::SB_MEMORY_DEFAULT);
+        // vtium-term's default, which its build's images feature sets
+        // (ADR-1001, "Placeholder cells"; vtium-term's tests pin each
+        // build's figure)
+        let most = vtium_term::SB_MEMORY_DEFAULT;
         assert_eq!(
-            memory_warning().as_deref(),
-            Some(
-                "cannot read the machine's memory from /proc/meminfo; sb-memory is at most 5242880"
-            )
+            memory_warning(),
+            Some(format!(
+                "cannot read the machine's memory from /proc/meminfo; sb-memory is at most {most}"
+            ))
         );
         set_test_memory(Some(512 << 20));
         assert_eq!(memory_warning(), None);

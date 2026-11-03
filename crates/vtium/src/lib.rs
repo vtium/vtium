@@ -24,12 +24,15 @@
 //! drives it without a VT, a display or a pty. The crate's README lists
 //! where vtium departs from the C reference and the bounds it sets.
 
+#[cfg(feature = "images")]
+pub mod animation;
 pub mod app;
 pub mod blank;
 pub mod blink;
 pub mod check;
 pub mod child;
 pub mod config;
+pub mod config_tool;
 pub mod console;
 pub mod deferred;
 pub mod font;

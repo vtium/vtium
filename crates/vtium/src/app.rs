@@ -93,7 +93,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use vtium_config::{Policy, WhenDisplayLost};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, Buffers, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
@@ -103,6 +102,7 @@ use vtium_platform::pty::{Erase, Pty};
 use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{Switch, Vt, VtEvent};
 use vtium_render::{Config as RenderConfig, Depth, DrawState, Orientation};
+use vtium_settings::{Policy, WhenDisplayLost};
 use vtium_term::{BlankRequest, BlankTimeout, Mods};
 
 use crate::blank::Order;
@@ -206,9 +206,9 @@ pub struct App {
     heads: Vec<Head>,
     /// The head file in force: the file's, or the compiled-in
     /// configuration.
-    rules: vtium_config::Config,
+    rules: vtium_settings::Config,
     /// What the start's head file resolved to (ADR-1401 D7).
-    outcome: vtium_config::Outcome,
+    outcome: vtium_settings::Outcome,
     /// The panic screen's report, for a broken closed head file (D7).
     report: Option<vtium_render::NoticeReport>,
     /// The index in [`App::heads`] of the screen the display guard lights
@@ -235,14 +235,14 @@ pub struct App {
     /// What the rules and the display guard read of each card.
     cards: BTreeMap<PathBuf, Card>,
     /// Each display lit in a head, as the rules saw it.
-    lit: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
+    lit: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
     /// Each display lit since the start until the focus settled, gone or
     /// not: the focus starts over them, so a display leaving never moves
     /// it (ADR-1401 D8).
-    start_lit: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
+    start_lit: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
     /// The displays a device announced that the rules leave dark, as the
     /// rules saw them.
-    dark: BTreeMap<(PathBuf, DisplayId), vtium_config::Identity>,
+    dark: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
     /// The display the display guard lit, and its head (ADR-1401 D9).
     guard_lit: Option<((PathBuf, DisplayId), usize)>,
     /// A device came or went: the guards run at the turn's end.
@@ -284,14 +284,19 @@ pub struct App {
     /// A frame has been on screen since the start.
     presented: bool,
     timer_due: Option<Instant>,
-    /// What starts each console's image helper; none until the image
-    /// helper is built (ADR-1101), so every terminal is told no helper runs.
+    /// What makes each console's image helper host, from the program
+    /// opened at start (ADR-1101 D1); with none, every terminal is told no
+    /// helper runs.
     #[cfg(feature = "images")]
     image_helpers: Option<crate::head::images::Helpers>,
     /// The displays whose density is assumed, each warned of once.
     assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// Where the font's sets come from.
     font_sources: font::Sources,
+    /// Reads the configuration again as the start read it, for the font
+    /// keys a session's end returns its console to (ADR-1201 D11); with
+    /// none, the configuration vtium started with stands.
+    reread: Option<Reread>,
     /// The glyph helper's program, opened at the start, which every helper
     /// starts from; why not, when it cannot be.
     launcher: Result<helper::Launcher, String>,
@@ -342,6 +347,10 @@ pub struct App {
     sleeping: Rc<Cell<bool>>,
 }
 
+/// Reads the configuration again, as [`crate::config::load`] read it at
+/// the start.
+pub type Reread = Box<dyn FnMut() -> crate::config::Loaded>;
+
 impl App {
     /// The seat for `config` on `vt`, with the compiled-in configuration's
     /// heads ([`App::set_heads`] gives the head file's); each head's child
@@ -365,14 +374,14 @@ impl App {
             physical_memory(),
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
         );
-        let rules = route::in_force(vtium_config::Config::builtin(), &config);
+        let rules = route::in_force(vtium_settings::Config::builtin(), &config);
         let caps = Caps {
             head: config.number(&keys::HEAD_CONSOLES_MAX).map_or(
-                to_usize(vtium_config::HEAD_CONSOLES_DEFAULT.into()),
+                to_usize(vtium_settings::HEAD_CONSOLES_DEFAULT.into()),
                 to_usize,
             ),
             total: config.number(&keys::CONSOLES_MAX).map_or(
-                to_usize(vtium_config::CONSOLES_TOTAL_DEFAULT.into()),
+                to_usize(vtium_settings::CONSOLES_TOTAL_DEFAULT.into()),
                 to_usize,
             ),
         };
@@ -399,6 +408,14 @@ impl App {
             (!forever)
                 .then(|| Duration::from_secs(config.number(&keys::DISPLAY_WAIT).unwrap_or(10))),
         );
+        let image_program = crate::head::images::program(&config);
+        #[cfg(feature = "images")]
+        let image_helpers = Some(crate::head::images::hosts(
+            &image_program,
+            crate::head::images::tmpdir(&inherited),
+        ));
+        #[cfg(not(feature = "images"))]
+        let _ = image_program;
         App {
             oneshot: config.switch(&keys::ONESHOT),
             clipboard_write: config.switch(&keys::CLIPBOARD_WRITE),
@@ -423,7 +440,7 @@ impl App {
             blank: Blank::new(dpms, now),
             heads,
             rules,
-            outcome: vtium_config::resolve(&vtium_config::Read::Missing),
+            outcome: vtium_settings::resolve(&vtium_settings::Read::Missing),
             report: None,
             screen: None,
             stopped: false,
@@ -447,6 +464,7 @@ impl App {
             caps,
             assumed: BTreeSet::new(),
             font_sources: font::Sources::configured(&config),
+            reread: None,
             launcher: helper::Launcher::configured(&config),
             frits: BTreeMap::new(),
             console_font: None,
@@ -464,7 +482,7 @@ impl App {
             presented: false,
             timer_due: None,
             #[cfg(feature = "images")]
-            image_helpers: None,
+            image_helpers,
             exit: None,
             leaving: None,
             inherited,
@@ -489,7 +507,7 @@ impl App {
         // which it lights under open alone (D9).
         let mut declared = rules.clone();
         if declared.heads.is_empty() && rules.policy == Policy::Open {
-            declared.heads = vtium_config::Config::builtin().heads;
+            declared.heads = vtium_settings::Config::builtin().heads;
         }
         let caps = self.caps;
         self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, declared.heads.len());
@@ -500,7 +518,7 @@ impl App {
             self.heads.push(Head::notice_screen(&self.config, term));
             self.heads.len().saturating_sub(1)
         });
-        if outcome.display_wait() == vtium_config::DisplayWait::Forever {
+        if outcome.display_wait() == vtium_settings::DisplayWait::Forever {
             self.wait = Wait::new(None);
         }
         self.rules = rules;
@@ -543,9 +561,11 @@ impl App {
         self.power = power;
     }
 
-    /// Starts each console's image helper with `helpers`, or, with none,
-    /// tells every terminal that no helper runs, from the next turn on
-    /// (ADR-1100 D7). This is where the image helper plugs in.
+    /// Makes each console's image helper host with `helpers` in place of
+    /// the hosts the start made, or, with none, tells every terminal that
+    /// no helper runs, from the next turn on (ADR-1100 D7): a test's
+    /// stand-in for the image helper. A console keeps the host it already
+    /// has.
     #[cfg(feature = "images")]
     pub fn set_image_helpers(&mut self, helpers: Option<crate::head::images::Helpers>) {
         self.image_helpers = helpers;
@@ -571,6 +591,13 @@ impl App {
             head.font = None;
         }
         self.frits.clear();
+    }
+
+    /// How the configuration is read again at a session's end, for its
+    /// font keys (ADR-1201 D11): `main` gives the reader it starts with,
+    /// on the same command line and seat.
+    pub fn set_config_reader(&mut self, read: Reread) {
+        self.reread = Some(read);
     }
 
     /// The kernel's font, read from the VT while it was in text mode, for
@@ -774,17 +801,27 @@ impl App {
     }
 
     /// Chooses head `h`'s font once, at its first display (ADR-1200 D9,
-    /// ADR-1401 D3): the head's own font, else the frit `font-name` or
-    /// vconsole names, or the one-source frit made on the fly for a kbd
-    /// name, a path or vconsole's font, generated at run time (ADR-1301
-    /// D2); else the built-in font, with one line naming the font and why.
+    /// ADR-1401 D3), as [`App::configured_font`] gives it.
     fn choose_font(&mut self, h: usize) {
-        let Some(head) = self.heads.get(h) else {
-            return;
-        };
-        if head.font.is_some() {
+        if self.heads.get(h).is_none_or(|head| head.font.is_some()) {
             return;
         }
+        let chosen = self.configured_font(h);
+        if let Some(head) = self.heads.get_mut(h) {
+            head.font = Some(chosen);
+        }
+        self.share(h);
+    }
+
+    /// The font the configuration gives head `h` (ADR-1200 D9, ADR-1401
+    /// D3): the head's own font, else the frit `font-name` or vconsole
+    /// names, or the one-source frit made on the fly for a kbd name, a
+    /// path or vconsole's font, generated at run time (ADR-1301 D2); else
+    /// the built-in font, with one line naming the font and why.
+    fn configured_font(&self, h: usize) -> Chosen {
+        let Some(head) = self.heads.get(h) else {
+            return Chosen::Builtin(None);
+        };
         let s = &self.font_sources;
         let wanted = match &head.font_name {
             Some(name) => Some(font::Wanted {
@@ -797,41 +834,31 @@ impl App {
                 &font::read_text(&s.kernel_cmdline),
             ),
         };
-        let chosen = match wanted {
-            None => Chosen::Builtin(None),
-            Some(wanted) => match font::builtin_named(&wanted.name) {
-                Some(builtin) => builtin,
-                None => {
-                    // The frit's cell is read as text before the first
-                    // frame; its fonts are the helper's to parse (#145).
-                    let chosen = font::frit_named(&s.frits, &wanted)
-                        .and_then(|frit| Chosen::frit(frit, head.sized()));
-                    let chosen = match chosen {
-                        Ok(chosen) => {
-                            log::info!(
-                                "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
-                                chosen.name(0, &self.locale)
-                            );
-                            chosen
-                        }
-                        Err(why) => {
-                            log::warn!(
-                                "the font {} is not drawn ({why}): vtium draws its built-in font",
-                                wanted.name
-                            );
-                            Chosen::Builtin(None)
-                        }
-                    };
-                    if let Some(head) = self.heads.get_mut(h) {
-                        head.font = Some(chosen);
-                    }
-                    self.share(h);
-                    return;
-                }
-            },
+        let Some(wanted) = wanted else {
+            return Chosen::Builtin(None);
         };
-        if let Some(head) = self.heads.get_mut(h) {
-            head.font = Some(chosen);
+        if let Some(builtin) = font::builtin_named(&wanted.name) {
+            return builtin;
+        }
+        // The frit's cell is read as text before the first frame; its fonts
+        // are the helper's to parse (#145).
+        let chosen =
+            font::frit_named(&s.frits, &wanted).and_then(|frit| Chosen::frit(frit, head.sized()));
+        match chosen {
+            Ok(chosen) => {
+                log::info!(
+                    "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
+                    chosen.name(0, &self.locale)
+                );
+                chosen
+            }
+            Err(why) => {
+                log::warn!(
+                    "the font {} is not drawn ({why}): vtium draws its built-in font",
+                    wanted.name
+                );
+                Chosen::Builtin(None)
+            }
         }
     }
 
@@ -987,18 +1014,7 @@ impl App {
             };
             let old = head.font.replace(new);
             self.share(h);
-            // A switch asks the helper for the cell again where the last
-            // ask had no answer in time, even while another head draws the
-            // frit; a refusal holds (ADR-1200 D17).
-            if let Some(frit) = self
-                .heads
-                .get(h)
-                .and_then(Head::frit)
-                .and_then(|name| self.frits.get_mut(name))
-            {
-                frit.own
-                    .retain(|_, answer| !answer.as_ref().is_err_and(|no| no.late));
-            }
+            self.retry_late_cell(h);
             if let Some(head) = self.heads.get_mut(h) {
                 head.refont = true;
             }
@@ -1030,6 +1046,7 @@ impl App {
         let current = head.chosen().name(head.font_size, &self.locale).to_owned();
         match new {
             Ok(()) => {
+                head.switched = Some(head.console.id);
                 let refused = std::mem::take(&mut head.font_refused);
                 if refused > 1 {
                     log::info!(
@@ -1057,7 +1074,7 @@ impl App {
     /// The rules' identity of the display `id` of `node`, its place in
     /// its card's list the place among the displays its device lists, in
     /// the kernel's order of connectors, whatever their object ids.
-    fn identity(&self, node: &Path, id: DisplayId) -> Option<vtium_config::Identity> {
+    fn identity(&self, node: &Path, id: DisplayId) -> Option<vtium_settings::Identity> {
         let video = self.videos.get(node)?;
         let card = self.cards.get(node).cloned().unwrap_or_default();
         let order = video
@@ -1074,7 +1091,11 @@ impl App {
     /// The head the display `id` of `node` joins, by the first rule that
     /// matches it, with the display as the rules saw it; a display the
     /// rules leave dark is set off and logged ([`place_display`]).
-    fn head_for(&mut self, node: &Path, id: DisplayId) -> Option<(usize, vtium_config::Identity)> {
+    fn head_for(
+        &mut self,
+        node: &Path,
+        id: DisplayId,
+    ) -> Option<(usize, vtium_settings::Identity)> {
         let display = self.identity(node, id)?;
         let key = (node.to_owned(), id);
         if let Some((_, h)) = self.guard_lit.as_ref().filter(|(k, _)| *k == key) {
@@ -1753,10 +1774,12 @@ impl App {
                 }
             }
             // A modeset or a wake-up may have given the display a new
-            // mode in place, on the same connector. Its view then draws
-            // with a new renderer at the display's new size, and the head
-            // is laid out again: a view left at the old size never draws,
-            // because every token the display lends has the new size.
+            // mode in place, on the same connector. Its view takes the
+            // display's refresh rate again, which paces its frames. At a
+            // new size it draws with a new renderer at that size, and the
+            // head is laid out again: a view left at the old size never
+            // draws, because every token the display lends has the new
+            // size.
             Event::Redraw(id) => {
                 let key = (node.to_owned(), id);
                 let mode = self
@@ -1787,9 +1810,12 @@ impl App {
                         continue;
                     };
                     v.lost = true;
+                    if let Some((_, refresh)) = mode {
+                        v.set_refresh(refresh);
+                    }
                     match (new, font) {
-                        (Some((size, refresh)), Some(Ok(font))) => {
-                            v.resize(font, size, refresh, render);
+                        (Some((size, _)), Some(Ok(font))) => {
+                            v.resize(font, size, render);
                             resized = Some(h);
                         }
                         // With no font at its height the view keeps its
@@ -1866,7 +1892,7 @@ impl App {
         }
         // The display guard's display counts as lit; given no keyboard, the
         // anti-lockout guard moves nothing ([`App::guard`] runs it).
-        let lit: Vec<vtium_config::Identity> = self.start_lit.values().cloned().collect();
+        let lit: Vec<vtium_settings::Identity> = self.start_lit.values().cloned().collect();
         self.focus = head_index(self.rules.place(&lit, None).focus);
         self.bound_pointers();
         self.rehover();
@@ -1893,7 +1919,7 @@ impl App {
         // The displays a device left dark at its bind and never announced,
         // each with its device and connector; their place among their
         // card's connectors is unknown, so they sort last on it.
-        let held: Vec<(PathBuf, String, vtium_config::Identity)> = self
+        let held: Vec<(PathBuf, String, vtium_settings::Identity)> = self
             .videos
             .iter()
             .flat_map(|(node, video)| {
@@ -1904,7 +1930,7 @@ impl App {
                 })
             })
             .collect();
-        let devices: Vec<vtium_config::Identity> = self
+        let devices: Vec<vtium_settings::Identity> = self
             .lit
             .values()
             .chain(self.dark.values())
@@ -1914,13 +1940,13 @@ impl App {
             .collect();
         // A keyboard the rescue key moved roams, and reaches the focus's
         // head while it is lit.
-        let rescued: Vec<vtium_config::Identity> = self.routes.rescued().cloned().collect();
+        let rescued: Vec<vtium_settings::Identity> = self.routes.rescued().cloned().collect();
         // The default head is the head of a file that declares none.
         let focus = self.focus.map(|h| {
             if self.rules.heads.is_empty() {
-                vtium_config::Place::DefaultHead
+                vtium_settings::Place::DefaultHead
             } else {
-                vtium_config::Place::Head(h)
+                vtium_settings::Place::Head(h)
             }
         });
         let placement = self.rules.place_rescued(&devices, &rescued, focus);
@@ -1934,10 +1960,10 @@ impl App {
         let lighting = displays
             .iter()
             .zip(shown)
-            .find(|(_, p)| p.by == vtium_config::By::NeverDark)
+            .find(|(_, p)| p.by == vtium_settings::By::NeverDark)
             .and_then(|(key, p)| {
                 let h = match p.place {
-                    vtium_config::Place::Notice => screen,
+                    vtium_settings::Place::Notice => screen,
                     place => head_index(Some(place)),
                 };
                 Some((key.clone(), h?))
@@ -1988,7 +2014,7 @@ impl App {
         let release = held
             .iter()
             .zip(unannounced)
-            .find(|(_, p)| p.by == vtium_config::By::NeverDark);
+            .find(|(_, p)| p.by == vtium_settings::By::NeverDark);
         if let Some(((node, connector, _), _)) = release {
             if let Some((key, _)) = self.guard_lit.take() {
                 self.unlight(key);
@@ -2006,7 +2032,9 @@ impl App {
                 }
             }
         }
-        let guarded = inputs.iter().map(|p| p.by == vtium_config::By::AntiLockout);
+        let guarded = inputs
+            .iter()
+            .map(|p| p.by == vtium_settings::By::AntiLockout);
         for (id, disposition) in self.routes.guard(&self.rules, guarded) {
             if let Some(input) = &mut self.input {
                 input.set_disposition(id, disposition);
@@ -2147,17 +2175,23 @@ impl App {
     /// Hangs up head `h`'s sessions, which lost their last display under
     /// `when-display-lost = hangup` (ADR-1401 D8); each console then
     /// follows the respawn policy, its session starting again in the same
-    /// console.
+    /// console, after the end of its session returned what it switched or
+    /// zoomed (ADR-1201 D11).
     fn hang_up(&mut self, h: usize, now: Instant) {
         let since = now.saturating_duration_since(self.epoch);
         let oneshot = self.oneshot;
-        let again = self
+        let ended = self
             .heads
             .get_mut(h)
             .map(|head| head.hang_up(since, oneshot))
             .unwrap_or_default();
-        for id in again {
-            self.spawn(h, id);
+        for (id, after) in ended {
+            if matches!(after, AfterExit::Restart | AfterExit::Ended) {
+                self.return_font(h, id);
+            }
+            if after == AfterExit::Restart {
+                self.spawn(h, id);
+            }
         }
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);
@@ -2173,7 +2207,7 @@ impl App {
                     let identity = dev
                         .input
                         .as_deref()
-                        .map_or_else(vtium_config::Identity::input, identity::input);
+                        .map_or_else(vtium_settings::Identity::input, identity::input);
                     self.add_input(&dev.node, identity);
                 }
                 DeviceKind::Fbdev if dev.flags.drm_backed => {
@@ -2203,7 +2237,7 @@ impl App {
     /// An input device udev reported, placed by the first rule matching
     /// `identity` (ADR-1401 D3): opened to deliver, opened for the rescue
     /// key alone, or never opened.
-    pub fn add_input(&mut self, node: &Path, identity: vtium_config::Identity) {
+    pub fn add_input(&mut self, node: &Path, identity: vtium_settings::Identity) {
         self.guard_due = true;
         let disposition = self.routes.add(&self.rules, node, &identity);
         if let Some(id) = self
@@ -2590,11 +2624,23 @@ impl App {
                         false
                     }
                     (Some(h), HeadChord::OpenConsole) => self.open_console(h, now),
-                    (Some(h), HeadChord::CloseConsole) => self
-                        .heads
-                        .get_mut(h)
-                        .and_then(|head| head.close_shown(visible))
-                        .is_some(),
+                    (Some(h), HeadChord::CloseConsole) => {
+                        let closed = self
+                            .heads
+                            .get_mut(h)
+                            .and_then(|head| head.close_shown(visible))
+                            .map(|console| console.id);
+                        // Its session ended, and with it the switch it made
+                        // (ADR-1201 D11).
+                        if let Some(id) = closed.filter(|&id| {
+                            self.heads
+                                .get(h)
+                                .is_some_and(|head| head.switched == Some(id))
+                        }) {
+                            self.return_font(h, id);
+                        }
+                        closed.is_some()
+                    }
                     (h, _) => h
                         .and_then(|h| self.heads.get_mut(h))
                         .is_some_and(|head| head.console_chord(chord, visible)),
@@ -2784,7 +2830,13 @@ impl App {
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
-            match head.exited(id, since, self.oneshot) {
+            let after = head.exited(id, since, self.oneshot);
+            // Before the console's next session starts, at the size it
+            // returns to.
+            if matches!(after, Some(AfterExit::Restart | AfterExit::Ended)) {
+                self.return_font(h, id);
+            }
+            match after {
                 // No login starts in the turn vtium exits, which hangs
                 // every session up.
                 Some(AfterExit::Restart) if self.exit.is_none() => self.spawn(h, id),
@@ -2795,6 +2847,189 @@ impl App {
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);
         }
+    }
+
+    /// The session in head `h`'s console `id` ended, or the console
+    /// closed (ADR-1201 D11). Where
+    /// an OSC 50 switch from that console, or from any console of a head
+    /// left with one, changed the head's font, vtium returns the head to
+    /// the font the configuration gives it, read again; and where the font
+    /// returns or a zoom left the console off the configured size, the
+    /// console returns to that size. Where the `font-size` read again
+    /// turns the configured size on or off, the frit the head draws is
+    /// rebuilt to drop or take its own cell (ADR-1200 D16). Nothing else is
+    /// read or reloaded. A configured font that draws nothing at that size
+    /// leaves the font and the size as they were, with one line saying
+    /// why.
+    fn return_font(&mut self, h: usize, id: u64) {
+        let Some(due) = self.heads.get(h).map(|head| head.returns(id)) else {
+            return;
+        };
+        if !due.size {
+            return;
+        }
+        self.reread_font_keys();
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        let mut kept = head.keep(id);
+        let was_sized = head.sized();
+        head.reconfigure(&self.config);
+        let shown = head.console.id == id;
+        let new = if due.font {
+            head.switched = None;
+            Some(self.configured_font(h))
+        } else if head.sized() != was_sized {
+            // The frit drawn, with its own cell or without it as the
+            // `font-size` read again now says (ADR-1200 D16).
+            match &head.font {
+                Some(Chosen::Frit { frit, .. }) => Chosen::frit(frit.clone(), head.sized()).ok(),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        // The frit the head drew, where the font changed.
+        let mut left = None;
+        if let Some(new) = new {
+            let Some(head) = self.heads.get_mut(h) else {
+                return;
+            };
+            if !same_font(head.chosen(), &new) || head.sized() != was_sized {
+                left = Some(head.frit().map(str::to_owned));
+                kept.font = Some(head.font.replace(new));
+                head.refont = true;
+                self.share(h);
+                self.retry_late_cell(h);
+            }
+        }
+        if let Some(head) = self.heads.get_mut(h) {
+            let fresh = head.fresh_fit();
+            head.configured_size(id, fresh);
+        }
+        if (shown || left.is_some()) && !self.relayout(h) {
+            let Some(head) = self.heads.get_mut(h) else {
+                return;
+            };
+            let tried = head.font_size;
+            head.put_back(kept);
+            self.relayout(h);
+            self.prune();
+            if let Some(head) = self.heads.get(h) {
+                log::warn!(
+                    "head {}: the configured font draws nothing at {tried} pixels: the font and the size stay {} at {}",
+                    head.name(),
+                    head.chosen().name(head.font_size, &self.locale),
+                    head.font_size
+                );
+            }
+            return;
+        }
+        let hidden = self
+            .heads
+            .get(h)
+            .is_some_and(|head| head.hidden.iter().any(|c| c.id == id));
+        if hidden
+            && let Some(hidden) = self.configured_fit(h)
+            && let Some(head) = self.heads.get_mut(h)
+        {
+            head.configured_size(id, hidden);
+        }
+        if let Some(was) = left {
+            self.prune();
+            // The frit the head left, where another head still draws it,
+            // keeps the cells of the heads drawing it alone.
+            if let Some(other) = was.and_then(|was| {
+                self.heads
+                    .iter()
+                    .position(|head| head.frit() == Some(was.as_str()))
+            }) {
+                self.ask_glyphs(other);
+            }
+            if let Some(head) = self.heads.get(h) {
+                log::info!(
+                    "head {}: the session in console {id} ended: the font returns to {}",
+                    head.name(),
+                    head.chosen().name(head.font_size, &self.locale)
+                );
+            }
+        }
+    }
+
+    /// Reads the configuration again with the reader vtium started with,
+    /// for its font keys alone (ADR-1201 D11): each report naming a font
+    /// key, or a file that could not be read whole, is logged, and the key
+    /// is dropped as it is at the start. Every other key, its reports and
+    /// the count of reports past the most kept wait for the next start.
+    /// With no reader, the configuration vtium started with stands.
+    fn reread_font_keys(&mut self) {
+        const FONT_KEYS: [&crate::config::Key; 3] =
+            [&keys::FONT_NAME, &keys::FONT_SIZE, &keys::FONT_ENGINE];
+        let Some(read) = self.reread.as_mut() else {
+            return;
+        };
+        let loaded = read();
+        use crate::config::Problem;
+        let font_key = |k: &str| FONT_KEYS.iter().any(|f| f.name == k);
+        for r in &loaded.reports {
+            let file = matches!(
+                r.problem,
+                Problem::Unreadable(_) | Problem::NotAFile | Problem::FileTooLong
+            );
+            if file || r.problem.key().is_some_and(font_key) {
+                crate::warn::warn(r);
+            }
+        }
+        self.config.take_keys(&loaded.config, &FONT_KEYS);
+    }
+
+    /// Head `h`'s frit asks the helper for its cell again where the last
+    /// ask had no answer in time, even while another head draws the frit; a
+    /// refusal holds (ADR-1200 D17).
+    fn retry_late_cell(&mut self, h: usize) {
+        if let Some(frit) = self
+            .heads
+            .get(h)
+            .and_then(Head::frit)
+            .and_then(|name| self.frits.get_mut(name))
+        {
+            frit.own
+                .retain(|_, answer| !answer.as_ref().is_err_and(|no| no.late));
+        }
+    }
+
+    /// The fit a hidden console of head `h` takes at the configured size:
+    /// the grid and cell the head's displays give its font there, as
+    /// [`App::relayout`] lays the shown console out. `None` while the head
+    /// has no display, when the console keeps the shown console's grid and
+    /// cell until it is shown, as a console the open chord opens does.
+    fn configured_fit(&mut self, h: usize) -> Option<crate::head::console::Fit> {
+        let dpi = self.dpi(h);
+        let head = self.heads.get(h)?;
+        if head.views.is_empty() {
+            return None;
+        }
+        let fresh = head.fresh_fit();
+        let height = height_at(head, (fresh.points, fresh.auto_size), dpi, &self.locale);
+        self.own_cell(h, height);
+        let head = self.heads.get(h)?;
+        let locale = self.locale.as_str();
+        let (face, base) = font::select(height, head.has_font, |x| head.face(x, locale)).ok()?;
+        let cell = |at: u32| {
+            head.face(at, locale).ok().map(|f| {
+                let c = f.cell();
+                (c.width, c.height)
+            })
+        };
+        let sizes: Vec<(u32, u32)> = head.views.values().map(|v| v.size).collect();
+        let turned = matches!(head.orientation, Orientation::Right | Orientation::Left);
+        let l = layout::layout(&sizes, turned, base, face.size_step(), cell)?;
+        Some(crate::head::console::Fit {
+            grid: l.grid,
+            font_size: base,
+            cell: cell(base)?,
+            ..fresh
+        })
     }
 
     /// A session kept ending as soon as it started, which ends the run
@@ -2834,11 +3069,11 @@ impl App {
         // lights the boot display for the notice alone. The heads stay, each
         // isolated as the file wrote it, so a keyboard asking an isolated
         // head still switches no VT, whatever else delivers.
-        self.rules = vtium_config::Config {
+        self.rules = vtium_settings::Config {
             policy: Policy::Closed,
             heads: std::mem::take(&mut self.rules.heads),
             survivors: true,
-            ..vtium_config::Config::default()
+            ..vtium_settings::Config::default()
         };
         self.guard_due = true;
     }
@@ -2913,7 +3148,7 @@ impl App {
         // and before the draw, which shows what a reply placed.
         #[cfg(feature = "images")]
         for head in &mut self.heads {
-            head.image_turn(now, self.image_helpers.as_ref());
+            head.image_turn(now, self.image_helpers.as_ref(), &self.handle);
         }
         if let Some(order) = self.order.take() {
             self.outside_order(order, now);
@@ -3018,6 +3253,28 @@ impl App {
         }
         if self.blank.fire(now) {
             self.blank_now(now);
+        }
+        #[cfg(feature = "images")]
+        self.animate(now);
+    }
+
+    /// Each console's animation clock at this turn (ADR-1102 D3): the
+    /// shown console's plays while the VT is ours, its displays are lit
+    /// and it has one, and a hidden console's only answers its program's
+    /// commands. A frame that changes on a shown console draws its head.
+    #[cfg(feature = "images")]
+    fn animate(&mut self, now: Instant) {
+        let lit = self.awake && !self.blank.blanked();
+        for head in &mut self.heads {
+            let shown = lit && !head.views.is_empty();
+            let term = &mut head.console.term;
+            let frames = term.terminal.screen().images();
+            head.draw_now |= term.animation.turn(frames, now, shown);
+            for console in &mut head.hidden {
+                let term = &mut console.term;
+                term.animation
+                    .turn(term.terminal.screen().images(), now, false);
+            }
         }
     }
 
@@ -3238,6 +3495,11 @@ impl App {
             due.extend(head.brief_due);
             #[cfg(feature = "images")]
             due.extend(head.image_due());
+            #[cfg(feature = "images")]
+            {
+                let term = &head.console.term;
+                due.extend(term.animation.due(term.terminal.screen().images()));
+            }
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
@@ -3305,10 +3567,10 @@ struct KeyFrom {
 }
 
 /// The index of the head at `place`: the default head is the first.
-fn head_index(place: Option<vtium_config::Place>) -> Option<usize> {
+fn head_index(place: Option<vtium_settings::Place>) -> Option<usize> {
     match place? {
-        vtium_config::Place::Head(h) => Some(h),
-        vtium_config::Place::DefaultHead => Some(0),
+        vtium_settings::Place::Head(h) => Some(h),
+        vtium_settings::Place::DefaultHead => Some(0),
         _ => None,
     }
 }
@@ -3333,9 +3595,17 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Show
 /// configured `font-size` in points, else the automatic rule, else the
 /// height it has, as a bitmap frit's whole multiples snap it.
 fn draw_height(head: &Head, dpi: f64, locale: &str) -> u32 {
-    let height = if let Some(points) = head.points {
+    height_at(head, (head.points, head.auto_size), dpi, locale)
+}
+
+/// The height `head` draws at with its display's density `dpi` at the
+/// size `(points, auto_size)`, a console's [`crate::head::console::Fit`]:
+/// as [`draw_height`] has it.
+fn height_at(head: &Head, size: (Option<u32>, bool), dpi: f64, locale: &str) -> u32 {
+    let (points, auto_size) = size;
+    let height = if let Some(points) = points {
         font::points_to_pixels(points, dpi)
-    } else if head.auto_size {
+    } else if auto_size {
         let sizes = head.views.values().map(|v| v.size);
         let w = sizes.clone().map(|s| s.0).min().unwrap_or(0);
         let ht = sizes.map(|s| s.1).min().unwrap_or(0);
@@ -3344,6 +3614,18 @@ fn draw_height(head: &Head, dpi: f64, locale: &str) -> u32 {
         head.font_size
     };
     head.chosen().snap(height)
+}
+
+/// Whether `a` and `b` are the same font: the same built-in by name, or
+/// the same frit, by its name and its text.
+fn same_font(a: &Chosen, b: &Chosen) -> bool {
+    match (a, b) {
+        (Chosen::Builtin(x), Chosen::Builtin(y)) => x == y,
+        (Chosen::Frit { frit: x, .. }, Chosen::Frit { frit: y, .. }) => {
+            x.name == y.name && x.text == y.text
+        }
+        _ => false,
+    }
 }
 
 /// Draws each of `head`'s displays that something asks to: its render
@@ -3747,7 +4029,7 @@ mod tests {
         app.turn(Instant::now());
     }
 
-    // ADR-1401 D9 and vtium-config's Identity: a display's order is its
+    // ADR-1401 D9 and vtium-settings's Identity: a display's order is its
     // place in its card's connector list, which the boot display is picked
     // by, whatever its KMS object id.
     #[test]
@@ -3847,22 +4129,22 @@ mod tests {
             Rc::new(Instant::now),
             Vec::new(),
         );
-        let input = vtium_config::Identity::input;
+        let input = vtium_settings::Identity::input;
         app.add_input(
             Path::new("/m"),
-            input().with_class(vtium_config::Class::Mouse),
+            input().with_class(vtium_settings::Class::Mouse),
         );
         app.add_input(
             Path::new("/k"),
-            input().with_class(vtium_config::Class::Keyboard),
+            input().with_class(vtium_settings::Class::Keyboard),
         );
         assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
         assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
         // A mouse whose node also has udev's key class, its consumer keys,
         // is still a pointer the shipped rules leave closed.
         let keyed = input()
-            .with_class(vtium_config::Class::Mouse)
-            .with_class(vtium_config::Class::Key);
+            .with_class(vtium_settings::Class::Mouse)
+            .with_class(vtium_settings::Class::Key);
         let rules = app.rules.clone();
         assert_eq!(
             app.routes.add(&rules, Path::new("/mk"), &keyed),
@@ -3888,17 +4170,17 @@ mod tests {
         );
         let partly = "version = 1\n[head a]\nbogus = 1\n[head b]\n[rules]\ndisplay * -> b\n";
         app.set_heads(start(partly));
-        assert_eq!(app.outcome.runs, vtium_config::Runs::Survivors);
-        let input = vtium_config::Identity::input;
+        assert_eq!(app.outcome.runs, vtium_settings::Runs::Survivors);
+        let input = vtium_settings::Identity::input;
         let mouse = app.routes.add(
             &app.rules.clone(),
             Path::new("/m"),
-            &input().with_class(vtium_config::Class::Mouse),
+            &input().with_class(vtium_settings::Class::Mouse),
         );
         let keyboard = app.routes.add(
             &app.rules.clone(),
             Path::new("/k"),
-            &input().with_class(vtium_config::Class::Keyboard),
+            &input().with_class(vtium_settings::Class::Keyboard),
         );
         assert_eq!(mouse, vtium_platform::input::Disposition::Closed);
         assert_eq!(keyboard, vtium_platform::input::Disposition::Deliver);
@@ -4111,6 +4393,174 @@ mod tests {
         );
     }
 
+    /// Image 1, 8 by 16 pixels, with a second frame: the root frame shows
+    /// 30 ms and frame 2 40 ms, and the animation loops; with `still`, the
+    /// picture alone.
+    #[cfg(feature = "images")]
+    fn animated(still: bool) -> Vec<u8> {
+        let pixels = "AAAA".repeat(8 * 16 * 4 / 3) + "AAA=";
+        let mut apcs = vec![format!("a=T,f=32,s=8,v=16,i=1,q=2;{pixels}")];
+        if !still {
+            apcs.push(format!("a=f,i=1,f=32,s=8,v=16,z=40,q=2;{pixels}"));
+            apcs.push("a=a,i=1,r=1,z=30,q=2".to_owned());
+            apcs.push("a=a,i=1,s=3,q=2".to_owned());
+        }
+        apcs.iter()
+            .flat_map(|a| format!("\x1b_G{a}\x1b\\").into_bytes())
+            .collect()
+    }
+
+    /// Turns `app` at `t` until its head's render thread has handed back
+    /// every frame it composed, so the next turn's frame can be taken.
+    #[cfg(feature = "images")]
+    fn settle(lp: &mut Loop<App>, app: &mut App, t: Instant) {
+        let back = |app: &App| app.heads.iter().all(|h| h.frames_out() == 0);
+        for _ in 0..1000 {
+            if back(app) {
+                break;
+            }
+            lp.dispatch(Some(Duration::from_millis(10)), app).unwrap();
+            app.turn(t);
+        }
+        assert!(back(app), "the render thread handed every frame back");
+    }
+
+    /// The seat on one display, shown, with `bytes` written to its console
+    /// and drawn at a turn at `t`.
+    #[cfg(feature = "images")]
+    fn drawn(bytes: &[u8], t: Instant) -> (Loop<App>, App) {
+        drawn_under(None, bytes, t)
+    }
+
+    /// [`drawn`] under the head file `heads`.
+    #[cfg(feature = "images")]
+    fn drawn_under(heads: Option<&str>, bytes: &[u8], t: Instant) -> (Loop<App>, App) {
+        let (mut lp, mut app) = seat(heads, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        settle(&mut lp, &mut app, t);
+        let term = app.term_mut().unwrap();
+        let taken = term.terminal.input(bytes);
+        assert_eq!(taken, bytes.len());
+        assert_eq!(
+            term.terminal.screen().placements().len(),
+            1,
+            "kitty is offered"
+        );
+        // as the pty's output does
+        term.changed = true;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        (lp, app)
+    }
+
+    /// What the animation clock of the shown console arms, and the frame it
+    /// shows of the console's one picture.
+    #[cfg(feature = "images")]
+    fn clock(app: &App) -> (Option<Instant>, Option<u32>) {
+        let term = app.term().unwrap();
+        let store = term.terminal.screen().images();
+        let key = term.terminal.screen().placements().first().unwrap().image;
+        (term.animation.due(store), term.animation.frame(key))
+    }
+
+    // ADR-1102 D3: the loop wakes for the clock's next frame change, and a
+    // still picture arms nothing, so the loop waits for its other timers.
+    // covers: image.kitty-animation
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_loop_wakes_for_an_animations_frames_and_never_for_a_still_picture() {
+        let t = Instant::now();
+        let (_lp, app) = drawn(&animated(false), t);
+        assert_eq!(clock(&app), (Some(t + Duration::from_millis(30)), Some(1)));
+        assert_eq!(app.next_wake(t), Some(Duration::from_millis(30)));
+        let (_lp, still) = drawn(&animated(true), t);
+        assert_eq!(clock(&still), (None, None));
+        // the blink timers, armed after `t`, come next
+        assert!(still.next_wake(t) >= Some(Duration::from_millis(500)));
+    }
+
+    // ADR-1102 D3: a turn when a frame is due moves the clock on; while
+    // the VT is another's the clock arms no timer, and shown again it
+    // shows the frame the time puts it on at the first turn, armed for the
+    // next change.
+    // covers: image.kitty-animation
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_vt_switch_away_stops_the_clock_and_back_it_skips_to_the_time() {
+        let t = Instant::now();
+        let ms = |n: u64| t + Duration::from_millis(n);
+        let (_lp, mut app) = drawn(&animated(false), t);
+        app.turn(ms(30));
+        assert_eq!(clock(&app), (Some(ms(70)), Some(2)));
+        app.vt.leave().unwrap();
+        app.turn(ms(40));
+        // the device reports itself asleep, and the VT goes
+        let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        let still = still.as_any().downcast_mut::<Still>().unwrap();
+        still.events.push(Event::Asleep);
+        app.turn(ms(40));
+        assert!(!app.awake && !app.vt.is_active(), "the VT is let go");
+        assert_eq!(clock(&app), (None, Some(2)));
+        assert!(
+            app.next_wake(ms(40))
+                .is_none_or(|d| d >= Duration::from_secs(1))
+        );
+        app.turn(ms(5000));
+        assert_eq!(clock(&app), (None, Some(2)), "no frame while away");
+        app.vt.activate().unwrap();
+        // 10,045 ms is 143 loops of 70 ms and 35 ms more: frame 2, from 10,040.
+        app.turn(ms(10_045));
+        assert_eq!(clock(&app), (Some(ms(10_080)), Some(2)));
+        app.turn(ms(10_080));
+        assert_eq!(clock(&app), (Some(ms(10_110)), Some(1)));
+    }
+
+    // ADR-1102 D3: a hidden console's clock arms no timer and moves no
+    // frame, however many turns pass, while the shown console's plays.
+    // covers: image.kitty-animation
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_hidden_consoles_clock_arms_no_timer() {
+        let t = Instant::now();
+        let ms = |n: u64| t + Duration::from_millis(n);
+        let heads = "version = 1\n[head one]\nconsoles = 2\n";
+        let (_lp, mut app) = drawn_under(Some(heads), &animated(false), t);
+        assert_eq!(clock(&app), (Some(ms(30)), Some(1)));
+        let App {
+            heads,
+            config,
+            scrollback,
+            scrollback_bytes,
+            clock: seat_clock,
+            ..
+        } = &mut app;
+        let head = heads.first_mut().unwrap();
+        head.open_wanted(|| {
+            crate::head::terminal(
+                config,
+                *scrollback,
+                *scrollback_bytes,
+                Rc::clone(seat_clock),
+            )
+        });
+        assert_eq!(head.console_count(), 2);
+        head.show(1, true);
+        let hidden = |app: &App| {
+            let term = &app.heads.first().unwrap().hidden.first().unwrap().term;
+            let store = term.terminal.screen().images();
+            let key = term.terminal.screen().placements().first().unwrap().image;
+            (term.animation.due(store), term.animation.frame(key))
+        };
+        for n in [30, 70, 1000] {
+            app.turn(ms(n));
+            assert_eq!(hidden(&app), (None, Some(1)), "hidden at {n} ms");
+        }
+    }
+
     // ADR-1401 D8: the loop wakes when a head's `when-display-lost` time runs out.
     #[test]
     fn the_loop_wakes_when_a_heads_hangup_falls_due() {
@@ -4133,7 +4583,8 @@ mod tests {
         input.wake_up();
         app.input = Some(input);
         app.focus = Some(0);
-        let keyboard = vtium_config::Identity::input().with_class(vtium_config::Class::Keyboard);
+        let keyboard =
+            vtium_settings::Identity::input().with_class(vtium_settings::Class::Keyboard);
         app.add_input(Path::new("/nonexistent/vtium-test/event9"), keyboard);
         app.report_focus();
         assert_eq!(app.heads.first().map(|h| h.focused), Some(false));

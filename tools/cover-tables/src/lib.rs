@@ -1,6 +1,6 @@
 //! The named `cover=` sets of ADR-1200 D1, generated from Unicode's
 //! mapping files: each set is the codepoints its standard's file maps to,
-//! as sorted ranges, written into vtium-vitrify's `src/cover.rs`, with
+//! as sorted ranges, written into vtium-config's `src/cover.rs`, with
 //! that file's SHA-256 beside it in `src/cover.rs.sha256` and each mapping
 //! file's URL, version line and SHA-256 in `provenance.tsv` beside this
 //! crate. The files are fetched once, by `cover-tables generate`, into a

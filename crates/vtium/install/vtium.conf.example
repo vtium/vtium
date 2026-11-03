@@ -96,6 +96,7 @@
 
 ## The most bytes the scrollback holds, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory, or the default when `/proc/meminfo` cannot be read; its oldest lines go past it, as past `sb-size`. Left unset, the default follows each console's grid, worked out again when the grid changes: on a grid up to minspec's 170 by 48 it is what the 16 MiB minspec peak leaves after the console's two screens at their worst and the rest of vtium, so a smaller display keeps more, and a larger display keeps the 170 by 48 value shown here. The default does not grow with the display or the machine's memory; on a machine that can spare more, set `sb-memory` for a deeper scrollback, and it stays fixed.
 #sb-memory=5242880
+# (in a build with images: sb-memory=4653056)
 
 ## Rings the VT's bell when a program sends BEL. A program stops its own BELs ringing by resetting mode 1042, which starts set. Off, no BEL rings.
 #no-bell
@@ -266,7 +267,7 @@
 #font-frits=/etc/vtium/fonts
 
 ## The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why and draws its built-in font. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with.
-#font-helper=/usr/bin/vtium-vitrify
+#font-helper=/usr/bin/vtium-config
 
 ## The font's size in points, 1/72 inch, drawn at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and over a frit's `cell=`; 0 picks one from the display's size.
 #font-size=0
@@ -277,7 +278,7 @@
 ## Height added to each row, over a frit's `line-spacing=`: a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=` decides, 0 where it states none.
 #font-line-spacing=
 
-## Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.
+## Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-config set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch lasts until the session it came from ends, when vtium returns the console to the font and size `font-name` and `font-size` give. Off, vtium ignores OSC 50, the query included.
 #allow-font-ops
 
 ## Where the six sprite ranges draw from: `font`, the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.
@@ -333,3 +334,6 @@
 
 ## Mode 1070's state at a reset: on, each sixel picture starts from the default colors; off, the pictures share their color registers. A build without images reads it and draws no picture.
 #private-color-registers
+
+## The image helper's program, which vtium starts as the session's user to read the files and shared memory a kitty graphics command names and to decode PNG and zlib-compressed pictures, since vtium itself, running as root, does neither. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches the consoles when vtium starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why, and every console then answers those pictures itself, a file, a temporary file or shared memory with `EBADF` and PNG or zlib with `EINVAL`. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with. A build without images reads it and starts no helper.
+#image-helper=/usr/bin/vtium-image

@@ -1,0 +1,56 @@
+[package]
+name = "vtium-image-helper"
+description = "vtium-image, the sandboxed program that reads the files a program names and decodes its pictures for the console"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "vtium-image"
+path = "src/main.rs"
+
+[dependencies]
+# The wire both ends link, the pixel description and the one conversion
+# into the store's premultiplied format (ADR-1101 D7).
+vtium-image.workspace = true
+# Every system call but the fork: openat2, fstatfs, memory files and
+# their seals, pread and pwrite, packets with descriptors, poll and wait;
+# the versions and features vtium-platform already builds, with `net`
+# for the socket pair and its messages.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "net", "event", "thread", "mm"] }
+# fork(2), in the one module that holds `unsafe` (ADR-1101 D1); already
+# in the build through vtium-platform.
+libc = "=0.2.191"
+# The decoders of ADR-1101 D6 and ADR-1103, pure Rust, linked into this
+# program only and approved for it alone by the maintainer (2026-11-01).
+# png inflates through fdeflate; it pulls in flate2 and miniz_oxide for
+# its encoder alone.
+png = "=0.18.1"
+# zlib (kitty's o=z), the inflater already in vtium's tree.
+miniz_oxide = "0.8.9"
+zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"] }
+gif = { version = "=0.13.3", default-features = false, features = ["std"] }
+# Each worker's landlock domain (ADR-1101 D9), the Linux landlock
+# maintainers' own binding.
+landlock = "=0.4.7"
+
+# The helper's seccomp filter (ADR-1101 D9): seccompiler builds filters for
+# these three architectures only, so the armv7 helper runs without one.
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64"))'.dependencies]
+seccompiler = "=0.5.0"
+
+[dev-dependencies]
+# The real host, which starts the real helper as installed in the gate
+# tests (ADR-1101 D9).
+vtium-platform = { workspace = true, features = ["images"] }
+
+# One process, one thread: the child the filter test runs is this binary.
+[[test]]
+name = "filter"
+harness = false

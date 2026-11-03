@@ -1,11 +1,17 @@
 //! The fixture host (INTERFACE.md, "The fixture host"): it answers each
 //! request a handler makes from the case's fixture files at once, so no
 //! case depends on time or on a helper (ADR-1100, D7).
+//!
+//! It answers as the image helper does, with every picture premultiplied
+//! (ADR-1101 D7): a `.rgba` fixture's straight pixels, and the raw pixels
+//! a request describes, go through vtium-image's one conversion, so tier 1
+//! reads each reply through the console's path for the helper's replies.
 
 use core::fmt::Write;
 use std::path::{Path, PathBuf};
 
-use vtium_term::images::decode::{Medium, Payload, Reply, Request};
+use vtium_term::images::decode::convert::{self, Alpha, Layout};
+use vtium_term::images::decode::{FrameData, Medium, Payload, Reply, Request};
 
 /// The fixture host of one replay.
 #[derive(Clone, Debug)]
@@ -51,6 +57,8 @@ impl Host {
             (r.png, "png"),
             (r.exact, "exact"),
             (r.discard, "discard"),
+            (r.any_image, "any"),
+            (r.frames.is_some(), "frames"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -91,7 +99,7 @@ impl Host {
 
     fn outcome(&self, r: &Request, name: &str) -> Reply {
         if r.discard {
-            return Reply::Ok(Payload::Bytes(Vec::new()));
+            return Reply::Ok(Payload::Discarded);
         }
         if let Some(text) = self.read(&format!("{name}.error")) {
             let word = text
@@ -108,6 +116,9 @@ impl Host {
             };
         }
         let min = usize::try_from(r.min).unwrap_or(usize::MAX);
+        if r.any_image {
+            return self.any_image(r, name);
+        }
         if r.png {
             if let Some(data) = self.read(&format!("{name}.rgba")) {
                 let word = |i: usize| {
@@ -130,11 +141,15 @@ impl Host {
                 if bytes > r.largest_bytes {
                     return Reply::OverBudget;
                 }
-                let data = data.get(8..).unwrap_or_default().to_vec();
+                let mut pixels = Vec::new();
+                let straight = data.get(8..).unwrap_or_default();
+                // a fixture of another length than its picture is a
+                // helper's lie, which the console's check fails
+                convert::to_reply(Layout::Rgba, Alpha::Straight, straight, &mut pixels);
                 return Reply::Ok(Payload::Rgba {
                     width,
                     height,
-                    data,
+                    data: pixels,
                 });
             }
         } else if r.inflate {
@@ -144,9 +159,7 @@ impl Host {
                 } else if r.exact && bytes.len() > min {
                     Reply::Corrupt
                 } else {
-                    Reply::Ok(Payload::Bytes(
-                        bytes.get(..min).unwrap_or_default().to_vec(),
-                    ))
+                    described(r, bytes.get(..min).unwrap_or_default())
                 };
             }
         } else if let Some(data) = self.read(name) {
@@ -164,7 +177,7 @@ impl Host {
             return if read.len() < min {
                 Reply::TooShort
             } else {
-                Reply::Ok(Payload::Bytes(read.get(..min).unwrap_or_default().to_vec()))
+                described(r, read.get(..min).unwrap_or_default())
             };
         }
         match r.medium {
@@ -174,9 +187,108 @@ impl Host {
     }
 }
 
+impl Host {
+    /// An any-image request, as the helper answers it from its decoders: a
+    /// still picture from `NAME.rgba`, as for PNG, or an animated GIF's
+    /// frames from `NAME.frames`, its first frame alone when the request
+    /// asked for none or the frames pass its bounds; `CORRUPT` with neither.
+    fn any_image(&self, r: &Request, name: &str) -> Reply {
+        let (data, animated) = match self.read(&format!("{name}.frames")) {
+            Some(data) => (data, true),
+            None => match self.read(&format!("{name}.rgba")) {
+                Some(data) => (data, false),
+                None => return Reply::Corrupt,
+            },
+        };
+        let word = |i: usize| {
+            data.get(i..i.saturating_add(4))
+                .and_then(|b| <[u8; 4]>::try_from(b).ok())
+                .map(u32::from_le_bytes)
+        };
+        let (Some(width), Some(height)) = (word(0), word(4)) else {
+            return Reply::Corrupt;
+        };
+        if width > r.largest.0 || height > r.largest.1 {
+            return Reply::TooLarge;
+        }
+        let frame = u64::from(width)
+            .saturating_mul(u64::from(height))
+            .saturating_mul(4);
+        if frame > r.largest_bytes {
+            return Reply::OverBudget;
+        }
+        let frame_len = usize::try_from(frame).unwrap_or(usize::MAX);
+        let still = |straight: &[u8]| {
+            let mut data = Vec::new();
+            convert::to_reply(Layout::Rgba, Alpha::Straight, straight, &mut data);
+            Reply::Ok(Payload::Rgba {
+                width,
+                height,
+                data,
+            })
+        };
+        if !animated {
+            return still(data.get(8..).unwrap_or_default());
+        }
+        // NAME.frames: width, height, the frame count and the loop count as
+        // u32, the loop count u32::MAX for none, a u16 delay for each
+        // frame, then the frames' straight RGBA one after another
+        let (Some(count), Some(loops)) = (word(8), word(12)) else {
+            return Reply::Corrupt;
+        };
+        let count = usize::try_from(count).unwrap_or(usize::MAX);
+        let at = 16usize.saturating_add(count.saturating_mul(2));
+        let delays: Vec<u16> = data
+            .get(16..at)
+            .unwrap_or_default()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&b| u16::from_le_bytes(b))
+            .collect();
+        let pixels = data.get(at..).unwrap_or_default();
+        if delays.len() != count || count == 0 {
+            return Reply::Corrupt;
+        }
+        let past = frame.saturating_mul(u64::try_from(count - 1).unwrap_or(u64::MAX));
+        let fits = r.frames.is_some_and(|l| {
+            u64::try_from(count).is_ok_and(|c| c <= u64::from(l.max_frames))
+                && past <= l.max_frame_bytes
+        });
+        if count == 1 || !fits {
+            return still(pixels.get(..frame_len).unwrap_or(pixels));
+        }
+        let mut out = Vec::new();
+        convert::to_reply(Layout::Rgba, Alpha::Straight, pixels, &mut out);
+        Reply::Ok(Payload::Frames {
+            width,
+            height,
+            delays,
+            loops: u16::try_from(loops).ok(),
+            data: FrameData::Memory(out),
+        })
+    }
+}
+
+/// The reply to `r` for its raw pixels `bytes`, converted as its
+/// description says, as the helper converts them.
+fn described(r: &Request, bytes: &[u8]) -> Reply {
+    let Some(d) = r.pixels else {
+        return Reply::Failed;
+    };
+    let mut data = Vec::new();
+    convert::to_reply(d.layout, d.alpha, bytes, &mut data);
+    Reply::Ok(Payload::Rgba {
+        width: d.width,
+        height: d.height,
+        data,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vtium_term::images::decode::{Description, FrameLimits};
 
     fn request(medium: Medium) -> Request {
         Request {
@@ -188,12 +300,33 @@ mod tests {
             png: false,
             exact: false,
             discard: false,
+            any_image: false,
+            frames: None,
+            pixels: None,
             largest: (10_000, 10_000),
             largest_bytes: 1 << 30,
         }
     }
 
-    fn fixtures(name: &str, files: &[(&str, &[u8])]) -> PathBuf {
+    /// A directory of fixtures of a test's own, removed when the test
+    /// ends, whether it passes or fails.
+    struct Fixtures(PathBuf);
+
+    impl std::ops::Deref for Fixtures {
+        type Target = std::path::Path;
+
+        fn deref(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Fixtures {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn fixtures(name: &str, files: &[(&str, &[u8])]) -> Fixtures {
         let dir = std::env::temp_dir().join(format!(
             "vtium-conformance-host-{}-{name}",
             std::process::id()
@@ -203,7 +336,7 @@ mod tests {
         for (file, data) in files {
             std::fs::write(dir.join(file), data).unwrap_or_default();
         }
-        dir
+        Fixtures(dir)
     }
 
     #[test]
@@ -217,10 +350,18 @@ mod tests {
             ],
         );
         let mut host = Host::new(&dir);
+        let rgb = Description {
+            layout: Layout::Rgb,
+            alpha: Alpha::Straight,
+            width: 1,
+            height: 1,
+            compressed: false,
+        };
         let file = Request {
             offset: 5,
             max: 9,
             min: 3,
+            pixels: Some(rgb),
             ..request(Medium::File(b"/tmp/r1".to_vec()))
         };
         let (line, reply) = host.answer(&file);
@@ -228,12 +369,24 @@ mod tests {
             line,
             "host: 1 t=f flags=- O=5 max=9 min=3 name=/tmp/r1 len=0"
         );
-        assert_eq!(reply, Reply::Ok(Payload::Bytes(b"567".to_vec())));
+        let picture = |data: &[u8]| {
+            Reply::Ok(Payload::Rgba {
+                width: 1,
+                height: 1,
+                data: data.to_vec(),
+            })
+        };
+        assert_eq!(reply, picture(b"567\xff"));
         let (_, reply) = host.answer(&request(Medium::SharedMemory(b"r2".to_vec())));
         assert_eq!(reply, Reply::TooLarge);
         let inflate = Request {
             inflate: true,
             min: 4,
+            pixels: Some(Description {
+                layout: Layout::Rgba,
+                compressed: true,
+                ..rgb
+            }),
             ..request(Medium::Direct(vec![1, 2]))
         };
         let (line, reply) = host.answer(&inflate);
@@ -241,7 +394,8 @@ mod tests {
             line,
             "host: 3 t=d flags=inflate O=0 max=0 min=4 name= len=2"
         );
-        assert_eq!(reply, Reply::Ok(Payload::Bytes(b"abcd".to_vec())));
+        // a, b, c at alpha d, 100: (97 × 100 + 127) / 255 is 38
+        assert_eq!(reply, picture(&[38, 38, 39, 100]));
         let exact = Request {
             exact: true,
             ..inflate
@@ -255,7 +409,78 @@ mod tests {
         let (line, reply) = host.answer(&odd);
         assert!(line.ends_with("name=/a\\x20b\\x5cc len=0"), "{line}");
         assert_eq!(reply, Reply::Unreadable);
-        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_any_image_request_takes_a_still_picture_or_an_animations_frames() {
+        // two frames of 1 by 1, loops forever, delays 3 and 4
+        let mut frames = Vec::new();
+        for v in [1u32, 1, 2, 0] {
+            frames.extend_from_slice(&v.to_le_bytes());
+        }
+        frames.extend_from_slice(&[3, 0, 4, 0]);
+        frames.extend_from_slice(&[1, 2, 3, 0xff, 4, 5, 6, 0xff]);
+        let dir = fixtures(
+            "any",
+            &[
+                ("direct-1.rgba", &picture(1, 1)),
+                ("direct-2.frames", &frames),
+            ],
+        );
+        let mut host = Host::new(&dir);
+        let any = Request {
+            any_image: true,
+            ..request(Medium::Direct(vec![0; 3]))
+        };
+        let (line, reply) = host.answer(&any);
+        assert_eq!(line, "host: 1 t=d flags=any O=0 max=0 min=0 name= len=3");
+        assert_eq!(
+            reply.checked(&any),
+            Reply::Ok(Payload::Rgba {
+                width: 1,
+                height: 1,
+                data: vec![0; 4],
+            })
+        );
+        let gif = Request {
+            frames: Some(FrameLimits {
+                max_frames: 2,
+                max_frame_bytes: 4,
+            }),
+            ..any.clone()
+        };
+        let (line, reply) = host.answer(&gif);
+        assert!(line.contains("flags=any,frames"), "{line}");
+        assert_eq!(
+            reply.clone().checked(&gif),
+            Reply::Ok(Payload::Frames {
+                width: 1,
+                height: 1,
+                delays: vec![3, 4],
+                loops: Some(0),
+                data: FrameData::Memory(vec![1, 2, 3, 0xff, 4, 5, 6, 0xff]),
+            })
+        );
+        // the third request reads direct-3, which has no fixture
+        assert_eq!(host.answer(&gif).1, Reply::Corrupt);
+        // frames a request did not ask for, or past its bounds: the first
+        let mut host = Host::new(&dir);
+        let _ = host.answer(&any);
+        let tight = Request {
+            frames: Some(FrameLimits {
+                max_frames: 2,
+                max_frame_bytes: 3,
+            }),
+            ..any
+        };
+        assert_eq!(
+            host.answer(&tight).1,
+            Reply::Ok(Payload::Rgba {
+                width: 1,
+                height: 1,
+                data: vec![1, 2, 3, 0xff],
+            })
+        );
     }
 
     /// A fixture picture of `width` by `height`, its pixels all 0.
@@ -288,7 +513,6 @@ mod tests {
         assert_eq!(host.answer(&png(b"/tall")).1, Reply::TooLarge);
         // 3 by 3 fits each side but its 36 bytes pass the 32 allowed
         assert_eq!(host.answer(&png(b"/heavy")).1, Reply::OverBudget);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -311,7 +535,6 @@ mod tests {
         assert!(matches!(host.answer(&png(b"/side")).1, Reply::Ok(_)));
         // 2 by 4, 32 bytes, at a most of 32
         assert!(matches!(host.answer(&png(b"/bytes")).1, Reply::Ok(_)));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -319,7 +542,7 @@ mod tests {
         let mut rgba = Vec::new();
         rgba.extend_from_slice(&1u32.to_le_bytes());
         rgba.extend_from_slice(&2u32.to_le_bytes());
-        rgba.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        rgba.extend_from_slice(&[0x80, 0x40, 0x20, 0xff, 0xff, 0xff, 0xff, 0x80]);
         let dir = fixtures("png", &[("p.rgba", &rgba)]);
         let mut host = Host::new(&dir);
         let png = Request {
@@ -329,8 +552,10 @@ mod tests {
         let want = Reply::Ok(Payload::Rgba {
             width: 1,
             height: 2,
-            data: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            data: vec![0x80, 0x40, 0x20, 0xff, 0x80, 0x80, 0x80, 0x80],
         });
+        // the straight fixture comes back premultiplied, as the helper's
+        // pictures do
         assert_eq!(host.answer(&png).1, want);
         let discard = Request {
             discard: true,
@@ -338,7 +563,6 @@ mod tests {
         };
         let (line, reply) = host.answer(&discard);
         assert!(line.contains("flags=discard"), "{line}");
-        assert_eq!(reply, Reply::Ok(Payload::Bytes(Vec::new())));
-        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(reply, Reply::Ok(Payload::Discarded));
     }
 }

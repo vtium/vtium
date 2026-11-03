@@ -33,7 +33,7 @@ use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
 fn help() -> String {
     let mut out = String::from(
-        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]... [FILE]   check the configuration, apply nothing\n       vtium blank --vt N                      blank the displays of the vtium on VT N now\n       vtium wake --vt N                       wake the displays of the vtium on VT N\n       vtium console enable N|--all            give VT N, or every VT, to vtium@.service\n       vtium console disable N|--all           take VT N, or every VT, back\n       vtium console status                    show what each VT runs\n\n",
+        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]... [FILE]   check the configuration, apply nothing\n       vtium config [COMMAND] [ARG]...         run vtium-config, the font and settings tool\n       vtium blank --vt N                      blank the displays of the vtium on VT N now\n       vtium wake --vt N                       wake the displays of the vtium on VT N\n       vtium console enable N|--all            give VT N, or every VT, to vtium@.service\n       vtium console disable N|--all           take VT N, or every VT, back\n       vtium console status                    show what each VT runs\n\n",
     );
     for k in &KEYS {
         let arg = match k.kind {
@@ -59,12 +59,19 @@ fn clock() -> Clock {
 fn main() -> ExitCode {
     vtium::logger::init(log::Level::Info);
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    if let Some(status) =
-        vtium::blank::subcommand(&args).or_else(|| vtium::console::subcommand(&args))
+    if let Some(status) = vtium::config_tool::subcommand(&args)
+        .or_else(|| vtium::blank::subcommand(&args))
+        .or_else(|| vtium::console::subcommand(&args))
     {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }
     let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
+    // The same reader reads the font keys again at a session's end
+    // (ADR-1201 D11).
+    let reread: vtium::app::Reread = {
+        let args = args.clone();
+        Box::new(move || config::load(&args, Some("seat0"), &mut config::read_file))
+    };
     if loaded.check {
         return ExitCode::from(check::main(&loaded));
     }
@@ -100,8 +107,8 @@ fn main() -> ExitCode {
     // Before the loop and the VT, so a failure opening either under a
     // closed policy still leaves the marker that keeps the getty off.
     let heads = vtium::head::rules(
-        Path::new(vtium_config::HEAD_FILE),
-        &vtium_config::Trust::ROOT,
+        Path::new(vtium_settings::HEAD_FILE),
+        &vtium_settings::Trust::ROOT,
     );
     vtium::getty::mark(
         Path::new(vtium::getty::DIR),
@@ -109,11 +116,12 @@ fn main() -> ExitCode {
         heads.outcome.policy,
     );
     let status = match path {
-        Some(path) => run_kernel(config, start, heads, &path),
+        Some(path) => run_kernel(config, reread, start, heads, &path),
         None => {
             log::info!(target: "vt", "no VTs: using a fake VT");
             run(
                 config,
+                reread,
                 start,
                 heads,
                 None,
@@ -132,6 +140,7 @@ fn main() -> ExitCode {
 
 fn run_kernel(
     config: config::Config,
+    reread: vtium::app::Reread,
     start: Start,
     heads: vtium::head::Start,
     path: &Path,
@@ -140,6 +149,7 @@ fn run_kernel(
     let path = path.to_owned();
     run(
         config,
+        reread,
         start,
         heads,
         console,
@@ -182,6 +192,7 @@ type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 /// once, whichever VT it runs on.
 fn run(
     config: config::Config,
+    reread: vtium::app::Reread,
     start: Start,
     heads: vtium::head::Start,
     console: Option<ConsoleFont>,
@@ -206,6 +217,7 @@ fn run(
     if let Some(font) = console {
         app.set_console_font(font);
     }
+    app.set_config_reader(reread);
     app.set_heads(heads);
 
     match start.input() {

@@ -1,11 +1,13 @@
 //! The kitty handler's tests, through a stand-in for vtium-term's context.
 //!
-//! The stand-in holds a real store over a screen of fixed lines, and does
-//! what vtium-term's context does with each call: it runs a store edit
-//! over both buffers' rows and settles the store after it, clamps the
-//! cursor to the screen, and keeps replies and requests in order. It does
-//! not scroll: an index past the bottom margin fails the test, so the
-//! cases that scroll are tier 1's, through the real screen.
+//! The stand-in holds a real store over a screen of fixed lines and the
+//! scrollback above it, and does what vtium-term's context does with each
+//! call: it runs a store edit over both buffers' rows and settles the store
+//! after it, clamps the cursor to the screen, and keeps replies and
+//! requests in order. A handler's index past the bottom margin fails the
+//! test, so the cases where a handler scrolls are tier 1's, through the
+//! real screen; a test scrolls the screen itself as vtium-term does, the
+//! store's scroll before the lines move and its `scroll_done` after.
 
 #![expect(
     clippy::indexing_slicing,
@@ -19,7 +21,9 @@ use vtium_parse::Chunk;
 
 use super::Kitty;
 use crate::IMAGE_OVERHEAD;
-use crate::decode::{Medium, Payload, Reply, Request};
+use crate::decode::{
+    Alpha, Description, Layout, Medium, Payload, Reply, ReplyFile, ReplySource, Request,
+};
 use crate::handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
 use crate::image::LineKey;
 use crate::store::{Edit, Rows, Screens, Store};
@@ -27,6 +31,10 @@ use crate::store::{Edit, Rows, Screens, Store};
 struct Host {
     store: Store,
     screen: Vec<LineKey>,
+    /// The scrollback's lines, newest first.
+    above: Vec<LineKey>,
+    /// The key the next new line gets.
+    next_line: u64,
     cols: usize,
     cursor: (usize, usize),
     margins: Margins,
@@ -48,6 +56,8 @@ impl Host {
         Self {
             store,
             screen: (0..4).map(LineKey::new).collect(),
+            above: Vec::new(),
+            next_line: 100,
             cols: 12,
             cursor: (0, 0),
             margins: Margins { top: 0, bottom: 3 },
@@ -69,13 +79,36 @@ impl Host {
     fn boxes(&self) -> Vec<(u32, i64, u32, u32)> {
         let view = Rows {
             screen: &self.screen,
-            above: &[],
+            above: &self.above,
         };
         self.store
             .frame(view, self.cols)
             .iter()
             .map(|p| (p.col, p.row, p.cols, p.rows))
             .collect()
+    }
+
+    /// Rows `top` to `bottom` scroll up one, as vtium-term scrolls them: the
+    /// whole screen sends its top line into the scrollback, a region drops
+    /// it, and a new line enters at the bottom.
+    fn scroll_up(&mut self, top: usize, bottom: usize) {
+        let whole = top == 0 && bottom + 1 == self.screen.len();
+        let rows = Rows {
+            screen: &self.screen,
+            above: &self.above,
+        };
+        self.store.scroll((top, bottom), 1, true, whole, rows);
+        let gone = self.screen.remove(top);
+        if whole {
+            self.above.insert(0, gone);
+        }
+        self.screen.insert(bottom, LineKey::new(self.next_line));
+        self.next_line += 1;
+        let rows = Rows {
+            screen: &self.screen,
+            above: &self.above,
+        };
+        self.store.scroll_done(rows);
     }
 }
 
@@ -88,7 +121,7 @@ impl Context for Host {
         let screens = Screens {
             main: Rows {
                 screen: &self.screen,
-                above: &[],
+                above: &self.above,
             },
             alt: Rows::default(),
         };
@@ -518,32 +551,280 @@ fn a_delete_answers_only_an_error() {
     assert!(h.store.is_empty());
 }
 
-#[test]
-fn the_later_parts_of_the_protocol_are_refused_for_now() {
+/// `n` RGBA pixels of `rgba`, as base64.
+fn rgba(rgba: [u8; 4], n: usize) -> String {
+    b64(&rgba.repeat(n))
+}
+
+/// A host holding image 1, 256 by 256 pixels of opaque red, too large for
+/// D1's first rule, so a small frame stays a change; replies taken.
+fn animated() -> (Kitty, Host) {
     let (mut k, mut h) = (Kitty::default(), Host::new());
-    send(&mut k, &mut h, &format!("a=t,s=1,v=1,i=1;{}", red(1)));
-    let _ = h.take();
-    for keys in [
-        "a=p,i=1,U=1",
-        "a=p,i=1,P=1",
-        "a=p,i=1,Q=0",
-        "a=p,i=1,H=1",
-        "a=a,i=1",
-        "a=c,i=1",
-    ] {
-        send(&mut k, &mut h, keys);
-        assert_eq!(
-            h.take(),
-            "\x1b_Gi=1;EINVAL:invalid argument\x1b\\",
-            "{keys}"
-        );
-    }
-    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1;{}", red(1)));
+    h.store.set_limit(4 << 20);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,s=256,v=256,i=1;{}", red(256 * 256)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    (k, h)
+}
+
+fn key(h: &mut Host) -> crate::ImageKey {
+    h.store.find_image(1, 0).unwrap()
+}
+
+// covers: image.kitty-animation
+#[test]
+fn animation_commands_are_answered_as_a_put_is() {
+    let (mut k, mut h) = animated();
+    // a frame on the default color, then one on frame 2, each answered
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,s=2,v=1;{}", rgba([0, 0, 0xff, 0xff], 2)),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,x=4,y=4,s=1,v=1,c=2;{}", red(1)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
+    let key = key(&mut h);
+    assert_eq!(h.store.animation(key).unwrap().frames, 3);
+    // a control and a composition
+    send(&mut k, &mut h, "a=a,i=1,c=3,s=3,v=2,r=1,z=80");
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=3,w=2,h=1");
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
+    let st = h.store.animation(key).unwrap();
+    assert_eq!((st.current, st.run, st.loops), (3, crate::Run::Looping, 2));
+    assert_eq!(h.store.frame_gap(key, 1), Some(80));
+    // ENOENT for a missing image or frame, EINVAL for a rectangle out of
+    // the image, a frame past FRAMES_MAX's room aside
+    send(&mut k, &mut h, &format!("a=f,i=9,s=1,v=1;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1,c=7;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1,r=7;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,i=1,x=256,s=1,v=1;{}", red(1)));
+    send(&mut k, &mut h, "a=a,i=1,c=4");
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=5");
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=2,x=1,w=4,h=4");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=9;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;EINVAL:invalid argument\x1b\\\
+         \x1b_Gi=1;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;ENOENT:image not found\x1b\\\
+         \x1b_Gi=1;EINVAL:invalid argument\x1b\\"
+    );
+    assert_eq!(h.store.animation(key).unwrap().frames, 3);
+    // every animation command must name its image: with neither i nor I it
+    // is refused, and with no id there is nothing to answer
+    let before = h.store.clone();
+    send(&mut k, &mut h, &format!("a=f,s=1,v=1;{}", red(1)));
+    send(&mut k, &mut h, "a=a,c=1");
+    send(&mut k, &mut h, "a=c,r=1,c=2");
+    assert_eq!(h.take(), "");
+    assert!(h.store == before);
+    // an image number names the newest image of that number, answered
+    // with its id
+    send(&mut k, &mut h, &format!("a=t,s=1,v=1,I=5;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), "\x1b_Gi=2,I=5;OK\x1b\\\x1b_Gi=2,I=5;OK\x1b\\");
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_frame_without_s_and_v_reaches_the_images_edge() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=3,v=2,i=1;{}", red(6)));
+    // from x=1, the frame's data is 2 by 2
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,x=1;{}", rgba([0, 0, 0xff, 0xff], 4)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
+    let key = key(&mut h);
+    let p = h.store.frame_pixels(key, 2).unwrap();
+    assert_eq!(
+        p.pixels.as_slice(),
+        &[0, 0xff00_00ff, 0xff00_00ff, 0, 0xff00_00ff, 0xff00_00ff]
+    );
+    // data short of the rectangle is refused
+    send(&mut k, &mut h, &format!("a=f,i=1;{}", red(5)));
     assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
-    // a delete of animation frames deletes nothing
-    send(&mut k, &mut h, "a=p,i=1,C=1");
-    send(&mut k, &mut h, "a=d,d=F,i=1");
-    assert_eq!(h.boxes().len(), 1);
+    assert_eq!(h.store.frame_bytes(), 3 * 2 * 4 + crate::FRAME_OVERHEAD);
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_frame_in_chunks_holds_one_reservation_and_answers_once() {
+    let (mut k, mut h) = animated();
+    let data = rgba([0, 0, 0xff, 0xff], 16);
+    let (a, b) = data.split_at(20);
+    send(&mut k, &mut h, &format!("a=f,i=1,s=4,v=4,m=1;{a}"));
+    assert_eq!(h.store.frame_bytes(), 4 * 4 * 4 + crate::FRAME_OVERHEAD);
+    assert_eq!(h.take(), "");
+    send(&mut k, &mut h, &format!("a=f,m=0;{b}"));
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let key = key(&mut h);
+    assert_eq!(h.store.animation(key).unwrap().frames, 2);
+    // another command ends an upload in chunks and gives back what it holds
+    let held = h.store.frame_bytes();
+    send(&mut k, &mut h, &format!("a=f,i=1,s=4,v=4,m=1;{a}"));
+    send(&mut k, &mut h, "a=a,i=1,s=1");
+    assert_eq!(h.store.frame_bytes(), held);
+    assert_eq!(h.store.animation(key).unwrap().frames, 2);
+}
+
+// covers: image.kitty-animation
+#[test]
+fn d_f_deletes_every_frame_but_the_root_and_needs_an_image() {
+    for d in ["f", "F"] {
+        let (mut k, mut h) = animated();
+        send(&mut k, &mut h, "a=p,i=1,C=1");
+        for _ in 0..3 {
+            send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1;{}", red(1)));
+        }
+        send(&mut k, &mut h, "a=a,i=1,c=3,s=3");
+        let _ = h.take();
+        let key = key(&mut h);
+        let st = h.store.animation(key).unwrap();
+        // with neither i nor I, nothing
+        send(&mut k, &mut h, &format!("a=d,d={d}"));
+        assert_eq!(h.store.animation(key).unwrap(), st);
+        send(&mut k, &mut h, &format!("a=d,d={d},i=1"));
+        assert_eq!(h.take(), "", "a delete answers only an error");
+        let gone = h.store.animation(key).unwrap();
+        assert_eq!(
+            (gone.frames, gone.current, gone.run),
+            (1, 1, crate::Run::Stopped)
+        );
+        assert_eq!(
+            (gone.frame_stamp, gone.run_stamp),
+            (st.frame_stamp + 1, st.run_stamp + 1)
+        );
+        assert_eq!(h.store.frame_bytes(), 0);
+        // the image and its placement stay, whichever case
+        assert_eq!(h.store.image_count(), 1);
+        assert_eq!(h.boxes().len(), 1);
+    }
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_frame_from_the_helper_is_reserved_of_the_allowance_and_stored() {
+    let (mut k, mut h) = animated();
+    h.helper = true;
+    // as kitty's icat sends a GIF's frames: shared memory, on frame 1
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,t=s,f=24,s=2,v=1,c=1,z=100,i=1;{}", b64(b"shm")),
+    );
+    let r = h.requests.pop().unwrap();
+    assert_eq!(r.pixels.map(|p| (p.width, p.height)), Some((2, 1)));
+    let budget = h.store.bytes();
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 2,
+            height: 1,
+            data: vec![0, 0, 0xff, 0xff, 0, 0, 0xff, 0xff],
+        }),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let key = key(&mut h);
+    assert_eq!(h.store.frame_gap(key, 2), Some(100));
+    assert_eq!(
+        &h.store.frame_pixels(key, 2).unwrap().pixels.as_slice()[..3],
+        &[0xff00_00ff, 0xff00_00ff, 0xffff_0000]
+    );
+    assert_eq!(h.store.bytes(), budget, "a frame is never in the budget");
+    // a PNG frame that leaves the image is EINVAL once its size is known
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,t=f,f=100,x=255,i=1;{}", b64(b"/p")),
+    );
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 2,
+            height: 1,
+            data: vec![0; 8],
+        }),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
+    assert_eq!(h.store.animation(key).unwrap().frames, 2);
+}
+
+// covers: image.kitty-animation
+#[test]
+fn frames_and_controls_fed_whole_or_cut_end_in_the_same_store_whatever_is_drawn() {
+    let stream = [
+        format!("a=t,s=256,v=256,i=1;{}", red(256 * 256)),
+        format!("a=f,i=1,s=3,v=2,x=5,y=7;{}", rgba([0, 0x80, 0, 0x80], 6)),
+        format!("a=f,i=1,s=2,v=2,c=2,X=1;{}", rgba([0, 0, 0xff, 0xff], 4)),
+        format!("a=f,i=1,r=3,s=1,v=1,x=9;{}", rgba([0xff, 0xff, 0, 0x40], 1)),
+        "a=a,i=1,r=1,z=50".to_string(),
+        "a=a,i=1,s=3,v=1,c=2".to_string(),
+        "a=c,i=1,r=3,c=2,w=4,h=4".to_string(),
+        format!(
+            "a=f,i=1,s=256,v=128,Y=4278190335;{}",
+            rgba([0, 0, 0, 0], 256 * 128)
+        ),
+        "a=a,i=1,s=1".to_string(),
+        // a change frame stays, so a drawn run's cache holds it at the end
+        format!("a=f,i=1,s=1,v=1,c=4,x=3;{}", red(1)),
+    ];
+    let run = |cuts: u64, draw: bool| {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        h.store.set_limit(4 << 20);
+        let mut seed = cuts;
+        for (n, cmd) in stream.iter().enumerate() {
+            let bytes = cmd.as_bytes();
+            let mut pieces = Vec::new();
+            let mut at = 0;
+            while at < bytes.len() && cuts > 0 {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                let step = 1 + (seed >> 33) as usize % 97;
+                let end = (at + step).min(bytes.len());
+                pieces.push(&bytes[at..end]);
+                at = end;
+            }
+            if cuts == 0 {
+                pieces.push(bytes);
+            }
+            string(&mut k, &mut h, &pieces);
+            if draw && n > 0 {
+                let key = h.store.find_image(1, 0).unwrap();
+                let frames = h.store.animation(key).map_or(1, |a| a.frames);
+                for f in 1..=frames {
+                    let _ = h.store.frame_pixels(key, f);
+                }
+            }
+        }
+        (h.take(), h.store, k)
+    };
+    let whole = run(0, false);
+    let key = whole.1.clone().find_image(1, 0).unwrap();
+    assert_eq!(whole.1.animation(key).unwrap().frames, 5);
+    for (cuts, draw) in [
+        (0, true),
+        (1, false),
+        (7, true),
+        (31, false),
+        (1_000_003, true),
+    ] {
+        let cut = run(cuts, draw);
+        assert_eq!(cut.0, whole.0, "cuts {cuts}");
+        assert!(cut.1 == whole.1, "cuts {cuts}, drawn {draw}");
+        assert_eq!(cut.2, whole.2);
+        assert_eq!(cut.1.frame_bytes(), whole.1.frame_bytes());
+    }
 }
 
 // covers: image.kitty
@@ -599,7 +880,25 @@ fn a_named_medium_goes_to_the_helper_and_its_answer_is_stored() {
         (r.offset, r.max, r.min, r.png, r.inflate),
         (2, 9, 3, false, false)
     );
-    k.decoded(&mut h, Reply::Ok(Payload::Bytes(vec![9, 8, 7])));
+    // the helper converts the pixels the request describes
+    assert_eq!(
+        r.pixels,
+        Some(Description {
+            layout: Layout::Rgb,
+            alpha: Alpha::Straight,
+            width: 1,
+            height: 1,
+            compressed: false,
+        })
+    );
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 1,
+            height: 1,
+            data: vec![9, 8, 7, 0xff],
+        }),
+    );
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     assert_eq!(h.boxes(), vec![(0, 0, 1, 1)]);
     // a read too short is EBADF; an inflate too short is EINVAL
@@ -670,7 +969,7 @@ fn a_refused_temporary_file_still_goes_to_the_helper_to_be_removed() {
     let r = h.requests.pop().unwrap();
     assert!(r.discard);
     assert_eq!((r.min, r.png, r.inflate), (0, false, false));
-    k.decoded(&mut h, Reply::Ok(Payload::Bytes(Vec::new())));
+    k.decoded(&mut h, Reply::Ok(Payload::Discarded));
     assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
     // a refused file is not removable and makes no request
     send(&mut k, &mut h, &format!("a=t,t=f,f=24,i=2;{}", b64(b"/a")));
@@ -999,4 +1298,601 @@ fn a_replacement_keeps_the_same_images_whether_or_not_it_takes_the_spare() {
     let (held, free) = (run(true), run(false));
     assert_eq!(held.0, 3, "the static picture and both ids stay");
     assert_eq!(held, free);
+}
+
+/// Transmits image `id`, 16 by 16 opaque pixels, two cells wide and one
+/// high, answered under no `q`.
+fn wide(k: &mut Kitty, h: &mut Host, id: u32) {
+    send(k, h, &format!("a=t,f=32,s=16,v=16,i={id},q=2;{}", red(256)));
+}
+
+/// Transmits image `id`, 8 by 32 opaque pixels, one cell wide and two
+/// high, answered under no `q`.
+fn tall(k: &mut Kitty, h: &mut Host, id: u32) {
+    send(k, h, &format!("a=t,f=32,s=8,v=32,i={id},q=2;{}", red(256)));
+}
+
+/// The frame's boxes, sorted, as (column, row, columns, rows).
+fn sorted(h: &Host) -> Vec<(u32, i64, u32, u32)> {
+    let mut boxes = h.boxes();
+    boxes.sort_unstable();
+    boxes
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_draws_at_its_parents_origin_plus_its_offset() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    h.cursor = (2, 1);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=3,V=1");
+    assert_eq!(h.take(), "\x1b_Gi=1,p=1;OK\x1b\\\x1b_Gi=2,p=1;OK\x1b\\");
+    assert_eq!(sorted(&h), vec![(2, 1, 2, 1), (5, 2, 2, 1)]);
+    assert_eq!(
+        h.cursor,
+        (2, 1),
+        "a relative placement never moves the cursor"
+    );
+    // negative offsets go left and up, and the part left of the screen is
+    // cut off
+    send(&mut k, &mut h, "a=p,i=2,p=2,P=1,Q=1,H=-3,V=-1");
+    assert_eq!(h.take(), "\x1b_Gi=2,p=2;OK\x1b\\");
+    assert_eq!(sorted(&h), vec![(0, 0, 1, 1), (2, 1, 2, 1), (5, 2, 2, 1)]);
+    // without Q, the parent is the image's placement made last that has no
+    // placement id
+    h.cursor = (0, 3);
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    h.cursor = (6, 3);
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    send(&mut k, &mut h, "a=p,i=2,p=3,P=1,H=2");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\\x1b_Gi=2,p=3;OK\x1b\\"
+    );
+    assert!(sorted(&h).contains(&(8, 3, 2, 1)), "{:?}", sorted(&h));
+    // P=0 names no image, so the put is an ordinary one at the cursor
+    h.cursor = (0, 2);
+    send(&mut k, &mut h, "a=p,i=2,p=4,P=0,H=5,C=1");
+    assert!(sorted(&h).contains(&(0, 2, 2, 1)), "{:?}", sorted(&h));
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_follows_its_parent_through_a_scroll_and_the_scrollback() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    h.cursor = (1, 1);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,V=2,q=1");
+    assert_eq!(sorted(&h), vec![(1, 1, 2, 1), (1, 3, 2, 1)]);
+    h.scroll_up(0, 3);
+    assert_eq!(sorted(&h), vec![(1, 0, 2, 1), (1, 2, 2, 1)]);
+    // the parent leaves the screen for the scrollback, and the child still
+    // draws: the frame is given the rows above the screen it reaches
+    h.scroll_up(0, 3);
+    assert_eq!(h.store.reach(), 2);
+    assert_eq!(sorted(&h), vec![(1, 1, 2, 1)]);
+    // the scrollback drops its oldest line, then the parent's: the parent
+    // goes, and the child with it, taking its image, which has no
+    // placement left
+    let oldest = h.above.pop().unwrap();
+    h.store.discard_line(oldest, h.above.last().copied());
+    assert_eq!(sorted(&h), vec![(1, 1, 2, 1)]);
+    let parents = h.above.pop().unwrap();
+    h.store.discard_line(parents, h.screen.first().copied());
+    assert_eq!(sorted(&h), vec![]);
+    assert_eq!(h.store.placement_count(), 0);
+    assert_eq!(h.store.image_count(), 1, "image 1 stays; image 2 went");
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_moves_with_its_parent_in_a_region_scroll() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    // a parent inside rows 1 to 2 and its child below the region: the
+    // child moves because its parent does, wherever the margins are
+    h.cursor = (0, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=3,V=1,q=1");
+    assert_eq!(sorted(&h), vec![(0, 2, 2, 1), (3, 3, 2, 1)]);
+    h.scroll_up(1, 2);
+    assert_eq!(sorted(&h), vec![(0, 1, 2, 1), (3, 2, 2, 1)]);
+    // a region scroll that cuts the parent's top keeps the child where it
+    // was against the parent's picture
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    tall(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    h.cursor = (0, 1);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=1,V=1,q=1");
+    assert_eq!(sorted(&h), vec![(0, 1, 1, 2), (1, 2, 2, 1)]);
+    h.scroll_up(1, 3);
+    assert_eq!(sorted(&h), vec![(0, 1, 1, 1), (1, 1, 2, 1)]);
+    // a parent across the region's edge keeps its place, and so does its
+    // child
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    tall(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    h.cursor = (0, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=1,q=1");
+    h.scroll_up(1, 2);
+    assert_eq!(sorted(&h), vec![(0, 2, 1, 2), (1, 2, 2, 1)]);
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_follows_its_parent_when_the_parent_is_replaced() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=2,V=1,q=1");
+    assert_eq!(sorted(&h), vec![(0, 0, 2, 1), (2, 1, 2, 1)]);
+    // a put with the same image and placement id replaces the parent, and
+    // keeps its child
+    h.cursor = (5, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    assert_eq!(sorted(&h), vec![(5, 2, 2, 1), (7, 3, 2, 1)]);
+    assert_eq!(h.store.placement_count(), 2);
+    // a parent replaced as a child of another placement takes its child
+    // along
+    h.cursor = (0, 0);
+    wide(&mut k, &mut h, 3);
+    send(&mut k, &mut h, "a=p,i=3,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=1,p=1,P=3,Q=1,V=1,q=1");
+    assert_eq!(sorted(&h), vec![(0, 0, 2, 1), (0, 1, 2, 1), (2, 2, 2, 1)]);
+}
+
+// covers: image.kitty-relative
+#[test]
+fn deleting_a_parent_takes_its_children_and_images_left_without_placements() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    for id in 1..=4 {
+        wide(&mut k, &mut h, id);
+    }
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,H=2,q=1");
+    send(&mut k, &mut h, "a=p,i=3,p=1,P=2,Q=1,H=2,q=1");
+    // image 4 has a placement of its own beside its child of image 1
+    h.cursor = (0, 2);
+    send(&mut k, &mut h, "a=p,i=4,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=4,p=2,P=1,Q=1,V=1,q=1");
+    assert_eq!(h.store.placement_count(), 5);
+    // a lowercase delete keeps image 1's data; its child and grandchild go
+    // with it and take their images, left with no placement, while image 4
+    // keeps its own placement and its data
+    send(&mut k, &mut h, "a=d,d=i,i=1");
+    assert_eq!(sorted(&h), vec![(0, 2, 2, 1)]);
+    assert_eq!(h.store.image_count(), 2);
+    send(&mut k, &mut h, "a=p,i=2,C=1");
+    send(&mut k, &mut h, "a=p,i=3,C=1");
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=2;ENOENT:image not found\x1b\\\x1b_Gi=3;ENOENT:image not found\x1b\\\x1b_Gi=1;OK\x1b\\"
+    );
+    // ED 2 takes a child by the rows it draws on, and with its parent
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,V=2,q=1");
+    h.store.erase_screen(Rows {
+        screen: &h.screen,
+        above: &h.above,
+    });
+    assert_eq!(h.store.placement_count(), 0);
+    assert_eq!(h.store.image_count(), 1, "the child's image went with it");
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_parent_that_does_not_exist_is_enoparent() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    wide(&mut k, &mut h, 1);
+    wide(&mut k, &mut h, 2);
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    let enoparent = "\x1b_Gi=2;ENOPARENT:parent placement not found\x1b\\";
+    for keys in ["a=p,i=2,P=9", "a=p,i=2,P=1,Q=5", "a=p,i=2,P=1"] {
+        send(&mut k, &mut h, keys);
+        assert_eq!(h.take(), enoparent, "{keys}");
+    }
+    assert_eq!(h.store.placement_count(), 1, "a refused put places nothing");
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_placement_that_would_follow_itself_is_ecycle() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    for id in 1..=3 {
+        wide(&mut k, &mut h, id);
+    }
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=1,Q=1,V=1,q=1");
+    send(&mut k, &mut h, "a=p,i=3,p=1,P=2,Q=1,V=1,q=1");
+    let before = sorted(&h);
+    send(&mut k, &mut h, "a=p,i=1,p=1,P=3,Q=1");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=1,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
+    );
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=2,Q=1");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=2,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
+    );
+    assert_eq!(
+        sorted(&h),
+        before,
+        "a refused replacement keeps the old one"
+    );
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_chain_deeper_than_eight_relative_placements_is_etoodeep() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    for id in 1..=11 {
+        wide(&mut k, &mut h, id);
+    }
+    send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
+    // eight relative placements below image 1's
+    for id in 2..=9 {
+        send(&mut k, &mut h, &format!("a=p,i={id},p=1,P={},Q=1", id - 1));
+        assert_eq!(h.take(), format!("\x1b_Gi={id},p=1;OK\x1b\\"));
+    }
+    let toodeep = "ETOODEEP:chain of relative placements is too deep";
+    send(&mut k, &mut h, "a=p,i=10,p=1,P=9,Q=1");
+    assert_eq!(h.take(), format!("\x1b_Gi=10,p=1;{toodeep}\x1b\\"));
+    // the chain's first placement replaced as a child would put the chain
+    // nine deep
+    h.cursor = (0, 3);
+    send(&mut k, &mut h, "a=p,i=11,p=1,C=1,q=1");
+    send(&mut k, &mut h, "a=p,i=1,p=1,P=11,Q=1");
+    assert_eq!(h.take(), format!("\x1b_Gi=1,p=1;{toodeep}\x1b\\"));
+    // its second, with seven below it, fits
+    send(&mut k, &mut h, "a=p,i=2,p=1,P=11,Q=1");
+    assert_eq!(h.take(), "\x1b_Gi=2,p=1;OK\x1b\\");
+    assert_eq!(h.store.placement_count(), 10);
+}
+
+// covers: image.kitty-placeholders
+#[test]
+fn a_virtual_placement_is_stored_on_no_line_and_only_a_delete_by_image_takes_it() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.cursor = (3, 1);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=32,s=16,v=16,i=1,p=7,U=1,c=4,r=2;{}", red(256)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1,p=7;OK\x1b\\");
+    assert_eq!(
+        h.cursor,
+        (3, 1),
+        "a virtual placement never moves the cursor"
+    );
+    assert_eq!(h.store.placement_count(), 1);
+    assert_eq!(
+        sorted(&h),
+        vec![],
+        "it draws only through placeholder cells"
+    );
+    // no screen event reaches it, and neither do the deletes by cell, row,
+    // column or z
+    for _ in 0..6 {
+        h.scroll_up(0, 3);
+    }
+    h.scroll_up(1, 2);
+    h.store.erase_screen(Rows {
+        screen: &h.screen,
+        above: &h.above,
+    });
+    for keys in [
+        "a=d,d=A",
+        "a=d,d=C",
+        "a=d,d=P,x=4,y=2",
+        "a=d,d=Q,x=4,y=2,z=0",
+        "a=d,d=X,x=4",
+        "a=d,d=Y,y=2",
+        "a=d,d=Z,z=0",
+    ] {
+        send(&mut k, &mut h, keys);
+        assert_eq!(h.store.placement_count(), 1, "{keys}");
+    }
+    // a virtual placement is never a child, though it may be a parent; its
+    // child draws nothing while the store reads no placeholder cells
+    wide(&mut k, &mut h, 2);
+    send(&mut k, &mut h, "a=p,i=2,U=1,P=1,Q=7");
+    assert_eq!(h.take(), "\x1b_Gi=2;EINVAL:invalid argument\x1b\\");
+    send(&mut k, &mut h, "a=p,i=2,P=1,Q=7,H=1");
+    assert_eq!(h.take(), "\x1b_Gi=2;OK\x1b\\");
+    assert_eq!(h.store.placement_count(), 2);
+    assert_eq!(sorted(&h), vec![]);
+    // a delete by image takes it, and its child with it
+    send(&mut k, &mut h, "a=d,d=i,i=1,p=7");
+    assert_eq!(h.store.placement_count(), 0);
+    assert_eq!(h.store.image_count(), 1, "image 1 stays; image 2 went");
+}
+
+/// A helper's reply file that holds `held` bytes of opaque red but says it
+/// holds what the picture needs, as a lying or truncated file would.
+#[derive(Debug)]
+struct Lying {
+    held: usize,
+    says: u64,
+}
+
+impl ReplySource for Lying {
+    fn bytes(&self) -> u64 {
+        self.says
+    }
+
+    fn read(&self, sink: &mut dyn FnMut(&[u8])) -> bool {
+        sink(&[0xff, 0, 0, 0xff].repeat(self.held / 4));
+        true
+    }
+}
+
+// covers: image.kitty
+#[test]
+fn a_reply_file_too_short_or_too_long_is_ebadf_and_gives_its_bytes_back() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    for (id, held) in [(1, 12), (2, 20)] {
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=t,t=f,f=32,s=2,v=2,i={id};{}", b64(b"/x")),
+        );
+        assert_eq!(h.requests.len(), 1);
+        h.requests.clear();
+        let file = ReplyFile::new(Lying { held, says: 16 });
+        k.decoded(
+            &mut h,
+            Reply::Ok(Payload::File {
+                width: 2,
+                height: 2,
+                file,
+            }),
+        );
+        assert_eq!(
+            h.take(),
+            format!("\x1b_Gi={id};EBADF:Failed to read image file\x1b\\"),
+            "{held} bytes"
+        );
+        assert_eq!(h.store.image_count(), 0);
+        assert_eq!(h.store.bytes(), 0, "the budget is whole again");
+    }
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_frames_buffered_payload_is_charged_to_the_frame_allowance_and_evicts_nothing() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    // a budget of image 1, 256 by 256, image 2, 64 by 64, and 1 KiB more
+    let limit = (256 * 256 * 4 + IMAGE_OVERHEAD) + (64 * 64 * 4 + IMAGE_OVERHEAD) + 1024;
+    h.store.set_limit(limit);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,s=256,v=256,i=1;{}", red(256 * 256)),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,s=64,v=64,i=2;{}", red(64 * 64)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\");
+    let budget = h.store.bytes();
+    // a zlib frame sent directly: its 64 KiB payload is kept for the helper
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,o=z,f=32,s=256,v=256;{}", b64(&[0x5a; 64 << 10])),
+    );
+    assert_eq!(h.store.image_count(), 2, "the payload evicted no image");
+    assert_eq!(h.store.bytes(), budget, "nor took any of the budget");
+    assert!(h.store.frame_bytes() >= 64 << 10, "the allowance holds it");
+    assert_eq!(h.requests.len(), 1);
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 256,
+            height: 256,
+            data: [0, 0, 0xff, 0xff].repeat(256 * 256),
+        }),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let key = h.store.find_image(1, 0).unwrap();
+    assert_eq!(h.store.animation(key).unwrap().frames, 2);
+    assert_eq!(h.store.image_count(), 2);
+    assert_eq!(
+        h.store.frame_bytes(),
+        256 * 256 * 4 + crate::FRAME_OVERHEAD,
+        "the payload's bytes went back when the helper answered"
+    );
+}
+
+/// Frame `n` of image 1's pixels.
+fn frame_of(h: &mut Host, n: u32) -> Vec<u32> {
+    let key = key(h);
+    h.store
+        .frame_pixels(key, n)
+        .unwrap()
+        .pixels
+        .as_slice()
+        .to_vec()
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_composition_lays_frame_r_onto_frame_c_and_gives_c_a_new_pixel_revision() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=4,v=4,i=1;{}", red(16)));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1;{}", rgba([0, 0, 0xff, 0xff], 16)),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1;{}", rgba([0, 0xff, 0, 0xff], 16)),
+    );
+    let _ = h.take();
+    let (two, three) = (frame_of(&mut h, 2), frame_of(&mut h, 3));
+    let key = key(&mut h);
+    let revision = |h: &Host, n| h.store.frame_pixels(key, n).unwrap().revision;
+    let (r2, r3) = (revision(&h, 2), revision(&h, 3));
+    // r is the source and c the destination
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=3,w=2,h=1,C=1");
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    assert_eq!(frame_of(&mut h, 2), two, "the source keeps its pixels");
+    let mut want = three.clone();
+    want[..2].copy_from_slice(&two[..2]);
+    assert_eq!(frame_of(&mut h, 3), want);
+    assert_eq!(revision(&h, 2), r2);
+    assert!(
+        revision(&h, 3) > r3,
+        "the destination's pixel revision moves"
+    );
+}
+
+// covers: image.kitty-animation
+#[test]
+fn an_edit_of_the_root_frame_gives_it_a_new_pixel_revision() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=4,v=4,i=1;{}", red(16)));
+    let key = key(&mut h);
+    let before = h.store.frame_pixels(key, 1).unwrap();
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,r=1,s=1,v=1;{}", rgba([0, 0, 0xff, 0xff], 1)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
+    let after = h.store.frame_pixels(key, 1).unwrap();
+    assert_eq!(after.pixels.as_slice()[0], 0xff00_00ff);
+    assert!(after.revision > before.revision);
+    // a composition onto the root moves it again
+    send(&mut k, &mut h, &format!("a=f,i=1;{}", red(16)));
+    send(&mut k, &mut h, "a=c,i=1,r=2,c=1,w=1,h=1,C=1");
+    let again = h.store.frame_pixels(key, 1).unwrap();
+    assert_eq!(again.pixels.as_slice()[0], 0xffff_0000);
+    assert!(again.revision > after.revision);
+}
+
+// covers: image.kitty-animation
+#[test]
+fn an_animation_command_moves_its_images_use_clock() {
+    // three pictures of 256 by 256, under a budget whose allowance, 640 KiB,
+    // holds two whole frames of them
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    for id in 1..=3 {
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=t,s=256,v=256,i={id};{}", red(256 * 256)),
+        );
+    }
+    h.store.set_limit(128 << 10);
+    let whole = rgba([0, 0, 0xff, 0xff], 256 * 256);
+    send(&mut k, &mut h, &format!("a=f,i=1;{whole}"));
+    send(&mut k, &mut h, &format!("a=f,i=2;{whole}"));
+    // a control names image 1, so image 2 is now used least recently, and
+    // its frames go for image 3's
+    send(&mut k, &mut h, "a=a,i=1,s=1");
+    send(&mut k, &mut h, &format!("a=f,i=3;{whole}"));
+    let frames = |h: &mut Host, id| {
+        let key = h.store.find_image(id, 0).unwrap();
+        h.store.animation(key).unwrap().frames
+    };
+    assert_eq!(
+        (frames(&mut h, 1), frames(&mut h, 2), frames(&mut h, 3)),
+        (2, 1, 2)
+    );
+}
+
+// covers: image.kitty-animation
+#[test]
+fn z_on_an_edit_sets_the_gap_of_the_frame_it_edits() {
+    let (mut k, mut h) = animated();
+    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1;{}", red(1)));
+    let key = key(&mut h);
+    assert_eq!(h.store.frame_gap(key, 2), Some(40));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,r=2,z=77,s=1,v=1;{}", red(1)),
+    );
+    assert_eq!(h.store.frame_gap(key, 2), Some(77));
+    // z=0 keeps the gap
+    send(&mut k, &mut h, &format!("a=f,i=1,r=2,s=1,v=1;{}", red(1)));
+    assert_eq!(h.store.frame_gap(key, 2), Some(77));
+}
+
+// covers: image.kitty-animation
+#[test]
+fn z_on_an_edit_of_the_root_frame_sets_the_roots_gap() {
+    let (mut k, mut h) = animated();
+    let key = key(&mut h);
+    assert_eq!(h.store.frame_gap(key, 1), Some(0));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,r=1,z=55,s=1,v=1;{}", red(1)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    assert_eq!(h.store.frame_gap(key, 1), Some(55));
+    // z=0 keeps it
+    send(&mut k, &mut h, &format!("a=f,i=1,r=1,s=1,v=1;{}", red(1)));
+    assert_eq!(h.store.frame_gap(key, 1), Some(55));
+}
+
+// covers: image.kitty-animation
+#[test]
+fn a_frames_refusal_names_the_image_as_its_success_does() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    send(&mut k, &mut h, &format!("a=t,s=1,v=1,I=5;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), "\x1b_Gi=1,I=5;OK\x1b\\\x1b_Gi=1,I=5;OK\x1b\\");
+    let einval = "\x1b_Gi=1,I=5;EINVAL:invalid argument\x1b\\";
+    let enoent = "\x1b_Gi=1,I=5;ENOENT:image not found\x1b\\";
+    // refused before the data: a rectangle out of the image, a missing frame
+    send(&mut k, &mut h, &format!("a=f,I=5,x=999,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), einval);
+    send(&mut k, &mut h, &format!("a=f,I=5,c=9,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), enoent);
+    // refused at the end: data short of its rectangle
+    send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=2;{}", red(1)));
+    assert_eq!(h.take(), einval);
+    // refused with a named medium, before the request and at the answer
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,I=5,t=f,f=100,x=9;{}", b64(b"/p")),
+    );
+    assert_eq!(h.take(), einval);
+    send(&mut k, &mut h, &format!("a=f,I=5,t=f,f=100;{}", b64(b"/p")));
+    k.decoded(
+        &mut h,
+        Reply::Ok(Payload::Rgba {
+            width: 2,
+            height: 1,
+            data: vec![0; 8],
+        }),
+    );
+    assert_eq!(h.take(), einval);
+    send(&mut k, &mut h, &format!("a=f,I=5,t=f,f=100;{}", b64(b"/p")));
+    k.decoded(&mut h, Reply::Corrupt);
+    assert_eq!(h.take(), einval);
 }

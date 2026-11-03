@@ -57,6 +57,7 @@ cargo fmt --all --check \
   && cargo test --workspace --all-features \
   && cargo test --workspace \
   && cargo build --profile minspec \
+  && make msrv \
   && docs/scripts/adr lint --check \
   && docs/scripts/adr cite --check \
   && docs/scripts/issue-refs \
@@ -118,17 +119,18 @@ Tier 3 needs `qemu-system-x86_64` with KVM, `qemu-img`, `xorriso`, `gpg`, `curl`
 
 ### The VT review
 
-In the VT review, the maintainer checks a build by eye on a real VT. The review runs one build at a time and starts it from one place, so that no other vtium build is left running on a VT:
+In the VT review, the maintainer checks a build by eye on a real VT. The review runs one build at a time and starts it from one place, so that no other vtium build is left running on a VT. [docs/vt-review.md](docs/vt-review.md#this-machines-vts) describes this machine's VTs, the development VT that each run borrows, and how the development VT is refreshed after a merge.
 
-- The steering session starts the run on a free VT with `make vt-check GUIDE=...` without asking first, and tells the maintainer which VT to switch to. A delegated agent never starts a run.
+- The steering session starts the run with `make vt-check GUIDE=...` without asking first, and tells the maintainer which VT to switch to. A delegated agent never starts a run.
 - The maintainer switches to that VT (Ctrl-Alt-F<n>), follows each step of the guide, and answers y, n or skip, with a note. Sudo asks for its password in the terminal where the run started.
-- When the run ends, the console comes back on that VT, and the steering session reads the answers from the log.
+- When the run ends, the steering session reads the answers from the log.
+- The steering session refreshes the development VT after each merge to `integration`, and a delegated agent never does. The steering session cannot type a password, so sudo's credentials must already be cached in its terminal; when they are not, it asks the maintainer to run `sudo -v` there first.
 
 A delegated agent proves its branch with the gates and tiers 1 to 3 in its own worktree, and stops there. This machine is the maintainer's live desktop, so an agent on it never takes DRM master, never sets a display mode, never switches VT, never opens a `/dev/tty<N>` console and never runs sudo. An agent may create GL contexts on a render node, use its own ptys and run the tier 3 VM. A render node refuses dumb buffers, the plain memory buffers that the CPU draws into, with `EACCES`, so only tier 3 can prove the dumb-buffer path.
 
 ## The working loop
 
-Work happens on this machine first. GitHub's runners are slow, so the steering session waits on them only at merge points, such as the end of a wave. `integration` is a branch in the maintainer's checkout that collects reviewed work before it goes to main.
+Work happens on this machine first. GitHub's runners are slow, so the steering session waits on them only at merge points, such as the end of a wave. `integration` is a branch in the maintainer's checkout that collects reviewed work. `stage` is a branch on GitHub that holds one batch of `integration`, frozen at a commit that passed the gates, while that batch goes to main.
 
 1. **The record comes first.** When a decision governs a change, the steering session writes or amends the decision's ADR before the build starts, often through a delegated agent. The maintainer reads it before it merges, as with every decision that sets direction. Then a gap-check reads the code against the ADR, statement by statement, and lists where they differ. The implementation work starts from the gaps it finds. For a brand-new feature the ADR still comes first, and the gap-check then finds everything missing.
 2. **A worktree per branch,** placed beside the repositories. From the vtium checkout, run `git worktree add -b feat/<topic> ../vtium-<topic> integration`. The forks get no worktrees, because they are read only. Each worktree has its own `target/` directory, so builds running in parallel never wait on each other's lock. No two agents edit the same file, and each crate has one owner at a time.
@@ -136,13 +138,14 @@ Work happens on this machine first. GitHub's runners are slow, so the steering s
 4. **The author commits locally and runs the gates.** The author does not push or open a PR. The author's report gives the branch, the head commit, the gate results and the departures, the way a PR body would.
 5. **A fresh reviewer reads the diff** (`git diff integration...<branch>`), runs the gates, and plants the defects that the change claims to catch. The author fixes the findings on the same branch, in up to two fix rounds, and a third round goes to a newly briefed agent.
 6. **The reviewed branch merges into `integration`** with `git merge --no-ff`, and the steering session runs the full gates again on the merged tree.
-7. **At a merge point,** the steering session pushes `integration`, opens one PR to main, and waits for that PR's CI. A PR merges only once every CI job has passed, `arm-native` included. vtium has to keep working on platforms other than the x86 machines it is written on, and `arm-native` runs on ARM hardware like the hardware vtium's smallest build is most likely to run on. A PR merges with a regular merge commit, never a squash or a rebase.
+7. **At a merge point,** the steering session picks a commit of `integration` that passed the full gates on the merged tree and moves `stage` to it with `git push origin <commit>:stage`. `stage` only ever moves forward to a later commit of `integration`, and nobody commits on it. The steering session then opens one PR from `stage` to main, so the maintainer reads a diff that does not move, with the batch's ADR notes and goldens in it, while `integration` keeps taking new work. A fix that the maintainer's review asks for lands on `integration` and reaches main with the next batch, or the steering session moves `stage` forward to it, which starts the PR's CI again. The steering session waits for that PR's CI. A PR merges only once every CI job has passed, `arm-native` included. vtium has to keep working on platforms other than the x86 machines it is written on, and `arm-native` runs on ARM hardware like the hardware vtium's smallest build is most likely to run on. A PR merges with a regular merge commit, never a squash or a rebase. A release is tagged on main.
 
 ### Testing rules
 
 - Before you delete a test because the golden or other reference it compared against is going away, check which defects only that test would catch, and keep a test that still catches each of them.
 - A stand-in (a stub or fake) that a test uses in place of a real part must check what the real part checks. A test's stand-in for the glyph helper once accepted any frit (font set file) name, so the real helper's refusal of a bad name surfaced only in tier 3.
 - Fix a bug by fixing the state that is wrong, never with timing: no delays, retries or "redraw a moment later". A test checks that state right after the event that should change it, and counts turns or frames instead of measuring wall time. When a test has to wait for another thread, bound the wait only so the test fails instead of hanging. A console switch that kept drawing the old console was fixed by resetting what each display remembered drawing, not by redrawing later.
+- A fuzz target is a cargo-fuzz program in a crate's `fuzz/` directory that feeds generated inputs to the crate's code, and the crate's fuzz README says what each target reaches. The author of a change to code that a fuzz target reaches runs that target for the default 60 s with `make fuzz FUZZ_TARGETS=<crate>:<target>`, and commits with the change the rows the run appends to `crates/<crate>/fuzz/runs.tsv`. The reviewer checks that those rows exist, that they read ok, or that the crash a row records is fixed or filed, and that their commit column names the change's commit, or its parent with -dirty when the author ran the target before committing. Fuzzing is not a gate, because it needs a nightly toolchain and minutes of wall time.
 
 ### Cooperating across worktrees
 

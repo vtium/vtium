@@ -4,7 +4,7 @@
 //! pinned here by URL and SHA-256 and fetched into a cache outside the
 //! tree, as tier 3 pins its guest images: `$XDG_CACHE_HOME/vtium/specimens/fonts`.
 //! The glyphs of `frits/desktop.vtfrit` are generated from the outline
-//! fonts by vtium-vitrify's engine, the one the helper runs, in this
+//! fonts by vtium-config's engine, the one the helper runs, in this
 //! process, with the cache as its only font directory, at each outline
 //! profile's cell. The glyphs of the shipped frit `tiny5` are generated the
 //! same way from Tiny5 Mono's BDF file in the cache, its `source=` line
@@ -57,8 +57,8 @@ pub const TINY5: Pinned = Pinned {
     sha256: "33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3",
 };
 
-/// The shipped frit `tiny5`, as vtium-vitrify ships it.
-pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-vitrify/frits/tiny5.vtfrit");
+/// The shipped frit `tiny5`, as vtium-config ships it.
+pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-config/frits/tiny5.vtfrit");
 
 /// The path the shipped frit `tiny5` names its BDF file at.
 const TINY5_SOURCE: &str = "source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf";
@@ -152,7 +152,7 @@ pub fn tiny5(fonts: &Path, cells: &[Cell]) -> Result<Vec<(Cell, Arc<Set>)>, Stri
 }
 
 /// The glyphs of the frit `name`, `text`, at each of `cells`, as
-/// vtium-vitrify's engine, the one the helper runs (ADR-1301 D2), draws
+/// vtium-config's engine, the one the helper runs (ADR-1301 D2), draws
 /// every codepoint the frit gives, `fonts` its only font directory. A cell
 /// at which a source gives nothing, or fails as it draws, is refused: the
 /// glyphs of only some of the frit's sources are not the profile's.
@@ -162,7 +162,7 @@ fn generate(
     fonts: &Path,
     cells: &[Cell],
 ) -> Result<Vec<(Cell, Arc<Set>)>, String> {
-    use vtium_vitrify::serve::{Engine, FritText, Paths};
+    use vtium_config::serve::{Engine, FritText, Paths};
     let frit = FritText {
         name: name.to_owned(),
         text: text.to_owned(),
@@ -191,6 +191,35 @@ fn generate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A directory of a test's own, `vtium-specimens-<name>-<pid>` in the
+    /// temporary directory, removed when the test ends, whether it passes
+    /// or fails.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Scratch {
+            let dir =
+                std::env::temp_dir().join(format!("vtium-specimens-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+    }
+
+    impl std::ops::Deref for Scratch {
+        type Target = Path;
+
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
     use vtium_font::Face;
 
     // The frit names each source's SHA-256, the bytes the cache is checked
@@ -227,9 +256,7 @@ mod tests {
     // engine reads it: the profiles drawn from it go undrawn.
     #[test]
     fn a_changed_font_in_the_cache_builds_no_set() {
-        let dir =
-            std::env::temp_dir().join(format!("vtium-specimens-cache-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("cache");
         for f in pinned() {
             std::fs::write(dir.join(f.file), b"not the font").unwrap();
         }
@@ -237,7 +264,6 @@ mod tests {
         assert!(why.contains("has SHA-256"), "{why}");
         let why = tiny5(&dir, &[]).unwrap_err();
         assert!(why.contains("Tiny5Mono.bdf has SHA-256"), "{why}");
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // ADR-1301 D2: the frit's glyphs come from the engine the helper runs,
@@ -284,9 +310,7 @@ mod tests {
 
     #[test]
     fn a_font_absent_or_changed_is_a_fault() {
-        let dir =
-            std::env::temp_dir().join(format!("vtium-specimens-fonts-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("fonts");
         let font = Pinned {
             file: "x.ttf",
             url: "",
@@ -298,6 +322,5 @@ mod tests {
         assert!(fault(&dir, &font).unwrap().contains("has SHA-256"));
         std::fs::write(dir.join("x.ttf"), b"x").unwrap();
         assert_eq!(fault(&dir, &font), None);
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -83,7 +83,12 @@ fn check_heights(s: &Store) {
     for buf in &s.buffers {
         let mut all: BTreeMap<u32, u32> = BTreeMap::new();
         let mut cut: BTreeMap<u32, u32> = BTreeMap::new();
-        for p in buf.placements.values() {
+        // only a placement on a line is counted
+        for p in buf
+            .placements
+            .values()
+            .filter(|p| matches!(p.spot, Spot::Line(_)))
+        {
             *all.entry(p.rows).or_insert(0) += 1;
             if rules(p.protocol.0).cut_by_text {
                 *cut.entry(p.rows).or_insert(0) += 1;
@@ -1479,4 +1484,357 @@ fn hidden_pieces_change_no_composite_pixel() {
             assert!(want == got, "round {round}, picture {n}");
         }
     }
+}
+
+/// Places `img` as `link` says, with the box `cols` by `rows` (0 for the
+/// picture's own size) and kitty placement id `id`.
+fn link(
+    s: &mut Store,
+    f: &Fake,
+    img: ImageKey,
+    link: Link,
+    (cols, rows): (u32, u32),
+    id: u32,
+) -> PlacementKey {
+    let place = Place {
+        cols,
+        rows,
+        id,
+        ..Place::default()
+    };
+    s.place_at(img, place, link, f.screens(), COLS)
+        .expect("placed")
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_reports_its_box_from_its_roots_line() {
+    let f = Fake::new(6);
+    let mut s = store(1 << 30);
+    let parent = add(&mut s, &f, Protocol::KITTY, 16, 16, 1);
+    let child = add(&mut s, &f, Protocol::KITTY, 16, 16, 2);
+    let place = Place {
+        col: 1,
+        row: 2,
+        id: 1,
+        ..Place::default()
+    };
+    s.place(parent, place, f.screens(), COLS).unwrap();
+    let _ = s.take_changed();
+    let at = |cols, rows| Link::Parent {
+        image: 1,
+        placement: 1,
+        cols,
+        rows,
+    };
+    link(&mut s, &f, child, at(3, -1), (0, 0), 1);
+    let line = LineKey::new(2);
+    assert_eq!(
+        s.take_changed(),
+        [Region {
+            line,
+            row: -1,
+            col: 4,
+            cols: 2,
+            rows: 1
+        }]
+    );
+    // a box that starts left of the screen reports only its part on it
+    link(&mut s, &f, child, at(-2, 2), (0, 0), 2);
+    assert_eq!(
+        s.take_changed(),
+        [Region {
+            line,
+            row: 2,
+            col: 0,
+            cols: 1,
+            rows: 1
+        }]
+    );
+    // moving the parent reports every child's old and new box
+    s.move_anchor(PlacementKey(0), Some((LineKey::new(4), 1)));
+    let changed = s.take_changed();
+    assert!(
+        changed.contains(&Region {
+            line,
+            row: -1,
+            col: 4,
+            cols: 2,
+            rows: 1
+        }),
+        "{changed:?}"
+    );
+    let moved = LineKey::new(4);
+    assert!(
+        changed.contains(&Region {
+            line: moved,
+            row: -1,
+            col: 4,
+            cols: 2,
+            rows: 1
+        }),
+        "{changed:?}"
+    );
+    assert_eq!(
+        s.reach(),
+        2,
+        "a child two rows below its root's line reaches two rows"
+    );
+}
+
+// covers: image.kitty-placeholders
+#[test]
+fn a_virtual_placement_has_its_size_in_cells_and_no_line() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    // 24 by 40 pixels: three cells wide and three high at 8 by 16
+    let img = add(&mut s, &f, Protocol::KITTY, 24, 40, 1);
+    let sized = link(&mut s, &f, img, Link::Virtual, (5, 2), 1);
+    let own = link(&mut s, &f, img, Link::Virtual, (0, 0), 2);
+    let buf = &s.buffers[MAIN];
+    for (k, size) in [(sized, (5, 2)), (own, (3, 3))] {
+        let p = &buf.placements[&k];
+        assert_eq!(p.spot, Spot::Virtual);
+        assert!(!p.attached);
+        assert_eq!((p.cols, p.rows), size);
+    }
+    assert!(
+        buf.by_line.is_empty(),
+        "a virtual placement lies on no line"
+    );
+    assert!(buf.heights.is_empty());
+    assert_eq!(s.reach(), 0);
+    assert_eq!(s.placement_count(), 2);
+    check_heights(&s);
+    assert!(s.take_changed().is_empty(), "it covers no cell");
+}
+
+// covers: image.kitty-placeholders
+#[test]
+fn an_image_shown_only_by_a_virtual_placement_is_evicted_as_one_on_the_screen() {
+    let mut f = Fake::new(2);
+    let mut s = store(3 * ONE_CELL);
+    // the virtual placement's image is used first, then one placed on a
+    // line that leaves for the scrollback
+    let shown = add(&mut s, &f, Protocol::KITTY, 8, 16, 1);
+    link(&mut s, &f, shown, Link::Virtual, (1, 1), 1);
+    let scrolled = add(&mut s, &f, Protocol::KITTY, 8, 16, 2);
+    put(&mut s, &f, scrolled, 0, 0);
+    f.screen = vec![LineKey::new(7), LineKey::new(8)];
+    let third = add(&mut s, &f, Protocol::KITTY, 8, 16, 3);
+    put(&mut s, &f, third, 0, 0);
+    // a fourth image needs room: the one placed only in the scrollback goes
+    // before the one a virtual placement shows, however recently used
+    add(&mut s, &f, Protocol::KITTY, 8, 16, 4);
+    assert!(s.image(MAIN, shown).is_some());
+    assert!(s.image(MAIN, scrolled).is_none());
+}
+
+// covers: image.kitty-relative
+#[test]
+fn a_child_above_a_parent_below_the_view_draws_from_the_lines_below() {
+    // two scrollback lines, 20 and 21, above a screen of six, 0 to 5
+    let f = Fake::new(6);
+    let mut s = store(1 << 30);
+    let parent = add(&mut s, &f, Protocol::KITTY, 8, 16, 1);
+    let child = add(&mut s, &f, Protocol::KITTY, 8, 16, 2);
+    let place = Place {
+        row: 5,
+        id: 1,
+        ..Place::default()
+    };
+    s.place(parent, place, f.screens(), COLS).unwrap();
+    let up = Link::Parent {
+        image: 1,
+        placement: 1,
+        cols: 1,
+        rows: -3,
+    };
+    link(&mut s, &f, child, up, (0, 0), 1);
+    assert_eq!(s.reach_below(), 3);
+    // the view scrolled back two rows shows lines 20, 21 and 0 to 3, and
+    // the parent's line 5 lies below it
+    let view: Vec<LineKey> = [20, 21, 0, 1, 2, 3].map(LineKey::new).to_vec();
+    let below: Vec<LineKey> = [4, 5].map(LineKey::new).to_vec();
+    let rows = Rows {
+        screen: &view,
+        above: &[],
+    };
+    let drawn: Vec<(i64, u32)> = s
+        .frame_with_below(rows, &below, COLS)
+        .iter()
+        .map(|p| (p.row, p.col))
+        .collect();
+    assert_eq!(drawn, [(4, 1)], "the child on line 2, the view's row 4");
+}
+
+// covers: image.iterm2
+#[test]
+fn a_drawn_size_draws_the_picture_at_it_and_the_box_covers_the_cells_it_reaches() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    // 64 by 48 pixels drawn at 30 by 20: four columns and two rows at 8 by
+    // 16, the picture stretched to the size given from the box's top left
+    let img = add(&mut s, &f, Protocol::SIXEL, 64, 48, 0);
+    let place = Place {
+        col: 1,
+        row: 1,
+        ..Place::default()
+    };
+    let drawn = Link::Drawn {
+        width: 30,
+        height: 20,
+    };
+    s.place_at(img, place, drawn, f.screens(), COLS).unwrap();
+    let frame = s.frame(f.rows(), COLS);
+    let p = &frame[0];
+    assert_eq!((p.col, p.row, p.cols, p.rows), (1, 1, 4, 2));
+    assert_eq!((p.offset_x, p.offset_y), (0, 0));
+    assert_eq!((p.drawn_width, p.drawn_height), (30, 20));
+    assert_eq!((p.crop_width, p.crop_height), (64, 48));
+    // a drawn size past the largest box is refused
+    let wide = Link::Drawn {
+        width: u32::try_from(BOX_CELLS_MAX * 8 + 1).unwrap(),
+        height: 16,
+    };
+    assert_eq!(
+        s.place_at(img, Place::default(), wide, f.screens(), COLS),
+        Err(Placing::Refused(Refusal::Invalid))
+    );
+}
+
+/// A picture under the sixel tag, 8 by 16 pixels of `root`, with a second
+/// whole frame of `second`, as an iTerm2 picture's animated GIF is stored.
+fn animated(s: &mut Store, f: &Fake, root: u32, second: Vec<u32>) -> ImageKey {
+    let mut new = image(Protocol::SIXEL, 8, 16, 0);
+    new.pixels = vec![root; 8 * 16];
+    let key = s.add_image(new, None, f.screens()).expect("stored");
+    let r = s
+        .frame_reserve(key, anim::layer_cost(8, 16))
+        .expect("reserved");
+    let frame = NewFrame {
+        x: 0,
+        y: 0,
+        width: 8,
+        height: 16,
+        opaque: all_opaque(&second),
+        pixels: second,
+        replace: true,
+        base: 0,
+        background: 0,
+        edit: 0,
+        gap: 0,
+    };
+    assert_eq!(s.add_frame(frame, r), Ok(2));
+    key
+}
+
+// covers: image.iterm2
+#[test]
+fn an_animated_picture_covers_a_cell_only_where_every_frame_covers_it() {
+    const RED: u32 = 0xffff_0000;
+    let f = Fake::new(4);
+    // a still opaque picture over an older one removes it
+    let mut s = store(1 << 20);
+    let old = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, old, 0, 0);
+    let still = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, still, 0, 0);
+    assert_eq!(
+        shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(),
+        [still]
+    );
+    // an animated one whose second frame has one clear pixel keeps it,
+    // since that frame neither covers the cell nor hides the pixel beneath
+    let mut s = store(1 << 20);
+    let old = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, old, 0, 0);
+    let mut second = vec![RED; 8 * 16];
+    second[0] = 0;
+    let gif = animated(&mut s, &f, RED, second);
+    put(&mut s, &f, gif, 0, 0);
+    assert_eq!(
+        shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(),
+        [old, gif]
+    );
+    // with both frames opaque it covers the cell and removes it
+    let mut s = store(1 << 20);
+    let old = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, old, 0, 0);
+    let gif = animated(&mut s, &f, RED, vec![RED; 8 * 16]);
+    put(&mut s, &f, gif, 0, 0);
+    assert_eq!(shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(), [gif]);
+}
+
+// covers: image.iterm2
+#[test]
+fn an_animated_picture_draws_nothing_only_where_every_frame_draws_nothing() {
+    const RED: u32 = 0xffff_0000;
+    let f = Fake::new(4);
+    // an older picture whose first frame is clear and whose second is not,
+    // under a newer picture with clear pixels of its own: it still shows
+    let mut s = store(1 << 20);
+    let mut second = vec![0; 8 * 16];
+    second[5] = RED;
+    let gif = animated(&mut s, &f, 0, second);
+    put(&mut s, &f, gif, 0, 0);
+    // larger than the older picture, so the check of its two frames ends
+    // before the bound of the pixels it may read
+    let mut over = image(Protocol::SIXEL, 16, 32, 0);
+    over.pixels = vec![0; 16 * 32];
+    over.pixels[0] = RED;
+    let top = s.add_image(over, None, f.screens()).expect("stored");
+    put(&mut s, &f, top, 0, 0);
+    assert_eq!(
+        shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(),
+        [gif, top]
+    );
+    // with every frame clear it draws nothing and goes
+    let mut s = store(1 << 20);
+    let gif = animated(&mut s, &f, 0, vec![0; 8 * 16]);
+    put(&mut s, &f, gif, 0, 0);
+    // larger than the older picture, so the check of its two frames ends
+    // before the bound of the pixels it may read
+    let mut over = image(Protocol::SIXEL, 16, 32, 0);
+    over.pixels = vec![0; 16 * 32];
+    over.pixels[0] = RED;
+    let top = s.add_image(over, None, f.screens()).expect("stored");
+    put(&mut s, &f, top, 0, 0);
+    assert_eq!(shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(), [top]);
+}
+
+// covers: image.iterm2
+#[test]
+fn frames_reserved_ahead_of_their_image_free_other_animations_and_split_or_go_back() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 20);
+    let other = animated(&mut s, &f, 0xffff_0000, vec![0xffff_0000; 8 * 16]);
+    assert!(s.frame_bytes() > 0);
+    // the room counts what freeing the other animation would give back
+    assert_eq!(s.frame_room(), s.frame_limit());
+    let all = s.frames_ahead(s.frame_limit()).expect("reserved");
+    assert_eq!(
+        s.animation(other).unwrap().frames,
+        1,
+        "its frames were freed"
+    );
+    assert_eq!(s.frame_bytes(), s.frame_limit());
+    assert_eq!(s.frames_ahead(1), Err(Refusal::NoSpace));
+    // given back whole
+    s.unreserve(all);
+    assert_eq!(s.frame_bytes(), 0);
+    // split onto a new image, the rest given back
+    let key = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    let ahead = s.frames_ahead(1000).unwrap();
+    let parts = s.split_frames(ahead, key, 300, 3).expect("split");
+    assert_eq!(parts.len(), 3);
+    assert_eq!(s.frame_bytes(), 900);
+    for r in parts {
+        s.unreserve(r);
+    }
+    assert_eq!(s.frame_bytes(), 0);
+    // too little to split: everything goes back
+    let ahead = s.frames_ahead(500).unwrap();
+    assert!(s.split_frames(ahead, key, 300, 2).is_none());
+    assert_eq!(s.frame_bytes(), 0);
 }

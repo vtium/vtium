@@ -16,7 +16,7 @@
 //! handler's function returns, settles the store and marks the cells under
 //! every box it changed, as it does after a screen event.
 
-use super::{Screens, Store};
+use super::{Compose, Control, Link, NewFrame, Placing, Screens, Store};
 use crate::image::{ImageKey, NewImage, Place, PlacementKey, Refusal};
 use crate::rules::Protocol;
 use crate::store::Reservation;
@@ -106,6 +106,23 @@ impl<'a> Edit<'a> {
         self.store.place(image, place, self.screens, self.cols)
     }
 
+    /// Places an image of the buffer in use as [`place`](Self::place) does,
+    /// the source drawn at exactly `width` by `height` pixels from the box's
+    /// top left and the box covering the cells the picture reaches, as an
+    /// iTerm2 picture's keys size it (ADR-1103, D3). The place's box in
+    /// cells is ignored.
+    pub(crate) fn place_drawn(
+        &mut self,
+        image: ImageKey,
+        place: Place,
+        (width, height): (u32, u32),
+    ) -> Result<PlacementKey, Refusal> {
+        let link = Link::Drawn { width, height };
+        self.store
+            .place_at(image, place, link, self.screens, self.cols)
+            .map_err(Placing::refusal)
+    }
+
     /// The buffer of the image the store freed last, to fill again, when it
     /// holds `len` pixels and no frame still holds it, with its charge as a
     /// reservation for an image of `protocol` with kitty id `id` (0 for
@@ -136,6 +153,42 @@ impl<'a> Edit<'a> {
             }
         };
         Some((buffer, self.store.spare_reservation(protocol, id, bytes)))
+    }
+
+    /// Reserves `bytes` of the frame allowance for a frame's data on
+    /// `image`, before the data is allocated, holding the image until the
+    /// reservation is spent (ADR-1102, D1).
+    pub(crate) fn frame_reserve(
+        &mut self,
+        image: ImageKey,
+        bytes: u64,
+    ) -> Result<Reservation, Refusal> {
+        self.store.frame_reserve(image, bytes)
+    }
+
+    /// Stores a frame's data, `a=f`, on the image `reservation` was made
+    /// for, and returns the frame's number.
+    pub(crate) fn add_frame(
+        &mut self,
+        frame: NewFrame,
+        reservation: Reservation,
+    ) -> Result<u32, Refusal> {
+        self.store.add_frame(frame, reservation)
+    }
+
+    /// A composition of frames, `a=c`.
+    pub(crate) fn compose_frames(&mut self, image: ImageKey, c: Compose) -> Result<(), Refusal> {
+        self.store.compose_frames(image, c)
+    }
+
+    /// An animation control, `a=a`.
+    pub(crate) fn control_animation(&mut self, image: ImageKey, c: Control) -> Result<(), Refusal> {
+        self.store.control_animation(image, c)
+    }
+
+    /// `d=f` and `d=F`: every frame of `image` but its root goes.
+    pub(crate) fn delete_frames(&mut self, image: ImageKey) {
+        self.store.delete_frames(image);
     }
 
     /// The box of a placement of the buffer in use, in columns and rows,

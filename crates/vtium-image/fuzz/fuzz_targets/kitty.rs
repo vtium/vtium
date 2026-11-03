@@ -5,8 +5,9 @@
 //! The input's second byte chooses the host: with its low bit set the
 //! terminal has an image helper, which answers every request at once, by
 //! the request alone, as the replay interface's fixture host answers from
-//! its files: the bytes a raw format needs, a one-pixel picture for PNG,
-//! and OK for a discard. The rest of the input is split at each `|` into
+//! its files: the picture a raw format's description gives, a one-pixel
+//! picture for PNG, and OK for a discard, every picture premultiplied as
+//! the helper sends it. The rest of the input is split at each `|` into
 //! the data of one string each, so chunked uploads, deletes and puts
 //! reach the handler in the order they came.
 #![no_main]
@@ -19,7 +20,7 @@ use vtium_term::{ImageString, Terminal};
 /// The helper's answer to `request`, from the request alone.
 fn answer(request: &Request) -> Reply {
     if request.discard {
-        return Reply::Ok(Payload::Bytes(Vec::new()));
+        return Reply::Ok(Payload::Discarded);
     }
     if request.png {
         return Reply::Ok(Payload::Rgba {
@@ -28,8 +29,16 @@ fn answer(request: &Request) -> Reply {
             data: vec![0x10, 0x20, 0x30, 0x80],
         });
     }
-    match usize::try_from(request.min) {
-        Ok(min) if min <= 1 << 20 => Reply::Ok(Payload::Bytes(vec![0x7f; min])),
+    let Some(d) = request.pixels else {
+        return Reply::Corrupt;
+    };
+    let n = u64::from(d.width).saturating_mul(u64::from(d.height));
+    match usize::try_from(n.saturating_mul(4)) {
+        Ok(len) if len <= 1 << 20 => Reply::Ok(Payload::Rgba {
+            width: d.width,
+            height: d.height,
+            data: vec![0x7f; len],
+        }),
         _ => Reply::TooLarge,
     }
 }

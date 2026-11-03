@@ -1,0 +1,44 @@
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.00s
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.00s
+     Running `target/x86_64-unknown-linux-gnu/release/boom -artifact_prefix=/src/scratch/fuzz/artifacts/boom/ -max_total_time=20 -print_final_stats=1 -artifact_prefix=/src/vtium/target/fuzz-artifacts/scratch/boom/ corp`
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 410370119
+INFO: Loaded 1 modules   (368 inline 8-bit counters): 368 [0x55bbf68a4e70, 0x55bbf68a4fe0), 
+INFO: Loaded 1 PC tables (368 PCs): 368 [0x55bbf68a4fe0,0x55bbf68a66e0), 
+INFO:        0 files found in corp
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: A corpus is not provided, starting from an empty corpus
+#2	INITED cov: 16 ft: 17 corp: 1/1b exec/s: 0 rss: 45Mb
+#6	NEW    cov: 18 ft: 19 corp: 2/5b lim: 4 exec/s: 0 rss: 45Mb L: 4/4 MS: 4 InsertByte-CopyPart-ChangeBit-CopyPart-
+#63	REDUCE cov: 18 ft: 19 corp: 2/4b lim: 4 exec/s: 0 rss: 47Mb L: 3/3 MS: 2 CrossOver-EraseBytes-
+#487	REDUCE cov: 19 ft: 20 corp: 3/12b lim: 8 exec/s: 0 rss: 48Mb L: 8/8 MS: 4 ChangeBinInt-InsertByte-InsertRepeatedBytes-CopyPart-
+#1871	NEW    cov: 21 ft: 22 corp: 4/15b lim: 21 exec/s: 0 rss: 48Mb L: 3/8 MS: 4 CrossOver-InsertByte-ChangeByte-CopyPart-
+#1947	NEW    cov: 22 ft: 23 corp: 5/26b lim: 21 exec/s: 0 rss: 48Mb L: 11/11 MS: 1 CMP- DE: "\000\000\000\000\000\000\000\011"-
+#1954	REDUCE cov: 22 ft: 23 corp: 5/23b lim: 21 exec/s: 0 rss: 48Mb L: 8/8 MS: 2 ShuffleBytes-EraseBytes-
+
+thread '<unnamed>' (810797) panicked at fuzz_targets/boom.rs:4:63:
+planted
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+==810797== ERROR: libFuzzer: deadly signal
+    #0 0x55bbf66f2dd1 in __sanitizer_print_stack_trace (/src/scratch/fuzz/target/x86_64-unknown-linux-gnu/release/boom+0x127dd1) (BuildId: c7da0bf5a577911b45b9c2cd8e553bcc288c8a70)
+    #1 0x55bbf684e407 in fuzzer::PrintStackTrace() /home/user/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerUtil.cpp:210:38
+    #2 0x55bbf6734ae1 in fuzzer::Fuzzer::CrashCallback() /home/user/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerLoop.cpp:231:18
+    #3 0x55bbf6734ae1 in fuzzer::Fuzzer::CrashCallback() /home/user/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libfuzzer-sys-0.4.13/libfuzzer/FuzzerLoop.cpp:226:6
+    #17 0x55bbf671a3c0 in boom::_::__libfuzzer_sys_run /src/scratch/fuzz/fuzz_targets/boom.rs:4:63
+
+NOTE: libFuzzer has rudimentary signal handlers.
+      Combine libFuzzer with AddressSanitizer or similar for better crash reports.
+SUMMARY: libFuzzer: deadly signal
+MS: 3 ChangeByte-EraseBytes-InsertRepeatedBytes-; base unit: 4ddbe2e4a6fc31c80fe00a571541d4caca8c14b2
+0x76,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x74,0x7e,
+vttttttttttttttttttttttttttt~
+artifact_prefix='/src/vtium/target/fuzz-artifacts/scratch/boom/'; Test unit written to /src/vtium/target/fuzz-artifacts/scratch/boom/crash-ee5b4780c05f42762e7b61b58439b45c6b5b485f
+Base64: dnR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dH4=
+stat::number_of_executed_units: 10272
+stat::average_exec_per_sec:     0
+stat::new_units_added:          6
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              49
+────────────────────────────────────────────────────────────────────────────────
+
+Error: Fuzz target exited with exit status: 77

@@ -50,7 +50,7 @@ pub(crate) struct Caps {
 /// first; the others open, in the file's order, while the total is below
 /// `caps.total`, so the share is the file's alone, whatever order the
 /// displays come in.
-pub(crate) fn console_shares(rules: &vtium_config::Config, caps: Caps) -> Vec<usize> {
+pub(crate) fn console_shares(rules: &vtium_settings::Config, caps: Caps) -> Vec<usize> {
     let mut spare = caps.total.saturating_sub(rules.heads.len());
     rules
         .heads
@@ -95,7 +95,7 @@ pub(crate) fn scrollback_bytes(config: &Config, caps: Caps, heads: usize) -> usi
 /// D3), the consoles `caps` give it, and the scrollback cap and length
 /// and the bytes `scrollback` gives each console.
 pub(crate) fn heads(
-    rules: &vtium_config::Config,
+    rules: &vtium_settings::Config,
     config: &Config,
     scrollback: ((usize, usize), usize),
     caps: Caps,
@@ -107,7 +107,7 @@ pub(crate) fn heads(
         .iter()
         .zip(console_shares(rules, caps))
         .map(|(h, wanted)| {
-            let font = h.font(&vtium_config::Font::default());
+            let font = h.font(&vtium_settings::Font::default());
             let term = crate::head::terminal(config, lines, bytes, Rc::clone(clock));
             let mut head = Head::new(&h.name, config, &font, term);
             head.wanted = wanted;
@@ -138,6 +138,34 @@ pub(crate) enum AfterExit {
     /// The console's program exited quickly too many times running, which
     /// ends the run (ADR-1401 D1).
     GaveUp,
+}
+
+/// What the end of a console's session returns to the configuration
+/// (ADR-1201 D11).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Returns {
+    /// The head's font, which an OSC 50 switch changed.
+    pub(crate) font: bool,
+    /// The console's size, which a zoom changed or the font returning
+    /// sets.
+    pub(crate) size: bool,
+}
+
+/// What a return at a session's end may change of a head, kept so that
+/// it can be put back when the configured font draws nothing at its size
+/// (ADR-1201 D11).
+pub(crate) struct Kept {
+    /// The shown console's size: in points, `font-size=0`, and its height.
+    points: Option<u32>,
+    auto_size: bool,
+    font_size: u32,
+    configured: (Option<u32>, bool),
+    sized: bool,
+    switched: Option<u64>,
+    /// The hidden console whose session ended, and its fit.
+    hidden: Option<(u64, console::Fit)>,
+    /// The font the head drew, where the return replaced it.
+    pub(crate) font: Option<Option<crate::font::Chosen>>,
 }
 
 /// Whether vtium ends once its heads stand as `heads` do: once a head
@@ -238,10 +266,10 @@ impl Head {
     /// carrier (ADR-1401 D8): every console's pty closes, so its programs
     /// get SIGHUP, and each console follows the respawn policy with no
     /// quick exit counted, since vtium ended the session. Each console
-    /// keeps its place and its id (D5). Returns the consoles whose
-    /// sessions start again. A head that ended or never started has
+    /// keeps its place and its id (D5). Returns each console hung up, with
+    /// what its session's end does. A head that ended or never started has
     /// nothing to hang up.
-    pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool) -> Vec<u64> {
+    pub(crate) fn hang_up(&mut self, since: Duration, oneshot: bool) -> Vec<(u64, AfterExit)> {
         self.hangup_due = None;
         if self.ended() || !self.started() {
             return Vec::new();
@@ -251,7 +279,7 @@ impl Head {
             self.name()
         );
         let running: Vec<u64> = self.consoles().filter(|c| !c.ended).map(|c| c.id).collect();
-        let mut again = Vec::new();
+        let mut ended = Vec::new();
         for id in running {
             let Some(console) = self.console_mut(id) else {
                 continue;
@@ -263,11 +291,98 @@ impl Head {
                 .respawn
                 .as_mut()
                 .map_or(Next::Restart, |r| r.hung_up(since, oneshot));
-            if self.session_ended(id, next) == AfterExit::Restart {
-                again.push(id);
-            }
+            ended.push((id, self.session_ended(id, next)));
         }
-        again
+        ended
+    }
+
+    /// What the end of console `id`'s session returns (ADR-1201 D11): the
+    /// head's font, where the last OSC 50 switch came from that console or
+    /// the head has one console left; and the console's size, where the
+    /// font returns or the console no longer draws at the configured size,
+    /// as after a zoom. A session ending in another console of the head
+    /// leaves the font, so it never changes under another session.
+    pub(crate) fn returns(&self, id: u64) -> Returns {
+        let font = self
+            .switched
+            .is_some_and(|from| from == id || self.console_count() == 1);
+        let fit = if self.console.id == id {
+            Some(self.fit())
+        } else {
+            self.hidden.iter().find(|c| c.id == id).map(|c| c.fit)
+        };
+        let resized = fit.is_some_and(|f| (f.points, f.auto_size) != self.configured);
+        Returns {
+            font,
+            size: font || resized,
+        }
+    }
+
+    /// What a return at the end of console `id`'s session may change,
+    /// before it changes it.
+    pub(crate) fn keep(&self, id: u64) -> Kept {
+        Kept {
+            points: self.points,
+            auto_size: self.auto_size,
+            font_size: self.font_size,
+            configured: self.configured,
+            sized: self.sized,
+            switched: self.switched,
+            hidden: self
+                .hidden
+                .iter()
+                .find(|c| c.id == id)
+                .map(|c| (c.id, c.fit)),
+            font: None,
+        }
+    }
+
+    /// Puts back what [`Head::keep`] kept: the font, the switch that chose
+    /// it, the size the shown console and the ended one draw at, and the
+    /// configured size, so the head stands as before the return. Every
+    /// display's renderer is rebuilt.
+    pub(crate) fn put_back(&mut self, kept: Kept) {
+        self.points = kept.points;
+        self.auto_size = kept.auto_size;
+        self.font_size = kept.font_size;
+        self.configured = kept.configured;
+        self.sized = kept.sized;
+        self.switched = kept.switched;
+        if let Some((id, fit)) = kept.hidden
+            && let Some(c) = self.hidden.iter_mut().find(|c| c.id == id)
+        {
+            c.fit = fit;
+        }
+        if let Some(font) = kept.font {
+            self.font = font;
+        }
+        self.refont = true;
+    }
+
+    /// Takes the font size `config` configures, read again at a session's
+    /// end (ADR-1201 D11), for the consoles that open and the sessions
+    /// that end from now on; the head file's own `font-size` still wins.
+    pub(crate) fn reconfigure(&mut self, config: &Config) {
+        let (points, auto_size, sized) = crate::head::configured_size(self.own_size, config);
+        self.configured = (points, auto_size);
+        self.sized = sized;
+    }
+
+    /// Console `id` draws at the configured size from now on: the shown
+    /// console at the next relayout, and a hidden one in `hidden`, its
+    /// grid and cell at that size.
+    pub(crate) fn configured_size(&mut self, id: u64, hidden: console::Fit) {
+        let (points, auto_size) = self.configured;
+        if self.console.id == id {
+            self.points = points;
+            self.auto_size = auto_size;
+        } else if let Some(c) = self.hidden.iter_mut().find(|c| c.id == id) {
+            c.fit = console::Fit {
+                points,
+                auto_size,
+                ..hidden
+            };
+        }
     }
 
     /// The program of console `id` exited at `since`; `None` when the head
@@ -305,6 +420,10 @@ impl Head {
         // reset below finds the terminal taking input.
         #[cfg(feature = "images")]
         console.pictures.end_session(&mut console.term);
+        // So does an OSC 50 request a hidden console still holds, which
+        // would switch the font for the next session once it is shown and
+        // hold that session's output meanwhile (ADR-1201 D11).
+        console.term.terminal.take_font_request();
         if after == AfterExit::Restart {
             // A new session starts from a hard reset (RIS), with nothing of
             // the last session's output left (`terminal_close` at kmscon

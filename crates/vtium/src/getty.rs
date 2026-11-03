@@ -23,7 +23,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{Mode, OFlags, major, minor};
-use vtium_config::Policy;
+use vtium_settings::Policy;
 
 /// The directory the marker lives in, the parent of every VT's run
 /// directory (ADR-1401 D10).
@@ -122,12 +122,32 @@ fn write(dir: &Path, marker: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    /// A stand-in for `/run/vtium`, of its own for each test.
-    fn scratch(name: &str) -> PathBuf {
+    /// A stand-in for `/run/vtium`, `run-vtium` in a directory of its own
+    /// for each test, which is removed when the test ends, whether it
+    /// passes or fails.
+    struct Scratch(PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = Path;
+
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            if let Some(dir) = self.0.parent() {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
         let dir = std::env::temp_dir().join(format!("vtium-getty-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        dir.join("run-vtium")
+        Scratch(dir.join("run-vtium"))
     }
 
     // covers: platform.heads.policy
@@ -298,7 +318,7 @@ mod tests {
     #[test]
     fn a_symlink_at_the_markers_name_is_not_followed() {
         let dir = scratch("link");
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&*dir).unwrap();
         let target = dir.with_file_name("target");
         std::os::unix::fs::symlink(&target, path(&dir, 2)).unwrap();
         mark_vt(&dir, 2, Policy::Closed);

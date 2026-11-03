@@ -13,8 +13,8 @@
     clippy::unreachable,
     clippy::todo
 )]
-//! Inline images: the one pipeline sixel and the kitty graphics protocol
-//! feed (ADR-1100).
+//! Inline images: the one pipeline sixel, the kitty graphics protocol and
+//! iTerm2's pictures feed (ADR-1100).
 //!
 //! - The [store](Store): each console's images and placements, main and
 //!   alternate buffers, the budget over both and the eviction order, and
@@ -26,7 +26,12 @@
 //! - The [handler trait](Handler) the protocol front ends implement, the
 //!   [context](Context) vtium-term gives them, and the [store edit](Edit)
 //!   through which a handler changes the store.
-//! - The two [protocol] handlers, [`Sixel`] and [`Kitty`].
+//! - Kitty animation's frames (ADR-1102): kept as the program sent them,
+//!   charged to a frame allowance of their own, composed into whole pixels
+//!   before any renderer sees them, and the [state](Animation) the binary's
+//!   animation clock plays from, with [`Store::frame_pixels`] for the
+//!   frame it chose.
+//! - The three [protocol] handlers, [`Sixel`], [`Kitty`] and [`Iterm2`].
 //! - The [decode request and reply types](decode), which the image helper
 //!   answers.
 //! - Its bounds, named constants from the C reference's values, and the
@@ -44,12 +49,19 @@ mod rules;
 mod store;
 
 pub use bounds::{
-    AUTO_CAP, AUTO_FLOOR, AUTO_FRAMES, BOX_CELLS_MAX, CELL_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX,
-    IMAGES_PER_BUFFER, PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER, auto_limit,
+    AUTO_CAP, AUTO_FLOOR, AUTO_FRAMES, BOX_CELLS_MAX, CELL_MAX, FRAME_ALLOWANCE_FACTOR,
+    FRAME_CACHE_FRAMES, FRAME_CHAIN_MAX, FRAME_OVERHEAD, FRAME_WHOLE_MAX, FRAMES_MAX,
+    IMAGE_OVERHEAD, IMAGE_SIDE_MAX, IMAGES_PER_BUFFER, ITERM2_FILE_MAX, ITERM2_PARTS_MAX,
+    PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER, RELATIVE_DEPTH_MAX, auto_limit,
 };
 pub use handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
-pub use image::{ImageKey, LineKey, NewImage, Pixels, Place, PlacementKey, Refusal};
+pub use image::{
+    ImageKey, LineKey, NewImage, Pixels, Place, PlaceholderRun, PlacementKey, Refusal,
+};
+pub use protocol::iterm2::Iterm2;
 pub use protocol::kitty::Kitty;
 pub use protocol::sixel::Sixel;
 pub use rules::{Layer, Protocol, RegionScroll, Rules, rules};
-pub use store::{Edit, FramePlacement, Region, Reservation, Rows, Screens, Store};
+pub use store::{
+    Animation, Edit, FramePixels, FramePlacement, Region, Reservation, Rows, Run, Screens, Store,
+};

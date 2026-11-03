@@ -229,20 +229,71 @@ fn images(term: &Terminal, since: Option<Option<u64>>, out: &mut String) {
         }
         out.push('\n');
     }
+    let store = term.screen().images();
     for (n, p) in shown.iter().enumerate() {
-        // FNV-1a over each pixel's A, R, G, B bytes, rows top to bottom
-        let mut h: u32 = 2_166_136_261;
-        for &px in p.pixels.as_slice() {
-            for byte in px.to_be_bytes() {
-                h = (h ^ u32::from(byte)).wrapping_mul(16_777_619);
-            }
-        }
         let _ = writeln!(
             out,
-            "image {n} {}x{} digest {h:08x}",
-            p.image_width, p.image_height
+            "image {n} {}x{} digest {:08x}",
+            p.image_width,
+            p.image_height,
+            digest(p.pixels.as_slice())
+        );
+        animation(store, n, p.image, out);
+    }
+}
+
+/// The `anim` lines of image `n` (INTERFACE-vtium.md, "Kitty animation"),
+/// none for a picture no animation command named: what the store records
+/// of its animation, then each frame's gap and the digest of its whole
+/// pixels as the store composes them.
+#[cfg(feature = "images")]
+fn animation(
+    store: &vtium_term::images::Store,
+    n: usize,
+    image: vtium_term::images::ImageKey,
+    out: &mut String,
+) {
+    use vtium_term::images::Run;
+    let Some(a) = store.animation(image) else {
+        return;
+    };
+    let run = match a.run {
+        Run::Stopped => "stopped",
+        Run::Loading => "loading",
+        Run::Looping => "looping",
+    };
+    let _ = writeln!(
+        out,
+        "anim {n} frames {} current {} run {run} loops {} stamps {} {}",
+        a.frames, a.current, a.loops, a.frame_stamp, a.run_stamp
+    );
+    for frame in 1..=a.frames {
+        let gap = store.frame_gap(image, frame);
+        let pixels = store.frame_pixels(image, frame);
+        let (Some(gap), Some(pixels)) = (gap, pixels) else {
+            // the store counts a frame it cannot give: print the hole, so
+            // it shows as drift
+            let _ = writeln!(out, "anim {n} frame {frame} missing");
+            continue;
+        };
+        let _ = writeln!(
+            out,
+            "anim {n} frame {frame} gap {gap} digest {:08x}",
+            digest(pixels.pixels.as_slice())
         );
     }
+}
+
+/// FNV-1a over each pixel's A, R, G, B bytes, rows top to bottom.
+#[cfg(feature = "images")]
+fn digest(pixels: &[u32]) -> u32 {
+    let mut h: u32 = 2_166_136_261;
+    for &px in pixels {
+        for byte in px.to_be_bytes() {
+            h = (h ^ u32::from(byte)).wrapping_mul(16_777_619);
+        }
+    }
+    h
 }
 
 /// The cells changed for a display that drew at `since`, every cell when

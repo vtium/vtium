@@ -718,7 +718,7 @@ fn custom_takes_the_palette_keys() {
 
 #[test]
 fn read_file_is_bounded() {
-    let dir = std::env::temp_dir().join(format!("vtium-config-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("vtium-settings-{}", std::process::id()));
     std::fs::create_dir_all(&dir).ok();
     let path = dir.join("big.conf");
     std::fs::write(&path, vec![b'#'; FILE_MAX * 2]).ok();

@@ -5,7 +5,7 @@
 //! left over, each a placement of the same picture with a smaller box; the
 //! picture itself is never cut.
 
-use super::{ALT, MAIN, Placement, Rows, Screens, Store};
+use super::{ALT, Drawn, MAIN, Placement, Rows, Screens, Spot, Store};
 use crate::bounds::{PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER};
 use crate::image::{LineKey, PlacementKey};
 use crate::rules::{RegionScroll, rules};
@@ -157,7 +157,10 @@ impl Store {
         let Some(p) = self.placement(b, key) else {
             return;
         };
-        let (pcols, prows, anchor) = (p.cols, p.rows, p.anchor);
+        let Spot::Line(anchor) = p.spot else {
+            return;
+        };
+        let (pcols, prows) = (p.cols, p.rows);
         let last = pcols.saturating_sub(1);
         let mid = rows.at(top.saturating_add(i64::from(er0)));
         let below_row = top.saturating_add(i64::from(er1)).saturating_add(1);
@@ -211,11 +214,14 @@ impl Store {
     }
 
     /// Replaces placement `key` by `pieces`: it becomes the first piece
-    /// that shows any of the picture, keeping its key and its place in the
-    /// stack, and the others are new placements directly above it, each
-    /// charged [`PLACEMENT_OVERHEAD`] to settle after the event. Past the
-    /// buffer's placement count the largest pieces stay, largest first.
-    /// A placement no piece of which shows anything is removed.
+    /// that shows any of the picture, keeping its key, its place in the
+    /// stack and its relative placements, and the others are new placements
+    /// directly above it, each charged [`PLACEMENT_OVERHEAD`] to settle
+    /// after the event. Each piece remembers the columns and rows cut off
+    /// its left and top, so the origin its relative placements count from
+    /// stays where it was against the picture. Past the buffer's placement
+    /// count the largest pieces stay, largest first. A placement no piece
+    /// of which shows anything is removed.
     fn split(&mut self, b: usize, key: PlacementKey, pieces: &[Piece]) {
         let Some(o) = self.placement(b, key).cloned() else {
             return;
@@ -232,7 +238,8 @@ impl Store {
             self.free_placement(b, key, true);
             return;
         }
-        self.changed.push(o.region());
+        self.changed.extend(o.own_region());
+        self.mark_family(b, key, false);
         let mut prev = key;
         for (i, pc) in shown.iter().enumerate() {
             let (col, cols, rows, ox, oy) = pc.cut(&o);
@@ -269,6 +276,8 @@ impl Store {
                 p.rows = rows;
                 p.ox = ox;
                 p.oy = oy;
+                p.lost_cols = o.lost_cols.saturating_add(pc.c0);
+                p.lost_rows = o.lost_rows.saturating_add(pc.r0);
                 p.revision = revision;
             }
             buf.count_height(k, true);
@@ -276,7 +285,10 @@ impl Store {
                 Anchor::Line(line) => {
                     buf.attach(k, line);
                     if let Some(p) = buf.placements.get(&k) {
-                        self.changed.push(p.region());
+                        self.changed.extend(p.own_region());
+                    }
+                    if k == key {
+                        self.mark_family(b, key, false);
                     }
                 }
                 Anchor::Row(row) => {
@@ -332,10 +344,12 @@ impl Store {
             let Some(p) = self.placement(b, key) else {
                 continue;
             };
-            let (prows, last, anchor, scroll) = (
+            let Spot::Line(anchor) = p.spot else {
+                continue;
+            };
+            let (prows, last, scroll) = (
                 i64::from(p.rows),
                 p.cols.saturating_sub(1),
-                p.anchor,
                 rules(p.protocol.0).region_scroll,
             );
             let r1 = r0.saturating_add(prows).saturating_sub(1);
@@ -346,6 +360,7 @@ impl Store {
                 // across an edge: it keeps its place, re-anchored to the
                 // line that then holds its top row
                 if r0 >= top || carry {
+                    self.mark_family(b, key, false);
                     if let Some(buf) = self.buffers.get_mut(b) {
                         buf.detach(key);
                     }
@@ -426,8 +441,9 @@ impl Store {
                         buf.attach(key, line);
                     }
                     if let Some(p) = self.placement(b, key) {
-                        self.changed.push(p.region());
+                        self.changed.extend(p.own_region());
                     }
+                    self.mark_family(b, key, false);
                 }
                 None => self.free_placement(b, key, true),
             }
@@ -490,12 +506,20 @@ impl Store {
 
     /// ED 2, after its erase cut what text cuts: every placement with a row
     /// on the screen's own lines whose rules say ED 2 removes it goes, its
-    /// image kept as its rules say (D8).
+    /// image kept as its rules say (D8). A relative placement goes by the
+    /// rows it draws on, and with its parent (D13); a virtual placement,
+    /// on no line, stays.
     pub fn erase_screen(&mut self, rows: Rows<'_>) {
         let b = self.active();
         let height = rows.height();
         let tops = self.tops(b, rows);
-        for (key, top) in tops {
+        let drawn = self.drawn(b, rows, &tops);
+        let children = drawn.into_iter().filter_map(|(k, d)| match d {
+            Drawn::At { top: Some(top), .. } => Some((k, top)),
+            Drawn::At { top: None, .. } | Drawn::Nowhere => None,
+        });
+        let all: Vec<(PlacementKey, i64)> = tops.into_iter().chain(children).collect();
+        for (key, top) in all {
             let Some(p) = self.placement(b, key) else {
                 continue;
             };
@@ -550,14 +574,18 @@ impl Store {
                 let Some(p) = buf.placements.get_mut(&key) else {
                     return;
                 };
-                let old = p.region();
+                let old = p.own_region();
                 p.col = col;
                 p.revision = revision;
-                buf.attach(key, line);
-                self.changed.push(old);
-                if let Some(p) = self.placement(MAIN, key) {
-                    self.changed.push(p.region());
+                self.changed.extend(old);
+                self.mark_family(MAIN, key, false);
+                if let Some(buf) = self.buffers.get_mut(MAIN) {
+                    buf.attach(key, line);
                 }
+                if let Some(p) = self.placement(MAIN, key) {
+                    self.changed.extend(p.own_region());
+                }
+                self.mark_family(MAIN, key, false);
             }
             None => self.free_placement(MAIN, key, true),
         }

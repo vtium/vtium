@@ -53,6 +53,10 @@
 //! - [`power`]: the reboot, power-off and suspend requests the power keys
 //!   make of PID 1, logind and the kernel; with the `logind` feature,
 //!   [`logind`] reaches logind through sd-bus.
+//! - `image_helper`, with the `images` feature: the image helper's host,
+//!   which starts `vtium-image` as the session's user, sends it one
+//!   request at a time, checks each reply and bounds its time and crashes
+//!   (ADR-1101).
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
 //! crate's README.
@@ -62,6 +66,8 @@ mod channel;
 pub mod display;
 pub mod event_loop;
 mod fds;
+#[cfg(feature = "images")]
+pub mod image_helper;
 pub mod input;
 mod ioctl;
 pub mod listing;
@@ -76,9 +82,9 @@ pub mod udev;
 pub mod vt;
 
 pub use bounds::{
-    DAMAGE_CLIPS_MAX, EXIT_FEED_MAX, FLIP_WAIT_MS, INPUT_READS_PER_TURN, MOTION_COALESCE_AT,
-    READ_BUDGET, READ_MAX, READS_PER_TURN, REPLY_HIGH, REPLY_LOW, REPLY_MAX, RETAKE_QUIET_MS,
-    WAKE_RETRIES, WAKE_RETRY_MS,
+    DAMAGE_CLIPS_MAX, EXIT_FEED_MAX, FLIP_WAIT_MS, IMAGE_CRASHES_MAX, IMAGE_HELPER_BASE,
+    INPUT_READS_PER_TURN, MOTION_COALESCE_AT, READ_BUDGET, READ_MAX, READS_PER_TURN, REPLY_HIGH,
+    REPLY_LOW, REPLY_MAX, RETAKE_QUIET_MS, WAKE_RETRIES, WAKE_RETRY_MS,
 };
 pub use calloop;
 pub use fds::cloexec_above_stdio;

@@ -1072,13 +1072,13 @@ fn a_retakes_wake_up_landing_after_the_blank_leaves_it_dark() {
     assert_eq!(h.memory().dpms, Some(Dpms::On));
 }
 
-/// A file the test writes for its session to go on at, named `name`, and
-/// the shell that waits for it.
-fn gate(name: &str) -> (PathBuf, String) {
-    let path = std::env::temp_dir().join(format!("vtium-{name}-{}", std::process::id()));
-    std::fs::remove_file(&path).ok();
+/// A file the test writes for its session to go on at, in a directory
+/// named for `name`, and the shell that waits for it.
+fn gate(name: &str) -> (Scratch, PathBuf, String) {
+    let dir = Scratch::new(&format!("vtium-{name}"));
+    let path = dir.path().join("go");
     let wait = format!("while [ ! -e {} ]; do sleep 0.05; done", path.display());
-    (path, wait)
+    (dir, path, wait)
 }
 
 /// A seat that blanks after a minute with no input, on the scripted VT,
@@ -1106,7 +1106,7 @@ const OFF: fn(&Memory) -> bool = |m| m.dpms == Some(Dpms::Off);
 // covers: ctl.linux-unblank
 #[test]
 fn a_programs_wake_ends_the_blank() {
-    let (go, wait) = gate("wake-go");
+    let (_dir, go, wait) = gate("wake-go");
     let mut h = program_blank_in_a_minute(&[], &format!(r"{wait}; printf '\033[13]'; read x"));
     h.shown();
     h.skip_turn(Duration::from_secs(61));
@@ -1122,7 +1122,6 @@ fn a_programs_wake_ends_the_blank() {
         "woken by the program"
     );
     assert_eq!(h.memory().unblanks, unblanks + 1);
-    std::fs::remove_file(&go).ok();
 }
 
 // `CSI 9 ; 0 ]` turns the blank off until the program changes it or RIS
@@ -1131,8 +1130,8 @@ fn a_programs_wake_ends_the_blank() {
 // covers: ctl.linux-blank
 #[test]
 fn a_programs_timeout_holds_until_ris() {
-    let go = std::env::temp_dir().join(format!("vtium-ris-go-{}", std::process::id()));
-    std::fs::remove_file(&go).ok();
+    let go_dir = Scratch::new("vtium-ris-go");
+    let go = go_dir.path().join("go");
     let script = format!(
         r"printf '\033[9;0]ready'; while [ ! -e {} ]; do sleep 0.05; done; printf '\033creset'; read x",
         go.display()
@@ -1163,7 +1162,6 @@ fn a_programs_timeout_holds_until_ris() {
         Some(Dpms::Off),
         "blanked by dpms-timeout after RIS"
     );
-    std::fs::remove_file(&go).ok();
 }
 
 // A session that turns the blank off and exits leaves the next session
@@ -1171,8 +1169,8 @@ fn a_programs_timeout_holds_until_ris() {
 // request waits for a later turn.
 #[test]
 fn a_respawned_session_blanks_after_dpms_timeout() {
-    let marker = std::env::temp_dir().join(format!("vtium-blank-respawn-{}", std::process::id()));
-    let _ = std::fs::remove_file(&marker);
+    let marker_dir = Scratch::new("vtium-blank-respawn");
+    let marker = marker_dir.path().join("marker");
     let script = format!(
         "if [ -e {m} ]; then read x; else : > {m}; printf '\\033[9;0]'; fi",
         m = marker.display()
@@ -1199,7 +1197,6 @@ fn a_respawned_session_blanks_after_dpms_timeout() {
             blanked = Some(now());
         }
     }
-    let _ = std::fs::remove_file(&marker);
     assert!(
         blanked.is_some(),
         "the next session blanks after dpms-timeout"
@@ -1211,7 +1208,7 @@ fn a_respawned_session_blanks_after_dpms_timeout() {
 // `CSI 9 ; 2 ]` and `CSI 13 ]`.
 #[test]
 fn a_program_wakes_nothing_while_the_vt_is_anothers() {
-    let (go, wait) = gate("anothers-go");
+    let (_dir, go, wait) = gate("anothers-go");
     let mut h = program_blank_in_a_minute(
         &[],
         &format!(r"{wait}; printf '\033[9;2]\033[13]sent'; read x"),
@@ -1254,7 +1251,6 @@ fn a_program_wakes_nothing_while_the_vt_is_anothers() {
         Some(Dpms::Off),
         "blanked at the program's two"
     );
-    std::fs::remove_file(&go).ok();
 }
 
 #[test]
@@ -1287,7 +1283,7 @@ fn a_programs_timeout_is_in_minutes() {
 
 #[test]
 fn under_no_program_blank_a_program_neither_times_nor_wakes_the_blank() {
-    let (go, wait) = gate("no-program-blank-go");
+    let (_dir, go, wait) = gate("no-program-blank-go");
     let mut h = program_blank_in_a_minute(
         &["--no-program-blank"],
         &format!(r"printf '\033[9;0]ready'; {wait}; printf '\033[13]sent'; read x"),
@@ -1308,7 +1304,6 @@ fn under_no_program_blank_a_program_neither_times_nor_wakes_the_blank() {
         h.until(BOUND, |a| shows(a, "readysent")),
         "the program's wake read"
     );
-    std::fs::remove_file(&go).ok();
     assert_eq!(h.memory().dpms, Some(Dpms::Off), "still dark");
     assert_eq!(h.memory().unblanks, 0);
     h.type_str("a");
@@ -1391,11 +1386,8 @@ fn a_pointer_move_restarts_the_blanks_countdown() {
 #[test]
 fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
     // The program goes on at each file the test writes.
-    let go =
-        |n: u32| std::env::temp_dir().join(format!("vtium-past-hide-{n}-{}", std::process::id()));
-    for n in [1, 2] {
-        std::fs::remove_file(go(n)).ok();
-    }
+    let dir = Scratch::new("vtium-past-hide");
+    let go = |n: u32| dir.path().join(format!("go-{n}"));
     let script = format!(
         r"printf '\033[9;0]off'; while [ ! -e {} ]; do sleep 0.05; done; \
           printf '\033creset'; while [ ! -e {} ]; do sleep 0.05; done; \
@@ -1425,9 +1417,6 @@ fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
         "woken by the program"
     );
     assert_eq!(h.memory().unblanks, unblanks + 1);
-    for n in [1, 2] {
-        std::fs::remove_file(go(n)).ok();
-    }
 }
 
 // The VT review's step on vtium/vtium#79 as it ran: `CSI 9 ; 1 ]`, the
@@ -1437,8 +1426,8 @@ fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
 #[test]
 fn a_programs_minute_blanks_past_the_pointers_hide() {
     // The program wakes the displays once the test has seen the blank.
-    let go = std::env::temp_dir().join(format!("vtium-minute-go-{}", std::process::id()));
-    std::fs::remove_file(&go).ok();
+    let go_dir = Scratch::new("vtium-minute-go");
+    let go = go_dir.path().join("go");
     let mut h = blank_in_two(&format!(
         r"printf '\033[9;1]ready'; while [ ! -e {} ]; do sleep 0.05; done; printf '\033[13]'; read x",
         go.display()
@@ -1465,7 +1454,6 @@ fn a_programs_minute_blanks_past_the_pointers_hide() {
         "woken by the program"
     );
     assert_eq!(h.memory().unblanks, unblanks + 1);
-    std::fs::remove_file(&go).ok();
 }
 
 // `main`'s loop waits `next_wake` on the seat's clock: with nothing else
@@ -2961,8 +2949,8 @@ fn a_hostile_selection_is_pasted_filtered_once_a_press() {
 /// The program changing its mouse tracking clears the selection.
 #[test]
 fn a_change_of_mouse_tracking_clears_the_selection() {
-    let go = std::env::temp_dir().join(format!("vtium-boot-tracking-{}", std::process::id()));
-    let _ = std::fs::remove_file(&go);
+    let go_dir = Scratch::new("vtium-boot-tracking");
+    let go = go_dir.path().join("go");
     let script = format!(
         "printf 'text\\n'; while [ ! -e '{}' ]; do sleep 0.02; done; \
          printf '\\033[?1000hon\\n'; read x",
@@ -2991,7 +2979,6 @@ fn a_change_of_mouse_tracking_clears_the_selection() {
     let cleared = h.until(SECOND, |a| {
         shows(a, "on") && !a.term().expect("a head").terminal.screen().has_selection()
     });
-    let _ = std::fs::remove_file(&go);
     assert!(cleared, "{:?}", h.app.screen_text());
     assert_eq!(h.app.selection(), Some(&b"text"[..]));
 }
@@ -3331,10 +3318,10 @@ fn a_release_waits_for_every_device_to_sleep() {
 /// the last session left is not shown until the new one writes.
 #[test]
 fn a_restart_draws_the_reset_screen() {
-    let flag = std::env::temp_dir().join(format!("vtium-restart-{}", std::process::id()));
-    std::fs::remove_file(&flag).ok();
-    let go = std::env::temp_dir().join(format!("vtium-restart-go-{}", std::process::id()));
-    std::fs::remove_file(&go).ok();
+    let flag_dir = Scratch::new("vtium-restart");
+    let flag = flag_dir.path().join("flag");
+    let go_dir = Scratch::new("vtium-restart-go");
+    let go = go_dir.path().join("go");
     // The first session exits once the test saw it drawn.
     let script = format!(
         "if [ -e {f} ]; then exec sleep 30; fi; : > {f}; printf 'first'; \
@@ -3359,8 +3346,6 @@ fn a_restart_draws_the_reset_screen() {
         "the reset screen is drawn"
     );
     assert!(!h.app.term().expect("a head").unparsed);
-    std::fs::remove_file(&flag).ok();
-    std::fs::remove_file(&go).ok();
 }
 
 /// A device whose flip lasts until the test ends it, with a `Flipped`.
@@ -4590,7 +4575,7 @@ fn the_start_logs_each_head_file_error_with_its_line() {
     std::fs::write(&path, text).expect("the head file");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
     let uid = std::fs::metadata(dir.path()).expect("the directory").uid();
-    let trust = vtium_config::Trust::owner(uid).below(dir.path());
+    let trust = vtium_settings::Trust::owner(uid).below(dir.path());
     logged();
     let start = vtium::head::rules(&path, &trust);
     let lines = logged();
@@ -5049,12 +5034,12 @@ fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
     );
 }
 
-/// The outline font fixture vtium-vitrify's tests measure: a subset of
+/// The outline font fixture vtium-config's tests measure: a subset of
 /// DejaVu Sans Mono whose W rule gives 9 columns at 16 pixels and 12 at
 /// 22.
 fn dejavu() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../vtium-vitrify/tests/fixtures/DejaVuSansMono-W-M-0.ttf")
+        .join("../vtium-config/tests/fixtures/DejaVuSansMono-W-M-0.ttf")
 }
 
 /// The fonts of an outline frit `t` drawing [`dejavu`], served by
@@ -5957,7 +5942,7 @@ fn osc_50_query_names_the_current_frit() {
     assert!(replied(&mut h, "ter-v16n"), "{:?}", h.app.screen_text());
 }
 
-// ADR-1200 D5: `vtium-vitrify set` writes the frit and then the query in
+// ADR-1200 D5: `vtium-config set` writes the frit and then the query in
 // one write; the query's reply names the new frit
 #[test]
 fn a_query_after_osc_50_names_the_new_frit() {

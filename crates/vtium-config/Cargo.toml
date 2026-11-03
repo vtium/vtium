@@ -1,6 +1,6 @@
 [package]
 name = "vtium-config"
-description = "The head file: its reader and parser, and the evaluator that places each display and input"
+description = "Manages the vtium console's fonts and settings, trying each font on the live console, and generates its glyphs at run time"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,64 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The console's terminal built with images in this crate's tests, to read
+# the TUI's size pictures as vtium reads them. The workspace's
+# `--all-features` run turns it on; it adds nothing to the binary.
+kitty-check = ["vtium-term/images"]
+
 [dependencies]
-# opens the head file without blocking and without taking a tty as the
-# controlling one, as the console opens vtium.conf; vtium links it already
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }
+# The glyph chunk format's writer; the PSF reader; the built-in fonts a
+# frit may name as sources. The PSF reader is behind
+# vtium-font's `psf` feature and the writer's deflate behind its
+# `deflate` feature, which only this tool enables (ADR-1200 D19).
+vtium-font = { workspace = true, features = ["psf", "deflate"] }
+# KDGETMODE, KDFONTOP and GIO_UNIMAP for the console: source (ADR-1200 D8);
+# the TUI's event loop, which holds its signals (ADR-1201 D7).
+vtium-platform.workspace = true
+# vtium.conf's line editor and the head file's one writer and parser
+# (ADR-1201 D5, D6), the crate the console already links.
+vtium-settings.workspace = true
+# gzip's deflate, for compressed fonts and unimaps; vtium-font already
+# builds this version.
+miniz_oxide = "0.8.9"
+# Opening a source without following a link, the parser's and the
+# helper's no-new-privileges and limits, the
+# effective uid, `set`'s raw mode, and the terminal's width for the
+# banner; vtium-platform already builds this version with these features.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "termios", "thread"] }
+# The decoders kbd's other compressions need (ADR-1200 D6), each pure
+# Rust with no C compiled, in this binary only; the README says why each.
+bzip2 = "=0.6.1"
+lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz"] }
+ruzstd = "=0.9.1"
+# The outline rasteriser ADR-1200 D14 decided on: outlines with hinting,
+# embedded bitmaps and color (COLR and CBDT), pure Rust, run only in the
+# parser's child; MIT or Apache-2.0, as are skrifa, read-fonts, zeno and
+# yazi under it. The README says why this one.
+swash = "=0.2.10"
+# swash's own outline reader, which the rasteriser calls itself to hint in
+# the mode a frit's `hinting=` names (ADR-1200 D1), since swash's scaler
+# hints in one fixed mode; the version and features swash already builds.
+skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
+# The shaper ADR-1200's glyph engine takes for clusters (vtium/vtium#144):
+# HarfRust, the HarfBuzz project's Rust port, MIT, with no unsafe code of
+# its own; run only in the helper and the parser's child, never in the
+# console. Its read-fonts is the version swash's skrifa already builds.
+harfrust = { version = "=0.12.0", default-features = false, features = ["std"] }
+
+# The user database's lookup of the name doas hands apply in DOAS_USER
+# (getpwnam), safe; the version calloop already builds, with its `user`
+# feature, in this binary only.
+nix = { version = "=0.31.3", default-features = false, features = ["user"] }
+
+[dev-dependencies]
+# A pty for `set`'s and the banner's tests; vtium-platform already builds
+# this version with these features.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "pty", "termios", "thread"] }
+# The console's terminal, answering `set` in its test.
+vtium-term.workspace = true
+# The tests read gzipped fonts back with the PSF loader.
+vtium-font = { workspace = true, features = ["psf", "gzip"] }
+# The xz encoder, for the tests' fixtures only.
+lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz", "encoder"] }

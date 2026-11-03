@@ -15,8 +15,9 @@ workspace = true
 # The minspec build is the default: the smallest complete console.
 default = []
 # Pictures (ADR-1100 D10): the store and the sixel and kitty handlers in
-# vtium-term, the compositor's pictures in vtium-render, and vtium-image.
-images = ["dep:vtium-image", "vtium-term/images", "vtium-render/images"]
+# vtium-term, the compositor's pictures in vtium-render, vtium-image, and
+# the image helper's host in vtium-platform (ADR-1101).
+images = ["dep:vtium-image", "vtium-term/images", "vtium-render/images", "vtium-platform/images"]
 # grab-suspend through logind's Suspend (ADR-1400's L2 layer).
 logind = ["vtium-platform/logind"]
 
@@ -30,7 +31,7 @@ vtium-platform.workspace = true
 vtium-image = { workspace = true, optional = true }
 # The head file's reader, parser and evaluator, which `check-config` runs
 # as the start will (ADR-1401 D7, D12).
-vtium-config.workspace = true
+vtium-settings.workspace = true
 # The messages vtium-platform writes through it, and the binary's own,
 # which the binary routes to stderr.
 log = "0.4"
@@ -49,4 +50,4 @@ calloop = { version = "=0.14.4", default-features = false }
 # The glyph helper's serve mode, which `tests/boot.rs` runs in a process of
 # its own as the helper an outline frit asks, so the console's tests meet
 # the checks the real helper makes.
-vtium-vitrify = { path = "../vtium-vitrify" }
+vtium-config = { path = "../vtium-config" }

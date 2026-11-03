@@ -35,10 +35,18 @@
 //!   each: 3,012 bytes at the 170-column minspec grid, 2.95 times its
 //!   budget, where ADR-1001 took 1,020. The shapes below reach twice the
 //!   budget in a row and about 1.4 times it on average.
+//!
+//! In a build with images, a placeholder cluster, one that starts with
+//! U+10EEEE, sits outside the budget (ADR-1001, "Placeholder cells"): it keeps up to
+//! `PLACEHOLDER_BYTES_MAX` bytes whatever the other clusters take, and a
+//! line's arena compacts at twice its budget and that much for each cell
+//! that names one. So every bound above gains `PLACEHOLDER_BYTES_MAX` a
+//! cell of placeholders: a row names at most that many bytes of them a
+//! cell, and `row_bound` adds it for every cell of the widest screen.
 
 mod common;
 
-use common::{Rng, row_bound};
+use common::{PLACEHOLDER_BYTES_MAX, Rng, row_bound};
 use vtium_term::{
     CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, Glyph, Line, LineFlags, SB_MEMORY_DEFAULT,
     SB_SIZE_CAP_SMALL, Screen, Terminal,
@@ -56,14 +64,33 @@ fn named_bytes(line: &Line) -> usize {
         .sum()
 }
 
-/// The heap a line of `len` cells may hold: its cells, and tables that
-/// compact at twice what the line can name, each in a vector that may have
-/// doubled its capacity.
-fn heap_bound(len: usize) -> usize {
+/// The bytes the placeholder clusters a line's cells name take, length
+/// bytes included, and the cells that name them; none without images,
+/// where U+10EEEE's clusters count toward the budget.
+fn placeholder_bytes(line: &Line) -> (usize, usize) {
+    if !cfg!(feature = "images") {
+        return (0, 0);
+    }
+    line.cells()
+        .iter()
+        .filter_map(|&c| match line.glyph(c) {
+            Glyph::Cluster(s) if s.starts_with('\u{10EEEE}') => Some(s.len() + 1),
+            _ => None,
+        })
+        .fold((0, 0), |(bytes, cells), b| (bytes + b, cells + 1))
+}
+
+/// The heap a line of `len` cells, `placeholders` of which name a
+/// placeholder cluster, may hold: its cells, and tables that compact at
+/// twice what the line can name, each in a vector that may have doubled
+/// its capacity.
+fn heap_bound(len: usize, placeholders: usize) -> usize {
     let cells = len.max(1);
     let styles = 2 * cells * 14;
     let links = 2 * cells * 4;
-    let arena = 2 * cells * CLUSTER_BYTES_PER_CELL + 1 + CLUSTER_MAX * 4;
+    let arena = 2 * (cells * CLUSTER_BYTES_PER_CELL + placeholders * PLACEHOLDER_BYTES_MAX)
+        + 1
+        + CLUSTER_MAX * 4;
     2 * (cells * 8 + styles + links + arena) + 256
 }
 
@@ -74,7 +101,7 @@ fn heap_bound(len: usize) -> usize {
 fn check(screen: &Screen, widest: usize, path: &str, step: usize) {
     let mut lines: Vec<&Line> = screen.scrollback().collect();
     lines.extend(screen.lines());
-    let (mut named, mut heap, mut rows) = (0, 0, 0);
+    let (mut named, mut held, mut placeholders, mut heap, mut rows, mut len) = (0, 0, 0, 0, 0, 0);
     for (i, line) in lines.iter().enumerate() {
         let bytes = named_bytes(line);
         assert_eq!(
@@ -83,9 +110,13 @@ fn check(screen: &Screen, widest: usize, path: &str, step: usize) {
             "{path}, step {step}, line {i}: the cells name {bytes} bytes, the line accounts {}",
             line.cluster_bytes()
         );
-        named += bytes;
+        let (ph_bytes, ph_cells) = placeholder_bytes(line);
+        named += bytes - ph_bytes;
+        held += ph_bytes;
+        placeholders += ph_cells;
         heap += line.heap_bytes();
         rows += 1;
+        len += line.len();
         if line.flags().contains(LineFlags::WRAPPED) && i + 1 != lines.len() {
             continue;
         }
@@ -95,10 +126,14 @@ fn check(screen: &Screen, widest: usize, path: &str, step: usize) {
             "{path}, step {step}, line {i}: {named} bytes in {rows} rows over a budget of {cells} cells"
         );
         assert!(
-            heap <= heap_bound(cells) + rows * 256,
+            held <= len * PLACEHOLDER_BYTES_MAX,
+            "{path}, step {step}, line {i}: {held} bytes of placeholders in {len} cells"
+        );
+        assert!(
+            heap <= heap_bound(cells, placeholders) + rows * 256,
             "{path}, step {step}, line {i}: {heap} heap bytes in {rows} rows"
         );
-        (named, heap, rows) = (0, 0, 0);
+        (named, held, placeholders, heap, rows, len) = (0, 0, 0, 0, 0, 0);
     }
 }
 
@@ -110,26 +145,58 @@ fn cluster(marks: usize) -> String {
         .collect()
 }
 
+/// A kitty placeholder, U+10EEEE, and `marks` 4-byte marks, of which a
+/// line keeps the first three.
+fn placeholder(marks: usize) -> String {
+    std::iter::once('\u{10EEEE}')
+        .chain(std::iter::repeat_n('\u{E0100}', marks))
+        .collect()
+}
+
 /// Floods `path`'s sequences between prints of long clusters, wide ones
-/// widened by a VS16, at random places.
+/// widened by a VS16, and placeholder clusters, at random places.
 fn flood(path: &str, sequences: &[&str], setup: impl Fn(&mut Screen)) {
-    let mut rng = Rng(0x5eed ^ path.len() as u64);
-    let mut t = Terminal::new(9, 4, 50);
+    flood_at(9, path, sequences, setup);
+}
+
+/// [`flood`] on a screen `cols` wide.
+fn flood_at(cols: usize, path: &str, sequences: &[&str], setup: impl Fn(&mut Screen)) {
+    let mut rng = Rng(0x5eed ^ path.len() as u64 ^ cols as u64);
+    let mut t = Terminal::new(cols, 4, 50);
     t.screen_mut().set_scrollback_max(50);
     setup(t.screen_mut());
     for step in 0..3000 {
         let row = 1 + rng.below(4);
-        let col = 1 + rng.below(9);
+        let col = 1 + rng.below(cols);
         t.input(format!("\x1b[{row};{col}H").as_bytes());
         let marks = rng.below(CLUSTER_MAX + 4);
-        let text = if rng.below(4) == 0 {
-            format!("\u{2764}\u{FE0F}{}", cluster(marks))
-        } else {
-            cluster(marks)
+        let text = match rng.below(8) {
+            0 | 1 => format!("\u{2764}\u{FE0F}{}", cluster(marks)),
+            2 | 3 => placeholder(marks % 6),
+            4 => placeholder(3).repeat(1 + rng.below(2 * cols)),
+            _ => cluster(marks),
         };
         t.input(text.as_bytes());
         t.input(rng.pick(sequences).as_bytes());
-        check(t.screen(), 9, path, step);
+        check(t.screen(), cols, path, step);
+        if step % 100 == 99 && !t.screen().alternate() {
+            check_total(t.screen(), cols, step);
+        }
+    }
+}
+
+// ADR-1001, "Placeholder cells": rows of placeholders among long clusters,
+// on a screen of five columns, where a row of placeholders alone names more
+// than the bound without its placeholder term, and on the usual nine.
+#[test]
+fn placeholder_cells_among_long_clusters_keep_their_bounds() {
+    for cols in [5, 9] {
+        flood_at(
+            cols,
+            "placeholders",
+            &["", "\u{20D0}\u{20D0}\u{20D0}", "\r\n", "\x1b[2K", "\x1b[S"],
+            |_| {},
+        );
     }
 }
 

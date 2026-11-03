@@ -189,11 +189,11 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     short: None,
     kind: Kind::Number {
         min: 1,
-        max: vtium_config::CONSOLES_MAX as u64,
+        max: vtium_settings::CONSOLES_MAX as u64,
         unit: "consoles",
         word: None,
     },
-    default: Default::Number(vtium_config::HEAD_CONSOLES_DEFAULT as u64),
+    default: Default::Number(vtium_settings::HEAD_CONSOLES_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium",
     what: "The most consoles one head holds: the head file's `consoles` opens no more.",
@@ -356,11 +356,11 @@ pub const CONSOLES_MAX: Key = Key {
     short: None,
     kind: Kind::Number {
         min: 1,
-        max: vtium_config::CONSOLES_MAX as u64,
+        max: vtium_settings::CONSOLES_MAX as u64,
         unit: "consoles",
         word: None,
     },
-    default: Default::Number(vtium_config::CONSOLES_TOTAL_DEFAULT as u64),
+    default: Default::Number(vtium_settings::CONSOLES_TOTAL_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium",
     what: "The most consoles every head holds together. Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
@@ -1122,7 +1122,7 @@ pub const ALLOW_FONT_OPS: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-vitrify set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch changes the live console only; `font-name` decides the font at the next start. Off, vtium ignores OSC 50, the query included.",
+    what: "Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-config set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch lasts until the session it came from ends, when vtium returns the console to the font and size `font-name` and `font-size` give. Off, vtium ignores OSC 50, the query included.",
     cite: "ADR-1200 (D5); vtium/vtium#126",
 };
 
@@ -1362,6 +1362,17 @@ pub const PRIVATE_COLOR_REGISTERS: Key = Key {
     cite: "ADR-1100 D11; xterm's `privateColorRegisters`; src/config.c:1471",
 };
 
+pub const IMAGE_HELPER: Key = Key {
+    name: "image-helper",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Text(crate::head::images::PROGRAM),
+    scope: Scope::Anywhere,
+    reader: "vtium",
+    what: "The image helper's program, which vtium starts as the session's user to read the files and shared memory a kitty graphics command names and to decode PNG and zlib-compressed pictures, since vtium itself, running as root, does neither. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches the consoles when vtium starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why, and every console then answers those pictures itself, a file, a temporary file or shared memory with `EBADF` and PNG or zlib with `EINVAL`. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with. A build without images reads it and starts no helper.",
+    cite: "ADR-1101 (D1); the maintainer's decision of 2026-11-01",
+};
+
 pub const SIXEL: Key = Key {
     name: "sixel",
     short: None,
@@ -1385,7 +1396,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 104] = [
+pub const KEYS: [Key; 105] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1490,6 +1501,7 @@ pub const KEYS: [Key; 104] = [
     MAX_GRAPHIC_SIZE,
     NUM_COLOR_REGISTERS,
     PRIVATE_COLOR_REGISTERS,
+    IMAGE_HELPER,
 ];
 
 /// The keys vtium takes and does not act on yet, which the crate

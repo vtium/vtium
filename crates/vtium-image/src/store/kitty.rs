@@ -15,11 +15,15 @@
 //! them; `i`, `n`, `r`, `x` and `z` choose from the whole buffer, the
 //! scrollback included. The C reference chose the same way (its
 //! `screen_kitty_delete`, after Ghostty's reading of the spec).
+//!
+//! A relative placement is chosen by the cells it draws on, and goes with
+//! its parent (ADR-1100, D13). A virtual placement has no cells, so only
+//! the selectors by image reach it, `i`, `n` and `r`, as the spec says.
 
 use std::collections::BTreeSet;
 
-use super::{Edit, Reservation, Screens, Store};
-use crate::image::{ImageKey, PlacementKey, Refusal};
+use super::{Drawn, Edit, Link, Placing, Reservation, Screens, Spot, Store};
+use crate::image::{ImageKey, Place, PlacementKey, Refusal};
 use crate::rules::Protocol;
 use crate::rules::rules;
 
@@ -113,6 +117,7 @@ impl Store {
             chosen.clone()
         };
         let tops = self.tops(b, rows);
+        let drawn = self.drawn(b, rows, &tops);
         let Some(buf) = self.buffers.get(b) else {
             return;
         };
@@ -126,16 +131,27 @@ impl Store {
             if !rules(p.protocol.0).deleted_by_kitty {
                 continue;
             }
-            let top = tops.get(&k).copied();
-            let (col, cols) = (i64::from(p.col), i64::from(p.cols));
+            // the screen row of its box's top, when it is on the rows given,
+            // and its left column, when it has cells at all
+            let (top, col) = match p.spot {
+                Spot::Line(_) => (tops.get(&k).copied(), Some(i64::from(p.col))),
+                Spot::Child { .. } => match drawn.get(&k) {
+                    Some(&Drawn::At { top, col }) => (top, Some(col)),
+                    Some(Drawn::Nowhere) | None => (None, None),
+                },
+                Spot::Virtual => (None, None),
+            };
+            let cols = i64::from(p.cols);
             let on_screen =
                 top.is_some_and(|t| t.saturating_add(i64::from(p.rows)) > 0 && t < height);
+            let in_column =
+                |c: i64| col.is_some_and(|col| c >= col && c < col.saturating_add(cols));
             let covers = |c: u32, r: u32| {
-                let (c, r) = (i64::from(c), i64::from(r));
+                let r = i64::from(r);
                 top.is_some_and(|t| r >= t && r < t.saturating_add(i64::from(p.rows)))
-                    && c >= col
-                    && c < col.saturating_add(cols)
+                    && in_column(i64::from(c))
             };
+            let real = !matches!(p.spot, Spot::Virtual);
             let hit = match delete.select {
                 Select::All => on_screen,
                 Select::Id { placement, .. } | Select::Number { placement, .. } => {
@@ -144,12 +160,13 @@ impl Store {
                 Select::Range { .. } => chosen.contains(&p.image),
                 Select::Cell { col: c, row: r } => covers(c, r),
                 Select::CellZ { col: c, row: r, z } => covers(c, r) && p.z == z,
-                Select::Column(c) => {
-                    let c = i64::from(c);
-                    c >= col && c < col.saturating_add(cols)
+                Select::Column(c) => in_column(i64::from(c)),
+                Select::Row(r) => {
+                    let r = i64::from(r);
+                    on_screen
+                        && top.is_some_and(|t| r >= t && r < t.saturating_add(i64::from(p.rows)))
                 }
-                Select::Row(r) => on_screen && covers(p.col, r),
-                Select::Z(z) => p.z == z,
+                Select::Z(z) => real && p.z == z,
                 Select::Nothing => false,
             };
             if hit {
@@ -222,6 +239,19 @@ impl Edit<'_> {
     /// Runs a kitty delete on the buffer in use.
     pub(crate) fn kitty_delete(&mut self, delete: Delete) {
         self.store.kitty_delete(delete, self.screens);
+    }
+
+    /// Places an image of the buffer in use as a kitty put asks: at the
+    /// screen cell `place` names, as a relative placement, or as a virtual
+    /// placement (ADR-1100, D13). See [`Store::place_at`].
+    pub(crate) fn kitty_place(
+        &mut self,
+        image: ImageKey,
+        place: Place,
+        link: Link,
+    ) -> Result<PlacementKey, Placing> {
+        self.store
+            .place_at(image, place, link, self.screens, self.cols)
     }
 }
 

@@ -194,9 +194,25 @@ const PROPERTY: Bound = Bound {
     cite: "ADR-1401 D4; vtium/vtium#47",
 };
 
+const IMAGE_CRASHES: Bound = Bound {
+    name: "IMAGE_CRASHES_MAX",
+    value: 3,
+    what: "Image helper crashes one console's session takes: a worker killed by a signal, a helper that ends with an exit status other than 0, or a reply that fails a check; a helper that idles out as a request goes out fails that request and counts nothing",
+    past: "That console starts no more image helpers until its session ends, logs it once, and answers as with no helper; other consoles keep theirs",
+    cite: "ADR-1101 D8, the maintainer (2026-11-01); the C reference restarted its helper after every failure",
+};
+
+const IMAGE_BASE: Bound = Bound {
+    name: "IMAGE_HELPER_BASE",
+    value: 64 << 20,
+    what: "Bytes of address space the image helper has beyond three copies of a request's `max_bytes`, for its code and libraries",
+    past: "An allocation past the cap fails: the decoders answer `OVER_BUDGET`, and anything else ends the worker",
+    cite: "`HELPER_AS_BASE`, image_host.c:48; ADR-1101 D3",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 22] = [
+pub(crate) const BOUNDS: [Bound; 24] = [
     READ,
     READS,
     BUDGET,
@@ -219,6 +235,8 @@ pub(crate) const BOUNDS: [Bound; 22] = [
     PLANES,
     PROPERTIES,
     PROPERTY,
+    IMAGE_CRASHES,
+    IMAGE_BASE,
 ];
 
 // A turn's share of a pty is whole reads at the largest.
@@ -282,6 +300,14 @@ pub const RETAKE_QUIET_MS: usize = RETAKE_QUIET.value;
 
 /// Reads of a DRM card's CRTC and connector lists before one fails.
 pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;
+
+/// Image helper crashes one console's session takes before it starts no
+/// more.
+pub const IMAGE_CRASHES_MAX: usize = IMAGE_CRASHES.value;
+
+/// Bytes of address space the image helper has beyond three copies of a
+/// request's `max_bytes`.
+pub const IMAGE_HELPER_BASE: usize = IMAGE_BASE.value;
 
 /// Bytes of a KMS property blob vtium reads.
 pub(crate) const BLOB_MAX: usize = BLOB.value;

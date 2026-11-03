@@ -5,6 +5,9 @@
 //! kitty ids and placements, and one budget and one use clock over both.
 //! A placement is anchored to the line holding its top row, named by its
 //! [`LineKey`], and a column; the store never orders lines by their key.
+//! Two kinds of kitty placement have no line of their own: a relative
+//! placement follows its parent, and a virtual placement lies on no line
+//! (`store/relative.rs`).
 //! The terminal tells the store which line holds each screen row when an
 //! event needs it, through [`Rows`]: the screen's rows top to bottom and
 //! the newest scrollback rows above them.
@@ -14,16 +17,20 @@
 //! hash. Every walk over placements adds what it visits to the store's
 //! work count, which the terminal adds to its input call's work.
 
+mod anim;
 mod edit;
 mod events;
 mod frame;
+mod iterm2;
 pub(crate) mod kitty;
+mod relative;
 mod reserve;
+mod runs;
 mod sixel;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::bounds::{
     BOX_CELLS_MAX, CELL_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX, IMAGES_PER_BUFFER, PLACEMENT_OVERHEAD,
@@ -32,8 +39,13 @@ use crate::bounds::{
 use crate::image::{ImageKey, LineKey, NewImage, Pixels, Place, PlacementKey, Refusal};
 use crate::rules::{Kept, Layer, rules};
 
+use anim::Anim;
+pub use anim::{Animation, FramePixels, Run};
+pub(crate) use anim::{Compose, Control, NewFrame, layer_cost};
 pub use edit::Edit;
 pub use frame::FramePlacement;
+use relative::{Drawn, Located, Spot};
+pub(crate) use relative::{Link, Placing};
 pub use reserve::Reservation;
 
 /// The lines of one buffer's screen, as the terminal holds them when an
@@ -78,11 +90,16 @@ impl<'a> Screens<'a> {
     }
 }
 
-/// A box the store changed, in cells: `rows` rows from the line `line`,
-/// `cols` columns from `col`. The terminal marks the cells under it.
+/// A box the store changed, in cells: `rows` rows from the row `row` rows
+/// below the line `line`, `cols` columns from `col`. The terminal marks the
+/// cells under it. `row` is 0 for a placement on its own line; a relative
+/// placement (ADR-1100, D13) names the line its first ancestor with a line
+/// is anchored on, and `row` is then the rows from that line to its box's
+/// top, negative when the box starts above it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Region {
     pub line: LineKey,
+    pub row: i64,
     pub col: u32,
     pub cols: u32,
     pub rows: u32,
@@ -115,22 +132,36 @@ struct Image {
     placements: u32,
     /// Held while an operation that may evict works for it.
     hold: u32,
+    /// Its root frame's pixel revision: the store's revision when a command
+    /// last changed its own pixels (ADR-1102, D3).
     revision: u64,
+    /// Its animation, once a command gave it frames or set its playing
+    /// (ADR-1102); `None` for a picture no animation command named.
+    anim: Option<Box<Anim>>,
 }
 
-/// A placement: a box of cells anchored to a line, showing part of an
-/// image. The picture is never cut: `ox`, `oy`, `dw` and `dh` place the
-/// whole drawn picture relative to the box's top left, in pixels of the
-/// cell size `cw` by `ch` it was made in, and the source rectangle `sx`,
-/// `sy`, `sw`, `sh` is what the whole picture shows.
+/// A placement: a box of cells showing part of an image, anchored to a
+/// line, or following another placement, or on no line at all (`spot`).
+/// The picture is never cut: `ox`, `oy`, `dw` and `dh` place the whole
+/// drawn picture relative to the box's top left, in pixels of the cell
+/// size `cw` by `ch` it was made in, and the source rectangle `sx`, `sy`,
+/// `sw`, `sh` is what the whole picture shows.
 #[derive(Clone, Debug, PartialEq)]
 struct Placement {
     image: ImageKey,
     protocol: Kept,
-    anchor: LineKey,
-    /// Anchored at `anchor`, or waiting for a scroll's lines to move.
+    spot: Spot,
+    /// On the line its spot names, or waiting for a scroll's lines to
+    /// move; always false for a placement with no line of its own.
     attached: bool,
+    /// The column of its box's left edge, for a placement on a line.
     col: u32,
+    /// The columns and rows cut off its box's left and top since it was
+    /// placed, so its origin, the cell that held its box's top left as it
+    /// was placed, is `lost_cols` left of `col` and `lost_rows` above its
+    /// line. A relative placement's offset counts from its parent's origin.
+    lost_cols: u32,
+    lost_rows: u32,
     cols: u32,
     rows: u32,
     ox: i64,
@@ -151,12 +182,18 @@ struct Placement {
 }
 
 impl Placement {
-    fn region(&self) -> Region {
-        Region {
-            line: self.anchor,
-            col: self.col,
-            cols: self.cols,
-            rows: self.rows,
+    /// The box of a placement on a line; `None` for one with no line of its
+    /// own, whose box [`Buffer::region`] works out.
+    fn own_region(&self) -> Option<Region> {
+        match self.spot {
+            Spot::Line(line) => Some(Region {
+                line,
+                row: 0,
+                col: self.col,
+                cols: self.cols,
+                rows: self.rows,
+            }),
+            Spot::Child { .. } | Spot::Virtual => None,
         }
     }
 
@@ -172,6 +209,12 @@ struct Buffer {
     placements: BTreeMap<PlacementKey, Placement>,
     /// The placements anchored on each line, for lookups only.
     by_line: BTreeMap<LineKey, Vec<PlacementKey>>,
+    /// Each placement's relative placements, its children, in the order
+    /// they were made (D13); every relative placement is in it once.
+    children: BTreeMap<PlacementKey, Vec<PlacementKey>>,
+    /// The relative placements whose parent is a virtual placement: every
+    /// chain that ends at a virtual placement starts with one (D13).
+    virtual_children: usize,
     /// The stack at each layer and z, bottom to top (D4).
     stacks: BTreeMap<(Layer, i32), Vec<PlacementKey>>,
     /// How many placements are each height in rows, all of them and those
@@ -185,7 +228,7 @@ impl Buffer {
     fn attach(&mut self, key: PlacementKey, line: LineKey) {
         self.detach(key);
         if let Some(p) = self.placements.get_mut(&key) {
-            p.anchor = line;
+            p.spot = Spot::Line(line);
             p.attached = true;
         }
         self.by_line.entry(line).or_default().push(key);
@@ -198,7 +241,9 @@ impl Buffer {
         if !core::mem::take(&mut p.attached) {
             return;
         }
-        let line = p.anchor;
+        let Spot::Line(line) = p.spot else {
+            return;
+        };
         if let Some(list) = self.by_line.get_mut(&line) {
             list.retain(|&k| k != key);
             if list.is_empty() {
@@ -273,11 +318,16 @@ impl Buffer {
         (top(&self.heights), top(&self.cut_heights))
     }
 
-    /// Counts placement `key`'s height in, or with `inward` false out.
+    /// Counts placement `key`'s height in, or with `inward` false out. Only
+    /// a placement on a line is counted: one with no line of its own is
+    /// found through its parent or not at all, never by walking lines.
     fn count_height(&mut self, key: PlacementKey, inward: bool) {
         let Some(p) = self.placements.get(&key) else {
             return;
         };
+        if !matches!(p.spot, Spot::Line(_)) {
+            return;
+        }
         let (rows, cuts) = (p.rows, rules(p.protocol.0).cut_by_text);
         let step = |m: &mut BTreeMap<u32, u32>| {
             let n = m.entry(rows).or_insert(0);
@@ -296,11 +346,43 @@ impl Buffer {
         }
     }
 
-    /// Adds or replaces a placement, keeping the height counts.
+    /// Adds or replaces a placement, keeping the height counts, and the
+    /// count of virtual placements' children when a replacement makes a
+    /// parent virtual or no longer virtual.
     fn put(&mut self, key: PlacementKey, p: Placement) {
         self.count_height(key, false);
+        let was = self.is_virtual(key);
+        let now = p.spot == Spot::Virtual;
         self.placements.insert(key, p);
         self.count_height(key, true);
+        let kids = self.children.get(&key).map_or(0, Vec::len);
+        if was && !now {
+            self.virtual_children = self.virtual_children.saturating_sub(kids);
+        } else if now && !was {
+            self.virtual_children = self.virtual_children.saturating_add(kids);
+        }
+    }
+
+    fn is_virtual(&self, key: PlacementKey) -> bool {
+        self.placements
+            .get(&key)
+            .is_some_and(|p| p.spot == Spot::Virtual)
+    }
+
+    /// Adds relative placement `key` to its parent `parent`'s children.
+    fn link(&mut self, key: PlacementKey, parent: PlacementKey) {
+        self.children.entry(parent).or_default().push(key);
+        if self.is_virtual(parent) {
+            self.virtual_children = self.virtual_children.saturating_add(1);
+        }
+    }
+
+    /// Forgets placement `key`'s list of children, as it goes.
+    fn drop_children(&mut self, key: PlacementKey) {
+        let kids = self.children.remove(&key).map_or(0, |list| list.len());
+        if self.is_virtual(key) {
+            self.virtual_children = self.virtual_children.saturating_sub(kids);
+        }
     }
 
     /// Removes a placement, keeping the height counts.
@@ -329,6 +411,9 @@ pub struct Store {
     used: u64,
     /// What pieces cut by screen events owe, not yet granted.
     owed: u64,
+    /// What the frame allowance has granted: every animation's charge and
+    /// the frame reservations not yet spent (ADR-1102, D1).
+    frame_used: u64,
     clock: u64,
     next_image: u64,
     next_placement: u64,
@@ -360,6 +445,14 @@ pub struct Store {
     reservations: BTreeMap<u64, u64>,
     /// The number the next reservation gets.
     next_reservation: u64,
+    /// The placeholder runs vtium-term read from each buffer's screen lines
+    /// for the decision under way, held only through
+    /// [`with_runs`](Self::with_runs) (ADR-1100, D13).
+    runs: [Vec<crate::image::PlaceholderRun>; 2],
+    /// The buffer and kitty image id of each virtual placement changed
+    /// since vtium-term last took them, for it to mark that image's
+    /// placeholder cells (D13).
+    changed_virtual: BTreeSet<(bool, u32)>,
 }
 
 /// Two stores compare by what they hold; the work an input call counted
@@ -372,6 +465,7 @@ impl PartialEq for Store {
             && self.limit == other.limit
             && self.used == other.used
             && self.owed == other.owed
+            && self.frame_used == other.frame_used
             && self.clock == other.clock
             && self.next_image == other.next_image
             && self.next_placement == other.next_placement
@@ -403,6 +497,7 @@ impl Store {
             limit: 0,
             used: 0,
             owed: 0,
+            frame_used: 0,
             clock: 0,
             next_image: 0,
             next_placement: 0,
@@ -418,6 +513,8 @@ impl Store {
             evicting: false,
             reservations: BTreeMap::new(),
             next_reservation: 0,
+            runs: [Vec::new(), Vec::new()],
+            changed_virtual: BTreeSet::new(),
         }
     }
 
@@ -453,25 +550,17 @@ impl Store {
     }
 
     /// The scrollback rows above the screen a [`Rows`] must hold for the
-    /// buffer in use: the tallest placement's rows less one.
+    /// buffer in use: the tallest placement's rows less one, or more when a
+    /// relative placement draws further below the line its first ancestor
+    /// with a line is anchored on.
     pub fn reach(&self) -> usize {
-        let (tallest, _) = self
-            .buffers
-            .get(self.active())
-            .map(Buffer::tallest)
-            .unwrap_or_default();
-        usize::try_from(tallest.saturating_sub(1)).unwrap_or(usize::MAX)
+        self.buffers.get(self.active()).map_or(0, Buffer::reach)
     }
 
     /// The scrollback rows above the main screen a [`Rows`] must hold for
     /// the main buffer, whichever buffer is in use.
     pub fn main_reach(&self) -> usize {
-        let (tallest, _) = self
-            .buffers
-            .get(MAIN)
-            .map(Buffer::tallest)
-            .unwrap_or_default();
-        usize::try_from(tallest.saturating_sub(1)).unwrap_or(usize::MAX)
+        self.buffers.get(MAIN).map_or(0, Buffer::reach)
     }
 
     /// Switches to the alternate buffer or back, emptying the alternate
@@ -604,6 +693,15 @@ impl Store {
         // still in the buffer in use with the id; it is held no more. A copy
         // of a reservation already spent holds nothing, so the image
         // reserves its whole cost
+        // a frame reservation holds the frame allowance, which pays for no
+        // image: it is given back, and the image reserves its whole cost
+        let reservation = match reservation {
+            Some(r) if r.frames => {
+                self.unreserve(r);
+                None
+            }
+            other => other,
+        };
         let spent = reservation.and_then(|r| self.spend(&r).map(|bytes| (r, bytes)));
         let (mut reserved, held) = match spent {
             Some((r, bytes)) => {
@@ -697,6 +795,7 @@ impl Store {
             placements: 0,
             hold: 0,
             revision,
+            anim: None,
         };
         if let Some(buf) = self.buffers.get_mut(b) {
             buf.images.insert(key, image);
@@ -719,16 +818,35 @@ impl Store {
         screens: Screens<'_>,
         cols: usize,
     ) -> Result<PlacementKey, Refusal> {
+        self.place_at(image, place, Link::Cell, screens, cols)
+            .map_err(Placing::refusal)
+    }
+
+    /// Places `image` as [`place`](Self::place) does, at the screen cell
+    /// `place` names, or as `link` says otherwise: as a relative placement
+    /// of a parent, or as a virtual placement on no line (D13). A relative
+    /// or virtual placement ignores `place.col` and `place.row`.
+    pub(crate) fn place_at(
+        &mut self,
+        image: ImageKey,
+        place: Place,
+        link: Link,
+        screens: Screens<'_>,
+        cols: usize,
+    ) -> Result<PlacementKey, Placing> {
         let b = self.active();
         let rows = screens.of(b);
         let (cw, ch) = self.cell;
         let img = self.image(b, image).ok_or(Refusal::NotFound)?;
         let (protocol, width, height) = (img.protocol.0, img.width, img.height);
-        let cols_ok = usize::try_from(place.col).is_ok_and(|c| c < cols);
-        let row = usize::try_from(place.row).ok();
-        let line = row.and_then(|r| rows.screen.get(r)).copied();
-        let Some(line) = line.filter(|_| cols_ok) else {
-            return Err(Refusal::Invalid);
+        let line = match link {
+            Link::Cell | Link::Drawn { .. } => {
+                let cols_ok = usize::try_from(place.col).is_ok_and(|c| c < cols);
+                let row = usize::try_from(place.row).ok();
+                let line = row.and_then(|r| rows.screen.get(r)).copied();
+                Some(line.filter(|_| cols_ok).ok_or(Refusal::Invalid)?)
+            }
+            Link::Parent { .. } | Link::Virtual => None,
         };
         if place.x >= cw
             || place.y >= ch
@@ -737,9 +855,13 @@ impl Store {
             || u64::from(place.cols) > BOX_CELLS_MAX
             || u64::from(place.rows) > BOX_CELLS_MAX
         {
-            return Err(Refusal::Invalid);
+            return Err(Refusal::Invalid.into());
         }
-        let geometry = Geometry::fit(&place, (width, height), (cw, ch))?;
+        let drawn = match link {
+            Link::Drawn { width, height } => Some((width, height)),
+            _ => None,
+        };
+        let geometry = Geometry::fit(&place, drawn, (width, height), (cw, ch))?;
         let replaced = if rules(protocol).ids && place.id != 0 {
             let count = self.buffers.get(b).map_or(0, |buf| buf.placements.len());
             self.count(count);
@@ -751,6 +873,23 @@ impl Store {
             })
         } else {
             None
+        };
+        let spot = match (link, line) {
+            (Link::Cell | Link::Drawn { .. }, Some(line)) => Spot::Line(line),
+            (
+                Link::Parent {
+                    image,
+                    placement,
+                    cols,
+                    rows,
+                },
+                _,
+            ) => {
+                let parent = self.find_parent(b, image, placement)?;
+                self.check_chain(b, parent, replaced)?;
+                Spot::Child { parent, cols, rows }
+            }
+            _ => Spot::Virtual,
         };
         // a placement past the image's first carries its charge
         let charged = replaced.is_none() && self.image(b, image).is_some_and(|i| i.placements > 0);
@@ -782,9 +921,11 @@ impl Store {
         let placement = Placement {
             image,
             protocol: Kept(protocol),
-            anchor: line,
+            spot,
             attached: false,
-            col: place.col,
+            col: if line.is_some() { place.col } else { 0 },
+            lost_cols: 0,
+            lost_rows: 0,
             cols: geometry.cols,
             rows: geometry.rows,
             ox: geometry.ox,
@@ -803,14 +944,18 @@ impl Store {
             id: place.id,
             revision,
         };
+        self.virtual_changed(b, &placement);
         let key = match replaced {
             Some(k) => {
-                if let Some(old) = self.placement(b, k) {
-                    self.changed.push(old.region());
+                // the old box and every box that follows it change
+                self.mark_family(b, k, true);
+                if let Some(old) = self.placement(b, k).cloned() {
+                    self.virtual_changed(b, &old);
                 }
                 if let Some(buf) = self.buffers.get_mut(b) {
                     buf.unstack(k);
                     buf.detach(k);
+                    buf.unlink(k);
                     buf.put(k, placement);
                 }
                 k
@@ -829,7 +974,11 @@ impl Store {
         };
         let passed = match self.buffers.get_mut(b) {
             Some(buf) => {
-                buf.attach(key, line);
+                match spot {
+                    Spot::Line(line) => buf.attach(key, line),
+                    Spot::Child { parent, .. } => buf.link(key, parent),
+                    Spot::Virtual => {}
+                }
                 buf.stack_arrival(key)
             }
             None => 0,
@@ -839,9 +988,7 @@ impl Store {
         if let Some(img) = self.image_mut(b, image) {
             img.used_at = stamp;
         }
-        if let Some(p) = self.placement(b, key) {
-            self.changed.push(p.region());
-        }
+        self.mark_family(b, key, true);
         Ok(key)
     }
 
@@ -974,12 +1121,18 @@ impl Store {
     // Eviction.
 
     /// Each image's place in the eviction order: whether it is pinned, and
-    /// whether it is placed on the screen's own lines.
+    /// whether it is placed on the screen's own lines. A relative placement
+    /// counts by the rows it draws on, and one that follows a virtual
+    /// placement, like a virtual placement itself, counts as on the
+    /// screen's own lines (D13).
     fn marks(&mut self, screens: Screens<'_>) -> [BTreeMap<ImageKey, (bool, bool)>; 2] {
         let mut out = [BTreeMap::new(), BTreeMap::new()];
         let keep = self.keep;
         for (b, marks) in out.iter_mut().enumerate() {
-            let tops = self.tops(b, screens.of(b));
+            let rows = screens.of(b);
+            let height = rows.height();
+            let tops = self.tops(b, rows);
+            let drawn = self.drawn(b, rows, &tops);
             let Some(buf) = self.buffers.get(b) else {
                 continue;
             };
@@ -993,10 +1146,16 @@ impl Store {
                 marks.insert(k, (image.hold > 0 || kept, false));
             }
             for (k, p) in &buf.placements {
-                let reaches = tops
-                    .get(k)
-                    .is_some_and(|&top| top.saturating_add(i64::from(p.rows)) > 0);
-                if !reaches {
+                let reaches = |top: i64| top.saturating_add(i64::from(p.rows)) > 0 && top < height;
+                let on = match p.spot {
+                    Spot::Line(_) => tops.get(k).is_some_and(|&top| reaches(top)),
+                    Spot::Child { .. } => match drawn.get(k) {
+                        Some(Drawn::At { top, .. }) => top.is_some_and(reaches),
+                        Some(Drawn::Nowhere) | None => true,
+                    },
+                    Spot::Virtual => true,
+                };
+                if !on {
                     continue;
                 }
                 if let Some(m) = marks.get_mut(&p.image) {
@@ -1113,35 +1272,69 @@ impl Store {
 
     // Freeing.
 
-    /// Removes a placement. One past its image's first gives its charge
-    /// back; with `free_image`, an image whose rules free it with its last
-    /// placement goes with it.
+    /// Removes a placement, and every relative placement that follows it,
+    /// their children in turn (D13). One past its image's first gives its
+    /// charge back; with `free_image`, an image whose rules free it with its
+    /// last placement goes with it. A relative placement that goes with its
+    /// parent takes its image when that image is left with no placement, as
+    /// the kitty spec asks.
     fn free_placement(&mut self, b: usize, key: PlacementKey, free_image: bool) {
-        let Some(buf) = self.buffers.get_mut(b) else {
-            return;
+        let family = match self.buffers.get(b) {
+            Some(buf) if buf.placements.contains_key(&key) => buf.family(key),
+            _ => return,
         };
+        let visited = family.len();
+        self.count(visited);
+        // each box is worked out while every parent is still there
+        let boxes: Vec<(PlacementKey, Option<Region>)> = family
+            .into_iter()
+            .map(|k| (k, self.buffers.get(b).and_then(|buf| buf.region(k))))
+            .collect();
+        for (i, (k, region)) in boxes.into_iter().enumerate() {
+            let Some(image) = self.remove_one(b, k, region) else {
+                continue;
+            };
+            let Some(img) = self.image(b, image) else {
+                continue;
+            };
+            let bare = img.placements == 0 && img.hold == 0;
+            let freed = if i == 0 {
+                free_image && rules(img.protocol.0).freed_with_last_placement
+            } else {
+                self.dying != Some(image)
+            };
+            if bare && freed {
+                self.free_image(b, image);
+            }
+        }
+    }
+
+    /// Removes placement `key` alone, whose box was `region`, and returns
+    /// its image's key. One past its image's first gives its charge back.
+    fn remove_one(
+        &mut self,
+        b: usize,
+        key: PlacementKey,
+        region: Option<Region>,
+    ) -> Option<ImageKey> {
+        let buf = self.buffers.get_mut(b)?;
         buf.detach(key);
         buf.unstack(key);
-        let Some(p) = buf.take(key) else {
-            return;
-        };
+        buf.unlink(key);
+        buf.drop_children(key);
+        let p = buf.take(key)?;
+        self.virtual_changed(b, &p);
         self.pending.retain(|&(pb, pk, _)| (pb, pk) != (b, key));
-        self.changed.push(p.region());
+        self.changed.extend(region);
         self.bump();
         let dying = self.dying == Some(p.image);
-        let Some(image) = self.image_mut(b, p.image) else {
-            return;
-        };
+        let image = self.image_mut(b, p.image)?;
         image.placements = image.placements.saturating_sub(1);
-        let left = image.placements;
-        let held = image.hold > 0;
-        if left > 0 && !dying {
+        if image.placements > 0 && !dying {
             image.bytes = image.bytes.saturating_sub(PLACEMENT_OVERHEAD);
             self.give_back(b, p.image, PLACEMENT_OVERHEAD);
         }
-        if free_image && left == 0 && !held && rules(p.protocol.0).freed_with_last_placement {
-            self.free_image(b, p.image);
-        }
+        Some(p.image)
     }
 
     /// Removes an image and every placement of it, and gives its bytes
@@ -1175,6 +1368,8 @@ impl Store {
         self.used = self
             .used
             .saturating_sub(image.bytes.saturating_sub(image.owed));
+        // its frames go with it and give back their allowance (ADR-1102, D1)
+        self.frame_used = self.frame_used.saturating_sub(Anim::charge_of(&image));
         self.keep_spare(image.pixels);
     }
 
@@ -1217,14 +1412,20 @@ impl Store {
             return;
         };
         let buf = core::mem::take(buf);
-        for p in buf.placements.values() {
-            self.changed.push(p.region());
+        for (&k, p) in &buf.placements {
+            self.changed.extend(buf.region(k));
+            if p.spot == Spot::Virtual
+                && let Some(image) = buf.images.get(&p.image)
+            {
+                self.note_virtual(b, image.id);
+            }
         }
         for image in buf.images.values() {
             self.owed = self.owed.saturating_sub(image.owed);
             self.used = self
                 .used
                 .saturating_sub(image.bytes.saturating_sub(image.owed));
+            self.frame_used = self.frame_used.saturating_sub(Anim::charge_of(image));
         }
         self.pending.retain(|&(pb, _, _)| pb != b);
         self.bump();
@@ -1269,12 +1470,14 @@ struct Geometry {
 
 impl Geometry {
     /// The source cut to the image, and the box and the picture in it: at
-    /// the source's pixel size, fitted and centred in a box of both sides,
-    /// or one side given and the other following the source's aspect. A
+    /// the `drawn` size when one is given, at the source's pixel size,
+    /// fitted and centred in a box of both sides, or one side given and the
+    /// other following the source's aspect. A
     /// picture scaled to a sliver keeps a pixel; one scaled past the
     /// largest box is refused.
     fn fit(
         place: &Place,
+        drawn: Option<(u32, u32)>,
         (width, height): (u32, u32),
         (cw, ch): (u32, u32),
     ) -> Result<Self, Refusal> {
@@ -1297,22 +1500,27 @@ impl Geometry {
                 .unwrap_or(0)
         };
         let (mut cols, mut rows, mut dw, mut dh);
-        match (place.cols, place.rows) {
-            (0, 0) => {
+        match (drawn, place.cols, place.rows) {
+            // a drawn size the protocol worked out, at the box's top left
+            (Some((w, h)), _, _) => {
+                (cols, rows) = (0, 0);
+                (dw, dh) = (u64::from(w), u64::from(h));
+            }
+            (None, 0, 0) => {
                 (cols, rows) = (0, 0);
                 (dw, dh) = (u64::from(sw), u64::from(sh));
             }
-            (c, 0) => {
+            (None, c, 0) => {
                 (cols, rows) = (c, 0);
                 dw = u64::from(c).saturating_mul(cw64);
                 dh = scale(dw, sh64, sw64);
             }
-            (0, r) => {
+            (None, 0, r) => {
                 (cols, rows) = (0, r);
                 dh = u64::from(r).saturating_mul(ch64);
                 dw = scale(dh, sw64, sh64);
             }
-            (c, r) => {
+            (None, c, r) => {
                 (cols, rows) = (c, r);
                 let bw = u64::from(c)
                     .saturating_mul(cw64)

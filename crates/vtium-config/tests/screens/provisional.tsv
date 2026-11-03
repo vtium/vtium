@@ -1,0 +1,21 @@
+# The TUI's screen goldens that judge nothing until the maintainer reviews the layout (ADR-1201 D8). One name a line, a tab, and what the screen shows.
+fonts-80x25	the fonts view at 80x25
+fonts-100x30	the fonts view at 100x30
+sizes-80x25	the sizes view at 80x25
+sizes-100x30	the sizes view at 100x30
+settings-80x25	the settings view at 80x25
+settings-100x30	the settings view at 100x30
+heads-80x25	the heads view at 80x25
+heads-100x30	the heads view at 100x30
+save-80x25	the save view at 80x25
+save-100x30	the save view at 100x30
+fonts-40x30	the fonts view at 40x30, the 320x240 floor's grid
+sizes-40x30	the sizes view at 40x30, the 320x240 floor's grid
+settings-40x30	the settings view at 40x30, the 320x240 floor's grid
+heads-40x30	the heads view at 40x30, the 320x240 floor's grid
+save-40x30	the save view at 40x30, the 320x240 floor's grid
+fonts-40x25	the fonts view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+sizes-40x25	the sizes view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+settings-40x25	the settings view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+heads-40x25	the heads view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+save-40x25	the save view at 40x25, the VGA console's 25 rows at the floor's 40 columns

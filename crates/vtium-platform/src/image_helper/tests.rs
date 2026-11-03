@@ -1,0 +1,503 @@
+//! The host's own rules, in process; the host against stand-in helpers and
+//! the real one is in `tests/image_helper.rs` and the helper crate's tests.
+
+#![expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "a test fails by panicking"
+)]
+
+use rustix::fs::{FileType, MemfdFlags, SealFlags};
+use vtium_image::decode::wire::{ReplyHeader, Status};
+use vtium_image::decode::{Medium, Reply, Request};
+
+use super::identity::Account;
+use super::start::{self, Program, refusal};
+use super::{checked_file, inline_file, memory_cap, without_helper};
+
+/// The bytes of the reply file `fd` once [`checked_file`] has checked it,
+/// read out of it, or its refusal.
+fn read(
+    fd: &std::os::fd::OwnedFd,
+    header: &ReplyHeader,
+    request: &Request,
+) -> Result<Vec<u8>, &'static str> {
+    let file = checked_file(fd.try_clone().unwrap(), header, request)?;
+    let mut out = Vec::new();
+    assert!(
+        file.read(&mut |run| out.extend_from_slice(run)),
+        "a short read"
+    );
+    Ok(out)
+}
+
+fn request(medium: Medium) -> Request {
+    Request {
+        medium,
+        offset: 0,
+        max: 0,
+        min: 0,
+        inflate: false,
+        png: true,
+        exact: false,
+        discard: false,
+        any_image: false,
+        frames: None,
+        pixels: None,
+        largest: (100, 100),
+        largest_bytes: 1 << 20,
+    }
+}
+
+#[test]
+fn a_program_root_or_vtium_owns_and_alone_writes_is_taken() {
+    let me = 1000;
+    assert_eq!(refusal(FileType::RegularFile, 0, 0o100_755, me), None);
+    assert_eq!(refusal(FileType::RegularFile, me, 0o100_700, me), None);
+    for mode in [0o104_755, 0o102_755] {
+        assert!(
+            refusal(FileType::RegularFile, 0, mode, 0)
+                .unwrap()
+                .contains("setuid or setgid")
+        );
+    }
+    assert!(refusal(FileType::Directory, 0, 0o40_755, me).is_some());
+    assert!(
+        refusal(FileType::RegularFile, 1001, 0o100_755, me)
+            .unwrap()
+            .contains("uid 1001")
+    );
+    for mode in [0o100_775, 0o100_757] {
+        assert!(
+            refusal(FileType::RegularFile, me, mode, me)
+                .unwrap()
+                .contains("may be written")
+        );
+    }
+}
+
+#[test]
+fn the_memory_cap_is_three_budgets_and_the_base() {
+    assert_eq!(memory_cap(0), 64 << 20);
+    assert_eq!(memory_cap(10 << 20), (30 << 20) + (64 << 20));
+    assert_eq!(memory_cap(u64::MAX), u64::MAX);
+}
+
+#[test]
+fn without_a_helper_files_are_unreadable_and_inline_bytes_corrupt() {
+    assert_eq!(
+        without_helper(&request(Medium::File(b"/a".to_vec()))),
+        Reply::Unreadable
+    );
+    assert_eq!(
+        without_helper(&request(Medium::SharedMemory(b"a".to_vec()))),
+        Reply::Unreadable
+    );
+    assert_eq!(
+        without_helper(&request(Medium::Direct(vec![1]))),
+        Reply::Corrupt
+    );
+}
+
+#[test]
+fn inline_bytes_travel_in_a_file_sealed_against_every_change() {
+    let fd = inline_file(b"abc").unwrap();
+    let seals = rustix::fs::fcntl_get_seals(&fd).unwrap();
+    assert!(
+        seals.contains(SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL)
+    );
+    let mut out = [0u8; 3];
+    rustix::io::pread(&fd, &mut out, 0).unwrap();
+    assert_eq!(&out, b"abc");
+    assert!(rustix::io::pwrite(&fd, b"x", 0).is_err());
+}
+
+/// A stand-in reply's memory file of `len` bytes with `seals`.
+fn reply_file(len: u64, seals: SealFlags) -> std::os::fd::OwnedFd {
+    let fd =
+        rustix::fs::memfd_create("reply", MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING).unwrap();
+    rustix::fs::ftruncate(&fd, len).unwrap();
+    if !seals.is_empty() {
+        rustix::fs::fcntl_add_seals(&fd, seals).unwrap();
+    }
+    fd
+}
+
+fn header(pooled: bool) -> ReplyHeader {
+    ReplyHeader {
+        status: Status::Ok,
+        id: 1,
+        width: 1,
+        height: 1,
+        ignored: 0,
+        pooled,
+        delays: vec![0],
+        loops: None,
+        reason: Vec::new(),
+    }
+}
+
+#[test]
+fn a_replys_seals_are_checked_before_its_size() {
+    let r = request(Medium::Direct(Vec::new()));
+    let sealed = SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE;
+    // unsealed and of the wrong size: the seals fail it first, since until
+    // the shrink seal holds the size could change under a mapping
+    let both = reply_file(5, SealFlags::empty());
+    assert_eq!(
+        read(&both, &header(false), &r),
+        Err("a reply's memory file is not sealed")
+    );
+    let pooled_both = reply_file(5, SealFlags::SHRINK);
+    assert_eq!(
+        read(&pooled_both, &header(true), &r),
+        Err("a reply's memory file is not sealed")
+    );
+    // sealed, the size is read next
+    let wrong = reply_file(5, sealed);
+    assert_eq!(
+        read(&wrong, &header(false), &r),
+        Err("a reply's memory file is not exactly the size asked for")
+    );
+    assert_eq!(
+        read(&reply_file(4, sealed), &header(false), &r),
+        Ok(vec![0; 4])
+    );
+    let pooled = reply_file(4, SealFlags::SHRINK | SealFlags::GROW);
+    assert_eq!(read(&pooled, &header(true), &r), Ok(vec![0; 4]));
+}
+
+/// The variable that tells this test binary, run again in a user
+/// namespace, to take the namespace's side of the root case.
+const AS_ROOT: &str = "VTIUM_TEST_IMAGE_HELPER_AS_ROOT";
+
+/// The capability lines of `/proc/<process>/status`.
+fn capability_lines(process: &str) -> Vec<String> {
+    let status = std::fs::read_to_string(format!("/proc/{process}/status")).unwrap();
+    ["CapInh:", "CapPrm:", "CapEff:", "CapBnd:", "CapAmb:"]
+        .iter()
+        .map(|name| {
+            let value = status
+                .lines()
+                .find_map(|l| l.strip_prefix(name))
+                .unwrap_or_default()
+                .trim();
+            format!("{name} {value}")
+        })
+        .collect()
+}
+
+/// A root helper's capabilities, as `start::start` drops them, tried in a
+/// user namespace where this test binary runs again as uid 0 with every
+/// capability: the helper it starts as uid 0 holds none, its bounding set
+/// included. In the namespace the test first raises its own inheritable
+/// set to every capability it holds, whatever this machine's inheritable
+/// set is, since a start as uid 0 grants the inheritable set together
+/// with the bounding set: so a start that skips clearing the sets hands
+/// the helper every capability, and one that skips emptying the bounding
+/// set leaves the helper's bounding set full, and either turns this test
+/// red. A kernel or system that gives no such namespace, or a security
+/// module that refuses the namespace's capabilities or the mapping of its
+/// ids, as AppArmor does on Ubuntu 24.04 with
+/// `apparmor_restrict_unprivileged_userns` set, skips the case and says
+/// so on the test's own standard error, which the test harness does not
+/// capture, so a skip never reads as a pass.
+#[test]
+fn a_root_helper_starts_with_no_capability() {
+    if std::env::var_os(AS_ROOT).is_some() {
+        as_root();
+        return;
+    }
+    match root_case(None) {
+        RootCase::Passed => {}
+        RootCase::Skipped(why) => {
+            use std::io::Write;
+            let _ = writeln!(
+                std::io::stderr(),
+                "skipped: a_root_helper_starts_with_no_capability: {why}"
+            );
+        }
+        RootCase::Failed(output) => panic!("{output}"),
+    }
+}
+
+/// What the root case's run in a user namespace came to.
+#[derive(Debug, PartialEq, Eq)]
+enum RootCase {
+    Passed,
+    /// It could not run here, and why.
+    Skipped(String),
+    /// It ran and failed: what it wrote.
+    Failed(String),
+}
+
+/// The root case's test, as the test harness names it.
+const ROOT_CASE: &str = "image_helper::tests::a_root_helper_starts_with_no_capability";
+
+/// Runs the namespace's side of the root case through `unshare`, found on
+/// `path` where one is given and otherwise on this process's `PATH`.
+/// `unshare` failing to make the namespace or to map its ids, before the
+/// case runs, is a skip; so is the case finding no capability to use. An
+/// exit status of 0 is a pass only when the test harness says the case
+/// ran and passed, since the harness also exits with 0 when its filter
+/// matched no test.
+fn root_case(path: Option<&std::ffi::OsStr>) -> RootCase {
+    let mut command = std::process::Command::new("unshare");
+    command
+        .args(["--user", "--map-root-user", "--"])
+        .arg(std::env::current_exe().unwrap())
+        .args([ROOT_CASE, "--exact", "--nocapture", "--test-threads=1"])
+        .env(AS_ROOT, "1");
+    if let Some(path) = path {
+        command.env("PATH", path);
+    }
+    let out = match command.output() {
+        Ok(out) => out,
+        Err(e) => return RootCase::Skipped(format!("no unshare to run it: {e}")),
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if out.status.code() == Some(77) {
+        // the harness prints "test <case> ... " before the case's own
+        // "skip: <why>", on the same line
+        let why = stdout.lines().find_map(|l| l.split_once("skip: "));
+        return RootCase::Skipped(why.map(|(_, why)| why).unwrap_or_default().to_owned());
+    }
+    if out.status.success() {
+        let ran = format!("test {ROOT_CASE} ... ok");
+        return if stdout.lines().any(|l| l == ran) {
+            RootCase::Passed
+        } else {
+            RootCase::Failed(format!(
+                "the run ended with 0 but never said `{ran}`:\n{stdout}{stderr}"
+            ))
+        };
+    }
+    // unshare's own messages begin with its name; these say it could not
+    // make the namespace or map its ids, so the case never ran
+    let refused = stderr.lines().find(|l| {
+        l.starts_with("unshare:")
+            && ["uid_map", "gid_map", "setgroups", "unshare failed"]
+                .iter()
+                .any(|what| l.contains(what))
+    });
+    match refused {
+        Some(line) => RootCase::Skipped(format!("unshare cannot set up the namespace: {line}")),
+        None => RootCase::Failed(format!("{stdout}{stderr}")),
+    }
+}
+
+/// The root case run through a stand-in `unshare` placed first on `PATH`,
+/// a shell script that writes `said` to its standard output and `message`
+/// to its standard error and exits with `status`: a failure to map the
+/// namespace's ids, as on Ubuntu 24.04 with
+/// `apparmor_restrict_unprivileged_userns` set, is a skip that says why;
+/// any other failure, of `unshare` or of the case, fails. An exit status
+/// of 0 passes only with the test harness's line saying the case ran and
+/// passed, so a run that matched no test, which the harness also ends
+/// with 0, fails. The case's own skip, exit status 77, keeps its reason,
+/// which the harness prints after its `test <case> ... ` on the same line.
+#[test]
+fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
+    let exe = std::env::current_exe().unwrap();
+    let dir = exe
+        .parent()
+        .unwrap()
+        .join(format!("vtium-image-unshare-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut path = std::ffi::OsString::from(&dir);
+    if let Some(rest) = std::env::var_os("PATH") {
+        path.push(":");
+        path.push(rest);
+    }
+    let run_saying = |said: &str, message: &str, status: u8| {
+        let text = dir.join("unshare.text");
+        std::fs::write(
+            &text,
+            format!("#!/bin/sh\necho '{said}'\necho '{message}' >&2\nexit {status}\n"),
+        )
+        .unwrap();
+        executable_copy(&text, &dir.join("unshare"));
+        root_case(Some(&path))
+    };
+    let run = |message: &str, status: u8| run_saying("", message, status);
+    let uid = run(
+        "unshare: write failed /proc/self/uid_map: Operation not permitted",
+        1,
+    );
+    let gid = run(
+        "unshare: write failed /proc/self/gid_map: Operation not permitted",
+        1,
+    );
+    let other = run("unshare: unrecognized option '--user'", 1);
+    let case = run("the case failed", 101);
+    let passed = run_saying(
+        "test image_helper::tests::a_root_helper_starts_with_no_capability ... ok",
+        "",
+        0,
+    );
+    let silent = run("", 0);
+    let none_ran = run_saying("running 0 tests", "", 0);
+    let skipped = run_saying(
+        "test image_helper::tests::a_root_helper_starts_with_no_capability ... skip: the user namespace gives no capability",
+        "",
+        77,
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    for (got, map) in [(uid, "uid_map"), (gid, "gid_map")] {
+        match got {
+            RootCase::Skipped(why) => assert!(why.contains(map), "{why}"),
+            other => panic!("{other:?}"),
+        }
+    }
+    assert!(matches!(other, RootCase::Failed(_)), "{other:?}");
+    assert!(matches!(case, RootCase::Failed(_)), "{case:?}");
+    assert_eq!(passed, RootCase::Passed);
+    assert!(matches!(silent, RootCase::Failed(_)), "{silent:?}");
+    assert!(matches!(none_ran, RootCase::Failed(_)), "{none_ran:?}");
+    assert_eq!(
+        skipped,
+        RootCase::Skipped("the user namespace gives no capability".to_owned())
+    );
+}
+
+/// A copy of `from` at `to` with mode 0755, which `cp` writes, so this
+/// process never holds `to` open to write. A child that another thread
+/// forks while this process holds a file open to write gets a copy of
+/// that descriptor and keeps it until the child's own exec, and the
+/// kernel refuses to start a file that any process holds open to write,
+/// with ETXTBSY. Closing the file before the exec does not help, nor does
+/// O_CLOEXEC, since the forked child holds the copy until it execs.
+fn executable_copy(from: &std::path::Path, to: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let copied = std::process::Command::new("cp")
+        .arg(from)
+        .arg(to)
+        .status()
+        .unwrap();
+    assert!(copied.success(), "cp {} {}", from.display(), to.display());
+    std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// The namespace's side: as uid 0 with every capability, the inheritable
+/// set raised to them all, a stand-in started through `start::start` as
+/// uid 0, its capabilities read from `/proc` once it runs. Exits 77 when
+/// the namespace gives no capability to use.
+fn as_root() {
+    use rustix::thread::CapabilitySets;
+    let none = "0000000000000000";
+    let skip = |why: String| -> ! {
+        println!("skip: {why}");
+        std::process::exit(77);
+    };
+    // the sets are this thread's, which forks the child
+    let before = capability_lines("thread-self");
+    if rustix::process::geteuid().as_raw() != 0
+        || before.iter().any(|l| l == &format!("CapEff: {none}"))
+    {
+        skip(format!(
+            "the user namespace gives no capability: {before:?}"
+        ));
+    }
+    let held = rustix::thread::capabilities(None).unwrap();
+    rustix::thread::set_capabilities(
+        None,
+        CapabilitySets {
+            inheritable: held.permitted,
+            ..held
+        },
+    )
+    .unwrap();
+    assert!(
+        !capability_lines("thread-self").contains(&format!("CapInh: {none}")),
+        "the inheritable set is raised"
+    );
+    // the program checks want a file this account owns that only it may
+    // write, so the test binary is copied beside itself with mode 0755
+    let exe = std::env::current_exe().unwrap();
+    let dir = exe
+        .parent()
+        .unwrap()
+        .join(format!("vtium-image-root-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("vtium-image");
+    executable_copy(&exe, &path);
+    let program = Program::open_with(
+        &path,
+        [
+            "image_helper::tests::stand_in_that_waits_on_its_socket",
+            "--exact",
+            "--ignored",
+            "--test-threads=1",
+        ]
+        .map(Into::into)
+        .to_vec(),
+    )
+    .unwrap();
+    let root = Account {
+        uid: 0,
+        gid: 0,
+        groups: None,
+    };
+    let started = match start::start(&program, &root, 64 << 20, 64 << 20, None) {
+        Ok(started) => started,
+        Err(why) if why.contains("(os error 1)") => {
+            let _ = std::fs::remove_dir_all(&dir);
+            skip(format!(
+                "the user namespace's capabilities are refused: {why}"
+            ))
+        }
+        Err(why) => panic!("{why}"),
+    };
+    // the stand-in writes once it runs, so its capabilities are the
+    // started program's, not the child's before it started it
+    let mut fds = [rustix::event::PollFd::new(
+        &started.socket,
+        rustix::event::PollFlags::IN,
+    )];
+    let ten = rustix::event::Timespec {
+        tv_sec: 10,
+        tv_nsec: 0,
+    };
+    let ready = rustix::event::poll(&mut fds, Some(&ten)).unwrap();
+    let pid = started.pid.as_raw_nonzero().to_string();
+    let helper = if ready > 0 {
+        capability_lines(&pid)
+    } else {
+        Vec::new()
+    };
+    start::kill_group(&started);
+    start::reap(&started, true);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(ready > 0, "the stand-in did not run in ten seconds");
+    for line in &helper {
+        assert!(
+            line.ends_with(none),
+            "a capability is left: {line}\n{helper:?}"
+        );
+    }
+}
+
+/// The stand-in the root case starts, this test binary run again: it
+/// sends one packet on the socket on descriptor 3 once it runs, and waits
+/// there until it is killed. It acts only with the empty environment and
+/// the socket on descriptor 3 a helper starts with, and otherwise does
+/// nothing.
+#[test]
+#[ignore = "the stand-in helper of the root case, which starts it"]
+fn stand_in_that_waits_on_its_socket() {
+    use std::os::unix::fs::FileTypeExt;
+    let socket = std::fs::metadata("/proc/self/fd/3").is_ok_and(|m| m.file_type().is_socket());
+    if !socket || std::env::vars_os().next().is_some() {
+        return;
+    }
+    #[expect(unsafe_code, reason = "the socket start::start put on descriptor 3")]
+    // SAFETY: descriptor 3 is open, as just checked, and stays open for
+    // this process's life, since nothing in it closes descriptor 3.
+    let socket = unsafe { std::os::fd::BorrowedFd::borrow_raw(3) };
+    rustix::net::send(socket, b"running", rustix::net::SendFlags::empty()).unwrap();
+    let mut byte = [0u8; 1];
+    while rustix::io::read(socket, &mut byte).is_ok_and(|n| n > 0) {}
+}

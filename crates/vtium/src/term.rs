@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use vtium_font::{Face, Font, Missing, SpritePolicy};
@@ -45,6 +46,10 @@ pub struct Term {
     pub sync: Sync,
     pub coalesce: Coalesce,
     pub blink: Blink,
+    /// Which frame each animated picture of the console shows (ADR-1102
+    /// D3).
+    #[cfg(feature = "images")]
+    pub animation: crate::animation::AnimationClock,
     clock: Clock,
     /// The pty holds output the last input call left.
     pub unparsed: bool,
@@ -65,6 +70,8 @@ impl Term {
             sync,
             coalesce: Coalesce::default(),
             blink,
+            #[cfg(feature = "images")]
+            animation: crate::animation::AnimationClock::default(),
             clock,
             unparsed: false,
             changed: false,
@@ -540,13 +547,20 @@ fn refresh(refresh_mhz: Option<u32>) -> Option<std::time::Duration> {
         .map(std::time::Duration::from_nanos)
 }
 
+/// The number the next drawing any view makes takes. Numbering every
+/// drawing apart, across views, keeps a frame composing for a view that
+/// is gone from being shown by the view made after it for the same
+/// display, as when a monitor swapped on its connector is removed and
+/// added in one turn.
+static NEXT_DRAWING: AtomicU64 = AtomicU64::new(1);
+
 /// One display drawing the terminal.
 pub struct View {
     pub id: DisplayId,
     /// Here between frames; `None` while the render thread composes one.
     drawing: Option<Box<Drawing>>,
-    /// Counts the drawings the view made: a frame composed with an older
-    /// one is dropped.
+    /// The number of the drawing the view draws with, which no other
+    /// drawing has: a frame composed with another is dropped.
     generation: u64,
     /// The terminal's checkpoint after this view's last frame was taken.
     since: Age,
@@ -633,7 +647,7 @@ impl View {
         self.depth = renderer.depth();
         self.policy = (renderer.font().policy(), renderer.font().missing());
         self.drawing = Some(Box::new(Drawing { renderer }));
-        self.generation = self.generation.wrapping_add(1);
+        self.generation = NEXT_DRAWING.fetch_add(1, Ordering::Relaxed);
         self.forgotten.clear();
         self.arrived.clear();
         self.overlaid.clear();
@@ -656,21 +670,21 @@ impl View {
         self.pointer.reset();
     }
 
-    /// The display's new mode, which a modeset set in place on the same
-    /// connector: the view takes `size` and `refresh_mhz` and draws from
-    /// here on with a new renderer at that size, with `font` at the height
-    /// it had, so the next frame is drawn whole. The view's size is always
-    /// its renderer's: it changes only with the renderer.
-    pub fn resize(
-        &mut self,
-        font: Font<DisplayFace>,
-        size: (u32, u32),
-        refresh_mhz: Option<u32>,
-        config: RenderConfig,
-    ) {
+    /// The display's new size, which a modeset set in place on the same
+    /// connector: the view takes `size` and draws from here on with a new
+    /// renderer at that size, with `font` at the height it had, so the
+    /// next frame is drawn whole. The view's size is always its
+    /// renderer's: it changes only with the renderer.
+    pub fn resize(&mut self, font: Font<DisplayFace>, size: (u32, u32), config: RenderConfig) {
         self.size = size;
-        self.refresh = refresh(refresh_mhz);
         self.rebuild(font, self.height, config);
+    }
+
+    /// The display's refresh rate, `refresh_mhz`, read again at a set-up
+    /// that may have given it a new mode: the view's frames are paced at
+    /// its interval.
+    pub fn set_refresh(&mut self, refresh_mhz: Option<u32>) {
+        self.refresh = refresh(refresh_mhz);
     }
 
     /// Draws another screen from the next frame, as a console switch
@@ -777,7 +791,12 @@ impl View {
             return Prepared::Nothing;
         };
         let (snapshot, upto) = snapshot.get_or_insert_with(|| {
-            let taken = Snapshot::take(&term.terminal);
+            #[cfg_attr(not(feature = "images"), expect(unused_mut, reason = "no pictures"))]
+            let mut taken = Snapshot::take(&term.terminal);
+            // Each animated picture shows the frame the clock chose.
+            #[cfg(feature = "images")]
+            term.animation
+                .show(&mut taken.placements, term.terminal.screen().images());
             (Arc::new(taken), term.terminal.screen_mut().checkpoint())
         });
         let since = std::mem::replace(&mut self.since, *upto);
@@ -1524,6 +1543,47 @@ mod tests {
         assert_eq!(video.swaps, [1], "the display lends again");
     }
 
+    // vtium/vtium#216: a frame composing while its view is replaced by a new
+    // one for the same display, as when a monitor swapped on its connector
+    // is removed and added in one turn, is not shown, and does not give the
+    // new view the old view's renderer: the new view draws with its own.
+    #[test]
+    fn a_frame_of_a_view_replaced_is_not_shown() {
+        let (mut term, mut old) = view();
+        let mut video = Plane::new(false);
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let Prepared::Job(job) = old.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &DrawState::default(),
+            None,
+            &Instant::now,
+        ) else {
+            panic!("a job");
+        };
+        drop(old);
+        let face: DisplayFace = Box::new(Unifont::new(32));
+        let mut new = View::new(
+            ID,
+            Font::new(face),
+            SIZE,
+            None,
+            RenderConfig::default(),
+            false,
+        );
+        let cell = new.cell();
+        let shown = new.present(job.compose(), &mut term, &mut video, true, &Instant::now);
+        assert_eq!(shown, Presented::default());
+        assert_eq!(video.swaps, [], "not shown");
+        assert!(!video.out, "the token went back");
+        assert!(!new.away(), "the new view keeps its drawing");
+        let drawn = new.drawing.as_ref().map(|d| d.renderer.font().cell());
+        assert_eq!(drawn, Some(cell), "with its own renderer");
+    }
+
     // A job refused for a display that lost its picture keeps it lost, so
     // the frame drawn at the next turn is drawn whole and through a hold.
     #[test]
@@ -1770,5 +1830,77 @@ mod tests {
         // its tip's fill, one pixel below the hotspot at 7,7
         assert_eq!(video.pixel(7, 8) & 0xff_ff_ff, 0xff_ff_ff);
         assert_eq!(video.swaps, [1]);
+    }
+
+    // ADR-1102 D3: the snapshot carries the frame the animation clock
+    // chose, so the display draws that frame's pixels: a picture of one
+    // cell whose root frame is red and whose frame 2 is green shows red,
+    // then green once the clock moves on, though the store's current frame
+    // stays 1.
+    // covers: image.kitty-animation
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_display_draws_the_frame_the_clock_chose() {
+        use vtium_term::ImageString;
+        use vtium_term::images::{Kitty, Switches};
+
+        let (mut term, mut view) = view();
+        let t = &mut term.terminal;
+        t.screen_mut().set_image_limit(1 << 24);
+        t.screen_mut().set_image_cell(8, 16).unwrap();
+        t.set_image_switches(Switches {
+            sixel: false,
+            kitty: true,
+            iterm2: false,
+        });
+        t.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+        let mut s = String::from("\x1b[?25l");
+        // 8 by 16 pixels of `rgba`, in base64.
+        let fill = |rgba: [u8; 4]| {
+            let bytes = rgba.repeat(128);
+            let abc = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut out = String::new();
+            for c in bytes.chunks(3) {
+                let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
+                let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+                for i in 0..4 {
+                    out.push(if i <= c.len() {
+                        char::from(abc[((n >> (18 - 6 * i)) & 63) as usize])
+                    } else {
+                        '='
+                    });
+                }
+            }
+            out
+        };
+        for apc in [
+            format!("a=T,f=32,s=8,v=16,i=1,q=2;{}", fill([255, 0, 0, 255])),
+            format!("a=f,i=1,f=32,s=8,v=16,z=40,q=2;{}", fill([0, 255, 0, 255])),
+            "a=a,i=1,r=1,z=30,q=2".to_owned(),
+            "a=a,i=1,s=3,q=2".to_owned(),
+        ] {
+            s.push_str(&format!("\x1b_G{apc}\x1b\\"));
+        }
+        t.input(s.as_bytes());
+        let mut video = Plane::new(false);
+        let t0 = Instant::now();
+        let color = |video: &Plane| video.pixel(5, 8) & 0xff_ff_ff;
+        assert!(
+            !term
+                .animation
+                .turn(term.terminal.screen().images(), t0, true)
+        );
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(color(&video), 0xff_00_00, "the root frame");
+        let later = t0 + Duration::from_millis(30);
+        assert!(
+            term.animation
+                .turn(term.terminal.screen().images(), later, true)
+        );
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(color(&video), 0x00_ff_00, "frame 2, the clock's");
+        let key = term.terminal.screen().placements()[0].image;
+        let store = term.terminal.screen().images();
+        assert_eq!(store.animation(key).map(|a| a.current), Some(1));
     }
 }

@@ -144,6 +144,12 @@ pub trait Context {
     fn limits(&self) -> Limits;
     /// Adds what the handler did to the input call's work (D5).
     fn add_work(&mut self, work: u64);
+    /// Says why a handler dropped what a program sent, for vtium's log at
+    /// debug level, where a protocol answers nothing (ADR-1103, D1). The
+    /// default keeps nothing.
+    fn note(&mut self, why: &str) {
+        let _ = why;
+    }
 }
 
 /// The store edits a handler makes, each through one

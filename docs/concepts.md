@@ -24,16 +24,16 @@ The same shell session at the display floor and one step up, as vtium draws it: 
 
 ## The suite
 
-vtium is one console and a few programs and files around it. The table lists each, who runs it, and whether it is built or proposed. vtium-vitrify's design is ADR-1200, accepted on 2026-10-28 (vtium/vtium#3), with the commands later issues add.
+vtium is one console and a few programs and files around it. The table lists each, who runs it, and whether it is built or proposed. vtium-config, the font and settings tool, is designed in ADR-1200, accepted on 2026-10-28 (vtium/vtium#3), and ADR-1201, with the commands later issues add. A user runs it as `vtium config`, which hands its words to vtium-config (ADR-1201 D12).
 
 | Piece | What it is | Run by | State | Held by |
 |---|---|---|---|---|
 | `vtium` | The console: one process per VT, which owns that VT, its display and its input devices, and runs the session | root, started by init or logind | built | [ADR-1400](architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md), vtium/vtium#21 |
 | `vtium blank`, `vtium wake` | Blank or wake a VT's displays from outside its session, by signalling the vtium on that VT | root, or the user vtium runs as | built | vtium/vtium#116 |
-| `vtium-vitrify preview` | Draws a sample of a font as the helper would draw it, writing nothing | the user | proposed | vtium/vtium#120 |
-| `vtium-vitrify new` | The guided builder, and the templates it writes and reads, which end in a frit | the user, with sudo once at the end | proposed | vtium/vtium#121 |
-| `vtium-vitrify serve` | The helper: generates a frit's glyphs at run time in a sandbox, started on the console's first need and gone when idle | the console, never as root | built: PSF and kbd sources, and outline and color fonts | vtium/vtium#145, #23 |
-| `vtium-vitrify set` | Switches the running console among the frits and the built-in fonts | the user, in the session | built | vtium/vtium#126 |
+| `vtium config preview` | Draws a sample of a font as the helper would draw it, writing nothing | the user | proposed | vtium/vtium#120 |
+| `vtium config new` | The guided builder, and the templates it writes and reads, which end in a frit | the user, with sudo once at the end | proposed | vtium/vtium#121 |
+| `vtium-config serve` | The helper: generates a frit's glyphs at run time in a sandbox, started on the console's first need and gone when idle | the console, never as root | built: PSF and kbd sources, and outline and color fonts | vtium/vtium#145, #23 |
+| `vtium config set` | Switches the running console among the frits and the built-in fonts | the user, in the session | built | vtium/vtium#126 |
 | `vtiumctl detect`, `setup`, `status`, `check`, `template`, `install` | The configuration tool, a small binary of its own: lists every display and input with a rule ready to paste, writes a head file by asking which keyboard belongs to which display, reports what the running console did with each device, checks any configuration file, frits included, writes the commented default configuration when asked, and installs a checked file | any user; root to install the file | proposed | [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) |
 | `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
 | The frits | Small text files that name a font's sources, which the helper draws from | written by root | built | vtium/vtium#3, #145 |
@@ -43,7 +43,7 @@ vtium is one console and a few programs and files around it. The table lists eac
 | The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](systemd.md) |
 | The terminfo entry | Tells programs in the session what vtium can do | read by the session's programs | built | [crates/vtium](../crates/vtium/README.md), vtium/vtium#21 |
 
-vtium is the only piece needed to use the console. vtium-vitrify, vtiumctl and vtium-clipboard are separate binaries, so the font decoders, the rasteriser and the configuration tool stay out of the console's binary, and none counts against the minspec build's budget.
+vtium is the only piece needed to use the console. vtium-config, vtiumctl and vtium-clipboard are separate binaries, so the font decoders, the rasteriser and the configuration tool stay out of the console's binary, and none counts against the minspec build's budget.
 
 ### From install to use
 
@@ -65,7 +65,7 @@ flowchart LR
 
 The figure shows the suite in two bands, what runs as root above and what runs as the user who logged in below. The session reaches the console only through the pty, the kernel's pair of devices that lets one program act as the terminal of another; the font builder reaches root's side once, through sudo. Dashed pieces are proposed.
 
-![Two bands. Above, running as root: the kernel's devices (the VT, the display, keyboards and pointers) joined to vtium, the console; vtium-vitrify new, under sudo, writing a frit into the root-owned frits in /etc/vtium/fonts, which vtium reads. Between the bands, the pty, joined to vtium by bytes both ways. Below, running as the user who logged in: vtium-vitrify set, vtium-clipboard, and shell and programs, each joined to the pty; and vtium-vitrify preview, and vtium-vitrify new with its templates, the second of which hands a frit to its own last step, under sudo, once. Every vtium-vitrify piece and vtium-clipboard are drawn dashed, as proposed; the frits are drawn solid, as built.](figures/concepts-pieces.svg)
+![Two bands. Above, running as root: the kernel's devices (the VT, the display, keyboards and pointers) joined to vtium, the console; vtium-config new, under sudo, writing a frit into the root-owned frits in /etc/vtium/fonts, which vtium reads. Between the bands, the pty, joined to vtium by bytes both ways. Below, running as the user who logged in: vtium config set, vtium-clipboard, and shell and programs, each joined to the pty; and vtium config preview, and vtium config new with its templates, the second of which hands a frit to its own last step, under sudo, once. The font tool's pieces and vtium-clipboard are drawn dashed, as proposed; the frits are drawn solid, as built.](figures/concepts-pieces.svg)
 
 The console runs as root for its whole life, as the C reference did. Root lets it open the VT, take the display, read the keyboards and pointers directly, and start the system's login program, which authenticates the user and starts their shell with the user's rights. [ADR-1400](architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md) holds the privilege model, the image helper that decodes pictures as the session's user included.
 
@@ -142,11 +142,11 @@ vtiumctl writes the file for whoever prefers not to, from the console or a deskt
 
 This section describes the design ADR-1200 and ADR-1301 decide (accepted 2026-10-28, vtium/vtium#145), with the preview of vtium/vtium#120 and the guided builder of vtium/vtium#121. The helper, the console's per-boot store, the built-in fonts and switching are built; preview and new are proposed.
 
-The console parses no font. A **frit** names a font's sources, and the **helper**, vtium-vitrify's serve command in a sandbox, reads them, rasterises them and sends their glyphs at the console's cell, ready-to-draw bitmaps with their map from Unicode characters to glyphs and their metrics. The console checks each answer, holds the glyphs in memory for the boot and draws them. Nothing is prerendered, and no glyph outlives the boot.
+The console parses no font. A **frit** names a font's sources, and the **helper**, vtium-config's serve command in a sandbox, reads them, rasterises them and sends their glyphs at the console's cell, ready-to-draw bitmaps with their map from Unicode characters to glyphs and their metrics. The console checks each answer, holds the glyphs in memory for the boot and draws them. Nothing is prerendered, and no glyph outlives the boot.
 
 [why-vtium.md](why-vtium.md) tells, for a newcomer, why these font terms come from glassmaking.
 
-The figure follows a font from choosing it to the console. Each command is vtium-vitrify's. vtium, `serve` and `set` are built; the rest is proposed and drawn dashed.
+The figure follows a font from choosing it to the console. Each command is vtium-config's. vtium, `serve` and `set` are built; the rest is proposed and drawn dashed.
 
 ```mermaid
 flowchart LR
@@ -174,11 +174,11 @@ flowchart LR
 
 ### Try many, keep one
 
-Someone choosing a font tries many and keeps one. vtium-vitrify's preview command draws a sample of a font as the helper would draw it, at the terminal's own cell size, as a picture where the terminal shows pictures and as a text summary where it does not, and writes nothing.
+Someone choosing a font tries many and keeps one. vtium-config's preview command draws a sample of a font as the helper would draw it, at the terminal's own cell size, as a picture where the terminal shows pictures and as a text summary where it does not, and writes nothing.
 
 ### The frit
 
-A font is declared as a **frit**, named for the ground glass a glassmaker melts again: a small text file, `/etc/vtium/fonts/NAME.vtfrit`, naming its sources in order, later ones filling characters the earlier ones lack, and the cell it is drawn in. Its sources can be console fonts, font files, the kernel's own font, and outline fonts, color emoji among them, found among the fonts installed on the machine by their family. A frit is written in one of three ways, which give the same file: by hand; by vtium-vitrify's new command, a guided builder that asks about the target display, the size, the coverage and the fallbacks and previews each choice; or from a template that command writes, which reads back and writes out again with nothing lost, so a script or a package can make the builder's choices without its questions. The builder asks for sudo once, at the end, for a command it shows first, which writes the frit. At an interactive terminal the tool opens with a small banner of its name in glass, and never in a script or a pipe (vtium/vtium#112). Later, vtium-vitrify may find installed fonts that match chosen profiles without a frit written for each (vtium/vtium#117, a direction not yet decided).
+A font is declared as a **frit**, named for the ground glass a glassmaker melts again: a small text file, `/etc/vtium/fonts/NAME.vtfrit`, naming its sources in order, later ones filling characters the earlier ones lack, and the cell it is drawn in. Its sources can be console fonts, font files, the kernel's own font, and outline fonts, color emoji among them, found among the fonts installed on the machine by their family. A frit is written in one of three ways, which give the same file: by hand; by vtium-config's new command, a guided builder that asks about the target display, the size, the coverage and the fallbacks and previews each choice; or from a template that command writes, which reads back and writes out again with nothing lost, so a script or a package can make the builder's choices without its questions. The builder asks for sudo once, at the end, for a command it shows first, which writes the frit. At an interactive terminal the tool opens with a small banner of its name in glass, and never in a script or a pipe (vtium/vtium#112). Later, vtium-config may find installed fonts that match chosen profiles without a frit written for each (vtium/vtium#117, a direction not yet decided).
 
 ### Drawing at run time
 
@@ -188,7 +188,7 @@ At start the built-in font draws the first frame at once, in the cell the frit s
 
 When the configured font names no frit, and no font a frit can be made from on the fly, or the helper is unavailable, the console draws the built-in fonts and logs why. The built-in fonts are Unifont, and Unscii-8 for cells under 16 pixels, compiled into vtium; they also draw each character a frit lacks.
 
-vtium-vitrify's set command switches the running console among the frits and the built-in fonts through the terminal, with xterm's font control sequence (OSC 50), which vtium takes while its allow-font-ops setting is on, as it is by default. A switch changes the live console only; the configuration decides the font at the next start.
+vtium-config's set command switches the running console among the frits and the built-in fonts through the terminal, with xterm's font control sequence (OSC 50), which vtium takes while its allow-font-ops setting is on, as it is by default. A switch lasts until the session it came from ends, when its program exits, its console closes, or vtium hangs it up; vtium then returns the console to the font the configuration gives.
 
 ## Using VTium
 

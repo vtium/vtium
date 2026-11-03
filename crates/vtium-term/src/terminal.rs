@@ -780,6 +780,12 @@ impl State {
                 _ => {}
             },
             b'r' => s.set_margins(Self::param(params, 0), Self::param(params, 1)),
+            // SCOSC and SCORC, `CSI s` and `CSI u` with no parameter, save
+            // and restore the cursor as DECSC and DECRC do (ctlseqs). vtium
+            // has no left and right margins yet (#55), so DECLRMM is reset
+            // and `CSI s` is always SCOSC.
+            b's' if params.count() == 1 && params.get(0).is_none() => self.save_cursor(),
+            b'u' if params.count() == 1 && params.get(0).is_none() => self.restore_cursor(),
             b'h' => self.set_modes(params, false, true),
             b'l' => self.set_modes(params, false, false),
             b'm' => sgr::apply(&mut self.screen, params),
@@ -973,6 +979,8 @@ impl Consumer for State {
     /// A truncated string is dropped whole, as vtium-parse's README asks.
     fn osc_end(&mut self, data: &[u8], truncated: bool, end: StringEnd) {
         if !end.is_complete() || truncated {
+            #[cfg(feature = "images")]
+            self.image_osc_dropped(data);
             return;
         }
         if let Some(args) = data.strip_prefix(b"52;") {

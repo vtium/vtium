@@ -9,7 +9,10 @@ kmscon's console lines. The other keys are the screen's own counts: "lines"
 for text it printed, or for a screen that plays video through mpv
 "mpv_frames" and "mpv_dropped" (mpv-stats.lua) and "kmscon_cpu_ms",
 kmscon's CPU time over the window from /proc, and for the tmux grids
-"tmux_sixels", the sixel pictures tmux sent to kmscon while it played.
+"tmux_sixels", the sixel pictures tmux sent to kmscon while it played. The
+images variant's tmux screen (img-tmux-pane) also reports "pane_px", the
+pixels of the one pane that changes, which the console's damage per frame
+must stay within (pane_verdict).
 kmscon, run with render-timer=log, writes one line per display per second,
 each covering the second before its stamp; the scenario's figures come from
 the lines whose seconds overlap the window.
@@ -179,12 +182,44 @@ def flood_verdict(figures):
     return why
 
 
+def pane_verdict(figures):
+    """Why a screen that changes one pane damaged more than that pane, or an
+    empty list: no frame drawn in the window, which leaves nothing to judge,
+    a mean damage per frame over the window larger than the pane's pixels,
+    or one render-timer second whose mean damage per frame is larger
+    ("damage_px_seconds"), as when a single full-screen redraw falls in the
+    window and the window's mean hides it among the pane's frames. Only the
+    seconds that lie wholly inside the window count for that second rule:
+    a second that straddles the window's start or end also holds frames
+    drawn outside it, such as the pane's first frame drawn whole or the
+    redraws around tmux's start and end, which are no part of what the
+    pane's changes damage. The window's mean counts every second that
+    overlaps the window, as summarize takes them. The damage
+    the render timer counts is what a frame drew into its buffer, which is
+    as many frames old as the display keeps buffers, so the variant keeps
+    two and a frame counts the pane's changes of two frames, still within
+    the pane; with three, a frame would also count the third."""
+    if not figures.get("frames"):
+        return ["no frame was drawn while the pane played, so there is no damage to judge"]
+    why = []
+    if figures["damage_px_mean"] > figures["pane_px"]:
+        why.append("the console damaged %d pixels a frame on the mean, more than the playing "
+                   "pane's %d" % (figures["damage_px_mean"], figures["pane_px"]))
+    over = [d for d in figures.get("damage_px_seconds", []) if d > figures["pane_px"]]
+    if over:
+        why.append("in %d second(s) of the window the console damaged more than the playing "
+                   "pane's %d pixels a frame on the mean, at most %d"
+                   % (len(over), figures["pane_px"], max(over)))
+    return why
+
+
 def measure(serial_text, event_line, config):
     """The report entry of one benchmark screen: its figures, or why there
     are none. "error", which fails the case, is set when a build with the
     render timer configured logged no line for the window, when tmux sent
-    no sixel picture, and when the flood screen's figures are out of bounds
-    (flood_verdict)."""
+    no sixel picture, when the flood screen's figures are out of bounds
+    (flood_verdict), and when a screen that changes one pane damaged more
+    than it (pane_verdict)."""
     window = bench_window(event_line or "")
     if window is None:
         return {"error": "the screen reported no benchmark window: %r" % event_line}
@@ -201,8 +236,18 @@ def measure(serial_text, event_line, config):
             # kmscon's streaming is judged apart from tmux (#161).
             out["kmscon_cpu_ms_per_tmux_sixel"] = round(
                 out["kmscon_cpu_ms"] / counts["tmux_sixels"], 3)
+    if "pane_px" in counts:
+        out["pane_px"] = counts["pane_px"]
+        # each render-timer second's mean damage per frame, of the seconds
+        # that lie wholly inside the window and drew a frame (pane_verdict)
+        out["damage_px_seconds"] = [
+            int(x["damage_px_mean"]) for x in timer_lines(serial_text)
+            if x["frames"] and x["t"] - x["interval_ms"] / 1000 >= start and x["t"] <= end]
+        if out.get("damage_px_mean") is not None and counts["pane_px"]:
+            out["damage_of_pane_pct"] = round(100 * out["damage_px_mean"] / counts["pane_px"], 1)
     if out["intervals"]:
-        why = flood_verdict(out) if name == "flood" else []
+        why = (flood_verdict(out) if name == "flood"
+               else pane_verdict(out) if "pane_px" in counts else [])
         if why:
             out["error"] = "; ".join(why)
         return out

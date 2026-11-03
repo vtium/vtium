@@ -5,19 +5,21 @@
 
 use std::process::Command;
 
+#[path = "common/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 /// vtium's log for a run with `extra`.
 fn log(extra: &[&str]) -> String {
-    let dir = std::env::temp_dir().join(format!("vtium-debug-log-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("a directory");
+    let dir = Scratch::new("debug-log");
     let out = Command::new(env!("CARGO_BIN_EXE_vtium"))
         .arg("-c")
-        .arg(&dir)
+        .arg(&*dir)
         .arg(format!("--vt={}", dir.join("no-tty").display()))
         .args(extra)
         .args(["--login", "--", "/bin/true"])
         .output()
         .expect("vtium runs");
-    std::fs::remove_dir_all(&dir).ok();
     assert_eq!(out.status.code(), Some(1), "no VT to run on");
     String::from_utf8_lossy(&out.stderr).into_owned()
 }

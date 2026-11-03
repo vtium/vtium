@@ -69,3 +69,73 @@ fn the_work_bound_stops_an_input_call_inside_an_apc_run() {
     }
     assert!(pieces.screen() == t.screen());
 }
+
+/// Transmits kitty image `id`, 8 by 16 opaque white RGB pixels, one cell,
+/// with replies off.
+fn transmit(t: &mut Terminal, id: u32) {
+    let mut s = format!("\x1b_Ga=t,f=24,s=8,v=16,i={id},q=2;").into_bytes();
+    s.extend(b"////".repeat(128));
+    s.extend(b"\x1b\\");
+    t.input(&s);
+}
+
+/// The frame's boxes as (view row, column), sorted.
+fn boxes(t: &Terminal) -> Vec<(i64, u32)> {
+    let mut b: Vec<(i64, u32)> = t
+        .screen()
+        .placements()
+        .iter()
+        .map(|p| (p.row, p.col))
+        .collect();
+    b.sort_unstable();
+    b
+}
+
+// ADR-1100 D13: a relative placement's box is its parent's origin plus its
+// offset, so the cells vtium-term marks for it are its own rows, `row`
+// rows below its root's line, when it is placed and when it goes.
+// covers: image.kitty-relative
+#[test]
+fn a_relative_placement_marks_its_own_rows_when_it_comes_and_goes() {
+    let mut t = term(12, 6);
+    transmit(&mut t, 1);
+    transmit(&mut t, 2);
+    t.input(b"\x1b[2;2H\x1b_Ga=p,i=1,p=1,C=1,q=2\x1b\\");
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\x1b_Ga=p,i=2,p=1,P=1,Q=1,H=2,V=3,q=2\x1b\\");
+    assert_eq!(boxes(&t), vec![(1, 1), (4, 3)]);
+    let damage = t.screen().damage();
+    assert!(damage.changed(4, 3, seen), "the child's own cell is marked");
+    assert!(!damage.changed(1, 3, seen), "its root's row is not");
+    let seen = t.screen_mut().checkpoint();
+    t.input(b"\x1b_Ga=d,d=i,i=2,p=1,q=2\x1b\\");
+    assert_eq!(boxes(&t), vec![(1, 1)]);
+    let damage = t.screen().damage();
+    assert!(
+        damage.changed(4, 3, seen),
+        "the cell the child left is marked"
+    );
+    assert!(!damage.changed(1, 3, seen));
+}
+
+// ADR-1100 D13 and D8: a child that starts above its parent still draws
+// when the parent has left the bottom of a view moved back into the
+// scrollback, since the frame is given the lines below the view.
+// covers: image.kitty-relative
+#[test]
+fn a_child_above_a_parent_below_a_scrolled_back_view_is_drawn() {
+    let mut t = term(12, 6);
+    t.screen_mut().set_scrollback_max(100);
+    transmit(&mut t, 1);
+    transmit(&mut t, 2);
+    t.input(&b"\r\n".repeat(10));
+    t.input(b"\x1b[6;1H\x1b_Ga=p,i=1,p=1,C=1,q=2\x1b\\");
+    t.input(b"\x1b_Ga=p,i=2,p=1,P=1,Q=1,H=4,V=-3,q=2\x1b\\");
+    assert_eq!(boxes(&t), vec![(2, 4), (5, 0)]);
+    t.screen_mut().scroll_view_up(2);
+    assert_eq!(
+        boxes(&t),
+        vec![(4, 4)],
+        "the parent is below the view and its child is in it"
+    );
+}
