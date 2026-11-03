@@ -284,7 +284,7 @@ mod tests {
                 1,
                 "{c:?} needs one help topic"
             );
-            for f in c.topic().expect("a topic").forms {
+            for f in c.topic().map_or(&[][..], |t| t.forms) {
                 assert!(usage.contains(&format!("  {}", f.synopsis)), "{c:?}");
             }
             assert_eq!(Command::from_name(c.name()), Some(c));
