@@ -28,6 +28,10 @@ BINARY_BUDGET = 3670016
 # guest, and the binary it starts.
 VT_UNIT = "usr/lib/systemd/system/vtium@.service"
 REQUIRED = (BINARY, VT_UNIT)
+# What a tree whose console is built with images installs, and a tree
+# without them never does (ADR-1101 D1, D2): the image helper and the
+# sysusers file that makes its account for the login prompt.
+IMAGE_FILES = ("usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf")
 # The directories udev reads rules and hwdb files from: vtium installs its
 # udev material as examples alone, under usr/share/doc/vtium/examples
 # (ADR-1401 D4), so a tree holding anything here is refused.
@@ -46,6 +50,17 @@ def tree(path, tar_path=None, features=()):
     if missing:
         raise SystemExit("the install tree at %s holds no %s, which the guest starts on each VT"
                          % (rel(path), ", ".join("/" + f for f in missing)))
+    if "images" in features:
+        lacking = [f for f in IMAGE_FILES if f not in files]
+        if lacking:
+            raise SystemExit("the install tree at %s, its console built with images, holds no "
+                             "%s (ADR-1101 D1)" % (rel(path), ", ".join("/" + f for f in lacking)))
+    else:
+        extra = [f for f in IMAGE_FILES if f in files]
+        if extra:
+            raise SystemExit("the install tree at %s, its console built without images, "
+                             "installs %s, which only a console with images uses (ADR-1101 D1)"
+                             % (rel(path), ", ".join("/" + f for f in extra)))
     active = [d for d in UDEV_DIRS if os.path.lexists(os.path.join(path, d))]
     if active:
         raise SystemExit("the install tree at %s installs %s, where udev reads its rules; vtium "

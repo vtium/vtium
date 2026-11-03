@@ -8,6 +8,7 @@ import subprocess
 import t3_bench
 import t3_devices
 import t3_heads
+import t3_images
 import t3_pointer
 import t3_power
 import t3img
@@ -32,6 +33,15 @@ SCREENS = ["sgr", "colour-forms", "underline-styles", "underline-colour", "strik
 # cjk last as there.
 SMALL_SCREENS = ["small-console", "sgr", "boxdraw", "underline-styles", "underline-colour",
                  "strike", "wide-margin", "cjk"]
+# The screens of vtium's images variant (guest/screens/img-*.sh), which send
+# the test pictures t3_pictures.py writes: a sixel picture, kitty pictures
+# sent directly, relative placements, text and an erase over pictures,
+# deletes, pictures scrolled partly off the top, one pane of a tmux grid
+# playing video, whose damage is measured, and pictures the image helper
+# reads and decodes. img-png is last, so vt-restore shows pictures
+# redrawn after the VT switch (RESTORED).
+PICTURE_SCREENS = ["img-sixel", "img-kitty", "img-relative", "img-overwrite", "img-delete",
+                   "img-scroll", "img-tmux-pane", "img-png"]
 # Cases captured after a screen is drawn, by pressing keys: each is (screen,
 # case, the chords pressed before its capture), captured once the screen has
 # changed, so a key that changes nothing fails its case. After the last, the
@@ -46,11 +56,13 @@ KEYED = [
     ("sixel-evict", "sixel-evict-zoomed", [("shift", "pgdn")] * 30 + [("ctrl", "equal")]),
     ("photo-scroll", "photo-scrollback", [("shift", "pgup")]),
     ("photo-scroll", "photo-scrollforward", [("shift", "pgdn")]),
+    ("img-scroll", "img-scrollback", [("shift", "pgup")]),
+    ("img-scroll", "img-scrollforward", [("shift", "pgdn")]),
 ]
 KEYS_AFTER = {"sixel-evict": [("ctrl", "minus")]}
 # The screens that are also benchmark scenarios: each reports its
 # window on the event port, and the report carries its figures (t3_bench.py).
-BENCHMARKS = ["mpv-sixel", "tmux-2x2", "tmux-3x3", "s1-scroll", "flood"]
+BENCHMARKS = ["mpv-sixel", "tmux-2x2", "tmux-3x3", "s1-scroll", "flood", "img-tmux-pane"]
 # The benchmark screens judged by A2's criterion, that the console is
 # not the bottleneck (t3_bench.bottleneck); the tmux grids report their
 # figures only, since tmux redraws every pane's pictures itself.
@@ -63,13 +75,19 @@ RATE_CHECKED = ["mpv-sixel"]
 KNOWN_BOTTLENECKS = {}
 # A case compared with another case's golden: back from the scrollback, and
 # back from tty3 (vt-restore, with the last screen's).
-SAME_AS = {"photo-scrollforward": "photo-scroll", "vt-restore": SCREENS[-1]}
+SAME_AS = {"photo-scrollforward": "photo-scroll", "img-scrollforward": "img-scroll",
+           "vt-restore": SCREENS[-1]}
+# The variants whose last screen is not SCREENS[-1], by variant: the screen
+# their vt-restore is compared with, the last they draw.
+RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 
 
-def same_as(case):
-    """The case whose golden `case` is compared with (SAME_AS), on the same
-    output (t3_devices.split)."""
+def same_as(case, variant=None):
+    """The case whose golden `case` of `variant` is compared with (SAME_AS,
+    RESTORED), on the same output (t3_devices.split)."""
     screen, output = t3_devices.split(case)
+    if screen == "vt-restore" and variant in RESTORED:
+        return RESTORED[variant] + output
     return SAME_AS.get(screen, screen) + output
 
 # The screens that draw sixel or kitty pictures. Every variant with images
@@ -80,6 +98,20 @@ def same_as(case):
 IMAGE_SCREENS = ["sixel", "sixel-ramps", "sixel-article", "sixel-bound", "sixel-evict",
                  "photos", "photo-scroll", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty",
                  "kitty-photo", "kitty-files", "kitty-layers", "flood"]
+# Every screen that draws pictures: those above and the images variant's.
+DRAWS_PICTURES = IMAGE_SCREENS + PICTURE_SCREENS
+# What the picture screens that ask for kitty's replies must report on the
+# event port (T3-REPLY, img-common.inc), in order: the image helper read and
+# decoded each picture, removed the temporary file and refused a file the
+# session's user cannot read (img-png), and a delete kept one image's data
+# and freed another's (img-delete). A screen that reports anything else
+# fails, whether or not its golden is reviewed yet.
+REPLIES = {
+    "img-png": ["i=41;OK", "i=42;OK", "i=43;OK", "removed", "i=44;OK",
+                "i=45;EBADF:Failed to read image file", "rpc_pipefs readable",
+                "i=46;EBADF:Failed to read image file"],
+    "img-delete": ["i=32;OK", "i=33;ENOENT:image not found"],
+}
 
 
 def keyed(name):
@@ -98,6 +130,13 @@ def cases(screens=None):
 
 
 CASES = cases()
+
+
+def restore_caption(screen):
+    """What the vt-restore case shows when `screen` was the last screen drawn."""
+    return ("Back on tty2 after Ctrl+Alt+F2, the %s screen redrawn by the first instance. "
+            "Correct: identical to the %s golden." % (screen, screen))
+
 # What each check shows and what correct looks like, for the conformance run
 # page; a screen's comes from the header comment of its script (describe).
 CHECKS = {
@@ -120,20 +159,29 @@ CHECKS = {
     "sixel-evict-zoomed": "Scrolled down, then zoomed with Ctrl+=: a scaled copy of the last "
                           "picture for the larger cells. Correct: the last picture drawn, "
                           "scaled to the larger cells, under its caption.",
+    "img-scrollback": "After Shift+PageUp on the img-scroll screen, vtium's view of its "
+                      "scrollback: the caption and both pictures of six bands whole, from red "
+                      "at row 2 to violet at row 7, each band beside its label, the pictures "
+                      "having travelled into the scrollback with their lines. Correct: both "
+                      "pictures whole and at the rows they were drawn on.",
+    "img-scrollforward": "After Shift+PageDown, back from the scrollback. Correct: identical "
+                         "to the img-scroll golden, the top two bands of each picture out of "
+                         "view again.",
     "vt-switch": "After Ctrl+Alt+F3, the second kmscon instance on tty3 with its login "
                  "prompt. Correct: a drawn screen that is neither blank nor the tty2 "
                  "screen just left.",
-    "vt-restore": "Back on tty2 after Ctrl+Alt+F2, the %s screen redrawn by the first "
-                  "instance. Correct: identical to the %s golden." % (SCREENS[-1], SCREENS[-1]),
+    "vt-restore": restore_caption(SCREENS[-1]),
     **t3_power.CHECKS,
     **t3_pointer.CHECKS,
     **t3_devices.CHECKS,
     **t3_heads.CHECKS,
+    **t3_images.CHECKS,
 }
 # The checks without a golden: each passes when its capture was taken, or,
 # on a guest with no display to capture, when the scenario reports it
 # passed (the variant's metadata, "passed").
 NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
+             *t3_images.CHECKS,
              *t3_heads.CHECKS}
 
 DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
@@ -257,7 +305,7 @@ def check_goldens(cases_of, root, provisional=()):
             if ext not in (".png", ".tol"):
                 continue
             variant, _, screen = stem.partition(os.sep)
-            used = {same_as(c) for c in cases_of.get(variant, ())}
+            used = {same_as(c, variant) for c in cases_of.get(variant, ())}
             if screen not in used:
                 errors.append("%s is a golden no case draws" % rel(path))
     for golden in provisional:
@@ -313,7 +361,7 @@ def describe(case):
     return caption, " ".join(fields["wrong-looks-like"]) or None
 
 
-def screen_text(case, log):
+def screen_text(case, log, variant=None):
     """The lines a case's screen script prints, colors removed, so a region
     of the screen can be named by the text drawn there. The guest clears the
     screen first, so line N is the screen's row N. Any other control in the
@@ -323,7 +371,7 @@ def screen_text(case, log):
     captions a region, and losing it must never cost a case its verdict.
     A script whose "# screen-text:" line begins "none" is not run: its
     printed lines are not its rows, as when it scrolls."""
-    base = same_as(t3_devices.split(case)[0])
+    base = same_as(t3_devices.split(case)[0], variant)
     if base not in SCREENS + SMALL_SCREENS:
         return None
     reason = " ".join(header(base)["screen-text"])
@@ -351,7 +399,7 @@ def golden_for(variant, case, root=None):
     (NO_GOLDEN)."""
     if case in NO_GOLDEN:
         return None, None
-    base = same_as(case)
+    base = same_as(case, variant)
     root = root or GOLDEN
     return (os.path.join(root, variant, base + ".png"),
             os.path.join(root, variant, base + ".tol"))
@@ -368,8 +416,10 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
     golden, tolpath = golden_for(variant, case, golden_root)
     stem = os.path.join(RUNDIR, variant, case)
     description, wrong = describe(case)
+    if t3_devices.split(case)[0] == "vt-restore" and variant in RESTORED:
+        description = restore_caption(RESTORED[variant])
     entry = {"name": "%s/%s" % (variant, case), "description": description,
-             "wrong": wrong, "text": screen_text(case, log), "golden": rel(golden),
+             "wrong": wrong, "text": screen_text(case, log, variant), "golden": rel(golden),
              "actual": None, "diff": None, "tolerance": None,
              "thumb_actual": None, "thumb_golden": None, "thumb_diff": None,
              "stats": {"pixels": 0, "bbox": [], "max_delta": 0}}
@@ -416,7 +466,7 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
     departures = DEPARTURES.get(entry["name"])
     if departures:
         judge_departure(entry, departures, stats, points)
-    reviewed = "%s/%s" % (variant, same_as(case))
+    reviewed = "%s/%s" % (variant, same_as(case, variant))
     if golden_root and reviewed in PROVISIONAL:
         entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
                          % entry["status"])
@@ -426,6 +476,9 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
         entry["status"], entry["error"] = "fail", figures["error"]
     elif case in RATE_CHECKED and entry["status"] in ("pass", "near", "departure"):
         judge_rate(entry, variant, case, figures)
+    error = meta.get("errors", {}).get(case)
+    if error:  # captured, but the scenario found the case wrong
+        entry["status"], entry["error"] = "fail", error
     return entry
 
 
