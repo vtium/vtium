@@ -708,15 +708,20 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     // A stand-in for the helper, which never answers. The shell lists the
     // descriptors it inherited before it becomes sleep, because sleep holds
     // descriptors of its own while it starts (the dynamic loader holds each
-    // library open while it maps it). `ls`, a child of the shell, takes the
-    // list, so the shell's descriptors do not change while it is taken, and
-    // the shell renames the list into place, so the test reads either no
-    // list or the whole of it. The partial list's name carries the shell's
-    // pid, so no other stand-in can rename it.
+    // library open while it maps it). `ls` takes the list inside a subshell,
+    // a child of the shell, and the redirect to the list belongs to that
+    // subshell, so the shell's own descriptors do not change while the list
+    // is taken. A plain `ls ... > file` would let a shell such as dash, which
+    // Ubuntu runs as /bin/sh, apply the redirect in the shell itself and keep
+    // its real stdout on a spare descriptor, which the list then shows. The
+    // stand-in runs under bash all the same, so every machine runs the same
+    // shell. The shell renames the list into place, so the test reads either
+    // no list or the whole of it, and the partial list's name carries the
+    // shell's pid, so no other stand-in can rename it.
     let helper = root.join("helper");
     std::fs::write(
         &helper,
-        "#!/bin/sh\nls -l /proc/$$/fd > \"$0.fds.$$\"\nmv \"$0.fds.$$\" \"$0.fds\"\nexec sleep 30\n",
+        "#!/bin/bash\n( ls -l /proc/$$/fd ) > \"$0.fds.$$\"\nmv \"$0.fds.$$\" \"$0.fds\"\nexec sleep 30\n",
     )
     .expect("helper");
     std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
