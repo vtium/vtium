@@ -323,8 +323,8 @@ impl Line {
 
     /// [`bytes_max`](Self::bytes_max) in a build with images (`images`
     /// true) or without: with images, every cell may name a placeholder
-    /// cluster, which raises the arena's limit by [`PLACEHOLDER_BYTES_MAX`]
-    /// a cell (ADR-1001, "Placeholder cells"), so a row holds 128 + 90
+    /// cluster, which raises the arena's limit by 17 bytes a cell
+    /// (ADR-1001, "Placeholder cells"), so a row holds 128 + 90
     /// bytes a cell at most where it holds 128 + 56 without.
     pub const fn bytes_max_in(cols: usize, images: bool) -> usize {
         let cols = if cols == 0 {
@@ -618,8 +618,11 @@ impl Line {
 
     /// The bytes of the cluster arena the line's cells name, length bytes
     /// included: at most [`CLUSTER_BYTES_PER_CELL`] for each cell of the
-    /// width the line was written at. A trimmed line keeps what its cells
-    /// name, which may pass the budget of its fewer cells.
+    /// width the line was written at, and in a build with images up to
+    /// 17 more for each cell that names a
+    /// placeholder cluster, which the budget does not count. A trimmed line
+    /// keeps what its cells name, which may pass the budget of its fewer
+    /// cells.
     pub fn cluster_bytes(&self) -> usize {
         let Some(t) = self.tables.as_ref() else {
             return 0;
