@@ -3518,17 +3518,43 @@ impl Files {
 }
 
 impl Drop for Files {
-    /// Ends every session the seat started that still runs, then removes
-    /// the directory. A session left running gets SIGHUP when the seat
-    /// drops and writes its mark, so without this the mark would be left
-    /// in the temporary directory once the files were removed.
+    /// Ends every session the seat started that still runs, then retires
+    /// the directory and removes it. A session left running gets SIGHUP
+    /// when the seat drops and writes its mark, and a session the seat
+    /// started in its last turn may not have written its pid yet, so a
+    /// session can still write by the directory's path; once the
+    /// directory is retired, that write fails.
     fn drop(&mut self) {
         let pids = std::fs::read_to_string(&self.pids).unwrap_or_default();
         for pid in pids.lines().filter_map(|l| l.parse().ok()) {
             end_child(pid);
         }
-        let _ = std::fs::remove_dir_all(&self.dir);
+        let _ = std::fs::remove_dir_all(scratch::retire(&self.dir));
     }
+}
+
+/// A session still running when its test ends writes by the path of a
+/// scratch directory after the guard has started removing it. The guard
+/// retires the directory first, so the late write fails and nothing is
+/// left beside the retired directory once it is removed.
+#[test]
+fn a_write_after_a_scratch_directory_is_retired_fails_and_leaves_nothing() {
+    let dir = Scratch::new("heads-retire");
+    let old = dir.to_path_buf();
+    std::fs::write(old.join("starts"), "1\n").expect("a session's write");
+    let gone = scratch::retire(&old);
+    assert_ne!(gone, old, "the directory is renamed");
+    let late = std::fs::write(old.join("hup"), "\n");
+    assert_eq!(
+        late.map_err(|e| e.kind()),
+        Err(std::io::ErrorKind::NotFound),
+        "a write by the old path after the rename fails"
+    );
+    assert!(!old.exists(), "the late write brought nothing back");
+    std::fs::remove_dir_all(&gone).expect("the retired directory removed");
+    assert!(!gone.exists() && !old.exists(), "nothing is left");
+    drop(dir);
+    assert!(!old.exists(), "the guard's own drop leaves nothing");
 }
 
 /// Kills the process `pid` with SIGKILL and reaps it, when it is a child
