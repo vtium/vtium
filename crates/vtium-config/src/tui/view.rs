@@ -8,9 +8,10 @@
 //! previewed font can leave, draws one line naming the font and the keys
 //! that keep it or go back, so the user can always get out.
 
-use super::model::{App, DpiFrom, FontState, Live, SETTING_KEYS, SIZES, Saving, View};
+use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Saving, View, setting_keys};
 use super::words;
 use crate::draft::changes;
+use crate::specimen::Sources;
 
 /// The smallest grid the full screen is drawn in: below it, one line. The
 /// views fit the 320x240 floor's 40 columns (ADR-1201 D3), and from 25
@@ -66,9 +67,13 @@ struct Body {
 /// The fewest list rows a body keeps before it drops its sentences.
 const LIST_MIN: usize = 5;
 
+/// The most rows a setting's description takes under the list.
+const WHAT_ROWS: usize = 4;
+
 /// A list of `items`, each a name in a column of `width` and its note, the
 /// note wrapped by words under its column where it is longer than the
-/// line, with the item `at` highlighted; and the list's last row of that
+/// line, and starting on the row below a name longer than the column,
+/// with the item `at` highlighted; and the list's last row of that
 /// item, to keep in sight.
 fn list(items: &[(String, String)], at: usize, width: usize, cols: usize) -> (Vec<Row>, usize) {
     let column = width.saturating_add(4);
@@ -77,7 +82,14 @@ fn list(items: &[(String, String)], at: usize, width: usize, cols: usize) -> (Ve
     let mut keep = 0;
     for (i, (name, note)) in items.iter().enumerate() {
         let mark = if i == at { '>' } else { ' ' };
-        for (n, part) in wrap(note, room, usize::MAX).into_iter().enumerate() {
+        // a name longer than its column has its note on the rows below
+        let long = name.chars().count() > width;
+        let parts = std::iter::repeat_n(String::new(), usize::from(long)).chain(
+            wrap(note, room, usize::MAX)
+                .into_iter()
+                .filter(|p| !(long && p.is_empty())),
+        );
+        for (n, part) in parts.enumerate() {
             let line = if n == 0 {
                 format!(" {mark} {name:<width$} {part}")
             } else {
@@ -126,15 +138,24 @@ fn body(app: &App) -> Body {
                 .fonts
                 .iter()
                 .map(|f| {
-                    let mut note = match &f.state {
-                        FontState::Reads => words::READS.to_owned(),
-                        FontState::BuiltIn => words::BUILT_IN.to_owned(),
-                        FontState::Refused(why) => words::does_not_read(why),
+                    let mut note = match (&f.state, app.sources.get(&f.name)) {
+                        (FontState::Reads, Some(Sources::LeftOut(left))) if !left.is_empty() => {
+                            format!("{}, {}", words::READS, words::sources_missing(left.len()))
+                        }
+                        (FontState::Reads, Some(Sources::DrawsNothing(_))) => {
+                            words::DRAWS_NOTHING.to_owned()
+                        }
+                        (FontState::Reads, Some(Sources::Unknown(_))) => {
+                            format!("{}, {}", words::READS, words::SOURCES_UNKNOWN)
+                        }
+                        (FontState::Reads, _) => words::READS.to_owned(),
+                        (FontState::BuiltIn, _) => words::BUILT_IN.to_owned(),
+                        (FontState::Refused(why), _) => words::does_not_read(why),
                     };
                     if app.refused.contains(&f.name) {
                         note = words::KEPT.to_owned();
                     }
-                    if app.pending.font_name.as_deref() == Some(&f.name) {
+                    if app.pending.font_name() == Some(&f.name) {
                         note = format!("{note}, {}", words::TO_SAVE);
                     } else if configured.as_deref() == Some(&f.name) {
                         note = format!("{note}, {}", words::SAVED);
@@ -160,7 +181,7 @@ fn body(app: &App) -> Body {
                         0 => words::AUTOMATIC.to_owned(),
                         n => words::points(n),
                     };
-                    let note = if app.pending.font_size == Some(size) {
+                    let note = if app.pending.font_size() == Some(size) {
                         words::TO_SAVE
                     } else if configured.unwrap_or(0) == size {
                         words::SAVED
@@ -171,7 +192,23 @@ fn body(app: &App) -> Body {
                 })
                 .collect();
             let (list, keep) = list(&items, app.size_at, 10, cols);
-            let sentence = if !app.graphics {
+            let summary = app
+                .summary
+                .as_ref()
+                .filter(|(f, h, _)| {
+                    app.font().is_some_and(|font| font.name == *f)
+                        && *h == crate::specimen::pixel_height(app.size(), app.inputs.dpi.0)
+                })
+                .map(|(_, _, s)| match s {
+                    Ok(s) => words::size_summary(s),
+                    Err(why) => words::no_summary(why),
+                });
+            let sentence = if !app.graphics && app.size() > 0 {
+                match summary {
+                    Some(s) => format!("{} {s}", words::NO_PICTURES),
+                    None => words::NO_PICTURES.to_owned(),
+                }
+            } else if !app.graphics {
                 words::NO_PICTURES.to_owned()
             } else if app.size() == 0 {
                 words::AUTOMATIC_PICTURE.to_owned()
@@ -191,29 +228,48 @@ fn body(app: &App) -> Body {
             }
         }
         View::Settings => {
-            let items: Vec<(String, String)> = SETTING_KEYS
+            let all = setting_keys();
+            let items: Vec<(String, String)> = all
                 .iter()
-                .map(|key| {
-                    let value = match *key {
-                        "font-name" => app.pending.font_name.clone(),
-                        "font-size" => app.pending.font_size.map(|s| s.to_string()),
-                        _ => None,
-                    }
-                    .or_else(|| app.configured(key));
-                    let value = match *key {
-                        "allow-font-ops" if app.font_ops() => words::ON.to_owned(),
-                        "allow-font-ops" => words::OFF.to_owned(),
-                        _ => value.unwrap_or_else(|| words::UNSET.to_owned()),
+                .enumerate()
+                .map(|(i, key)| {
+                    let value = match &app.editing {
+                        Some(typed) if i == app.setting_at => format!("{typed}_"),
+                        _ => match app.value(key) {
+                            (v, true) => words::default_value(v),
+                            (v, false) => v,
+                        },
                     };
-                    ((*key).to_owned(), value)
+                    let value = if app.pending.get(key.name).is_some() {
+                        format!("{value}, {}", words::TO_SAVE)
+                    } else {
+                        value
+                    };
+                    (key.name.to_owned(), value)
                 })
                 .collect();
-            let (list, keep) = list(&items, app.setting_at, 18, cols);
-            Body {
-                list,
-                keep,
-                tail: tail(words::SETTINGS_HINT, cols),
-            }
+            // the key's column takes at most half the screen
+            let width = all
+                .iter()
+                .map(|k| k.name.chars().count())
+                .max()
+                .unwrap_or(0)
+                .min(24)
+                .min((cols / 2).saturating_sub(4));
+            let (list, keep) = list(&items, app.setting_at, width, cols);
+            let hint = if app.editing.is_some() {
+                words::EDITING
+            } else {
+                words::SETTINGS_HINT
+            };
+            let what = all.get(app.setting_at).map_or("", |k| k.what);
+            let mut tail = tail(hint, cols);
+            tail.extend(
+                cut(what, cols.saturating_sub(2), WHAT_ROWS)
+                    .into_iter()
+                    .map(|l| plain(format!(" {l}"))),
+            );
+            Body { list, keep, tail }
         }
         View::Heads => match (app.inputs.heads.is_some(), app.heads()) {
             (false, _) => Body {
@@ -239,6 +295,24 @@ fn body(app: &App) -> Body {
                 }
             }
         },
+        View::New => {
+            let mut items: Vec<(String, String)> = words::NEW_FIELD_NAMES
+                .iter()
+                .zip(&app.new_frit.fields)
+                .enumerate()
+                .map(|(i, (name, text))| {
+                    let cursor = if i == app.new_frit.at { "_" } else { "" };
+                    ((*name).to_owned(), format!("{text}{cursor}"))
+                })
+                .collect();
+            items.push((words::NEW_ADD.to_owned(), String::new()));
+            let (list, keep) = list(&items, app.new_frit.at.min(NEW_FIELDS), 8, cols);
+            Body {
+                list,
+                keep,
+                tail: tail(words::NEW_HINT, cols),
+            }
+        }
         View::Save => Body {
             list: save_rows(app),
             keep: 0,
@@ -295,28 +369,84 @@ fn save_rows(app: &App) -> Vec<Row> {
     rows
 }
 
-/// Where the size view's picture goes, row and column from 1: beside the
-/// list of sizes, below the rule under the tabs.
-pub fn picture_at(_app: &App) -> (usize, usize) {
-    (PICTURE_ROW, PICTURE_COL)
+/// Where a picture goes, row and column from 1: in the size view beside
+/// the list of sizes, below the rule under the tabs; in the fonts view
+/// below the list of fonts, whose notes reach across the screen.
+pub fn picture_at(app: &App) -> (usize, usize) {
+    match app.view {
+        View::Fonts => (
+            PICTURE_ROW
+                .saturating_add(body(app).list.len())
+                .saturating_add(1),
+            2,
+        ),
+        _ => (PICTURE_ROW, PICTURE_COL),
+    }
 }
 
 const PICTURE_ROW: usize = 4;
 const PICTURE_COL: usize = 26;
 
-/// The cells the picture may cover, columns and rows: from its place to
-/// the right edge, and down to the row above the message line, so it
-/// never covers the keys.
+/// The tabs' row: each view's name, the current one in reverse video, and
+/// the save view's after them while it shows. Where the row is wider than
+/// the screen, the tabs after the current one go first, then those before
+/// it, so the current view's name always shows.
+fn tabs(app: &App) -> Row {
+    let names = [
+        words::FONTS,
+        words::SIZES,
+        words::SETTINGS,
+        words::HEADS,
+        words::NEW,
+    ];
+    let mut all: Vec<(String, bool)> = View::TABS
+        .iter()
+        .zip(names)
+        .map(|(v, name)| (format!(" {name} "), *v == app.view))
+        .collect();
+    if app.view == View::Save {
+        all.push((format!(" {} ", words::SAVE), true));
+    }
+    let width = |all: &[(String, bool)]| {
+        all.iter()
+            .map(|(t, _)| t.chars().count())
+            .sum::<usize>()
+            .saturating_add(1)
+    };
+    let current = all.iter().position(|(_, on)| *on).unwrap_or(0);
+    while width(&all) > app.cols && all.len() > 1 {
+        let drop = if all.len().saturating_sub(1) > current {
+            all.len().saturating_sub(1)
+        } else {
+            0
+        };
+        all.remove(drop);
+    }
+    std::iter::once(Span {
+        text: " ".into(),
+        reverse: false,
+    })
+    .chain(
+        all.into_iter()
+            .map(|(text, reverse)| Span { text, reverse }),
+    )
+    .collect()
+}
+
+/// The cells a picture may cover, columns and rows: from its place to the
+/// right edge, and down to the row above the message line, so it never
+/// covers the keys.
 pub fn picture_area(app: &App) -> (usize, usize) {
     // the rule, the keys, and the message at its longest
     let footer = 1usize
         .saturating_add(key_rows(app).len())
         .saturating_add(MESSAGE_ROWS);
+    let (row, col) = picture_at(app);
     (
-        app.cols.saturating_sub(PICTURE_COL.saturating_sub(1)),
+        app.cols.saturating_sub(col.saturating_sub(1)),
         app.rows
             .saturating_sub(footer)
-            .saturating_sub(PICTURE_ROW.saturating_sub(1)),
+            .saturating_sub(row.saturating_sub(1)),
     )
 }
 
@@ -329,8 +459,10 @@ fn key_rows(app: &App) -> Vec<String> {
     let keys = match app.view {
         View::Fonts => words::KEYS_FONTS,
         View::Sizes => words::KEYS_SIZES,
+        View::Settings if app.editing.is_some() => words::KEYS_EDITING,
         View::Settings => words::KEYS_SETTINGS,
         View::Heads => words::KEYS_HEADS,
+        View::New => words::KEYS_NEW,
         View::Save => words::KEYS_SAVE,
     };
     let width = app.cols.saturating_sub(2).max(1);
@@ -373,27 +505,7 @@ pub fn screen(app: &App) -> Vec<Row> {
             &format!("{live} "),
             cols,
         )));
-        let mut tabs = vec![Span {
-            text: " ".into(),
-            reverse: false,
-        }];
-        for (v, name) in
-            View::TABS
-                .iter()
-                .zip([words::FONTS, words::SIZES, words::SETTINGS, words::HEADS])
-        {
-            tabs.push(Span {
-                text: format!(" {name} "),
-                reverse: *v == app.view,
-            });
-        }
-        if app.view == View::Save {
-            tabs.push(Span {
-                text: format!(" {} ", words::SAVE),
-                reverse: true,
-            });
-        }
-        out.push(tabs);
+        out.push(tabs(app));
         out.push(plain("-".repeat(cols)));
         let message = wrap(
             app.message.as_deref().unwrap_or(""),
@@ -471,6 +583,23 @@ fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
     }
     lines.push(line);
     lines.truncate(most.max(1));
+    lines
+}
+
+/// `text` wrapped as [`wrap`] wraps it, in at most `most` lines, the last
+/// ending in `...` where text was left out.
+fn cut(text: &str, width: usize, most: usize) -> Vec<String> {
+    let mut lines = wrap(text, width, usize::MAX);
+    if lines.len() > most {
+        lines.truncate(most);
+        if let Some(last) = lines.last_mut() {
+            let keep = width.saturating_sub(4);
+            while last.chars().count() > keep {
+                last.pop();
+            }
+            last.push_str(" ...");
+        }
+    }
     lines
 }
 

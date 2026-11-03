@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use vtium_config::serve::FritText;
-use vtium_config::specimen::{LINES, PICTURE_MAX, draw, pixel_height};
+use vtium_config::specimen::{Helper, LINES, PICTURE_MAX, Picture, pixel_height};
 
 fn frit(text: &str) -> FritText {
     FritText {
@@ -15,8 +15,13 @@ fn frit(text: &str) -> FritText {
     }
 }
 
-fn helper() -> &'static Path {
-    Path::new(env!("CARGO_BIN_EXE_vtium-config"))
+fn helper() -> Helper {
+    Helper::at(env!("CARGO_BIN_EXE_vtium-config"))
+}
+
+/// The specimen in a locale with no line of its own.
+fn draw(helper: Helper, frit: &FritText, height: u32, max: (u32, u32)) -> Result<Picture, String> {
+    vtium_config::specimen::draw(&helper, frit, height, max, "C")
 }
 
 /// The widest specimen line, in characters.
@@ -80,7 +85,7 @@ fn points_become_pixels_at_the_density() {
 #[test]
 fn the_painter_draws_the_built_in_fonts_and_a_frit() {
     let frits = Path::new(env!("CARGO_MANIFEST_DIR")).join("frits");
-    let mut paint = vtium_config::tui::painter(frits, helper().to_path_buf());
+    let mut paint = vtium_config::tui::painter(frits, helper(), "C".to_owned());
     for font in ["unifont", "unscii-8", "minspec-16"] {
         let p = paint(font, 16, PICTURE_MAX).unwrap_or_else(|e| panic!("{font}: {e}"));
         assert_eq!(p.height, 16 * LINES.len() as u32, "{font}");

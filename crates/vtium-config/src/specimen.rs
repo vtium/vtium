@@ -9,9 +9,10 @@
 //! format the console reads, through vtium-font's reader. The helper is
 //! given [`HELPER_WAIT`] to answer, and is ended past it.
 
+use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::path::PathBuf;
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -21,15 +22,59 @@ use vtium_font::{Cell, Face, Format, Style};
 
 use crate::serve::{
     ASK, FRAME_BYTES_MAX, FRAME_DONE, FRAME_FAILED, FRAME_GLYPHS, FRAME_NO_OWN_CELL,
-    FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FritText, OWN_CELL, ServeRequest,
+    FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SOURCES, FritText, LeftOut, OWN_CELL, SOURCES,
+    ServeRequest,
 };
 
-/// The specimen's lines.
+/// The specimen's lines in every locale: Latin, digits and box drawing.
 pub const LINES: [&str; 3] = [
     "The quick brown fox jumps",
     "over the lazy dog 0123456789",
     "┌──┬──┐ ├──┼──┤ └──┴──┘ ░▒▓█",
 ];
+
+/// A line in the locale's script or letters, by the locale's language, as
+/// `LANG` writes it before `_`, `.` or `@`. Each is a sentence that holds
+/// the letters a reader of the language looks for. Only scripts whose
+/// characters each take cells of their own are here: a script that joins
+/// or stacks its letters, such as Arabic, Hebrew's points, Thai or
+/// Devanagari, needs the specimen to shape clusters, which it does not
+/// yet, so those locales get no line.
+const LOCALE_LINES: [(&[&str], &str); 13] = [
+    (
+        &["ru", "uk", "be", "bg", "mk", "sr", "kk", "ky", "mn", "tg"],
+        "Съешь же ещё этих мягких французских булок",
+    ),
+    (&["el"], "Ξεσκεπάζω την ψυχοφθόρα βδελυγμία"),
+    (&["ja"], "いろはにほへと ちりぬるを 漢字"),
+    (&["zh"], "我能吞下玻璃而不伤身体"),
+    (&["ko"], "다람쥐 헌 쳇바퀴에 타고파"),
+    (&["de"], "Zwölf Boxkämpfer jagen Viktor quer über den Deich"),
+    (
+        &["fr"],
+        "Voix ambiguë d'un cœur qui au zéphyr préfère les jattes",
+    ),
+    (
+        &["es"],
+        "El pingüino Wenceslao hizo kilómetros bajo la lluvia",
+    ),
+    (&["pt"], "Luís argüia à Júlia que brações, fé, chá, óxido"),
+    (&["pl"], "Pchnąć w tę łódź jeża lub ośm skrzyń fig"),
+    (&["cs", "sk"], "Příliš žluťoučký kůň úpěl ďábelské ódy"),
+    (&["tr"], "Pijamalı hasta yağız şoföre çabucak güvendi"),
+    (&["vi"], "Tiếng Việt có dấu: đ ơ ư ă â ê ô"),
+];
+
+/// The specimen's lines for `locale`, as `LANG` or `LC_ALL` names it:
+/// [`LINES`], then the locale's line where it has one.
+pub fn lines(locale: &str) -> Vec<&'static str> {
+    let language = locale.split(['_', '.', '@']).next().unwrap_or_default();
+    let own = LOCALE_LINES
+        .iter()
+        .find(|(languages, _)| languages.contains(&language))
+        .map(|(_, line)| *line);
+    LINES.iter().copied().chain(own).collect()
+}
 
 /// The most pixels a picture takes, across and down: 3 MiB of RGBA, and
 /// 4 MiB of kitty graphics' base64. A picture is cut to its area on the
@@ -51,6 +96,25 @@ pub struct Picture {
     pub rgba: Vec<u8>,
 }
 
+/// How to start the glyph helper the console starts, `vtium-config serve`:
+/// its program, and the options before `serve` that name where it finds
+/// sources, as the command line named them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Helper {
+    pub program: PathBuf,
+    pub options: Vec<OsString>,
+}
+
+impl Helper {
+    /// The helper at `program`, finding sources where the build says.
+    pub fn at(program: impl Into<PathBuf>) -> Helper {
+        Helper {
+            program: program.into(),
+            options: Vec::new(),
+        }
+    }
+}
+
 /// The pixel height `points` gives at `dpi` dots per inch, to the nearest
 /// pixel: a point is 1/72 of an inch.
 pub fn pixel_height(points: u32, dpi: u32) -> u32 {
@@ -60,7 +124,7 @@ pub fn pixel_height(points: u32, dpi: u32) -> u32 {
 /// One frame the helper sent.
 type Frame = (u32, Vec<u8>);
 
-fn frame(from: &mut impl Read) -> Result<Frame, String> {
+fn frame(from: &mut dyn Read) -> Result<Frame, String> {
     let mut head = [0u8; 8];
     from.read_exact(&mut head)
         .map_err(|_| "the helper ended without an answer".to_owned())?;
@@ -86,10 +150,10 @@ fn text(payload: &[u8]) -> String {
     String::from_utf8_lossy(payload).into_owned()
 }
 
-/// The specimen's characters, each once, in order.
-fn characters() -> Vec<char> {
+/// The characters of `lines`, each once, in order.
+fn characters(lines: &[&str]) -> Vec<char> {
     let mut seen = Vec::new();
-    for c in LINES.iter().flat_map(|l| l.chars()) {
+    for c in lines.iter().flat_map(|l| l.chars()) {
         if c != ' ' && !seen.contains(&c) {
             seen.push(c);
         }
@@ -97,15 +161,9 @@ fn characters() -> Vec<char> {
     seen
 }
 
-/// The talk with the helper on its pipes: the cell at `height`, then the
-/// glyph sets for the specimen's characters at that cell.
-fn talk(
-    stdin: &mut impl Write,
-    stdout: &mut impl Read,
-    frit: &FritText,
-    height: u32,
-) -> Result<(Vec<Set>, u32), String> {
-    let request = |kind, cell, codepoints| ServeRequest {
+/// A request about `frit`.
+fn request(kind: u32, frit: &FritText, cell: Cell, codepoints: Vec<u32>) -> ServeRequest {
+    ServeRequest {
         kind,
         frit: frit.clone(),
         cell,
@@ -113,80 +171,25 @@ fn talk(
         clusters: Vec::new(),
         held: Vec::new(),
         console: None,
-    };
-    let send = |stdin: &mut dyn Write, r: ServeRequest| {
-        stdin
-            .write_all(&r.encode())
-            .and_then(|()| stdin.flush())
-            .map_err(|e| format!("the helper: {e}"))
-    };
-    send(
-        stdin,
-        request(OWN_CELL, Cell { width: 0, height }, Vec::new()),
-    )?;
-    let (cell, face_height) = loop {
-        let (kind, payload) = frame(stdout)?;
-        match kind {
-            FRAME_OWN_CELL => {
-                let (w, h) = pair(&payload).ok_or("the helper's cell is cut short")?;
-                break (
-                    Cell {
-                        width: w,
-                        height: h,
-                    },
-                    height,
-                );
-            }
-            FRAME_OUTLINE_CELL => {
-                let (w, h) = pair(&payload).ok_or("the helper's cell is cut short")?;
-                break (
-                    Cell {
-                        width: w,
-                        height: h,
-                    },
-                    h,
-                );
-            }
-            FRAME_NO_OWN_CELL => {
-                let cell = Cell {
-                    width: (height / 2).max(1),
-                    height,
-                };
-                break (cell, height);
-            }
-            FRAME_FAILED => return Err(text(&payload)),
-            _ => {}
-        }
-    };
-    let codepoints = characters().into_iter().map(u32::from).collect();
-    send(stdin, request(ASK, cell, codepoints))?;
-    let mut sets = Vec::new();
-    loop {
-        let (kind, payload) = frame(stdout)?;
-        match kind {
-            FRAME_GLYPHS => sets.push(Set::from_bytes(payload).map_err(|e| format!("{e:?}"))?),
-            FRAME_DONE => break,
-            FRAME_FAILED => return Err(text(&payload)),
-            _ => {}
-        }
     }
-    Ok((sets, face_height))
 }
 
-/// The specimen of `frit` at `height` pixels, drawn by the helper at
-/// `program`, as many whole lines and columns of it as fit in `max`
-/// pixels across and down, and at most [`PICTURE_MAX`].
-pub fn draw(
-    program: &Path,
-    frit: &FritText,
-    height: u32,
-    max: (u32, u32),
-) -> Result<Picture, String> {
-    let max = (max.0.min(PICTURE_MAX.0), max.1.min(PICTURE_MAX.1));
-    if height > max.1 || height == 0 {
-        return Err(TOO_LARGE.to_owned());
-    }
-    let mut child = Command::new(program)
+fn send(stdin: &mut dyn Write, r: &ServeRequest) -> Result<(), String> {
+    stdin
+        .write_all(&r.encode())
+        .and_then(|()| stdin.flush())
+        .map_err(|e| format!("the helper: {e}"))
+}
+
+/// Starts `helper` under its own sandbox, with an empty environment, `/`
+/// as its directory and its three pipes: this process opens every
+/// descriptor close-on-exec, the TUI's copies of the terminal included, so
+/// the process that parses fonts holds none of the user's terminal, and the
+/// helper sheds any other descriptor it is given as it starts
+/// ([`crate::serve::SHED_VAR`]).
+fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout), String> {
+    let mut child = Command::new(&helper.program)
+        .args(&helper.options)
         .arg(crate::serve::SERVE_ARG)
         .env_clear()
         .current_dir("/")
@@ -194,15 +197,28 @@ pub fn draw(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("{}: {e}", program.display()))?;
-    let (mut stdin, mut stdout) = match (child.stdin.take(), child.stdout.take()) {
-        (Some(i), Some(o)) => (i, o),
-        _ => return Err("the helper's pipes".to_owned()),
-    };
+        .map_err(|e| format!("{}: {e}", helper.program.display()))?;
+    match (child.stdin.take(), child.stdout.take()) {
+        (Some(i), Some(o)) => Ok((child, i, o)),
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err("the helper's pipes".to_owned())
+        }
+    }
+}
+
+/// Starts `helper` under its own sandbox, runs `talk` on its pipes, and
+/// ends it; `talk`'s answer, or why there is none, within
+/// [`HELPER_WAIT`].
+fn with_helper<T: Send + 'static>(
+    helper: &Helper,
+    talk: impl FnOnce(&mut dyn Write, &mut dyn Read) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let (mut child, mut stdin, mut stdout) = start(helper)?;
     let (done, answer) = mpsc::channel();
-    let frit_owned = frit.clone();
     std::thread::spawn(move || {
-        let result = talk(&mut stdin, &mut stdout, &frit_owned, height);
+        let result = talk(&mut stdin, &mut stdout);
         drop(stdin);
         let _ = done.send(result);
     });
@@ -211,111 +227,329 @@ pub fn draw(
         .unwrap_or_else(|_| Err("the helper did not answer in time".to_owned()));
     let _ = child.kill();
     let _ = child.wait();
-    let (sets, face_height) = result?;
-    let mut faces: Vec<SetFace> = sets
-        .into_iter()
-        .filter_map(|s| SetFace::new(Arc::new(s), face_height))
-        .collect();
-    // the built-in font draws every character the frit does not give, as
-    // the console draws it (ADR-1200 D7)
-    let cell_height = faces.first().map_or(face_height, |f| f.cell().height);
-    let locale = std::env::var("LC_ALL")
-        .or_else(|_| std::env::var("LC_CTYPE"))
-        .or_else(|_| std::env::var("LANG"))
-        .unwrap_or_default();
-    if let Some(face) =
-        builtin(builtin_name(cell_height, &locale)).and_then(|set| SetFace::new(set, face_height))
-    {
-        faces.push(face);
+    result
+}
+
+/// What the helper said of one frit's sources.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Sources {
+    /// The helper read the frit: the sources it left out, which this
+    /// machine lacks or refuses, none when it has them all.
+    LeftOut(Vec<LeftOut>),
+    /// The helper read the frit and found no source of it it can draw from,
+    /// or the frit does not read: why.
+    DrawsNothing(String),
+    /// No answer came for the frit: the helper did not start, failed, or
+    /// stalled before it answered; why. Nothing is known of its sources.
+    Unknown(String),
+}
+
+/// The sources each of `frits` lacks or refuses, asked of one helper at
+/// `helper` over one pipe, since the helper reads each frit once and
+/// answers each sources query at once. Each answer is waited for at most
+/// [`HELPER_WAIT`]; the answers that came are kept, and once one does not
+/// come, or the helper cannot be started, every frit still unanswered is
+/// [`Sources::Unknown`].
+pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
+    let count = frits.len();
+    let mut answers = Vec::with_capacity(count);
+    let session = start(helper).map(|(child, mut stdin, mut stdout)| {
+        let (arrived, answer) = mpsc::channel();
+        std::thread::spawn(move || {
+            let empty = Cell {
+                width: 0,
+                height: 0,
+            };
+            for frit in &frits {
+                if send(&mut stdin, &request(SOURCES, frit, empty, Vec::new())).is_err() {
+                    return;
+                }
+            }
+            for _ in 0..frits.len() {
+                let found = loop {
+                    match frame(&mut stdout) {
+                        Ok((FRAME_SOURCES, payload)) => {
+                            break Sources::LeftOut(
+                                text(&payload).lines().filter_map(LeftOut::parse).collect(),
+                            );
+                        }
+                        Ok((FRAME_FAILED, payload)) => break Sources::DrawsNothing(text(&payload)),
+                        Ok(_) => {}
+                        Err(_) => return,
+                    }
+                };
+                if arrived.send(found).is_err() {
+                    return;
+                }
+            }
+        });
+        (child, answer)
+    });
+    let why = match session {
+        Ok((mut child, answer)) => {
+            while answers.len() < count {
+                match answer.recv_timeout(HELPER_WAIT) {
+                    Ok(found) => answers.push(found),
+                    Err(_) => break,
+                }
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            "the helper did not answer in time".to_owned()
+        }
+        Err(why) => why,
+    };
+    while answers.len() < count {
+        answers.push(Sources::Unknown(why.clone()));
     }
-    lay_out(&faces, max)
+    answers
+}
+
+/// A frit's specimen as the helper drew it at one height: the glyphs it
+/// sent at the frit's cell there, and what they are drawn with.
+pub struct Sample {
+    /// The specimen's lines.
+    pub lines: Vec<&'static str>,
+    /// The frit's cell at the height asked.
+    pub cell: Cell,
+    /// The height the faces are drawn at.
+    face_height: u32,
+    /// The frit's glyphs, each set the helper sent.
+    sets: Vec<Arc<Set>>,
+    /// The locale, which chooses the built-in font that draws what the
+    /// frit lacks, as the console chooses it.
+    locale: String,
+}
+
+/// What a size gives, for a terminal that draws no pictures (ADR-1201 D4):
+/// the cell, the grid it gives on a display, and how many of the
+/// specimen's characters the frit draws itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Summary {
+    pub cell: Cell,
+    /// The columns and rows the cell gives on the display measured, where
+    /// one was.
+    pub grid: Option<(u32, u32)>,
+    pub covered: usize,
+    pub of: usize,
+}
+
+/// Asks the helper at `helper` for `frit`'s cell at `height` pixels and
+/// then for the glyphs of `locale`'s specimen at that cell.
+pub fn sample(
+    helper: &Helper,
+    frit: &FritText,
+    height: u32,
+    locale: &str,
+) -> Result<Sample, String> {
+    let lines = lines(locale);
+    let codepoints: Vec<u32> = characters(&lines).into_iter().map(u32::from).collect();
+    let frit = frit.clone();
+    let (sets, cell, face_height) = with_helper(helper, move |stdin, stdout| {
+        send(
+            stdin,
+            &request(OWN_CELL, &frit, Cell { width: 0, height }, Vec::new()),
+        )?;
+        let (cell, face_height) = loop {
+            let (kind, payload) = frame(stdout)?;
+            let pair = || pair(&payload).ok_or("the helper's cell is cut short");
+            match kind {
+                FRAME_OWN_CELL => {
+                    let (w, h) = pair()?;
+                    break (
+                        Cell {
+                            width: w,
+                            height: h,
+                        },
+                        height,
+                    );
+                }
+                FRAME_OUTLINE_CELL => {
+                    let (w, h) = pair()?;
+                    break (
+                        Cell {
+                            width: w,
+                            height: h,
+                        },
+                        h,
+                    );
+                }
+                FRAME_NO_OWN_CELL => {
+                    let cell = Cell {
+                        width: (height / 2).max(1),
+                        height,
+                    };
+                    break (cell, height);
+                }
+                FRAME_FAILED => return Err(text(&payload)),
+                _ => {}
+            }
+        };
+        send(stdin, &request(ASK, &frit, cell, codepoints))?;
+        let mut sets = Vec::new();
+        loop {
+            let (kind, payload) = frame(stdout)?;
+            match kind {
+                FRAME_GLYPHS => {
+                    let set = Set::from_bytes(payload).map_err(|e| format!("{e:?}"))?;
+                    sets.push(Arc::new(set));
+                }
+                FRAME_DONE => break,
+                FRAME_FAILED => return Err(text(&payload)),
+                _ => {}
+            }
+        }
+        Ok((sets, cell, face_height))
+    })?;
+    Ok(Sample {
+        lines,
+        cell,
+        face_height,
+        sets,
+        locale: locale.to_owned(),
+    })
+}
+
+/// The specimen of `frit` at `height` pixels in `locale`, drawn by the
+/// helper at `helper`, as many whole lines and columns of it as fit in
+/// `max` pixels across and down, and at most [`PICTURE_MAX`].
+pub fn draw(
+    helper: &Helper,
+    frit: &FritText,
+    height: u32,
+    max: (u32, u32),
+    locale: &str,
+) -> Result<Picture, String> {
+    let max = (max.0.min(PICTURE_MAX.0), max.1.min(PICTURE_MAX.1));
+    if height > max.1 || height == 0 {
+        return Err(TOO_LARGE.to_owned());
+    }
+    sample(helper, frit, height, locale)?.picture(max)
+}
+
+impl Sample {
+    /// The faces the specimen is drawn with: the frit's, then the built-in
+    /// font, which draws every character the frit does not give, as the
+    /// console draws it (ADR-1200 D7).
+    fn faces(&self) -> Vec<SetFace> {
+        let mut faces = self.frit_faces();
+        let cell_height = faces.first().map_or(self.face_height, |f| f.cell().height);
+        if let Some(face) = builtin(builtin_name(cell_height, &self.locale))
+            .and_then(|set| SetFace::new(set, self.face_height))
+        {
+            faces.push(face);
+        }
+        faces
+    }
+
+    /// The faces of the frit's own glyphs.
+    fn frit_faces(&self) -> Vec<SetFace> {
+        self.sets
+            .iter()
+            .filter_map(|s| SetFace::new(Arc::clone(s), self.face_height))
+            .collect()
+    }
+
+    /// The specimen as a picture, as many whole lines and columns of it as
+    /// fit in `max` pixels, and at most [`PICTURE_MAX`].
+    pub fn picture(&self, max: (u32, u32)) -> Result<Picture, String> {
+        let max = (max.0.min(PICTURE_MAX.0), max.1.min(PICTURE_MAX.1));
+        lay_out(&self.faces(), &self.lines, max)
+    }
+
+    /// The specimen as text for a terminal that draws no pictures: its
+    /// cell, the grid it gives on a display of `display` pixels, and how
+    /// many of its characters the frit draws itself.
+    pub fn summary(&self, display: Option<(u32, u32)>) -> Summary {
+        let chars = characters(&self.lines);
+        let own = self.frit_faces();
+        let covered = chars
+            .iter()
+            .filter(|&&c| own.iter().any(|f| f.has_glyph(c)))
+            .count();
+        let grid = display.and_then(|(w, h)| {
+            Some((
+                w.checked_div(self.cell.width)?,
+                h.checked_div(self.cell.height)?,
+            ))
+        });
+        Summary {
+            cell: self.cell,
+            grid,
+            covered,
+            of: chars.len(),
+        }
+    }
 }
 
 /// Why a size has no picture when one line of it does not fit.
 const TOO_LARGE: &str = "this size is larger than the preview area";
 
-/// The specimen's lines drawn with `faces`, the first that holds a
-/// character drawing it, in the first face's cell, as many whole lines and
-/// columns as fit in `max` pixels.
-fn lay_out(faces: &[SetFace], max: (u32, u32)) -> Result<Picture, String> {
+/// `lines` drawn with `faces`, the first that holds a character drawing
+/// it, in the first face's cell, as many whole lines and columns as fit in
+/// `max` pixels. A glyph wider than the cell, as a CJK character, takes
+/// two cells, as the console draws it.
+fn lay_out(faces: &[SetFace], lines: &[&str], max: (u32, u32)) -> Result<Picture, String> {
     let cell = faces
         .first()
         .map(Face::cell)
         .ok_or("the helper drew no glyph")?;
-    let widest = LINES.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-    let cols = u32::try_from(widest)
-        .unwrap_or(0)
-        .min(max.0.checked_div(cell.width).unwrap_or(0));
-    let lines = u32::try_from(LINES.len())
+    let room = max.0.checked_div(cell.width).unwrap_or(0);
+    // each line's glyphs and the cells each takes, as many as fit the room
+    let laid: Vec<Vec<(Option<vtium_font::Glyph>, u32)>> = lines
+        .iter()
+        .map(|line| {
+            let mut used = 0u32;
+            line.chars()
+                .map(|c| {
+                    let glyph = faces
+                        .iter()
+                        .find(|f| f.has_glyph(c))
+                        .and_then(|f| f.draw(&[c], Style::default()));
+                    let cells = glyph
+                        .as_ref()
+                        .map_or(1, |g| g.width().div_ceil(cell.width.max(1)).clamp(1, 2));
+                    (glyph, cells)
+                })
+                .take_while(|(_, cells)| {
+                    used = used.saturating_add(*cells);
+                    used <= room
+                })
+                .collect()
+        })
+        .collect();
+    let cols = laid
+        .iter()
+        .map(|l| l.iter().map(|(_, n)| *n).sum::<u32>())
+        .max()
+        .unwrap_or(0);
+    let shown = u32::try_from(laid.len())
         .unwrap_or(0)
         .min(max.1.checked_div(cell.height).unwrap_or(0));
-    if cols == 0 || lines == 0 {
+    if cols == 0 || shown == 0 {
         return Err(TOO_LARGE.to_owned());
     }
     let width = cell.width.saturating_mul(cols);
-    let height = cell.height.saturating_mul(lines);
+    let height = cell.height.saturating_mul(shown);
     let stride = usize::try_from(width).unwrap_or(0).saturating_mul(4);
     let mut rgba: Vec<u8> = std::iter::repeat_n([PAPER[0], PAPER[1], PAPER[2], 255], {
         usize::try_from(width.saturating_mul(height)).unwrap_or(0)
     })
     .flatten()
     .collect();
-    let shown = usize::try_from(lines).unwrap_or(0);
-    for (row, line) in LINES.iter().take(shown).enumerate() {
+    for (row, line) in laid
+        .iter()
+        .take(usize::try_from(shown).unwrap_or(0))
+        .enumerate()
+    {
         let top = u32::try_from(row).unwrap_or(0).saturating_mul(cell.height);
-        for (col, c) in line
-            .chars()
-            .take(usize::try_from(cols).unwrap_or(0))
-            .enumerate()
-        {
-            let left = u32::try_from(col).unwrap_or(0).saturating_mul(cell.width);
-            let Some(glyph) = faces
-                .iter()
-                .find(|f| f.has_glyph(c))
-                .and_then(|f| f.draw(&[c], Style::default()))
-            else {
-                continue;
-            };
-            for y in 0..glyph.height().min(cell.height) {
-                for x in 0..glyph.width().min(cell.width) {
-                    let Some(px) = glyph.pixel(x, y) else {
-                        continue;
-                    };
-                    // coverage, or premultiplied color over the paper
-                    let (alpha, color) = match glyph.format() {
-                        Format::Mask => (px.first().copied().unwrap_or(0), INK),
-                        Format::Rgba => (
-                            px.get(3).copied().unwrap_or(0),
-                            [
-                                px.first().copied().unwrap_or(0),
-                                px.get(1).copied().unwrap_or(0),
-                                px.get(2).copied().unwrap_or(0),
-                            ],
-                        ),
-                    };
-                    let at = usize::try_from(top.saturating_add(y))
-                        .unwrap_or(0)
-                        .saturating_mul(stride)
-                        .saturating_add(
-                            usize::try_from(left.saturating_add(x))
-                                .unwrap_or(0)
-                                .saturating_mul(4),
-                        );
-                    for (i, &c) in color.iter().enumerate() {
-                        let paper = u32::from(PAPER.get(i).copied().unwrap_or(0));
-                        let a = u32::from(alpha);
-                        let ink = match glyph.format() {
-                            Format::Mask => u32::from(c).saturating_mul(a) / 255,
-                            Format::Rgba => u32::from(c),
-                        };
-                        let value = ink
-                            .saturating_add(paper.saturating_mul(255u32.saturating_sub(a)) / 255);
-                        if let Some(slot) = rgba.get_mut(at.saturating_add(i)) {
-                            *slot = u8::try_from(value.min(255)).unwrap_or(255);
-                        }
-                    }
-                }
+        let mut left = 0u32;
+        for (glyph, cells) in line {
+            let span = cell.width.saturating_mul(*cells);
+            if let Some(glyph) = glyph {
+                paint(&mut rgba, stride, glyph, (left, top), (span, cell.height));
             }
+            left = left.saturating_add(span);
         }
     }
     Ok(Picture {
@@ -323,4 +557,56 @@ fn lay_out(faces: &[SetFace], max: (u32, u32)) -> Result<Picture, String> {
         height,
         rgba,
     })
+}
+
+/// Draws `glyph` over the paper in `rgba`, `stride` bytes a row, with its
+/// top left at `at`, cut to `size` pixels.
+fn paint(
+    rgba: &mut [u8],
+    stride: usize,
+    glyph: &vtium_font::Glyph,
+    at: (u32, u32),
+    size: (u32, u32),
+) {
+    let (left, top) = at;
+    for y in 0..glyph.height().min(size.1) {
+        for x in 0..glyph.width().min(size.0) {
+            let Some(px) = glyph.pixel(x, y) else {
+                continue;
+            };
+            // coverage, or premultiplied color over the paper
+            let (alpha, color) = match glyph.format() {
+                Format::Mask => (px.first().copied().unwrap_or(0), INK),
+                Format::Rgba => (
+                    px.get(3).copied().unwrap_or(0),
+                    [
+                        px.first().copied().unwrap_or(0),
+                        px.get(1).copied().unwrap_or(0),
+                        px.get(2).copied().unwrap_or(0),
+                    ],
+                ),
+            };
+            let at = usize::try_from(top.saturating_add(y))
+                .unwrap_or(0)
+                .saturating_mul(stride)
+                .saturating_add(
+                    usize::try_from(left.saturating_add(x))
+                        .unwrap_or(0)
+                        .saturating_mul(4),
+                );
+            for (i, &c) in color.iter().enumerate() {
+                let paper = u32::from(PAPER.get(i).copied().unwrap_or(0));
+                let a = u32::from(alpha);
+                let ink = match glyph.format() {
+                    Format::Mask => u32::from(c).saturating_mul(a) / 255,
+                    Format::Rgba => u32::from(c),
+                };
+                let value =
+                    ink.saturating_add(paper.saturating_mul(255u32.saturating_sub(a)) / 255);
+                if let Some(slot) = rgba.get_mut(at.saturating_add(i)) {
+                    *slot = u8::try_from(value.min(255)).unwrap_or(255);
+                }
+            }
+        }
+    }
 }

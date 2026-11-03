@@ -1,0 +1,25 @@
+ VTium Vitrifier                                               live preview: on
+  Fonts  Sizes  Settings  Heads  New
+-------------------------------------------------------------------------------
+ > Name     _
+   Source 1
+   Source 2
+   Source 3
+   Cell
+   Size
+   Add the frit to the save
+
+ A source is a font's family, as JetBrains Mono, or a source as a frit writes
+ it, as kbd:ter-v16n. Each later source fills what the ones before it lack.
+ Cell is WIDTHxHEIGHT and Size is points; leave them empty for the fonts' own.
+ An empty name is made from the first source.
+
+
+
+
+
+
+
+
+-------------------------------------------------------------------------------
+ type a field  Enter next  Tab next view  Ctrl-C leave, undo

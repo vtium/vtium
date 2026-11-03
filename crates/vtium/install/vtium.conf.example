@@ -1,5 +1,5 @@
 # vtium's configuration, installed as /etc/vtium/vtium.conf.example.
-# Generated from crates/vtium/src/config/keys.rs; docs/config.md describes each key.
+# Generated from crates/vtium-settings/src/keys.rs; docs/config.md describes each key.
 #
 # One key a line: key=value, or a switch's key to turn it on and no-key to
 # turn it off. Each key is shown at its default, commented out. The command
@@ -261,7 +261,7 @@
 #font-engine=
 
 ## The font: a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the helper generates at run time; a kbd font's name, or with `font-engine=psf` a PSF font's path, that no frit bears becomes a one-source frit. Unset, vconsole's font; with none, or a name that is neither, vtium draws its built-in fonts and logs the name and why.
-#font-name=monospace
+#font-name=
 
 ## The directory of the frits, the `NAME.vtfrit` files that `font-name` and a head's profile name. The default is the directory vtium was built with.
 #font-frits=/etc/vtium/fonts

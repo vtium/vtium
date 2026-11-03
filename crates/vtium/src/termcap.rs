@@ -32,8 +32,9 @@ mod terminfo;
 
 use vtium_term::{Termcap, TermcapError};
 
-/// The name of vtium's terminfo entry, the default `TERM`.
-pub const NAME: &str = "xterm-vtium";
+/// The name of vtium's terminfo entry, the default `TERM`: the key
+/// table's.
+pub const NAME: &str = vtium_settings::keys::TERM_NAME;
 
 /// The name of the C reference's terminfo entry.
 pub const KMSCON: &str = "kmscon";

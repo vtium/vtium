@@ -15,7 +15,7 @@ use vtium_config::apply::{
 #[path = "common/console.rs"]
 mod console;
 use console::vtium;
-use vtium_config::draft::{FileEdit, Plan};
+use vtium_config::draft::{FileEdit, Plan, Removal};
 
 /// A fixture: a configuration directory with `conf` as vtium.conf, a
 /// frits directory, and a drafts directory, all of the test's own.
@@ -92,6 +92,7 @@ impl Fixture {
                 old: std::fs::read_to_string(self.conf_path()).ok(),
                 new: new.to_owned(),
             }],
+            removals: Vec::new(),
         }
     }
 }
@@ -179,6 +180,7 @@ display * -> desk
                 new: "font-size=lots\n".into(),
             },
         ],
+        removals: Vec::new(),
     };
     let draft = f.draft(&plan);
     let (status, out, err) = f.apply(&draft);
@@ -208,6 +210,7 @@ fn a_head_file_with_errors_is_refused() {
             old: None,
             new: "[head desk]\n".into(),
         }],
+        removals: Vec::new(),
     });
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
@@ -244,6 +247,7 @@ fn a_head_file_and_vtium_conf_install_head_file_first() {
                 new: "version = 1\n[head desk]\nprofile = tiny\n[rules]\ndisplay * -> desk\ninput * -> desk\n".into(),
             },
         ],
+        removals: Vec::new(),
     };
     let draft = f.draft(&plan);
     let (status, out, err) = f.apply(&draft);
@@ -325,6 +329,42 @@ fn a_draft_file_past_its_bound_is_refused() {
     assert_eq!(status, 1, "{out}{err}");
     assert!(err.contains("larger than"), "{err}");
     assert_eq!(f.conf(), "font-size=10\n");
+}
+
+/// A frit that vtium.conf's font-name or a head's profile names is never
+/// removed, so a hand-made or stale draft cannot take the font a console
+/// draws; and nothing is removed.
+#[test]
+fn a_frit_font_name_or_a_head_s_profile_names_is_not_removed() {
+    let f = fixture("named-frit", Some("font-name=tiny\n"));
+    let fonts = f.targets.frits.clone();
+    std::fs::write(fonts.join("desk.vtfrit"), "source=builtin:unifont\n").expect("a frit");
+    std::fs::write(fonts.join("spare.vtfrit"), "source=builtin:unifont\n").expect("a frit");
+    std::fs::write(
+        f.targets.configdir.join("heads.conf"),
+        "version = 1\n[head desk]\nprofile = desk\n[rules]\ndisplay * -> desk\n",
+    )
+    .expect("heads.conf");
+    let removal = |name: &str| Plan {
+        files: Vec::new(),
+        removals: vec![Removal {
+            path: fonts.join(format!("{name}.vtfrit")),
+            old: std::fs::read(fonts.join(format!("{name}.vtfrit"))).expect("the frit"),
+        }],
+    };
+    for (name, says) in [
+        ("tiny", "vtium.conf's font-name"),
+        ("desk", "head desk's profile"),
+    ] {
+        let (status, out, err) = f.apply(&f.draft(&removal(name)));
+        assert_eq!(status, 1, "{name}: {out}{err}");
+        assert!(err.contains(says), "{name}: {err}");
+        assert!(fonts.join(format!("{name}.vtfrit")).exists(), "{name} kept");
+        assert!(!fonts.join(format!("{name}.vtfrit.bak")).exists(), "{name}");
+    }
+    let (status, out, err) = f.apply(&f.draft(&removal("spare")));
+    assert_eq!(status, 0, "{out}{err}");
+    assert!(!fonts.join("spare.vtfrit").exists());
 }
 
 #[test]
@@ -418,6 +458,8 @@ fn the_save_view_shows_the_command_the_save_runs() {
         drafts: PathBuf::from("/home/me/drafts"),
         sudo: "sudo".into(),
         vtium: system.vtium.clone(),
+        helper: vtium_config::specimen::Helper::at(&exe),
+        sys: PathBuf::from("/sys"),
     };
     assert_eq!(
         saving(&paths),
@@ -430,6 +472,8 @@ fn the_save_view_shows_the_command_the_save_runs() {
         drafts: PathBuf::from("/home/me/drafts"),
         sudo: "sudo".into(),
         vtium: f.targets.vtium.clone(),
+        helper: vtium_config::specimen::Helper::at(&exe),
+        sys: PathBuf::from("/sys"),
     };
     let want = save_argv(&Route::User, &exe, &f.targets, Path::new("DRAFT"))
         .iter()
@@ -560,6 +604,7 @@ fn a_frit_the_reader_refuses_quotes_nothing_it_holds() {
             old: None,
             new: "source=builtin:unscii-8\nSECRET-TOKEN-4242=1\n".into(),
         }],
+        removals: Vec::new(),
     });
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");

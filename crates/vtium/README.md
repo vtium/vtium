@@ -4,7 +4,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 
 | Path | What it is |
 |---|---|
-| `src/config/keys.rs` | The key table: every key and option, its type, default, bound, reader and source |
+| `src/config/keys.rs` | The key table, every key and option with its type, default, bound, reader and source, re-exported from vtium-settings' `src/keys.rs`, which vtium-config shows and edits vtium.conf by too |
 | `src/config/` | Reading `vtium.conf`, `<seat>.seat.conf` and the command line through the table |
 | `src/termcap.rs`, `src/termcap/table.rs` | The XTGETTCAP tables, generated from `install/xterm-vtium.ti` and `install/kmscon.ti`, and the name each answers under |
 | `src/start.rs` | What start-up takes from the configuration: the VT, the switch to it, the keymap, the key repeat and pointers |

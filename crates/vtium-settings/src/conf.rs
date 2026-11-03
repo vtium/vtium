@@ -108,6 +108,19 @@ fn split(line: &[u8]) -> Option<Split> {
     (!key.is_empty() || value.is_some()).then_some(Split { key, value })
 }
 
+/// One vtium.conf line's key and value, as the console reads them: the key
+/// with the blanks around it dropped, and the value after `=` with its
+/// blanks and any comment after it dropped, or `None` for a line with no
+/// `=`, a switch's; `None` for a blank or comment line. `line` holds no
+/// newline. The console's reader and [`edit_conf`] read a line by this one
+/// function, so the editor finds every key where the console takes it.
+pub fn split_line(line: &[u8]) -> Option<(&[u8], Option<&[u8]>)> {
+    let s = split(line)?;
+    let key = line.get(s.key).unwrap_or_default();
+    let value = s.value.map(|v| line.get(v).unwrap_or_default());
+    Some((key, value))
+}
+
 /// The text of a line's key, or empty.
 fn key_of<'a>(line: &'a str, s: &Split) -> &'a str {
     line.get(s.key.clone()).unwrap_or_default()

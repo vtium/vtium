@@ -1,5 +1,5 @@
  VTium Vitrifier       live preview: on
-  Fonts  Sizes  Settings  Heads  Save
+  Sizes  Settings  Heads  New  Save
 ---------------------------------------
  /etc/vtium/vtium.conf
       2 - font-name=unifont

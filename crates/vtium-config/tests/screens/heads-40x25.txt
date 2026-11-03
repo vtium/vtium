@@ -1,5 +1,5 @@
  VTium Vitrifier       live preview: on
-  Fonts  Sizes  Settings  Heads
+  Fonts  Sizes  Settings  Heads  New
 ---------------------------------------
  > desk             profile proof
    panel            profile default
