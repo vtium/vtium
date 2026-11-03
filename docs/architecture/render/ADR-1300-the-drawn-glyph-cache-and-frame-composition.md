@@ -102,6 +102,8 @@ gltex, the GPU renderer, kept four pools: masks and color glyphs, each 1 or 2 ce
 - A cell draws its background, underline, glyph and strike, in that order, with the C reference's per-pixel arithmetic: `div255(t) = (t + 128 + ((t + 128) >> 8)) >> 8`; a mask cell is `div255(fg * a + bg * (255 - a))`; a cell of several layers composes its text layer premultiplied, then goes over its background as `src + div255(bg * (255 - a))`. These are the arithmetic tier 2's goldens were drawn with.
 - Device memory is never read.
 
+> Edited 2026-11-03: ADR-1303, proposed the same day from the maintainer's decision on the GPU path's pipeline, changes two of these for the GPU path once it is accepted. The GPU path composes into an upright frame and turns the frame only when it copies it to the display, so its glyphs are stored upright, never rotated, and a turn of the display keeps them; the CPU path keeps both rules as written here. The text above is unchanged.
+
 ## Decision
 
 Each difference says what the C reference did, what vtium does, why, the cost or saving, and whether any pixel changes.
@@ -233,3 +235,5 @@ Each entry's key, links and slot add about 24 bytes (estimate). The row scratch 
 > Edited 2026-11-01: a fresh review moved the note above below the list and said that today's code keeps the shadow until the token is built.
 
 > Edited 2026-11-02: the token is built on the CPU path, on the branch that builds the buffer token, and the shadow is gone. The alternative ended: "Today's code keeps the shadow until the token is built." The earlier text is in git at b50fd5e.
+
+> Edited 2026-11-03: ADR-1303, proposed the same day from the maintainer's decision on the GPU path's pipeline, changes the no-whole-frame-copy rule for the GPU path once it is accepted. The GPU path keeps one whole frame for each display, upright, in GPU memory (7.9 MiB at 1920x1080), composes into it only the cells that changed, and turns and copies it into the display's buffer at present. The CPU path still keeps no whole-frame copy. The alternative above is unchanged; ADR-1303 gives the reasons and the cost.
