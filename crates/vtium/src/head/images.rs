@@ -55,6 +55,17 @@
 //! when it sent a request and resumed it after the reply
 //! (`src/terminal_image.c:58-92, 100-122`).
 //!
+//! **Notes.** A handler that drops what a program sent, where its protocol
+//! answers nothing, says why, and vtium-term hands the host a note the
+//! first time each protocol's reason comes and again each time its count
+//! reaches a power of ten. At each image turn the head writes each
+//! console's notes to vtium's log at debug level, under the target
+//! `image`, with the head's name and the console's id ([`log_notes`]). The
+//! C reference logged a picture it did not store or place at debug level,
+//! each time (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:161-171`); vtium
+//! keeps the level and counts the repeats, so a program that sends a bad
+//! picture every frame costs the journal a line for each tenfold.
+//!
 //! [`crate::app::App`] opens the program `image-helper` names once at
 //! start and makes each console's host from it
 //! ([`crate::app::App::set_image_helpers`] puts a test's stand-in in its
@@ -528,6 +539,7 @@ mod built {
             ) {
                 self.draw_now = true;
             }
+            log_notes(&self.name, shown.id, &mut shown.term);
             for console in &mut self.hidden {
                 console.pictures.turn(
                     &mut console.term,
@@ -537,6 +549,7 @@ mod built {
                     helpers,
                     handle,
                 );
+                log_notes(&self.name, console.id, &mut console.term);
             }
         }
 
@@ -544,6 +557,36 @@ mod built {
         pub(crate) fn image_due(&self) -> impl Iterator<Item = Instant> + '_ {
             self.consoles().filter_map(|c| c.pictures.due())
         }
+    }
+
+    /// Writes the notes the image handlers of console `id` of head `head`
+    /// left on `term` to vtium's log at debug level, a line each.
+    pub(crate) fn log_notes(head: &str, id: u64, term: &mut Term) {
+        for note in term.terminal.take_image_notes() {
+            let name = note.protocol.name();
+            let why = &note.why;
+            match note.count {
+                1 => say(format_args!("head {head}: console {id}: {name}: {why}")),
+                n => say(format_args!(
+                    "head {head}: console {id}: {name}: {why} ({n} times)"
+                )),
+            }
+        }
+    }
+
+    /// Writes a line of the image log at debug level. Under test it also
+    /// keeps the line, for the tests to read back.
+    fn say(line: std::fmt::Arguments<'_>) {
+        log::debug!(target: "image", "{line}");
+        #[cfg(test)]
+        SAID.with(|s| s.borrow_mut().push(line.to_string()));
+    }
+
+    #[cfg(test)]
+    thread_local! {
+        /// The lines the image log wrote on this thread.
+        static SAID: std::cell::RefCell<Vec<String>> =
+            const { std::cell::RefCell::new(Vec::new()) };
     }
 
     #[cfg(test)]
@@ -602,6 +645,61 @@ mod built {
                 ..all
             };
             assert!(!iterm2(on, 1 << 20, false).iterm2, "it goes off again");
+        }
+
+        /// The lines the image log wrote on this thread since the last
+        /// call.
+        fn said() -> Vec<String> {
+            SAID.with(|s| std::mem::take(&mut *s.borrow_mut()))
+        }
+
+        // ADR-1103 D1: a picture a protocol answers nothing for is dropped
+        // without a word to the program, and its reason goes to vtium's log
+        // at debug level; the C reference logged its refused sixel pictures
+        // there (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:161-171`).
+        #[test]
+        #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+        fn a_refused_pictures_note_reaches_the_log_once_and_repeats_do_not_flood_it() {
+            let clock: crate::term::Clock = Rc::new(Instant::now);
+            let mut terminal = Terminal::new(8, 4, 0);
+            install(&mut terminal, &settings());
+            terminal.screen_mut().set_image_limit(1 << 20);
+            terminal.set_image_helper(true);
+            terminal.set_image_switches(Switches {
+                sixel: true,
+                kitty: true,
+                iterm2: true,
+            });
+            let mut term = Term::new(
+                terminal,
+                crate::sync::Sync::new(Duration::ZERO, 0),
+                crate::blink::Blink::new(false),
+                clock,
+            );
+            let _ = said();
+            let refused = b"\x1b]1337;File=size=3:QUJD\x07";
+            term.terminal.input(refused);
+            log_notes("main", 3, &mut term);
+            assert_eq!(
+                said(),
+                ["head main: console 3: iTerm2: an iTerm2 picture without inline=1"]
+            );
+            log_notes("main", 3, &mut term);
+            assert_eq!(said(), Vec::<String>::new(), "logged once");
+            // 1,000 refusals, a turn each, log at the 10th, 100th and 1,000th
+            for _ in 1..1000 {
+                term.terminal.input(refused);
+                log_notes("main", 3, &mut term);
+            }
+            let why = "head main: console 3: iTerm2: an iTerm2 picture without inline=1";
+            assert_eq!(
+                said(),
+                [
+                    format!("{why} (10 times)"),
+                    format!("{why} (100 times)"),
+                    format!("{why} (1000 times)"),
+                ]
+            );
         }
 
         #[test]
