@@ -586,7 +586,17 @@ pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write
 /// root's own under `/tmp`, then applied, so every file goes through the
 /// checks `apply` makes.
 fn install_now(plan: &Plan, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
-    let scratch = Scratch::system()?;
+    install_under(Scratch::system()?, plan, targets, out)
+}
+
+/// [`install_now`] with its draft in `scratch`, which goes when it is
+/// dropped, whatever the apply did.
+fn install_under(
+    scratch: Scratch,
+    plan: &Plan,
+    targets: &Targets,
+    out: &mut dyn Write,
+) -> Result<bool, String> {
     let draft = write_draft(&scratch.path, plan, targets)
         .map_err(|e| format!("the draft under {}: {e}", scratch.path.display()))?;
     apply(&draft, targets, out)
@@ -1018,6 +1028,84 @@ mod tests {
             "{why}"
         );
         assert!(entries_of(&base).is_empty(), "{:?}", entries_of(&base));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// Root's change, installed at once: the draft goes into a directory of
+    /// its own and through apply's steps, its files land in the targets,
+    /// the directory is gone afterwards, and a failing check writes
+    /// nothing. Run as the user, apply takes the user's own draft.
+    #[test]
+    fn root_s_change_installs_through_a_draft_of_its_own_and_leaves_nothing_behind() {
+        use crate::draft::FileEdit;
+        let base = base("install-now");
+        let etc = base.join("etc");
+        let fonts = etc.join("fonts");
+        std::fs::create_dir_all(&fonts).unwrap();
+        std::fs::write(etc.join("vtium.conf"), "font-size=12\n").unwrap();
+        let drafts = base.join("drafts");
+        std::fs::create_dir(&drafts).unwrap();
+        let targets = |vtium: &str| Targets {
+            configdir: etc.clone(),
+            frits: fonts.clone(),
+            vtium: vtium.into(),
+        };
+        let scratch = || Scratch::new(&drafts, &mut scratch_name, euid()).unwrap();
+        let plan = |frit: &str, conf: &str| Plan {
+            files: vec![
+                FileEdit {
+                    path: fonts.join("mine.vtfrit"),
+                    old: None,
+                    new: frit.to_owned(),
+                },
+                FileEdit {
+                    path: etc.join("vtium.conf"),
+                    old: Some("font-size=12\n".to_owned()),
+                    new: conf.to_owned(),
+                },
+            ],
+            removals: Vec::new(),
+        };
+        // a check that fails, the console's or the frit reader's, writes
+        // nothing
+        let mut out = Vec::new();
+        let refused = install_under(
+            scratch(),
+            &plan("source=builtin:unifont\n", "font-size=13\n"),
+            &targets("/bin/false"),
+            &mut out,
+        );
+        assert!(refused.is_err(), "{refused:?}");
+        let refused = install_under(
+            scratch(),
+            &plan("colour=red\n", "font-size=13\n"),
+            &targets("/bin/true"),
+            &mut out,
+        );
+        assert!(refused.is_err(), "{refused:?}");
+        assert!(!fonts.join("mine.vtfrit").exists());
+        assert_eq!(
+            std::fs::read_to_string(etc.join("vtium.conf")).unwrap(),
+            "font-size=12\n"
+        );
+        assert!(entries_of(&drafts).is_empty(), "{:?}", entries_of(&drafts));
+        // a change every check takes lands in the targets
+        let written = install_under(
+            scratch(),
+            &plan("source=builtin:unifont\n", "font-size=13\n"),
+            &targets("/bin/true"),
+            &mut out,
+        );
+        assert_eq!(written, Ok(true), "{}", String::from_utf8_lossy(&out));
+        assert_eq!(
+            std::fs::read_to_string(fonts.join("mine.vtfrit")).unwrap(),
+            "source=builtin:unifont\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(etc.join("vtium.conf")).unwrap(),
+            "font-size=13\n"
+        );
+        assert!(entries_of(&drafts).is_empty(), "{:?}", entries_of(&drafts));
         std::fs::remove_dir_all(&base).unwrap();
     }
 
