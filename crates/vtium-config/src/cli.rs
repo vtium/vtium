@@ -68,6 +68,44 @@ impl Options {
     }
 }
 
+/// The options that name a path or a program. Run as root, vtium-config
+/// takes none of them, so `sudo vtium-config` reads and writes only the
+/// system's directories and runs only the console it was built with.
+pub const PATH_OPTIONS: [&str; 8] = [
+    "--configdir",
+    "--frits",
+    "--sudo",
+    "--vtium",
+    "--kbd-dir",
+    "--font-dir",
+    "--vconsole-conf",
+    "--kernel-cmdline",
+];
+
+/// Why vtium-config, run with `root` (an effective uid of 0), refuses
+/// `args`: an option of [`PATH_OPTIONS`], or the step that releases the
+/// TUI's signals and runs another program; `None` when it takes them.
+pub fn root_refusal(root: bool, args: &[OsString]) -> Option<String> {
+    if !root {
+        return None;
+    }
+    args.iter().find_map(|a| {
+        let a = a.to_string_lossy();
+        let named = PATH_OPTIONS
+            .iter()
+            .find(|o| a == **o || a.strip_prefix(**o).is_some_and(|r| r.starts_with('=')));
+        match named {
+            Some(option) => Some(format!(
+                "run as root, vtium-config takes no {option}: as root it reads and writes only /etc/vtium and its frits' directory, and checks files with the console it was built with"
+            )),
+            None if a == crate::tui::port::UNBLOCK_ARG => Some(format!(
+                "run as root, vtium-config takes no {a}: that step runs another program and is the TUI's own, run as the user"
+            )),
+            None => None,
+        }
+    })
+}
+
 /// The directory of vtium.conf and the head file, as the console's.
 pub fn default_configdir() -> PathBuf {
     PathBuf::from("/etc/vtium")

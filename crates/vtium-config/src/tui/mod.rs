@@ -125,6 +125,28 @@ pub fn fonts(dir: &Path) -> Vec<Font> {
     out
 }
 
+/// How a save from `paths` is installed, with the command it runs, built
+/// by the function that builds the command the save runs.
+fn saving(paths: &Paths) -> model::Saving {
+    let targets = paths.targets();
+    let route = crate::apply::route(&targets, &paths.sudo, rustix::process::geteuid().is_root());
+    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
+    let shown = |argv: Vec<OsString>| {
+        argv.iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    match (
+        &route,
+        crate::apply::save_argv(&route, &program, &targets, Path::new(model::DRAFT)),
+    ) {
+        (crate::apply::Route::Sudo(_), Some(argv)) => model::Saving::Sudo(shown(argv)),
+        (_, Some(argv)) => model::Saving::User(shown(argv)),
+        (_, None) => model::Saving::Root,
+    }
+}
+
 /// What the TUI starts from, read from `paths`.
 pub fn gather(paths: &Paths) -> Result<Inputs, String> {
     let conf_path = paths.configdir.join("vtium.conf");
@@ -143,9 +165,8 @@ pub fn gather(paths: &Paths) -> Result<Inputs, String> {
         conf,
         heads_path,
         heads,
-        program: "vtium-config".to_owned(),
+        saving: saving(paths),
         drafts: paths.drafts.clone(),
-        root: rustix::process::geteuid().is_root(),
         dpi,
     })
 }

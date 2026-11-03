@@ -72,15 +72,29 @@ pub struct Inputs {
     pub heads_path: PathBuf,
     /// The head file as read, `None` when there is none.
     pub heads: Option<String>,
-    /// The tool's name in the command a save runs.
-    pub program: String,
+    /// How a save is installed, as the save view shows it.
+    pub saving: Saving,
     /// The directory drafts go under, as the save view names it.
     pub drafts: PathBuf,
-    /// The TUI runs as root, so a save needs no sudo.
-    pub root: bool,
     /// The density size pictures are drawn at, and where it came from.
     pub dpi: (u32, DpiFrom),
 }
+
+/// How a save is installed, as the save view shows it: the command a
+/// save runs, with `DRAFT` for the draft's directory, from
+/// [`crate::apply::save_argv`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Saving {
+    /// Through sudo, which asks for the password.
+    Sudo(String),
+    /// As the user, into directories that are not the system's.
+    User(String),
+    /// At once, in the TUI's process, since it runs as root.
+    Root,
+}
+
+/// The name the save view gives the draft's directory in its command.
+pub const DRAFT: &str = "DRAFT";
 
 /// One thing that happened.
 #[derive(Clone, Debug, PartialEq, Eq)]

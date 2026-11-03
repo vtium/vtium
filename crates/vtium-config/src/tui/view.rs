@@ -8,7 +8,7 @@
 //! previewed font can leave, draws one line naming the font and the keys
 //! that keep it or go back, so the user can always get out.
 
-use super::model::{App, DpiFrom, FontState, Live, SETTING_KEYS, SIZES, View};
+use super::model::{App, DpiFrom, FontState, Live, SETTING_KEYS, SIZES, Saving, View};
 use super::words;
 use crate::draft::changes;
 
@@ -222,18 +222,23 @@ fn save_rows(app: &App) -> Vec<Row> {
         rows.extend(app.report.iter().map(|l| plain(format!("   {l}"))));
     }
     rows.push(plain(""));
-    if app.inputs.root {
-        rows.push(plain(format!(" {}", words::SAVE_COMMAND_ROOT)));
-    } else {
-        rows.push(plain(format!(" {}", words::SAVE_RUNS)));
-        rows.push(plain(format!(
-            "   {}",
-            words::save_command(&app.inputs.program)
-        )));
-        rows.push(plain(format!(
-            " {}",
-            words::draft_under(app.inputs.drafts.display())
-        )));
+    let width = app.cols.saturating_sub(2);
+    let mut say = |text: &str, indent: &str| {
+        for line in wrap(text, width.saturating_sub(indent.len()), usize::MAX) {
+            rows.push(plain(format!("{indent}{line}")));
+        }
+    };
+    match &app.inputs.saving {
+        Saving::Root => say(words::SAVE_COMMAND_ROOT, " "),
+        Saving::Sudo(command) | Saving::User(command) => {
+            let intro = match &app.inputs.saving {
+                Saving::Sudo(_) => words::SAVE_RUNS,
+                _ => words::SAVE_AS_USER,
+            };
+            say(intro, " ");
+            say(command, "   ");
+            say(&words::draft_under(app.inputs.drafts.display()), " ");
+        }
     }
     rows
 }
@@ -322,9 +327,23 @@ pub fn screen(app: &App) -> Vec<Row> {
 /// `text` in lines of at most `width` characters, broken between words,
 /// at most `most` of them; at least one line.
 fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
+    let width = width.max(1);
     let mut lines: Vec<String> = Vec::new();
     let mut line = String::new();
-    for word in text.split(' ') {
+    // a word longer than the line, such as a path, breaks where the line
+    // ends
+    let pieces: Vec<String> = text
+        .split(' ')
+        .flat_map(|w| {
+            let chars: Vec<char> = w.chars().collect();
+            if chars.is_empty() {
+                vec![String::new()]
+            } else {
+                chars.chunks(width).map(|c| c.iter().collect()).collect()
+            }
+        })
+        .collect();
+    for word in &pieces {
         let len = line.chars().count();
         if len > 0 && len.saturating_add(1).saturating_add(word.chars().count()) > width {
             lines.push(std::mem::take(&mut line));

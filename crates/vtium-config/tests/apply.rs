@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use vtium_config::apply::{Targets, privileged_argv, write_draft};
+use vtium_config::apply::{Route, Targets, route, save_argv, write_draft};
 
 #[path = "common/console.rs"]
 mod console;
@@ -317,32 +317,44 @@ fn apply_takes_one_draft() {
 }
 
 #[test]
-fn the_privileged_step_is_an_argv_never_a_shell_string() {
-    let f = fixture("argv", None);
+fn the_privileged_step_is_sudo_vtium_config_apply_dir_and_nothing_else() {
     let draft = PathBuf::from("/home/me/.local/state/vtium/drafts/1 2;rm -rf");
-    let argv = privileged_argv(
-        &OsString::from("sudo"),
-        Path::new("/usr/bin/vtium-config"),
-        &f.targets,
-        &draft,
-        false,
-    );
-    let mut want: Vec<OsString> = vec![
+    let program = Path::new("/usr/bin/vtium-config");
+    let f = fixture("argv", None);
+    let sudo =
+        save_argv(&Route::Sudo("sudo".into()), program, &f.targets, &draft).expect("an argv");
+    let want: Vec<OsString> = vec![
         "sudo".into(),
-        "/usr/bin/vtium-config".into(),
-        "--no-banner".into(),
+        program.into(),
+        "apply".into(),
+        draft.clone().into(),
     ];
-    want.extend(f.targets.options());
-    want.push("apply".into());
-    want.push(draft.clone().into());
-    assert_eq!(argv, want);
-    // as root, no sudo
-    let root = privileged_argv(
-        &OsString::from("sudo"),
-        Path::new("/usr/bin/vtium-config"),
-        &f.targets,
-        &draft,
-        true,
+    assert_eq!(sudo, want);
+    assert!(
+        sudo.iter().all(|a| !a.to_string_lossy().starts_with('-')),
+        "no option reaches root: {sudo:?}"
     );
-    assert_eq!(root, want[1..]);
+    // directories not the system's install as the user, with their options
+    let user = save_argv(&Route::User, program, &f.targets, &draft).expect("an argv");
+    let mut want: Vec<OsString> = vec![program.into()];
+    want.extend(f.targets.options());
+    want.extend(["apply".into(), draft.clone().into()]);
+    assert_eq!(user, want);
+    // root installs in its own process
+    assert_eq!(save_argv(&Route::Root, program, &f.targets, &draft), None);
+}
+
+#[test]
+fn only_the_system_s_directories_are_installed_through_sudo() {
+    let f = fixture("route", None);
+    let system = Targets {
+        configdir: PathBuf::from("/etc/vtium"),
+        frits: vtium_config::switch::default_frits(),
+        vtium: vtium_config::apply::VTIUM.into(),
+    };
+    let sudo: OsString = "sudo".into();
+    assert_eq!(route(&system, &sudo, false), Route::Sudo(sudo.clone()));
+    assert_eq!(route(&system, &sudo, true), Route::Root);
+    assert_eq!(route(&f.targets, &sudo, false), Route::User);
+    assert_eq!(route(&f.targets, &sudo, true), Route::User);
 }

@@ -122,3 +122,46 @@ fn the_store_commands_are_gone() {
         );
     }
 }
+
+/// What `vtium-config` run as root refuses: every option that names a path
+/// or a program, and the step that releases signals and runs another
+/// program, so `sudo vtium-config` reaches only the system's files.
+#[test]
+fn as_root_every_path_and_program_option_is_refused() {
+    use std::ffi::OsString;
+    use vtium_config::cli::root_refusal;
+    let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
+    for option in [
+        "--configdir",
+        "--frits",
+        "--sudo",
+        "--vtium",
+        "--kbd-dir",
+        "--font-dir",
+        "--vconsole-conf",
+        "--kernel-cmdline",
+    ] {
+        let why = root_refusal(true, &args(&[option, "/tmp/x", "apply", "/tmp/d"]))
+            .unwrap_or_else(|| panic!("{option} is refused as root"));
+        assert!(why.contains(option) && why.contains("/etc/vtium"), "{why}");
+        let glued = format!("{option}=/tmp/x");
+        assert!(
+            root_refusal(true, &args(&[&glued, "apply", "/tmp/d"])).is_some(),
+            "{glued}"
+        );
+        assert_eq!(
+            root_refusal(false, &args(&[option, "/tmp/x", "apply", "/tmp/d"])),
+            None
+        );
+    }
+    let unblock = vtium_config::tui::port::UNBLOCK_ARG;
+    assert!(root_refusal(true, &args(&[unblock, "/bin/sh"])).is_some());
+    assert_eq!(root_refusal(false, &args(&[unblock, "/bin/sh"])), None);
+    // the one command sudo runs, and the other commands, pass
+    assert_eq!(root_refusal(true, &args(&["apply", "/home/me/d"])), None);
+    assert_eq!(
+        root_refusal(true, &args(&["--no-banner", "set", "proof"])),
+        None
+    );
+    assert_eq!(root_refusal(true, &args(&[])), None);
+}

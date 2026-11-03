@@ -271,9 +271,8 @@ fn inputs() -> Inputs {
             "version = 1\n[head desk]\nprofile = proof\n[head panel]\n[rules]\ndisplay * -> desk\n"
                 .into(),
         ),
-        program: "vtium-config".into(),
+        saving: model::Saving::Sudo("sudo /usr/bin/vtium-config apply DRAFT".into()),
         drafts: PathBuf::from("/home/me/.local/state/vtium/drafts"),
-        root: false,
         dpi: (96, DpiFrom::Assumed),
     }
 }
@@ -476,7 +475,10 @@ fn keeping_a_font_and_a_size_shows_each_changed_line_before_saving() {
     assert!(screen.contains("2 - font-name=unifont"), "{screen}");
     assert!(screen.contains("2 + font-name=tiny5"), "{screen}");
     assert!(screen.contains("3 + font-size=12"), "{screen}");
-    assert!(screen.contains("sudo vtium-config apply DRAFT"), "{screen}");
+    assert!(
+        screen.contains("sudo /usr/bin/vtium-config apply DRAFT"),
+        "{screen}"
+    );
 }
 
 #[test]

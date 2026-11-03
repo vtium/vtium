@@ -7,7 +7,11 @@
 //! `remove`, the file's name in the draft, and the SHA-256 of the installed
 //! file it replaces as it was when the draft was made, or `new`.
 //!
-//! `apply`, run as root through `sudo vtium-config apply DIR`:
+//! `apply`, run as root through `sudo vtium-config apply DIR`, takes no
+//! option that names a path or a program ([`crate::cli::root_refusal`]),
+//! so it writes only `/etc/vtium`'s `vtium.conf` and `heads.conf` and the
+//! frits in the frits' directory the build names, and checks them with
+//! the console the build names, [`VTIUM`]:
 //!
 //! 1. reads the draft without following a link, takes only regular files
 //!    with names it knows, and bounds each file's size, since root is
@@ -183,37 +187,93 @@ fn new_dir(root: &Path) -> io::Result<PathBuf> {
     ))
 }
 
-/// The argv of the privileged step: `sudo vtium-config [OPTIONS] apply
-/// DIR`, or without `sudo` when the TUI already runs as root.
-pub fn privileged_argv(
-    sudo: &OsString,
+/// How a save is installed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Route {
+    /// The system's directories, from a user: `sudo vtium-config apply
+    /// DIR`, through the program named.
+    Sudo(OsString),
+    /// The system's directories, from root: `apply` in the TUI's own
+    /// process.
+    Root,
+    /// Directories that are not the system's, as a test or a person
+    /// trying the tool names them: `apply` run as the user, with the
+    /// options that name them. No privilege is offered for them.
+    User,
+}
+
+impl Targets {
+    /// The system's directories and console: `/etc/vtium`, the frits'
+    /// directory the build names, and the console the build names.
+    pub fn system() -> Targets {
+        Targets {
+            configdir: PathBuf::from("/etc/vtium"),
+            frits: crate::switch::default_frits(),
+            vtium: VTIUM.into(),
+        }
+    }
+}
+
+/// How a save from a process with `root`, to `targets`, is installed,
+/// with `sudo` the program that runs a privileged command.
+pub fn route(targets: &Targets, sudo: &OsString, root: bool) -> Route {
+    match (*targets == Targets::system(), root) {
+        (true, true) => Route::Root,
+        (true, false) => Route::Sudo(sudo.clone()),
+        (false, _) => Route::User,
+    }
+}
+
+/// The argv a save runs, `program` being this binary: `sudo
+/// /usr/bin/vtium-config apply DIR` and nothing else for the system's
+/// directories, so a sudo rule can name it whole; the options and `apply
+/// DIR` as the user for other directories; and `None` for root, which
+/// installs in its own process.
+pub fn save_argv(
+    route: &Route,
     program: &Path,
     targets: &Targets,
     draft: &Path,
-    root: bool,
-) -> Vec<OsString> {
+) -> Option<Vec<OsString>> {
     let mut argv: Vec<OsString> = Vec::new();
-    if !root {
-        argv.push(sudo.clone());
+    match route {
+        Route::Root => return None,
+        Route::Sudo(sudo) => {
+            argv.push(sudo.clone());
+            argv.push(program.into());
+        }
+        Route::User => {
+            argv.push(program.into());
+            argv.extend(targets.options());
+        }
     }
-    argv.push(program.into());
-    argv.push(crate::banner::OFF.into());
-    argv.extend(targets.options());
     argv.push("apply".into());
     argv.push(draft.into());
-    argv
+    Some(argv)
 }
 
 /// The TUI's saver for `paths`: the draft under `paths.drafts`, then the
-/// privileged step on it.
+/// install the route takes.
 pub fn saver(paths: Paths) -> Saver {
     Box::new(move |plan, run| {
         let targets = paths.targets();
         let draft = write_draft(&paths.drafts, plan, &targets)
             .map_err(|e| format!("the draft under {}: {e}", paths.drafts.display()))?;
         let program = std::env::current_exe().map_err(|e| e.to_string())?;
-        let root = rustix::process::geteuid().is_root();
-        let argv = privileged_argv(&paths.sudo, &program, &targets, &draft, root);
+        let route = route(&targets, &paths.sudo, rustix::process::geteuid().is_root());
+        let Some(argv) = save_argv(&route, &program, &targets, &draft) else {
+            let (mut out, mut err) = (Vec::new(), Vec::new());
+            let words = [draft.to_string_lossy().into_owned()];
+            return match command(&words, &targets, &mut out, &mut err) {
+                0 => Ok(plan.files.len()),
+                _ => Err(format!(
+                    "the install failed, and the draft stays in {}.\n{}{}",
+                    draft.display(),
+                    String::from_utf8_lossy(&out),
+                    String::from_utf8_lossy(&err)
+                )),
+            };
+        };
         match run(&argv) {
             Ok((true, _)) => Ok(plan.files.len()),
             Ok((false, said)) => Err(format!(
@@ -221,7 +281,11 @@ pub fn saver(paths: Paths) -> Saver {
                 draft.display(),
                 said.trim_end()
             )),
-            Err(e) => Err(format!("{}: {e}", paths.sudo.to_string_lossy())),
+            Err(e) => Err(format!(
+                "{}: {e}",
+                argv.first()
+                    .map_or_else(String::new, |a| a.to_string_lossy().into_owned())
+            )),
         }
     })
 }

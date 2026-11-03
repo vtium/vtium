@@ -13,6 +13,11 @@ fn main() -> ExitCode {
     {
         return ExitCode::from(vtium_config::child::run_parser());
     }
+    let root = rustix::process::geteuid().is_root();
+    if let Some(why) = vtium_config::cli::root_refusal(root, &args) {
+        eprintln!("vtium-config: {why}");
+        return ExitCode::from(2);
+    }
     if let Some((first, rest)) = args.split_first()
         && first == vtium_config::tui::port::UNBLOCK_ARG
     {

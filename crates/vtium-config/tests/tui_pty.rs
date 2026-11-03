@@ -454,42 +454,42 @@ fn set_sends_nothing_to_a_terminal_that_is_not_vtium() {
     assert_eq!(switches, Vec::<String>::new());
 }
 
-#[test]
-fn saving_runs_the_one_command_and_installs_the_changed_line() {
-    let (master, slave) = pair(80, 25);
-    let (root, fonts) = fixture("save");
-    let conf = format!("font-frits={}\nfont-name=unifont\n", fonts.display());
-    std::fs::write(root.join("vtium.conf"), &conf).expect("vtium.conf");
-    // the stand-in for sudo records its blocked signals and its argv, then
-    // runs the command as sudo would
-    let sudo = root.join("sudo");
-    std::fs::write(
-        &sudo,
-        "#!/bin/sh\ngrep '^SigBlk' /proc/self/status > \"$0.sigblk\"\nprintf '%s\\n' \"$@\" > \"$0.argv\"\nexec \"$@\"\n",
-    )
-    .expect("the stand-in");
-    std::fs::set_permissions(&sudo, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("its mode");
-    let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+/// Spawns the TUI on `slave` with `options` before its own.
+fn tui_with(slave: &File, root: &Path, options: &[&std::ffi::OsStr]) -> Child {
     let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
-    let child = Command::new("setsid")
+    Command::new("setsid")
         .arg("--ctty")
         .arg(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("--no-banner")
-        .arg("--configdir")
-        .arg(&root)
-        .arg("--frits")
-        .arg(&fonts)
-        .arg("--sudo")
-        .arg(&sudo)
-        .arg("--vtium")
-        .arg(console_bin::vtium())
+        .args(options)
         .env("XDG_STATE_HOME", root.join("state"))
         .stdin(io())
         .stdout(io())
         .stderr(io())
         .spawn()
-        .expect("setsid runs");
+        .expect("setsid runs")
+}
+
+#[test]
+fn saving_into_directories_not_the_system_s_installs_as_the_user() {
+    let (master, slave) = pair(80, 25);
+    let (root, fonts) = fixture("save");
+    let conf = format!("font-frits={}\nfont-name=unifont\n", fonts.display());
+    std::fs::write(root.join("vtium.conf"), &conf).expect("vtium.conf");
+    let vtium = console_bin::vtium();
+    let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+    let child = tui_with(
+        &slave,
+        &root,
+        &[
+            "--configdir".as_ref(),
+            root.as_os_str(),
+            "--frits".as_ref(),
+            fonts.as_os_str(),
+            "--vtium".as_ref(),
+            vtium.as_os_str(),
+        ],
+    );
     c.until("decided", |s| s.screen.contains("live preview: on"));
     c.key(UP);
     c.until("drew tiny5", |s| s.font == "tiny5");
@@ -500,6 +500,7 @@ fn saving_runs_the_one_command_and_installs_the_changed_line() {
     c.until("showed the save", |s| {
         s.screen.contains("+ font-name=proof")
     });
+    assert!(c.screen().contains("with no sudo"), "{}", c.screen());
     c.key(b"\r");
     c.until("saved", |s| s.screen.contains("Saved 1 file."));
     c.key(b"q");
@@ -516,21 +517,62 @@ fn saving_runs_the_one_command_and_installs_the_changed_line() {
     );
     assert_eq!(c.font(), "proof");
     assert_eq!(c.switches(), ["tiny5", "proof"]);
-    // the command ran with no signal held, as an argv
-    let blocked = std::fs::read_to_string(root.join("sudo.sigblk")).expect("the stand-in ran");
-    assert_eq!(blocked.trim(), "SigBlk:\t0000000000000000", "{blocked}");
-    let argv = std::fs::read_to_string(root.join("sudo.argv")).expect("the argv");
-    let argv: Vec<&str> = argv.lines().collect();
-    assert!(argv[0].ends_with("vtium-config"), "{argv:?}");
-    assert_eq!(argv[1], "--no-banner", "{argv:?}");
-    assert_eq!(argv[argv.len() - 2], "apply", "{argv:?}");
-    assert!(
-        argv[argv.len() - 1].starts_with(root.join("state/vtium/drafts").to_str().expect("a path"))
-    );
     // the TUI left its screen for the command and came back
     let written = String::from_utf8_lossy(&c.written()).into_owned();
     assert!(
         written.matches("\x1b[?1049l").count() >= 2,
         "left for the command and at the end"
     );
+}
+
+#[test]
+fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
+    let (master, slave) = pair(80, 25);
+    let (root, _fonts) = fixture("save-system");
+    // the stand-in for sudo records its argv and its blocked signals and
+    // installs nothing
+    let sudo = root.join("sudo");
+    std::fs::write(
+        &sudo,
+        "#!/bin/sh\ngrep '^SigBlk' /proc/self/status > \"$0.sigblk\"\nprintf '%s\\n' \"$@\" > \"$0.argv\"\necho 'the stand-in installs nothing'\nexit 1\n",
+    )
+    .expect("the stand-in");
+    std::fs::set_permissions(&sudo, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("its mode");
+    let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
+    let child = tui_with(&slave, &root, &["--sudo".as_ref(), sudo.as_os_str()]);
+    c.until("decided", |s| s.screen.contains("live preview: on"));
+    // a size, so the save changes the system's vtium.conf whatever it holds
+    c.key(b"\t");
+    c.key(b"\x1b[B");
+    c.key(b"\r");
+    c.key(b"s");
+    c.until("showed the save", |s| s.screen.contains("+ font-size=6"));
+    let program = env!("CARGO_BIN_EXE_vtium-config");
+    assert!(
+        c.screen().contains("apply DRAFT"),
+        "the command shown: {}",
+        c.screen()
+    );
+    c.key(b"\r");
+    c.until("failed", |s| s.screen.contains("Nothing was saved"));
+    assert!(
+        c.screen().contains("the stand-in installs nothing"),
+        "{}",
+        c.screen()
+    );
+    c.key(b"q");
+    assert_eq!(status(child), 0);
+    let argv = std::fs::read_to_string(root.join("sudo.argv")).expect("the stand-in ran");
+    let argv: Vec<&str> = argv.lines().collect();
+    assert_eq!(argv.len(), 3, "{argv:?}");
+    assert_eq!(argv[0], program);
+    assert_eq!(argv[1], "apply");
+    assert!(
+        argv[2].starts_with(root.join("state/vtium/drafts").to_str().expect("a path")),
+        "{argv:?}"
+    );
+    // the command ran with no signal held
+    let blocked = std::fs::read_to_string(root.join("sudo.sigblk")).expect("the stand-in ran");
+    assert_eq!(blocked.trim(), "SigBlk:\t0000000000000000", "{blocked}");
 }
