@@ -206,16 +206,16 @@ impl Console {
     }
 
     /// Waits until the console has read every byte written to the
-    /// terminal before now. The test keeps the terminal's other end open,
-    /// so the console never reads an end of file. A NUL written to the
-    /// terminal arrives after every byte written before it, so the test
-    /// writes one and waits for the console to read it.
+    /// terminal before now. A NUL written to the terminal arrives after
+    /// every byte written before it, so the test writes one and waits for
+    /// the console to read it, or for the console to have closed, after
+    /// which it reads nothing more.
     fn drained(&self, slave: &File) {
         let before = self.seen.0.lock().expect("the lock").marks;
         let mut out = slave;
         out.write_all(&[0]).expect("a mark");
         self.until("read everything written to the terminal", |s| {
-            s.marks > before
+            s.marks > before || s.closed
         });
     }
 
@@ -589,10 +589,13 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     c.key(b"s");
     c.until("showed the save", |s| s.screen.contains("+ font-size=6"));
     let program = env!("CARGO_BIN_EXE_vtium-config");
+    // the command wraps where the paths' lengths put the screen's edge, so
+    // it is read by its words, the screen's rows joined
+    let screen = c.screen();
+    let words: Vec<&str> = screen.split_whitespace().collect();
     assert!(
-        c.screen().contains("apply DRAFT"),
-        "the command shown: {}",
-        c.screen()
+        words.windows(2).any(|w| w == ["apply", "DRAFT"]),
+        "the command shown: {screen}"
     );
     c.key(b"\r");
     c.until("failed", |s| s.screen.contains("Nothing was saved"));
