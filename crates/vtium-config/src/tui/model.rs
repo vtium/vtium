@@ -734,9 +734,10 @@ impl App {
                         }
                     }
                 }
-                // the console stays in the saved font (D4)
-                if self.pending.font_name.is_some() && self.shown_font == self.pending.font_name {
-                    self.start_font = self.shown_font.clone();
+                // the saved font is the console's from here, the font
+                // leaving gives back (D4)
+                if self.live == Live::On && self.pending.font_name.is_some() {
+                    self.start_font = self.pending.font_name.clone();
                 }
                 self.pending = Pending::default();
                 self.report.clear();

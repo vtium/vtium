@@ -787,3 +787,12 @@ fn display_dpi_outside_the_console_s_bounds_is_not_used() {
     assert_eq!(density(Some("display-dpi=lots\n")), (96, DpiFrom::Assumed));
     assert_eq!(density(None), (96, DpiFrom::Assumed));
 }
+
+#[test]
+fn after_saving_a_font_leaving_puts_the_console_in_the_saved_font() {
+    // keep tiny5, move on to proof, save, leave
+    let mut c = console().keys(&[UP, b"\r", UP, b"s", b"\r", b"q"]);
+    assert_eq!(run(&mut c), 0);
+    assert_eq!(c.saves[0].files[0].new, "# mine\nfont-name=tiny5\n");
+    assert_eq!(c.switches(), ["tiny5", "proof", "tiny5"]);
+}
