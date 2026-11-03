@@ -28,9 +28,12 @@ use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 
 #[path = "common/vt.rs"]
 mod counting;
+#[path = "common/scratch.rs"]
+mod scratch;
 #[path = "common/helper.rs"]
 mod stand_in;
 use counting::CountingVt;
+use scratch::Scratch;
 use stand_in::real_helper;
 
 const W: u32 = 320;
@@ -1087,8 +1090,8 @@ fn a_retakes_wake_up_landing_after_the_blank_leaves_it_dark() {
 /// A file the test writes for its session to go on at, in a directory
 /// named for `name`, and the shell that waits for it.
 fn gate(name: &str) -> (Scratch, PathBuf, String) {
-    let dir = Scratch::new(&format!("vtium-{name}"));
-    let path = dir.path().join("go");
+    let dir = Scratch::new(name);
+    let path = dir.join("go");
     let wait = format!("while [ ! -e {} ]; do sleep 0.05; done", path.display());
     (dir, path, wait)
 }
@@ -1142,8 +1145,8 @@ fn a_programs_wake_ends_the_blank() {
 // covers: ctl.linux-blank
 #[test]
 fn a_programs_timeout_holds_until_ris() {
-    let go_dir = Scratch::new("vtium-ris-go");
-    let go = go_dir.path().join("go");
+    let go_dir = Scratch::new("ris-go");
+    let go = go_dir.join("go");
     let script = format!(
         r"printf '\033[9;0]ready'; while [ ! -e {} ]; do sleep 0.05; done; printf '\033creset'; read x",
         go.display()
@@ -1181,8 +1184,8 @@ fn a_programs_timeout_holds_until_ris() {
 // request waits for a later turn.
 #[test]
 fn a_respawned_session_blanks_after_dpms_timeout() {
-    let marker_dir = Scratch::new("vtium-blank-respawn");
-    let marker = marker_dir.path().join("marker");
+    let marker_dir = Scratch::new("blank-respawn");
+    let marker = marker_dir.join("marker");
     let script = format!(
         "if [ -e {m} ]; then read x; else : > {m}; printf '\\033[9;0]'; fi",
         m = marker.display()
@@ -1398,8 +1401,8 @@ fn a_pointer_move_restarts_the_blanks_countdown() {
 #[test]
 fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
     // The program goes on at each file the test writes.
-    let dir = Scratch::new("vtium-past-hide");
-    let go = |n: u32| dir.path().join(format!("go-{n}"));
+    let dir = Scratch::new("past-hide");
+    let go = |n: u32| dir.join(format!("go-{n}"));
     let script = format!(
         r"printf '\033[9;0]off'; while [ ! -e {} ]; do sleep 0.05; done; \
           printf '\033creset'; while [ ! -e {} ]; do sleep 0.05; done; \
@@ -1438,8 +1441,8 @@ fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
 #[test]
 fn a_programs_minute_blanks_past_the_pointers_hide() {
     // The program wakes the displays once the test has seen the blank.
-    let go_dir = Scratch::new("vtium-minute-go");
-    let go = go_dir.path().join("go");
+    let go_dir = Scratch::new("minute-go");
+    let go = go_dir.join("go");
     let mut h = blank_in_two(&format!(
         r"printf '\033[9;1]ready'; while [ ! -e {} ]; do sleep 0.05; done; printf '\033[13]'; read x",
         go.display()
@@ -2963,8 +2966,8 @@ fn a_hostile_selection_is_pasted_filtered_once_a_press() {
 /// The program changing its mouse tracking clears the selection.
 #[test]
 fn a_change_of_mouse_tracking_clears_the_selection() {
-    let go_dir = Scratch::new("vtium-boot-tracking");
-    let go = go_dir.path().join("go");
+    let go_dir = Scratch::new("boot-tracking");
+    let go = go_dir.join("go");
     let script = format!(
         "printf 'text\\n'; while [ ! -e '{}' ]; do sleep 0.02; done; \
          printf '\\033[?1000hon\\n'; read x",
@@ -3341,10 +3344,10 @@ fn a_release_waits_for_every_device_to_sleep() {
 /// the last session left is not shown until the new one writes.
 #[test]
 fn a_restart_draws_the_reset_screen() {
-    let flag_dir = Scratch::new("vtium-restart");
-    let flag = flag_dir.path().join("flag");
-    let go_dir = Scratch::new("vtium-restart-go");
-    let go = go_dir.path().join("go");
+    let flag_dir = Scratch::new("restart");
+    let flag = flag_dir.join("flag");
+    let go_dir = Scratch::new("restart-go");
+    let go = go_dir.join("go");
     // The first session exits once the test saw it drawn.
     let script = format!(
         "if [ -e {f} ]; then exec sleep 30; fi; : > {f}; printf 'first'; \
@@ -4598,14 +4601,14 @@ fn osc50_after(args: &[&str], before: &str, script: &str, fonts: Sources) -> Har
 #[test]
 fn the_start_logs_each_head_file_error_with_its_line() {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let dir = Scratch::new("vtium-boot-head-file-log");
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).expect("0700");
-    let path = dir.path().join("heads.conf");
+    let dir = Scratch::new("boot-head-file-log");
+    std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
+    let path = dir.join("heads.conf");
     let text = "version = 1\n[head desk]\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ndisplay * -> desk\ninput * -> desc\n";
     std::fs::write(&path, text).expect("the head file");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
-    let uid = std::fs::metadata(dir.path()).expect("the directory").uid();
-    let trust = vtium_settings::Trust::owner(uid).below(dir.path());
+    let uid = std::fs::metadata(&*dir).expect("the directory").uid();
+    let trust = vtium_settings::Trust::owner(uid).below(&dir);
     logged();
     let start = vtium::head::rules(&path, &trust);
     let lines = logged();
@@ -4648,45 +4651,6 @@ fn logged() -> Vec<String> {
     LINES.with(|l| std::mem::take(&mut *l.borrow_mut()))
 }
 
-/// A directory of a test's own in the temporary directory, made empty and
-/// removed when it is dropped, as its test ends or panics. A test holds it
-/// past its harness, so no helper starts in it once its removal begins; a
-/// recording stand-in's checker, which outlives its helper, may still move
-/// a file within it meanwhile, and the removal is tried again a while.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(name: &str) -> Scratch {
-        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("the test's directory");
-        Scratch(dir)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for Scratch {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the removal waits in real time for a checker's move to end"
-    )]
-    fn drop(&mut self) {
-        for _ in 0..100 {
-            if std::fs::remove_dir_all(&self.0).is_ok() || !self.0.exists() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        eprintln!(
-            "{} is left behind: it could not be removed",
-            self.0.display()
-        );
-    }
-}
-
 /// A frit `t` in a directory of its own, and a stand-in helper that
 /// answers each request with `answer` once `go` exists, then exits as at
 /// its idle interval; the directory, the sources and the go file.
@@ -4701,8 +4665,8 @@ fn frit_fonts_of(
     answer: &[u8],
     script: &str,
 ) -> (Scratch, Sources, PathBuf) {
-    let scratch = Scratch::new(&format!("vtium-boot-frit-{name}"));
-    let dir = scratch.path().to_owned();
+    let scratch = Scratch::new(&format!("boot-frit-{name}"));
+    let dir = scratch.to_path_buf();
     std::fs::write(dir.join("t.vtfrit"), frit).expect("the frit");
     let fixture = dir.join("answer");
     std::fs::write(&fixture, answer).expect("the answer");
@@ -5076,8 +5040,8 @@ fn dejavu() -> PathBuf {
 /// [`real_helper`], its answers held until the test opens the go FIFO
 /// when `held`; the directory, the fonts, the kinds file and the go FIFO.
 fn outline_frit(name: &str, held: bool) -> (Scratch, Sources, PathBuf, PathBuf) {
-    let scratch = Scratch::new(&format!("vtium-boot-outline-{name}"));
-    let dir = scratch.path().to_owned();
+    let scratch = Scratch::new(&format!("boot-outline-{name}"));
+    let dir = scratch.to_path_buf();
     std::fs::write(
         dir.join("t.vtfrit"),
         format!("source=outline:{}\n", dejavu().display()),
@@ -5393,8 +5357,8 @@ exec cat >>"$part"
 /// [`RECORDER`], that writes what it is sent to a file of its own there
 /// and answers nothing; the directory and the sources.
 fn recording(name: &str) -> (Scratch, Sources) {
-    let scratch = Scratch::new(&format!("vtium-boot-rec-{name}"));
-    let dir = scratch.path().to_owned();
+    let scratch = Scratch::new(&format!("boot-rec-{name}"));
+    let dir = scratch.to_path_buf();
     let helper = vtium::helper::Command {
         program: PathBuf::from("/bin/sh"),
         args: ["-c", RECORDER, "helper"]
