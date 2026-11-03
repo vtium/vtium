@@ -2960,6 +2960,64 @@ fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
     assert!(shows(&h.app, "got:."), "{:?}", h.app.screen_text());
 }
 
+/// The fix branch's re-review: a released fake VT keeps its pointers open,
+/// so the mouse moving in the other session keeps arming the pointer's
+/// hide, and that hide leaves vtium's selection for the user's return, as
+/// the C reference's pointer callback dropped the hide while its session
+/// was not in the foreground (`src/terminal.c:1609-1611, 1655-1659` at
+/// kmscon origin/main). On vtium's own VT, blanked, the hide still clears
+/// the selection.
+#[test]
+fn a_pointer_hide_on_a_released_vt_keeps_the_selection() {
+    let (mut h, released) = Harness::counting(&[
+        "--dpms-timeout=60",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf 'first line\\nsecond one\\n'; read x",
+    ]);
+    assert!(h.until(BOUND, |a| shows(a, "second one")));
+    let selected = |h: &Harness| {
+        h.app
+            .term()
+            .expect("a head")
+            .terminal
+            .screen()
+            .selection_text()
+    };
+    h.point(
+        [
+            over(0, 1, None),
+            press(Button::Left, false),
+            over(2, 1, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        Mods::empty(),
+    );
+    assert_eq!(selected(&h).as_deref(), Some("sec"));
+    let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
+    h.app.input_event(switch.clone(), h.at());
+    assert!(h.until(BOUND, |_| released.get() == 1), "released");
+    assert!(!h.app.vt.is_active());
+    let mouse = Path::new("/dev/input/event9");
+    h.app
+        .device_input(mouse, InputEvent::Pointer(PointerEvent::Hide), h.at());
+    assert_eq!(selected(&h).as_deref(), Some("sec"), "kept while released");
+    h.app.input_event(switch, h.at());
+    assert!(h.until(BOUND, |a| a.vt.is_active()), "taken back");
+    assert!(h.until_memory(BOUND, |m| m.awake), "awake");
+    assert_eq!(selected(&h).as_deref(), Some("sec"), "kept at the return");
+    // On vtium's own VT, blanked, the hide clears the selection.
+    h.shown();
+    h.skip_turn(Duration::from_secs(61));
+    assert_eq!(h.memory().dpms, Some(Dpms::Off), "blanked");
+    assert!(h.app.vt.is_active());
+    h.app
+        .device_input(mouse, InputEvent::Pointer(PointerEvent::Hide), h.at());
+    assert_eq!(selected(&h), None, "cleared on vtium's own VT");
+}
+
 /// A selection a program sets with OSC 52 is pasted as any paste is:
 /// filtered, so its end marker and C0 controls arrive as spaces, each LF
 /// as CR, and bracketed. Shift+Insert pastes once a press, however long

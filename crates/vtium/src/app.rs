@@ -2555,10 +2555,22 @@ impl App {
             PointerEvent::Sync if !self.awake => return,
             PointerEvent::Sync => {}
             // The seat's pointers hide together, on every head: the hide
-            // comes from no one device.
+            // comes from no one device. While the VT is another's, as a
+            // released fake VT is with its pointers still open, the mouse
+            // moving in the other session arms the hide, and the hide only
+            // hides the pointer: the selection stays for the user's return,
+            // as the C reference's pointer callback dropped the hide while
+            // its session was not in the foreground (`src/terminal.c:1609-1611`
+            // at kmscon origin/main). vtium's pointer saw none of those moves,
+            // so it stays hidden until the next move on vtium's own VT.
             PointerEvent::Hide => {
+                let ours = self.vt.is_active();
                 for head in &mut self.heads {
-                    head.pointer_event(event, Mods::empty(), false, &mut self.selection);
+                    if ours {
+                        head.pointer_event(event, Mods::empty(), false, &mut self.selection);
+                    } else {
+                        head.hide_pointer();
+                    }
                 }
                 return;
             }
