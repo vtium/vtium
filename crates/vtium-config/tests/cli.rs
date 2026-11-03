@@ -131,16 +131,13 @@ fn as_root_every_path_and_program_option_is_refused() {
     use std::ffi::OsString;
     use vtium_config::cli::root_refusal;
     let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
-    for option in [
-        "--configdir",
-        "--frits",
-        "--sudo",
-        "--vtium",
-        "--kbd-dir",
-        "--font-dir",
-        "--vconsole-conf",
-        "--kernel-cmdline",
-    ] {
+    let flagged: Vec<&str> = vtium_config::cli::VALUE_OPTIONS
+        .iter()
+        .filter(|o| o.path)
+        .map(|o| o.name)
+        .collect();
+    assert!(flagged.len() >= 8, "{flagged:?}");
+    for option in flagged {
         let why = root_refusal(0, &args(&[option, "/tmp/x", "apply", "/tmp/d"]))
             .unwrap_or_else(|| panic!("{option} is refused as root"));
         assert!(why.contains(option) && why.contains("/etc/vtium"), "{why}");

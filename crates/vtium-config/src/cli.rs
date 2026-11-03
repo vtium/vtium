@@ -31,7 +31,7 @@ Options:
 ";
 
 /// What the command line asked for.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 struct Options {
     configdir: Option<PathBuf>,
     sudo: Option<String>,
@@ -45,6 +45,22 @@ struct Options {
 }
 
 impl Options {
+    /// Takes `value` for the option `name` of [`VALUE_OPTIONS`].
+    fn set(&mut self, name: &str, value: String) {
+        match name {
+            "--configdir" => self.configdir = Some(value.into()),
+            "--sudo" => self.sudo = Some(value),
+            "--vtium" => self.vtium = Some(value),
+            "--frits" => self.frits = Some(value.into()),
+            "--kbd-dir" => self.kbd_dirs.push(value.into()),
+            "--font-dir" => self.font_dirs.push(value.into()),
+            "--vconsole-conf" => self.vconsole_conf = Some(value.into()),
+            "--kernel-cmdline" => self.kernel_cmdline = Some(value.into()),
+            // the table's test reads every name, so none lands here
+            _ => {}
+        }
+    }
+
     /// Where the TUI and `apply` read and write, as the options name them.
     fn paths(&self) -> crate::tui::Paths {
         crate::tui::Paths {
@@ -68,22 +84,57 @@ impl Options {
     }
 }
 
-/// The options that name a path or a program. Run as root, vtium-config
-/// takes none of them, so `sudo vtium-config` reads and writes only the
-/// system's directories and runs only the console it was built with.
-pub const PATH_OPTIONS: [&str; 8] = [
-    "--configdir",
-    "--frits",
-    "--sudo",
-    "--vtium",
-    "--kbd-dir",
-    "--font-dir",
-    "--vconsole-conf",
-    "--kernel-cmdline",
+/// An option that takes a value, and whether that value names a path or
+/// a program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ValueOption {
+    pub name: &'static str,
+    pub path: bool,
+}
+
+/// Every option that takes a value: the one table the parser reads its
+/// options from and root's refusal reads the path and program options
+/// from ([`root_refusal`]), so an option the parser takes cannot be missed
+/// by the refusal. Run as root, vtium-config takes none of the flagged
+/// ones, so `sudo vtium-config` reads and writes only the system's
+/// directories and runs only the console it was built with.
+pub const VALUE_OPTIONS: [ValueOption; 8] = [
+    ValueOption {
+        name: "--configdir",
+        path: true,
+    },
+    ValueOption {
+        name: "--frits",
+        path: true,
+    },
+    ValueOption {
+        name: "--sudo",
+        path: true,
+    },
+    ValueOption {
+        name: "--vtium",
+        path: true,
+    },
+    ValueOption {
+        name: "--kbd-dir",
+        path: true,
+    },
+    ValueOption {
+        name: "--font-dir",
+        path: true,
+    },
+    ValueOption {
+        name: "--vconsole-conf",
+        path: true,
+    },
+    ValueOption {
+        name: "--kernel-cmdline",
+        path: true,
+    },
 ];
 
 /// Why vtium-config, run with the effective uid `euid`, refuses
-/// `args`: an option of [`PATH_OPTIONS`], the step that releases the
+/// `args`: a path or program option of [`VALUE_OPTIONS`], the step that releases the
 /// TUI's signals and runs another program, or no command, which opens the
 /// TUI; `None` when it takes them.
 /// It refuses only as root, an effective uid of 0; `main` runs it first.
@@ -93,9 +144,11 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
     }
     let named = args.iter().find_map(|a| {
         let a = a.to_string_lossy();
-        let named = PATH_OPTIONS
+        let named = VALUE_OPTIONS
             .iter()
-            .find(|o| a == **o || a.strip_prefix(**o).is_some_and(|r| r.starts_with('=')));
+            .filter(|o| o.path)
+            .map(|o| o.name)
+            .find(|o| a == *o || a.strip_prefix(*o).is_some_and(|r| r.starts_with('=')));
         match named {
             Some(option) => Some(format!(
                 "run as root, vtium-config takes no {option}: as root it reads and writes only /etc/vtium and its frits' directory, and checks files with the console it was built with"
@@ -119,6 +172,7 @@ pub fn default_configdir() -> PathBuf {
 }
 
 /// A usage error's message.
+#[derive(Debug)]
 struct Usage(String);
 
 fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
@@ -136,15 +190,12 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
                 .ok_or_else(|| Usage(format!("{name} takes a value")))
                 .and_then(text)
         };
+        if let Some(option) = VALUE_OPTIONS.iter().find(|v| v.name == arg) {
+            let v = value(option.name)?;
+            o.set(option.name, v);
+            continue;
+        }
         match arg.as_str() {
-            "--configdir" => o.configdir = Some(value("--configdir")?.into()),
-            "--sudo" => o.sudo = Some(value("--sudo")?),
-            "--vtium" => o.vtium = Some(value("--vtium")?),
-            "--frits" => o.frits = Some(value("--frits")?.into()),
-            "--kbd-dir" => o.kbd_dirs.push(value("--kbd-dir")?.into()),
-            "--font-dir" => o.font_dirs.push(value("--font-dir")?.into()),
-            "--vconsole-conf" => o.vconsole_conf = Some(value("--vconsole-conf")?.into()),
-            "--kernel-cmdline" => o.kernel_cmdline = Some(value("--kernel-cmdline")?.into()),
             // The banner reads it before the command line runs.
             crate::banner::OFF => {}
             "--" => {
@@ -230,5 +281,29 @@ impl Cli<'_> {
             kernel_cmdline: o.kernel_cmdline.clone().unwrap_or(system.kernel_cmdline),
         };
         crate::serve::command(&paths)
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "a test fails by panicking"
+)]
+mod tests {
+    use super::*;
+
+    /// Every option the table lists is read by the parser, so the table
+    /// root's refusal is built from is the parser's own.
+    #[test]
+    fn every_option_in_the_table_is_read() {
+        for option in VALUE_OPTIONS {
+            let parsed = parse_args(&[option.name.into(), "/x".into()]);
+            let o = parsed.unwrap_or_else(|Usage(why)| panic!("{}: {why}", option.name));
+            assert_ne!(o, Options::default(), "{} sets nothing", option.name);
+            assert!(o.words.is_empty(), "{}", option.name);
+        }
+        assert!(parse_args(&["--no-such".into(), "/x".into()]).is_err());
+        let _ = parse_args(&[]).unwrap();
     }
 }
