@@ -137,10 +137,14 @@ fn body(app: &App) -> Body {
                 .fonts
                 .iter()
                 .map(|f| {
-                    let mut note = match &f.state {
-                        FontState::Reads => words::READS.to_owned(),
-                        FontState::BuiltIn => words::BUILT_IN.to_owned(),
-                        FontState::Refused(why) => words::does_not_read(why),
+                    let mut note = match (&f.state, app.sources.get(&f.name)) {
+                        (FontState::Reads, Some(Ok(left))) if !left.is_empty() => {
+                            format!("{}, {}", words::READS, words::sources_missing(left.len()))
+                        }
+                        (FontState::Reads, Some(Err(_))) => words::DRAWS_NOTHING.to_owned(),
+                        (FontState::Reads, _) => words::READS.to_owned(),
+                        (FontState::BuiltIn, _) => words::BUILT_IN.to_owned(),
+                        (FontState::Refused(why), _) => words::does_not_read(why),
                     };
                     if app.refused.contains(&f.name) {
                         note = words::KEPT.to_owned();
@@ -182,7 +186,23 @@ fn body(app: &App) -> Body {
                 })
                 .collect();
             let (list, keep) = list(&items, app.size_at, 10, cols);
-            let sentence = if !app.graphics {
+            let summary = app
+                .summary
+                .as_ref()
+                .filter(|(f, h, _)| {
+                    app.font().is_some_and(|font| font.name == *f)
+                        && *h == crate::specimen::pixel_height(app.size(), app.inputs.dpi.0)
+                })
+                .map(|(_, _, s)| match s {
+                    Ok(s) => words::size_summary(s),
+                    Err(why) => words::no_summary(why),
+                });
+            let sentence = if !app.graphics && app.size() > 0 {
+                match summary {
+                    Some(s) => format!("{} {s}", words::NO_PICTURES),
+                    None => words::NO_PICTURES.to_owned(),
+                }
+            } else if !app.graphics {
                 words::NO_PICTURES.to_owned()
             } else if app.size() == 0 {
                 words::AUTOMATIC_PICTURE.to_owned()

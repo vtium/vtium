@@ -423,6 +423,7 @@ fn the_save_view_shows_the_command_the_save_runs() {
         sudo: "sudo".into(),
         vtium: system.vtium.clone(),
         helper: vtium_config::specimen::Helper::at(&exe),
+        sys: PathBuf::from("/sys"),
     };
     assert_eq!(
         saving(&paths),
@@ -436,6 +437,7 @@ fn the_save_view_shows_the_command_the_save_runs() {
         sudo: "sudo".into(),
         vtium: f.targets.vtium.clone(),
         helper: vtium_config::specimen::Helper::at(&exe),
+        sys: PathBuf::from("/sys"),
     };
     let want = save_argv(&Route::User, &exe, &f.targets, Path::new("DRAFT"))
         .iter()

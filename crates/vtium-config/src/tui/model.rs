@@ -84,6 +84,9 @@ pub struct Inputs {
     /// The view the TUI opens at: the fonts, or the new-frit view for
     /// `vtium config new`.
     pub view: View,
+    /// The first display's size in pixels, which a size's grid is counted
+    /// on, where a display is connected.
+    pub display: Option<(u32, u32)>,
 }
 
 /// How a save is installed, as the save view shows it: the command a
@@ -117,7 +120,18 @@ pub enum Event {
     Saved(Result<usize, String>),
     /// The specimen [`Effect::Picture`] asked for, or why there is none.
     Pictured(Result<crate::specimen::Picture, String>),
+    /// The summary [`Effect::Summary`] asked for.
+    Summarized {
+        font: String,
+        height: u32,
+        summary: Result<crate::specimen::Summary, String>,
+    },
+    /// The sources each frit [`Effect::Sources`] named lacks.
+    Sourced(Vec<(String, SourcesFound)>),
 }
+
+/// The sources a frit lacks or refuses, or why it draws nothing here.
+pub type SourcesFound = Result<Vec<crate::serve::LeftOut>, String>;
 
 /// One thing the loop does for the state machine.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -137,6 +151,12 @@ pub enum Effect {
         height: u32,
         max: (u32, u32),
     },
+    /// Summarizes the specimen of the font `font` at `height` pixels, for
+    /// a terminal that draws no pictures, then sends [`Event::Summarized`].
+    Summary { font: String, height: u32 },
+    /// Asks the glyph helper which sources each frit named lacks, then
+    /// sends [`Event::Sourced`].
+    Sources(Vec<String>),
     /// Leaves, with this exit status.
     Exit(u8),
 }
@@ -360,6 +380,10 @@ pub struct App {
     pub picture: bool,
     /// The terminal's cell in pixels, where it reports its size in pixels.
     pub cell_px: Option<(u32, u32)>,
+    /// The last summary of a size: the font, the height and what it gave.
+    pub summary: Option<(String, u32, Result<crate::specimen::Summary, String>)>,
+    /// The sources each frit lacks, as the helper found them.
+    pub sources: std::collections::BTreeMap<String, SourcesFound>,
     /// OSC 50 replies still due before the TUI may leave.
     replies_due: usize,
 }
@@ -399,6 +423,8 @@ impl App {
             leaving: None,
             picture: false,
             cell_px: None,
+            summary: None,
+            sources: std::collections::BTreeMap::new(),
             replies_due: 0,
         };
         (app, vec![Effect::Write(probe()), Effect::Wait(WAIT)])
@@ -497,6 +523,18 @@ impl App {
             Event::Timeout => self.timeout(),
             Event::Saved(result) => self.saved(result),
             Event::Pictured(result) => self.pictured(result),
+            Event::Summarized {
+                font,
+                height,
+                summary,
+            } => {
+                self.summary = Some((font, height, summary));
+                Vec::new()
+            }
+            Event::Sourced(found) => {
+                self.sources.extend(found);
+                Vec::new()
+            }
         }
     }
 
@@ -547,13 +585,20 @@ impl App {
             View::Fonts if not_live && readable => self.preview_points(),
             _ => 0,
         };
+        let height = crate::specimen::pixel_height(points, self.inputs.dpi.0);
         match (self.graphics, points, font) {
             (true, 1.., Some(font)) if max.0 > 0 && max.1 > 0 => {
-                vec![Effect::Picture {
-                    font,
-                    height: crate::specimen::pixel_height(points, self.inputs.dpi.0),
-                    max,
-                }]
+                vec![Effect::Picture { font, height, max }]
+            }
+            // a terminal that draws no pictures gets a size's summary
+            (false, 1.., Some(font))
+                if self.view == View::Sizes
+                    && self
+                        .summary
+                        .as_ref()
+                        .is_none_or(|(f, h, _)| *f != font || *h != height) =>
+            {
+                vec![Effect::Summary { font, height }]
             }
             _ => self.drop_picture(),
         }
@@ -599,7 +644,7 @@ impl App {
                 Reply::Graphics(ok) => self.answers.graphics |= ok,
                 Reply::Attributes => {
                     self.decide();
-                    return self.ask_picture();
+                    return self.started();
                 }
             }
             return Vec::new();
@@ -623,6 +668,25 @@ impl App {
         }
         self.shown_font = Some(name);
         self.follow()
+    }
+
+    /// What follows once the terminal is known: the sources each frit that
+    /// reads lacks, found once, and the highlighted font's picture where
+    /// one shows.
+    fn started(&mut self) -> Vec<Effect> {
+        let frits: Vec<String> = self
+            .inputs
+            .fonts
+            .iter()
+            .filter(|f| f.state == FontState::Reads)
+            .map(|f| f.name.clone())
+            .collect();
+        let mut out = Vec::new();
+        if !frits.is_empty() {
+            out.push(Effect::Sources(frits));
+        }
+        out.extend(self.ask_picture());
+        out
     }
 
     /// Settles what the terminal is, from the answers that came.
@@ -656,7 +720,7 @@ impl App {
     fn timeout(&mut self) -> Vec<Effect> {
         if self.live == Live::Asking {
             self.decide();
-            return self.ask_picture();
+            return self.started();
         }
         match self.leaving {
             Some(status) => vec![Effect::Exit(status)],

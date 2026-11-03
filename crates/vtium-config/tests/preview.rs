@@ -38,6 +38,8 @@ fn preview(root: &Path, args: &[&str]) -> (i32, String, String) {
         .arg(frits())
         .arg("--font-dir")
         .arg("/nonexistent")
+        .arg("--sys")
+        .arg("/nonexistent")
         .arg("preview")
         .args(args)
         .env("LANG", "C")
@@ -85,6 +87,76 @@ fn a_font_this_machine_lacks_fails_and_the_others_still_draw() {
         "{out}"
     );
     assert!(lines[1].starts_with("unifont\t"), "{out}");
+}
+
+/// A sysfs holding one connected display of `pixels` whose EDID states
+/// `cm`, and a disconnected one before it.
+fn sysfs(root: &Path, pixels: &str, cm: (u8, u8)) -> PathBuf {
+    let sys = root.join("sys");
+    let drm = sys.join("class/drm");
+    let off = drm.join("card0-DP-1");
+    std::fs::create_dir_all(&off).expect("sysfs");
+    std::fs::write(off.join("status"), "disconnected\n").expect("status");
+    let on = drm.join("card0-HDMI-A-1");
+    std::fs::create_dir_all(&on).expect("sysfs");
+    std::fs::write(on.join("status"), "connected\n").expect("status");
+    std::fs::write(on.join("modes"), format!("{pixels}\n1280x720\n")).expect("modes");
+    let mut edid = vec![0u8; 128];
+    edid[..8].copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
+    edid[21] = cm.0;
+    edid[22] = cm.1;
+    let sum = edid.iter().fold(0u8, |s, &b| s.wrapping_add(b));
+    edid[127] = 0u8.wrapping_sub(sum);
+    std::fs::write(on.join("edid"), edid).expect("edid");
+    sys
+}
+
+/// A display's EDID sets the density where vtium.conf names none, and its
+/// first mode the grid a cell gives.
+#[test]
+fn the_display_s_edid_sets_the_density_and_its_mode_the_grid() {
+    let root = fixture("edid", None);
+    let sys = sysfs(&root, "1920x1080", (30, 17));
+    let sys = sys.to_str().expect("a path");
+    // 1080 pixels over 170 mm is 161 dpi, so 12 pt is 27 pixels: the
+    // outline cell the W rule gives is what a bitmap frit cannot follow,
+    // so unifont keeps its 8x16 and the grid is 240x67
+    let (status, out, err) = preview(&root, &["--sys", sys, "unifont"]);
+    assert_eq!(status, 0, "{err}");
+    assert_eq!(
+        out,
+        "unifont\t12 pt\tcell 8x16\t240x67 cells\tdraws 51 of the specimen's 51 characters\n"
+    );
+}
+
+/// The locale adds a line in its script to the specimen, which a font
+/// with no glyph for it draws less of.
+#[test]
+fn the_locale_adds_a_line_in_its_script() {
+    let root = fixture("locale", None);
+    let o = Command::new(BIN)
+        .arg("--configdir")
+        .arg(&root)
+        .arg("--frits")
+        .arg(frits())
+        .args(["--sys", "/nonexistent", "preview", "unifont", "unscii-8"])
+        .env("LANG", "ru_RU.UTF-8")
+        .env_remove("LC_ALL")
+        .env_remove("LC_CTYPE")
+        .output()
+        .expect("the binary runs");
+    let out = String::from_utf8_lossy(&o.stdout).into_owned();
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    // the Cyrillic line's 27 letters, after the Latin lines' 51 characters
+    assert!(
+        lines[0].ends_with("draws 78 of the specimen's 78 characters"),
+        "{out}"
+    );
+    assert!(
+        lines[1].contains("of the specimen's 78 characters"),
+        "{out}"
+    );
 }
 
 #[test]

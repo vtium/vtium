@@ -15,9 +15,11 @@ use std::time::Duration;
 
 use vtium_config::draft::Plan;
 use vtium_config::kitty;
-use vtium_config::specimen::Picture;
+use vtium_config::serve::LeftOut;
+use vtium_config::specimen::{Picture, Summary};
 use vtium_config::tui::model::{self, DpiFrom, Font, FontState, Inputs};
 use vtium_config::tui::port::{Port, Wake, drive};
+use vtium_font::Cell;
 use vtium_term::Glyph;
 use vtium_term::Terminal;
 
@@ -59,6 +61,8 @@ struct Console {
     pictures: Vec<(String, u32, (u32, u32))>,
     /// The terminal's cell in pixels, as the terminal reports it.
     cell_px: Option<(u32, u32)>,
+    /// Each summary the TUI asked for: the font and the pixel height.
+    summaries: Vec<(String, u32)>,
 }
 
 impl Console {
@@ -90,6 +94,7 @@ impl Console {
             graphics: false,
             pictures: Vec::new(),
             cell_px: Some((8, 16)),
+            summaries: Vec::new(),
         }
     }
 
@@ -246,6 +251,32 @@ impl Port for Console {
             rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
         })
     }
+
+    fn summary(&mut self, font: &str, height: u32) -> Result<Summary, String> {
+        self.summaries.push((font.to_owned(), height));
+        Ok(Summary {
+            cell: Cell {
+                width: 8,
+                height: 16,
+            },
+            grid: Some((80, 30)),
+            covered: 40,
+            of: 51,
+        })
+    }
+
+    fn sources(&mut self, font: &str) -> Result<Vec<LeftOut>, String> {
+        match font {
+            "proof" => Ok(vec![LeftOut {
+                missing: true,
+                line: 27,
+                spelling: "font:JetBrains Mono".into(),
+                why: "no such family".into(),
+            }]),
+            "tiny5" => Err("no source left".into()),
+            _ => Ok(Vec::new()),
+        }
+    }
 }
 
 const DOWN: &[u8] = b"\x1b[B";
@@ -284,6 +315,7 @@ fn inputs() -> Inputs {
         dpi: (96, DpiFrom::Assumed),
         frits: PathBuf::from("/etc/vtium/fonts"),
         view: model::View::Fonts,
+        display: Some((640, 480)),
     }
 }
 
@@ -718,13 +750,18 @@ fn a_console_that_never_answers_the_give_back_is_left_after_the_wait() {
     use vtium_config::tui::input::{Input, Key, Reply};
     use vtium_config::tui::model::{App, Effect, Event};
     let (mut app, _) = App::new(inputs(), 80, 25);
+    let mut started = Vec::new();
     for r in [
         Reply::Version("vtium(test)".into()),
         Reply::Font("unifont".into()),
         Reply::Attributes,
     ] {
-        assert_eq!(app.event(Event::Input(Input::Reply(r))), []);
+        started.extend(app.event(Event::Input(Input::Reply(r))));
     }
+    // once the terminal is known, the helper is asked which sources each
+    // frit that reads lacks
+    let frits = ["minspec-16", "proof", "tiny5"].map(String::from).to_vec();
+    assert_eq!(started, [Effect::Sources(frits)]);
     let up = app.event(Event::Input(Input::Key(Key::Up)));
     assert_eq!(up, [Effect::Write(model::switch("tiny5"))]);
     assert_eq!(
@@ -862,6 +899,45 @@ fn a_font_the_console_cannot_switch_to_is_shown_as_a_picture() {
     assert!(live.pictures.is_empty(), "{:?}", live.pictures);
 }
 
+/// Where the terminal draws no pictures, a size shows what it gives: its
+/// cell, its grid and how much of the specimen the font draws itself.
+#[test]
+fn without_pictures_a_size_shows_its_cell_grid_and_coverage() {
+    let mut c = console().keys(&[b"\t", DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains(
+            "At this size the cell is 8x16 pixels, the display holds 80x30 cells, and the font draws 40 of the specimen's 51 characters itself."
+        ),
+        "{screen}"
+    );
+    // one summary a size, at 96 dpi: 6 to 12 pt and the highlighted font
+    let heights: Vec<u32> = c.summaries.iter().map(|(_, h)| *h).collect();
+    assert_eq!(heights, [8, 9, 11, 12, 13, 15, 16]);
+    assert!(c.summaries.iter().all(|(f, _)| f == "unifont"));
+    assert!(c.pictures.is_empty());
+}
+
+/// Each frit that reads is noted with the sources the helper says this
+/// machine lacks, or that none of its sources is here.
+#[test]
+fn the_font_list_names_the_sources_a_frit_lacks() {
+    let mut c = console().keys(&[]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        screen.contains("proof      reads, 1 source missing"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("tiny5      no source on this machine"),
+        "{screen}"
+    );
+    assert!(screen.contains("minspec-16 reads\n"), "{screen}");
+}
+
 #[test]
 fn leaving_with_a_picture_deletes_it_before_the_font_comes_back() {
     let mut c = console().keys(&[UP, b"\t", DOWN, b"q"]);
@@ -918,12 +994,46 @@ fn the_picture_never_reaches_the_footer_and_never_passes_the_cap() {
 #[test]
 fn display_dpi_outside_the_console_s_bounds_is_not_used() {
     use vtium_config::tui::density;
-    assert_eq!(density(Some("display-dpi=150\n")), (150, DpiFrom::Conf));
-    assert_eq!(density(Some("display-dpi=1000\n")), (1000, DpiFrom::Conf));
-    assert_eq!(density(Some("display-dpi=1001\n")), (96, DpiFrom::Assumed));
-    assert_eq!(density(Some("display-dpi=19\n")), (96, DpiFrom::Assumed));
-    assert_eq!(density(Some("display-dpi=lots\n")), (96, DpiFrom::Assumed));
-    assert_eq!(density(None), (96, DpiFrom::Assumed));
+    let none = &[];
+    assert_eq!(
+        density(Some("display-dpi=150\n"), none),
+        (150, DpiFrom::Conf)
+    );
+    assert_eq!(
+        density(Some("display-dpi=1000\n"), none),
+        (1000, DpiFrom::Conf)
+    );
+    assert_eq!(
+        density(Some("display-dpi=1001\n"), none),
+        (96, DpiFrom::Assumed)
+    );
+    assert_eq!(
+        density(Some("display-dpi=19\n"), none),
+        (96, DpiFrom::Assumed)
+    );
+    assert_eq!(
+        density(Some("display-dpi=lots\n"), none),
+        (96, DpiFrom::Assumed)
+    );
+    assert_eq!(density(None, none), (96, DpiFrom::Assumed));
+    // a display's EDID comes after display-dpi and before the assumption:
+    // the first display that states its size
+    use vtium_config::display::Display;
+    let displays = [
+        Display {
+            pixels: (1024, 768),
+            mm: None,
+        },
+        Display {
+            pixels: (2560, 1440),
+            mm: Some((600, 340)),
+        },
+    ];
+    assert_eq!(density(None, &displays), (108, DpiFrom::Edid));
+    assert_eq!(
+        density(Some("display-dpi=150\n"), &displays),
+        (150, DpiFrom::Conf)
+    );
 }
 
 #[test]

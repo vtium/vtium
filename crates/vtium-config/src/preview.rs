@@ -122,7 +122,9 @@ pub fn command(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut d
         .and_then(|s| s.parse::<u32>().ok())
         .filter(|s| *s > 0);
     let points = size.or(configured).unwrap_or(POINTS);
-    let (dpi, _) = crate::tui::density(conf.as_deref());
+    let displays = crate::display::displays(&paths.sys);
+    let (dpi, _) = crate::tui::density(conf.as_deref(), &displays);
+    let display = displays.first().map(|d| d.pixels);
     let height = pixel_height(points, dpi);
     let pictures = std::io::stdout().is_terminal() && draws_pictures();
     let locale = crate::tui::locale();
@@ -138,7 +140,7 @@ pub fn command(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut d
                 continue;
             }
         };
-        let summary = sample.summary(None);
+        let summary = sample.summary(display);
         let _ = writeln!(out, "{font}\t{points} pt\t{}", summary_text(&summary));
         if pictures {
             match sample.picture(PICTURE_MAX) {

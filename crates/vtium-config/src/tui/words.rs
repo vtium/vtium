@@ -34,6 +34,14 @@ pub fn does_not_read(why: impl Display) -> String {
     format!("does not read: {why}")
 }
 pub const KEPT: &str = "kept by the console, see its log";
+pub fn sources_missing(n: usize) -> String {
+    if n == 1 {
+        "1 source missing".to_owned()
+    } else {
+        format!("{n} sources missing")
+    }
+}
+pub const DRAWS_NOTHING: &str = "no source on this machine";
 
 /// Marks the choice that a save writes.
 pub const TO_SAVE: &str = "to save";
@@ -53,6 +61,19 @@ pub fn density(dpi: u32, from: impl Display) -> String {
 }
 pub fn no_picture(why: impl Display) -> String {
     format!("No picture of this size: {why}")
+}
+pub fn size_summary(s: &crate::specimen::Summary) -> String {
+    let grid = s
+        .grid
+        .map(|(c, r)| format!(", the display holds {c}x{r} cells,"))
+        .unwrap_or_default();
+    format!(
+        "At this size the cell is {}x{} pixels{grid} and the font draws {} of the specimen's {} characters itself.",
+        s.cell.width, s.cell.height, s.covered, s.of
+    )
+}
+pub fn no_summary(why: impl Display) -> String {
+    format!("This size cannot be drawn: {why}")
 }
 pub const AUTOMATIC_PICTURE: &str =
     "Automatic lets vtium pick the size from the display, so it has no picture.";

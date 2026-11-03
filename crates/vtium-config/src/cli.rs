@@ -40,6 +40,7 @@ Options:
   --font-dir DIR        an outline font directory, in place of the build's list (repeatable)
   --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
   --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
+  --sys DIR             sysfs, where displays are measured, in place of /sys
   --no-banner           no banner at a terminal (NO_COLOR also turns it off)
   --help, --version
 ";
@@ -55,6 +56,7 @@ struct Options {
     font_dirs: Vec<PathBuf>,
     vconsole_conf: Option<PathBuf>,
     kernel_cmdline: Option<PathBuf>,
+    sys: Option<PathBuf>,
     words: Vec<String>,
 }
 
@@ -70,6 +72,7 @@ impl Options {
             "--font-dir" => self.font_dirs.push(value.into()),
             "--vconsole-conf" => self.vconsole_conf = Some(value.into()),
             "--kernel-cmdline" => self.kernel_cmdline = Some(value.into()),
+            "--sys" => self.sys = Some(value.into()),
             // the table's test reads every name, so none lands here
             _ => {}
         }
@@ -95,6 +98,7 @@ impl Options {
                 .unwrap_or_else(|| crate::apply::VTIUM.to_owned())
                 .into(),
             helper: self.helper(),
+            sys: self.sys.clone().unwrap_or_else(|| PathBuf::from("/sys")),
         }
     }
 
@@ -134,7 +138,7 @@ pub struct ValueOption {
 /// by the refusal. Run as root, vtium-config takes none of the flagged
 /// ones, so `sudo vtium-config` reads and writes only the system's
 /// directories and runs only the console it was built with.
-pub const VALUE_OPTIONS: [ValueOption; 8] = [
+pub const VALUE_OPTIONS: [ValueOption; 9] = [
     ValueOption {
         name: "--configdir",
         path: true,
@@ -165,6 +169,10 @@ pub const VALUE_OPTIONS: [ValueOption; 8] = [
     },
     ValueOption {
         name: "--kernel-cmdline",
+        path: true,
+    },
+    ValueOption {
+        name: "--sys",
         path: true,
     },
 ];

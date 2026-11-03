@@ -67,6 +67,11 @@ pub trait Port {
         height: u32,
         max: (u32, u32),
     ) -> Result<crate::specimen::Picture, String>;
+    /// What the font `font` gives at `height` pixels, for a terminal that
+    /// draws no pictures.
+    fn summary(&mut self, font: &str, height: u32) -> Result<crate::specimen::Summary, String>;
+    /// The sources the frit `font` lacks or refuses.
+    fn sources(&mut self, font: &str) -> Result<Vec<crate::serve::LeftOut>, String>;
 }
 
 /// Alternate screen, cursor hidden; and back.
@@ -95,6 +100,24 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                     Effect::Picture { font, height, max } => {
                         let picture = port.picture(&font, height, max);
                         queue.extend(app.event(Event::Pictured(picture)));
+                    }
+                    Effect::Summary { font, height } => {
+                        let summary = port.summary(&font, height);
+                        queue.extend(app.event(Event::Summarized {
+                            font,
+                            height,
+                            summary,
+                        }));
+                    }
+                    Effect::Sources(fonts) => {
+                        let found = fonts
+                            .into_iter()
+                            .map(|f| {
+                                let left = port.sources(&f);
+                                (f, left)
+                            })
+                            .collect();
+                        queue.extend(app.event(Event::Sourced(found)));
                     }
                     Effect::Save(plan) => {
                         port.write(&view::paint(&view::screen(&app)))?;
@@ -170,10 +193,23 @@ struct Woken {
 pub type Painter =
     Box<dyn FnMut(&str, u32, (u32, u32)) -> Result<crate::specimen::Picture, String>>;
 
+/// Summarizes a font's specimen at a pixel height.
+pub type Summarizer = Box<dyn FnMut(&str, u32) -> Result<crate::specimen::Summary, String>>;
+
+/// Finds the sources a frit lacks.
+pub type Finder = Box<dyn FnMut(&str) -> Result<Vec<crate::serve::LeftOut>, String>>;
+
+/// What the real port asks the glyph helper through.
+pub struct Tools {
+    pub painter: Painter,
+    pub summarizer: Summarizer,
+    pub finder: Finder,
+}
+
 /// The terminal on standard input and output.
 pub struct Tty {
     saver: Saver,
-    painter: Painter,
+    tools: Tools,
     input: OwnedFd,
     raw: Termios,
     saved: Termios,
@@ -193,7 +229,7 @@ impl Tty {
     /// Takes the terminal: raw mode, the alternate screen, the signals
     /// held. `saver` writes a draft and runs the privileged step through
     /// the runner it is given.
-    pub fn open(saver: Saver, painter: Painter) -> io::Result<Tty> {
+    pub fn open(saver: Saver, tools: Tools) -> io::Result<Tty> {
         let input = rustix::io::dup(std::io::stdin().as_fd())?;
         let saved = tcgetattr(&input)?;
         let mut raw = saved.clone();
@@ -249,7 +285,7 @@ impl Tty {
         }));
         let mut tty = Tty {
             saver,
-            painter,
+            tools,
             input,
             raw,
             saved,
@@ -399,7 +435,15 @@ impl Port for Tty {
         height: u32,
         max: (u32, u32),
     ) -> Result<crate::specimen::Picture, String> {
-        (self.painter)(font, height, max)
+        (self.tools.painter)(font, height, max)
+    }
+
+    fn summary(&mut self, font: &str, height: u32) -> Result<crate::specimen::Summary, String> {
+        (self.tools.summarizer)(font, height)
+    }
+
+    fn sources(&mut self, font: &str) -> Result<Vec<crate::serve::LeftOut>, String> {
+        (self.tools.finder)(font)
     }
 
     fn on_panic(&mut self, bytes: Vec<u8>) {

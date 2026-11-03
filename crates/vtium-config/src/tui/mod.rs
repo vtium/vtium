@@ -41,6 +41,8 @@ pub struct Paths {
     pub vtium: OsString,
     /// The glyph helper that draws specimens and finds a frit's sources.
     pub helper: crate::specimen::Helper,
+    /// sysfs, where the displays' modes and EDIDs are read: `/sys`.
+    pub sys: PathBuf,
 }
 
 impl Paths {
@@ -146,21 +148,24 @@ pub fn saving(paths: &Paths) -> model::Saving {
     }
 }
 
-/// The density pictures are drawn at: vtium.conf's `display-dpi` where it
-/// is set within the bounds the console believes, else 96, as the
-/// console assumes.
-pub fn density(conf: Option<&str>) -> (u32, DpiFrom) {
+/// The density pictures are drawn at, in ADR-1200 D17's order:
+/// vtium.conf's `display-dpi` where it is set within the bounds the
+/// console believes; else the density of the first of `displays` whose
+/// EDID states its size; else 96, as the console assumes.
+pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32, DpiFrom) {
     use vtium_platform::display::{DPI_ASSUMED, DPI_MAX, DPI_MIN};
-    conf.and_then(|c| vtium_settings::setting(c, "display-dpi"))
+    let set = conf
+        .and_then(|c| vtium_settings::setting(c, "display-dpi"))
         .and_then(|d| d.parse::<u32>().ok())
-        .filter(|d| (DPI_MIN..=DPI_MAX).contains(&f64::from(*d)))
-        .map_or_else(
-            || {
-                let assumed = format!("{DPI_ASSUMED}").parse::<u32>().unwrap_or(96);
-                (assumed, DpiFrom::Assumed)
-            },
-            |d| (d, DpiFrom::Conf),
-        )
+        .filter(|d| (DPI_MIN..=DPI_MAX).contains(&f64::from(*d)));
+    if let Some(dpi) = set {
+        return (dpi, DpiFrom::Conf);
+    }
+    if let Some(dpi) = displays.iter().find_map(crate::display::Display::dpi) {
+        return (dpi, DpiFrom::Edid);
+    }
+    let assumed = format!("{DPI_ASSUMED}").parse::<u32>().unwrap_or(96);
+    (assumed, DpiFrom::Assumed)
 }
 
 /// What the TUI starts from, read from `paths`, opening at `view`.
@@ -169,7 +174,8 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let heads_path = paths.configdir.join("heads.conf");
     let conf = read_conf(&conf_path)?;
     let heads = read_conf(&heads_path)?;
-    let dpi = density(conf.as_deref());
+    let displays = crate::display::displays(&paths.sys);
+    let dpi = density(conf.as_deref(), &displays);
     Ok(Inputs {
         fonts: fonts(&paths.frits),
         conf_path,
@@ -181,6 +187,7 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         dpi,
         frits: paths.frits.clone(),
         view,
+        display: displays.first().map(|d| d.pixels),
     })
 }
 
@@ -225,6 +232,30 @@ pub fn painter(frits: PathBuf, helper: crate::specimen::Helper, locale: String) 
     })
 }
 
+/// The TUI's summarizer: what a font's specimen in `locale` gives at a
+/// height, on a display of `display` pixels, for a terminal that draws no
+/// pictures.
+pub fn summarizer(
+    frits: PathBuf,
+    helper: crate::specimen::Helper,
+    locale: String,
+    display: Option<(u32, u32)>,
+) -> port::Summarizer {
+    Box::new(move |font, height| {
+        let frit = frit_text(&frits, font)?;
+        crate::specimen::sample(&helper, &frit, height, &locale).map(|s| s.summary(display))
+    })
+}
+
+/// The TUI's source finder: the sources each frit lacks or refuses, as the
+/// helper finds them.
+pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
+    Box::new(move |font| {
+        let frit = frit_text(&frits, font)?;
+        crate::specimen::sources(&helper, &frit)
+    })
+}
+
 /// Opens the TUI on the terminal at `view` and runs it until the user
 /// leaves; returns the exit status.
 pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8 {
@@ -245,8 +276,17 @@ pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8
         }
     };
     let saver = crate::apply::saver(paths.clone());
-    let painter = painter(paths.frits.clone(), paths.helper.clone(), locale());
-    let mut tty = match port::Tty::open(saver, painter) {
+    let tools = port::Tools {
+        painter: painter(paths.frits.clone(), paths.helper.clone(), locale()),
+        summarizer: summarizer(
+            paths.frits.clone(),
+            paths.helper.clone(),
+            locale(),
+            inputs.display,
+        ),
+        finder: finder(paths.frits.clone(), paths.helper.clone()),
+    };
+    let mut tty = match port::Tty::open(saver, tools) {
         Ok(tty) => tty,
         Err(e) => {
             let _ = writeln!(err, "vtium-config: the terminal: {e}");

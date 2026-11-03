@@ -30,6 +30,7 @@ pub mod cli;
 pub mod commands;
 pub mod cover;
 pub mod decode;
+pub mod display;
 pub mod draft;
 pub mod font;
 pub mod frit;
