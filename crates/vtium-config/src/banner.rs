@@ -1103,20 +1103,20 @@ mod tests {
         for plan in every_plan() {
             let text = render(plan);
             let lines: Vec<String> = text.lines().map(visible).collect();
-            let scene = match plan.form {
-                Form::Wide => &WIDE,
-                Form::Narrow => &NARROW,
+            // ADR-1201 D10's taglines, as the banner prints them.
+            let (scene, said) = match plan.form {
+                Form::Wide => (&WIDE, "fonts and settings for the vtium console"),
+                Form::Narrow => (&NARROW, "the console's fonts"),
             };
             let art = scene.height / 2;
             assert_eq!(lines.len(), art + 4, "{plan:?}");
             assert_eq!(lines[0], "");
             assert_eq!(lines[1].trim(), scene.kicker);
-            let tagline = &lines[2 + art];
-            assert!(
-                tagline.starts_with(&format!("{INDENT}{}", scene.tagline)),
-                "{tagline}"
+            assert_eq!(
+                lines[2 + art],
+                format!("{INDENT}{said}  {}", env!("CARGO_PKG_VERSION")),
+                "{plan:?}"
             );
-            assert!(tagline.ends_with(env!("CARGO_PKG_VERSION")), "{tagline}");
             assert_eq!(lines[3 + art], "");
         }
     }
