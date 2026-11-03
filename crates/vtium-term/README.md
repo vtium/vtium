@@ -69,7 +69,7 @@ A frame resolves a placeholder cell's colors with the default foreground and no 
 
 The image store does not yet take runs: vtium-image has no frame call that turns runs into entries, no way to take runs with a delete or a reservation, and no report of a changed virtual placement. Until it has them, `Screen::placements` hands the store no runs, so a virtual placement draws nothing, and nothing calls `mark_placeholders`.
 
-Tests: `tests/placeholders.rs`, `a_placeholder_cell_takes_a_blank_cells_colors_under_reverse_video` and `every_diacritic_is_an_above_mark_in_the_pinned_ucd`.
+Tests: `tests/placeholders.rs`, `a_placeholder_cell_takes_a_blank_cells_colors_under_reverse_video`, `every_diacritic_is_an_above_mark_in_the_pinned_ucd` and `the_table_is_ghosttys_list_entry_for_entry`.
 
 The table of diacritics in `src/placeholder.rs` is taken from Ghostty's `src/terminal/kitty/graphics_unicode.zig` at commit 0b1729e945, which Ghostty derived from the list the kitty spec publishes. Ghostty releases it under the MIT license:
 
@@ -81,7 +81,7 @@ The table of diacritics in `src/placeholder.rs` is taken from Ghostty's `src/ter
 >
 > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-`every_diacritic_is_an_above_mark_in_the_pinned_ucd` checks each of the 297 against the Unicode Character Database vtium-term pins, 18.0.0: each is in `src/unicode/above_marks.txt`, which `gen-unicode` writes from UnicodeData.txt with every nonspacing mark (General_Category Mn) of canonical combining class 230 and no decomposition mapping, and the table runs in increasing code point order with none twice.
+`every_diacritic_is_an_above_mark_in_the_pinned_ucd` checks each of the 297 against the Unicode Character Database vtium-term pins, 18.0.0: each is in `src/unicode/above_marks.txt`, which `gen-unicode` writes from UnicodeData.txt with every nonspacing mark (General_Category Mn) of canonical combining class 230 and no decomposition mapping, and the table runs in increasing code point order with none twice. Since a wrong entry can still be such a mark, `the_table_is_ghosttys_list_entry_for_entry` also pins the whole table to Ghostty's list at that commit with a checksum.
 
 ## Departures
 

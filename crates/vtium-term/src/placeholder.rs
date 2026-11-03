@@ -619,4 +619,26 @@ mod tests {
         assert_eq!(DIACRITICS.first(), Some(&'\u{0305}'));
         assert_eq!(DIACRITICS.last(), Some(&'\u{1D244}'));
     }
+
+    // ADR-1100, D13: the table is Ghostty's list, entry for entry. The
+    // check against the Unicode Character Database passes any above mark
+    // in order, so a wrong entry that is still such a mark, U+1DE7 for
+    // U+1DE6 among them, needs this one. The checksum is FNV-1a 64 over
+    // each code point's four little-endian bytes, worked out from the 297
+    // entries of `diacritics` in `src/terminal/kitty/graphics_unicode.zig`
+    // at Ghostty commit 0b1729e945 (the file's SHA-256 is
+    // 9d49ead0774cdb4c43eaff32955a39948cee770409f7fe7dddc7899a0e4819c5).
+    // covers: image.kitty-placeholders
+    #[test]
+    fn the_table_is_ghosttys_list_entry_for_entry() {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for c in DIACRITICS {
+            for b in u32::from(c).to_le_bytes() {
+                hash ^= u64::from(b);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        assert_eq!(DIACRITICS.len(), 297);
+        assert_eq!(hash, 0x0feb_8357_288a_293a);
+    }
 }

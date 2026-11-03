@@ -274,7 +274,11 @@ fn a_picture_row_rewrapped_by_a_resize_reads_the_same_cells() {
         .collect();
     assert_eq!(before, want);
     t.screen_mut().resize(6, 4);
-    assert_eq!(t.screen().placeholder_runs().len(), 3, "the row is split over two");
+    assert_eq!(
+        t.screen().placeholder_runs().len(),
+        3,
+        "the row is split over two"
+    );
     assert_eq!(cells_read(&t), before);
     t.screen_mut().resize(10, 4);
     assert_eq!(cells_read(&t), before);
