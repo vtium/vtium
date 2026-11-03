@@ -7,7 +7,9 @@
 
 use std::collections::BTreeMap;
 
-use harfrust::{BufferClusterLevel, BufferFlags, ShapeOptions, ShaperData, UnicodeBuffer};
+use harfrust::{
+    BufferClusterLevel, BufferFlags, Direction, ShapeOptions, ShaperData, UnicodeBuffer,
+};
 use swash::FontRef;
 use swash::scale::Source;
 use swash::scale::image::{Content, Image};
@@ -18,15 +20,20 @@ use crate::outline::Placed;
 use crate::outline::raster::{Cell, Drawer, FOREGROUND, div255, pixel, place_drawn};
 
 /// One glyph of a shaped cluster: its glyph, its position from the
-/// cluster's origin in font units, whether its character is a mark and on
-/// which side of its base the mark's combining class puts it
-/// ([`super::mark_side`]: 1 above, 2 below, else 0), and whether the shaper
-/// placed it, with an advance or an offset.
+/// cluster's origin in font units, the index in the cluster of the
+/// character it comes from, its place among the cluster's glyphs in the
+/// order the text is written (HarfRust gives the glyphs in visual order,
+/// which is that order reversed for right-to-left text), whether its
+/// character is a mark and on which side of its base the mark's combining
+/// class puts it ([`super::mark_side`]: 1 above, 2 below, else 0), and
+/// whether the shaper placed it, with an advance or an offset.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct At {
     g: u16,
     x: i32,
     y: i32,
+    from: u32,
+    logical: usize,
     mark: Option<u8>,
     placed: bool,
 }
@@ -57,37 +64,7 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
     let charmap = font.charmap();
     let mut out = Vec::new();
     for ask in asks {
-        let mut buffer = UnicodeBuffer::new();
-        // each glyph's cluster is the index of its character in the key
-        buffer.set_cluster_level(BufferClusterLevel::Characters);
-        for (i, &c) in ask.key.iter().enumerate() {
-            let Some(ch) = char::from_u32(c) else {
-                continue;
-            };
-            buffer.add(ch, u32::try_from(i).unwrap_or(u32::MAX));
-        }
-        buffer.set_flags(BufferFlags::REMOVE_DEFAULT_IGNORABLES);
-        buffer.guess_segment_properties();
-        let shaped = shaper.shape(buffer, ShapeOptions::new());
-        let mut pen = 0i32;
-        let mut glyphs = Vec::new();
-        for (info, pos) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
-            let Ok(g) = u16::try_from(info.glyph_id) else {
-                continue;
-            };
-            let mark = usize::try_from(info.cluster)
-                .ok()
-                .and_then(|i| ask.key.get(i))
-                .and_then(|&c| super::mark_side(c));
-            glyphs.push(At {
-                g,
-                x: pen.saturating_add(pos.x_offset),
-                y: pos.y_offset,
-                mark,
-                placed: pos.x_advance != 0 || pos.x_offset != 0 || pos.y_offset != 0,
-            });
-            pen = pen.saturating_add(pos.x_advance);
-        }
+        let (glyphs, advance) = shape(&shaper, &ask.key);
         let kept = !glyphs.is_empty()
             && glyphs.iter().all(|a| a.g != 0)
             && match ask.kind {
@@ -110,11 +87,60 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
                 key: ask.key.clone(),
                 kind: ask.kind,
                 glyphs,
-                advance: pen,
+                advance,
             });
         }
     }
     out
+}
+
+/// `key` as `shaper` shapes it: each glyph, in visual order, and the
+/// cluster's advance, in font units.
+fn shape(shaper: &harfrust::Shaper<'_>, key: &[u32]) -> (Vec<At>, i32) {
+    let mut buffer = UnicodeBuffer::new();
+    // each glyph's cluster is the index of its character in the key
+    buffer.set_cluster_level(BufferClusterLevel::Characters);
+    for (i, &c) in key.iter().enumerate() {
+        let Some(ch) = char::from_u32(c) else {
+            continue;
+        };
+        buffer.add(ch, u32::try_from(i).unwrap_or(u32::MAX));
+    }
+    buffer.set_flags(BufferFlags::REMOVE_DEFAULT_IGNORABLES);
+    buffer.guess_segment_properties();
+    let backward = matches!(
+        buffer.direction(),
+        Direction::RightToLeft | Direction::BottomToTop
+    );
+    let shaped = shaper.shape(buffer, ShapeOptions::new());
+    let n = shaped.len();
+    let mut pen = 0i32;
+    let mut glyphs = Vec::new();
+    for (i, (info, pos)) in shaped
+        .glyph_infos()
+        .iter()
+        .zip(shaped.glyph_positions())
+        .enumerate()
+    {
+        let Ok(g) = u16::try_from(info.glyph_id) else {
+            continue;
+        };
+        let mark = usize::try_from(info.cluster)
+            .ok()
+            .and_then(|i| key.get(i))
+            .and_then(|&c| super::mark_side(c));
+        glyphs.push(At {
+            g,
+            x: pen.saturating_add(pos.x_offset),
+            y: pos.y_offset,
+            from: info.cluster,
+            logical: if backward { n - 1 - i } else { i },
+            mark,
+            placed: pos.x_advance != 0 || pos.x_offset != 0 || pos.y_offset != 0,
+        });
+        pen = pen.saturating_add(pos.x_advance);
+    }
+    (glyphs, pen)
 }
 
 /// Whether `glyphs` is one glyph that none of `key`'s scalar values draws
@@ -306,32 +332,22 @@ fn draw_parts(
     sx: f32,
 ) -> Option<Vec<(Image, i32, i32)>> {
     let mut parts = Vec::new();
-    let mut marks = Vec::new();
-    let mut unplaced = Vec::new();
-    for &At {
-        g,
-        x,
-        y,
-        mark,
-        placed,
-    } in glyphs
-    {
+    for &At { g, x, y, .. } in glyphs {
         let image = drawer.draw_stretched(g, ppem, fit, sx)?;
         let (dx, dy) = (
             (x as f32 * scale * sx).round() as i32,
             (y as f32 * scale).round() as i32,
         );
         parts.push((image, dx, dy));
-        marks.push(mark.is_some());
-        unplaced.push(mark.filter(|&side| !placed && side != 0));
     }
+    let marks: Vec<bool> = glyphs.iter().map(|a| a.mark.is_some()).collect();
     if let [(_, 0, 0)] = parts.as_slice() {
         return Some(parts);
     }
     if let Some(row) = row
         && parts.iter().all(|(i, ..)| i.content != Content::Color)
     {
-        place_unplaced(&mut parts, &marks, &unplaced);
+        place_unplaced(&mut parts, glyphs);
         fit_marks(&mut parts, &marks, row);
     }
     Some(parts)
@@ -347,25 +363,35 @@ fn span((image, _, dy): &(Image, i32, i32)) -> (i32, i32) {
 /// Places each mark above or below its base that the shaper left at the
 /// pen, with no advance and no offset, as the C reference did after
 /// HarfBuzz's fallback mark positioning (`render_cluster`): centred over
-/// the ink of the base before it, a row above all the ink since that base
-/// for a mark above, `unplaced` 1, or directly under it for one below, 2.
-/// Without it such a mark, a zero-width glyph drawn at the pen, would land
-/// past its base, in the next cell.
-fn place_unplaced(parts: &mut [(Image, i32, i32)], marks: &[bool], unplaced: &[Option<u8>]) {
-    // the base's ink columns, and the ink's top and bottom edges since it
-    let mut base: Option<(i32, i32)> = None;
+/// the ink of its base, a row above all the ink since that base for a mark
+/// above, or directly under it for a mark below. A mark's base is the
+/// letter before it in the order the text is written, as Unicode's
+/// combining character sequence and OpenType's mark-to-base attachment
+/// take it, so the glyphs are walked in that order ([`At::logical`]):
+/// in right-to-left text the base lies right of its marks in the glyphs
+/// HarfRust gives. The glyphs one letter is drawn with, such as a body and
+/// its dot, are one base. Without this such a mark, a zero-width glyph
+/// drawn at the pen, would land past its base, in the next cell, or on the
+/// left edge of a right-to-left letter.
+fn place_unplaced(parts: &mut [(Image, i32, i32)], glyphs: &[At]) {
+    let mut order: Vec<usize> = (0..parts.len().min(glyphs.len())).collect();
+    order.sort_by_key(|&i| glyphs.get(i).map(|a| a.logical));
+    // the character the base comes from, its ink columns, and the ink's
+    // top and bottom edges since it
+    let mut base: Option<(u32, i32, i32)> = None;
     let (mut top, mut bottom) = (0, 0);
-    for i in 0..parts.len() {
-        let Some(part) = parts.get_mut(i) else {
+    for i in order {
+        let (Some(a), Some(part)) = (glyphs.get(i), parts.get_mut(i)) else {
             continue;
         };
         let (w, h) = (
             part.0.placement.width as i32,
             part.0.placement.height as i32,
         );
-        if let (Some(Some(side)), Some((x0, x1))) = (unplaced.get(i), base) {
+        let unplaced = a.mark.filter(|&side| !a.placed && side != 0);
+        if let (Some(side), Some((_, x0, x1))) = (unplaced, base) {
             part.1 = (x0 + x1 - w).div_euclid(2) - part.0.placement.left;
-            let new_top = if *side == 1 { top + 1 + h } else { bottom };
+            let new_top = if side == 1 { top + 1 + h } else { bottom };
             part.2 = new_top - part.0.placement.top;
         }
         if w == 0 || h == 0 {
@@ -373,11 +399,16 @@ fn place_unplaced(parts: &mut [(Image, i32, i32)], marks: &[bool], unplaced: &[O
         }
         let (t, b) = span(part);
         let left = part.1 + part.0.placement.left;
-        if marks.get(i) == Some(&false) {
-            base = Some((left, left + w));
-            (top, bottom) = (t, b);
-        } else {
-            (top, bottom) = (top.max(t), bottom.min(b));
+        match base {
+            _ if a.mark.is_some() => (top, bottom) = (top.max(t), bottom.min(b)),
+            Some((from, x0, x1)) if from == a.from => {
+                base = Some((from, x0.min(left), x1.max(left + w)));
+                (top, bottom) = (top.max(t), bottom.min(b));
+            }
+            _ => {
+                base = Some((a.from, left, left + w));
+                (top, bottom) = (t, b);
+            }
         }
     }
 }
@@ -566,15 +597,32 @@ fn remap(part: &mut (Image, i32, i32), from: i32, to: i32, f: f32) {
     image.placement.height = rows as u32;
 }
 
+// The font writer the crate's integration tests use, so a test here can
+// drive shaping through `rasterise` with a font it builds.
+#[cfg(test)]
+#[path = "../../tests/common/ttf.rs"]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the tests' font builder, shared with the integration tests"
+)]
+#[allow(
+    clippy::duplicate_mod,
+    reason = "`serve`'s tests load the same font builder, private to them"
+)]
+mod ttf;
+
 #[cfg(test)]
 #[expect(
     clippy::indexing_slicing,
     clippy::expect_used,
+    clippy::panic,
     reason = "a test fails by panicking"
 )]
 mod tests {
+    use super::ttf;
     use super::{Ask, Drawer, Kind, draw_parts, shape_all, span};
     use crate::frit::Hinting;
+    use crate::outline::{Outline, OutlineRequest, Placed, rasterise};
 
     /// Each glyph of lam, shadda and fatha (U+0644 U+0651 U+064E) in the
     /// subset of DejaVu Sans Mono in `tests/fixtures/`, as its glyph id
@@ -683,5 +731,107 @@ mod tests {
             [(fatha, (12, 8)), (shadda, (13, 8)), (lam, (8, -2))],
             "today's result"
         );
+    }
+
+    /// The glyph `rasterise` gives the cluster `key` in `o`'s one strike.
+    fn cluster<'a>(o: &'a Outline, key: &[u32]) -> Option<&'a Placed> {
+        let s = &o.strikes[0];
+        let (_, g) = s.clusters.iter().find(|(k, _)| k == key)?;
+        s.glyphs.get(*g as usize)
+    }
+
+    /// The columns of row `y` that `p`, a glyph `w` pixels wide, inks.
+    fn inked(p: &Placed, w: usize, y: usize) -> Vec<usize> {
+        (0..w).filter(|&x| p.pixels[y * w + x] > 0).collect()
+    }
+
+    // ADR-1302 D3, a mark the shaper left at the pen, in right-to-left
+    // text. A mark follows its base in the order the text is written
+    // (Unicode's combining character sequence), and HarfRust returns a
+    // right-to-left cluster in visual order, the mark first, so the helper
+    // finds the base on either side of the mark. `Test Mono`, with an
+    // empty GPOS so that HarfRust positions no mark itself, holds a Hebrew
+    // alef (U+05D0) and an Arabic alef (U+0627), each a bar from 100 to
+    // 500 units across and up to 500 units tall, a segol accent (U+0592,
+    // class 230, above) and a hamza below (U+0655, class 220, below), each
+    // a zero-width bar from 0 to 100 units across and 50 units tall on the
+    // baseline. At 20 pixels, the baseline on row 16, the letters fill
+    // rows 6 to 15. Left at the pen, each mark would lie on the baseline
+    // at the letter's left edge, over row 15; placed, the accent is
+    // centred over the letter with a clear row between them, and the
+    // hamza centred directly under it
+    // covers: text.overhang
+    #[test]
+    fn an_unplaced_mark_in_right_to_left_text_is_placed_over_its_letter() {
+        let mut f = ttf::Font {
+            empty_gpos: true,
+            ..ttf::test_mono()
+        };
+        let first = u16::try_from(f.glyphs.len()).expect("a glyph id");
+        f.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 500));
+        f.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 500));
+        f.glyphs.push(ttf::Glyph::rect(0, 0, 0, 100, 50));
+        f.glyphs.push(ttf::Glyph::rect(0, 0, 0, 100, 50));
+        f.cmap.extend([
+            (0x5d0, first),
+            (0x627, first + 1),
+            (0x592, first + 2),
+            (0x655, first + 3),
+        ]);
+        f.cmap.sort_unstable();
+        let (accent, hamza) = (vec![0x5d0, 0x592], vec![0x627, 0x655]);
+        let o = rasterise(&OutlineRequest {
+            font: f.build().into(),
+            family: "Test Mono".to_owned(),
+            cells: vec![(0, 20)],
+            clusters: vec![super::super::ask(&accent), super::super::ask(&hamza)],
+            ..OutlineRequest::default()
+        })
+        .expect("rasterised");
+        let (w, baseline) = (o.strikes[0].width as usize, o.strikes[0].baseline as usize);
+        assert_eq!((w, baseline), (12, 16));
+        for (key, above) in [(&accent, true), (&hamza, false)] {
+            let g = cluster(&o, key).unwrap_or_else(|| panic!("{key:x?} shaped"));
+            // the letter's columns, in a row only it inks
+            let letter = inked(g, w, 10);
+            assert!(!letter.is_empty(), "{key:x?}: the letter in row 10");
+            let (top, bottom) = (6, 15);
+            for y in top..=bottom {
+                assert_eq!(
+                    inked(g, w, y),
+                    letter,
+                    "{key:x?}: row {y} holds the letter alone"
+                );
+            }
+            let outside: Vec<usize> = (0..20)
+                .filter(|&y| (y < top || y > bottom) && !inked(g, w, y).is_empty())
+                .collect();
+            assert!(
+                !outside.is_empty(),
+                "{key:x?}: the mark outside the letter's rows"
+            );
+            for &y in &outside {
+                assert_eq!(y < top, above, "{key:x?}: the mark's side, row {y}");
+                let c = inked(g, w, y);
+                let (first, last) = (c[0], c[c.len() - 1]);
+                let middle = letter[0] + letter[letter.len() - 1];
+                assert!(
+                    (first + last).abs_diff(middle) <= 1,
+                    "{key:x?}: row {y} centred over {letter:?}: {c:?}"
+                );
+            }
+            if above {
+                assert!(
+                    inked(g, w, top - 1).is_empty(),
+                    "a clear row under the accent"
+                );
+            } else {
+                assert_eq!(
+                    outside[0],
+                    bottom + 1,
+                    "the hamza directly under the letter"
+                );
+            }
+        }
     }
 }
