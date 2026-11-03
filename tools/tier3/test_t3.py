@@ -2339,16 +2339,31 @@ class BenchTest(unittest.TestCase):
                     self.assertNotIn("error", got)
         got = t3_bench.measure(timer_line(100.6, 0, 0), event, conf)
         self.assertIn("no frame was drawn while the pane played", got["error"])
-        # One second of full-screen redraws among the pane's: the window's
-        # mean stays within the pane, the second's does not.
-        serial = "\n".join([timer_line(100.6, 1, 1, damage=(307200, 100.0)),
-                            timer_line(101.6, 60, 60, damage=(40000, 13.0))])
-        got = t3_bench.measure(serial, event, conf)
+        # One second of full-screen redraws among the pane's, wholly inside
+        # the window, 100.0 to 103.0 s: the window's mean stays within the
+        # pane, the second's does not, and the case fails.
+        wide = event.replace("end=102.00", "end=103.00")
+        serial = "\n".join([timer_line(100.6, 60, 60, damage=(40000, 13.0)),
+                            timer_line(102.0, 1, 1, damage=(307200, 100.0)),
+                            timer_line(103.0, 60, 60, damage=(40000, 13.0))])
+        got = t3_bench.measure(serial, wide, conf)
         self.assertLess(got["damage_px_mean"], 69888)
         self.assertEqual(got["damage_px_seconds"], [307200, 40000])
         self.assertEqual(got["error"], "in 1 second(s) of the window the console damaged more "
                                        "than the playing pane's 69888 pixels a frame on the "
                                        "mean, at most 307200")
+        # The same second straddling the window's start (99.6 to 100.6 s) or
+        # its end (102.6 to 103.6 s) also holds frames from outside it, so
+        # it does not count for the rule of each second, and the case passes
+        # on the window's mean.
+        for edge in (100.6, 103.6):
+            with self.subTest(edge=edge):
+                serial = "\n".join([timer_line(edge, 1, 1, damage=(307200, 100.0)),
+                                    timer_line(102.0, 60, 60, damage=(40000, 13.0))])
+                got = t3_bench.measure(serial, wide, conf)
+                self.assertLess(got["damage_px_mean"], 69888)
+                self.assertEqual(got["damage_px_seconds"], [40000])
+                self.assertNotIn("error", got)
         # the variant keeps two display buffers, so a frame's damage counts
         # two frames' changes
         with open(os.path.join(t3_common.GUEST, "kmscon-images.conf")) as f:
