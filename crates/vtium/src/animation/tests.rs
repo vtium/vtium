@@ -174,10 +174,39 @@ fn the_loops_run_out_and_the_animation_stops_on_its_last_frame() {
     c.turn(t.screen().images(), ms(t0, 90), true);
     feed(&mut t, &["a=a,i=1,s=3".into()]);
     c.turn(t.screen().images(), ms(t0, 100), true);
-    // From frame 3, going back to frame 1 is the one loop it plays.
-    let got = turns(&mut c, &t, key, t0, &[110, 120, 130, 140, 150]);
+    // From frame 3 it plays to the end, which is no loop, then twice more.
+    let got = turns(&mut c, &t, key, t0, &[110, 120, 130, 140, 150, 160, 170]);
     let frames: Vec<u32> = got.iter().map(|g| g.0).collect();
-    assert_eq!(frames, [1, 2, 3, 3, 3], "stopping set the loops back");
+    assert_eq!(frames, [1, 2, 3, 1, 2, 3, 3], "stopping set the loops back");
+}
+
+// D4, D3: an animation whose loops run out stops on its last frame shown,
+// so a later `s=3` runs it again from there with the loops set back, and
+// a later `c=1` shows frame 1, stopped.
+// covers: image.kitty-animation
+#[test]
+fn an_animation_whose_loops_ran_out_is_stopped() {
+    let t0 = Instant::now();
+    let mut t = term();
+    let key = three_frames(&mut t, [10, 10, 10]);
+    feed(&mut t, &["a=a,i=1,s=3,v=2".into()]);
+    let mut c = clock(&t, t0);
+    let frames = |got: Vec<(u32, bool)>| got.iter().map(|g| g.0).collect::<Vec<u32>>();
+    let got = turns(&mut c, &t, key, t0, &[10, 20, 30, 40, 50]);
+    assert_eq!(frames(got), [2, 3, 3, 3, 3], "v=2 plays the frames once");
+    assert_eq!(due(&c, &t), None);
+    feed(&mut t, &["a=a,i=1,s=3".into()]);
+    c.turn(t.screen().images(), ms(t0, 100), true);
+    let got = turns(&mut c, &t, key, t0, &[110, 120, 130, 140]);
+    assert_eq!(
+        frames(got),
+        [1, 2, 3, 3],
+        "s=3 plays them once more from frame 3"
+    );
+    feed(&mut t, &["a=a,i=1,c=1".into()]);
+    let got = turns(&mut c, &t, key, t0, &[150, 160, 170, 500]);
+    assert_eq!(frames(got), [1, 1, 1, 1], "c=1 shows frame 1, stopped");
+    assert_eq!(due(&c, &t), None);
 }
 
 // D4: a gapless frame never shows while the animation plays; the root

@@ -70,33 +70,58 @@ struct Play {
     /// When that frame began: the time it was due, which can be earlier
     /// than the turn that moved to it.
     since: Instant,
-    /// The loops played since the animation last started or stopped.
+    /// The loops played since the animation last started or stopped: the
+    /// passes through every frame, from the first to the last.
     played: u32,
+    /// The pass under way began at the first frame that shows, so going
+    /// back to frame 1 at its end completes a loop. A run started at a
+    /// later frame plays to the last frame first, and that part counts as
+    /// no loop.
+    whole: bool,
     /// How the clock plays it: the store's run state as the clock last
     /// answered it.
     run: Run,
     /// The animation as the store recorded it at the last turn: its frame
     /// count, loops and stamps.
     seen: Animation,
-    /// The last step was blocked: a running animation waits on its last
-    /// frame for more, has played its loops, or has only gapless frames.
-    /// The step that ends a wait starts its frame at that turn, so the
-    /// time spent waiting plays no frames.
+    /// The last step waited: a loading animation on its last frame for
+    /// more, or an animation whose frames but one are gapless. The step
+    /// that ends a wait starts its frame at that turn, so the time spent
+    /// waiting plays no frames.
     held: bool,
+}
+
+/// Where an animation goes from the frame on show.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    /// To this frame, and whether that goes back to frame 1.
+    To(u32, bool),
+    /// Its loops are spent: it stops on the frame on show.
+    Spent,
+    /// It waits on the frame on show.
+    Wait,
 }
 
 impl Play {
     /// An animation the clock meets at `now`: it shows the store's current
     /// frame, playing or stopped as the store says.
-    fn start(seen: Animation, now: Instant) -> Play {
+    fn start(seen: Animation, now: Instant, frames: &impl Frames, key: ImageKey) -> Play {
+        let frame = seen.current.max(1);
         Play {
-            frame: seen.current.max(1),
+            frame,
             since: now,
             played: 0,
+            whole: Play::first(frames, key, frame),
             run: seen.run,
             seen,
             held: false,
         }
+    }
+
+    /// Whether no frame before `frame` shows, so a pass from `frame` passes
+    /// every frame that shows.
+    fn first(frames: &impl Frames, key: ImageKey, frame: u32) -> bool {
+        (1..frame).all(|f| Play::gap(frames, key, f) == 0)
     }
 
     /// The gap of frame `frame` as a time: 0 for a gapless frame.
@@ -107,23 +132,23 @@ impl Play {
             .unwrap_or(0)
     }
 
-    /// The next frame to show after the one on show, passing over gapless
-    /// frames, and whether it goes back to the first: `None` while the
-    /// step is blocked (D4). A looping animation goes back to frame 1
-    /// after its last unless that would pass its loops: `v` asks for `v`
-    /// − 1 loops, 1 for no end. A loading one waits on its last frame.
-    fn step(&self, frames: &impl Frames, key: ImageKey) -> Option<(u32, bool)> {
+    /// Where the animation goes after the frame on show, passing over
+    /// gapless frames (D4). A looping animation goes back to frame 1 after
+    /// its last, unless that ends its last loop: `v=n` plays the frames
+    /// `n` − 1 times, and `v=1` plays them for ever. A loading one waits
+    /// on its last frame.
+    fn step(&self, frames: &impl Frames, key: ImageKey) -> Step {
         let count = self.seen.frames.max(1);
         let mut at = self.frame;
         let mut wrapped = false;
         for _ in 0..count {
             if at >= count {
                 if self.run != Run::Looping || wrapped {
-                    return None;
+                    return Step::Wait;
                 }
                 let limit = self.seen.loops.saturating_sub(1);
-                if limit > 0 && self.played.saturating_add(1) >= limit {
-                    return None;
+                if limit > 0 && self.whole && self.played.saturating_add(1) >= limit {
+                    return Step::Spent;
                 }
                 at = 1;
                 wrapped = true;
@@ -131,10 +156,10 @@ impl Play {
                 at = at.saturating_add(1);
             }
             if Play::gap(frames, key, at) > 0 {
-                return Some((at, wrapped));
+                return Step::To(at, wrapped);
             }
         }
-        None
+        Step::Wait
     }
 
     /// When the frame on show next changes, while the animation runs and
@@ -143,7 +168,10 @@ impl Play {
         if self.run == Run::Stopped {
             return None;
         }
-        self.step(frames, key)?;
+        match self.step(frames, key) {
+            Step::To(..) | Step::Spent => {}
+            Step::Wait => return None,
+        }
         Some(after(self.since, Play::gap(frames, key, self.frame)))
     }
 
@@ -166,15 +194,27 @@ impl Play {
             if now < due {
                 return self.frame != from;
             }
-            let Some((next, wrapped)) = self.step(frames, key) else {
-                self.held = true;
-                return self.frame != from;
+            let (next, wrapped) = match self.step(frames, key) {
+                Step::To(next, wrapped) => (next, wrapped),
+                // The loops are spent: it stops, as `s=1` stops it.
+                Step::Spent => {
+                    self.run = Run::Stopped;
+                    self.played = 0;
+                    return self.frame != from;
+                }
+                Step::Wait => {
+                    self.held = true;
+                    return self.frame != from;
+                }
             };
             self.since = if self.held { due.max(now) } else { due };
             self.held = false;
             self.frame = next;
             if wrapped {
-                self.played = self.played.saturating_add(1);
+                if self.whole {
+                    self.played = self.played.saturating_add(1);
+                }
+                self.whole = true;
             }
         }
         // Not reached with the loops skipped; a bound for the walk alone.
@@ -197,19 +237,24 @@ impl Play {
         let Some(loops) = elapsed.checked_div(cycle) else {
             return;
         };
+        // Each skipped loop goes back to frame 1 once; the first completes
+        // no loop when the pass under way began past the first frame.
+        let free = u64::from(!self.whole);
         let mut skip = loops.saturating_sub(1);
         let limit = self.seen.loops.saturating_sub(1);
         if limit > 0 {
             let left = limit.saturating_sub(1).saturating_sub(self.played);
-            skip = skip.min(u64::from(left));
+            skip = skip.min(u64::from(left).saturating_add(free));
         }
         if skip == 0 {
             return;
         }
         self.since = after(self.since, skip.saturating_mul(cycle));
+        let counted = skip.saturating_sub(free);
         self.played = self
             .played
-            .saturating_add(u32::try_from(skip).unwrap_or(u32::MAX));
+            .saturating_add(u32::try_from(counted).unwrap_or(u32::MAX));
+        self.whole = true;
     }
 
     /// Answers what the store records now, `seen`, at `now`, by D3's
@@ -235,6 +280,7 @@ impl Play {
             self.frame = seen.current.max(1);
             self.since = now;
             self.held = false;
+            self.whole = Play::first(frames, key, self.frame);
         }
         if run_moved {
             match (seen.run, self.run) {
@@ -250,6 +296,7 @@ impl Play {
                     self.run = run;
                     self.since = now;
                     self.held = false;
+                    self.whole = Play::first(frames, key, self.frame);
                 }
                 // While running, and `v` alone: it keeps its place and the
                 // loops played, and takes the new mode or limit.
@@ -295,7 +342,7 @@ impl AnimationClock {
         for (&key, slot) in &mut self.images {
             match (slot.as_mut(), frames.animation(key)) {
                 (None, None) => {}
-                (None, Some(seen)) => *slot = Some(Play::start(seen, now)),
+                (None, Some(seen)) => *slot = Some(Play::start(seen, now, frames, key)),
                 // The image lost its animation, as when it was replaced:
                 // its entries show what the store gives them.
                 (Some(_), None) => *slot = None,
@@ -348,7 +395,7 @@ impl AnimationClock {
             let now = self.now;
             self.images.entry(key).or_insert_with(|| {
                 let seen = frames.animation(key)?;
-                Some(Play::start(seen, now?))
+                Some(Play::start(seen, now?, frames, key))
             });
         }
         let mut chosen: BTreeMap<ImageKey, Option<FramePixels>> = BTreeMap::new();
