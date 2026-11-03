@@ -62,8 +62,9 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
     let shaper_data = ShaperData::new(&face);
     let shaper = shaper_data.shaper(&face).build();
     let charmap = font.charmap();
-    // each letter's glyphs shaped on its own, as a joining form is judged
-    let mut alone: BTreeMap<u32, Vec<u16>> = BTreeMap::new();
+    // the letter glyphs of each part of a joining cluster shaped on its
+    // own, without U+200D, as a joining form is judged
+    let mut alone: BTreeMap<Vec<u32>, Vec<u16>> = BTreeMap::new();
     let mut out = Vec::new();
     for ask in asks {
         let (glyphs, advance) = shape(&shaper, &ask.key);
@@ -74,13 +75,13 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
                 // cluster's own scalar values draws alone
                 Kind::Emoji => only_own(&glyphs, &ask.key, &charmap),
                 Kind::Joining => {
-                    let mut alone = |c: u32| {
+                    let mut alone = |part: &[u32]| {
                         alone
-                            .entry(c)
-                            .or_insert_with(|| letters(&shape(&shaper, &[c]).0))
+                            .entry(part.to_vec())
+                            .or_insert_with(|| letters(&shape(&shaper, part).0))
                             .clone()
                     };
-                    joined(&glyphs, &ask.key, &charmap, &mut alone)
+                    joined(&glyphs, &ask.key, &mut alone)
                 }
                 Kind::Marks => true,
             };
@@ -168,27 +169,35 @@ fn only_own(glyphs: &[At], key: &[u32], charmap: &swash::Charmap<'_>) -> bool {
 /// must all come from one character, or from one ligature, which HarfRust
 /// numbers by its first character: a font may draw a letter as several
 /// glyphs, as Noto Naskh Arabic draws beh's joined forms as a dotless body
-/// and a separate dot. The letter's glyphs must also differ from what each
-/// of the cluster's letters draws alone, as `alone` shapes it, and must not
-/// be one glyph that one of `key`'s scalar values maps to in `charmap`.
-/// The glyphs of the marks on the letter stay beside it.
-fn joined(
-    glyphs: &[At],
-    key: &[u32],
-    charmap: &swash::Charmap<'_>,
-    alone: &mut impl FnMut(u32) -> Vec<u16>,
-) -> bool {
+/// and a separate dot. The letter's glyphs must also differ from what the
+/// cluster draws with nothing joined: each of its letters with the marks
+/// after it, shaped on its own without U+200D, as `alone` shapes it. So a
+/// letter keyed with U+200D on a side it does not join is left out, though
+/// HarfRust may compose it with its mark into another glyph, as alef and
+/// hamza above become alef with hamza above, and lam-alef, one glyph where
+/// lam and alef alone draw two, is kept. The glyphs of the marks on the
+/// letter stay beside it.
+fn joined(glyphs: &[At], key: &[u32], alone: &mut impl FnMut(&[u32]) -> Vec<u16>) -> bool {
     let mut from = glyphs.iter().filter(|a| a.mark.is_none()).map(|a| a.from);
     let Some(first) = from.next() else {
         return false;
     };
-    let ids = letters(glyphs);
-    from.all(|f| f == first)
-        && !matches!(ids.as_slice(), [g] if key.iter().any(|&c| charmap.map(c) == *g))
-        && key
-            .iter()
-            .filter(|&&c| c != super::ZWJ && super::mark_side(c).is_none())
-            .all(|&c| alone(c) != ids)
+    if !from.all(|f| f == first) {
+        return false;
+    }
+    // each letter and the marks after it, U+200D left out
+    let mut parts: Vec<Vec<u32>> = Vec::new();
+    for &c in key.iter().filter(|&&c| c != super::ZWJ) {
+        match parts.last_mut() {
+            Some(part) if super::mark_side(c).is_some() => part.push(c),
+            _ => parts.push(vec![c]),
+        }
+    }
+    let mut unjoined: Vec<u16> = parts.iter().flat_map(|part| alone(part)).collect();
+    let mut ids = letters(glyphs);
+    unjoined.sort_unstable();
+    ids.sort_unstable();
+    ids != unjoined
 }
 
 /// Draws each shaped cluster at `cell`, adding its glyph to `glyphs`, one

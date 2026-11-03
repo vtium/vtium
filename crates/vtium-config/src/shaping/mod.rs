@@ -27,8 +27,9 @@ pub enum Kind {
     /// or lam and alef as their ligature, with any marks on it. Kept only
     /// when the font shapes its letters to glyphs that all come from one
     /// character or one ligature, as a letter drawn as a body and its dots
-    /// does, and that its letters do not draw alone, and holds the glyph of
-    /// each mark, placed a cell wide for each letter.
+    /// does, and that differ from what its letters draw with nothing
+    /// joined, and holds the glyph of each mark, placed a cell wide for
+    /// each letter.
     Joining = 3,
 }
 

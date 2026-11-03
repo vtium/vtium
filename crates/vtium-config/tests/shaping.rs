@@ -840,3 +840,43 @@ fn a_joining_cluster_drawn_as_its_letter_alone_is_left_out() {
         o.strikes[0].clusters
     );
 }
+
+// A right-joining letter keyed with U+200D on the side it does not join is
+// no joining form, though shaping changes its glyph: HarfRust composes
+// alef (U+0627) and hamza above (U+0654) into alef with hamza above
+// (U+0623), which the font holds. Alef joins only to the letter before it,
+// so alef and hamza with U+200D after them draw as they do without the
+// joiner, and are left out; with U+200D before them they take alef's final
+// form, the font's `fina` substitution, and are kept
+#[test]
+fn a_letter_composed_with_its_mark_and_not_joined_is_left_out() {
+    let mut f = unpositioned(&[
+        (0x627, ttf::Glyph::rect(600, 250, 0, 350, 500)),
+        (0x654, ttf::Glyph::rect(0, -350, 600, -250, 700)),
+        (0x623, ttf::Glyph::rect(600, 250, 0, 350, 700)),
+        (0xe000, ttf::Glyph::rect(600, 0, 0, 350, 700)),
+    ]);
+    let id = |cp: u32| f.cmap.iter().find(|(c, _)| *c == cp).expect("mapped").1;
+    let (composed, fina) = (id(0x623), id(0xe000));
+    f.gsub = vec![(*b"fina", ttf::Lookup::Single(vec![(composed, fina)]))];
+    let (after, before) = ([ALEF, '\u{654}', ZWJ], [ZWJ, ALEF, '\u{654}']);
+    let o = rasterise(&OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        clusters: [after, before]
+            .iter()
+            .map(|k| vtium_config::shaping::ask(&key(k)))
+            .collect(),
+        ..OutlineRequest::default()
+    })
+    .expect("rasterised");
+    assert!(
+        cluster(&o, &after).is_none(),
+        "alef and hamza, U+200D after them"
+    );
+    assert!(
+        cluster(&o, &before).is_some(),
+        "alef and hamza in alef's final form"
+    );
+}
