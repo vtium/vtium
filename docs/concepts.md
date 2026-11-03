@@ -188,7 +188,7 @@ At start the built-in font draws the first frame at once, in the cell the frit s
 
 When the configured font names no frit, and no font a frit can be made from on the fly, or the helper is unavailable, the console draws the built-in fonts and logs why. The built-in fonts are Unifont, and Unscii-8 for cells under 16 pixels, compiled into vtium; they also draw each character a frit lacks.
 
-vtium-config's set command switches the running console among the frits and the built-in fonts through the terminal, with xterm's font control sequence (OSC 50), which vtium takes while its allow-font-ops setting is on, as it is by default. A switch lasts until the session it came from ends, when vtium returns the console to the font the configuration gives.
+vtium-config's set command switches the running console among the frits and the built-in fonts through the terminal, with xterm's font control sequence (OSC 50), which vtium takes while its allow-font-ops setting is on, as it is by default. A switch lasts until the session it came from ends, when its program exits, its console closes, or vtium hangs it up; vtium then returns the console to the font the configuration gives.
 
 ## Using VTium
 
