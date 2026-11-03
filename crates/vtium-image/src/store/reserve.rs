@@ -35,9 +35,14 @@ pub struct Reservation {
     /// The reservation's entry in the store's ledger.
     pub(super) id: u64,
     pub(super) bytes: u64,
-    /// The image of the same kitty id a replacement will free, held.
+    /// The image of the same kitty id a replacement will free, held; for
+    /// a frame reservation, the image the frame goes to, held.
     pub(super) old: Option<ImageKey>,
     pub(super) buffer: usize,
+    /// It holds bytes of the frame allowance, for an animation frame's
+    /// data (ADR-1102, D1), where every other reservation holds bytes of
+    /// the image budget.
+    pub(super) frames: bool,
 }
 
 impl Reservation {
@@ -110,7 +115,23 @@ impl Store {
             bytes,
             old,
             buffer,
+            frames: false,
         }
+    }
+
+    /// Enters a reservation of `bytes` of the frame allowance, which
+    /// `frame_used` already counts, for a frame of image `image` of buffer
+    /// `buffer`, which it holds, in the ledger.
+    pub(super) fn grant_frames(
+        &mut self,
+        bytes: u64,
+        image: ImageKey,
+        buffer: usize,
+    ) -> Reservation {
+        self.hold(buffer, Some(image), true);
+        let mut r = self.grant(bytes, Some(image), buffer);
+        r.frames = true;
+        r
     }
 
     /// Takes `reservation` out of the ledger and returns the bytes it
@@ -129,8 +150,10 @@ impl Store {
         }
     }
 
-    /// Reserves `more` bytes for a reservation's payload as it grows. A
-    /// copy of a reservation already spent is refused as
+    /// Reserves `more` bytes for a reservation's payload as it grows: of
+    /// the image budget, or for a frame reservation of the frame allowance,
+    /// whose freeing never takes the frames of the image the frame goes to
+    /// (ADR-1102, D1). A copy of a reservation already spent is refused as
     /// [`Refusal::Invalid`], and nothing is reserved.
     pub fn grow(
         &mut self,
@@ -140,6 +163,12 @@ impl Store {
     ) -> Result<(), Refusal> {
         if !self.reservations.contains_key(&reservation.id) {
             return Err(Refusal::Invalid);
+        }
+        if reservation.frames {
+            let image = reservation.old.ok_or(Refusal::Invalid)?;
+            self.reserve_frames(more, (reservation.buffer, image))?;
+            self.add_to(reservation, more);
+            return Ok(());
         }
         self.settle(screens);
         let added = self.reserve_bytes(more, None, screens)?;
@@ -155,7 +184,11 @@ impl Store {
             return;
         };
         self.hold(reservation.buffer, reservation.old, false);
-        self.used = self.used.saturating_sub(bytes);
+        if reservation.frames {
+            self.frame_used = self.frame_used.saturating_sub(bytes);
+        } else {
+            self.used = self.used.saturating_sub(bytes);
+        }
     }
 
     /// Frees an image of the buffer in use, with any placements it has, as

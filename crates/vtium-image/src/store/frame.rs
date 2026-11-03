@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{Located, Placement, Rows, Store};
+use super::{Animation, FramePixels, Located, Placement, Rows, Store};
 use crate::image::{ImageKey, LineKey, Pixels, PlacementKey};
 use crate::rules::{Layer, rules};
 
@@ -55,12 +55,43 @@ pub struct FramePlacement {
     pub kind: &'static str,
     pub image_width: u32,
     pub image_height: u32,
-    /// No pixel of the image is below full alpha.
+    /// No pixel of the frame shown is below full alpha. For an animated
+    /// image the store fills in whether every one of its frames is opaque
+    /// (ADR-1102, D1).
     pub opaque: bool,
+    /// The pixels of the frame shown, as `frame` and `pixel_revision` name
+    /// them.
     pub pixels: Pixels,
     /// The store's [`revision`](Store::revision) when the placement or its
     /// image last changed.
     pub revision: u64,
+    /// The number of the frame shown, 1 for the root frame and for a
+    /// picture that is not animated (ADR-1102, D3). The store fills in the
+    /// root frame; the binary's snapshot puts the frame its animation clock
+    /// chose with [`show`](Self::show).
+    pub frame: u32,
+    /// That frame's pixel revision: the store's revision when a command last
+    /// changed what the frame shows. The image's key, `frame` and
+    /// `pixel_revision` together name the pixels, and a renderer keys what
+    /// it keeps for a picture on all three.
+    pub pixel_revision: u64,
+    /// The image's animation, as the store records it from the commands,
+    /// for the binary's animation clock; `None` for a picture no animation
+    /// command named.
+    pub animation: Option<Animation>,
+}
+
+impl FramePlacement {
+    /// Shows `frame`, a frame of this entry's image from
+    /// [`Store::frame_pixels`], in place of the one the entry holds: its
+    /// pixels, its number and its pixel revision. Every placement of an
+    /// image shows the same frame, so the snapshot puts the same frame on
+    /// each.
+    pub fn show(&mut self, frame: FramePixels) {
+        self.pixels = frame.pixels;
+        self.frame = frame.frame;
+        self.pixel_revision = frame.revision;
+    }
 }
 
 impl Store {
@@ -271,8 +302,11 @@ fn entry(
         kind: rules(p.protocol.0).name,
         image_width: image.width,
         image_height: image.height,
-        opaque: image.opaque,
+        opaque: image.opaque && image.anim.as_deref().is_none_or(super::Anim::opaque),
         pixels: image.pixels.clone(),
         revision: revision.max(image.revision),
+        frame: 1,
+        pixel_revision: image.revision,
+        animation: image.anim.as_deref().map(super::Anim::state),
     }
 }
