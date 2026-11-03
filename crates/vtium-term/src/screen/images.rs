@@ -16,11 +16,11 @@ mod with {
     use super::super::Screen;
     use crate::line::{Line, LineId};
     use crate::placeholder;
+    use crate::scrollback::{Change, Move};
 
     /// The placeholder runs ED 2 reads before its erase, for the store to
     /// hold through its rule: `None` when nothing needs them.
     pub(in crate::screen) type HeldRuns = Option<[Vec<PlaceholderRun>; 2]>;
-    use crate::scrollback::{Change, Move};
 
     fn key(line: &Line) -> LineKey {
         LineKey::new(line.id().get())
