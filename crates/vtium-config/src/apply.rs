@@ -714,13 +714,18 @@ impl Scratch {
     /// local user who makes names under `/tmp` first cannot make every
     /// name apply tries taken.
     fn system() -> Result<Scratch, String> {
-        Scratch::new(Path::new("/tmp"), &mut scratch_name)
+        Scratch::new(
+            Path::new("/tmp"),
+            &mut scratch_name,
+            rustix::process::geteuid().as_raw(),
+        )
     }
 
     /// A new directory `vtium-config-apply-NAME` under `base`, each NAME
-    /// taken from `names`; a name already taken, by anyone, is never
-    /// reused, and the next name is tried.
-    fn new(base: &Path, names: &mut dyn FnMut() -> String) -> Result<Scratch, String> {
+    /// taken from `names`, held only when it belongs to the uid `owner`; a
+    /// name already taken, by anyone, is never reused, and the next name is
+    /// tried.
+    fn new(base: &Path, names: &mut dyn FnMut() -> String, owner: u32) -> Result<Scratch, String> {
         use std::os::unix::fs::DirBuilderExt;
         for _ in 0..100u32 {
             let path = base.join(format!("vtium-config-apply-{}", names()));
@@ -729,25 +734,43 @@ impl Scratch {
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
                 Err(e) => return Err(format!("{}: {e}", path.display())),
             }
-            let dir = rustix::fs::open(
-                &path,
-                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-                Mode::empty(),
-            )
-            .map_err(|e| format!("{}: {e}", path.display()))?;
-            let stat = rustix::fs::fstat(&dir).map_err(|e| format!("{}: {e}", path.display()))?;
-            if stat.st_uid != rustix::process::geteuid().as_raw() || stat.st_mode & 0o077 != 0 {
-                return Err(format!(
-                    "{}: not a directory of this process's own",
-                    path.display()
-                ));
-            }
-            return Ok(Scratch { path, dir });
+            // From here the directory is this process's, and `Drop` removes
+            // it. One this process makes but cannot hold is removed here;
+            // remove_dir takes only an empty directory and follows no link.
+            // A panic, which aborts a release build, or a Ctrl-C leaves it
+            // behind, empty or holding the copies, at mode 0700, where no
+            // other user can read it.
+            return match Scratch::hold(&path, owner) {
+                Ok(dir) => Ok(Scratch { path, dir }),
+                Err(why) => {
+                    let _ = std::fs::remove_dir(&path);
+                    Err(why)
+                }
+            };
         }
         Err(format!(
             "no free directory for the check under {}",
             base.display()
         ))
+    }
+
+    /// The directory at `path` opened, when it is a directory that belongs
+    /// to `owner` and no one else can read or write.
+    fn hold(path: &Path, owner: u32) -> Result<OwnedFd, String> {
+        let dir = rustix::fs::open(
+            path,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+        let stat = rustix::fs::fstat(&dir).map_err(|e| format!("{}: {e}", path.display()))?;
+        if stat.st_uid != owner || stat.st_mode & 0o077 != 0 {
+            return Err(format!(
+                "{}: not a directory of this process's own",
+                path.display()
+            ));
+        }
+        Ok(dir)
     }
 
     /// Writes `bytes` as the new file `name` in the directory.
@@ -811,6 +834,10 @@ mod tests {
         move || (*it.next().unwrap_or(&"last")).to_owned()
     }
 
+    fn euid() -> u32 {
+        rustix::process::geteuid().as_raw()
+    }
+
     /// The entries of `dir`, sorted.
     fn entries_of(dir: &Path) -> Vec<String> {
         let mut out: Vec<String> = std::fs::read_dir(dir)
@@ -833,7 +860,7 @@ mod tests {
             .create(&taken)
             .unwrap();
         std::fs::write(taken.join("vtium.conf"), "planted\n").unwrap();
-        let scratch = Scratch::new(&base, &mut names(&["taken", "free"])).unwrap();
+        let scratch = Scratch::new(&base, &mut names(&["taken", "free"]), euid()).unwrap();
         assert_eq!(scratch.path, base.join("vtium-config-apply-free"));
         scratch.write("vtium.conf", b"checked\n").unwrap();
         assert_eq!(
@@ -843,11 +870,28 @@ mod tests {
         drop(scratch);
         assert_eq!(entries_of(&base), ["vtium-config-apply-taken"]);
         // every name taken: the check refuses, and leaves what it found
-        let why = Scratch::new(&base, &mut || "taken".to_owned())
+        let why = Scratch::new(&base, &mut || "taken".to_owned(), euid())
             .err()
             .expect("no free name");
         assert!(why.contains("no free directory"), "{why}");
         assert_eq!(entries_of(&base), ["vtium-config-apply-taken"]);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A directory made but not held, here one whose owner is not the uid
+    /// asked for, is removed, so a failed check leaves nothing under
+    /// `/tmp`.
+    #[test]
+    fn a_directory_made_but_not_held_is_removed() {
+        let base = base("not-held");
+        let why = Scratch::new(&base, &mut names(&["made"]), euid().wrapping_add(1))
+            .err()
+            .expect("another owner's directory is not held");
+        assert!(
+            why.contains("not a directory of this process's own"),
+            "{why}"
+        );
+        assert!(entries_of(&base).is_empty(), "{:?}", entries_of(&base));
         std::fs::remove_dir_all(&base).unwrap();
     }
 
