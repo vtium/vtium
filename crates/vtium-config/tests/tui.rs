@@ -818,7 +818,9 @@ fn below_the_floor_one_line_shows_the_way_out() {
 #[test]
 fn at_the_40x30_floor_no_key_or_sentence_is_cut() {
     use vtium_config::tui::words;
-    let views: [(&[&[u8]], &str, &[&str]); 5] = [
+    // the keys that reach a view, its key line, and its sentences
+    type Case<'a> = (&'a [&'a [u8]], &'a str, &'a [&'a str]);
+    let views: [Case; 5] = [
         (&[], words::KEYS_FONTS, &[]),
         (&[b"\t"], words::KEYS_SIZES, &[words::NO_PICTURES]),
         (
