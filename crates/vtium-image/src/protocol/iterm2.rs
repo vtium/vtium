@@ -46,14 +46,16 @@ mod tests;
 use vtium_parse::Chunk;
 
 use self::keys::{Keys, drawn};
-use crate::bounds::{IMAGE_OVERHEAD, IMAGE_SIDE_MAX, ITERM2_FILE_MAX, ITERM2_PARTS_MAX};
+use crate::bounds::{
+    FRAMES_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX, ITERM2_FILE_MAX, ITERM2_PARTS_MAX,
+};
 use crate::decode::base64::{Base64, Sink};
-use crate::decode::{Medium, Payload, Reply, Request};
+use crate::decode::{FrameLimits, Medium, Payload, Reply, Request};
 use crate::handler::{Context, Handler, Intro};
-use crate::image::NewImage;
+use crate::image::{ImageKey, NewImage};
 use crate::protocol::{chunk_work, place_scrolling};
 use crate::rules::Protocol;
-use crate::store::Reservation;
+use crate::store::{Control, NewFrame, Reservation, layer_cost};
 
 /// The first bytes a file's buffer reserves; it doubles from there.
 const BUFFER_FIRST: u64 = 4096;
@@ -272,7 +274,8 @@ impl Iterm2 {
     }
 
     /// The decoded picture `payload` of `size` pixels, stored under the
-    /// sixel tag and placed at the cursor as `keys` size it.
+    /// sixel tag, with an animated GIF's frames, and placed at the cursor as
+    /// `keys` size it.
     fn store(ctx: &mut dyn Context, keys: &Keys, payload: &Payload, size: (u32, u32)) {
         // max-graphic-size may have been lowered since the request
         let (max_w, max_h) = graphic(ctx);
@@ -285,11 +288,35 @@ impl Iterm2 {
         let Ok(reservation) = ctx.reserve(Protocol::SIXEL, 0, charge) else {
             return ctx.note("the budget refuses an iTerm2 picture");
         };
-        let Some((pixels, opaque)) = payload.copy_into(Vec::new()) else {
+        // and the frame allowance before a byte of the frames past the
+        // first; refused, the picture is its first frame, still
+        let frames = payload.frame_count();
+        let ahead = (frames > 1)
+            .then(|| {
+                let past = u64::try_from(frames.saturating_sub(1)).unwrap_or(u64::MAX);
+                let cost = layer_cost(size.0, size.1).saturating_mul(past);
+                ctx.edit(|e| e.frames_ahead(cost)).and_then(Result::ok)
+            })
+            .flatten();
+        let copied = match payload {
+            Payload::Frames { .. } => {
+                let keep = if ahead.is_some() { frames } else { 1 };
+                payload.copy_frames(keep)
+            }
+            _ => payload.copy_into(Vec::new()).map(|one| vec![one]),
+        };
+        let Some(mut copied) = copied.filter(|c| !c.is_empty()) else {
             ctx.unreserve(reservation);
+            if let Some(r) = ahead {
+                ctx.unreserve(r);
+            }
             return ctx.note("an iTerm2 picture's reply file does not read whole");
         };
-        ctx.add_work(count);
+        let (pixels, opaque) = copied.remove(0);
+        let read = u64::try_from(frames)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(count);
+        ctx.add_work(read);
         let image = NewImage {
             protocol: Protocol::SIXEL,
             width: size.0,
@@ -301,8 +328,14 @@ impl Iterm2 {
             opaque: Some(opaque),
         };
         let Ok(key) = ctx.add_image(image, Some(reservation)) else {
+            if let Some(r) = ahead {
+                ctx.unreserve(r);
+            }
             return ctx.note("the store refuses an iTerm2 picture");
         };
+        if let (Some(ahead), Payload::Frames { delays, loops, .. }) = (ahead, payload) {
+            animate(ctx, key, size, ahead, copied, delays, *loops);
+        }
         let cell = ctx.cell_size();
         let (dw, dh) = drawn(keys, size, cell, ctx.grid());
         let (Ok(draw_width), Ok(draw_height)) = (u32::try_from(dw), u32::try_from(dh)) else {
@@ -311,6 +344,88 @@ impl Iterm2 {
         };
         let tall = usize::try_from(dh.div_ceil(u64::from(cell.1.max(1)))).unwrap_or(usize::MAX);
         place_scrolling(ctx, key, Some((draw_width, draw_height)), tall, false);
+    }
+}
+
+/// The gap a GIF frame's delay of `delay` hundredths of a second gives, in
+/// milliseconds: 10 for each hundredth, and 100 for a delay of 0 or 1, as
+/// web browsers show such frames (ADR-1103, D2).
+fn gap(delay: u16) -> i32 {
+    if delay <= 1 {
+        100
+    } else {
+        i32::from(delay).saturating_mul(10)
+    }
+}
+
+/// Kitty's loops, `v`, for a GIF's loop count: no extension plays the
+/// frames once, a count of 0 loops forever, and a count of L plays them
+/// L + 1 times in all, L being the repeats after the first (ADR-1103, D2).
+fn loops(count: Option<u16>) -> u32 {
+    match count {
+        None => 2,
+        Some(0) => 1,
+        Some(l) => u32::from(l).saturating_add(2),
+    }
+}
+
+/// Stores an animated GIF's `frames` past its first, already copied, on
+/// image `key` of `size` pixels, each as a whole frame under its share of
+/// `ahead`, with the gaps its `delays` give and the loops its loop count
+/// gives, running from its first frame. A frame the store refuses leaves
+/// the picture its first frame, still.
+fn animate(
+    ctx: &mut dyn Context,
+    key: ImageKey,
+    size: (u32, u32),
+    ahead: Reservation,
+    frames: Vec<(Vec<u32>, bool)>,
+    delays: &[u16],
+    count: Option<u16>,
+) {
+    let each = layer_cost(size.0, size.1);
+    let n = frames.len();
+    let Some(reservations) = ctx.edit(|e| e.split_frames(ahead, key, each, n)).flatten() else {
+        return ctx.note("the frame allowance refuses an iTerm2 picture's frames");
+    };
+    let mut reservations = reservations.into_iter();
+    for ((pixels, opaque), delay) in frames.into_iter().zip(delays.iter().skip(1)) {
+        let Some(r) = reservations.next() else {
+            break;
+        };
+        let new = NewFrame {
+            x: 0,
+            y: 0,
+            width: size.0,
+            height: size.1,
+            pixels,
+            opaque,
+            replace: true,
+            base: 0,
+            background: 0,
+            edit: 0,
+            gap: gap(*delay),
+        };
+        if !matches!(ctx.edit(|e| e.add_frame(new, r)), Some(Ok(_))) {
+            for r in reservations {
+                ctx.unreserve(r);
+            }
+            ctx.edit(|e| e.delete_frames(key));
+            return ctx.note("the store refuses an iTerm2 picture's frame");
+        }
+    }
+    let control = Control {
+        current: 0,
+        run: 3,
+        loops: loops(count),
+        frame: 1,
+        gap: gap(delays.first().copied().unwrap_or(0)),
+    };
+    if !matches!(
+        ctx.edit(|e| e.control_animation(key, control)),
+        Some(Ok(()))
+    ) {
+        ctx.note("the store refuses an iTerm2 picture's animation");
     }
 }
 
@@ -358,7 +473,12 @@ impl Handler for Iterm2 {
             exact: false,
             discard: false,
             any_image: true,
-            frames: None,
+            // every frame of an animated GIF, within what the frame
+            // allowance could hold for them
+            frames: (ctx.store().frame_limit() > 0).then(|| FrameLimits {
+                max_frames: u32::try_from(FRAMES_MAX).unwrap_or(u32::MAX),
+                max_frame_bytes: ctx.store().frame_room(),
+            }),
             pixels: None,
             largest: graphic(ctx),
             largest_bytes: ctx.store().limit().saturating_sub(IMAGE_OVERHEAD),

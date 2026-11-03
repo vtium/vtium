@@ -21,6 +21,7 @@ mod anim;
 mod edit;
 mod events;
 mod frame;
+mod iterm2;
 pub(crate) mod kitty;
 mod relative;
 mod reserve;

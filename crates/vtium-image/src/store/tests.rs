@@ -1802,3 +1802,39 @@ fn an_animated_picture_draws_nothing_only_where_every_frame_draws_nothing() {
     put(&mut s, &f, top, 0, 0);
     assert_eq!(shown(&s, &f).iter().map(|p| p.4).collect::<Vec<_>>(), [top]);
 }
+
+// covers: image.iterm2
+#[test]
+fn frames_reserved_ahead_of_their_image_free_other_animations_and_split_or_go_back() {
+    let f = Fake::new(4);
+    let mut s = store(1 << 20);
+    let other = animated(&mut s, &f, 0xffff_0000, vec![0xffff_0000; 8 * 16]);
+    assert!(s.frame_bytes() > 0);
+    // the room counts what freeing the other animation would give back
+    assert_eq!(s.frame_room(), s.frame_limit());
+    let all = s.frames_ahead(s.frame_limit()).expect("reserved");
+    assert_eq!(
+        s.animation(other).unwrap().frames,
+        1,
+        "its frames were freed"
+    );
+    assert_eq!(s.frame_bytes(), s.frame_limit());
+    assert_eq!(s.frames_ahead(1), Err(Refusal::NoSpace));
+    // given back whole
+    s.unreserve(all);
+    assert_eq!(s.frame_bytes(), 0);
+    // split onto a new image, the rest given back
+    let key = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    let ahead = s.frames_ahead(1000).unwrap();
+    let parts = s.split_frames(ahead, key, 300, 3).expect("split");
+    assert_eq!(parts.len(), 3);
+    assert_eq!(s.frame_bytes(), 900);
+    for r in parts {
+        s.unreserve(r);
+    }
+    assert_eq!(s.frame_bytes(), 0);
+    // too little to split: everything goes back
+    let ahead = s.frames_ahead(500).unwrap();
+    assert!(s.split_frames(ahead, key, 300, 2).is_none());
+    assert_eq!(s.frame_bytes(), 0);
+}

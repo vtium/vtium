@@ -613,7 +613,9 @@ fn the_real_helper_returns_an_animated_gifs_frames_past_its_budget_of_one_pictur
         unreachable!();
     };
     assert_eq!((delays.as_slice(), *loops), (&[5u16, 6, 7][..], Some(2)));
-    let frames = payload.copy_frames().expect("the frames read whole");
+    let frames = payload
+        .copy_frames(usize::MAX)
+        .expect("the frames read whole");
     let red = |i: u32| 0xff00_0000 | (i * 10) << 16;
     for (n, (pixels, opaque)) in frames.iter().enumerate() {
         assert_eq!(pixels, &vec![red(n as u32 + 1); 256], "frame {n}");

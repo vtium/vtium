@@ -298,14 +298,15 @@ impl Payload {
         }
     }
 
-    /// The one copy of an animated GIF's frames into memory only the
-    /// console holds, which the caller reserved under the budget and the
-    /// frame allowance: each frame's pixels in the store's format, each
-    /// color clamped to its alpha, and whether every pixel of it is opaque,
-    /// read in one pass over the frames. `None` for any other payload, and
-    /// for frames that cannot be read whole or hand over more or fewer
-    /// bytes than they need.
-    pub fn copy_frames(&self) -> Option<Vec<(Vec<u32>, bool)>> {
+    /// The one copy of an animated GIF's first `keep` frames into memory
+    /// only the console holds, which the caller reserved under the budget
+    /// and the frame allowance: each frame's pixels in the store's format,
+    /// each color clamped to its alpha, and whether every pixel of it is
+    /// opaque, read in one pass over the frames, the frames past `keep`
+    /// read and dropped. `None` for any other payload, and for frames that
+    /// cannot be read whole or hand over more or fewer bytes than they
+    /// need.
+    pub fn copy_frames(&self, keep: usize) -> Option<Vec<(Vec<u32>, bool)>> {
         let Self::Frames {
             width,
             height,
@@ -317,19 +318,24 @@ impl Payload {
             return None;
         };
         let per = usize::try_from(u64::from(*width).checked_mul(u64::from(*height))?).ok()?;
+        let kept = keep.min(delays.len());
         let mut frames: Vec<(Vec<u32>, u8)> = Vec::new();
-        frames.try_reserve_exact(delays.len()).ok()?;
-        for _ in 0..delays.len() {
+        frames.try_reserve_exact(kept).ok()?;
+        for _ in 0..kept {
             let mut out = Vec::new();
             out.try_reserve_exact(per).ok()?;
             frames.push((out, 0xff));
         }
+        // the bytes of the frames past `keep`, read and dropped
+        let frame_bytes = per.checked_mul(4)?;
+        let mut rest = frame_bytes.checked_mul(delays.len().saturating_sub(kept))?;
         let mut at = 0usize;
         let mut over = false;
         let mut sink = |mut run: &[u8]| {
             while !run.is_empty() {
                 let Some((out, alphas)) = frames.get_mut(at) else {
-                    over = true;
+                    over |= run.len() > rest;
+                    rest = rest.saturating_sub(run.len());
                     return;
                 };
                 let room = per.saturating_sub(out.len()).saturating_mul(4);
@@ -348,7 +354,7 @@ impl Payload {
             }
             FrameData::File(f) => f.read(&mut sink),
         };
-        let done = whole && !over && frames.iter().all(|(f, _)| f.len() == per);
+        let done = whole && !over && rest == 0 && frames.iter().all(|(f, _)| f.len() == per);
         done.then(|| {
             frames
                 .into_iter()
@@ -568,7 +574,7 @@ mod tests {
             loops: None,
             data: FrameData::Memory(data.clone()),
         };
-        let got = payload.copy_frames().unwrap();
+        let got = payload.copy_frames(usize::MAX).unwrap();
         assert_eq!(
             got,
             [
@@ -583,11 +589,18 @@ mod tests {
             loops: None,
             data: FrameData::Memory(bytes),
         };
-        assert_eq!(with(data[..12].to_vec()).copy_frames(), None);
+        // the first frame alone, the second read and dropped
         assert_eq!(
-            with([data.as_slice(), &[0; 4]].concat()).copy_frames(),
-            None
+            with(data.clone()).copy_frames(1).unwrap(),
+            [(vec![0xffff_0000, 0xff00_ff00], true)]
         );
+        for keep in [1, 2] {
+            assert_eq!(with(data[..12].to_vec()).copy_frames(keep), None);
+            assert_eq!(
+                with([data.as_slice(), &[0; 4]].concat()).copy_frames(keep),
+                None
+            );
+        }
     }
 
     #[test]

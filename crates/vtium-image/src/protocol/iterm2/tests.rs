@@ -11,17 +11,20 @@
     clippy::arithmetic_side_effects,
     clippy::unwrap_used,
     clippy::panic,
+    clippy::cast_possible_truncation,
     reason = "a test fails by panicking"
 )]
 
 use vtium_parse::Chunk;
 
 use super::Iterm2;
-use crate::bounds::{IMAGE_OVERHEAD, ITERM2_FILE_MAX, ITERM2_PARTS_MAX};
-use crate::decode::{Medium, Payload, Reply, Request};
+use crate::bounds::{
+    FRAME_ALLOWANCE_FACTOR, FRAMES_MAX, IMAGE_OVERHEAD, ITERM2_FILE_MAX, ITERM2_PARTS_MAX,
+};
+use crate::decode::{FrameData, FrameLimits, Medium, Payload, Reply, Request};
 use crate::handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
-use crate::image::LineKey;
-use crate::store::{Edit, Rows, Screens, Store};
+use crate::image::{ImageKey, LineKey};
+use crate::store::{Edit, Rows, Run, Screens, Store};
 
 struct Host {
     store: Store,
@@ -599,4 +602,143 @@ fn text_between_the_parts_leaves_the_transfer_and_a_stray_part_is_ignored() {
     send(&mut i, &mut h, "SetUserVar=a=Yg==");
     send(&mut i, &mut h, "FileEnd");
     assert_eq!(taken(&mut h).medium, Medium::Direct(FILE.to_vec()));
+}
+
+/// The helper's answer for an animated GIF: `delays.len()` frames of 8 by
+/// 16 pixels, frame `n` from 0 all of opaque gray `n + 1`.
+fn animation(delays: &[u16], loops: Option<u16>) -> Reply {
+    let data = (0..delays.len())
+        .flat_map(|n| {
+            let v = n as u8 + 1;
+            [v, v, v, 0xff].repeat(8 * 16)
+        })
+        .collect();
+    Reply::Ok(Payload::Frames {
+        width: 8,
+        height: 16,
+        delays: delays.to_vec(),
+        loops,
+        data: FrameData::Memory(data),
+    })
+}
+
+/// The one image the store holds.
+fn only_image(h: &Host) -> ImageKey {
+    let frame = h.store.frame(h.rows(), h.cols);
+    assert_eq!(frame.len(), 1, "one placement");
+    frame[0].image
+}
+
+// covers: image.iterm2
+#[test]
+fn a_picture_asks_for_frames_within_the_frame_allowance() {
+    let (mut i, mut h) = (Iterm2::default(), Host::new());
+    send(&mut i, &mut h, &format!("File=inline=1:{}", b64(FILE)));
+    let request = taken(&mut h);
+    assert_eq!(
+        request.frames,
+        Some(FrameLimits {
+            max_frames: FRAMES_MAX as u32,
+            max_frame_bytes: (1 << 20) * FRAME_ALLOWANCE_FACTOR,
+        })
+    );
+}
+
+// covers: image.iterm2
+#[test]
+fn an_animated_gif_is_stored_with_its_frames_gaps_and_loops_and_runs() {
+    let (mut i, mut h) = (Iterm2::default(), Host::new());
+    send(&mut i, &mut h, &format!("File=inline=1:{}", b64(FILE)));
+    let _ = taken(&mut h);
+    i.decoded(&mut h, animation(&[5, 0, 1, 12], None));
+    let key = only_image(&h);
+    let anim = h.store.animation(key).unwrap();
+    assert_eq!(anim.frames, 4);
+    assert_eq!(anim.current, 1, "it runs from its first frame");
+    assert_eq!(anim.run, Run::Looping);
+    // no loop extension plays the frames once: kitty's v of 2
+    assert_eq!(anim.loops, 2);
+    // 10 ms a hundredth, and 100 ms for a delay of 0 or 1
+    let gaps: Vec<i32> = (1..=4)
+        .map(|n| h.store.frame_gap(key, n).unwrap())
+        .collect();
+    assert_eq!(gaps, [50, 100, 100, 120]);
+    for n in 1..=4u32 {
+        let px = h.store.frame_pixels(key, n).unwrap();
+        let v = n;
+        assert_eq!(
+            px.pixels.as_slice(),
+            vec![0xff00_0000 | v << 16 | v << 8 | v; 8 * 16].as_slice(),
+            "frame {n}"
+        );
+    }
+    // the first frame under the budget, the rest under the frame allowance
+    assert_eq!(h.store.bytes(), 8 * 16 * 4 + IMAGE_OVERHEAD);
+    assert!(h.store.frame_bytes() >= 3 * 8 * 16 * 4);
+    assert!(h.notes.is_empty(), "{:?}", h.notes);
+}
+
+// covers: image.iterm2
+#[test]
+fn a_loop_count_of_0_loops_forever_and_one_of_l_plays_l_plus_one_times() {
+    for (loops, v) in [
+        (None, 2),
+        (Some(0), 1),
+        (Some(2), 4),
+        (Some(u16::MAX), 65_537),
+    ] {
+        let (mut i, mut h) = (Iterm2::default(), Host::new());
+        send(&mut i, &mut h, &format!("File=inline=1:{}", b64(FILE)));
+        let _ = taken(&mut h);
+        i.decoded(&mut h, animation(&[5, 5], loops));
+        let anim = h.store.animation(only_image(&h)).unwrap();
+        assert_eq!(anim.loops, v, "{loops:?}");
+    }
+}
+
+// covers: image.iterm2
+#[test]
+fn an_animated_gif_past_the_frame_allowance_is_stored_as_its_first_frame_still() {
+    let (mut i, mut h) = (Iterm2::default(), Host::new());
+    // a budget of 6,000 bytes: the first frame's 512 bytes fit, and the
+    // allowance of 30,000 holds 52 frames past it at 576 bytes each, but
+    // not 53
+    h.store.set_limit(6000);
+    send(&mut i, &mut h, &format!("File=inline=1:{}", b64(FILE)));
+    let _ = taken(&mut h);
+    i.decoded(&mut h, animation(&[5; 54], Some(0)));
+    let key = only_image(&h);
+    assert_eq!(h.store.animation(key), None, "no frames, so no animation");
+    assert_eq!(
+        h.store.frame_pixels(key, 1).unwrap().pixels.as_slice(),
+        vec![0xff01_0101; 8 * 16].as_slice()
+    );
+    assert_eq!(h.store.frame_bytes(), 0, "the allowance given back");
+    // 53 frames fit
+    let (mut i, mut h) = (Iterm2::default(), Host::new());
+    h.store.set_limit(6000);
+    send(&mut i, &mut h, &format!("File=inline=1:{}", b64(FILE)));
+    let _ = taken(&mut h);
+    i.decoded(&mut h, animation(&[5; 53], Some(0)));
+    assert_eq!(h.store.animation(only_image(&h)).unwrap().frames, 53);
+}
+
+#[test]
+fn frames_that_do_not_read_whole_store_nothing() {
+    let (mut i, mut h) = (Iterm2::default(), Host::new());
+    send(&mut i, &mut h, &format!("File=inline=1:{}", b64(FILE)));
+    let _ = taken(&mut h);
+    i.decoded(
+        &mut h,
+        Reply::Ok(Payload::Frames {
+            width: 8,
+            height: 16,
+            delays: vec![1, 1],
+            loops: None,
+            data: FrameData::Memory(vec![0xff; 8 * 16 * 4 + 4]),
+        }),
+    );
+    assert!(h.boxes().is_empty());
+    assert_eq!(h.store.bytes(), 0);
+    assert_eq!(h.store.frame_bytes(), 0);
 }
