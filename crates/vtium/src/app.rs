@@ -1811,6 +1811,11 @@ impl App {
                 }
                 self.darken();
                 self.wait.shown(now);
+                // The blank's countdown starts afresh from the acquire, as
+                // the C reference's reset its DPMS timer when a display
+                // became active (`src/seat.c:196-202`), and a blank in force
+                // ends; while the VT was another's it ran no blank.
+                self.user_input(now);
                 self.activate(now);
             }
             VtEvent::Release => {
@@ -3367,7 +3372,11 @@ impl App {
                 }
             }
         }
-        if self.blank.fire(now) {
+        // While the VT is another's its displays are not vtium's to blank,
+        // and its countdown waits for the acquire, as the C reference's
+        // DPMS timer blanked nothing while its seat was not in the
+        // foreground (`src/seat.c:520`).
+        if self.vt.is_active() && self.blank.fire(now) {
             self.blank_now(now);
         }
         #[cfg(feature = "images")]
@@ -3598,7 +3607,9 @@ impl App {
         let mut due: Vec<Instant> = Vec::new();
         due.extend(self.timer_due);
         due.extend(self.wait.due());
-        due.extend(self.blank.deadline());
+        if self.vt.is_active() {
+            due.extend(self.blank.deadline());
+        }
         for head in &self.heads {
             due.extend(head.text_due);
             due.extend(head.cursor_due.map(|(d, _)| d));
@@ -4003,9 +4014,15 @@ mod tests {
         pixels: Arc<Mutex<Vec<u8>>>,
         events: Vec<Event>,
         awake: bool,
-        /// The user's input told it, and its displays unblanked.
+        /// It sleeps as a real device does: it lists the displays it
+        /// announced while asleep, and reports each sleep, so a release is
+        /// acknowledged.
+        like_a_device: bool,
+        /// The user's input told it, its displays unblanked, and its
+        /// displays powered down.
         inputs: u32,
         unblanks: u32,
+        powered_down: u32,
     }
 
     impl Still {
@@ -4018,8 +4035,10 @@ mod tests {
                 pixels: Arc::new(Mutex::new(vec![0; 320 * 160 * 4])),
                 events: Vec::new(),
                 awake: false,
+                like_a_device: false,
                 inputs: 0,
                 unblanks: 0,
+                powered_down: 0,
             }
         }
     }
@@ -4032,7 +4051,7 @@ mod tests {
             std::mem::take(&mut self.events)
         }
         fn displays(&self) -> Vec<DisplayId> {
-            if self.awake {
+            if self.awake || self.like_a_device {
                 self.ids.iter().map(|&(id, _)| id).collect()
             } else {
                 Vec::new()
@@ -4077,11 +4096,17 @@ mod tests {
         fn ready_for_frame(&self, id: DisplayId) -> bool {
             !self.is_flipping(id)
         }
-        fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
+        fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
+            if dpms == Dpms::Off {
+                self.powered_down = self.powered_down.saturating_add(1);
+            }
             Ok(())
         }
         fn sleep(&mut self) {
             self.awake = false;
+            if self.like_a_device {
+                self.events.push(Event::Asleep);
+            }
         }
         fn wake_up(&mut self) -> io::Result<()> {
             if !self.awake {
@@ -4694,7 +4719,9 @@ mod tests {
     fn the_loop_wakes_when_a_heads_hangup_falls_due() {
         let (_lp, mut app) = seat(Some("version = 1\n[head a]\n"), no_fonts());
         let t = Instant::now();
-        assert!(app.next_wake(t) > Some(Duration::from_secs(30)));
+        // Nothing else is due within 30 s; the VT is not shown, so the
+        // blank's countdown sets no wake at all.
+        assert!(app.next_wake(t).is_none_or(|w| w > Duration::from_secs(30)));
         if let Some(head) = app.heads.first_mut() {
             head.hangup_due = Some(t + Duration::from_secs(30));
         }
@@ -4808,6 +4835,62 @@ mod tests {
             "no device told, no display unblanked"
         );
         assert!(app.blank.blanked(), "the blank stands");
+    }
+
+    // vtium/vtium#229's review, round 2: while the fake VT is released the
+    // blank's timer blanks nothing, however long it runs past its
+    // timeout, and wakes no loop for it; taken back, the countdown starts
+    // afresh from the acquire. The device lists its displays while
+    // asleep, as a real one does, so a power-down would reach it.
+    #[test]
+    fn a_released_fake_vt_blanks_no_display_and_counts_afresh_at_the_acquire() {
+        let chord = InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: InputMods::CTRL.union(InputMods::LOGO),
+            keysyms: vec![0xffc9],
+            codepoints: vec![None],
+            repeat: false,
+        });
+        let powered_down = |app: &mut App| {
+            let v = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            v.as_any().downcast_mut::<Still>().unwrap().powered_down
+        };
+        let (_lp, mut app) = seat_with(&["--font-size=16", "--dpms-timeout=1"], None, no_fonts());
+        let mut still = Still::new(&[(1, "A")]);
+        still.like_a_device = true;
+        app.add_video(PathBuf::from("/dev/mem0"), Box::new(still));
+        shown(&mut app);
+        app.focus = Some(0);
+        let t = Instant::now();
+        let at = |s: u64| t + Duration::from_millis(s);
+        app.input_event(chord.clone(), t);
+        app.turn(t);
+        assert!(!app.vt.is_active(), "Ctrl+Super+F12 released the VT");
+        let before = powered_down(&mut app);
+        app.turn(at(5_000));
+        assert_eq!(
+            powered_down(&mut app),
+            before,
+            "nothing blanked while released"
+        );
+        assert!(!app.blank.blanked());
+        assert!(
+            app.next_wake(at(5_000)).is_none_or(|w| w > Duration::ZERO),
+            "the blank wakes no loop while released"
+        );
+        app.input_event(chord, at(5_000));
+        app.turn(at(5_000));
+        assert!(app.vt.is_active(), "taken back");
+        app.turn(at(5_500));
+        assert_eq!(
+            powered_down(&mut app),
+            before,
+            "the countdown started at the acquire"
+        );
+        app.turn(at(6_100));
+        assert!(app.blank.blanked(), "a second after the acquire, it blanks");
+        assert!(powered_down(&mut app) > before);
     }
 
     /// Two heads on one memory device at `--font-size=0`: `a` draws the
