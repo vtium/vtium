@@ -63,7 +63,10 @@ considered:
     said: "Pages source: the maintainer sets it once. Leave that as stated."
     via: the maintainer in the steering session's interview, 2026-11-04, relayed by the team lead
     paraphrase: true
-status: proposed
+  - operator: aaronsb
+    said: "accept 1502"
+    via: the maintainer in the steering session, 2026-11-04, after reading the revised record on GitHub
+status: accepted
 date: 2026-11-03
 deciders:
   - aaronsb
