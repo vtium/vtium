@@ -177,7 +177,9 @@ and udev's database, /run/udev/data.\n";
         format!("the frit {name} cannot be read ({why}); vtium draws its built-in font")
     }
 
-    pub const HWACCEL_NOT_BUILT: &str = "hwaccel is not built yet; vtium draws in software";
+    /// `hwaccel` on in a build without the `gpu` feature (ADR-1303 D9).
+    pub const HWACCEL_NOT_IN_BUILD: &str =
+        "hwaccel needs a build with the gpu feature; vtium draws in software";
 
     /// A key vtium takes and does not act on yet, set by a source.
     pub fn not_built(key: &str) -> String {
