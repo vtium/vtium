@@ -926,7 +926,6 @@ impl View {
         if !awake {
             self.lost = true;
             let _ = video.swap(token, &damage);
-            self.count(&stats, &damage, false);
             return Presented::default();
         }
         self.pointer.after_draw(video, self.id, tip, at);
@@ -947,25 +946,13 @@ impl View {
         };
         // the display gave the plane up: the renderer draws the pointer
         self.pending |= self.pointer.after_swap(video, self.id);
-        self.count(&stats, &damage, queued);
+        if let Some(timer) = &mut self.timer {
+            timer.frame(stats.cpu, queued, stats.damage_px, stats.misses);
+        }
         let end = clock();
         let start = self.sent.take().unwrap_or(end);
         term.coalesce.drawn(&mut self.wait, start, end, queued);
         Presented { queued }
-    }
-
-    /// Counts a frame composed in the render timer: queued, drawn with
-    /// `damage` that the display did not take, or skipped when it drew
-    /// nothing.
-    fn count(&mut self, stats: &Stats, damage: &[DisplayRect], queued: bool) {
-        let Some(timer) = &mut self.timer else {
-            return;
-        };
-        if queued || damage.is_empty() {
-            timer.frame(stats.cpu, queued, stats.damage_px, stats.misses);
-        } else {
-            timer.unshown(stats.misses);
-        }
     }
 
     /// Draws `term` into the buffer `video` lends and presents it at once,
@@ -1270,14 +1257,20 @@ mod tests {
 
     /// A display with `n` buffers, taking turns at each swap: the buffer
     /// lent is the back one, its age the frames drawn since it was last.
+    /// While a flip is in flight it lends a buffer as a DRM display does:
+    /// none with two buffers, and with one or three the back one, until a
+    /// frame drawn into it waits for the flip's end; that swap is refused
+    /// as busy and the frame goes with the next swap.
     struct Flip {
         bufs: Vec<Arc<Mutex<Vec<u8>>>>,
         back: usize,
         drawn: Vec<Option<u32>>,
         count: u32,
         out: bool,
-        /// A flip is in flight: the display lends no buffer until it ends.
+        /// A flip is in flight.
         flipping: bool,
+        /// A frame drawn into the back buffer waits for a swap that takes.
+        fresh: bool,
         /// The frames composed and handed back, each swap, whatever it
         /// drew.
         composed: u32,
@@ -1297,6 +1290,7 @@ mod tests {
                 count: 0,
                 out: false,
                 flipping: false,
+                fresh: false,
                 composed: 0,
             }
         }
@@ -1340,7 +1334,8 @@ mod tests {
             None
         }
         fn lend(&mut self, _: DisplayId) -> Option<Token> {
-            if self.flipping || std::mem::replace(&mut self.out, true) {
+            let free = !self.flipping || (self.bufs.len() != 2 && !self.fresh);
+            if !free || std::mem::replace(&mut self.out, true) {
                 return None;
             }
             let age = self.drawn[self.back].map_or(0, |d| self.count - d + 1);
@@ -1352,11 +1347,17 @@ mod tests {
         fn swap(&mut self, _: Token, damage: &[DisplayRect]) -> Result<Swapped, SwapError> {
             self.out = false;
             self.composed += 1;
-            if damage.is_empty() {
+            if !damage.is_empty() {
+                self.count += 1;
+                self.drawn[self.back] = Some(self.count);
+                self.fresh = true;
+            }
+            if self.flipping {
+                return Err(SwapError::Busy);
+            }
+            if !std::mem::take(&mut self.fresh) {
                 return Ok(Swapped::Nothing);
             }
-            self.count += 1;
-            self.drawn[self.back] = Some(self.count);
             self.back = (self.back + 1) % self.bufs.len();
             Ok(Swapped::Frame)
         }
@@ -1364,7 +1365,7 @@ mod tests {
             self.flipping
         }
         fn ready_for_frame(&self, id: DisplayId) -> bool {
-            !self.is_flipping(id) && !self.out
+            !self.out && (!self.is_flipping(id) || (self.bufs.len() != 2 && !self.fresh))
         }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())
@@ -1996,12 +1997,12 @@ mod tests {
     /// and the cursor moved to where it already is.
     const UNSEEN: &[u8] = b"\x1b[31m\x1b[m\x1b]2;a title\x07\x1b[2;1H";
 
-    /// The frames `view`'s render timer counted: those queued, those that
-    /// drew nothing, and those drawn that the display did not take.
-    fn counted(view: &mut View) -> (u32, u32, u32) {
+    /// The frames `view`'s render timer counted: those queued, and those
+    /// that queued nothing.
+    fn counted(view: &mut View) -> (u32, u32) {
         let timer = view.timer.as_mut().unwrap();
         let r = timer.report(Duration::from_secs(1), 1).unwrap();
-        (r.frames, r.skipped, r.unshown)
+        (r.frames, r.skipped)
     }
 
     // The child's output that changes nothing on the screen, as a sixel
@@ -2023,18 +2024,18 @@ mod tests {
         }
         turn(&mut term, &mut view, &mut video, &[UNSEEN]);
         assert_eq!(video.composed, 1, "no frame for the parts before the end");
-        assert_eq!(counted(&mut view), (1, 0, 0));
+        assert_eq!(counted(&mut view), (1, 0));
     }
 
     // Output that changes nothing while a flip is in flight leaves no draw
-    // waiting for the flip's end, so no frame that draws nothing is
-    // composed then; output that changes the screen meanwhile is drawn
-    // once the flip ends.
+    // waiting for the flip's end, so no frame is composed then; output that
+    // changes the screen meanwhile is drawn once the flip ends. With two
+    // buffers the display lends none while it flips.
     #[test]
     fn output_during_a_flip_composes_only_what_changed() {
         let (mut term, mut view) = view();
         view.timer = Some(RenderTimer::new());
-        let mut video = Flip::with(1);
+        let mut video = Flip::new();
         turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
         assert_eq!(video.composed, 1);
         video.flipping = true;
@@ -2050,25 +2051,29 @@ mod tests {
         video.flipping = false;
         turn(&mut term, &mut view, &mut video, &[]);
         assert_eq!(video.composed, 2, "B is drawn once the flip ends");
-        assert!(video.shows(0, 1), "B");
-        assert_eq!(counted(&mut view), (2, 0, 0));
+        assert!(video.shows(1, 1), "B");
+        assert_eq!(counted(&mut view), (2, 0));
     }
 
-    // A frame drawn that the display drops is counted as not taken, apart
-    // from the passes that drew nothing, which a frame that changed
-    // nothing is.
+    // With three buffers the display lends the third while the second
+    // flips, as tier 3's flood screen ran on: output that changes nothing
+    // composes no frame into it, where each such frame drew what the
+    // buffer lacked, was refused as busy and counted as skipped.
     #[test]
-    fn a_frame_the_display_dropped_is_not_counted_as_skipped() {
+    fn output_during_a_flip_draws_nothing_ahead_with_three_buffers() {
         let (mut term, mut view) = view();
         view.timer = Some(RenderTimer::new());
-        let mut video = Plane::new(false);
-        term.parse(b"A", &mut |_| {});
-        draw(&mut term, &mut view, &mut video, None);
-        draw(&mut term, &mut view, &mut video, None);
-        video.asleep = true;
-        term.parse(b"B", &mut |_| {});
-        draw(&mut term, &mut view, &mut video, None);
-        assert_eq!(counted(&mut view), (1, 1, 1), "queued, skipped, dropped");
+        let mut video = Flip::with(3);
+        turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
+        video.flipping = true;
+        assert!(video.ready_for_frame(ID), "the third buffer is free");
+        for _ in 0..3 {
+            turn(&mut term, &mut view, &mut video, &[UNSEEN]);
+        }
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(video.composed, 1, "nothing changed during the flip");
+        assert_eq!(counted(&mut view), (1, 0));
     }
 
     // What output changes of a frame beyond its cells is the cursor: its

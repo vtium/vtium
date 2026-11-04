@@ -16,12 +16,9 @@ pub struct Report {
     pub flips: u32,
     /// Frames drawn and queued for a flip.
     pub frames: u32,
-    /// Passes that composed a frame and drew nothing in it, so queued no
-    /// flip.
+    /// Passes that composed a frame and queued no flip: the frame drew
+    /// nothing, or the display refused it, as while a flip is in flight.
     pub skipped: u32,
-    /// Frames drawn that the display did not take: it was busy, off or
-    /// gone, or refused them.
-    pub unshown: u32,
     pub cpu_mean: Duration,
     pub cpu_median: Duration,
     pub cpu_p95: Duration,
@@ -48,7 +45,6 @@ pub struct RenderTimer {
     flips: u32,
     frames: u32,
     skipped: u32,
-    unshown: u32,
     cpu_sum: Duration,
     cpu_max: Duration,
     skipped_cpu: Duration,
@@ -74,7 +70,7 @@ impl RenderTimer {
     }
 
     /// A draw ended after `cpu`: queued for a flip with `damage_px` pixels
-    /// of damage, or skipped when it drew nothing. It drew `misses` glyphs
+    /// of damage, or skipped when it queued none. It drew `misses` glyphs
     /// from the font.
     pub fn frame(&mut self, cpu: Duration, queued: bool, damage_px: u64, misses: u32) {
         self.misses = self.misses.saturating_add(misses);
@@ -91,15 +87,6 @@ impl RenderTimer {
         self.cpu_sum = self.cpu_sum.saturating_add(cpu);
         self.cpu_max = self.cpu_max.max(cpu);
         self.damage_px_sum = self.damage_px_sum.saturating_add(damage_px);
-    }
-
-    /// A frame drawn that the display did not take, which is neither a
-    /// frame queued nor a draw that drew nothing. It drew `misses` glyphs
-    /// from the font.
-    pub fn unshown(&mut self, misses: u32) {
-        self.misses = self.misses.saturating_add(misses);
-        self.misses_max = self.misses_max.max(misses);
-        self.unshown = self.unshown.saturating_add(1);
     }
 
     /// A flip completed.
@@ -119,11 +106,10 @@ impl RenderTimer {
 
     /// Closes the interval, `interval` long on a display of `screen_px`
     /// pixels, and starts the next. A report comes for an interval with a
-    /// flip or a frame drawn, queued or not, and for the first quiet one
-    /// after it, so a log shows where activity stopped; skipped draws alone
-    /// are quiet.
+    /// flip or a queued frame, and for the first quiet one after it, so a
+    /// log shows where activity stopped; skipped draws alone are quiet.
     pub fn report(&mut self, interval: Duration, screen_px: u64) -> Option<Report> {
-        let active = self.flips > 0 || self.frames > 0 || self.unshown > 0;
+        let active = self.flips > 0 || self.frames > 0;
         let line = active || self.reported;
         let mut t = core::mem::take(self);
         self.reported = active;
@@ -144,7 +130,6 @@ impl RenderTimer {
             flips: t.flips,
             frames,
             skipped: t.skipped,
-            unshown: t.unshown,
             cpu_mean: mean,
             cpu_median: percentile(&t.samples, 50),
             cpu_p95: percentile(&t.samples, 95),
@@ -231,7 +216,7 @@ impl fmt::Display for Report {
             "render-timer: interval_ms={} presented_per_s={}.{:02} flips={} frames={} \
              cpu_ms_mean={} cpu_ms_median={} cpu_ms_p95={} cpu_ms_max={} damage_px_mean={} \
              damage_pct={}.{:02} skipped={} skipped_cpu_ms={} held={} expired={} \
-             glyph_misses={} glyph_misses_max={} unshown={}",
+             glyph_misses={} glyph_misses_max={}",
             Ms(self.interval),
             rate / 100,
             rate % 100,
@@ -250,7 +235,6 @@ impl fmt::Display for Report {
             self.expired,
             self.misses,
             self.misses_max,
-            self.unshown,
         )
     }
 }
@@ -315,20 +299,5 @@ mod tests {
             t.report(ms(500), 1).unwrap().to_string().split(' ').nth(2),
             Some("presented_per_s=2.00")
         );
-    }
-
-    // A frame drawn that the display did not take is counted apart: it is
-    // no frame queued and no draw that drew nothing, so the skipped count
-    // stays the passes that drew nothing (vtium/vtium#242). Its interval
-    // is reported.
-    // covers: platform.compositor
-    #[test]
-    fn a_frame_the_display_did_not_take_is_not_skipped() {
-        let mut t = RenderTimer::new();
-        t.unshown(3);
-        let r = t.report(ms(1000), 1).unwrap();
-        assert_eq!((r.frames, r.skipped, r.unshown), (0, 0, 1));
-        assert_eq!((r.misses, r.skipped_cpu), (3, Duration::ZERO));
-        assert!(r.to_string().ends_with(" unshown=1"), "{r}");
     }
 }
