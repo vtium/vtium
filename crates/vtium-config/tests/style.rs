@@ -265,7 +265,7 @@ fn bold_italic_emboldens_an_outline_before_it_slants_it() {
         right_edge(il, &irows[y]).expect("ink") - right_edge(bl, &brows[y]).expect("ink"),
     );
     assert!(
-        (moved.0 - 0.1).abs() <= 0.15 && (moved.1 - 0.1).abs() <= 0.15,
+        (moved.0 - 0.1).abs() <= 0.05 && (moved.1 - 0.1).abs() <= 0.05,
         "the foot's left and right edges moved {moved:?}, where the slant moves them 0.1"
     );
 }
