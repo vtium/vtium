@@ -1,0 +1,21 @@
+# tier 3's showcase set for the shell scene, the hero (t3_showcase.py,
+# ADR-1502 D6): the fonts of showcase-iosevka, which says why each is there,
+# in a cell two pixels shorter, so the hero holds a row more. Iosevka Term's
+# own cell at 38 pixels is 15x38 by the W rule (ADR-1200 D17), which gives
+# the 1920x1080 display a grid of 128 by 28. 38 pixels falls between 28 and
+# 29 points at the variant's 96 DPI, so the size is 28 points, and the
+# stated cell, which wins over the size, sets the height. The cell is stated
+# so the console never waits on the helper for it.
+name=showcase-shell
+license=OFL-1.1 AND MIT
+source=outline:/usr/local/share/fonts/vtium-showcase/IosevkaTerm-Regular.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/SymbolsNerdFontMono-Regular.ttf
+cover=U+E000-U+F2FF
+cover=U+F386-U+F8FF
+cover=U+F0001-U+F1AF0
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoColorEmoji.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansThai-Regular.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansCJKsc-Regular.otf
+source=builtin:unifont
+size=28
+cell=15x38

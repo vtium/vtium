@@ -16,6 +16,7 @@ cache and the logger a worker process receives (t3_common.py).
 import argparse
 import base64
 import contextlib
+import csv
 import hashlib
 import io
 import json
@@ -52,6 +53,10 @@ import t3_qemu  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
 import t3_showcase  # noqa: E402
+import t3_showcase_gallery  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "gallery",
+                                "tests"))
+import terminal as gallery_terminal  # noqa: E402
 import t3img  # noqa: E402
 import t3_common  # noqa: E402
 from t3_common import Logger  # noqa: E402
@@ -4969,13 +4974,17 @@ class ShowcaseTest(unittest.TestCase):
         text, _ = t3_showcase.caption("showcase-fonts.inc")
         self.assertIn("(../fonts.md)", text)
 
-    def scene_bytes(self, screen):
+    def scene_bytes(self, screen, screens=None, env=None):
         """What scene `screen` writes on the host, in a session of its own
-        with no terminal, so its queries go nowhere and get no answer."""
-        return subprocess.run(["bash", os.path.join(t3_common.GUEST, "screens", screen + ".sh")],
+        with no terminal, so its queries go nowhere and get no answer. It
+        runs from `screens`, the guest's screens by default, with `env` added
+        to its environment."""
+        screens = screens or os.path.join(t3_common.GUEST, "screens")
+        return subprocess.run(["bash", os.path.join(screens, screen + ".sh")],
                               stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
                               start_new_session=True,
-                              env={"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8"}).stdout
+                              env={"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8",
+                                   **(env or {})}).stdout
 
     @staticmethod
     def styles(data):
@@ -5009,14 +5018,17 @@ class ShowcaseTest(unittest.TestCase):
                 self.assertIsNone(wrong.search(data.decode()))
 
     def test_faults(self):
-        # A font switch vtium did not take, or pictures missing from the
-        # disc, reported while a screen draws, fail that screen alone.
-        events = ["T3-DONE showcase-shell", "T3-FONT-REFUSED showcase-terminus unifont",
+        # A font switch vtium did not take, pictures missing from the disc,
+        # or a gallery the tool did not draw, reported while a screen draws,
+        # fail that screen alone.
+        events = ["T3-NO-GALLERY", "T3-DONE showcase-shell",
+                  "T3-FONT-REFUSED showcase-terminus unifont",
                   "T3-BAND showcase-terminus rows=8 cell=16x32",
                   "T3-DONE showcase-fonts-terminus", "T3-FONT-REFUSED showcase-unifont",
                   "T3-NO-PICTURES", "T3-DONE showcase-fonts-unifont",
                   "T3-DONE showcase-fonts-jetbrains"]
-        self.assertEqual(t3_showcase.faults(events, "showcase-shell"), [])
+        self.assertEqual(t3_showcase.faults(events, "showcase-shell"),
+                         ["the gallery tool drew no gallery"])
         self.assertEqual(t3_showcase.faults(events, "showcase-fonts-terminus"),
                          ["vtium did not switch to the font showcase-terminus: OSC 50 named "
                           "unifont"])
@@ -5136,6 +5148,215 @@ class ShowcaseTest(unittest.TestCase):
         with open(os.path.join(self.dir.name, "sphere.size")) as f:
             self.assertEqual(f.read(), "10 8\n")
 
+    def test_gallery(self):
+        # The gallery holds the photographs as committed, each the pinned
+        # file of 256x160 pixels and a few tens of KB, and the computed
+        # pictures at the size asked for, every picture different; a
+        # photograph that is not the pinned file is refused. The gallery
+        # tool names nothing of tier 3, and the disc carries it beside the
+        # pictures.
+        g = t3_showcase_gallery
+        self.assertEqual(sorted(os.listdir(g.PHOTO_DIR)), sorted(p.file for p in g.PHOTOS))
+        for photo in g.PHOTOS:
+            with self.subTest(photo.file):
+                path = os.path.join(g.PHOTO_DIR, photo.file)
+                self.assertEqual(t3_showcase.sha256_file(path), photo.file_sha256)
+                img = t3img.read(path)
+                self.assertEqual((img.width, img.height), g.GALLERY_SIZE)
+                self.assertLess(os.path.getsize(path), 64 * 1024)
+                self.assertRegex(photo.url, r"^https://upload\.wikimedia\.org/")
+                self.assertRegex(photo.sha256, r"^[0-9a-f]{64}$")
+                self.assertIn("public domain", photo.license)
+        with open(g.TOOL) as f:
+            self.assertNotRegex(f.read(), r"(?i)tier ?3|t3_|showcase")
+        out = os.path.join(self.dir.name, "gallery")
+        self.assertEqual(g.gallery(out, (16, 10)), g.GALLERY)
+        self.assertEqual(sorted(os.listdir(out)), g.GALLERY)
+        self.assertEqual(g.GALLERY, sorted(g.GALLERY))
+        data = set()
+        for name in g.GALLERY:
+            img = t3img.read(os.path.join(out, name))
+            if name not in {p.file for p in g.PHOTOS}:
+                self.assertEqual((img.width, img.height), (16, 10), name)
+            data.add(img.data)
+        self.assertEqual(len(data), len(g.GALLERY))
+        bad = os.path.join(self.dir.name, "photos")
+        shutil.copytree(g.PHOTO_DIR, bad)
+        with open(os.path.join(bad, g.PHOTOS[0].file), "ab") as f:
+            f.write(b"\0")
+        with mock.patch.object(g, "PHOTO_DIR", bad), \
+                self.assertRaisesRegex(RuntimeError, "%s has SHA-256" % g.PHOTOS[0].file):
+            g.gallery(os.path.join(self.dir.name, "refused"), (16, 10))
+        with mock.patch.object(g, "gallery") as pictures:
+            g.disc(os.path.join(self.dir.name, "disc"))
+        pictures.assert_called_once_with(os.path.join(self.dir.name, "disc", "pictures"))
+        tool = os.path.join(self.dir.name, "disc", "bin", "gallery")
+        self.assertTrue(os.access(tool, os.X_OK))
+        self.assertEqual(t3_showcase.sha256_file(tool), t3_showcase.sha256_file(g.TOOL))
+
+    # The first prompt of the shell scene, the user's segment's background.
+    PROMPT = b"\x1b[48;2;97;175;239m"
+    GALLERY_PROMPT = b"$ gallery -s 4 -n 6 ~/pictures\n"
+
+    def gallery_rows(self, data):
+        """The shell scene's gallery in `data`, read from the row under its
+        prompt to the next prompt: ({(row, column): (kitty keys, picture as
+        PNG bytes)}, {(row, column): text}, the rows the gallery takes under
+        its prompt). Rows count from 0 under the prompt and columns from 1;
+        queries, colors and OSC sequences move nothing."""
+        start = data.index(self.GALLERY_PROMPT) + len(self.GALLERY_PROMPT)
+        part = data[start:data.index(self.PROMPT, start)]
+        row, col, pictures, text = 0, 1, {}, {}
+        sending = None
+        for m in re.finditer(rb"\x1b\[(\d+)([ABG])|\x1b_G([^;\x1b]*)(?:;([^\x1b]*))?\x1b\\"
+                             rb"|\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|(\n)|([^\x1b\n]+)", part):
+            if m.group(1):
+                n = int(m.group(1))
+                row, col = {b"A": (row - n, col), b"B": (row + n, col), b"G": (row, n)}[m.group(2)]
+            elif m.group(3) is not None:
+                keys = dict(k.split("=") for k in m.group(3).decode().split(","))
+                if keys.get("a") == "q":
+                    continue
+                if "a" in keys:
+                    sending = (row, col)
+                    pictures[sending] = (keys, b"")
+                pictures[sending] = (pictures[sending][0], pictures[sending][1] + m.group(4))
+                if keys["m"] == "0":
+                    pictures[sending] = (pictures[sending][0], base64.b64decode(pictures[sending][1]))
+            elif m.group(5):
+                row, col = row + 1, 1
+            elif m.group(6):
+                text[(row, col)] = m.group(6).decode()
+                col += len(m.group(6))
+        return pictures, text, row
+
+    @staticmethod
+    def screen_rows(data):
+        """(the row the cursor ends on, the lowest row it reaches) as `data`
+        moves it from the top row, 0: down a row with each newline, and up
+        or down with CSI A and B."""
+        row = low = 0
+        for m in re.finditer(rb"\n|\x1b\[(\d+)([AB])", data):
+            row += 1 if m.group(0) == b"\n" else int(m.group(1)) * (-1 if m.group(2) == b"A" else 1)
+            low = max(low, row)
+        return row, low
+
+    def on_terminal(self, screens, **traits):
+        """What the shell scene in `screens` writes on a stand-in terminal
+        of 28 rows by 128 columns in the scene's cell, which answers the
+        scene's and the gallery tool's queries as vtium does, unless
+        `traits` say otherwise; and the events it reports."""
+        events = os.path.join(self.dir.name, "events")
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(events)
+        status, data, _ = gallery_terminal.run(
+            ["bash", os.path.join(screens, "showcase-shell.sh")],
+            gallery_terminal.answers(**{"cell": t3_showcase_gallery.CELL,
+                                        "font": "showcase-shell", **traits}),
+            rows=28, cols=128,
+            env={"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8", "T3_EVENTS": events})
+        self.assertEqual(status, 0)
+        with contextlib.suppress(FileNotFoundError), open(events) as f:
+            return data, f.read()
+        return data, ""
+
+    def test_gallery_scene(self):
+        # On a terminal that answers as vtium does, the shell scene runs the
+        # gallery tool, which sends every picture of the gallery in name
+        # order, each one's bytes as written, in a box of cells of the
+        # picture's own shape on the four rows under its prompt, inside the
+        # 128 columns and clear of each other, and centers each file's name
+        # under its picture on the fifth row; the next prompt comes on the
+        # sixth, and the screen stays at its 28 rows. When the tool draws
+        # nothing, the scene keeps the same rows and reports it on the event
+        # port.
+        g = t3_showcase_gallery
+        with open(os.path.join(t3_common.GUEST, "frits", "showcase-shell.vtfrit")) as f:
+            self.assertIn("\ncell=%dx%d\n" % g.CELL, f.read())
+        screens = os.path.join(self.dir.name, "screens")
+        os.makedirs(screens)
+        for name in ("showcase-shell.sh", "showcase.inc"):
+            shutil.copy(os.path.join(t3_common.GUEST, "screens", name), screens)
+        g.disc(os.path.join(screens, "showcase"))
+        data, events = self.on_terminal(screens)
+        self.assertEqual((self.screen_rows(data), events), ((27, 27), ""))
+        pictures, text, rows = self.gallery_rows(data)
+        self.assertEqual(rows, 5)
+        files = {}
+        for name in g.GALLERY:
+            with open(os.path.join(screens, "showcase", "pictures", name), "rb") as f:
+                files[f.read()] = name
+        placed = sorted(pictures)
+        self.assertEqual([files.get(pictures[at][1]) for at in placed], g.GALLERY)
+        self.assertEqual({at[0] for at in text}, {4})
+        end = 0
+        for (row, col) in placed:
+            keys, png = pictures[(row, col)]
+            img = t3img.read_png(png)
+            width, height = int(keys["c"]), int(keys["r"])
+            with self.subTest(col=col):
+                self.assertEqual((keys["f"], keys["C"], row), ("100", "1", 0))
+                self.assertLessEqual(height, 4)
+                # the box is the picture's shape, to within a cell
+                self.assertLess(abs(width * g.CELL[0] * img.height
+                                    - height * g.CELL[1] * img.width), g.CELL[0] * img.height)
+                self.assertGreater(col, end)
+                end = col + width - 1
+                self.assertLessEqual(end, 128)
+                # the label whose middle is within a cell of the picture's
+                under = [label for (_, c), label in text.items()
+                         if abs(2 * c + len(label) - 2 * col - width) <= 2]
+                self.assertEqual(under, [files[png]])
+        self.assertEqual(len(text), len(placed))
+        # every chunk of a picture is at most 4096 bytes of base64, and every
+        # one but a picture's last, which ends it with m=0, a multiple of 4
+        chunks = [(dict(k.split("=") for k in keys.decode().split(",")), payload) for keys, payload
+                  in re.findall(rb"\x1b_G([^;\x1b]*);([^\x1b]*)\x1b\\", data)]
+        chunks = [(keys["m"], payload) for keys, payload in chunks if keys.get("a") != "q"]
+        self.assertEqual(sum(m == "0" for m, _ in chunks), len(g.GALLERY))
+        for m, payload in chunks:
+            self.assertLessEqual(len(payload), 4096)
+            if m == "1":
+                self.assertEqual(len(payload) % 4, 0)
+        data, events = self.on_terminal(screens, kitty=False)
+        pictures, text, rows = self.gallery_rows(data)
+        self.assertEqual((self.screen_rows(data), pictures, rows), ((27, 27), {}, 5))
+        self.assertIn("gallery: the terminal did not answer", text[(0, 1)])
+        self.assertEqual(events, "T3-NO-GALLERY\n")
+        shutil.rmtree(os.path.join(screens, "showcase"))
+        data, events = self.on_terminal(screens)
+        pictures, text, rows = self.gallery_rows(data)
+        self.assertEqual((self.screen_rows(data), pictures, rows), ((27, 27), {}, 5))
+        self.assertEqual(events, "T3-NO-GALLERY\n")
+
+    # The styles line's words, each with the SGR parameters that draw it,
+    # and the ADR-1000 row of each parameter's feature.
+    STYLES = [("underline", "4"), ("double", "4:2"), ("curly", "4:3"), ("dotted", "4:4"),
+              ("dashed", "4:5"), ("red curly", "4:3;58:2::224:108:117"), ("strike", "9"),
+              ("inverse", "7"), ("dim", "2")]
+    FEATURES = {"4": "sgr.underline", "4:2": "sgr.underline-style", "4:3": "sgr.underline-style",
+                "4:4": "sgr.underline-style", "4:5": "sgr.underline-style",
+                "58:2::224:108:117": "sgr.underline-color", "9": "sgr.strike",
+                "7": "sgr.inverse", "2": "sgr.dim"}
+
+    def test_styles_line(self):
+        # The shell scene's last line before the final prompt draws each
+        # word in the style it names, every style one whose ADR-1000 row
+        # vtium supports, and ends where the final prompt begins.
+        with open(os.path.join(t3_common.ROOT, "docs", "architecture", "term",
+                               "ADR-1000-features.tsv")) as f:
+            status = {row["id"]: row["status"] for row in csv.DictReader(f, delimiter="\t")}
+        data = self.scene_bytes("showcase-shell")
+        start = data.rindex(b"$ cat greetings.txt styles.txt\n")
+        lines = data[start:data.rindex(self.PROMPT)].split(b"\n")
+        self.assertEqual((len(lines), lines[-1]), (6, b""))
+        words = re.findall(rb"\x1b\[([0-9;:]+)m([^\x1b]+)\x1b\[0m", lines[4])
+        self.assertEqual([(w.decode(), p.decode()) for p, w in words], self.STYLES)
+        for _, params in self.STYLES:
+            for p in params.split(";"):
+                with self.subTest(p):
+                    self.assertEqual(status[self.FEATURES[p]], "supported")
+
     def test_palettes(self):
         # vtium-term's named palettes, each with its 16 colors; a palette
         # short of a color is refused.
@@ -5202,9 +5423,17 @@ class ShowcaseTest(unittest.TestCase):
             text, alt = t3_showcase.caption(script)
             self.assertIn("## %s\n\n![%s](%s)\n\n%s\n" % (title, alt, name, text), page)
         self.assertIn("at commit `abc1234`", page)
+        self.assertIn("starts in a cell of 16x40 pixels, and the shell scene, the hero, switches "
+                      "to its own frit, `showcase-shell`, in a cell of 15x38 pixels", page)
         for font in t3_showcase.FONTS:
             self.assertIn("`%s`" % font.file_sha256, page)
         self.assertIn("| GNU Unifont |", page)
+        for photo in t3_showcase_gallery.PHOTOS:
+            self.assertIn("| `%s` | %s | %s | %s |" % (photo.file, photo.title, photo.author,
+                                                    photo.license), page)
+            self.assertIn("SHA-256 `%s`" % photo.sha256, page)
+            self.assertIn("(%s)" % photo.url, page)
+            self.assertIn("`%s` |" % photo.file_sha256, page)
         # a second run with the same pixels rewrites no image, only the page
         self.assertEqual(t3_showcase.compose(run, report, out),
                          [os.path.join(out, "README.md")])
@@ -5221,8 +5450,8 @@ class ShowcaseTest(unittest.TestCase):
                                  ["T3-BAND showcase-iosevka rows=2 cell=8x4"])
 
     def test_disc(self):
-        # The disc carries the fonts and, beside the screens, the pictures
-        # and the palettes the scenes read.
+        # The disc carries the fonts and, beside the screens, the pictures,
+        # the gallery and the palettes the scenes read.
         cache = os.path.join(self.dir.name, "cache")
         os.makedirs(cache)
         for font in t3_showcase.FONTS:
@@ -5234,8 +5463,10 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(os.path.join(self.dir.name, "disc",
                                                         "showcase-fonts"))), sorted(fonts))
         with mock.patch.object(t3_showcase, "pictures",
-                               lambda d: os.makedirs(d, exist_ok=True)):
+                               lambda d: os.makedirs(d, exist_ok=True)), \
+                mock.patch.object(t3_showcase_gallery, "disc") as gallery:
             t3_showcase.disc_screens(self.dir.name)
+        gallery.assert_called_once_with(os.path.join(self.dir.name, "showcase"))
         with open(os.path.join(self.dir.name, "showcase", "palettes.txt")) as f:
             first = f.readline().split()
         self.assertEqual(first[0], "legacy")

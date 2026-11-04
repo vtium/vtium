@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Aaron Bockelie
+#
+# gallery: shows PNG pictures as a grid of thumbnails, each with its file
+# name under it, in a terminal that draws kitty graphics (kitty, WezTerm,
+# Ghostty, vtium).
+#
+#   gallery ~/Pictures              the PNG pictures in ~/Pictures
+#   gallery -s 4 -n 6 a.png dir     the first six, four rows tall
+#   gallery --help                  the options
+#
+# It needs bash and the usual base tools (stty, od, base64, tr, fold, sort). The
+# terminal scales each picture: gallery sends each PNG file as it is, with
+# the box of cells to fit it in, so it needs no image library.
+
+set -u
+
+usage() {
+	cat <<'EOF'
+usage: gallery [-s N] [-n N] [-L] [--no-probe] [file|dir ...]
+
+Shows PNG pictures as a grid of thumbnails, each with its file name under
+it, in a terminal that draws kitty graphics: kitty, WezTerm, Ghostty or
+vtium. A directory stands for the files in it, in name order, and no
+arguments means the current directory. The terminal scales each picture, so
+gallery sends PNG files as they are and skips any other file with a note.
+
+  -s, --size N     thumbnail height in rows (default 8); a square picture
+                   is about 2N columns wide
+  -n N             show the first N pictures, and say how many more there are
+  -L, --no-labels  leave out the file names
+  --no-probe       draw without first asking the terminal whether it draws
+                   kitty graphics, and take its cells to be twice as tall as
+                   they are wide
+  -h, --help       show this help
+EOF
+}
+
+# $1 with each control character, C0, DEL and C1 (U+0080 to U+009F), made
+# a '?', so a file name never reaches the terminal as a command.
+printable() {
+	local LC_ALL=C s=$1
+	s=${s//[$'\001'-$'\037'$'\177']/?}
+	s=${s//$'\302'[$'\200'-$'\237']/?}
+	printf '%s' "$s"
+}
+
+die() {
+	printf 'gallery: %s\n' "$(printable "$1")" >&2
+	exit "${2:-1}"
+}
+
+whole() {
+	[[ $2 =~ ^[1-9][0-9]*$ ]] || die "$1 wants a whole number of 1 or more, not '$2'" 2
+}
+
+size=8 count='' labels=1 probe=1
+while (($#)); do
+	case $1 in
+	-h | --help) usage; exit 0 ;;
+	-s | --size) (($# > 1)) || die "$1 wants a number" 2; whole "$1" "$2"; size=$2; shift ;;
+	-n) (($# > 1)) || die "$1 wants a number" 2; whole "$1" "$2"; count=$2; shift ;;
+	-L | --no-labels) labels=0 ;;
+	--no-probe) probe=0 ;;
+	--) shift; break ;;
+	-?*) die "unknown option $1 (gallery --help lists them)" 2 ;;
+	*) break ;;
+	esac
+	shift
+done
+(($#)) || set -- .
+
+# The pictures and their labels, each directory's files in name order; the
+# files that are not PNG are noted and skipped.
+files=() names=() skipped=()
+is_png() {
+	[ "$(od -An -tx1 -N8 -- "$1" 2>/dev/null | tr -d ' \n')" = 89504e470d0a1a0a ]
+}
+take() {
+	if is_png "$1"; then
+		files+=("$1") names+=("$(printable "${1##*/}")")
+	else
+		skipped+=("$(printable "${1##*/}")")
+	fi
+}
+for a in "$@"; do
+	if [ -d "$a" ]; then
+		while IFS= read -r -d '' f; do
+			[ -f "$f" ] && take "$f"
+		done < <(for f in "${a%/}"/*; do [ -e "$f" ] && printf '%s\0' "$f"; done | LC_ALL=C sort -z)
+	elif [ -f "$a" ]; then
+		take "$a"
+	else
+		die "no such file or directory: $a" 2
+	fi
+done
+if ((${#skipped[@]})); then
+	printf 'gallery: skipped %d file(s) that are not PNG: %s\n' "${#skipped[@]}" "${skipped[*]}" >&2
+fi
+((${#files[@]})) || die "no PNG pictures in $*"
+more=0
+if [ -n "$count" ] && ((count < ${#files[@]})); then
+	more=$((${#files[@]} - count))
+	files=("${files[@]:0:count}") names=("${names[@]:0:count}")
+fi
+
+# The terminal's size in rows and columns, from stty, else from LINES and
+# COLUMNS, else 24 by 80; each is checked to be a number before any
+# arithmetic reads it.
+number() { [[ $1 =~ ^[1-9][0-9]{0,4}$ ]]; }
+read -r rows cols < <(stty size 2>/dev/null </dev/tty) || true
+if ! number "${rows:-}" || ! number "${cols:-}"; then
+	rows=${LINES:-} cols=${COLUMNS:-}
+	number "$rows" || rows=24
+	number "$cols" || cols=80
+fi
+
+# Asks the terminal, through /dev/tty, whether it draws kitty graphics, and
+# the size of its cell in pixels (XTWINOPS 16). Primary device attributes,
+# which every terminal answers, end the replies; the wait ends after a
+# second with no reply. The terminal's modes are restored however the
+# question ends, an interrupt included. Returns 2 when there is no terminal
+# to ask.
+cw=1 ch=2
+ask() {
+	local saved reply='' c
+	saved=$(stty -g 2>/dev/null </dev/tty) || return 2
+	# shellcheck disable=SC2064 # the modes are fixed when the trap is set
+	trap "stty '$saved' </dev/tty" EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	trap 'exit 129' HUP
+	stty raw -echo </dev/tty
+	printf '\033_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\033\\\033[16t\033[c' >/dev/tty
+	while IFS= read -rsn1 -t 1 c </dev/tty; do
+		reply+=$c
+		[[ $reply == *$'\e[?'*c ]] && break
+	done
+	stty "$saved" </dev/tty
+	trap - EXIT INT TERM HUP
+	reply=${reply%%$'\e[?'*}
+	[[ $reply == *$'\e_Gi=31;OK\e\\'* ]] || return 1
+	if [[ $reply =~ $'\e'\[6\;([1-9][0-9]{0,4})\;([1-9][0-9]{0,4})t ]]; then
+		ch=${BASH_REMATCH[1]} cw=${BASH_REMATCH[2]}
+	fi
+}
+if ((probe)); then
+	ask
+	case $? in
+	1) die "the terminal did not answer that it draws kitty graphics; gallery needs kitty, WezTerm, Ghostty or vtium (--no-probe draws anyway)" ;;
+	2) die "no terminal to ask whether it draws kitty graphics (--no-probe draws anyway)" ;;
+	esac
+fi
+
+# Each thumbnail is `size` rows tall and keeps its picture's shape, at most
+# twice as wide as it is tall; it sits in a box of c columns by r rows. The
+# grid's columns are as wide as the widest box and two more, spread to fill
+# the terminal's width.
+((rows > 2 && size > rows - 2)) && size=$((rows - 2))
+maxw=$(((4 * size * ch + cw) / (2 * cw)))
+((maxw > cols - 2)) && maxw=$((cols - 2))
+((maxw >= 1)) || maxw=1
+boxc=() boxr=() widest=1
+for f in "${files[@]}"; do
+	read -r w0 w1 w2 w3 h0 h1 h2 h3 < <(od -An -tu1 -j16 -N8 -- "$f")
+	pw=$(((w0 << 24) | (w1 << 16) | (w2 << 8) | w3)) ph=$(((h0 << 24) | (h1 << 16) | (h2 << 8) | h3))
+	((pw > 0 && ph > 0)) || pw=1 ph=1
+	c=$(((2 * size * ch * pw + ph * cw) / (2 * ph * cw))) r=$size
+	if ((c > maxw)); then
+		c=$maxw r=$(((2 * maxw * cw * ph + pw * ch) / (2 * pw * ch)))
+		((r >= 1)) || r=1
+	fi
+	((c >= 1)) || c=1
+	boxc+=("$c") boxr+=("$r")
+	((c > widest)) && widest=$c
+done
+across=$((cols / (widest + 2)))
+((across >= 1)) || across=1
+slot=$((cols / across))
+# A column too narrow for a letter and its gap takes no label.
+((slot < 3)) && labels=0
+# Whether the locale counts a name in bytes, not characters, as C does; a
+# name cut there drops the bytes past plain ASCII at the cut's end, so no
+# character is split.
+bytes=0
+wide='é'
+((${#wide} > 1)) && bytes=1
+
+# The kitty command $1 with the file $2 as its payload, in base64 chunks of
+# 4096 bytes, each chunk read as a line from fold so the time grows with the
+# file's size; every chunk but the last says more follow (m=1).
+send() {
+	local head="$1," chunk next
+	{
+		IFS= read -r chunk
+		while IFS= read -r next; do
+			printf '\033_G%sm=1;%s\033\\' "$head" "$chunk"
+			head='' chunk=$next
+		done
+		printf '\033_G%sm=0;%s\033\\' "$head" "$chunk"
+	} < <(base64 <"$2" | tr -d '\n' | fold -w 4096; echo)
+}
+
+# Each row of the grid: room made for the thumbnails, each placed in its
+# column without moving the cursor (C=1), then the labels on the row under
+# them, each cut to its column's width less one.
+for ((first = 0; first < ${#files[@]}; first += across)); do
+	last=$((first + across < ${#files[@]} ? first + across : ${#files[@]}))
+	for ((i = 0; i < size; i++)); do printf '\n'; done
+	printf '\033[%dA' "$size"
+	for ((i = first; i < last; i++)); do
+		printf '\033[%dG' $(((i - first) * slot + (slot - boxc[i]) / 2 + 1))
+		down=$(((size - boxr[i]) / 2))
+		((down)) && printf '\033[%dB' "$down"
+		send "a=T,f=100,t=d,q=2,C=1,c=${boxc[i]},r=${boxr[i]}" "${files[i]}"
+		((down)) && printf '\033[%dA' "$down"
+	done
+	for ((i = 0; i < size; i++)); do printf '\n'; done
+	if ((labels)); then
+		for ((i = first; i < last; i++)); do
+			label=${names[i]}
+			if ((${#label} > slot - 1)); then
+				label=${label:0:slot - 2}
+				if ((bytes)); then
+					while [[ $label == *[$'\200'-$'\377'] ]]; do label=${label%?}; done
+				fi
+				label="$label…"
+			fi
+			printf '\033[%dG%s' $(((i - first) * slot + (slot - ${#label}) / 2 + 1)) "$label"
+		done
+		printf '\n'
+	fi
+done
+((more)) && printf '… %d more\n' "$more"
+exit 0
