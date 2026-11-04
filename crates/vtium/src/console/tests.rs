@@ -5,9 +5,14 @@
 //! template's own `[Install]` section, found along the unit search path,
 //! and links `Alias=` and `WantedBy=` for an instance. It refuses a masked
 //! instance, a masked template and a missing unit file, still links the
-//! wants when an alias is taken, and leaves a VT's alias at `disable`. It
-//! panics on any call vtium console never makes, such as `start`, `mask`
-//! or an enable of a template, so a test fails where vtium strays.
+//! wants when an alias is taken, and leaves a VT's alias at `disable`. Its
+//! `show` answers as the running manager does: a getty's `ConflictedBy=`
+//! lists each loaded unit, running or enabled, whose file's `Conflicts=`
+//! names it, and a unit's state comes from what runs, what failed, the
+//! links that enable it and the jobs the test queues. It panics on any call
+//! vtium console never makes, such as `mask` or an enable of a template,
+//! and on a `start` outside `fallback`, so a test fails where vtium
+//! strays.
 
 #![expect(
     clippy::unwrap_used,
@@ -45,6 +50,12 @@ struct Fake {
     logind_down: bool,
     /// A call that fails as if systemd refused it.
     fail: Option<String>,
+    /// The units that failed, by name.
+    failed: Vec<String>,
+    /// The jobs queued, by unit: `41 start`.
+    jobs: BTreeMap<String, String>,
+    /// Whether the verb run is `fallback`, the one verb that starts a unit.
+    starts: bool,
 }
 
 fn ok() -> Reply {
@@ -198,22 +209,114 @@ impl Fake {
     }
 
     fn list_units(&self, patterns: &[&str]) -> Reply {
-        let prefixes: Vec<&str> = patterns
-            .iter()
-            .map(|p| {
-                p.strip_suffix("@*.service")
-                    .unwrap_or_else(|| panic!("vtium console asked list-units for {p}"))
-            })
-            .collect();
+        assert_eq!(
+            patterns,
+            ["*@tty*.service"],
+            "vtium console asks list-units for every unit on a VT"
+        );
         let mut stdout = String::new();
         for unit in &self.running {
-            if instance(unit).is_some_and(|(p, _)| prefixes.contains(&p)) {
+            // The glob matches a non-VT instance too, such as ttyS0's.
+            let on_tty = unit
+                .split_once('@')
+                .is_some_and(|(_, i)| i.starts_with("tty"));
+            if on_tty {
                 stdout.push_str(&format!("{unit} loaded active running Some console\n"));
             }
         }
         Reply {
             ok: true,
             stdout,
+            stderr: String::new(),
+        }
+    }
+}
+
+impl Fake {
+    /// The file of the unit `name` along the search path, its template's
+    /// for an instance with none of its own, `%i` expanded.
+    fn unit_text(&self, name: &str) -> String {
+        let inst = name
+            .strip_suffix(".service")
+            .and_then(|n| n.split_once('@'))
+            .map(|(_, i)| i)
+            .unwrap_or_default();
+        let template = name.split_once('@').map(|(p, _)| format!("{p}@.service"));
+        for file in std::iter::once(name.to_owned()).chain(template) {
+            for dir in UNIT_DIRS {
+                if let Ok(text) = std::fs::read_to_string(self.root.join(dir).join(&file)) {
+                    return text.replace("%i", inst).replace("%I", inst);
+                }
+            }
+        }
+        String::new()
+    }
+
+    /// The units a test names enabled: each that a link under `/etc`'s
+    /// `*.wants` directories or `display-manager.service` stands for.
+    fn enabled(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for dir in std::fs::read_dir(self.etc()).unwrap().flatten() {
+            let name = dir.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".wants") {
+                for e in std::fs::read_dir(dir.path()).unwrap().flatten() {
+                    out.push(e.file_name().to_string_lossy().into_owned());
+                }
+            }
+        }
+        if let Some(dm) = Link::read(&self.etc().join(DISPLAY_MANAGER)).file_name() {
+            out.push(dm.to_owned());
+        }
+        out
+    }
+
+    /// `systemctl show` of a getty's conflicts, or of units' states.
+    fn show(&self, args: &[&str]) -> Reply {
+        let props: Vec<&str> = args
+            .iter()
+            .skip_while(|a| **a != "-p")
+            .filter(|a| **a != "-p")
+            .copied()
+            .collect();
+        let units: Vec<&str> = args.iter().take_while(|a| **a != "-p").copied().collect();
+        let mut blocks = Vec::new();
+        for unit in units {
+            let mut block = String::new();
+            for prop in &props {
+                let value = match *prop {
+                    "Conflicts" => String::new(),
+                    "ConflictedBy" => {
+                        let mut loaded = self.running.clone();
+                        loaded.extend(self.failed.iter().cloned());
+                        loaded.extend(self.enabled());
+                        loaded.sort();
+                        loaded.dedup();
+                        loaded
+                            .into_iter()
+                            .filter(|u| {
+                                graphical::facts(u, [self.unit_text(u).as_str()])
+                                    .conflicts
+                                    .contains(&instance(unit).unwrap().1)
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    }
+                    "Id" => unit.to_owned(),
+                    "ActiveState" if self.running.iter().any(|r| r == unit) => "active".into(),
+                    "ActiveState" if self.failed.iter().any(|r| r == unit) => "failed".into(),
+                    "ActiveState" => "inactive".into(),
+                    "UnitFileState" if self.enabled().iter().any(|e| e == unit) => "enabled".into(),
+                    "UnitFileState" => "disabled".into(),
+                    "Job" => self.jobs.get(unit).cloned().unwrap_or_default(),
+                    other => panic!("vtium console asked systemctl show for {other}"),
+                };
+                block.push_str(&format!("{prop}={value}\n"));
+            }
+            blocks.push(block);
+        }
+        Reply {
+            ok: true,
+            stdout: blocks.join("\n"),
             stderr: String::new(),
         }
     }
@@ -287,6 +390,11 @@ impl Systemd for Fake {
             ["disable", name] => self.disable(name),
             ["add-wants", target, name] => self.add_wants(target, name),
             ["daemon-reload"] => ok(),
+            ["show", rest @ ..] => self.show(rest),
+            ["--no-block", "start", name] if self.starts => {
+                self.instance(name);
+                ok()
+            }
             [
                 "list-units",
                 "--plain",
@@ -348,6 +456,9 @@ impl Machine {
                 sessions: Vec::new(),
                 logind_down: false,
                 fail: None,
+                failed: Vec::new(),
+                jobs: BTreeMap::new(),
+                starts: false,
             },
         }
     }
@@ -385,6 +496,7 @@ impl Machine {
             Some(Ok(Parsed::Run(verb))) => verb,
             other => panic!("vtium console {words:?} parsed to {other:?}"),
         };
+        self.fake.starts = matches!(verb, Verb::Fallback(_));
         let mut host = Host {
             root: self.fake.root.clone(),
             root_user,
@@ -1045,7 +1157,9 @@ fn display_manager(m: &Machine) {
 }
 
 #[test]
-fn a_display_manager_keeps_the_vts_its_unit_conflicts_with() {
+fn a_display_manager_vtium_cannot_place_keeps_the_vts_its_unit_conflicts_with() {
+    // sddm with an X11 greeter, which takes the first VT no program has
+    // open, and no greeter running: vtium cannot tell which VT it takes.
     let mut m = Machine::gettys("display-manager");
     display_manager(&m);
     let before = m.snapshot();
@@ -1063,7 +1177,7 @@ fn a_display_manager_keeps_the_vts_its_unit_conflicts_with() {
     assert!(m.wanted("getty@tty1.service"));
     assert!(!m.root().join(RECORDS).join("tty1").exists());
     assert!(
-        out.contains("VT 1 is left as it is: the display manager sddm.service holds it."),
+        out.contains("VT 1 is left as it is: the display manager sddm.service holds VT 1 at boot: its unit names getty@tty1.service in Conflicts=, and vtium cannot tell which VT it takes, since SDDM's configuration names no VT"),
         "{out}"
     );
     assert!(!out.contains("systemctl start vtium@tty1.service"), "{out}");
@@ -1075,6 +1189,10 @@ fn a_display_manager_keeps_the_vts_its_unit_conflicts_with() {
     assert!(
         out.lines()
             .any(|l| l.starts_with("1 ") && l.contains("display manager (sddm.service)")),
+        "{out}"
+    );
+    assert!(
+        out.contains("VT 1: the display manager sddm.service holds VT 1 at boot: its unit names getty@tty1.service in Conflicts="),
         "{out}"
     );
     assert_eq!(m.console(&["disable", "--all"]).0, 0);
@@ -1789,4 +1907,389 @@ fn a_masked_vt_whose_own_link_names_vtium_still_has_vtium() {
         out.contains("VT 9 is left as it is: vtium@tty9.service is masked"),
         "{out}"
     );
+}
+
+/// Enables the display manager `unit`, whose unit file is `text`, by
+/// linking `display-manager.service` to it, and writes `files` under the
+/// root, each path relative to it.
+fn enable_dm(m: &Machine, unit: &str, text: &str, files: &[(&str, &str)]) {
+    let lib = m.root().join("usr/lib/systemd/system");
+    std::fs::write(lib.join(unit), text).unwrap();
+    symlink(
+        format!("/usr/lib/systemd/system/{unit}"),
+        m.root().join(ETC).join(DISPLAY_MANAGER),
+    )
+    .unwrap();
+    for (path, text) in files {
+        let path = m.root().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+}
+
+/// Arch's sddm.service, which names getty@tty1 whatever VT SDDM takes.
+const SDDM: &str = "[Unit]\nDescription=Simple Desktop Display Manager\nConflicts=getty@tty1.service\nAfter=systemd-user-sessions.service getty@tty1.service plymouth-quit.service systemd-logind.service\n\n[Service]\nExecStart=/usr/bin/sddm\n\n[Install]\nAlias=display-manager.service\n";
+/// SDDM's packaged default on Arch, an X11 greeter.
+const SDDM_DEFAULT: (&str, &str) = (
+    "usr/lib/sddm/sddm.conf.d/default.conf",
+    "[General]\n# Which display server should be used.\nDisplayServer=x11\n\n[X11]\nServerArguments=-nolisten tcp\n",
+);
+
+#[test]
+fn sddm_whose_x11_greeter_runs_on_vt_2_leaves_vt_1_to_vtium() {
+    // padnoir: SDDM's unit conflicts with getty@tty1, but its X11 greeter
+    // took VT 2, the first VT no program had open.
+    let mut m = Machine::gettys("sddm-vt2");
+    enable_dm(&m, "sddm.service", SDDM, &[SDDM_DEFAULT]);
+    m.fake.sessions = vec![["sddm", "2", "sddm-greeter", "x11", "greeter"]];
+    let (_, out, _) = m.console(&["status"]);
+    assert!(
+        out.lines()
+            .any(|l| l.split_whitespace().collect::<Vec<_>>() == ["1", "getty@tty1", "-", "-"]),
+        "{out}"
+    );
+    assert!(
+        out.contains("VT 1 is not held by the display manager sddm.service: its unit names getty@tty1.service in Conflicts=, which only stops that getty, but its greeter runs on VT 2 now, and SDDM's configuration names no VT: with DisplayServer=x11 its greeter takes the first VT no program has open."),
+        "{out}"
+    );
+    let (status, out, err) = m.console(&["enable", "1"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(m.wanted("vtium@tty1.service") && !m.wanted("getty@tty1.service"));
+    assert!(
+        out.contains("VT 1 is not held by the display manager sddm.service"),
+        "{out}"
+    );
+    // The greeter's VT is still its own.
+    let (status, _, err) = m.console(&["enable", "2"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the greeter of sddm (sddm-greeter) holds VT 2 now"),
+        "{err}"
+    );
+    assert_eq!(m.console(&["disable", "1"]).0, 0);
+    let (status, out, _) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 0, "{out}");
+    assert!(m.wanted("vtium@tty1.service"), "{out}");
+    assert!(m.wanted("getty@tty2.service"), "{out}");
+}
+
+#[test]
+fn sddm_with_a_wayland_greeter_holds_vt_1_and_says_which_file_says_so() {
+    // SDDM starts a Wayland greeter on VT 1 whenever no login session is
+    // there, as this machine's /etc/sddm.conf.d/10-wayland.conf has it.
+    let mut m = Machine::gettys("sddm-wayland");
+    enable_dm(
+        &m,
+        "sddm.service",
+        SDDM,
+        &[
+            SDDM_DEFAULT,
+            (
+                "etc/sddm.conf.d/10-wayland.conf",
+                "[General]\nDisplayServer=wayland\n",
+            ),
+        ],
+    );
+    let before = m.snapshot();
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager sddm.service holds VT 1 at boot, by DisplayServer=wayland in /etc/sddm.conf.d/10-wayland.conf: SDDM starts its greeter on VT 1 whenever no login session is on VT 1"),
+        "{err}"
+    );
+    assert_eq!(m.snapshot(), before);
+    // Its greeter on VT 2 now disagrees with the file: vtium cannot tell,
+    // and holds both.
+    m.fake.sessions = vec![["sddm", "2", "sddm-greeter", "wayland", "greeter"]];
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("DisplayServer=wayland in /etc/sddm.conf.d/10-wayland.conf starts its greeter on VT 1, but its greeter runs on VT 2 now, so vtium cannot tell which VT it takes"),
+        "{err}"
+    );
+    let (_, out, _) = m.console(&["enable", "--all"]);
+    assert!(out.contains("VT 1 is left as it is"), "{out}");
+    assert!(out.contains("VT 2 is left as it is"), "{out}");
+    assert!(m.wanted("getty@tty1.service") && m.wanted("getty@tty2.service"));
+}
+
+#[test]
+fn gdm_on_vt_1_holds_it() {
+    let gdm = "[Unit]\nDescription=GNOME Display Manager\nConflicts=getty@tty1.service plymouth-quit.service\nAfter=getty@tty1.service\n";
+    let mut m = Machine::gettys("gdm");
+    enable_dm(&m, "gdm.service", gdm, &[]);
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager gdm.service holds VT 1 at boot: its unit names getty@tty1.service in Conflicts=, and vtium cannot tell which VT it takes, since GDM has no setting for its greeter's VT, and no greeter of its runs now"),
+        "{err}"
+    );
+    // Its greeter on VT 1 holds VT 1 now as well, and frees nothing.
+    m.fake.sessions = vec![["gdm", "1", "gdm-launch-environment", "wayland", "greeter"]];
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the greeter of gdm (gdm-launch-environment) holds VT 1 now"),
+        "{err}"
+    );
+    let (_, out, _) = m.console(&["enable", "--all"]);
+    assert!(!out.contains("is not held by"), "{out}");
+    assert!(!m.wanted("vtium@tty1.service") && m.wanted("getty@tty1.service"));
+}
+
+#[test]
+fn lightdm_holds_vt_7_and_leaves_vt_1() {
+    let lightdm = "[Unit]\nDescription=Light Display Manager\nConflicts=getty@tty1.service\nAfter=getty@tty1.service\n";
+    let mut m = Machine::gettys("lightdm");
+    enable_dm(&m, "lightdm.service", lightdm, &[]);
+    let (status, _, err) = m.console(&["enable", "7"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager lightdm.service holds VT 7 at boot, by LightDM's built-in minimum-vt=7, which no file changes: LightDM starts its first greeter on VT 7"),
+        "{err}"
+    );
+    let (status, out, err) = m.console(&["enable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(m.wanted("vtium@tty1.service"), "{out}");
+    assert!(
+        out.contains(
+            "VT 7 is left as it is: the display manager lightdm.service holds VT 7 at boot"
+        ),
+        "{out}"
+    );
+    assert!(
+        out.contains("VT 1 is not held by the display manager lightdm.service: its unit names getty@tty1.service in Conflicts=, which only stops that getty, but LightDM's built-in minimum-vt=7"),
+        "{out}"
+    );
+    // A file that moves it to VT 1 holds VT 1.
+    let mut m = Machine::gettys("lightdm-vt1");
+    enable_dm(
+        &m,
+        "lightdm.service",
+        lightdm,
+        &[("etc/lightdm/lightdm.conf", "[LightDM]\nminimum-vt=1\n")],
+    );
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("by minimum-vt=1 in /etc/lightdm/lightdm.conf"),
+        "{err}"
+    );
+}
+
+#[test]
+fn greetd_holds_the_vt_its_configuration_names() {
+    let greetd = "[Unit]\nDescription=Greeter daemon\nConflicts=getty@tty1.service\nAfter=getty@tty1.service\n";
+    let mut m = Machine::gettys("greetd");
+    enable_dm(
+        &m,
+        "greetd.service",
+        greetd,
+        &[("etc/greetd/config.toml", "[terminal]\nvt = 1\n")],
+    );
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager greetd.service holds VT 1 at boot, by vt = 1 in /etc/greetd/config.toml: greetd runs its greeter on VT 1"),
+        "{err}"
+    );
+    std::fs::write(
+        m.root().join("etc/greetd/config.toml"),
+        "[terminal]\nvt = 2\n",
+    )
+    .unwrap();
+    let (status, out, err) = m.console(&["enable", "1"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(
+        out.contains("but vt = 2 in /etc/greetd/config.toml: greetd runs its greeter on VT 2"),
+        "{out}"
+    );
+    let (status, _, err) = m.console(&["enable", "2"]);
+    assert_eq!(status, 1);
+    assert!(err.contains("greetd.service holds VT 2 at boot"), "{err}");
+}
+
+#[test]
+fn an_unknown_display_manager_holds_the_vt_its_conflicts_name_and_says_why() {
+    let mut m = Machine::gettys("unknown-dm");
+    enable_dm(
+        &m,
+        "ly.service",
+        "[Unit]\nConflicts=getty@tty2.service\n",
+        &[],
+    );
+    let before = m.snapshot();
+    let (status, _, err) = m.console(&["enable", "2"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager ly.service holds VT 2 at boot: its unit names getty@tty2.service in Conflicts=, and vtium cannot tell which VT it takes, since vtium knows no setting of that program's that names a VT, and no greeter of its runs now"),
+        "{err}"
+    );
+    assert_eq!(m.snapshot(), before);
+    let (status, out, _) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 0, "{out}");
+    assert!(m.wanted("getty@tty2.service"), "{out}");
+    assert!(m.wanted("vtium@tty1.service"), "{out}");
+}
+
+#[test]
+fn a_unit_enabled_on_a_vt_or_another_console_running_there_holds_it() {
+    let mut m = Machine::gettys("kiosk");
+    let lib = m.root().join("usr/lib/systemd/system");
+    std::fs::write(
+        lib.join("cage@.service"),
+        "[Unit]\nConflicts=getty@%i.service\n[Service]\nTTYPath=/dev/%I\n",
+    )
+    .unwrap();
+    std::fs::write(
+        lib.join("debug-shell.service"),
+        "[Service]\nTTYPath=/dev/tty9\n",
+    )
+    .unwrap();
+    for (target, unit) in [
+        ("graphical.target.wants", "cage@tty3.service"),
+        ("sysinit.target.wants", "debug-shell.service"),
+    ] {
+        let dir = m.root().join(ETC).join(target);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = unit.replace("tty3", "");
+        symlink(format!("/usr/lib/systemd/system/{file}"), dir.join(unit)).unwrap();
+    }
+    m.fake.running.push("fbterm@tty4.service".into());
+    m.fake.running.push("serial-getty@ttyS0.service".into());
+    for (n, says) in [
+        (
+            "3",
+            "cage@tty3.service holds VT 3 at boot: it is enabled at boot on that VT",
+        ),
+        (
+            "9",
+            "debug-shell.service holds VT 9 at boot: its unit runs on /dev/tty9 (TTYPath=)",
+        ),
+        ("4", "another console, fbterm@tty4.service, holds VT 4 now"),
+    ] {
+        let (status, _, err) = m.console(&["enable", n]);
+        assert_eq!(status, 1, "{n}");
+        assert!(err.contains(says), "{n}: {err}");
+    }
+    let (status, out, _) = m.console(&["enable", "--all"]);
+    assert_eq!(status, 0, "{out}");
+    assert!(
+        m.wanted("getty@tty3.service") && m.wanted("getty@tty4.service"),
+        "{out}"
+    );
+    assert!(!m.wanted("getty@tty5.service"), "{out}");
+    let (_, out, _) = m.console(&["status"]);
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("3 ") && l.contains("cage@tty3")),
+        "{out}"
+    );
+}
+
+/// A machine whose vtium@ttyN failed, with SDDM enabled, as padnoir's VT 1
+/// was after #269.
+fn failed_vtium(name: &str, n: u16) -> Machine {
+    let m = Machine::gettys(name);
+    m.link(&format!("getty.target.wants/vtium@tty{n}.service"), "vtium");
+    let mut m = m;
+    m.fake.failed.push(format!("vtium@tty{n}.service"));
+    m
+}
+
+#[test]
+fn the_fallback_starts_no_getty_whose_start_stops_the_display_manager() {
+    let mut m = failed_vtium("fallback-sddm", 1);
+    enable_dm(&m, "sddm.service", SDDM, &[SDDM_DEFAULT]);
+    m.fake.running.push("sddm.service".into());
+    let (status, out, err) = m.console(&["fallback", "tty1"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(
+        !m.fake.calls.iter().any(|c| c.contains("start getty")),
+        "{:?}",
+        m.fake.calls
+    );
+    assert!(
+        out.contains("vtium on VT 1 failed, and VT 1 is left without a console: starting getty@tty1.service would stop sddm.service (active, enabled), which conflicts with it, so vtium starts nothing."),
+        "{out}"
+    );
+    // Enabled but stopped, it would start at the next boot: still held back.
+    m.fake.running.clear();
+    let (_, out, _) = m.console(&["fallback", "1"]);
+    assert!(out.contains("sddm.service (inactive, enabled)"), "{out}");
+    // A job queued for a unit that is not enabled holds it back too.
+    std::fs::remove_file(m.root().join(ETC).join(DISPLAY_MANAGER)).unwrap();
+    let cage = m.root().join("usr/lib/systemd/system/cage@.service");
+    std::fs::write(&cage, "[Unit]\nConflicts=getty@%i.service\n").unwrap();
+    m.fake.failed.push("cage@tty1.service".into());
+    m.fake
+        .jobs
+        .insert("cage@tty1.service".into(), "42 start".into());
+    let (_, out, _) = m.console(&["fallback", "1"]);
+    assert!(
+        out.contains("cage@tty1.service (failed, disabled, job 42 start)"),
+        "{out}"
+    );
+    assert!(!m.fake.calls.iter().any(|c| c.contains("start getty")));
+}
+
+#[test]
+fn the_fallback_gives_an_ordinary_vt_its_getty_back() {
+    let mut m = failed_vtium("fallback-plain", 3);
+    let (status, out, err) = m.console(&["fallback", "3"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(
+        out.contains("vtium on VT 3 failed: starting getty@tty3.service in its place, which stops no other program."),
+        "{out}"
+    );
+    assert_eq!(
+        m.fake.calls,
+        [
+            "show getty@tty3.service -p Conflicts -p ConflictedBy",
+            "--no-block start getty@tty3.service",
+        ]
+    );
+    // VT 1 without a display manager, vtium's own unit the only conflict.
+    let mut m = failed_vtium("fallback-vt1", 1);
+    assert_eq!(m.console(&["fallback", "1"]).0, 0);
+    assert_eq!(
+        m.fake.calls.last().map(String::as_str),
+        Some("--no-block start getty@tty1.service")
+    );
+}
+
+#[test]
+fn the_fallback_starts_nothing_when_it_cannot_ask_the_manager() {
+    let mut m = failed_vtium("fallback-down", 1);
+    m.fake.fail = Some("show getty@tty1.service -p Conflicts -p ConflictedBy".into());
+    let (status, _, err) = m.console(&["fallback", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("VT 1 is left without a console: vtium cannot tell whether starting getty@tty1.service would stop another program"),
+        "{err}"
+    );
+    assert!(
+        !m.fake.calls.iter().any(|c| c.contains("start")),
+        "{:?}",
+        m.fake.calls
+    );
+    // It needs root and systemd, as the other verbs do, and one VT.
+    assert_eq!(m.console_as(false, &["fallback", "1"]).0, 1);
+    assert!(matches!(
+        parse(&words(&["console", "fallback", "--all"])),
+        Some(Err(_))
+    ));
+}
+
+#[test]
+fn the_shipped_fallback_unit_runs_vtium_console_fallback() {
+    // A getty started by the unit itself would stop a display manager
+    // whose Conflicts= names it.
+    let unit = include_str!("../../install/vtium-getty@.service");
+    let exec: Vec<&str> = unit
+        .lines()
+        .filter(|l| l.starts_with("ExecStart="))
+        .collect();
+    assert_eq!(exec, ["ExecStart=/usr/bin/vtium console fallback %i"]);
+    assert!(unit.contains("ConditionPathExists=!/run/vtium/%i.closed"));
 }

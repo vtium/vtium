@@ -1,59 +1,71 @@
-//! The VTs that graphics hold, which `vtium console` leaves alone: the VTs
-//! a display manager claims, and the VTs a graphical session or a greeter
-//! is on now (ADR-1500 D7).
+//! What vtium reads from systemd's files and logind's answers about the
+//! programs on the VTs: the VTs a unit file ties to itself, and the
+//! sessions on a VT now (ADR-1500 D7).
 //!
-//! A display manager claims a VT by the `getty@ttyN.service` its unit's
-//! `Conflicts=` names, as sddm's, gdm's and lightdm's units do for the VT
-//! their greeter starts on. A session is graphical when logind gives it the
-//! type `x11`, `wayland` or `mir`, or the class `greeter`; vtium asks
-//! logind with `loginctl`, the interface systemd documents, and never reads
-//! logind's files under `/run/systemd`, which ADR-1400 rejected.
+//! A unit ties itself to VT N by naming `getty@ttyN.service` in
+//! `Conflicts=`, as sddm's, gdm's and lightdm's units do, by running on
+//! `TTYPath=/dev/ttyN`, or by being an instance on it, `PREFIX@ttyN`.
+//! [`super::held`] judges what each of those means. A session is graphical
+//! when logind gives it the type `x11`, `wayland` or `mir`, or the class
+//! `greeter`; vtium asks logind with `loginctl`, the interface systemd
+//! documents, and never reads logind's files under `/run/systemd`, which
+//! ADR-1400 rejected.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use super::{GETTY, instance};
+use super::held::{Facts, Holder};
+use super::{GETTY, instance, vt_digits};
 
-/// What holds a VT for graphics.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Holder {
-    /// A display manager's unit, such as `sddm.service`, whose
-    /// `Conflicts=` names the VT's getty.
-    DisplayManager(String),
-    /// A graphical session or greeter on the VT now.
-    Session {
-        user: String,
-        service: String,
-        /// The session's type, or `greeter` for a greeter.
-        kind: String,
-    },
-}
-
-/// The VTs whose `getty@ttyN.service` a unit's `Conflicts=` lines name,
-/// in the unit file's text and its drop-ins' texts. A drop-in only adds to
-/// `Conflicts=`: systemd cannot reset a dependency to an empty list
-/// (systemd.unit(5)), and an empty `Conflicts=` changes nothing (measured
-/// with systemd 262).
-pub fn conflicts<'t>(texts: impl IntoIterator<Item = &'t str>) -> BTreeSet<u16> {
-    let mut vts = BTreeSet::new();
+/// What a unit's file and drop-ins tie to a VT: the VTs whose
+/// `getty@ttyN.service` its `[Unit]` section's `Conflicts=` lines name, and
+/// the VTs its `[Service]` section's `TTYPath=` names, with `%i` and `%I`
+/// read as `inst`, the unit's instance, as systemd expands them; and the VT
+/// the unit `name` is an instance on. A drop-in only adds to `Conflicts=`:
+/// systemd cannot reset a dependency to an empty list (systemd.unit(5)),
+/// and an empty `Conflicts=` changes nothing (measured with systemd 262).
+/// A later `TTYPath=` replaces an earlier one.
+pub fn facts<'t>(name: &str, texts: impl IntoIterator<Item = &'t str>) -> Facts {
+    let inst = name
+        .strip_suffix(".service")
+        .and_then(|n| n.split_once('@'))
+        .map(|(_, i)| i)
+        .unwrap_or_default();
+    let expand = |value: &str| value.replace("%i", inst).replace("%I", inst);
+    let mut facts = Facts {
+        instance: instance(name).map(|(_, n)| n),
+        ..Facts::default()
+    };
+    let mut tty_path = None;
     for text in texts {
-        let mut in_unit = false;
+        let mut section = "";
         for line in text.lines() {
             let line = line.trim();
             if line.starts_with('[') {
-                in_unit = line == "[Unit]";
+                section = line;
                 continue;
             }
-            let Some(value) = line.strip_prefix("Conflicts=").filter(|_| in_unit) else {
+            let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
-            for name in value.split_whitespace() {
-                if let Some((GETTY, n)) = instance(name) {
-                    vts.insert(n);
+            match (section, key.trim()) {
+                ("[Unit]", "Conflicts") => {
+                    for unit in expand(value).split_whitespace() {
+                        if let Some((GETTY, n)) = instance(unit) {
+                            facts.conflicts.insert(n);
+                        }
+                    }
                 }
+                ("[Service]", "TTYPath") => {
+                    tty_path = expand(value.trim())
+                        .strip_prefix("/dev/tty")
+                        .and_then(vt_digits);
+                }
+                _ => {}
             }
         }
     }
-    vts
+    facts.tty_path.extend(tty_path);
+    facts
 }
 
 /// The session ids in `loginctl list-sessions --no-legend`'s output: each
@@ -144,12 +156,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_units_conflicts_name_the_gettys_vts() {
+    fn a_units_conflicts_and_tty_name_its_vts() {
         let unit = "[Unit]\nConflicts=getty@tty1.service plymouth-quit.service\nAfter=getty@tty1.service\n[Service]\nConflicts=getty@tty3.service\n";
-        assert_eq!(conflicts([unit]), BTreeSet::from([1]));
+        let vts = |f: Facts| {
+            (
+                f.conflicts.into_iter().collect::<Vec<_>>(),
+                f.tty_path.into_iter().collect::<Vec<_>>(),
+                f.instance,
+            )
+        };
+        assert_eq!(vts(facts("sddm.service", [unit])), (vec![1], vec![], None));
         let drop_in = "[Unit]\nConflicts=\nConflicts=getty@tty7.service\n";
-        assert_eq!(conflicts([unit, drop_in]), BTreeSet::from([1, 7]));
-        assert!(conflicts(["[Unit]\nConflicts=getty@ttytty1.service\n"]).is_empty());
+        assert_eq!(
+            vts(facts("sddm.service", [unit, drop_in])),
+            (vec![1, 7], vec![], None)
+        );
+        assert!(
+            facts("x.service", ["[Unit]\nConflicts=getty@ttytty1.service\n"])
+                .conflicts
+                .is_empty()
+        );
+        // A template's specifiers, read for the instance, and its TTY.
+        let kiosk =
+            "[Unit]\nConflicts=getty@%i.service\n[Service]\nTTYPath=/dev/tty9\nTTYPath=/dev/%I\n";
+        assert_eq!(
+            vts(facts("cage@tty2.service", [kiosk])),
+            (vec![2], vec![2], Some(2))
+        );
+        assert_eq!(
+            vts(facts(
+                "debug-shell.service",
+                ["[Service]\nTTYPath=/dev/tty9\n"]
+            )),
+            (vec![], vec![9], None)
+        );
+        assert!(
+            facts("x.service", ["[Service]\nTTYPath=/dev/console\n"])
+                .tty_path
+                .is_empty()
+        );
     }
 
     #[test]

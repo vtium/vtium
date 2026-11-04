@@ -10,8 +10,12 @@
 //! gettys on VTs 2 to 6, which logind then fills with vtium. Before vtium
 //! disables a getty or moves the template link, it writes a record of
 //! what was there under `/var/lib/vtium/console/`, and `disable` puts back
-//! what the records say. It passes by every VT that graphics hold: the
-//! VTs a display manager claims, and the VTs a graphical session is on.
+//! what the records say. It passes by every VT another program holds: a
+//! VT that a unit enabled at boot, such as the display manager's, claims,
+//! judged from what is on the machine ([`held`]), and a VT a graphical
+//! session, a greeter or another console is on now. `fallback N`, which
+//! `vtium-getty@.service` runs when vtium on VT N fails, starts the VT's
+//! getty only when that start stops no other program ([`fallback`]).
 //!
 //! The subcommand starts and stops nothing, since either ends every
 //! session on the VT, and masks nothing, since a mask is the
@@ -33,10 +37,12 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+mod fallback;
 mod graphical;
+mod held;
 mod text;
 
-use graphical::Holder;
+use held::{Freed, Holder};
 
 /// The highest VT number the kernel has (`MAX_NR_CONSOLES`).
 pub const LAST_VT: u16 = 63;
@@ -53,6 +59,8 @@ const DEV: &str = "vtium-dev";
 const GETTY: &str = "getty";
 /// The C reference's console.
 const KMSCON: &str = "kmsconvt";
+/// The consoles `vtium console` knows by name, each with rules of its own.
+const CONSOLES: [&str; 4] = [VTIUM, DEV, GETTY, KMSCON];
 
 /// systemd's system unit directories that the administrator, the running
 /// system or a package installs into, in the order systemd's unit search
@@ -98,6 +106,9 @@ pub enum Verb {
     Enable(Which),
     Disable(Which),
     Status,
+    /// Starts VT N's getty in place of a vtium that failed there, unless
+    /// that start stops another program.
+    Fallback(u16),
 }
 
 impl Verb {
@@ -107,6 +118,7 @@ impl Verb {
             Verb::Enable(w) => format!("enable {}", which_word(w)),
             Verb::Disable(w) => format!("disable {}", which_word(w)),
             Verb::Status => "status".to_owned(),
+            Verb::Fallback(n) => format!("fallback {n}"),
         }
     }
 }
@@ -149,6 +161,14 @@ fn parse_words(args: &[OsString]) -> Result<Parsed, String> {
         "status" => match rest.first() {
             Some(extra) => Err(text::extra_word(extra)),
             None => Ok(Parsed::Run(Verb::Status)),
+        },
+        "fallback" => match rest {
+            [] => Err(text::needs_which(verb)),
+            [word] => match which(word)? {
+                Which::Vt(n) => Ok(Parsed::Run(Verb::Fallback(n))),
+                Which::All => Err(text::fallback_one_vt()),
+            },
+            [_, extra, ..] => Err(text::extra_word(extra)),
         },
         "enable" | "disable" => {
             let which = match rest {
@@ -377,10 +397,14 @@ struct State {
     /// The display manager's unit, such as `sddm.service`, when
     /// `display-manager.service` is linked or there and not masked.
     display_manager: Option<String>,
-    /// What holds each VT for graphics: the display manager, for the VTs
-    /// whose getty its unit conflicts with, and the graphical sessions and
-    /// greeters on it now.
-    graphics: BTreeMap<u16, Vec<Holder>>,
+    /// What other programs hold each VT: the units enabled at boot that
+    /// claim it, and the graphical sessions, greeters and other consoles on
+    /// it now.
+    held: BTreeMap<u16, Vec<Holder>>,
+    /// The VTs whose getty a unit names in `Conflicts=` though the unit is
+    /// judged not to hold them: the VT, the unit, whether it is the display
+    /// manager, and why.
+    freed: Vec<(u16, String, bool, Freed)>,
     /// The other sessions on each VT, such as a user's login at a getty.
     logins: BTreeMap<u16, Vec<Holder>>,
     /// Why logind could not be asked which sessions run, when it could not.
@@ -505,6 +529,9 @@ impl Run<'_, '_, '_> {
         if verb != Verb::Status && !self.host.root_user {
             return Err(Stop(text::needs_root(&verb.words())));
         }
+        if let Verb::Fallback(n) = verb {
+            return self.fallback(n);
+        }
         let unit = self.unit_file(VTIUM);
         let mut state = self.read()?;
         let problem = match unit {
@@ -526,7 +553,7 @@ impl Run<'_, '_, '_> {
             Verb::Status => Ok(0),
             Verb::Enable(Which::Vt(n)) => {
                 self.refuse_kmscon(&state, n)?;
-                self.refuse_graphics(&state, n)?;
+                self.refuse_held(&state, n)?;
                 self.refuse_vt(&state, n)?;
                 if state.given(n) {
                     self.say(&text::already_given(n));
@@ -544,6 +571,7 @@ impl Run<'_, '_, '_> {
                 }
                 self.enable_vt(&mut state, n)?;
                 self.say(&text::given(n, state.runs(n, VTIUM)));
+                self.say_freed(&state, |vt| vt == n);
                 Ok(0)
             }
             Verb::Enable(Which::All) => self.enable_all(&mut state, &unit),
@@ -566,6 +594,17 @@ impl Run<'_, '_, '_> {
                 Ok(0)
             }
             Verb::Disable(Which::All) => self.disable_all(&mut state),
+            Verb::Fallback(_) => Ok(0),
+        }
+    }
+
+    /// Says why each VT `pick` takes is not held by a unit whose
+    /// `Conflicts=` names its getty.
+    fn say_freed(&mut self, state: &State, pick: impl Fn(u16) -> bool) {
+        for (n, unit, display_manager, why) in &state.freed {
+            if pick(*n) {
+                self.say(&text::freed(*n, unit, *display_manager, why));
+            }
         }
     }
 
@@ -623,19 +662,10 @@ impl Run<'_, '_, '_> {
             }
         }
         state.display_manager = self.display_manager();
-        if let Some((dm, texts)) = state.display_manager.clone().zip(self.dm_texts()) {
-            for n in graphical::conflicts(texts.iter().map(String::as_str)) {
-                state
-                    .graphics
-                    .entry(n)
-                    .or_default()
-                    .push(Holder::DisplayManager(dm.clone()));
-            }
-        }
         match self.sessions() {
             Ok((graphics, logins)) => {
                 for (n, holder) in graphics {
-                    state.graphics.entry(n).or_default().push(holder);
+                    state.held.entry(n).or_default().push(holder);
                 }
                 for (n, holder) in logins {
                     state.logins.entry(n).or_default().push(holder);
@@ -643,6 +673,15 @@ impl Run<'_, '_, '_> {
             }
             Err(Stop(why)) => state.sessions_unknown = Some(why),
         }
+        state.running = self.running()?;
+        for (&n, prefixes) in &state.running {
+            for prefix in prefixes.iter().filter(|p| !CONSOLES.contains(&p.as_str())) {
+                state.held.entry(n).or_default().push(Holder::Console {
+                    unit: format!("{prefix}@tty{n}.service"),
+                });
+            }
+        }
+        self.judge_boot_units(&mut state);
         for name in names(&etc) {
             match instance(&name) {
                 Some(("autovt", n)) => {
@@ -673,8 +712,79 @@ impl Run<'_, '_, '_> {
                     fits.then(|| Some(path.to_owned()))
                 }
             });
-        state.running = self.running()?;
         Ok(state)
+    }
+
+    /// Judges which VTs the units enabled at boot hold ([`held::judge`]),
+    /// from their unit files, the display manager's configuration and the
+    /// greeters running now, and adds each to `state`.
+    fn judge_boot_units(&self, state: &mut State) {
+        let greeters: Vec<(u16, String)> = state
+            .held
+            .iter()
+            .flat_map(|(&n, hs)| hs.iter().map(move |h| (n, h)))
+            .filter_map(|(n, h)| match h {
+                Holder::Session { service, kind, .. } if kind == "greeter" => {
+                    Some((n, service.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        for unit in self.boot_units(state.display_manager.as_deref()) {
+            let display_manager = state.display_manager.as_deref() == Some(unit.as_str());
+            let texts = self.unit_texts(&unit, display_manager);
+            let facts = graphical::facts(&unit, texts.iter().map(String::as_str));
+            let config = if display_manager {
+                held::config(&self.host.root, &unit)
+            } else {
+                held::Config::Unknown
+            };
+            let stem = held::stem(&unit);
+            let mine: BTreeSet<u16> = greeters
+                .iter()
+                .filter(|(_, service)| held::service_of(service, stem))
+                .map(|(n, _)| *n)
+                .collect();
+            let judgment = held::judge(&facts, &config, &mine);
+            for (n, reason) in judgment.held {
+                state.held.entry(n).or_default().push(Holder::Unit {
+                    unit: unit.clone(),
+                    display_manager,
+                    reason,
+                });
+            }
+            for (n, why) in judgment.freed {
+                state.freed.push((n, unit.clone(), display_manager, why));
+            }
+        }
+    }
+
+    /// The units systemd starts at boot that vtium judges: the display
+    /// manager, and each service a `*.wants` or `*.requires` directory of a
+    /// unit directory links, but the consoles vtium knows by name, which
+    /// have rules of their own, and a masked unit.
+    fn boot_units(&self, display_manager: Option<&str>) -> BTreeSet<String> {
+        let mut units: BTreeSet<String> = display_manager.map(str::to_owned).into_iter().collect();
+        for dir in UNIT_DIRS {
+            let dir = self.path(dir);
+            for deps in names(&dir)
+                .into_iter()
+                .filter(|d| d.ends_with(".wants") || d.ends_with(".requires"))
+            {
+                for name in names(&dir.join(&deps)) {
+                    let prefix = name.split_once('@').map(|(p, _)| p);
+                    if !name.ends_with(".service")
+                        || prefix.is_some_and(|p| CONSOLES.contains(&p) || p == "autovt")
+                        || Link::read(&dir.join(&deps).join(&name)).masks()
+                        || self.find(&name) == UnitFile::Masked
+                    {
+                        continue;
+                    }
+                    units.insert(name);
+                }
+            }
+        }
+        units
     }
 
     /// The unit `display-manager.service` names: the name of the file its
@@ -691,24 +801,31 @@ impl Run<'_, '_, '_> {
         (self.find(&name) != UnitFile::Masked).then_some(name)
     }
 
-    /// The display manager's unit file and its drop-ins, as systemd reads
-    /// them, or None when there is no display manager.
+    /// A unit's file and its drop-ins, as systemd reads them.
     ///
     /// systemd loads the unit by its name, so the file of that name in the
     /// first unit directory that has one is read, which may be an
-    /// administrator's copy in `/etc/systemd/system` rather than the file
-    /// the link names (measured). The drop-ins are each `*.conf` in the
-    /// directories `NAME.d` of the unit's own name, then of its alias
-    /// `display-manager.service`, with the prefix directories of each
-    /// name, such as `display-.service.d`, and last the directory
-    /// `service.d` that applies to every service, each looked for in every
-    /// unit directory in the search path's order. A drop-in's file name is
-    /// read once, from the first of those directories that has it, and the
-    /// drop-ins are read in file-name order (systemd's
-    /// `unit_file_find_dropin_paths`, `src/shared/dropin.c`).
-    fn dm_texts(&self) -> Option<Vec<String>> {
-        let name = self.display_manager()?;
-        let mut texts: Vec<String> = match self.find(&name) {
+    /// administrator's copy in `/etc/systemd/system` rather than the file a
+    /// link names (measured); an instance with no file of its own reads its
+    /// template's. The drop-ins are each `*.conf` in the directories
+    /// `NAME.d` of the unit's own name, then of its template, then, for the
+    /// display manager, of its alias `display-manager.service`, with the
+    /// prefix directories of each name, such as `display-.service.d`, and
+    /// last the directory `service.d` that applies to every service, each
+    /// looked for in every unit directory in the search path's order. A
+    /// drop-in's file name is read once, from the first of those
+    /// directories that has it, and the drop-ins are read in file-name
+    /// order (systemd's `unit_file_find_dropin_paths`,
+    /// `src/shared/dropin.c`).
+    fn unit_texts(&self, name: &str, display_manager: bool) -> Vec<String> {
+        let template = name
+            .split_once('@')
+            .map(|(prefix, _)| format!("{prefix}@.service"));
+        let file = match (self.find(name), &template) {
+            (UnitFile::Missing, Some(template)) => self.find(template),
+            (found, _) => found,
+        };
+        let mut texts: Vec<String> = match file {
             UnitFile::At(path) => {
                 std::fs::read_to_string(self.host.root.join(path.trim_start_matches('/')))
                     .ok()
@@ -717,8 +834,9 @@ impl Run<'_, '_, '_> {
             }
             _ => Vec::new(),
         };
-        let mut units = vec![name.as_str()];
-        if name != DISPLAY_MANAGER {
+        let mut units = vec![name];
+        units.extend(template.as_deref());
+        if display_manager && name != DISPLAY_MANAGER {
             units.push(DISPLAY_MANAGER);
         }
         let mut dirs: Vec<PathBuf> = Vec::new();
@@ -743,7 +861,7 @@ impl Run<'_, '_, '_> {
                 .values()
                 .filter_map(|path| std::fs::read_to_string(path).ok()),
         );
-        Some(texts)
+        texts
     }
 
     /// The sessions on a VT now, from logind: the graphical sessions and
@@ -783,11 +901,16 @@ impl Run<'_, '_, '_> {
         }
     }
 
-    /// The consoles running on each VT, from the running manager.
+    /// The consoles running on each VT, from the running manager: every
+    /// active unit named `PREFIX@ttyN.service`.
     fn running(&mut self) -> Step<BTreeMap<u16, BTreeSet<String>>> {
-        let patterns = [VTIUM, DEV, GETTY, KMSCON].map(|p| format!("{p}@*.service"));
-        let mut args = vec!["list-units", "--plain", "--no-legend", "--state=active"];
-        args.extend(patterns.iter().map(String::as_str));
+        let args = [
+            "list-units",
+            "--plain",
+            "--no-legend",
+            "--state=active",
+            "*@tty*.service",
+        ];
         let reply = self.systemctl_quiet(&args)?;
         let mut running: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
         for line in reply.stdout.lines() {
@@ -839,13 +962,13 @@ impl Run<'_, '_, '_> {
         Ok(())
     }
 
-    /// Refuses VT `n` while graphics hold it, or while vtium cannot tell
-    /// whether they do.
-    fn refuse_graphics(&self, state: &State, n: u16) -> Step {
+    /// Refuses VT `n` while another program holds it, or while vtium
+    /// cannot tell whether graphics do.
+    fn refuse_held(&self, state: &State, n: u16) -> Step {
         if let Some(why) = &state.sessions_unknown {
             return Err(Stop(why.clone()));
         }
-        match state.graphics.get(&n) {
+        match state.held.get(&n) {
             Some(holders) => Err(Stop(text::graphics_hold(n, holders))),
             None => Ok(()),
         }
@@ -1030,7 +1153,7 @@ impl Run<'_, '_, '_> {
         // from the template: vtium's Conflicts= stops the console when
         // logind starts vtium there. A getty waiting at its login prompt
         // holds no session, so stopping it ends nothing.
-        if let Some(holders) = state.graphics.get(&RESERVED_VT) {
+        if let Some(holders) = state.held.get(&RESERVED_VT) {
             return Err(Stop(text::graphics_on_reserved_vt(RESERVED_VT, holders)));
         }
         if state.templated(RESERVED_VT) {
@@ -1053,11 +1176,11 @@ impl Run<'_, '_, '_> {
         // What each VT keeps, and the VTs whose gettys go.
         let mut kept: Vec<String> = Vec::new();
         let mut gettys: Vec<u16> = Vec::new();
-        for (n, holders) in &state.graphics {
+        for (n, holders) in &state.held {
             kept.push(text::kept_graphics(*n, holders));
         }
         for n in state.vts() {
-            if state.graphics.contains_key(&n) {
+            if state.held.contains_key(&n) {
                 continue;
             }
             // kmscon on a VT of its own keeps it: its own link wins over
@@ -1109,7 +1232,7 @@ impl Run<'_, '_, '_> {
         // `enable N` would be.
         let vt1_kept = state.holds(1, DEV)
             || state.holds(1, KMSCON)
-            || state.graphics.contains_key(&1)
+            || state.held.contains_key(&1)
             || state.masked.contains(&1);
         if !vt1_kept {
             self.refuse_vt(state, 1)?;
@@ -1124,6 +1247,8 @@ impl Run<'_, '_, '_> {
             for line in &kept {
                 self.say(line);
             }
+            let held = state.held.clone();
+            self.say_freed(state, |n| !held.contains_key(&n));
             return Ok(0);
         }
         if !template_done {
@@ -1148,6 +1273,8 @@ impl Run<'_, '_, '_> {
         for line in &kept {
             self.say(line);
         }
+        let held = state.held.clone();
+        self.say_freed(state, |n| !held.contains_key(&n));
         Ok(0)
     }
 
@@ -1215,7 +1342,7 @@ impl Run<'_, '_, '_> {
         }
         let mut vts: BTreeSet<u16> = (1..=LOGIND_VTS).collect();
         vts.extend(state.vts());
-        vts.extend(state.graphics.keys());
+        vts.extend(state.held.keys());
         let rows: Vec<[String; 4]> = vts
             .into_iter()
             .map(|n| {
@@ -1225,14 +1352,19 @@ impl Run<'_, '_, '_> {
                     .map(|w| units(w.keys(), n))
                     .unwrap_or_default();
                 let mut running_graphics = String::new();
-                for holder in state.graphics.get(&n).into_iter().flatten() {
+                for holder in state.held.get(&n).into_iter().flatten() {
+                    let cell = text::holder_cell(holder);
                     match holder {
-                        Holder::DisplayManager(_) => {
-                            at_boot = join(&at_boot, &text::holder_cell(holder));
+                        // An instance getty.target wants shows already.
+                        Holder::Unit { .. } if !at_boot.split(", ").any(|c| c == cell) => {
+                            at_boot = join(&at_boot, &cell);
                         }
                         Holder::Session { .. } => {
-                            running_graphics = join(&running_graphics, &text::holder_cell(holder));
+                            running_graphics = join(&running_graphics, &cell);
                         }
+                        // A console running there shows in the running
+                        // column already.
+                        Holder::Unit { .. } | Holder::Console { .. } => {}
                     }
                 }
                 // logind starts a console by itself only on its VTs, and
@@ -1281,6 +1413,19 @@ impl Run<'_, '_, '_> {
             }
             self.say(line.trim_end());
         }
+        // Why each VT a unit enabled at boot holds is held, and why each VT
+        // whose getty a unit's Conflicts= names is free.
+        for (n, holders) in &state.held {
+            let units: Vec<Holder> = holders
+                .iter()
+                .filter(|h| matches!(h, Holder::Unit { .. }))
+                .cloned()
+                .collect();
+            if !units.is_empty() {
+                self.say(&text::status_held(*n, &units));
+            }
+        }
+        self.say_freed(state, |_| true);
     }
 }
 
