@@ -228,7 +228,7 @@ A configuration file is untrusted input. The bounds of each key's value are in `
 | `REPLY_TIMEOUT` | 2,000 ms a request to the image helper is out, in a build with images (ADR-1100 D7) | The request fails, the helper is stopped with no crash counted, and the console's pty resumes |
 | `ANIMATION_FLOOR_MS` | 10 ms between two firings of the animation clock's timer, in a build with images (ADR-1102 D3) | A frame whose gap is shorter shows at the next firing, or is passed over when its time has gone |
 | A frit's glyph store | the machine's store limit (16 MiB below 2 GiB, 64 MiB from 2 GiB, 128 MiB from 4 GiB) divided by the heads | A fill stops at it, as at the store's limit |
-| The helper client's record of a cell in one style | four bitsets of every codepoint, held, lacked, asked for and brought by the fill, 136 KiB each, made only when a bit is first set; a style other than regular never fills, so at most 544 KiB for the regular record and 408 KiB for each other style's, 1.75 MiB for a cell the screen shows in all four styles (`helper.rs`, `Bits`) | Nothing past it: one record a cell and style the displays draw at, dropped with its cell |
+| The helper client's record of a cell in one style | four bitsets of every codepoint, held, lacked, asked for and brought by the fill, 136 KiB each, made only when a bit is first set; a style other than regular never fills, so at most 544 KiB for the regular record and 408 KiB for each other style's, 1.73 MiB for a cell the screen shows in all four styles (`helper.rs`, `Bits`) | Nothing past it: one record a cell and style the displays draw at, dropped with its cell |
 
 ## Departures
 
