@@ -31,7 +31,7 @@ basis:
     paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "vtium judges itself by its own goldens, because the C reference is now a weaker renderer than vtium. The contribution guidance defines the judge before the builder."
+    said: "vtium judges itself by its own goldens from now on. The contribution guidance defines the judge before the builder."
     via: "the steering session, 2026-11-04, on the goldens and the tools"
     paraphrase: true
   - evidence: "measured 2026-11-04 on integration at 4667b6c2: `git grep -nE 'C reference|kmscon|libtsm'` finds 3,915 lines in 349 files. By area, in lines and files: tools/tier3 728 in 53; Rust source under crates/ 707 in 167, of which 575 are comment lines; tools/conformance 666 in 30; the decision records under docs/architecture/ 654 in 26 (594 in the 22 records, 111 of them in frontmatter and 483 in the bodies, and 54 in ADR-1000's two tables); the ten crate READMEs at the top of each crate 418; the docs pages 365 in 18, of which docs/c-reference.md holds 247; tools/tier2 153 in 17; other files under crates/ (the test READMEs, Cargo.toml comments, install/ files) 90 in 14; the other tools 90 in 8; AGENTS.md 17; the Makefile 15; COPYING 6; README.md 3; CONTRIBUTING.md 2; zensical.toml 1; .github/ none."
@@ -263,7 +263,7 @@ The maintainer answered the record's other questions on 2026-11-04 (the `conside
 
 ## Alternatives Considered
 
-- **Keep the C reference as the named judge until the forks are deleted.** It leaves the work for later, but the tree keeps pointing at code an outside reader cannot open, the departure lists keep describing vtium by another program, and the maintainer called that program an inferior renderer that holds vtium back. Rejected.
+- **Keep the C reference as the named judge until the forks are deleted.** It leaves the work for later, but the tree keeps pointing at code an outside reader cannot open, the departure lists keep describing vtium by another program, and the maintainer decided that vtium's own output is the standard its tests compare against. Rejected.
 - **Call the copied goldens vtium's as they stand and keep the excuse lists.** It needs no golden review, but about 85 of vtium's goldens would show output vtium does not produce, and every one of those cases would still need a list beside it. Rejected: the maintainer chose to replace them.
 - **Keep the provenance records, the C programs and docs/c-reference.md in the tree until the revisit.** It keeps the copies checkable against their sources from the tree, but the copied goldens could not change while the records pin their bytes, so each tier would keep two golden directories, and the files would keep pulling agents toward the fork. Rejected: the maintainer chose to delete them now, and git keeps them.
 - **Move those files to a private directory beside the checkout.** It keeps them at hand without committing them, but the maintainer is unsure a private layer works as intended and deferred it. Rejected for now; the revisit may take it up.

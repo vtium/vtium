@@ -134,7 +134,7 @@ considered:
     paraphrase: true
   - operator: aaronsb
     said: "The packages install their frits into /etc/vtium/fonts and bundle no font files. Each distribution's recipe refers to the place where that distribution installs its fonts, and a frit uses fonts installed on the system. Each package manager offers an optional package that installs the distribution's font packages for the frits vtium ships."
-    via: "the steering session, 2026-11-04, the maintainer's answer in the first round of D8's open questions, to question 2: where the shipped frits go; the path the maintainer typed, /etc/fvtium/fonts, means /etc/vtium/fonts"
+    via: "the steering session, 2026-11-04, the maintainer's answer in the first round of D8's open questions, to question 2: where the shipped frits go"
     paraphrase: true
   - operator: aaronsb
     said: "The packages ship the set of frits the question proposed, desktop, a Terminus frit, minspec-16 and minspec-8, and their fonts are optional."
