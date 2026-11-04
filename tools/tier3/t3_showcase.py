@@ -11,8 +11,8 @@ beyond the harness:
   on the run's disc (`fetch`, `disc_fonts`);
 - the sixel and kitty pictures the pictures scene sends, which this module
   computes from a few lines of arithmetic, so nothing is downloaded
-  (`pictures`), and the gallery the shell scene shows, which
-  t3_showcase_gallery.py makes (`gallery`);
+  (`pictures`), and the gallery the shell scene shows, its pictures and
+  the gallery tool, which t3_showcase_gallery.py puts on the disc;
 - vtium's named palettes, read from vtium-term's table for the color scene
   (`palettes`);
 - the pages: each scene's capture copied into docs/showcase/, the fonts
@@ -425,12 +425,12 @@ def palettes(path=PALETTE_RS):
 
 def disc_screens(screens):
     """What the scenes read beside the screen scripts on the disc, in
-    `screens`/showcase: the pictures, the gallery in gallery/, and
-    palettes.txt, one named palette a line, its name then its 16 colors as
-    r;g;b."""
+    `screens`/showcase: the pictures, the gallery's pictures in pictures/
+    and the gallery tool in bin/, and palettes.txt, one named palette a
+    line, its name then its 16 colors as r;g;b."""
     out = os.path.join(screens, "showcase")
     pictures(out)
-    gallery.gallery(os.path.join(out, "gallery"))
+    gallery.disc(out)
     with open(os.path.join(out, "palettes.txt"), "w") as f:
         for name, colors, _, _ in palettes():
             f.write("%s %s\n" % (name, " ".join("%d;%d;%d" % c for c in colors)))
@@ -439,8 +439,9 @@ def disc_screens(screens):
 def faults(events, name):
     """What showcase screen `name` reported wrong on the event port, after
     the screen before it ended and before it ended itself: a font switch
-    vtium did not take (T3-FONT-REFUSED FRIT NAMED, showcase.inc) and
-    pictures missing from the disc (T3-NO-PICTURES). The scenario fails the
+    vtium did not take (T3-FONT-REFUSED FRIT NAMED, showcase.inc), pictures
+    missing from the disc (T3-NO-PICTURES) and a gallery the gallery tool
+    did not draw (T3-NO-GALLERY, showcase-shell.sh). The scenario fails the
     case on any of them."""
     seen = []
     for e in events:
@@ -453,6 +454,8 @@ def faults(events, name):
             seen.append("vtium did not switch to the font %s: OSC 50 named %s" % (frit, named))
         elif e == "T3-NO-PICTURES":
             seen.append("the showcase's pictures are not on the disc")
+        elif e == "T3-NO-GALLERY":
+            seen.append("the gallery tool drew no gallery")
     return []
 
 
@@ -598,7 +601,8 @@ def page(report, date):
               "|---|---|---|---|---|---|"]
     lines += ["| %s |" % " | ".join(row) for row in font_rows()]
     computed = [name for name, _, _ in gallery.COMPUTED]
-    lines += ["", "The hero's gallery shows six pictures. `t3_showcase_gallery.py` computes "
+    lines += ["", "In the hero, vtium's gallery tool, `tools/gallery/gallery`, shows six "
+              "pictures. `t3_showcase_gallery.py` computes "
               "%s from a few lines of arithmetic. The other two are photographs in the "
               "public domain, shrunk once to %dx%d pixels and committed in "
               "`tools/tier3/showcase-photos/`:"

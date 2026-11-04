@@ -1,10 +1,11 @@
-"""The gallery that tier 3's showcase shell scene draws
+"""The gallery that tier 3's showcase shell scene shows
 (guest/screens/showcase-shell.sh, t3_showcase.py): six pictures, four
 computed here from a few lines of arithmetic and two photographs in the
 public domain, committed in tools/tier3/showcase-photos/ with their
-provenance in PHOTOS. t3_showcase.disc_screens writes the gallery onto the
-run's disc, and t3_showcase.page lists each photograph's source on the
-showcase's page."""
+provenance in PHOTOS, and vtium's gallery tool, tools/gallery/gallery, which
+the scene runs to show them. t3_showcase.disc_screens puts the pictures and
+the tool on the run's disc (`disc`), and t3_showcase.page lists each
+photograph's source on the showcase's page."""
 
 import hashlib
 import math
@@ -17,16 +18,16 @@ import t3img  # noqa: E402
 from t3_common import ROOT, rel  # noqa: E402
 
 
-# The shell scene shows the gallery as the maintainer's `gallery` shell
-# function shows a directory of pictures through chafa's grid: six PNG
-# pictures of 256x160 pixels, each drawn with the kitty graphics protocol
-# over 16 cells by 4 rows of Iosevka Term's 16x40 cell. Four are computed
-# here from a few lines of arithmetic. Two are photographs in the public
-# domain, shrunk once to 256x160 and committed in tools/tier3/showcase-photos/.
+# The gallery: six PNG pictures of 256x160 pixels, which the gallery tool
+# shows four rows tall in Iosevka Term's 16x40 cell, so each covers 16 cells
+# by 4 rows. Four are computed here from a few lines of arithmetic. Two are
+# photographs in the public domain, shrunk once to 256x160 and committed in
+# tools/tier3/showcase-photos/.
 GALLERY_SIZE = (256, 160)
 # Iosevka Term's cell in pixels, which the frit showcase-iosevka states.
 CELL = (16, 40)
 PHOTO_DIR = os.path.join(ROOT, "tools", "tier3", "showcase-photos")
+TOOL = os.path.join(ROOT, "tools", "gallery", "gallery")
 
 
 def render(shade, width, height, samples):
@@ -167,8 +168,8 @@ PHOTOS = [
           "set on black, 48 pixels each side, to 256x160",
           "7bcd13a03aa710cf37f95e02895465c7de8125e57a6ab35665eb060729a7c98f"),
 ]
-# The gallery's files in name order, the order the `gallery` function lists
-# a directory in, and showcase-shell.sh draws them in.
+# The gallery's files in name order, the order the gallery tool shows a
+# directory in.
 GALLERY = sorted([name for name, _, _ in COMPUTED] + [p.file for p in PHOTOS])
 
 
@@ -187,3 +188,11 @@ def gallery(directory, size=GALLERY_SIZE):
     for name, shade, samples in COMPUTED:
         t3img.write_png(os.path.join(directory, name), render(shade, *size, samples))
     return GALLERY
+
+
+def disc(showcase):
+    """Puts the gallery on the disc, in the directory `showcase` the scenes
+    read: the pictures in pictures/ and the gallery tool as bin/gallery."""
+    gallery(os.path.join(showcase, "pictures"))
+    os.makedirs(os.path.join(showcase, "bin"), exist_ok=True)
+    shutil.copy(TOOL, os.path.join(showcase, "bin", "gallery"))

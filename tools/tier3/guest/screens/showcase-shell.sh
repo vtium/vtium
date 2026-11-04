@@ -3,11 +3,11 @@
 # prompts in powerline segments with an icon from Symbols Nerd Font Mono, a
 # colored directory listing, a git history with its branch graph, a gallery
 # of six pictures in kitty graphics with their file names, and greetings in
-# several scripts with emoji. The gallery is laid out as chafa's grid lays
-# out a directory of pictures: four of them computed from a few lines of
-# arithmetic, and two photographs NASA's astronauts took, Earthrise and the
-# Blue Marble. The scene writes the session byte for byte, and the last
-# prompt is the shell's own, with its cursor.
+# several scripts with emoji. vtium's own gallery tool, tools/gallery/gallery,
+# draws the gallery: four pictures computed from a few lines of arithmetic,
+# and two photographs NASA's astronauts took, Earthrise and the Blue Marble.
+# The scene writes the rest of the session byte for byte, and the last prompt
+# is the shell's own, with its cursor.
 # alt: A console screen showing a shell session in a smooth monospaced
 # alt: font: prompts in blue, gray and green segments, a colored listing of
 # alt: the vtium source tree, a git log with a branch graph and yellow
@@ -60,35 +60,18 @@ printf '%svtium%s         %svtium-font%s    %svtium-image-helper%s  %svtium-plat
 	"$blue" "$o" "$blue" "$o" "$blue" "$o" "$blue" "$o" "$blue" "$o"
 printf '%svtium-config%s  %svtium-image%s   %svtium-parse%s         %svtium-render%s    %svtium-term%s\n' \
 	"$blue" "$o" "$blue" "$o" "$blue" "$o" "$blue" "$o" "$blue" "$o"
-# The gallery: six pictures of 256x160 pixels in name order, which
-# tools/tier3/t3_showcase_gallery.py writes onto the disc. Each is a kitty
-# picture of 16 cells by 4 rows in Iosevka Term's 16x40 cell, placed at the
-# cursor without moving it (C=1), two columns into a column of 20 cells, so
-# the six fill the 120 columns. Each file's name is centered under its
-# picture, on the row under the pictures.
-prompt 'gallery -n 6 ~/pictures'
-gallery=(earthrise.png hex-tiles.png julia-set.png plasma.png sunset-hills.png whole-earth.png)
-missing=
-for name in "${gallery[@]}"; do
-	[ -f "$showcase/gallery/$name" ] || missing=$name
-done
-if [ -z "$missing" ]; then
-	for i in "${!gallery[@]}"; do
-		printf '%s[%dG' "$esc" $((i * 20 + 3))
-		kitty "a=T,f=100,i=$((i + 11)),q=2,C=1" "$(base64 -w0 "$showcase/gallery/${gallery[i]}")"
-	done
+# The gallery: vtium's gallery tool, tools/gallery/gallery, which tier 3
+# carries onto the disc as showcase/bin/gallery, shows the six pictures that
+# tools/tier3/t3_showcase_gallery.py writes into showcase/pictures, four rows
+# tall with each file's name under its picture. It first asks the terminal
+# whether it draws kitty graphics and the size of its cell, which vtium
+# answers the same way on every run. When it draws nothing, it says why on
+# one line, and the scene keeps the gallery's six rows.
+prompt 'gallery -s 4 -n 6 ~/pictures'
+if ! bash "$showcase/bin/gallery" -s 4 -n 6 "$showcase/pictures" 2>&1; then
 	printf '\n\n\n\n'
-else
-	# Without the gallery the scene says so on the rows of the pictures, so
-	# the rest of the screen stays where it is.
-	printf 'showcase-shell: no %s in %s; tools/tier3/t3_showcase.py writes it.\n\n\n\n' \
-		"$missing" "$showcase/gallery"
-	[ -n "${T3_EVENTS:-}" ] && echo T3-NO-PICTURES >"$T3_EVENTS"
+	[ -n "${T3_EVENTS:-}" ] && echo T3-NO-GALLERY >"$T3_EVENTS"
 fi
-for i in "${!gallery[@]}"; do
-	printf '%s[%dG%s' "$esc" $((i * 20 + 1 + (20 - ${#gallery[i]}) / 2)) "${gallery[i]}"
-done
-printf '\n'
 prompt 'cat greetings.txt'
 printf 'Hello 👋   你好   こんにちは   안녕하세요   สวัสดี   Γεια σου   Привет   Xin chào   Bonjour   Hallo\n'
 printf 'Thank you 🙏   谢谢   ありがとう   감사합니다   ขอบคุณ   Ευχαριστώ   Спасибо   Cảm ơn   Merci   Danke\n'
