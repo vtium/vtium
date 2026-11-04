@@ -426,6 +426,30 @@ fn another_command_ends_an_upload_and_gives_back_its_reservation() {
     assert!(h.store.is_empty());
 }
 
+// Between two chunks, RIS (reset) and other output or the session's end
+// (interrupt) each drop the open upload and give back its reservation;
+// its last chunk is then a command of its own, refused unanswered.
+// covers: image.kitty
+#[test]
+fn reset_or_an_interrupt_between_chunks_drops_the_open_upload() {
+    for reset in [false, true] {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        send(&mut k, &mut h, &format!("a=t,s=2,v=2,i=1,m=1;{}", red(1)));
+        assert!(k.upload_open());
+        assert_eq!(h.store.bytes(), 16 + IMAGE_OVERHEAD);
+        if reset {
+            k.reset(&mut h);
+        } else {
+            k.interrupt(&mut h);
+        }
+        assert!(!k.upload_open(), "reset: {reset}");
+        assert_eq!(h.store.bytes(), 0, "reset: {reset}");
+        send(&mut k, &mut h, &format!("m=0;{}", red(3)));
+        assert_eq!(h.take(), "");
+        assert!(h.store.is_empty());
+    }
+}
+
 #[test]
 fn a_failed_upload_swallows_its_chunks_and_answers_once() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
@@ -671,10 +695,10 @@ fn a_frame_in_chunks_holds_one_reservation_and_answers_once() {
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     let key = key(&mut h);
     assert_eq!(h.store.animation(key).unwrap().frames, 2);
-    // another command ends an upload in chunks and gives back what it holds
+    // a delete ends an upload in chunks, which gives back what it holds
     let held = h.store.frame_bytes();
     send(&mut k, &mut h, &format!("a=f,i=1,s=4,v=4,m=1;{a}"));
-    send(&mut k, &mut h, "a=a,i=1,s=1");
+    send(&mut k, &mut h, "a=d,d=i,i=9");
     assert_eq!(h.store.frame_bytes(), held);
     assert_eq!(h.store.animation(key).unwrap().frames, 2);
 }
@@ -713,33 +737,132 @@ fn a_chunk_that_repeats_the_first_chunks_keys_still_continues_the_upload() {
         "the edit reached the root frame"
     );
     assert_eq!(h.boxes(), vec![(0, 0, 12, 4)]);
-    // the same holds for a picture's own upload: a later chunk that repeats
-    // a=t and other keys continues it, and only its m and q are read
+}
+
+/// Opens an upload in chunks of image 8, 2 by 2 pixels of blue RGB,
+/// with its first chunk, and returns the base64 of its second and last.
+fn open_upload(k: &mut Kitty, h: &mut Host) -> String {
+    let blue = b64(&[0, 0, 0xff].repeat(4));
     let (a, b) = blue.split_at(8);
-    send(&mut k, &mut h, &format!("a=t,i=8,f=24,s=2,v=2,m=1;{a}"));
-    send(&mut k, &mut h, &format!("a=t,i=9,s=5,m=0,q=1;{b}"));
+    send(k, h, &format!("a=t,i=8,f=24,s=2,v=2,m=1;{a}"));
+    b.to_owned()
+}
+
+/// Image 8 holds the upload's blue pixels.
+fn upload_stored(h: &mut Host) -> bool {
+    h.store
+        .find_image(8, 0)
+        .and_then(|key| h.store.frame_pixels(key, 1))
+        .is_some_and(|p| p.pixels.as_slice() == [0xff00_00ff; 4])
+}
+
+// covers: image.kitty
+#[test]
+fn inside_an_upload_a_transmission_sent_directly_continues_it_reading_only_m_and_q() {
+    // a=t, a=T, a=q and a=f with t=d or no t, and no action at all, as
+    // kitty 0.49.2 takes them: the upload's first chunk decides what the
+    // upload is, and each later chunk gives only its m and q
+    for keys in [
+        "a=t,i=9,s=5,v=5,f=32",
+        "a=T,i=9,c=3,r=3",
+        "a=q,i=9",
+        "a=f,r=1,i=9,x=1",
+        "t=d,i=9,s=1,v=1",
+        "i=9,f=100",
+    ] {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=t,i=9,f=24,s=1,v=1;{}", b64(&[0, 0, 0])),
+        );
+        assert_eq!(h.take(), "\x1b_Gi=9;OK\x1b\\");
+        let rest = open_upload(&mut k, &mut h);
+        send(&mut k, &mut h, &format!("{keys},m=0,q=1;{rest}"));
+        assert!(upload_stored(&mut h), "{keys} continued the upload");
+        assert_eq!(h.take(), "", "{keys}: its q=1 holds");
+        assert!(h.boxes().is_empty(), "{keys}: nothing placed");
+        let nine = h.store.find_image(9, 0).unwrap();
+        let p = h.store.frame_pixels(nine, 1).unwrap();
+        assert_eq!(
+            p.pixels.as_slice(),
+            &[0xff00_0000],
+            "{keys}: image 9 untouched"
+        );
+    }
+}
+
+// covers: image.kitty
+#[test]
+fn inside_an_upload_a_transmission_from_a_named_medium_drops_it_and_starts_its_own() {
+    for medium in ["f", "t", "s"] {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        let rest = open_upload(&mut k, &mut h);
+        assert!(h.store.bytes() > 0, "the upload holds its reservation");
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=t,t={medium},i=11,f=24,s=2,v=2;AAAA"),
+        );
+        assert_eq!(
+            h.take(),
+            "\x1b_Gi=11;EBADF:Failed to read image file\x1b\\",
+            "t={medium} ran as its own command"
+        );
+        assert_eq!(
+            h.store.bytes(),
+            0,
+            "t={medium} gave the upload's bytes back"
+        );
+        // the upload's last chunk is no continuation now: a transmission
+        // with the defaults, without s and v, refused unanswered
+        send(&mut k, &mut h, &format!("m=0;{rest}"));
+        assert_eq!(h.take(), "");
+        assert!(h.store.is_empty());
+    }
+}
+
+// covers: image.kitty
+#[test]
+fn inside_an_upload_a_put_and_a_composition_run_on_their_own_and_it_stays_open() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,i=1,s=1,v=1;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1;{}", red(1)));
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\".repeat(2));
+    let rest = open_upload(&mut k, &mut h);
+    send(&mut k, &mut h, "a=p,i=1,C=1");
+    send(&mut k, &mut h, "a=c,i=1,r=1,c=2");
     assert_eq!(
         h.take(),
-        "",
-        "the chunk's q=1 holds, and its i=9 is not read"
+        "\x1b_Gi=1;OK\x1b\\".repeat(2),
+        "the put and the composition each ran and answered"
     );
-    let key = h.store.find_image(8, 0).unwrap();
-    assert_eq!(
-        h.store.frame_pixels(key, 1).unwrap().pixels.as_slice(),
-        &[0xff00_00ff; 4]
-    );
-    assert_eq!(h.store.find_image(9, 0), None);
-    // a chunk that names another action or medium is another command, and
-    // ends the upload
-    send(&mut k, &mut h, &format!("a=t,i=10,f=24,s=2,v=2,m=1;{a}"));
-    send(&mut k, &mut h, &format!("a=T,i=10,f=24,s=2,v=2;{blue}"));
-    send(&mut k, &mut h, &format!("a=t,i=11,f=24,s=2,v=2,m=1;{a}"));
-    send(&mut k, &mut h, "a=t,t=f,i=11,f=24,s=2,v=2;AAAA");
-    assert_eq!(
-        h.take(),
-        "\x1b_Gi=10;OK\x1b\\\x1b_Gi=11;EBADF:Failed to read image file\x1b\\"
-    );
-    assert_eq!(h.boxes().len(), 2, "a=T started anew and placed image 10");
+    assert_eq!(h.boxes(), vec![(0, 0, 1, 1)]);
+    send(&mut k, &mut h, &format!("m=0;{rest}"));
+    assert!(upload_stored(&mut h), "the upload stayed open");
+    assert_eq!(h.take(), "\x1b_Gi=8;OK\x1b\\");
+}
+
+// covers: image.kitty-animation
+#[test]
+fn inside_an_upload_an_animation_control_acts_on_the_image_being_loaded() {
+    let (mut k, mut h) = animated();
+    send(&mut k, &mut h, &format!("a=t,i=2,s=1,v=1;{}", red(1)));
+    let _ = h.take();
+    let data = rgba([0, 0, 0xff, 0xff], 4);
+    let (a, b) = data.split_at(8);
+    send(&mut k, &mut h, &format!("a=f,i=1,s=2,v=2,m=1;{a}"));
+    // it names image 2, and acts on image 1, whose frame is loading
+    send(&mut k, &mut h, "a=a,i=2,s=3,v=4");
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let one = key(&mut h);
+    let st = h.store.animation(one).unwrap();
+    assert_eq!((st.run, st.loops), (crate::Run::Looping, 4));
+    let two = h.store.find_image(2, 0).unwrap();
+    assert!(h.store.animation(two).is_none(), "image 2 untouched");
+    send(&mut k, &mut h, &format!("m=0;{b}"));
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\", "the upload stayed open");
+    assert_eq!(h.store.animation(one).unwrap().frames, 2);
 }
 
 // covers: image.kitty-animation

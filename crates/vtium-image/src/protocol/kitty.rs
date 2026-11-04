@@ -13,12 +13,15 @@
 //! at most [`NAME_MAX`] bytes.
 //!
 //! - **Chunks.** A direct transmission (`t=d`) may come in chunks: `m=1` on
-//!   every chunk but the last. A later chunk sends its data directly and
-//!   names no action or the upload's own; the spec asks it to carry only
-//!   `m` and `q`, and the handler reads only those, as kitty does, so a
-//!   chunk that repeats the first chunk's keys still continues the upload.
-//!   Any other graphics command ends an upload in chunks, and gives back
-//!   what it reserved. A transmission that fails part way swallows its
+//!   every chunk but the last. While an upload is open, a command does
+//!   what kitty 0.49.2 does with it (`Command::within_upload`): a
+//!   transmission or frame sent directly is the next chunk, of which the
+//!   handler reads only `m` and `q`; one from a named medium, and a
+//!   delete, end the upload, which gives back what it reserved; a put, a
+//!   composition and an animation control run beside it, the control on
+//!   the image the upload loads. Output of any other kind between two
+//!   chunks, RIS and the session's end drop the upload too
+//!   ([`Handler::interrupt`]), where kitty keeps it open. A transmission that fails part way swallows its
 //!   remaining chunks and answers once, at its last. A chunk's `q` of 1 or
 //!   2 holds from then on.
 //! - **The helper.** PNG (`f=100`) and zlib (`o=z`) payloads sent directly
@@ -91,7 +94,7 @@ mod command;
 #[cfg(test)]
 mod tests;
 
-use command::{Answer, Command, Error, charge, graphic, reply};
+use command::{Answer, Command, Error, Within, charge, graphic, reply};
 
 /// The most bytes of control keys a command may carry, as the C reference
 /// bounded them (its `KITTY_KEYS_MAX`).
@@ -340,22 +343,34 @@ impl Kitty {
         self.cmd = Command::parse(&self.keys);
         self.target = Target::None;
         let cmd = self.cmd;
-        if self.upload.mode != Mode::None && cmd.continues(&self.upload.cmd) {
-            if cmd.bad {
-                fail(&mut self.upload.mode, ctx, Error::Invalid);
+        if self.upload.mode != Mode::None {
+            match cmd.within_upload() {
+                Within::Continues => {
+                    if cmd.bad {
+                        fail(&mut self.upload.mode, ctx, Error::Invalid);
+                    }
+                    // a chunk's q of 1 or 2 holds from then on, and q=0
+                    // keeps the first chunk's, as kitty keeps it
+                    if cmd.quiet != 0 {
+                        self.upload.cmd.quiet = cmd.quiet;
+                    }
+                    self.target = Target::Upload;
+                    return;
+                }
+                Within::Beside => {
+                    // an animation control acts on the image the upload
+                    // loads; a query's picture is never stored, so then
+                    // it names none
+                    if cmd.action == b'a' {
+                        let query = self.upload.cmd.action == b'q';
+                        self.cmd.id = if query { 0 } else { self.upload.cmd.id };
+                        self.cmd.number = if query { 0 } else { self.upload.cmd.number };
+                    }
+                    return;
+                }
+                Within::Ends => abort(&mut self.upload.mode, ctx),
             }
-            // a chunk's q of 1 or 2 holds from then on, and q=0 keeps the
-            // first chunk's; the spec is silent, and Ghostty keeps it so
-            if cmd.quiet != 0 {
-                self.upload.cmd.quiet = cmd.quiet;
-            }
-            self.target = Target::Upload;
-            return;
         }
-        // any other graphics command ends the pending upload: the spec asks
-        // it of a delete, and vtium, as the C reference did, asks it of
-        // every command that does not continue the upload
-        abort(&mut self.upload.mode, ctx);
         if !cmd.transmits() {
             return;
         }
@@ -1177,6 +1192,14 @@ impl Handler for Kitty {
     fn reset(&mut self, ctx: &mut dyn Context) {
         self.release(ctx);
         *self = Self::default();
+    }
+
+    fn upload_open(&self) -> bool {
+        self.upload.mode != Mode::None
+    }
+
+    fn interrupt(&mut self, ctx: &mut dyn Context) {
+        abort(&mut self.upload.mode, ctx);
     }
 
     fn clone_box(&self) -> Box<dyn Handler> {
