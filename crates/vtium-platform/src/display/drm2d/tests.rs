@@ -783,6 +783,129 @@ fn waking_again_sets_the_mode_and_asks_for_a_redraw() {
     assert!(v.card().last_commit().unwrap().flags & DRM_MODE_ATOMIC_ALLOW_MODESET != 0);
 }
 
+/// A card with one display, A, whose encoder drives either of two CRTCs,
+/// 100 and 101, as the encoders of a DisplayPort multi-stream connector
+/// on amdgpu do. Connector B is not listed.
+fn two_crtcs() -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A);
+        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+    }
+    Drm2d::with(card, ModePolicy::default()).unwrap()
+}
+
+/// What a desktop leaves on the card when it lets the display go:
+/// connector `conn` on `crtc`, the desktop's framebuffer on that CRTC's
+/// primary plane and its pointer on that CRTC's cursor plane, and every
+/// other CRTC off with no plane on it. On the maintainer's machine KWin
+/// left DP-8 that way on crtc-0, with its own primary plane on it, after
+/// vtium had set DP-8 on another CRTC.
+fn desktop_leaves(card: &FakeCard, conn: u32, crtc: u32) {
+    let mut s = card.state();
+    let at = crtc - 100;
+    for other in s.crtcs.clone() {
+        s.enabled.insert(other, false);
+        s.active.insert(other, false);
+        s.crtc_modes.remove(&other);
+        s.modes.remove(&other);
+    }
+    s.plane_crtc.clear();
+    s.plane_fb.clear();
+    s.bind(conn, crtc);
+    s.enabled.insert(crtc, true);
+    s.active.insert(crtc, true);
+    s.crtc_modes.insert(crtc, mode(640, 480, 60, true));
+    s.modes
+        .insert(crtc, mode_bytes(&mode(640, 480, 60, true).0));
+    s.fbs.insert(88, (640, 480));
+    s.fbs.insert(89, (64, 64));
+    for (plane, fb) in [(300 + 2 * at, 88), (301 + 2 * at, 89)] {
+        s.plane_crtc.insert(plane, crtc);
+        s.plane_fb.insert(plane, fb);
+    }
+}
+
+// A desktop that held the display may leave its connector on another CRTC
+// than the one vtium set it on, as KWin left DP-8 on the maintainer's
+// machine (vtium/vtium#249). The wake-up sets the display on the CRTC its
+// connector is on now, as a first start does, with that CRTC's planes.
+// Setting the display on its old CRTC would take the connector off a CRTC
+// the desktop left lit, which the kernel refuses with EINVAL at every
+// mode, so no wake-up ever drew again.
+// covers: platform.vt-switch
+#[test]
+fn a_wake_up_follows_the_display_to_the_crtc_the_desktop_left_it_on() {
+    let mut v = awake(two_crtcs());
+    assert_eq!(v.card().state().bound.get(&A), Some(&100));
+    v.setup_cursor(DisplayId(A), &[0xff00_0000; 4], 2, 2, (0, 0))
+        .unwrap();
+    v.show_cursor(DisplayId(A), 10, 10).unwrap();
+    v.commit(DisplayId(A)).unwrap();
+    flip(&mut v);
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 101);
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A)), Event::Awake]);
+    assert!(
+        logs::at_least(Level::Error).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Error)
+    );
+    let fb = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(101, fb), "{:?}", v.card().state());
+    let cursor = v.outputs[0].cursor.as_ref().unwrap().fb;
+    let s = v.card().state();
+    assert_eq!(s.bound.get(&A), Some(&101));
+    assert_eq!(s.plane_crtc.get(&303), Some(&101), "the pointer follows");
+    assert_eq!(s.plane_fb.get(&303), Some(&cursor));
+    assert_eq!(
+        s.plane_crtc.get(&301),
+        None,
+        "CRTC 100's cursor plane is off"
+    );
+    assert_eq!(s.active.get(&100), Some(&false), "CRTC 100 stays off");
+}
+
+// A display plugged in while the VT was away is bound before the displays
+// bound earlier follow their connectors, so it may take the CRTC one of
+// them follows to. It moves to a free one, and each display shows its own
+// frame on a CRTC of its own.
+#[test]
+fn a_display_plugged_in_while_away_leaves_the_crtc_a_display_follows_to() {
+    let v = two_crtcs();
+    v.card()
+        .state()
+        .encoders
+        .get_mut(&201)
+        .unwrap()
+        .possible_crtcs = 0b11;
+    let mut v = awake(v);
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 101);
+    v.card().state().listed.push(B);
+    v.wake_up().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Redraw(DisplayId(A)),
+            Event::Added(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    let a = drawn(&mut v, A, 0x66);
+    let b = drawn(&mut v, B, 0x77);
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+}
+
 // The open makes the card DRM master; the seat puts a card opened while
 // its VT is not shown to sleep, which lets master go for the shown VT's
 // vtium, and the acquire takes it (vtium/vtium#139).

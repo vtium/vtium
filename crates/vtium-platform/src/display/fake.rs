@@ -5,7 +5,9 @@
 //! modeset without DRM master is refused with EACCES, a commit while a
 //! flip is pending with EBUSY, and a commit asking for a flip event that
 //! names no CRTC (`prepare_signaling`) or a CRTC that is off and stays off
-//! (`drm_atomic_crtc_check`) with EINVAL. A commit that leaves a CRTC in
+//! (`drm_atomic_crtc_check`) with EINVAL, and so is a commit that puts a
+//! plane on a CRTC the plane cannot drive (`drm_atomic_plane_check`).
+//! A commit that leaves a CRTC in
 //! its state with a mode and no connector, or a connector and no mode
 //! (`drm_atomic_helper_check_modeset`), active with no mode, or with a
 //! plane on it and no mode (`drm_atomic_helper_check_plane_state`), is
@@ -837,6 +839,19 @@ fn commit_reads_past_a_framebuffer(s: &State, commit: &Commit) -> bool {
     })
 }
 
+/// Whether `commit` puts a plane on a CRTC outside the plane's possible
+/// CRTCs, as `drm_atomic_plane_check` refuses.
+fn commit_puts_a_plane_on_a_crtc_it_cannot_drive(s: &State, commit: &Commit) -> bool {
+    s.planes.iter().any(|(&p, plane)| {
+        let crtc = commit
+            .get(p, "CRTC_ID")
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or(0);
+        let bit = s.crtcs.iter().position(|&c| c == crtc).map(|i| 1u32 << i);
+        crtc != 0 && bit.is_none_or(|bit| plane.crtcs & bit == 0)
+    })
+}
+
 /// A plane's source rectangle: its corner, then its width and height.
 const SRC: [&str; 4] = ["SRC_X", "SRC_Y", "SRC_W", "SRC_H"];
 
@@ -1179,6 +1194,9 @@ impl Kms for FakeCard {
         }
         if commit_reads_past_a_framebuffer(&s, &commit) {
             return Err(err(Errno::NOSPC));
+        }
+        if commit_puts_a_plane_on_a_crtc_it_cannot_drive(&s, &commit) {
+            return Err(err(Errno::INVAL));
         }
         // The CRTCs in the commit's state: each set directly, each a plane
         // is put on, and each a plane in the commit was on. The kernel
@@ -1550,5 +1568,33 @@ mod tests {
         assert_eq!(card.state().plane_fb.get(&PRIMARY_PLANE), Some(&large));
         assert_eq!(errno(show(&card, small, None)), Some(Errno::NOSPC));
         assert_eq!(errno(show(&card, small, Some((320, 240)))), None);
+    }
+
+    // vtium/vtium#249: a commit that puts a plane on a CRTC outside the
+    // plane's possible CRTCs is refused with EINVAL, as the kernel's
+    // `drm_atomic_plane_check` refuses it, and one that puts the CRTC's own
+    // plane there is taken.
+    #[test]
+    fn a_commit_that_puts_a_plane_on_another_crtc_is_refused() {
+        let card = FakeCard::new(&[
+            (CONN, vec![mode(640, 480, 60, true)]),
+            (CONN + 1, vec![mode(640, 480, 60, true)]),
+        ]);
+        let shown = fb(&card, 640, 480);
+        card.set_crtc(CRTC + 1, shown, CONN + 1, &mode(640, 480, 60, true))
+            .expect("the CRTC set");
+        let put = |plane: u32| {
+            let mut req = Request::default();
+            req.set(plane, card.prop_id("FB_ID"), u64::from(shown));
+            req.set(plane, card.prop_id("CRTC_ID"), u64::from(CRTC + 1));
+            card.commit(&req, 0)
+        };
+        assert_eq!(errno(put(PRIMARY_PLANE)), Some(Errno::INVAL));
+        assert_eq!(card.state().plane_fb.get(&PRIMARY_PLANE), None);
+        assert_eq!(errno(put(PRIMARY_PLANE + 2)), None);
+        assert_eq!(
+            card.state().plane_crtc.get(&(PRIMARY_PLANE + 2)),
+            Some(&(CRTC + 1))
+        );
     }
 }

@@ -1171,12 +1171,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let mut needs = scan != Scan::Hotplug;
         // The set of displays changed: one was bound or let go.
         let mut changed = false;
+        // A wake-up after the first scan places each display bound before
+        // on its CRTC again, from the connected connectors it reads. The
+        // first scan binds every display afresh.
+        let follow = scan == Scan::WakeUp && self.scanned;
+        let mut seen = Vec::new();
         for &id in &res.connectors {
             let Some(conn) = self.connector(id) else {
                 continue;
             };
             if !conn.connected || conn.modes.is_empty() {
                 continue;
+            }
+            if follow {
+                seen.push(conn.clone());
             }
             // A connector that shows another monitor than the one its
             // display or dark entry was bound to, as when a monitor is
@@ -1304,6 +1312,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
             self.free(o);
             changed = true;
+        }
+        if follow {
+            self.follow_crtcs(&res, &seen);
         }
         // A mode held back is tried again as the card wakes, as another
         // program may have changed what the card can set, and when the set
@@ -1484,7 +1495,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .iter()
             .find(|p| p.name == "DPMS")
             .map(|p| (p.id, Dpms::On));
-        let Some((crtc, crtc_index)) = self.find_crtc(res, conn, current) else {
+        let taken: Vec<u32> = self.outputs.iter().map(|o| o.crtc).collect();
+        let Some((crtc, crtc_index)) = self.find_crtc(res, conn, current, &taken) else {
             log::error!("no free CRTC for {name}");
             return None;
         };
@@ -1551,16 +1563,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .ok()
     }
 
-    /// The CRTC the connector's encoder, `current` as `bind` read it,
-    /// drives, if no display has it, else the first free one an encoder of
-    /// the connector can drive.
+    /// The CRTC the connector's encoder, `current` as read with the
+    /// connector, drives, if it is not in `taken`, else the first CRTC not
+    /// in `taken` that an encoder of the connector can drive.
     fn find_crtc(
         &self,
         res: &Resources,
         conn: &Connector,
         current: Option<Encoder>,
+        taken: &[u32],
     ) -> Option<(u32, usize)> {
-        let free = |crtc: u32| !self.outputs.iter().any(|o| o.crtc == crtc);
+        let free = |crtc: u32| !taken.contains(&crtc);
         let index = |crtc: u32| res.crtcs.iter().position(|&c| c == crtc);
         if let Some(enc) = current
             && enc.crtc != 0
@@ -1582,6 +1595,73 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 (possible && free(crtc)).then_some((crtc, i))
             })
         })
+    }
+
+    /// Places each display a wake-up finds bound from before on the CRTC
+    /// a first start would give it, from the connectors `seen` as the
+    /// wake-up read them: the CRTC its connector is on now, unless a
+    /// display before it took that one, and else the first free CRTC an
+    /// encoder of the connector can drive. A display that moves takes the
+    /// new CRTC's primary and cursor planes.
+    ///
+    /// The program that held the card while vtium slept may have moved a
+    /// connector to another CRTC. A modeset on the CRTC the display had
+    /// would take the connector off a CRTC that program left lit, and the
+    /// kernel refuses a lit CRTC with no connector at every mode
+    /// (`drm_atomic_helper_check_modeset`), so the display would never
+    /// wake again (vtium/vtium#249).
+    ///
+    /// A display that returns, such as one this wake-up bound, stays on
+    /// the CRTC its binding chose, since its first modeset turns off the
+    /// CRTC its connector is on ([`Self::set_returning_off`]). It moves
+    /// only where a display placed before it took that CRTC.
+    fn follow_crtcs(&mut self, res: &Resources, seen: &[Connector]) {
+        let mut outputs = std::mem::take(&mut self.outputs);
+        let mut taken = Vec::with_capacity(outputs.len());
+        for returning in [false, true] {
+            for o in outputs.iter_mut().filter(|o| o.returning == returning) {
+                let placed = returning && !taken.contains(&o.crtc);
+                if let Some(conn) = seen.iter().find(|c| c.id == o.id.0).filter(|_| !placed) {
+                    let current = (conn.encoder != 0)
+                        .then(|| self.encoder(conn.encoder))
+                        .flatten();
+                    match self.find_crtc(res, conn, current, &taken) {
+                        Some((crtc, pipe)) if crtc != o.crtc => self.move_to(o, crtc, pipe),
+                        Some(_) => {}
+                        None => log::error!("no free CRTC for {}", o.name),
+                    }
+                }
+                taken.push(o.crtc);
+            }
+        }
+        self.outputs = outputs;
+    }
+
+    /// Moves display `o` to `crtc`, at `pipe` in the card's list of CRTCs,
+    /// with that CRTC's planes. A display whose new CRTC has no primary
+    /// plane stays where it was.
+    fn move_to(&self, o: &mut Output<S::Memory>, crtc: u32, pipe: usize) {
+        if !self.legacy {
+            let Some(mut planes) = self.find_planes(crtc, pipe) else {
+                log::error!("no primary plane for {} on CRTC {crtc}", o.name);
+                return;
+            };
+            planes.connector_props = o
+                .planes
+                .take()
+                .map(|p| p.connector_props)
+                .unwrap_or_default();
+            o.planes = Some(planes);
+        }
+        log::info!(
+            "display {} moves from CRTC {} to CRTC {crtc}",
+            o.name,
+            o.crtc
+        );
+        o.crtc = crtc;
+        o.pipe = pipe;
+        // The new cursor plane shows nothing of vtium's yet.
+        o.cursor_set = None;
     }
 
     /// The primary and cursor planes for the CRTC at `index`, with their
