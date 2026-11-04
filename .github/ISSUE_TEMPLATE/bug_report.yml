@@ -1,79 +1,49 @@
 name: Bug report
-description: vtium does something wrong
+description: vtium does something wrong on your machine
 labels: [bug]
 body:
-  - type: input
-    id: version
+  - type: markdown
     attributes:
-      label: vtium version or commit
-      description: The release, or the commit you built (`git rev-parse --short HEAD`).
-    validations:
-      required: true
-  - type: dropdown
-    id: build
-    attributes:
-      label: Build
-      options:
-        - minspec (the default build)
-        - minspec with features
-    validations:
-      required: true
-  - type: input
-    id: features
-    attributes:
-      label: Features
-      description: The Cargo features you enabled, if any.
-      placeholder: images
-  - type: input
-    id: gpu
-    attributes:
-      label: GPU and driver
-      description: The card and the kernel driver, from `lspci -k` or `/sys/class/drm`.
-      placeholder: Intel UHD 620, i915
-    validations:
-      required: true
-  - type: input
-    id: mode
-    attributes:
-      label: Display mode
-      description: The resolution and refresh rate, and whether vtium drew through DRM/KMS or fbdev.
-      placeholder: 1366x768@60, DRM/KMS
-    validations:
-      required: true
+      value: |
+        Before you file, read [When something goes wrong](https://github.com/vtium/vtium/blob/main/docs/managing-vtium.md#troubleshooting) in the guide to managing vtium. It says how to get out of a VT that misbehaves, gives a workaround for a VT that stays black after you switch back from the desktop, and lists what pictures need. If one of its steps fixes the problem, a report still helps, so say which step it was.
   - type: textarea
-    id: setup
+    id: happened
     attributes:
-      label: VT or seat setup
-      description: How vtium was started, on which VT, and under which seat manager (systemd-logind, seatd, none).
-    validations:
-      required: true
-  - type: textarea
-    id: steps
-    attributes:
-      label: Steps to reproduce
-      description: The bytes or the program that shows the bug, if you can narrow it down.
-      placeholder: |
-        1. Start vtium on tty3.
-        2. Run `printf '\e[4:3m'`.
+      label: What happened
+      description: What you saw. A photo of the screen helps when something is drawn wrong.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected
-      description: What should happen. Name the spec or the terminal you compared with.
+      label: What you expected
+      description: What you expected to see instead.
     validations:
       required: true
   - type: textarea
-    id: actual
+    id: steps
     attributes:
-      label: Actual
-      description: What happened. A photo or screenshot helps for drawing bugs.
+      label: Steps that reproduce it
+      description: What you did, in order, from a fresh start of vtium if you can.
+      placeholder: |
+        1. Switch to VT 3, where vtium runs, and log in.
+        2. Switch to the desktop with Ctrl+Alt+F1.
+        3. Switch back with Ctrl+Alt+F3. The screen stays black.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Which VT and which display
+      description: The VT it happened on, and the display or displays vtium drew on, with how each is connected.
+      placeholder: VT 3, a 27-inch monitor on DisplayPort through a hub
     validations:
       required: true
   - type: textarea
-    id: log
+    id: report
     attributes:
-      label: Log excerpt
-      description: vtium's output around the failure, from the journal or stderr.
-      render: text
+      label: The report from vtium-config report
+      description: |
+        Run `vtium-config report --save` on the machine where it happened. It writes a file named like `vtium-report-20261103-203044.txt` in the current directory and prints its name. Run `sudo vtium-config report --save` instead to add the kernel's display state and the whole journal, which only root can read. The report leaves out the machine's name and each monitor's serial number, but its logs can name user accounts, so read the file over before you share it. Then drag the file into this box to attach it, or paste its text here. If your vtium-config has no `report` command, give the vtium version, the features it was built with, your graphics card and driver, and the output of `journalctl -b -u vtium@tty3.service` for the VT it happened on.
+    validations:
+      required: true

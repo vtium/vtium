@@ -1,5 +1,11 @@
+# With blank issues off, GitHub still offers a blank issue to everyone who
+# can write to the repository, marked "Maintainers only", and to nobody
+# else.
 blank_issues_enabled: false
 contact_links:
+  - name: When something goes wrong
+    url: https://github.com/vtium/vtium/blob/main/docs/managing-vtium.md#troubleshooting
+    about: Read this first. It says how to get out of a VT that misbehaves, gives workarounds for known defects, and shows how to collect a report for a bug report.
   - name: Report a vulnerability
     url: https://github.com/vtium/vtium/security/advisories/new
     about: Report security issues privately, as SECURITY.md describes, not in a public issue.
