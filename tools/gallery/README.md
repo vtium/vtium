@@ -14,13 +14,23 @@ tools/gallery/gallery ~/Pictures
 
 A directory stands for the files in it, in name order, and no arguments means the current directory. The same pictures give the same output every time. `gallery` sends PNG files only. It skips any other file, such as a JPEG, and names the files it skipped on one line. To show a JPEG, convert it to PNG first with a program such as ImageMagick.
 
-Before it draws, `gallery` asks the terminal whether it draws kitty graphics and how large its cells are in pixels. A terminal that does not answer within a second gets one line saying it does not draw kitty graphics, and `gallery` exits with status 1. The size of the cells lets `gallery` give each picture a box of its own shape, so a square picture stays square.
+Before it draws, `gallery` asks the terminal whether it draws kitty graphics, with a kitty graphics query (`a=q`), and how large its cells are in pixels, with XTWINOPS 16 (`CSI 16 t`). A terminal that does not answer the first question within a second gets one line saying it does not draw kitty graphics, and `gallery` exits with status 1.
+
+## How big each thumbnail is
+
+Each thumbnail is N rows tall, where N is the `-s` size, and keeps its picture's shape. Its width in columns is the picture's width over its height, times N, times the cell's height over its width, rounded to the nearest column:
+
+    columns = round(N × picture width ÷ picture height × cell height ÷ cell width)
+
+A thumbnail wider than twice its height in pixels is made narrower, and fewer rows tall, to fit that limit. When the terminal does not report its cell size, or `--no-probe` skips the question, `gallery` takes the cells to be twice as tall as they are wide, the shape of most terminal fonts. Then a square picture is 2N columns wide.
+
+The grid's columns are all as wide as the widest thumbnail and two more, and they are spread evenly across the terminal's width. Each thumbnail is centered in its column, and its file name is centered under it, cut to the column's width less one with an ellipsis.
 
 ## Options
 
 | Option | What it does |
 |---|---|
-| `-s N`, `--size N` | Makes each thumbnail N rows tall (8 by default). A square picture is about 2N columns wide, and no thumbnail is more than twice as wide as it is tall. |
+| `-s N`, `--size N` | Makes each thumbnail N rows tall (8 by default), as [How big each thumbnail is](#how-big-each-thumbnail-is) describes. |
 | `-n N` | Shows the first N pictures, and says how many more there are. |
 | `-L`, `--no-labels` | Leaves out the file names. |
 | `--no-probe` | Draws without asking the terminal first, and takes its cells to be twice as tall as they are wide. Use it when you know the terminal draws kitty graphics and want the same bytes on every run. |
