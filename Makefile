@@ -267,6 +267,11 @@ arm arm-test: export PKG_CONFIG_aarch64_unknown_linux_gnu = $(ARM_WRAP)/aarch64-
 arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-cc
 arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-run
 arm arm-test: export PKG_CONFIG_armv7_unknown_linux_gnueabihf = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-pkg-config
+# Each target's sysroot directory, which moves when its pins change. The
+# pkg-config crate reruns a build script when this changes, so libudev-sys
+# never keeps a search path into a sysroot the pins have left.
+arm arm-test: export PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu := $(shell tools/arm/sysroot dir arm64)
+arm arm-test: export PKG_CONFIG_SYSROOT_DIR_armv7_unknown_linux_gnueabihf := $(shell tools/arm/sysroot dir armhf)
 
 .PHONY: arm-sysroot
 arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link against (VTIUM_ARM_SYSROOTS=DIR)
