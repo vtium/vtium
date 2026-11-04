@@ -1,11 +1,10 @@
-//! The copies against `provenance.tsv`, and the probe runner's checks and
-//! verdicts on probes written here, judged through the copied interface.
+//! The probe runner's checks and verdicts on probes written here, judged
+//! through the copied interface.
 
 use std::path::Path;
 
 use vtium_conformance::coverage::Capability;
 use vtium_conformance::probes::{self, Outcome, Replay};
-use vtium_conformance::runner::provenance;
 use vtium_conformance::spec::Spec;
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
@@ -36,25 +35,6 @@ fn outcome(text: &str) -> Outcome {
     let replay =
         Replay::new(&spec, &vtium_conformance::describe()).unwrap_or_else(|e| panic!("{e}"));
     replay.run(&probes[0])
-}
-
-#[test]
-fn the_copies_match_their_provenance() {
-    let copies = provenance::read(&read("provenance.tsv")).unwrap_or_else(|e| panic!("{e}"));
-    let root = Path::new(TOOL).join("../..");
-    let faults = provenance::check(
-        &root,
-        &copies,
-        &[
-            "tools/conformance/corpus",
-            "tools/conformance/probes",
-            "tools/conformance/generator",
-        ],
-        &["tools/conformance/probes/vtium.replay"],
-    );
-    assert_eq!(faults, Vec::<String>::new());
-    assert!(provenance::commit(&copies, "libtsm").is_ok());
-    assert!(provenance::commit(&copies, "kmscon").is_ok());
 }
 
 #[test]

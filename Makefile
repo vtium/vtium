@@ -309,7 +309,7 @@ arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qem
 	cargo test --workspace --all-features --no-fail-fast $(addprefix --target ,$(ARM_TEST_TARGETS))
 
 # Tier 1 and the capability probes, against the goldens and probes in
-# tools/conformance/, copied from the C reference (provenance.tsv).
+# tools/conformance/, copied from the C reference.
 .PHONY: conformance
 conformance: ## Judge vtium against tier 1's goldens
 	cargo build --release -p vtium-conformance --features images --bins
@@ -327,17 +327,6 @@ conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bi
 	$(if $(OUT),,$(error conformance-record needs OUT=DIR))
 	cargo build --release -p vtium-conformance --features record --bin conformance-record
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance-record $(OUT) $(NAMES)
-
-# The provenance checks, conformance-provenance, tier2-provenance and
-# tier3-provenance, read libtsm and kmscon checkouts with git, read-only, to
-# review a change to the copies; none is a gate.
-LIBTSM ?= ../libtsm
-KMSCON ?= ../kmscon
-
-.PHONY: conformance-provenance
-conformance-provenance: ## Check each row of tools/conformance/provenance.tsv against its source with git show (LIBTSM=DIR KMSCON=DIR)
-	cargo build --release -p vtium-conformance --bins
-	$(or $(CARGO_TARGET_DIR),target)/release/conformance provenance --libtsm $(LIBTSM) --kmscon $(KMSCON)
 
 .PHONY: conformance-issues
 conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
@@ -471,11 +460,12 @@ vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, th
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 # Tier 2 against vtium's goldens and the C reference's, copied into
-# tools/tier2/reference (provenance.tsv).
+# tools/tier2/reference. The report names this checkout's commit, as tier 3's
+# does (T3_REV).
 .PHONY: tier2
 tier2: ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --features gpu --bins
-	$(or $(CARGO_TARGET_DIR),target)/release/tier2 run
+	T2_VTIUM_REV=$(T3_REV) $(or $(CARGO_TARGET_DIR),target)/release/tier2 run
 
 # The demonstration set (vtium/vtium#142): the test card drawn for each
 # display profile into docs/specimens/, and judged against what is committed.
@@ -514,11 +504,6 @@ docs-serve: $(SITE_VENV)/installed ## Serve the documentation site at http://loc
 
 showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 	tools/tier3/showcase.sh
-
-.PHONY: tier2-provenance
-tier2-provenance: ## Check tools/tier2's copies against their sources with git show (KMSCON=DIR)
-	cargo build --release -p vtium-tier2 --bins
-	$(or $(CARGO_TARGET_DIR),target)/release/tier2 provenance --kmscon $(KMSCON)
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the C reference's
@@ -584,12 +569,6 @@ tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: 
 .PHONY: tier3-images
 tier3-images: tier3-image ## Tier 3's pictures: the install tree built with images, then the images variants on the minspec machine at 640x480
 	$(T3_RUN) --features '$(sort images $(subst $(comma), ,$(FEATURES)))' --tree-target install-tree $(or $(VARIANTS),images-640x480 images-640x480-nobody)
-
-# Each row of tools/tier3/provenance.tsv against its source in a kmscon
-# checkout, read with git; a review step when the copies change, never a gate.
-.PHONY: tier3-provenance
-tier3-provenance: ## Check tools/tier3's copies against their sources with git (KMSCON=DIR)
-	$(T3_PY) $(T3_DIR)/t3.py provenance --kmscon $(KMSCON)
 
 .PHONY: tier3-run
 tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3; FEATURES= the TREE was built with)

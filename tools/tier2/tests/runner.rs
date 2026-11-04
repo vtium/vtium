@@ -2,7 +2,6 @@
 //! each status the report gives, and the lists' checks before any case
 //! runs.
 
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -17,7 +16,6 @@ const fn case(name: &'static str, source: Source) -> Case {
     Case {
         screen: Screen::new(name, "two letters", b"ab", 2, 1),
         source,
-        ported: None,
     }
 }
 
@@ -65,7 +63,6 @@ struct Setup {
     departures: Vec<Departure>,
     pending: Vec<Pending>,
     provisional: Vec<String>,
-    c_goldens: Vec<String>,
 }
 
 impl Setup {
@@ -119,9 +116,6 @@ impl Setup {
                 why: "outline-font text".to_owned(),
             }],
             provisional: vec!["v-prov".to_owned()],
-            c_goldens: ["k-orphan.ppm", "k-pending.ppm", "k-same.ppm"]
-                .map(str::to_owned)
-                .to_vec(),
         }
     }
 
@@ -133,7 +127,6 @@ impl Setup {
             departures: &self.departures,
             pending: &self.pending,
             provisional: &self.provisional,
-            c_goldens: &self.c_goldens,
             out: &self.out,
             root: &self.out,
         }
@@ -170,17 +163,6 @@ fn each_case_gets_its_status() {
     assert!(s.out.join("actual/v-diff.ppm").exists());
     assert!(s.out.join("diff/v-diff.ppm").exists());
     assert!(!s.out.join("diff/v-same.ppm").exists());
-}
-
-#[test]
-fn a_listed_golden_neither_copied_nor_pending_is_missing() {
-    let mut s = Setup::new("dropped");
-    s.pending.clear();
-    s.run().check_lists(&["A departure".to_owned()]).unwrap();
-    let cases = s.run().cases().unwrap();
-    let dropped = cases.iter().find(|c| c.name == "k-pending").unwrap();
-    assert_eq!(dropped.status, Status::Missing);
-    assert!(!dropped.status.passes());
 }
 
 #[test]
@@ -250,24 +232,9 @@ fn lists_that_name_the_wrong_cases_are_refused() {
             .unwrap_err()
             .contains("which is copied")
     );
-    s.pending[0].golden = "k-unlisted".to_owned();
-    assert!(
-        s.run()
-            .check_lists(&titles)
-            .unwrap_err()
-            .contains("c-goldens.list")
-    );
     s.pending[0].golden = "k-pending".to_owned();
-    s.c_goldens.retain(|n| n != "k-orphan.ppm");
-    assert!(
-        s.run()
-            .check_lists(&titles)
-            .unwrap_err()
-            .contains("c-goldens.list")
-    );
-    s.c_goldens.push("k-orphan.ppm".to_owned());
     let mut cases = CASES.to_vec();
-    cases.push(case("k-pending", Source::Vtium));
+    cases.push(case("k-orphan", Source::Vtium));
     let run = Run {
         cases: &cases,
         ..s.run()
@@ -275,7 +242,7 @@ fn lists_that_name_the_wrong_cases_are_refused() {
     assert!(
         run.check_lists(&titles)
             .unwrap_err()
-            .contains("the C reference's name")
+            .contains("the name of a copied golden")
     );
     s.pending.clear();
     s.provisional = vec!["k-same".to_owned()];
@@ -337,85 +304,44 @@ fn a_sprites_only_screen_holding_a_combining_mark_is_refused() {
     }
 }
 
-#[test]
-fn the_list_of_c_goldens_is_the_pins() {
-    let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<BTreeSet<_>>();
-    let both = names(&["blocks.ppm", "ascii.ppm"]);
-    assert_eq!(runner::check_pin(&both, &both), Vec::<String>::new());
-    assert_eq!(
-        runner::check_pin(
-            &names(&["blocks.ppm", "new.ppm"]),
-            &names(&["blocks.ppm", "old.ppm"])
-        ),
-        [
-            "new.ppm is at the pin but not in c-goldens.list",
-            "c-goldens.list names old.ppm, which the pin lacks",
-        ]
-    );
-}
-
-#[test]
-fn malformed_lists_of_c_goldens_are_refused() {
-    assert_eq!(
-        runner::c_goldens("# c\nb.ppm\na.ppm\n").unwrap(),
-        ["b.ppm", "a.ppm"]
-    );
-    for text in ["a.ppm\na.ppm", "x/a.ppm", "a.ppm\tb"] {
-        assert!(runner::c_goldens(text).is_err(), "{text:?} was taken");
-    }
-}
-
-/// A tool tree under a repository root: one copied golden and the copied
-/// screens, each with its row, and empty lists.
+/// A tool tree under a repository root: one copied golden and empty lists.
 fn tool_tree(name: &str) -> PathBuf {
     let root = dir(name);
     let tool = root.join("tools/tier2");
     fs::create_dir_all(tool.join("reference/goldens")).unwrap();
     fs::create_dir_all(root.join("crates/vtium-render")).unwrap();
-    fs::write(root.join("crates/vtium-render/README.md"), "# render\n").unwrap();
-    let golden = b"P6 1 1 255\n\x00\x00\x00";
-    let screens = b"static const struct screen screens[] = {\n};\n";
-    fs::write(tool.join("reference/goldens/blocks.ppm"), golden).unwrap();
-    fs::write(tool.join("reference/test_pixels.c"), screens).unwrap();
-    let commit = "b1f7a7c5df563f3378584db7298753848a7a9a13";
-    let row = |path: &str, source: &str, data: &[u8]| {
-        format!(
-            "tools/tier2/reference/{path}\tkmscon\t{commit}\t{source}\t{}\n",
-            vtium_conformance::sha256::hex(data)
-        )
-    };
-    let rows = row(
-        "goldens/blocks.ppm",
-        "tests/goldens/tier2/blocks.ppm",
-        golden,
-    ) + &row("test_pixels.c", "tests/test_pixels.c", screens);
-    fs::write(tool.join("provenance.tsv"), rows).unwrap();
-    for list in ["departures.tsv", "pending.tsv", "provisional.tsv"] {
-        fs::write(tool.join(list), "").unwrap();
-    }
-    fs::write(tool.join("c-goldens.list"), "blocks.ppm\n").unwrap();
+    fs::write(
+        root.join("crates/vtium-render/README.md"),
+        "# render\n\n## Departures\n\n- **A departure** and why.\n",
+    )
+    .unwrap();
+    fs::write(
+        tool.join("reference/goldens/blocks.ppm"),
+        b"P6 1 1 255\n\x00\x00\x00",
+    )
+    .unwrap();
+    fs::write(tool.join("departures.tsv"), "v-dep\tA departure\t0,0,8,8\n").unwrap();
+    fs::write(
+        tool.join("pending.tsv"),
+        "# a comment\nascii\tvtium/vtium#24\toutline-font text\n",
+    )
+    .unwrap();
+    fs::write(tool.join("provisional.tsv"), "v-prov\tnot yet reviewed\n").unwrap();
     root
 }
 
 #[test]
-fn the_lists_load_once_every_copy_matches_its_row() {
+fn the_lists_load_from_the_tool_tree() {
     let root = tool_tree("load");
-    let lists = runner::load(&root, &[]).unwrap();
-    assert_eq!(lists.commit, "b1f7a7c5df563f3378584db7298753848a7a9a13");
-    assert_eq!(lists.c_goldens, ["blocks.ppm"]);
-    let copy = root.join("tools/tier2/reference/goldens/blocks.ppm");
+    let lists = runner::load(&root).unwrap();
+    assert_eq!(lists.departures.len(), 1);
+    assert_eq!(lists.departures[0].case, "v-dep");
+    assert_eq!(lists.pending.len(), 1);
+    assert_eq!(lists.pending[0].golden, "ascii");
+    assert_eq!(lists.provisional, ["v-prov"]);
+    assert_eq!(lists.titles, ["A departure"]);
 
-    fs::write(&copy, b"P6 1 1 255\n\x00\x00\x01").unwrap();
-    let e = runner::load(&root, &[]).err().unwrap();
-    assert!(e.contains("blocks.ppm differs from kmscon"), "{e}");
-
-    fs::remove_file(&copy).unwrap();
-    let e = runner::load(&root, &[]).err().unwrap();
-    assert!(e.contains("goldens/blocks.ppm: "), "{e}");
-
-    let root = tool_tree("load-stray");
-    let stray = root.join("tools/tier2/reference/goldens/stray.ppm");
-    fs::write(&stray, b"P6 1 1 255\n\x00\x00\x00").unwrap();
-    let e = runner::load(&root, &[]).err().unwrap();
-    assert!(e.contains("stray.ppm has no row in provenance.tsv"), "{e}");
+    fs::remove_file(root.join("tools/tier2/pending.tsv")).unwrap();
+    let e = runner::load(&root).err().unwrap();
+    assert!(e.contains("pending.tsv: "), "{e}");
 }

@@ -1,4 +1,4 @@
-# Screens drawn by refcells.c and by tests/reference.rs, one cell a line.
+# Screens drawn by tests/reference.rs, one cell a line.
 # screen <name> <cols> <rows> <default fg> <default bg>
 # cell <col> <row> <codepoint> <cells> <fg> <bg> <bold> <underline> <strike> <underline color>
 # Colors are RRGGBB; the underline is 0 none, 1 single, 2 double, 3 curly,
