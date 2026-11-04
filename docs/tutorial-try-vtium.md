@@ -1,8 +1,8 @@
 # Try vtium on one VT
 
-In this tutorial you install vtium, give it one spare VT, log in there, try what it draws, go back to your desktop, and then take vtium off again. A VT, or virtual terminal, is one of the full-screen text screens the Linux kernel keeps beside your desktop; Ctrl+Alt and a function key switch between them. vtium only ever takes the one VT you give it, so your desktop keeps running the whole time, and at the end the machine is as it was before you started.
+In this tutorial you install vtium, give it one spare VT, log in there, try what it draws, go back to your desktop, and then take vtium off again. A VT, or virtual terminal, is one of the full-screen text screens the Linux kernel keeps beside your desktop; Ctrl+Alt and a function key switch between them. vtium only ever takes the one VT you give it, so your desktop keeps running the whole time, and at the end vtium is off the machine again.
 
-You need about fifteen minutes, an Arch Linux machine with systemd, and the password for sudo. The commands below run in a terminal on your desktop, as your own user; each one that needs root starts with `sudo`.
+You need about fifteen minutes, an Arch Linux machine with systemd, the `base-devel` package group, which `makepkg` needs to build anything, and the password for sudo. The commands below run in a terminal on your desktop, as your own user; each one that needs root starts with `sudo`.
 
 > **Not on Arch Linux?** vtium has no package for other distributions yet. Follow [Without a package](#without-a-package) at the end of this page instead: it runs vtium on a free VT straight from a checkout of its source, and installs nothing.
 
@@ -14,10 +14,10 @@ vtium's package comes from the AUR, the Arch User Repository, as a recipe that `
 $ git clone https://aur.archlinux.org/vtium.git
 $ cd vtium
 $ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
-$ makepkg -si
+$ makepkg -sri
 ```
 
-makepkg downloads vtium's source, builds it, and asks pacman to install two packages: `vtium`, the console itself, and `vtium-terminfo`, which tells programs what vtium's terminal can do. Answer yes. Installing starts nothing and changes no VT, so nothing on your screen changes yet.
+makepkg downloads vtium's source and the packages it needs to build, builds it, removes those build-only packages again (`-r`), and asks pacman to install two packages (`-i`): `vtium`, the console itself, and `vtium-terminfo`, which tells programs what vtium's terminal can do. Answer yes. Installing starts nothing and changes no VT, so nothing on your screen changes yet.
 
 ## 2. Find your desktop's VT and a free one
 
@@ -27,7 +27,7 @@ Ask vtium what each VT runs now:
 $ vtium console status
 ```
 
-It prints a line for each VT, with three columns: what systemd starts there at boot, what logind starts when you switch to it, and what runs there now. One VT shows your graphical session in its **running** column: that is your desktop's VT. Remember its number, since you switch back to it in step 6.
+It first prints a line or two about the machine as a whole: which console logind starts on a VT that has no setting of its own, and, where the machine has one, which display manager it has: the program that shows the desktop's login screen. Then it prints a table with a row for each VT that has something on it. The first column is the VT's number, and the other three say what systemd starts there at boot, what logind starts when you switch to it, and what runs there now. A dash means nothing. Your desktop's row says `graphical session of` your user name in its **running** column: that is your desktop's VT. Remember its number, since you switch back to it in step 6.
 
 Pick a VT that runs no graphical session and that nobody is logged in on. This tutorial uses VT 3; if VT 3 is your desktop's, use another number from 2 to 6 everywhere the steps say 3.
 
@@ -37,7 +37,7 @@ Pick a VT that runs no graphical session and that nobody is logged in on. This t
 $ sudo vtium console enable 3
 ```
 
-vtium records what VT 3 had, so that it can put it back later, and makes vtium VT 3's console from its next start. It refuses a VT that a desktop or a display manager holds, so it cannot take yours. It prints the command that starts vtium on VT 3 now, which is the next step.
+This makes vtium the console that starts on VT 3. It takes effect the next time something starts on VT 3, so nothing changes yet. Before it changes anything, vtium writes down what VT 3 had, so that it can put it back in step 7. It refuses a VT that a desktop or a display manager is using, so it cannot take yours. It ends by printing the command that starts vtium on VT 3 now, which is the next step.
 
 ## 4. Start vtium on VT 3
 
@@ -91,11 +91,11 @@ $ sudo systemctl stop vtium@tty3.service
 $ sudo pacman -R vtium vtium-terminfo
 ```
 
-The machine is as it was before you started. vtium keeps the record of what VT 3 had in `/var/lib/vtium/console/`, so a later install still knows what to put back.
+vtium is now off the machine. Three things from this tutorial stay: the maintainer's key in your gpg keyring, the `vtium` folder you cloned from the AUR, which you can delete, and the record of what VT 3 had, in `/var/lib/vtium/console/`, which lets a later install put VT 3 back as well.
 
 ## What next
 
-- [Your first frit](tutorial-first-frit.md) teaches you to choose vtium's font while you watch the console change.
+- [Choose a font](fonts.md) sets the font vtium draws in, and `vtium config` lets you try each font on the live console before you keep one.
 - [Install vtium and give it VTs](install.md) covers giving vtium every VT, upgrading, and moving from `kmscon`.
 - [What vtium does](features.md) lists what vtium draws, and [Concepts](concepts.md) explains how its pieces fit together.
 
@@ -117,4 +117,4 @@ $ make vt-shell
 ================================================================
 ```
 
-Press the first key it names. You are in your own shell, drawn by vtium, with no login; try the commands from step 5 there. Type `exit` to end the run: vtium stops, the VT's own login prompt comes back, and `make` returns. Press the key it named to return to your desktop. Nothing was installed, so there is nothing to remove; delete the checkout when you no longer want it.
+Press the first key it names. You are in your own shell, drawn by vtium, with no login; try the commands from step 5 there. Type `exit` to end the run: vtium stops, and `make` returns. Whatever ran on that VT before the run starts again there, so on a VT where nothing ran, the screen stays blank. Press the key it named to return to your desktop. If you want a login prompt on that VT, switch to it once more, and logind starts one, or start one yourself with `sudo systemctl start getty@tty5.service`, using the VT's number. Nothing was installed, so there is nothing to remove; delete the checkout when you no longer want it.

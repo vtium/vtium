@@ -6,7 +6,7 @@ The kernel's own console turns 256-color and 24-bit color into 16 colors, holds 
 
 ![A console screen showing a shell session in a smooth monospaced font: prompts in blue, gray and green segments, a colored listing of the vtium source tree, a git log with a branch graph and yellow commit hashes, the crates of vtium, a passing test run, and three lines of greetings and thanks in English, Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and German with emoji.](showcase/hero.png)
 
-vtium draws a shell session on a 1920x1080 display in Iosevka Term: prompts in powerline segments with an icon from Symbols Nerd Font Mono, a colored directory listing, a git history with its branch graph, a test run, and greetings in several scripts with emoji. The scene writes the session byte for byte, and the last prompt is the shell's own, with its cursor. [The showcase](showcase/README.md) has more screens, from emoji and the world's scripts to pictures, and the same console on a 320x240 panel.
+vtium's own drawing of a shell session on a 1920x1080 display. [The showcase](showcase/README.md) says what this screen shows, and has more screens, from emoji and the world's scripts to pictures, and the same console on a 320x240 panel.
 
 vtium's latest release is the pre-release v0.1.0-alpha.3. This site describes vtium's `main` branch, which may be ahead of that release.
 

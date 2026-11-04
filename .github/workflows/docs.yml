@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # Zensical needs Python 3.11 or later; 3.12 is the oldest Python tier
       # 3's harness takes.
       - uses: actions/setup-python@v5
@@ -28,10 +30,12 @@ jobs:
       - run: python -m venv target/site-venv
       - run: target/site-venv/bin/pip install --require-hashes -r tools/site/requirements.txt
       # The Decisions section is the index of the records, so an index that
-      # leaves a record out fails here.
+      # leaves a record out fails here. The ADR tool reads adr.yaml with
+      # PyYAML, which the pinned install brings and setup-python's Python
+      # lacks.
       - name: the decision records' index is current
         run: |
-          docs/scripts/adr index -y
+          target/site-venv/bin/python docs/scripts/adr index -y
           git diff --exit-code -- docs/architecture/INDEX.md
       - run: target/site-venv/bin/zensical build --strict --clean
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main'

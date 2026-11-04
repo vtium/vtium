@@ -1,29 +1,31 @@
 # Find out what went wrong
 
-This guide gets you out when vtium misbehaves on a VT, and finds out why it does not do what you expected, from the VT itself, from `vtium console status` and from vtium's log.
+This guide helps when vtium misbehaves on a VT or does not do what you expected. It first gets you off that VT, and then shows where to find the reason: in what `vtium console status` says each VT runs, and in vtium's log.
 
-In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user ([how the commands are written](managing-vtium.md#how-the-commands-are-written)).
+In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user.
 
 ## Getting out
 
 When vtium misbehaves on a VT, these steps get you out, in this order:
 
-1. Switch to another VT, or to your desktop's, with Ctrl+Alt+F1 to F12. On a VT where vtium runs, vtium reads the keyboard itself and asks the kernel for the switch, since the kernel's own handling of Ctrl+Alt+F1 to F12 is off there. So a vtium that no longer answers keys keeps you on its VT. Then take the next steps from another machine over ssh.
+1. Switch to another VT, or to your desktop's, with Ctrl+Alt and a function key from F1 to F12. On its own VT, vtium reads the keyboard itself, and the kernel switches VTs only when vtium asks it to. So when vtium has stopped answering keys, those keys cannot take you off its VT, and you take the next steps from another machine over ssh instead.
+
 2. Restart that VT's vtium, from another VT, a desktop terminal or another machine over ssh. A restart ends every session on the VT. On VT 3:
 
-   ```
-   # systemctl restart vtium@tty3.service
-   ```
+    ```
+    # systemctl restart vtium@tty3.service
+    ```
 
-   The development install's unit is `vtium-dev@tty3.service` ([The development VT](vt-review.md#installing-vtium-on-a-vt)).
+    The development install's unit is `vtium-dev@tty3.service` ([The development VT](vt-review.md#installing-vtium-on-a-vt)).
+
 3. Take vtium off the VT at once by taking the VT back and starting its getty there:
 
-   ```
-   # vtium console disable 3
-   # systemctl start getty@tty3.service
-   ```
+    ```
+    # vtium console disable 3
+    # systemctl start getty@tty3.service
+    ```
 
-   `disable` decides what starts on VT 3 from now on ([Giving vtium a VT](install.md#giving-vtium-a-vt)). Starting the getty stops vtium on VT 3, because vtium's unit conflicts with the getty's, and that ends every session there. On the development VT, `vtium console disable` refuses, since the development install holds the VT, and the `systemctl start getty@tty5.service` line alone stops `vtium-dev` there; `make vt-uninstall VT=5` takes the install off for good ([The development VT](vt-review.md#installing-vtium-on-a-vt)).
+    `disable` decides what starts on VT 3 from now on ([Giving vtium a VT](install.md#giving-vtium-a-vt)). Starting the getty stops vtium on VT 3, because vtium's unit conflicts with the getty's, and that ends every session there. On the development VT, `vtium console disable` refuses, since the development install holds the VT, and the `systemctl start getty@tty5.service` line alone stops `vtium-dev` there; `make vt-uninstall VT=5` takes the install off for good ([The development VT](vt-review.md#installing-vtium-on-a-vt)).
 
 When vtium fails, systemd starts it again. From systemd 254 on, each failure also starts vtium's fallback, which starts the VT's getty unless the head file's policy is `closed`, so under an open policy you get a plain login prompt at the first failure instead of a dead screen ([A VT that shows a getty](#a-vt-that-shows-a-getty)).
 

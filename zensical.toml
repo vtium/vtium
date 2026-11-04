@@ -20,7 +20,6 @@ nav = [
   { "Home" = ["index.md", { "Showcase" = "showcase/README.md" }] },
   { "Tutorials" = [
       { "Try vtium on one VT" = "tutorial-try-vtium.md" },
-      { "Your first frit" = "tutorial-first-frit.md" },
   ] },
   { "How-to guides" = [
       "managing-vtium.md",
@@ -64,9 +63,11 @@ exclude_docs = """
 """
 
 # Pages reached by a link and not from the menu: the decision records, which
-# architecture/INDEX.md links, and the specimen profiles, which
-# specimens/README.md links.
+# architecture/INDEX.md links, the specimen profiles, which
+# specimens/README.md links, and the tutorial Your first frit, which joins the
+# menu once it is written.
 not_in_nav = """
+/tutorial-first-frit.md
 /architecture/*/ADR-*.md
 /specimens/*/README.md
 /specimens/simulated/*/README.md

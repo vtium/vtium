@@ -2,7 +2,7 @@
 
 This guide installs vtium and gives it the VTs you choose. A VT, or virtual terminal, is one of the full-screen text screens the Linux kernel keeps beside a desktop, and vtium runs on a VT in the place of the getty, the program that prints the login prompt there. If you have never run vtium, [Try vtium on one VT](tutorial-try-vtium.md) walks through a first install on one VT and back again.
 
-In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user ([how the commands are written](managing-vtium.md#how-the-commands-are-written)).
+In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user.
 
 ## Arch Linux
 

@@ -1,8 +1,8 @@
 # Choose a font
 
-This guide sets the font vtium draws in. [Your first frit](tutorial-first-frit.md) teaches the same thing step by step, and [concepts.md](concepts.md#fonts-generated-at-run-time) explains how a font reaches the screen.
+This guide sets the font vtium draws in. [concepts.md](concepts.md#fonts-generated-at-run-time) explains how a font reaches the screen.
 
-In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user ([how the commands are written](managing-vtium.md#how-the-commands-are-written)).
+In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user.
 
 vtium draws fonts from frits. A frit (a font set file) is a short text file, `/etc/vtium/fonts/NAME.vtfrit`, that lists a font's sources in order. The `font-name` key names the frit by its NAME, and the `font-frits` key names another directory than `/etc/vtium/fonts`. The console parses no font file itself. It starts the glyph helper, `vtium-config serve`, which reads the frit's sources and sends the console ready-made glyphs for its cell size.
 

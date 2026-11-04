@@ -8,7 +8,7 @@ The kernel's own console turns 256-color and 24-bit color into 16 colors, holds 
 
 ![A console screen showing a shell session in a smooth monospaced font: prompts in blue, gray and green segments, a colored listing of the vtium source tree, a git log with a branch graph and yellow commit hashes, the crates of vtium, a passing test run, and three lines of greetings and thanks in English, Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and German with emoji.](docs/showcase/hero.png)
 
-*vtium draws a shell session on a 1920x1080 display in Iosevka Term: prompts in powerline segments with an icon from Symbols Nerd Font Mono, a colored directory listing, a git history with its branch graph, a test run, and greetings in several scripts with emoji. The scene writes the session byte for byte, and the last prompt is the shell's own, with its cursor. More screens are on [the showcase page](docs/showcase/README.md).*
+*vtium's own drawing of a shell session on a 1920x1080 display. [The showcase](docs/showcase/README.md) says what this screen shows, and has more.*
 
 ![vtium on a 640x480 display: the labels fg30 to fg97 in their own colors and bg40 to bg107 on their own backgrounds, each set wrapped over two rows, with fg30 and bg40 drawn black on black; the words bold, underline, reverse, bold-underline-red, faint and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green to red, and a shell prompt with a block cursor](docs/showcase/small/sgr.png)
 
@@ -30,7 +30,7 @@ vtium's latest release is the pre-release v0.1.0-alpha.3. It draws on the CPU to
 
 | If you want to | Read |
 |---|---|
-| learn by doing | the tutorials: [Try vtium on one VT](docs/tutorial-try-vtium.md), [Your first frit](docs/tutorial-first-frit.md) |
+| learn by doing | the tutorial [Try vtium on one VT](docs/tutorial-try-vtium.md) |
 | get one task done | the how-to guides: [Install vtium and give it VTs](docs/install.md), [Configure vtium](docs/configure.md), [Choose a font](docs/fonts.md), [Set up heads](docs/heads.md), [Find out what went wrong](docs/troubleshooting.md) |
 | look something up | the reference: [What vtium does](docs/features.md), [Keys](docs/keys.md), [Configuration keys](docs/config.md), [The head file](docs/head-file.md), [Modes](docs/modes.md), [systemd, logind and PID 1](docs/systemd.md) |
 | understand why and how | the explanation: [Why vtium](docs/why-vtium.md), [Concepts](docs/concepts.md) |
