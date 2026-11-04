@@ -627,7 +627,10 @@ mod tests {
         // released before any assertion, so a failing one joins the thread
         drop(held);
         assert_eq!(back.len(), 1, "the frame came back while the drop hung");
-        assert!(back[0].left_gpu.is_some(), "it carries why the path ended");
+        assert!(
+            back.first().is_some_and(|c| c.left_gpu.is_some()),
+            "it carries why the path ended"
+        );
     }
 
     // A render thread is joined when its head is dropped: the drop waits
