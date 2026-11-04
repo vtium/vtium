@@ -10,7 +10,7 @@ These three screens are vtium's own drawing, made in memory by its renderer: the
 
 ![vtium's drawing of the palette: the 16 background colors, the 16 foreground colors on letter pairs, a ramp through the 256-color palette, and a 24-bit gradient from red to green.](figures/concepts-screen-palette.png) ![vtium's drawing of double-width text: Japanese, Chinese and Korean, full-width Latin, narrow letters between wide characters, and wide text in bold and in reverse.](figures/concepts-screen-cjk.png) ![vtium's drawing of underlines: single, double, curly, dotted and dashed, each in the text color and in a color of its own, then underlines on a background, in reverse and in bold.](figures/concepts-screen-underline.png)
 
-vtium is written in Rust, and is inspired by kmscon and libtsm, the C terminal and terminal library it learned its behaviour from. Their code, in the maintainer's fork, is the C reference: vtium is judged against what it did, and goes further where the specifications do ([architecture.md](architecture.md#beyond-the-c-reference)).
+vtium is written in Rust. What it does is set by the specifications it cites and by the tables of ADR-1000, and its own tests judge it, against goldens: saved expected results that vtium's output is compared with ([How vtium is judged](#how-vtium-is-judged)).
 
 ### Small machines first
 
@@ -67,7 +67,7 @@ The figure shows the suite in two bands, what runs as root above and what runs a
 
 ![Two bands. Above, running as root: the kernel's devices (the VT, the display, keyboards and pointers) joined to vtium, the console; vtium-config apply, under sudo, writing a frit into the root-owned frits in /etc/vtium/fonts, which vtium reads. Between the bands, the pty, joined to vtium by bytes both ways. Below, running as the user who logged in: vtium config set, vtium-clipboard, and shell and programs, each joined to the pty; and vtium config preview, and vtium config new with its templates, the second of which hands a frit to its own last step, under sudo, once. vtium-clipboard alone is drawn dashed, as proposed; every other piece is drawn solid, as built.](figures/concepts-pieces.svg)
 
-The console runs as root for its whole life, as the C reference did. Root lets it open the VT, take the display, read the keyboards and pointers directly, and start the system's login program, which authenticates the user and starts their shell with the user's rights. [ADR-1400](architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md) holds the privilege model, the image helper that decodes pictures as the session's user included.
+The console runs as root for its whole life. Root lets it open the VT, take the display, read the keyboards and pointers directly, and start the system's login program, which authenticates the user and starts their shell with the user's rights. [ADR-1400](architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md) holds the privilege model, the image helper that decodes pictures as the session's user included.
 
 A program in the session reaches vtium only through the bytes it writes to its terminal. vtium's replies to those bytes are built from its own state and never echo what a program sent, so text a program prints cannot type into another program reading the replies ([architecture.md](architecture.md#determinism), "No reflection").
 
@@ -214,7 +214,7 @@ vtium-config's set command switches the running console among the frits and the 
 
 ### The configuration
 
-vtium reads one configuration file, then a file for its seat over it, then its command line over both, once at start. It reads the file the C reference read, with its settings, and adds its own. [config.md](config.md) lists every setting.
+vtium reads one configuration file, then a file for its seat over it, then its command line over both, once at start. It takes the keys of `kmscon`'s configuration file and adds its own, so it reads a `kmscon` configuration that a user copies to `/etc/vtium/vtium.conf`. [config.md](config.md) lists every setting.
 
 A head file beside it, `/etc/vtium/heads.conf`, places each display and input (ADR-1401, [Heads](#heads-a-terminal-per-display)).
 
@@ -249,7 +249,7 @@ vtium is judged in tiers, each with its harness in vtium's tree; [AGENTS.md](htt
 - **Tier 3, the VM:** vtium's install tree on a VT in a QEMU/KVM guest with a real display device, its screens captured and compared with goldens, with size and memory figures ([tools/tier3](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md)).
 - **The VT review:** the maintainer judges a build by eye on a real VT, guided step by step ([vt-review.md](vt-review.md)).
 
-The goldens are the judge: a difference from one is a listed departure, a listed pending case, or a failure. Tier 1's corpus and goldens and the capability probes were made by the C reference and are copied into vtium's tree, each file with the commit it came from and its hash. Tier 2's and tier 3's goldens from the C reference are copied the same way, beside vtium's own goldens for the screens the C reference never drew, which stay provisional, and judge nothing, until the maintainer reviews them; vtium builds tier 3's guest images from its own scripts. No gate, CI job or build runs the C reference's code or reads its checkouts: the C reference is read as the reference for behaviour, and the provenance checks read a checkout, for review, when the copies change.
+The goldens are the judge, and each tier keeps its own in vtium's tree. A difference from one is a failure, unless the tier's list of expected differences names the case, with vtium's expected output and the reason, or lists the case as pending. A new golden stays provisional, and judges nothing, until the maintainer reviews it, and a golden changes only in a commit of its own that the maintainer reviews. vtium builds tier 3's guest images from its own scripts.
 
 ## What VTium does not do
 
