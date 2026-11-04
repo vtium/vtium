@@ -14,16 +14,20 @@
 //!
 //! - **Chunks.** A direct transmission (`t=d`) may come in chunks: `m=1` on
 //!   every chunk but the last. While an upload is open, a command does
-//!   what kitty 0.49.2 does with it (`Command::within_upload`): a
-//!   transmission or frame sent directly is the next chunk, of which the
-//!   handler reads only `m` and `q`; one from a named medium, and a
-//!   delete, end the upload, which gives back what it reserved; a put, a
+//!   what kitty 0.49.2 does with it (`Command::within_upload`), with the
+//!   departures below. A transmission or frame sent directly is the next
+//!   chunk: the handler reads only its `m` and `q`, and fails the upload
+//!   when one of its keys cannot be read, where kitty drops such a chunk
+//!   and the upload fails short at its end. One from a named medium, and a
+//!   delete,
+//!   end the upload, which gives back what it reserved; a put, a
 //!   composition and an animation control run beside it, the control on
-//!   the image the upload loads. Output of any other kind between two
-//!   chunks, RIS and the session's end drop the upload too
-//!   ([`Handler::interrupt`]), where kitty keeps it open. A transmission that fails part way swallows its
-//!   remaining chunks and answers once, at its last. A chunk's `q` of 1 or
-//!   2 holds from then on.
+//!   the image the upload loads. The other departures each end the upload
+//!   where kitty keeps it open: a transmission or frame that names another
+//!   image by `i` or `I`, output of any other kind between two chunks,
+//!   RIS, and the session's end ([`Handler::interrupt`]). A transmission
+//!   that fails part way swallows its remaining chunks and answers once,
+//!   at its last. A chunk's `q` of 1 or 2 holds from then on.
 //! - **The helper.** PNG (`f=100`) and zlib (`o=z`) payloads sent directly
 //!   are kept, each growth of the buffer reserved first, and handed to the
 //!   image helper whole; files, temporary files and shared memory (`t=f`,
@@ -344,7 +348,7 @@ impl Kitty {
         self.target = Target::None;
         let cmd = self.cmd;
         if self.upload.mode != Mode::None {
-            match cmd.within_upload() {
+            match cmd.within_upload(&self.upload.cmd) {
                 Within::Continues => {
                     if cmd.bad {
                         fail(&mut self.upload.mode, ctx, Error::Invalid);

@@ -46,7 +46,8 @@ impl Error {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Within {
     /// It is the upload's next chunk: the handler reads only its `m` and
-    /// `q`, and decodes its payload into the upload.
+    /// `q`, fails the upload when one of its keys cannot be read, and
+    /// decodes its payload into the upload.
     Continues,
     /// It ends the upload, which gives back what it holds, and then runs.
     Ends,
@@ -363,17 +364,24 @@ impl Command {
         None
     }
 
-    /// What this command does to an upload in chunks that is open when it
-    /// arrives, as kitty 0.49.2 takes it. A transmission or a frame sent
-    /// directly, with no `t` or `t=d`, is the upload's next chunk, whatever
-    /// else it names; one from a file, a temporary file or shared memory,
-    /// and a delete, end the upload; a put, a composition and an animation
-    /// control run beside it. The spec asks a later chunk to carry only
-    /// `m` and `q`, and `a=f` too for a frame, and asks a delete to end the
-    /// upload.
-    pub(super) fn within_upload(&self) -> Within {
+    /// What this command does to the upload in chunks begun by `first`,
+    /// which is open when it arrives, as kitty 0.49.2 takes it but for one
+    /// rule. A transmission or a frame sent directly, with no `t` or `t=d`,
+    /// is the upload's next chunk: the handler reads only its `m` and `q`,
+    /// and fails the upload when one of its keys cannot be read. One from
+    /// a file, a temporary file or shared memory, and a delete, end the
+    /// upload; a put, a composition and an animation control run beside
+    /// it. The one rule that is vtium's: a transmission or frame that names
+    /// another image by `i` or `I` than `first` named ends the upload too,
+    /// so an upload a program left unfinished cannot take the next
+    /// program's picture; kitty loads it into the open upload. The spec
+    /// asks a later chunk to carry only `m` and `q`, and `a=f` too for a
+    /// frame, and asks a delete to end the upload.
+    pub(super) fn within_upload(&self, first: &Self) -> Within {
+        let same_image = (self.seen & bit(b'i') == 0 || self.id == first.id)
+            && (self.seen & bit(b'I') == 0 || self.number == first.number);
         match self.action {
-            b't' | b'T' | b'q' | b'f' if self.medium == b'd' => Within::Continues,
+            b't' | b'T' | b'q' | b'f' if self.medium == b'd' && same_image => Within::Continues,
             b't' | b'T' | b'q' | b'f' | b'd' => Within::Ends,
             _ => Within::Beside,
         }
