@@ -8,7 +8,7 @@ In the commands below, `#` marks a command you run as root, for example with sud
 
 The AUR (the Arch User Repository) holds two recipes for vtium. A recipe is a `PKGBUILD`, the build script that makepkg reads to build a package. Install from one of them, since their packages conflict:
 
-- `vtium` builds a release from the tag the maintainer signs, today the pre-release `v0.1.0-alpha.3`. It builds the packages `vtium` and `vtium-terminfo`.
+- `vtium` builds a release from the tag the maintainer signs, today the pre-release `v0.1.0-alpha.4`. It builds the packages `vtium` and `vtium-terminfo`.
 - `vtium-git` builds the tip of vtium's `main` branch. It builds the packages `vtium-git` and `vtium-terminfo-git`, which provide `vtium` and `vtium-terminfo`.
 
 The console package depends on the terminfo package, which installs `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM`.
