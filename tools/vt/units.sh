@@ -32,7 +32,8 @@
 # cost: systemctl list-unit-files shows the template as "bad", and
 # systemctl is-enabled NAME@.service fails, while each NAME@ttyN reads as
 # enabled or disabled as usual. It writes
-# OUTDIR/NAME-getty@.service, which is vtium-getty@.service under NAME. Each
+# OUTDIR/NAME-getty@.service, which is vtium-getty@.service under NAME, its
+# ExecStart= running PATH console fallback in place of /usr/bin/vtium. Each
 # unit's opening comment, which describes the shipped source, gives way to
 # one that describes the unit under its own name. Every other line is
 # the shipped unit's, so Restart= and Alias=autovt@.service come through as
@@ -177,18 +178,20 @@ EOF
 			}'
 } >"$tmp/$unit"
 {
-	header crates/vtium/install/vtium-getty@.service "${renamed_fallback[@]}"
+	header crates/vtium/install/vtium-getty@.service "${renamed_fallback[@]}" \
+		"ExecStart runs $exec_path console fallback"
 	cat <<EOF
 # The getty fallback of $unit: when vtium on a VT fails, its
-# OnFailure= starts this unit, which starts getty@ on that VT, so a user is
-# never left at a dead screen. Under a closed head-file policy a getty's
+# OnFailure= starts this unit, which starts getty@ on that VT unless the
+# getty's start would stop another program, such as a display manager whose
+# Conflicts= names it (ADR-1500 D7). Under a closed head-file policy a getty's
 # login would take any keyboard (ADR-1401 D9), so vtium writes
 # /run/vtium/ttyN.closed at start, and this unit's condition skips the getty
 # while that file exists. vtium removes the file when it next starts under an
 # open policy, and /run is cleared at every boot.
 
 EOF
-	body "$src/vtium-getty@.service"
+	sed -e "s|^ExecStart=/usr/bin/vtium |ExecStart=$exec_path |" <(body "$src/vtium-getty@.service")
 } >"$tmp/$fallback"
 
 directives() { grep -v '^[[:space:]]*\(#\|$\)' "$1"; }
@@ -203,6 +206,8 @@ done
 [ "$(directives "$tmp/$unit" | grep '^DefaultInstance=')" = "DefaultInstance=name-a-VT/$name@ttyN" ] &&
 	[ "$(grep '^\[' "$tmp/$unit" | tail -n1)" = "[Install]" ] ||
 	die "the generated $unit has no one refused DefaultInstance= at the end of its [Install] section"
+[ "$(directives "$tmp/$fallback" | grep '^ExecStart=')" = "ExecStart=$exec_path console fallback %i" ] ||
+	die "the shipped vtium-getty@.service has no one ExecStart=/usr/bin/vtium console fallback %i line to change"
 directives "$tmp/$unit" | grep -qxF "OnFailure=$name-getty@%i.service" ||
 	die "the shipped vtium@.service has no OnFailure=vtium-getty@%i.service line to change"
 for f in "$unit" "$fallback"; do

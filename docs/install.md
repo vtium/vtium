@@ -95,12 +95,27 @@ To give vtium every VT:
 
 `enable --all` links `/etc/systemd/system/autovt@.service`, the template link that logind follows on every VT without a link of its own, to vtium. It enables vtium at boot on VT 1, where logind never starts a console itself, and it disables the gettys on VTs 2 to 6, so logind starts vtium on each the first time you switch to it. It leaves these VTs alone and names each one:
 
-- a VT a display manager claims, as sddm claims VT 1, and a VT a graphical session or a greeter is on now;
+- a VT another program uses now or will claim at the next boot (below);
 - a VT where `kmscon` is enabled, linked or running, and a VT the development install holds ([The development VT](vt-review.md#installing-vtium-on-a-vt));
 - a VT whose own link, `/etc/systemd/system/autovt@ttyN.service`, names another console;
 - VTs above 6, where logind starts no console by itself; `enable N` gives vtium such a VT at boot.
 
 VT 6 is logind's reserved VT, where logind starts a console at every switch, even while the VT is in use. `enable 6` and `enable --all` refuse while someone is logged in on VT 6, unless that login is inside a vtium running there. A getty that waits at its login prompt on VT 6 holds no session, so both go ahead, and the next switch to VT 6 stops that getty. Where VT 6 has no link of its own, `enable --all` also refuses, rather than passing VT 6 by, while `kmscon` or the development install is enabled or running there.
+
+### VTs that other programs hold
+
+`vtium console` follows common convention: on a machine with a display manager, VT 1 stays the display manager's and its getty's, as systemd's preset and the display managers' own units leave it, and vtium takes other VTs. It never takes a VT that your system is set up to give to another program: a unit enabled at boot that claims the VT, or an enabled display manager. What is running now on a VT holds it as well, but never frees one. `enable N` refuses such a VT, `enable --all` passes it by, and both say what holds the VT and how vtium knows:
+
+- VT 1, while a display manager is enabled, whatever VT the display manager uses now: `/etc/systemd/system/display-manager.service` links to it, or a unit that starts at boot runs one vtium knows by name, such as ly's `ly@tty2`, which ly enables without that link;
+- a VT whose getty a unit that starts at boot names in `Conflicts=`, as Arch's `sddm.service` names `getty@tty1.service`;
+- a graphical session or a greeter on the VT now, which it asks logind for;
+- another console running on the VT now, such as `fbterm@tty4.service`;
+- a unit that starts at boot and runs on the VT, such as `cage@tty3.service` or a unit with `TTYPath=/dev/tty9`;
+- a VT your display manager's own configuration starts its greeter on: LightDM's `minimum-vt`, 7 unless you set it, greetd's `vt`, and SDDM's `MinimumVT`.
+
+Nothing frees a VT: a display manager's greeter running on VT 2 leaves VT 1 the display manager's all the same. `vtium console status` gives the reasons under its table.
+
+If vtium fails on a VT, its fallback starts that VT's getty again, so that you have a login. It never does this when the getty's start would stop another program, as starting `getty@tty1` would stop a display manager whose unit conflicts with it. Then the VT is left without a console, and `journalctl -b -u vtium-getty@tty1.service` says why. Log in on another VT or over ssh to find out why vtium failed ([A VT that shows a getty](troubleshooting.md#a-vt-that-shows-a-getty)).
 
 On a machine where `kmscon` holds the template link, read [Moving from kmscon](#moving-from-kmscon) before you run `enable --all`.
 
@@ -113,7 +128,7 @@ Before `enable` changes anything, it records what each VT had in `/var/lib/vtium
 
 `disable 3` takes vtium off VT 3's boot list, removes VT 3's own link to vtium, and gives VT 3 back the getty it had. After `enable --all`, though, logind still starts vtium on VT 3 through the template link whenever you switch to VT 3 while nothing runs there, and `disable 3` says so. Only `disable --all` points the template link back where it pointed before.
 
-[crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing and says so; there an inittab line, an init script or a supervisor runs `vtium --vt=ttyN --no-switchvt` where it ran a getty ([systemd.md](systemd.md)).
+[crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing and says so; there you replace a VT's getty entry with one that runs `vtium --vt=ttyN --no-switchvt`, the way your init system runs the getty, as [Giving vtium a VT without systemd](systemd.md#giving-vtium-a-vt-without-systemd) shows for sysvinit, OpenRC and runit.
 
 ## Moving from kmscon
 

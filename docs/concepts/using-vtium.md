@@ -2,7 +2,7 @@
 
 ## The configuration
 
-vtium reads one configuration file, then a file for its seat over it, then its command line over both, once at start. It also reads a `kmscon.conf` that a user copies to `/etc/vtium/vtium.conf`, with its settings, and adds settings of its own. [config.md](../config.md) lists every setting.
+vtium reads one configuration file, then a file for its seat over it, then its command line over both, once at start. It takes the keys of `kmscon`'s configuration file and adds its own, so it reads a `kmscon` configuration that a user copies to `/etc/vtium/vtium.conf`. [config.md](../config.md) lists every setting.
 
 A head file beside it, `/etc/vtium/heads.conf`, places each display and input (ADR-1401, [Heads](heads.md)).
 

@@ -6,7 +6,7 @@ These three screens are vtium's own drawing, made in memory by its renderer: the
 
 ![vtium's drawing of the palette: the 16 background colors, the 16 foreground colors on letter pairs, a ramp through the 256-color palette, and a 24-bit gradient from red to green.](../figures/concepts-screen-palette.png) ![vtium's drawing of double-width text: Japanese, Chinese and Korean, full-width Latin, narrow letters between wide characters, and wide text in bold and in reverse.](../figures/concepts-screen-cjk.png) ![vtium's drawing of underlines: single, double, curly, dotted and dashed, each in the text color and in a color of its own, then underlines on a background, in reverse and in bold.](../figures/concepts-screen-underline.png)
 
-vtium is written in Rust. It began from `kmscon` and `libtsm`, a C terminal for the VT and its terminal library, and the behaviour it implements is defined by the specifications it cites, [ADR-1000](../architecture/term/ADR-1000-the-modes-and-features-vtium-supports.md)'s tables and its own goldens ([How vtium is judged](how-vtium-is-judged.md)).
+vtium is written in Rust. What it does is set by the specifications it cites and by the tables of ADR-1000, and its own tests judge it, against goldens: saved expected results that vtium's output is compared with ([How vtium is judged](how-vtium-is-judged.md)).
 
 ## Small machines first
 
