@@ -1,6 +1,6 @@
 # vtium-conformance tests
 
-`cargo test -p vtium-conformance` runs them. The unit tests of the test commands, the cuts, the palettes, the lists, the provenance check, SHA-256, the grammar, the probe files, the chunking check and the COVERAGE map sit in their modules under `src/`.
+`cargo test -p vtium-conformance` runs them. The unit tests of the test commands, the cuts, the palettes, the lists, the grammar, the probe files, the chunking check and the COVERAGE map sit in their modules under `src/`.
 
 | Path | What it is |
 |---|---|
@@ -9,4 +9,4 @@
 | `interface.rs` | The interface check on the tree, and each kind of fault it catches on inputs written in the test. |
 | `stand_in.rs` | Built with images: the image store against the `img-` cases' goldens, each solid sixel string replaced by the `image` and `place` commands that make the same picture, the placements compared as a set in the cases ADR-1100's D4 names, and the one case whose sixels are not solid left to the sixel handler. |
 | `termcap.rs` | The xtgettcap probe's fixture against the XTGETTCAP table vtium answers from. |
-| `probes.rs` | The copies against `provenance.tsv`; the probe files read and checked against the copied interface; and the probe runner on probes written in the test: a pass and each kind of failure, the order of `test` lines, an absent feature, the malformed probes refused before anything runs, a vtium probe taking a placeholder's place, or a copied probe's with a listed departure, and each departure checked against its README, a fixture served from `fixtures/`, and each verdict against the list. |
+| `probes.rs` | The probe files read and checked against the copied interface; and the probe runner on probes written in the test: a pass and each kind of failure, the order of `test` lines, an absent feature, the malformed probes refused before anything runs, a vtium probe taking a placeholder's place, or a copied probe's with a listed departure, and each departure checked against its README, a fixture served from `fixtures/`, and each verdict against the list. |

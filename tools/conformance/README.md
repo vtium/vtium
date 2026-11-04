@@ -2,15 +2,14 @@
 
 Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.2: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, and runs the capability probes through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden is a listed departure, a listed pending case, or a failure.
 
-The corpus, its goldens, the interface and the probe file were made by the C reference and copied here at the commits `provenance.tsv` names (The copies). The C reference's tools that made and checked them are ported here in Rust: the generator of the synthetic cases, the recorder of the programs' cases, and the interface check. Nothing here reads a checkout of the C repositories or runs their code, but `make conformance-provenance`.
+The corpus, its goldens, the interface and the probe file were made by the C reference and copied here (The copies). The C reference's tools that made and checked them are ported here in Rust: the generator of the synthetic cases, the recorder of the programs' cases, and the interface check. Nothing here reads a checkout of the C repositories or runs their code.
 
 The crate is a workspace member, so `cargo test --workspace` builds both programs and runs the tests below. The whole corpus and the probes run in two Makefile targets, which CI's `conformance` job runs on every pull request:
 
 ```
-make conformance          # the copies, every case, both views and the chunking check
-make conformance-probes   # the copies and the capability probes
+make conformance          # every case, both views and the chunking check
+make conformance-probes   # the capability probes
 make conformance-issues   # every issue the lists name is open (gh)
-make conformance-provenance   # each row of provenance.tsv against its source (LIBTSM=DIR KMSCON=DIR); a review step, not a gate
 make conformance-record OUT=DIR [NAMES='prog-shell ...']   # records the programs' cases; not a gate
 target/release/conformance generate DIR   # writes every synthetic case and prints its cases.list lines
 target/release/conformance interface      # the interface check alone
@@ -30,9 +29,7 @@ target/release/conformance interface      # the interface check alone
 | `src/spec.rs` | The interface's `describe` and `grammar` blocks, over 1.0 and vtium's additions, and the check of a line against the grammar. |
 | `src/runner.rs` | The corpus, the masking and the verdict on each case. |
 | `src/runner/lists.rs` | Reading `expected.tsv`, and its checks. |
-| `src/runner/provenance.rs` | Reading `provenance.tsv`, and the check of each copy against it. |
 | `src/runner/chunking.rs` | The chunking check: each case with extra cuts at random offsets. |
-| `src/sha256.rs` | SHA-256, for the provenance check. |
 | `src/probes.rs` | Reading the probe files, and the checks made before a probe runs. |
 | `src/probes/judge.rs` | A probe replayed and judged, and each capability's verdict against the list. |
 | `src/coverage.rs` | `COVERAGE.md`, generated from `capabilities.list` and ADR-1000's tables, and its test. |
@@ -48,27 +45,24 @@ target/release/conformance interface      # the interface check alone
 | `INTERFACE-vtium.md` | vtium's additions to the interface: the `clipboard` command and feature and the line it prints, and the `kitty-animation` feature and its `anim` lines. |
 | `probes/probes.replay` | The copied capability probes. |
 | `probes/vtium.replay` | vtium's own probes. |
-| `provenance.tsv` | Each copied file: its path here, the repository, commit and path it came from, and its SHA-256. |
 | `expected.tsv` | The cases whose output differs from the golden, each with the departure that lists it or the issue that owes it. |
 | `expected/screen/`, `expected/frame/` | vtium's expected output for each listed departure, by view. |
 | `expected/pending/screen/`, `expected/pending/frame/` | Each pending case's snapshot: vtium's output, or what it printed before the replay stopped and its exit code and message. |
 | `capabilities.list` | vtium's capability list: each probe `works` or `missing`, with the issue for each gap and the ADR-1000 rows it judges. |
 | `COVERAGE.md` | Each capability, the tests that guard its rows, and its gap. |
-| `tests/` | The verdicts, the command line and the probe runner on inputs written in the tests, and the copies against `provenance.tsv`: see its README. |
+| `tests/` | The verdicts, the command line and the probe runner on inputs written in the tests: see its README. |
 
 ## The copies
 
-`provenance.tsv` holds one row per copied file, `PATH REPO COMMIT SOURCE SHA256`: PATH from the root of this repository, the repository (`libtsm` or `kmscon`, aaronsb's forks), the commit, the path there, and the copy's SHA-256. The corpus came from libtsm's `test/conformance/`, the generator's inputs from its `test/conformance/recorded/` and `test/sixel/`, and the probes from kmscon's `tests/capabilities/probes.replay`. The draw2 goldens, which vtium does not owe, stayed behind. One row is an excerpt: vtium-term's `crates/vtium-term/tests/palettes.c.txt` is lines 254 to 451 of libtsm's `src/tsm/tsm-vte.c`, the C reference's palette tables, which vtium-term's palette test reads.
+The corpus came from libtsm's `test/conformance/`, the generator's inputs from its `test/conformance/recorded/` and `test/sixel/`, and the probes from kmscon's `tests/capabilities/probes.replay`. The draw2 goldens, which vtium does not owe, stayed behind. One copy is an excerpt: vtium-term's `crates/vtium-term/tests/palettes.c.txt` is lines 254 to 451 of libtsm's `src/tsm/tsm-vte.c`, the C reference's palette tables, which vtium-term's palette test reads.
 
-Every run, and `the_copies_match_their_provenance` in `cargo test`, checks each row's file against its SHA-256, and every file under `corpus/` and `generator/` for a row. Every file under `probes/` has a row too, but for vtium's own `vtium.replay`. A golden changes only in a commit of its own that lists each moved value, as CONTRIBUTING.md asks, and that commit changes its row too.
-
-Nothing in a run ties a row to its source, so any change to `provenance.tsv` is verified at review with `make conformance-provenance` (LIBTSM=DIR KMSCON=DIR, default `../libtsm` and `../kmscon`): it reads each row's source from the checkouts with `git show COMMIT:PATH`, read-only, and fails on a source whose SHA-256 differs from the row's or a commit a checkout lacks. It is not a gate.
+A golden changes only in a commit of its own that lists each moved value, as CONTRIBUTING.md asks.
 
 ## The cases' generator
 
 `src/generate.rs` writes every synthetic case of the corpus from its recipe, each a byte stream of hand-written escape sequences that exercises one area of terminal behaviour, as the C reference's `test/conformance/gen-synthetic.py` did: a case's text is written as UTF-8 with its cuts taken out into `<name>.cuts`, and the fixtures the replay's host serves it go in `<name>.files/`. Each `kit-host-` case is written again as `-nohook`, the host removed first and no fixtures given. `tests/generate.rs` holds the generator to the copies: each of its 160 cases equals the copy under `corpus/cases/` byte for byte, its stream, its cuts and its fixtures, and the only cases of `cases.list` it does not write are the four recordings.
 
-The generator reads six inputs under `generator/`, copied with their rows in `provenance.tsv`: the streams kitten icat and mpv wrote in the C reference's probes, and `img2sixel`'s sixel strings for three pictures. Each is read a byte to a character and written as UTF-8, as the C reference's generator read them (Latin-1), so a byte past 0x7f lands in the case as two.
+The generator reads six inputs under `generator/`, copied from the C reference: the streams kitten icat and mpv wrote in the C reference's probes, and `img2sixel`'s sixel strings for three pictures. Each is read a byte to a character and written as UTF-8, as the C reference's generator read them (Latin-1), so a byte past 0x7f lands in the case as two.
 
 A new synthetic case is a recipe in `src/generate/` and a line in `cases.list`; `conformance generate DIR` writes every case under DIR, which must be empty or new, and the new case's files are copied into `corpus/cases/`. Its goldens are vtium's own: they land in a commit of their own, reviewed as any golden change is (CONTRIBUTING.md).
 
@@ -92,7 +86,7 @@ The frame view prints the colors vtium-term's frame resolves, so a difference in
 
 ## vtium's own cases
 
-`vtium/` holds cases for behaviour the C reference's corpus does not hold, such as `sixel-over`, which plays chafa's padded frames and mpv's opaque frames, whose edge ends inside a cell, over each other, and a picture with a clear pixel in each cell over the last, the cases that tell vtium's per-cell sixel coverage apart from cutting a whole box. Its files are vtium's own, so they have no rows in `provenance.tsv`, and the generator does not write them. `conformance run` replays each in both views after the corpus and compares it with its golden, masked as the corpus is, and puts it through the chunking check. A golden is vtium's own output, and it lands in a commit of its own. Until the maintainer reviews it, its case is listed in `provisional.tsv`, `CASE REASON` a line, and the golden judges nothing: a difference from it is printed as `provisional` and fails nothing. A case not listed there fails on any difference, as a copied case with no row in `expected.tsv` does. A listed case that `cases.list` does not hold stops the run.
+`vtium/` holds cases for behaviour the C reference's corpus does not hold, such as `sixel-over`, which plays chafa's padded frames and mpv's opaque frames, whose edge ends inside a cell, over each other, and a picture with a clear pixel in each cell over the last, the cases that tell vtium's per-cell sixel coverage apart from cutting a whole box. Its files are vtium's own, and the generator does not write them. `conformance run` replays each in both views after the corpus and compares it with its golden, masked as the corpus is, and puts it through the chunking check. A golden is vtium's own output, and it lands in a commit of its own. Until the maintainer reviews it, its case is listed in `provisional.tsv`, `CASE REASON` a line, and the golden judges nothing: a difference from it is printed as `provisional` and fails nothing. A case not listed there fails on any difference, as a copied case with no row in `expected.tsv` does. A listed case that `cases.list` does not hold stops the run.
 
 ## The judge
 

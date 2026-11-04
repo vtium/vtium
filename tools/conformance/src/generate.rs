@@ -9,8 +9,7 @@
 //! `tests/generate.rs` checks. A new case is added here, written with
 //! `conformance generate DIR`, and its goldens reviewed as their own
 //! change. The streams a client recorded, and the sixel strings libsixel's
-//! `img2sixel` wrote, are inputs, copied under `generator/` with their
-//! provenance.
+//! `img2sixel` wrote, are inputs, copied under `generator/`.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;

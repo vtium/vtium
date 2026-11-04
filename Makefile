@@ -309,7 +309,7 @@ arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qem
 	cargo test --workspace --all-features --no-fail-fast $(addprefix --target ,$(ARM_TEST_TARGETS))
 
 # Tier 1 and the capability probes, against the goldens and probes in
-# tools/conformance/, copied from the C reference (provenance.tsv).
+# tools/conformance/, copied from the C reference.
 .PHONY: conformance
 conformance: ## Judge vtium against tier 1's goldens
 	cargo build --release -p vtium-conformance --features images --bins
@@ -327,17 +327,6 @@ conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bi
 	$(if $(OUT),,$(error conformance-record needs OUT=DIR))
 	cargo build --release -p vtium-conformance --features record --bin conformance-record
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance-record $(OUT) $(NAMES)
-
-# The provenance checks, conformance-provenance, tier2-provenance and
-# tier3-provenance, read libtsm and kmscon checkouts with git, read-only, to
-# review a change to the copies; none is a gate.
-LIBTSM ?= ../libtsm
-KMSCON ?= ../kmscon
-
-.PHONY: conformance-provenance
-conformance-provenance: ## Check each row of tools/conformance/provenance.tsv against its source with git show (LIBTSM=DIR KMSCON=DIR)
-	cargo build --release -p vtium-conformance --bins
-	$(or $(CARGO_TARGET_DIR),target)/release/conformance provenance --libtsm $(LIBTSM) --kmscon $(KMSCON)
 
 .PHONY: conformance-issues
 conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
@@ -580,6 +569,7 @@ tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: 
 tier3-images: tier3-image ## Tier 3's pictures: the install tree built with images, then the images variants on the minspec machine at 640x480
 	$(T3_RUN) --features '$(sort images $(subst $(comma), ,$(FEATURES)))' --tree-target install-tree $(or $(VARIANTS),images-640x480 images-640x480-nobody)
 
+KMSCON ?= ../kmscon
 # Each row of tools/tier3/provenance.tsv against its source in a kmscon
 # checkout, read with git; a review step when the copies change, never a gate.
 .PHONY: tier3-provenance
