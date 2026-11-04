@@ -1,5 +1,5 @@
-//! Which VTs a unit that starts at boot holds (ADR-1500 D7), by common
-//! convention: a display manager that is enabled keeps VT 1, where systemd
+//! Which VTs the system's intended configuration gives to a unit that
+//! starts at boot (ADR-1500 D7), by common convention: a display manager that is enabled keeps VT 1, where systemd
 //! and the display managers' own units put it, whatever VT it happens to
 //! use now; a unit holds each VT whose `getty@ttyN.service` its
 //! `Conflicts=` names, the VT its `TTYPath=` names and the VT it is an
