@@ -670,12 +670,17 @@ struct Running {
     events: mpsc::Receiver<Event>,
 }
 
-/// One bit for each Unicode codepoint.
+/// One bit for each Unicode codepoint, [`BITS_BYTES`] once a bit is set
+/// and nothing before, so a record that never holds a codepoint costs
+/// nothing.
 struct Bits(Vec<u64>);
+
+/// The bytes a [`Bits`] takes once a bit is set: 136 KiB.
+const BITS_BYTES: usize = 0x11_0000 / 8;
 
 impl Bits {
     fn new() -> Bits {
-        Bits(vec![0; 0x11_0000 / 64])
+        Bits(Vec::new())
     }
 
     fn has(&self, c: u32) -> bool {
@@ -685,6 +690,9 @@ impl Bits {
     }
 
     fn put(&mut self, c: u32, on: bool) {
+        if on && self.0.is_empty() {
+            self.0 = vec![0; BITS_BYTES / 8];
+        }
         if let Some(w) = self.0.get_mut((c / 64) as usize) {
             if on {
                 *w |= 1 << (c % 64);
@@ -743,6 +751,10 @@ struct Clusters {
 /// What the console knows of one cell in one style: the codepoints and
 /// clusters the store holds, those the frit lacks, those asked for and not
 /// yet answered, and, for the regular style, its fill.
+/// Its four codepoint records take [`BITS_BYTES`] each once one is set,
+/// and a style other than regular never fills, so its `brought` stays
+/// empty: at most 544 KiB for the regular record and 408 KiB for each
+/// other style's.
 struct CellState {
     cell: Cell,
     style: Style,
@@ -1982,6 +1994,54 @@ mod tests {
         assert!(!s.helper.busy());
         s.helper.ask(CELL, &shown(&['A']), now);
         assert!(s.helper.busy());
+    }
+
+    // ADR-1200 D19, D21: an italic glyph an ask past the store's limit
+    // evicts is forgotten in its own style's record, so it is asked for
+    // again when the screen shows it
+    #[test]
+    fn an_evicted_italic_glyph_is_asked_for_again() {
+        let a = styled(CELL, ITALIC, &['A']);
+        let b = styled(CELL, Style::default(), &['B']);
+        let limit = (a.len() + b.len() - 1) as u64;
+        let one = encode(
+            &frit("source=builtin:unscii-8\n"),
+            None,
+            (ASK, CELL, ITALIC),
+            (&[0x41], &[]),
+            &[],
+        )
+        .len();
+        let script = format!(
+            "head -c {one} >/dev/null; cat \"$1\"; head -c {one} >/dev/null; cat \"$1.b\"; cat >/dev/null"
+        );
+        let mut first = frame_bytes(FRAME_GLYPHS, &a);
+        first.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::limited("evict-italic", &script, &first, limit);
+        let mut second = frame_bytes(FRAME_GLYPHS, &b);
+        second.extend(frame_bytes(FRAME_DONE, &[]));
+        std::fs::write(s.dir.join("answer.b"), second).unwrap();
+        let now = t0();
+        let italic = Shown {
+            style: ITALIC,
+            chars: vec!['A'],
+            clusters: Vec::new(),
+        };
+        s.helper.ask(CELL, &italic, now);
+        assert_eq!(s.run(now).len(), 1);
+        s.helper.ask(CELL, &shown(&['B']), now);
+        assert_eq!(s.run(now).len(), 1);
+        assert_eq!(s.helper.failed(), None);
+        let held = |s: &StandIn, style, c: char| {
+            s.helper
+                .cells
+                .iter()
+                .any(|r| (r.cell, r.style) == (CELL, style) && r.held.has(u32::from(c)))
+        };
+        assert!(held(&s, Style::default(), 'B'));
+        assert!(!held(&s, ITALIC, 'A'), "italic A left the store");
+        s.helper.ask(CELL, &italic, now);
+        assert!(s.helper.busy(), "and is asked for again");
     }
 
     // ADR-1200 D21: the console refuses a strike in a style other than the
