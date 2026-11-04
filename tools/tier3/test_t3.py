@@ -16,6 +16,7 @@ cache and the logger a worker process receives (t3_common.py).
 import argparse
 import base64
 import contextlib
+import csv
 import hashlib
 import io
 import json
@@ -5242,7 +5243,7 @@ class ShowcaseTest(unittest.TestCase):
 
     def on_terminal(self, screens, **traits):
         """What the shell scene in `screens` writes on a stand-in terminal
-        of 27 rows by 120 columns with Iosevka Term's cell, which answers the
+        of 28 rows by 128 columns in the scene's cell, which answers the
         scene's and the gallery tool's queries as vtium does, unless
         `traits` say otherwise; and the events it reports."""
         events = os.path.join(self.dir.name, "events")
@@ -5251,8 +5252,8 @@ class ShowcaseTest(unittest.TestCase):
         status, data = gallery_terminal.run(
             ["bash", os.path.join(screens, "showcase-shell.sh")],
             gallery_terminal.answers(**{"cell": t3_showcase_gallery.CELL,
-                                        "font": "showcase-iosevka", **traits}),
-            rows=27, cols=120,
+                                        "font": "showcase-shell", **traits}),
+            rows=28, cols=128,
             env={"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8", "T3_EVENTS": events})
         self.assertEqual(status, 0)
         with contextlib.suppress(FileNotFoundError), open(events) as f:
@@ -5264,13 +5265,13 @@ class ShowcaseTest(unittest.TestCase):
         # gallery tool, which sends every picture of the gallery in name
         # order, each one's bytes as written, in a box of cells of the
         # picture's own shape on the four rows under its prompt, inside the
-        # 120 columns and clear of each other, and centers each file's name
+        # 128 columns and clear of each other, and centers each file's name
         # under its picture on the fifth row; the next prompt comes on the
-        # sixth, and the screen stays at its 27 rows. When the tool draws
+        # sixth, and the screen stays at its 28 rows. When the tool draws
         # nothing, the scene keeps the same rows and reports it on the event
         # port.
         g = t3_showcase_gallery
-        with open(os.path.join(t3_common.GUEST, "frits", "showcase-iosevka.vtfrit")) as f:
+        with open(os.path.join(t3_common.GUEST, "frits", "showcase-shell.vtfrit")) as f:
             self.assertIn("\ncell=%dx%d\n" % g.CELL, f.read())
         screens = os.path.join(self.dir.name, "screens")
         os.makedirs(screens)
@@ -5278,7 +5279,7 @@ class ShowcaseTest(unittest.TestCase):
             shutil.copy(os.path.join(t3_common.GUEST, "screens", name), screens)
         g.disc(os.path.join(screens, "showcase"))
         data, events = self.on_terminal(screens)
-        self.assertEqual((self.screen_rows(data), events), ((26, 26), ""))
+        self.assertEqual((self.screen_rows(data), events), ((27, 27), ""))
         pictures, text, rows = self.gallery_rows(data)
         self.assertEqual(rows, 5)
         files = {}
@@ -5301,7 +5302,7 @@ class ShowcaseTest(unittest.TestCase):
                                     - height * g.CELL[1] * img.width), g.CELL[0] * img.height)
                 self.assertGreater(col, end)
                 end = col + width - 1
-                self.assertLessEqual(end, 120)
+                self.assertLessEqual(end, 128)
                 # the label whose middle is within a cell of the picture's
                 under = [label for (_, c), label in text.items()
                          if abs(2 * c + len(label) - 2 * col - width) <= 2]
@@ -5309,14 +5310,42 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual(len(text), len(placed))
         data, events = self.on_terminal(screens, kitty=False)
         pictures, text, rows = self.gallery_rows(data)
-        self.assertEqual((self.screen_rows(data), pictures, rows), ((26, 26), {}, 5))
+        self.assertEqual((self.screen_rows(data), pictures, rows), ((27, 27), {}, 5))
         self.assertIn("gallery: the terminal did not answer", text[(0, 1)])
         self.assertEqual(events, "T3-NO-GALLERY\n")
         shutil.rmtree(os.path.join(screens, "showcase"))
         data, events = self.on_terminal(screens)
         pictures, text, rows = self.gallery_rows(data)
-        self.assertEqual((self.screen_rows(data), pictures, rows), ((26, 26), {}, 5))
+        self.assertEqual((self.screen_rows(data), pictures, rows), ((27, 27), {}, 5))
         self.assertEqual(events, "T3-NO-GALLERY\n")
+
+    # The styles line's words, each with the SGR parameters that draw it,
+    # and the ADR-1000 row of each parameter's feature.
+    STYLES = [("underline", "4"), ("double", "4:2"), ("curly", "4:3"), ("dotted", "4:4"),
+              ("dashed", "4:5"), ("red curly", "4:3;58:2::224:108:117"), ("strike", "9"),
+              ("inverse", "7"), ("dim", "2")]
+    FEATURES = {"4": "sgr.underline", "4:2": "sgr.underline-style", "4:3": "sgr.underline-style",
+                "4:4": "sgr.underline-style", "4:5": "sgr.underline-style",
+                "58:2::224:108:117": "sgr.underline-color", "9": "sgr.strike",
+                "7": "sgr.inverse", "2": "sgr.dim"}
+
+    def test_styles_line(self):
+        # The shell scene's last line before the final prompt draws each
+        # word in the style it names, every style one whose ADR-1000 row
+        # vtium supports, and ends where the final prompt begins.
+        with open(os.path.join(t3_common.ROOT, "docs", "architecture", "term",
+                               "ADR-1000-features.tsv")) as f:
+            status = {row["id"]: row["status"] for row in csv.DictReader(f, delimiter="\t")}
+        data = self.scene_bytes("showcase-shell")
+        start = data.rindex(b"$ cat greetings.txt styles.txt\n")
+        lines = data[start:data.rindex(self.PROMPT)].split(b"\n")
+        self.assertEqual((len(lines), lines[-1]), (6, b""))
+        words = re.findall(rb"\x1b\[([0-9;:]+)m([^\x1b]+)\x1b\[0m", lines[4])
+        self.assertEqual([(w.decode(), p.decode()) for p, w in words], self.STYLES)
+        for _, params in self.STYLES:
+            for p in params.split(";"):
+                with self.subTest(p):
+                    self.assertEqual(status[self.FEATURES[p]], "supported")
 
     def test_palettes(self):
         # vtium-term's named palettes, each with its 16 colors; a palette

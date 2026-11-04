@@ -1,13 +1,15 @@
 #!/bin/bash
-# vtium draws a shell session on a 1920x1080 display in Iosevka Term:
-# prompts in powerline segments with an icon from Symbols Nerd Font Mono, a
-# colored directory listing, a git history with its branch graph, a gallery
-# of six pictures in kitty graphics with their file names, and greetings in
-# several scripts with emoji. vtium's own gallery tool, tools/gallery/gallery,
-# draws the gallery: four pictures computed from a few lines of arithmetic,
-# and two photographs NASA's astronauts took, Earthrise and the Blue Marble.
-# The scene writes the rest of the session byte for byte, and the last prompt
-# is the shell's own, with its cursor.
+# vtium draws a shell session on a 1920x1080 display in Iosevka Term, 28
+# rows of 128 columns: prompts in powerline segments with an icon from
+# Symbols Nerd Font Mono, a colored directory listing, a git history with its
+# branch graph, a gallery of six pictures in kitty graphics with their file
+# names, greetings in several scripts with emoji, and a line of text styles:
+# straight, double, curly, dotted and dashed underlines, a curly underline in
+# a color of its own, strike, inverse and dim. vtium's own gallery tool,
+# tools/gallery/gallery, draws the gallery: four pictures computed from a few
+# lines of arithmetic, and two photographs NASA's astronauts took, Earthrise
+# and the Blue Marble. The scene writes the rest of the session byte for
+# byte, and the last prompt is the shell's own, with its cursor.
 # alt: A console screen showing a shell session in a smooth monospaced
 # alt: font: prompts in blue, gray and green segments, a colored listing of
 # alt: the vtium source tree, a git log with a branch graph and yellow
@@ -17,11 +19,13 @@
 # alt: a rainbow plasma, a sun setting behind purple hills, and the whole
 # alt: Earth. Below them are three lines of greetings and thanks in English,
 # alt: Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and
-# alt: German with emoji.
+# alt: German with emoji, and a line of words each drawn in the style it
+# alt: names: underline, double, curly, dotted, dashed, a red curly
+# alt: underline, strike, inverse and dim.
 
 # shellcheck source=tools/tier3/guest/screens/showcase.inc
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/showcase.inc"
-switch_font showcase-iosevka
+switch_font showcase-shell
 o=$(off)
 blue=$(fg 97 175 239) green=$(fg 152 195 121) yellow=$(fg 229 192 123) red=$(fg 224 108 117)
 mag=$(fg 198 120 221) cyan=$(fg 86 182 194) white=$(fg 220 223 228)
@@ -72,8 +76,21 @@ if ! bash "$showcase/bin/gallery" -s 4 -n 6 "$showcase/pictures" 2>&1; then
 	printf '\n\n\n\n'
 	[ -n "${T3_EVENTS:-}" ] && echo T3-NO-GALLERY >"$T3_EVENTS"
 fi
-prompt 'cat greetings.txt'
+prompt 'cat greetings.txt styles.txt'
 printf 'Hello 👋   你好   こんにちは   안녕하세요   สวัสดี   Γεια σου   Привет   Xin chào   Bonjour   Hallo\n'
 printf 'Thank you 🙏   谢谢   ありがとう   감사합니다   ขอบคุณ   Ευχαριστώ   Спасибо   Cảm ơn   Merci   Danke\n'
 printf 'Good night 🌙   晚安   おやすみ   잘 자요   ราตรีสวัสดิ์   Καληνύχτα   Спокойной ночи   Bonne nuit   Gute Nacht\n'
+# styles.txt: each word in the style it names, each style one that vtium
+# draws (ADR-1000's sgr rows): SGR 4 and 4:2 to 4:5, the underline styles,
+# 58 the underline's own color, 9 strike, 7 inverse and 2 dim.
+styled() { printf '%s[%sm%s%s   ' "$esc" "$1" "$2" "$o"; }
+styled 4 underline
+styled 4:2 double
+styled 4:3 curly
+styled 4:4 dotted
+styled 4:5 dashed
+styled '4:3;58:2::224:108:117' 'red curly'
+styled 9 strike
+styled 7 inverse
+printf '%s[2mdim%s\n' "$esc" "$o"
 segments

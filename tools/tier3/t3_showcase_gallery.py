@@ -19,13 +19,13 @@ from t3_common import ROOT, rel  # noqa: E402
 
 
 # The gallery: six PNG pictures of 256x160 pixels, which the gallery tool
-# shows four rows tall in Iosevka Term's 16x40 cell, so each covers 16 cells
-# by 4 rows. Four are computed here from a few lines of arithmetic. Two are
+# shows four rows tall in the shell scene's cell, Iosevka Term's 15x38, each
+# in a box of 16 cells by 4 rows. Four are computed here from a few lines of arithmetic. Two are
 # photographs in the public domain, shrunk once to 256x160 and committed in
 # tools/tier3/showcase-photos/.
 GALLERY_SIZE = (256, 160)
-# Iosevka Term's cell in pixels, which the frit showcase-iosevka states.
-CELL = (16, 40)
+# The shell scene's cell in pixels, which its frit, showcase-shell, states.
+CELL = (15, 38)
 PHOTO_DIR = os.path.join(ROOT, "tools", "tier3", "showcase-photos")
 TOOL = os.path.join(ROOT, "tools", "gallery", "gallery")
 
