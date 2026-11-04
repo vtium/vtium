@@ -3901,8 +3901,8 @@ fn a_display_gone_after_the_start_is_hotplug() {
 }
 
 /// Another program taking the VT while vtium sets up its first frame, as
-/// X starting on another VT of the same card does at boot
-/// (vtium/vtium#270), stops the wait: vtium waits past `display-wait` for
+/// X starting on another VT does at boot (vtium/vtium#270), stops the
+/// wait: vtium waits past `display-wait` for
 /// the VT to come back, as for a switch away later in its life, and draws
 /// once it does.
 #[test]
@@ -3925,7 +3925,7 @@ fn a_vt_released_before_the_first_frame_waits_for_the_vt_to_come_back() {
 }
 
 /// A release before any frame showed stops the wait, and the acquire
-/// starts it again whole: with still no display by then, the VT being
+/// starts it again from the full `display-wait`: with still no display by then, the VT being
 /// vtium's, vtium exits with status 1.
 #[test]
 fn the_wait_a_release_stopped_runs_whole_again_from_the_acquire() {

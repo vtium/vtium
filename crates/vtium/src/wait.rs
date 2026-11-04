@@ -7,12 +7,12 @@
 //!
 //! The wait runs only while the VT is vtium's. Another program can take
 //! the VT before vtium's first frame shows, as X starting on another VT
-//! of the same card does at boot (vtium/vtium#270). The release stops the
-//! wait, and vtium waits for the VT to come back, as it does for a switch
-//! away later in its run. The next acquire sets every display up afresh,
-//! so it starts the wait again whole. The C reference had no such wait:
-//! on a release its seat went to the background and slept until the VT
-//! came back (`src/seat.c:438-462` at kmscon b1f7a7c5).
+//! does at boot (vtium/vtium#270). The release stops the wait, and vtium
+//! waits for the VT to come back, as it does for a switch away later in
+//! its run. The next acquire sets every display up afresh, so the wait
+//! starts again from the full `display-wait`. The C reference had no such
+//! wait: on a release its seat went to the background and slept until the
+//! VT came back (`src/seat.c:438-462` at kmscon b1f7a7c5).
 //!
 //! A frame reaches the screen at its flip, which the turn after its draw
 //! reads at the earliest. So the wait runs out at the end of a turn after
@@ -112,7 +112,7 @@ mod tests {
     const MS: Duration = Duration::from_millis(1);
 
     #[test]
-    fn the_wait_starts_when_the_vt_is_first_shown() {
+    fn a_second_show_while_the_wait_runs_keeps_its_due_time() {
         let t0 = Instant::now();
         let mut w = Wait::new(Some(TEN));
         assert_eq!(w.turn(t0 + TEN * 2, false, false), None, "not shown yet");
@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(w.due(), None, "stopped while the VT is another's");
         assert_eq!(w.turn(t0 + TEN * 5, false, false), None, "never runs out");
         w.shown(t0 + TEN * 6);
-        assert_eq!(w.due(), Some(t0 + TEN * 7), "whole from the return");
+        assert_eq!(w.due(), Some(t0 + TEN * 7), "the full wait from the return");
         assert_eq!(w.turn(t0 + TEN * 7 + MS, false, false), Some(TEN));
     }
 
