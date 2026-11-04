@@ -68,10 +68,10 @@ class GalleryTest(unittest.TestCase):
         self.files[name] = data
         return data
 
-    def gallery(self, *args, columns=40, lines=24, locale="C.UTF-8"):
+    def gallery(self, *args, columns=40, lines=24, locale="C.UTF-8", program=GALLERY):
         """The tool run with `args` in a session with no terminal, so its
         size comes from LINES and COLUMNS: (exit status, stdout, stderr)."""
-        p = subprocess.run([GALLERY, *args], stdin=subprocess.DEVNULL, capture_output=True,
+        p = subprocess.run([program, *args], stdin=subprocess.DEVNULL, capture_output=True,
                            start_new_session=True, timeout=60, cwd=self.dir,
                            env={"PATH": os.environ["PATH"], "LC_ALL": locale,
                                 "COLUMNS": str(columns), "LINES": str(lines)})
@@ -84,6 +84,18 @@ class GalleryTest(unittest.TestCase):
             self.assertTrue(out.startswith(b"usage: gallery [-s N] [-n N] [-L] [--no-probe]"))
             for word in (b"kitty, WezTerm, Ghostty or", b"skips any other file", b"--no-labels"):
                 self.assertIn(word, out)
+
+    def test_it_names_itself_as_it_was_run(self):
+        # The vtium package installs the tool as vtium-gallery (ADR-1500
+        # D8), so its usage and its messages name it by the name it was run as.
+        installed = os.path.join(self.dir, "vtium-gallery")
+        os.symlink(GALLERY, installed)
+        status, out, _ = self.gallery("--help", program=installed)
+        self.assertEqual(status, 0)
+        self.assertTrue(out.startswith(b"usage: vtium-gallery [-s N]"), out[:40])
+        status, _, err = self.gallery("--bogus", program=installed)
+        self.assertEqual(status, 2)
+        self.assertEqual(err, b"vtium-gallery: unknown option --bogus (vtium-gallery --help lists them)\n")
 
     def test_a_directory_in_name_order(self):
         # A square picture and one twice as wide, two rows tall in cells
