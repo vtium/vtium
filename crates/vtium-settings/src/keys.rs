@@ -4,7 +4,8 @@
 //! The console reads its configuration by this table, and vtium-config
 //! shows and edits vtium.conf by it (ADR-1201 D1), so the two read one
 //! table. `docs/config.md` and the installed example,
-//! `crates/vtium/install/vtium.conf.example`, are generated from [`KEYS`];
+//! `crates/vtium/install/vtium.conf.example`, are generated from [`KEYS`]
+//! and [`SECTIONS`], which sorts the keys into sections and groups;
 //! the vtium crate's test `generated_files_match_the_table` fails when
 //! either differs, and `VTIUM_BLESS=1` rewrites them.
 
@@ -116,10 +117,26 @@ pub struct Key {
     pub scope: Scope,
     /// The crate that reads the value.
     pub reader: &'static str,
-    /// What it does, one sentence or two.
+    /// What it does. The first paragraph is one sentence saying what the
+    /// key does; further paragraphs give its values and details. A blank
+    /// line, `\n\n`, separates two paragraphs, and the text holds no other
+    /// newline.
     pub what: &'static str,
     /// Where it comes from: the C reference's lines or the decision.
     pub cite: &'static str,
+}
+
+impl Key {
+    /// The paragraphs of [`Key::what`].
+    pub fn paragraphs(&self) -> impl Iterator<Item = &'static str> {
+        self.what.split("\n\n")
+    }
+
+    /// [`Key::what`] on one line, its paragraphs joined by a space, for a
+    /// reader that shows the text on one line or wraps it itself.
+    pub fn what_line(&self) -> String {
+        self.paragraphs().collect::<Vec<_>>().join(" ")
+    }
 }
 
 /// The values of `glyph-source` and its per-range keys.
@@ -202,7 +219,8 @@ pub const LOGIN: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The session's command. Unset, `/bin/login -p` with `reset-env` on and `/bin/login` with it off. A word that is `$NAME` becomes that variable of the session's environment, and `$$` starts a word with `$`.",
+    what: "The session's command.\n\n\
+           Unset, `/bin/login -p` with `reset-env` on and `/bin/login` with it off. A word that is `$NAME` becomes that variable of the session's environment, and `$$` starts a word with `$`.",
     cite: "src/config.c:372-494, 1365; src/misc/pty.c:252-302",
 };
 
@@ -240,7 +258,9 @@ pub const OSD: Key = Key {
     default: Default::Text("minimal"),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "What vtium's on-screen display draws at the top of each head after a change. With `minimal`, it draws a dot in the top-right cell, filled on the active head and hollow on the others. With `full`, it draws a line across the top, such as `● desk · console 2 of 3`. With `off`, it draws nothing. A notice of a problem shows whatever this key says.",
+    what: "What vtium's on-screen display draws at the top of each head after a change.\n\n\
+           With `minimal`, it draws a dot in the top-right cell, filled on the active head and hollow on the others. With `full`, it draws a line across the top, such as `● desk · console 2 of 3`. With `off`, it draws nothing.\n\n\
+           A notice of a problem shows whatever `osd` says.",
     cite: "ADR-1401 D5; the operator on vtium/vtium#169",
 };
 
@@ -267,7 +287,8 @@ pub const FOCUS_MARK: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The older name of `osd` and `osd-timeout`. vtium reads it only where `osd` or `osd-timeout` is not set: `auto` reads as `osd = minimal`, `always` as `osd = minimal` with `osd-timeout = never`, and `off` as `osd = off`. vtium logs a line naming the new keys when a file or the command line sets it.",
+    what: "The older name of `osd` and `osd-timeout`.\n\n\
+           vtium reads it only where `osd` or `osd-timeout` is not set: `auto` reads as `osd = minimal`, `always` as `osd = minimal` with `osd-timeout = never`, and `off` as `osd = off`. vtium logs a line naming the new keys when a file or the command line sets it.",
     cite: "ADR-1401 D5; the operator on vtium/vtium#156, renamed on vtium/vtium#169",
 };
 
@@ -396,7 +417,8 @@ pub const CONSOLES_MAX: Key = Key {
     default: Default::Number(CONSOLES_TOTAL_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The most consoles every head holds together. Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
+    what: "The most consoles every head holds together.\n\n\
+           Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357)",
 };
 
@@ -407,7 +429,8 @@ pub const TERM: Key = Key {
     default: Default::Text(TERM_NAME),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "`TERM` in the session's environment. The default names vtium's own terminfo entry, and XTGETTCAP answers from that entry's capabilities; `kmscon` names the C reference's entry, and XTGETTCAP answers from the C reference's. Under any other name every name XTGETTCAP asks for is unknown.",
+    what: "`TERM` in the session's environment.\n\n\
+           The default names vtium's own terminfo entry, and XTGETTCAP answers from that entry's capabilities; `kmscon` names the C reference's entry, and XTGETTCAP answers from the C reference's. Under any other name every name XTGETTCAP asks for is unknown.",
     cite: "src/config.c:1368; meson.options:51-52; src/terminal_vte.c:36-56; ADR-1000, \"The terminfo entry and TERM\"",
 };
 
@@ -461,7 +484,8 @@ pub const SB_SIZE_CAP: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The most lines `sb-size` may ask for. Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.",
+    what: "The most lines `sb-size` may ask for.\n\n\
+           Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.",
     cite: "ADR-1001, \"Scrollback size\"; the operator on vtium/vtium#21",
 };
 
@@ -477,7 +501,10 @@ pub const SB_MEMORY: Key = Key {
     default: Default::Number(SB_MEMORY_DEFAULT as u64),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The most bytes the scrollback holds, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory, or the default when `/proc/meminfo` cannot be read; its oldest lines go past it, as past `sb-size`. Left unset, the default follows each console's grid, worked out again when the grid changes: on a grid up to minspec's 170 by 48 it is what the 16 MiB minspec peak leaves after the console's two screens at their worst and the rest of vtium, so a smaller display keeps more, and a larger display keeps the 170 by 48 value shown here. The default does not grow with the display or the machine's memory; on a machine that can spare more, set `sb-memory` for a deeper scrollback, and it stays fixed.",
+    what: "The most bytes the scrollback holds: its oldest lines go past it, as past `sb-size`.\n\n\
+           It takes bytes, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory, or at most the default when `/proc/meminfo` cannot be read.\n\n\
+           Left unset, the default follows each console's grid, worked out again when the grid changes: on a grid up to minspec's 170 by 48 it is what the 16 MiB minspec peak leaves after the console's two screens at their worst and the rest of vtium, so a smaller display keeps more, and a larger display keeps the 170 by 48 value shown here.\n\n\
+           The default does not grow with the display or the machine's memory; on a machine that can spare more, set `sb-memory` for a deeper scrollback, and it stays fixed.",
     cite: "vtium/vtium#131; ADR-1001, \"Memory\"",
 };
 
@@ -488,7 +515,8 @@ pub const BELL: Key = Key {
     default: Default::Switch(false),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Rings the VT's bell when a program sends BEL. A program stops its own BELs ringing by resetting mode 1042, which starts set. Off, no BEL rings.",
+    what: "Rings the VT's bell when a program sends BEL.\n\n\
+           A program stops its own BELs ringing by resetting mode 1042, which starts set. Off, no BEL rings.",
     cite: "src/config.c:125-126, 1372; src/terminal.c:872-879",
 };
 
@@ -510,7 +538,8 @@ pub const BLINK_TEXT: Key = Key {
     default: Default::Text("partial"),
     scope: Scope::Anywhere,
     reader: "vtium-render",
-    what: "How text with SGR 5 or 6 draws in the blink's off phase: `full` hides it, `partial` draws it halfway to its background as SGR 2 does, and `off` draws it steady. The cursor blinks as `blink` says either way.",
+    what: "How text with SGR 5 or 6 draws in the blink's off phase.\n\n\
+           `full` hides it, `partial` draws it halfway to its background as SGR 2 does, and `off` draws it steady. The cursor blinks as `blink` says either way.",
     cite: "src/render/bbulk.c:1521, which hid the glyph; the operator on vtium/vtium#81; the maintainer's decision of 2026-11-03",
 };
 
@@ -521,7 +550,8 @@ pub const BLINK_DECORATIONS: Key = Key {
     default: Default::Switch(false),
     scope: Scope::Anywhere,
     reader: "vtium-render",
-    what: "The underline and strike of blinking text blink with it: hidden in the off phase with `blink-text=full`, dimmed with `partial`. Off, they stay while the text blinks.",
+    what: "The underline and strike of blinking text blink with it.\n\n\
+           They hide in the off phase with `blink-text=full`, and dim with `partial`. Off, they stay while the text blinks.",
     cite: "src/render/bbulk.c:1521; the operator on vtium/vtium#81",
 };
 
@@ -564,7 +594,8 @@ pub const PROGRAM_BLANK: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Let a program set the blank's timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wake the displays with `CSI 13 ]`, as `setterm --blank` does under `TERM=linux`; RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key press or pointer action wakes the displays either way.",
+    what: "Let a program set the blank's timeout and wake the displays, as `setterm --blank` does under `TERM=linux`.\n\n\
+           A program sets the timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wakes the displays with `CSI 13 ]`. RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key press or pointer action wakes the displays either way.",
     cite: "ADR-1000 (`ctl.linux-blank`, `ctl.linux-unblank`); vtium/vtium#79",
 };
 
@@ -580,7 +611,10 @@ pub const DISPLAY_WAIT: Key = Key {
     default: Default::Number(10),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "At start, how long to wait for a display, counted from when the VT is first shown; with none by then vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a head file whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8). 0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time. Once a display has come, vtium never exits for want of one.",
+    what: "At start, how long to wait for a display, counted from when the VT is first shown.\n\n\
+           With no display by then, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a head file whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8).\n\n\
+           0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time.\n\n\
+           Once a display has come, vtium never exits for want of one.",
     cite: "the operator on vtium/vtium#21",
 };
 
@@ -591,7 +625,9 @@ pub const DISPLAY_BUFFERS: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-platform",
-    what: "How many buffers each DRM display keeps, the same for every display: `3`, triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p); `2`, double buffering; `1`, single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn. A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec.",
+    what: "How many buffers each DRM display keeps, the same for every display.\n\n\
+           `3` is triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn.\n\n\
+           A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec.",
     cite: "ADR-1401 D2; the C reference's drm2d kept 2, src/video/drm2d_internal.h:49",
 };
 
@@ -624,7 +660,8 @@ pub const MODE: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-platform",
-    what: "A display's mode, `WxH[@RATE]`, for every display, `[CONNECTOR]WxH` for one connector, or `GPU[CONNECTOR]WxH` for one on one card, its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.",
+    what: "A display's mode.\n\n\
+           `WxH[@RATE]` sets it for every display, `[CONNECTOR]WxH` for one connector, and `GPU[CONNECTOR]WxH` for one connector on one card, the card named by its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.",
     cite: "src/config.c:546-660, 1417, 1541-1548",
 };
 
@@ -646,7 +683,8 @@ pub const PALETTE: Key = Key {
     default: Default::Text("legacy"),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The sixteen colors and the default foreground and background: a named palette, or `custom`, which takes the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.",
+    what: "The sixteen colors and the default foreground and background.\n\n\
+           Its value is a named palette, or `custom`, which takes the colors from the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.",
     cite: "src/config.c:1427; libtsm src/tsm/tsm-vte.c:254-478",
 };
 
@@ -855,7 +893,8 @@ pub const UNDERLINE_COLOR: Key = Key {
     default: Default::Text("fg"),
     scope: Scope::Anywhere,
     reader: "vtium-render",
-    what: "The color every underline draws in, SGR 4 in each of its styles and SGR 21: `fg` draws it in the text's color, a palette index in that palette color, which follows a program's OSC 4, and `#rrggbb` in that color. A color a program sets with SGR 58 wins unless `force-decoration-colors` is on.",
+    what: "The color every underline draws in, SGR 4 in each of its styles and SGR 21.\n\n\
+           `fg` draws it in the text's color, a palette index in that palette color, which follows a program's OSC 4, and `#rrggbb` in that color. A color a program sets with SGR 58 wins unless `force-decoration-colors` is on.",
     cite: "src/config.c:263-265, 868-933, 1453-1454",
 };
 
@@ -888,7 +927,8 @@ pub const CLIPBOARD_WRITE: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Take the selection a program sets with OSC 52; off, it is dropped. The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.",
+    what: "Take the selection a program sets with OSC 52; off, it is dropped.\n\n\
+           The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.",
     cite: "ADR-1000 (`osc.52.write`); vtium/vtium#39",
 };
 
@@ -1008,7 +1048,8 @@ pub const NATURAL_SCROLLING: Key = Key {
     default: Default::Switch(false),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Invert the mouse wheel: it scrolls the view and reports to a program the other way, and so do the cursor keys it sends on the alternate screen under mode 1007. Ctrl and the wheel still zoom in when the wheel turns up.",
+    what: "Invert the mouse wheel.\n\n\
+           The wheel scrolls the view and reports to a program the other way, and so do the cursor keys it sends on the alternate screen under mode 1007. Ctrl and the wheel still zoom in when the wheel turns up.",
     cite: "src/config.c:149-150, 1386; src/terminal.c:1474-1476, 1646",
 };
 
@@ -1019,7 +1060,8 @@ pub const POINTER_CHAR: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-render",
-    what: "Draw the pointer as this character's glyph from the font, one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, or a character the font lacks or whose glyph is blank, the pointer is the arrow.",
+    what: "Draw the pointer as this character's glyph from the font.\n\n\
+           The glyph draws one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, or a character the font lacks or whose glyph is blank, the pointer is the arrow.",
     cite: "the operator on vtium/vtium#102",
 };
 
@@ -1079,7 +1121,9 @@ pub const FONT_NAME: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "The font: a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the helper generates at run time; a kbd font's name, or with `font-engine=psf` a PSF font's path, that no frit bears becomes a one-source frit. Unset, vconsole's font; with none, or a name that is neither, vtium draws its built-in fonts and logs the name and why.",
+    what: "The font vtium draws text with.\n\n\
+           It is a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the helper generates at run time. A kbd font's name, or with `font-engine=psf` a PSF font's path, that no frit bears becomes a one-source frit.\n\n\
+           Unset, vconsole's font; with none, or a name that is neither, vtium draws its built-in fonts and logs the name and why.",
     cite: "src/config.c:1424; ADR-1200 (D9); vtium/vtium#126",
 };
 
@@ -1101,7 +1145,10 @@ pub const FONT_HELPER: Key = Key {
     default: Default::Text(HELPER_PROGRAM),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why and draws its built-in font. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with.",
+    what: "The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root.\n\n\
+           vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again.\n\n\
+           vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why and draws its built-in font. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
+           The default is the path vtium was built with.",
     cite: "ADR-1200 (D15); the maintainer's decision of 2026-11-01",
 };
 
@@ -1117,7 +1164,8 @@ pub const FONT_SIZE: Key = Key {
     default: Default::Number(0),
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "The font's size in points, 1/72 inch, drawn at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and over a frit's `cell=`; 0 picks one from the display's size.",
+    what: "The font's size in points, 1/72 inch.\n\n\
+           The font draws at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and the size wins over a frit's `cell=`. 0 picks a size from the display's size.",
     cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`; the operator on vtium/vtium#145",
 };
 
@@ -1128,7 +1176,9 @@ pub const FONT_HINTING: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "How the font helper is to hint outline glyphs, over a frit's `hinting=`: `light` fits each glyph to the pixel grid up and down only; `full` fits a TrueType font both ways, and draws a CFF font as `light` does. Bitmap fonts take no hinting. vtium does not yet hand this key to the helper, so for now each frit's `hinting=` decides, `light` where it states none.",
+    what: "How the font helper is to hint outline glyphs, over a frit's `hinting=`.\n\n\
+           `light` fits each glyph to the pixel grid up and down only; `full` fits a TrueType font both ways, and draws a CFF font as `light` does. Bitmap fonts take no hinting.\n\n\
+           vtium does not yet hand this key to the helper, so for now each frit's `hinting=` decides, `light` where it states none.",
     cite: "ADR-1200 D1; the C reference hinted every glyph lightly, src/font/font_freetype.c:119",
 };
 
@@ -1144,7 +1194,9 @@ pub const FONT_LINE_SPACING: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "Height added to each row, over a frit's `line-spacing=`: a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=` decides, 0 where it states none.",
+    what: "Height added to each row, over a frit's `line-spacing=`.\n\n\
+           It is a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit's own `cell=`, but it applies when `font-size` sets the size over that `cell=`: the cell grows by the spacing, split evenly above and below each row. Unset, the frit's `line-spacing=` decides, 0 where it states none.\n\n\
+           vtium does not build line spacing yet: it accepts the key, and the key has no effect for now.",
     cite: "ADR-1302 D13; ADR-1200 D1",
 };
 
@@ -1155,7 +1207,9 @@ pub const ALLOW_FONT_OPS: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50 (`OSC 50 ; NAME ST`, as `vtium-config set NAME` sends it) and ask which is in use (`OSC 50 ; ? ST`). On by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. A switch lasts until the session it came from ends, when vtium returns the console to the font and size `font-name` and `font-size` give. Off, vtium ignores OSC 50, the query included.",
+    what: "Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50, and ask which is in use.\n\n\
+           A program switches with `OSC 50 ; NAME ST`, as `vtium-config set NAME` sends it, and asks with `OSC 50 ; ? ST`. A switch lasts until the session it came from ends, when vtium returns the console to the font and size `font-name` and `font-size` give.\n\n\
+           It is on by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. Off, vtium ignores OSC 50, the query included.",
     cite: "ADR-1200 (D5); vtium/vtium#126",
 };
 
@@ -1166,7 +1220,8 @@ pub const GLYPH_SOURCE: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium-font",
-    what: "Where the six sprite ranges draw from: `font`, the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.",
+    what: "Where the six sprite ranges draw from.\n\n\
+           `font` draws the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.",
     cite: "vtium/vtium#85",
 };
 
@@ -1265,7 +1320,8 @@ pub const DISPLAY_DEPTH: Key = Key {
     default: Default::Text("auto"),
     scope: Scope::Anywhere,
     reader: "vtium-render",
-    what: "Each display's depth. `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` record a gray panel of 4 or 16 levels, drawn as color, which the panel converts; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.",
+    what: "Each display's depth.\n\n\
+           `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` record a gray panel of 4 or 16 levels, drawn as color, which the panel converts; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.",
     cite: "the operator on vtium/vtium#135",
 };
 
@@ -1282,7 +1338,8 @@ pub const DISPLAY_DPI: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Each display's density, which converts `font-size` and a frit's `size=` from points to pixels, over the density a display measures. Unset, the density is measured from the physical size the display reports, else assumed at 96 with one logged warning per display.",
+    what: "Each display's density, which converts `font-size` and a frit's `size=` from points to pixels, over the density a display measures.\n\n\
+           Unset, the density is measured from the physical size the display reports, else assumed at 96 with one logged warning per display.",
     cite: "the operator on vtium/vtium#145",
 };
 
@@ -1304,7 +1361,8 @@ pub const GRAB_PASTE: Key = Key {
     default: Default::Text("<Shift>Insert"),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Paste the selection buffer to the program, once a press, as the middle button does. A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. Empty, no key pastes.",
+    what: "Paste the selection buffer to the program, once a press, as the middle button does.\n\n\
+           A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. Empty, no key pastes.",
     cite: "xterm's `Shift <KeyPress> Insert` translation; vtium/vtium#95",
 };
 
@@ -1315,7 +1373,8 @@ pub const GRAB_REBOOT: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Reboot the machine. With `/proc/sys/kernel/ctrl-alt-del` at 0, init is asked, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.",
+    what: "Reboot the machine.\n\n\
+           With `/proc/sys/kernel/ctrl-alt-del` at 0, vtium asks init, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.",
     cite: "src/config.c:1409; src/seat.c:479-513, 631-636",
 };
 
@@ -1326,7 +1385,8 @@ pub const GRAB_POWER_OFF: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Power the machine off: init is asked with `SIGRTMIN+4`, which systemd takes as `poweroff.target`, so the services stop and the filesystems are unmounted first. Unset, no key powers off.",
+    what: "Power the machine off.\n\n\
+           vtium asks init with `SIGRTMIN+4`, which systemd takes as `poweroff.target`, so the services stop and the filesystems are unmounted first. Unset, no key powers off.",
     cite: "vtium/vtium#21",
 };
 
@@ -1337,7 +1397,8 @@ pub const GRAB_SUSPEND: Key = Key {
     default: Default::Unset,
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Suspend the machine to RAM: logind is asked with its `Suspend` method, so its inhibitors hold the sleep; where logind is not running, or vtium is built without `logind`, `mem` is written to `/sys/power/state`. Unset, no key suspends.",
+    what: "Suspend the machine to RAM.\n\n\
+           vtium asks logind with its `Suspend` method, so its inhibitors hold the sleep; where logind is not running, or vtium is built without `logind`, vtium writes `mem` to `/sys/power/state`. Unset, no key suspends.",
     cite: "vtium/vtium#21",
 };
 
@@ -1353,7 +1414,9 @@ pub const IMAGE_STORAGE_LIMIT: Key = Key {
     default: Default::Text("auto"),
     scope: Scope::Anywhere,
     reader: "vtium-image",
-    what: "The most bytes each console's pictures hold, its main and alternate screens together, or KiB, MiB or GiB with `K`, `M` or `G` (`64M`), at most 1 TiB. `auto` gives each console four frames of its head's displays, 16 MiB to 192 MiB, and works it out again when a display joins or leaves the head or changes size. `0` turns sixel and kitty graphics off. A build without images reads it and draws no picture.",
+    what: "The most bytes each console's pictures hold, its main and alternate screens together.\n\n\
+           It takes bytes, or KiB, MiB or GiB with `K`, `M` or `G` (`64M`), at most 1 TiB. `auto` gives each console four frames of its head's displays, 16 MiB to 192 MiB, and works it out again when a display joins or leaves the head or changes size. `0` turns sixel and kitty graphics off.\n\n\
+           A build without images reads it and draws no picture.",
     cite: "ADR-1100 D5, D11; Ghostty's `image-storage-limit`; src/config.c:1023-1064, 1462",
 };
 
@@ -1364,7 +1427,8 @@ pub const MAX_GRAPHIC_SIZE: Key = Key {
     default: Default::Text("10000x10000"),
     scope: Scope::Anywhere,
     reader: "vtium-image",
-    what: "The largest picture a program may send, in pixels, `WxH`, for sixel and kitty graphics alike; a larger one is refused. A build without images reads it and draws no picture.",
+    what: "The largest picture a program may send, in pixels, `WxH`, for sixel and kitty graphics alike; a larger one is refused.\n\n\
+           A build without images reads it and draws no picture.",
     cite: "ADR-1100 D11; xterm's `maxGraphicSize`; src/config.c:1071-1107, 1467",
 };
 
@@ -1380,7 +1444,8 @@ pub const NUM_COLOR_REGISTERS: Key = Key {
     default: Default::Number(1024),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "How many color registers a sixel picture has, and the most XTSMGRAPHICS lets a program set. A build without images reads it and draws no picture.",
+    what: "How many color registers a sixel picture has, and the most XTSMGRAPHICS lets a program set.\n\n\
+           A build without images reads it and draws no picture.",
     cite: "ADR-1100 D11; xterm's `numColorRegisters`; src/config.c:1114-1145, 1469",
 };
 
@@ -1391,7 +1456,8 @@ pub const PRIVATE_COLOR_REGISTERS: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Mode 1070's state at a reset: on, each sixel picture starts from the default colors; off, the pictures share their color registers. A build without images reads it and draws no picture.",
+    what: "Mode 1070's state at a reset.\n\n\
+           On, each sixel picture starts from the default colors; off, the pictures share their color registers. A build without images reads it and draws no picture.",
     cite: "ADR-1100 D11; xterm's `privateColorRegisters`; src/config.c:1471",
 };
 
@@ -1402,7 +1468,10 @@ pub const IMAGE_HELPER: Key = Key {
     default: Default::Text(IMAGE_PROGRAM),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The image helper's program, which vtium starts as the session's user to read the files and shared memory a kitty graphics command names and to decode PNG and zlib-compressed pictures, since vtium itself, running as root, does neither. vtium opens it once at start and starts every helper from that file, so a helper installed later reaches the consoles when vtium starts again. vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why, and every console then answers those pictures itself, a file, a temporary file or shared memory with `EBADF` and PNG or zlib with `EINVAL`. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted. The default is the path vtium was built with. A build without images reads it and starts no helper.",
+    what: "The image helper's program, which vtium starts as the session's user to read the files and shared memory a kitty graphics command names and to decode PNG and zlib-compressed pictures, since vtium itself, running as root, does neither.\n\n\
+           vtium opens it once at start and starts every helper from that file, so a helper installed later reaches the consoles when vtium starts again.\n\n\
+           vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by an account other than root or the account vtium runs as, and a file its group or others may write; it logs why, and every console then answers those pictures itself, a file, a temporary file or shared memory with `EBADF` and PNG or zlib with `EINVAL`. It starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
+           The default is the path vtium was built with. A build without images reads it and starts no helper.",
     cite: "ADR-1101 (D1); the maintainer's decision of 2026-11-01",
 };
 
@@ -1413,7 +1482,8 @@ pub const SIXEL: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "Sixel graphics. Off, vtium neither offers nor decodes sixel: DA1 reports no attribute 4 and a sixel string is ignored. vtium offers sixel only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.",
+    what: "Sixel graphics.\n\n\
+           Off, vtium neither offers nor decodes sixel: DA1 reports no attribute 4 and a sixel string is ignored. vtium offers sixel only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.",
     cite: "ADR-1100 D10, D11; src/config.c:1221-1234, 1464",
 };
 
@@ -1424,7 +1494,8 @@ pub const KITTY_GRAPHICS: Key = Key {
     default: Default::Switch(true),
     scope: Scope::Anywhere,
     reader: "vtium-term",
-    what: "The kitty graphics protocol. Off, vtium neither offers nor decodes it: a graphics command is ignored and a query gets no reply. vtium offers it only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.",
+    what: "The kitty graphics protocol.\n\n\
+           Off, vtium neither offers nor decodes it: a graphics command is ignored and a query gets no reply. vtium offers it only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.",
     cite: "ADR-1100 D10, D11; src/config.c:1236-1247, 1465",
 };
 
@@ -1537,6 +1608,286 @@ pub const KEYS: [Key; 105] = [
     IMAGE_HELPER,
 ];
 
+/// A group of the example vtium.conf: a heading, then one description that
+/// covers each of its keys, then the keys' lines together. A group is one
+/// key, or keys that belong together.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Group {
+    /// The heading, a few words.
+    pub title: &'static str,
+    pub keys: &'static [&'static Key],
+}
+
+/// A main section of the example vtium.conf and of `docs/config.md`: a
+/// heading, a sentence saying what the section covers, then its groups.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Section {
+    pub title: &'static str,
+    /// What the section covers, one or two sentences.
+    pub about: &'static str,
+    pub groups: &'static [Group],
+}
+
+/// The sections, in the order a reader meets them: the settings people
+/// change most come first, and those of vtium's own running last. Each key
+/// is in one group of one section. The example leaves out the keys only
+/// the command line takes, and a group or section left with none.
+pub const SECTIONS: [Section; 10] = [
+    Section {
+        title: "Fonts and text",
+        about: "The font vtium draws text with, its size, where box drawing and block characters come from, and how blinking text draws.",
+        groups: &[
+            Group {
+                title: "Font",
+                keys: &[&FONT_NAME, &FONT_FRITS, &FONT_ENGINE],
+            },
+            Group {
+                title: "Font size and spacing",
+                keys: &[&FONT_SIZE, &FONT_HINTING, &FONT_LINE_SPACING],
+            },
+            Group {
+                title: "Box drawing, blocks and other sprites",
+                keys: &[
+                    &GLYPH_SOURCE,
+                    &GLYPH_SOURCE_BOX,
+                    &GLYPH_SOURCE_BLOCK,
+                    &GLYPH_SOURCE_BRAILLE,
+                    &GLYPH_SOURCE_SEXTANTS,
+                    &GLYPH_SOURCE_OCTANTS,
+                    &GLYPH_SOURCE_LEGACY,
+                ],
+            },
+            Group {
+                title: "Missing characters",
+                keys: &[&MISSING],
+            },
+            Group {
+                title: "Blinking",
+                keys: &[&BLINK, &BLINK_TEXT, &BLINK_DECORATIONS],
+            },
+            Group {
+                title: "Font switching by programs",
+                keys: &[&ALLOW_FONT_OPS],
+            },
+        ],
+    },
+    Section {
+        title: "Colors",
+        about: "The sixteen colors programs draw with, the default foreground and background, and the colors of underlines and strikes.",
+        groups: &[
+            Group {
+                title: "Palette",
+                keys: &[
+                    &PALETTE,
+                    &PALETTE_BLACK,
+                    &PALETTE_RED,
+                    &PALETTE_GREEN,
+                    &PALETTE_YELLOW,
+                    &PALETTE_BLUE,
+                    &PALETTE_MAGENTA,
+                    &PALETTE_CYAN,
+                    &PALETTE_LIGHT_GREY,
+                    &PALETTE_DARK_GREY,
+                    &PALETTE_LIGHT_RED,
+                    &PALETTE_LIGHT_GREEN,
+                    &PALETTE_LIGHT_YELLOW,
+                    &PALETTE_LIGHT_BLUE,
+                    &PALETTE_LIGHT_MAGENTA,
+                    &PALETTE_LIGHT_CYAN,
+                    &PALETTE_WHITE,
+                    &PALETTE_FOREGROUND,
+                    &PALETTE_BACKGROUND,
+                ],
+            },
+            Group {
+                title: "Underline and strike colors",
+                keys: &[&UNDERLINE_COLOR, &STRIKE_COLOR, &FORCE_DECORATION_COLORS],
+            },
+        ],
+    },
+    Section {
+        title: "Keyboard and pointer",
+        about: "The keyboard's layout and repeat, the mouse and the pointer, and copying and pasting.",
+        groups: &[
+            Group {
+                title: "Keyboard",
+                keys: &[
+                    &XKB_MODEL,
+                    &XKB_LAYOUT,
+                    &XKB_VARIANT,
+                    &XKB_OPTIONS,
+                    &XKB_KEYMAP,
+                    &XKB_COMPOSE_FILE,
+                    &XKB_REPEAT_DELAY,
+                    &XKB_REPEAT_RATE,
+                ],
+            },
+            Group {
+                title: "Pointer",
+                keys: &[
+                    &MOUSE,
+                    &NATURAL_SCROLLING,
+                    &SOFT_CURSOR,
+                    &POINTER_CHAR,
+                    &POINTER_HIDE_TIMEOUT,
+                    &POINTER_HIDE_WHILE_TYPING,
+                ],
+            },
+            Group {
+                title: "Clipboard and paste",
+                keys: &[&CLIPBOARD_WRITE, &GRAB_PASTE],
+            },
+        ],
+    },
+    Section {
+        title: "Session and terminal",
+        about: "The program each console runs, the terminal it sees, and how much of its output vtium keeps.",
+        groups: &[
+            Group {
+                title: "The session's command",
+                keys: &[&LOGIN, &ONESHOT],
+            },
+            Group {
+                title: "The session's terminal",
+                keys: &[&TERM, &RESET_ENV, &BACKSPACE_DELETE],
+            },
+            Group {
+                title: "Scrollback",
+                keys: &[&SB_SIZE, &SB_SIZE_CAP, &SB_MEMORY],
+            },
+            Group {
+                title: "Bell",
+                keys: &[&BELL],
+            },
+            Group {
+                title: "Synchronized frames",
+                keys: &[&SYNC_TIMEOUT],
+            },
+        ],
+    },
+    Section {
+        title: "Consoles and the VT",
+        about: "How many consoles the heads hold, and the VT vtium runs on.",
+        groups: &[
+            Group {
+                title: "Consoles",
+                keys: &[&HEAD_CONSOLES_MAX, &CONSOLES_MAX],
+            },
+            Group {
+                title: "The VT",
+                keys: &[&VT, &SWITCHVT],
+            },
+        ],
+    },
+    Section {
+        title: "On-screen display and notices",
+        about: "What vtium draws over the console to show which head and console are in front, and to tell of a problem, and the colors it draws them in.",
+        groups: &[
+            Group {
+                title: "On-screen display",
+                keys: &[&OSD, &OSD_TIMEOUT, &FOCUS_MARK],
+            },
+            Group {
+                title: "Notice colors",
+                keys: &[&NOTICE_FOREGROUND, &NOTICE_BACKGROUND, &NOTICE_BORDER],
+            },
+            Group {
+                title: "On-screen display colors",
+                keys: &[&OSD_FOREGROUND, &OSD_BACKGROUND, &OSD_BORDER],
+            },
+        ],
+    },
+    Section {
+        title: "Displays",
+        about: "The mode, depth and density of each display, how vtium waits for one at start, and how it draws to them.",
+        groups: &[
+            Group {
+                title: "Display modes",
+                keys: &[&USE_ORIGINAL_MODE, &MODE],
+            },
+            Group {
+                title: "Display depth and density",
+                keys: &[&DISPLAY_DEPTH, &DISPLAY_DPI],
+            },
+            Group {
+                title: "Waiting for a display",
+                keys: &[&DISPLAY_WAIT],
+            },
+            Group {
+                title: "Display buffers",
+                keys: &[&DISPLAY_BUFFERS],
+            },
+            Group {
+                title: "Drawing through the GPU",
+                keys: &[&HWACCEL],
+            },
+            Group {
+                title: "Frame timer",
+                keys: &[&RENDER_TIMER],
+            },
+        ],
+    },
+    Section {
+        title: "Power and blanking",
+        about: "When the displays turn off, and the keys that reboot, power off or suspend the machine.",
+        groups: &[
+            Group {
+                title: "Blanking the displays",
+                keys: &[&DPMS_TIMEOUT, &PROGRAM_BLANK],
+            },
+            Group {
+                title: "Power keys",
+                keys: &[&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND],
+            },
+        ],
+    },
+    Section {
+        title: "Pictures",
+        about: "Sixel and kitty graphics: how much memory pictures take, which protocols vtium offers, and the helper that reads and decodes them.",
+        groups: &[
+            Group {
+                title: "Picture memory and protocols",
+                keys: &[
+                    &IMAGE_STORAGE_LIMIT,
+                    &SIXEL,
+                    &KITTY_GRAPHICS,
+                    &MAX_GRAPHIC_SIZE,
+                ],
+            },
+            Group {
+                title: "Sixel color registers",
+                keys: &[&NUM_COLOR_REGISTERS, &PRIVATE_COLOR_REGISTERS],
+            },
+            Group {
+                title: "Image helper",
+                keys: &[&IMAGE_HELPER],
+            },
+        ],
+    },
+    Section {
+        title: "Running vtium",
+        about: "Where vtium finds its configuration, its log, the glyph helper that draws a font's glyphs, and the glyph cache.",
+        groups: &[
+            Group {
+                title: "Command line",
+                keys: &[&CONFIGDIR, &HELP, &VERSION],
+            },
+            Group {
+                title: "Debug log",
+                keys: &[&DEBUG],
+            },
+            Group {
+                title: "Glyph helper",
+                keys: &[&FONT_HELPER],
+            },
+            Group {
+                title: "Glyph cache",
+                keys: &[&GLYPH_CACHE],
+            },
+        ],
+    },
+];
+
 /// The keys vtium takes and does not act on yet, which the crate
 /// README's "Not yet built" lists; `check::semantics` warns when one is
 /// set.
@@ -1550,4 +1901,53 @@ pub fn find(name: &str) -> Option<&'static Key> {
 /// The key with the one-letter option `short`.
 pub fn find_short(short: char) -> Option<&'static Key> {
     KEYS.iter().find(|k| k.short == Some(short))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_key_is_in_one_group_of_one_section() {
+        let mut grouped: Vec<&str> = SECTIONS
+            .iter()
+            .flat_map(|s| s.groups.iter())
+            .flat_map(|g| g.keys.iter().map(|k| k.name))
+            .collect();
+        let count = grouped.len();
+        grouped.sort_unstable();
+        grouped.dedup();
+        assert_eq!(grouped.len(), count, "a key is in two groups");
+        let mut all: Vec<&str> = KEYS.iter().map(|k| k.name).collect();
+        all.sort_unstable();
+        assert_eq!(grouped, all);
+        for s in &SECTIONS {
+            assert!(!s.groups.is_empty(), "{}", s.title);
+            assert!(!s.about.is_empty(), "{}", s.title);
+            for g in s.groups {
+                assert!(!g.keys.is_empty(), "{}", g.title);
+            }
+        }
+    }
+
+    #[test]
+    fn each_description_is_paragraphs_separated_by_one_blank_line() {
+        for k in &KEYS {
+            for p in k.paragraphs() {
+                assert!(!p.is_empty(), "{}: an empty paragraph", k.name);
+                assert!(!p.contains('\n'), "{}: a newline inside {p:?}", k.name);
+                assert_eq!(p, p.trim(), "{}: blanks around {p:?}", k.name);
+            }
+        }
+    }
+
+    #[test]
+    fn a_description_on_one_line_joins_its_paragraphs_with_a_space() {
+        assert_eq!(
+            BELL.what_line(),
+            "Rings the VT's bell when a program sends BEL. A program stops its own BELs ringing by resetting mode 1042, which starts set. Off, no BEL rings."
+        );
+        assert_eq!(BELL.paragraphs().count(), 2);
+        assert_eq!(MOUSE.what_line(), MOUSE.what);
+    }
 }
