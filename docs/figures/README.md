@@ -15,7 +15,7 @@ The figures of vtium's documentation pages outside the decision records, which k
 | `concepts-screen-small-320x240.png` | [concepts.md](../concepts.md): tier 2's `small-320x240` screen, minspec's display floor | Converted from tier 2's golden, below |
 | `concepts-screen-small-640x480.png` | [concepts.md](../concepts.md): tier 2's `small-640x480` screen | Converted from tier 2's golden, below |
 
-The screens are tier 2's screens ([tools/tier2](../../tools/tier2/README.md)), drawn into memory by vtium-term and vtium-render, never by the C reference, and converted from PPM with ImageMagick, `-strip` keeping the PNG free of timestamps so a redraw gives the same bytes. From the repository's root:
+The screens are tier 2's screens ([tools/tier2](https://github.com/vtium/vtium/blob/main/tools/tier2/README.md)), drawn into memory by vtium-term and vtium-render, never by the C reference, and converted from PPM with ImageMagick, `-strip` keeping the PNG free of timestamps so a redraw gives the same bytes. From the repository's root:
 
 ```sh
 cargo build --release -p vtium-tier2 --bins
