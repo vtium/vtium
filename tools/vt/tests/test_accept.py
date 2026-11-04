@@ -1313,7 +1313,8 @@ class Languages(Case):
         out = p.stdout.decode()
         for sgr in ("0", "1", "3", "1;3", "2", "7", "4", "4:2", "4:3", "4:4", "4:5", "4;58:5:196", "9", "53", "73", "74"):
             self.assertIn(f"\x1b[{sgr}mελεύθεροι και ίσοι\x1b[0m", out)
-        self.assertIn("* not drawn yet: italic stays upright, the rest look plain.", out)
+        self.assertIn("* not drawn yet: these styles look plain.", out)
+        self.assertNotIn("italic*", out)
         self.assertIn("Font acceptance-bitmap: whole-multiple bitmaps; marks placed by vtium's rules", out)
 
 
