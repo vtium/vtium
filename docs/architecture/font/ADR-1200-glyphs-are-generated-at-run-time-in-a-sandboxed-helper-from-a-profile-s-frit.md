@@ -294,11 +294,13 @@ considered:
     via: the maintainer's decision in the steering session, 2026-11-03, relayed by the steering session in the brief for the work that keeps a late own-cell answer; the wording is the steering session's
     paraphrase: true
   - operator: aaronsb
-    said: "thicken and lean. I thought we had an existing adr for this."
-    via: the steering session, 2026-11-04
+    said: "Bold italic where the frit names no bold-italic face is the regular glyph emboldened and then slanted."
+    via: "the steering session, 2026-11-04; the wording is the steering session's"
+    paraphrase: true
   - operator: aaronsb
-    said: "only when used. basically, your lean"
-    via: the steering session, 2026-11-04
+    said: "Bold and italic glyphs come only when the console asks for them; the background fill draws regular glyphs alone."
+    via: "the steering session, 2026-11-04; the wording is the steering session's"
+    paraphrase: true
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
@@ -614,7 +616,9 @@ The console finds a cell's glyph in the order ADR-1301 D1 sets, and parses no fo
 
 ### D2: the glyph chunk format, on the helper's pipe
 
-The helper sends glyphs in the chunk format vtium-font reads, little-endian, every count, size and offset bounded by a constant in vtium-font's `src/bounds.rs`: a header with a magic and a format version, strikes each with its cell, baseline, underline and strike positions and thickness, pixel format and glyph count, runs of codepoints of one width, and glyph chunks of at most 16 KiB. A glyph is exactly its 1 or 2 cells, except a glyph whose ink passes its cells in an outline strike or a bitmap strike slanted for italic, which carries its ink box: the columns its cells and its ink cover, cut to one cell past its own on each side, as an offset from its cell's left edge and a width, over the cell's full height (ADR-1302 D6, the maintainer, 2026-11-01). A glyph whose box, its cells and its ink together, would pass the 16 KiB chunk is cut to its own cells instead. The console reads it with the crate's no-panic reader and holds what it reads as the store's (D19). The format is a wire format: nothing writes it to disk, so it carries no file hashes, and a change to it changes both ends of the pipe in one release.
+The helper sends glyphs in the chunk format vtium-font reads, little-endian, every count, size and offset bounded by a constant in vtium-font's `src/bounds.rs`: a header with a magic and a format version, strikes each with its cell, baseline, underline and strike positions and thickness, pixel format and glyph count, runs of codepoints of one width, and glyph chunks of at most 16 KiB. A glyph is exactly its 1 or 2 cells, except a glyph whose ink passes its cells in an outline strike or a bitmap strike slanted for italic, which carries its ink box: the columns its cells and its ink cover, cut to one cell past its own on each side, as an offset from its cell's left edge and a width, over the cell's full height (ADR-1302 D6, the maintainer, 2026-11-01). A glyph whose box, its cells and its ink together, would pass the 16 KiB chunk is cut to its own cells instead. A set holds a regular strike at each of its cell sizes, except an answer to a bold or italic ask, which holds only the strikes of the style asked for (D21; the steering session, 2026-11-04). The console reads it with the crate's no-panic reader and holds what it reads as the store's (D19). The format is a wire format: nothing writes it to disk, so it carries no file hashes, and a change to it changes both ends of the pipe in one release.
+
+> Edited 2026-11-04: an answer to a style ask holds only that style's strikes, which the set format allows (ADR-1302's `considered`, 2026-11-04). The paragraph said nothing of which strikes a set holds.
 
 > Edited 2026-11-01: the review of the helper's ink box: the box is the union of the glyph's cells and its ink, and the chunk bound applies to that union. The paragraph read "the columns its ink covers" and "A glyph whose box would pass the 16 KiB chunk". The earlier text is in git at fa62f7f.
 
