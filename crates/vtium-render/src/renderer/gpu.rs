@@ -59,6 +59,15 @@ impl State {
         self.forget.extend_from_slice(chars);
     }
 
+    /// The font's lines changed: the upright `sprites` are made from the
+    /// new ones, and a fresh id makes the next GPU frame replace the
+    /// pipeline's glyphs and sprites and compose whole.
+    pub(super) fn lines_changed(&mut self, sprites: Sprites) {
+        self.sprites = sprites;
+        self.forget.clear();
+        self.id = next_id();
+    }
+
     /// The CPU path drew a frame: the renderer's history moved on while
     /// the pipeline's upright frame did not. A fresh id makes the next GPU
     /// frame replace the glyphs and compose whole, so nothing is left to
