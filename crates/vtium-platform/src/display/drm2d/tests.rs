@@ -6334,3 +6334,35 @@ fn a_legacy_set_that_fails_for_a_passing_reason_records_no_refusal() {
         ["display HDMI-A-1 moves from CRTC 100 to CRTC 101"]
     );
 }
+
+// A move undone before its modeset goes back even where vtium cannot read
+// the display's encoders, since the CRTC a display was moved off stays one
+// it can take. As in the test above, A's flip is in flight when B is
+// plugged in, so A's move to 101 waits. Then every encoder read fails and
+// B is unplugged: the next hotplug puts A back on 100, which shows A's
+// next frame.
+#[test]
+fn a_move_undone_while_the_encoders_cannot_be_read_puts_the_display_back() {
+    let card = reaching(&[0b11, 0b01], 1);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    fill(&mut v, A, 0x66, &[rect(0, 0, 640, 480)]).unwrap();
+    v.events().for_each(drop);
+    v.card().state().listed.push(B);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(v.waits(), (true, false), "the modeset waits for A's flip");
+    v.card().state().failing.push("encoder");
+    v.card().state().listed.retain(|&c| c != B);
+    v.poll().unwrap();
+    assert_eq!(
+        moves(),
+        [
+            "display HDMI-A-1 moves from CRTC 100 to CRTC 101",
+            "display HDMI-A-1 moves from CRTC 101 to CRTC 100"
+        ]
+    );
+    flip(&mut v);
+    let a = drawn(&mut v, A, 0x77);
+    assert!(v.card().shows(100, a), "{:?}", v.card().state());
+}
