@@ -423,17 +423,42 @@ fn a_binary_s_features_are_read_from_its_marker_text() {
     assert!(p.contains("images yes, logind yes, gpu unknown"), "{p}");
 }
 
-/// vtium-config holds each marker cut, so its own binary never carries the
-/// marker line, which only a build with the feature may carry.
+/// vtium-config holds each marker cut, so none of its own source files
+/// holds the marker line, which only the console's code built with the
+/// feature may carry. The test reads the source, not vtium-config's binary:
+/// with `--all-features`, cargo builds vtium-platform with `images` for
+/// this crate too, and a linker may then keep vtium-platform's image helper
+/// code, marker line and all, in vtium-config's binary, as the aarch64
+/// runner's does. The development install looks for the line only in the
+/// console's binary.
 #[test]
-fn vtium_config_s_binary_carries_no_marker() {
-    let binary = fs::read(BIN).expect("vtium-config's binary");
-    for (feature, cut) in vtium_config::report::MARKERS {
-        let line = marker(cut);
-        assert!(
-            !binary.windows(line.len()).any(|w| w == line.as_bytes()),
-            "vtium-config carries the {feature} marker {line:?}"
-        );
+fn vtium_config_s_source_holds_no_marker() {
+    fn sources(dir: &Path, found: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).expect("vtium-config's source") {
+            let path = entry.expect("a source entry").path();
+            if path.is_dir() {
+                sources(&path, found);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                found.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    sources(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut files,
+    );
+    assert!(files.len() > 10, "{} source files", files.len());
+    for file in &files {
+        let text = fs::read_to_string(file).expect("a source file");
+        for (feature, cut) in vtium_config::report::MARKERS {
+            let line = marker(cut);
+            assert!(
+                !text.contains(&line),
+                "{} holds the {feature} marker {line:?}",
+                file.display()
+            );
+        }
     }
 }
 
