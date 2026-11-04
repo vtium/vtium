@@ -142,6 +142,10 @@ considered:
   - operator: aaronsb
     said: "not stretch emojis, but allow arabic extra room, leave roman chars normal, keep numbering normal … and let text character drawings stretch"
     via: the maintainer's answers in the steering session's interview, 2026-11-01
+  - operator: aaronsb
+    said: "Line spacing applies when vtium.conf's font-size overrides a frit's cell=: the cell grows by the spacing, split evenly above and below each row."
+    via: the maintainer in the steering session, a prior session, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
 observable:
   - "Tier 2's `overhang-italic` screen shows an italic run whose letters lean into the next cell, unbroken across cell edges, over cells of alternating background colors"
   - "Tier 2's `overhang-underscore` screen shows a whole underscore in the bottom rows of every cell height from 12 to 32 pixels"
@@ -167,6 +171,7 @@ related:
 - **Probes:**
   - *Confident (italic leans):* italic text leans into the next cell, as foot and Ghostty draw it, instead of being cut off at its right edge, and a plain upright font such as DejaVu Sans Mono draws exactly as before, because its cell is already as wide as its widest letter. Right? (Answered 2026-11-01; see `considered`. The second half holds where an outline frit with no cell takes the W rule's cell, which ADR-1200 D17 now gives it, and where the baseline rises the whole line sits a pixel higher; D3.)
   - *Not confident (marks):* inside a selection or under a block cursor, a neighbour's leaning ink takes the selection's or the cursor's text color, so the mark reads as one clean block; the letter under the cursor, where it leans out of the block, keeps its ordinary color. Is that the look you want? (Answered 2026-11-01; see `considered`. A later answer keeps the letter under the cursor inside its own cell; D8.)
+  - *Not confident (spacing marks):* where the console draws a Devanagari letter and its vowel sign ा from their own glyphs, before the helper's drawing of the pair arrives or in a bitmap font, and the two need more room than the letter's cell, should they shrink sideways together to fit the cell, so the vowel sign shows, or keep their size with the ink past the cell cut, which can cut the vowel sign away? (D14 proposes shrinking.)
 - **Inversion:** The decision sits between "every glyph is cut to its cell", which the C reference drew, and "a glyph draws wherever its font puts it", which Ghostty draws because it draws the whole frame each time. vtium bounds the ink, one cell side to side and none up or down, so that the renderer can keep composing one row at a time (ADR-1300 D5) and keep damage cell by cell.
 
 > Note 2026-11-02 (the rename): ADR-1201 D12 renamed the font tool vtium-vitrify to vtium-config. A user runs it as `vtium config`, the console starts its glyph helper as `vtium-config serve` at `/usr/bin/vtium-config` by default, and the console's build sets that path with VTIUM_FONT_HELPER where it set VTIUM_VITRIFY. This record keeps the names it was written with.
@@ -367,7 +372,9 @@ vtium shapes text with HarfRust, the HarfBuzz project's Rust port, only where it
 
 *Not built yet.* A decision of its own, not a bullet of D3, because it changes the row's height, which every other decision here takes as given: D3 still decides where ink sits and where it is cut, now inside a taller row, and this decision says how each kind of glyph uses the height added.
 
-- **The user may make each row taller; vtium adds nothing by default** (the maintainer, 2026-11-01). A frit's `line-spacing=`, and vtium.conf's `font-line-spacing` or a profile's over it (ADR-1200 D1, D16), add a whole percentage of the text's height, the height the cell has without spacing, from `0`, the default, to `100`, rounded to whole pixels. With `0` the minspec look and the C reference's look stay as they are. The added height joins the cell, so the grid has fewer rows. A frit's stated `cell=` is exact and takes no spacing, the record's call: a `cell=` already names the height its writer wants. kitty (`modify_font cell_height`), WezTerm (`line_height`), foot (`line-height`), Ghostty (`adjust-cell-height`), Alacritty (its offsets) and VTE all let the user make rows taller.
+- **The user may make each row taller; vtium adds nothing by default** (the maintainer, 2026-11-01). A frit's `line-spacing=`, and vtium.conf's `font-line-spacing` or a profile's over it (ADR-1200 D1, D16), add a whole percentage of the text's height, the height the cell has without spacing, from `0`, the default, to `100`, rounded to whole pixels. With `0` the minspec look and the C reference's look stay as they are. The added height joins the cell, so the grid has fewer rows. A frit's stated `cell=` is exact and takes no spacing, the record's call: a `cell=` already names the height its writer wants. Where vtium.conf's `font-size`, or a profile's, overrides the frit's `cell=` (ADR-1200 D16, D17), the cell vtium works out at that size takes the spacing as any other cell vtium works out does: it grows by the added height, split evenly above and below each row (the maintainer, `considered`). kitty (`modify_font cell_height`), WezTerm (`line_height`), foot (`line-height`), Ghostty (`adjust-cell-height`), Alacritty (its offsets) and VTE all let the user make rows taller.
+
+> Edited 2026-11-03: the maintainer decided that line spacing applies where `font-size` overrides a frit's `cell=` (`considered`). The bullet said only that a stated `cell=` takes no spacing. The earlier text is in git at 36b49c07.
 
 > Edited 2026-11-02: the maintainer moved vtium's configuration file to `/etc/vtium/vtium.conf` (ADR-1500 D4), so this record names it `vtium.conf` wherever it read `kmscon.conf` as vtium's file, and `vtium.conf.example` for the example vtium ships. The record's other text is unchanged.
 
@@ -391,6 +398,17 @@ One row with spacing added, from the top: the added band, the text band, the add
 
 > Edited 2026-11-01: the maintainer added line spacing, the user's choice, and per-set fitting of the row's height (`considered`, 2026-11-01). The record had no D13 and took the row's height as the cell's; the earlier text is in git at 38ee007.
 
+### D14: spacing marks in a cluster the console draws from its parts
+
+*Proposed, for the maintainer to decide (2026-11-03). The rest of this record is accepted; this decision is not yet.*
+
+When the store holds no glyph for a cluster, the console draws the cluster from its parts (ADR-1200 D22, step 3): the base letter's glyph with each mark's glyph on it. Every cluster of a bitmap frit is drawn that way, since the helper shapes only outline fonts, and so is a cluster of an outline frit until the helper's shaped glyph arrives, or where the helper cannot shape it. A nonspacing mark (General_Category Mn or Me), such as an acute accent, sits over or under its letter, so its glyph laid on the letter's lands where it belongs. A spacing mark (General_Category Mc), such as Devanagari's vowel signs ा, ी and ो, stands beside its letter and takes room of its own; laid on the letter, it covers the letter.
+
+- **A spacing mark stands beside its letter.** The console places it after the letter: the mark's first column of ink goes in the column after the last column of ink drawn so far. A spacing mark whose body is written before its letter, such as Devanagari's vowel sign i (ि), goes before the letter instead, its last column of ink in the column before the first. Unicode's Indic_Positional_Category says which marks stand before: those of category Left, Top_And_Left, Bottom_And_Left and Top_And_Bottom_And_Left. A two-part vowel sign, such as Bengali's ো, is drawn as the two marks its canonical decomposition gives, each on its own side.
+- **A spacing mark the font already draws beside its letter keeps the font's placement.** GNU Unifont, vtium's built-in font, draws each Devanagari vowel sign in a box as wide as its letter's, its ink on the side where it stands, so that laid on the letter it lands beside it. The console recognises such a mark: laid on the letter, some of its ink lies off the letter's ink, and the two meet only on rows the letter's ink fills from one edge of its box to the other, such as the headline Devanagari letters share. Such a mark is laid on the letter, as every mark was before this decision.
+- **The letter and its spacing marks share the letter's cells,** 1 or 2 as the letter's glyph spans, with their ink centred in them. *Proposed:* where their ink needs more room than the cells give, the letter and its marks scale sideways together, as one, just enough to fill the cells, so no ink is cut. This follows D3, where a letter whose marks cannot fit the row scales with them as one stack rather than lose a mark (the maintainer, 2026-11-02, `basis`). The other choice is to cut: draw them at their size, centred, and cut the ink outside the cells. Cutting keeps a bitmap font's pixels on their grid, but it can cut the vowel sign away and change the word: का, "of", would read as क. Scaling a bitmap glyph sideways moves it off its font's pixel grid, which D13 avoids for bitmap glyphs; this decision accepts that in the fallback only, and a cluster the helper shapes replaces it.
+- GNU Unifont draws Devanagari letters 16 pixels wide, two of its 8-pixel cells, while the terminal gives each letter, and its cluster, one cell. vtium cuts such a glyph to its middle 8 columns when it fits it to the cell (ADR-1200 D7), a letter alone or with its marks, as the C reference cut it; with ा, that cut removes the vowel sign's stem. This decision leaves that cut as it is: it belongs to how a built-in glyph is fitted to the cell.
+
 ### Records this amends
 
 - **ADR-1200 D17, D10 and D2,** amended in their own commits with this revision (the maintainer, 2026-11-01): an outline frit that states no cell takes its fonts' own cell by the W rule, asked of the helper before its first frame and at each zoom, and D10's judgement of which frames wait follows; and the glyph chunk format carries an ink box for outline strikes and for bitmap strikes slanted for italic, cut to its cells past the chunk bound.
@@ -402,6 +420,8 @@ The maintainer accepted this record on 2026-11-01, and each of these passages no
 - ADR-1300 D2: a stored glyph is its ink box (D6); D5 names this record where it names glyph overhang.
 - ADR-1000's `text.overhang` row: its foot and ghostty columns, now answered by this record's evidence.
 
+Once the maintainer decides D14, ADR-1200 D22 step 3 and ADR-1301 D1 step 3, which overstrike every mark on its base, take a dated note pointing to it.
+
 > Edited 2026-11-01: each passage above took its dated note once the maintainer accepted this record. The sentence before the list read: "This record is proposed, and these passages take dated notes pointing here once the maintainer accepts it:". The earlier text is in git at 1d51e46.
 
 ### For the operator's check
@@ -409,6 +429,7 @@ The maintainer accepted this record on 2026-11-01, and each of these passages no
 The maintainer answered this section's questions on 2026-11-01 in four rounds (`considered`), and each answer is written into the decision above. One remains, written as the decision until the maintainer confirms or overrules it:
 
 1. **The `observable` lines.**
+2. **D14, spacing marks in a cluster the console draws from its parts:** whether a letter and its spacing marks that need more room than the letter's cells scale sideways together to fit them, as the decision proposes, or are cut at the cells.
 
 ## Departures from the C reference
 
@@ -455,6 +476,7 @@ Each test that drives this behaviour through vtium-render or vtium-vitrify carri
 - The pango engine called `pango_layout_line_get_extents(line, &logical_rec, &rec)`, whose second argument receives the ink rectangle and third the logical one, so `rec` held the logical rectangle, whose x is normally 0; it rendered the line into a cell-sized `FT_Bitmap` at `-rec.x`, so the pen sat at the cell's left edge and ink outside the bitmap was dropped (`kmscon/src/font/font_pango.c:207-228`).
 - `render_cluster` placed a mark that HarfBuzz left with no advance and no offset only when `ccc_above` or `ccc_below` named its class, the same eleven classes the helper places, each of them 202 or higher; it centred the mark over the base's ink and set it one row above or directly below the ink drawn since the base, clamped to the cell, modelled on HarfBuzz's `position_around_base` (`kmscon/src/font/font_freetype.c:477-505, 578-598`). It took the base only from the glyphs before the mark, so it placed no mark in a right-to-left cluster. It took no part of HarfBuzz's `recategorize_combining_class`, so a Hebrew, Arabic or Syriac mark of class 10 to 36, or a mark of class 0, stayed at the pen.
 - `fit_glyph` re-boxed a bitmap engine's glyph to its cells, centred, cutting what overflowed (`kmscon/src/font/font.c:268-308`).
+- The unifont and PSF engines drew only a cluster's first codepoint and dropped its marks (`kmscon/src/font/font_unifont.c:177`, `kmscon/src/font/font_psf.c:349-365`, at kmscon b1f7a7c5), so a vowel sign in a cluster was not drawn at all.
 - bbulk drew a cell's background, underline, glyph and strike-through as one request in the cell's box (`kmscon/src/render/bbulk.c:52-55`), and `damage_cell` marked one cell (`kmscon/src/render/bbulk.c:236-241`); its damage reached the display as `FB_DAMAGE_CLIPS`.
 
 ## Consequences
