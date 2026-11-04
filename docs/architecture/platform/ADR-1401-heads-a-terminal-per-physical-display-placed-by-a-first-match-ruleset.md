@@ -96,6 +96,15 @@ basis:
   - precedent: ADR-1400
   - precedent: ADR-1200
   - precedent: ADR-1301
+  - operator: aaronsb
+    level: directed
+    said: "Decided by the maintainer on 2026-11-03: reset to defaults. At each mode set, vtium sets the connector's color space to the default, clears the HDR metadata, and asks for the bit depth it actually draws, so its colors are right whatever the desktop left. HDR support of vtium's own is a separate issue."
+    via: "the steering session's record of the maintainer's decision of 2026-11-03, posted under the maintainer's account on the issue about the desktop's HDR properties and relayed in this amendment's brief; the wording is the steering session's"
+    paraphrase: true
+  - evidence: "reported 2026-11-03 on the issue about the desktop's HDR properties: on the maintainer's machine, KWin with HDR on left DP-8 at Colorspace=BT2020_RGB with 16 bits per color requested and HDR metadata set; vtium set none of the three properties, and the kernel logged `HDR SB:` lines at vtium's own mode sets, so the monitor went on receiving HDR metadata while vtium drew 8-bit sRGB"
+  - standard: "Linux 7.2, include/drm/drm_connector.h (read 2026-11-04 from this machine's kernel headers): DRM_MODE_COLORIMETRY_DEFAULT is 0, documented as driver-specific behaviour, with the comment that for the default case the driver sets the colorspace; drm_connector_state's max_requested_bpc is the connector property that limits the maximum bit depth of the pixels, and its max_bpc is that request limited by what the connector and the sink's EDID allow; hdr_output_metadata is the connector's blob property for HDR output metadata. A blob property set to 0 holds no blob"
+  - evidence: "the C reference at kmscon b1f7a7c5, src/video/drm_shared.c: drm_prepare_commit set the connector's CRTC_ID, the CRTC's MODE_ID and ACTIVE and the primary plane's framebuffer and geometry, and legacy_modeset called drmModeSetCrtc; the file names no Colorspace, HDR_OUTPUT_METADATA or max bpc property. modeset_clear_cursor_and_overlays turned off every cursor and overlay plane before each atomic mode set and before the C reference dropped master, and legacy_modeset hid the hardware cursor, for display sessions that did not clean up after themselves. drm2d_video.c and drm3d_video.c scanned out XRGB8888"
+  - evidence: "the tree on integration at 4667b6c2: vtium scans out XRGB8888 alone (crates/vtium-platform/src/display/drm2d/output.rs, drm2d/buffers.rs); a DRM display's mode set runs through an atomic commit, checked first with a test-only commit, or on a card without atomic commits through SETCRTC, and a wake-up and a hotplug each make a mode set (crates/vtium-platform/src/display/drm2d.rs); the connector's DPMS is set through SETPROPERTY (drm2d.rs, set_connector_property)"
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -227,6 +236,7 @@ observable:
   - "`vtiumctl detect` as an unprivileged user lists every display and input with a rule line ready to paste"
   - "On an isolated head, `Ctrl-Alt-F<n>` for another VT pressed on a keyboard its rules claim switches no display and reaches its session; pressed on a roaming keyboard, it switches the VT only where the active head is not isolated, and with no active head does nothing"
   - A head file whose policy line above the first section vtium cannot read, such as `policy = opne`, shows the panic screen on the boot display and delivers nothing from any keyboard, whatever heads the rest of the file declares
+  - "After a desktop with HDR on hands the card to vtium, the connector vtium lights reads `Colorspace` Default, no `HDR_OUTPUT_METADATA` blob and `max bpc` 8 in `drm_info` or `modetest -c`, and the kernel logs no `HDR SB:` line at vtium's mode set"
 status: accepted
 date: 2026-10-29
 deciders:
@@ -238,7 +248,7 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and its consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. Heads serve machines where vtium is the only thing on screen: servers, kiosks, and single-board computers with a panel and an HDMI display. One kernel VT spans every display, so a vtium console beside a running desktop on another monitor is the seat extension of D2, not heads. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, roaming, ignored, or off. The file declares a policy, as a firewall declares its default policy, and the rules read the same under either: under `policy = open`, the value when unset, an input no rule matches roams, typing into the active head, and a head is isolated only where it says so, so rules take rights away; under `policy = closed`, an input no rule matches is ignored and every head is isolated unless it says otherwise, so rules grant rights (D3). The shipped ruleset, one head for every display with every keyboard, pointer and other key device typing into it and every other input ignored, is today's console with udev's input classes as its allowlist. With no file present vtium runs its compiled-in configuration, and it never writes one; an invalid file is reported and never altered: an untrusted one is replaced in memory by the shipped default, and a trusted one fails to its policy, running what survives of it, else the shipped default under open and nothing under closed, where a readable `policy = closed` is sticky (D7, D9); and in an open file three guards keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. The policy sets the guards, with no switch in the file: the anti-lockout guard and the rescue key are on under open and off under closed, and the display guard is always on and lights by policy. `vtiumctl`, a small binary of its own, is the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop. A closed file that declares every display and input gives each head a station, so several people work at once on one machine, each at their own display and keyboard (D5). Each route by which one input can reach another person's session has a switch of its own, and recovery from a lockout a head file builds is outside vtium (D9).
+- **Decided:** vtium drives every display it can see from one process, as a set of **heads**. A head is a terminal for one or more displays: its displays, its inputs, a profile, and its consoles, each a session with its own pty, screen, scrollback and grid. A head's grid is its own, so each head draws at its own displays' density. Heads serve machines where vtium is the only thing on screen: servers, kiosks, and single-board computers with a panel and an HDMI display. One kernel VT spans every display, so a vtium console beside a running desktop on another monitor is the seat extension of D2, not heads. One optional, root-owned head file declares the heads and an ordered ruleset; each display and each input walks the rules alone, top to bottom, and the first match places it: in a head, roaming, ignored, or off. The file declares a policy, as a firewall declares its default policy, and the rules read the same under either: under `policy = open`, the value when unset, an input no rule matches roams, typing into the active head, and a head is isolated only where it says so, so rules take rights away; under `policy = closed`, an input no rule matches is ignored and every head is isolated unless it says otherwise, so rules grant rights (D3). The shipped ruleset, one head for every display with every keyboard, pointer and other key device typing into it and every other input ignored, is today's console with udev's input classes as its allowlist. With no file present vtium runs its compiled-in configuration, and it never writes one; an invalid file is reported and never altered: an untrusted one is replaced in memory by the shipped default, and a trusted one fails to its policy, running what survives of it, else the shipped default under open and nothing under closed, where a readable `policy = closed` is sticky (D7, D9); and in an open file three guards keep a keyboard typing whatever the rules say, the last of them a key the user presses: `Ctrl-Alt-F<n>` for the VT already shown. The policy sets the guards, with no switch in the file: the anti-lockout guard and the rescue key are on under open and off under closed, and the display guard is always on and lights by policy. `vtiumctl`, a small binary of its own, is the configuration tool: it detects, sets up, reports and checks, with or without privilege, from the console or a desktop. A closed file that declares every display and input gives each head a station, so several people work at once on one machine, each at their own display and keyboard (D5). Each route by which one input can reach another person's session has a switch of its own, and recovery from a lockout a head file builds is outside vtium (D9). At each mode set vtium sets every connector it lights to the default color space, with no HDR metadata and the bit depth it draws, whatever a desktop left there (D14).
 > Edited 2026-10-29: the operator accepted an independent advisor's review (`considered`): the Summary names the use case heads serve. It did not say which machines they are for. The configuration tool is `vtiumctl`; the Summary read "`vtium-vitrify` becomes the configuration tool".
 
 > Edited 2026-10-29: the operator answered C1 (`considered`): the shipped rules gain `input class:key -> focus`. The Summary read: "with every keyboard and pointer typing into it and every other input ignored".
@@ -250,6 +260,8 @@ related: []
 > Edited 2026-11-01: the maintainer let the console chords open and close consoles under an open policy (`considered`, 2026-11-01), so the Summary no longer calls a head's count of consoles fixed. It read: "a profile, and a fixed number of consoles, each a session". The earlier text is in git at 1d51e46.
 
 > Edited 2026-10-31: the gap-check of the head-file wiring work found that the record still called a head's consoles virtual consoles, a name the operator keeps for the kernel's VTs (`considered`, 2026-10-30). The Summary read: "a stack of virtual consoles".
+
+> Edited 2026-11-04: the maintainer decided that each mode set resets a connector's color properties (`basis`, 2026-11-03). The Summary's last sentence on D14 is new.
 
 - **Trades away:** One process holds every display of the seat, so a fault in one head's session handling reaches every head. Several terminals share one kernel VT, which the C reference refused. The console takes on device routing, a ruleset parser and a notice of its own, and opens keyboards the rules ignore. Mirroring across heads with different densities, which today's single grid gives, needs a head that claims both displays. A station's login has no logind seat (Context), so no seat-bound device such as audio reaches it; a fully independent station is D2's seat extension.
 
@@ -1106,6 +1118,22 @@ Built directly after heads themselves, ahead of `vtiumctl` (D11's build order). 
 
 > Edited 2026-10-29: the operator accepted an independent advisor's review (`considered`): D13 moves from later to directly after heads. It was headed "D13, later" and read: "Not built here. [...] It touches the unit and docs/systemd.md, and its own probe asks whether it is wanted (12 below)."
 
+### D14: each mode set resets the connector's color
+
+> Added 2026-11-04: the maintainer decided that vtium resets a connector's color properties to their defaults at each mode set (`basis`, 2026-11-03).
+
+A connector's properties keep the values that the last program to hold the card set, until another program sets them. A desktop that drives a monitor in HDR sets three of them: the color space the monitor is told to expect (`Colorspace`), the HDR metadata the monitor is sent (`HDR_OUTPUT_METADATA`), and the most bits per color the link may carry (`max bpc`). vtium draws ordinary 8-bit sRGB, so a monitor that is still told to expect HDR shows vtium's colors wrong, washed out or too bright.
+
+- **At each mode set,** vtium sets these three properties on each connector it lights, as part of the mode set itself. A mode set is the step in which vtium gives a display its mode and its first frame: once at start, and again after each wake-up and each hotplug (D2, D8).
+  - `Colorspace` to `Default`, the value 0, with which the driver picks the color space it signals, as it does for a program that never sets the property.
+  - `HDR_OUTPUT_METADATA` to no metadata, the value 0, so the driver sends the monitor no HDR metadata.
+  - `max bpc` to the bits per color of the format vtium draws in: 8 for XRGB8888, the only format it shows today. When the connector's range for `max bpc` does not hold 8, vtium sets the nearest value the range holds.
+- **On a card with atomic commits,** the three values go into the commit that sets the mode, so the test-only commit that checks the mode set first checks them with it. **On a card without atomic commits,** vtium sets each one on the connector before it sets the mode, the way it sets the connector's power state (DPMS).
+- **A connector that lacks a property keeps what it has.** A driver with no HDR support, or an older kernel, offers some or none of the three, and vtium sets only those the connector offers.
+- **A driver that refuses a value never costs the display.** When the test-only commit fails with the three properties in it and passes without them, vtium sets the mode without them and logs a warning that names the connector and says that its color properties stay as it found them. On a card without atomic commits, a property the driver refuses is logged the same way, and the mode set goes on.
+- **vtium restores nothing when it gives the card up** at a VT switch, as it leaves the mode it set: the next program to hold the card sets what it uses, as vtium does.
+- This section decides nothing about drawing in HDR, which is a separate matter for vtium, and nothing about the other properties a desktop may leave on a connector, such as `Broadcast RGB`.
+
 ### For the operator's check
 
 #### Pending the operator's read
@@ -1205,6 +1233,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - A session's child that exited less than 2 s (`MAX_RETRY_TIME`) after its last recorded start, in whole seconds of the wall clock, counted a quick exit; at 5 (`MAX_RETRY_COUNT`) the next exit logged an error and called the terminal's exit callback with no restart, as `oneshot` did (`kmscon/src/misc/pty.c:52-53, 737-768`). That callback, `pty_exit`, called `ev_eloop_exit` on the one loop every session shared, so one session's crash loop ended the process and every session in it (`kmscon/src/terminal.c:1856-1868`), and `main` then returned the seat's start error, 0 after a start that had succeeded (`kmscon/src/main.c:201-227`).
 
 - The C reference drew every display on its one thread. Its GPU backend, drm3d, made a GBM surface for each display with an EGL window surface on it. Each swap called `eglSwapBuffers`, took the surface's front buffer object, made a framebuffer of it the first time it saw it, kept that framebuffer as the buffer object's user data, and presented it through the shared DRM code's `drm_display_swap`. drm3d held three buffer objects, the one on screen, the one flipping next and the one a modeset used, and gave each back to the surface when the next replaced it; a swap with no free buffer in the surface returned `-EBUSY` (`kmscon/src/video/drm3d_video.c:112-148, 382-424`). The display logic itself, the modesets, the flips and their waits, DPMS and the cursor plane, lived in `drm_shared.c`, and drm3d supplied only its buffers, through the `prepare_modeset` and `done_modeset` hooks (`kmscon/src/video/drm3d_video.c:267-342`, `kmscon/src/video/drm_shared.c:861-937, 1062-1087`). gltex cleared and redrew the whole frame every time (`kmscon/src/render/gltex.c:1372-1373`), so the GPU path used no buffer age. drm2d had two dumb buffers that it swapped in turn, and bbulk drew each frame's changes together with the frame before's, since its back buffer was two frames old (`kmscon/src/video/drm2d_video.c:212-224`, `kmscon/src/render/text.c:735-738`).
+- The C reference set no color property on a connector. Its atomic mode set, `drm_prepare_commit`, set the connector's `CRTC_ID`, the CRTC's `MODE_ID` and `ACTIVE`, and the primary plane's framebuffer and geometry, and its legacy mode set called `drmModeSetCrtc` (`kmscon/src/video/drm_shared.c:581-690, 939-974`, kmscon b1f7a7c5). It never read or wrote `Colorspace`, `HDR_OUTPUT_METADATA` or `max bpc`, so it drew under whatever a desktop had left there. It did clean up after other programs elsewhere: `modeset_clear_cursor_and_overlays` turned off every cursor and overlay plane before each atomic mode set and before it dropped master, and its legacy mode set hid the hardware cursor, which its comment said was for display sessions that did not clean up after themselves (`kmscon/src/video/drm_shared.c:297-336, 878, 958-960, 1585`). Both its backends scanned out XRGB8888 (`kmscon/src/video/drm2d_video.c:57`, `kmscon/src/video/drm3d_video.c:109`).
 
 ## Where vtium departs from the C reference
 
@@ -1215,6 +1244,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - **The configuration's files must be root's and writable by no one else;** the C reference read any file at its path.
 - **The display owns its GPU buffers.** The C reference's drm3d drew into a GBM surface through an EGL window surface, whose buffers EGL rotated at each swap on the thread that drew. vtium's DRM backend allocates each display's GBM buffer objects itself, and the render thread imports the one a buffer token names as an EGL image (D2), so the loop keeps the flips and one copy of the display logic serves dumb buffers and GBM buffers alike.
 - **Each head draws on a thread of its own,** into the display's buffer, where the C reference drew every display on its one thread (D2).
+- **Each mode set resets the connector's color.** The C reference left `Colorspace`, `HDR_OUTPUT_METADATA` and `max bpc` as the last program to hold the card set them (C notes), so after a desktop in HDR it drew 8-bit sRGB to a monitor told to expect HDR. vtium sets the default color space, no HDR metadata and the bits per color it draws at each mode set (D14).
 
 ## Consequences
 
@@ -1230,6 +1260,9 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - vtium writes nothing under `/etc`, so a read-only root, an image build and a package-managed `/etc` need no switch and see no file appear.
 - `vtiumctl` gives a user a correct file without reading this record, from the console or a desktop, with or without privilege.
 - One machine serves several stations at once, each person at their own display and keyboard, with no station's keyboard switching another's display away (D5).
+- vtium's colors on a monitor are the same whether a desktop in HDR or nothing held the card before it (D14).
+
+> Added 2026-11-04 with D14: the bullet on colors after a desktop in HDR.
 
 > Edited 2026-10-30: the operator added stations (`considered`).
 
@@ -1262,6 +1295,9 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - A head's consoles multiply memory; on minspec the caps bind.
 - A user who wants a file to edit asks `vtiumctl` for one, or copies the example a package ships; a bare install has none.
 - A user who wants one session mirrored across displays at different densities still gets one grid sized by the scaled rule.
+- On a driver that refuses one of the three color values, the display keeps the color properties it was left with, and vtium only logs it (D14).
+
+> Added 2026-11-04 with D14: the bullet on a driver that refuses a color value.
 
 ### Neutral
 
@@ -1285,5 +1321,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - **Hanging up by default,** at once or after a grace period, the draft's proposal. Rejected (the operator, 2026-10-29): a console is not a line, the kernel's VT console keeps its session through a lost monitor, and a sleeping monitor or a KVM switch would end sessions. Both stay as `when-display-lost` values.
 - **Reattaching a session to any display that appears,** as the kernel console shows its session on any monitor. Narrowed: a head reattaches only to a display its rules match (D8).
 - **One grid for every display,** today's layout. Kept within a head, and replaced across heads.
+- **Leaving a connector's color properties as a desktop left them,** as the C reference did. Rejected (the maintainer, 2026-11-03): vtium's 8-bit sRGB frames then reach a monitor told to expect HDR (D14).
+- **Restoring the desktop's color properties when vtium gives the card up.** Not chosen: vtium does not restore the mode either, and the next program to hold the card sets the properties it uses (D14).
 
 > Edited 2026-10-30: the operator resolved an invalid head file in three levels and declined a last-known-good (`considered`). The repair bullet ended: "vtium runs the shipped default and says why.", and no bullet named a last-known-good.
