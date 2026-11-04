@@ -931,6 +931,36 @@ fn inside_an_upload_a_put_and_a_composition_run_on_their_own_and_it_stays_open()
     assert_eq!(h.take(), "\x1b_Gi=8;OK\x1b\\");
 }
 
+// During a picture's own upload, an animation control reaches the image
+// of the upload's id already stored, since vtium stores the new picture
+// only at its last chunk; with none stored, it answers ENOENT.
+// covers: image.kitty-animation
+#[test]
+fn inside_a_pictures_upload_an_animation_control_reaches_the_image_already_stored() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    let _ = open_upload(&mut k, &mut h);
+    send(&mut k, &mut h, "a=a,i=99,s=3");
+    assert_eq!(h.take(), "\x1b_Gi=8;ENOENT:image not found\x1b\\");
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,i=8,s=1,v=1;{}", red(1)));
+    let _ = h.take();
+    let old = h.store.find_image(8, 0).unwrap();
+    let rest = open_upload(&mut k, &mut h);
+    send(&mut k, &mut h, "a=a,i=99,s=3");
+    assert_eq!(h.take(), "\x1b_Gi=8;OK\x1b\\");
+    assert_eq!(h.store.animation(old).unwrap().run, crate::Run::Looping);
+    send(&mut k, &mut h, &format!("m=0;{rest}"));
+    assert!(
+        upload_stored(&mut h),
+        "the upload stayed open and replaced image 8"
+    );
+    let new = h.store.find_image(8, 0).unwrap();
+    assert!(
+        h.store.animation(new).is_none(),
+        "the new picture runs no animation"
+    );
+}
+
 // covers: image.kitty-animation
 #[test]
 fn inside_an_upload_an_animation_control_acts_on_the_image_being_loaded() {
