@@ -12,7 +12,7 @@ vtium is judged in tiers: unit tests, tier 1's replays of byte streams compared 
 
 ### The goldens
 
-A golden is a saved expected result that a tier compares vtium's output with. A golden changes only in a commit of its own, which lists each value that moved and why. A contributor may propose such a commit, and the maintainer reviews it before it lands. The commits that make a change never themselves rewrite the golden that judges that change. A new golden is provisional, and judges nothing, until the maintainer has reviewed it.
+A golden is a saved expected result that a tier compares vtium's output with. Inside a change, its author never rewrites, widens or regenerates the golden that judges it. A golden moves only in a commit of its own, which lists each value that moved and why; a contributor may propose such a commit, and the maintainer reviews it before it lands. A new golden is provisional, and judges nothing, until the maintainer has reviewed it.
 
 Behaviour follows the protocol specifications. Where a specification leaves room, vtium's goldens decide.
 
@@ -34,7 +34,7 @@ The gates are the checks every change passes before review. [AGENTS.md](AGENTS.m
 
 `rust-toolchain.toml` pins the Rust toolchain that the gates and CI run on, and rustup installs it the first time you run cargo in the checkout. `rust-version` in `Cargo.toml` is the oldest Rust that vtium builds on, and `make msrv`, one of the gates, builds the workspace, its tests included, and the minspec profile with it. To move the pin, change `channel` in `rust-toolchain.toml`, fix what the gates then report, and put both in one commit.
 
-[AGENTS.md](AGENTS.md) also describes the rest of the working loop: the worktrees, the tiers and their commands, the VT review, and how work reaches main.
+[AGENTS.md](AGENTS.md) also describes the rest of the working loop: the worktrees, the VT review, and how work reaches main.
 
 ### The pull request
 
@@ -65,7 +65,7 @@ Decisions are recorded as ADRs in `docs/architecture/`, created and checked with
 
 ## Rules for the code
 
-- **`unsafe` only in `vtium-platform` and `vtium-image-helper`.** `vtium-platform` holds it for ioctls and FFI, and `vtium-image-helper` in its one module `src/fork.rs`, which forks the helper's worker (ADR-1101 D1). Both crates carry `#![deny(unsafe_code)]` and allow it at each site, with a SAFETY comment. Every other crate carries `#![forbid(unsafe_code)]`.
+- **`unsafe` only in `vtium-platform` and `vtium-image-helper`.** `vtium-platform` holds it for ioctls and FFI, and `vtium-image-helper` in its one module `src/fork.rs`, which forks the helper's worker (ADR-1101 D1). Both crates carry `#![deny(unsafe_code)]` and allow it at each site, with a SAFETY comment. Every other crate's library carries `#![forbid(unsafe_code)]`, and the programs' own entry points, the `main.rs` of `vtium`, `vtium-config` and `vtium-image-helper`, use no `unsafe`.
 - **Shown words live in a catalog.** Every string vtium shows a person, on its screen or on the command line, is written in its crate's catalog module, `crates/vtium/src/notice.rs` or `crates/vtium-settings/src/messages.rs`, and nowhere else. Each entry is a whole message: a choice between wordings is two entries, never a sentence built from pieces. Anything that is not words to translate enters a message as a placeholder's value: a name, a path, a number, a key's name, the file's own syntax, or the system's error text. A message about a problem says what happened, then what the person can do next. Tier 2 and the specimens draw from the same catalog the console uses. Log lines stay where they are. The known exceptions, still to move: the configuration reader's, the frit reader's and the memory budget's lines that check-config prints (`crates/vtium/src/config/`, `font.rs`, `config/budget.rs`), the head file outcome's lines in `crates/vtium-settings/src/outcome.rs`, and the usage lines of `vtium --help` in `main.rs`.
 - **Bounded parsing.** Anything read from the pty comes from an untrusted program. Every buffer, string, parameter list and image that input can grow has a fixed limit.
 - **Write from specs and permissive sources, never from kitty's code.** Implement from published protocol specifications and from permissively licensed implementations such as Ghostty, WezTerm, foot and libsixel. kitty is GPL-3.0, and its source is not read while working on vtium, by a person or by an agent. kitty as a running program may be used for black-box comparison. The rule keeps vtium's code under the MIT licence. A file adapted from a permissive source names the source and its licence in its header.

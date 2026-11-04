@@ -12,7 +12,7 @@ An agent writes code quickly, and the code usually looks right. A change from an
 
 ## The judge comes first
 
-vtium's tests arrived with its first code, so no code went unjudged: byte streams to replay with the screens and replies they must produce, pictures the renderer must draw pixel for pixel, and a virtual machine that boots vtium on a VT and captures its screen. The saved expected results are called goldens, and [How vtium is judged](how-vtium-is-judged.md) describes the tiers they belong to.
+vtium's unit tests arrived with its first code, and the tiers that judge the whole terminal followed right after it: byte streams to replay with the screens and replies they must produce, pictures the renderer must draw pixel for pixel, and a virtual machine that boots vtium on a VT and captures its screen. The saved expected results are called goldens, and [How vtium is judged](how-vtium-is-judged.md) describes the tiers they belong to.
 
 The author of a change never rewrites the golden that judges it, and a golden changes only in a commit of its own that the maintainer reviews by looking at the old result, the new one and the difference. Without that rule, an agent that cannot make its output match a golden can make the golden match its output, and every test passes.
 
@@ -40,7 +40,7 @@ An agent's account of what it did is a claim, however confident it sounds. The s
 
 ## The rules are written where every agent reads them
 
-Every agent starts from the same contract, AGENTS.md, whether it is a new author, a fresh reviewer or a session that has lost its context. Many of its rules exist because an agent once got something wrong and a gate or a reviewer caught it: the steering session once pushed integration before it had read the gates' results, so a merge point now waits for a full pass of the gates; a test's stand-in for a real part accepted a name the real part refuses, so the defect surfaced only in the virtual machine; a console switch once kept drawing the old console, and the fix reset what each display remembered drawing instead of adding a delay, and the rules now forbid fixing a bug with timing. Each catch became a rule. The guidance that reaches an agent as it starts a kind of work comes from [agent-ways](https://github.com/aaronsb/agent-ways), a tool the maintainer uses, so an agent does not have to remember one long file it read at the start.
+Every agent starts from the same contract, AGENTS.md, whether it is a new author, a fresh reviewer or a session that has lost its context. Many of its rules exist because an agent once got something wrong and a gate or a reviewer caught it: a delegated agent once ran its gates as a background job, whose notice went to the steering session instead of to the agent, so agents now run every gate in the foreground; a test's stand-in for a real part accepted a name the real part refuses, so the defect surfaced only in the virtual machine; a test of a console switch once waited for the screen's pixels to stop changing, and the maintainer asked for the switch to be held as state and checked right after the keys, so the rules now forbid fixing or testing with timing. Each catch became a rule. The guidance that reaches an agent as it starts a kind of work comes from [agent-ways](https://github.com/aaronsb/agent-ways), a tool the maintainer uses, so an agent does not have to remember one long file it read at the start.
 
 ## What the maintainer does
 
