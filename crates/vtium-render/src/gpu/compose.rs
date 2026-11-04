@@ -647,10 +647,14 @@ impl Composition {
         }
     }
 
-    /// Gives back the glyphs' textures and the arrow's, keeping the frame
-    /// and the programs, and draws the whole frame next (ADR-1303 D9).
+    /// Gives back the glyphs' textures, the arrow's and the upright frame's
+    /// tiles, keeping the programs, and draws the whole frame next, its
+    /// tiles made again first (ADR-1303 D9).
     pub(crate) fn release<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
         let mut out = Ok(());
+        for (_, t) in self.tiles.drain(..) {
+            out = out.and(gl.free_target(t));
+        }
         if let Some(g) = self.glyphs.take() {
             out = out.and(g.free(gl));
         }
@@ -661,10 +665,22 @@ impl Composition {
         {
             out = out.and(self.end_frame(gl));
         }
-        // belt and braces: the next frame makes the glyphs anew, which
-        // already draws the frame whole
+        // belt and braces: the next frame makes the tiles and the glyphs
+        // anew, either of which already draws the frame whole
         self.redraw_whole();
         out
+    }
+
+    /// Makes the upright frame's tiles again at its size when a release
+    /// gave them back, and draws it whole. Gives how many allocations that
+    /// took, a call each of the frame's batch of uploads.
+    pub(crate) fn restore<G: Gl>(&mut self, gl: &mut G) -> Result<usize, Error> {
+        if !self.tiles.is_empty() {
+            return Ok(0);
+        }
+        self.tiles = make_tiles(gl, self.size, self.overlap)?;
+        self.redraw_whole();
+        Ok(self.tiles.len())
     }
 
     /// The cells' quads, a draw for each texture of glyphs and tile: whole

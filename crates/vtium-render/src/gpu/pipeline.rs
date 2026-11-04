@@ -26,9 +26,10 @@
 //! texture and program: the upright frame is made anew only where a quarter
 //! turn swaps its sides.
 //!
-//! [`Pipeline::release`] gives back the glyph and picture textures, as a
-//! head does when its VT is released, keeping the upright frame, the
-//! programs and the context, and the next frame draws whole (ADR-1303 D9).
+//! [`Pipeline::release`] gives back the glyph and picture textures and the
+//! upright frame, as a head does when its VT is released, keeping the
+//! programs and the context, and the next frame makes the frame again and
+//! draws whole (ADR-1303 D9).
 
 use std::collections::VecDeque;
 
@@ -390,6 +391,8 @@ impl Pipeline {
         target: &DrawTarget,
         age: u32,
     ) -> Result<Vec<Rect>, Error> {
+        // a frame after a release makes the upright frame again first
+        let restored = self.composition.restore(gl)?;
         #[cfg(feature = "images")]
         let pictures = self
             .pictures
@@ -397,6 +400,7 @@ impl Pipeline {
         #[cfg(not(feature = "images"))]
         let pictures = 0usize;
         let uploads = pictures
+            .saturating_add(restored)
             .saturating_add(work.uploads)
             .saturating_add(self.composition.prepare(gl, work)?);
         if uploads > 0 {
@@ -431,10 +435,11 @@ impl Pipeline {
         Ok(damage)
     }
 
-    /// Gives back the glyph and picture textures, keeping the upright
-    /// frame, the compiled programs and the context, as a head does when its
-    /// VT is released (ADR-1303 D9). The next frame makes the glyphs again,
-    /// uploads the pictures it draws, and composes and presents whole.
+    /// Gives back the glyph and picture textures and the upright frame,
+    /// keeping the compiled programs and the context, as a head does when
+    /// its VT is released (ADR-1303 D9). The next frame makes the upright
+    /// frame again at the display's size, makes the glyphs again, uploads
+    /// the pictures it draws, and composes and presents whole.
     pub fn release<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
         let pictures = self.pictures.release(gl);
         let composition = self.composition.release(gl);

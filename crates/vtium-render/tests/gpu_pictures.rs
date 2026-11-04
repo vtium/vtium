@@ -471,23 +471,28 @@ fn a_glyph_pools_emptied_texture_is_given_back_after_the_idle_frames() {
     assert_eq!(g.pipeline.glyph_texture_bytes(), Some(full - 128 * 8 * 16));
 }
 
-// the issue on GPU texture garbage collection: the release call frees the
-// glyph and picture textures, keeps the programs, and the next frame makes
-// them again and draws whole
+// the issue on GPU texture garbage collection, and the maintainer's
+// decision of 2026-11-04: the release call frees the glyph and picture
+// textures and the upright frame, keeps the programs, and the next frame
+// makes them again at the display's size and draws whole
 #[test]
 fn a_release_frees_the_glyph_and_picture_textures_and_the_next_frame_draws_whole() {
     let mut g = Gpu::new();
-    // the upright frame's texture, before any glyph or picture
-    let frame_only = g.gl.live().0;
+    // the upright frame, one tile, before any glyph or picture
+    let (frame_only, _, _) = g.gl.live();
+    assert!(frame_only >= 1);
     let st = common::style(rgb("ffffff"), rgb("000000"));
     g.screen.text(0, 5, "text", st);
     let p = placements(&[pic(1, (48, 48), (2, 1), (4, 2))]);
     g.frame(&p, false);
     let (textures, targets, programs) = g.gl.live();
     assert!(textures > frame_only);
+    g.gl.clear_calls();
     g.pipeline.release(&mut g.gl).unwrap();
-    // the upright frame, the buffer and the programs stay
-    assert_eq!(g.gl.live(), (frame_only, targets, programs));
+    // only the buffer and the programs stay: the upright frame's tile and
+    // its texture go
+    assert_eq!(g.gl.live(), (0, targets - 1, programs));
+    assert!(g.calls().contains(&Call::FreeTarget));
     g.gl.clear_calls();
     let frame = g.screen.frame(g.since).with_placements(p);
     let drawn = g
@@ -512,8 +517,10 @@ fn a_release_frees_the_glyph_and_picture_textures_and_the_next_frame_draws_whole
         }]
     );
     assert!(!g.calls().iter().any(|c| matches!(c, Call::Compile(_))));
+    // the upright frame made again at the display's size
+    assert!(g.calls().contains(&Call::CreateFrame(DISPLAY)));
     assert!(g.made().contains(&Size::new(48, 48)));
-    assert_eq!(g.gl.live().0, textures);
+    assert_eq!(g.gl.live(), (textures, targets, programs));
 }
 
 // ADR-1303 D2, D3: on a GL whose largest texture is 64, with no limit of
