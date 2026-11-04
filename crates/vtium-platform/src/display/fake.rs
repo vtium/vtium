@@ -14,7 +14,10 @@
 //! (`drm_atomic_helper_check_modeset`), active with no mode, or with a
 //! plane on it and no mode (`drm_atomic_helper_check_plane_state`), is
 //! refused with EINVAL; a connector the commit moves puts the CRTC it
-//! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. What a
+//! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. A
+//! legacy CRTC set takes every other connector off the CRTC it sets, and
+//! the CRTC its connector leaves, where no connector is left on it, loses
+//! its mode and goes off (`update_output_state`). What a
 //! commit sets is what the card reports after it: a connector's encoder and
 //! that encoder's CRTC, a connector's `CRTC_ID`, and a CRTC's mode, as the
 //! kernel's getters read them back. A wait for a CRTC's next vblank is
@@ -1491,7 +1494,9 @@ impl Kms for FakeCard {
         }
         s.set_crtcs.push((crtc, fb, connector, *mode));
         // The CRTC drives the connector set alone, so the kernel takes
-        // every other connector off it (`update_output_state`).
+        // every other connector off it, and the CRTC the connector leaves
+        // with no connector on it loses its mode and goes off
+        // (`update_output_state`).
         let others: Vec<u32> = s
             .bound
             .iter()
@@ -1501,11 +1506,20 @@ impl Kms for FakeCard {
         for other in others {
             s.bind(other, 0);
         }
+        let left = s.bound.get(&connector).copied().filter(|&c| c != crtc);
         s.bound.retain(|_, c| *c != 0);
         s.bind(connector, crtc);
+        if let Some(left) = left.filter(|&c| !s.bound.values().any(|&on| on == c)) {
+            s.crtc_modes.remove(&left);
+            s.modes.remove(&left);
+            s.enabled.insert(left, false);
+            s.active.insert(left, false);
+            s.console_lit.retain(|&c| c != left);
+        }
         s.crtc_modes.insert(crtc, *mode);
         s.active.insert(crtc, true);
         s.dpms.insert(connector, 0);
+        self.vblank_off(&mut s);
         Ok(())
     }
 
@@ -1673,7 +1687,7 @@ mod tests {
 
     use rustix::io::Errno;
 
-    use super::super::kms::{Kms, Request};
+    use super::super::kms::{CrtcEvent, Kms, Request};
     use super::super::mode::mode;
     use super::FakeCard;
 
@@ -1729,6 +1743,48 @@ mod tests {
         let narrow = fb(&card, 320, 480);
         card.complete_flips();
         assert_eq!(errno(card.page_flip(CRTC, narrow)), Some(Errno::NOSPC));
+    }
+
+    // A legacy CRTC set that moves a connector to another CRTC leaves the
+    // CRTC it was on: where no connector is left on that CRTC, the kernel
+    // clears its mode and turns it off (`update_output_state`), and the
+    // wait for that CRTC's next vblank ends at once (`drm_crtc_vblank_off`).
+    // Where another connector is still on it, it stays on.
+    #[test]
+    fn a_legacy_set_turns_off_the_crtc_its_last_connector_leaves() {
+        let card = FakeCard::new(&[
+            (CONN, vec![mode(640, 480, 60, true)]),
+            (CONN + 1, vec![mode(640, 480, 60, true)]),
+        ]);
+        let shown = fb(&card, 640, 480);
+        let at_640 = mode(640, 480, 60, true);
+        card.set_crtc(CRTC, shown, CONN, &at_640)
+            .expect("the CRTC set");
+        card.wait_vblank(0).expect("a vblank wait on the CRTC");
+        card.set_crtc(CRTC + 1, shown, CONN, &at_640)
+            .expect("the move");
+        let mut read = Vec::new();
+        card.read_events(&mut read).expect("the events");
+        assert_eq!(read, [CrtcEvent::Vblank(CRTC)], "the wait ends");
+        {
+            let s = card.state();
+            assert_eq!(s.bound.get(&CONN), Some(&(CRTC + 1)));
+            assert_eq!(s.active.get(&CRTC), Some(&false), "the CRTC left is off");
+            assert_eq!(s.crtc_modes.get(&CRTC), None, "with no mode");
+            assert_eq!(s.active.get(&(CRTC + 1)), Some(&true));
+        }
+        // Another program left both connectors on CRTC + 1.
+        card.state().bind(CONN + 1, CRTC + 1);
+        card.set_crtc(CRTC, shown, CONN, &at_640)
+            .expect("the move back");
+        let s = card.state();
+        assert_eq!(
+            s.active.get(&(CRTC + 1)),
+            Some(&true),
+            "CONN + 1 is still on it"
+        );
+        assert_eq!(s.crtc_modes.get(&(CRTC + 1)), Some(&at_640));
+        assert_eq!(s.active.get(&CRTC), Some(&true));
     }
 
     // vtium/vtium#224: an atomic commit whose plane reads past its
