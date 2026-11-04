@@ -81,7 +81,7 @@ observable:
   - "Every case is judged by one golden in one directory per tier: tools/conformance/expected.tsv, tools/tier2/departures.tsv, tools/tier3/departures.tsv and tools/tier3/c-goldens/ are gone, and `make conformance`, `make tier2` and `make tier3` pass"
   - "`git ls-files` lists no provenance.tsv under tools/conformance, tools/tier2 or tools/tier3, no .c file, and no docs/c-reference.md, and `make help` lists no target with provenance in its name"
   - "No crate README has a section named Departures, C behaviour kept, Beyond the C reference or C notes"
-status: proposed
+status: accepted
 date: 2026-11-04
 deciders:
   - aaronsb
