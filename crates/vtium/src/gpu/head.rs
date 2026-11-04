@@ -29,13 +29,23 @@ use vtium_term::Frame;
 
 use super::PlatformGl;
 use crate::font::DisplayFace;
-use crate::painter::{Fault, GpuSource};
+use crate::painter::{Fault, GpuSource, TestGpu};
 
 /// One display's frames on the GPU path: its pipeline, and the frame in GL
 /// that each frame is presented into and read back from.
 struct Display {
     pipeline: Pipeline,
     staging: DrawTarget,
+}
+
+impl Display {
+    /// Frees the pipeline, with its upright frame and glyph pools, and the
+    /// staging frame. An error freeing them is the driver's to report at
+    /// the next check.
+    fn free(self, gl: &mut PlatformGl) {
+        let _ = self.pipeline.free(gl);
+        let _ = gl.free_target(self.staging);
+    }
 }
 
 /// A head's GL context and its displays' pipelines, on its render thread.
@@ -50,8 +60,9 @@ pub struct HeadGpu {
     failed_in_a_row: u32,
     /// Why the GPU path ended, once a failure ended it.
     lost: Option<String>,
-    /// The faults a test queued, one raised in each frame.
-    faults: Option<std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<Fault>>>>,
+    /// The test watching the GPU path, which queues its faults and reads
+    /// how many displays it keeps.
+    test: Option<std::sync::Arc<TestGpu>>,
 }
 
 impl HeadGpu {
@@ -59,10 +70,10 @@ impl HeadGpu {
     pub fn new(source: &GpuSource) -> Result<HeadGpu, String> {
         let made = match source {
             GpuSource::RenderNode(node) => platform::Context::on_render_node(node),
-            GpuSource::Software | GpuSource::Faulty(_) => platform::Context::software(),
+            GpuSource::Software | GpuSource::Test(_) => platform::Context::software(),
         };
-        let faults = match source {
-            GpuSource::Faulty(f) => Some(std::sync::Arc::clone(f)),
+        let test = match source {
+            GpuSource::Test(t) => Some(std::sync::Arc::clone(t)),
             _ => None,
         };
         let context = made.map_err(|e| e.to_string())?;
@@ -73,7 +84,7 @@ impl HeadGpu {
             pixels: Vec::new(),
             failed_in_a_row: 0,
             lost: None,
-            faults,
+            test,
         })
     }
 
@@ -86,6 +97,15 @@ impl HeadGpu {
     /// the CPU path until vtium restarts.
     pub fn lost(&self) -> Option<&str> {
         self.lost.as_deref()
+    }
+
+    /// The display `key` left the head: what the GPU path kept for it is
+    /// freed, and a display that comes back with the same key starts anew.
+    pub fn forget(&mut self, key: &(PathBuf, DisplayId)) {
+        if let Some(display) = self.displays.remove(key) {
+            display.free(&mut self.gl);
+        }
+        self.count();
     }
 
     /// Draws `frame` for the display `key` through its pipeline, and reads
@@ -122,6 +142,7 @@ impl HeadGpu {
             age,
             state,
         );
+        self.count();
         match &drawn {
             Ok(_) => self.failed_in_a_row = 0,
             Err(e) => {
@@ -136,13 +157,22 @@ impl HeadGpu {
         Some(drawn)
     }
 
+    /// Tells a test watching how many displays the GPU path keeps frames
+    /// for.
+    fn count(&self) {
+        if let Some(test) = &self.test {
+            test.kept
+                .store(self.displays.len(), std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
     /// Makes the context fail the frame's next call with the fault a test
     /// queued first, if any.
     fn raise_a_queued_fault(&mut self) {
         let Some(fault) = self
-            .faults
+            .test
             .as_ref()
-            .and_then(|f| f.lock().ok().and_then(|mut q| q.pop_front()))
+            .and_then(|t| t.faults.lock().ok().and_then(|mut q| q.pop_front()))
         else {
             return;
         };
@@ -173,10 +203,8 @@ impl HeadGpu {
             && let Some(old) = self.displays.remove(key)
         {
             // a display whose mode changed: its frame goes, and the next is
-            // made at the new size; an error freeing it is the driver's to
-            // report at the next check
-            let _ = old.pipeline.free(gl);
-            let _ = gl.free_target(old.staging);
+            // made at the new size
+            old.free(gl);
         }
         let display = match self.displays.entry(key.clone()) {
             std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),

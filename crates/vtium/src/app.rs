@@ -748,11 +748,10 @@ impl App {
         self.guard_lit.take_if(|((n, _), _)| n == node);
         self.guard_due = true;
         for h in 0..self.heads.len() {
-            let lost = self.heads.get_mut(h).is_some_and(|head| {
-                let before = head.views.len();
-                head.views.retain(|(n, _), _| n != node);
-                head.views.len() != before
-            });
+            let lost = self
+                .heads
+                .get_mut(h)
+                .is_some_and(|head| head.drop_views(|(n, _)| n == node));
             if lost {
                 self.relayout(h);
             }
@@ -1201,7 +1200,7 @@ impl App {
         }
         if !self.relayout(h) {
             if let Some(head) = self.heads.get_mut(h) {
-                head.views.remove(&key);
+                head.drop_views(|k| *k == key);
             }
             return;
         }
@@ -1904,7 +1903,7 @@ impl App {
                 self.guard_due = true;
                 if let Some(h) = self.head_of(node, id) {
                     if let Some(head) = self.heads.get_mut(h) {
-                        head.views.remove(&(node.to_owned(), id));
+                        head.drop_views(|k| *k == key);
                     }
                     self.relayout(h);
                 }
@@ -2222,7 +2221,7 @@ impl App {
         };
         if let Some(h) = self.head_of(&key.0, key.1) {
             if let Some(head) = self.heads.get_mut(h) {
-                head.views.remove(&key);
+                head.drop_views(|k| *k == key);
             }
             self.relayout(h);
         }
@@ -3224,7 +3223,7 @@ impl App {
             for console in head.consoles_mut() {
                 console.pty = None;
             }
-            head.views.clear();
+            head.drop_views(|_| true);
             head.hangup_due = None;
             head.attached = Attached::NotYet;
         }
@@ -3930,10 +3929,10 @@ fn draw_head(
         ) else {
             continue;
         };
-        match &head.painter {
+        match &mut head.painter {
             Some(painter) => {
-                if let Some(job) = painter.send(*job) {
-                    view.refused(job, video.as_mut());
+                if let Some(job) = painter.send(job) {
+                    view.refused(*job, video.as_mut());
                 }
             }
             None => {

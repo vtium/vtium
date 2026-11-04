@@ -6442,7 +6442,7 @@ fn a_zoom_while_a_frame_composes_waits_for_its_token() {
 /// off a head never makes one.
 #[cfg(feature = "gpu")]
 mod gpu_path {
-    use vtium::painter::{Fault, GpuSource};
+    use vtium::painter::{Fault, GpuSource, TestGpu};
 
     use super::*;
 
@@ -6550,13 +6550,12 @@ mod gpu_path {
         );
     }
 
-    /// A head with hwaccel on a GPU that fails the frames a test queues
-    /// faults for, the script written and nothing queued yet, and the
-    /// queue.
-    fn faulty() -> (Harness, Arc<Mutex<std::collections::VecDeque<Fault>>>) {
-        let faults = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    /// A head with hwaccel on the test's GPU, the script written and no
+    /// fault queued yet, and what the test sees of the GPU.
+    fn on_test_gpu() -> (Harness, Arc<TestGpu>) {
+        let gpu = Arc::new(TestGpu::default());
         let args = ["--hwaccel", "--login", "--", "/bin/sh", "-c", SCRIPT];
-        let source = GpuSource::Faulty(Arc::clone(&faults));
+        let source = GpuSource::Test(Arc::clone(&gpu));
         let mut h = Harness::boot_set(
             &args,
             FakeVt::new(),
@@ -6568,11 +6567,11 @@ mod gpu_path {
             a.screen_text().iter().any(|l| l.contains("done"))
         }));
         h.settled();
-        (h, faults)
+        (h, gpu)
     }
 
-    fn queue(faults: &Mutex<std::collections::VecDeque<Fault>>, add: &[Fault]) {
-        faults.lock().unwrap().extend(add.iter().copied());
+    fn queue(gpu: &TestGpu, add: &[Fault]) {
+        gpu.faults.lock().unwrap().extend(add.iter().copied());
     }
 
     fn failed(lines: &[String]) -> usize {
@@ -6588,16 +6587,16 @@ mod gpu_path {
     #[test]
     fn a_gl_error_drops_one_frame_and_the_head_stays_on_the_gpu_path() {
         let (_, cpu, _) = drawn(&[], GpuSource::Software);
-        let (mut h, faults) = faulty();
+        let (mut h, gpu) = on_test_gpu();
         logged();
         for _ in 0..2 {
-            queue(&faults, &[Fault::Gl]);
+            queue(&gpu, &[Fault::Gl]);
             assert!(
                 h.drawn_now() == cpu,
                 "the failed frame differs from the CPU path's"
             );
             assert!(
-                faults.lock().unwrap().is_empty(),
+                gpu.faults.lock().unwrap().is_empty(),
                 "the frame raised no fault"
             );
             assert!(
@@ -6625,9 +6624,9 @@ mod gpu_path {
             &[Fault::OutOfMemory],
             &[Fault::ContextLost],
         ] {
-            let (mut h, faults) = faulty();
+            let (mut h, gpu) = on_test_gpu();
             logged();
-            queue(&faults, fatal);
+            queue(&gpu, fatal);
             for _ in fatal {
                 assert!(h.drawn_now() == cpu, "{fatal:?}: a failed frame differs");
             }
@@ -6635,16 +6634,40 @@ mod gpu_path {
             assert_eq!(failed(&lines), 1, "{fatal:?}: {lines:#?}");
             assert_eq!(renderer(&lines), ["cpu"], "{fatal:?}: {lines:#?}");
             // nothing raises a fault now: the head draws on the CPU path
-            queue(&faults, &[Fault::Gl]);
+            queue(&gpu, &[Fault::Gl]);
             assert!(h.drawn_now() == cpu, "{fatal:?}: a CPU frame differs");
             assert_eq!(
-                faults.lock().unwrap().len(),
+                gpu.faults.lock().unwrap().len(),
                 1,
                 "{fatal:?}: the GPU path drew"
             );
             let lines = logged();
             assert_eq!((failed(&lines), renderer(&lines)), (0, vec![]), "{fatal:?}");
         }
+    }
+
+    // ADR-1303 D11 part 6: a display that leaves frees what the GPU path
+    // kept for it, its frames in GL and its glyphs, and one that comes back
+    // is drawn on the GPU path again
+    #[test]
+    fn a_display_that_leaves_frees_what_the_gpu_path_kept_for_it() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let (mut h, gpu) = on_test_gpu();
+        assert_eq!(
+            gpu.kept.load(SeqCst),
+            1,
+            "the display drawn on the GPU path"
+        );
+        h.memory().events.push(Event::Removed(ID));
+        assert!(
+            h.until(BOUND, |_| gpu.kept.load(SeqCst) == 0),
+            "the display's frames kept after it left"
+        );
+        h.memory().events.push(Event::Added(ID));
+        assert!(
+            h.until(BOUND, |_| gpu.kept.load(SeqCst) == 1),
+            "the display that came back not drawn on the GPU path"
+        );
     }
 
     #[test]

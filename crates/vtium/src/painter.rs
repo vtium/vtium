@@ -18,6 +18,10 @@
 //! Each head's compose times are logged at debug level once a second while
 //! it draws ([`Figures`]).
 //!
+//! A display that leaves the head is sent on the same channel as the
+//! frames, after the frames sent before it, and the GPU path frees what it
+//! kept for the display. A full queue takes it with the next frame sent.
+//!
 //! A head whose `hwaccel` is on, in a build with `gpu`, draws on the GPU
 //! path (ADR-1303 D9): the thread makes the head's GL context before it
 //! takes a frame, from the [`GpuSource`] the loop gives it, and tells the
@@ -32,11 +36,14 @@
 //! as one on the loop does (D10): under `panic=abort` at once, and in a
 //! test when the loop finds the thread gone.
 
+use std::collections::VecDeque;
 use std::io;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+use vtium_platform::display::DisplayId;
 
 use crate::term::{Composed, Job};
 
@@ -61,10 +68,20 @@ pub enum GpuSource {
     RenderNode(PathBuf),
     /// Mesa's llvmpipe with no device: the tests' GPU.
     Software,
-    /// Mesa's llvmpipe, which fails a frame with each fault a test queues,
-    /// one a frame, in order: the tests of what a head does with each kind
-    /// of failure (ADR-1303 D9).
-    Faulty(std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<Fault>>>),
+    /// Mesa's llvmpipe, which a test watches and makes fail.
+    Test(std::sync::Arc<TestGpu>),
+}
+
+/// What a test sees of, and does to, a head's GPU path on
+/// [`GpuSource::Test`].
+#[derive(Debug, Default)]
+pub struct TestGpu {
+    /// The faults the GPU raises, one a frame, in order: the tests of what
+    /// a head does with each kind of failure (ADR-1303 D9).
+    pub faults: std::sync::Mutex<std::collections::VecDeque<Fault>>,
+    /// How many displays the head's GPU path keeps frames for, as the
+    /// render thread last counted them.
+    pub kept: std::sync::atomic::AtomicUsize,
 }
 
 /// A failure a test makes the GPU raise in a frame.
@@ -112,9 +129,21 @@ impl Path {
 /// when the GPU path was asked for and could not start, why.
 type Ready = (Path, Option<String>);
 
+/// What the loop sends a head's render thread, taken in the order sent.
+enum Message {
+    /// A frame to compose.
+    Frame(Box<Job>),
+    /// A display that left the head: the GPU path frees what it kept for
+    /// it.
+    Forget((PathBuf, DisplayId)),
+}
+
 /// A head's render thread, and the channels to it and back.
 pub struct Painter {
-    jobs: Option<SyncSender<Job>>,
+    jobs: Option<SyncSender<Message>>,
+    /// The displays that left the head and that a full queue has not taken
+    /// yet, the oldest first.
+    gone: VecDeque<(PathBuf, DisplayId)>,
     done: Option<Receiver<Composed>>,
     thread: Option<JoinHandle<()>>,
     path: Path,
@@ -132,7 +161,7 @@ impl Painter {
         gpu: Option<GpuSource>,
         wake: impl Fn() + Send + 'static,
     ) -> io::Result<Painter> {
-        let (jobs, todo) = sync_channel::<Job>(QUEUE);
+        let (jobs, todo) = sync_channel::<Message>(QUEUE);
         let (composed, done) = sync_channel::<Composed>(QUEUE);
         let (ready, set_up) = sync_channel::<Ready>(1);
         let thread = std::thread::Builder::new()
@@ -144,6 +173,7 @@ impl Painter {
         let (path, refused) = set_up.recv().unwrap_or_default();
         Ok(Painter {
             jobs: Some(jobs),
+            gone: VecDeque::new(),
             done: Some(done),
             thread: Some(thread),
             path,
@@ -160,6 +190,42 @@ impl Painter {
     /// the CPU path from now on.
     pub fn left_gpu(&mut self) {
         self.path = Path::Cpu;
+        self.gone.clear();
+    }
+
+    /// The display `key` left the head. On the GPU path the thread frees
+    /// what it kept for the display once it has composed the frames sent
+    /// before; a full queue takes the message with the next frame sent.
+    pub fn forget(&mut self, key: (PathBuf, DisplayId)) {
+        if self.path == Path::Gpu {
+            self.gone.push_back(key);
+            self.send_gone();
+        }
+    }
+
+    /// Sends the displays that left, the oldest first, while the queue
+    /// takes them. Gives whether none is left to send.
+    fn send_gone(&mut self) -> bool {
+        let Some(jobs) = &self.jobs else {
+            return true;
+        };
+        while let Some(key) = self.gone.pop_front() {
+            match jobs.try_send(Message::Forget(key)) {
+                Ok(()) => {}
+                Err(TrySendError::Full(message)) => {
+                    if let Message::Forget(key) = message {
+                        self.gone.push_front(key);
+                    }
+                    return false;
+                }
+                // a thread that ended keeps nothing to free
+                Err(TrySendError::Disconnected(_)) => {
+                    self.gone.clear();
+                    return true;
+                }
+            }
+        }
+        true
     }
 
     /// Why the GPU path asked for could not start, once: the loop logs it.
@@ -167,12 +233,19 @@ impl Painter {
         self.refused.take()
     }
 
-    /// Sends `job` to be composed; a full queue gives it back.
-    pub fn send(&self, job: Job) -> Option<Job> {
+    /// Sends `job` to be composed, after the displays that left; a full
+    /// queue gives it back.
+    pub fn send(&mut self, job: Box<Job>) -> Option<Box<Job>> {
+        if !self.send_gone() {
+            return Some(job);
+        }
         let jobs = self.jobs.as_ref()?;
-        match jobs.try_send(job) {
-            Ok(()) => None,
-            Err(TrySendError::Full(job) | TrySendError::Disconnected(job)) => Some(job),
+        match jobs.try_send(Message::Frame(job)) {
+            Err(
+                TrySendError::Full(Message::Frame(job))
+                | TrySendError::Disconnected(Message::Frame(job)),
+            ) => Some(job),
+            Ok(()) | Err(_) => None,
         }
     }
 
@@ -205,7 +278,7 @@ impl Painter {
 fn draw_frames(
     gpu: Option<GpuSource>,
     ready: &SyncSender<Ready>,
-    todo: &Receiver<Job>,
+    todo: &Receiver<Message>,
     composed: &SyncSender<Composed>,
     wake: &impl Fn(),
 ) {
@@ -220,7 +293,16 @@ fn draw_frames(
     }
     let path = if head.is_some() { Path::Gpu } else { Path::Cpu };
     let _ = ready.send((path, refused));
-    for job in todo {
+    for message in todo {
+        let job = match message {
+            Message::Frame(job) => job,
+            Message::Forget(key) => {
+                if let Some(h) = &mut head {
+                    h.forget(&key);
+                }
+                continue;
+            }
+        };
         let mut frame = job.compose(head.as_mut());
         if let Some(why) = head.as_ref().and_then(HeadGpu::lost) {
             // ADR-1303 D9: the head stays on the CPU path until vtium
@@ -240,12 +322,15 @@ fn draw_frames(
 fn draw_frames(
     _: Option<GpuSource>,
     ready: &SyncSender<Ready>,
-    todo: &Receiver<Job>,
+    todo: &Receiver<Message>,
     composed: &SyncSender<Composed>,
     wake: &impl Fn(),
 ) {
     let _ = ready.send((Path::Cpu, None));
-    for job in todo {
+    for message in todo {
+        let Message::Frame(job) = message else {
+            continue;
+        };
         if composed.send(job.compose(None)).is_err() {
             break;
         }
@@ -443,12 +528,15 @@ mod tests {
         });
         let mut painter = Painter::start("test", None, || {}).unwrap();
         let mut all = jobs(u32::try_from(QUEUE).unwrap() + 2, &hook).into_iter();
-        assert!(painter.send(all.next().unwrap()).is_none());
+        assert!(painter.send(Box::new(all.next().unwrap())).is_none());
         wait_started.recv().unwrap();
         for _ in 0..QUEUE {
-            assert!(painter.send(all.next().unwrap()).is_none(), "queued");
+            assert!(
+                painter.send(Box::new(all.next().unwrap())).is_none(),
+                "queued"
+            );
         }
-        let back = painter.send(all.next().unwrap());
+        let back = painter.send(Box::new(all.next().unwrap()));
         // released before any assertion, so a failing one joins the thread
         drop(release);
         let back = back.expect("the queue is full");
@@ -461,6 +549,50 @@ mod tests {
         }
         let ids: Vec<DisplayId> = (0..=u32::try_from(QUEUE).unwrap()).map(DisplayId).collect();
         assert_eq!(done, ids);
+    }
+
+    // A display that leaves while the queue is full is sent with the next
+    // frame, before it: the GPU path frees what it kept for the display,
+    // counted in the displays it keeps.
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_display_that_leaves_while_the_queue_is_full_goes_with_the_next_frame() {
+        let (started, wait_started) = channel();
+        let (release, wait_release) = channel::<()>();
+        let (started, wait_release) = (Mutex::new(started), Mutex::new(wait_release));
+        let hook: DrawHook = Arc::new(move || {
+            let _ = started.lock().unwrap().send(());
+            let _ = wait_release.lock().unwrap().recv();
+        });
+        let gpu = Arc::new(TestGpu::default());
+        let mut painter =
+            Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+        assert_eq!(painter.path(), Path::Gpu, "the head on the GPU path");
+        let mut all = jobs(u32::try_from(QUEUE).unwrap() + 2, &hook).into_iter();
+        assert!(painter.send(Box::new(all.next().unwrap())).is_none());
+        wait_started.recv().unwrap();
+        for _ in 0..QUEUE {
+            assert!(
+                painter.send(Box::new(all.next().unwrap())).is_none(),
+                "queued"
+            );
+        }
+        painter.forget((PathBuf::from("/dev/test"), DisplayId(1)));
+        drop(release);
+        let kept = |painter: &mut Painter, frames: usize| {
+            let end = Instant::now() + Duration::from_secs(10);
+            let mut done = 0;
+            while done < frames && Instant::now() < end {
+                done += painter.take().len();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(done, frames, "the frames composed");
+            gpu.kept.load(Ordering::SeqCst)
+        };
+        // the forget waits while nothing is sent
+        assert_eq!(kept(&mut painter, QUEUE + 1), QUEUE + 1);
+        assert!(painter.send(Box::new(all.next().unwrap())).is_none());
+        assert_eq!(kept(&mut painter, 1), QUEUE + 1, "display 1 freed");
     }
 
     // A render thread is joined when its head is dropped: the drop waits
@@ -476,8 +608,8 @@ mod tests {
             std::thread::sleep(Duration::from_millis(200));
             flag.store(true, Ordering::SeqCst);
         });
-        let painter = Painter::start("test", None, || {}).unwrap();
-        assert!(painter.send(jobs(1, &hook).remove(0)).is_none());
+        let mut painter = Painter::start("test", None, || {}).unwrap();
+        assert!(painter.send(Box::new(jobs(1, &hook).remove(0))).is_none());
         wait_started.recv().unwrap();
         drop(painter);
         assert!(composed.load(Ordering::SeqCst), "joined after its frame");
