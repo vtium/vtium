@@ -3618,6 +3618,9 @@ impl App {
                 ) else {
                     continue;
                 };
+                if let Some(why) = composed.failed_gpu.take() {
+                    failed_gpu_frame(view, video.as_ref(), composed.key.1, &why);
+                }
                 let compose = composed.stats.cpu;
                 let shown = view.present(
                     composed,
@@ -3964,6 +3967,21 @@ fn left_gpu(head: &mut Head, videos: &BTreeMap<PathBuf, Box<dyn Video>>, why: &s
             display_line(&video.name(*id), video.backend(), painter.path(), view);
         }
     }
+}
+
+/// The GPU path failed a frame of `view`, the display `id` of `video`,
+/// for `why`, and the CPU path drew it instead (ADR-1303 D9). The log says
+/// so for the display's first such frame, naming its connector, and is
+/// silent for the rest.
+fn failed_gpu_frame(view: &mut View, video: &dyn Video, id: DisplayId, why: &str) {
+    if view.gpu_failure_logged {
+        return;
+    }
+    view.gpu_failure_logged = true;
+    log::warn!(
+        "display {}: a frame failed on the GPU path ({why}): the CPU path draws it, and later failures of this display's frames are not logged",
+        video.name(id)
+    );
 }
 
 /// The line vtium logs for `view`, a display it draws on a head on

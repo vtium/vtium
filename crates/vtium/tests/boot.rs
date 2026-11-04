@@ -6612,6 +6612,28 @@ mod gpu_path {
         );
     }
 
+    // ADR-1303 D9: a display's first frame the GPU path fails is logged
+    // once, naming the display's connector, and its later failed frames are
+    // not, while the head stays on the GPU path
+    #[test]
+    fn a_displays_failed_gpu_frames_are_logged_once_by_its_connector() {
+        let (mut h, gpu) = on_test_gpu();
+        logged();
+        for _ in 0..3 {
+            queue(&gpu, &[Fault::Gl]);
+            h.drawn_now();
+            h.drawn_now();
+        }
+        let all = logged();
+        let lines: Vec<&String> = all
+            .iter()
+            .filter(|l| l.contains("a frame failed on the GPU path"))
+            .collect();
+        assert_eq!(lines.len(), 1, "{all:#?}");
+        assert!(lines[0].starts_with("display MEM-1: "), "{all:#?}");
+        assert_eq!(failed(&all), 0, "the head left the GPU path: {all:#?}");
+    }
+
     // ADR-1303 D9, D10: a GL error in two frames running, out of memory or
     // a lost context leaves the GPU path until vtium restarts, said once,
     // with the display's line again naming cpu, and the frames are the CPU

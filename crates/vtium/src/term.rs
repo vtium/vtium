@@ -532,6 +532,7 @@ impl Job {
         let frame = self.snapshot.frame(self.since);
         let grid = (frame.cols(), frame.rows());
         let size = token.size();
+        let mut failed_gpu = None;
         let drawn = token
             .draw(|canvas| {
                 let stride = usize::try_from(canvas.stride).ok()?;
@@ -555,10 +556,7 @@ impl Job {
                     Some(Ok(drawn)) => drawn,
                     failed => {
                         if let Some(Err(e)) = &failed {
-                            log::warn!(
-                                "display {}: the GPU path failed a frame ({e}): it is drawn on the CPU path",
-                                self.key.0.display()
-                            );
+                            failed_gpu = Some(e.to_string());
                         }
                         // after a failed GPU frame the renderer's record of
                         // the buffer is unknown, so the CPU path draws whole
@@ -601,6 +599,7 @@ impl Job {
             stats,
             at,
             tip: self.tip,
+            failed_gpu,
             left_gpu: None,
         }
     }
@@ -624,6 +623,9 @@ pub struct Composed {
     /// The areas the overlay drew over.
     overlaid: Vec<DisplayRect>,
     pub stats: Stats,
+    /// Why the GPU path failed this frame, which the CPU path drew
+    /// instead (ADR-1303 D9).
+    pub failed_gpu: Option<String>,
     /// Why the head's GPU path ended with this frame: the head draws on
     /// the CPU path from now on (ADR-1303 D9).
     pub left_gpu: Option<String>,
@@ -683,6 +685,9 @@ pub struct View {
     pub owed: bool,
     /// The display lost its picture and draws whole, through a hold.
     pub lost: bool,
+    /// The log said once that the GPU path failed one of the display's
+    /// frames.
+    pub gpu_failure_logged: bool,
     pub timer: Option<RenderTimer>,
     pub size: (u32, u32),
     pub refresh: Option<std::time::Duration>,
@@ -736,6 +741,7 @@ impl View {
             pending: false,
             owed: false,
             lost: true,
+            gpu_failure_logged: false,
             timer: measure.then(RenderTimer::new),
             size,
             refresh: refresh(refresh_mhz),
