@@ -261,8 +261,10 @@ impl Context {
     /// A GPU that has not passed the fence within `GPU_FENCE_WAIT_MS`, or
     /// that was reset meanwhile, fails it as a lost context, so the frame
     /// never reaches the screen and the head leaves the GPU path (ADR-1303
-    /// D9).
+    /// D9). A test's fault for the wait ends with it, whichever way it
+    /// returns.
     pub fn wait(&mut self, fence: u32) -> Result<(), Error> {
+        let fault = self.wait_fault.take();
         let sync = self
             .fences
             .remove(&fence)
@@ -278,7 +280,6 @@ impl Context {
         let ns = u64::try_from(ms)
             .unwrap_or(u64::MAX)
             .saturating_mul(1_000_000);
-        let fault = self.wait_fault.take();
         let signalled = self
             .egl
             .wait(sync, ns)

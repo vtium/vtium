@@ -176,8 +176,6 @@ fn name(v: u32) -> Result<NonZeroU32, Error> {
     NonZeroU32::new(v).ok_or_else(|| misuse("a GL object named 0"))
 }
 
-/// A GL context: OpenGL ES 3.0 or later on an EGL display, current on the
-/// thread that made it, which it never leaves.
 /// What a test makes the next wait find.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WaitFault {
@@ -187,6 +185,8 @@ enum WaitFault {
     Reset,
 }
 
+/// A GL context: OpenGL ES 3.0 or later on an EGL display, current on the
+/// thread that made it, which it never leaves.
 pub struct Context {
     gl: glow::Context,
     vao: glow::NativeVertexArray,

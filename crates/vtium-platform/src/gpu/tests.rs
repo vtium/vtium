@@ -828,6 +828,25 @@ fn a_wait_that_times_out_or_finds_a_reset_is_a_lost_context() {
     gl.free_frame(fb, texture).unwrap();
 }
 
+// A fault a test sets for the next wait ends with that wait, whichever way
+// the wait returns: a wait that cannot make the context current leaves no
+// fault armed for the next frame's wait
+#[test]
+fn a_wait_fault_ends_with_the_wait_that_fails_first() {
+    let mut gl = software();
+    let (fb, texture) = gl.create_frame(8, 8).unwrap();
+    gl.clear(fb, (8, 8), rect(0, 0, 8, 8), 0x20_4060).unwrap();
+    let fence = gl.submit().unwrap();
+    gl.time_out_next_wait();
+    gl.raise(ErrorKind::Gl(0x0502));
+    let e = gl.wait(fence).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Gl(0x0502), "{e}");
+    gl.clear(fb, (8, 8), rect(0, 0, 8, 8), 0x20_4060).unwrap();
+    let fence = gl.submit().unwrap();
+    gl.wait(fence).unwrap();
+    gl.free_frame(fb, texture).unwrap();
+}
+
 // Where the display or GL makes no fence sync, a frame ends with glFinish:
 // the submit still gives a name, a wait takes it once, and the frame is
 // done
