@@ -140,11 +140,11 @@ fn font_cell(p: &Profile) -> String {
     match p.glyphs {
         Glyphs::Builtin { set, .. } => format!("`{set}`, built in"),
         Glyphs::Desktop { .. } => {
-            "`desktop`, the frit [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit)"
+            "`desktop`, the frit [`desktop.vtfrit`](https://github.com/vtium/vtium/blob/main/tools/specimens/frits/desktop.vtfrit)"
                 .to_owned()
         }
         Glyphs::Tiny5 { .. } => {
-            "`tiny5`, the frit [`tiny5.vtfrit`](../../../crates/vtium-config/frits/tiny5.vtfrit)"
+            "`tiny5`, the frit [`tiny5.vtfrit`](https://github.com/vtium/vtium/blob/main/crates/vtium-config/frits/tiny5.vtfrit)"
                 .to_owned()
         }
     }
