@@ -386,7 +386,7 @@ mod tests {
                 }
                 Some(false) => bad.push(format!("{line} (a departure, not the redrawn shape)")),
                 Some(true) => departed += 1,
-                None if d != want => bad.push(line.to_owned()),
+                None if d != want => bad.push(format!("{line} (vtium draws {d:016x})")),
                 None => {}
             }
         }

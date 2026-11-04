@@ -1,7 +1,7 @@
 //! Whole screens against the C reference: each screen of
 //! `reference/screens.tsv`, drawn through vtium-term's frame with unifont,
-//! must give the pixels `reference/refcells.c` drew with the C reference's
-//! glyphs, sprites and blending (`reference/README.md`), but for the dashed
+//! must give the pixels the C reference drew with its glyphs, sprites and
+//! blending (`reference/README.md`), but for the dashed
 //! underline, which is the render crate's departure.
 
 mod common;
@@ -100,7 +100,8 @@ fn screens_match_the_c_reference() {
     for (name, screen) in &screens {
         let canvas = draw(screen);
         if dashed(name).is_empty() {
-            assert_eq!(digest(&canvas), want(name), "screen {name}");
+            let got = digest(&canvas);
+            assert_eq!(got, want(name), "screen {name}: vtium draws {got:016x}");
         } else {
             assert_ne!(
                 digest(&canvas),

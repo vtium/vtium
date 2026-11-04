@@ -1,7 +1,6 @@
 //! vtium-font against the C reference, glyph for glyph: each line of
 //! `reference/*.tsv` is a digest of glyphs the C reference drew
-//! (`reference/refdigest.c`, at the commit `reference/README.md` names),
-//! and vtium must draw the same pixels. This is what lets tier 2's
+//! (`reference/README.md`), and vtium must draw the same pixels. This is what lets tier 2's
 //! bitmap-font goldens (vtium/vtium#17) judge vtium unchanged, and since
 //! the digests were taken on one host and are checked on every other, it
 //! is also the check that a glyph is the same bytes everywhere.
@@ -18,8 +17,8 @@ fn fnv(mut h: u64, bytes: &[u8]) -> u64 {
     h
 }
 
-/// refdigest.c's digest(): the width and height as little-endian u32, then
-/// the pixels.
+/// A glyph's digest: the width and height as little-endian u32, then the
+/// pixels.
 fn digest(h: u64, g: &Glyph) -> u64 {
     let h = fnv(h, &g.width().to_le_bytes());
     let h = fnv(h, &g.height().to_le_bytes());
@@ -47,7 +46,8 @@ fn fixture(name: &str) -> String {
     format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Checks every line, then fails listing those that differ.
+/// Checks every line, then fails listing those that differ, each with the
+/// digest vtium draws.
 fn check(what: &str, rows: &[Vec<String>], mut ours: impl FnMut(&[String]) -> Option<u64>) {
     let mut checked = 0;
     let mut bad = Vec::new();
@@ -56,7 +56,7 @@ fn check(what: &str, rows: &[Vec<String>], mut ours: impl FnMut(&[String]) -> Op
         let want = row.last().map(|s| u64::from_str_radix(s, 16));
         checked += 1;
         if want != Some(Ok(got)) {
-            bad.push(row.join(" "));
+            bad.push(format!("{} (vtium draws {got:016x})", row.join(" ")));
         }
     }
     assert!(checked > 0, "{what}: no lines checked");
@@ -69,8 +69,8 @@ fn check(what: &str, rows: &[Vec<String>], mut ours: impl FnMut(&[String]) -> Op
 }
 
 /// The characters vtium draws as sprites where the C reference drew the
-/// font's glyph (vtium/vtium#27), as refdigest.c's beyond_reference() lists
-/// them; `tests/legacy.rs` holds them.
+/// font's glyph (vtium/vtium#27), which the digests leave out;
+/// `tests/legacy.rs` holds them.
 fn beyond_reference(cp: u32) -> bool {
     matches!(
         cp,
@@ -98,7 +98,7 @@ fn the_characters_left_out_are_all_sprites() {
 }
 
 /// The characters of `page` drawn through the font, less those beyond the
-/// C reference, as refdigest.c's render_page() draws them; `None` for the
+/// C reference, as the `render` digests cover them; `None` for the
 /// surrogate pages, which a `char` cannot hold and the terminal never
 /// draws.
 fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Option<u64> {
