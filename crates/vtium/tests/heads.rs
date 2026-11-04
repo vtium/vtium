@@ -525,6 +525,18 @@ impl Seat {
         script: &str,
         fonts: Sources,
     ) -> Seat {
+        Seat::set_up(args, rules, displays, script, fonts, |_| {})
+    }
+
+    /// [`Seat::with_rules`], with `set` run on the app before it starts.
+    fn set_up(
+        args: &[&str],
+        rules: Option<Start>,
+        displays: impl IntoIterator<Item = (&'static str, Memory)>,
+        script: &str,
+        fonts: Sources,
+        set: impl FnOnce(&mut App),
+    ) -> Seat {
         let args: Vec<OsString> = ["--font-size=16"]
             .iter()
             .chain(args)
@@ -544,6 +556,7 @@ impl Seat {
         for (node, memory) in displays {
             app.add_video(PathBuf::from(node), Box::new(memory));
         }
+        set(&mut app);
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(now());
@@ -6412,4 +6425,138 @@ fn a_sessions_end_reports_only_what_touches_the_font() {
         )],
         "{lines:?}"
     );
+}
+
+/// ADR-1303 D9, D10: a display the GPU path cannot set up at its size holds
+/// its whole head on the CPU path while the display keeps that size, with
+/// one line naming the display and each of the head's display lines again
+/// naming `cpu`, and its set-up is not tried at each frame. A later size
+/// that the GPU path sets up, or the display leaving the head, puts the
+/// head back on the GPU path, with each display line again naming `gpu`.
+#[cfg(feature = "gpu")]
+mod gpu_path {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    use vtium::painter::{GpuSource, SetUpFault, TestGpu};
+
+    use super::*;
+
+    /// Two displays of one head on the test's GPU, both drawn on the GPU
+    /// path, and the lines logged since.
+    fn two_on_the_gpu() -> (Seat, Arc<TestGpu>) {
+        logged();
+        let gpu = Arc::new(TestGpu::default());
+        let source = GpuSource::Test(Arc::clone(&gpu));
+        let displays = [
+            ("/dev/mem0", Memory::new(320, 160, "MEM-1", "card-a")),
+            ("/dev/mem1", Memory::new(320, 160, "MEM-2", "card-b")),
+        ];
+        let mut s = Seat::set_up(
+            &["--hwaccel"],
+            None,
+            displays,
+            MODE_SCRIPT,
+            no_fonts(),
+            |app| app.set_gpu_source(source),
+        );
+        assert!(s.until(BOUND, |a| shows(a, "ready")), "the session runs");
+        assert!(
+            s.until(BOUND, |_| gpu.kept.load(SeqCst) == 2),
+            "both displays on the GPU path"
+        );
+        assert_eq!(renderers(&logged()), ["gpu", "gpu"]);
+        (s, gpu)
+    }
+
+    /// The paths each display line names, in order.
+    fn renderers(lines: &[String]) -> Vec<&str> {
+        lines
+            .iter()
+            .filter(|l| l.starts_with("Display "))
+            .filter_map(|l| l.split("text renderer [").nth(1)?.split(']').next())
+            .collect()
+    }
+
+    /// The lines logged since the last call, once `done` holds of them,
+    /// with the loop turning meanwhile.
+    fn lines_until(s: &mut Seat, done: impl Fn(&[String]) -> bool) -> Vec<String> {
+        let mut lines = Vec::new();
+        let end = now() + BOUND;
+        while !done(&lines) && now() < end {
+            s.until(Duration::from_millis(20), |_| false);
+            lines.extend(logged());
+        }
+        lines
+    }
+
+    /// Types a line on the session and waits until both displays drew it.
+    fn draw_both(s: &mut Seat, text: &str) {
+        let frames = (s.memory("/dev/mem0").frames, s.memory("/dev/mem1").frames);
+        s.type_str(&format!("{text}\r"));
+        assert!(s.until(BOUND, |a| got(a).is_some_and(|g| g.0 == text)));
+        assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames.0));
+        assert!(s.until_memory("/dev/mem1", BOUND, |m| m.frames > frames.1));
+    }
+
+    #[test]
+    fn a_display_the_gpu_cannot_set_up_holds_its_head_on_the_cpu_path_while_its_size_lasts() {
+        let (mut s, gpu) = two_on_the_gpu();
+        gpu.set_up_faults
+            .lock()
+            .unwrap()
+            .push_back(SetUpFault::Limit);
+        s.memory("/dev/mem1").set_mode(640, 320);
+        let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
+        let refused: Vec<&String> = lines
+            .iter()
+            .filter(|l| l.contains("the GPU path cannot set it up"))
+            .collect();
+        assert_eq!(refused.len(), 1, "{lines:#?}");
+        assert!(
+            refused[0].starts_with("display MEM-2: the GPU path cannot set it up at 640x320"),
+            "{lines:#?}"
+        );
+        assert_eq!(renderers(&lines), ["cpu", "cpu"], "{lines:#?}");
+        // the head's frames are the CPU path's, and the set-up is not tried
+        // again at that size
+        let (drawn, tries) = (gpu.drawn.load(SeqCst), gpu.set_ups.lock().unwrap().len());
+        draw_both(&mut s, "a");
+        draw_both(&mut s, "b");
+        assert_eq!(gpu.drawn.load(SeqCst), drawn, "a frame on the GPU path");
+        assert_eq!(gpu.set_ups.lock().unwrap().len(), tries, "set up again");
+        assert_eq!(renderers(&logged()), Vec::<&str>::new());
+        // a size the GPU path sets up puts the head back on it
+        s.memory("/dev/mem1").set_mode(320, 160);
+        let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
+        assert_eq!(renderers(&lines), ["gpu", "gpu"], "{lines:#?}");
+        assert!(
+            lines.iter().any(|l| l.contains("it draws on the GPU path")),
+            "{lines:#?}"
+        );
+        draw_both(&mut s, "c");
+        assert!(gpu.drawn.load(SeqCst) > drawn, "the head on the GPU path");
+    }
+
+    #[test]
+    fn a_head_held_on_the_cpu_path_goes_back_to_the_gpu_when_the_display_leaves() {
+        let (mut s, gpu) = two_on_the_gpu();
+        gpu.set_up_faults
+            .lock()
+            .unwrap()
+            .push_back(SetUpFault::Compile);
+        s.memory("/dev/mem1").set_mode(640, 320);
+        let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
+        assert_eq!(renderers(&lines), ["cpu", "cpu"], "{lines:#?}");
+        let drawn = gpu.drawn.load(SeqCst);
+        s.unplug("/dev/mem1", now());
+        let frames = s.memory("/dev/mem0").frames;
+        s.type_str("a\r");
+        assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames));
+        let lines = lines_until(&mut s, |l| !renderers(l).is_empty());
+        assert_eq!(renderers(&lines), ["gpu"], "{lines:#?}");
+        assert!(
+            s.until(BOUND, |_| gpu.drawn.load(SeqCst) > drawn),
+            "the head on the GPU path"
+        );
+    }
 }

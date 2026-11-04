@@ -608,6 +608,7 @@ impl Job {
             tip: self.tip,
             failed_gpu,
             refused_gpu,
+            back_on_gpu: false,
             left_gpu: None,
         }
     }
@@ -621,7 +622,7 @@ pub enum OnGpuFrame {
     /// The frame failed, for this reason, and the CPU path draws it.
     Failed(String),
     /// The display's set-up failed at its size, for this reason, and the
-    /// CPU path draws it until its mode changes.
+    /// CPU path draws the whole head while the display keeps that size.
     Refused(String),
 }
 
@@ -647,8 +648,13 @@ pub struct Composed {
     /// instead (ADR-1303 D9).
     pub failed_gpu: Option<String>,
     /// Why the GPU path could not set up the display at this frame's size:
-    /// the CPU path draws it until its mode changes (ADR-1303 D9).
+    /// the CPU path draws the whole head until the display's size changes
+    /// or it leaves the head (ADR-1303 D9).
     pub refused_gpu: Option<String>,
+    /// The head draws on the GPU path again from this frame, since no
+    /// display of it is at a size the GPU path could not set up (ADR-1303
+    /// D9).
+    pub back_on_gpu: bool,
     /// Why the head's GPU path ended with this frame: the head draws on
     /// the CPU path from now on (ADR-1303 D9).
     pub left_gpu: Option<String>,
@@ -711,9 +717,6 @@ pub struct View {
     /// The log said once that the GPU path failed one of the display's
     /// frames.
     pub gpu_failure_logged: bool,
-    /// The GPU path could not set the display up at its size, so the CPU
-    /// path draws it until its mode changes.
-    pub gpu_refused: bool,
     pub timer: Option<RenderTimer>,
     pub size: (u32, u32),
     pub refresh: Option<std::time::Duration>,
@@ -768,7 +771,6 @@ impl View {
             owed: false,
             lost: true,
             gpu_failure_logged: false,
-            gpu_refused: false,
             timer: measure.then(RenderTimer::new),
             size,
             refresh: refresh(refresh_mhz),
@@ -820,9 +822,6 @@ impl View {
     /// next frame is drawn whole. The view's size is always its
     /// renderer's: it changes only with the renderer.
     pub fn resize(&mut self, font: Font<DisplayFace>, size: (u32, u32), config: RenderConfig) {
-        // the GPU path tries a display it could not set up again at a new
-        // mode
-        self.gpu_refused = false;
         self.size = size;
         self.rebuild(font, self.height, config);
     }
@@ -861,18 +860,6 @@ impl View {
 
     pub fn depth(&self) -> Depth {
         self.depth
-    }
-
-    /// The path that draws the display on a head on `head`'s path: the CPU
-    /// path for a 1-bit display, whose depth the GPU path does not reduce
-    /// yet (ADR-1303 D6), and for one the GPU path could not set up at its
-    /// size (D9).
-    pub fn path_on(&self, head: crate::painter::Path) -> crate::painter::Path {
-        if self.gpu_refused {
-            crate::painter::Path::Cpu
-        } else {
-            head.for_depth(self.depth)
-        }
     }
 
     /// The font's sprite policy and missing glyph.

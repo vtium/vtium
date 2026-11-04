@@ -3612,6 +3612,12 @@ impl App {
                 if let Some(why) = composed.left_gpu.take() {
                     left_gpu(head, videos, &why);
                 }
+                if let Some(why) = composed.refused_gpu.take() {
+                    refused_gpu_display(head, videos, &composed.key, &why);
+                }
+                if composed.back_on_gpu {
+                    back_on_gpu(head, videos);
+                }
                 let (Some(view), Some(video)) = (
                     head.views.get_mut(&composed.key),
                     videos.get_mut(&composed.key.0),
@@ -3620,10 +3626,6 @@ impl App {
                 };
                 if let Some(why) = composed.failed_gpu.take() {
                     failed_gpu_frame(view, video.as_ref(), composed.key.1, &why);
-                }
-                if let Some(why) = composed.refused_gpu.take() {
-                    let path = head.painter.as_ref().map(Painter::path).unwrap_or_default();
-                    refused_gpu_display(view, video.as_ref(), composed.key.1, path, &why);
                 }
                 let compose = composed.stats.cpu;
                 let shown = view.present(
@@ -3966,11 +3968,7 @@ fn left_gpu(head: &mut Head, videos: &BTreeMap<PathBuf, Box<dyn Video>>, why: &s
         return;
     };
     painter.left_gpu();
-    for ((node, id), view) in &head.views {
-        if let Some(video) = videos.get(node) {
-            display_line(&video.name(*id), video.backend(), painter.path(), view);
-        }
-    }
+    display_lines(head, videos);
 }
 
 /// The GPU path failed a frame of `view`, the display `id` of `video`,
@@ -3988,23 +3986,56 @@ fn failed_gpu_frame(view: &mut View, video: &dyn Video, id: DisplayId, why: &str
     );
 }
 
-/// The GPU path could not set up `view`, the display `id` of `video`, at
-/// its size, for `why`: the CPU path draws it until its mode changes, while
-/// the head's other displays stay on `path` (ADR-1303 D9). The log says so
-/// once, naming the display's connector, and gives its line again.
+/// The GPU path could not set up the display `key` of `head` at its size,
+/// for `why`: the whole head draws on the CPU path until that display's
+/// size changes or it leaves the head (ADR-1303 D9). The log says so once,
+/// naming the display's connector, and gives each of the head's display
+/// lines again, naming `cpu`.
 fn refused_gpu_display(
-    view: &mut View,
-    video: &dyn Video,
-    id: DisplayId,
-    path: crate::painter::Path,
+    head: &mut Head,
+    videos: &BTreeMap<PathBuf, Box<dyn Video>>,
+    key: &(PathBuf, DisplayId),
     why: &str,
 ) {
-    view.gpu_refused = true;
-    let name = video.name(id);
+    let name = videos
+        .get(&key.0)
+        .map(|v| v.name(key.1))
+        .unwrap_or_default();
+    let (w, h) = head.views.get(key).map(|v| v.size).unwrap_or_default();
     log::warn!(
-        "display {name}: the GPU path cannot set it up ({why}): the CPU path draws it until its mode changes"
+        "display {name}: the GPU path cannot set it up at {w}x{h} ({why}): head {} draws on the CPU path until the display's size changes or it leaves the head",
+        head.name()
     );
-    display_line(&name, video.backend(), path, view);
+    if let Some(painter) = &mut head.painter {
+        painter.hold_on_cpu(true);
+    }
+    display_lines(head, videos);
+}
+
+/// No display of `head` is at a size the GPU path could not set up any
+/// more: the head draws on the GPU path again (ADR-1303 D9). The log says
+/// so and gives each of the head's display lines again, naming the path
+/// that draws it.
+fn back_on_gpu(head: &mut Head, videos: &BTreeMap<PathBuf, Box<dyn Video>>) {
+    log::info!(
+        "head {}: the GPU path can set up each of its displays again: it draws on the GPU path",
+        head.name()
+    );
+    if let Some(painter) = &mut head.painter {
+        painter.hold_on_cpu(false);
+    }
+    display_lines(head, videos);
+}
+
+/// Each of `head`'s display lines, naming the path that draws each one
+/// now (ADR-1303 D10).
+fn display_lines(head: &Head, videos: &BTreeMap<PathBuf, Box<dyn Video>>) {
+    let path = head.painter.as_ref().map(Painter::path).unwrap_or_default();
+    for ((node, id), view) in &head.views {
+        if let Some(video) = videos.get(node) {
+            display_line(&video.name(*id), video.backend(), path, view);
+        }
+    }
 }
 
 /// The line vtium logs for `view`, a display it draws on a head on
@@ -4013,7 +4044,7 @@ fn display_line(name: &str, backend: &str, path: crate::painter::Path, view: &Vi
     let cell = view.cell();
     log::info!(
         "Display {name} with backend [{backend}] text renderer [{}], cell size {}x{}",
-        view.path_on(path).name(),
+        path.for_depth(view.depth()).name(),
         cell.width,
         cell.height
     );

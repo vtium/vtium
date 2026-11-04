@@ -83,6 +83,8 @@ struct Memory {
     dpi: Option<(f64, f64)>,
     /// A second buffer and its age, for a display that lends its two
     /// buffers in turn, each drawn two frames back once both hold a frame.
+    /// What leaves the buffer lent at age 0 leaves this one at age 0 too,
+    /// and a sleep clears both, as a display's two buffers are.
     double: Option<(Arc<Mutex<Vec<u8>>>, u32)>,
 }
 
@@ -123,6 +125,14 @@ impl Memory {
 }
 
 impl Memory {
+    /// Every buffer of the display holds a frame of unknown age.
+    fn ages_unknown(&mut self) {
+        self.age = 0;
+        if let Some((_, other_age)) = &mut self.double {
+            *other_age = 0;
+        }
+    }
+
     /// Ends a sleep the token held, once no token holds the buffer: clears
     /// it and reports `Asleep`.
     fn pay_clear(&mut self) {
@@ -170,7 +180,7 @@ impl Video for Memory {
         }
         if std::mem::take(&mut self.lent) {
             // dropped without being given back
-            self.age = 0;
+            self.ages_unknown();
         }
         self.lent = true;
         let age = self.age;
@@ -189,7 +199,7 @@ impl Video for Memory {
         if token.lease() != self.lease {
             drop(token);
             self.pay_clear();
-            self.age = 0;
+            self.ages_unknown();
             return Err(SwapError::Dropped);
         }
         if damage.is_empty() && self.dpms == Some(Dpms::On) {
@@ -232,7 +242,7 @@ impl Video for Memory {
         self.dpms = Some(dpms);
         self.dpms_sets.push(dpms);
         if dpms == Dpms::On {
-            self.age = 0;
+            self.ages_unknown();
             self.events.push(Event::Redraw(ID));
         }
         Ok(())
@@ -241,6 +251,9 @@ impl Video for Memory {
         self.sleeps += 1;
         self.lease += 1;
         self.awake = false;
+        if let Some((other, _)) = &self.double {
+            other.lock().unwrap().fill(0);
+        }
         if Arc::strong_count(&self.drawn) > 1 {
             self.asleep_owed = true;
         } else {
@@ -264,7 +277,7 @@ impl Video for Memory {
         }
         self.awake = true;
         self.dpms = Some(Dpms::On);
-        self.age = 0;
+        self.ages_unknown();
         if first {
             self.events.push(Event::Added(ID));
         } else {
@@ -6567,9 +6580,10 @@ mod gpu_path {
         assert!(gpu == cpu, "the turned frame differs from the CPU path's");
     }
 
-    // ADR-1303 D9, D10: a display the GPU path cannot set up is drawn by
-    // the CPU path, with one line naming its connector and its display line
-    // again naming cpu, and its set-up is not tried again at its size
+    // ADR-1303 D9, D10: a display the GPU path cannot set up holds its
+    // head on the CPU path, with one line naming its connector and the
+    // display's line again naming cpu, and its set-up is not tried again at
+    // its size
     #[test]
     fn a_display_the_gpu_cannot_set_up_logs_once_and_its_line_names_cpu() {
         let (cpu_shown, cpu_whole, _) = drawn(&[], GpuSource::Software);
@@ -6783,7 +6797,7 @@ mod gpu_path {
         assert!(gpu == cpu, "the buffer shown differs from the CPU path's");
     }
 
-    // ADR-1303 D9, D10: a GL error in two frames running, out of memory or
+    // ADR-1303 D9, D10: a GL error in two frames in a row, out of memory or
     // a lost context leaves the GPU path until vtium restarts, said once,
     // with the display's line again naming cpu, and the frames are the CPU
     // path's from then on

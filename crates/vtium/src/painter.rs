@@ -88,11 +88,17 @@ pub struct TestGpu {
     /// The display whose frames alone raise the queued faults; every
     /// display's when `None`.
     pub faulty_display: std::sync::Mutex<Option<vtium_platform::display::DisplayId>>,
-    /// The displays whose set-up the GPU path refuses.
+    /// The displays whose every set-up the GPU path fails as past the
+    /// GPU's limits.
     pub refuse_set_up:
         std::sync::Mutex<std::collections::BTreeSet<vtium_platform::display::DisplayId>>,
+    /// The failures the GPU path's next set-ups meet, one a set-up, in
+    /// order, whichever display it sets up.
+    pub set_up_faults: std::sync::Mutex<std::collections::VecDeque<SetUpFault>>,
     /// Each set-up of a display the GPU path tried, in order.
     pub set_ups: std::sync::Mutex<Vec<vtium_platform::display::DisplayId>>,
+    /// The frames the GPU path drew into a display's buffer.
+    pub drawn: std::sync::atomic::AtomicUsize,
 }
 
 /// A failure a test makes the GPU raise in a frame.
@@ -105,6 +111,20 @@ pub enum Fault {
     /// A lost context at the frame's read back into the display's buffer,
     /// after the GPU drew the frame.
     LostAtRead,
+}
+
+/// A failure a test makes a display's set-up on the GPU path meet
+/// (ADR-1303 D9).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetUpFault {
+    /// The display is past the GPU's limits.
+    Limit,
+    /// A shader does not compile.
+    Compile,
+    /// A GL error other than out of memory.
+    Gl,
+    OutOfMemory,
+    ContextLost,
 }
 
 /// The path that draws a head's frames, which the log names (ADR-1303
@@ -161,6 +181,9 @@ pub struct Painter {
     done: Option<Receiver<Composed>>,
     thread: Option<JoinHandle<()>>,
     path: Path,
+    /// A display of the head is at a size the GPU path could not set up,
+    /// so the head draws on the CPU path for now (ADR-1303 D9).
+    held_on_cpu: bool,
     /// Why the GPU path asked for could not start.
     refused: Option<String>,
 }
@@ -191,20 +214,34 @@ impl Painter {
             done: Some(done),
             thread: Some(thread),
             path,
+            held_on_cpu: false,
             refused,
         })
     }
 
     /// The path the head's frames are drawn on.
     pub fn path(&self) -> Path {
-        self.path
+        if self.held_on_cpu {
+            Path::Cpu
+        } else {
+            self.path
+        }
     }
 
     /// Records that the head's GPU path ended during the run: it draws on
     /// the CPU path from now on.
     pub fn left_gpu(&mut self) {
         self.path = Path::Cpu;
+        self.held_on_cpu = false;
         self.gone.clear();
+    }
+
+    /// Records whether a display of the head is at a size the GPU path
+    /// could not set up, which holds the head on the CPU path while it
+    /// lasts (ADR-1303 D9). The head keeps its GL context meanwhile, and
+    /// the thread is still told of each display that leaves.
+    pub fn hold_on_cpu(&mut self, held: bool) {
+        self.held_on_cpu = held;
     }
 
     /// The display `key` left the head. On the GPU path the thread frees
@@ -322,6 +359,9 @@ fn draw_frames(
         // and the loop says so once. The frame goes back before the GL
         // context is dropped, so a driver that hangs destroying it holds
         // no frame.
+        if let Some(h) = &mut head {
+            frame.back_on_gpu = h.take_back();
+        }
         let ended = head
             .as_ref()
             .and_then(HeadGpu::lost)
@@ -670,12 +710,13 @@ mod tests {
         all
     }
 
-    // ADR-1303 D9: a display the GPU path cannot set up is drawn by the CPU
-    // path until its mode changes, with no try at each frame, and says so
-    // once; the head's other display stays on the GPU path
+    // ADR-1303 D9: a display the GPU path cannot set up at its size puts
+    // its whole head on the CPU path, with no try at each frame, and says so
+    // once; once the display leaves, the head draws on the GPU path again
+    // and the frame that does so says it
     #[cfg(feature = "gpu")]
     #[test]
-    fn a_display_the_gpu_cannot_set_up_is_drawn_on_the_cpu_path_and_tried_once() {
+    fn a_display_the_gpu_cannot_set_up_holds_its_whole_head_on_the_cpu_path_until_it_leaves() {
         let gpu = Arc::new(TestGpu::default());
         gpu.refuse_set_up.lock().unwrap().insert(DisplayId(1));
         let mut painter =
@@ -690,22 +731,133 @@ mod tests {
         assert!(
             frames
                 .iter()
-                .all(|c| c.left_gpu.is_none() && c.failed_gpu.is_none())
+                .all(|c| c.left_gpu.is_none() && c.failed_gpu.is_none() && !c.back_on_gpu)
         );
         let tries = gpu.set_ups.lock().unwrap().clone();
         assert_eq!(tries, [DisplayId(0), DisplayId(1)], "each set up once");
         assert_eq!(
-            gpu.kept.load(Ordering::SeqCst),
+            gpu.drawn.load(Ordering::SeqCst),
             1,
+            "only display 0's first frame drawn on the GPU path"
+        );
+        painter.forget((PathBuf::from("/dev/test"), DisplayId(1)));
+        let back = rounds(&mut painter, 1, 2);
+        let said: Vec<bool> = back.iter().map(|c| c.back_on_gpu).collect();
+        assert_eq!(said, [true, false], "the first frame after says it");
+        assert_eq!(
+            gpu.drawn.load(Ordering::SeqCst),
+            3,
             "display 0 on the GPU path"
         );
     }
 
-    // ADR-1303 D9: a GL error in two of one display's frames running ends
+    // ADR-1303 D9: a display's set-up on the GPU path that fails is sorted
+    // by its kind: out of memory or a lost context ends the head's GPU path;
+    // a GL error is one of the display's failed frames, and the next frame
+    // sets it up again; past the GPU's limits or a shader that does not
+    // compile holds the head on the CPU path at that size
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_failed_set_up_is_sorted_by_its_kind() {
+        /// What each of a display's frames said: failed, left, refused.
+        fn said(c: &Composed) -> (bool, bool, bool) {
+            (
+                c.failed_gpu.is_some(),
+                c.left_gpu.is_some(),
+                c.refused_gpu.is_some(),
+            )
+        }
+        /// The set-ups' faults; what each of three frames said; how many
+        /// set-ups were tried and frames drawn on the GPU path.
+        type Case = (&'static [SetUpFault], [(bool, bool, bool); 3], usize, usize);
+        let cases: [Case; 6] = [
+            (
+                &[SetUpFault::OutOfMemory],
+                [
+                    (true, true, false),
+                    (false, false, false),
+                    (false, false, false),
+                ],
+                1,
+                0,
+            ),
+            (
+                &[SetUpFault::ContextLost],
+                [
+                    (true, true, false),
+                    (false, false, false),
+                    (false, false, false),
+                ],
+                1,
+                0,
+            ),
+            (
+                &[SetUpFault::Gl],
+                [
+                    (true, false, false),
+                    (false, false, false),
+                    (false, false, false),
+                ],
+                2,
+                2,
+            ),
+            (
+                &[SetUpFault::Gl, SetUpFault::Gl],
+                [
+                    (true, false, false),
+                    (true, true, false),
+                    (false, false, false),
+                ],
+                2,
+                0,
+            ),
+            (
+                &[SetUpFault::Limit],
+                [
+                    (false, false, true),
+                    (false, false, false),
+                    (false, false, false),
+                ],
+                1,
+                0,
+            ),
+            (
+                &[SetUpFault::Compile],
+                [
+                    (false, false, true),
+                    (false, false, false),
+                    (false, false, false),
+                ],
+                1,
+                0,
+            ),
+        ];
+        for (faults, want, set_ups, drawn) in cases {
+            let gpu = Arc::new(TestGpu::default());
+            gpu.set_up_faults.lock().unwrap().extend(faults);
+            let mut painter =
+                Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+            let frames = rounds(&mut painter, 1, 3);
+            let got: Vec<(bool, bool, bool)> = frames.iter().map(said).collect();
+            assert_eq!(got, want, "{faults:?}");
+            assert_eq!(
+                gpu.set_ups.lock().unwrap().len(),
+                set_ups,
+                "{faults:?}: set-ups tried"
+            );
+            assert_eq!(
+                gpu.drawn.load(Ordering::SeqCst),
+                drawn,
+                "{faults:?}: frames drawn on the GPU path"
+            );
+        }
+    }
+
+    // ADR-1303 D9: a GL error in two of one display's frames in a row ends
     // the GPU path, though another display's frame drew between them
     #[cfg(feature = "gpu")]
     #[test]
-    fn a_gl_error_in_two_of_a_displays_frames_running_ends_the_gpu_path() {
+    fn a_gl_error_in_two_of_a_displays_frames_in_a_row_ends_the_gpu_path() {
         let gpu = Arc::new(TestGpu::default());
         *gpu.faulty_display.lock().unwrap() = Some(DisplayId(0));
         gpu.faults.lock().unwrap().extend([Fault::Gl, Fault::Gl]);
