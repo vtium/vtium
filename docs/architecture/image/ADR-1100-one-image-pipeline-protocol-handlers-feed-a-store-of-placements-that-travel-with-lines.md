@@ -112,7 +112,7 @@ considered:
     via: the maintainer's answer in the steering session, 2026-11-01, third round on 0b0b9e9's pending item, relayed by the team lead; the wording is the team lead's
     paraphrase: true
   - operator: aaronsb
-    said: "Answer 4, restated: the maintainer accepts the corrected bound. A deleted picture's pixels stay alive outside the budget for as long as any display of the head still holds a frame that shows it: at most one frame for each display of the head still drawing or holding. The frames share pixels, so the extra memory is only the pictures deleted between the oldest and newest of them. This replaces the 'two per head' wording he accepted earlier, which described vtium wrongly."
+    said: "Answer 4, restated: the maintainer accepts the corrected bound. A deleted picture's pixels stay alive outside the budget for as long as any display of the head still holds a frame that shows it: at most one frame for each display of the head still drawing or holding. The frames share pixels, so the extra memory is only the pictures deleted between the oldest and newest of them. This replaces the 'two per head' wording the maintainer accepted earlier, which described vtium wrongly."
     via: the maintainer's answer in the steering session, 2026-11-01, fourth round, relayed by the team lead in scratchpad/answers-2026-11-01.md; the wording is the team lead's
     paraphrase: true
   - operator: aaronsb
@@ -127,9 +127,6 @@ considered:
     said: "iTerm2's path, stated plainly: an iTerm2 File= picture is decoded on the kitty path (the whole image file goes to the sandboxed helper, as kitty's PNG payloads do) and placed under sixel's rules (at the cursor, moving with the text, cut by text written over it and by erases), since iTerm2 gives a program no ids or delete command to manage a picture afterwards. Behaviour unchanged; the record says the split in words."
     via: the maintainer's framing in the steering session, 2026-11-01, relayed by the team lead in scratchpad/answers-2026-11-01.md; the wording is the team lead's
     paraphrase: true
-  - operator: aaronsb
-    said: "I think we can accept adr1100"
-    via: the maintainer in the steering session, 2026-11-01, after reading the record at c1ed1be on GitHub and its two figures, and seeing its five observables listed
   - operator: aaronsb
     said: "1. Sixel dots are square: one sixel dot is one pixel, as the C reference, xterm, WezTerm and mlterm drew them; listed as a departure from the VT340 manual's 2:1 aspect."
     via: the maintainer's decisions in the steering session, 2026-11-01, relayed by the team lead in its brief for the image records; the wording is the team lead's

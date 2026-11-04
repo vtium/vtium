@@ -35,14 +35,6 @@ agent:
   model: claude-opus-5-5
 considered:
   - operator: aaronsb
-    said: "agree to widen the rule"
-    via: operator, in session 2026-10-27
-    covers: [where the line falls]
-  - operator: aaronsb
-    said: "the union of our tables and the operator's (my) listings. we're not trying to build a 'super terminal' of all the different references."
-    via: operator, in session 2026-10-27, relayed by the team lead
-    covers: [where the line falls]
-  - operator: aaronsb
     said: "all the generally supported capabilities, not esoteric 1970s terminal modes"
     via: operator, in session 2026-10-27, relayed by the team lead
     covers: [where the line falls]
@@ -57,10 +49,6 @@ considered:
   - operator: aaronsb
     said: "vtium names itself xterm-vtium by default. vtium establishes its own name: most programs and platforms do not know vtium, so the entry says what vtium can do, which is largely kitty-compatible. The term setting keeps any other name available: --term=kmscon for compatibility, --term=xterm-kitty once kitty graphics land. This machine keeps the kmscon-terminfo package for the kmscon name, and vtium ships its own entry only as xterm-vtium."
     via: the maintainer's decisions in the steering session, 2026-11-01, relayed by the team lead in the brief for the terminal-name work; the wording is the team lead's
-    paraphrase: true
-  - operator: aaronsb
-    said: "vtium presents itself as a kitty-compatible terminal under its own name: for kitty's protocols it follows kitty's spec, and kitty's own behaviour where the spec is silent; it answers kitty's detection queries as kitty does; it keeps TERM=xterm-vtium and does not set KITTY_WINDOW_ID, which tells programs this is kitty and invites kitty-only features vtium lacks, such as remote control."
-    via: the maintainer's direction in the steering session, 2026-11-01, relayed by the team lead; the wording is the team lead's
     paraphrase: true
   - operator: aaronsb
     said: "vtium presents itself as a kitty-compatible terminal under its own name. For kitty's protocols it follows kitty's spec, and kitty's own behaviour, checked by black-box runs, where the spec is silent. It answers kitty's detection queries as kitty does. It keeps TERM=xterm-vtium and does not set KITTY_WINDOW_ID, because that variable tells programs this is kitty and invites kitty-only features vtium lacks, such as remote control."

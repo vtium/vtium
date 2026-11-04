@@ -6,16 +6,14 @@ capability: process
 basis:
   - operator: aaronsb
     level: directed
-    said: "I'd like to initially set up a way to package this. I think it could be a submodule. the goal is that we can package a local AUR package for now as a builder, and expand to other package managers eventually. This way I can essentially maintain the latest building copy and as we begin to actually publish version tags, I can keep it running on this machine."
+    said: "The maintainer decided to package vtium first as an AUR package built from a recipe, to keep the latest build running on their own machine, and to add other package managers later."
     via: "the steering session, 2026-11-01, relayed in this record's brief"
+    paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "it can be it's own package repos in the vtium github org, and then submoduled in there"
+    said: "The first packaging is a real-world test of profiles, deployment, updates and the rest. It lags behind development, and the packaged vtium and the development build, running on separate VTs, do not collide."
     via: "the steering session, 2026-11-01, relayed in this record's brief"
-  - operator: aaronsb
-    level: directed
-    said: "that initial packaging would be a real world test of profiles, deployment, updates, all the bits. I would expect it to lag behind our dev work of course, and if we're running on seperate vt sessions, they shouldn't collide."
-    via: "the steering session, 2026-11-01, relayed in this record's brief"
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "The recipes live in their own repos, submoduled into vtium; the vtium package lives alongside the installed kmscon package rather than replacing it; the -git package builds GitHub's main, with a setting to point it at a local checkout."
@@ -23,20 +21,9 @@ basis:
     paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "you know what, might as well just publish it on the real aur. I have rights there already"
+    said: "Both AUR package names, vtium and vtium-git, stay the maintainer's."
     via: "the steering session, 2026-11-01, relayed by the team lead"
-  - operator: aaronsb
-    level: directed
-    said: "if someone wants to install it that's their risk!"
-    via: "the steering session, 2026-11-01, relayed by the team lead"
-  - operator: aaronsb
-    level: directed
-    said: "I'd like to make sure we keep both vtium and vtium-git as ours"
-    via: "the steering session, 2026-11-01, relayed by the team lead"
-  - operator: aaronsb
-    level: directed
-    said: "let's make sure we gpg sign things too"
-    via: "the steering session, 2026-11-01, relayed by the team lead"
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "vtium-git is published on the real AUR under the maintainer's account from the vtium-arch repo, by a publish script that pushes each package directory to its AUR repo; until the staging make target is on main, the recipe does its install steps inside package(). vtium is published from a first pre-release, v0.1.0-alpha.1, tagged on main after this session's work merges there. Tags are signed with the maintainer's key 33F9B54FD2A4B6A4110749B3BA464FC9847A832A; the vtium recipe builds from the signed tag with that key in validpgpkeys and ships the public key under keys/pgp/; vtium-git stays unverified, because main's tip is a merge commit signed by GitHub's key; commits stay unsigned, because an agent's signing would ask for the passphrase each time."
@@ -80,14 +67,16 @@ basis:
   - evidence: 'measured 2026-11-02 on this machine with systemd 262: loginctl list-sessions --no-legend lists sessions 1 and 3; loginctl show-session 1 3 -p Id -p Name -p Type -p Class -p VTNr -p Service prints one block of Key=value lines a session, parted by an empty line, with session 3 Name=aaron VTNr=7 Service=sddm Type=wayland Class=user'
   - operator: aaronsb
     level: directed
-    said: we should consider that sddm might take up a vt as well as the desktop
-    via: the maintainer, 2026-11-02, quoted exactly by the team lead in the second review round of the change that adds vtium console
+    said: "A display manager such as sddm may take a VT, and so may the desktop session."
+    via: the maintainer, 2026-11-02, relayed by the team lead in the second review round of the change that adds vtium console
+    paraphrase: true
   - evidence: 'measured 2026-11-02 with systemd 262 systemctl --root on a scratch root holding vtium@.service from tools/vt/units.sh, getty@.service and Arch kmscon 10.1.0 kmsconvt@.service, with autovt@.service and autovt@tty1.service linked to vtium@.service and getty.target.wants/vtium@tty1.service: enable kmsconvt@tty3.service links autovt@tty3.service and getty.target.wants/kmsconvt@tty3.service to kmsconvt@.service and leaves the template on vtium; enable kmsconvt@.service then fails with already exists and is a symlink to vtium@.service and still links getty.target.wants/kmsconvt@tty1.service; disable kmsconvt@.service removes every kmsconvt link, autovt@tty3.service included, and leaves vtium links as they are'
   - evidence: 'measured 2026-11-02 with systemd 262 on a scratch root holding vtium@.service from tools/vt/units.sh, getty@.service and Arch kmscon 10.1.0 kmsconvt@.service, with autovt@.service linked to vtium@.service: after systemctl --root disable getty@tty3.service and a hand-made link /etc/systemd/system/autovt@tty3.service to /usr/lib/systemd/system/kmsconvt@.service, systemd-analyze --root verify autovt@tty3.service loads kmsconvt@tty3.service and verify autovt@tty4.service loads vtium@tty4.service; systemctl --root is-enabled kmsconvt@tty3.service reads disabled; getty.target.wants holds no kmsconvt link. After rm of the link, add-wants getty.target getty@tty3.service links the want alone'
   - operator: aaronsb
     level: directed
-    said: install tree should be vtium's, not kmscon. kmscon is an independent separate product
+    said: "The install tree is vtium's own, not kmscon's; kmscon is an independent, separate product."
     via: the steering session, 2026-11-02, relayed by the team lead
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: vtium reads its configuration only from /etc/vtium, /etc/vtium/vtium.conf and its seat files beside it, and never reads /etc/kmscon; anyone moving from kmscon copies their file by hand; vtium ships the example as /etc/vtium/vtium.conf.example
@@ -122,9 +111,6 @@ considered:
     said: "A running console keeps the helper it started with: vtium opens the helper's program at start and starts each helper from that open file, as ADR-1200 D15 records. Review runs use their own built helper through the run-time key font-helper, copied by run-vt.sh into a root-owned directory under /run. vtium-git's history is published as it is, and the Maintainer: line carries the plain email."
     via: the maintainer, 2026-11-01, in the steering session
     paraphrase: true
-  - operator: aaronsb
-    said: "the adr seems fine"
-    via: chat with the steering session, 2026-11-02
   - operator: aaronsb
     said: "One per build"
     via: "the steering session, 2026-11-04, the maintainer's answer in the first round of D8's open questions, to question 1: one recipe building both consoles, or one recipe for each build"
