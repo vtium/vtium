@@ -7,9 +7,33 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::{RwLock, RwLockReadGuard};
 use std::time::{Duration, SystemTime};
 
+/// Held for writing while a test writes one of its stand-in programs, and
+/// for reading while a test starts a process. Linux refuses to run a file
+/// that any process holds open for writing (`ETXTBSY`), and a child that
+/// another test thread forks holds a copy of each open descriptor until it
+/// runs its own program; so no program is written while any test forks.
+static FORKS: RwLock<()> = RwLock::new(());
+
+/// The lock a test holds while it starts processes.
+fn forking() -> RwLockReadGuard<'static, ()> {
+    FORKS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The report on `m`, made while no stand-in program is being written.
+fn made(m: &Machine) -> String {
+    let _forking = forking();
+    report(m)
+}
+
 use vtium_config::report::{Machine, file_name, marker, report};
+
+#[path = "common/console.rs"]
+mod console;
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
@@ -81,6 +105,9 @@ impl Tree {
     }
 
     fn program(&self, rel: &str, script: &str) {
+        let _writing = FORKS
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.file(rel, script);
         fs::set_permissions(self.path(rel), fs::Permissions::from_mode(0o755)).expect("mode");
     }
@@ -266,7 +293,7 @@ const PARTS: [&str; 8] = [
 
 #[test]
 fn the_parts_come_in_order_under_plain_headings() {
-    let doc = report(&Tree::new("order").machine(0));
+    let doc = made(&Tree::new("order").machine(0));
     let mut at = 0;
     for name in PARTS {
         let head = format!("\n{name}\n{}\n", "-".repeat(name.len()));
@@ -284,7 +311,7 @@ fn the_parts_come_in_order_under_plain_headings() {
 
 #[test]
 fn the_vtium_part_names_each_binary_its_version_and_its_features() {
-    let doc = report(&Tree::new("vtium").machine(1000));
+    let doc = made(&Tree::new("vtium").machine(1000));
     let p = part(&doc, "vtium");
     assert!(p.contains("/usr/bin/vtium\n"), "{p}");
     assert!(p.contains("version: vtium 9.9.9\n"), "{p}");
@@ -304,6 +331,55 @@ fn the_vtium_part_names_each_binary_its_version_and_its_features() {
     );
 }
 
+/// The console this workspace builds prints the lines the report reads:
+/// the report's vtium part names the revision and the features as the
+/// binary's own `--version` gives them, and searches no marker. The
+/// stand-in runs the real binary for `--version` only, so nothing else of
+/// this machine is read.
+#[test]
+fn the_report_reads_the_revision_and_features_the_console_prints() {
+    let real = console::vtium();
+    let printed = {
+        let _forking = forking();
+        Command::new(&real)
+            .arg("--version")
+            .env_clear()
+            .output()
+            .expect("vtium runs")
+    };
+    let printed = String::from_utf8_lossy(&printed.stdout).into_owned();
+    let line = |key: &str| {
+        printed
+            .lines()
+            .find_map(|l| l.strip_prefix(key))
+            .unwrap_or_else(|| panic!("no {key:?} line in {printed:?}"))
+            .to_owned()
+    };
+    let (revision, features) = (line("revision "), line("features "));
+    let t = Tree::new("real-version");
+    t.program(
+        "usr/bin/vtium",
+        &format!(
+            "#!/bin/sh\ncase \"$1\" in\n--version) exec '{}' --version ;;\n--help) echo 'Usage: vtium [OPTION]...' ;;\n*) echo 'STARTED AS A CONSOLE' ; exit 9 ;;\nesac\n",
+            real.display()
+        ),
+    );
+    let doc = made(&t.machine(1000));
+    let p = part(&doc, "vtium");
+    let first = printed.lines().next().unwrap_or_default();
+    assert!(
+        p.contains(&format!("/usr/bin/vtium\n  version: {first}\n")),
+        "{p}"
+    );
+    assert!(p.contains(&format!("  revision: {revision}\n")), "{p}");
+    assert!(
+        p.contains(&format!(
+            "  features: {features}, as its --version lists them\n"
+        )),
+        "{p}"
+    );
+}
+
 #[test]
 fn a_binary_s_features_are_read_from_its_marker_text() {
     let t = Tree::new("markers");
@@ -314,7 +390,7 @@ fn a_binary_s_features_are_read_from_its_marker_text() {
         .map(|(_, cut)| format!("# {}%s\n", marker(cut)))
         .collect();
     t.program("usr/bin/vtium", &vtium_script("vtium 9.9.9", &comments));
-    let p = report(&t.machine(1000));
+    let p = made(&t.machine(1000));
     let p = part(&p, "vtium");
     assert!(p.contains("images yes, logind yes, gpu unknown"), "{p}");
 }
@@ -342,7 +418,7 @@ fn a_missing_binary_is_named_and_the_dev_install_left_out_when_absent() {
     let t = Tree::new("no-binary");
     fs::remove_file(t.path("usr/bin/vtium")).expect("removed");
     fs::remove_file(t.path("usr/local/bin/vtium-dev")).expect("removed");
-    let doc = report(&t.machine(1000));
+    let doc = made(&t.machine(1000));
     let p = part(&doc, "vtium");
     assert!(p.contains("/usr/bin/vtium: not installed"), "{p}");
     assert!(!p.contains("vtium-dev"), "{p}");
@@ -355,7 +431,7 @@ fn a_missing_binary_is_named_and_the_dev_install_left_out_when_absent() {
 #[test]
 fn the_system_part_reads_the_kernel_the_distribution_and_systemd() {
     let t = Tree::new("system");
-    let doc = report(&t.machine(1000));
+    let doc = made(&t.machine(1000));
     let p = part(&doc, "System");
     assert!(p.contains("kernel: 6.9.1-test\n"), "{p}");
     assert!(p.contains("architecture: aarch64\n"), "{p}");
@@ -364,7 +440,7 @@ fn the_system_part_reads_the_kernel_the_distribution_and_systemd() {
     assert!(p.contains("logind: runs\n"), "{p}");
 
     fs::remove_dir_all(t.path("run/systemd")).expect("removed");
-    let doc = report(&t.machine(1000));
+    let doc = made(&t.machine(1000));
     let p = part(&doc, "System");
     assert!(
         p.contains("systemd: does not run as the init system\n"),
@@ -375,7 +451,7 @@ fn the_system_part_reads_the_kernel_the_distribution_and_systemd() {
 
 #[test]
 fn the_consoles_part_holds_console_status_and_each_unit_s_state() {
-    let doc = report(&Tree::new("consoles").machine(1000));
+    let doc = made(&Tree::new("consoles").machine(1000));
     let p = part(&doc, "Consoles");
     assert!(
         p.contains("    2   getty recorded  vtium@tty2  vtium@tty2\n"),
@@ -405,7 +481,7 @@ fn an_older_vtium_is_never_given_a_subcommand_its_help_does_not_name() {
         "usr/bin/vtium",
         "#!/bin/sh\ncase \"$1\" in\n--version) echo 'vtium 0.0.1' ;;\n--help) echo 'Usage: vtium [OPTION]...' ;;\n*) echo 'STARTED AS A CONSOLE' ; exit 9 ;;\nesac\n",
     );
-    let doc = report(&t.machine(1000));
+    let doc = made(&t.machine(1000));
     assert!(!doc.contains("STARTED AS A CONSOLE"), "{doc}");
     assert!(
         part(&doc, "Consoles").contains("this vtium has no console status"),
@@ -419,7 +495,7 @@ fn an_older_vtium_is_never_given_a_subcommand_its_help_does_not_name() {
 
 #[test]
 fn the_displays_part_names_each_card_and_connector() {
-    let doc = report(&Tree::new("displays").machine(1000));
+    let doc = made(&Tree::new("displays").machine(1000));
     let p = part(&doc, "Displays");
     assert!(
         p.contains("card0: driver testdrm, render node renderD128\n"),
@@ -439,7 +515,7 @@ fn a_machine_with_no_card_says_so() {
     let t = Tree::new("no-card");
     fs::remove_dir_all(t.path("sys/class/drm")).expect("removed");
     fs::create_dir_all(t.path("sys/class/drm")).expect("an empty class");
-    let doc = report(&t.machine(0));
+    let doc = made(&t.machine(0));
     assert!(
         part(&doc, "Displays").contains("No DRM card is in /sys/class/drm."),
         "{doc}"
@@ -456,7 +532,7 @@ fn a_card_with_no_driver_or_render_node_or_state_says_what_it_lacks() {
     fs::remove_file(t.path("sys/class/drm/card0/device/driver")).expect("removed");
     fs::remove_dir_all(t.path("sys/class/drm/card0/device/drm/renderD128")).expect("removed");
     fs::remove_dir_all(t.path("sys/kernel/debug")).expect("removed");
-    let doc = report(&t.machine(0));
+    let doc = made(&t.machine(0));
     let p = part(&doc, "Displays");
     assert!(p.contains("card0: no driver, no render node\n"), "{p}");
     let k = part(&doc, "Kernel display state");
@@ -468,7 +544,7 @@ fn a_card_with_no_driver_or_render_node_or_state_says_what_it_lacks() {
 
 #[test]
 fn the_configuration_part_leaves_out_comments_and_names_the_files() {
-    let doc = report(&Tree::new("configuration").machine(1000));
+    let doc = made(&Tree::new("configuration").machine(1000));
     let p = part(&doc, "Configuration");
     assert!(p.contains("    font-name=monoid\n    no-mouse\n"), "{p}");
     assert!(!p.contains("# vtium.conf"), "{p}");
@@ -492,7 +568,7 @@ fn the_configuration_part_leaves_out_comments_and_names_the_files() {
 fn no_vtium_conf_says_vtium_runs_with_its_defaults() {
     let t = Tree::new("no-conf");
     fs::remove_file(t.path("etc/vtium/vtium.conf")).expect("removed");
-    let doc = report(&t.machine(1000));
+    let doc = made(&t.machine(1000));
     let p = part(&doc, "Configuration");
     assert!(
         p.contains("There is no /etc/vtium/vtium.conf, so vtium runs with its defaults."),
@@ -505,7 +581,7 @@ fn the_logs_part_holds_each_unit_s_latest_lines() {
     let t = Tree::new("logs");
     let mut m = t.machine(1000);
     m.lines = 7;
-    let doc = report(&m);
+    let doc = made(&m);
     let p = part(&doc, "Logs");
     assert!(
         p.contains("vtium@tty2.service, its last 7 lines this boot:\n"),
@@ -530,7 +606,7 @@ fn the_logs_part_holds_each_unit_s_latest_lines() {
 fn an_unreadable_journal_says_how_to_read_it() {
     let t = Tree::new("unreadable-journal");
     t.program("usr/bin/journalctl", JOURNALCTL_UNREADABLE);
-    let doc = report(&t.machine(1000));
+    let doc = made(&t.machine(1000));
     let p = part(&doc, "Logs");
     assert!(p.contains("The journal is not readable to you."), "{p}");
     assert!(p.contains("sudo vtium-config report"), "{p}");
@@ -546,7 +622,7 @@ fn an_unreadable_journal_says_how_to_read_it() {
 #[test]
 fn as_root_the_kernel_display_state_is_read_and_as_a_user_it_names_sudo() {
     let t = Tree::new("root-user");
-    let root = report(&t.machine(0));
+    let root = made(&t.machine(0));
     let k = part(&root, "Kernel display state");
     assert!(
         k.contains("card0, from /sys/kernel/debug/dri/0/state:\n    plane[31]: plane-0\n"),
@@ -554,7 +630,7 @@ fn as_root_the_kernel_display_state_is_read_and_as_a_user_it_names_sudo() {
     );
     assert!(root.contains("run as root"), "{root}");
 
-    let user = report(&t.machine(1000));
+    let user = made(&t.machine(1000));
     let k = part(&user, "Kernel display state");
     assert!(k.contains("needs root: sudo vtium-config report"), "{k}");
     assert!(!k.contains("plane[31]"), "{k}");
@@ -563,7 +639,7 @@ fn as_root_the_kernel_display_state_is_read_and_as_a_user_it_names_sudo() {
 
 #[test]
 fn neither_the_hostname_nor_a_serial_appears() {
-    let doc = report(&Tree::new("privacy").machine(0));
+    let doc = made(&Tree::new("privacy").machine(0));
     for planted in [
         HOST,
         "PLANTHOST",
@@ -594,6 +670,7 @@ fn a_saved_report_is_named_for_the_time_in_utc() {
 }
 
 fn run(dir: &Path, args: &[&str]) -> Output {
+    let _forking = forking();
     Command::new(BIN)
         .args(args)
         .current_dir(dir)
