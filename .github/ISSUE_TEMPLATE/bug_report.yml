@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before you file, read [Troubleshooting](https://github.com/vtium/vtium/blob/main/docs/managing-vtium.md#troubleshooting) in the guide to managing vtium. It says how to get out of a VT that misbehaves, gives a workaround for a VT that stays black after you switch back from the desktop, and lists what pictures need. If one of its steps fixes the problem, a report still helps, so say which step it was.
+        Before you file, read [Find out what went wrong](https://github.com/vtium/vtium/blob/main/docs/troubleshooting.md), the troubleshooting guide. It says how to get out of a VT that misbehaves, gives a workaround for a VT that stays black after you switch back from the desktop, and lists what pictures need. If one of its steps fixes the problem, a report still helps, so say which step it was.
   - type: textarea
     id: happened
     attributes:
