@@ -29,7 +29,7 @@
   <text x="510" y="176" fill="#ffffff" font-size="13">Why vtium is the way it is</text>
   <text x="510" y="212" fill="#ffffff">Why vtium   (why-vtium.md)</text>
   <text x="526" y="232" fill="#ffffff" font-size="12">takes the README's comparison with the alternatives</text>
-  <text x="510" y="264" fill="#ffffff">Concepts   (concepts.md)</text>
+  <text x="510" y="264" fill="#ffffff">Concepts   (concepts/, a page each)</text>
   <text x="526" y="284" fill="#ffffff" font-size="12">takes heads.md's two policies and the way back in</text>
 
   <!-- How-to guides -->

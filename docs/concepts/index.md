@@ -1,8 +1,8 @@
 # VTium's concepts
 
-vtium is a terminal for the Linux virtual console, the full-screen text terminals the kernel provides, each called a VT. It draws straight to the display with no display server, runs on small machines first and large ones as well, and gives the programs run in it a modern terminal.
+These pages explain vtium, a terminal for the Linux virtual console, the VT, that draws the screen itself with no display server, on machines from a small board with a 320x240 panel to a desktop with a large monitor.
 
-The pages below explain the ideas behind vtium, one concept a page. Each links to the decision record, issue or document that holds the detail, and the commands and setting names live there too. A piece that is not built yet is marked proposed, with the issue or record that holds it.
+Each page holds one concept, so a reader can open one at a time. Each links to the decision record, issue or document that holds the detail, and the commands and setting names live there too. A piece that is not built yet is marked proposed, with the issue or record that holds it.
 
 - [What vtium is](what-vtium-is.md): what vtium draws, how it draws it, and the small machines it is built for first.
 - [The suite](suite.md): the console and the programs and files around it, who runs each, and what runs as root and what as the user.

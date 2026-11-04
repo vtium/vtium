@@ -12,7 +12,7 @@ Every Linux machine with a screen has a console already: the kernel draws text o
 
 vtium draws the VT itself instead. It gives programs 24-bit color, bold, faint and reversed text and five underline styles, Unicode with double-width Chinese, Japanese and Korean text and color emoji, mouse reporting, and scrollback that rewraps when the screen's width changes. It draws pictures sent with sixel, the kitty graphics protocol or iTerm2's inline images, in a build with the `images` feature.
 
-### Beside `kmscon`
+### Where vtium began
 
 vtium began as a Rust program derived from `kmscon`, a C terminal for the Linux console, and its library `libtsm`.
 
