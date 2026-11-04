@@ -467,6 +467,13 @@ impl Pipeline {
         self.pictures.counts()
     }
 
+    /// The notes for the log since the last call, which the head writes
+    /// to its log: today only that glyphs were drawn blank past the glyph
+    /// textures' ceiling, given at most once in `GPU_IDLE_FRAMES` frames.
+    pub fn take_notes(&mut self) -> Vec<String> {
+        self.composition.take_notes()
+    }
+
     /// Bytes the GPU glyph pools' and sprites' textures hold, while the
     /// pipeline holds glyphs, at most the bounds table's
     /// `GLYPH_TEXTURE_CEILING`.

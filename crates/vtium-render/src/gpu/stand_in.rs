@@ -58,6 +58,10 @@ pub struct StandIn {
     next_name: u32,
     raised: Option<ErrorKind>,
     failing: Vec<(Op, ErrorKind)>,
+    /// The name of each upright frame made, in the order they were made.
+    frames: Vec<u32>,
+    /// The name of the target of each draw since the calls were forgotten.
+    targets: Vec<u32>,
 }
 
 impl StandIn {
@@ -83,6 +87,8 @@ impl StandIn {
             next_name: 0,
             raised: None,
             failing: Vec::new(),
+            frames: Vec::new(),
+            targets: Vec::new(),
         }
     }
 
@@ -94,6 +100,20 @@ impl StandIn {
     /// Forgets the calls so far.
     pub fn clear_calls(&mut self) {
         self.calls.clear();
+        self.targets.clear();
+    }
+
+    /// The name of each upright frame the stand-in made, in the order it
+    /// made them, kept when the calls are forgotten: a test maps a draw's
+    /// target to the tile it draws into.
+    pub fn frame_names(&self) -> &[u32] {
+        &self.frames
+    }
+
+    /// The name of the target of each [`Call::Draw`] in [`StandIn::calls`],
+    /// in the same order.
+    pub fn draw_targets(&self) -> &[u32] {
+        &self.targets
     }
 
     /// How many textures, targets and programs are live.
@@ -172,6 +192,7 @@ impl Gl for StandIn {
     fn create_frame(&mut self, size: Size) -> Result<DrawTarget, Error> {
         let names = self.make(Op::CreateFrame).map(|n| (n, n));
         let t = self.ledger.create_frame(size, || names)?;
+        self.frames.push(self.ledger.target(&t)?.name);
         self.calls.push(Call::CreateFrame(size));
         Ok(t)
     }
@@ -210,6 +231,7 @@ impl Gl for StandIn {
 
     fn draw(&mut self, draw: &Draw<'_>) -> Result<(), Error> {
         let checked = self.ledger.draw(draw)?;
+        self.targets.push(checked.target.name);
         self.calls.push(Call::Draw {
             quads: draw.quads.to_vec(),
             blend: draw.blend,

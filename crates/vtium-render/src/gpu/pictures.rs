@@ -148,19 +148,15 @@ fn reach(s: u32, d: u32) -> u32 {
     }
 }
 
-/// Whether the picture shader's 32-bit arithmetic holds `s` source pixels
-/// drawn as `d` exactly: its largest product is about `2 * (s + 1) * d`,
-/// and a weight times a drawn side must stay under 2^32. A picture past it
+/// Whether the picture shader's 32-bit integers hold `s` source pixels
+/// drawn as `d` exactly. Its largest products are `o * s` and `(2o + 1) *
+/// s`, under `2 * s * d` for an output `o` below `d`; `r * 2^16`, for a
+/// remainder `r` below `2d`; `ov * 2^16`, for a box's overlap `ov` at most
+/// `d`; and `q * 2^16`, for a source pixel `q` below `s`. Each stays under
+/// 2^32 while `d` is under 2^15 and `s` under 2^16. A picture past either
 /// is drawn from the CPU copy.
 fn shader_holds(s: u32, d: u32) -> bool {
-    let (s, d) = (u64::from(s), u64::from(d));
-    s.saturating_add(1)
-        .saturating_mul(d)
-        .saturating_mul(2)
-        .saturating_add(d.saturating_mul(2))
-        < 1 << 32
-        && d < 1 << 15
-        && s < 1 << 16
+    d < 1 << 15 && s < 1 << 16
 }
 
 /// The first output of `d` whose centre lies on a source pixel at or past
@@ -533,7 +529,7 @@ fn draw_part<G: Gl>(
         let (tx, ty) = (i64::from(tile.held.x), i64::from(tile.held.y));
         let quads: Vec<Quad> = rects
             .iter()
-            .filter(|&&r| meet(r, tile.held).is_some())
+            .filter_map(|&r| meet(r, tile.held))
             .map(|r| Quad {
                 dst: [
                     side(i64::from(r.x).saturating_sub(tx)),

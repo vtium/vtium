@@ -25,7 +25,10 @@
 //! [`GLYPH_TEXTURE_CEILING`] bytes of textures: past it a pool takes no new
 //! texture, and a glyph it has no free slot for is drawn blank, as gltex
 //! drew one past its hard stop (the issue on GPU texture garbage
-//! collection, ADR-1303 D9).
+//! collection, ADR-1303 D9). That differs from the CPU path, which draws
+//! every glyph, so the glyphs give a note for the log when it happens, at
+//! most once in [`GPU_IDLE_FRAMES`] frames, as gltex logged its hard stop at
+//! most once in 600 frames.
 
 use vtium_font::{Face, Font, Style, Width};
 
@@ -167,6 +170,11 @@ pub(crate) struct Glyphs {
     ceiling: u64,
     /// Frames begun, which the pools' idle textures are counted in.
     frame: u64,
+    /// The frame the last note of a glyph drawn blank past the ceiling was
+    /// given in.
+    noted: Option<u64>,
+    /// Notes for the log, since they were last taken.
+    notes: Vec<String>,
     /// The sprites' texture: each [`Kind`] a cell side by side.
     sprites: usize,
     /// The largest side of a texture.
@@ -233,6 +241,8 @@ impl Glyphs {
             bytes: texture_bytes(Format::R8, strip),
             ceiling: GLYPH_TEXTURE_CEILING,
             frame: 0,
+            noted: None,
+            notes: Vec::new(),
             sprites: 0,
             side,
             cell,
@@ -369,6 +379,7 @@ impl Glyphs {
         let Some(index) = self.take(gl, pool)? else {
             // past the ceiling: drawn blank, and asked for again next frame
             self.cache.count_uncached();
+            self.note_blank();
             return Ok(None);
         };
         let slot = Slot { pool, index, bytes };
@@ -387,6 +398,28 @@ impl Glyphs {
             self.cache.count_uncached();
         }
         Ok(self.place(slot))
+    }
+
+    /// Notes a glyph drawn blank past the ceiling, unless a note was given
+    /// in the last [`GPU_IDLE_FRAMES`] frames.
+    fn note_blank(&mut self) {
+        let frame = self.frame;
+        if self
+            .noted
+            .is_some_and(|n| frame.saturating_sub(n) < GPU_IDLE_FRAMES)
+        {
+            return;
+        }
+        self.noted = Some(frame);
+        self.notes.push(format!(
+            "GPU glyph textures at their ceiling of {} MiB: glyphs past it are drawn blank",
+            self.ceiling >> 20
+        ));
+    }
+
+    /// The notes for the log since the last call.
+    pub(crate) fn take_notes(&mut self) -> Vec<String> {
+        core::mem::take(&mut self.notes)
     }
 
     /// Gives each slot eviction took back to its pool.
@@ -597,6 +630,11 @@ mod tests {
         );
         assert_eq!(textures(&gl), made);
         assert_eq!(g.bytes(), ceiling);
+        // one note for the log, and none again within the idle frames
+        assert_eq!(g.take_notes().len(), 1);
+        let again = g.glyph(&mut gl, &font, &last, Width::Narrow, style);
+        assert_eq!(again.unwrap(), None);
+        assert!(g.take_notes().is_empty());
         g.end_frame();
         // a glyph forgotten gives its slot back, which the 65th then takes
         g.forget(&['A']);
@@ -607,5 +645,12 @@ mod tests {
                 .is_some()
         );
         assert_eq!(textures(&gl), made);
+        // past the idle frames a glyph drawn blank is noted again
+        for _ in 0..GPU_IDLE_FRAMES {
+            g.give_back(&mut gl).unwrap();
+        }
+        let more = g.glyph(&mut gl, &font, &['A'], Width::Narrow, style);
+        assert_eq!(more.unwrap(), None);
+        assert_eq!(g.take_notes().len(), 1);
     }
 }

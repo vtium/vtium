@@ -515,3 +515,88 @@ fn a_release_frees_the_glyph_and_picture_textures_and_the_next_frame_draws_whole
     assert!(g.made().contains(&Size::new(48, 48)));
     assert_eq!(g.gl.live().0, textures);
 }
+
+// ADR-1303 D2, D3: on a GL whose largest texture is 64, with no limit of
+// the renderer's own, a picture's textures and the upright frame's tiles
+// stay within it, and each picture and tint quad draws into its tile in
+// the tile's own pixels, every pixel of the frame once
+#[test]
+fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles() {
+    let limits = vtium_render::gpu::Limits {
+        texture: 64,
+        ..StandIn::LIMITS
+    };
+    let mut g = Gpu::with_limits(limits);
+    // 150x100 fitted into 10 by 3 cells from cell 1, 2: drawn 72x48 at
+    // 12, 32, across the tiles' seams at x 64 and y 64
+    let p = placements(&[pic(1, (150, 100), (1, 2), (10, 3))]);
+    // cells 6 to 9 of rows 3 and 4 selected, across both seams
+    let rows: Vec<std::ops::Range<usize>> = (0..ROWS)
+        .map(|r| if r == 3 || r == 4 { 6..10 } else { 0..0 })
+        .collect();
+    let frame = g.screen.frame(Age::NEVER).with_selection(rows);
+    g.gl.clear_calls();
+    g.renderer
+        .draw_gpu(
+            &mut g.gl,
+            &mut g.pipeline,
+            &frame.with_placements(p),
+            &g.buffer,
+            1,
+            &DrawState::default(),
+            &[],
+        )
+        .unwrap();
+    let over = |s: &Size| s.width > 64 || s.height > 64;
+    assert!(!g.made().iter().any(over), "{:?}", g.made());
+    for c in g.calls() {
+        if let Call::CreateFrame(s) = c {
+            assert!(!over(s), "{s:?}");
+        }
+    }
+    // the upright frame's tiles, in the order the pipeline made them
+    let layout = tiles(DISPLAY, Size::new(64, 64), 0).unwrap();
+    assert!(layout.len() > 4, "{layout:?}");
+    let origin = |name: u32| {
+        let k = g.gl.frame_names().iter().position(|&n| n == name)?;
+        layout.get(k).map(|t| t.held)
+    };
+    // each draw of `inputs` into a tile, mapped back into the frame
+    let cover = |inputs: &[&str], want: u32| {
+        let mut n = vec![0u32; (DISPLAY.width * DISPLAY.height) as usize];
+        let draws = g.calls().iter().filter(|c| matches!(c, Call::Draw { .. }));
+        for (c, &target) in draws.zip(g.gl.draw_targets()) {
+            let Call::Draw {
+                quads, inputs: i, ..
+            } = c
+            else {
+                continue;
+            };
+            let Some(held) = (i[..] == *inputs).then(|| origin(target)).flatten() else {
+                continue;
+            };
+            for q in quads {
+                // tile-local: inside the tile's own pixels
+                assert!(
+                    q.dst[0] >= 0
+                        && q.dst[1] >= 0
+                        && (q.dst[0] + q.dst[2]) as u32 <= held.width
+                        && (q.dst[1] + q.dst[3]) as u32 <= held.height,
+                    "{inputs:?} quad {:?} past its tile {held:?}",
+                    q.dst
+                );
+                for y in q.dst[1]..q.dst[1] + q.dst[3] {
+                    for x in q.dst[0]..q.dst[0] + q.dst[2] {
+                        let (fx, fy) = (x as u32 + held.x, y as u32 + held.y);
+                        n[(fy * DISPLAY.width + fx) as usize] += 1;
+                    }
+                }
+            }
+        }
+        assert!(n.iter().all(|&k| k <= 1), "{inputs:?}: a pixel drawn twice");
+        assert_eq!(n.iter().sum::<u32>(), want, "{inputs:?}");
+    };
+    cover(&PICTURE_INPUTS, 72 * 48);
+    // the tint's draws back into the tiles: 2 rows of 4 cells of 8x16
+    cover(&TINT_INPUTS, 2 * 4 * 8 * 16);
+}

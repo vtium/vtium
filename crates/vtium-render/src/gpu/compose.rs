@@ -377,6 +377,14 @@ impl Composition {
         Ok(())
     }
 
+    /// The glyphs' notes for the log since the last call.
+    pub(crate) fn take_notes(&mut self) -> Vec<String> {
+        self.glyphs
+            .as_mut()
+            .map(Glyphs::take_notes)
+            .unwrap_or_default()
+    }
+
     /// Bytes the glyphs' textures hold, while the frame has glyphs.
     pub(crate) fn glyph_bytes(&self) -> Option<u64> {
         self.glyphs.as_ref().map(Glyphs::bytes)
@@ -653,6 +661,8 @@ impl Composition {
         {
             out = out.and(self.end_frame(gl));
         }
+        // belt and braces: the next frame makes the glyphs anew, which
+        // already draws the frame whole
         self.redraw_whole();
         out
     }
