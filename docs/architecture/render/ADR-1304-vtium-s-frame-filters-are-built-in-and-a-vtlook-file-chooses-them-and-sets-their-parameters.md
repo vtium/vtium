@@ -142,6 +142,9 @@ considered:
   - operator: aaronsb
     said: "that could be another requirements option"
     via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, refining the cost check
+  - operator: aaronsb
+    said: "this is another guard to prevent the display from failing. the filter stack would just exit if it flunks out on perf"
+    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, framing the frame-rate check
 status: proposed
 date: 2026-11-03
 deciders:
@@ -723,6 +726,8 @@ look big (/etc/vtium/looks/big.vtlook:5): requires: checking: min-size = 1920x10
 ### D16: a look's cost, measured against a frame-rate floor
 
 **Decided by the maintainer (2026-11-03):** "perhaps we could have a low cost evaluation loop for the shader - below a threshhold of fps for the filter stack, we fail the entire stack", refined to "that could be another requirements option". The frame-rate floor is a `[requires]` key, `min-fps` (D7), judged for each display like the other requirements: a display whose filter stack misses the floor draws `default` alone, the head's other displays keep the look, and one log line names the display, the measured rate and the floor. It is not an error.
+
+The maintainer's framing: "this is another guard to prevent the display from failing. the filter stack would just exit if it flunks out on perf". The check exists to keep the display working. A stack that misses its floor simply stops on that display, which draws `default`, and nothing else is disturbed: not the head's other displays, not the head's path, not the terminal.
 
 **Proposed, the floor.** `min-fps` takes `any`, `refresh`, the display's own refresh rate from its mode, or a whole number of frames a second, 1 to 1000. A machine-wide floor, `look-min-fps` in vtium.conf, which a head may set for itself in heads.conf, always applies; its default is `refresh`, and it takes the same values. A look's `min-fps` can only raise the floor, and `any` in a look adds no demand of its own, so no look can turn the cost check off; only the administrator's `look-min-fps = any` does. The floor a display meets is the higher of the two.
 
