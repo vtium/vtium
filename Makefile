@@ -471,7 +471,7 @@ vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, th
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 # Tier 2 against vtium's goldens and the C reference's, copied into
-# tools/tier2/reference (provenance.tsv).
+# tools/tier2/reference.
 .PHONY: tier2
 tier2: ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --features gpu --bins
@@ -514,11 +514,6 @@ docs-serve: $(SITE_VENV)/installed ## Serve the documentation site at http://loc
 
 showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 	tools/tier3/showcase.sh
-
-.PHONY: tier2-provenance
-tier2-provenance: ## Check tools/tier2's copies against their sources with git show (KMSCON=DIR)
-	cargo build --release -p vtium-tier2 --bins
-	$(or $(CARGO_TARGET_DIR),target)/release/tier2 provenance --kmscon $(KMSCON)
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the C reference's
