@@ -412,7 +412,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             o.loan = None;
             if o.clear_owed {
                 o.clear_owed = false;
-                lock(token.memory()).as_mut().fill(0);
+                if let Some(memory) = token.memory() {
+                    lock(memory).as_mut().fill(0);
+                }
             }
         }
         drop(token);
@@ -447,8 +449,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             // kept from a failed swap: it goes whole.
             o.forget();
             o.damage.set_whole();
-            if std::mem::take(&mut o.clear_owed) {
-                lock(token.memory()).as_mut().fill(0);
+            if std::mem::take(&mut o.clear_owed)
+                && let Some(memory) = token.memory()
+            {
+                lock(memory).as_mut().fill(0);
             }
             drop(token);
             self.reap();

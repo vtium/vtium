@@ -20,6 +20,10 @@ default = []
 images = ["dep:vtium-image", "vtium-term/images", "vtium-render/images", "vtium-platform/images"]
 # grab-suspend through logind's Suspend (ADR-1400's L2 layer).
 logind = ["vtium-platform/logind"]
+# The GPU path (ADR-1303): vtium-render's frame and `Gl` trait, and
+# vtium-platform's GL context, which `src/gpu.rs` joins. It loads libEGL and
+# libgbm at run time and links no GL library.
+gpu = ["vtium-render/gpu", "vtium-platform/gpu"]
 
 [dependencies]
 vtium-term.workspace = true
