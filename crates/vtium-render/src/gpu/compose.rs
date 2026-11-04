@@ -44,12 +44,21 @@ use crate::target::Rect;
 
 const QUAD_VERT: &str = include_str!("glsl/quad.vert");
 pub(crate) const CELL_VERT: &str = include_str!("glsl/cell.vert");
+/// The first piece of the cell and picture shaders, which leave it out so
+/// that [`OVER`] can follow it: GLSL takes nothing before `#version`.
+const ES3: &str = "#version 300 es\n";
+/// The piece that makes the cell or picture shader draw over the pixels
+/// beneath it, which it reads from a copy of them, with the CPU path's
+/// over_px in whole numbers: a cell's text layer or vtium's mark, or a
+/// picture that is not opaque.
+#[cfg(feature = "images")]
+const OVER: &str = "#define OVER\n";
 const CELL_FRAG: &str = include_str!("glsl/cell.frag");
 const ARROW_FRAG: &str = include_str!("glsl/arrow.frag");
 #[cfg(feature = "images")]
 const PICTURE_FRAG: &str = include_str!("glsl/picture.frag");
 #[cfg(feature = "images")]
-const TINT_FRAG: &str = include_str!("glsl/tint.frag");
+const UNDER_FRAG: &str = include_str!("glsl/under.frag");
 
 pub(crate) const TARGET_SIZE: Input = Input {
     name: "target_size",
@@ -74,6 +83,32 @@ const CELL_INPUTS: [Input; 5] = [
         name: "cell",
         kind: InputKind::IVec4,
     },
+];
+
+/// What a shader built with [`OVER`] takes besides its own inputs: the
+/// copy of the pixels beneath, and the pixel of the target its first texel
+/// holds.
+#[cfg(feature = "images")]
+const BENEATH: [Input; 2] = [
+    Input {
+        name: "under",
+        kind: InputKind::Texture,
+    },
+    Input {
+        name: "under_at",
+        kind: InputKind::IVec4,
+    },
+];
+
+#[cfg(feature = "images")]
+const LAYER_INPUTS: [Input; 7] = [
+    CELL_INPUTS[0],
+    CELL_INPUTS[1],
+    CELL_INPUTS[2],
+    CELL_INPUTS[3],
+    CELL_INPUTS[4],
+    BENEATH[0],
+    BENEATH[1],
 ];
 
 const ARROW_INPUTS: [Input; 2] = [
@@ -102,7 +137,17 @@ const PICTURE_INPUTS: [Input; 4] = [
 ];
 
 #[cfg(feature = "images")]
-const TINT_INPUTS: [Input; 2] = [
+const PICTURE_OVER_INPUTS: [Input; 6] = [
+    PICTURE_INPUTS[0],
+    PICTURE_INPUTS[1],
+    PICTURE_INPUTS[2],
+    PICTURE_INPUTS[3],
+    BENEATH[0],
+    BENEATH[1],
+];
+
+#[cfg(feature = "images")]
+const UNDER_INPUTS: [Input; 2] = [
     TARGET_SIZE,
     Input {
         name: "under",
@@ -203,15 +248,123 @@ pub(crate) struct Composition {
     whole: bool,
     /// The notices the last frame drew.
     overlays: Vec<Placed>,
-    /// The picture shader and the selection's tint, compiled the first
-    /// time a frame draws a picture or a tint.
+    /// The programs of the cells that pictures reach, each compiled the
+    /// first time a frame needs it: the picture shader for an opaque
+    /// picture and, built with [`OVER`], for one that is not; the cell
+    /// shader built with [`OVER`], for the text layers and marks; and the
+    /// under shader, which copies the pixels beneath each of those out of
+    /// the frame and tints the selection.
     #[cfg(feature = "images")]
     picture: Option<Program>,
     #[cfg(feature = "images")]
-    tint: Option<Program>,
-    /// Where the tint copies the cells it tints, made for the frame.
+    picture_over: Option<Program>,
     #[cfg(feature = "images")]
-    tint_copy: Option<DrawTarget>,
+    layer: Option<Program>,
+    #[cfg(feature = "images")]
+    under: Option<Program>,
+    /// Where a draw over the pixels beneath it copies them, made for the
+    /// frame, and for each tile the rectangle of the upright frame the
+    /// copy's first texel holds: the smallest one holding every pixel the
+    /// frame draws over in that tile.
+    #[cfg(feature = "images")]
+    copy: Option<DrawTarget>,
+    #[cfg(feature = "images")]
+    copy_at: Vec<Option<Rect>>,
+}
+
+/// What a draw over the pixels beneath it needs: the under shader, which
+/// copies them out of a tile, the copy, and for each tile the rectangle of
+/// the upright frame the copy's first texel holds.
+#[cfg(feature = "images")]
+pub(crate) struct Beneath<'a> {
+    program: &'a Program,
+    copy: &'a DrawTarget,
+    at: &'a [Option<Rect>],
+}
+
+#[cfg(feature = "images")]
+impl Beneath<'_> {
+    /// Copies the pixels under `quads`, tile-local quads of the `k`-th
+    /// tile, out of the tile's `target` into the copy, and gives the copy
+    /// for a shader built with [`OVER`] to read them from. The quads of one
+    /// draw over the pixels beneath must not overlap, since each reads what
+    /// lay beneath before the draw.
+    pub(crate) fn copy<G: Gl>(
+        &self,
+        gl: &mut G,
+        k: usize,
+        tile: &Tile,
+        target: &DrawTarget,
+        quads: &[Quad],
+    ) -> Result<Copied<'_>, Error> {
+        let b = self
+            .at
+            .get(k)
+            .copied()
+            .flatten()
+            .ok_or_else(|| Error::new(ErrorKind::Misuse, "a tile has no copy made ready"))?;
+        let frame = target
+            .texture()
+            .ok_or_else(|| Error::new(ErrorKind::Misuse, "a tile has no texture"))?;
+        let copied = self
+            .copy
+            .texture()
+            .ok_or_else(|| Error::new(ErrorKind::Misuse, "the copy has no texture"))?;
+        // the tile-local pixel the copy's first texel holds
+        let at = local(b, tile);
+        let whole = Size::new(tile.held.width, tile.held.height).rect();
+        let out: Vec<Quad> = quads
+            .iter()
+            .filter_map(|q| dst_rect(q.dst).and_then(|r| meet(r, whole)))
+            .map(|r| Quad {
+                dst: [
+                    side(r.x.saturating_sub(at.x)),
+                    side(r.y.saturating_sub(at.y)),
+                    side(r.width),
+                    side(r.height),
+                ],
+                src: [r.x, r.y, 0, 0],
+                params: [0; 4],
+            })
+            .collect();
+        gl.draw(&Draw {
+            target: self.copy,
+            program: self.program,
+            inputs: &[
+                ("target_size", target_size(self.copy)),
+                ("under", Value::Texture(frame, Filter::Nearest)),
+            ],
+            quads: &out,
+            blend: Blend::Replace,
+            scissor: None,
+        })?;
+        Ok(Copied {
+            texture: copied,
+            at: (at.x, at.y),
+        })
+    }
+}
+
+/// The pixels beneath a draw, copied: the copy's texture, and the
+/// tile-local pixel its first texel holds.
+#[cfg(feature = "images")]
+pub(crate) struct Copied<'a> {
+    texture: &'a Texture,
+    at: (u32, u32),
+}
+
+#[cfg(feature = "images")]
+impl Copied<'_> {
+    /// The inputs a shader built with [`OVER`] reads the copy through.
+    pub(crate) fn inputs(&self) -> [(&'static str, Value<'_>); 2] {
+        [
+            ("under", Value::Texture(self.texture, Filter::Nearest)),
+            (
+                "under_at",
+                Value::IVec4([side(self.at.0), side(self.at.1), 0, 0]),
+            ),
+        ]
+    }
 }
 
 /// The tiles of an upright frame of `size`, overlapping by `overlap`, each
@@ -263,7 +416,7 @@ impl Composition {
         let made = make_tiles(gl, size, overlap)?;
         let cell = match gl.compile(&Source {
             vertex: &[CELL_VERT],
-            fragment: &[CELL_FRAG],
+            fragment: &[ES3, CELL_FRAG],
             inputs: &CELL_INPUTS,
         }) {
             Ok(p) => p,
@@ -298,9 +451,15 @@ impl Composition {
             #[cfg(feature = "images")]
             picture: None,
             #[cfg(feature = "images")]
-            tint: None,
+            picture_over: None,
             #[cfg(feature = "images")]
-            tint_copy: None,
+            layer: None,
+            #[cfg(feature = "images")]
+            under: None,
+            #[cfg(feature = "images")]
+            copy: None,
+            #[cfg(feature = "images")]
+            copy_at: Vec::new(),
         })
     }
 
@@ -440,41 +599,88 @@ impl Composition {
     #[cfg(feature = "images")]
     fn prepare_pictured<G: Gl>(&mut self, gl: &mut G, work: &Work<'_>) -> Result<usize, Error> {
         let mut calls = 0usize;
-        let pictures = work.pictures.iter().any(|s| !s.rects.is_empty());
-        if pictures && self.picture.is_none() {
-            self.picture = Some(gl.compile(&Source {
-                vertex: &[CELL_VERT],
-                fragment: &[PICTURE_FRAG],
-                inputs: &PICTURE_INPUTS,
-            })?);
-            calls = calls.saturating_add(1);
-        }
-        if work.tints.is_empty() {
-            return Ok(calls);
-        }
-        if self.tint.is_none() {
-            self.tint = Some(gl.compile(&Source {
-                vertex: &[CELL_VERT],
-                fragment: &[TINT_FRAG],
-                inputs: &TINT_INPUTS,
-            })?);
-            calls = calls.saturating_add(1);
-        }
-        // the copy holds the tinted cells of the tile that needs the most
-        let mut size = Size::new(0, 0);
-        for (tile, _) in &self.tiles {
-            if let Some(b) = tint_bounds(work.tints, tile) {
-                size = Size::new(size.width.max(b.width), size.height.max(b.height));
+        let drawn = |s: &&Shown| !s.rects.is_empty();
+        let opaque = work.pictures.iter().filter(drawn).any(|s| s.opaque);
+        let clear = work.pictures.iter().filter(drawn).any(|s| !s.opaque);
+        let layers = !work.text.is_empty() || !work.marks.is_empty();
+        let needs = [
+            opaque,
+            clear,
+            layers,
+            clear || layers || !work.tints.is_empty(),
+        ];
+        let programs = [
+            &mut self.picture,
+            &mut self.picture_over,
+            &mut self.layer,
+            &mut self.under,
+        ];
+        let sources: [(&[&'static str], &[Input]); 4] = [
+            (&[ES3, PICTURE_FRAG], &PICTURE_INPUTS),
+            (&[ES3, OVER, PICTURE_FRAG], &PICTURE_OVER_INPUTS),
+            (&[ES3, OVER, CELL_FRAG], &LAYER_INPUTS),
+            (&[UNDER_FRAG], &UNDER_INPUTS),
+        ];
+        for ((needed, program), (fragment, inputs)) in needs.into_iter().zip(programs).zip(sources)
+        {
+            if needed && program.is_none() {
+                *program = Some(gl.compile(&Source {
+                    vertex: &[CELL_VERT],
+                    fragment,
+                    inputs,
+                })?);
+                calls = calls.saturating_add(1);
             }
+        }
+        // every pixel the frame draws over: the pictures that are not
+        // opaque, the text layers, the selection's tint and the marks
+        let mut over: Vec<Rect> = work
+            .pictures
+            .iter()
+            .filter(|s| !s.opaque)
+            .flat_map(|s| s.rects.iter().copied())
+            .collect();
+        let quads = work.text.iter().chain(work.marks).flat_map(|c| &c.quads);
+        over.extend(quads.filter_map(|q| dst_rect(q.dst)));
+        over.extend(work.tints.iter().map(|&(r, _)| r));
+        // the copy holds those pixels of the tile that has the most
+        self.copy_at = self
+            .tiles
+            .iter()
+            .map(|(tile, _)| {
+                over.iter()
+                    .filter_map(|&r| meet(r, tile.held))
+                    .reduce(bounds)
+            })
+            .collect();
+        let mut size = Size::new(0, 0);
+        for b in self.copy_at.iter().flatten() {
+            size = Size::new(size.width.max(b.width), size.height.max(b.height));
         }
         if size.width > 0 && size.height > 0 {
-            if let Some(old) = self.tint_copy.take() {
+            if let Some(old) = self.copy.take() {
                 gl.free_target(old)?;
             }
-            self.tint_copy = Some(gl.create_frame(size)?);
+            self.copy = Some(gl.create_frame(size)?);
             calls = calls.saturating_add(2);
         }
         Ok(calls)
+    }
+
+    /// What a draw over the pixels beneath it needs this frame.
+    #[cfg(feature = "images")]
+    fn beneath(&self) -> Result<Beneath<'_>, Error> {
+        match (&self.under, &self.copy) {
+            (Some(program), Some(copy)) => Ok(Beneath {
+                program,
+                copy,
+                at: &self.copy_at,
+            }),
+            _ => Err(Error::new(
+                ErrorKind::Misuse,
+                "the copy of the pixels beneath is not made ready",
+            )),
+        }
     }
 
     /// Draws `work` into the upright frame, and gives the rectangles that
@@ -512,7 +718,7 @@ impl Composition {
                 }
             }
         }
-        self.draw_cells(gl, work.cells, false)?;
+        self.draw_cells(gl, work.cells)?;
         #[cfg(feature = "images")]
         self.draw_pictured(gl, work, pictures)?;
         if let Some(a) = work.arrow {
@@ -541,9 +747,11 @@ impl Composition {
     /// Over the cells pictures reach, in ADR-1100 D4's layers: each
     /// picture in the frame's order, the text layers before the first
     /// picture above the text, the selection's tint, and vtium's marks.
+    /// Each but an opaque picture goes over the pixels beneath it, which it
+    /// reads from a copy of them.
     #[cfg(feature = "images")]
     fn draw_pictured<G: Gl>(
-        &mut self,
+        &self,
         gl: &mut G,
         work: &Work<'_>,
         pictures: &super::pictures::Pictures,
@@ -554,81 +762,69 @@ impl Composition {
                 continue;
             }
             if s.above && !text {
-                self.draw_cells(gl, work.text, true)?;
+                self.draw_layers(gl, work.text)?;
                 text = true;
             }
-            let program = self
-                .picture
-                .as_ref()
-                .ok_or_else(|| Error::new(ErrorKind::Misuse, "the picture shader is not made"))?;
-            pictures.draw(gl, i, s, &self.tiles, program)?;
+            let missing = || Error::new(ErrorKind::Misuse, "the picture shader is not made");
+            if s.opaque {
+                let program = self.picture.as_ref().ok_or_else(missing)?;
+                pictures.draw(gl, i, s, &self.tiles, program, None)?;
+            } else {
+                let program = self.picture_over.as_ref().ok_or_else(missing)?;
+                let beneath = self.beneath()?;
+                pictures.draw(gl, i, s, &self.tiles, program, Some(&beneath))?;
+            }
         }
         if !text {
-            self.draw_cells(gl, work.text, true)?;
+            self.draw_layers(gl, work.text)?;
         }
         self.draw_tints(gl, work.tints)?;
-        self.draw_cells(gl, work.marks, true)
+        self.draw_layers(gl, work.marks)
     }
 
     /// The selection's tint over `tints`, in each tile: the cells copied
     /// out, then drawn back tinted from the copy.
     #[cfg(feature = "images")]
-    fn draw_tints<G: Gl>(&mut self, gl: &mut G, tints: &[(Rect, u32)]) -> Result<(), Error> {
+    fn draw_tints<G: Gl>(&self, gl: &mut G, tints: &[(Rect, u32)]) -> Result<(), Error> {
         if tints.is_empty() {
             return Ok(());
         }
-        let (Some(program), Some(copy)) = (&self.tint, &self.tint_copy) else {
-            return Err(Error::new(ErrorKind::Misuse, "the tint is not made ready"));
-        };
-        let copied = copy
-            .texture()
-            .ok_or_else(|| Error::new(ErrorKind::Misuse, "the tint's copy has no texture"))?;
+        let beneath = self.beneath()?;
         let strength = u32::from(crate::picture::SELECTION_TINT);
-        for (tile, target) in &self.tiles {
-            let Some(b) = tint_bounds(tints, tile) else {
-                continue;
-            };
-            let Some(frame) = target.texture() else {
-                continue;
-            };
-            let parts: Vec<(Rect, u32)> = tints
+        for (k, (tile, target)) in self.tiles.iter().enumerate() {
+            let quads: Vec<Quad> = tints
                 .iter()
-                .filter_map(|&(r, c)| meet(r, tile.held).map(|m| (m, c)))
+                .filter_map(|&(r, c)| meet(r, tile.held).map(|m| (local(m, tile), c)))
+                .map(|(r, c)| Quad {
+                    dst: [side(r.x), side(r.y), side(r.width), side(r.height)],
+                    src: [0; 4],
+                    params: [c & 0x00ff_ffff | 1 << 24, strength, 0, 0],
+                })
                 .collect();
-            let at = |r: Rect, x: u32, y: u32| [r.x.saturating_sub(x), r.y.saturating_sub(y)];
-            let quad = |dst: [u32; 2], src: [u32; 2], r: Rect, params: [u32; 4]| Quad {
-                dst: [side(dst[0]), side(dst[1]), side(r.width), side(r.height)],
-                src: [src[0], src[1], 0, 0],
-                params,
-            };
-            let out: Vec<Quad> = parts
+            if quads.is_empty() {
+                continue;
+            }
+            let copied = beneath.copy(gl, k, tile, target, &quads)?;
+            // each quad reads the copy from its own texel of it
+            let (ax, ay) = copied.at;
+            let back: Vec<Quad> = quads
                 .iter()
-                .map(|&(r, _)| quad(at(r, b.x, b.y), at(r, tile.held.x, tile.held.y), r, [0; 4]))
-                .collect();
-            gl.draw(&Draw {
-                target: copy,
-                program,
-                inputs: &[
-                    ("target_size", target_size(copy)),
-                    ("under", Value::Texture(frame, Filter::Nearest)),
-                ],
-                quads: &out,
-                blend: Blend::Replace,
-                scissor: None,
-            })?;
-            let back: Vec<Quad> = parts
-                .iter()
-                .map(|&(r, c)| {
-                    let params = [c & 0x00ff_ffff | 1 << 24, strength, 0, 0];
-                    quad(at(r, tile.held.x, tile.held.y), at(r, b.x, b.y), r, params)
+                .map(|q| Quad {
+                    src: [
+                        q.dst[0].unsigned_abs().saturating_sub(ax),
+                        q.dst[1].unsigned_abs().saturating_sub(ay),
+                        0,
+                        0,
+                    ],
+                    ..*q
                 })
                 .collect();
             gl.draw(&Draw {
                 target,
-                program,
+                program: beneath.program,
                 inputs: &[
                     ("target_size", target_size(target)),
-                    ("under", Value::Texture(copied, Filter::Nearest)),
+                    ("under", Value::Texture(copied.texture, Filter::Nearest)),
                 ],
                 quads: &back,
                 blend: Blend::Replace,
@@ -638,10 +834,12 @@ impl Composition {
         Ok(())
     }
 
-    /// Frees the tint's copy, which a frame makes for itself.
+    /// Frees the copy of the pixels beneath, which a frame makes for
+    /// itself.
     #[cfg(feature = "images")]
     pub(crate) fn end_frame<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
-        match self.tint_copy.take() {
+        self.copy_at.clear();
+        match self.copy.take() {
             Some(t) => gl.free_target(t),
             None => Ok(()),
         }
@@ -689,13 +887,9 @@ impl Composition {
         Ok(self.tiles.len())
     }
 
-    /// The cells' quads, a draw for each texture of glyphs and tile: whole
-    /// cells, or with `layer` their text layers alone, premultiplied and
-    /// blended over the frame.
-    fn draw_cells<G: Gl>(&self, gl: &mut G, cells: &[Cells], layer: bool) -> Result<(), Error> {
-        if cells.is_empty() {
-            return Ok(());
-        }
+    /// The textures a batch of cells samples, its masks, its colors and the
+    /// sprites, and the cell's size, as the cell shader's inputs.
+    fn cell_inputs(&self, batch: &Cells) -> Result<[(&'static str, Value<'_>); 4], Error> {
         let glyphs = self
             .glyphs
             .as_ref()
@@ -706,13 +900,27 @@ impl Composition {
                 .ok_or_else(|| Error::new(ErrorKind::Misuse, "no such texture of glyphs"))
         };
         let sprites = texture(glyphs.sprites())?;
+        let (masks, colors) = match batch.glyphs {
+            Some((t, false)) => (texture(t)?, sprites),
+            Some((t, true)) => (sprites, texture(t)?),
+            None => (sprites, sprites),
+        };
         let cell = glyphs.cell();
+        Ok([
+            ("masks", Value::Texture(masks, Filter::Nearest)),
+            ("colors", Value::Texture(colors, Filter::Nearest)),
+            ("sprites", Value::Texture(sprites, Filter::Nearest)),
+            (
+                "cell",
+                Value::IVec4([side(cell.width), side(cell.height), 0, 0]),
+            ),
+        ])
+    }
+
+    /// The cells' quads, a draw for each texture of glyphs and tile.
+    fn draw_cells<G: Gl>(&self, gl: &mut G, cells: &[Cells]) -> Result<(), Error> {
         for batch in cells {
-            let (masks, colors) = match batch.glyphs {
-                Some((t, false)) => (texture(t)?, sprites),
-                Some((t, true)) => (sprites, texture(t)?),
-                None => (sprites, sprites),
-            };
+            let [masks, colors, sprites, cell] = self.cell_inputs(batch)?;
             for (tile, target) in &self.tiles {
                 let quads = in_tile(&batch.quads, tile);
                 if quads.is_empty() {
@@ -723,21 +931,56 @@ impl Composition {
                     program: &self.cell,
                     inputs: &[
                         ("target_size", target_size(target)),
-                        ("masks", Value::Texture(masks, Filter::Nearest)),
-                        ("colors", Value::Texture(colors, Filter::Nearest)),
-                        ("sprites", Value::Texture(sprites, Filter::Nearest)),
-                        (
-                            "cell",
-                            Value::IVec4([
-                                side(cell.width),
-                                side(cell.height),
-                                i32::from(layer),
-                                0,
-                            ]),
-                        ),
+                        masks,
+                        colors,
+                        sprites,
+                        cell,
                     ],
                     quads: &quads,
-                    blend: if layer { Blend::Over } else { Blend::Replace },
+                    blend: Blend::Replace,
+                    scissor: None,
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The text layers or marks of `cells`, a draw for each texture of
+    /// glyphs and tile, over the pixels beneath them, which each draw reads
+    /// from a copy of them.
+    #[cfg(feature = "images")]
+    fn draw_layers<G: Gl>(&self, gl: &mut G, cells: &[Cells]) -> Result<(), Error> {
+        if cells.is_empty() {
+            return Ok(());
+        }
+        let program = self
+            .layer
+            .as_ref()
+            .ok_or_else(|| Error::new(ErrorKind::Misuse, "the layer shader is not made"))?;
+        let beneath = self.beneath()?;
+        for batch in cells {
+            let [masks, colors, sprites, cell] = self.cell_inputs(batch)?;
+            for (k, (tile, target)) in self.tiles.iter().enumerate() {
+                let quads = in_tile(&batch.quads, tile);
+                if quads.is_empty() {
+                    continue;
+                }
+                let copied = beneath.copy(gl, k, tile, target, &quads)?;
+                let [under, under_at] = copied.inputs();
+                gl.draw(&Draw {
+                    target,
+                    program,
+                    inputs: &[
+                        ("target_size", target_size(target)),
+                        masks,
+                        colors,
+                        sprites,
+                        cell,
+                        under,
+                        under_at,
+                    ],
+                    quads: &quads,
+                    blend: Blend::Replace,
                     scissor: None,
                 })?;
             }
@@ -828,11 +1071,14 @@ impl Composition {
             out = out.and(g.free(gl));
         }
         #[cfg(feature = "images")]
-        for p in [self.picture, self.tint].into_iter().flatten() {
+        for p in [self.picture, self.picture_over, self.layer, self.under]
+            .into_iter()
+            .flatten()
+        {
             out = out.and(gl.free_program(p));
         }
         #[cfg(feature = "images")]
-        if let Some(t) = self.tint_copy {
+        if let Some(t) = self.copy {
             out = out.and(gl.free_target(t));
         }
         for (_, t) in self.tiles {
@@ -853,15 +1099,6 @@ pub(crate) fn target_size(target: &DrawTarget) -> Value<'static> {
         reason = "a target's side is at most the largest viewport, which a float holds exactly"
     )]
     Value::Vec2([s.width as f32, s.height as f32])
-}
-
-/// The smallest rectangle holding the parts of `tints` in `tile`.
-#[cfg(feature = "images")]
-fn tint_bounds(tints: &[(Rect, u32)], tile: &Tile) -> Option<Rect> {
-    tints
-        .iter()
-        .filter_map(|&(r, _)| meet(r, tile.held))
-        .reduce(bounds)
 }
 
 /// `r`, in the upright frame, in `tile`'s own pixels.

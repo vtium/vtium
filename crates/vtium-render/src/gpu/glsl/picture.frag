@@ -1,4 +1,6 @@
-#version 300 es
+// The program's source puts `#version 300 es` before this file, and for
+// a picture that is not opaque `#define OVER` after it.
+//
 // A picture drawn at another size (ADR-1303 D2), with the CPU path's own
 // filter (src/picture/scale.rs) in whole numbers: a box filter along an
 // axis where the picture shrinks, a bilinear blend where it grows, and the
@@ -11,10 +13,14 @@
 // `origin.zw` on: the picture's own pixels, or the CPU path's copy at the
 // drawn size, which keeps its size and is read one texel a pixel.
 //
-// A quad draws part of the picture: dst where, and params.x 1 for an
-// opaque picture, which replaces what lies beneath; any other is written
-// premultiplied, for the GPU to blend over the frame as GL_ONE,
-// GL_ONE_MINUS_SRC_ALPHA.
+// A quad draws part of the picture: dst where. An opaque picture
+// replaces what lies beneath it. A picture that is not opaque goes over
+// the pixels beneath it with the CPU path's over_px (src/picture/mod.rs)
+// in whole numbers, reading them from `under`, a copy of them, since no
+// draw reads the target it draws into. The GPU's own blending would turn
+// its float result into a byte as the driver chooses, rounding or
+// truncating, so the shader does the blend itself and writes every pixel
+// as an opaque one.
 precision highp float;
 precision highp int;
 
@@ -24,6 +30,12 @@ uniform uvec4 scale;
 // x, y: the drawn picture's top left in the target; z, w: the source
 // pixel the texture's first texel holds
 uniform ivec4 origin;
+#ifdef OVER
+// the pixels beneath, copied, and x, y: the target's pixel the copy's
+// first texel holds
+uniform highp sampler2D under;
+uniform ivec4 under_at;
+#endif
 
 flat in ivec4 dst;
 flat in uvec4 src;
@@ -135,9 +147,17 @@ void main() {
     }
     // (sum + 2^31) >> 32, rounded once, as scale.rs's round
     uvec4 c = min((hi + (lo >> 16) + 32768u) >> 16, uvec4(255u));
-    if (params.x == 1u) {
-        color = vec4((vec3(c.rgb) + 0.25) / 255.0, 1.0);
-    } else {
-        color = vec4(c) / 255.0;
-    }
+    uvec3 out_rgb = c.rgb;
+#ifdef OVER
+    // over_px: the premultiplied c over the opaque pixel d,
+    // each channel c + div255(d * (255 - a)), at most 255
+    ivec2 at = ivec2(gl_FragCoord.xy) - under_at.xy;
+    uvec3 d = uvec3(floor(texelFetch(under, at, 0).rgb * 255.0 + 0.5));
+    uvec3 t = d * (255u - c.a) + 128u;
+    t = (t + (t >> 8)) >> 8;
+    out_rgb = c.a == 0u ? d : min(c.rgb + t, uvec3(255u));
+#endif
+    // each channel v written as (v + 0.25) / 255, which an 8-bit target
+    // stores as v whether the GPU rounds or truncates
+    color = vec4((vec3(out_rgb) + 0.25) / 255.0, 1.0);
 }

@@ -29,7 +29,7 @@
 
 use vtium_image::Pixels;
 
-use super::compose::target_size;
+use super::compose::{Beneath, target_size};
 use super::gl::{
     Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Program, Quad, Size, Texture,
     Value,
@@ -328,7 +328,9 @@ impl Pictures {
 
     /// Draws picture `i` of the frame, `s`, into the upright frame's
     /// `tiles` through `program`, the picture shader: from each of its
-    /// textures, the drawn pixels whose source pixel that texture owns.
+    /// textures, the drawn pixels whose source pixel that texture owns. A
+    /// picture that is not opaque goes over the pixels beneath it, copied
+    /// through `beneath` before each draw.
     pub(crate) fn draw<G: Gl>(
         &self,
         gl: &mut G,
@@ -336,6 +338,7 @@ impl Pictures {
         s: &Shown,
         frame: &[(Tile, DrawTarget)],
         program: &Program,
+        beneath: Option<&Beneath<'_>>,
     ) -> Result<(), Error> {
         let ready = self.ready.get(i).copied().unwrap_or(Ready::Idle);
         let (w, h) = s.key.size;
@@ -359,11 +362,11 @@ impl Pictures {
                         scale: [sw, sh, w, h],
                         first: (tile.held.x, tile.held.y),
                     };
-                    draw_part(gl, s, part, &pass, frame, program)?;
+                    draw_part(gl, s, part, &pass, frame, (program, beneath))?;
                 }
                 Ok(())
             }
-            Ready::Scratch => self.draw_scratch(gl, s, frame, program),
+            Ready::Scratch => self.draw_scratch(gl, s, frame, (program, beneath)),
         }
     }
 
@@ -375,7 +378,7 @@ impl Pictures {
         gl: &mut G,
         s: &Shown,
         frame: &[(Tile, DrawTarget)],
-        program: &Program,
+        through: (&Program, Option<&Beneath<'_>>),
     ) -> Result<(), Error> {
         let Some((texture, side)) = &self.scratch else {
             return Err(Error::new(ErrorKind::Misuse, "no scratch texture"));
@@ -436,7 +439,7 @@ impl Pictures {
                 scale: [w, h, w, h],
                 first: (p.x, p.y),
             };
-            draw_part(gl, s, (p.x, p.y, p.width, p.height), &pass, frame, program)?;
+            draw_part(gl, s, (p.x, p.y, p.width, p.height), &pass, frame, through)?;
         }
         Ok(())
     }
@@ -503,14 +506,16 @@ fn side(v: i64) -> i32 {
 
 /// Draws the part `(x, y, width, height)` of picture `s`, in its own drawn
 /// pixels, where the frame draws it, through `pass`, into each tile of the
-/// upright frame it meets.
+/// upright frame it meets, with the picture shader `program`. With
+/// `beneath`, each draw first copies the pixels beneath its quads, which
+/// the shader reads them from.
 fn draw_part<G: Gl>(
     gl: &mut G,
     s: &Shown,
     (px, py, pw, ph): (u32, u32, u32, u32),
     pass: &Pass<'_>,
     frame: &[(Tile, DrawTarget)],
-    program: &Program,
+    (program, beneath): (&Program, Option<&Beneath<'_>>),
 ) -> Result<(), Error> {
     if pw == 0 || ph == 0 {
         return Ok(());
@@ -523,9 +528,8 @@ fn draw_part<G: Gl>(
     if rects.is_empty() {
         return Ok(());
     }
-    let opaque = u32::from(s.opaque);
     let first = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
-    for (tile, target) in frame {
+    for (k, (tile, target)) in frame.iter().enumerate() {
         let (tx, ty) = (i64::from(tile.held.x), i64::from(tile.held.y));
         let quads: Vec<Quad> = rects
             .iter()
@@ -538,35 +542,39 @@ fn draw_part<G: Gl>(
                     side(i64::from(r.height)),
                 ],
                 src: [0; 4],
-                params: [opaque, 0, 0, 0],
+                params: [0; 4],
             })
             .collect();
         if quads.is_empty() {
             continue;
         }
+        let copied = match beneath {
+            Some(b) => Some(b.copy(gl, k, tile, target, &quads)?),
+            None => None,
+        };
+        let mut inputs = vec![
+            ("target_size", target_size(target)),
+            ("picture", Value::Texture(pass.texture, Filter::Nearest)),
+            ("scale", Value::UVec4(pass.scale)),
+            (
+                "origin",
+                Value::IVec4([
+                    side(s.x.saturating_sub(tx)),
+                    side(s.y.saturating_sub(ty)),
+                    first(pass.first.0),
+                    first(pass.first.1),
+                ]),
+            ),
+        ];
+        if let Some(c) = &copied {
+            inputs.extend(c.inputs());
+        }
         gl.draw(&Draw {
             target,
             program,
-            inputs: &[
-                ("target_size", target_size(target)),
-                ("picture", Value::Texture(pass.texture, Filter::Nearest)),
-                ("scale", Value::UVec4(pass.scale)),
-                (
-                    "origin",
-                    Value::IVec4([
-                        side(s.x.saturating_sub(tx)),
-                        side(s.y.saturating_sub(ty)),
-                        first(pass.first.0),
-                        first(pass.first.1),
-                    ]),
-                ),
-            ],
+            inputs: &inputs,
             quads: &quads,
-            blend: if s.opaque {
-                Blend::Replace
-            } else {
-                Blend::Over
-            },
+            blend: Blend::Replace,
             scissor: None,
         })?;
     }

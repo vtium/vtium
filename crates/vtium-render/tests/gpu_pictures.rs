@@ -26,15 +26,40 @@ const COLS: usize = 20;
 const ROWS: usize = 6;
 
 const PICTURE_INPUTS: [&str; 4] = ["target_size", "picture", "scale", "origin"];
+/// A picture that is not opaque, drawn over a copy of the pixels beneath.
+const PICTURE_OVER_INPUTS: [&str; 6] = [
+    "target_size",
+    "picture",
+    "scale",
+    "origin",
+    "under",
+    "under_at",
+];
 const CELL_INPUTS: [&str; 5] = ["target_size", "masks", "colors", "sprites", "cell"];
+/// A cell's text layer or vtium's mark, drawn over a copy of the pixels
+/// beneath.
+const LAYER_INPUTS: [&str; 7] = [
+    "target_size",
+    "masks",
+    "colors",
+    "sprites",
+    "cell",
+    "under",
+    "under_at",
+];
+/// The under shader, which copies the pixels beneath a draw out of a tile
+/// and draws the selection's tint back from the copy.
 const TINT_INPUTS: [&str; 2] = ["target_size", "under"];
+const ARROW_INPUTS: [&str; 2] = ["target_size", "arrow"];
 
-/// A picture: its kitty id, its size and where it goes.
+/// A picture: its kitty id, its size, where it goes, and the alpha of
+/// every pixel.
 struct Pic {
     id: u32,
     size: (u32, u32),
     place: Place,
     z: i32,
+    alpha: u32,
 }
 
 fn pic(id: u32, size: (u32, u32), (col, row): (u32, u32), (cols, rows): (u32, u32)) -> Pic {
@@ -49,10 +74,11 @@ fn pic(id: u32, size: (u32, u32), (col, row): (u32, u32), (cols, rows): (u32, u3
             ..Place::default()
         },
         z: 1,
+        alpha: 0xff,
     }
 }
 
-/// The frame's placements of `pictures`, each opaque.
+/// The frame's placements of `pictures`.
 fn placements(pictures: &[Pic]) -> Vec<FramePlacement> {
     let keys: Vec<LineKey> = (1..=ROWS as u64).map(LineKey::new).collect();
     let view = Rows {
@@ -67,8 +93,11 @@ fn placements(pictures: &[Pic]) -> Vec<FramePlacement> {
     store.set_limit(1 << 28);
     for p in pictures {
         let (w, h) = p.size;
+        let a = p.alpha;
+        // premultiplied: each channel at most the alpha
+        let c = move |v: u32| (v & 0xff) * a / 0xff;
         let pixels = (0..h)
-            .flat_map(|y| (0..w).map(move |x| 0xff00_0000 | (x * 7) << 16 | (y * 5) << 8 | x ^ y))
+            .flat_map(|y| (0..w).map(move |x| a << 24 | c(x * 7) << 16 | c(y * 5) << 8 | c(x ^ y)))
             .collect();
         let new = NewImage {
             protocol: Protocol::KITTY,
@@ -337,8 +366,9 @@ fn a_picture_past_the_largest_texture_is_tiled_with_twice_the_reach_and_drawn_on
 }
 
 // ADR-1100 D4: a cell that pictures reach draws its background, the
-// pictures below the text, its text layer blended over them, the
-// pictures above the text, and the selection's tint, in that order
+// pictures below the text, its text layer over them, the pictures above
+// the text, and the selection's tint, in that order. The text layer goes
+// over the pixels beneath it from a copy of them, made just before it.
 #[test]
 fn a_cell_under_pictures_draws_its_layers_in_order() {
     let mut g = Gpu::new();
@@ -354,10 +384,16 @@ fn a_cell_under_pictures_draws_its_layers_in_order() {
         .calls()
         .iter()
         .filter_map(|c| match c {
-            Call::Draw { inputs, blend, .. } if inputs[..] == PICTURE_INPUTS => {
-                Some(("picture", *blend))
+            Call::Draw { inputs, blend, .. } => {
+                let name = match &inputs[..] {
+                    i if i == PICTURE_INPUTS => "picture",
+                    i if i == CELL_INPUTS => "cell",
+                    i if i == LAYER_INPUTS => "layer",
+                    i if i == TINT_INPUTS => "copy",
+                    _ => return None,
+                };
+                Some((name, *blend))
             }
-            Call::Draw { inputs, blend, .. } if inputs[..] == CELL_INPUTS => Some(("cell", *blend)),
             _ => None,
         })
         .collect();
@@ -366,9 +402,114 @@ fn a_cell_under_pictures_draws_its_layers_in_order() {
         [
             ("cell", Blend::Replace),
             ("picture", Blend::Replace),
-            ("cell", Blend::Over),
+            ("copy", Blend::Replace),
+            ("layer", Blend::Replace),
             ("picture", Blend::Replace),
         ]
+    );
+}
+
+// ADR-1303 D2, ADR-1100 D4: the GPU path leaves no blend of a cell that
+// pictures reach to the GPU's own rounding, which differs between drivers
+// (the issue on GPU blend rounding: GitHub's runner's llvmpipe came in one
+// level below the CPU path). A picture that is not opaque, a cell's text
+// layer over the pictures beneath it, and the selection's tint each copy
+// the pixels beneath them out of the tile, then draw over them with
+// Replace, reading each pixel where the copy put it. Only the pointer's
+// arrow blends on the GPU (ADR-1303 D3).
+#[test]
+fn every_draw_over_a_picture_reads_a_copy_of_the_pixels_beneath_it() {
+    let mut g = Gpu::new();
+    let st = common::style(rgb("ffffff"), rgb("203040"));
+    g.screen.text(0, 0, "layers", st);
+    g.screen.text(0, 1, "under glass", st);
+    let below = Pic {
+        z: -5,
+        ..pic(1, (48, 32), (0, 0), (6, 2))
+    };
+    // half transparent, above the text, over the picture below it
+    let glass = Pic {
+        alpha: 0x80,
+        ..pic(2, (24, 24), (2, 0), (3, 2))
+    };
+    let frame = g
+        .screen
+        .frame(Age::NEVER)
+        .with_selection([0..0, 1..4].into_iter().collect())
+        .with_placements(placements(&[below, glass]));
+    let state = DrawState {
+        pointer: Some((10, 3)),
+        ..DrawState::default()
+    };
+    g.gl.clear_calls();
+    g.renderer
+        .draw_gpu(
+            &mut g.gl,
+            &mut g.pipeline,
+            &frame,
+            &g.buffer,
+            1,
+            &state,
+            &[],
+        )
+        .unwrap();
+    let draws: Vec<(&Vec<Quad>, &[&str], Blend, &vtium_render::gpu::Seen)> = g
+        .calls()
+        .iter()
+        .filter_map(|c| match c {
+            Call::Draw {
+                quads,
+                inputs,
+                blend,
+            } => Some((quads, &inputs[..], *blend)),
+            _ => None,
+        })
+        .zip(g.gl.seen())
+        .map(|((q, i, b), s)| (q, i, b, s))
+        .collect();
+    // only the arrow blends on the GPU
+    for &(_, inputs, blend, _) in &draws {
+        assert!(
+            blend == Blend::Replace || inputs == ARROW_INPUTS,
+            "{inputs:?} blends on the GPU"
+        );
+    }
+    assert!(draws.iter().any(|d| d.1 == ARROW_INPUTS), "no arrow drawn");
+    // each draw over a copy follows the copy of exactly its own pixels,
+    // into the copy's own target, and reads each one where it went
+    let mut over = Vec::new();
+    for (k, &(quads, inputs, _, seen)) in draws.iter().enumerate() {
+        if !inputs.contains(&"under_at") {
+            continue;
+        }
+        over.push(inputs);
+        let (copied, copy_inputs, _, copy_seen) = draws[k - 1];
+        assert_eq!(copy_inputs, TINT_INPUTS, "{inputs:?} follows no copy");
+        assert_ne!(
+            copy_seen.target, seen.target,
+            "the copy draws into the tile"
+        );
+        assert!(
+            copied.iter().all(|q| q.params[0] >> 24 == 0),
+            "a copy tints"
+        );
+        let at = seen.ivec4.iter().find(|(n, _)| *n == "under_at").unwrap().1;
+        assert_eq!(copied.len(), quads.len(), "{inputs:?}");
+        for (c, q) in copied.iter().zip(quads.iter()) {
+            assert_eq!((c.src[0], c.src[1]), (q.dst[0] as u32, q.dst[1] as u32));
+            assert_eq!(
+                c.dst,
+                [q.dst[0] - at[0], q.dst[1] - at[1], q.dst[2], q.dst[3]],
+                "{inputs:?} reads its copy elsewhere"
+            );
+        }
+    }
+    assert!(over.contains(&&PICTURE_OVER_INPUTS[..]), "{over:?}");
+    assert!(over.contains(&&LAYER_INPUTS[..]), "{over:?}");
+    // the tint copies the selected cells out and tints them back
+    assert_eq!(
+        draws.iter().filter(|d| d.1 == TINT_INPUTS).count(),
+        2 + over.len()
     );
 }
 
