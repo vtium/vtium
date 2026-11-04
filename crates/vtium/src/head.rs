@@ -912,11 +912,13 @@ impl Head {
     }
 
     /// What the displays show, read from the view each buffer draws,
-    /// scrolled back or not (#149): the characters, every character of a
-    /// cluster among them, and the clusters whole (ADR-1200 D21), each
-    /// sorted and once.
-    pub(crate) fn visible(&self) -> Shown {
-        use vtium_term::{Age, Glyph};
+    /// scrolled back or not (#149), in each style a cell draws its glyph
+    /// in, bold, italic, both or neither (ADR-1200 D21): the characters,
+    /// every character of a cluster among them, and the clusters whole,
+    /// each sorted and once. The regular style comes first, shown or not,
+    /// and each other style only where a cell shows it.
+    pub(crate) fn visible(&self) -> Vec<Shown> {
+        use vtium_term::{Age, Attrs, Glyph};
         let palette = self.console.term.terminal.palette();
         let frame = self
             .console
@@ -924,9 +926,22 @@ impl Head {
             .terminal
             .screen()
             .frame(palette, Age::NEVER);
-        let mut shown = Shown::default();
+        let mut all = vec![Shown::default()];
         for row in 0..frame.rows() {
             for cell in frame.cells(row) {
+                let style = vtium_font::Style {
+                    bold: cell.attrs.contains(Attrs::BOLD),
+                    italic: cell.attrs.contains(Attrs::ITALIC),
+                };
+                if !all.iter().any(|s| s.style == style) {
+                    all.push(Shown {
+                        style,
+                        ..Shown::default()
+                    });
+                }
+                let Some(shown) = all.iter_mut().find(|s| s.style == style) else {
+                    continue;
+                };
                 match cell.glyph {
                     Glyph::Char(c) => shown.chars.push(c),
                     Glyph::Cluster(text) => {
@@ -937,12 +952,14 @@ impl Head {
                 }
             }
         }
-        shown.chars.retain(|c| !c.is_whitespace());
-        shown.chars.sort_unstable();
-        shown.chars.dedup();
-        shown.clusters.sort_unstable();
-        shown.clusters.dedup();
-        shown
+        for shown in &mut all {
+            shown.chars.retain(|c| !c.is_whitespace());
+            shown.chars.sort_unstable();
+            shown.chars.dedup();
+            shown.clusters.sort_unstable();
+            shown.clusters.dedup();
+        }
+        all
     }
 
     pub(crate) fn draw_state(&self) -> DrawState {

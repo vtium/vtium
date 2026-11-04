@@ -293,6 +293,14 @@ considered:
     said: "vtium keeps the glyph helper's answer to a frit's own-cell query when it arrives after the wait, and uses it, instead of dropping it. The answer applies from the next frame, and the 100 ms wait stays only as the bound on how long the first frame waits."
     via: the maintainer's decision in the steering session, 2026-11-03, relayed by the steering session in the brief for the work that keeps a late own-cell answer; the wording is the steering session's
     paraphrase: true
+  - operator: aaronsb
+    said: "Bold italic where the frit names no bold-italic face is the regular glyph emboldened and then slanted."
+    via: "the steering session, 2026-11-04; the wording is the steering session's"
+    paraphrase: true
+  - operator: aaronsb
+    said: "Bold and italic glyphs come only when the console asks for them; the background fill draws regular glyphs alone."
+    via: "the steering session, 2026-11-04; the wording is the steering session's"
+    paraphrase: true
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
@@ -582,10 +590,14 @@ The console, which opens its VT as root already, reads the kernel's font once at
 
 ### D21: cluster asks and style asks
 
-*Intended design, not yet built.* The helper on `feat/deferred` generates regular glyphs per codepoint (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`).
+Both are built. The console asks the helper for each cluster the screen shows and for each style it shows, bold, italic or bold italic, in an ask of that style, and keys the store by the cluster's text and its style (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`); the helper shapes clusters and draws or synthesises styles (`crates/vtium-config/src/serve.rs`, `crates/vtium-config/src/outline.rs`). The background fill draws regular glyphs alone, and bold and italic come only by ask.
 
 - **Cluster asks.** The console asks the helper for a cluster, its text as the key gives it, and the helper shapes it with HarfRust and composes its glyphs into one glyph fitted to its 1 or 2 cells and its reach, one cell more on each side along its row (ADR-1301 D1, ADR-1302 D1).
-- **Style asks.** The console asks for bold and italic as part of the key. The helper draws them from the frit's bold and italic faces (`style=`, D1) where the frit names them, and from the regular glyph where it does not: a missing bold is the regular glyph emboldened, as vtium-font draws it today, and a missing italic is the regular glyph slanted by 0.2 about the baseline, an outline's points before it is rasterised and a bitmap's rows one at a time (ADR-1302 D4).
+- **Style asks.** The console asks for bold and italic as part of the key. The helper draws them from the frit's bold and italic faces (`style=`, D1) where the frit names them, and from the regular glyph where it does not: a missing bold is the regular glyph emboldened, as vtium-font draws it today, and a missing italic is the regular glyph slanted by 0.2 about the baseline, an outline's points before it is rasterised and a bitmap's rows one at a time (ADR-1302 D4). Where the frit names a bold or an italic face but no bold-italic face, a bold-italic glyph is the regular glyph emboldened and then slanted, and never the bold face slanted (the maintainer, 2026-11-04).
+
+> Edited 2026-11-04: cluster asks and style asks are built, on the branch that builds style requests, and the opening says so. It read: "*Intended design, not yet built.* The helper on `feat/deferred` generates regular glyphs per codepoint (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`)."
+
+> Edited 2026-11-04: the maintainer decided where bold italic comes from when the frit names no bold-italic face (`considered`, 2026-11-04). The style bullet ended at "(ADR-1302 D4)."
 
 > Edited 2026-11-01: glyph ink reaches one cell past its own on each side, and synthetic italic is a slant (ADR-1302, accepted 2026-11-01). The cluster bullet read "fitted to its 1 or 2 cells (ADR-1301 D1).", and the style bullet ended: "and from the regular glyph emboldened, as vtium-font draws a missing style today, where it does not." The earlier text is in git at 1d51e46.
 
@@ -604,7 +616,9 @@ The console finds a cell's glyph in the order ADR-1301 D1 sets, and parses no fo
 
 ### D2: the glyph chunk format, on the helper's pipe
 
-The helper sends glyphs in the chunk format vtium-font reads, little-endian, every count, size and offset bounded by a constant in vtium-font's `src/bounds.rs`: a header with a magic and a format version, strikes each with its cell, baseline, underline and strike positions and thickness, pixel format and glyph count, runs of codepoints of one width, and glyph chunks of at most 16 KiB. A glyph is exactly its 1 or 2 cells, except a glyph whose ink passes its cells in an outline strike or a bitmap strike slanted for italic, which carries its ink box: the columns its cells and its ink cover, cut to one cell past its own on each side, as an offset from its cell's left edge and a width, over the cell's full height (ADR-1302 D6, the maintainer, 2026-11-01). A glyph whose box, its cells and its ink together, would pass the 16 KiB chunk is cut to its own cells instead. The console reads it with the crate's no-panic reader and holds what it reads as the store's (D19). The format is a wire format: nothing writes it to disk, so it carries no file hashes, and a change to it changes both ends of the pipe in one release.
+The helper sends glyphs in the chunk format vtium-font reads, little-endian, every count, size and offset bounded by a constant in vtium-font's `src/bounds.rs`: a header with a magic and a format version, strikes each with its cell, baseline, underline and strike positions and thickness, pixel format and glyph count, runs of codepoints of one width, and glyph chunks of at most 16 KiB. A glyph is exactly its 1 or 2 cells, except a glyph whose ink passes its cells in an outline strike or a bitmap strike slanted for italic, which carries its ink box: the columns its cells and its ink cover, cut to one cell past its own on each side, as an offset from its cell's left edge and a width, over the cell's full height (ADR-1302 D6, the maintainer, 2026-11-01). A glyph whose box, its cells and its ink together, would pass the 16 KiB chunk is cut to its own cells instead. A set holds a regular strike at each of its cell sizes, except an answer to a bold or italic ask, which holds only the strikes of the style asked for (D21; the steering session, 2026-11-04). The console reads it with the crate's no-panic reader and holds what it reads as the store's (D19). The format is a wire format: nothing writes it to disk, so it carries no file hashes, and a change to it changes both ends of the pipe in one release.
+
+> Edited 2026-11-04: an answer to a style ask holds only that style's strikes, which the set format allows (ADR-1302's `considered`, 2026-11-04). The paragraph said nothing of which strikes a set holds.
 
 > Edited 2026-11-01: the review of the helper's ink box: the box is the union of the glyph's cells and its ink, and the chunk bound applies to that union. The paragraph read "the columns its ink covers" and "A glyph whose box would pass the 16 KiB chunk". The earlier text is in git at fa62f7f.
 

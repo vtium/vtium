@@ -62,8 +62,9 @@
 //!
 //! `STRK`'s strikes are sorted by cell height, width, style and format,
 //! no two alike, so one cell may hold a 1-bit, an R8 and an RGBA strike
-//! of each style, their codepoints apart, and every cell size has a
-//! regular strike.
+//! of each style, their codepoints apart. A cell size usually has a
+//! regular strike; a set the glyph helper sends for a bold or italic ask
+//! holds only the strikes of the style asked for (ADR-1200 D21).
 //!
 //! The sections follow the header in the order the table lists them, with
 //! no byte between them or after the last. A record size is at least the

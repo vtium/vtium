@@ -1636,10 +1636,14 @@ class VariantTest(unittest.TestCase):
                 self.assertIn("source=file:%s\n" % font, f.read(), variant)
         # vt-restore compares with the last screen, cjk, as in SCREENS
         self.assertEqual(t3_evaluate.SMALL_SCREENS[-1], t3_evaluate.SCREENS[-1])
-        # every other variant is judged by the C reference's goldens
+        # the minimal variants are re-baselined: sgr, whose italic vtium
+        # shears, is judged by vtium's golden, and every other case by the
+        # C reference's
         entries = t3_scenario.evaluate_variant("2d-potato-min", {}, t3_scenario.failure_meta("x"),
                                                LOG)
-        self.assertEqual(entries[0]["golden"], "tools/tier3/c-goldens/2d-potato-min/sgr.png")
+        goldens = {e["name"].split("/", 1)[1]: e["golden"] for e in entries}
+        self.assertEqual(goldens["sgr"], "tools/tier3/goldens/2d-potato-min/sgr.png")
+        self.assertEqual(goldens["boxdraw"], "tools/tier3/c-goldens/2d-potato-min/boxdraw.png")
 
     def test_resident_memory(self):
         # guest/t3's T3-RSS lines: the largest VmRSS of the kmscon

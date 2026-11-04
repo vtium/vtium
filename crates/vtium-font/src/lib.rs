@@ -73,6 +73,7 @@ mod glyph;
 #[cfg(feature = "gzip")]
 mod gzip;
 mod hex;
+pub mod italic;
 mod policy;
 #[cfg(feature = "psf")]
 mod psf;

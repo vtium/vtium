@@ -76,6 +76,7 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
         "pointer": True,
+        "rebaselined": True,
     },
     "2d-potato-min-psf": {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
@@ -86,6 +87,7 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
         "frits": ["default8x16.vtfrit"],
+        "rebaselined": True,
     },
     # 2d-potato-min also runs the pointer case ("pointer"): after the VT
     # switch it moves the pointer with QMP and reads the display's cursor

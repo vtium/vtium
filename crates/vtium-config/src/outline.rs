@@ -9,13 +9,13 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT4\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT5\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
 //!          u8, length u8 and scalar values u32, baseline count u32 (0, or
 //!          the cell count), each baseline u32, hinting u8 (0 light, 1
-//!          full)
+//!          full), synthesis u8 (bit 1 bold, bit 2 italic)
 //! answer   magic "VTVOUTL3", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
@@ -54,12 +54,25 @@
 //! The clusters asked for ([`crate::shaping`]) are shaped once with
 //! HarfRust and drawn at each cell: each glyph the shaper gives at its
 //! position, laid over the others, and the whole placed as one glyph is.
+//!
+//! A request may ask for a style the font does not draw itself
+//! ([`OutlineRequest::synth`], ADR-1302 D4). For synthetic italic each
+//! point of an outline moves right by 0.2 of its height above the
+//! baseline before the outline is rasterised, so ink above the baseline
+//! leans right and descenders lean left. For synthetic bold each contour
+//! grows sideways by a 48th of the size on each side, a 24th in all, as
+//! FreeType's `FT_GlyphSlot_Embolden` grew a glyph, and by half a pixel a
+//! side at least, but only from side to side, so no ink rises above the
+//! font's tallest or falls below its lowest. Bold italic widens first and
+//! then slants the widened outline. Neither changes a glyph's advance or
+//! the cell, and the ink either adds past the cell goes to the glyph's ink
+//! box. A color glyph is drawn as it is.
 
 use std::sync::Arc;
 
 use crate::frit::{Cover, Hinting};
 use crate::shaping::{Ask, Kind};
-use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_CHUNK_BYTES};
+use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_CHUNK_BYTES, Style};
 
 /// The most bytes an outline font file holds; Noto Sans CJK's collection
 /// is about 20 MB.
@@ -83,7 +96,7 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT4\0";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT5\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL3";
 
 const GLYPH_WIDE: u8 = 1;
@@ -116,6 +129,10 @@ pub struct OutlineRequest {
     /// How the outline glyphs are fitted to the pixel grid, the frit's
     /// `hinting=` (ADR-1200 D1).
     pub hinting: Hinting,
+    /// The style drawn over the font's own glyphs: bold emboldens each
+    /// outline and italic slants it (ADR-1302 D4). Regular draws the
+    /// glyphs as the font draws them.
+    pub synth: Style,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
@@ -297,6 +314,7 @@ impl OutlineRequest {
             Hinting::Light => 0,
             Hinting::Full => 1,
         });
+        out.push(u8::from(self.synth.bold) | u8::from(self.synth.italic) << 1);
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -343,6 +361,13 @@ impl OutlineRequest {
             1 => Hinting::Full,
             _ => return Err("an unknown hinting"),
         };
+        let synth = match r.u8()? {
+            code @ 0..=3 => Style {
+                bold: code & 1 != 0,
+                italic: code & 2 != 0,
+            },
+            _ => return Err("an unknown synthesis"),
+        };
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -354,6 +379,7 @@ impl OutlineRequest {
             clusters,
             baselines,
             hinting,
+            synth,
         })
     }
 
@@ -588,7 +614,7 @@ pub use raster::{baseline, cell_width, decorations, rasterise};
 pub(crate) mod raster {
     use super::{
         Hinting, InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike,
-        family_key,
+        Style, family_key,
     };
     use skrifa::instance::{LocationRef, Size};
     use skrifa::outline::{
@@ -693,6 +719,8 @@ pub(crate) mod raster {
         hinter: Option<(f32, HintingInstance)>,
         /// The automatic hinter's classes of the face's glyphs, found once.
         styles: Option<GlyphStyles>,
+        /// The style drawn over each outline ([`OutlineRequest::synth`]).
+        synth: Style,
     }
 
     /// An outline as skrifa draws it, as the path zeno fills: its points
@@ -743,6 +771,150 @@ pub(crate) mod raster {
         }
     }
 
+    /// Synthetic italic's slant (ADR-1302 D4): each point moves right by
+    /// 0.2 of its height above the baseline, the pen's origin.
+    const SLANT: Transform = Transform {
+        xx: 1.0,
+        xy: 0.0,
+        yx: 0.2,
+        yy: 1.0,
+        x: 0.0,
+        y: 0.0,
+    };
+
+    /// How far synthetic bold grows each side of a glyph's strokes at
+    /// `ppem` pixels to the em (ADR-1302 D4): a 48th of the size, a 24th
+    /// in all, as FreeType's `FT_GlyphSlot_Embolden` grew a glyph, and at
+    /// least half a pixel, so the strokes grow by a whole pixel at least
+    /// at small sizes (the maintainer, 2026-11-04).
+    pub(crate) fn embolden_per_side(ppem: f32) -> f32 {
+        (ppem / 48.0).max(0.5)
+    }
+
+    /// `path`, an outline at `ppem` pixels to the em, with `synth` drawn
+    /// over it (ADR-1302 D4): emboldened for bold, then slanted for
+    /// italic, so bold italic widens first and slants the widened outline.
+    pub(crate) fn synthesise(path: &mut [Command], synth: Style, ppem: f32) {
+        if synth.bold {
+            embolden(path, embolden_per_side(ppem));
+        }
+        if synth.italic {
+            slant(path);
+        }
+    }
+
+    /// Every point of `path` slanted for synthetic italic ([`SLANT`]).
+    fn slant(path: &mut [Command]) {
+        let t = |p: &mut Point| *p = SLANT.transform_point(*p);
+        for command in path {
+            match command {
+                Command::MoveTo(p) | Command::LineTo(p) => t(p),
+                Command::QuadTo(c, p) => {
+                    t(c);
+                    t(p);
+                }
+                Command::CurveTo(c0, c1, p) => {
+                    t(c0);
+                    t(c1);
+                    t(p);
+                }
+                Command::Close => {}
+            }
+        }
+    }
+
+    /// The points of `path`, a list of closed contours, moved so that each
+    /// edge moves outward by `by` pixels from side to side and not at all
+    /// up or down (ADR-1302 D4's synthetic bold). Each point moves along
+    /// the mitre of its two edges' outward normals, whose sideways part
+    /// alone is taken; a point where its edges fold back on each other,
+    /// at more than 160 degrees, stays where it is, as FreeType's
+    /// `FT_Outline_EmboldenXY` left it. Which side is outward follows the
+    /// path's winding: the side its filled area lies away from.
+    fn embolden(path: &mut [Command], by: f32) {
+        // the points of each contour, control points included, by their
+        // place in `path`
+        let mut contours: Vec<Vec<(usize, usize)>> = Vec::new();
+        for (i, command) in path.iter().enumerate() {
+            match command {
+                Command::MoveTo(_) => contours.push(vec![(i, 0)]),
+                Command::LineTo(_) => contours.last_mut().into_iter().for_each(|c| c.push((i, 0))),
+                Command::QuadTo(..) => contours
+                    .last_mut()
+                    .into_iter()
+                    .for_each(|c| c.extend([(i, 0), (i, 1)])),
+                Command::CurveTo(..) => contours
+                    .last_mut()
+                    .into_iter()
+                    .for_each(|c| c.extend([(i, 0), (i, 1), (i, 2)])),
+                Command::Close => {}
+            }
+        }
+        let point = |path: &[Command], (i, k): (usize, usize)| -> Point {
+            match (path.get(i), k) {
+                (Some(Command::MoveTo(p) | Command::LineTo(p)), _) => *p,
+                (Some(Command::QuadTo(c, _)), 0) => *c,
+                (Some(Command::QuadTo(_, p)), _) => *p,
+                (Some(Command::CurveTo(c, _, _)), 0) => *c,
+                (Some(Command::CurveTo(_, c, _)), 1) => *c,
+                (Some(Command::CurveTo(_, _, p)), _) => *p,
+                _ => Point::new(0.0, 0.0),
+            }
+        };
+        // twice the signed area of every contour: positive when the filled
+        // area lies left of the path's direction, y pointing up
+        let area: f32 = contours
+            .iter()
+            .map(|c| {
+                let ps: Vec<Point> = c.iter().map(|&at| point(path, at)).collect();
+                ps.iter()
+                    .zip(ps.iter().cycle().skip(1))
+                    .map(|(a, b)| a.x * b.y - b.x * a.y)
+                    .sum::<f32>()
+            })
+            .sum();
+        let side = if area >= 0.0 { 1.0 } else { -1.0 };
+        let mut moves: Vec<((usize, usize), f32)> = Vec::new();
+        for contour in &contours {
+            let ps: Vec<Point> = contour.iter().map(|&at| point(path, at)).collect();
+            let n = ps.len();
+            for (j, &p) in ps.iter().enumerate() {
+                // the nearest points before and after that differ from it
+                let at = |k: usize| ps.get(k % n).copied();
+                let before = (1..n).filter_map(|k| at(j + n - k)).find(|q| *q != p);
+                let after = (1..n).filter_map(|k| at(j + k)).find(|q| *q != p);
+                let (Some(before), Some(after)) = (before, after) else {
+                    continue;
+                };
+                let (din, dout) = ((p - before).normalize(), (after - p).normalize());
+                // the outward normal of a direction: right of it when the
+                // fill lies left
+                let normal = |d: Point| Point::new(d.y * side, -d.x * side);
+                let (nin, nout) = (normal(din), normal(dout));
+                let d = nin.dot(nout);
+                if d <= -0.9396 {
+                    continue;
+                }
+                let mitre = (nin.x + nout.x) / (1.0 + d);
+                if let Some(&at) = contour.get(j) {
+                    moves.push((at, mitre * by));
+                }
+            }
+        }
+        for ((i, k), dx) in moves {
+            let shift = |p: &mut Point| p.x += dx;
+            match (path.get_mut(i), k) {
+                (Some(Command::MoveTo(p) | Command::LineTo(p)), _) => shift(p),
+                (Some(Command::QuadTo(c, _)), 0) => shift(c),
+                (Some(Command::QuadTo(_, p)), _) => shift(p),
+                (Some(Command::CurveTo(c, _, _)), 0) => shift(c),
+                (Some(Command::CurveTo(_, c, _)), 1) => shift(c),
+                (Some(Command::CurveTo(_, _, p)), _) => shift(p),
+                _ => {}
+            }
+        }
+    }
+
     impl<'a> Drawer<'a> {
         /// A drawer of the glyphs of `font`, face `index` of its file,
         /// hinting its outlines as `hinting` says.
@@ -756,7 +928,16 @@ pub(crate) mod raster {
                 hinting,
                 hinter: None,
                 styles: None,
+                synth: Style::default(),
             }
+        }
+
+        /// This drawer, drawing `synth` over each outline: bold emboldened
+        /// and italic slanted (ADR-1302 D4). Color glyphs are drawn as they
+        /// are.
+        pub(crate) fn synthesising(mut self, synth: Style) -> Self {
+            self.synth = synth;
+            self
         }
 
         /// Glyph `g` at `ppem`: its color form if it has one, else its
@@ -824,10 +1005,12 @@ pub(crate) mod raster {
         }
 
         /// Glyph `g`'s outline at `ppem`, hinted, its points moved by
-        /// `transform`, as coverage with its top-left corner above the
-        /// baseline and right of the pen, as swash places one. A face whose
-        /// hinter cannot be set up for the size, or a glyph whose hinting
-        /// fails, is drawn unhinted rather than not at all.
+        /// `transform`, then emboldened and after that slanted as the
+        /// drawer's synthesis asks, the widening first (ADR-1302 D4), as
+        /// coverage with its top-left corner above the baseline and right
+        /// of the pen, as swash places one. A face whose hinter cannot be
+        /// set up for the size, or a glyph whose hinting fails, is drawn
+        /// unhinted rather than not at all.
         fn outline(&mut self, g: u16, ppem: f32, transform: Option<Transform>) -> Option<Image> {
             let outlines = self.outlines.clone()?;
             let glyph = outlines.get(GlyphId::new(u32::from(g)))?;
@@ -859,6 +1042,7 @@ pub(crate) mod raster {
                 glyph.draw(unhinted, &mut pen).ok()?;
             }
             pen.end_contour();
+            synthesise(&mut pen.path, self.synth, ppem);
             let mut mask = Mask::new(&pen.path[..]);
             // the placement's top is right only once the mask knows its size
             mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
@@ -1208,19 +1392,22 @@ pub(crate) mod raster {
         wanted.dedup_by_key(|&mut (c, _)| c);
         let shaped =
             crate::shaping::shape::shape_all(&request.font, index, font, &request.clusters);
-        let mut drawer = Drawer::new(font, index, request.hinting);
+        let mut drawer = Drawer::new(font, index, request.hinting).synthesising(request.synth);
+        // the baseline and the W rule measure the font as it draws itself,
+        // whatever style is drawn over it, so every style shares them
+        let mut plain = Drawer::new(font, index, request.hinting);
         let mut strikes = Vec::new();
         for (i, &(want_w, h)) in request.cells.iter().enumerate() {
             let ppem = ppem(&metrics, h);
             let baseline = match request.baselines.get(i) {
                 Some(&b) => b,
-                None => baseline_at(&mut drawer, &metrics, ppem, h),
+                None => baseline_at(&mut plain, &metrics, ppem, h),
             };
             let advances = font.glyph_metrics(&[]).scale(ppem);
             let width = if want_w != 0 {
                 want_w
             } else {
-                w_width(&mut drawer, ppem, h)
+                w_width(&mut plain, ppem, h)
             };
             let cell = Cell {
                 width,
@@ -1430,7 +1617,55 @@ pub(crate) mod raster {
     reason = "a test fails by panicking"
 )]
 mod tests {
-    use super::raster::{Cell, place_drawn};
+    use super::raster::{Cell, embolden_per_side, place_drawn, synthesise};
+    use swash::zeno::{Command, Point};
+
+    /// The points of `path` that close each of its segments.
+    fn ends(path: &[Command]) -> Vec<(f32, f32)> {
+        path.iter()
+            .filter_map(|c| match c {
+                Command::MoveTo(p) | Command::LineTo(p) => Some((p.x, p.y)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // ADR-1302 D4: synthetic bold italic widens first and slants the
+    // widened outline. A 10 by 10 square grows 1 to each side, staying put
+    // up and down, and then each corner moves right by 0.2 of its height;
+    // slanting first would mitre the slanted sides and put the bottom
+    // left corner 1.22 left, not 1
+    #[test]
+    fn bold_italic_widens_then_slants() {
+        let p = |x, y| Point::new(x, y);
+        let mut square = vec![
+            Command::MoveTo(p(0.0, 0.0)),
+            Command::LineTo(p(0.0, 10.0)),
+            Command::LineTo(p(10.0, 10.0)),
+            Command::LineTo(p(10.0, 0.0)),
+            Command::Close,
+        ];
+        // at 48 pixels to the em bold grows by 1 a side
+        let both = vtium_font::Style {
+            bold: true,
+            italic: true,
+        };
+        synthesise(&mut square, both, 48.0);
+        let want = [(-1.0, 0.0), (1.0, 10.0), (13.0, 10.0), (11.0, 0.0)];
+        for ((x, y), (wx, wy)) in ends(&square).into_iter().zip(want) {
+            assert!((x - wx).abs() < 1e-4 && (y - wy).abs() < 1e-4, "{x},{y}");
+        }
+    }
+
+    // the maintainer, 2026-11-04: synthetic bold grows by a whole pixel at
+    // least, half on each side, and by FreeType's 24th of the size above
+    // that
+    #[test]
+    fn synthetic_bold_grows_a_pixel_at_least() {
+        assert_eq!(embolden_per_side(15.5), 0.5);
+        assert_eq!(embolden_per_side(24.0), 0.5);
+        assert_eq!(embolden_per_side(96.0), 2.0);
+    }
     use swash::scale::Source;
     use swash::scale::image::{Content, Image};
     use swash::zeno::Placement;

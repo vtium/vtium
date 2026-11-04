@@ -560,12 +560,6 @@ fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
         if w == 0 || h == 0 || w > CELL_SIDE_MAX || h > CELL_SIDE_MAX {
             return Err("a cell 0 pixels across or past CELL_SIDE_MAX");
         }
-        if !order
-            .iter()
-            .any(|r| r.style == 0 && (r.cell_width, r.cell_height) == (s.cell_width, s.cell_height))
-        {
-            return Err("a cell size with no regular strike");
-        }
     }
 
     let laid: Vec<Laid> = order.iter().map(|s| lay_out(s)).collect::<Result<_, _>>()?;

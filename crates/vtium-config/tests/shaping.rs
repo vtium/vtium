@@ -30,6 +30,7 @@ fn ask(cs: &[char], kind: Kind) -> Ask {
 /// `Test Shaping` at a 20-pixel cell, asked for `asks`.
 fn request(asks: Vec<Ask>) -> OutlineRequest {
     OutlineRequest {
+        synth: Default::default(),
         font: ttf::test_shaping().build().into(),
         family: "Test Shaping".to_owned(),
         cells: vec![(0, 20)],
@@ -301,6 +302,7 @@ fn marked(keys: &[&[char]], height: u32) -> OutlineRequest {
     add(0x64d, ttf::Glyph::rect(0, -400, 0, -200, 150));
     f.cmap.sort_unstable();
     OutlineRequest {
+        synth: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, height)],
@@ -432,6 +434,7 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
     let key = ['x', '\u{307}'];
     let drawn = |by: Option<i16>| {
         let o = rasterise(&OutlineRequest {
+            synth: Default::default(),
             font: font(by).into(),
             family: "Test Mono".to_owned(),
             cells: vec![(12, 20)],
@@ -466,6 +469,7 @@ fn alef_damma() -> OutlineRequest {
     f.cmap.push((0x64f, 9));
     f.cmap.sort_unstable();
     OutlineRequest {
+        synth: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],
@@ -590,6 +594,7 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
     f.cmap.sort_unstable();
     let key = ['x', '\u{302}', '\u{301}'];
     let o = rasterise(&OutlineRequest {
+        synth: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],
@@ -631,6 +636,7 @@ fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
     f.cmap.sort_unstable();
     let key = ['\u{628}', '\u{64e}'];
     let o = rasterise(&OutlineRequest {
+        synth: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],

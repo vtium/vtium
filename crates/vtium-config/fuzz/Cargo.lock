@@ -551,6 +551,7 @@ dependencies = [
  "libfuzzer-sys",
  "miniz_oxide",
  "vtium-config",
+ "vtium-font",
 ]
 
 [[package]]
