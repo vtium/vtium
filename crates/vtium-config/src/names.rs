@@ -2,7 +2,8 @@
 //! so that `font:FAMILY` finds an installed outline font by the family the
 //! font stores, whatever the file is called (ADR-1500 D8). Only the file's
 //! table directory and its `name` table are read, each with a bound, and
-//! read-fonts, the table reader under swash, parses the table.
+//! read-fonts, the table reader under swash, parses the table. The
+//! fuzz target `names` feeds [`faces`] any bytes (`fuzz/README.md`).
 
 use std::fs::File;
 use std::os::unix::fs::FileExt;
@@ -29,9 +30,34 @@ pub struct Face {
     pub regular: bool,
 }
 
-fn read_at(file: &File, offset: u64, len: usize) -> Result<Vec<u8>, String> {
+/// Where a font's bytes are read from, a piece at a time: an open font
+/// file, or the bytes themselves, as the tests and the fuzz target hold
+/// them.
+pub trait Source {
+    /// Fills `buf` from `offset`, or fails when the source ends first.
+    fn read_exact_at(&self, buf: &mut [u8], offset: u64) -> std::io::Result<()>;
+}
+
+impl Source for File {
+    fn read_exact_at(&self, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+        FileExt::read_exact_at(self, buf, offset)
+    }
+}
+
+impl Source for [u8] {
+    fn read_exact_at(&self, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+        let piece = usize::try_from(offset)
+            .ok()
+            .and_then(|start| self.get(start..start.checked_add(buf.len())?))
+            .ok_or(std::io::ErrorKind::UnexpectedEof)?;
+        buf.copy_from_slice(piece);
+        Ok(())
+    }
+}
+
+fn read_at<S: Source + ?Sized>(src: &S, offset: u64, len: usize) -> Result<Vec<u8>, String> {
     let mut buf = vec![0; len];
-    file.read_exact_at(&mut buf, offset)
+    src.read_exact_at(&mut buf, offset)
         .map_err(|e| e.to_string())?;
     Ok(buf)
 }
@@ -48,15 +74,15 @@ fn u32_at(b: &[u8], at: usize) -> Option<u32> {
     ))
 }
 
-/// The faces of the TrueType or OpenType font, or collection, in `file`:
+/// The faces of the TrueType or OpenType font, or collection, in `src`:
 /// one for a font, each of up to [`FACES_MAX`] for a collection. A face
 /// with no `name` table, or one past [`NAME_BYTES_MAX`] or malformed, is
 /// left out.
-pub fn faces(file: &File) -> Result<Vec<Face>, String> {
-    let head = read_at(file, 0, 12)?;
+pub fn faces<S: Source + ?Sized>(src: &S) -> Result<Vec<Face>, String> {
+    let head = read_at(src, 0, 12)?;
     let offsets: Vec<u32> = if head.starts_with(b"ttcf") {
         let count = u32_at(&head, 8).unwrap_or(0).min(FACES_MAX);
-        let table = read_at(file, 12, count as usize * 4)?;
+        let table = read_at(src, 12, count as usize * 4)?;
         table
             .as_chunks::<4>()
             .0
@@ -68,7 +94,7 @@ pub fn faces(file: &File) -> Result<Vec<Face>, String> {
     };
     let mut out = Vec::new();
     for offset in offsets {
-        if let Some(face) = face(file, u64::from(offset))? {
+        if let Some(face) = face(src, u64::from(offset))? {
             out.push(face);
         }
     }
@@ -77,10 +103,10 @@ pub fn faces(file: &File) -> Result<Vec<Face>, String> {
 
 /// The face whose table directory starts at `offset`, or `None` when it
 /// has no readable `name` table.
-fn face(file: &File, offset: u64) -> Result<Option<Face>, String> {
-    let dir = read_at(file, offset, 12)?;
+fn face<S: Source + ?Sized>(src: &S, offset: u64) -> Result<Option<Face>, String> {
+    let dir = read_at(src, offset, 12)?;
     let tables = usize::from(u16_at(&dir, 4).unwrap_or(0));
-    let records = read_at(file, offset + 12, tables * 16)?;
+    let records = read_at(src, offset + 12, tables * 16)?;
     let Some((at, len)) = records.as_chunks::<16>().0.iter().find_map(|r| {
         r.starts_with(b"name")
             .then(|| (u32_at(r, 8), u32_at(r, 12)))
@@ -93,7 +119,7 @@ fn face(file: &File, offset: u64) -> Result<Option<Face>, String> {
     if len > NAME_BYTES_MAX {
         return Ok(None);
     }
-    let Ok(bytes) = read_at(file, u64::from(at), len as usize) else {
+    let Ok(bytes) = read_at(src, u64::from(at), len as usize) else {
         return Ok(None);
     };
     let Ok(name) = Name::read(FontData::new(&bytes)) else {
@@ -187,6 +213,8 @@ pub(crate) fn sfnt(faces: &[&[(u16, &str)]]) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    /// The faces of `bytes`, read once as bytes and once as a file, which
+    /// must agree.
     fn faces_of(bytes: &[u8], test: &str) -> Result<Vec<Face>, String> {
         let dir =
             std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp"))
@@ -194,7 +222,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(test);
         std::fs::write(&path, bytes).unwrap();
-        faces(&File::open(&path).unwrap())
+        let from_file = faces(&File::open(&path).unwrap());
+        let from_bytes = faces(bytes);
+        assert_eq!(from_file.is_ok(), from_bytes.is_ok(), "{test}");
+        assert_eq!(from_file.as_ref().ok(), from_bytes.as_ref().ok(), "{test}");
+        from_bytes
     }
 
     fn face(families: &[&str], regular: bool) -> Face {
