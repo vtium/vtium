@@ -549,11 +549,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                         "the cursor plane of {} failed a commit, so the pointer is drawn in software: {e}",
                         o.name
                     );
-                    if let Some(c) = o.cursor.take() {
-                        let _ = card.rm_fb(c.fb);
-                        let _ = card.destroy_dumb(c.dumb.handle);
-                    }
-                    o.cursor_set = None;
+                    drop_cursor(card, o);
                     sent = Ok(());
                 } else {
                     nothing = false;
@@ -785,17 +781,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         Ok(())
     }
 
-    /// Takes the cursor plane's image away. Removing its framebuffer takes
-    /// the plane off its CRTC in the kernel (`atomic_remove_fb`), so the
-    /// plane is recorded hidden.
+    /// Takes the cursor plane's image away ([`drop_cursor`]).
     pub fn destroy_cursor(&mut self, id: DisplayId) {
-        let Some(o) = self.outputs.iter_mut().find(|o| o.id == id) else {
-            return;
-        };
-        if let Some(c) = o.cursor.take() {
-            let _ = self.card.rm_fb(c.fb);
-            let _ = self.card.destroy_dumb(c.dumb.handle);
-            o.cursor_set = None;
+        if let Some(o) = self.outputs.iter_mut().find(|o| o.id == id) {
+            drop_cursor(&self.card, o);
         }
     }
 
@@ -1172,8 +1161,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         // The set of displays changed: one was bound or let go.
         let mut changed = false;
         // A wake-up after the first scan places each display bound before
-        // on its CRTC again, from the connected connectors it reads. The
-        // first scan binds every display afresh.
+        // on the CRTC its connector is on now, from the connected
+        // connectors it reads. The first scan binds every display afresh.
         let follow = scan == Scan::WakeUp && self.scanned;
         let mut seen = Vec::new();
         for &id in &res.connectors {
@@ -1597,60 +1586,94 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         })
     }
 
-    /// Places each display a wake-up finds bound from before on the CRTC
-    /// a first start would give it, from the connectors `seen` as the
-    /// wake-up read them: the CRTC its connector is on now, unless a
-    /// display before it took that one, and else the first free CRTC an
-    /// encoder of the connector can drive. A display that moves takes the
-    /// new CRTC's primary and cursor planes.
+    /// Places each display a wake-up finds bound from before as a first
+    /// start would place it, from the connectors `seen` as the wake-up
+    /// read them. A display whose connector is on a CRTC takes that CRTC,
+    /// unless a display placed before it took it, and else the first free
+    /// CRTC an encoder of the connector can drive. A display that moves
+    /// takes the new CRTC's primary and cursor planes.
     ///
     /// The program that held the card while vtium slept may have moved a
     /// connector to another CRTC. A modeset on the CRTC the display had
     /// would take the connector off a CRTC that program left lit, and the
-    /// kernel refuses a lit CRTC with no connector at every mode
-    /// (`drm_atomic_helper_check_modeset`), so the display would never
+    /// kernel refuses a lit CRTC with no connector whatever mode the commit
+    /// sets (`drm_atomic_helper_check_modeset`), so the display would never
     /// wake again (vtium/vtium#249).
     ///
-    /// A display that returns, such as one this wake-up bound, stays on
-    /// the CRTC its binding chose, since its first modeset turns off the
-    /// CRTC its connector is on ([`Self::set_returning_off`]). It moves
-    /// only where a display placed before it took that CRTC.
+    /// The displays whose connector is on a CRTC are placed first, then
+    /// those whose connector is on none, then those that return, each
+    /// group in connector order, so a display the program left off never
+    /// takes the CRTC of one it left lit. A display whose connector is on
+    /// no CRTC keeps its own CRTC where no display took it. So does a
+    /// display that returns, such as one this wake-up bound, since its
+    /// first modeset turns off the CRTC its connector is on
+    /// ([`Self::set_returning_off`]). A display left with no CRTC it can
+    /// take stays off, as one the scan cannot bind does, until a later
+    /// scan binds it again; the owner hears it removed.
     fn follow_crtcs(&mut self, res: &Resources, seen: &[Connector]) {
-        let mut outputs = std::mem::take(&mut self.outputs);
-        let mut taken = Vec::with_capacity(outputs.len());
-        for returning in [false, true] {
-            for o in outputs.iter_mut().filter(|o| o.returning == returning) {
-                let placed = returning && !taken.contains(&o.crtc);
-                if let Some(conn) = seen.iter().find(|c| c.id == o.id.0).filter(|_| !placed) {
-                    let current = (conn.encoder != 0)
-                        .then(|| self.encoder(conn.encoder))
-                        .flatten();
-                    match self.find_crtc(res, conn, current, &taken) {
-                        Some((crtc, pipe)) if crtc != o.crtc => self.move_to(o, crtc, pipe),
-                        Some(_) => {}
-                        None => log::error!("no free CRTC for {}", o.name),
-                    }
+        let mut places: Vec<_> = std::mem::take(&mut self.outputs)
+            .into_iter()
+            .map(|o| {
+                let conn = seen.iter().find(|c| c.id == o.id.0);
+                let current = conn
+                    .filter(|c| c.encoder != 0)
+                    .and_then(|c| self.encoder(c.encoder));
+                (o, conn, current)
+            })
+            .collect();
+        places.sort_by_key(|(o, _, current)| match current {
+            _ if o.returning => 2,
+            Some(e) if e.crtc != 0 => 0,
+            _ => 1,
+        });
+        let mut taken = Vec::with_capacity(places.len());
+        for (mut o, conn, current) in places {
+            let on = current.map_or(0, |e| e.crtc);
+            let placed = if (o.returning || on == 0) && !taken.contains(&o.crtc) {
+                Ok(())
+            } else {
+                match conn.and_then(|c| self.find_crtc(res, c, current, &taken)) {
+                    None => Err(format!("no free CRTC for {}", o.name)),
+                    Some((crtc, _)) if crtc == o.crtc => Ok(()),
+                    Some((crtc, pipe)) => self.move_to(&mut o, crtc, pipe),
                 }
-                taken.push(o.crtc);
+            };
+            match placed {
+                Ok(()) => {
+                    taken.push(o.crtc);
+                    self.outputs.push(o);
+                }
+                Err(why) => {
+                    log::warn!("{why}; it stays off until a scan finds a CRTC for it");
+                    if o.announced {
+                        self.events.push(Event::Removed(o.id));
+                    }
+                    self.identities.retain(|(i, _)| *i != o.id);
+                    self.free(o);
+                }
             }
         }
-        self.outputs = outputs;
+        self.outputs
+            .sort_by_key(|o| res.connectors.iter().position(|&c| c == o.id.0));
     }
 
     /// Moves display `o` to `crtc`, at `pipe` in the card's list of CRTCs,
-    /// with that CRTC's planes. A display whose new CRTC has no primary
-    /// plane stays where it was.
-    fn move_to(&self, o: &mut Output<S::Memory>, crtc: u32, pipe: usize) {
+    /// with that CRTC's planes, or says why it cannot. Where the new CRTC
+    /// has no cursor plane, the display gives its pointer image up, and the
+    /// owner draws the pointer itself.
+    fn move_to(&self, o: &mut Output<S::Memory>, crtc: u32, pipe: usize) -> Result<(), String> {
         if !self.legacy {
-            let Some(mut planes) = self.find_planes(crtc, pipe) else {
-                log::error!("no primary plane for {} on CRTC {crtc}", o.name);
-                return;
-            };
+            let mut planes = self
+                .find_planes(crtc, pipe)
+                .ok_or_else(|| format!("no primary plane for {} on CRTC {crtc}", o.name))?;
             planes.connector_props = o
                 .planes
                 .take()
                 .map(|p| p.connector_props)
                 .unwrap_or_default();
+            if planes.cursor.is_none() {
+                drop_cursor(&self.card, o);
+            }
             o.planes = Some(planes);
         }
         log::info!(
@@ -1662,6 +1685,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         o.pipe = pipe;
         // The new cursor plane shows nothing of vtium's yet.
         o.cursor_set = None;
+        Ok(())
     }
 
     /// The primary and cursor planes for the CRTC at `index`, with their
@@ -2043,10 +2067,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             link.disarm(t);
         }
         self.free_buffers(&mut o);
-        if let Some(c) = o.cursor.take() {
-            let _ = self.card.rm_fb(c.fb);
-            let _ = self.card.destroy_dumb(c.dumb.handle);
-        }
+        drop_cursor(&self.card, &mut o);
         if o.mode_blob != 0 {
             let _ = self.card.destroy_blob(o.mode_blob);
         }
@@ -2329,6 +2350,19 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     pub(crate) fn waits(&self) -> (bool, bool) {
         (self.waiting.is_some(), self.retries.is_some())
     }
+}
+
+/// Takes display `o`'s pointer image off the card: its framebuffer, whose
+/// removal takes the cursor plane off its CRTC in the kernel
+/// (`atomic_remove_fb`), and its dumb buffer. The cursor plane is recorded
+/// hidden, and the owner draws the pointer itself
+/// ([`Drm2d::hardware_cursor`]).
+fn drop_cursor<K: Kms, M>(card: &K, o: &mut Output<M>) {
+    if let Some(c) = o.cursor.take() {
+        let _ = card.rm_fb(c.fb);
+        let _ = card.destroy_dumb(c.dumb.handle);
+    }
+    o.cursor_set = None;
 }
 
 /// How a modeset failed: the card refused it, as an atomic modeset's

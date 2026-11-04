@@ -1,21 +1,23 @@
 //! A stand-in DRM card for the tests: connectors, CRTCs and planes in
 //! memory, with every commit recorded by property name, flips completed
 //! when a test says, and failures planted where a test wants them. It
-//! behaves as the kernel does where drm2d depends on it: a commit or a
-//! modeset without DRM master is refused with EACCES, a commit while a
-//! flip is pending with EBUSY, and a commit asking for a flip event that
-//! names no CRTC (`prepare_signaling`) or a CRTC that is off and stays off
-//! (`drm_atomic_crtc_check`) with EINVAL, and so is a commit that puts a
-//! plane on a CRTC the plane cannot drive (`drm_atomic_plane_check`).
-//! A commit that leaves a CRTC in
-//! its state with a mode and no connector, or a connector and no mode
+//! behaves as the kernel does where drm2d depends on it. A commit or a
+//! modeset without DRM master is refused with EACCES, and so is a commit
+//! that puts a plane or a connector on a CRTC the card does not have
+//! (`drm_atomic_plane_set_property`, `drm_atomic_connector_set_property`).
+//! A commit while a flip is pending is refused with EBUSY. A commit asking
+//! for a flip event that names no CRTC (`prepare_signaling`) or a CRTC that
+//! is off and stays off (`drm_atomic_crtc_check`) is refused with EINVAL,
+//! and so is a commit that puts a plane on a CRTC the plane cannot drive
+//! (`drm_atomic_plane_check`). A commit that leaves a CRTC in its state
+//! with a mode and no connector, or a connector and no mode
 //! (`drm_atomic_helper_check_modeset`), active with no mode, or with a
 //! plane on it and no mode (`drm_atomic_helper_check_plane_state`), is
 //! refused with EINVAL; a connector the commit moves puts the CRTC it
-//! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. What
-//! a commit sets is what the card reports after it: a connector's encoder
-//! and that encoder's CRTC, and a CRTC's mode, as the kernel's getters
-//! read them back. A wait for a CRTC's next vblank is refused with EINVAL
+//! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. What a
+//! commit sets is what the card reports after it: a connector's encoder and
+//! that encoder's CRTC, and a CRTC's mode, as the kernel's getters read
+//! them back. A wait for a CRTC's next vblank is refused with EINVAL
 //! where the CRTC is not active, and with EOPNOTSUPP on a card with no
 //! vblank interrupt. Its event comes when a test says the vblank passed,
 //! or at once when the CRTC stops being active, as `drm_crtc_vblank_off`
@@ -839,16 +841,28 @@ fn commit_reads_past_a_framebuffer(s: &State, commit: &Commit) -> bool {
     })
 }
 
+/// Whether `commit` puts a plane or a connector on a CRTC the card does
+/// not have, which the kernel refuses with EACCES as it sets the property
+/// (`drm_atomic_plane_set_property`, `drm_atomic_connector_set_property`).
+fn commit_names_a_crtc_the_card_lacks(s: &State, commit: &Commit) -> bool {
+    commit.props.iter().any(|(o, n, v)| {
+        let on = s.planes.contains_key(o) || s.connectors.contains_key(o);
+        let crtc = u32::try_from(*v).unwrap_or(u32::MAX);
+        on && n == "CRTC_ID" && *v != 0 && !s.crtcs.contains(&crtc)
+    })
+}
+
 /// Whether `commit` puts a plane on a CRTC outside the plane's possible
 /// CRTCs, as `drm_atomic_plane_check` refuses.
 fn commit_puts_a_plane_on_a_crtc_it_cannot_drive(s: &State, commit: &Commit) -> bool {
     s.planes.iter().any(|(&p, plane)| {
-        let crtc = commit
-            .get(p, "CRTC_ID")
-            .and_then(|v| u32::try_from(v).ok())
-            .unwrap_or(0);
-        let bit = s.crtcs.iter().position(|&c| c == crtc).map(|i| 1u32 << i);
-        crtc != 0 && bit.is_none_or(|bit| plane.crtcs & bit == 0)
+        let crtc = commit.get(p, "CRTC_ID").unwrap_or(0);
+        let bit = s
+            .crtcs
+            .iter()
+            .position(|&c| u64::from(c) == crtc)
+            .map(|i| 1u32 << i);
+        bit.is_some_and(|bit| plane.crtcs & bit == 0)
     })
 }
 
@@ -1189,7 +1203,7 @@ impl Kms for FakeCard {
         if s.refused.iter().any(|&c| commit.mentions(c)) {
             return Err(err(Errno::INVAL));
         }
-        if !s.master {
+        if !s.master || commit_names_a_crtc_the_card_lacks(&s, &commit) {
             return Err(err(Errno::ACCESS));
         }
         if commit_reads_past_a_framebuffer(&s, &commit) {
@@ -1573,7 +1587,8 @@ mod tests {
     // vtium/vtium#249: a commit that puts a plane on a CRTC outside the
     // plane's possible CRTCs is refused with EINVAL, as the kernel's
     // `drm_atomic_plane_check` refuses it, and one that puts the CRTC's own
-    // plane there is taken.
+    // plane there is taken. A CRTC the card does not have is refused with
+    // EACCES as the property is set, before any check.
     #[test]
     fn a_commit_that_puts_a_plane_on_another_crtc_is_refused() {
         let card = FakeCard::new(&[
@@ -1592,6 +1607,13 @@ mod tests {
         assert_eq!(errno(put(PRIMARY_PLANE)), Some(Errno::INVAL));
         assert_eq!(card.state().plane_fb.get(&PRIMARY_PLANE), None);
         assert_eq!(errno(put(PRIMARY_PLANE + 2)), None);
+        let mut req = Request::default();
+        req.set(PRIMARY_PLANE, card.prop_id("CRTC_ID"), 999);
+        assert_eq!(
+            errno(card.commit(&req, 0)),
+            Some(Errno::ACCESS),
+            "a CRTC the card does not have"
+        );
         assert_eq!(
             card.state().plane_crtc.get(&(PRIMARY_PLANE + 2)),
             Some(&(CRTC + 1))
