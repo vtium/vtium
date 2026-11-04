@@ -19,6 +19,18 @@ if [ ! -f "$pics/mandelbrot.six" ]; then
 	[ -n "${T3_EVENTS:-}" ] && echo T3-NO-PICTURES >"$T3_EVENTS"
 	exit 0
 fi
+# The kitty command $1 with the base64 payload $2, in chunks of 4096.
+kitty() {
+	local data=$2 i more
+	for ((i = 0; i < ${#data}; i += 4096)); do
+		more=$((i + 4096 < ${#data}))
+		if ((i == 0)); then
+			printf '%s_G%s,m=%d;%s%s\\' "$esc" "$1" "$more" "${data:i:4096}" "$esc"
+		else
+			printf '%s_Gm=%d;%s%s\\' "$esc" "$more" "${data:i:4096}" "$esc"
+		fi
+	done
+}
 read -r sw sh <"$pics/sphere.size"
 left=5 right=$((cols / 2 + 6))
 at 2 3; printf '%sPictures%s' "$h" "$o"

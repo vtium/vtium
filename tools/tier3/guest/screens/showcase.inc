@@ -1,6 +1,6 @@
 # Shared by the showcase scenes (showcase-*.sh), which source it: the
-# terminal's size, the font switch the fonts scene makes, the colors the
-# scenes write, and the sender of kitty graphics commands. It draws nothing itself. The scenes are tier 3's variant
+# terminal's size, the font switch the fonts scene makes, and the colors the
+# scenes write. It draws nothing itself. The scenes are tier 3's variant
 # showcase-1920x1080 (tools/tier3/t3_showcase.py, ADR-1502 D6); each writes
 # fixed bytes, so every run draws the same screen.
 
@@ -18,19 +18,6 @@ read -r rows cols < <(stty size </dev/tty 2>/dev/null || echo '27 120')
 fg() { printf '%s[38;2;%d;%d;%dm' "$esc" "$1" "$2" "$3"; }
 bg() { printf '%s[48;2;%d;%d;%dm' "$esc" "$1" "$2" "$3"; }
 off() { printf '%s[0m' "$esc"; }
-
-# The kitty command $1 with the base64 payload $2, in chunks of 4096.
-kitty() {
-	local data=$2 i more
-	for ((i = 0; i < ${#data}; i += 4096)); do
-		more=$((i + 4096 < ${#data}))
-		if ((i == 0)); then
-			printf '%s_G%s,m=%d;%s%s\\' "$esc" "$1" "$more" "${data:i:4096}" "$esc"
-		else
-			printf '%s_Gm=%d;%s%s\\' "$esc" "$more" "${data:i:4096}" "$esc"
-		fi
-	done
-}
 
 # The terminal's answer to QUERY, up to the byte FINAL, which is dropped;
 # empty when none comes within 3 seconds. Echo is off while it waits.
