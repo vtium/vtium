@@ -588,12 +588,15 @@ def page(report, date):
               "itself as vtium %s, ran tier 3's variant `%s` on %s, and wrote this page. "
               "The variant's machine has %d virtual CPUs and %d MB of memory, a virtio-vga "
               "display at 1920x1080 and Linux %s, and runs vtium built with the `images` "
-              "feature, drawing on its CPU renderer in a cell of %s pixels. "
+              "feature, drawing on its CPU renderer. The console starts in a cell of %s "
+              "pixels, and the shell scene, the hero, switches to its own frit, "
+              "`showcase-shell`, in a cell of %s pixels, so the hero holds 28 rows. "
               "[tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/"
               "README.md#the-showcase) describes the variant."
               % (commit, console.get("revision", "of no revision"), VARIANT, date,
                  v["cpus"], v["memory_mb"], v["kernel"],
-                 "x".join(str(n) for n in v["cell"] or ()) or "unknown"), "",
+                 "x".join(str(n) for n in v["cell"] or ()) or "unknown",
+                 "x".join(str(n) for n in gallery.CELL)), "",
               "Every font may be redistributed. vtium carries no font file but GNU Unifont, "
               "so `t3_showcase.py` pins each other font by its address and SHA-256 and "
               "fetches it into a cache, and the run carries it into the guest.", "",

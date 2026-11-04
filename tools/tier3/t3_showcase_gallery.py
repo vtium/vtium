@@ -18,11 +18,9 @@ import t3img  # noqa: E402
 from t3_common import ROOT, rel  # noqa: E402
 
 
-# The gallery: six PNG pictures of 256x160 pixels, which the gallery tool
-# shows four rows tall in the shell scene's cell, Iosevka Term's 15x38, each
-# in a box of 16 cells by 4 rows. Four are computed here from a few lines of arithmetic. Two are
-# photographs in the public domain, shrunk once to 256x160 and committed in
-# tools/tier3/showcase-photos/.
+# Each picture is 256x160 pixels, and the gallery tool shows it four rows
+# tall in the shell scene's cell, Iosevka Term's 15x38, in a box of 16 cells
+# by 4 rows.
 GALLERY_SIZE = (256, 160)
 # The shell scene's cell in pixels, which its frit, showcase-shell, states.
 CELL = (15, 38)

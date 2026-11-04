@@ -66,7 +66,7 @@ The same build draws this in the same guest on a 320x240 display, the smallest v
 
 ## How these screens are made
 
-`tools/tier3/showcase.sh` built vtium at commit `97473d78`, whose console logged itself as vtium v0.1.0-alpha.1-676-g97473d78, ran tier 3's variant `showcase-1920x1080` on 2026-11-04, and wrote this page. The variant's machine has 4 virtual CPUs and 4096 MB of memory, a virtio-vga display at 1920x1080 and Linux 7.2.11-arch1-1, and runs vtium built with the `images` feature, drawing on its CPU renderer in a cell of 16x40 pixels. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
+`tools/tier3/showcase.sh` built vtium at commit `97473d78`, whose console logged itself as vtium v0.1.0-alpha.1-676-g97473d78, ran tier 3's variant `showcase-1920x1080` on 2026-11-04, and wrote this page. The variant's machine has 4 virtual CPUs and 4096 MB of memory, a virtio-vga display at 1920x1080 and Linux 7.2.11-arch1-1, and runs vtium built with the `images` feature, drawing on its CPU renderer. The console starts in a cell of 16x40 pixels, and the shell scene, the hero, switches to its own frit, `showcase-shell`, in a cell of 15x38 pixels, so the hero holds 28 rows. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
 
 Every font may be redistributed. vtium carries no font file but GNU Unifont, so `t3_showcase.py` pins each other font by its address and SHA-256 and fetches it into a cache, and the run carries it into the guest.
 

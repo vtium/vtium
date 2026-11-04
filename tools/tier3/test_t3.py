@@ -5249,7 +5249,7 @@ class ShowcaseTest(unittest.TestCase):
         events = os.path.join(self.dir.name, "events")
         with contextlib.suppress(FileNotFoundError):
             os.unlink(events)
-        status, data = gallery_terminal.run(
+        status, data, _ = gallery_terminal.run(
             ["bash", os.path.join(screens, "showcase-shell.sh")],
             gallery_terminal.answers(**{"cell": t3_showcase_gallery.CELL,
                                         "font": "showcase-shell", **traits}),
@@ -5308,6 +5308,16 @@ class ShowcaseTest(unittest.TestCase):
                          if abs(2 * c + len(label) - 2 * col - width) <= 2]
                 self.assertEqual(under, [files[png]])
         self.assertEqual(len(text), len(placed))
+        # every chunk of a picture is at most 4096 bytes of base64, and every
+        # one but a picture's last, which ends it with m=0, a multiple of 4
+        chunks = [(dict(k.split("=") for k in keys.decode().split(",")), payload) for keys, payload
+                  in re.findall(rb"\x1b_G([^;\x1b]*);([^\x1b]*)\x1b\\", data)]
+        chunks = [(keys["m"], payload) for keys, payload in chunks if keys.get("a") != "q"]
+        self.assertEqual(sum(m == "0" for m, _ in chunks), len(g.GALLERY))
+        for m, payload in chunks:
+            self.assertLessEqual(len(payload), 4096)
+            if m == "1":
+                self.assertEqual(len(payload) % 4, 0)
         data, events = self.on_terminal(screens, kitty=False)
         pictures, text, rows = self.gallery_rows(data)
         self.assertEqual((self.screen_rows(data), pictures, rows), ((27, 27), {}, 5))
@@ -5413,6 +5423,8 @@ class ShowcaseTest(unittest.TestCase):
             text, alt = t3_showcase.caption(script)
             self.assertIn("## %s\n\n![%s](%s)\n\n%s\n" % (title, alt, name, text), page)
         self.assertIn("at commit `abc1234`", page)
+        self.assertIn("starts in a cell of 16x40 pixels, and the shell scene, the hero, switches "
+                      "to its own frit, `showcase-shell`, in a cell of 15x38 pixels", page)
         for font in t3_showcase.FONTS:
             self.assertIn("`%s`" % font.file_sha256, page)
         self.assertIn("| GNU Unifont |", page)
