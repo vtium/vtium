@@ -24,7 +24,7 @@ agent:
   model: claude-opus-5-5
 considered:
   - operator: aaronsb
-    said: "Plan the frame clock now, alongside the vtlook record, rather than deferring it."
+    said: "Plan the frame clock now, alongside ADR-1304, rather than deferring it."
     via: the maintainer in the steering session, 2026-11-03, overruling the steering session's recommendation to defer the clock; relayed by the team lead in this record's brief; the wording is the team lead's and this record's agent's, not the maintainer's
     paraphrase: true
 observable:
@@ -37,28 +37,28 @@ deciders:
 related: []
 ---
 
-# ADR-1304: A frame clock gives the time to spatial shaders that declare they read it
+# ADR-1305: A frame clock gives the time to spatial shaders that declare they read it
 
 ## Summary
 
-- **Decided by the maintainer (2026-11-03):** the frame clock is planned now, alongside the vtlook record, so that a spatial shader can animate: a CRT's flicker, a bar rolling down the screen.
+- **Decided by the maintainer (2026-11-03):** the frame clock is planned now, alongside ADR-1304, so that a spatial shader can animate: a CRT's flicker, a bar rolling down the screen.
 - **Proposed by this record's agent, for the maintainer to confirm:** a spatial shader whose header declares that it reads the time gets two values: `vtTime`, the seconds since its head's clock started, wrapping every hour, and `vtFrame`, the count of frames its display has presented since then (D1, D2). A display draws on the clock only while all of these hold: its head draws on the GPU path, the look in force on it holds such a shader, the VT is vtium's, the displays are not blanked, and `look-clock` is not `off` (D3). It then draws a new frame each time its last frame reaches the screen, so at the display's refresh rate; a key, `look-clock`, caps the rate or stops the clock (D4). Time enters through one new place, the frame clock in the binary, which takes the loop's time as an argument, and the values it gives reach only present's pass, never the terminal's state (D5). While the clock runs every present is whole, and the composition still draws only what changed (D6). The CPU path never draws on the clock, and the blink timers and the animation clock stay apart from it (D7). vtium-config previews the clock live and checks a shader at given times (D8). Seven open questions remain.
 - **Trades away:** A console showing an animated look no longer rests when nothing changes: the GPU redraws the whole display every refresh, the loop and the render thread wake every refresh, and a laptop's panel stays out of its self-refresh mode. The time wraps once an hour, so a shader whose cycle does not divide an hour jumps once an hour. An animation starts again from zero after a VT switch or a blank. A fading afterglow, which needs past frames, is left out.
 - **One-way?** No. It is reversible now. The names of the two values and the header's line become expensive to change once people write and trade shaders that use them.
 - **Probes:**
   - *Confident (always redrawing):* a look with an animated effect, such as a rolling bar, makes vtium redraw that screen at the display's refresh rate, 60 times a second on most screens, the whole time the console is on screen and not blanked, even while nothing in the terminal changes. A look without one redraws only when something changes, as today. The ways to save power are the screen blank and a key that caps or stops the animation. Is that the cost you expect?
   - *Not confident (phosphor afterglow):* a fading afterglow, where a bright letter fades out over a few frames after it changes, needs vtium to keep the previous frame for the shader to read, a second whole-screen picture in GPU memory for each display. This record leaves afterglow out and gives shaders only the time and a frame count, which is enough for flicker and rolling bars. Do you need afterglow in the first animated looks?
-- **Inversion:** Between "no time in any shader", which the vtlook record holds today, and "an animation system": every look with a shader redrawn continuously, as Ghostty does with any custom shader, a history of past frames, a rate for each shader, and blink and picture animation folded into one clock. The answer is two values for the shaders that declare they read the time, drawn at the refresh rate and paced by the display's flips, with one key to cap or stop it.
+- **Inversion:** Between "no time in any shader", which ADR-1304 holds today, and "an animation system": every look with a shader redrawn continuously, as Ghostty does with any custom shader, a history of past frames, a rate for each shader, and blink and picture animation folded into one clock. The answer is two values for the shaders that declare they read the time, drawn at the refresh rate and paced by the display's flips, with one key to cap or stop it.
 
 ## Context
 
-ADR-1303 gives the GPU path a spatial slot, a step in the present pass that reads the upright frame around each pixel. Its D5 says that a step that reads the time needs frames drawn on a clock and a new place where time enters vtium, that the step's record names both, and that the time never reaches the screen's state. The vtlook record (the decision record, drafted alongside this one, in which a file called a vtlook chooses vtium's frame filters and sets their parameters) fills that slot with spatial filters, each a shader file that root installs, and gives them no time: its D3 and D15 leave a clock to a record of its own. This is that record.
+ADR-1303 gives the GPU path a spatial slot, a step in the present pass that reads the upright frame around each pixel. Its D5 says that a step that reads the time needs frames drawn on a clock and a new place where time enters vtium, that the step's record names both, and that the time never reaches the screen's state. ADR-1304 (the decision record in which a file called a vtlook chooses vtium's frame filters and sets their parameters) fills that slot with spatial filters, each a shader file that root installs, and gives them no time: its D3 and D15 leave a clock to a record of its own. This is that record.
 
 A CRT look is the reason. A real CRT flickers at its refresh, shows a faint bar of brighter lines rolling down the picture when its refresh beats against the room's lights, and leaves an afterglow where its phosphor fades. The first two need only the time. The third needs the frames drawn before, which this record leaves out (open question 6).
 
 vtium draws today only when something changes: the program's output, a key, the pointer, a blink, a frame of an animated picture. Two things already move on a timer. The blink timers (`crates/vtium/src/blink.rs`) flip the text's and the cursor's phases every 500 ms, and the animation clock (`crates/vtium/src/animation.rs`, ADR-1102 D3) picks the frame each animated picture shows. Both live in the binary, take the time the event loop reads at each turn, and change what a display draws, never the terminal's state. They are the precedent here.
 
-The maintainer decided on 2026-11-03 to plan the clock now, alongside the vtlook record, against a recommendation to defer it (`considered`). The maintainer also asked for care with complexity in the GPU frame (`basis`), so this record adds two values and one key, and reuses the draw requests, the flip pacing and the frame-rate floor vtium already has.
+The maintainer decided on 2026-11-03 to plan the clock now, alongside ADR-1304, against a recommendation to defer it (`considered`). The maintainer also asked for care with complexity in the GPU frame (`basis`), so this record adds two values and one key, and reuses the draw requests, the flip pacing and the frame-rate floor vtium already has.
 
 A few words used below. A tick is the pair of values a frame gives its shaders: the time and the frame count. A clock frame is a frame vtium draws because the clock asked for it. A display draws on the clock while vtium asks it for clock frames. The head's clock is the origin both values count from.
 
@@ -87,13 +87,13 @@ A spatial shader that declares it reads the time (D2) gets two uniforms in prese
 
 **When the time is read.** The tick takes the time of the turn of the event loop that takes the frame for that display, the same time the loop already passes to its other timers. A flip event from vtium-platform carries no timestamp today, and the time between taking a frame and its flip is nearly constant, so the motion stays even without predicting when the frame will reach the screen.
 
-**The names.** A filter parameter's uniform is `<filter>_<parameter>` in lowercase with underscores (the vtlook record's D1), so no parameter can take a name with a capital letter. `vtTime` and `vtFrame` are working names. The survey of prior art that settles the shader header's syntax (the vtlook record's D15) may choose Shadertoy's `iTime` and `iFrame` instead, which Ghostty also uses, to make shaders easier to port; either choice keeps the capital letter.
+**The names.** A filter parameter's uniform is `<filter>_<parameter>` in lowercase with underscores (ADR-1304 D1), so no parameter can take a name with a capital letter. `vtTime` and `vtFrame` are working names. The survey of prior art that settles the shader header's syntax (ADR-1304 D15) may choose Shadertoy's `iTime` and `iFrame` instead, which Ghostty also uses, to make shaders easier to port; either choice keeps the capital letter.
 
 ### D2: a shader declares that it reads the time
 
-A shader file's header, which the vtlook record's D15 defines, gains one line that says the shader reads the time. Its spelling follows the header syntax the survey settles. vtium reads the header before it compiles anything, as for every other line.
+A shader file's header, which ADR-1304 D15 defines, gains one line that says the shader reads the time. Its spelling follows the header syntax the survey settles. vtium reads the header before it compiles anything, as for every other line.
 
-vtium declares `vtTime` and `vtFrame` in present's shader only when at least one filter of the chain declares that it reads the time, and lists them then among the program's inputs, so the check every `Gl` implementation makes, that a program declares each of its inputs, covers them. A shader that uses either name without declaring it does not compile, because nothing defines the name. That is a compile error, which the vtlook record's D6 answers as it answers every failure: the head draws the built-in default look, and the error names the shader. A shader that declares the time and does not read it compiles and works, and costs a redraw every refresh for nothing; vtium-config's check says so (D8).
+vtium declares `vtTime` and `vtFrame` in present's shader only when at least one filter of the chain declares that it reads the time, and lists them then among the program's inputs, so the check every `Gl` implementation makes, that a program declares each of its inputs, covers them. A shader that uses either name without declaring it does not compile, because nothing defines the name. That is a compile error, which ADR-1304 D6 answers as it answers every failure: the head draws the built-in default look, and the error names the shader. A shader that declares the time and does not read it compiles and works, and costs a redraw every refresh for nothing; vtium-config's check says so (D8).
 
 The declaration also lets vtium say which looks animate without a GPU: `vtium check-config`, `looks` and `look-show` mark a look that holds a time-reading shader as animated.
 
@@ -102,7 +102,7 @@ The declaration also lets vtium say which looks animate without a GPU: `vtium ch
 A display draws on the clock while all of these hold:
 
 1. its head draws on the GPU path (ADR-1303 D9);
-2. the look in force on that display holds at least one spatial filter whose header declares that it reads the time; a display that misses the look's requirements, or that its frame-rate floor put on the default look (the vtlook record's D7 and D16), draws the default look and does not draw on the clock;
+2. the look in force on that display holds at least one spatial filter whose header declares that it reads the time; a display that misses the look's requirements, or that its frame-rate floor put on the default look (ADR-1304 D7 and D16), draws the default look and does not draw on the clock;
 3. the VT is vtium's and its terminals are awake, the state in which the blink timers run;
 4. the displays are not blanked;
 5. `look-clock` is not `off` (D4).
@@ -130,7 +130,7 @@ stateDiagram-v2
 
 ### D4: how fast, and what it costs
 
-**The rate.** A key, `look-clock`, sets how fast a display draws on the clock. It sits in vtium.conf, and a head may set it for itself in heads.conf, as the vtlook record's `look-min-fps` does. It takes three kinds of value:
+**The rate.** A key, `look-clock`, sets how fast a display draws on the clock. It sits in vtium.conf, and a head may set it for itself in heads.conf, as ADR-1304's `look-min-fps` does. It takes three kinds of value:
 
 | Value | What vtium does |
 |---|---|
@@ -144,7 +144,7 @@ Under `refresh` the flip's completion wakes the loop, so the clock arms no timer
 
 **The CPU's and the power's cost.** Each clock frame also wakes the loop and the head's render thread once a refresh, for every display that draws on the clock. The GPU and the display controller never rest while such a look shows, and a laptop's panel stays out of its self-refresh mode. None of this is measured yet. The slice that builds the clock measures a clock frame's CPU time on an idle screen in tier 3's 1-vCPU guest with the render timer, and the maintainer's review on a VT observes the power. The controls are the screen blank, `dpms-timeout`, which stops the clock (D3), `look-clock`, and a look without a time-reading shader.
 
-**The frame-rate floor and the watch.** The vtlook record's D16 applies as it stands. Its measured run, when a look loads or a display changes, gives the shaders the ticks that drawing at the display's refresh from time 0 would give, or time 0 and frame 0 under `look-clock=off`. Its watch while running times each present where the driver has timer queries; while the clock runs every present is a clock frame, so the watch sees one every refresh, and a shader that slows down at some times and not others is caught by the watch's run of 30 slow frames. The floor judges what the GPU can draw, one frame's GPU time against one second divided by the floor, never the rate `look-clock` sets, so a cap below the floor does not put a display on the default look.
+**The frame-rate floor and the watch.** ADR-1304 D16 applies as it stands. Its measured run, when a look loads or a display changes, gives the shaders the ticks that drawing at the display's refresh from time 0 would give, or time 0 and frame 0 under `look-clock=off`. Its watch while running times each present where the driver has timer queries; while the clock runs every present is a clock frame, so the watch sees one every refresh, and a shader that slows down at some times and not others is caught by the watch's run of 30 slow frames. The floor judges what the GPU can draw, one frame's GPU time against one second divided by the floor, never the rate `look-clock` sets, so a cap below the floor does not put a display on the default look.
 
 ### D5: where time enters, and how it stays out of the terminal's state
 
@@ -168,23 +168,23 @@ While a display draws on the clock, every present on it is whole, as ADR-1303 D5
 
 The composition still draws only what changed into the upright frame (ADR-1303 D3), which outlives a frame. A clock frame on an idle screen composes nothing and runs present alone over the upright frame it already holds. A clock frame takes the screen's snapshot the way any draw does; if the slice's measurement shows the snapshot to cost on an idle screen, a later change sends a clock frame without one, and until then there is one kind of job.
 
-Under `look-clock=off` the tick never changes, so present draws only what changed, unless a filter of the chain reads other pixels than the one it writes (the vtlook record's D3).
+Under `look-clock=off` the tick never changes, so present draws only what changed, unless a filter of the chain reads other pixels than the one it writes (ADR-1304 D3).
 
 ### D7: the CPU path, and vtium's other clocks
 
-**The CPU path.** Time-reading shaders exist only in the spatial layer, which only the GPU path draws (the vtlook record's D3). A head on the CPU path draws a look's color layer and skips its effects, so it never draws on the clock. The color layer never reads the time (the vtlook record's D2), so a look's colors stay one table on both paths.
+**The CPU path.** Time-reading shaders exist only in the spatial layer, which only the GPU path draws (ADR-1304 D3). A head on the CPU path draws a look's color layer and skips its effects, so it never draws on the clock. The color layer never reads the time (ADR-1304 D2), so a look's colors stay one table on both paths.
 
 **The blink timers stay apart.** Text blink and cursor blink change which cells show what, on both paths, in every build and with no look at all, and a key resets the cursor's phase. They are events every 500 ms, not a continuous time. The animation clock picks which frame a picture shows, also on both paths. Merging either into the frame clock would make it exist in builds and on heads with no look and no GPU path, or make blink depend on the GPU path, and blink's tests already drive its firings directly. The three share two things: the time the loop passes them, and the draw request. A draw any of them asks for while a frame is on its way joins that frame, so under `refresh` a blink's change shows in the next clock frame and adds no frame of its own.
 
 ### D8: vtium-config, the preview and the check
 
-**The live preview.** vtium-config's preview applies a look to the live head (the vtlook record's D11), so the frame clock runs on it as on a configured look, under the head's `look-clock`, and the user sees the animation as it will run.
+**The live preview.** vtium-config's preview applies a look to the live head (ADR-1304 D11), so the frame clock runs on it as on a configured look, under the head's `look-clock`, and the user sees the animation as it will run.
 
-**The check.** vtium-config's check of a shader as the invoking user, before root installs it (the vtlook record's D15), draws its run of frames at given ticks for a shader that declares the time: 8 frames from time 0 at a 60 Hz spacing, frames 0 to 7, and 8 frames ending just before the time's wrap, with the frame count ending just before its own. It times them as the frame-rate floor's measurement does, so a shader that is slow or hangs only at large values is caught before it is installed. It says when a shader declares the time and its linked program has no place for either value, which means the shader reads neither and would redraw every refresh for nothing. The report names the ticks each slow frame took.
+**The check.** vtium-config's check of a shader as the invoking user, before root installs it (ADR-1304 D15), draws its run of frames at given ticks for a shader that declares the time: 8 frames from time 0 at a 60 Hz spacing, frames 0 to 7, and 8 frames ending just before the time's wrap, with the frame count ending just before its own. It times them as the frame-rate floor's measurement does, so a shader that is slow or hangs only at large values is caught before it is installed. It says when a shader declares the time and its linked program has no place for either value, which means the shader reads neither and would redraw every refresh for nothing. The report names the ticks each slow frame took.
 
 ### D9: the work
 
-One slice builds the clock. It follows the vtlook record's slice for the spatial layer and the shader format, and can run beside its slice for the frame-rate floor. It builds: the header's line and the two uniforms, declared only when the chain needs them; the frame clock in the binary with D3's conditions and D4's pacing; the `look-clock` key in vtium.conf's key table and heads.conf; D6's damage rule; the marks of an animated look in `vtium check-config` and vtium-config; vtium-config's check at given ticks; the tests of D5 and Verification; and one shader as the first worked example, `roll`, a band of slightly brighter rows rolling down the screen, which reads only the pixel it writes and so shows the clock without any other cost. Its parameters follow the vtlook record's D1 kinds, and the slice sets them.
+One slice builds the clock. It follows ADR-1304's slice for the spatial layer and the shader format, and can run beside its slice for the frame-rate floor. It builds: the header's line and the two uniforms, declared only when the chain needs them; the frame clock in the binary with D3's conditions and D4's pacing; the `look-clock` key in vtium.conf's key table and heads.conf; D6's damage rule; the marks of an animated look in `vtium check-config` and vtium-config; vtium-config's check at given ticks; the tests of D5 and Verification; and one shader as the first worked example, `roll`, a band of slightly brighter rows rolling down the screen, which reads only the pixel it writes and so shows the clock without any other cost. Its parameters follow ADR-1304 D1 kinds, and the slice sets them.
 
 ## What the other records change to fit
 
@@ -195,7 +195,7 @@ ADR-1303 is accepted and names "that step's record" and "its own record" where t
 - **D6:** "the whole buffer at age 0 or when a spatial step asks for it" adds "or while the display draws on the frame clock" (D6).
 - **Consequences, Negative:** "A spatial step that reads the time brings a frame clock and a new place where time enters, which its own record must justify" names this record.
 
-The vtlook record is not yet accepted, so its author can fold these in before it is, without notes:
+ADR-1304 is not yet accepted, so its author can fold these in before it is, without notes:
 
 - **D3, "No time":** a spatial filter whose header declares that it reads the time gets this record's two values, and no other filter gets either. "Its parameters are its only uniforms" adds the two values for such a filter.
 - **D3's damage paragraph:** "A spatial filter that reads only the pixel it writes, such as scanlines, leaves damage tracking as it is" adds "and does not read the time, or while the clock is `off`".
@@ -255,14 +255,14 @@ The C reference had no time in any shader, so the frame clock goes past it rathe
 
 ### Neutral
 
-- The vtlook record's spatial contract gains one exception, the declared time; its color layer stays timeless.
+- ADR-1304's spatial contract gains one exception, the declared time; its color layer stays timeless.
 - The names of the two values wait on the same survey of prior art as the rest of the shader header.
 - ADR-1303's D1, D5, D6 and Negative consequences change to name this record.
 
 ## Alternatives Considered
 
 - **Animate every look with a spatial filter whenever the console shows,** as Ghostty's `custom-shader-animation` does by default for any custom shader. Not taken: most filters, such as scanlines and sharpen, never change with time, and redrawing them every refresh would cost power for nothing.
-- **Detect a time-reading shader by looking for the names in its source, or by asking the compiled program whether it uses them.** Not taken: a text search is fooled by comments and macros, and a compiled program's answer comes only after compiling on a GPU, while the vtlook record's design states everything vtium needs in the header before it compiles anything. The check of D8 uses the compiled program's answer only to warn.
+- **Detect a time-reading shader by looking for the names in its source, or by asking the compiled program whether it uses them.** Not taken: a text search is fooled by comments and macros, and a compiled program's answer comes only after compiling on a GPU, while ADR-1304's design states everything vtium needs in the header before it compiles anything. The check of D8 uses the compiled program's answer only to warn.
 - **An unwrapped time.** Not taken: a `highp float` loses precision as the time grows, to 7.8 ms after a day, half a 60 Hz frame, and a shader cannot repair it.
 - **Time as whole milliseconds in a `uint`.** Not taken: a shader would turn it into a float to use it and meet the same precision loss, and every shader would repeat that conversion.
 - **A clock that keeps running across VT switches and blanks, counting from vtium's start.** Not taken: the time would grow toward the wrap on every long run, tests would need to set an origin, and nothing on the screen shows the difference for the effects in view.
