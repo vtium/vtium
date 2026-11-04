@@ -1946,7 +1946,9 @@ fn a_display_manager_enabled_without_the_alias_keeps_vt_1() {
         "[Unit]\nDescription=TUI display manager\nAfter=systemd-user-sessions.service getty@%i.service\nConflicts=getty@%i.service\n\n[Service]\nExecStart=/usr/bin/ly\nTTYPath=/dev/%I\n\n[Install]\nAlias=autovt@.service\nWantedBy=multi-user.target\nDefaultInstance=tty2\n",
     )
     .unwrap();
+    // `systemctl enable ly@tty2.service` makes both links.
     m.link("multi-user.target.wants/ly@tty2.service", "ly");
+    m.link("autovt@tty2.service", "ly");
     let before = m.snapshot();
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1, "{err}");
@@ -1960,6 +1962,12 @@ fn a_display_manager_enabled_without_the_alias_keeps_vt_1() {
     assert_eq!(status, 1);
     assert!(err.contains("ly@tty2.service holds VT 2 at boot"), "{err}");
     assert_eq!(m.snapshot(), before);
+    m.console(&["enable", "--all"]);
+    assert!(
+        !m.wanted("vtium@tty1.service"),
+        "VT 1 stays the display manager's"
+    );
+    assert_eq!(m.links("autovt@tty2.service"), to("ly"));
 }
 
 #[test]

@@ -24,8 +24,10 @@
 //! `Restart=on-failure` has scheduled included, and the getty takes the VT,
 //! as tier 3's `heads-partly-open` checks. The job mode `fail` would leave
 //! that restart standing: on systemd 262 it left vtium and the getty
-//! running on the VT together (measured in tier 3). No other unit's job is
-//! replaced, since a unit with a job queued holds the getty back.
+//! running on the VT together (measured in tier 3). It starts nothing while
+//! a unit that conflicts with the getty has a job queued, so the start
+//! replaces no such job, except one queued in the moment between that check
+//! and the start.
 
 use std::collections::BTreeMap;
 
