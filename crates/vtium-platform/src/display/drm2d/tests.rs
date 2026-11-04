@@ -18,7 +18,7 @@ use rustix::io::Errno;
 use super::output::signed;
 use super::*;
 use crate::display::blank::Due;
-use crate::display::fake::{BufferCall, Commit, FakeCard, ListRead, Plane, RemoveFb, logs};
+use crate::display::fake::{BufferCall, Color, Commit, FakeCard, ListRead, Plane, RemoveFb, logs};
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 
@@ -873,10 +873,10 @@ fn a_wake_up_follows_the_display_to_the_crtc_the_desktop_left_it_on() {
     assert_eq!(s.active.get(&100), Some(&false), "CRTC 100 stays off");
 }
 
-// A display plugged in while the VT was away is bound before the displays
-// bound earlier follow their connectors, so it may take the CRTC one of
-// them follows to. It moves to a free one, and each display shows its own
-// frame on a CRTC of its own.
+// A display plugged in while the VT was away is placed together with the
+// displays bound earlier, after them, so it never takes the CRTC one of
+// them follows its connector to: A follows to CRTC 101, B takes 100, and
+// each display shows its own frame on a CRTC of its own.
 #[test]
 fn a_display_plugged_in_while_away_leaves_the_crtc_a_display_follows_to() {
     let v = two_crtcs();
@@ -1282,6 +1282,509 @@ fn a_display_moved_to_a_crtc_with_no_cursor_plane_gives_the_cursor_up() {
     );
     let shown = drawn(&mut v, A, 0x66);
     assert!(v.card().shows(101, shown), "{:?}", v.card().state());
+}
+
+/// A card with connectors A and B, whose encoders each drive every one of
+/// its `crtcs` CRTCs, as a DisplayPort multi-stream port's do on amdgpu,
+/// awake with A on CRTC `at`, where the desktop left it. B is not listed:
+/// it is the connector the port's monitor comes back as, so the two have
+/// the port's one `PATH`.
+fn one_port(crtcs: usize, at: u32) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A);
+        s.crtcs.truncate(crtcs);
+        let primaries = 300 + 2 * u32::try_from(crtcs).unwrap();
+        s.planes.retain(|&p, _| p == 399 || p < primaries);
+        let all = (1 << crtcs) - 1;
+        for e in [200, 201] {
+            s.encoders.get_mut(&e).unwrap().possible_crtcs = all;
+        }
+        s.bind(A, at);
+    }
+    for conn in [A, B] {
+        card.set_path(conn, b"mst:40-1\0");
+    }
+    let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.card().state().bound.get(&A), Some(&at));
+    v
+}
+
+/// The monitor on A drops and is found again as connector B, between two
+/// scans, as DP-8 did on the maintainer's machine (vtium/vtium#252).
+fn back_as_b(v: &Drm2d<FakeCard>) {
+    let mut s = v.card().state();
+    s.connectors.remove(&A);
+    s.listed = vec![B];
+}
+
+// A scan lets go of the displays that are gone before it binds the new
+// connectors, so a monitor that comes back under a new connector id in one
+// scan takes back the CRTC its old display held, the one the desktop uses
+// too, and never moves to another.
+#[test]
+fn a_connector_back_under_a_new_id_keeps_its_crtc() {
+    let mut v = one_port(2, 100);
+    back_as_b(&v);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Removed(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+    let b = drawn(&mut v, B, 0x66);
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+    assert_ne!(
+        v.card().state().active.get(&101),
+        Some(&true),
+        "no other CRTC is lit"
+    );
+}
+
+// On a card with one CRTC, the connector that comes back binds at the
+// scan that finds it, rather than wait for the next scan with no CRTC.
+#[test]
+fn a_connector_back_under_a_new_id_on_a_one_crtc_card_binds_at_once() {
+    let mut v = one_port(1, 100);
+    back_as_b(&v);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Removed(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+    let b = drawn(&mut v, B, 0x66);
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+}
+
+// The connector that comes back takes the CRTC its old display held, as
+// its `PATH` names the same port, though another CRTC comes first in the
+// card's list: here the desktop had the monitor on CRTC 101, and CRTC 100
+// is free.
+#[test]
+fn a_connector_back_under_a_new_id_takes_back_a_crtc_that_is_not_the_first() {
+    let mut v = one_port(2, 101);
+    back_as_b(&v);
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Removed(DisplayId(A)), Event::Added(DisplayId(B))]
+    );
+    let b = drawn(&mut v, B, 0x66);
+    assert!(v.card().shows(101, b), "{:?}", v.card().state());
+}
+
+// A monitor found by its EDID takes back the CRTC its old display held as
+// well, where its connector has no `PATH`.
+#[test]
+fn a_monitor_back_under_a_new_id_with_its_edid_takes_back_its_crtc() {
+    let dir = sysfs_dir("back-edid");
+    for name in ["HDMI-A-1", "HDMI-A-2"] {
+        write_edid(&dir, name, b"SAME000001", (60, 34));
+    }
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A);
+        s.sysfs = Some(dir.clone());
+        for e in [200, 201] {
+            s.encoders.get_mut(&e).unwrap().possible_crtcs = 0b11;
+        }
+        s.bind(A, 101);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    back_as_b(&v);
+    v.poll().unwrap();
+    let b = drawn(&mut v, B, 0x66);
+    assert!(v.card().shows(101, b), "{:?}", v.card().state());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Two monitors of one model with no serial number in their EDIDs, on A
+/// and B, which the card has on CRTCs 102 and 103, drop together and come
+/// back as C and D. With `paths`, A and B sit on the ports `mst:40-1` and
+/// `mst:40-2` of one multi-stream hub, and C comes back on B's port and D
+/// on A's. Returns the CRTCs C and D show their first frames on.
+fn one_model_back(test: &str, paths: bool) -> (u32, u32) {
+    const C: u32 = 43;
+    const D: u32 = 44;
+    let dir = sysfs_dir(test);
+    for name in ["HDMI-A-1", "HDMI-A-2", "HDMI-A-3", "HDMI-A-4"] {
+        write_edid(&dir, name, b"\0\0\0\0\0\0\0\0\0\0", (60, 34));
+    }
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+        (C, vec![mode(640, 480, 60, true)]),
+        (D, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A || c == B);
+        s.sysfs = Some(dir.clone());
+        for e in [200, 201, 202, 203] {
+            s.encoders.get_mut(&e).unwrap().possible_crtcs = 0b1111;
+        }
+        s.bind(A, 102);
+        s.bind(B, 103);
+    }
+    if paths {
+        for (conn, port) in [(A, 1), (B, 2), (C, 2), (D, 1)] {
+            card.set_path(conn, format!("mst:40-{port}\0").as_bytes());
+        }
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    {
+        let mut s = v.card().state();
+        s.connectors.remove(&A);
+        s.connectors.remove(&B);
+        s.listed = vec![C, D];
+    }
+    v.poll().unwrap();
+    let c = drawn(&mut v, C, 0x66);
+    let d = drawn(&mut v, D, 0x77);
+    std::fs::remove_dir_all(&dir).unwrap();
+    let on = |fb| {
+        [100, 101, 102, 103]
+            .into_iter()
+            .find(|&crtc| v.card().shows(crtc, fb))
+            .unwrap()
+    };
+    (on(c), on(d))
+}
+
+// Two monitors of one model come back on their ports in the other order,
+// and each takes back the CRTC its own port had: where both connectors
+// have a `PATH`, the port decides, though the EDIDs match both ways.
+#[test]
+fn monitors_of_one_model_back_on_their_ports_take_back_their_own_crtcs() {
+    assert_eq!(one_model_back("same-edid-paths", true), (103, 102));
+}
+
+// Two monitors of one model with no `PATH` come back, and together they
+// take back both CRTCs they held: a CRTC one display takes back is not
+// offered to the next, so the second takes the other CRTC freed, not the
+// first free one, and no CRTC is left lit for a gone monitor.
+#[test]
+fn monitors_of_one_model_without_paths_take_back_both_crtcs() {
+    assert_eq!(one_model_back("same-edid-no-paths", false), (102, 103));
+}
+
+// A hotplug keeps each lit display on its CRTC. Here A is lit on CRTC 100
+// and its encoder drives 100 and 101, and B, plugged in, drives only 100.
+// Moving A to 101 would free 100 for B, but the hotplug leaves A where it
+// is: B gets no CRTC, with an error, and a later hotplug fails the same
+// way. The next wake-up places every display together, so A moves to 101
+// and B lights on 100. Whether a hotplug should move a lit display here is
+// the maintainer's to decide.
+#[test]
+fn a_hotplug_keeps_a_lit_display_on_its_crtc_and_the_wake_up_places_the_new_one() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A);
+        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+        s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b01;
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let shown = drawn(&mut v, A, 0x55);
+    v.card().state().listed.push(B);
+    for _ in 0..2 {
+        logs::capture();
+        v.poll().unwrap();
+        assert_eq!(events(&mut v), []);
+        assert_eq!(
+            logs::at_least(Level::Error),
+            ["no free CRTC for HDMI-A-2"],
+            "B waits"
+        );
+        assert!(v.card().shows(100, shown), "A stays lit on CRTC 100");
+    }
+    v.sleep();
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.wake_up().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Redraw(DisplayId(A)),
+            Event::Added(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    let a = drawn(&mut v, A, 0x66);
+    let b = drawn(&mut v, B, 0x77);
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+}
+
+// The first scan places its displays together, as a wake-up does, so it
+// places every display wherever the card has a CRTC for each. Here the
+// desktop left A lit on CRTC 100, the only CRTC B's encoder drives, and B
+// off. Placed one at a time, A would keep 100 and B would get no CRTC; the
+// first scan moves A to 101, which its encoder also drives, and B takes
+// 100.
+#[test]
+fn a_fresh_start_on_the_desktops_leftovers_places_every_display() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+        s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b01;
+    }
+    desktop_leaves(&card, A, 100);
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Added(DisplayId(A)),
+            Event::Added(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+    let a = drawn(&mut v, A, 0x66);
+    let b = drawn(&mut v, B, 0x77);
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+}
+
+/// What a card's display A reads in its color properties now.
+fn color(v: &Drm2d<FakeCard>) -> Color {
+    v.card().state().color[&A]
+}
+
+/// The color state of an ordinary 8-bit sRGB display: `Colorspace` at
+/// `Default`, no HDR metadata, and 8 bits per color, in amdgpu's range.
+const SDR: Color = Color {
+    colorspace: 0,
+    hdr_metadata: 0,
+    max_bpc: 8,
+    bpc_range: (8, 16),
+};
+
+/// One display whose connector a desktop with HDR on left in BT.2020 with
+/// HDR metadata and 16 bits per color, on a card whose calls are atomic or
+/// not.
+fn left_in_hdr(atomic: bool) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+    card.state().atomic = atomic;
+    card.hdr(A);
+    Drm2d::with(card, ModePolicy::default()).unwrap()
+}
+
+// vtium draws 8-bit sRGB, so each modeset sets the connector's color state
+// to that: `Colorspace` to `Default`, no `HDR_OUTPUT_METADATA`, and `max
+// bpc` to the 8 bits per color its buffers hold, whatever a desktop with HDR
+// on left there, at the first scan and again at each wake-up
+// (vtium/vtium#253).
+#[test]
+fn each_modeset_sets_the_color_state_a_desktop_left_back_to_8_bit_srgb() {
+    let mut v = awake(left_in_hdr(true));
+    assert_eq!(color(&v), SDR);
+    let modeset = v.card().last_commit().unwrap();
+    assert_eq!(modeset.get(A, "Colorspace"), Some(0));
+    assert_eq!(modeset.get(A, "HDR_OUTPUT_METADATA"), Some(0));
+    assert_eq!(modeset.get(A, "max bpc"), Some(8));
+    v.sleep();
+    flip(&mut v);
+    v.card().hdr(A);
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(color(&v), SDR);
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+}
+
+// A connector with none of the color properties, as most are, sets its
+// mode with none of them in its commit.
+#[test]
+fn a_connector_without_the_color_properties_sets_its_mode() {
+    let mut v = one();
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    for c in &v.card().state().commits {
+        assert!(
+            c.props.iter().all(
+                |(_, n, _)| !["Colorspace", "HDR_OUTPUT_METADATA", "max bpc"].contains(&n.as_str())
+            ),
+            "{c:?}"
+        );
+    }
+}
+
+// ADR-1401 D14: a driver that refuses the color properties vtium sets costs
+// no display. When the test-only commit fails with them and passes without
+// them, the mode is set without them, and a warning names the connector
+// and says its color properties stay as vtium found them; for that
+// connector the warning is logged once, and later refusals at debug level.
+#[test]
+fn a_color_state_the_driver_refuses_leaves_the_display_set() {
+    let mut v = left_in_hdr(true);
+    v.card()
+        .state()
+        .color_refused
+        .extend(["Colorspace", "HDR_OUTPUT_METADATA", "max bpc"].map(|n| (A, n)));
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    let warned = logs::at_least(Level::Warn);
+    assert_eq!(warned.len(), 1, "{warned:?}");
+    assert!(
+        warned[0].contains("cannot set the color properties of HDMI-A-1")
+            && warned[0].ends_with("its color properties stay as vtium found them"),
+        "{warned:?}"
+    );
+    assert_eq!(color(&v).colorspace, 9, "the connector keeps what it had");
+    let b = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+    v.sleep();
+    flip(&mut v);
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+}
+
+/// Two displays whose connectors a desktop with HDR on left in BT.2020,
+/// with HDR metadata and 16 bits per color, on a card that refuses to set
+/// A's `refused` color properties.
+fn two_in_hdr(refused: &[&'static str]) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    card.hdr(A);
+    card.hdr(B);
+    card.state()
+        .color_refused
+        .extend(refused.iter().map(|&n| (A, n)));
+    Drm2d::with(card, ModePolicy::default()).unwrap()
+}
+
+// A color property one connector refuses costs no other connector its
+// reset, and the warning names the connector that refused (ADR-1401 D14).
+// Where the card refuses only A's `max bpc`, A gets the rest of its reset
+// and keeps its 16 bits per color; where it refuses A's `Colorspace`, A
+// keeps all three as vtium found them. B is reset either way.
+#[test]
+fn a_color_property_one_connector_refuses_costs_no_other_its_reset() {
+    for (refused, warning) in [
+        ("max bpc", "cannot set `max bpc` of HDMI-A-1 for sRGB"),
+        (
+            "Colorspace",
+            "cannot set the color properties of HDMI-A-1 for sRGB",
+        ),
+    ] {
+        let mut v = two_in_hdr(&[refused]);
+        logs::capture();
+        v.wake_up().unwrap();
+        assert_eq!(
+            events(&mut v),
+            [
+                Event::Added(DisplayId(A)),
+                Event::Added(DisplayId(B)),
+                Event::Awake
+            ]
+        );
+        let warned = logs::at_least(Level::Warn);
+        assert_eq!(warned.len(), 1, "{refused}: {warned:?}");
+        assert!(warned[0].starts_with(warning), "{refused}: {warned:?}");
+        let s = v.card().state();
+        assert_eq!(s.color[&B], SDR, "{refused}: B is reset");
+        let a = s.color[&A];
+        assert_eq!(a.max_bpc, 16, "{refused}: A keeps its bits per color");
+        let reset = refused == "max bpc";
+        assert_eq!(a.colorspace == 0, reset, "{refused}: {a:?}");
+        assert_eq!(a.hdr_metadata == 0, reset, "{refused}: {a:?}");
+    }
+}
+
+// Each connector that refuses gets a warning of its own in one modeset:
+// here A refuses `max bpc` and B refuses `Colorspace`, and the log names
+// each once.
+#[test]
+fn each_connector_that_refuses_is_warned_of_once() {
+    let mut v = two_in_hdr(&["max bpc"]);
+    v.card().state().color_refused.push((B, "Colorspace"));
+    logs::capture();
+    v.wake_up().unwrap();
+    let warned = logs::at_least(Level::Warn);
+    assert_eq!(warned.len(), 2, "{warned:?}");
+    assert!(
+        warned[0].starts_with("cannot set `max bpc` of HDMI-A-1 for sRGB"),
+        "{warned:?}"
+    );
+    assert!(
+        warned[1].starts_with("cannot set the color properties of HDMI-A-2 for sRGB"),
+        "{warned:?}"
+    );
+}
+
+// Where the connector's range for `max bpc` does not hold the 8 bits per color
+// vtium draws, the modeset sets the value of the range nearest 8: the least
+// of a range above 8, the greatest of a range below it (ADR-1401 D14).
+#[test]
+fn a_max_bpc_range_without_8_takes_its_nearest_value() {
+    for (range, nearest) in [((10, 16), 10), ((6, 6), 6), ((6, 12), 8)] {
+        let v = left_in_hdr(true);
+        v.card().state().color.get_mut(&A).unwrap().bpc_range = range;
+        let v = awake(v);
+        assert_eq!(color(&v).max_bpc, nearest, "{range:?}");
+        assert_eq!(color(&v).colorspace, 0, "{range:?}");
+    }
+}
+
+// The legacy calls set the color state too, each property on its own, and
+// a property the driver refuses leaves the display set.
+#[test]
+fn a_legacy_modeset_sets_the_color_state_back_to_8_bit_srgb() {
+    let v = awake(left_in_hdr(false));
+    assert_eq!(color(&v), SDR);
+    let mut v = left_in_hdr(false);
+    v.card()
+        .state()
+        .color_refused
+        .extend(["Colorspace", "HDR_OUTPUT_METADATA", "max bpc"].map(|n| (A, n)));
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    assert_eq!(v.card().state().set_crtcs.len(), 1);
+    assert_eq!(color(&v).colorspace, 9);
 }
 
 // The open makes the card DRM master; the seat puts a card opened while
