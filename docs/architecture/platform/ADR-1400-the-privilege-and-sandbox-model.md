@@ -7,7 +7,7 @@ basis:
   - operator: aaronsb
     level: directed
     said: "The kmscon security model works, for reasons vtium should not have to relearn."
-    via: operator, in session, on the first draft of this record, relayed verbatim by the team lead
+    via: operator, in session, on the first draft of this record, relayed by the team lead
     paraphrase: true
   - operator: aaronsb
     level: directed
@@ -20,17 +20,17 @@ basis:
   - operator: aaronsb
     level: guided
     said: "The record also covers the kmscon fork's security model: the nobody user, the systemd service and the rest."
-    via: operator, in session, relayed verbatim by the team lead in this record's brief
+    via: operator, in session, relayed by the team lead in this record's brief
     paraphrase: true
   - operator: aaronsb
     level: guided
     said: "vtium also works without them."
-    via: operator, in session, the line after the one above, relayed verbatim by the team lead
+    via: operator, in session, the line after the one above, relayed by the team lead
     paraphrase: true
   - operator: aaronsb
     level: guided
     said: "The minspec work focuses on software more than on hardware. For now it is enough that vtium can be launched minimally with a plain unit script."
-    via: operator, in session, relayed verbatim by the team lead
+    via: operator, in session, relayed by the team lead
     paraphrase: true
   - operator: aaronsb
     level: guided

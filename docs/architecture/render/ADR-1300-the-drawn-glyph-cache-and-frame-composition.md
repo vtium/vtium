@@ -7,12 +7,12 @@ basis:
   - operator: aaronsb
     level: guided
     said: "Glyphs carry color and transparency. The cache balances speed against memory: a machine above minspec may take a profile that spends more memory for speed, and a build or run-time option still picks the minspec profile."
-    via: operator, in session, relayed verbatim by the team lead in this record's brief
+    via: operator, in session, relayed by the team lead in this record's brief
     paraphrase: true
   - operator: aaronsb
     level: guided
     said: "The record covers the GPU-accelerated path as well as the CPU path."
-    via: operator, in session, relayed verbatim by the team lead in this record's brief
+    via: operator, in session, relayed by the team lead in this record's brief
     paraphrase: true
   - operator: aaronsb
     level: directed
@@ -30,7 +30,7 @@ basis:
   - operator: aaronsb
     level: guided
     said: "The 1-bit and scale-1 storage and the row-scratch composition each need a decision that says how they differ from the C reference."
-    via: operator, in session 2026-10-26, on the 1-bit and scale-1 storage and the row-scratch composition, relayed verbatim by the team lead
+    via: operator, in session 2026-10-26, on the 1-bit and scale-1 storage and the row-scratch composition, relayed by the team lead
     paraphrase: true
   - upstream: "aaronsb/kmscon b1f7a7c5: the glyph key (src/font/font.h:64-102), bbulk's one LRU, rotation on insert and per-cell drawing (src/render/bbulk.c:433, 529-572, 603-672, 1413-1475), gltex's four pools, bounds and blank draws (src/render/gltex.c:207-241, 860-930) and its float blend (src/render/gltex_atlas.frag:81-94), and the CPU blend arithmetic (src/video/drm2d_render.c:46-87)"
   - evidence: "the glyph storage research for the CPU compositor (2026-10-26): draw kernels, dumb-buffer reads and writes, GL memory, miss cost, lookup cost and LRU hit rates, measured on a Ryzen 9 9950X3D on one pinned core, with radeonsi (integrated and discrete) and llvmpipe; the scripts and outputs sit in the steering session's scratchpad, uncommitted"

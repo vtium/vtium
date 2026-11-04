@@ -80,11 +80,11 @@ considered:
     paraphrase: true
   - operator: aaronsb
     said: "On the CPU path a look's color filters run and its spatial effects are skipped. This can be revisited if a cheap, compatible effect turns up."
-    via: the maintainer in the steering session, 2026-11-03, round 1 of the open questions, relayed by the team lead, answering open question 8, quoted verbatim
+    via: the maintainer in the steering session, 2026-11-03, round 1 of the open questions, relayed by the team lead, answering open question 8
     paraphrase: true
   - operator: aaronsb
     said: "A look is chosen for each head in heads.conf and for every head in vtium.conf, so the two settings compose."
-    via: the maintainer in the steering session, 2026-11-03, round 1 of the open questions, relayed by the team lead, answering open question 1, quoted verbatim
+    via: the maintainer in the steering session, 2026-11-03, round 1 of the open questions, relayed by the team lead, answering open question 1
     paraphrase: true
   - operator: aaronsb
     said: "Yes, every color filter is one table, 33 a side, merged into one."
@@ -116,38 +116,38 @@ considered:
     paraphrase: true
   - operator: aaronsb
     said: "The requirement keys are named as minimums and maximums: min-size and max-size, min-depth, and so on."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead
     paraphrase: true
   - operator: aaronsb
     said: "documented with spec examples"
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, asking that the vtlook and .cube formats be documented; the fragment is the maintainer's words
   - operator: aaronsb
     said: "People can in time write the filters they want and use them."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, revising decision 2
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, revising decision 2
     paraphrase: true
   - operator: aaronsb
     said: "Shaders can be shared and installed; root installs them, with the permissions that protect vtium's other files."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, revising decision 2
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, revising decision 2
     paraphrase: true
   - operator: aaronsb
     said: "Shaders that root installs are acceptable, because root already owns the display's hardware devices."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, on the trust model of installable shaders
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, on the trust model of installable shaders
     paraphrase: true
   - operator: aaronsb
     said: "The filters live outside vtium's code, in a standard format, so users can customize them and inspect what they do."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, the intent behind installable shaders
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, the intent behind installable shaders
     paraphrase: true
   - operator: aaronsb
     said: "A crafted shader that root installed means the system is already compromised."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, on the shader-compiler caveat
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, on the shader-compiler caveat
     paraphrase: true
   - operator: aaronsb
     said: "A cheap measurement checks a look's filter stack, and a stack that runs below a frame-rate threshold fails as a whole."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, deciding a cost check
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, deciding a cost check
     paraphrase: true
   - operator: aaronsb
     said: "The frame-rate threshold is one more requirement a look declares."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, refining the cost check
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, refining the cost check
     paraphrase: true
   - operator: aaronsb
     said: "Yes, the running watch where timer queries exist (30 frames over budget in a row drops that display to default); no watch without them."
@@ -159,7 +159,7 @@ considered:
     paraphrase: true
   - operator: aaronsb
     said: "Shader files are for effects only, and a shader's author may still change colors in one."
-    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead verbatim, answering open question 1
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 1
     paraphrase: true
   - operator: aaronsb
     said: "Yes, 1-D tables (LUT_1D_SIZE, 2 to 4096) folded into the merged table."
@@ -167,7 +167,7 @@ considered:
     paraphrase: true
   - operator: aaronsb
     said: "The limits are accepted and documented. vtium-config lints a shader, and may also test it briefly in user space."
-    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead verbatim, answering open question 3
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 3
     paraphrase: true
   - operator: aaronsb
     said: "Plan the clock now"
@@ -182,7 +182,7 @@ considered:
     paraphrase: true
   - operator: aaronsb
     said: "Enforcing a shader's reach and reads is worth trying, with the analysis kept outside vtium's draw loop and its memory."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, on enforcing a shader's reach and reads
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, on enforcing a shader's reach and reads
     paraphrase: true
 status: accepted
 date: 2026-11-03

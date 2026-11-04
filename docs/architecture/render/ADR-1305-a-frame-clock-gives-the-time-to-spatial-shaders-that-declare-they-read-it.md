@@ -11,7 +11,7 @@ basis:
   - operator: aaronsb
     level: guided
     said: "The GPU frame's code is kept as simple as it can be."
-    via: "the maintainer in the steering session, 2026-11-03, a follow-up on ADR-1303's open question 9 about the GPU frame, relayed verbatim by the team lead and recorded in ADR-1303's `considered`"
+    via: "the maintainer in the steering session, 2026-11-03, a follow-up on ADR-1303's open question 9 about the GPU frame, relayed by the team lead and recorded in ADR-1303's `considered`"
     paraphrase: true
   - upstream: "aaronsb/kmscon b1f7a7c5: the text blink timer, every 500 ms (src/terminal.c:164), and the cursor blink timer each flipped a phase and asked every screen for a redraw (src/terminal.c:715-724, 821-830); both were armed when the terminal activated and disarmed when it deactivated (src/terminal.c:1764-1795); a redraw asked while the display's flip was in flight was kept pending and drawn when the flip completed (src/terminal.c:461-480, 669-690); gltex's shaders took no time input, their uniforms being textures, a clip, colors and sizes (src/render/gltex_atlas.frag:53-61, src/render/gltex_image.frag:35-36)"
   - evidence: "vtium's drawing as built on integration at 4ac66c3e, read 2026-11-03: the blink timers in the binary, 500 ms phases that a key resets, armed at activation and dropped at deactivation (crates/vtium/src/blink.rs, `App::activate` and `App::deactivate` in crates/vtium/src/app.rs); the animation clock, given the loop's time at each turn and arming no timer while its console is hidden or blanked (crates/vtium/src/animation.rs, ADR-1102 D3); the loop's one clock read, injected as `Clock` (crates/vtium/src/main.rs:51-57); at most one frame on its way to each display, a draw asked meanwhile waiting for it (`View::pending`, crates/vtium/src/term.rs); a flip event that carries no timestamp (`Event::Flipped`, handled in `App::video_event`); a draw that changes nothing queues no flip and counts as skipped (crates/vtium-render/src/timer.rs); vtium-term and vtium-image depend on vtium-parse and not on vtium-render (their Cargo.toml)"
@@ -35,11 +35,11 @@ considered:
     covers: [always redrawing]
   - operator: aaronsb
     said: "A shader declares that it reads the time, and a shader that reads the previous frame's buffer declares that too."
-    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead verbatim, answering open question 7
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 7
     paraphrase: true
   - operator: aaronsb
     said: "The afterglow is included, and its history takes memory only when a shader declares it as a buffer."
-    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead verbatim, answering open question 6 and the second probe, overruling the recommendation to leave the afterglow out
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 6 and the second probe, overruling the recommendation to leave the afterglow out
     covers: [phosphor afterglow]
     paraphrase: true
   - operator: aaronsb

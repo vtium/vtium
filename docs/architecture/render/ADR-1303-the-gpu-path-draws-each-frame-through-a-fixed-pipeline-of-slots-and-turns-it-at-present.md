@@ -123,7 +123,7 @@ considered:
     paraphrase: true
   - operator: aaronsb
     said: "The GPU frame's code is kept as simple as it can be."
-    via: the maintainer in the steering session, 2026-11-03, a follow-up on open question 9's whole-screen frame, relayed verbatim by the team lead
+    via: the maintainer in the steering session, 2026-11-03, a follow-up on open question 9's whole-screen frame, relayed by the team lead
     paraphrase: true
   - operator: aaronsb
     said: "A display that appears mid-run is checked against the GPU's limits when it appears, and only its own head draws in software if it passes them; the other heads stay on the GPU. A head on the GPU whose display changes to a mode past the limits draws in software while that mode lasts, and goes back to the GPU when a later mode change fits; it is checked again at every mode change, because nothing failed and a mode change already rebuilds the frame. Software until restart stays for serious GPU failures only."
@@ -131,15 +131,15 @@ considered:
     paraphrase: true
   - operator: aaronsb
     said: "Even a very small ARM system-on-chip with a GPU has enough video memory for this."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, on the GPU limits of a display larger than the GPU's largest texture
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, on the GPU limits of a display larger than the GPU's largest texture
     paraphrase: true
   - operator: aaronsb
     said: "The GPU path may differ from the CPU path at a few per cent of the pixels, as the C fork allowed. The CPU path is the standard; each GPU may draw slightly differently, and vtium relies on the underlying libraries for most of the consistency."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead
     paraphrase: true
   - operator: aaronsb
     said: "Tier 2 judges the GPU path exactly, for now."
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, deciding how tier 2 judges the GPU path after tier 2 on Mesa's llvmpipe measured all 72 drawn screens byte-identical to the CPU path and a planted one-level rounding error in the cell shader passed under the starting values of a max_delta of 1 and 3 per cent of the pixels
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, deciding how tier 2 judges the GPU path after tier 2 on Mesa's llvmpipe measured all 72 drawn screens byte-identical to the CPU path and a planted one-level rounding error in the cell shader passed under the starting values of a max_delta of 1 and 3 per cent of the pixels
     paraphrase: true
   - operator: aaronsb
     said: "Yes, such a picture may take the CPU copy: these are extreme cases, and the design plans for realistic pictures."
