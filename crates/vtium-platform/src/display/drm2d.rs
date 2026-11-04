@@ -2061,11 +2061,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             };
             if self.outputs.iter().any(|o| moved_unset(o, false)) {
                 let refusal = self.outputs.iter().any(|o| moved_unset(o, true));
-                // The CRTCs the moved displays go back to; a new display on
-                // one of them is left off.
+                // The CRTCs the moved displays go back to, with the new
+                // displays let go; a new display on one of them is left off.
+                let going = self.going_back(&fresh);
                 let back: Vec<u32> = self
                     .outputs
                     .iter()
+                    .filter(|o| going.contains(&o.id))
                     .filter_map(|o| Some(o.moved_from?.crtc))
                     .collect();
                 let (new, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.outputs)
@@ -2169,31 +2171,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
     }
 
-    /// Moves each display that the last placement moved off a CRTC to
-    /// light another display back to that CRTC, as the modeset that was to
-    /// set it on its new CRTC failed. A display stays where it is placed
-    /// where a display that does not go back holds that CRTC, or another
-    /// display goes back to it too. A display whose CRTC has no primary
-    /// plane stays off, as one the scan cannot bind does, and the owner
-    /// hears it removed.
+    /// Moves each display that the last placement moved off a CRTC back to
+    /// that CRTC, as the modeset that was to set it on its new CRTC failed.
+    /// The displays that go back are those [`Self::going_back`] finds; each
+    /// other display stays where it is placed. A display whose CRTC has no
+    /// primary plane stays off, as one the scan cannot bind does, and the
+    /// owner hears it removed.
     fn move_back(&mut self) {
-        let held: Vec<u32> = self
-            .outputs
-            .iter()
-            .filter(|o| o.moved_from.is_none())
-            .map(|o| o.crtc)
-            .collect();
-        let back: Vec<u32> = self
-            .outputs
-            .iter()
-            .filter_map(|o| Some(o.moved_from?.crtc))
-            .collect();
+        let going = self.going_back(&[]);
         for mut o in std::mem::take(&mut self.outputs) {
             let Some(Moved { crtc, pipe, .. }) = o.moved_from.take() else {
                 self.outputs.push(o);
                 continue;
             };
-            if held.contains(&crtc) || back.iter().filter(|&&c| c == crtc).count() > 1 {
+            if !going.contains(&o.id) {
                 log::debug!(
                     "display {} cannot go back to CRTC {crtc}, which another display takes",
                     o.name
@@ -2206,6 +2197,54 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Err(why) => self.let_go(o, &why),
             }
         }
+    }
+
+    /// The displays that can go back to the CRTC the last placement moved
+    /// them off, where the displays `leaving` are let go first. A display
+    /// cannot go back where a display that stays holds that CRTC, or where
+    /// another display goes back to it too. A display that cannot go back
+    /// stays where it is placed, so it holds that CRTC in turn, and the
+    /// test repeats until no more displays stay.
+    fn going_back(&self, leaving: &[DisplayId]) -> Vec<DisplayId> {
+        let outputs: Vec<&Output<S::Memory>> = self
+            .outputs
+            .iter()
+            .filter(|o| !leaving.contains(&o.id))
+            .collect();
+        let mut going: Vec<bool> = outputs.iter().map(|o| o.moved_from.is_some()).collect();
+        loop {
+            let held: Vec<u32> = outputs
+                .iter()
+                .zip(&going)
+                .filter(|&(_, &goes)| !goes)
+                .map(|(o, _)| o.crtc)
+                .collect();
+            let back: Vec<u32> = outputs
+                .iter()
+                .zip(&going)
+                .filter(|&(_, &goes)| goes)
+                .filter_map(|(o, _)| Some(o.moved_from?.crtc))
+                .collect();
+            let mut stays = false;
+            for (o, goes) in outputs.iter().zip(going.iter_mut()) {
+                let Some(m) = o.moved_from.filter(|_| *goes) else {
+                    continue;
+                };
+                if held.contains(&m.crtc) || back.iter().filter(|&&c| c == m.crtc).count() > 1 {
+                    *goes = false;
+                    stays = true;
+                }
+            }
+            if !stays {
+                break;
+            }
+        }
+        outputs
+            .iter()
+            .zip(going)
+            .filter(|&(_, goes)| goes)
+            .map(|(o, _)| o.id)
+            .collect()
     }
 
     /// Lets go of display `o`, which a placement could not put on a CRTC
