@@ -1,7 +1,8 @@
 //! The GPU path's frame: five slots in a fixed order (ADR-1303 D1).
 //!
-//! 1. [`Pictures`] makes the textures the composition samples for pictures
-//!    drawn at another size.
+//! 1. Pictures at another size: the textures the composition samples for
+//!    each picture, by GPU scaling or the CPU copy
+//!    (`super::pictures::Pictures`, in a build with `images`).
 //! 2. [`Composition`] draws what changed into the upright frame, a texture
 //!    the size of the whole display that outlives a frame.
 //! 3. [`Color`] maps each pixel's color to a new one.
@@ -23,8 +24,12 @@
 //!
 //! A turn of the display changes present's quads alone, and keeps every
 //! texture and program: the upright frame is made anew only where a quarter
-//! turn swaps its sides. The picture steps are part 5 of slice 0 (ADR-1303
-//! D11).
+//! turn swaps its sides.
+//!
+//! [`Pipeline::release`] gives back the glyph and picture textures and the
+//! upright frame, as a head does when its VT is released, keeping the
+//! programs and the context, and the next frame makes the frame again and
+//! draws whole (ADR-1303 D9).
 
 use std::collections::VecDeque;
 
@@ -130,16 +135,23 @@ pub struct Config {
     pub spatial: Spatial,
 }
 
-/// Slot 1, pictures at another size. It is empty until the picture steps
-/// fill it (ADR-1303 D2).
+/// Slot 1, pictures at another size, in a build with `images`.
+#[cfg(feature = "images")]
+use super::pictures::Pictures;
+
+/// Slot 1 in a build without `images`, which draws no picture.
+#[cfg(not(feature = "images"))]
 #[derive(Debug)]
 struct Pictures;
 
+#[cfg(not(feature = "images"))]
 impl Pictures {
-    /// Makes and fills the textures this frame's pictures need, and gives how
-    /// many calls that took. With no picture step built yet, none.
-    fn prepare<G: Gl>(&mut self, _gl: &mut G) -> Result<usize, Error> {
-        Ok(0)
+    fn new() -> Pictures {
+        Pictures
+    }
+
+    fn release<G: Gl>(&mut self, _gl: &mut G) -> Result<(), Error> {
+        Ok(())
     }
 }
 
@@ -330,7 +342,7 @@ impl Pipeline {
         };
         let pipeline = Pipeline {
             turn,
-            pictures: Pictures,
+            pictures: Pictures::new(),
             composition,
             spatial: config.spatial,
             present,
@@ -379,15 +391,29 @@ impl Pipeline {
         target: &DrawTarget,
         age: u32,
     ) -> Result<Vec<Rect>, Error> {
-        let uploads = self
+        // a frame after a release makes the upright frame again first
+        let restored = self.composition.restore(gl)?;
+        #[cfg(feature = "images")]
+        let pictures = self
             .pictures
-            .prepare(gl)?
+            .prepare(gl, work.pictures, self.composition.size())?;
+        #[cfg(not(feature = "images"))]
+        let pictures = 0usize;
+        let uploads = pictures
+            .saturating_add(restored)
             .saturating_add(work.uploads)
             .saturating_add(self.composition.prepare(gl, work)?);
         if uploads > 0 {
             gl.check(Batch::Uploads)?;
         }
-        let composed = self.composition.draw(gl, work)?;
+        let composed = self.composition.draw(
+            gl,
+            work,
+            #[cfg(feature = "images")]
+            &self.pictures,
+        )?;
+        #[cfg(feature = "images")]
+        self.composition.end_frame(gl)?;
         if !composed.is_empty() {
             gl.check(Batch::Draws)?;
         }
@@ -407,6 +433,57 @@ impl Pipeline {
         gl.check(Batch::Frame)?;
         gl.submit(target)?;
         Ok(damage)
+    }
+
+    /// Gives back the glyph and picture textures and the upright frame,
+    /// keeping the compiled programs and the context, as a head does when
+    /// its VT is released (ADR-1303 D9). The next frame makes the upright
+    /// frame again at the display's size, makes the glyphs again, uploads
+    /// the pictures it draws, and composes and presents whole.
+    pub fn release<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
+        let pictures = self.pictures.release(gl);
+        let composition = self.composition.release(gl);
+        self.present.forget();
+        pictures.and(composition)
+    }
+
+    /// Chooses the step that draws pictures at another size: GPU scaling,
+    /// the default, or the CPU copy, which tests choose to check a
+    /// picture's pixels exactly (ADR-1303 D2). No key of vtium.conf sets
+    /// it. A picture already uploaded keeps its textures while they last.
+    #[cfg(feature = "images")]
+    pub fn set_picture_step(&mut self, step: super::PictureStep) {
+        self.pictures.set_step(step);
+    }
+
+    /// Holds the picture textures to `side` pixels a side, or the GPU's
+    /// largest texture with `None`, so a test can tile a picture with no
+    /// GPU of a small limit.
+    #[cfg(feature = "images")]
+    pub fn limit_picture_textures(&mut self, side: Option<u32>) {
+        self.pictures.set_largest(side);
+    }
+
+    /// What the picture textures did and hold, counted as the CPU path
+    /// counts its copies: textures made and kept, pictures drawn from the
+    /// scratch texture, evictions, and the bytes held.
+    #[cfg(feature = "images")]
+    pub fn picture_counts(&self) -> crate::picture::PictureCounts {
+        self.pictures.counts()
+    }
+
+    /// The notes for the log since the last call, which the head writes
+    /// to its log: today only that glyphs were drawn blank past the glyph
+    /// textures' ceiling, given at most once in `GPU_IDLE_FRAMES` frames.
+    pub fn take_notes(&mut self) -> Vec<String> {
+        self.composition.take_notes()
+    }
+
+    /// Bytes the GPU glyph pools' and sprites' textures hold, while the
+    /// pipeline holds glyphs, at most the bounds table's
+    /// `GLYPH_TEXTURE_CEILING`.
+    pub fn glyph_texture_bytes(&self) -> Option<u64> {
+        self.composition.glyph_bytes()
     }
 
     /// Makes the next frame compose the whole upright frame and present the
@@ -482,8 +559,9 @@ impl Pipeline {
     }
 
     /// Frees what the pipeline holds in GL.
-    pub fn free<G: Gl>(self, gl: &mut G) -> Result<(), Error> {
+    pub fn free<G: Gl>(mut self, gl: &mut G) -> Result<(), Error> {
+        let pictures = self.pictures.release(gl);
         let program = gl.free_program(self.present.program);
-        self.composition.free(gl).and(program)
+        self.composition.free(gl).and(program).and(pictures)
     }
 }

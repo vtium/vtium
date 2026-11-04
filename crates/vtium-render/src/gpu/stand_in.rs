@@ -58,6 +58,21 @@ pub struct StandIn {
     next_name: u32,
     raised: Option<ErrorKind>,
     failing: Vec<(Op, ErrorKind)>,
+    /// The name of each upright frame made, in the order they were made.
+    frames: Vec<u32>,
+    /// What the stand-in saw of each draw since the calls were forgotten.
+    seen: Vec<Seen>,
+}
+
+/// What the stand-in saw of one draw past what [`Call::Draw`] records: the
+/// name of its target, and the values of its `ivec4` inputs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Seen {
+    /// The name of the framebuffer the draw went to.
+    pub target: u32,
+    /// Each `ivec4` input the draw set, by its name in the shader, with
+    /// its value.
+    pub ivec4: Vec<(&'static str, [i32; 4])>,
 }
 
 impl StandIn {
@@ -83,6 +98,8 @@ impl StandIn {
             next_name: 0,
             raised: None,
             failing: Vec::new(),
+            frames: Vec::new(),
+            seen: Vec::new(),
         }
     }
 
@@ -94,6 +111,20 @@ impl StandIn {
     /// Forgets the calls so far.
     pub fn clear_calls(&mut self) {
         self.calls.clear();
+        self.seen.clear();
+    }
+
+    /// The name of each upright frame the stand-in made, in the order it
+    /// made them, kept when the calls are forgotten: a test maps a draw's
+    /// target to the tile it draws into.
+    pub fn frame_names(&self) -> &[u32] {
+        &self.frames
+    }
+
+    /// What the stand-in saw of each [`Call::Draw`] in [`StandIn::calls`],
+    /// in the same order: its target, and its `ivec4` inputs' values.
+    pub fn seen(&self) -> &[Seen] {
+        &self.seen
     }
 
     /// How many textures, targets and programs are live.
@@ -172,6 +203,7 @@ impl Gl for StandIn {
     fn create_frame(&mut self, size: Size) -> Result<DrawTarget, Error> {
         let names = self.make(Op::CreateFrame).map(|n| (n, n));
         let t = self.ledger.create_frame(size, || names)?;
+        self.frames.push(self.ledger.target(&t)?.name);
         self.calls.push(Call::CreateFrame(size));
         Ok(t)
     }
@@ -210,6 +242,17 @@ impl Gl for StandIn {
 
     fn draw(&mut self, draw: &Draw<'_>) -> Result<(), Error> {
         let checked = self.ledger.draw(draw)?;
+        self.seen.push(Seen {
+            target: checked.target.name,
+            ivec4: checked
+                .inputs
+                .iter()
+                .filter_map(|(n, v)| match v {
+                    super::ledger::Resolved::IVec4(v) => Some((*n, *v)),
+                    _ => None,
+                })
+                .collect(),
+        });
         self.calls.push(Call::Draw {
             quads: draw.quads.to_vec(),
             blend: draw.blend,

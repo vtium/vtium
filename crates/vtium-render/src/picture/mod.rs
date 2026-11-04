@@ -10,8 +10,8 @@
 // "Determinism"): integer arithmetic only, here and in every submodule.
 #![deny(clippy::float_arithmetic)]
 
-mod copies;
-mod scale;
+pub(crate) mod copies;
+pub(crate) mod scale;
 
 use std::collections::BTreeMap;
 
@@ -21,8 +21,9 @@ use crate::blend::div255;
 use crate::compose::Area;
 use crate::target::Orientation;
 
+use copies::Copies;
+pub(crate) use copies::Key;
 pub use copies::PictureCounts;
-use copies::{Copies, Key};
 use scale::{Source, Taps};
 
 /// How strongly the selection's color tints a selected cell that a
@@ -150,6 +151,30 @@ impl Pic {
 
     pub(crate) fn opaque(&self) -> bool {
         self.opaque
+    }
+
+    /// The whole picture's display rectangle.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn rect(&self) -> Area {
+        self.rect
+    }
+
+    /// The part it draws, in display pixels.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn clip(&self) -> Area {
+        self.clip
+    }
+
+    /// What names its pixels, the part of them it shows and its drawn size.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn key(&self) -> Key {
+        self.key
+    }
+
+    /// The image's pixels.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn pixels(&self) -> &Pixels {
+        &self.pixels
     }
 }
 
@@ -493,6 +518,12 @@ impl Pictures {
         self.pics.get(i)
     }
 
+    /// The frame's pictures, in draw order.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn pics(&self) -> &[Pic] {
+        &self.pics
+    }
+
     /// Has picture `i`'s pixels ready: its kept copy, made now when there
     /// is room, or else the weights to scale it for this frame alone.
     pub(crate) fn ready(&mut self, i: usize) {
@@ -513,11 +544,14 @@ impl Pictures {
         let (sw, sh) = (key.src.2, key.src.3);
         if self.copies.place(&key) {
             pic.how = How::Copy;
-        } else if self.copies.room(&key) {
+        } else if self.copies.room(&key, key.bytes()) {
             let copy = scale::turned_copy(&src, (sw, sh), key.size, self.orientation);
-            self.copies.keep(key, copy);
+            self.copies.keep(key, copy, key.bytes());
+            // the CPU path's copies are its own memory, freed as they go
+            drop(self.copies.take_gone());
             pic.how = How::Copy;
         } else {
+            drop(self.copies.take_gone());
             self.copies.uncached();
             // the weights for the part it draws alone
             let (w, h) = key.size;

@@ -82,6 +82,8 @@ mod timer;
 mod trig;
 
 pub use arrow::Arrow;
+#[cfg(feature = "gpu")]
+pub use bounds::GPU_IDLE_FRAMES;
 #[cfg(feature = "images")]
 pub use bounds::PICTURE_CACHE_SCREENS;
 pub use bounds::{POINTER_SIDE_MAX, POOL_BYTES_PERFORMANCE, RENDER_TIMER_SAMPLES, ROW_SCRATCH_MAX};
