@@ -17,8 +17,9 @@ const ITALIC: Style = Style {
 /// A 256-glyph 8x16 PSF1 font with no table, so each codepoint is its
 /// glyph: `H` inked on rows 2 to 11, as kbd's default8x16 and Terminus
 /// ter-v16n draw it, so its baseline lies under row 11; `|` a column
-/// down every row at the cell's left edge; and `\\` a column down every
-/// row at x 6, next to the cell's right edge.
+/// down every row at the cell's left edge; `\\` a column down every row
+/// at x 6, next to the cell's right edge; and `/` a column down every row
+/// at x 7, the cell's last.
 fn font() -> Psf {
     let mut b = vec![0x36, 0x04, 0, 16];
     b.resize(4 + 256 * 16, 0);
@@ -28,6 +29,7 @@ fn font() -> Psf {
     for row in 0..16 {
         b[4 + 0x7c * 16 + row] = 0b1000_0000;
         b[4 + 0x5c * 16 + row] = 0b0000_0010;
+        b[4 + 0x2f * 16 + row] = 0b0000_0001;
     }
     Psf::parse(&b).expect("the crafted font")
 }
@@ -125,6 +127,30 @@ fn bold_italic_widens_then_leans() {
     // columns 0 and 1, at shifts 2 and -1 from the box's left of -1
     assert_eq!(row(0), [3, 4]);
     assert_eq!(row(15), [0, 1]);
+}
+
+// bold italic widens before it shears: a column in the cell's last
+// column has no room to widen inside the cell, so each row of its bold
+// italic glyph holds one pixel, as its italic glyph's does. Sheared
+// first, the column would have room in the ink box and widen there.
+// covers: sgr.bold
+#[test]
+fn bold_italic_widens_inside_the_cell_before_it_leans() {
+    let psf = font();
+    let both = Style {
+        bold: true,
+        italic: true,
+    };
+    let edge = psf.draw(&['/'], both).expect("the column");
+    let ink = edge.ink().expect("the top rows pass the right edge");
+    let counts: Vec<usize> = ink
+        .pixels()
+        .chunks(ink.width() as usize)
+        .map(|r| r.iter().filter(|&&p| p != 0).count())
+        .collect();
+    assert_eq!(counts, [1; 16], "one pixel in each row");
+    let italic = psf.draw(&['/'], ITALIC).expect("the column");
+    assert_eq!((edge.pixels(), edge.ink()), (italic.pixels(), italic.ink()));
 }
 
 // the built-in unifont, a set of 1-bit strikes, leans about the baseline

@@ -234,6 +234,42 @@ fn synthetic_bold_emboldens_an_outline_from_side_to_side() {
     }
 }
 
+// synthetic bold italic of an outline glyph is emboldened first and the
+// widened outline slanted after (ADR-1302 D4), so the bar's bottom row,
+// half a pixel above the baseline, sits 0.1 of a pixel right of the bold
+// glyph's on both sides. Slanted first and emboldened after, the bar's
+// slanted sides grow along their slant, down and to the left at its
+// foot, and the foot lands between a third and a half of a pixel left of
+// the bold foot at this size, where each side grows by 2.7 pixels.
+// covers: text.outline
+#[test]
+fn bold_italic_emboldens_an_outline_before_it_slants_it() {
+    let dir = Scratch::new("bold-italic");
+    let mono = dir.file("mono.ttf", &ttf::test_mono().build());
+    let e = engine(&format!("source=outline:{mono}\n"));
+    let cell = Cell {
+        width: 80,
+        height: 128,
+    };
+    let (bl, brows) = ink(&drawn(&e, cell, BOLD, 'A'));
+    let (il, irows) = ink(&drawn(&e, cell, BOLD_ITALIC, 'A'));
+    let bottom = |rows: &[Vec<u8>]| {
+        rows.iter()
+            .rposition(|r| r.iter().any(|&p| p != 0))
+            .expect("ink")
+    };
+    let y = bottom(&brows);
+    assert_eq!(bottom(&irows), y, "the foot stays on the baseline's row");
+    let moved = (
+        left_edge(il, &irows[y]).expect("ink") - left_edge(bl, &brows[y]).expect("ink"),
+        right_edge(il, &irows[y]).expect("ink") - right_edge(bl, &brows[y]).expect("ink"),
+    );
+    assert!(
+        (moved.0 - 0.1).abs() <= 0.15 && (moved.1 - 0.1).abs() <= 0.15,
+        "the foot's left and right edges moved {moved:?}, where the slant moves them 0.1"
+    );
+}
+
 // a frit that names a bold and an italic face draws each style from its
 // own face, and bold italic, which it names no face for, from the regular
 // glyph emboldened and then slanted (the maintainer, 2026-11-04)
@@ -383,7 +419,8 @@ fn the_w_rule_takes_the_bold_faces_w() {
 
 /// A 256-glyph 8x16 PSF1 font with no table: `H` inked on rows 2 to 11,
 /// so its baseline lies under row 11, `|` a column at the cell's left
-/// edge down every row, and `\\` a column at x 6, next to its right edge.
+/// edge down every row, `\\` a column at x 6, next to its right edge, and
+/// `/` a column at x 7, the cell's last.
 fn psf() -> Vec<u8> {
     let mut b = vec![0x36, 0x04, 0, 16];
     b.resize(4 + 256 * 16, 0);
@@ -393,6 +430,7 @@ fn psf() -> Vec<u8> {
     for row in 0..16 {
         b[4 + 0x7c * 16 + row] = 0b1000_0000;
         b[4 + 0x5c * 16 + row] = 0b0000_0010;
+        b[4 + 0x2f * 16 + row] = 0b0000_0001;
     }
     b
 }
@@ -428,11 +466,15 @@ fn the_helper_shears_a_bitmap_as_vtium_font_does() {
     want.push(Some(0));
     assert_eq!(first_ink(&bar), want);
     let mut own = Psf::parse(&psf()).expect("the font");
-    for style in [ITALIC, BOLD_ITALIC] {
-        let theirs = own.draw(&['|'], style).expect("vtium-font's");
-        let ours = drawn(&e, at8, style, '|');
-        assert_eq!(ours.pixels(), theirs.pixels(), "{style:?}");
-        assert_eq!(ours.ink(), theirs.ink(), "{style:?}");
+    // `/` in the cell's last column has no room to widen in the cell, so
+    // its bold italic glyph is its italic glyph in both
+    for c in ['|', '/'] {
+        for style in [ITALIC, BOLD_ITALIC] {
+            let theirs = own.draw(&[c], style).expect("vtium-font's");
+            let ours = drawn(&e, at8, style, c);
+            assert_eq!(ours.pixels(), theirs.pixels(), "{c} {style:?}");
+            assert_eq!(ours.ink(), theirs.ink(), "{c} {style:?}");
+        }
     }
     let at16 = Cell {
         width: 16,

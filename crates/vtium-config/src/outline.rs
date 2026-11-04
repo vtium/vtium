@@ -64,9 +64,9 @@
 //! FreeType's `FT_GlyphSlot_Embolden` grew a glyph, and by half a pixel a
 //! side at least, but only from side to side, so no ink rises above the
 //! font's tallest or falls below its lowest. Bold italic widens first and
-//! then slants the widened outline. Neither changes a glyph's advance or the cell, and the ink
-//! either adds past the cell goes to the glyph's ink box. A color glyph is
-//! drawn as it is.
+//! then slants the widened outline. Neither changes a glyph's advance or
+//! the cell, and the ink either adds past the cell goes to the glyph's ink
+//! box. A color glyph is drawn as it is.
 
 use std::sync::Arc;
 
@@ -1006,10 +1006,11 @@ pub(crate) mod raster {
 
         /// Glyph `g`'s outline at `ppem`, hinted, its points moved by
         /// `transform`, then emboldened and after that slanted as the
-        /// drawer's synthesis asks, the widening first (ADR-1302 D4), as coverage with its top-left corner above the
-        /// baseline and right of the pen, as swash places one. A face whose
-        /// hinter cannot be set up for the size, or a glyph whose hinting
-        /// fails, is drawn unhinted rather than not at all.
+        /// drawer's synthesis asks, the widening first (ADR-1302 D4), as
+        /// coverage with its top-left corner above the baseline and right
+        /// of the pen, as swash places one. A face whose hinter cannot be
+        /// set up for the size, or a glyph whose hinting fails, is drawn
+        /// unhinted rather than not at all.
         fn outline(&mut self, g: u16, ppem: f32, transform: Option<Transform>) -> Option<Image> {
             let outlines = self.outlines.clone()?;
             let glyph = outlines.get(GlyphId::new(u32::from(g)))?;
