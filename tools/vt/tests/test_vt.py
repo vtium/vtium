@@ -1908,9 +1908,10 @@ class Install(Case):
     def at(self, path):
         return os.path.join(self.root, path)
 
-    def shipped(self, unit_lines=None):
+    def shipped(self, unit_lines=None, fallback_lines=None):
         """The stand-in crates/vtium/install: the shipped units, the main
-        one's lines passed through unit_lines."""
+        one's lines passed through unit_lines and the fallback's through
+        fallback_lines."""
         src = os.path.join(ROOT, "crates", "vtium", "install")
         dst = os.path.join(self.s.standins, "install")
         os.mkdir(dst)
@@ -1918,6 +1919,8 @@ class Install(Case):
             text = read(os.path.join(src, f))
             if f == "vtium@.service" and unit_lines:
                 text = "\n".join(unit_lines(text.splitlines())) + "\n"
+            if f == "vtium-getty@.service" and fallback_lines:
+                text = "\n".join(fallback_lines(text.splitlines())) + "\n"
             write(os.path.join(dst, f), text, 0o644)
 
     def refused(self, p, why):
@@ -1958,7 +1961,9 @@ class Install(Case):
         self.assertEqual(links["autovt@.service"], "/usr/lib/systemd/system/kmsconvt@.service")
         fallback = read(self.at(self.FALLBACK)).splitlines()
         self.assertIn("ConditionPathExists=!/run/vtium/%i.closed", fallback)
-        self.assertIn("ExecStart=systemctl --no-block start getty@%i.service", fallback)
+        # The fallback runs the development binary's vtium console fallback,
+        # which starts no getty whose start would stop another program.
+        self.assertIn("ExecStart=/usr/local/bin/vtium-dev console fallback %i", fallback)
         manifest = read(self.at(self.STATE + "/tty4")).splitlines()
         self.assertEqual([l for l in manifest if not l.startswith("#")],
                          ["vt=4", "getty-enabled=yes", "getty-active=yes"])
@@ -2377,7 +2382,9 @@ exec "$@"
         self.assertIn("RestartSec=2s", unit)
         fallback_src = read(os.path.join(self.s.standins, "install", "vtium-getty@.service")).splitlines()
         fallback = read(self.at(self.FALLBACK)).splitlines()
-        self.assertEqual(fallback[-len(body(fallback_src)):], body(fallback_src))
+        want = [l.replace("ExecStart=/usr/bin/vtium ", "ExecStart=/usr/local/bin/vtium-dev ")
+                for l in body(fallback_src)]
+        self.assertEqual(fallback[-len(want):], want)
 
     def test_a_shipped_unit_of_another_shape_is_refused(self):
         for change, why in (
@@ -2393,6 +2400,16 @@ exec "$@"
                 self.refused(self.vt_install("install", "4"), why)
                 for f in (*self.FILES, self.STATE):
                     self.assertFalse(os.path.exists(self.at(f)), f)
+        # A fallback that no longer runs vtium console fallback would run the
+        # packaged binary, or start a getty itself.
+        shutil.rmtree(os.path.join(self.s.standins, "install"), ignore_errors=True)
+        self.shipped(fallback_lines=lambda lines: [
+            "ExecStart=systemctl --no-block start getty@%i.service" if l.startswith("ExecStart=") else l
+            for l in lines])
+        self.refused(self.vt_install("install", "4"),
+                     "no one ExecStart=/usr/bin/vtium console fallback %i line to change")
+        for f in (*self.FILES, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
 
     def test_a_vt_that_cannot_be_taken_is_refused(self):
         for args, env, why in ((["1"], {}, "VT 1 is refused"),
@@ -3447,7 +3464,11 @@ class Package(Case):
                 self.assertIn(f"#   ExecStart runs {exec_path}", unit)
                 fallback_src = read(os.path.join(ROOT, "crates/vtium/install/vtium-getty@.service")).splitlines()
                 fallback = read(os.path.join(out, f"{name}-getty@.service")).splitlines()
-                self.assertEqual(fallback[-len(body(fallback_src)):], body(fallback_src))
+                # The fallback runs EXEC's vtium console fallback.
+                want = [l.replace("ExecStart=/usr/bin/vtium ", f"ExecStart={exec_path} ") for l in body(fallback_src)]
+                self.assertEqual(fallback[-len(want):], want)
+                self.assertIn(f"ExecStart={exec_path} console fallback %i", fallback)
+                self.assertIn(f"#   ExecStart runs {exec_path} console fallback", fallback)
 
     def test_the_units_comments_name_their_own_units(self):
         # The shipped units' opening comments describe the source; the

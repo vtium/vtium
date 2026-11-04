@@ -272,7 +272,7 @@ mod tests {
         );
         assert_eq!(
             setting(fallback, "ExecStart"),
-            Some("systemctl --no-block start getty@%i.service")
+            Some("/usr/bin/vtium console fallback %i")
         );
     }
 
