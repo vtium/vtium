@@ -390,6 +390,22 @@ fn the_helper_shears_a_bitmap_as_vtium_font_does() {
     assert_eq!(ours.ink(), theirs.ink());
     // the regular glyph stays upright
     assert!(drawn(&e, at8, REGULAR, '|').ink().is_none());
+    // the regular strike states the baseline the helper shears about, row
+    // 12 at the font's own cell, so vtium-font's set reader leans the
+    // regular glyph for italic as the helper does
+    let regular = e
+        .draw_style(at8, REGULAR, &[u32::from('|')], &[])
+        .expect("draws")
+        .expect("a glyph");
+    let set = Arc::new(Set::from_bytes(regular).expect("a set"));
+    assert_eq!(
+        set.strikes().map(|s| s.baseline).collect::<Vec<u32>>(),
+        [12]
+    );
+    let reader = SetFace::new(set, 16).expect("a face");
+    let theirs = reader.draw(&['|'], ITALIC).expect("the reader's");
+    let ours = drawn(&e, at8, ITALIC, '|');
+    assert_eq!((ours.pixels(), ours.ink()), (theirs.pixels(), theirs.ink()));
 }
 
 // italic and bold asked of the helper as the console asks: each answer's

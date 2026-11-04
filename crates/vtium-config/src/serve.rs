@@ -1136,16 +1136,29 @@ impl Engine {
 
     /// The baseline and the underline and strike-through a strike at
     /// `cell` reports (ADR-1302 D3, ADR-1200 D2): those of the frit's
-    /// first source, the font that sets the cell, for an outline font, so
-    /// every answer at one cell reports the same ones even after that
-    /// source fails as it draws; else, for a bitmap first source or one
-    /// whose font cannot be read, the cell's bottom row and the lines of a
-    /// face with no metrics of its own.
+    /// first regular source, the font that sets the cell, for an outline
+    /// font, so every answer at one cell reports the same ones even after
+    /// that source fails as it draws. A bitmap first source reports the
+    /// lines of a face with no metrics of its own, and the baseline it is
+    /// sheared about ([`bitmap_baseline`]) as its glyphs sit in the cell,
+    /// scaled and on the cell's bottom row, so a reader that shears its
+    /// glyphs for italic (vtium-font's set reader) leans them as the helper
+    /// does. One whose font cannot be read, or that fits the cell at no
+    /// whole factor, reports the cell's bottom row.
     fn metrics_at(&self, cell: Cell) -> (u32, Decorations) {
         let plain = (cell.height, Decorations::for_height(cell.height));
         let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
             return plain;
         };
+        if let Some((_, Loaded::Bitmap(font))) = self.sources.get(first) {
+            let scale =
+                (cell.width / font.cell.width.max(1)).min(cell.height / font.cell.height.max(1));
+            if scale == 0 {
+                return plain;
+            }
+            let top = cell.height - font.cell.height * scale;
+            return (top + bitmap_baseline(font) * scale, plain.1);
+        }
         let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(first) else {
             return plain;
         };
