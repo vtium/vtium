@@ -81,6 +81,9 @@ struct Memory {
     /// The density the display measures, across and down; `None` for one
     /// that reports no physical size.
     dpi: Option<(f64, f64)>,
+    /// A second buffer and its age, for a display that lends its two
+    /// buffers in turn, each drawn two frames back once both hold a frame.
+    double: Option<(Arc<Mutex<Vec<u8>>>, u32)>,
 }
 
 impl Default for Memory {
@@ -114,6 +117,7 @@ impl Memory {
             refuses: false,
             // the C reference's fixed density, where a point is a pixel
             dpi: Some((72.0, 72.0)),
+            double: None,
         }
     }
 }
@@ -202,6 +206,16 @@ impl Video for Memory {
         self.frames += 1;
         // The display shows the buffer the frame was drawn into.
         self.pixels.clone_from(&self.drawn.lock().unwrap());
+        // the next frame goes into the other buffer, which has missed this
+        // frame too, unless it never held one
+        if let Some((other, other_age)) = &mut self.double {
+            std::mem::swap(&mut self.drawn, other);
+            self.age = match *other_age {
+                0 => 0,
+                n => n + 1,
+            };
+            *other_age = 1;
+        }
         self.events.push(Event::Flipped(id));
         Ok(Swapped::Frame)
     }
@@ -6664,6 +6678,82 @@ mod gpu_path {
         assert_eq!(lines.len(), 1, "{all:#?}");
         assert!(lines[0].starts_with("display MEM-1: "), "{all:#?}");
         assert_eq!(failed(&all), 0, "the head left the GPU path: {all:#?}");
+    }
+
+    // ADR-1303 D9: a frame the GPU path draws and then fails to read back
+    // into the display's buffer is drawn again on the CPU path, after the
+    // renderer forgets its history, so the display's other buffer, drawn
+    // next at age 2, shows the pointer where it moved and nowhere else
+    #[test]
+    fn a_frame_whose_read_back_fails_leaves_no_ghost_in_the_other_buffer() {
+        // z writes Z at the top left and leaves the cursor where it is
+        const KEYS: &str =
+            "stty -echo; printf ready; while read -r k; do printf '\\0337\\033[1;1HZ\\0338'; done";
+        let shown = |hwaccel: bool| {
+            let gpu = Arc::new(TestGpu::default());
+            let args: Vec<&str> = hwaccel
+                .then_some("--hwaccel")
+                .into_iter()
+                .chain(["--no-blink", "--login", "--", "/bin/sh", "-c", KEYS])
+                .collect();
+            let source = GpuSource::Test(Arc::clone(&gpu));
+            let mut h = Harness::boot_set(
+                &args,
+                FakeVt::new(),
+                Some(Box::new(Memory::default())),
+                no_fonts(),
+                |app| app.set_gpu_source(source),
+            );
+            assert!(h.until(BOUND, |a| {
+                a.screen_text().iter().any(|l| l.contains("ready"))
+            }));
+            h.point(
+                [PointerEvent::Moved {
+                    x: 20,
+                    y: 20,
+                    held: None,
+                }],
+                Mods::empty(),
+            );
+            let second = h.memory().drawn.lock().unwrap().clone();
+            h.memory().double = Some((Arc::new(Mutex::new(second)), 0));
+            h.drawn_now();
+            h.drawn_now();
+            if hwaccel {
+                logged();
+                queue(&gpu, &[Fault::LostAtRead]);
+            }
+            // the frame that moves the pointer, then one that writes Z
+            let before = h.memory().frames;
+            h.point(
+                [PointerEvent::Moved {
+                    x: 100,
+                    y: 60,
+                    held: None,
+                }],
+                Mods::empty(),
+            );
+            assert!(
+                h.until_memory(BOUND, |m| m.frames > before),
+                "the move drawn"
+            );
+            h.settled();
+            let before = h.memory().frames;
+            h.type_str("z\r");
+            assert!(h.until_memory(BOUND, |m| m.frames > before), "Z drawn");
+            assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l.contains('Z'))));
+            h.settled();
+            assert!(gpu.faults.lock().unwrap().is_empty(), "the fault raised");
+            if hwaccel {
+                let lines = logged();
+                assert_eq!(failed(&lines), 1, "the read ended the GPU path: {lines:#?}");
+            }
+            assert_eq!(h.memory().ages.last(), Some(&2), "the last frame at age 2");
+            h.memory().pixels.clone()
+        };
+        let cpu = shown(false);
+        let gpu = shown(true);
+        assert!(gpu == cpu, "the buffer shown differs from the CPU path's");
     }
 
     // ADR-1303 D9, D10: a GL error in two frames running, out of memory or

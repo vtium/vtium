@@ -555,12 +555,14 @@ impl Job {
                 let (rects, stats) = match on_gpu {
                     Some(Ok(drawn)) => drawn,
                     failed => {
+                        // after a failed GPU frame the buffer may hold part
+                        // of it, and the renderer may have recorded it as
+                        // drawn: the renderer forgets its history, so the
+                        // CPU path draws the frame whole at any age
                         if let Some(Err(e)) = &failed {
                             failed_gpu = Some(e.to_string());
+                            drawing.renderer.forget_history();
                         }
-                        // after a failed GPU frame the renderer's record of
-                        // the buffer is unknown, so the CPU path draws whole
-                        let age = if failed.is_some() { 0 } else { age };
                         let drawn = drawing.renderer.draw(&frame, &mut target, age, &self.state);
                         (drawn.damage.to_vec(), drawn.stats)
                     }

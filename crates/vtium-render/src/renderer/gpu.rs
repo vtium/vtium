@@ -218,12 +218,10 @@ impl<F: Face> Renderer<F> {
     }
 
     /// A frame failed after its plan stamped its changes into the
-    /// renderer's history, though no buffer shows them. The grid is placed
-    /// anew on the next frame, which stamps every cell and the border with
-    /// that frame's serial, so every buffer draws them again. Gives `e`
-    /// back.
+    /// renderer's history, though no buffer shows them: the renderer
+    /// forgets its history ([`Renderer::forget_history`]). Gives `e` back.
     fn failed_after_plan(&mut self, e: Error) -> Error {
-        self.grid = None;
+        self.forget_history();
         e
     }
 

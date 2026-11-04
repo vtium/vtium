@@ -94,6 +94,9 @@ pub enum Fault {
     Gl,
     OutOfMemory,
     ContextLost,
+    /// A lost context at the frame's read back into the display's buffer,
+    /// after the GPU drew the frame.
+    LostAtRead,
 }
 
 /// The path that draws a head's frames, which the log names (ADR-1303

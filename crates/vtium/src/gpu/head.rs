@@ -63,6 +63,8 @@ pub struct HeadGpu {
     /// The test watching the GPU path, which queues its faults and reads
     /// how many displays it keeps.
     test: Option<std::sync::Arc<TestGpu>>,
+    /// A test's fault for the frame: the context is lost at its read back.
+    lose_at_read: bool,
 }
 
 impl Drop for HeadGpu {
@@ -95,6 +97,7 @@ impl HeadGpu {
             failed_in_a_row: 0,
             lost: None,
             test,
+            lose_at_read: false,
         })
     }
 
@@ -122,9 +125,10 @@ impl HeadGpu {
     /// what `target`, the display's buffer `age` frames old, lacks back into
     /// it. Gives the damage and the figures, or `None` for a display the
     /// GPU path does not draw yet: a 1-bit one, whose depth present does not
-    /// reduce (ADR-1303 D6). A frame that fails leaves the buffer as it
-    /// was, and the error says what failed; one that loses the context or
-    /// runs out of memory ends the GPU path.
+    /// reduce (ADR-1303 D6). A frame that fails may leave part of it in the
+    /// buffer, when its read back fails partway, and the error says what
+    /// failed; one that loses the context or runs out of memory ends the
+    /// GPU path.
     #[expect(
         clippy::too_many_arguments,
         reason = "the display, its renderer and frame, its buffer and age, and the frame's state"
@@ -190,6 +194,10 @@ impl HeadGpu {
             Fault::Gl => platform::ErrorKind::Gl(0x0502),
             Fault::OutOfMemory => platform::ErrorKind::OutOfMemory,
             Fault::ContextLost => platform::ErrorKind::ContextLost,
+            Fault::LostAtRead => {
+                self.lose_at_read = true;
+                return;
+            }
         });
     }
 
@@ -247,6 +255,9 @@ impl HeadGpu {
         )?;
         let stats = drawn.stats;
         let damage = drawn.damage.to_vec();
+        if std::mem::take(&mut self.lose_at_read) {
+            gl.raise(platform::ErrorKind::ContextLost);
+        }
         for r in &damage {
             read_into(
                 gl,
