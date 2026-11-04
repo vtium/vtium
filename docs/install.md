@@ -106,7 +106,7 @@ VT 6 is logind's reserved VT, where logind starts a console at every switch, eve
 
 `vtium console` follows common convention: on a machine with a display manager, VT 1 stays the display manager's and its getty's, as systemd's preset and the display managers' own units leave it, and vtium takes other VTs. It never takes a VT that your system is set up to give to another program: a unit enabled at boot that claims the VT, or an enabled display manager. What is running now on a VT holds it as well, but never frees one. `enable N` refuses such a VT, `enable --all` passes it by, and both say what holds the VT and how vtium knows:
 
-- VT 1, while a display manager is enabled (`/etc/systemd/system/display-manager.service` links to it), whatever VT the display manager uses now;
+- VT 1, while a display manager is enabled, whatever VT the display manager uses now: `/etc/systemd/system/display-manager.service` links to it, or a unit that starts at boot runs one vtium knows by name, such as ly's `ly@tty2`, which ly enables without that link;
 - a VT whose getty a unit that starts at boot names in `Conflicts=`, as Arch's `sddm.service` names `getty@tty1.service`;
 - a graphical session or a greeter on the VT now, which it asks logind for;
 - another console running on the VT now, such as `fbterm@tty4.service`;

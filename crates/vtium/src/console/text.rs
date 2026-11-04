@@ -10,7 +10,7 @@ Gives VT N, or every VT, to vtium@.service at its next start, and takes it back.
 enable and disable need root; they start and stop nothing. status shows what each VT runs.\n\
 fallback N is what vtium-getty@.service runs when vtium on VT N fails: it starts VT N's getty unless that would stop another program.\n";
 
-pub const NO_VERB: &str = "name a verb: enable, disable or status";
+pub const NO_VERB: &str = "name a verb: enable, disable, status or fallback";
 
 pub fn not_utf8(word: impl Debug) -> String {
     format!("{word:?} is not UTF-8")
@@ -25,7 +25,7 @@ pub fn needs_which(verb: &str) -> String {
 }
 
 pub fn unknown_verb(word: &str) -> String {
-    format!("{word} is no verb of vtium console: use enable, disable or status")
+    format!("{word} is no verb of vtium console: use enable, disable, status or fallback")
 }
 
 pub fn unknown_option(word: &str) -> String {

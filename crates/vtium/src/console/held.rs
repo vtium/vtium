@@ -119,6 +119,18 @@ pub fn stem(unit: &str) -> &str {
     name.trim_end_matches(|c: char| c.is_ascii_digit())
 }
 
+/// The display managers vtium knows by name, which may be enabled without
+/// the `display-manager.service` alias: ly ships `ly@.service`, wanted by
+/// `multi-user.target` for its `DefaultInstance=tty2`, with no such alias.
+const DISPLAY_MANAGERS: [&str; 10] = [
+    "sddm", "gdm", "lightdm", "greetd", "ly", "lemurs", "lxdm", "xdm", "slim", "emptty",
+];
+
+/// Whether `unit` runs a display manager vtium knows by name.
+pub fn is_display_manager(unit: &str) -> bool {
+    DISPLAY_MANAGERS.contains(&stem(unit))
+}
+
 /// A VT's number from a setting, when it is one from 1 to [`LAST_VT`].
 fn vt(n: i64) -> Option<u16> {
     u16::try_from(n).ok().filter(|n| (1..=LAST_VT).contains(n))
@@ -225,5 +237,9 @@ pub(super) mod tests {
         assert_eq!(stem("sddm.service"), "sddm");
         assert_eq!(stem("gdm3.service"), "gdm");
         assert_eq!(stem("cage@tty1.service"), "cage");
+        assert!(is_display_manager("ly@tty2.service"));
+        assert!(is_display_manager("gdm3.service"));
+        assert!(!is_display_manager("cage@tty1.service"));
+        assert!(!is_display_manager("lyrics.service"));
     }
 }

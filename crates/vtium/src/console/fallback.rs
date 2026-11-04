@@ -18,6 +18,14 @@
 //! takes the VT in their place, which is what the fallback is for. When
 //! vtium cannot ask the manager, it cannot tell what the start would stop,
 //! so it starts nothing either.
+//!
+//! It starts the getty in the job mode `fail`, so systemd refuses the start
+//! rather than replace a job queued for a unit the getty conflicts with.
+//! That unit can be vtium's own: when `Restart=on-failure` has already
+//! queued a restart of `vtium@ttyN`, systemd refuses the getty's start,
+//! the fallback exits with status 1 and systemd's refusal in the journal,
+//! vtium comes back, and the VT has its console again. A queued restart of vtium's own
+//! unit wins over the getty.
 
 use std::collections::BTreeMap;
 

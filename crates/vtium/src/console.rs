@@ -702,11 +702,15 @@ impl Run<'_, '_, '_> {
 
     /// Judges which VTs the units that start at boot hold
     /// ([`held::judge`]), from their unit files and the display manager's
-    /// configuration, and adds each to `state`.
+    /// configuration, and adds each to `state`. A unit is a display manager
+    /// when `display-manager.service` names it, or when it runs one vtium
+    /// knows by name ([`held::is_display_manager`]), as ly's `ly@tty2`,
+    /// which is enabled without that alias.
     fn judge_boot_units(&self, state: &mut State) {
         for unit in self.boot_units(state.display_manager.as_deref()) {
-            let display_manager = state.display_manager.as_deref() == Some(unit.as_str());
-            let texts = self.unit_texts(&unit, display_manager);
+            let aliased = state.display_manager.as_deref() == Some(unit.as_str());
+            let display_manager = aliased || held::is_display_manager(&unit);
+            let texts = self.unit_texts(&unit, aliased);
             let facts = graphical::facts(&unit, texts.iter().map(String::as_str));
             let setting = display_manager
                 .then(|| held::config(&self.host.root, &unit, &facts))

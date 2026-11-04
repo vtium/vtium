@@ -1935,6 +1935,34 @@ fn sddm_whose_greeter_runs_on_vt_2_still_keeps_vt_1() {
 }
 
 #[test]
+fn a_display_manager_enabled_without_the_alias_keeps_vt_1() {
+    // ly ships ly@.service with Alias=autovt@.service,
+    // WantedBy=multi-user.target and DefaultInstance=tty2, and no
+    // display-manager.service alias: enabled, it is ly@tty2 in
+    // multi-user.target.wants.
+    let mut m = Machine::gettys("ly");
+    std::fs::write(
+        m.root().join("usr/lib/systemd/system/ly@.service"),
+        "[Unit]\nDescription=TUI display manager\nAfter=systemd-user-sessions.service getty@%i.service\nConflicts=getty@%i.service\n\n[Service]\nExecStart=/usr/bin/ly\nTTYPath=/dev/%I\n\n[Install]\nAlias=autovt@.service\nWantedBy=multi-user.target\nDefaultInstance=tty2\n",
+    )
+    .unwrap();
+    m.link("multi-user.target.wants/ly@tty2.service", "ly");
+    let before = m.snapshot();
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1, "{err}");
+    assert!(
+        err.contains(
+            "the display manager ly@tty2.service holds VT 1 at boot: a display manager is enabled"
+        ),
+        "{err}"
+    );
+    let (status, _, err) = m.console(&["enable", "2"]);
+    assert_eq!(status, 1);
+    assert!(err.contains("ly@tty2.service holds VT 2 at boot"), "{err}");
+    assert_eq!(m.snapshot(), before);
+}
+
+#[test]
 fn a_display_manager_whose_unit_names_no_getty_keeps_vt_1() {
     // Debian's lightdm.service has no Conflicts= at all.
     let mut m = Machine::gettys("dm-no-conflicts");
