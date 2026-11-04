@@ -53,6 +53,9 @@
 //! - [`power`]: the reboot, power-off and suspend requests the power keys
 //!   make of PID 1, logind and the kernel; with the `logind` feature,
 //!   [`logind`] reaches logind through sd-bus.
+//! - `gpu`, with the `gpu` feature: the GPU path's GL context on a card's
+//!   render node through GBM and EGL, its safe GL type, and the import of a
+//!   display's buffer as a dma-buf (ADR-1303 D7).
 //! - `image_helper`, with the `images` feature: the image helper's host,
 //!   which starts `vtium-image` as the session's user, sends it one
 //!   request at a time, checks each reply and bounds its time and crashes
@@ -66,6 +69,8 @@ mod channel;
 pub mod display;
 pub mod event_loop;
 mod fds;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 #[cfg(feature = "images")]
 pub mod image_helper;
 pub mod input;

@@ -37,6 +37,8 @@ pub mod console;
 pub mod deferred;
 pub mod font;
 pub mod getty;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 pub mod grab;
 pub mod head;
 pub mod helper;
