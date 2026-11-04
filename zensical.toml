@@ -40,7 +40,18 @@ nav = [
   ] },
   { "Explanation" = [
       { "Why vtium" = "why-vtium.md" },
-      { "Concepts" = "concepts.md" },
+      { "Concepts" = [
+          "concepts/index.md",
+          { "What vtium is" = "concepts/what-vtium-is.md" },
+          { "The suite" = "concepts/suite.md" },
+          { "Deployment and start-up" = "concepts/start-up.md" },
+          { "Heads" = "concepts/heads.md" },
+          { "Fonts, generated at run time" = "concepts/fonts.md" },
+          { "Using vtium" = "concepts/using-vtium.md" },
+          { "How vtium is judged" = "concepts/how-vtium-is-judged.md" },
+          { "How vtium is built" = "concepts/how-vtium-is-built.md" },
+          { "What vtium does not do" = "concepts/what-vtium-does-not-do.md" },
+      ] },
   ] },
   { "Decisions" = "architecture/INDEX.md" },
   { "For contributors" = [

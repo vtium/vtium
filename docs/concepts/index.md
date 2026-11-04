@@ -11,5 +11,5 @@ The pages below explain the ideas behind vtium, one concept a page. Each links t
 - [Fonts, generated at run time](fonts.md): the frit, the helper that draws its glyphs, the built-in fonts and switching between fonts.
 - [Using vtium](using-vtium.md): the configuration, the selection and the clipboard, links and prompts, keys and blanking.
 - [How vtium is judged](how-vtium-is-judged.md): the tiers of tests, from unit tests to a virtual machine and the maintainer's review on a real VT, and the goldens that judge them.
-- [How vtium is built](how-vtium-is-built.md): one maintainer steering AI coding agents, and the checks that make their work dependable.
+- [How vtium is built](how-vtium-is-built.md): a project laid out so that a person or an agent can find the part they work on, one maintainer steering AI coding agents, and the checks that make their work dependable.
 - [What vtium does not do](what-vtium-does-not-do.md): the limits vtium keeps on purpose, each with its reason.

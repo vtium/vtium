@@ -4,9 +4,11 @@ vtium has one maintainer, who decides what vtium does and judges whether it does
 
 ## The idea
 
-An agent writes code quickly, and the code usually looks right. A change from an agent is a claim until something the agent did not write has checked it. So vtium puts its effort into the checks, and lets the agents put theirs into the code.
+Any program worth using is more than one person can hold in their head, the way nobody can memorize a whole city. So vtium is built to be found your way around. Whoever works on one part of it, a person or an agent, can find that part and get the context for it where they stand, without knowing the rest. vtium keeps its knowledge where it can be found when it is needed: in the decision records, in each crate's README, in AGENTS.md, in tests tagged to the rows of ADR-1000 they cover, in goldens kept beside the screens they judge, and in guidance that reaches an agent at the moment it starts a kind of work. The concepts are one to a page for the same reason.
 
-With enough machine time and money, one person can build and maintain a program this way without spending all of their time on it. The agents carry the labour. The person keeps the decisions and the judgement, and does not hand those to an agent.
+Agents can do dependable work on vtium because the project tells them where they are and what judges them. Nobody has to hold the whole program in mind. With enough machine time and money, the same structure lets one person maintain vtium without spending all of their time on it. The agents carry the labour. The person keeps the decisions and the judgement, and does not hand those to an agent.
+
+An agent writes code quickly, and the code usually looks right. A change from an agent is a claim until something the agent did not write has checked it. So vtium puts its effort into the checks, and lets the agents put theirs into the code.
 
 ## The judge comes first
 
@@ -38,7 +40,7 @@ An agent's account of what it did is a claim, however confident it sounds. The s
 
 ## The rules are written where every agent reads them
 
-Every agent starts from the same contract, AGENTS.md, whether it is a new author, a fresh reviewer or a session that has lost its context. Many of its rules exist because an agent once got something wrong and a gate or a reviewer caught it: an agent pushed before its gates had finished; a test's stand-in for a real part accepted a name the real part refuses, so the defect surfaced only in the virtual machine; a bug was fixed with a delay instead of by fixing the state that was wrong. Each catch became a rule. The maintainer also uses [agent-ways](https://github.com/aaronsb/agent-ways), which shows an agent the project's guidance for a kind of work at the moment it starts that work, instead of in one long file it read at the start and has half forgotten.
+Every agent starts from the same contract, AGENTS.md, whether it is a new author, a fresh reviewer or a session that has lost its context. Many of its rules exist because an agent once got something wrong and a gate or a reviewer caught it: an agent pushed before its gates had finished; a test's stand-in for a real part accepted a name the real part refuses, so the defect surfaced only in the virtual machine; a bug was fixed with a delay instead of by fixing the state that was wrong. Each catch became a rule. The guidance that reaches an agent as it starts a kind of work comes from [agent-ways](https://github.com/aaronsb/agent-ways), a tool the maintainer uses, so an agent does not have to remember one long file it read at the start.
 
 ## What the maintainer does
 
