@@ -20,8 +20,10 @@
 //! driver has `EGL_KHR_no_config_context`, draws into imported buffers and
 //! asks for a context that reports a GPU reset where the driver offers it.
 
+use std::cell::Cell;
 use std::ffi::{CStr, c_char, c_void};
 use std::os::fd::AsRawFd;
+use std::rc::Rc;
 
 use khronos_egl as egl;
 
@@ -78,6 +80,9 @@ pub(super) struct Egl {
     extensions: String,
     /// The display's EGL version, major and minor.
     version: (egl::Int, egl::Int),
+    /// How many fences it made and has not destroyed, shared so a test can
+    /// read the count after the display is gone.
+    syncs: Rc<Cell<usize>>,
     /// Whether dropping it terminates the display. The software device's
     /// display is one for the whole process, which every software context
     /// shares, so it is never terminated.
@@ -195,6 +200,7 @@ impl Egl {
                 context,
                 extensions,
                 version,
+                syncs: Rc::default(),
                 terminate,
                 _gbm: gbm,
             }),
@@ -326,44 +332,53 @@ impl Egl {
     }
 
     /// A fence after the commands the current context has queued:
-    /// `eglCreateSync` with `EGL_SYNC_FENCE`, which also flushes them.
+    /// `eglCreateSync` with `EGL_SYNC_FENCE`. Making it promises no flush;
+    /// the wait flushes ([`Egl::wait`]).
     pub(super) fn fence(&self) -> Result<egl::Sync, egl::Error> {
         // SAFETY: the display is this one's, initialized, and the attribute
         // list is empty and ends with EGL_NONE, as khronos-egl checks.
         #[expect(unsafe_code, reason = "eglCreateSync")]
-        unsafe {
+        let made = unsafe {
             self.api
                 .create_sync(self.display, SYNC_FENCE, &[egl::ATTRIB_NONE])
+        };
+        if made.is_ok() {
+            self.syncs.set(self.syncs.get().saturating_add(1));
         }
+        made
     }
 
-    /// Waits until the GPU has passed `sync`, flushing the current
-    /// context's commands first, and destroys it either way. The wait has no
-    /// time limit: a GPU that hangs is reset by the kernel, which signals
-    /// its fences, and the context reports itself lost.
-    pub(super) fn wait(&self, sync: egl::Sync) -> Result<(), egl::Error> {
+    /// Waits at most `timeout_ns` nanoseconds for the GPU to pass `sync`,
+    /// flushing the current context's commands first
+    /// (`EGL_SYNC_FLUSH_COMMANDS_BIT`), and destroys it either way. Gives
+    /// whether the fence was signalled: false when the wait timed out.
+    pub(super) fn wait(&self, sync: egl::Sync, timeout_ns: u64) -> Result<bool, egl::Error> {
         // SAFETY: `sync` is a fence this display made, not yet destroyed:
         // the context keeps each fence once, and gives it here once.
         #[expect(unsafe_code, reason = "eglClientWaitSync on a fence of this display")]
         let waited = unsafe {
-            self.api.client_wait_sync(
-                self.display,
-                sync,
-                egl::SYNC_FLUSH_COMMANDS_BIT,
-                egl::FOREVER,
-            )
+            self.api
+                .client_wait_sync(self.display, sync, egl::SYNC_FLUSH_COMMANDS_BIT, timeout_ns)
         };
         self.destroy_sync(sync);
-        waited.map(drop)
+        waited.map(|status| status != egl::TIMEOUT_EXPIRED)
     }
 
-    /// Destroys `sync`, a fence this display made, waited on or not.
+    /// Destroys `sync`, a fence this display made, waited on or not. EGL
+    /// defers the destruction of a fence not yet signalled.
     pub(super) fn destroy_sync(&self, sync: egl::Sync) {
+        self.syncs.set(self.syncs.get().saturating_sub(1));
         // SAFETY: as in `wait`: a fence of this display, destroyed once.
         #[expect(unsafe_code, reason = "eglDestroySync on a fence of this display")]
         if let Err(e) = unsafe { self.api.destroy_sync(self.display, sync) } {
             log::warn!("eglDestroySync: {e}");
         }
+    }
+
+    /// The count of fences made and not destroyed, which outlives the
+    /// display.
+    pub(super) fn syncs(&self) -> Rc<Cell<usize>> {
+        Rc::clone(&self.syncs)
     }
 
     /// A GL or EGL function by name.

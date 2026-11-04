@@ -430,8 +430,9 @@ mod tests {
                 &out[..8]
             );
         }
-        // each frame waited on its fence before it returned
-        assert_eq!(gl.ledger.fences(), 0);
+        // each frame waited on its fence before it returned, through the
+        // context
+        assert_eq!((gl.ledger.fences(), gl.gl.pending_fences()), (0, 0));
         // nothing composed into a buffer that lacks nothing: no draw
         let work = Work::new(0xC0_FFEE, &[], &[]);
         assert_eq!(pipeline.frame(&mut gl, &work, &target, 1).unwrap(), []);
@@ -604,6 +605,7 @@ void main() {
             gpu.draw_gpu(&mut gl, &mut pipeline, &frame, &target, age, &state, &[])
                 .unwrap();
             since = term.screen_mut().checkpoint();
+            assert_eq!(gl.gl.pending_fences(), 0, "a frame's fence left unwaited");
             gl.read(&target, size.rect(), &mut out).unwrap();
             let differ: Vec<(u32, u32)> = (0..size.height)
                 .flat_map(|y| (0..size.width).map(move |x| (x, y)))
