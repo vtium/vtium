@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use super::keys::{
     Default, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY, SCHEMES, SECTIONS, Scope,
-    Section, TEXT_MAX,
+    TEXT_MAX,
 };
 use super::{FILE_MAX, LINE_MAX};
 
@@ -104,28 +104,19 @@ pub(super) fn markdown() -> String {
          \n\
          vtium reports, once at start, a key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. It reads at most {FILE_MAX} bytes of a file and {LINE_MAX} of a line.\n\
          \n\
-         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults. Source cites the C reference, kmscon at `b1f7a7c5` ([c-reference.md](c-reference.md)), or the decision a key comes from.\n\
-         \n\
-         | Key | Option | Type | Default | Bound | Read by | Set in | What | Source |\n\
-         |---|---|---|---|---|---|---|---|---|\n"
+         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections. Source cites the C reference, kmscon at `b1f7a7c5` ([c-reference.md](c-reference.md)), or the decision a key comes from.\n"
     );
-    for k in &KEYS {
-        let set_in = match k.scope {
-            Scope::Anywhere => "file, command line",
-            Scope::CommandLine => "command line",
-        };
-        let _ = writeln!(
+    for section in &SECTIONS {
+        let _ = write!(
             out,
-            "| `{}` | {} | {} | {} | {} | {} | {set_in} | {} | {} |",
-            k.name,
-            option(k),
-            kind(k),
-            default(k),
-            bound(k),
-            k.reader,
-            k.what_line(),
-            k.cite
+            "\n## {}\n\n{}\n\n\
+             | Key | Option | Type | Default | Bound | Read by | Set in | What | Source |\n\
+             |---|---|---|---|---|---|---|---|---|\n",
+            section.title, section.about
         );
+        for k in section.groups.iter().flat_map(|g| g.keys) {
+            row(&mut out, k);
+        }
     }
     out.push_str(
         "\n## Other color schemes for the notices and the on-screen display\n\n\
@@ -146,6 +137,26 @@ pub(super) fn markdown() -> String {
         out.push('\n');
     }
     out
+}
+
+/// `k`'s row of a section's table in `docs/config.md`.
+fn row(out: &mut String, k: &Key) {
+    let set_in = match k.scope {
+        Scope::Anywhere => "file, command line",
+        Scope::CommandLine => "command line",
+    };
+    let _ = writeln!(
+        out,
+        "| `{}` | {} | {} | {} | {} | {} | {set_in} | {} | {} |",
+        k.name,
+        option(k),
+        kind(k),
+        default(k),
+        bound(k),
+        k.reader,
+        k.what_line(),
+        k.cite
+    );
 }
 
 /// The widest line of the example, in columns.
@@ -204,25 +215,36 @@ fn paragraphs<'a>(mark: &str, texts: impl IntoIterator<Item = &'a str>) -> Strin
     out
 }
 
-/// A heading line: `# ── TITLE `, then rule characters to [`WIDTH`].
-fn heading(title: &str) -> String {
-    let mut line = format!("# ── {title} ");
+/// A heading line: `# RR TITLE `, then the rule character `R` to
+/// [`WIDTH`].
+fn rule(rule: char, title: &str) -> String {
+    let mut line = format!("# {rule}{rule} {title} ");
     while line.chars().count() < WIDTH {
-        line.push('─');
+        line.push(rule);
     }
     line
 }
 
-/// A section's description. A section of one key has the key's own
-/// paragraphs. In a section of several, each key's first paragraph starts
+/// A group's heading: `# ── TITLE ───`.
+fn heading(title: &str) -> String {
+    rule('─', title)
+}
+
+/// A section's heading, `# ══ TITLE ═══`, then what the section covers.
+fn section_heading(title: &str, about: &str) -> String {
+    format!("{}\n#\n{}", rule('═', title), paragraphs("#", [about]))
+}
+
+/// A group's description. A group of one key has the key's own
+/// paragraphs. In a group of several, each key's first paragraph starts
 /// with its name, and a line of `##` alone separates two keys, except two
 /// keys whose descriptions each fit on one line, which stand on adjacent
 /// lines as a list does.
-fn description(section: &Section) -> String {
-    let [only] = section.keys else {
+fn description(keys: &[&Key]) -> String {
+    let [only] = keys else {
         let mut out = String::new();
         let mut short_before = false;
-        for (i, k) in section.keys.iter().enumerate() {
+        for (i, k) in keys.iter().enumerate() {
             let texts: Vec<String> = k
                 .paragraphs()
                 .enumerate()
@@ -295,7 +317,9 @@ fn schemes() -> String {
 }
 
 /// `install/vtium.conf.example`: a header, then each section under its
-/// heading, with its description and then its keys at their defaults.
+/// heading, and in it each group under its heading, with its description
+/// and then its keys at their defaults. Keys only the command line takes
+/// are left out.
 pub(super) fn example() -> String {
     let mut out = paragraphs(
         "#",
@@ -305,17 +329,31 @@ pub(super) fn example() -> String {
         ],
     );
     for section in &SECTIONS {
-        let _ = write!(
-            out,
-            "\n{}\n\n{}\n",
-            heading(section.title),
-            description(section)
-        );
-        for k in section.keys {
-            out.push_str(&key_line(k));
+        let groups: Vec<(&str, Vec<&Key>)> = section
+            .groups
+            .iter()
+            .map(|g| {
+                let keys = g
+                    .keys
+                    .iter()
+                    .copied()
+                    .filter(|k| k.scope == Scope::Anywhere);
+                (g.title, keys.collect::<Vec<&Key>>())
+            })
+            .filter(|(_, keys)| !keys.is_empty())
+            .collect();
+        if groups.is_empty() {
+            continue;
         }
-        if section.keys.iter().any(|k| k.name == OSD_BORDER.name) {
-            out.push_str(&schemes());
+        let _ = write!(out, "\n{}", section_heading(section.title, section.about));
+        for (title, keys) in groups {
+            let _ = write!(out, "\n{}\n\n{}\n", heading(title), description(&keys));
+            for k in &keys {
+                out.push_str(&key_line(k));
+            }
+            if keys.iter().any(|k| k.name == OSD_BORDER.name) {
+                out.push_str(&schemes());
+            }
         }
     }
     out
@@ -429,49 +467,146 @@ mod tests {
         ));
     }
 
-    // Each section is its heading, a blank line, its description in `##`
-    // lines, a blank line, then its keys' lines in the table's order.
+    /// The groups of each section as the example shows them: the keys a
+    /// file may set, and no group left with none.
+    fn shown() -> Vec<(&'static str, Vec<(&'static str, Vec<&'static Key>)>)> {
+        SECTIONS
+            .iter()
+            .map(|s| {
+                let groups = s
+                    .groups
+                    .iter()
+                    .map(|g| {
+                        let keys = g
+                            .keys
+                            .iter()
+                            .copied()
+                            .filter(|k| k.scope == Scope::Anywhere);
+                        (g.title, keys.collect::<Vec<&Key>>())
+                    })
+                    .filter(|(_, keys)| !keys.is_empty())
+                    .collect();
+                (s.title, groups)
+            })
+            .collect()
+    }
+
+    // Each section opens with its heading, a line of `#`, what it covers in
+    // `#` lines and a blank line; its groups follow, before the next
+    // section's heading, in the table's order.
     #[test]
-    fn each_section_is_a_heading_a_description_and_its_keys() {
+    fn each_section_is_a_heading_what_it_covers_and_its_groups() {
         let example = example();
         let lines: Vec<&str> = example.lines().collect();
-        for section in &SECTIONS {
+        let headings: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.starts_with("# ══ "))
+            .map(|(i, _)| i)
+            .collect();
+        let sections = shown();
+        assert_eq!(headings.len(), sections.len());
+        for (n, (title, groups)) in sections.iter().enumerate() {
+            let at = headings[n];
+            assert!(
+                lines[at].starts_with(&format!("# ══ {title} ═")),
+                "{title}: {}",
+                lines[at]
+            );
+            assert_eq!(lines[at].chars().count(), 78, "{title}");
+            assert_eq!(lines[at - 1], "", "a blank line above {title}");
+            assert_eq!(lines[at + 1], "#", "{title}");
+            let about = lines[at + 2..]
+                .iter()
+                .take_while(|l| l.starts_with("# "))
+                .count();
+            assert!(about > 0, "{title} says nothing of what it covers");
+            assert_eq!(lines[at + 2 + about], "", "{title}");
+            assert!(
+                lines[at + 3 + about].starts_with("# ── "),
+                "{title}: a group follows"
+            );
+            let end = headings.get(n + 1).copied().unwrap_or(lines.len());
+            let inside: Vec<&str> = lines[at..end]
+                .iter()
+                .filter(|l| l.starts_with("# ── "))
+                .copied()
+                .collect();
+            let mut want: Vec<String> = groups.iter().map(|(g, _)| heading(g)).collect();
+            if groups
+                .iter()
+                .any(|(_, keys)| keys.iter().any(|k| k.name == OSD_BORDER.name))
+            {
+                want.push(heading("Other color schemes"));
+            }
+            assert_eq!(inside, want, "{title}");
+        }
+    }
+
+    // Each group is its heading, a blank line, its description in `##`
+    // lines, a blank line, then its keys' lines in the table's order.
+    #[test]
+    fn each_group_is_a_heading_a_description_and_its_keys() {
+        let example = example();
+        let lines: Vec<&str> = example.lines().collect();
+        for (title, keys) in shown().into_iter().flat_map(|(_, groups)| groups) {
             let at = lines
                 .iter()
-                .position(|l| l.starts_with(&format!("# ── {} ─", section.title)))
-                .unwrap_or_else(|| panic!("no heading for {}", section.title));
-            assert_eq!(lines[at].chars().count(), 78, "{}", section.title);
-            assert!(lines[at].ends_with("──"), "{}", section.title);
-            assert_eq!(lines[at - 1], "", "a blank line above {}", section.title);
-            assert_eq!(lines[at + 1], "", "a blank line below {}", section.title);
+                .position(|l| l.starts_with(&format!("# ── {title} ─")))
+                .unwrap_or_else(|| panic!("no heading for {title}"));
+            assert_eq!(lines[at].chars().count(), 78, "{title}");
+            assert!(lines[at].ends_with("──"), "{title}");
+            assert_eq!(lines[at - 1], "", "a blank line above {title}");
+            assert_eq!(lines[at + 1], "", "a blank line below {title}");
             let rest = &lines[at + 2..];
             let said = rest.iter().take_while(|l| l.starts_with("##")).count();
-            assert!(said > 0, "{} has no description", section.title);
-            assert_ne!(rest[0], "##", "{}", section.title);
-            assert_ne!(rest[said - 1], "##", "{}", section.title);
+            assert!(said > 0, "{title} has no description");
+            assert_ne!(rest[0], "##", "{title}");
+            assert_ne!(rest[said - 1], "##", "{title}");
             assert!(
                 !rest[..said].windows(2).any(|w| w == ["##", "##"]),
-                "{}: two separators in a row",
-                section.title
+                "{title}: two separators in a row"
             );
-            assert_eq!(rest[said], "", "{}", section.title);
+            assert_eq!(rest[said], "", "{title}");
             let set: Vec<&str> = rest[said + 1..]
                 .iter()
                 .take_while(|l| !l.is_empty())
                 .filter(|l| !l.starts_with("# "))
                 .copied()
                 .collect();
-            let want: Vec<String> = section
-                .keys
+            let want: Vec<String> = keys
                 .iter()
                 .map(|k| key_line(k).lines().next().unwrap_or_default().to_owned())
                 .collect();
-            assert_eq!(set, want, "{}", section.title);
+            assert_eq!(set, want, "{title}");
+        }
+    }
+
+    // docs/config.md has a heading and a table for each section, and lists
+    // every key once.
+    #[test]
+    fn the_markdown_has_a_table_for_each_section() {
+        let md = markdown();
+        for s in &SECTIONS {
+            assert!(
+                md.contains(&format!("\n## {}\n\n{}\n\n| Key |", s.title, s.about)),
+                "{}",
+                s.title
+            );
+        }
+        for k in &KEYS {
+            let row = format!("| `{}` |", k.name);
+            assert_eq!(
+                md.lines().filter(|l| l.starts_with(&row)).count(),
+                1,
+                "{}",
+                k.name
+            );
         }
     }
 
     #[test]
-    fn a_section_of_several_keys_names_each_key_in_its_description() {
+    fn a_group_of_several_keys_names_each_key_in_its_description() {
         let example = example();
         let osd: Vec<&str> = example
             .lines()

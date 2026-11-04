@@ -5,7 +5,7 @@
 //! shows and edits vtium.conf by it (ADR-1201 D1), so the two read one
 //! table. `docs/config.md` and the installed example,
 //! `crates/vtium/install/vtium.conf.example`, are generated from [`KEYS`]
-//! and [`SECTIONS`], which groups the keys under headings in the example;
+//! and [`SECTIONS`], which sorts the keys into sections and groups;
 //! the vtium crate's test `generated_files_match_the_table` fails when
 //! either differs, and `VTIUM_BLESS=1` rewrites them.
 
@@ -1607,206 +1607,283 @@ pub const KEYS: [Key; 105] = [
     IMAGE_HELPER,
 ];
 
-/// A part of the example vtium.conf: a heading, then one description that
-/// covers each of its keys, then the keys' lines together.
+/// A group of the example vtium.conf: a heading, then one description that
+/// covers each of its keys, then the keys' lines together. A group is one
+/// key, or keys that belong together.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Section {
+pub struct Group {
     /// The heading, a few words.
     pub title: &'static str,
     pub keys: &'static [&'static Key],
 }
 
-/// The example's sections, in order. Each key a file may set is in one
-/// section, and the sections hold the keys in [`KEYS`]'s order.
-pub const SECTIONS: [Section; 35] = [
+/// A main section of the example vtium.conf and of `docs/config.md`: a
+/// heading, a sentence saying what the section covers, then its groups.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Section {
+    pub title: &'static str,
+    /// What the section covers, one or two sentences.
+    pub about: &'static str,
+    pub groups: &'static [Group],
+}
+
+/// The sections, in the order a reader meets them: the settings people
+/// change most come first, and those of vtium's own running last. Each key
+/// is in one group of one section. The example leaves out the keys only
+/// the command line takes, and a group or section left with none.
+pub const SECTIONS: [Section; 10] = [
     Section {
-        title: "Debug log",
-        keys: &[&DEBUG],
-    },
-    Section {
-        title: "The VT",
-        keys: &[&VT, &SWITCHVT],
-    },
-    Section {
-        title: "The session's command",
-        keys: &[&LOGIN, &ONESHOT],
-    },
-    Section {
-        title: "Consoles",
-        keys: &[&HEAD_CONSOLES_MAX, &CONSOLES_MAX],
-    },
-    Section {
-        title: "On-screen display",
-        keys: &[&OSD, &OSD_TIMEOUT, &FOCUS_MARK],
-    },
-    Section {
-        title: "Notice colors",
-        keys: &[&NOTICE_FOREGROUND, &NOTICE_BACKGROUND, &NOTICE_BORDER],
-    },
-    Section {
-        title: "On-screen display colors",
-        keys: &[&OSD_FOREGROUND, &OSD_BACKGROUND, &OSD_BORDER],
-    },
-    Section {
-        title: "The session's terminal",
-        keys: &[&TERM, &RESET_ENV, &BACKSPACE_DELETE],
-    },
-    Section {
-        title: "Scrollback",
-        keys: &[&SB_SIZE, &SB_SIZE_CAP, &SB_MEMORY],
-    },
-    Section {
-        title: "Bell",
-        keys: &[&BELL],
-    },
-    Section {
-        title: "Blinking",
-        keys: &[&BLINK, &BLINK_TEXT, &BLINK_DECORATIONS],
-    },
-    Section {
-        title: "Synchronized frames",
-        keys: &[&SYNC_TIMEOUT],
-    },
-    Section {
-        title: "Blanking the displays",
-        keys: &[&DPMS_TIMEOUT, &PROGRAM_BLANK],
-    },
-    Section {
-        title: "Waiting for a display",
-        keys: &[&DISPLAY_WAIT],
-    },
-    Section {
-        title: "Display buffers",
-        keys: &[&DISPLAY_BUFFERS],
-    },
-    Section {
-        title: "Drawing through the GPU",
-        keys: &[&HWACCEL],
-    },
-    Section {
-        title: "Display modes",
-        keys: &[&USE_ORIGINAL_MODE, &MODE],
-    },
-    Section {
-        title: "Palette",
-        keys: &[
-            &PALETTE,
-            &PALETTE_BLACK,
-            &PALETTE_RED,
-            &PALETTE_GREEN,
-            &PALETTE_YELLOW,
-            &PALETTE_BLUE,
-            &PALETTE_MAGENTA,
-            &PALETTE_CYAN,
-            &PALETTE_LIGHT_GREY,
-            &PALETTE_DARK_GREY,
-            &PALETTE_LIGHT_RED,
-            &PALETTE_LIGHT_GREEN,
-            &PALETTE_LIGHT_YELLOW,
-            &PALETTE_LIGHT_BLUE,
-            &PALETTE_LIGHT_MAGENTA,
-            &PALETTE_LIGHT_CYAN,
-            &PALETTE_WHITE,
-            &PALETTE_FOREGROUND,
-            &PALETTE_BACKGROUND,
+        title: "Fonts and text",
+        about: "The font vtium draws text with, its size, where box drawing and block characters come from, and how blinking text draws.",
+        groups: &[
+            Group {
+                title: "Font",
+                keys: &[&FONT_ENGINE, &FONT_NAME, &FONT_FRITS],
+            },
+            Group {
+                title: "Font size and spacing",
+                keys: &[&FONT_SIZE, &FONT_HINTING, &FONT_LINE_SPACING],
+            },
+            Group {
+                title: "Box drawing, blocks and other sprites",
+                keys: &[
+                    &GLYPH_SOURCE,
+                    &GLYPH_SOURCE_BOX,
+                    &GLYPH_SOURCE_BLOCK,
+                    &GLYPH_SOURCE_BRAILLE,
+                    &GLYPH_SOURCE_SEXTANTS,
+                    &GLYPH_SOURCE_OCTANTS,
+                    &GLYPH_SOURCE_LEGACY,
+                ],
+            },
+            Group {
+                title: "Missing characters",
+                keys: &[&MISSING],
+            },
+            Group {
+                title: "Blinking",
+                keys: &[&BLINK, &BLINK_TEXT, &BLINK_DECORATIONS],
+            },
+            Group {
+                title: "Font switching by programs",
+                keys: &[&ALLOW_FONT_OPS],
+            },
         ],
     },
     Section {
-        title: "Underline and strike colors",
-        keys: &[&UNDERLINE_COLOR, &STRIKE_COLOR, &FORCE_DECORATION_COLORS],
-    },
-    Section {
-        title: "Clipboard",
-        keys: &[&CLIPBOARD_WRITE],
-    },
-    Section {
-        title: "Keyboard",
-        keys: &[
-            &XKB_MODEL,
-            &XKB_LAYOUT,
-            &XKB_VARIANT,
-            &XKB_OPTIONS,
-            &XKB_KEYMAP,
-            &XKB_COMPOSE_FILE,
-            &XKB_REPEAT_DELAY,
-            &XKB_REPEAT_RATE,
+        title: "Colors",
+        about: "The sixteen colors programs draw with, the default foreground and background, and the colors of underlines and strikes.",
+        groups: &[
+            Group {
+                title: "Palette",
+                keys: &[
+                    &PALETTE,
+                    &PALETTE_BLACK,
+                    &PALETTE_RED,
+                    &PALETTE_GREEN,
+                    &PALETTE_YELLOW,
+                    &PALETTE_BLUE,
+                    &PALETTE_MAGENTA,
+                    &PALETTE_CYAN,
+                    &PALETTE_LIGHT_GREY,
+                    &PALETTE_DARK_GREY,
+                    &PALETTE_LIGHT_RED,
+                    &PALETTE_LIGHT_GREEN,
+                    &PALETTE_LIGHT_YELLOW,
+                    &PALETTE_LIGHT_BLUE,
+                    &PALETTE_LIGHT_MAGENTA,
+                    &PALETTE_LIGHT_CYAN,
+                    &PALETTE_WHITE,
+                    &PALETTE_FOREGROUND,
+                    &PALETTE_BACKGROUND,
+                ],
+            },
+            Group {
+                title: "Underline and strike colors",
+                keys: &[&UNDERLINE_COLOR, &STRIKE_COLOR, &FORCE_DECORATION_COLORS],
+            },
         ],
     },
     Section {
-        title: "Pointer",
-        keys: &[
-            &MOUSE,
-            &NATURAL_SCROLLING,
-            &SOFT_CURSOR,
-            &POINTER_CHAR,
-            &POINTER_HIDE_TIMEOUT,
-            &POINTER_HIDE_WHILE_TYPING,
+        title: "Keyboard and pointer",
+        about: "The keyboard's layout and repeat, the mouse and the pointer, and copying and pasting.",
+        groups: &[
+            Group {
+                title: "Keyboard",
+                keys: &[
+                    &XKB_MODEL,
+                    &XKB_LAYOUT,
+                    &XKB_VARIANT,
+                    &XKB_OPTIONS,
+                    &XKB_KEYMAP,
+                    &XKB_COMPOSE_FILE,
+                    &XKB_REPEAT_DELAY,
+                    &XKB_REPEAT_RATE,
+                ],
+            },
+            Group {
+                title: "Pointer",
+                keys: &[
+                    &MOUSE,
+                    &NATURAL_SCROLLING,
+                    &SOFT_CURSOR,
+                    &POINTER_CHAR,
+                    &POINTER_HIDE_TIMEOUT,
+                    &POINTER_HIDE_WHILE_TYPING,
+                ],
+            },
+            Group {
+                title: "Clipboard and paste",
+                keys: &[&CLIPBOARD_WRITE, &GRAB_PASTE],
+            },
         ],
     },
     Section {
-        title: "Keys vtium takes for itself",
-        keys: &[&GRAB_PASTE, &GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND],
-    },
-    Section {
-        title: "Font",
-        keys: &[&FONT_ENGINE, &FONT_NAME, &FONT_FRITS],
-    },
-    Section {
-        title: "Glyph helper",
-        keys: &[&FONT_HELPER],
-    },
-    Section {
-        title: "Font size and spacing",
-        keys: &[&FONT_SIZE, &FONT_HINTING, &FONT_LINE_SPACING],
-    },
-    Section {
-        title: "Font switching by programs",
-        keys: &[&ALLOW_FONT_OPS],
-    },
-    Section {
-        title: "Box drawing, blocks and other sprites",
-        keys: &[
-            &GLYPH_SOURCE,
-            &GLYPH_SOURCE_BOX,
-            &GLYPH_SOURCE_BLOCK,
-            &GLYPH_SOURCE_BRAILLE,
-            &GLYPH_SOURCE_SEXTANTS,
-            &GLYPH_SOURCE_OCTANTS,
-            &GLYPH_SOURCE_LEGACY,
+        title: "Session and terminal",
+        about: "The program each console runs, the terminal it sees, and how much of its output vtium keeps.",
+        groups: &[
+            Group {
+                title: "The session's command",
+                keys: &[&LOGIN, &ONESHOT],
+            },
+            Group {
+                title: "The session's terminal",
+                keys: &[&TERM, &RESET_ENV, &BACKSPACE_DELETE],
+            },
+            Group {
+                title: "Scrollback",
+                keys: &[&SB_SIZE, &SB_SIZE_CAP, &SB_MEMORY],
+            },
+            Group {
+                title: "Bell",
+                keys: &[&BELL],
+            },
+            Group {
+                title: "Synchronized frames",
+                keys: &[&SYNC_TIMEOUT],
+            },
         ],
     },
     Section {
-        title: "Missing characters",
-        keys: &[&MISSING],
+        title: "Consoles and the VT",
+        about: "How many consoles the heads hold, and the VT vtium runs on.",
+        groups: &[
+            Group {
+                title: "Consoles",
+                keys: &[&HEAD_CONSOLES_MAX, &CONSOLES_MAX],
+            },
+            Group {
+                title: "The VT",
+                keys: &[&VT, &SWITCHVT],
+            },
+        ],
     },
     Section {
-        title: "Glyph cache",
-        keys: &[&GLYPH_CACHE],
+        title: "On-screen display and notices",
+        about: "What vtium draws over the console to show which head and console are in front, and to tell of a problem, and the colors it draws them in.",
+        groups: &[
+            Group {
+                title: "On-screen display",
+                keys: &[&OSD, &OSD_TIMEOUT, &FOCUS_MARK],
+            },
+            Group {
+                title: "Notice colors",
+                keys: &[&NOTICE_FOREGROUND, &NOTICE_BACKGROUND, &NOTICE_BORDER],
+            },
+            Group {
+                title: "On-screen display colors",
+                keys: &[&OSD_FOREGROUND, &OSD_BACKGROUND, &OSD_BORDER],
+            },
+        ],
     },
     Section {
-        title: "Display depth and density",
-        keys: &[&DISPLAY_DEPTH, &DISPLAY_DPI],
+        title: "Displays",
+        about: "The mode, depth and density of each display, how vtium waits for one at start, and how it draws to them.",
+        groups: &[
+            Group {
+                title: "Display modes",
+                keys: &[&USE_ORIGINAL_MODE, &MODE],
+            },
+            Group {
+                title: "Display depth and density",
+                keys: &[&DISPLAY_DEPTH, &DISPLAY_DPI],
+            },
+            Group {
+                title: "Waiting for a display",
+                keys: &[&DISPLAY_WAIT],
+            },
+            Group {
+                title: "Display buffers",
+                keys: &[&DISPLAY_BUFFERS],
+            },
+            Group {
+                title: "Drawing through the GPU",
+                keys: &[&HWACCEL],
+            },
+            Group {
+                title: "Frame timer",
+                keys: &[&RENDER_TIMER],
+            },
+        ],
     },
     Section {
-        title: "Frame timer",
-        keys: &[&RENDER_TIMER],
+        title: "Power and blanking",
+        about: "When the displays turn off, and the keys that reboot, power off or suspend the machine.",
+        groups: &[
+            Group {
+                title: "Blanking the displays",
+                keys: &[&DPMS_TIMEOUT, &PROGRAM_BLANK],
+            },
+            Group {
+                title: "Power keys",
+                keys: &[&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND],
+            },
+        ],
     },
     Section {
         title: "Pictures",
-        keys: &[
-            &IMAGE_STORAGE_LIMIT,
-            &SIXEL,
-            &KITTY_GRAPHICS,
-            &MAX_GRAPHIC_SIZE,
+        about: "Sixel and kitty graphics: how much memory pictures take, which protocols vtium offers, and the helper that reads and decodes them.",
+        groups: &[
+            Group {
+                title: "Picture memory and protocols",
+                keys: &[
+                    &IMAGE_STORAGE_LIMIT,
+                    &SIXEL,
+                    &KITTY_GRAPHICS,
+                    &MAX_GRAPHIC_SIZE,
+                ],
+            },
+            Group {
+                title: "Sixel color registers",
+                keys: &[&NUM_COLOR_REGISTERS, &PRIVATE_COLOR_REGISTERS],
+            },
+            Group {
+                title: "Image helper",
+                keys: &[&IMAGE_HELPER],
+            },
         ],
     },
     Section {
-        title: "Sixel color registers",
-        keys: &[&NUM_COLOR_REGISTERS, &PRIVATE_COLOR_REGISTERS],
-    },
-    Section {
-        title: "Image helper",
-        keys: &[&IMAGE_HELPER],
+        title: "Running vtium",
+        about: "Where vtium finds its configuration, its log, the glyph helper that draws a font's glyphs, and the glyph cache.",
+        groups: &[
+            Group {
+                title: "Command line",
+                keys: &[&CONFIGDIR, &HELP, &VERSION],
+            },
+            Group {
+                title: "Debug log",
+                keys: &[&DEBUG],
+            },
+            Group {
+                title: "Glyph helper",
+                keys: &[&FONT_HELPER],
+            },
+            Group {
+                title: "Glyph cache",
+                keys: &[&GLYPH_CACHE],
+            },
+        ],
     },
 ];
 
@@ -1830,19 +1907,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_sections_hold_each_key_a_file_may_set_once_in_the_table_s_order() {
-        let in_sections: Vec<&str> = SECTIONS
+    fn each_key_is_in_one_group_of_one_section() {
+        let mut grouped: Vec<&str> = SECTIONS
             .iter()
-            .flat_map(|s| s.keys.iter().map(|k| k.name))
+            .flat_map(|s| s.groups.iter())
+            .flat_map(|g| g.keys.iter().map(|k| k.name))
             .collect();
-        let in_files: Vec<&str> = KEYS
-            .iter()
-            .filter(|k| k.scope == Scope::Anywhere)
-            .map(|k| k.name)
-            .collect();
-        assert_eq!(in_sections, in_files);
+        let count = grouped.len();
+        grouped.sort_unstable();
+        grouped.dedup();
+        assert_eq!(grouped.len(), count, "a key is in two groups");
+        let mut all: Vec<&str> = KEYS.iter().map(|k| k.name).collect();
+        all.sort_unstable();
+        assert_eq!(grouped, all);
         for s in &SECTIONS {
-            assert!(!s.keys.is_empty(), "{}", s.title);
+            assert!(!s.groups.is_empty(), "{}", s.title);
+            assert!(!s.about.is_empty(), "{}", s.title);
+            for g in s.groups {
+                assert!(!g.keys.is_empty(), "{}", g.title);
+            }
         }
     }
 
