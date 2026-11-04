@@ -1772,8 +1772,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 let want = o.moved_from.filter(|_| o.online).map_or(o.crtc, |m| m.crtc);
                 // Lit here means online. Only the displays online before the
                 // modeset can go back ([`Self::going_back`]), so every display
-                // whose record that reads is lit, and where two at a hotplug
-                // would go back to one CRTC, connector order decides.
+                // whose record `going_back` reads is lit, and where two at a
+                // hotplug would go back to one CRTC, connector order decides.
                 homes.push((want, o.online));
                 places.push(Place {
                     group: if o.online { 0 } else { 1 },
@@ -2079,12 +2079,22 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     .filter(|&&(_, refused)| refused)
                     .map(|&(id, _)| id)
                     .collect();
-                let by_refusal = self.going_back(&fresh, Some(&refused));
-                let refusal: Vec<DisplayId> = going
-                    .iter()
-                    .copied()
-                    .filter(|id| by_refusal.contains(id))
-                    .collect();
+                // Of the displays going back, those a refused one needs: the
+                // refused ones that go back, then each on the CRTC one of
+                // those goes back to.
+                let refusal: Vec<DisplayId> = {
+                    let outs: Vec<&Output<S::Memory>> = self
+                        .outputs
+                        .iter()
+                        .filter(|o| !fresh.contains(&o.id))
+                        .collect();
+                    let goes: Vec<bool> = outs.iter().map(|o| going.contains(&o.id)).collect();
+                    outs.iter()
+                        .zip(needed(&outs, &goes, &refused))
+                        .filter(|&(_, n)| n)
+                        .map(|(o, _)| o.id)
+                        .collect()
+                };
                 let back: Vec<u32> = self.returns(&going).map(|m| m.crtc).collect();
                 let (new, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.outputs)
                     .into_iter()

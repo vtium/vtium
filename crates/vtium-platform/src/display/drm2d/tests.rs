@@ -1656,7 +1656,8 @@ fn a_lit_display_the_card_refuses_on_its_new_crtc_goes_back() {
 // and 101, C is lit on 101 and drives 101 and 102, and B, plugged in,
 // drives only 100; the card refuses 102. The hotplug moves A to 101 and C
 // to 102 for B, the card refuses C on 102, and A and C go back to 100 and
-// 101 and light there, while B stays off.
+// 101 and light there, while B stays off. B is recorded as refused: it sat
+// on 100, which A, sent back by C's refusal, was lit on.
 #[test]
 fn a_chain_of_lit_displays_the_card_refuses_goes_back() {
     const C: u32 = 43;
@@ -1688,6 +1689,7 @@ fn a_chain_of_lit_displays_the_card_refuses_goes_back() {
             assert!(s.page_flips.ends_with(&[(100, a), (101, c)]), "{s:?}");
         }
         assert_eq!(v.card().state().bound.get(&B), None, "atomic {atomic}");
+        assert_eq!(v.move_refused, [B], "atomic {atomic}");
     }
 }
 
@@ -6259,6 +6261,71 @@ fn a_legacy_move_refused_records_only_the_display_its_refusal_left_off() {
     let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
     assert_eq!(outs, [(A, 100), (C, 102)]);
     assert_eq!(v.move_refused, [D]);
+}
+
+/// A wake-up with the legacy calls where a desktop left A and B lit on CRTC
+/// 100, both, and C on 101. While vtium is away N, which drives only 101,
+/// is plugged in; with `chain`, C drives 100 and 101 and the wake-up moves
+/// it off 101 for N, and else N drives 100, and nothing sits between. The
+/// card refuses B's new CRTC, and A's set fails with ENOMEM, a reason that
+/// may pass. The wake-up's outputs and the connectors recorded as refused.
+fn woken_with_a_tie(chain: bool) -> (Vec<(u32, u32)>, Vec<u32>) {
+    const C: u32 = 43;
+    const N: u32 = 44;
+    let card = if chain {
+        reaching(&[0b1101, 0b1101, 0b0011, 0b0010], 3)
+    } else {
+        reaching(&[0b011, 0b101, 0b001], 2)
+    };
+    {
+        let mut s = card.state();
+        s.atomic = false;
+        s.bind(A, 100);
+        s.bind(B, 102);
+        if chain {
+            s.bind(C, 101);
+        }
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), B, 100);
+    {
+        let mut s = v.card().state();
+        s.bind(A, 100);
+        if chain {
+            s.bind(C, 101);
+            s.enabled.insert(101, true);
+            s.active.insert(101, true);
+            s.listed.push(N);
+            s.refused.extend([102, 103]);
+        } else {
+            s.listed.push(C);
+            s.refused.push(102);
+        }
+        s.set_crtc_errors.push_back(Errno::NOMEM);
+    }
+    let _ = v.wake_up();
+    let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    (outs, v.move_refused.clone())
+}
+
+// A display left off because of a failure that may pass is not recorded as
+// refused, though another display's refusal comes in the same modeset. In
+// the card of `woken_with_a_tie`, A and B both go back to 100, and A wins
+// by connector order. Without the chain, C is left off for A's ENOMEM; with
+// it, A goes back and C, which sits on the CRTC A goes back to, goes back
+// too, and N is left off for A's ENOMEM. B's refusal sends no display back,
+// so nothing is recorded either way.
+#[test]
+fn a_display_left_off_for_a_passing_failure_is_not_recorded_beside_a_refusal() {
+    const C: u32 = 43;
+    let (outs, refused) = woken_with_a_tie(false);
+    assert_eq!(outs, [(A, 100), (B, 102)]);
+    assert_eq!(refused, Vec::<u32>::new());
+    let (outs, refused) = woken_with_a_tie(true);
+    assert_eq!(outs, [(A, 100), (B, 102), (C, 101)]);
+    assert_eq!(refused, Vec::<u32>::new());
 }
 
 /// A wake-up's result, its outputs as connector and CRTC, the connectors
