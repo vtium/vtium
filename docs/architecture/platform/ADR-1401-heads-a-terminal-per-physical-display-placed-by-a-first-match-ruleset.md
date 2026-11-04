@@ -853,7 +853,7 @@ flowchart LR
 
 > Added 2026-11-04: the maintainer decided that a hotplug may move a lit display to another CRTC so that a new display lights (`considered`). Before, a hotplug kept every lit display on its CRTC, and a new display that only a lit display's CRTC could drive stayed dark until the next wake-up.
 
-> Edited 2026-11-04: the follow-ups to that work settled which display goes back where two were moved off one CRTC, and the bullet gained its last sentence on it. Before, it did not say, and vtium kept both displays on their new CRTCs.
+> Edited 2026-11-04: the follow-ups to that work settled which display goes back where two were moved off one CRTC, and the bullet gained two sentences on it, before its last. Before, it did not say, and vtium kept both displays on their new CRTCs.
 
 > Edited 2026-10-29: the operator answered C10 (`considered`): keys follow the kernel console. The bullet read: "**Inputs with no lit display** deliver to nothing."
 
