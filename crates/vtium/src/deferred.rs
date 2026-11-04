@@ -220,33 +220,44 @@ fn overstrike(base: &Glyph, marks: &[Glyph]) -> Option<Glyph> {
     Glyph::from_pixels(w, h, Format::Mask, pixels).map(|g| g.with_cells(cells))
 }
 
-/// Whether the font already draws `mark` beside `letter`: overstruck as
-/// [`overstrike`] lays them, some of the mark's ink lies off the letter's,
-/// and the two meet only on rows the letter's ink fills from edge to edge,
-/// a stroke they share such as Devanagari's headline. GNU Unifont draws
-/// its Devanagari vowel signs that way, each in a box as wide as its
-/// letter's with its ink at the side it stands on.
-fn drawn_beside(letter: &Glyph, mark: &Glyph) -> bool {
-    let w = letter.width().max(mark.width());
-    let lx = w.saturating_sub(letter.width()) / 2;
-    let mx = w.saturating_sub(mark.width()) / 2;
-    let mut off = false;
-    for (row, marked) in letter.rows().zip(mark.rows()) {
-        let full = row.iter().all(|&p| p > 0);
-        for (x, _) in (mx..).zip(marked).filter(|&(_, &p)| p > 0) {
-            let on = x
-                .checked_sub(lx)
-                .and_then(|x| usize::try_from(x).ok())
-                .and_then(|x| row.get(x))
-                .is_some_and(|&p| p > 0);
-            if !on {
-                off = true;
-            } else if !full {
-                return false;
-            }
+/// Whether the font already draws `mark` beside its letter, on the side
+/// `before` says: the mark's box is as wide as the letter's, and the
+/// column holding the most of its ink, its stem, lies in the quarter of
+/// the box on its own side. GNU Unifont draws its Devanagari and Bengali
+/// vowel signs that way, each in a box as wide as its letter's with its
+/// stem at the box's edge, so that laid on the letter it lands beside it,
+/// whatever the letter's own shape. A mark drawn in the middle of its box,
+/// or on the other side, is not.
+fn drawn_beside(letter: &Glyph, mark: &Glyph, before: bool) -> bool {
+    let w = mark.width();
+    if w != letter.width() {
+        return false;
+    }
+    let inked = |x: u32| {
+        mark.rows()
+            .filter(|r| r.get(x as usize).is_some_and(|&p| p > 0))
+            .count()
+    };
+    // the outermost column on its own side wins a tie
+    let mut columns: Vec<u32> = (0..w).collect();
+    if !before {
+        columns.reverse();
+    }
+    let mut stem: Option<(u32, usize)> = None;
+    for x in columns {
+        let n = inked(x);
+        if n > stem.map_or(0, |(_, most)| most) {
+            stem = Some((x, n));
         }
     }
-    off
+    let quarter = w / 4;
+    stem.is_some_and(|(x, _)| {
+        if before {
+            x < quarter
+        } else {
+            x >= w.saturating_sub(quarter)
+        }
+    })
 }
 
 /// The first and last columns of `g` that hold ink.
@@ -782,7 +793,7 @@ impl DeferredFace {
         let mut letter = overstrike(&glyph, &over)?;
         let mut stand: Vec<(Glyph, bool)> = Vec::new();
         for (mark, before) in spacing {
-            if drawn_beside(&letter, &mark) {
+            if drawn_beside(&letter, &mark, before) {
                 letter = overstrike(&letter, std::slice::from_ref(&mark))?;
             } else {
                 stand.push((mark, before));
@@ -1656,32 +1667,117 @@ mod tests {
         // the letter's stem stays left of it, with a blank column between
         assert!((4..13).all(|y| !ink(6, y)), "{:?}", picture(&both));
         assert!((4..13).all(|y| ink(5, y)), "{:?}", picture(&both));
+        // the 10 columns of ink scale to 8, so the cell's last column takes
+        // eight tenths of the stem's column and two tenths of the blank one
+        // before it: 255 * 8 / 10, rounded down
+        assert!(
+            (4..13).all(|y| both.pixel(7, y).unwrap()[0] == 204),
+            "{:?}",
+            (4..13)
+                .map(|y| both.pixel(7, y).unwrap()[0])
+                .collect::<Vec<_>>()
+        );
     }
 
-    // #235: GNU Unifont draws each Devanagari vowel sign in a box as wide
-    // as its letter's, its ink already beside the letter's: overstruck,
-    // the two meet only on the headline, which the letter's ink fills from
-    // edge to edge. The fallback keeps the font's own placement, so a
-    // unifont cluster draws as before
+    /// The vowel sign i drawn in the middle of its cell, columns 4 and 5,
+    /// away from a letter in columns 0 to 2.
+    const I_MID_ROWS: [&str; 13] = [
+        "........", "........", "........", "....##..", "....#...", "....#...", "....#...",
+        "....#...", "....#...", "....#...", "....#...", "....#...", "....#...",
+    ];
+
+    // a narrow letter, its ink in columns 0 to 2
+    const NARROW_ROWS: [&str; 13] = [
+        "........", "........", "........", "###.....", ".#......", ".#......", ".#......",
+        ".#......", ".#......", ".#......", ".#......", ".#......", ".#......",
+    ];
+
+    // #235: a spacing mark whose font draws it clear of the letter but on
+    // the wrong side, or in the middle of its box, still stands on its own
+    // side: the vowel sign i, drawn after the letter's ink, goes before it
+    #[test]
+    fn a_pre_base_mark_drawn_after_its_letter_moves_before_it() {
+        let f = face_with(&[(KA, &NARROW_ROWS), (I, &I_MID_ROWS)]);
+        let both = f.draw(&[KA, I], Style::default()).unwrap();
+        let want = [
+            "........", "........", "........", ".#####..", ".#..#...", ".#..#...", ".#..#...",
+            ".#..#...", ".#..#...", ".#..#...", ".#..#...", ".#..#...", ".#..#...", "........",
+            "........", "........",
+        ];
+        assert_eq!(picture(&both), want);
+    }
+
+    // #235: and the vowel sign aa, drawn at the left of its box, before a
+    // letter at the right of its own, goes after it
+    #[test]
+    fn a_mark_drawn_before_its_letter_moves_after_it() {
+        let aa_left: [&str; 13] = [
+            "........", "........", "........", "##......", ".#......", ".#......", ".#......",
+            ".#......", ".#......", ".#......", ".#......", ".#......", ".#......",
+        ];
+        let ka_right: [&str; 13] = [
+            "........", "........", "........", ".....###", "......#.", "......#.", "......#.",
+            "......#.", "......#.", "......#.", "......#.", "......#.", "......#.",
+        ];
+        let f = face_with(&[(KA, &ka_right), (AA, &aa_left)]);
+        let both = f.draw(&[KA, AA], Style::default()).unwrap();
+        let want = [
+            "........", "........", "........", ".#####..", "..#..#..", "..#..#..", "..#..#..",
+            "..#..#..", "..#..#..", "..#..#..", "..#..#..", "..#..#..", "..#..#..", "........",
+            "........", "........",
+        ];
+        assert_eq!(picture(&both), want);
+    }
+
+    // #235: GNU Unifont draws each Devanagari and Bengali vowel sign in a
+    // box as wide as its letter's, its stem at the box's edge on its own
+    // side, so laid on the letter it lands beside it. The fallback keeps
+    // that placement for every consonant, those whose headline has a gap,
+    // such as tha, dha, bha and ha, among them, and for every spacing mark
+    // of the two scripts, a two-part sign as its canonical parts: each
+    // cluster draws as the plain overstrike of its glyphs
     #[test]
     fn a_spacing_mark_the_font_draws_beside_its_letter_stays_there() {
         let generated = Shared::default();
         let f = face(&generated);
         let unifont = Unifont::new(16);
         let regular = Style::default();
-        for mark in [AA, I, '\u{940}', '\u{94b}'] {
-            let ka = unifont.draw(&[KA], regular).unwrap();
-            let sign = unifont.draw(&[mark], regular).unwrap();
-            let both = f.draw(&[KA, mark], regular).unwrap();
-            let over: Vec<u8> = ka
-                .pixels()
-                .iter()
-                .zip(sign.pixels())
-                .map(|(&a, &b)| a.max(b))
-                .collect();
-            assert_eq!(both.pixels(), over.as_slice(), "U+{:04X}", u32::from(mark));
-            assert_eq!(both.cells(), Width::Wide);
+        let devanagari: (_, &[u32]) = (
+            0x915..=0x939,
+            &[
+                0x903, 0x93b, 0x93e, 0x93f, 0x940, 0x949, 0x94a, 0x94b, 0x94c, 0x94e, 0x94f,
+            ],
+        );
+        let bengali: (_, &[u32]) = (
+            0x995..=0x9b9,
+            &[
+                0x982, 0x983, 0x9be, 0x9bf, 0x9c0, 0x9c7, 0x9c8, 0x9cb, 0x9cc, 0x9d7,
+            ],
+        );
+        let mut drawn = 0;
+        for (letters, signs) in [devanagari, bengali] {
+            for letter in letters
+                .filter_map(char::from_u32)
+                .filter(|&c| unifont.has_glyph(c))
+            {
+                for sign in signs.iter().filter_map(|&c| char::from_u32(c)) {
+                    let mut parts = Vec::new();
+                    decompose(sign, &mut parts);
+                    let mut over = unifont.draw(&[letter], regular).unwrap();
+                    for part in parts {
+                        let glyph = unifont.draw(&[part], regular).unwrap();
+                        over = overstrike(&over, &[glyph]).unwrap();
+                    }
+                    let both = f.draw(&[letter, sign], regular).unwrap();
+                    let at = format!("U+{:04X} U+{:04X}", u32::from(letter), u32::from(sign));
+                    assert_eq!(both, over, "{at}");
+                    assert_eq!(both.cells(), Width::Wide, "{at}");
+                    drawn += 1;
+                }
+            }
         }
+        // each range's 37 codepoints, unifont drawing even the unassigned
+        assert_eq!(drawn, 37 * 11 + 37 * 10);
     }
 
     // a cluster whose first character neither the store nor the built-in
