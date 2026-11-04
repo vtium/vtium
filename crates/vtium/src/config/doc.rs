@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use super::keys::{
     Default, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY, SCHEMES, SECTIONS, Scope,
-    TEXT_MAX,
+    Section, TEXT_MAX,
 };
 use super::{FILE_MAX, LINE_MAX};
 
@@ -316,6 +316,27 @@ fn schemes() -> String {
     out
 }
 
+/// A group's title and the keys of it a file may set.
+type FileGroup = (&'static str, Vec<&'static Key>);
+
+/// `section`'s groups as a file sees them: each with the keys of it a file
+/// may set, and no group left with none.
+fn in_files(section: &Section) -> Vec<FileGroup> {
+    section
+        .groups
+        .iter()
+        .map(|g| {
+            let keys = g
+                .keys
+                .iter()
+                .copied()
+                .filter(|k| k.scope == Scope::Anywhere);
+            (g.title, keys.collect())
+        })
+        .filter(|(_, keys): &FileGroup| !keys.is_empty())
+        .collect()
+}
+
 /// `install/vtium.conf.example`: a header, then each section under its
 /// heading, and in it each group under its heading, with its description
 /// and then its keys at their defaults. Keys only the command line takes
@@ -329,19 +350,7 @@ pub(super) fn example() -> String {
         ],
     );
     for section in &SECTIONS {
-        let groups: Vec<(&str, Vec<&Key>)> = section
-            .groups
-            .iter()
-            .map(|g| {
-                let keys = g
-                    .keys
-                    .iter()
-                    .copied()
-                    .filter(|k| k.scope == Scope::Anywhere);
-                (g.title, keys.collect::<Vec<&Key>>())
-            })
-            .filter(|(_, keys)| !keys.is_empty())
-            .collect();
+        let groups = in_files(section);
         if groups.is_empty() {
             continue;
         }
@@ -467,28 +476,9 @@ mod tests {
         ));
     }
 
-    /// The groups of each section as the example shows them: the keys a
-    /// file may set, and no group left with none.
-    fn shown() -> Vec<(&'static str, Vec<(&'static str, Vec<&'static Key>)>)> {
-        SECTIONS
-            .iter()
-            .map(|s| {
-                let groups = s
-                    .groups
-                    .iter()
-                    .map(|g| {
-                        let keys = g
-                            .keys
-                            .iter()
-                            .copied()
-                            .filter(|k| k.scope == Scope::Anywhere);
-                        (g.title, keys.collect::<Vec<&Key>>())
-                    })
-                    .filter(|(_, keys)| !keys.is_empty())
-                    .collect();
-                (s.title, groups)
-            })
-            .collect()
+    /// Each section's title and its groups as the example shows them.
+    fn shown() -> Vec<(&'static str, Vec<FileGroup>)> {
+        SECTIONS.iter().map(|s| (s.title, in_files(s))).collect()
     }
 
     // Each section opens with its heading, a line of `#`, what it covers in
