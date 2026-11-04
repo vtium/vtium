@@ -280,7 +280,7 @@ mod tests {
         let p = pat("/architecture/*/ADR-*.md");
         assert!(p.matches("architecture/term/ADR-1000-the-modes.md"));
         assert!(!p.matches("architecture/INDEX.md"));
-        assert!(!p.matches("architecture/term/old/ADR-1.md"));
+        assert!(!p.matches("architecture/term/old/ADR-1000-x.md"));
         assert!(!p.matches("architecture/term/README.md"));
     }
 
