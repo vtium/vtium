@@ -92,6 +92,17 @@ pub fn matches(face: &Face, family: &str) -> bool {
         .any(|f| crate::outline::family_key(f) == key)
 }
 
+/// The face of `family` among `faces` that the rasteriser draws from: the
+/// first whose subfamily is Regular, as the search prefers a file for its
+/// Regular face, else the first of the family. In a collection whose
+/// first face is Thin or Bold, this draws its Regular face.
+pub fn choose<'a>(faces: &'a [Face], family: &str) -> Option<&'a Face> {
+    faces
+        .iter()
+        .find(|f| f.regular && matches(f, family))
+        .or_else(|| faces.iter().find(|f| matches(f, family)))
+}
+
 /// The faces of the TrueType or OpenType font, or collection, in `src`:
 /// one for a font, each of up to [`FACES_MAX`] for a collection, a face
 /// that a collection lists twice read once. A face with no `name` table,
@@ -115,44 +126,59 @@ pub fn faces<S: Source + ?Sized>(src: &S) -> Result<Vec<Face>, String> {
     };
     let mut out = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
+    // a collection's faces often share one `name` table: each distinct
+    // table is read and parsed once
+    let mut tables: std::collections::BTreeMap<(u32, u32), Option<Names>> =
+        std::collections::BTreeMap::new();
     for (index, offset) in (0u32..).zip(offsets) {
         if !seen.insert(offset) {
             continue;
         }
-        if let Ok(Some(face)) = face(src, u64::from(offset), index) {
-            out.push(face);
+        let Some(place) = name_table(src, u64::from(offset)) else {
+            continue;
+        };
+        let names = tables.entry(place).or_insert_with(|| names_in(src, place));
+        if let Some((families, regular)) = names {
+            out.push(Face {
+                index,
+                families: families.clone(),
+                regular: *regular,
+            });
         }
     }
     Ok(out)
 }
 
-/// The face whose table directory starts at `offset`, or `None` when it
-/// has no readable `name` table.
-fn face<S: Source + ?Sized>(src: &S, offset: u64, index: u32) -> Result<Option<Face>, String> {
-    let dir = read_at(src, offset, 12)?;
+/// What a `name` table gives a face: its families, and whether its style
+/// is Regular.
+type Names = (Vec<String>, bool);
+
+/// Where the `name` table of the face whose table directory starts at
+/// `offset` lies, its offset and length, or `None` when the face lists more
+/// than [`TABLES_MAX`] tables, has no `name` table, or is cut short.
+fn name_table<S: Source + ?Sized>(src: &S, offset: u64) -> Option<(u32, u32)> {
+    let dir = read_at(src, offset, 12).ok()?;
     let tables = usize::from(u16_at(&dir, 4).unwrap_or(0));
     if tables > TABLES_MAX {
-        return Ok(None);
+        return None;
     }
-    let records = read_at(src, offset + 12, tables * 16)?;
-    let Some((at, len)) = records.as_chunks::<16>().0.iter().find_map(|r| {
+    let records = read_at(src, offset + 12, tables * 16).ok()?;
+    let (at, len) = records.as_chunks::<16>().0.iter().find_map(|r| {
         r.starts_with(b"name")
             .then(|| (u32_at(r, 8), u32_at(r, 12)))
-    }) else {
-        return Ok(None);
-    };
-    let (Some(at), Some(len)) = (at, len) else {
-        return Ok(None);
-    };
+    })?;
+    Some((at?, len?))
+}
+
+/// The families and whether the style is Regular that the `name` table at
+/// `place` gives, or `None` when it passes [`NAME_BYTES_MAX`], is cut
+/// short or is malformed.
+fn names_in<S: Source + ?Sized>(src: &S, (at, len): (u32, u32)) -> Option<Names> {
     if len > NAME_BYTES_MAX {
-        return Ok(None);
+        return None;
     }
-    let Ok(bytes) = read_at(src, u64::from(at), len as usize) else {
-        return Ok(None);
-    };
-    let Ok(name) = Name::read(FontData::new(&bytes)) else {
-        return Ok(None);
-    };
+    let bytes = read_at(src, u64::from(at), len as usize).ok()?;
+    let name = Name::read(FontData::new(&bytes)).ok()?;
     // each string under `id`, English first: Windows' US English, or the
     // Macintosh's English
     let strings = |id: NameId| -> Vec<String> {
@@ -185,11 +211,7 @@ fn face<S: Source + ?Sized>(src: &S, offset: u64, index: u32) -> Result<Option<F
     let regular = style
         .iter()
         .any(|s| s.trim().eq_ignore_ascii_case("regular"));
-    Ok(Some(Face {
-        index,
-        families,
-        regular,
-    }))
+    Some((families, regular))
 }
 
 /// A font file for the tests: one face, or with several a collection,
@@ -347,6 +369,57 @@ mod tests {
         assert!(matches(&got[0], "文鼎测试楷"));
         assert!(matches(&got[0], "ar-test kai"));
         assert!(!matches(&got[0], "AR Test"));
+    }
+
+    // ADR-1500 D8: the search takes a file for its Regular face, so the
+    // rasteriser draws that face, though a heavier one comes first in the
+    // collection, and falls back to the family's first face.
+    #[test]
+    fn the_regular_face_of_a_collection_is_chosen_before_one_listed_first() {
+        let bold: &[(u16, &str)] = &[(1, "Fam"), (2, "Bold")];
+        let regular: &[(u16, &str)] = &[(1, "Fam"), (2, "Regular")];
+        let other: &[(u16, &str)] = &[(1, "Other"), (2, "Regular")];
+        let both = faces_of(&sfnt(&[other, bold, regular]), "bold-first").unwrap();
+        assert_eq!(choose(&both, "Fam").map(|f| f.index), Some(2));
+        let no_regular = faces_of(&sfnt(&[other, bold]), "no-regular").unwrap();
+        assert_eq!(choose(&no_regular, "Fam").map(|f| f.index), Some(1));
+        assert_eq!(choose(&no_regular, "Absent"), None);
+    }
+
+    // Faces that share one `name` table, as a collection's often do, read
+    // and parse it once, so a file's reads stay near one table's bound.
+    #[test]
+    fn faces_that_share_a_name_table_read_it_once() {
+        struct Counted<'a>(&'a [u8], std::cell::RefCell<Vec<(u64, usize)>>);
+        impl Source for Counted<'_> {
+            fn read_exact_at(&self, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+                self.1.borrow_mut().push((offset, buf.len()));
+                self.0.read_exact_at(buf, offset)
+            }
+        }
+        let a: &[(u16, &str)] = &[(1, "Fam"), (2, "Regular")];
+        let mut font = sfnt(&[a, a, a]);
+        let dir = |f: &[u8], i: usize| {
+            u32::from_be_bytes(f[12 + 4 * i..16 + 4 * i].try_into().unwrap()) as usize
+        };
+        // the second and third faces' records name the first face's table
+        let first = dir(&font, 0) + 12;
+        let record: Vec<u8> = font[first + 8..first + 16].to_vec();
+        for i in [1, 2] {
+            let at = dir(&font, i) + 12;
+            font[at + 8..at + 16].copy_from_slice(&record);
+        }
+        let table = u32::from_be_bytes(record[..4].try_into().unwrap());
+        let counted = Counted(&font, Default::default());
+        let got = faces(&counted).unwrap();
+        assert_eq!(got.iter().map(|f| f.index).collect::<Vec<_>>(), [0, 1, 2]);
+        let reads = counted
+            .1
+            .borrow()
+            .iter()
+            .filter(|(o, _)| *o == u64::from(table))
+            .count();
+        assert_eq!(reads, 1);
     }
 
     // Item by item, a collection's damage stays with its face: a face

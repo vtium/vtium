@@ -629,12 +629,12 @@ pub(crate) mod raster {
     use crate::resample::{self, METHOD};
     use swash::{FontDataRef, FontRef, StringId};
 
-    /// The face `family` names in `data`, or its first face for an empty
-    /// family; with the family its name table gives, English first, and
-    /// its index in a collection. The face is chosen by
-    /// [`crate::names::faces`] and [`crate::names::matches`], the reader
-    /// and the predicate the search among installed fonts uses, so a face
-    /// the search finds is a face this takes (ADR-1500 D8).
+    /// The face `family` names in `data`, its Regular face first, or its
+    /// first face for an empty family; with the family its name table
+    /// gives, English first, and its index in a collection. The face is
+    /// chosen by [`crate::names::choose`] over [`crate::names::faces`],
+    /// the reader and the test the search among installed fonts uses, so a
+    /// face the search finds is a face this takes (ADR-1500 D8).
     fn face<'a>(data: &'a [u8], family: &str) -> Result<(FontRef<'a>, String, u32), String> {
         let fonts = FontDataRef::new(data).ok_or("not a TrueType or OpenType font")?;
         if fonts.is_empty() {
@@ -646,13 +646,10 @@ pub(crate) mod raster {
             let first = faces.iter().find(|f| f.index == 0);
             (0, first.map(named).unwrap_or_default())
         } else {
-            let found = faces
-                .iter()
-                .find(|f| crate::names::matches(f, family))
-                .ok_or_else(|| {
-                    let other = faces.first().map(named).unwrap_or_default();
-                    format!("the font is of family {other}, not {family}")
-                })?;
+            let found = crate::names::choose(&faces, family).ok_or_else(|| {
+                let other = faces.first().map(named).unwrap_or_default();
+                format!("the font is of family {other}, not {family}")
+            })?;
             (found.index, named(found))
         };
         let font = fonts
