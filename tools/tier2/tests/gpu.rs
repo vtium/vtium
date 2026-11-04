@@ -1,5 +1,5 @@
 //! The GPU path's side of tier 2 (ADR-1303 D1): each screen the GPU path
-//! draws has a sidecar of its own holding the starting tolerance, and the
+//! draws has a sidecar of its own, exact for now, and the
 //! judge sees a GPU path that draws nothing. The pixels are judged on a
 //! real GL; here the stand-in GL draws through the whole GPU path and reads
 //! back zeros.
@@ -10,8 +10,7 @@ use std::path::{Path, PathBuf};
 
 use vtium_render::gpu::StandIn;
 use vtium_tier2::compare::Verdict;
-use vtium_tier2::gpu::{self, MAX_DELTA, MAX_PIXELS_PERCENT};
-use vtium_tier2::ppm;
+use vtium_tier2::gpu;
 use vtium_tier2::screens::CASES;
 use vtium_tier2::tol::Tolerance;
 
@@ -28,37 +27,23 @@ fn drawn() -> Vec<&'static str> {
         .collect()
 }
 
-/// The size of `name`'s golden.
-fn size(name: &str) -> (u32, u32) {
-    let root = root();
-    let path = [
-        root.join("goldens").join(format!("{name}.ppm")),
-        root.join("reference/goldens").join(format!("{name}.ppm")),
-    ]
-    .into_iter()
-    .find(|p| p.exists())
-    .unwrap_or_else(|| panic!("{name}: no golden"));
-    let img = ppm::parse(&fs::read(&path).unwrap()).unwrap();
-    (img.width(), img.height())
-}
-
 #[test]
-fn every_screen_the_gpu_path_draws_has_its_own_sidecar_at_the_starting_tolerance() {
-    // ADR-1303 D1: max_delta 1, and 3 per cent of the screen's pixels
-    assert_eq!((MAX_DELTA, MAX_PIXELS_PERCENT), (1, 3));
+fn every_screen_the_gpu_path_draws_has_its_own_exact_sidecar() {
+    // the maintainer's decision of 2026-11-03: the GPU path is judged
+    // exactly for now, each sidecar saying so in both limits
     let names = drawn();
     assert!(names.len() > 40, "{names:?}");
     let mut wrong = Vec::new();
     for name in &names {
-        let (w, h) = size(name);
-        let want = Tolerance {
-            max_delta: 1,
-            max_pixels: u64::from(w) * u64::from(h) * 3 / 100,
-            masks: Vec::new(),
-        };
+        let path = root().join("gpu").join(format!("{name}.tol"));
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        let states = text.lines().any(|l| l.trim() == "max_delta=0")
+            && text.lines().any(|l| l.trim() == "max_pixels=0");
         match gpu::sidecar(&root(), name) {
-            Ok(tol) if tol == want && tol == gpu::starting(w, h) => {}
-            other => wrong.push(format!("{name}: {other:?}, want {want:?}")),
+            Ok(tol) if tol == Tolerance::default() && states => {}
+            other => wrong.push(format!(
+                "{name}: {other:?}, want max_delta=0 and max_pixels=0"
+            )),
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));

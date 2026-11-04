@@ -7,8 +7,8 @@
 //! is the standard, judged exactly against the screen's golden by the run;
 //! the GPU path is judged within its own sidecar, `gpu/<screen>.tol` in
 //! this tree, never the golden's, and no mask hides a GPU difference. The
-//! starting tolerance is ADR-1303's: a `max_delta` of 1 and a `max_pixels`
-//! of 3 per cent of the screen's pixels, rounded down.
+//! sidecars are exact for now, the maintainer's decision of 2026-11-03,
+//! since every screen measured no difference on llvmpipe.
 //!
 //! The GPU path draws an upright display in color today. A turned screen
 //! waits for the turn, and a 1-bit screen for present's depth reduction,
@@ -31,14 +31,6 @@ use crate::ppm::Image;
 use crate::report::{CaseReport, Status};
 use crate::tol::Tolerance;
 
-/// The share of a screen's pixels the GPU path's starting tolerance lets
-/// differ, in per cent (ADR-1303 D1).
-pub const MAX_PIXELS_PERCENT: u64 = 3;
-
-/// The largest difference in a channel the GPU path's starting tolerance
-/// allows (ADR-1303 D1).
-pub const MAX_DELTA: u8 = 1;
-
 /// Why the GPU path does not draw `screen` yet, or `None` when it does.
 pub fn waits(screen: &Screen) -> Option<&'static str> {
     if screen.orientation != Orientation::Normal {
@@ -48,16 +40,6 @@ pub fn waits(screen: &Screen) -> Option<&'static str> {
         return Some("a 1-bit display waits for present's depth reduction (ADR-1301)");
     }
     None
-}
-
-/// The GPU path's starting tolerance for a screen of `width` by `height`.
-pub fn starting(width: u32, height: u32) -> Tolerance {
-    let pixels = u64::from(width) * u64::from(height);
-    Tolerance {
-        max_delta: MAX_DELTA,
-        max_pixels: pixels * MAX_PIXELS_PERCENT / 100,
-        masks: Vec::new(),
-    }
 }
 
 /// The GPU path on the GL `gl`.
