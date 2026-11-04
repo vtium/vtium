@@ -1770,6 +1770,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             let reach = conn.map_or(0, |c| self.reach(c, current)) | bit(o.crtc);
             if !follow {
                 let want = o.moved_from.filter(|_| o.online).map_or(o.crtc, |m| m.crtc);
+                // Lit here means online. Only the displays online before the
+                // modeset can go back ([`Self::going_back`]), so every display
+                // whose record that reads is lit, and where two at a hotplug
+                // would go back to one CRTC, connector order decides.
                 homes.push((want, o.online));
                 places.push(Place {
                     group: if o.online { 0 } else { 1 },
@@ -2054,21 +2058,33 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 .map(|o| o.id)
                 .collect();
             let mut unset = self.legacy_modeset();
+            // The moved displays whose set failed. One new to the modeset
+            // among them never goes back, as `going_back` leaves it out.
             let failed: Vec<(DisplayId, bool)> = unset
                 .iter()
                 .copied()
                 .filter(|&(id, _)| {
-                    !fresh.contains(&id)
-                        && self
-                            .outputs
-                            .iter()
-                            .any(|o| o.id == id && o.moved_from.is_some())
+                    self.outputs
+                        .iter()
+                        .any(|o| o.id == id && o.moved_from.is_some())
                 })
                 .collect();
             if !failed.is_empty() {
                 let ids: Vec<DisplayId> = failed.iter().map(|&(id, _)| id).collect();
                 let going = self.going_back(&fresh, Some(&ids));
-                let refusal = failed.iter().any(|&(_, refused)| refused);
+                // The displays going back because the card refused a set,
+                // not for a failure that may pass.
+                let refused: Vec<DisplayId> = failed
+                    .iter()
+                    .filter(|&&(_, refused)| refused)
+                    .map(|&(id, _)| id)
+                    .collect();
+                let by_refusal = self.going_back(&fresh, Some(&refused));
+                let refusal: Vec<DisplayId> = going
+                    .iter()
+                    .copied()
+                    .filter(|id| by_refusal.contains(id))
+                    .collect();
                 let back: Vec<u32> = self.returns(&going).map(|m| m.crtc).collect();
                 let (new, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.outputs)
                     .into_iter()
@@ -2077,8 +2093,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 self.leave_off(
                     new,
                     "a display moved to light it cannot be set on its new CRTC",
-                    refusal,
-                    &going,
+                    &refusal,
                 );
                 self.move_back(&going);
                 if !going.is_empty() {
@@ -2118,8 +2133,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     self.leave_off(
                         new,
                         &format!("it cannot be set beside the displays online: {e}"),
-                        refusal,
-                        &going,
+                        if refusal { &going } else { &[] },
                     );
                     self.move_back(&going);
                     self.atomic_modeset_or_default()
@@ -2154,24 +2168,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Lets go of the new displays `new`, which a modeset could not set
     /// beside the others, for `why`; each stays off until the next hotplug.
-    /// Where the card `refused` them, each that sat on a CRTC that a display
-    /// `going` back was lit on has its connector recorded, and until it is
-    /// unplugged a hotplug moves no lit display for it.
-    fn leave_off(
-        &mut self,
-        new: Vec<Output<S::Memory>>,
-        why: &str,
-        refused: bool,
-        going: &[DisplayId],
-    ) {
+    /// The displays `refused` go back because the card refused where they
+    /// were placed, and not for a failure that may pass. Each new display
+    /// that sat on a CRTC one of them goes back to and was lit on has its
+    /// connector recorded, and until it is unplugged a hotplug moves no lit
+    /// display for it.
+    fn leave_off(&mut self, new: Vec<Output<S::Memory>>, why: &str, refused: &[DisplayId]) {
         let back: Vec<u32> = self
-            .returns(going)
+            .returns(refused)
             .filter(|m| m.lit)
             .map(|m| m.crtc)
             .collect();
         for o in new {
             log::warn!("{} stays off until the next hotplug: {why}", o.name);
-            if refused && back.contains(&o.crtc) && !self.move_refused.contains(&o.id.0) {
+            if back.contains(&o.crtc) && !self.move_refused.contains(&o.id.0) {
                 self.move_refused.push(o.id.0);
             }
             if o.announced {

@@ -6159,9 +6159,9 @@ fn a_refused_wake_up_puts_a_display_that_was_not_lit_back() {
 /// 102. While vtium is away, a desktop leaves W's connector on 100 and A's
 /// and B's on none, and N is plugged in; the card refuses CRTC `refuse`.
 /// The wake-up puts W on 100, A on 101, off 100, B on 103, off 101, and N
-/// on 102. The wake-up's result, its outputs, and the displays it left
-/// unset.
-fn woken_in_a_chain(atomic: bool, refuse: u32) -> (io::Result<()>, Vec<(u32, u32)>, Vec<u32>) {
+/// on 102. The wake-up's result, its outputs, the displays it left unset,
+/// and the legacy CRTC sets it made, as CRTC and connector.
+fn woken_in_a_chain(atomic: bool, refuse: u32) -> Chain {
     const W: u32 = 43;
     const N: u32 = 44;
     let card = reaching(&[0b0011, 0b1010, 0b0101, 0b0100], 3);
@@ -6180,10 +6180,18 @@ fn woken_in_a_chain(atomic: bool, refuse: u32) -> (io::Result<()>, Vec<(u32, u32
     v.card().state().bind(B, 0);
     v.card().state().listed.push(N);
     v.card().state().refused.push(refuse);
+    let before = v.card().state().set_crtcs.len();
     let woke = v.wake_up();
     let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
-    (woke, outs, v.unset.iter().map(|id| id.0).collect())
+    let sets = v.card().state().set_crtcs[before..]
+        .iter()
+        .map(|&(crtc, _, conn, _)| (crtc, conn))
+        .collect();
+    (woke, outs, v.unset.iter().map(|id| id.0).collect(), sets)
 }
+
+/// What [`woken_in_a_chain`] returns.
+type Chain = (io::Result<()>, Vec<(u32, u32)>, Vec<u32>, Vec<(u32, u32)>);
 
 // A display that cannot go back keeps its CRTC from a display that would
 // go back to it. Here the card refuses N's CRTC, 102. The modeset leaves N
@@ -6196,11 +6204,11 @@ fn woken_in_a_chain(atomic: bool, refuse: u32) -> (io::Result<()>, Vec<(u32, u32
 fn a_display_that_cannot_go_back_holds_its_crtc_for_the_chain() {
     const W: u32 = 43;
     const N: u32 = 44;
-    let (woke, outs, unset) = woken_in_a_chain(true, 102);
+    let (woke, outs, unset, _) = woken_in_a_chain(true, 102);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 101), (B, 103), (W, 100)]);
     assert_eq!(unset, Vec::<u32>::new());
-    let (woke, outs, unset) = woken_in_a_chain(false, 102);
+    let (woke, outs, unset, _) = woken_in_a_chain(false, 102);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 101), (B, 103), (W, 100), (N, 102)]);
     assert_eq!(unset, [N]);
@@ -6209,18 +6217,48 @@ fn a_display_that_cannot_go_back_holds_its_crtc_for_the_chain() {
 // Where the card refuses B's CRTC, 103, B cannot be lit: it drives only
 // 101 and 103, and A cannot leave 101. Still no two displays share a CRTC:
 // A stays on 101 and B on 103. The atomic wake-up fails. With the legacy
-// calls N lights on 102 and B is left unset, to be tried again.
+// calls N lights on 102 and B is left unset, to be tried again. As no
+// display goes back, the legacy calls set each display once and do not
+// set them again.
 #[test]
 fn a_chain_the_card_refuses_never_puts_two_displays_on_one_crtc() {
     const W: u32 = 43;
     const N: u32 = 44;
-    let (woke, outs, _) = woken_in_a_chain(true, 103);
+    let (woke, outs, _, _) = woken_in_a_chain(true, 103);
     assert!(woke.is_err());
     assert_eq!(outs, [(A, 101), (B, 103), (W, 100)]);
-    let (woke, outs, unset) = woken_in_a_chain(false, 103);
+    let (woke, outs, unset, sets) = woken_in_a_chain(false, 103);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 101), (B, 103), (W, 100), (N, 102)]);
     assert_eq!(unset, [B]);
+    assert_eq!(sets, [(101, A), (100, W), (102, N)]);
+}
+
+// With the legacy calls, only the card's refusal of a moved display is
+// recorded. In the card of the test above, A's set on 101 also fails with
+// ENOMEM, a reason that may pass. A and C both go back, and B and D are
+// both left off, but only D, left off because the card refused C on 103,
+// is recorded; the next hotplug moves A for B again.
+#[test]
+fn a_legacy_move_refused_records_only_the_display_its_refusal_left_off() {
+    const C: u32 = 43;
+    const D: u32 = 44;
+    let card = reaching(&[0b0011, 0b0001, 0b1100, 0b0100], 4);
+    {
+        let mut s = card.state();
+        s.atomic = false;
+        s.listed.retain(|&c| c == A || c == C);
+        s.refused.push(103);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.card().state().listed.insert(1, B);
+    v.card().state().listed.push(D);
+    v.card().state().set_crtc_errors.push_back(Errno::NOMEM);
+    v.poll().unwrap();
+    flip(&mut v);
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 100), (C, 102)]);
+    assert_eq!(v.move_refused, [D]);
 }
 
 /// A wake-up's result, its outputs as connector and CRTC, the connectors
@@ -6494,26 +6532,31 @@ fn a_legacy_display_left_unset_does_not_strand_a_lit_display() {
     assert_eq!(s.bound.get(&M), None, "{s:?}");
 }
 
-// The displays that go back never end two on one CRTC, and none is left
-// off a CRTC that ends empty. Across placements chosen by a fixed sequence
-// of numbers, five displays sit on CRTCs 100 to 107, one each; each was
-// moved off another CRTC or not, was lit there or not, and is new to the
-// modeset or not. For each placement, the displays going back are found as
-// an atomic commit's failure finds them, with every moved display free to
-// go back, and as the legacy calls' failure finds them, from the moved
-// displays whose own set failed. Then:
-// - a new display never goes back, and the new displays on a CRTC one goes
-//   back to are let go;
-// - no two displays left end on one CRTC;
-// - a display that wanted to go back and stays finds its CRTC taken at the
-//   end, by the display going back there or by one that stays;
+// The displays that go back never end two on one CRTC, and none that could
+// go back is left where it was placed. Across placements chosen by a fixed
+// sequence of numbers, five displays sit on CRTCs 100 to 105, one each;
+// each was moved off another CRTC or not, was lit there or not, and is new
+// to the modeset or not. A placement the matching makes never has displays
+// online moved in a cycle, each off the CRTC the next sits on, so the
+// placements with one are skipped. For each placement, the displays going
+// back are found as an atomic commit's failure finds them, with every moved
+// display free to go back, and as the legacy calls' failure finds them,
+// from the moved displays whose own set failed. Each result is checked
+// against every set of displays that could go back, found by trying them
+// all:
+// - only a moved display online goes back, and the displays online end on
+//   CRTCs of their own;
+// - after the legacy calls' failure, the displays going back are exactly
+//   those reached from the failed ones, each next one sitting on the CRTC
+//   a display reached goes back to;
+// - no such set that holds the result sends back as well a display that
+//   wanted to go back and stays;
 // - where an unlit display goes back to a CRTC, no lit display that wanted
-//   it stays;
-// - after the legacy calls' failure, each display going back failed, or
-//   sits on the CRTC another display goes back to.
+//   it stays.
 #[test]
 fn going_back_never_puts_two_displays_on_one_crtc() {
-    let mut v = awake(Drm2d::with(reaching(&[0b11111; 5], 5), ModePolicy::default()).unwrap());
+    const N: usize = 5;
+    let mut v = awake(Drm2d::with(reaching(&[0b11111; N], N), ModePolicy::default()).unwrap());
     let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
     let mut next = |m: usize| {
         seed ^= seed << 13;
@@ -6521,15 +6564,15 @@ fn going_back_never_puts_two_displays_on_one_crtc() {
         seed ^= seed << 17;
         usize::try_from(seed % m as u64).unwrap()
     };
-    let (mut cases, mut ties) = (0, 0);
-    for _ in 0..20_000 {
-        let mut pool: Vec<u32> = (100..108).collect();
+    let (mut cases, mut ties, mut stayed) = (0, 0, 0);
+    while cases < 40_000 {
+        let mut pool: Vec<u32> = (100..106).collect();
         for o in &mut v.outputs {
             o.crtc = pool.remove(next(pool.len()));
             o.moved_from = (next(10) < 7).then(|| {
-                let mut crtc = 100 + u32::try_from(next(8)).unwrap();
+                let mut crtc = 100 + u32::try_from(next(6)).unwrap();
                 if crtc == o.crtc {
-                    crtc = 100 + (crtc - 99) % 8;
+                    crtc = 100 + (crtc - 99) % 6;
                 }
                 Moved {
                     crtc,
@@ -6537,106 +6580,118 @@ fn going_back_never_puts_two_displays_on_one_crtc() {
                     lit: next(2) == 0,
                 }
             });
-            o.online = next(3) != 0;
+            o.online = next(4) != 0;
         }
-        let fresh: Vec<DisplayId> = v
+        let outs: Vec<(DisplayId, u32, Option<Moved>, bool)> = v
             .outputs
             .iter()
-            .filter(|o| !o.online)
-            .map(|o| o.id)
+            .map(|o| (o.id, o.crtc, o.moved_from, o.online))
             .collect();
-        let moved: Vec<&Output<_>> = v
-            .outputs
-            .iter()
-            .filter(|o| o.online && o.moved_from.is_some())
+        let bit = |i: usize| 1u32 << i;
+        let target = |i: usize| outs[i].2.unwrap().crtc;
+        // The moved displays online, which alone can go back.
+        let moved: Vec<usize> = (0..N)
+            .filter(|&i| outs[i].3 && outs[i].2.is_some())
             .collect();
-        if moved.iter().any(|o| {
-            let crtc = o.moved_from.unwrap().crtc;
-            moved
-                .iter()
-                .filter(|p| p.moved_from.unwrap().crtc == crtc)
-                .count()
-                > 1
-        }) {
-            ties += 1;
-        }
-        let failed: Vec<DisplayId> = moved
-            .iter()
-            .filter(|_| next(2) == 0)
-            .map(|o| o.id)
-            .collect();
-        for failed in [None, Some(&failed[..])] {
-            cases += 1;
-            let going = v.going_back(&fresh, failed);
-            let wanted: Vec<DisplayId> = match failed {
-                None => moved.iter().map(|o| o.id).collect(),
-                Some(failed) => failed.to_vec(),
-            };
-            let target = |o: &Output<_>| o.moved_from.unwrap().crtc;
-            let back: Vec<u32> = v
-                .outputs
-                .iter()
-                .filter(|o| going.contains(&o.id))
-                .map(target)
-                .collect();
-            let kept: Vec<&Output<_>> = v
-                .outputs
-                .iter()
-                .filter(|o| !fresh.contains(&o.id) || !back.contains(&o.crtc))
-                .collect();
-            let end = |o: &Output<_>| {
-                if going.contains(&o.id) {
-                    target(o)
-                } else {
-                    o.crtc
-                }
-            };
-            let state: Vec<_> = v
-                .outputs
-                .iter()
-                .map(|o| {
-                    (
-                        o.id.0,
-                        o.crtc,
-                        o.moved_from.map(|m| (m.crtc, m.lit)),
-                        o.online,
-                    )
-                })
-                .collect();
-            let why = format!("{state:?} failed {failed:?}: going {going:?}");
-            assert!(going.iter().all(|id| !fresh.contains(id)), "{why}");
-            let mut ends: Vec<u32> = kept.iter().map(|o| end(o)).collect();
-            ends.sort_unstable();
-            ends.dedup();
-            assert_eq!(ends.len(), kept.len(), "{why}");
-            for o in v.outputs.iter().filter(|o| wanted.contains(&o.id)) {
-                if !going.contains(&o.id) {
-                    assert!(kept.iter().any(|p| end(p) == target(o)), "{why}");
+        let sitter = |crtc: u32| (0..N).find(|&j| outs[j].3 && outs[j].1 == crtc);
+        let cyclic = moved.iter().any(|&i| {
+            let mut at = i;
+            for _ in 0..N {
+                match sitter(target(at)) {
+                    Some(j) if j == i => return true,
+                    Some(j) if moved.contains(&j) => at = j,
+                    _ => return false,
                 }
             }
-            for o in v.outputs.iter().filter(|o| going.contains(&o.id)) {
-                let lit_stays = v.outputs.iter().any(|p| {
-                    wanted.contains(&p.id)
-                        && !going.contains(&p.id)
-                        && p.moved_from.unwrap().lit
-                        && target(p) == target(o)
-                });
-                assert!(o.moved_from.unwrap().lit || !lit_stays, "{why}");
-                if let Some(failed) = failed {
-                    assert!(
-                        failed.contains(&o.id)
-                            || v.outputs
-                                .iter()
-                                .any(|p| going.contains(&p.id) && target(p) == o.crtc),
-                        "{why}"
-                    );
+            false
+        });
+        if cyclic {
+            continue;
+        }
+        if moved
+            .iter()
+            .any(|&i| moved.iter().any(|&j| j != i && target(j) == target(i)))
+        {
+            ties += 1;
+        }
+        let fresh: Vec<DisplayId> = (0..N).filter(|&i| !outs[i].3).map(|i| outs[i].0).collect();
+        let failed: Vec<usize> = moved.iter().copied().filter(|_| next(2) == 0).collect();
+        let failed_ids: Vec<DisplayId> = failed.iter().map(|&i| outs[i].0).collect();
+        for legacy in [false, true] {
+            cases += 1;
+            let result = v.going_back(&fresh, legacy.then_some(&failed_ids[..]));
+            let got: u32 = (0..N)
+                .filter(|&i| result.contains(&outs[i].0))
+                .map(bit)
+                .sum();
+            let valid = |g: u32| {
+                if (0..N).any(|i| g & bit(i) != 0 && !moved.contains(&i)) {
+                    return false;
                 }
+                let mut ends: Vec<u32> = (0..N)
+                    .filter(|&i| outs[i].3)
+                    .map(|i| {
+                        if g & bit(i) != 0 {
+                            target(i)
+                        } else {
+                            outs[i].1
+                        }
+                    })
+                    .collect();
+                let all = ends.len();
+                ends.sort_unstable();
+                ends.dedup();
+                ends.len() == all
+            };
+            let rooted = |g: u32| {
+                if !legacy {
+                    return true;
+                }
+                let mut reach: u32 = failed
+                    .iter()
+                    .filter(|&&i| g & bit(i) != 0)
+                    .map(|&i| bit(i))
+                    .sum();
+                loop {
+                    let to: Vec<u32> = (0..N)
+                        .filter(|&i| reach & bit(i) != 0)
+                        .map(target)
+                        .collect();
+                    let more: u32 = (0..N)
+                        .filter(|&i| {
+                            g & bit(i) != 0 && reach & bit(i) == 0 && to.contains(&outs[i].1)
+                        })
+                        .map(bit)
+                        .sum();
+                    if more == 0 {
+                        return reach == g;
+                    }
+                    reach |= more;
+                }
+            };
+            let wanted: &[usize] = if legacy { &failed } else { &moved };
+            let why = format!("{outs:?} legacy {legacy} failed {failed:?}: going {result:?}");
+            assert!(valid(got), "{why}");
+            assert!(rooted(got), "{why}");
+            for &w in wanted.iter().filter(|&&w| got & bit(w) == 0) {
+                stayed += 1;
+                let more = (0..1u32 << N)
+                    .any(|g| g & got == got && g & bit(w) != 0 && valid(g) && rooted(g));
+                assert!(!more, "{why}: {w} could go back too");
+                let lit = outs[w].2.unwrap().lit;
+                let unlit_back = (0..N).any(|i| {
+                    got & bit(i) != 0 && target(i) == target(w) && !outs[i].2.unwrap().lit
+                });
+                assert!(!lit || !unlit_back, "{why}: {w} was lit there");
             }
         }
     }
-    assert_eq!(cases, 40_000);
     assert!(
         ties > 2_000,
         "{ties} placements with two displays moved off one CRTC"
+    );
+    assert!(
+        stayed > 10_000,
+        "{stayed} displays that wanted to go back stayed"
     );
 }
