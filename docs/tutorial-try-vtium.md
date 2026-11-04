@@ -97,7 +97,7 @@ vtium is now off the machine. A few things from this tutorial stay, and you can 
 
 - [Choose a font](fonts.md) sets the font vtium draws in, and `vtium config tui` lets you try each font on the live console before you keep one.
 - [Install vtium and give it VTs](install.md) covers giving vtium every VT, upgrading, and moving from `kmscon`.
-- [What vtium does](features.md) lists what vtium draws, and [Concepts](concepts.md) explains how its pieces fit together.
+- [What vtium does](features.md) lists what vtium draws, and [Concepts](concepts/index.md) explains how its pieces fit together.
 
 ## Without a package
 

@@ -1,6 +1,6 @@
 # Why VTium
 
-vtium is a terminal for the Linux console: the full-screen text screens a Linux machine shows before, or instead of, a desktop. This page is for someone meeting vtium for the first time, such as a packager or a curious Linux user. It answers two questions: why use vtium rather than the kernel's own console, `kmscon` or a terminal on a desktop, and why vtium suits the console on every kind of machine, from a small board with a 320x240 panel to a desktop with a large monitor. [concepts.md](concepts.md) explains how vtium's parts work, and [features.md](features.md) lists what is built today.
+vtium is a terminal for the Linux console: the full-screen text screens a Linux machine shows before, or instead of, a desktop. This page is for someone meeting vtium for the first time, such as a packager or a curious Linux user. It answers two questions: why use vtium rather than the kernel's own console, `kmscon` or a terminal on a desktop, and why vtium suits the console on every kind of machine, from a small board with a 320x240 panel to a desktop with a large monitor. [Concepts](concepts/index.md) explains how vtium's parts work, and [features.md](features.md) lists what is built today.
 
 vtium's latest release is the pre-release v0.1.0-alpha.4. Everything this page describes is built in the repository, except what it marks as landing, which means designed and being built but not finished yet.
 
@@ -57,7 +57,7 @@ Besides what the table shows, the others do these things vtium does not:
 - yaft runs on the BSD consoles.
 - fbpad keeps two terminals to a tag and splits the screen between them.
 
-On vtium's side are the heads, with their first-match rules and the closed policy for kiosks; fonts parsed and rasterized in a helper process apart from the console; scrollback bounded in bytes and rewrapped on a width change, where the kernel console's soft scrollback (Shift+PageUp) was removed in Linux 5.9; and the tests [concepts.md](concepts.md#how-vtium-is-judged) describes.
+On vtium's side are the heads, with their first-match rules and the closed policy for kiosks; fonts parsed and rasterized in a helper process apart from the console; scrollback bounded in bytes and rewrapped on a width change, where the kernel console's soft scrollback (Shift+PageUp) was removed in Linux 5.9; and the tests [How vtium is judged](concepts/how-vtium-is-judged.md) describes.
 
 ## Where vtium sits in a machine's boot
 
@@ -81,7 +81,7 @@ The figure shows five of the displays that vtium's test card, a fixed set of sam
 
 ![Five displays drawn to scale, one pixel for twelve. 320x240, a small panel: 8x8 cells, 40 by 30, 5.8 MiB. 640x480, an old monitor: 8x16 cells, 80 by 30, 7.8 MiB. 1366x768, a laptop: 8x16 cells, 170 by 48, 12.1 MiB. 1920x1080, a desktop monitor: 11x24 cells, 174 by 45. 2560x1440, a large monitor: 14x32 cells, 182 by 45. MiB is the console's peak memory, measured in a virtual machine with 512 MB. Beneath, the first three use the built-in fonts, Unscii-8 and Unifont, and the last two a frit of outline and color fonts; one bar under all five says the same build is used at every size, drawn on the CPU with no display server; a dashed bar under the last two says pictures and a GPU renderer are landing.](figures/why-vtium-spectrum.svg)
 
-A frit is a small text file that names the fonts vtium draws from, such as a code font, a font of symbols and a color emoji font, and the cell size to draw them at. vtium-config, the font tool, reads those fonts and turns them into the glyphs, the drawn letters, that vtium puts on the screen. Any character a frit lacks is drawn from the built-in fonts, and vtium draws box-drawing lines and blocks itself, so they join at every size. [concepts.md](concepts.md#fonts-generated-at-run-time) follows a font from the frit to the screen.
+A frit is a small text file that names the fonts vtium draws from, such as a code font, a font of symbols and a color emoji font, and the cell size to draw them at. vtium-config, the font tool, reads those fonts and turns them into the glyphs, the drawn letters, that vtium puts on the screen. Any character a frit lacks is drawn from the built-in fonts, and vtium draws box-drawing lines and blocks itself, so they join at every size. [Fonts, generated at run time](concepts/fonts.md) follows a font from the frit to the screen.
 
 ## Why glass
 

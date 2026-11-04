@@ -2,7 +2,7 @@
 
 # Showcase
 
-These screens are vtium's own drawing on a Linux VT at 1920x1080. Tier 3, vtium's test harness in a virtual machine, ran vtium on a VT of its guest and captured each screen from the guest's display, and nothing in them is mocked up or edited. Each scene is a shell script that writes fixed bytes, so every run draws the same screen. The screens are made again for each release, and they judge nothing: [Concepts](../concepts.md) explains how vtium's output is judged.
+These screens are vtium's own drawing on a Linux VT at 1920x1080. Tier 3, vtium's test harness in a virtual machine, ran vtium on a VT of its guest and captured each screen from the guest's display, and nothing in them is mocked up or edited. Each scene is a shell script that writes fixed bytes, so every run draws the same screen. The screens are made again for each release, and they judge nothing: [How vtium is judged](../concepts/how-vtium-is-judged.md) explains how vtium's output is judged.
 
 ## A shell session
 

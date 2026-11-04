@@ -33,13 +33,13 @@ vtium's latest release is the pre-release v0.1.0-alpha.4. It draws on the CPU to
 | learn by doing | the tutorial [Try vtium on one VT](docs/tutorial-try-vtium.md) |
 | get one task done | the how-to guides: [Install vtium and give it VTs](docs/install.md), [Configure vtium](docs/configure.md), [Choose a font](docs/fonts.md), [Set up heads](docs/heads.md), [Find out what went wrong](docs/troubleshooting.md) |
 | look something up | the reference: [What vtium does](docs/features.md), [Keys](docs/keys.md), [Configuration keys](docs/config.md), [The head file](docs/head-file.md), [Modes](docs/modes.md), [systemd, logind and PID 1](docs/systemd.md) |
-| understand why and how | the explanation: [Why vtium](docs/why-vtium.md), [Concepts](docs/concepts.md) |
+| understand why and how | the explanation: [Why vtium](docs/why-vtium.md), [Concepts](docs/concepts/index.md) |
 | know why a decision was made | [the decision records](docs/architecture/INDEX.md) |
 | contribute | [Architecture](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [AGENTS.md](AGENTS.md), which gives every gate and test command |
 
 ## How it is judged
 
-vtium's behaviour is judged against the C reference, the maintainer's forks of the C terminal `kmscon` and its library `libtsm`: tests compare vtium's screens and replies with saved results, the C reference's and vtium's own, as text and pixel for pixel, from unit tests up to a virtual machine that boots vtium on a real VT. [Concepts](docs/concepts.md#how-vtium-is-judged) explains the tiers, and [Architecture](docs/architecture.md#how-it-is-judged) gives the detail.
+vtium's behaviour is judged against the C reference, the maintainer's forks of the C terminal `kmscon` and its library `libtsm`: tests compare vtium's screens and replies with saved results, the C reference's and vtium's own, as text and pixel for pixel, from unit tests up to a virtual machine that boots vtium on a real VT. [How vtium is judged](docs/concepts/how-vtium-is-judged.md) explains the tiers, and [Architecture](docs/architecture.md#how-it-is-judged) gives the detail.
 
 ## Provenance
 

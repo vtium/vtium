@@ -1,6 +1,6 @@
 # Choose a font
 
-This guide sets the font vtium draws in. [concepts.md](concepts.md#fonts-generated-at-run-time) explains how a font reaches the screen.
+This guide sets the font vtium draws in. [Fonts, generated at run time](concepts/fonts.md) explains how a font reaches the screen.
 
 In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user.
 

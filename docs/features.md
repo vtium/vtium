@@ -1,6 +1,6 @@
 # What vtium does
 
-This page lists what vtium draws and does, and what is still to come. [concepts.md](concepts.md) explains how its pieces fit together, and [why-vtium.md](why-vtium.md) compares it with the other consoles for the Linux VT.
+This page lists what vtium draws and does, and what is still to come. [Concepts](concepts/index.md) explains how its pieces fit together, and [why-vtium.md](why-vtium.md) compares it with the other consoles for the Linux VT.
 
 ## Status
 
@@ -21,7 +21,7 @@ Also not built yet: glyph ink reaching into the next cell ([ADR-1302](architectu
 
 ## Sharing the display
 
-vtium shares the graphics card with whatever else draws on the machine: vtium runs on one VT, and the program on another VT may be a Wayland compositor, an X server, a getty or another vtium. [concepts.md](concepts.md#switching-vts) explains a switch between them. Only one program at a time is the card's DRM master, the one allowed to set modes, and master can be dropped and taken again ([kernel DRM documentation](https://docs.kernel.org/gpu/drm-uapi.html)). vtium hands the card over the same way whatever is on the other VT:
+vtium shares the graphics card with whatever else draws on the machine: vtium runs on one VT, and the program on another VT may be a Wayland compositor, an X server, a getty or another vtium. [Deployment and start-up](concepts/start-up.md#switching-vts) explains a switch between them. Only one program at a time is the card's DRM master, the one allowed to set modes, and master can be dropped and taken again ([kernel DRM documentation](https://docs.kernel.org/gpu/drm-uapi.html)). vtium hands the card over the same way whatever is on the other VT:
 
 - vtium takes its VT's switching from the kernel (`VT_PROCESS`). When the kernel asks for a switch away, vtium blanks its buffers, waits for a frame still on its way to the display (at most 1 second, `FLIP_WAIT_MS`), hides its cursor and overlay planes and drops DRM master, and only then lets the kernel switch.
 - When its VT comes back, vtium takes DRM master again and sets every display. While the other program still holds master, vtium tries again every 50 ms, 40 times, and then on the next key press, pointer action or hotplug.
@@ -38,7 +38,7 @@ One vtium process runs on one VT and drives every display it finds. A head is a 
 
 With no configuration, vtium runs one head on every display, sized for the smallest. The head file, `/etc/vtium/heads.conf`, declares heads and an ordered list of rules. Each display, keyboard and pointer walks the rules from the top, as a packet walks a firewall's rules, and the first rule that matches puts it in a head, makes it roam (type into whichever head is active), ignores it, or switches it off. A rule names a device by its port, by the monitor its EDID names, by its DisplayPort multi-stream hub port, or by its name.
 
-The file's policy, `open` or `closed`, decides what happens to whatever its rules do not mention. Under `policy = closed`, vtium ignores any input no rule names and isolates every head unless the file says otherwise, which is the setup a kiosk needs; under `policy = open`, such a keyboard types into the active head, and vtium guards against locking every keyboard out. [concepts.md](concepts.md#two-policies-open-and-closed) explains the two policies.
+The file's policy, `open` or `closed`, decides what happens to whatever its rules do not mention. Under `policy = closed`, vtium ignores any input no rule names and isolates every head unless the file says otherwise, which is the setup a kiosk needs; under `policy = open`, such a keyboard types into the active head, and vtium guards against locking every keyboard out. [Heads](concepts/heads.md#two-policies-open-and-closed) explains the two policies.
 
 `vtium check-config FILE` checks a head file before it is installed, with the same parser and rules the start uses. [heads.md](heads.md) gives a complete head file for each setup: the default, two heads with their own keyboards, a kiosk, a kiosk with an operator's head, one person to each head, and everything off. [head-file.md](head-file.md) is the file's reference.
 

@@ -4,16 +4,16 @@ The figures of vtium's documentation pages outside the decision records, which k
 
 | Path | What it is | How it is made |
 |---|---|---|
-| `concepts-pieces.svg` | [concepts.md](../concepts.md): vtium's suite, which pieces run as root and which as the user, the pty between them, and the font builder's one sudo | Written by hand; `rsvg-convert concepts-pieces.svg -o OUT.png` renders it to check |
-| `concepts-vt-handover.svg` | [concepts.md](../concepts.md): who holds the display and the input across a VT switch away and back | Written by hand; `rsvg-convert concepts-vt-handover.svg -o OUT.png` renders it to check |
+| `concepts-pieces.svg` | [concepts/suite.md](../concepts/suite.md): vtium's suite, which pieces run as root and which as the user, the pty between them, and the font builder's one sudo | Written by hand; `rsvg-convert concepts-pieces.svg -o OUT.png` renders it to check |
+| `concepts-vt-handover.svg` | [concepts/start-up.md](../concepts/start-up.md): who holds the display and the input across a VT switch away and back | Written by hand; `rsvg-convert concepts-vt-handover.svg -o OUT.png` renders it to check |
 | `why-vtium-boot.svg` | [why-vtium.md](../why-vtium.md): where vtium sits in a Linux machine's boot, beside the kernel's console alone, with the getty fallback | Written by hand; `rsvg-convert why-vtium-boot.svg -o OUT.png` renders it to check |
 | `why-vtium-spectrum.svg` | [why-vtium.md](../why-vtium.md): the displays vtium's test card is drawn at, from 320x240 to 2560x1440, to scale, with each one's cells, grid and measured memory | Written by hand; `rsvg-convert why-vtium-spectrum.svg -o OUT.png` renders it to check |
 | `why-vtium-glass.svg` | [why-vtium.md](../why-vtium.md): glassmaking's raw materials, frit, melting and glass beside vtium's font files, frit, vtium-config and glyphs | Written by hand; `rsvg-convert why-vtium-glass.svg -o OUT.png` renders it to check |
-| `concepts-screen-palette.png` | [concepts.md](../concepts.md): tier 2's `palette-unifont` screen as vtium draws it | Drawn by vtium's own renderer, below |
-| `concepts-screen-cjk.png` | [concepts.md](../concepts.md): tier 2's `cjk-unifont` screen as vtium draws it | Drawn by vtium's own renderer, below |
-| `concepts-screen-underline.png` | [concepts.md](../concepts.md): tier 2's `underline-unifont` screen as vtium draws it | Drawn by vtium's own renderer, below |
-| `concepts-screen-small-320x240.png` | [concepts.md](../concepts.md): tier 2's `small-320x240` screen, minspec's display floor | Converted from tier 2's golden, below |
-| `concepts-screen-small-640x480.png` | [concepts.md](../concepts.md): tier 2's `small-640x480` screen | Converted from tier 2's golden, below |
+| `concepts-screen-palette.png` | [concepts/what-vtium-is.md](../concepts/what-vtium-is.md): tier 2's `palette-unifont` screen as vtium draws it | Drawn by vtium's own renderer, below |
+| `concepts-screen-cjk.png` | [concepts/what-vtium-is.md](../concepts/what-vtium-is.md): tier 2's `cjk-unifont` screen as vtium draws it | Drawn by vtium's own renderer, below |
+| `concepts-screen-underline.png` | [concepts/what-vtium-is.md](../concepts/what-vtium-is.md): tier 2's `underline-unifont` screen as vtium draws it | Drawn by vtium's own renderer, below |
+| `concepts-screen-small-320x240.png` | [concepts/what-vtium-is.md](../concepts/what-vtium-is.md): tier 2's `small-320x240` screen, minspec's display floor | Converted from tier 2's golden, below |
+| `concepts-screen-small-640x480.png` | [concepts/what-vtium-is.md](../concepts/what-vtium-is.md): tier 2's `small-640x480` screen | Converted from tier 2's golden, below |
 
 The screens are tier 2's screens ([tools/tier2](https://github.com/vtium/vtium/blob/main/tools/tier2/README.md)), drawn into memory by vtium-term and vtium-render, never by the C reference, and converted from PPM with ImageMagick, `-strip` keeping the PNG free of timestamps so a redraw gives the same bytes. From the repository's root:
 
