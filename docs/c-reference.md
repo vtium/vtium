@@ -420,6 +420,8 @@ Sixel decoded in the parser straight to ARGB, reserving from the budget as it gr
 
 Kitty's payload was base64-decoded as it streamed and never collected whole; files, shared memory, PNG and zlib went to the host, and the parser took nothing more until the host replied (`libtsm/src/tsm/tsm-kitty.c:13-32`, `libtsm/src/tsm/tsm-kitty.c:57-60`).
 
+A later chunk of an upload continued it only when it carried no key but `m` and `q`, and `a=f` in a frame's upload, so a chunk that repeated any other key, as kitty-doom's frames do, ended the upload and ran as a new command; text and other escapes between two chunks left the upload open, as the golden of `kit-chunked` shows (`libtsm/src/tsm/tsm-kitty.c:887-898`).
+
 The host was a helper process, because kmscon ran as root and must neither read the files a program names nor decode PNG or zlib itself; the helper did both as an unprivileged user and returned a sealed memfd (`kmscon/docs/image-helper.md:3`, `kmscon/docs/architecture/render/ADR-103-images-are-placements-that-travel-with-lines-sixel-and-the-kitty-graphics-protocol-feed-one-store.md:447`). <!-- adr-cite-ignore: kmscon's records -->
 
 One helper ran per session, started at the first request, one request out at a time, stopped when the session ended, its user changed, or it failed a request (`kmscon/docs/image-helper.md:9`, `kmscon/src/image_host.h:95-104`).

@@ -278,6 +278,18 @@ pub trait Handler: core::fmt::Debug {
     fn reset(&mut self, ctx: &mut dyn Context) {
         let _ = ctx;
     }
+    /// Whether the handler holds an upload in chunks open between two of
+    /// its strings, which [`interrupt`](Self::interrupt) ends.
+    fn upload_open(&self) -> bool {
+        false
+    }
+    /// Output of another kind arrived between two of the handler's
+    /// strings, such as text or another escape sequence, or the session
+    /// the output came from ended: the handler drops the upload in chunks
+    /// it holds open, giving back what it reserved and answering nothing.
+    fn interrupt(&mut self, ctx: &mut dyn Context) {
+        let _ = ctx;
+    }
     /// A copy of the handler, for a terminal that is cloned.
     fn clone_box(&self) -> Box<dyn Handler>;
     /// The handler as `Any`, so [`same`](Self::same) can compare it.

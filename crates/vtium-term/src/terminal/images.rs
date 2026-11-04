@@ -149,6 +149,9 @@ pub(super) struct Router {
     running: Option<ImageString>,
     /// An APC string whose first byte has not come.
     apc_open: bool,
+    /// A handler holds an upload in chunks open between its strings, which
+    /// output of any other kind ends.
+    upload_open: bool,
     switches: Switches,
     limits: Limits,
     /// The color register count XTSMGRAPHICS set, for the next sixel.
@@ -170,6 +173,7 @@ impl Default for Router {
             active: None,
             running: None,
             apc_open: false,
+            upload_open: false,
             switches: Switches {
                 sixel: false,
                 kitty: false,
@@ -192,6 +196,7 @@ impl fmt::Debug for Router {
             .field("iterm2", &self.iterm2.is_some())
             .field("active", &self.active)
             .field("running", &self.running)
+            .field("upload_open", &self.upload_open)
             .field("switches", &self.switches)
             .field("limits", &self.limits)
             .field("registers", &self.registers)
@@ -217,6 +222,7 @@ impl PartialEq for Router {
             && self.active == other.active
             && self.running == other.running
             && self.apc_open == other.apc_open
+            && self.upload_open == other.upload_open
             && self.switches == other.switches
             && self.limits == other.limits
             && self.registers == other.registers
@@ -233,6 +239,13 @@ impl Router {
             ImageString::Kitty => &mut self.kitty,
             ImageString::Iterm2 => &mut self.iterm2,
         }
+    }
+
+    /// Reads again whether a handler holds an upload in chunks open.
+    fn note_uploads(&mut self) {
+        self.upload_open = [&self.sixel, &self.kitty, &self.iterm2]
+            .into_iter()
+            .any(|h| h.as_ref().is_some_and(|h| h.upload_open()));
     }
 
     fn on(&self, which: ImageString) -> bool {
@@ -349,6 +362,32 @@ impl State {
         }
         self.images.running = outer;
         *self.images.slot(which) = Some(handler);
+        self.images.note_uploads();
+    }
+
+    /// Output other than an image string arrived: text, a control, or
+    /// another escape sequence. While a handler holds an upload in chunks
+    /// open, it ends the upload. The spec asks a program to send nothing
+    /// else between the chunks of one upload, and vtium holds it to that,
+    /// so a program that dies mid-upload leaves no picture open to swallow
+    /// the next program's first picture command (kitty keeps the upload
+    /// open).
+    #[inline]
+    pub(super) fn image_other_output(&mut self) {
+        if self.images.upload_open {
+            self.images_interrupt();
+        }
+    }
+
+    /// Each handler that holds an upload in chunks open drops it.
+    pub(super) fn images_interrupt(&mut self) {
+        for which in [ImageString::Sixel, ImageString::Kitty, ImageString::Iterm2] {
+            self.with_handler(which, |h, ctx| {
+                if h.upload_open() {
+                    h.interrupt(ctx);
+                }
+            });
+        }
     }
 
     /// Whether the router sends `which` to its handler: the protocol is
@@ -504,7 +543,11 @@ impl State {
     pub(super) fn image_apc_put(&mut self, data: Chunk<'_>) {
         if core::mem::take(&mut self.images.apc_open) {
             let kitty = matches!(data, Chunk::Bytes([b'G', ..]));
-            if !kitty || !self.image_offered(ImageString::Kitty) {
+            if !kitty {
+                self.image_other_output();
+                return;
+            }
+            if !self.image_offered(ImageString::Kitty) {
                 return;
             }
             self.images.active = Some(ImageString::Kitty);
@@ -531,7 +574,11 @@ impl State {
             return 0;
         };
         self.images.apc_open = false;
-        if first != b'G' || !self.image_offered(ImageString::Kitty) {
+        if first != b'G' {
+            self.image_other_output();
+            return run.len();
+        }
+        if !self.image_offered(ImageString::Kitty) {
             return run.len();
         }
         self.images.active = Some(ImageString::Kitty);
@@ -543,7 +590,10 @@ impl State {
     }
 
     pub(super) fn image_apc_end(&mut self, end: StringEnd) {
-        self.images.apc_open = false;
+        // an APC string with no data at all is no kitty string
+        if core::mem::take(&mut self.images.apc_open) {
+            self.image_other_output();
+        }
         self.image_end(end);
     }
 
@@ -595,6 +645,7 @@ impl Terminal {
             self.state.images.active = None;
         }
         *self.state.images.slot(which) = handler;
+        self.state.images.note_uploads();
     }
 
     /// The handler the router sends `which` to, if one is installed.

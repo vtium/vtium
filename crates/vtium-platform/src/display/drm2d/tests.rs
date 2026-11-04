@@ -783,6 +783,507 @@ fn waking_again_sets_the_mode_and_asks_for_a_redraw() {
     assert!(v.card().last_commit().unwrap().flags & DRM_MODE_ATOMIC_ALLOW_MODESET != 0);
 }
 
+/// A card with one display, A, whose encoder drives either of two CRTCs,
+/// 100 and 101, as the encoders of a DisplayPort multi-stream connector
+/// on amdgpu do. Connector B is not listed.
+fn two_crtcs() -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A);
+        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+    }
+    Drm2d::with(card, ModePolicy::default()).unwrap()
+}
+
+/// What a desktop leaves on the card when it lets the display go:
+/// connector `conn` on `crtc`, the desktop's framebuffer on that CRTC's
+/// primary plane and its pointer on that CRTC's cursor plane, and every
+/// other CRTC off with no plane on it. On the maintainer's machine KWin
+/// left DP-8 that way on crtc-0, with its own primary plane on it, after
+/// vtium had set DP-8 on another CRTC.
+fn desktop_leaves(card: &FakeCard, conn: u32, crtc: u32) {
+    let mut s = card.state();
+    let at = crtc - 100;
+    for other in s.crtcs.clone() {
+        s.enabled.insert(other, false);
+        s.active.insert(other, false);
+        s.crtc_modes.remove(&other);
+        s.modes.remove(&other);
+    }
+    s.plane_crtc.clear();
+    s.plane_fb.clear();
+    s.bind(conn, crtc);
+    s.enabled.insert(crtc, true);
+    s.active.insert(crtc, true);
+    s.crtc_modes.insert(crtc, mode(640, 480, 60, true));
+    s.modes
+        .insert(crtc, mode_bytes(&mode(640, 480, 60, true).0));
+    s.fbs.insert(88, (640, 480));
+    s.fbs.insert(89, (64, 64));
+    for (plane, fb) in [(300 + 2 * at, 88), (301 + 2 * at, 89)] {
+        s.plane_crtc.insert(plane, crtc);
+        s.plane_fb.insert(plane, fb);
+    }
+}
+
+// A desktop that held the display may leave its connector on another CRTC
+// than the one vtium set it on, as KWin left DP-8 on the maintainer's
+// machine (vtium/vtium#249). The wake-up sets the display on the CRTC its
+// connector is on now, as a first start does, with that CRTC's planes.
+// Setting the display on its old CRTC would take the connector off a CRTC
+// the desktop left lit, which the kernel refuses with EINVAL whatever
+// mode the commit sets, so no wake-up ever drew again.
+// covers: platform.vt-switch
+#[test]
+fn a_wake_up_follows_the_display_to_the_crtc_the_desktop_left_it_on() {
+    let mut v = awake(two_crtcs());
+    assert_eq!(v.card().state().bound.get(&A), Some(&100));
+    v.setup_cursor(DisplayId(A), &[0xff00_0000; 4], 2, 2, (0, 0))
+        .unwrap();
+    v.show_cursor(DisplayId(A), 10, 10).unwrap();
+    v.commit(DisplayId(A)).unwrap();
+    flip(&mut v);
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 101);
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A)), Event::Awake]);
+    assert!(
+        logs::at_least(Level::Error).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Error)
+    );
+    let fb = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(101, fb), "{:?}", v.card().state());
+    let cursor = v.outputs[0].cursor.as_ref().unwrap().fb;
+    let s = v.card().state();
+    assert_eq!(s.bound.get(&A), Some(&101));
+    assert_eq!(s.plane_crtc.get(&303), Some(&101), "the pointer follows");
+    assert_eq!(s.plane_fb.get(&303), Some(&cursor));
+    assert_eq!(
+        s.plane_crtc.get(&301),
+        None,
+        "CRTC 100's cursor plane is off"
+    );
+    assert_eq!(s.active.get(&100), Some(&false), "CRTC 100 stays off");
+}
+
+// A display plugged in while the VT was away is bound before the displays
+// bound earlier follow their connectors, so it may take the CRTC one of
+// them follows to. It moves to a free one, and each display shows its own
+// frame on a CRTC of its own.
+#[test]
+fn a_display_plugged_in_while_away_leaves_the_crtc_a_display_follows_to() {
+    let v = two_crtcs();
+    v.card()
+        .state()
+        .encoders
+        .get_mut(&201)
+        .unwrap()
+        .possible_crtcs = 0b11;
+    let mut v = awake(v);
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 101);
+    v.card().state().listed.push(B);
+    v.wake_up().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Redraw(DisplayId(A)),
+            Event::Added(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    let a = drawn(&mut v, A, 0x66);
+    let b = drawn(&mut v, B, 0x77);
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+}
+
+/// A card with displays A and B, awake: A's encoder drives CRTCs 100 and
+/// 101, and B's the CRTCs the bits of `b_crtcs` name. Before the first
+/// scan the card shows A on `a` and B on `b`, as another program left
+/// them.
+fn a_and_b(b_crtcs: u32, a: u32, b: u32) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+        s.encoders.get_mut(&201).unwrap().possible_crtcs = b_crtcs;
+        s.bind(A, a);
+        s.bind(B, b);
+    }
+    awake(Drm2d::with(card, ModePolicy::default()).unwrap())
+}
+
+// A desktop that turned a display off leaves its connector on no CRTC.
+// That display keeps its own CRTC where it is free, so it never pushes a
+// display the desktop left lit off the CRTC that display is on: here B,
+// whose encoder drives only CRTC 100, keeps 100, and A keeps 101.
+#[test]
+fn a_display_the_desktop_turned_off_keeps_its_crtc() {
+    let mut v = a_and_b(0b01, 101, 100);
+    assert_eq!(v.card().state().bound.get(&A), Some(&101));
+    assert_eq!(v.card().state().bound.get(&B), Some(&100));
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), B, 100);
+    v.card().state().bind(A, 0);
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(
+        logs::at_least(Level::Error).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Error)
+    );
+    let a = drawn(&mut v, A, 0x66);
+    let b = drawn(&mut v, B, 0x77);
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+}
+
+// The displays whose connector the desktop left on a CRTC are placed
+// first, so a display it left lit keeps its CRTC: B stays on CRTC 100,
+// where the desktop left it, and A, which the desktop turned off, takes
+// 101, though A had 100 before.
+#[test]
+fn a_display_the_desktop_left_lit_keeps_its_crtc() {
+    let mut v = a_and_b(0b11, 100, 101);
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), B, 100);
+    v.card().state().bind(A, 0);
+    v.wake_up().unwrap();
+    let a = drawn(&mut v, A, 0x66);
+    let b = drawn(&mut v, B, 0x77);
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+}
+
+// A display whose connector the desktop left on no CRTC keeps its own
+// CRTC where no display took it, rather than move to the first free one.
+#[test]
+fn a_display_on_no_crtc_keeps_its_own_where_it_is_free() {
+    let v = two_crtcs();
+    v.card().state().bind(A, 101);
+    let mut v = awake(v);
+    assert_eq!(v.card().state().bound.get(&A), Some(&101));
+    v.sleep();
+    v.events().for_each(drop);
+    {
+        let mut s = v.card().state();
+        for crtc in [100, 101] {
+            s.enabled.insert(crtc, false);
+            s.active.insert(crtc, false);
+            s.crtc_modes.remove(&crtc);
+            s.modes.remove(&crtc);
+        }
+        s.plane_crtc.clear();
+        s.plane_fb.clear();
+        s.bind(A, 0);
+    }
+    v.wake_up().unwrap();
+    let a = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+}
+
+// A wake-up finds a CRTC for every display where the card has one for
+// each. Here the desktop put A on CRTC 100, the only CRTC B's encoder
+// drives, and turned B off. A display placed alone would take A's lit
+// CRTC from B, so the wake-up moves A to 101, which its encoder also
+// drives, and B keeps 100.
+#[test]
+fn a_wake_up_moves_a_display_off_the_only_crtc_another_can_take() {
+    let mut v = a_and_b(0b01, 101, 100);
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 100);
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Redraw(DisplayId(A)),
+            Event::Redraw(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+    let a = drawn(&mut v, A, 0x66);
+    let b = drawn(&mut v, B, 0x77);
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+}
+
+// Where a display that the desktop turned off can only get a CRTC by
+// moving others, the wake-up moves a display the desktop also turned off
+// before one it left lit. Here A, lit on CRTC 100, can drive 100 and 102,
+// B 101 and 102, and C 100 and 101. C takes 101 by moving B to 102, and
+// A keeps 100, where moving A to 102 would have freed 100 for C as well.
+#[test]
+fn a_wake_up_moves_a_display_left_off_before_one_left_lit() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+        (43, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b101;
+        s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b110;
+        s.encoders.get_mut(&202).unwrap().possible_crtcs = 0b011;
+        s.bind(A, 102);
+        s.bind(B, 101);
+        s.bind(43, 100);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 100);
+    v.card().state().bind(B, 0);
+    v.card().state().bind(43, 0);
+    v.wake_up().unwrap();
+    let a = drawn(&mut v, A, 0x66);
+    let b = drawn(&mut v, B, 0x77);
+    let c = drawn(&mut v, 43, 0x88);
+    assert!(v.card().shows(100, a), "{:?}", v.card().state());
+    assert!(v.card().shows(102, b), "{:?}", v.card().state());
+    assert!(v.card().shows(101, c), "{:?}", v.card().state());
+}
+
+/// Puts connector `conn` on `crtc` with a framebuffer on that CRTC's
+/// primary plane, and turns `from` off, as another program does when it
+/// moves a display.
+fn moved(card: &FakeCard, conn: u32, from: u32, crtc: u32) {
+    let mut s = card.state();
+    s.enabled.insert(from, false);
+    s.active.insert(from, false);
+    s.crtc_modes.remove(&from);
+    s.modes.remove(&from);
+    s.plane_crtc.retain(|_, c| *c != from);
+    s.plane_fb.retain(|p, _| *p != 300 + 2 * (from - 100));
+    s.bind(conn, crtc);
+    s.enabled.insert(crtc, true);
+    s.active.insert(crtc, true);
+    s.crtc_modes.insert(crtc, mode(640, 480, 60, true));
+    s.modes
+        .insert(crtc, mode_bytes(&mode(640, 480, 60, true).0));
+    s.fbs.insert(88, (640, 480));
+    s.plane_crtc.insert(300 + 2 * (crtc - 100), crtc);
+    s.plane_fb.insert(300 + 2 * (crtc - 100), 88);
+}
+
+// A modeset turns off each lit CRTC that only its displays' connectors
+// are on and that no display takes, as the connectors move to their own
+// CRTCs. Here A's connector shows on CRTC 101 while vtium has A on 100,
+// as where vtium could not read which CRTC another program left it on,
+// and a display plugged in sets every mode: CRTC 101 goes off, A shows
+// on 100, and C on 102.
+#[test]
+fn a_modeset_turns_off_a_lit_crtc_its_displays_connectors_leave() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+        (43, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A);
+        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b011;
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.card().state().bound.get(&A), Some(&100));
+    moved(v.card(), A, 100, 101);
+    v.card().state().listed.push(43);
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(43))]);
+    let a = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(100, a), "{:?}", v.card().state());
+    let s = v.card().state();
+    assert_eq!(s.active.get(&101), Some(&false), "CRTC 101 is off");
+    assert_eq!(s.plane_crtc.get(&302), None, "with its plane");
+    assert_eq!(s.bound.get(&43), Some(&102));
+}
+
+// Where vtium cannot read which CRTC a connector is on, the display keeps
+// its own CRTC, and the modeset turns off the CRTC the desktop left the
+// connector on, read from the connector's `CRTC_ID`.
+#[test]
+fn a_wake_up_that_cannot_read_the_encoder_turns_the_desktops_crtc_off() {
+    let mut v = awake(two_crtcs());
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 101);
+    v.card().state().failing.push("encoder");
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A)), Event::Awake]);
+    assert!(
+        logs::at_least(Level::Error).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Error)
+    );
+    let a = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(100, a), "{:?}", v.card().state());
+    assert_eq!(v.card().state().active.get(&101), Some(&false));
+}
+
+// A desktop that turns its displays off to save power (DPMS) leaves a
+// CRTC with its mode and ACTIVE=0. vtium turns such a CRTC off in a
+// blocking commit with no flip event before the modeset: the kernel
+// refuses a flip event on a CRTC that is off and stays off
+// (`drm_atomic_crtc_check`), and it refuses a CRTC left out of the
+// commit as well, since that CRTC keeps its mode with no connector on it.
+// Here vtium cannot read which CRTC the encoder drives, so A keeps CRTC
+// 100, and CRTC 101 goes off.
+#[test]
+fn a_wake_up_turns_off_a_crtc_the_desktop_left_with_a_mode_but_inactive() {
+    let mut v = awake(two_crtcs());
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 101);
+    v.card().state().active.insert(101, false);
+    v.card().state().failing.push("encoder");
+    logs::capture();
+    v.wake_up().unwrap();
+    assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A)), Event::Awake]);
+    assert!(
+        logs::at_least(Level::Error).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Error)
+    );
+    let a = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(100, a), "{:?}", v.card().state());
+    let s = v.card().state();
+    assert_eq!(s.enabled.get(&101), Some(&false), "CRTC 101 is off");
+    assert_eq!(s.crtc_modes.get(&101), None, "with no mode");
+    assert_eq!(s.plane_crtc.get(&302), None, "and no plane on it");
+}
+
+/// A card with displays A and B, B disconnected, each encoder able to
+/// drive CRTCs 100 and 101, awake with A on CRTC 100. Then the desktop
+/// leaves A and B both on CRTC 101, and vtium cannot read which CRTC an
+/// encoder drives, so A keeps CRTC 100 at the wake-up.
+fn a_beside_b_on_101() -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.connectors.get_mut(&B).unwrap().connected = false;
+        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+        s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b11;
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.card().state().bound.get(&A), Some(&100));
+    assert_eq!(v.displays().count(), 1, "B is no display");
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 101);
+    v.card().state().bind(B, 101);
+    v.card().state().failing.push("encoder");
+    v
+}
+
+// A CRTC that a display's connector shares with a connector no display
+// drives stays as it is when the display leaves it. Here B, which the
+// card lists but which is disconnected, is on CRTC 101 beside A. A keeps
+// CRTC 100, and 101 stays on with B and the desktop's frame.
+#[test]
+fn a_crtc_a_displays_connector_shares_with_another_stays_on() {
+    let mut v = a_beside_b_on_101();
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(
+        logs::at_least(Level::Error).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Error)
+    );
+    let a = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(100, a), "{:?}", v.card().state());
+    let s = v.card().state();
+    assert_eq!(s.active.get(&101), Some(&true), "CRTC 101 stays on");
+    assert_eq!(s.bound.get(&B), Some(&101), "with B on it");
+    assert_eq!(
+        s.plane_fb.get(&302),
+        Some(&88),
+        "showing the desktop's frame"
+    );
+}
+
+// Where vtium cannot read which CRTC one of the card's connectors is on,
+// that connector might share a CRTC with a display's connector, so the
+// modeset turns no CRTC off. Here B's properties cannot be read, and CRTC
+// 101 stays on with B.
+#[test]
+fn a_connector_whose_crtc_cannot_be_read_keeps_every_crtc_on() {
+    let mut v = a_beside_b_on_101();
+    v.card().state().unreadable.push(B);
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(
+        logs::at_least(Level::Error).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Error)
+    );
+    let warned = logs::at_least(Level::Warn);
+    assert!(
+        warned
+            .iter()
+            .any(|l| l.contains("cannot read which CRTC connector 42 is on")),
+        "{warned:?}"
+    );
+    let a = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(100, a), "{:?}", v.card().state());
+    let s = v.card().state();
+    assert_eq!(s.active.get(&101), Some(&true), "CRTC 101 stays on");
+    assert_eq!(s.bound.get(&B), Some(&101), "with B on it");
+}
+
+// A display that moves to a CRTC with no cursor plane gives its pointer
+// image up, so the owner draws the pointer itself.
+#[test]
+fn a_display_moved_to_a_crtc_with_no_cursor_plane_gives_the_cursor_up() {
+    let v = two_crtcs();
+    v.card().state().planes.remove(&303);
+    let mut v = awake(v);
+    v.setup_cursor(DisplayId(A), &[0xff00_0000; 4], 2, 2, (0, 0))
+        .unwrap();
+    v.show_cursor(DisplayId(A), 10, 10).unwrap();
+    v.commit(DisplayId(A)).unwrap();
+    flip(&mut v);
+    let fb = v.outputs[0].cursor.as_ref().unwrap().fb;
+    assert!(v.hardware_cursor(DisplayId(A)));
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 101);
+    v.wake_up().unwrap();
+    assert!(
+        !v.hardware_cursor(DisplayId(A)),
+        "the owner draws the pointer"
+    );
+    assert!(
+        !v.card().state().fbs.contains_key(&fb),
+        "the image's framebuffer is freed"
+    );
+    let shown = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(101, shown), "{:?}", v.card().state());
+}
+
 // The open makes the card DRM master; the seat puts a card opened while
 // its VT is not shown to sleep, which lets master go for the shown VT's
 // vtium, and the acquire takes it (vtium/vtium#139).
