@@ -145,6 +145,52 @@ impl Props {
     }
 }
 
+/// The bits of each color in a pixel of `format`, a DRM fourcc of the
+/// buffers vtium makes; `None` for any other format.
+pub(super) const fn bits_per_color(format: u32) -> Option<u64> {
+    match format {
+        XRGB8888 | ARGB8888 => Some(8),
+        _ => None,
+    }
+}
+
+/// The ids of a connector's properties that tell the sink how to read the
+/// colors it is sent, each where the connector has it: `Colorspace`,
+/// `HDR_OUTPUT_METADATA` and `max bpc`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct ColorProps {
+    colorspace: Option<u32>,
+    hdr_metadata: Option<u32>,
+    max_bpc: Option<u32>,
+}
+
+impl ColorProps {
+    pub(super) fn new(props: &[Property]) -> ColorProps {
+        let id = |name: &str| props.iter().find(|p| p.name == name).map(|p| p.id);
+        ColorProps {
+            colorspace: id("Colorspace"),
+            hdr_metadata: id("HDR_OUTPUT_METADATA"),
+            max_bpc: id("max bpc"),
+        }
+    }
+
+    /// The value each property the connector has takes for a display
+    /// drawn in sRGB at `bpc` bits a color, as (property id, name, value):
+    /// `Colorspace` at `Default`, 0 (`DRM_MODE_COLORIMETRY_DEFAULT`); no
+    /// HDR metadata, blob 0; and `max bpc` at `bpc`, left out where `bpc`
+    /// is `None`.
+    pub(super) fn sdr(&self, bpc: Option<u64>) -> Vec<(u32, &'static str, u64)> {
+        [
+            (self.colorspace, "Colorspace", Some(0)),
+            (self.hdr_metadata, "HDR_OUTPUT_METADATA", Some(0)),
+            (self.max_bpc, "max bpc", bpc),
+        ]
+        .into_iter()
+        .filter_map(|(id, name, value)| Some((id?, name, value?)))
+        .collect()
+    }
+}
+
 pub(super) fn value(props: &[Property], name: &str) -> Option<u64> {
     props.iter().find(|p| p.name == name).map(|p| p.value)
 }
@@ -203,6 +249,9 @@ pub(super) struct Output<M> {
     pub(super) pipe: usize,
     /// `None` on a device without atomic commits.
     pub(super) planes: Option<Planes>,
+    /// The connector's properties that set how the sink reads its colors,
+    /// which each modeset sets for 8-bit sRGB (vtium/vtium#253).
+    pub(super) color: ColorProps,
     pub(super) choice: Choice,
     /// The modes its connector listed when `choice` was made. A scan that
     /// finds the connector listing others chooses again.

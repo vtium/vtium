@@ -22,6 +22,9 @@ use std::sync::{Arc, Mutex};
 use super::super::kms::Kms;
 use super::output::XRGB8888;
 
+/// The format of every buffer a source makes, a DRM fourcc.
+pub(super) const FORMAT: u32 = XRGB8888;
+
 /// A display's buffer with its framebuffer.
 pub(crate) struct Buffer<M> {
     pub(super) fb: u32,
@@ -37,8 +40,8 @@ pub(crate) struct Buffer<M> {
     pub(super) handle: u32,
 }
 
-/// Makes and frees the XRGB8888 buffers a display shows, each with its
-/// framebuffer.
+/// Makes and frees the buffers a display shows, in [`FORMAT`], each with
+/// its framebuffer.
 pub(crate) trait Source<K: Kms> {
     /// A buffer's memory, which the display lends in a token, so the
     /// head's render thread draws into it.
@@ -62,7 +65,7 @@ impl<K: Kms> Source<K> for Dumbs {
 
     fn create(&self, card: &K, width: u32, height: u32) -> io::Result<Buffer<K::Map>> {
         let dumb = card.create_dumb(width, height)?;
-        let fb = match card.add_fb(dumb.handle, dumb.pitch, width, height, XRGB8888) {
+        let fb = match card.add_fb(dumb.handle, dumb.pitch, width, height, FORMAT) {
             Ok(fb) => fb,
             Err(e) => {
                 let _ = card.destroy_dumb(dumb.handle);
