@@ -128,7 +128,7 @@ Nothing frees a VT: a display manager's greeter running on VT 2 leaves VT 1 the 
 
 If vtium fails on a VT, its fallback starts that VT's getty again, so that you have a login. It never does this when the getty's start would stop another program, as starting `getty@tty1` would stop a display manager whose unit conflicts with it. Then the VT is left without a console, and `journalctl -b -u vtium-getty@tty1.service` says why. Log in on another VT or over ssh to find out why vtium failed ([A VT that shows a getty](troubleshooting.md#a-vt-that-shows-a-getty)).
 
-On a machine where `kmscon` holds the template link, read [Moving from kmscon](#moving-from-kmscon) before you run `enable --all`.
+On a machine where another terminal, such as `kmscon`, holds the template link or runs on your VTs, read [Moving from another DRM/KMS VT](#moving-from-another-drmkms-vt) before you run `enable --all`.
 
 Before `enable` changes anything, it records what each VT had in `/var/lib/vtium/console/`, and `disable` puts back exactly that:
 
@@ -141,9 +141,9 @@ Before `enable` changes anything, it records what each VT had in `/var/lib/vtium
 
 [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing and says so; there you replace a VT's getty entry with one that runs `vtium --vt=ttyN --no-switchvt`, the way your init system runs the getty, as [Giving vtium a VT without systemd](systemd.md#giving-vtium-a-vt-without-systemd) shows for sysvinit, OpenRC and runit.
 
-## Moving from kmscon
+## Moving from another DRM/KMS VT
 
-`vtium console enable --all` refuses while the template link names `kmscon`'s unit, `kmsconvt@.service`, and it passes by every VT where `kmscon` still runs. Disable and stop `kmscon` first, from a desktop terminal or over ssh, after logging out of each VT where it runs:
+A terminal that draws on a VT through DRM/KMS, as vtium does, such as `kmscon`, starts there in one of two ways: from a unit enabled at boot for that VT, or from the template link `/etc/systemd/system/autovt@.service`, which logind follows when you switch to a VT that nothing runs on. `vtium console` passes by every VT where another terminal is enabled at boot or still runs ([VTs that other programs hold](#vts-that-other-programs-hold)), so take those VTs back first. Do it from a desktop terminal or over ssh, after logging out of each VT where the other terminal runs. With `kmscon`, whose unit is `kmsconvt@.service`:
 
 ```
 # systemctl disable kmsconvt@.service
@@ -152,7 +152,9 @@ $ systemctl list-units 'kmsconvt@*'
 # vtium console enable --all
 ```
 
-Run the `stop` line for each VT that `list-units` shows. Removing `kmscon` afterwards is up to you, with `pacman -R kmscon`; vtium needs nothing from it. vtium never reads `/etc/kmscon/kmscon.conf`. vtium reads the keys `kmscon` used, with the departures that [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#departures) lists, so you can copy that file to `/etc/vtium/vtium.conf` by hand and check it with `vtium check-config`. [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#sharing-vts-with-kmscon) says when to keep `kmscon-terminfo`.
+Run the `stop` line for each VT that `list-units` shows. For another terminal, put its own unit's name in place of `kmsconvt@`. `systemctl disable` stops nothing, and logging out of a VT leaves the terminal running there. `vtium console enable --all` refuses while the template link names `kmscon`'s unit. When the template link names another terminal's unit, `enable --all` records the link before it points it at vtium, and `disable --all` points it back.
+
+Removing `kmscon` afterwards is up to you, with `pacman -R kmscon`; vtium needs nothing from it. vtium never reads `/etc/kmscon/kmscon.conf`. vtium takes the keys `kmscon` used, so you can copy that file to `/etc/vtium/vtium.conf` by hand and check it with `vtium check-config`; [config.md](config.md) lists every key vtium reads. [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#sharing-vts-with-kmscon) says when to keep `kmscon-terminfo`.
 
 ## Upgrading and removing
 
