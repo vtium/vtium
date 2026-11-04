@@ -1130,7 +1130,9 @@ A connector's properties keep the values that the last program to hold the card 
   - `max bpc` to the bits per color of the format vtium draws in: 8 for XRGB8888, the only format it shows today. When the connector's range for `max bpc` does not hold 8, vtium sets the nearest value the range holds.
 - **On a card with atomic commits,** the three values go into the commit that sets the mode, so the test-only commit that checks the mode set first checks them with it. **On a card without atomic commits,** vtium sets each one on the connector before it sets the mode, the way it sets the connector's power state (DPMS).
 - **A connector that lacks a property keeps what it has.** A driver with no HDR support, or an older kernel, offers some or none of the three, and vtium sets only those the connector offers.
-- **A driver that refuses a value never costs the display.** When the test-only commit fails with the three properties in it and passes without them, vtium sets the mode without them and logs a warning that names the connector and says that its color properties stay as it found them. On a card without atomic commits, a property the driver refuses is logged the same way, and the mode set goes on.
+- **A driver that refuses a value never costs the display.** When the test-only commit fails with the three properties in it, vtium tests it again without `max bpc`, and then without any of the three, and sets the mode with the first commit that passes. It logs a warning that names each connector whose color properties it left as it found them, whether it tested that connector on its own or left a property off every connector in the commit, and at later mode sets of the same connector it logs the same at debug level. On a card without atomic commits, vtium sets each property on its own, logs a property the driver refuses the same way, and goes on with the mode set.
+
+> Edited 2026-11-04: the work that resets the color properties falls back in steps after its own review, and the record follows it. The bullet read: "When the test-only commit fails with the three properties in it and passes without them, vtium sets the mode without them and logs a warning that names the connector and says that its color properties stay as it found them. On a card without atomic commits, a property the driver refuses is logged the same way, and the mode set goes on."
 - **vtium restores nothing when it gives the card up** at a VT switch, as it leaves the mode it set: the next program to hold the card sets what it uses, as vtium does.
 - This section decides nothing about drawing in HDR, which is a separate matter for vtium, and nothing about the other properties a desktop may leave on a connector, such as `Broadcast RGB`.
 
@@ -1295,7 +1297,7 @@ Mirrored, the two displays make one 66x20 grid with 108-pixel letters on the lar
 - A head's consoles multiply memory; on minspec the caps bind.
 - A user who wants a file to edit asks `vtiumctl` for one, or copies the example a package ships; a bare install has none.
 - A user who wants one session mirrored across displays at different densities still gets one grid sized by the scaled rule.
-- On a driver that refuses one of the three color values, the display keeps the color properties it was left with, and vtium only logs it (D14).
+- On a driver that refuses one of the three color values, the display keeps the color properties vtium could not set, and vtium only logs it (D14).
 
 > Added 2026-11-04 with D14: the bullet on a driver that refuses a color value.
 
