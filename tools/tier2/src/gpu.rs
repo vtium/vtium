@@ -10,9 +10,8 @@
 //! sidecars are exact for now, the maintainer's decision of 2026-11-03,
 //! since every screen measured no difference on llvmpipe.
 //!
-//! The GPU path draws an upright display in color today. A turned screen
-//! waits for the turn, and a 1-bit screen for present's depth reduction,
-//! later parts of slice 0; [`waits`] says which.
+//! The GPU path draws every orientation in color. A 1-bit screen waits for
+//! present's depth reduction; [`waits`] says so.
 //!
 //! The GL is any [`Gl`]: under Mesa's llvmpipe once vtium-platform's GL
 //! lands, and the tests' stand-in, which draws nothing, in the self-tests.
@@ -22,7 +21,7 @@ use std::path::Path;
 
 use vtium_font::{Face, Font};
 use vtium_render::gpu::{Config as GpuConfig, DrawTarget, Gl, Pipeline, Size};
-use vtium_render::{Canvas, Config, Depth, DrawState, Orientation, Picture, Placed, Renderer};
+use vtium_render::{Canvas, Config, Depth, DrawState, Picture, Placed, Rect, Renderer, Surface};
 use vtium_term::{Age, Terminal};
 
 use crate::compare::{Comparison, Verdict, compare, diff_image};
@@ -33,9 +32,6 @@ use crate::tol::Tolerance;
 
 /// Why the GPU path does not draw `screen` yet, or `None` when it does.
 pub fn waits(screen: &Screen) -> Option<&'static str> {
-    if screen.orientation != Orientation::Normal {
-        return Some("a turned display waits for the turn, part 4 of ADR-1303's slice 0");
-    }
     if screen.depth == Depth::One {
         return Some("a 1-bit display waits for present's depth reduction (ADR-1301)");
     }
@@ -119,18 +115,36 @@ fn overlays<F: Face>(
     if areas.is_empty() {
         return Err("the overlay drew nothing".to_owned());
     }
+    // the GPU path takes the overlay upright, in the text's view: each
+    // area is mapped back into the view, and each of its pixels read from
+    // the display pixel the CPU path turned it to
+    let surface = Surface {
+        width: w,
+        height: h,
+        orientation: screen.orientation,
+        depth: r.depth(),
+    };
     areas
         .iter()
         .map(|a| {
-            let pixels = (a.y..a.y + a.height)
-                .flat_map(|y| (a.x..a.x + a.width).map(move |x| (x, y)))
-                .map(|(x, y)| canvas.pixel(x, y).unwrap_or(0))
-                .collect();
-            let picture = Picture::from_pixels(a.width, a.height, pixels)
-                .ok_or("an overlay's area past the display")?;
-            Ok(Placed {
+            let v = surface.view_area(Rect {
                 x: a.x,
                 y: a.y,
+                width: a.width,
+                height: a.height,
+            });
+            let pixels = (v.y..v.y + v.height)
+                .flat_map(|y| (v.x..v.x + v.width).map(move |x| (x, y)))
+                .map(|(x, y)| {
+                    let (dx, dy) = surface.place(x, y);
+                    canvas.pixel(dx, dy).unwrap_or(0)
+                })
+                .collect();
+            let picture = Picture::from_pixels(v.width, v.height, pixels)
+                .ok_or("an overlay's area past the display")?;
+            Ok(Placed {
+                x: v.x,
+                y: v.y,
                 picture,
             })
         })

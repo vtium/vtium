@@ -65,9 +65,9 @@ fn the_screens_the_gpu_path_does_not_draw_yet_say_why() {
         .iter()
         .filter_map(|c| gpu::waits(&c.screen).map(|w| (c.screen.name, w)))
         .collect();
-    assert!(waiting.iter().any(|(n, _)| *n == "edges-right"));
     assert!(waiting.iter().any(|(n, _)| *n == "small-320x240-1bit"));
-    assert!(!waiting.iter().any(|(n, _)| *n == "edges"));
+    // every orientation draws on the GPU path
+    assert!(!waiting.iter().any(|(n, _)| n.starts_with("edges")));
 }
 
 #[test]
@@ -102,8 +102,8 @@ fn a_screen_with_no_sidecar_is_not_judged() {
 
 // ADR-1303 D1: on Mesa's llvmpipe, through vtium-platform's context and the
 // binary's adapter, the GPU path draws a screen of text, decorations,
-// colors and a notice with its focus mark within its sidecar of the CPU
-// path's drawing, and the report names the case and what waits
+// colors, a notice with its focus mark and a turned display within its
+// sidecar of the CPU path's drawing, and the report names each case
 // covers: platform.gpu
 #[test]
 fn the_gpu_path_on_llvmpipe_draws_within_its_sidecar_of_the_cpu_paths_pixels() {
@@ -127,11 +127,46 @@ fn the_gpu_path_on_llvmpipe_draws_within_its_sidecar_of_the_cpu_paths_pixels() {
     assert_eq!(
         got,
         [
-            ("edges-left@gpu".to_owned(), "pending"),
+            ("edges-left@gpu".to_owned(), "pass"),
             ("small-640x480@gpu".to_owned(), "pass"),
             ("osd-minimal-notice-800x480@gpu".to_owned(), "pass"),
         ],
         "{reports:?}"
     );
     assert!(out.join("small-640x480@gpu.ppm").exists());
+}
+
+// a notice and the focus mark on a turned display reach the GPU path
+// upright, read back through the CPU path's turn, and it draws them on the
+// CPU path's pixels in each orientation
+#[test]
+fn a_notice_on_a_turned_display_draws_on_the_cpu_paths_pixels_on_llvmpipe() {
+    use vtium_render::Orientation;
+    let case = CASES
+        .iter()
+        .find(|c| c.screen.name == "osd-minimal-notice-800x480")
+        .unwrap();
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("gpu-turned");
+    fs::create_dir_all(root.join("gpu")).unwrap();
+    fs::write(
+        root.join("gpu/osd-minimal-notice-800x480.tol"),
+        "max_delta=0\nmax_pixels=0\n",
+    )
+    .unwrap();
+    let mut gl = gpu::llvmpipe().unwrap();
+    for o in [
+        Orientation::Right,
+        Orientation::UpsideDown,
+        Orientation::Left,
+    ] {
+        let mut screen = case.screen;
+        screen.orientation = o;
+        let judged = gpu::judge(&screen, &root, &mut gl).unwrap();
+        assert_eq!(
+            judged.comparison.verdict,
+            Verdict::Pass,
+            "{o:?}: {:?}",
+            judged.comparison
+        );
+    }
 }

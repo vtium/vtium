@@ -47,7 +47,7 @@ impl Surface {
 
     /// The display pixel that draws the view's pixel `x`, `y`, as the
     /// renderer turns the grid.
-    fn place(&self, x: u32, y: u32) -> (u32, u32) {
+    pub fn place(&self, x: u32, y: u32) -> (u32, u32) {
         let last = |n: u32, v: u32| n.saturating_sub(1).saturating_sub(v);
         match self.orientation {
             Orientation::Normal => (x, y),
@@ -64,7 +64,7 @@ impl Surface {
 
     /// The view's area the display area `r` draws: [`Surface::area`]
     /// undone.
-    fn view_area(&self, r: Rect) -> Rect {
+    pub fn view_area(&self, r: Rect) -> Rect {
         self.map(r, Surface::unplace)
     }
 
