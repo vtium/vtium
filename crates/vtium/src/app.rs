@@ -3,8 +3,8 @@
 //! and when each head draws. The loop calls [`App::turn`] after each
 //! dispatch with the time, and waits at most [`App::next_wake`].
 //!
-//! Each step follows the C reference's flow (docs/c-reference.md, parts 1,
-//! 2 and 5) and vtium-platform's host list:
+//! Each step below says what vtium does at that point of the turn, with
+//! the devices vtium-platform's host list names:
 //!
 //! - **Heads** (ADR-1401 D1, D7). What the head file resolves to
 //!   ([`Start`]): its heads, or the compiled-in configuration's one
@@ -63,9 +63,10 @@
 //!   console, and vtium ends once every head has. A crash loop ends the
 //!   run: under open vtium exits, and under closed it holds its VT with a
 //!   notice and delivers nothing.
-//! - **No display.** From the first acquire, vtium waits `display-wait`
-//!   for a frame on a display's screen, and with none by then it ends
-//!   ([`crate::wait`]); under the closed policy it waits however long it
+//! - **No display.** From the acquire, vtium waits `display-wait` for a
+//!   frame on a display's screen, and with none by then it ends; a
+//!   release before the first frame stops the wait until the VT comes
+//!   back ([`crate::wait`]); under the closed policy it waits however long it
 //!   takes (D8). Once one has come, a head's last going does what
 //!   its `when-display-lost` says (D8): under `keep` its sessions run on at the
 //!   grid they had, with the keys of the devices reaching it and no
@@ -1842,6 +1843,9 @@ impl App {
                     head.pointer.drag = None;
                 }
                 self.deactivate();
+                // Before the first frame showed, the start's wait stops
+                // until the VT comes back (vtium/vtium#270).
+                self.wait.released();
                 if let Some(input) = &mut self.input {
                     input.sleep();
                 }

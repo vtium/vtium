@@ -611,11 +611,12 @@ pub const DISPLAY_WAIT: Key = Key {
     default: Default::Number(10),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "At start, how long to wait for a display, counted from when the VT is first shown.\n\n\
+    what: "At start, how long to wait for a display, counted from when the VT is shown.\n\n\
            With no display by then, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a head file whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8).\n\n\
-           0 waits for no display to come: a display set up when the VT is first shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time.\n\n\
+           The wait runs only while the VT is vtium's. When another program takes the VT before vtium's first frame is on screen, as X starting on another VT does at boot, vtium waits for the VT to come back, and when it does, the wait starts again from the full `display-wait`.\n\n\
+           0 waits for no display to come: a display set up when the VT is shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time.\n\n\
            Once a display has come, vtium never exits for want of one.",
-    cite: "the operator on vtium/vtium#21",
+    cite: "the operator on vtium/vtium#21 and #270",
 };
 
 pub const DISPLAY_BUFFERS: Key = Key {
