@@ -243,10 +243,12 @@ The console finds a cell's glyph, its cluster or single codepoint, in this order
 
 1. the cluster's glyph in the per-boot store (ADR-1200 D19);
 2. the cluster's NFC form, where it precomposes to one codepoint the store holds;
-3. the base's glyph with each mark's glyph overstruck on it;
+3. the base's glyph with each nonspacing mark's glyph overstruck on it, and each spacing mark's standing beside it (ADR-1302 D14);
 4. the built-in font for the cell size (ADR-1200 D7);
 5. a request to the helper (D2), drawn from step 4 or 6 until its glyph arrives;
 6. the replacement glyph: U+FFFD where the font has it, else U+25A1, the C reference's replacement (D7).
+
+> Edited 2026-11-03: the maintainer decided ADR-1302 D14, where a spacing mark (General_Category Mc), such as a Devanagari vowel sign, stands beside its letter instead of over it. Step 3 read "the base's glyph with each mark's glyph overstruck on it;". The earlier text is in git at 8e0af22b.
 
 #### Text from the terminal reaches the shaper
 

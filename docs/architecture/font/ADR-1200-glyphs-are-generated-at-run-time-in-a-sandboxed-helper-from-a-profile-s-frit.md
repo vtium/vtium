@@ -593,10 +593,12 @@ The console finds a cell's glyph in the order ADR-1301 D1 sets, and parses no fo
 
 1. the cluster's glyph in the store (D19);
 2. the cluster's NFC form, where it precomposes to one codepoint the store holds;
-3. the base's glyph with each mark's glyph overstruck on it;
+3. the base's glyph with each nonspacing mark's glyph overstruck on it, and each spacing mark's standing beside it (ADR-1302 D14);
 4. the built-in font for the cell (D7);
 5. an ask to the helper (D18), drawn meanwhile from step 4 or 6;
 6. the replacement glyph: U+FFFD where the font has it, else U+25A1.
+
+> Edited 2026-11-03: the maintainer decided ADR-1302 D14, where a spacing mark (General_Category Mc), such as a Devanagari vowel sign, stands beside its letter instead of over it. Step 3 read "the base's glyph with each mark's glyph overstruck on it;". The earlier text is in git at 8e0af22b.
 
 ### D2: the glyph chunk format, on the helper's pipe
 
