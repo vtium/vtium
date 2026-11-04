@@ -460,11 +460,12 @@ vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, th
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 # Tier 2 against vtium's goldens and the C reference's, copied into
-# tools/tier2/reference.
+# tools/tier2/reference. The report names this checkout's commit, as tier 3's
+# does (T3_REV).
 .PHONY: tier2
 tier2: ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --features gpu --bins
-	$(or $(CARGO_TARGET_DIR),target)/release/tier2 run
+	T2_VTIUM_REV=$(T3_REV) $(or $(CARGO_TARGET_DIR),target)/release/tier2 run
 
 # The demonstration set (vtium/vtium#142): the test card drawn for each
 # display profile into docs/specimens/, and judged against what is committed.

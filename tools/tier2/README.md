@@ -10,7 +10,7 @@ target/release/tier2 render      # draw every screen into out/render, judging no
 target/release/tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
 ```
 
-`run` takes `--out DIR` (default `out/` here, which git ignores). It writes each drawn screen to `out/actual/`, each difference to `out/diff/`, and the report to `out/report.json`, deleting any earlier report first. It exits 0 when every case passes, 1 when one does not, and 2 when it refuses to run. `compare` exits 0 on pass or near, 1 on fail and 2 on an input it refuses. Nothing here writes a golden.
+`run` takes `--out DIR` (default `out/` here, which git ignores). It writes each drawn screen to `out/actual/`, each difference to `out/diff/`, and the report to `out/report.json`, deleting any earlier report first. The report's `tools` names vtium's commit as `vtium`, `+dirty` with uncommitted changes, which `make tier2` passes in `T2_VTIUM_REV` as tier 3's report records it; a run started by hand records none. It exits 0 when every case passes, 1 when one does not, and 2 when it refuses to run. `compare` exits 0 on pass or near, 1 on fail and 2 on an input it refuses. Nothing here writes a golden.
 
 | Path | What it is |
 |---|---|

@@ -124,7 +124,15 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         }
         println!("{line}");
     }
-    if let Err(e) = runner::write_report(&report, &[], &cases) {
+    // vtium's commit, as `make tier2` passes it; a run started by hand
+    // records none
+    let tools: Vec<(&str, String)> = std::env::var("T2_VTIUM_REV")
+        .ok()
+        .filter(|rev| !rev.is_empty())
+        .map(|rev| ("vtium", rev))
+        .into_iter()
+        .collect();
+    if let Err(e) = runner::write_report(&report, &tools, &cases) {
         return refuse(e);
     }
     let bad = cases.iter().filter(|c| !c.status.passes()).count();
