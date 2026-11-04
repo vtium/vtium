@@ -50,6 +50,8 @@ screen	img-resize-shrink	departure	INTERFACE.md	In the screen view the C referen
 *	kit-host-icat-gif	departure	crates/vtium-image/README.md	Kitty animation is built.
 *	kit-host-icat-gif-nohook	departure	crates/vtium-image/README.md	Kitty animation is built.
 *	kit-replace-refused	departure	crates/vtium-image/README.md	At equal z, a sixel and a kitty picture draw in the order they arrived,
+*	kit-chunked	departure	crates/vtium-image/README.md	An upload in chunks ends when anything else arrives between its chunks, at RIS, and when the session ends.
+*	kit-chunk-abort	departure	crates/vtium-image/README.md	A command that arrives while an upload in chunks is open does what kitty does with it.
 *	kit-transmit	departure	crates/vtium-image/README.md	A kitty picture whose image has no id goes on top of its stack as it arrives,
 *	six-cancel	departure	crates/vtium-parse/README.md	A string acts only when its terminator completes it.
 *	six-cancel	departure	crates/vtium-term/README.md	DECRQSS for DECSCL reports the level DECSCL set,
