@@ -24,9 +24,9 @@ The C reference is the C terminal kmscon and its screen and parser library libts
 | aaronsb/kmscon | `../kmscon` | The C reference's terminal. vtium copied its capability probes and its tier 2 and tier 3 goldens from here (#111). |
 | aaronsb/libtsm | `../libtsm` | The C reference's screen and parser. vtium copied tier 1's replay interface and goldens from here into `tools/conformance/`, with their provenance. The replay interface is the command-line contract by which a program plays a byte stream into a terminal and prints the resulting screen as text. vtium also ported the tools that made and checked them into `tools/conformance/`, in Rust: the case generator, the recorder and the interface check. |
 
-The C reference is frozen. vtium does at least everything the C reference did, and may do more. It does not copy how the C reference was built, because vtium is idiomatic Rust. Agents read the forks and never change them on their own. A fork changes only when the maintainer asks for a fix, and then as the maintainer directs. No gate, CI job, build or tool runs the C reference's code or reads the forks' checkouts, except the three provenance checks described under [The gates](#the-gates). The local checkouts of the forks are often out of date, so fetch first and read from `origin/main`, for example `git -C ../kmscon show origin/main:<path>`. Plain `gh` in this checkout talks to vtium/vtium, so every `gh` command for a fork needs `-R aaronsb/kmscon` or `-R aaronsb/libtsm`.
+The C reference is frozen. vtium does at least everything the C reference did, and may do more. It does not copy how the C reference was built, because vtium is idiomatic Rust. Agents read the forks and never change them on their own. A fork changes only when the maintainer asks for a fix, and then as the maintainer directs. No gate, CI job, build or tool runs the C reference's code or reads the forks' checkouts. The local checkouts of the forks are often out of date, so fetch first and read from `origin/main`, for example `git -C ../kmscon show origin/main:<path>`. Plain `gh` in this checkout talks to vtium/vtium, so every `gh` command for a fork needs `-R aaronsb/kmscon` or `-R aaronsb/libtsm`.
 
-Before you design anything new, answer each question about behaviour or structure from the C reference. Start with [docs/c-reference.md](docs/c-reference.md), then read the C reference's code in the forks at `origin/main`. Take the C reference's logic flow, and never its code structure.
+Before you design anything new, answer each question about behaviour or structure from the C reference. Read the C reference's code in the forks at `origin/main`. Take the C reference's logic flow, and never its code structure.
 
 Diagnose a problem in vtium's implementation the same way. First find out how the C reference's flow handled the same case and what it decided, and cite that. Treat it as a reference for the logic, never as C code to port. This applies to every change, whether it is a bug fix, a review finding or a failing test.
 
@@ -71,9 +71,7 @@ cargo fmt --all --check \
   && make arm
 ```
 
-`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. Those files were copied from the C reference, and `tools/conformance/provenance.tsv` records where each one came from. `make tier2` reads tier 2's goldens from `tools/tier2/reference/`, which were copied and recorded the same way. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason. No gate needs a checkout of the C repositories.
-
-Three provenance checks sit outside the gates: `make conformance-provenance`, `make tier2-provenance` and `make tier3-provenance`. The reviewer of a change that touches the copied files runs them. Each one checks every copied file against the commit it came from, in the fork checkout it reads with git only, changing nothing. They take `LIBTSM=DIR` and `KMSCON=DIR`, which default to `../libtsm` and `../kmscon`.
+`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. Those files were copied from the C reference. `make tier2` reads tier 2's goldens from `tools/tier2/reference/`, which were copied the same way. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason. No gate needs a checkout of the C repositories.
 
 vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34), C stays at that boundary as a binding or the thinnest possible shim, and everything around it is Rust.
 
@@ -170,7 +168,6 @@ The steering session releases each delegated agent explicitly once its work has 
 | For | Read |
 |---|---|
 | The crates, the tiers, determinism, the reply rule, tables and maps | [docs/architecture.md](docs/architecture.md) |
-| How the C reference worked, part by part, and the vtium issue that takes each part | [docs/c-reference.md](docs/c-reference.md) |
 | What a contribution must show, the code rules, the kitty source rule | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The target set and its coverage | `docs/architecture/term/ADR-1000-*` |
 | A crate's departures and bounds | `crates/<crate>/README.md` |
