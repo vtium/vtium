@@ -1,7 +1,7 @@
 = Authors =
 
 vtium is a Rust port derived from kmscon and libtsm. It is maintained by:
-	Aaron Bockelie
+	Aaron Bockelie <aaron@bockelie.com>
 The maintainer's code is written by large language models under the
 maintainer's review. A contribution states in its pull request how its code
 was written.
@@ -34,7 +34,7 @@ libtsm, from which vtium is derived, was written by:
 This software is licensed under the terms of the MIT license. A source file
 may carry its own copyright notice; where it does not, the following applies:
 
-	Copyright (c) 2026 Aaron Bockelie
+	Copyright (c) 2026 Aaron Bockelie <aaron@bockelie.com>
 
 	From kmscon:
 	Copyright (c) 2011-2013 David Herrmann <dh.herrmann@googlemail.com>
@@ -42,6 +42,9 @@ may carry its own copyright notice; where it does not, the following applies:
 	From libtsm:
 	Copyright (c) 2017-2018 Aetf <aetf@unlimitedcodeworks.xyz>
 	Copyright (c) 2011-2013 David Herrmann <dh.herrmann@gmail.com>
+
+	From the contributors to kmscon and libtsm listed above:
+	Copyright (c) the kmscon and libtsm contributors
 
 	Permission is hereby granted, free of charge, to any person obtaining
 	a copy of this software and associated documentation files
