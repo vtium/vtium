@@ -12,7 +12,7 @@ use drm_ffi::mode::dumbbuffer;
 use drm_ffi::{
     _DRM_VBLANK_HIGH_CRTC_SHIFT, DRM_EVENT_FLIP_COMPLETE, DRM_EVENT_VBLANK,
     DRM_MODE_OBJECT_CONNECTOR, DRM_MODE_OBJECT_CRTC, DRM_MODE_OBJECT_PLANE,
-    DRM_MODE_PAGE_FLIP_EVENT, drm_mode_modeinfo,
+    DRM_MODE_PAGE_FLIP_EVENT, DRM_MODE_PROP_RANGE, drm_mode_modeinfo,
 };
 use rustix::fs::{Mode as FileMode, OFlags, open};
 use rustix::io::Errno;
@@ -183,6 +183,12 @@ impl Kms for Card {
 
     fn property_name(&self, id: u32) -> io::Result<String> {
         Ok(name(&crate::ioctl::drm_get_property(self.raw(), id)?.name))
+    }
+
+    fn property_range(&self, id: u32) -> io::Result<Option<(u64, u64)>> {
+        let mut values = [0; 2];
+        let prop = crate::ioctl::drm_get_property_values(self.raw(), id, &mut values)?;
+        Ok(range(prop.flags, prop.count_values, values))
     }
 
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb> {
@@ -397,6 +403,14 @@ fn crtc_events(mut bytes: &[u8], events: &mut Vec<CrtcEvent>) {
     }
 }
 
+/// The least and greatest value of a property whose GETPROPERTY gave
+/// `flags` and `count` values, the first two of them in `values`: a range
+/// property (`DRM_MODE_PROP_RANGE`) has exactly two. `None` for any other
+/// property, as an enum's values are its enumerators' and a blob's none.
+fn range(flags: u32, count: u32, [least, most]: [u64; 2]) -> Option<(u64, u64)> {
+    (flags & DRM_MODE_PROP_RANGE != 0 && count == 2).then_some((least, most))
+}
+
 #[cfg(test)]
 #[expect(
     clippy::arithmetic_side_effects,
@@ -430,6 +444,18 @@ mod tests {
             }
             Ok((crtcs.len(), now.len()))
         }
+    }
+
+    // A range property's two values are its least and greatest; any other
+    // kind of property, or a range that does not report two values, has
+    // no range.
+    #[test]
+    fn only_a_range_property_with_two_values_has_a_range() {
+        assert_eq!(range(DRM_MODE_PROP_RANGE, 2, [8, 16]), Some((8, 16)));
+        // `DRM_MODE_PROP_ENUM` and `DRM_MODE_PROP_BLOB`.
+        assert_eq!(range(1 << 3, 2, [0, 9]), None);
+        assert_eq!(range(1 << 4, 0, [0, 0]), None);
+        assert_eq!(range(DRM_MODE_PROP_RANGE, 3, [8, 16]), None);
     }
 
     #[test]
