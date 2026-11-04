@@ -162,7 +162,7 @@ FRIT_DIRS := crates/vtium-config/frits tools/specimens/frits
 frit_files = $(foreach f,$(FRITS),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
 # A frit vtium does not hold stops the install as make reads this file,
 # before anything is built.
-ifneq ($(filter install install-tree,$(MAKECMDGOALS)),)
+ifneq ($(filter install install-build install-tree,$(MAKECMDGOALS)),)
 _frits := $(frit_files)
 endif
 # The head file's commented template, which every install ships as an
@@ -410,10 +410,14 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool an
 # The key table's crates' unit tests, built as the vtium package builds
 # them, with VTIUM_HWACCEL=on and VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8), in
 # a target directory of their own so the other builds keep their cache.
-# Until the console acts on hwaccel, a build with it on says "hwaccel is not
-# built yet" at every start, and check-config exits 1; the check's tests and
-# the one test that counts its warnings expect a clean start, so they are
-# left out here until the work that chooses the GPU path removes the note.
+# --lib runs the unit tests alone and leaves out every integration test.
+# Until hwaccel leaves the key table's NOT_BUILT, a build with it on says
+# "hwaccel is not built yet" at every start and check-config exits 1, so in
+# such a build vtium config's save path fails: the console's check refuses
+# every draft, and the integration tests of check-config and of saving fail
+# with it. The check's unit tests and the one test that counts its warnings
+# expect a clean start, so they are left out here too. The work that
+# chooses the GPU path removes the note, and with it these exclusions.
 TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 cargo test -q --target-dir $(or $(CARGO_TARGET_DIR),target)/build-settings -p vtium-settings -p vtium -p vtium-config --lib -- --skip check::tests --skip config::tests::sb_memory_past_the_machines_quarter_is_reported_once
 
 .PHONY: fuzz
