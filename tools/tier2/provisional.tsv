@@ -56,3 +56,9 @@ notice-alone-stopped-800x480	ADR-1401 D7, D9: a notice alone on the boot display
 notice-alone-stopped-3840x540	ADR-1401 D7, D9: a notice alone on the boot display, drawn by vtium, not yet reviewed
 link-hover-unifont	ADR-1002: the hovered link's dashed underline, drawn by vtium, not yet reviewed
 link-hover-unifont-1bit	ADR-1002: the hovered link's dashed underline on a 1-bit display, drawn by vtium, not yet reviewed
+pictures-kitty	ADR-1303 D2: pictures over unifont text, judging the GPU path's picture steps, drawn by vtium, not yet reviewed
+pictures-kitty-right	ADR-1303 D2: pictures over unifont text, judging the GPU path's picture steps, drawn by vtium, not yet reviewed
+pictures-selection	ADR-1303 D2: pictures over unifont text, judging the GPU path's picture steps, drawn by vtium, not yet reviewed
+pictures-sixel	ADR-1303 D2: pictures over unifont text, judging the GPU path's picture steps, drawn by vtium, not yet reviewed
+pictures-budget	ADR-1303 D2: pictures over unifont text, judging the GPU path's picture steps, drawn by vtium, not yet reviewed
+pictures-tiled	ADR-1303 D2: pictures over unifont text, judging the GPU path's picture steps, drawn by vtium, not yet reviewed
