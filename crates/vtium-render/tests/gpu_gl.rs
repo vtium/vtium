@@ -252,6 +252,7 @@ fn a_lost_context_refuses_every_later_call() {
     let frame = gl.create_frame(Size::new(4, 4)).unwrap();
     let buffer = gl.import_buffer(&Size::new(4, 4)).unwrap();
     let program = gl.compile(&source(&INPUTS)).unwrap();
+    let fence = gl.submit(&buffer).unwrap();
     gl.raise(ErrorKind::ContextLost);
     assert_eq!(
         gl.check(Batch::Frame).unwrap_err().kind,
@@ -278,7 +279,8 @@ fn a_lost_context_refuses_every_later_call() {
         lost(gl.compile(&source(&INPUTS)).map(drop)),
         lost(gl.clear(&buffer, rect(0, 0, 1, 1), 0)),
         lost(gl.draw(&draw)),
-        lost(gl.submit(&buffer)),
+        lost(gl.submit(&buffer).map(drop)),
+        lost(gl.wait(fence)),
         lost(gl.read(&buffer, rect(0, 0, 1, 1), &mut out)),
         lost(gl.check(Batch::Frame)),
         lost(gl.free_program(program)),
@@ -369,11 +371,33 @@ fn a_submit_is_recorded_for_a_live_target_of_its_own() {
     let mut b = StandIn::new();
     let target = a.import_buffer(&Size::new(4, 4)).unwrap();
     let _own = b.import_buffer(&Size::new(4, 4)).unwrap();
-    a.submit(&target).unwrap();
+    let fence = a.submit(&target).unwrap();
     assert_eq!(a.calls().last(), Some(&Call::Submit));
+    assert_eq!(a.fences(), 1);
     b.clear_calls();
     assert_eq!(b.submit(&target).unwrap_err().kind, ErrorKind::Handle);
     assert_eq!(b.calls(), &[]);
+    a.wait(fence).unwrap();
+    assert_eq!(a.calls().last(), Some(&Call::Wait));
+    assert_eq!(a.fences(), 0);
+}
+
+// the issue on the EGL sync before the flip: a fence is waited on in the
+// context that made it, as EGL waits on a sync only on its own display,
+// and once
+#[test]
+fn a_fence_is_waited_on_once_in_its_own_context() {
+    let mut a = StandIn::new();
+    let mut b = StandIn::new();
+    let target = a.import_buffer(&Size::new(4, 4)).unwrap();
+    let fence = a.submit(&target).unwrap();
+    assert_eq!(b.wait(fence).unwrap_err().kind, ErrorKind::Handle);
+    assert_eq!(b.calls(), &[]);
+    // refused by another context, the fence is still a's to wait on
+    assert_eq!(a.fences(), 1);
+    let fence = a.submit(&target).unwrap();
+    a.wait(fence).unwrap();
+    assert_eq!(a.fences(), 1);
 }
 
 #[test]
@@ -393,10 +417,21 @@ fn the_stand_in_fails_the_next_call_of_a_kind_as_a_driver_would() {
             Op::CreateFrame => gl.create_frame(size).map(|_| ()),
             Op::ImportBuffer => gl.import_buffer(&size).map(|_| ()),
             Op::Compile => gl.compile(&source(&INPUTS)).map(|_| ()),
+            Op::Wait => unreachable!("a wait needs a fence: below"),
         };
         assert_eq!(call(&mut gl).unwrap_err().kind, kind, "{op:?}");
         assert_eq!((gl.live(), gl.calls()), ((0, 0, 0), &[][..]), "{op:?}");
         // only the next call fails
         assert!(call(&mut gl).is_ok(), "{op:?}");
     }
+    // a wait the driver fails frees its fence all the same, and only the
+    // next wait fails
+    let mut gl = StandIn::new();
+    let target = gl.import_buffer(&size).unwrap();
+    gl.fail_next(Op::Wait, ErrorKind::Gl);
+    let fence = gl.submit(&target).unwrap();
+    assert_eq!(gl.wait(fence).unwrap_err().kind, ErrorKind::Gl);
+    assert_eq!(gl.fences(), 0);
+    let fence = gl.submit(&target).unwrap();
+    assert!(gl.wait(fence).is_ok());
 }

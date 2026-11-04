@@ -26,8 +26,8 @@ use vtium_platform::display::{DmaBuf, Rect as PlatformRect};
 use vtium_platform::gpu as platform;
 use vtium_render::Rect;
 use vtium_render::gpu::{
-    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Ledger, Limits, Program,
-    Resolved, Size, Source, Texture,
+    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Fence, Filter, Format, Gl, Ledger, Limits,
+    Program, Resolved, Size, Source, Texture,
 };
 
 /// vtium-render's `Gl` over a vtium-platform context.
@@ -301,12 +301,24 @@ impl Gl for PlatformGl {
             .map_err(|e| self.fail(e))
     }
 
-    /// `glFlush`. The display shows the buffer through its dma-buf, and the
-    /// kernel waits on the dma-buf's implicit fence before it scans the
-    /// buffer out, as it waited for the C reference's `eglSwapBuffers`.
-    fn submit(&mut self, target: &DrawTarget) -> Result<(), Error> {
-        self.ledger.target(target)?;
-        self.gl.submit().map_err(|e| self.fail(e))
+    /// An EGL fence sync after the frame's commands, or `glFinish` where
+    /// the context makes none (vtium-platform's `Context::submit`).
+    fn submit(&mut self, target: &DrawTarget) -> Result<Fence, Error> {
+        let (gl, mut met) = (&mut self.gl, Met::default());
+        let made = self
+            .ledger
+            .submit(target, |_| gl.submit().map_err(|e| met.keep(e)));
+        self.settle(made, met)
+    }
+
+    /// `eglClientWaitSync` on the frame's fence, before the render thread
+    /// gives the buffer back to the display.
+    fn wait(&mut self, fence: Fence) -> Result<(), Error> {
+        let (gl, mut met) = (&mut self.gl, Met::default());
+        let waited = self
+            .ledger
+            .wait(fence, |name| gl.wait(name).map_err(|e| met.keep(e)));
+        self.settle(waited, met)
     }
 
     fn check(&mut self, batch: Batch) -> Result<(), Error> {
@@ -416,6 +428,8 @@ mod tests {
                 &out[..8]
             );
         }
+        // each frame waited on its fence before it returned
+        assert_eq!(gl.ledger.fences(), 0);
         // nothing composed into a buffer that lacks nothing: no draw
         let work = Work::new(0xC0_FFEE, &[], &[]);
         assert_eq!(pipeline.frame(&mut gl, &work, &target, 1).unwrap(), []);

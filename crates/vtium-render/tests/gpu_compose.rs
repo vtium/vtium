@@ -174,6 +174,7 @@ fn a_frame_draws_each_cell_as_one_quad_through_the_cell_shader() {
             &Call::Check(Batch::Draws),
             &Call::Check(Batch::Frame),
             &Call::Submit,
+            &Call::Wait,
         ]
     );
     let quads = g.cells();

@@ -20,7 +20,8 @@
 //! GL's errors are read at the batch boundaries D7 names: after the set-up's
 //! allocations, after the composition's draws and at the end of the frame,
 //! and only when the batch made a call. A frame that drew ends with
-//! [`Gl::submit`], so the display can show the buffer.
+//! [`Gl::submit`] and waits on the fence it gives ([`Gl::wait`]), so the
+//! buffer the display shows next holds a finished frame.
 //!
 //! A turn of the display changes present's quads alone, and keeps every
 //! texture and program: the upright frame is made anew only where a quarter
@@ -430,7 +431,8 @@ impl Pipeline {
             return Ok(damage);
         }
         gl.check(Batch::Frame)?;
-        gl.submit(target)?;
+        let fence = gl.submit(target)?;
+        gl.wait(fence)?;
         Ok(damage)
     }
 

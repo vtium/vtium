@@ -10,8 +10,8 @@
 //! one kind fail as a driver would, the next one or one later.
 
 use super::gl::{
-    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Format, Gl, Limits, Program, Quad, Size,
-    Source, Texture,
+    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Fence, Format, Gl, Limits, Program, Quad,
+    Size, Source, Texture,
 };
 use super::ledger::Ledger;
 use crate::target::Rect;
@@ -36,7 +36,10 @@ pub enum Call {
         inputs: Vec<&'static str>,
     },
     Check(Batch),
+    /// A frame's end, which gives a fence.
     Submit,
+    /// A wait on a fence, which frees it.
+    Wait,
     Read(Rect),
 }
 
@@ -48,6 +51,7 @@ pub enum Op {
     CreateFrame,
     ImportBuffer,
     Compile,
+    Wait,
 }
 
 /// A GL context that records its calls and draws nothing.
@@ -134,6 +138,11 @@ impl StandIn {
         self.ledger.live()
     }
 
+    /// How many fences are given out and not yet waited on.
+    pub fn fences(&self) -> usize {
+        self.ledger.fences()
+    }
+
     /// Raises a GL error of `kind`, which the next check reports. A lost
     /// context also fails every call after that check.
     pub fn raise(&mut self, kind: ErrorKind) {
@@ -157,7 +166,7 @@ impl StandIn {
     fn make(&mut self, op: Op) -> Result<u32, Error> {
         if let Some(i) = self.failing.iter().position(|(o, _, _)| *o == op) {
             match self.failing.get_mut(i) {
-                Some((_, passing, _)) if *passing > 0 => *passing -= 1,
+                Some((_, passing, _)) if *passing > 0 => *passing = passing.saturating_sub(1),
                 _ => {
                     let (_, _, kind) = self.failing.remove(i);
                     return Err(Error::new(kind, format!("{op:?} failed for the test")));
@@ -274,9 +283,17 @@ impl Gl for StandIn {
         Ok(())
     }
 
-    fn submit(&mut self, target: &DrawTarget) -> Result<(), Error> {
-        self.ledger.target(target)?;
+    fn submit(&mut self, target: &DrawTarget) -> Result<Fence, Error> {
+        let name = self.name();
+        let fence = self.ledger.submit(target, |_| Ok(name))?;
         self.calls.push(Call::Submit);
+        Ok(fence)
+    }
+
+    fn wait(&mut self, fence: Fence) -> Result<(), Error> {
+        let failed = self.make(Op::Wait).err();
+        self.ledger.wait(fence, |_| failed.map_or(Ok(()), Err))?;
+        self.calls.push(Call::Wait);
         Ok(())
     }
 

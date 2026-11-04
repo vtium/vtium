@@ -188,6 +188,14 @@ pub struct Context {
     reset_status: Option<ResetStatus>,
     textures: BTreeMap<u32, TextureInfo>,
     imports: BTreeMap<u32, Import>,
+    /// Whether a frame's end makes an EGL fence sync, or waits in place
+    /// with `glFinish` where the display or GL cannot make one.
+    fence_sync: bool,
+    /// Each fence a submit gave and no wait has taken yet, by its name: an
+    /// EGL fence sync, or `None` for a frame `glFinish` already finished.
+    fences: BTreeMap<u32, Option<egl::Sync>>,
+    /// The last fence's name.
+    last_fence: u32,
     /// GL's error flags a call read and set aside for the next check, so
     /// that it read only its own; at most `ERRORS_MAX`.
     pending: Vec<u32>,
@@ -293,6 +301,7 @@ impl Context {
             ));
         }
         let extensions = gl.supported_extensions();
+        let fence_sync = egl.fence_syncs() && extensions.contains("GL_OES_EGL_sync");
         let load = |name: &str| egl.proc_address(name);
         // SAFETY: each pointer is the function of its name, which its
         // extension declares with the signature it is cast to.
@@ -371,6 +380,9 @@ impl Context {
             reset_status,
             textures: BTreeMap::new(),
             imports: BTreeMap::new(),
+            fence_sync,
+            fences: BTreeMap::new(),
+            last_fence: 0,
             pending: Vec::new(),
             raised: Cell::new(None),
             limits,
@@ -394,6 +406,12 @@ impl Context {
 
     pub fn limits(&self) -> Limits {
         self.limits
+    }
+
+    /// Whether a frame's end makes an EGL fence sync that the render thread
+    /// waits on; without one, it waits in place with `glFinish`.
+    pub fn fence_syncs(&self) -> bool {
+        self.fence_sync
     }
 
     /// Makes the context current where another is.
@@ -478,6 +496,9 @@ pub(super) fn bound(errors: &[u32], reset: u32) -> Result<(), Error> {
 
 impl Drop for Context {
     fn drop(&mut self) {
+        for sync in std::mem::take(&mut self.fences).into_values().flatten() {
+            self.egl.destroy_sync(sync);
+        }
         let fbs: Vec<u32> = self.imports.keys().copied().collect();
         for fb in fbs {
             let _ = self.free_import(fb);

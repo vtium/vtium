@@ -751,7 +751,8 @@ fn a_gbm_buffer_imports_as_a_target_that_draws() {
         Blend::Replace,
         None,
     );
-    gl.submit().unwrap();
+    let fence = gl.submit().unwrap();
+    gl.wait(fence).unwrap();
     gl.check().unwrap();
     let mut out = vec![0u8; 64 * 32 * 4];
     gl.read(fb, rect(0, 0, 64, 32), &mut out).unwrap();
@@ -761,4 +762,34 @@ fn a_gbm_buffer_imports_as_a_target_that_draws() {
     assert_eq!(out[(31 * 64 + 63) * 4..][..4], [0xAB, 0xCD, 0xEF, 0xFF]);
     gl.free_import(fb).unwrap();
     gl.check().unwrap();
+}
+
+// the issue on the EGL sync before the flip: a frame ends with a fence
+// after its commands, an EGL fence sync on llvmpipe, which a wait takes
+// once, in any order; a name no submit gave, or one a wait took, is
+// refused before it reaches EGL
+#[test]
+fn a_frame_ends_with_a_fence_sync_that_a_wait_takes_once() {
+    let mut gl = software();
+    assert!(gl.fence_syncs(), "llvmpipe's EGL makes fence syncs");
+    let (fb, texture) = gl.create_frame(8, 8).unwrap();
+    gl.clear(fb, (8, 8), rect(0, 0, 8, 8), 0x20_4060).unwrap();
+    let first = gl.submit().unwrap();
+    gl.clear(fb, (8, 8), rect(0, 0, 4, 4), 0x80_A0C0).unwrap();
+    let second = gl.submit().unwrap();
+    assert_ne!(first, second);
+    gl.wait(second).unwrap();
+    gl.wait(first).unwrap();
+    for name in [first, second, 0, second + 1] {
+        assert_eq!(gl.wait(name).unwrap_err().kind, ErrorKind::Misuse, "{name}");
+    }
+    gl.check().unwrap();
+    let mut out = vec![0u8; 8 * 8 * 4];
+    gl.read(fb, rect(0, 0, 8, 8), &mut out).unwrap();
+    assert_eq!(out[..4], [0x80, 0xA0, 0xC0, 0xFF]);
+    assert_eq!(out[(7 * 8 + 7) * 4..][..4], [0x20, 0x40, 0x60, 0xFF]);
+    gl.free_frame(fb, texture).unwrap();
+    // a fence no wait took goes with its context
+    gl.submit().unwrap();
+    drop(gl);
 }
