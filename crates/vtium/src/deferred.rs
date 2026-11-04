@@ -534,6 +534,15 @@ impl Generated {
         self.entries.iter().any(|e| e.cell == cell)
     }
 
+    /// The underline and strike-through the helper's strikes at `cell`
+    /// report (ADR-1302 D3): every answer at one cell reports the frit's
+    /// first source's, so the first set held there gives them. `None` while
+    /// no set at `cell` is held.
+    fn decorations(&self, cell: Cell) -> Option<Decorations> {
+        let e = self.entries.iter().find(|e| e.cell == cell)?;
+        Some(e.face.decorations())
+    }
+
     /// `text`'s glyph at `cell`, from the store.
     fn draw(&self, cell: Cell, text: &[char], style: Style) -> Option<Glyph> {
         let face = &self.entry(cell, text)?.face;
@@ -705,9 +714,19 @@ impl Face for DeferredFace {
         self.fit(self.builtin.last_resort(style)?)
     }
 
-    /// The built-in font's in its own cell; in another, the lines for the
-    /// cell's height.
+    /// The lines the helper's strikes at the cell report, once a set there
+    /// is held: an outline first source's own, measured from the font's
+    /// `post` and `OS/2` tables as the C reference's FreeType engine took
+    /// them, and a bitmap first source's the lines for the cell's height.
+    /// The helper moves a font's line that would pass the cell inside it,
+    /// and the set reader refuses a strike whose line passes its cell, so a
+    /// line held here always lies in the cell's rows. Before any set at the
+    /// cell is held: the built-in font's in its own cell, and in another the
+    /// lines for the cell's height.
     fn decorations(&self) -> Decorations {
+        if let Some(lines) = lock(&self.generated).decorations(self.cell) {
+            return lines;
+        }
         if self.builtin.cell() == self.cell {
             self.builtin.decorations()
         } else {
@@ -899,6 +918,85 @@ mod tests {
         assert_eq!((a.width(), a.height()), (8, 12));
         let unifont = Unifont::new(16).draw(&['A'], Style::default()).unwrap();
         assert!(moved(&a, &unifont, 0, -2));
+    }
+
+    /// A set at `cell` mapping `chars` to one solid glyph, whose strike
+    /// reports `lines`, as the helper writes the font's own lines in a
+    /// strike's header.
+    fn with_lines(cell: Cell, chars: &[char], lines: Decorations) -> Arc<Set> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default()).decorations(lines);
+        let g = s.glyph(
+            Width::Narrow,
+            vec![255; (cell.width * cell.height) as usize],
+        );
+        for &c in chars {
+            s.map(c, g);
+        }
+        Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
+    }
+
+    // #241: the lines of a frit the helper generates from an outline font
+    // come from the strike's header, which carries the font's own: in
+    // tier 3's 10x19 cell, DejaVu Sans Mono at 16 points puts its
+    // underline on row 15 and its strike-through on row 11, where the
+    // cell's height alone gives rows 18 and 9
+    #[test]
+    fn a_generated_frits_lines_come_from_the_strike_header() {
+        let generated = Shared::default();
+        let cell = Cell {
+            width: 10,
+            height: 19,
+        };
+        let f = face_in(&generated, cell);
+        assert_eq!(f.decorations(), Decorations::for_height(19));
+        let font = Decorations {
+            underline: 15,
+            underline_thickness: 1,
+            strike: 11,
+            strike_thickness: 1,
+        };
+        add(
+            &mut lock(&generated),
+            cell,
+            with_lines(cell, &['A'], font),
+            vec![(0x41, 1)],
+            1,
+        );
+        assert_eq!(f.decorations(), font);
+        // a set at another cell says nothing about this one
+        let other = face_in(&generated, CELL);
+        assert_eq!(other.decorations(), Unifont::new(16).decorations());
+    }
+
+    // #241: a bitmap frit's strikes report the lines of a face with no
+    // metrics of its own, as the helper writes them for a bitmap first
+    // source, so its lines stay what they were before its glyphs came,
+    // in the built-in font's own cell and in any other
+    #[test]
+    fn a_bitmap_frits_lines_are_unchanged() {
+        for cell in [
+            CELL,
+            Cell {
+                width: 10,
+                height: 19,
+            },
+            Cell {
+                width: 16,
+                height: 32,
+            },
+        ] {
+            let generated = Shared::default();
+            let f = face_in(&generated, cell);
+            let before = f.decorations();
+            add(
+                &mut lock(&generated),
+                cell,
+                with_lines(cell, &['A'], Decorations::for_height(cell.height)),
+                vec![(0x41, 1)],
+                1,
+            );
+            assert_eq!(f.decorations(), before, "{cell:?}");
+        }
     }
 
     // #145: the glyphs arrive at the frit's cell, and the cell stays
