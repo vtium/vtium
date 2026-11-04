@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use vtium_font::{Face, Font, Style, Width as FontWidth};
+use vtium_font::{Decorations, Face, Font, Style, Width as FontWidth};
 use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, Rgb, Width, dim};
 
 use crate::arrow::{Arrow, Over};
@@ -455,6 +455,9 @@ pub struct Renderer<F> {
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,
+    /// The font's underline and strike-through lines the sprites and the
+    /// glyph cache's stand-ins were made from.
+    lines: Decorations,
     /// Characters the font draws differently since the last frame, sorted:
     /// the cells showing one draw again ([`Renderer::glyphs_changed`]).
     changed: Vec<char>,
@@ -480,6 +483,25 @@ fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> A
     .map(|g| Arrow::upright_glyph(&g))
     .filter(Arrow::covers)
     .unwrap_or_else(|| Arrow::upright(cell_height))
+}
+
+/// The decoration sprites for cells `cw` by `ch` in the font's `lines`,
+/// turned as `orientation` says, stored as `config` says.
+fn sprites(
+    cw: u32,
+    ch: u32,
+    lines: &Decorations,
+    orientation: Orientation,
+    config: Config,
+) -> Sprites {
+    Sprites::new(
+        cw,
+        ch,
+        lines,
+        orientation,
+        config.storage.bits,
+        config.depth == Depth::One,
+    )
 }
 
 /// How many cells a cell `width` wide, after a cell `before` wide, draws
@@ -540,27 +562,22 @@ impl<F: Face> Renderer<F> {
         let budgets = config
             .budgets
             .unwrap_or_else(|| Budgets::for_profile(config.profile, cells, width, height));
-        let sprites = Sprites::new(
-            cw,
-            ch,
-            &font.decorations(),
-            config.orientation,
-            config.storage.bits,
-            config.depth == Depth::One,
-        );
+        let lines = font.decorations();
         let upright_arrow = pointer_image(&font, ch, config);
         let arrow = upright_arrow.clone().turned(config.orientation);
+        #[cfg(feature = "gpu")]
+        let gpu = gpu::State::new(
+            budgets,
+            sprites(cw, ch, &lines, Orientation::Normal, config),
+        );
         Renderer {
             compose: Composer::new(
                 GlyphCache::new(budgets, config.storage, config.orientation).with_fallback(
-                    Fallback::new(
-                        config.depth,
-                        font.cell(),
-                        font.decorations().underline_thickness,
-                    ),
+                    Fallback::new(config.depth, font.cell(), lines.underline_thickness),
                 ),
-                sprites,
+                sprites(cw, ch, &lines, config.orientation, config),
             ),
+            lines,
             font,
             config,
             layout: Layout {
@@ -586,8 +603,34 @@ impl<F: Face> Renderer<F> {
             changed: Vec::new(),
             touched: Vec::new(),
             #[cfg(feature = "gpu")]
-            gpu: gpu::State::new(budgets),
+            gpu,
         }
+    }
+
+    /// This renderer on the same display turned as `orientation` says, with
+    /// its font and the rest of its configuration. On the CPU path it is a
+    /// new renderer: its cache holds glyphs turned for the old orientation,
+    /// and its budgets follow the turned grid's cells. On the GPU path,
+    /// whose glyphs are upright, it keeps its identity, so a pipeline that
+    /// holds its glyphs keeps them, and the turn uploads and compiles
+    /// nothing (ADR-1303 D3); those glyphs keep the budgets their pools were
+    /// made with until the pipeline makes them anew. The font's lines are
+    /// taken first, as [`Renderer::glyphs_changed`] takes them, so lines
+    /// that changed before the turn reach the GPU path's sprites too. Its
+    /// next frame draws whole.
+    pub fn turned(mut self, orientation: Orientation) -> Renderer<F> {
+        self.lines_changed();
+        let config = Config {
+            orientation,
+            ..self.config
+        };
+        let turned = Renderer::new(self.font, self.layout.width, self.layout.height, config);
+        #[cfg(feature = "gpu")]
+        let turned = Renderer {
+            gpu: turned.gpu.keeping_identity(self.gpu),
+            ..turned
+        };
+        turned
     }
 
     /// The font now draws each of `chars` differently, as when the deferred
@@ -596,7 +639,12 @@ impl<F: Face> Renderer<F> {
     /// and the next frame draws again each cell that shows one (ADR-1200
     /// D23). Every other glyph stays cached, and every other cell keeps its
     /// pixels.
+    ///
+    /// When the font's underline and strike-through lines changed too, as
+    /// an outline font's do once the glyph helper has measured them, the
+    /// renderer takes the new lines ([`Renderer::lines_changed`]).
     pub fn glyphs_changed(&mut self, chars: &[char]) {
+        self.lines_changed();
         let arrived = sorted(chars);
         self.compose.cache.forget(&arrived);
         #[cfg(feature = "gpu")]
@@ -621,10 +669,45 @@ impl<F: Face> Renderer<F> {
     /// cluster, so a cell that shows one later draws the font's new glyph
     /// (ADR-1200 D7), and no cell draws again now. Every other glyph stays
     /// cached.
+    ///
+    /// When the font's lines changed too, the renderer takes them, as
+    /// [`Renderer::glyphs_changed`] does.
     pub fn forget_glyphs(&mut self, chars: &[char]) {
+        self.lines_changed();
         self.compose.cache.forget(&sorted(chars));
         #[cfg(feature = "gpu")]
         self.gpu.forget(chars);
+    }
+
+    /// Takes the font's underline and strike-through lines when they are
+    /// no longer the ones the renderer made its sprites from: the sprites
+    /// are made again, the glyph cache is emptied, since the font draws its
+    /// line sprites and the glyph stand-ins in the underline's thickness,
+    /// and the next frame draws every cell and the border. On the GPU path
+    /// the renderer takes a new identity, so the pipeline makes its glyphs
+    /// and sprites anew and composes whole. Unchanged lines change nothing.
+    fn lines_changed(&mut self) {
+        let lines = self.font.decorations();
+        if lines == self.lines {
+            return;
+        }
+        self.lines = lines;
+        let config = self.config;
+        let (cw, ch) = (
+            u32::try_from(self.layout.cw).unwrap_or(1),
+            u32::try_from(self.layout.ch).unwrap_or(1),
+        );
+        self.compose.sprites = sprites(cw, ch, &lines, config.orientation, config);
+        self.compose.cache.reset(Fallback::new(
+            config.depth,
+            self.font.cell(),
+            lines.underline_thickness,
+        ));
+        // the grid is placed anew, so every cell and the border draw
+        self.grid = None;
+        #[cfg(feature = "gpu")]
+        self.gpu
+            .lines_changed(sprites(cw, ch, &lines, Orientation::Normal, config));
     }
 
     pub fn font(&self) -> &Font<F> {

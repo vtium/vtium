@@ -566,18 +566,6 @@ fn a_new_renderer_on_the_pipeline_replaces_the_glyphs_and_draws_whole() {
 }
 
 #[test]
-fn a_turned_display_is_refused_until_the_turn_is_built() {
-    let config = Config {
-        orientation: Orientation::Right,
-        ..Config::default()
-    };
-    let mut g = Gpu::new(StandIn::LIMITS, config);
-    let e = g.frame(&mut screen(), 0, &[]).unwrap_err();
-    assert_eq!(e.kind, ErrorKind::Misuse);
-    assert_eq!(g.calls(), &[]);
-}
-
-#[test]
 fn a_1_bit_display_is_refused_until_present_reduces_the_depth() {
     let config = Config {
         depth: Depth::One,
