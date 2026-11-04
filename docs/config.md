@@ -8,7 +8,7 @@ A file holds one key a line: `key=value`, or a switch's `key` to turn it on and 
 
 vtium reports, once at start, a key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. It reads at most 65536 bytes of a file and 8192 of a line.
 
-`install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections. Source cites the C reference, kmscon at `b1f7a7c5` ([c-reference.md](c-reference.md)), or the decision a key comes from.
+`install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections. Source cites the C reference, kmscon at `b1f7a7c5`, or the decision a key comes from.
 
 ## Fonts and text
 

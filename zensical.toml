@@ -45,7 +45,6 @@ nav = [
   { "Decisions" = "architecture/INDEX.md" },
   { "For contributors" = [
       { "Architecture" = "architecture.md" },
-      { "The C reference" = "c-reference.md" },
       { "The VT review" = "vt-review.md" },
       { "AGENTS.md" = "https://github.com/vtium/vtium/blob/main/AGENTS.md" },
       { "CONTRIBUTING.md" = "https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md" },

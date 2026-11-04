@@ -3,8 +3,7 @@
 //! and when each head draws. The loop calls [`App::turn`] after each
 //! dispatch with the time, and waits at most [`App::next_wake`].
 //!
-//! Each step follows the C reference's flow (docs/c-reference.md, parts 1,
-//! 2 and 5) and vtium-platform's host list:
+//! Each step follows the C reference's flow and vtium-platform's host list:
 //!
 //! - **Heads** (ADR-1401 D1, D7). What the head file resolves to
 //!   ([`Start`]): its heads, or the compiled-in configuration's one

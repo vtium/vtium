@@ -104,7 +104,7 @@ pub(super) fn markdown() -> String {
          \n\
          vtium reports, once at start, a key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. It reads at most {FILE_MAX} bytes of a file and {LINE_MAX} of a line.\n\
          \n\
-         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections. Source cites the C reference, kmscon at `b1f7a7c5` ([c-reference.md](c-reference.md)), or the decision a key comes from.\n"
+         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections. Source cites the C reference, kmscon at `b1f7a7c5`, or the decision a key comes from.\n"
     );
     for section in &SECTIONS {
         let _ = write!(
