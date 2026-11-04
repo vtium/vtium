@@ -171,8 +171,9 @@ basis:
     paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "doesn't look as heavy handed and probably correct"
+    said: "Light hinting looks less heavy-handed and is likely correct, and it stays the default."
     via: "the maintainer in the steering session, 2026-11-02, relayed by the team lead, on light hinting, after looking at the before and after cards of the helper's hinting work; it stands beside the light-by-default decision of 2026-11-01"
+    paraphrase: true
   - evidence: "the work that replaces the prerendered store with deferred rendering, Phase 1's measurements (feat/deferred at d075494), accepted by the operator on 2026-10-28: from vtium's start to the helper's first ask 51-55 ms in the tier 3 guest (1 vCPU, 512 MB); first batch 6-18 ms and whole coverage 29-39 ms for DejaVu Sans Mono there, 31-43 ms and 265-276 ms for WenQuanYi Micro Hei; the helper's peak 5.8 MB and 13.8 MB; on the development machine 2 ms and 16-23 ms with a 12 MB peak for DejaVu Sans Mono, 50-61 ms and 409-537 ms with a 43 MB peak for Noto Sans CJK; the first frame drawn in the built-in font 60 ms after start; the console's resident memory from 5.6 MiB to 6.1 MiB with DejaVu's glyphs"
   - upstream: "aaronsb/kmscon b1f7a7c5 and aaronsb/libtsm eeaf293, the C reference's font load, automatic size, resize and zoom, cluster table, glyph cache and damage, each cited by file and line in this record's C notes"
   - precedent: ADR-1301
@@ -200,9 +201,6 @@ considered:
     said: "The recipe carries an explicit compress setting, compress=yes or no, defaulting to yes, with the matching [guided builder] template field and builder choice. With yes, create deflates 8-bit and color strikes and leaves 1-bit raw; with no, every strike is stored raw."
     via: Claude Code session, 2026-10-28, relayed by the team lead
     covers: [compressed chunks]
-  - operator: aaronsb
-    said: "lets accept it"
-    via: Claude Code session, 2026-10-28, after reading the revised record at 497b6aa
   - operator: aaronsb
     said: "A frit's `cell=` line is where the cell lives until profiles have a file of their own. A profile file takes it over later."
     via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
@@ -263,8 +261,9 @@ considered:
     via: the operator's answers in conversation with the team lead, 2026-10-29, relayed in the team lead's brief; the wording is the team lead's
     paraphrase: true
   - operator: aaronsb
-    said: "let's bump the memory footprint to 3.5mb and move on"
+    said: "The minspec console binary's size budget rises to 3.5 MiB."
     via: conversation with the steering session, 2026-10-31, after comparing vtium's size with kmscon's on this machine
+    paraphrase: true
   - operator: aaronsb
     said: "A zoom of an outline frit whose helper doesn't answer within the 100 ms wait uses the built-in font's width for that step, logs one line, and drops a late answer; the next zoom asks again: yes."
     via: the maintainer's answers in the steering session, 2026-11-01, relayed by the team lead; the wording is the team lead's
@@ -282,7 +281,7 @@ considered:
     via: the maintainer's answers in the steering session's interview, 2026-11-01
     paraphrase: true
   - operator: aaronsb
-    said: "Just as a frit assigns sets of characters to fonts, each set also carries how its glyphs use the row's height: not stretch emojis, but allow arabic extra room, leave roman chars normal, keep numbering normal, and let text character drawings stretch."
+    said: "Just as a frit assigns sets of characters to fonts, each set also carries how its glyphs use the row's height: emoji never stretch, Arabic gets extra room, Latin letters and digits keep their size, and the line and block characters stretch to fill the taller row."
     via: the maintainer's answers in the steering session's interview, 2026-11-01
     paraphrase: true
   - operator: aaronsb
@@ -384,7 +383,7 @@ A frit is a file `<name>.vtfrit` in the frits' directory, `/etc/vtium/fonts` unl
 | `line-spacing=` | Height added to each row, a whole percentage of the text's height from `0`, the default, to `100`, split evenly above and below the text (ADR-1302 D13). It adds nothing to a frit's stated `cell=` drawn as stated, and it applies when a configured `font-size` sets the size over that `cell=`: the cell grows by the spacing, split evenly above and below each row. vtium.conf's `font-line-spacing`, which a profile may also set (D16), overrides it for the console. Not built yet. |
 | `fit=` | Repeatable, for the `source=` or `cover=` line above it: how that set's glyphs use the row's height when spacing is added (ADR-1302 D13). `fill` stretches them to the whole cell so they join row to row; `natural` keeps the font's size on its baseline with the added height blank around it; `room` keeps the letter as `natural` does and lets its marks use the added height. One key with three values, not a separate key for marks, since a set uses the row one way only. Unset, line and block characters are `fill`, Arabic, Hebrew, Syriac, Thaana, N'Ko and combining marks are `room`, and the rest is `natural`; color glyphs are always `natural`. Not built yet. |
 | `license=` | An SPDX identifier. Optional. |
-| `hinting=` | How the helper hints the frit's outline glyphs, one key for the whole frit (the maintainer, 2026-11-01). `light`, the default, which the maintainer, on seeing both, found "doesn't look as heavy handed and probably correct" (2026-11-02, `basis`), fits each glyph to the pixel grid up and down only, as the C reference's FreeType engine hinted every glyph with `FT_LOAD_TARGET_LIGHT` (`kmscon/src/font/font_freetype.c:119`): the helper gives a TrueType font to skrifa's automatic hinter, which moves rows only, and keeps a CFF font's own hints, as FreeType did for a light load. `full`, skrifa's Normal target, runs a TrueType font's own instructions, or the automatic hinter at full strength for a font that has none, so a TrueType glyph can also move sideways onto whole columns. A CFF font's hints move rows only, so `full` and `light` draw a CFF font the same, as in FreeType. Bitmap sources take no hinting. The helper builds both values. vtium.conf's `font-hinting`, which a profile may also set (D16), is to override the key for the console, as `font-antialias` overrides `antialias=` (ADR-1301 D4); that is not built yet, because no request to the helper carries the console's setting. |
+| `hinting=` | How the helper hints the frit's outline glyphs, one key for the whole frit (the maintainer, 2026-11-01). `light`, the default, which the maintainer, on seeing both, found less heavy-handed (2026-11-02, `basis`), fits each glyph to the pixel grid up and down only, as the C reference's FreeType engine hinted every glyph with `FT_LOAD_TARGET_LIGHT` (`kmscon/src/font/font_freetype.c:119`): the helper gives a TrueType font to skrifa's automatic hinter, which moves rows only, and keeps a CFF font's own hints, as FreeType did for a light load. `full`, skrifa's Normal target, runs a TrueType font's own instructions, or the automatic hinter at full strength for a font that has none, so a TrueType glyph can also move sideways onto whole columns. A CFF font's hints move rows only, so `full` and `light` draw a CFF font the same, as in FreeType. Bitmap sources take no hinting. The helper builds both values. vtium.conf's `font-hinting`, which a profile may also set (D16), is to override the key for the console, as `font-antialias` overrides `antialias=` (ADR-1301 D4); that is not built yet, because no request to the helper carries the console's setting. |
 
 > Edited 2026-11-03: the maintainer decided that line spacing applies when a configured `font-size` overrides a frit's `cell=` (ADR-1302 D13). The `line-spacing=` row read: "It adds nothing to a stated `cell=`."
 
