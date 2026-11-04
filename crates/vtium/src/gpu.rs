@@ -561,6 +561,24 @@ void main() {
         assert_eq!(gl.ledger.live(), (0, 0, 0));
     }
 
+    /// A lost context or out of memory that the context reports inside one
+    /// of the ledger's calls leaves every later call refused, as one from a
+    /// check does.
+    #[test]
+    fn a_lost_context_or_out_of_memory_inside_a_call_fails_every_later_call() {
+        for raised in [
+            platform::ErrorKind::ContextLost,
+            platform::ErrorKind::OutOfMemory,
+        ] {
+            let mut gl = software();
+            gl.gl.raise(raised);
+            let e = gl.create_texture(Format::R8, Size::new(1, 1)).unwrap_err();
+            assert_eq!(e.kind, kind(raised), "{e}");
+            let e = gl.create_frame(Size::new(1, 1)).unwrap_err();
+            assert_eq!(e.kind, ErrorKind::ContextLost, "after {raised:?}");
+        }
+    }
+
     #[test]
     fn a_gl_error_a_check_finds_names_its_batch() {
         let mut gl = software();
