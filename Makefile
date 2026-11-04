@@ -356,7 +356,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness and the fuzz runner 
 	cargo test -q -p vtium-font --test set
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 .PHONY: fuzz
 # FUZZ_TARGETS and FUZZ_TIME reach tools/fuzz/run through the environment;
@@ -492,6 +492,27 @@ specimens-check: ## Draw the specimens again: an accepted profile that moved fai
 specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, checking each SHA-256
 	cargo build --release -p vtium-specimens --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
+
+# The documentation site (ADR-1502): Zensical, pinned with hashes in
+# tools/site/requirements.txt, installed into a virtual environment under
+# target/ and run from there. Its first run needs Python 3.11 or later and the
+# network. None of these targets is a gate; CI's docs job runs the same strict
+# build.
+SITE_VENV := target/site-venv
+$(SITE_VENV)/installed: tools/site/requirements.txt
+	python3 -m venv $(SITE_VENV)
+	$(SITE_VENV)/bin/pip install --quiet --require-hashes -r tools/site/requirements.txt
+	touch $@
+
+.PHONY: docs docs-serve showcase
+docs: $(SITE_VENV)/installed ## Build the documentation site into target/site in strict mode, which fails on a broken link or anchor
+	$(SITE_VENV)/bin/zensical build --strict --clean
+
+docs-serve: $(SITE_VENV)/installed ## Serve the documentation site at http://localhost:8000 and rebuild it as you edit; it checks no links, so run make docs too
+	$(SITE_VENV)/bin/zensical serve
+
+showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
+	tools/tier3/showcase.sh
 
 .PHONY: tier2-provenance
 tier2-provenance: ## Check tools/tier2's copies against their sources with git show (KMSCON=DIR)

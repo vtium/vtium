@@ -6,7 +6,7 @@ A QHD monitor: 2560x1440, 24-bit color, drawn in `desktop` at 14x32, 182x45 cell
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 2560x1440, 24-bit color | order unknown | 14x32 | 182x45 | `desktop`, the frit [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
+| 2560x1440, 24-bit color | order unknown | 14x32 | 182x45 | `desktop`, the frit [`desktop.vtfrit`](https://github.com/vtium/vtium/blob/main/tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
 
 ## Why this font
 

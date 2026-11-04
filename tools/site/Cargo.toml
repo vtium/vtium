@@ -1,0 +1,21 @@
+# The documentation site's menu check (ADR-1502 D3): Zensical's strict build
+# fails on a broken link or anchor, but builds a page that its menu leaves
+# out without a word, so this crate's test reads zensical.toml and fails on
+# such a page, and on a menu entry that names a missing file.
+[package]
+name = "vtium-site"
+description = "Checks the documentation site's menu against the pages under docs/"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# reads zensical.toml, the site's configuration
+toml = "1.1.2"

@@ -240,9 +240,11 @@ def run(args, log):
     if interrupted is not None:
         return 130 if isinstance(interrupted, KeyboardInterrupt) else 128 + signal.SIGTERM
     # "near" is a difference within the case's reviewed tolerance,
-    # "departure" one a listed departure explains, and "provisional" a case
-    # whose golden is not yet reviewed: all pass.
-    passed = all(c["status"] in ("pass", "near", "departure", "provisional") for c in cases)
+    # "departure" one a listed departure explains, "provisional" a case
+    # whose golden is not yet reviewed, and "capture" a showcase case, which
+    # no golden judges: all pass.
+    passed = all(c["status"] in ("pass", "near", "departure", "provisional", "capture")
+                 for c in cases)
     return 0 if passed and t3_impl.within_budget(impl) else 1
 
 

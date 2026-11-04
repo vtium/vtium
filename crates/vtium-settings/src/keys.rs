@@ -175,7 +175,7 @@ pub const VERSION: Key = Key {
     default: Default::Switch(false),
     scope: Scope::CommandLine,
     reader: "vtium",
-    what: "Print the version and exit.",
+    what: "Print three lines and exit: the version, the revision the build was made from, and the features it was built with on top of minspec, or none.",
     cite: "src/config.c:1343",
 };
 

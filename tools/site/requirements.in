@@ -1,0 +1,6 @@
+# The packages that build vtium's documentation site (ADR-1502 D5).
+# requirements.txt pins them, with the hash of every file of every package,
+# and is compiled from this file with:
+#   uv pip compile --universal --generate-hashes --python-version 3.12 --no-header tools/site/requirements.in -o tools/site/requirements.txt
+# A change of the pin is a commit of its own.
+zensical==0.0.74
