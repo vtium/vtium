@@ -52,6 +52,28 @@ fn help() -> String {
     out
 }
 
+/// What `--version` prints: the package's version, as it always has on
+/// its first line, then the build's revision and the features it was built
+/// with on top of minspec, `none` where it has none, so that
+/// `vtium-config report` can tell a build apart (ADR-1200 D24).
+fn version() -> String {
+    let on: Vec<&str> = vtium::video::FEATURES_ON_TOP
+        .iter()
+        .filter(|(_, on)| *on)
+        .map(|(name, _)| *name)
+        .collect();
+    let features = if on.is_empty() {
+        "none".to_owned()
+    } else {
+        on.join(" ")
+    };
+    format!(
+        "vtium {}\nrevision {}\nfeatures {features}\n",
+        env!("CARGO_PKG_VERSION"),
+        vtium::logger::REVISION
+    )
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the binary's loop reads the clock and passes it in (docs/architecture.md, Determinism)"
@@ -92,7 +114,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     if config.switch(&keys::VERSION) {
-        println!("vtium {}", env!("CARGO_PKG_VERSION"));
+        print!("{}", version());
         return ExitCode::SUCCESS;
     }
     log::info!(target: "log", "{}", vtium::logger::revision());
@@ -269,4 +291,40 @@ fn run(
     drop(app);
     drop(lp);
     Ok(exit.status())
+}
+
+#[cfg(test)]
+mod tests {
+    /// `--version` keeps its first line as it was, so a reader of that line
+    /// alone sees no change, and adds the revision and the features, each
+    /// read here from the build itself.
+    #[test]
+    fn version_names_the_revision_and_the_features_built() {
+        let text = super::version();
+        let lines: Vec<&str> = text.lines().collect();
+        let built: Vec<&str> = [
+            ("gpu", cfg!(feature = "gpu")),
+            ("images", cfg!(feature = "images")),
+            ("logind", cfg!(feature = "logind")),
+        ]
+        .iter()
+        .filter(|(_, on)| *on)
+        .map(|(name, _)| *name)
+        .collect();
+        let features = if built.is_empty() {
+            "features none".to_owned()
+        } else {
+            format!("features {}", built.join(" "))
+        };
+        assert_eq!(
+            lines,
+            [
+                format!("vtium {}", env!("CARGO_PKG_VERSION")).as_str(),
+                format!("revision {}", vtium::logger::REVISION).as_str(),
+                features.as_str(),
+            ],
+            "{text}"
+        );
+        assert!(text.ends_with('\n'), "{text:?}");
+    }
 }
