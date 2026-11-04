@@ -1,8 +1,8 @@
 //! The GPU path's side of tier 2 (ADR-1303 D1): each screen the GPU path
-//! draws has a sidecar of its own holding the starting tolerance, and the
-//! judge sees a GPU path that draws nothing. The pixels are judged on a
-//! real GL; here the stand-in GL draws through the whole GPU path and reads
-//! back zeros.
+//! draws has a sidecar of its own, exact for now; on the stand-in GL, which
+//! draws through the whole GPU path and reads back zeros, the judge sees a
+//! GPU path that draws nothing; and on Mesa's llvmpipe the GPU path draws
+//! screens, a turned notice among them, on the CPU path's pixels.
 #![cfg(feature = "gpu")]
 
 use std::fs;
@@ -10,8 +10,7 @@ use std::path::{Path, PathBuf};
 
 use vtium_render::gpu::StandIn;
 use vtium_tier2::compare::Verdict;
-use vtium_tier2::gpu::{self, MAX_DELTA, MAX_PIXELS_PERCENT};
-use vtium_tier2::ppm;
+use vtium_tier2::gpu;
 use vtium_tier2::screens::CASES;
 use vtium_tier2::tol::Tolerance;
 
@@ -28,37 +27,23 @@ fn drawn() -> Vec<&'static str> {
         .collect()
 }
 
-/// The size of `name`'s golden.
-fn size(name: &str) -> (u32, u32) {
-    let root = root();
-    let path = [
-        root.join("goldens").join(format!("{name}.ppm")),
-        root.join("reference/goldens").join(format!("{name}.ppm")),
-    ]
-    .into_iter()
-    .find(|p| p.exists())
-    .unwrap_or_else(|| panic!("{name}: no golden"));
-    let img = ppm::parse(&fs::read(&path).unwrap()).unwrap();
-    (img.width(), img.height())
-}
-
 #[test]
-fn every_screen_the_gpu_path_draws_has_its_own_sidecar_at_the_starting_tolerance() {
-    // ADR-1303 D1: max_delta 1, and 3 per cent of the screen's pixels
-    assert_eq!((MAX_DELTA, MAX_PIXELS_PERCENT), (1, 3));
+fn every_screen_the_gpu_path_draws_has_its_own_exact_sidecar() {
+    // the maintainer's decision of 2026-11-03: the GPU path is judged
+    // exactly for now, each sidecar saying so in both limits
     let names = drawn();
     assert!(names.len() > 40, "{names:?}");
     let mut wrong = Vec::new();
     for name in &names {
-        let (w, h) = size(name);
-        let want = Tolerance {
-            max_delta: 1,
-            max_pixels: u64::from(w) * u64::from(h) * 3 / 100,
-            masks: Vec::new(),
-        };
+        let path = root().join("gpu").join(format!("{name}.tol"));
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        let states = text.lines().any(|l| l.trim() == "max_delta=0")
+            && text.lines().any(|l| l.trim() == "max_pixels=0");
         match gpu::sidecar(&root(), name) {
-            Ok(tol) if tol == want && tol == gpu::starting(w, h) => {}
-            other => wrong.push(format!("{name}: {other:?}, want {want:?}")),
+            Ok(tol) if tol == Tolerance::default() && states => {}
+            other => wrong.push(format!(
+                "{name}: {other:?}, want max_delta=0 and max_pixels=0"
+            )),
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
@@ -80,9 +65,9 @@ fn the_screens_the_gpu_path_does_not_draw_yet_say_why() {
         .iter()
         .filter_map(|c| gpu::waits(&c.screen).map(|w| (c.screen.name, w)))
         .collect();
-    assert!(waiting.iter().any(|(n, _)| *n == "edges-right"));
     assert!(waiting.iter().any(|(n, _)| *n == "small-320x240-1bit"));
-    assert!(!waiting.iter().any(|(n, _)| *n == "edges"));
+    // every orientation draws on the GPU path
+    assert!(!waiting.iter().any(|(n, _)| n.starts_with("edges")));
 }
 
 #[test]
@@ -113,4 +98,75 @@ fn a_screen_with_no_sidecar_is_not_judged() {
     let mut gl = StandIn::new();
     let e = gpu::judge(&case.screen, &empty, &mut gl).unwrap_err();
     assert!(e.contains("edges.tol"), "{e}");
+}
+
+// ADR-1303 D1: on Mesa's llvmpipe, through vtium-platform's context and the
+// binary's adapter, the GPU path draws a screen of text, decorations,
+// colors, a notice with its focus mark and a turned display within its
+// sidecar of the CPU path's drawing, and the report names each case
+// covers: platform.gpu
+#[test]
+fn the_gpu_path_on_llvmpipe_draws_within_its_sidecar_of_the_cpu_paths_pixels() {
+    let screens: Vec<_> = CASES
+        .iter()
+        .filter(|c| {
+            ["small-640x480", "osd-minimal-notice-800x480", "edges-left"].contains(&c.screen.name)
+        })
+        .map(|c| c.screen)
+        .collect();
+    assert_eq!(screens.len(), 3);
+    let mut gl = gpu::llvmpipe().unwrap();
+    let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join("gpu-llvmpipe");
+    let _ = fs::remove_dir_all(&out);
+    fs::create_dir_all(&out).unwrap();
+    let reports = gpu::reports(&screens, &root(), &mut gl, (&out, &out));
+    let got: Vec<(String, &str)> = reports
+        .iter()
+        .map(|r| (r.name.clone(), r.status.name()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("edges-left@gpu".to_owned(), "pass"),
+            ("small-640x480@gpu".to_owned(), "pass"),
+            ("osd-minimal-notice-800x480@gpu".to_owned(), "pass"),
+        ],
+        "{reports:?}"
+    );
+    assert!(out.join("small-640x480@gpu.ppm").exists());
+}
+
+// a notice and the focus mark on a turned display reach the GPU path
+// upright, read back through the CPU path's turn, and it draws them on the
+// CPU path's pixels in each orientation
+#[test]
+fn a_notice_on_a_turned_display_draws_on_the_cpu_paths_pixels_on_llvmpipe() {
+    use vtium_render::Orientation;
+    let case = CASES
+        .iter()
+        .find(|c| c.screen.name == "osd-minimal-notice-800x480")
+        .unwrap();
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("gpu-turned");
+    fs::create_dir_all(root.join("gpu")).unwrap();
+    fs::write(
+        root.join("gpu/osd-minimal-notice-800x480.tol"),
+        "max_delta=0\nmax_pixels=0\n",
+    )
+    .unwrap();
+    let mut gl = gpu::llvmpipe().unwrap();
+    for o in [
+        Orientation::Right,
+        Orientation::UpsideDown,
+        Orientation::Left,
+    ] {
+        let mut screen = case.screen;
+        screen.orientation = o;
+        let judged = gpu::judge(&screen, &root, &mut gl).unwrap();
+        assert_eq!(
+            judged.comparison.verdict,
+            Verdict::Pass,
+            "{o:?}: {:?}",
+            judged.comparison
+        );
+    }
 }

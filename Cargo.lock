@@ -892,6 +892,7 @@ dependencies = [
  "vtium-config",
  "vtium-conformance",
  "vtium-font",
+ "vtium-platform",
  "vtium-render",
  "vtium-settings",
  "vtium-term",

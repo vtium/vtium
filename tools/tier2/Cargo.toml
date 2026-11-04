@@ -34,9 +34,13 @@ vtium-settings.workspace = true
 # the console's own overlay, which draws the notices and the on-screen
 # display, and the words of its notices and of the OSD's line
 vtium = { path = "../../crates/vtium" }
+# the GL context the GPU path's screens draw on, Mesa's llvmpipe, which the
+# binary's adapter joins to vtium-render's Gl trait
+vtium-platform = { path = "../../crates/vtium-platform", optional = true }
 
 [features]
-# the GPU path's screens, drawn on a GL and judged against the CPU path's
-# (ADR-1303 D1); off by default, so a workspace build keeps vtium-render
-# without its GPU path, as the minspec build has it
-gpu = ["vtium-render/gpu"]
+# the GPU path's screens, drawn on Mesa's llvmpipe and judged against the
+# CPU path's (ADR-1303 D1); off by default, so a workspace build keeps
+# vtium-render without its GPU path, as the minspec build has it. `make
+# tier2` turns it on
+gpu = ["vtium-render/gpu", "vtium/gpu", "vtium-platform/gpu", "dep:vtium-platform"]
