@@ -10,7 +10,7 @@
 #   gallery -s 4 -n 6 a.png dir     the first six, four rows tall
 #   gallery --help                  the options
 #
-# It needs bash and the usual base tools (stty, od, base64, tr, sort). The
+# It needs bash and the usual base tools (stty, od, base64, tr, fold, sort). The
 # terminal scales each picture: gallery sends each PNG file as it is, with
 # the box of cells to fit it in, so it needs no image library.
 
@@ -37,8 +37,17 @@ gallery sends PNG files as they are and skips any other file with a note.
 EOF
 }
 
+# $1 with each control character, C0, DEL and C1 (U+0080 to U+009F), made
+# a '?', so a file name never reaches the terminal as a command.
+printable() {
+	local LC_ALL=C s=$1
+	s=${s//[$'\001'-$'\037'$'\177']/?}
+	s=${s//$'\302'[$'\200'-$'\237']/?}
+	printf '%s' "$s"
+}
+
 die() {
-	printf 'gallery: %s\n' "$1" >&2
+	printf 'gallery: %s\n' "$(printable "$1")" >&2
 	exit "${2:-1}"
 }
 
@@ -70,9 +79,9 @@ is_png() {
 }
 take() {
 	if is_png "$1"; then
-		files+=("$1") names+=("${1##*/}")
+		files+=("$1") names+=("$(printable "${1##*/}")")
 	else
-		skipped+=("${1##*/}")
+		skipped+=("$(printable "${1##*/}")")
 	fi
 }
 for a in "$@"; do
@@ -97,20 +106,31 @@ if [ -n "$count" ] && ((count < ${#files[@]})); then
 fi
 
 # The terminal's size in rows and columns, from stty, else from LINES and
-# COLUMNS.
+# COLUMNS, else 24 by 80; each is checked to be a number before any
+# arithmetic reads it.
+number() { [[ $1 =~ ^[1-9][0-9]{0,4}$ ]]; }
 read -r rows cols < <(stty size 2>/dev/null </dev/tty) || true
-[[ ${rows:-} =~ ^[1-9][0-9]*$ && ${cols:-} =~ ^[1-9][0-9]*$ ]] || {
-	rows=${LINES:-24} cols=${COLUMNS:-80}
-}
+if ! number "${rows:-}" || ! number "${cols:-}"; then
+	rows=${LINES:-} cols=${COLUMNS:-}
+	number "$rows" || rows=24
+	number "$cols" || cols=80
+fi
 
 # Asks the terminal, through /dev/tty, whether it draws kitty graphics, and
 # the size of its cell in pixels (XTWINOPS 16). Primary device attributes,
 # which every terminal answers, end the replies; the wait ends after a
-# second with no reply.
+# second with no reply. The terminal's modes are restored however the
+# question ends, an interrupt included. Returns 2 when there is no terminal
+# to ask.
 cw=1 ch=2
 ask() {
 	local saved reply='' c
-	saved=$(stty -g 2>/dev/null </dev/tty) || return 1
+	saved=$(stty -g 2>/dev/null </dev/tty) || return 2
+	# shellcheck disable=SC2064 # the modes are fixed when the trap is set
+	trap "stty '$saved' </dev/tty" EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	trap 'exit 129' HUP
 	stty raw -echo </dev/tty
 	printf '\033_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\033\\\033[16t\033[c' >/dev/tty
 	while IFS= read -rsn1 -t 1 c </dev/tty; do
@@ -118,14 +138,19 @@ ask() {
 		[[ $reply == *$'\e[?'*c ]] && break
 	done
 	stty "$saved" </dev/tty
+	trap - EXIT INT TERM HUP
 	reply=${reply%%$'\e[?'*}
 	[[ $reply == *$'\e_Gi=31;OK\e\\'* ]] || return 1
-	if [[ $reply =~ $'\e'\[6\;([1-9][0-9]*)\;([1-9][0-9]*)t ]]; then
+	if [[ $reply =~ $'\e'\[6\;([1-9][0-9]{0,4})\;([1-9][0-9]{0,4})t ]]; then
 		ch=${BASH_REMATCH[1]} cw=${BASH_REMATCH[2]}
 	fi
 }
-if ((probe)) && ! ask; then
-	die "the terminal did not answer that it draws kitty graphics; gallery needs kitty, WezTerm, Ghostty or vtium (--no-probe draws anyway)"
+if ((probe)); then
+	ask
+	case $? in
+	1) die "the terminal did not answer that it draws kitty graphics; gallery needs kitty, WezTerm, Ghostty or vtium (--no-probe draws anyway)" ;;
+	2) die "no terminal to ask whether it draws kitty graphics (--no-probe draws anyway)" ;;
+	esac
 fi
 
 # Each thumbnail is `size` rows tall and keeps its picture's shape, at most
@@ -153,19 +178,28 @@ done
 across=$((cols / (widest + 2)))
 ((across >= 1)) || across=1
 slot=$((cols / across))
+# A column too narrow for a letter and its gap takes no label.
+((slot < 3)) && labels=0
+# Whether the locale counts a name in bytes, not characters, as C does; a
+# name cut there drops the bytes past plain ASCII at the cut's end, so no
+# character is split.
+bytes=0
+wide='é'
+((${#wide} > 1)) && bytes=1
 
 # The kitty command $1 with the file $2 as its payload, in base64 chunks of
-# 4096 bytes.
+# 4096 bytes, each chunk read as a line from fold so the time grows with the
+# file's size; every chunk but the last says more follow (m=1).
 send() {
-	local data i
-	data=$(base64 <"$2" | tr -d '\n')
-	for ((i = 0; i < ${#data}; i += 4096)); do
-		if ((i == 0)); then
-			printf '\033_G%s,m=%d;%s\033\\' "$1" $((i + 4096 < ${#data})) "${data:i:4096}"
-		else
-			printf '\033_Gm=%d;%s\033\\' $((i + 4096 < ${#data})) "${data:i:4096}"
-		fi
-	done
+	local head="$1," chunk next
+	{
+		IFS= read -r chunk
+		while IFS= read -r next; do
+			printf '\033_G%sm=1;%s\033\\' "$head" "$chunk"
+			head='' chunk=$next
+		done
+		printf '\033_G%sm=0;%s\033\\' "$head" "$chunk"
+	} < <(base64 <"$2" | tr -d '\n' | fold -w 4096; echo)
 }
 
 # Each row of the grid: room made for the thumbnails, each placed in its
@@ -186,7 +220,13 @@ for ((first = 0; first < ${#files[@]}; first += across)); do
 	if ((labels)); then
 		for ((i = first; i < last; i++)); do
 			label=${names[i]}
-			((${#label} > slot - 1)) && label="${label:0:slot - 2}…"
+			if ((${#label} > slot - 1)); then
+				label=${label:0:slot - 2}
+				if ((bytes)); then
+					while [[ $label == *[$'\200'-$'\377'] ]]; do label=${label%?}; done
+				fi
+				label="$label…"
+			fi
 			printf '\033[%dG%s' $(((i - first) * slot + (slot - ${#label}) / 2 + 1)) "$label"
 		done
 		printf '\n'

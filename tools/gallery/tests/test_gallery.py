@@ -5,9 +5,13 @@ runs them."""
 
 import base64
 import os
+import random
+import re
+import signal
 import struct
 import subprocess
 import sys
+import termios
 import tempfile
 import unittest
 import zlib
@@ -21,12 +25,16 @@ GALLERY = os.path.join(os.path.dirname(HERE), "gallery")
 PROBE = b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[16t\x1b[c"
 
 
-def png(width, height, rgb=(200, 80, 40)):
-    """A PNG file of `width` by `height` pixels of one color."""
+def png(width, height, rgb=(200, 80, 40), seed=None):
+    """A PNG file of `width` by `height` pixels of one color, or with a
+    `seed`, of noise from a seeded random source, which does not
+    compress."""
     def chunk(kind, payload):
         return (struct.pack(">I", len(payload)) + kind + payload
                 + struct.pack(">I", zlib.crc32(kind + payload)))
-    raw = b"".join(b"\0" + bytes(rgb) * width for _ in range(height))
+    noise = random.Random(seed)
+    raw = b"".join(b"\0" + (noise.randbytes(3 * width) if seed is not None else bytes(rgb) * width)
+                   for _ in range(height))
     return (b"\x89PNG\r\n\x1a\n"
             + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
@@ -60,12 +68,12 @@ class GalleryTest(unittest.TestCase):
         self.files[name] = data
         return data
 
-    def gallery(self, *args, columns=40, lines=24):
+    def gallery(self, *args, columns=40, lines=24, locale="C.UTF-8"):
         """The tool run with `args` in a session with no terminal, so its
         size comes from LINES and COLUMNS: (exit status, stdout, stderr)."""
         p = subprocess.run([GALLERY, *args], stdin=subprocess.DEVNULL, capture_output=True,
-                           start_new_session=True, timeout=60,
-                           env={"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8",
+                           start_new_session=True, timeout=60, cwd=self.dir,
+                           env={"PATH": os.environ["PATH"], "LC_ALL": locale,
                                 "COLUMNS": str(columns), "LINES": str(lines)})
         return p.returncode, p.stdout, p.stderr
 
@@ -151,17 +159,110 @@ class GalleryTest(unittest.TestCase):
         # to the width stty gives; on one that does not, it says so on one
         # line and draws nothing.
         square = self.add("a.png", png(16, 16))
-        status, out = terminal.run([GALLERY, "-s", "2", self.dir],
+        status, out, _ = terminal.run([GALLERY, "-s", "2", self.dir],
                                    terminal.answers(cell=(16, 40)), cols=40)
         self.assertEqual(status, 0)
         self.assertEqual(out, PROBE + b"\n\n\x1b[2A\x1b[2G"
                          + kitty(b"a=T,f=100,t=d,q=2,C=1,c=5,r=2", square)
                          + b"\n\n\x1b[2Ga.png\n")
-        status, out = terminal.run([GALLERY, self.dir], terminal.answers(kitty=False))
+        status, out, _ = terminal.run([GALLERY, self.dir], terminal.answers(kitty=False))
         self.assertEqual(status, 1)
         self.assertEqual(out, PROBE + b"gallery: the terminal did not answer that it draws kitty "
                          b"graphics; gallery needs kitty, WezTerm, Ghostty or vtium (--no-probe "
                          b"draws anyway)\n")
+
+
+    def test_a_silent_terminal_or_none(self):
+        # A terminal that answers nothing at all ends the wait after a
+        # second, and the tool says so on one line; with no terminal to
+        # ask, it says that instead. The run's timeout only bounds the wait.
+        self.add("a.png", png(16, 16))
+        status, out, _ = terminal.run([GALLERY, self.dir], lambda query: b"", timeout=10)
+        self.assertEqual(status, 1)
+        self.assertEqual(out, PROBE + b"gallery: the terminal did not answer that it draws kitty "
+                         b"graphics; gallery needs kitty, WezTerm, Ghostty or vtium (--no-probe "
+                         b"draws anyway)\n")
+        self.assertEqual(self.gallery(self.dir), (
+            1, b"", b"gallery: no terminal to ask whether it draws kitty graphics "
+                    b"(--no-probe draws anyway)\n"))
+
+    def test_an_interrupted_question_restores_the_terminal(self):
+        # Interrupted while it waits for the terminal's answer, the tool puts
+        # back the terminal's modes, echo and line editing, before it ends.
+        self.add("a.png", png(16, 16))
+        status, out, modes = terminal.run([GALLERY, self.dir], terminal.answers(), timeout=10,
+                                          cooked=True, interrupt=signal.SIGINT)
+        self.assertEqual(status, 130)
+        self.assertEqual(modes & (termios.ECHO | termios.ICANON), termios.ECHO | termios.ICANON)
+
+    def test_long_pictures_go_in_chunks_of_4096(self):
+        # A picture whose base64 passes 8192 bytes goes in three or more
+        # chunks of 4096 and a last one, and one whose base64 is exactly
+        # 8192 bytes in two of 4096, the last with m=0 and no empty chunk
+        # after it.
+        noise = self.add("a.png", png(64, 64, seed=1))
+        self.assertGreater(len(base64.b64encode(noise)), 3 * 4096)
+        status, out, _ = self.gallery("--no-probe", "-s", "2", self.dir)
+        self.assertEqual(status, 0)
+        self.assertIn(kitty(b"a=T,f=100,t=d,q=2,C=1,c=4,r=2", noise), out)
+        os.unlink(os.path.join(self.dir, "a.png"))
+        exact = png(16, 16)
+        exact = self.add("b.png", exact + b"\0" * (6144 - len(exact)))
+        self.assertEqual(len(base64.b64encode(exact)), 8192)
+        status, out, _ = self.gallery("--no-probe", "-s", "2", self.dir)
+        self.assertIn(kitty(b"a=T,f=100,t=d,q=2,C=1,c=4,r=2", exact), out)
+        self.assertEqual(out.count(b"\x1b_G"), 2)
+
+    def test_names_cannot_command_the_terminal(self):
+        # Control characters in a name, ESC, BEL, a newline and C1's CSI,
+        # reach the terminal as '?', in a picture's label, in the note of a
+        # skipped file and in a refusal; the only escape sequences on stdout
+        # are the tool's own, and stderr carries none.
+        bad = b"\x1b]52;c;aGk=\x07\n\xc2\x9b"
+        with open(os.path.join(self.dir.encode(), b"a" + bad + b".png"), "wb") as f:
+            f.write(png(16, 16))
+        with open(os.path.join(self.dir.encode(), b"b" + bad + b".txt"), "wb") as f:
+            f.write(b"text")
+        status, out, err = self.gallery("--no-probe", "-s", "10", self.dir, columns=80)
+        self.assertEqual(status, 0)
+        own = re.sub(rb"\x1b\[\d+[ABG]|\x1b_G[^\x1b]*\x1b\\", b"", out)
+        for c in (b"\x1b", b"\x07", b"\xc2\x9b"):
+            self.assertNotIn(c, own)
+            self.assertNotIn(c, err)
+        self.assertIn(b"a?]52;c;aGk=???.png", own)
+        self.assertEqual(out.count(b"\n"), 21)
+        self.assertEqual(err, b"gallery: skipped 1 file(s) that are not PNG: b?]52;c;aGk=???.txt\n")
+        status, out, err = self.gallery(os.path.join(self.dir, "x\x1b]0;t\x07"))
+        self.assertEqual((status, out), (2, b""))
+        self.assertTrue(err.endswith(b"/x?]0;t?\n"), err)
+
+    def test_sizes_from_the_environment_are_numbers(self):
+        # LINES and COLUMNS that are not numbers are not read as arithmetic,
+        # which would run a command, and 80 by 24 stands in.
+        self.add("a.png", png(16, 16))
+        canary = os.path.join(self.dir, "ran")
+        p = subprocess.run([GALLERY, "--no-probe", "-s", "2", self.dir],
+                           stdin=subprocess.DEVNULL, capture_output=True, start_new_session=True,
+                           timeout=60, env={"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8",
+                                            "COLUMNS": "PATH[$(touch %s)]" % canary,
+                                            "LINES": "x[$(touch %s)]" % canary})
+        self.assertEqual(p.returncode, 0)
+        self.assertFalse(os.path.exists(canary))
+        self.assertEqual(p.stdout, self.gallery("--no-probe", "-s", "2", self.dir, columns=80)[1])
+
+    def test_narrow_terminals_and_byte_locales(self):
+        # Columns too narrow for a name take none, and no position is less
+        # than 1; in a locale that counts bytes, a cut name keeps whole
+        # characters.
+        self.add("été-long.png", png(16, 16))
+        status, out, _ = self.gallery("--no-probe", "-s", "2", self.dir, columns=1)
+        self.assertEqual(status, 0)
+        self.assertNotIn(b"\x1b[-", out)
+        self.assertNotIn(b".png", out)
+        status, out, _ = self.gallery("--no-probe", "-s", "2", self.dir, columns=6, locale="C")
+        label = out.rsplit(b"G", 1)[1]
+        self.assertEqual(label, "ét…\n".encode())
+        label.decode()
 
 
 if __name__ == "__main__":

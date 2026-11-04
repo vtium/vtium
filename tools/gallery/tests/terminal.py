@@ -50,13 +50,17 @@ def answers(kitty=True, cell=(8, 16), font=None):
     return reply
 
 
-def run(argv, reply, rows=24, cols=80, env=None, timeout=60):
+def run(argv, reply, rows=24, cols=80, env=None, timeout=60, cooked=False, interrupt=None):
     """Runs `argv` on a pseudo-terminal of `rows` by `cols`, answering each
     query it writes with `reply(query)`, and returns (its exit status,
-    everything it wrote). A command still running after `timeout` seconds
-    is killed and the run fails."""
+    everything it wrote, the terminal's local modes when it ended). The
+    terminal starts raw, or `cooked`, with echo and line editing on. With
+    `interrupt`, a signal, the command gets that signal in place of the
+    answer to its first query for primary device attributes. A command
+    still running after `timeout` seconds is killed and the run fails."""
     master, slave = os.openpty()
-    tty.setraw(slave)
+    if not cooked:
+        tty.setraw(slave)
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     proc = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave,
                             start_new_session=True, env=env,
@@ -78,11 +82,16 @@ def run(argv, reply, rows=24, cols=80, env=None, timeout=60):
                 break
             out += data
             for m in QUERIES.finditer(out, scanned):
+                scanned = m.end()
+                if interrupt and m.group(0) == b"\x1b[c":
+                    os.killpg(proc.pid, interrupt)
+                    interrupt = None
+                    continue
                 answer = reply(m.group(0))
                 if answer:
                     os.write(master, answer)
-                scanned = m.end()
         proc.wait(max(0.0, deadline - time.monotonic()))
+        modes = termios.tcgetattr(master)[3]
     finally:
         os.close(master)
-    return proc.returncode, bytes(out)
+    return proc.returncode, bytes(out), modes

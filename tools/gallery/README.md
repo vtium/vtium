@@ -10,7 +10,7 @@ tools/gallery/gallery ~/Pictures
 
 ## How it works
 
-`gallery` sends each PNG file to the terminal as it is, with the kitty graphics protocol, and tells the terminal the box of cells to draw it in. The terminal scales the picture into the box, so `gallery` needs no image library and no converter. It needs only bash and the tools every Linux system has: `stty`, `od`, `base64`, `tr` and `sort`.
+`gallery` sends each PNG file to the terminal as it is, with the kitty graphics protocol, and tells the terminal the box of cells to draw it in. The terminal scales the picture into the box, so `gallery` needs no image library and no converter. It needs only bash and the tools every Linux system has: `stty`, `od`, `base64`, `tr`, `fold` and `sort`.
 
 A directory stands for the files in it, in name order, and no arguments means the current directory. The same pictures give the same output every time. `gallery` sends PNG files only. It skips any other file, such as a JPEG, and names the files it skipped on one line. To show a JPEG, convert it to PNG first with a program such as ImageMagick.
 
@@ -24,7 +24,9 @@ Each thumbnail is N rows tall, where N is the `-s` size, and keeps its picture's
 
 A thumbnail wider than twice its height in pixels is made narrower, and fewer rows tall, to fit that limit. When the terminal does not report its cell size, or `--no-probe` skips the question, `gallery` takes the cells to be twice as tall as they are wide, the shape of most terminal fonts. Then a square picture is 2N columns wide.
 
-The grid's columns are all as wide as the widest thumbnail and two more, and they are spread evenly across the terminal's width. Each thumbnail is centered in its column, and its file name is centered under it, cut to the column's width less one with an ellipsis.
+The grid's columns are all as wide as the widest thumbnail and two more, and they are spread evenly across the terminal's width. Each thumbnail is centered in its column, and its file name is centered under it, cut to the column's width less one with an ellipsis. A column narrower than three cells takes no name.
+
+`gallery` measures a name in characters, not in the columns they fill. A name with wide characters, such as Chinese or Japanese, which take two columns each, can run into the next column. In a locale that is not UTF-8, such as `C`, a name is measured in bytes, and a cut name drops the bytes past plain ASCII at the cut's end so that no character is split. A control character in a name, such as an escape or a newline, is shown as `?`, so a file name cannot send the terminal a command.
 
 ## Options
 
