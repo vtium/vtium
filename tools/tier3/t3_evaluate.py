@@ -357,12 +357,15 @@ def check_goldens(cases_of, root, provisional=()):
 SCREEN_TIMEOUT = 10
 
 
-def header(case):
-    """The leading comment lines of a screen's script, by field: "" for the
-    caption, then the "# look-for:", "# wrong-looks-like:", "# screen-text:"
-    and "# kit:" lines (the local VT demo's review kit)."""
-    fields = {"": [], "look-for": [], "wrong-looks-like": [], "screen-text": [], "kit": []}
-    with open(os.path.join(GUEST, "screens", case + ".sh")) as f:
+def header(case, script=None):
+    """The leading comment lines of a screen's script, or of `script` in the
+    screens' directory, by field: "" for the caption, then the "# look-for:",
+    "# wrong-looks-like:", "# screen-text:" and "# kit:" lines (the local VT
+    demo's review kit), and the "# alt:" lines, a showcase scene's alt text
+    (t3_showcase)."""
+    fields = {"": [], "look-for": [], "wrong-looks-like": [], "screen-text": [], "kit": [],
+              "alt": []}
+    with open(os.path.join(GUEST, "screens", script or case + ".sh")) as f:
         for line in f:
             if line.startswith("#!"):  # the script's interpreter
                 continue
@@ -450,10 +453,14 @@ def write_thumb(img, path):
     return rel(path)
 
 
-def evaluate(variant, case, ppm, meta, log, golden_root=None):
+def evaluate(variant, case, ppm, meta, log, golden_root=None, verdict=None):
     """The report entry for one case, from its capture (or None), judged by
-    the golden under `golden_root` (golden_for)."""
-    golden, tolpath = golden_for(variant, case, golden_root)
+    the golden under `golden_root` (golden_for). A case of a variant whose
+    `verdict` is "capture", the showcase's, has no golden: it carries the
+    status capture once captured, which passes and judges nothing, and
+    fails only when it has no capture or the scenario found it wrong."""
+    golden, tolpath = (None, None) if verdict == "capture" else golden_for(variant, case,
+                                                                            golden_root)
     stem = os.path.join(RUNDIR, variant, case)
     description, wrong = describe(case)
     if t3_devices.split(case)[0] == "vt-restore" and variant in RESTORED:
@@ -484,9 +491,16 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
         entry["error"] = meta.get("errors", {}).get(case) or meta.get("error", "no capture")
         return entry
     img = t3img.read(ppm)
+    os.makedirs(os.path.dirname(stem), exist_ok=True)
     t3img.write_png(stem + ".png", img)
     entry["actual"] = rel(stem + ".png")
     entry["thumb_actual"] = write_thumb(t3img.thumbnail(img), stem + ".thumb.png")
+    if verdict == "capture":
+        entry["status"] = "capture"
+        error = meta.get("errors", {}).get(case)
+        if error:
+            entry["status"], entry["error"] = "fail", error
+        return entry
     if golden is None:  # a check, passed when the capture was taken
         entry["status"] = "pass"
         if meta.get("notes", {}).get(case):

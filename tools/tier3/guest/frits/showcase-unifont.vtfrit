@@ -1,0 +1,6 @@
+# tier 3's showcase fonts scene, the built-in band: vtium's own GNU Unifont
+# at twice its 8x16 size, in a cell of 16x32.
+name=showcase-unifont
+license=OFL-1.1
+source=builtin:unifont
+cell=16x32

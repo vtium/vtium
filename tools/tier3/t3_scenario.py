@@ -15,6 +15,7 @@ import t3_images
 import t3_pointer
 import t3_pictures
 import t3_power
+import t3_showcase
 import t3img
 from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, ROOT, RUNDIR, rel
 from t3_evaluate import (BENCHMARKS, CASES, DRAWS_PICTURES, IMAGE_SCREENS, KEYED, KEYS_AFTER,
@@ -333,6 +334,31 @@ VARIANTS["images-640x480-nobody"] = dict(VARIANTS["images-640x480"], image_accou
                                          login=False, screens=[], rpc_pipefs=False)
 IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody"]
 
+# The showcase (ADR-1502 D6, t3_showcase): the default machine at 1920x1080,
+# its console built with images and drawing on the CPU renderer, with the
+# scenes the documentation shows ("screens") in Iosevka Term and the fonts
+# t3_showcase pins, which the disc carries ("showcase"), named by frits the
+# helper generates at run time ("deferred_frits"). The fonts scene
+# switches the console to each of the other frits with OSC 50. Its cases
+# carry the status capture ("verdict"): each passes once it is captured and
+# judges nothing, and no golden judges it. It switches no VT, and runs only
+# when named, by tools/tier3/showcase.sh.
+VARIANTS["showcase-1920x1080"] = {
+    "device": "virtio-vga,xres=1920,yres=1080,edid=on",
+    "display": "none",
+    "conf": "kmscon-showcase.conf",
+    "renderer": "bbulk",
+    "cpus": 4,
+    "memory_mb": 4096,
+    "tree_features": ["images"],
+    "deferred_frits": ["showcase-iosevka.vtfrit", "showcase-jetbrains.vtfrit",
+                       "showcase-terminus.vtfrit", "showcase-unifont.vtfrit"],
+    "screens": t3_showcase.SCREENS,
+    "showcase": True,
+    "verdict": "capture",
+    "vt_switch": False,
+}
+
 # The head file (ADR-1401) on the guest's real KMS device and systemd
 # (t3_heads), on the device variants' machine, each run only when named.
 # A variant names its head file ("heads", from the repository's root), the
@@ -502,8 +528,10 @@ def vtium_golden_cases():
 
 def c_golden_cases():
     """{variant: its cases} for every variant judged by the C reference's
-    goldens."""
-    return {v: variant_cases(v) for v in VARIANTS if not VARIANTS[v].get("goldens")}
+    goldens: all but those judged by vtium's ("goldens") and those whose
+    cases no golden judges ("verdict")."""
+    return {v: variant_cases(v) for v in VARIANTS
+            if not VARIANTS[v].get("goldens") and not VARIANTS[v].get("verdict")}
 
 
 def golden_root(variant, case):
@@ -525,8 +553,10 @@ def golden_root(variant, case):
 
 def evaluate_variant(variant, caps, meta, log):
     """The report entries of `variant`'s cases from their captures, each
-    judged by the goldens golden_root names."""
-    return [evaluate(variant, case, caps.get(case), meta, log, golden_root(variant, case))
+    judged by the goldens golden_root names, or given the variant's own
+    verdict ("verdict"), which no golden decides."""
+    return [evaluate(variant, case, caps.get(case), meta, log, golden_root(variant, case),
+                     verdict=VARIANTS[variant].get("verdict"))
             for case in variant_cases(variant)]
 
 
@@ -613,8 +643,9 @@ def build_disc(variant, work, impl):
     its features if it names any, the test fonts if it draws with them, the
     frits it builds, the frits it installs to be generated at run time, a
     `helper-held` file if its helper never answers, a `pointer` file if it
-    reads the cursor plane, a
-    `no-udev` file if it runs without a udev daemon, the test pictures
+    reads the cursor plane, the showcase's fonts in showcase-fonts and its
+    pictures and palettes in screens/showcase (t3_showcase) if it draws the
+    showcase, a `no-udev` file if it runs without a udev daemon, the test pictures
     (t3_pictures) in screens/pictures if it draws them, a `two-vts` file
     if it runs a second vtium on tty3 from the boot, a `udev-examples`
     file if it runs that check, whose guest installs the example hwdb
@@ -630,6 +661,9 @@ def build_disc(variant, work, impl):
     shutil.copy(os.path.join(GUEST, "t3"), disc)
     if VARIANTS[variant].get("pictures"):
         t3_pictures.write(os.path.join(disc, "screens", "pictures"))
+    if VARIANTS[variant].get("showcase"):
+        t3_showcase.disc_fonts(disc)
+        t3_showcase.disc_screens(os.path.join(disc, "screens"))
     if VARIANTS[variant].get("image_account") == "nobody":
         open(os.path.join(disc, "no-image-account"), "w").close()
     if VARIANTS[variant].get("rpc_pipefs"):
@@ -1025,6 +1059,10 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
             why = judge_replies(name, screen_replies(events, name))
             if why:
                 errors[name] = "; ".join(filter(None, (errors.get(name), why)))
+        if v.get("showcase"):
+            why = t3_showcase.faults(events, name)
+            if why:
+                errors[name] = "; ".join(filter(None, [errors.get(name)] + why))
         for screen, case, chords in KEYED:
             if screen != name or case not in variant_cases(variant):
                 continue
