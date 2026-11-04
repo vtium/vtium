@@ -397,17 +397,11 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool an
 	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The key table's crates' unit tests, built as the vtium package builds
-# them, with VTIUM_HWACCEL=on and VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8), in
-# a target directory of their own so the other builds keep their cache.
-# --lib runs the unit tests alone and leaves out every integration test.
-# Until hwaccel leaves the key table's NOT_BUILT, a build with it on says
-# "hwaccel is not built yet" at every start and check-config exits 1, so in
-# such a build vtium config's save path fails: the console's check refuses
-# every draft, and the integration tests of check-config and of saving fail
-# with it. The check's unit tests and the one test that counts its warnings
-# expect a clean start, so they are left out here too. The work that
-# chooses the GPU path removes the note, and with it these exclusions.
-TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 cargo test -q --target-dir $(or $(CARGO_TARGET_DIR),target)/build-settings -p vtium-settings -p vtium -p vtium-config --lib -- --skip check::tests --skip config::tests::sb_memory_past_the_machines_quarter_is_reported_once
+# them, with VTIUM_HWACCEL=on, VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8) and
+# vtium's gpu feature, in a target directory of their own so the other
+# builds keep their cache. --lib runs the unit tests alone and leaves out
+# every integration test.
+TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 cargo test -q --target-dir $(or $(CARGO_TARGET_DIR),target)/build-settings -p vtium-settings -p vtium -p vtium-config --features vtium/gpu --lib
 
 .PHONY: fuzz
 # FUZZ_TARGETS and FUZZ_TIME reach tools/fuzz/run through the environment;
