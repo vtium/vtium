@@ -1656,7 +1656,8 @@ fn a_lit_display_the_card_refuses_on_its_new_crtc_goes_back() {
 // and 101, C is lit on 101 and drives 101 and 102, and B, plugged in,
 // drives only 100; the card refuses 102. The hotplug moves A to 101 and C
 // to 102 for B, the card refuses C on 102, and A and C go back to 100 and
-// 101 and light there, while B stays off.
+// 101 and light there, while B stays off. B is recorded as refused: it sat
+// on 100, which A, sent back by C's refusal, was lit on.
 #[test]
 fn a_chain_of_lit_displays_the_card_refuses_goes_back() {
     const C: u32 = 43;
@@ -1688,6 +1689,7 @@ fn a_chain_of_lit_displays_the_card_refuses_goes_back() {
             assert!(s.page_flips.ends_with(&[(100, a), (101, c)]), "{s:?}");
         }
         assert_eq!(v.card().state().bound.get(&B), None, "atomic {atomic}");
+        assert_eq!(v.move_refused, [B], "atomic {atomic}");
     }
 }
 
@@ -6159,9 +6161,9 @@ fn a_refused_wake_up_puts_a_display_that_was_not_lit_back() {
 /// 102. While vtium is away, a desktop leaves W's connector on 100 and A's
 /// and B's on none, and N is plugged in; the card refuses CRTC `refuse`.
 /// The wake-up puts W on 100, A on 101, off 100, B on 103, off 101, and N
-/// on 102. The wake-up's result, its outputs, and the displays it left
-/// unset.
-fn woken_in_a_chain(atomic: bool, refuse: u32) -> (io::Result<()>, Vec<(u32, u32)>, Vec<u32>) {
+/// on 102. The wake-up's result, its outputs, the displays it left unset,
+/// and the legacy CRTC sets it made, as CRTC and connector.
+fn woken_in_a_chain(atomic: bool, refuse: u32) -> Chain {
     const W: u32 = 43;
     const N: u32 = 44;
     let card = reaching(&[0b0011, 0b1010, 0b0101, 0b0100], 3);
@@ -6180,10 +6182,18 @@ fn woken_in_a_chain(atomic: bool, refuse: u32) -> (io::Result<()>, Vec<(u32, u32
     v.card().state().bind(B, 0);
     v.card().state().listed.push(N);
     v.card().state().refused.push(refuse);
+    let before = v.card().state().set_crtcs.len();
     let woke = v.wake_up();
     let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
-    (woke, outs, v.unset.iter().map(|id| id.0).collect())
+    let sets = v.card().state().set_crtcs[before..]
+        .iter()
+        .map(|&(crtc, _, conn, _)| (crtc, conn))
+        .collect();
+    (woke, outs, v.unset.iter().map(|id| id.0).collect(), sets)
 }
+
+/// What [`woken_in_a_chain`] returns.
+type Chain = (io::Result<()>, Vec<(u32, u32)>, Vec<u32>, Vec<(u32, u32)>);
 
 // A display that cannot go back keeps its CRTC from a display that would
 // go back to it. Here the card refuses N's CRTC, 102. The modeset leaves N
@@ -6196,11 +6206,11 @@ fn woken_in_a_chain(atomic: bool, refuse: u32) -> (io::Result<()>, Vec<(u32, u32
 fn a_display_that_cannot_go_back_holds_its_crtc_for_the_chain() {
     const W: u32 = 43;
     const N: u32 = 44;
-    let (woke, outs, unset) = woken_in_a_chain(true, 102);
+    let (woke, outs, unset, _) = woken_in_a_chain(true, 102);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 101), (B, 103), (W, 100)]);
     assert_eq!(unset, Vec::<u32>::new());
-    let (woke, outs, unset) = woken_in_a_chain(false, 102);
+    let (woke, outs, unset, _) = woken_in_a_chain(false, 102);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 101), (B, 103), (W, 100), (N, 102)]);
     assert_eq!(unset, [N]);
@@ -6209,57 +6219,168 @@ fn a_display_that_cannot_go_back_holds_its_crtc_for_the_chain() {
 // Where the card refuses B's CRTC, 103, B cannot be lit: it drives only
 // 101 and 103, and A cannot leave 101. Still no two displays share a CRTC:
 // A stays on 101 and B on 103. The atomic wake-up fails. With the legacy
-// calls N lights on 102 and B is left unset, to be tried again.
+// calls N lights on 102 and B is left unset, to be tried again. As no
+// display goes back, the legacy calls set each display once and do not
+// set them again.
 #[test]
 fn a_chain_the_card_refuses_never_puts_two_displays_on_one_crtc() {
     const W: u32 = 43;
     const N: u32 = 44;
-    let (woke, outs, _) = woken_in_a_chain(true, 103);
+    let (woke, outs, _, _) = woken_in_a_chain(true, 103);
     assert!(woke.is_err());
     assert_eq!(outs, [(A, 101), (B, 103), (W, 100)]);
-    let (woke, outs, unset) = woken_in_a_chain(false, 103);
+    let (woke, outs, unset, sets) = woken_in_a_chain(false, 103);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 101), (B, 103), (W, 100), (N, 102)]);
     assert_eq!(unset, [B]);
+    assert_eq!(sets, [(101, A), (100, W), (102, N)]);
 }
 
-// Two displays moved off one CRTC do not both go back to it. Here A drives
-// CRTCs 100 and 101, B 100 and 102, and C only 100. While vtium is away a
-// desktop leaves B's connector on 100 and A's on none, and C is plugged
-// in; the card refuses 101. The wake-up puts C on 100, A on 101 and B on
-// 102, both off 100, and the card refuses A on 101. Neither A nor B goes
-// back to 100, so no two displays share a CRTC. With the legacy calls C
-// stays lit on 100 and B on 102, and A, which can drive only 100 and 101,
-// is left unset.
+// With the legacy calls, only the card's refusal of a moved display is
+// recorded. In the card of the test above, A's set on 101 also fails with
+// ENOMEM, a reason that may pass. A and C both go back, and B and D are
+// both left off, but only D, left off because the card refused C on 103,
+// is recorded; the next hotplug moves A for B again.
+#[test]
+fn a_legacy_move_refused_records_only_the_display_its_refusal_left_off() {
+    const C: u32 = 43;
+    const D: u32 = 44;
+    let card = reaching(&[0b0011, 0b0001, 0b1100, 0b0100], 4);
+    {
+        let mut s = card.state();
+        s.atomic = false;
+        s.listed.retain(|&c| c == A || c == C);
+        s.refused.push(103);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.card().state().listed.insert(1, B);
+    v.card().state().listed.push(D);
+    v.card().state().set_crtc_errors.push_back(Errno::NOMEM);
+    v.poll().unwrap();
+    flip(&mut v);
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 100), (C, 102)]);
+    assert_eq!(v.move_refused, [D]);
+}
+
+/// A wake-up with the legacy calls where a desktop left A and B lit on CRTC
+/// 100, both, and C on 101. While vtium is away N, which drives only 101,
+/// is plugged in; with `chain`, C drives 100 and 101 and the wake-up moves
+/// it off 101 for N, and else N drives 100, and nothing sits between. The
+/// card refuses B's new CRTC, and A's set fails with ENOMEM, a reason that
+/// may pass. The wake-up's outputs and the connectors recorded as refused.
+fn woken_with_a_tie(chain: bool) -> (Vec<(u32, u32)>, Vec<u32>) {
+    const C: u32 = 43;
+    const N: u32 = 44;
+    let card = if chain {
+        reaching(&[0b1101, 0b1101, 0b0011, 0b0010], 3)
+    } else {
+        reaching(&[0b011, 0b101, 0b001], 2)
+    };
+    {
+        let mut s = card.state();
+        s.atomic = false;
+        s.bind(A, 100);
+        s.bind(B, 102);
+        if chain {
+            s.bind(C, 101);
+        }
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), B, 100);
+    {
+        let mut s = v.card().state();
+        s.bind(A, 100);
+        if chain {
+            s.bind(C, 101);
+            s.enabled.insert(101, true);
+            s.active.insert(101, true);
+            s.listed.push(N);
+            s.refused.extend([102, 103]);
+        } else {
+            s.listed.push(C);
+            s.refused.push(102);
+        }
+        s.set_crtc_errors.push_back(Errno::NOMEM);
+    }
+    let _ = v.wake_up();
+    let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    (outs, v.move_refused.clone())
+}
+
+// A display left off because of a failure that may pass is not recorded as
+// refused, though another display's refusal comes in the same modeset. In
+// the card of `woken_with_a_tie`, A and B both go back to 100, and A wins
+// by connector order. Without the chain, C is left off for A's ENOMEM; with
+// it, A goes back and C, which sits on the CRTC A goes back to, goes back
+// too, and N is left off for A's ENOMEM. B's refusal sends no display back,
+// so nothing is recorded either way.
+#[test]
+fn a_display_left_off_for_a_passing_failure_is_not_recorded_beside_a_refusal() {
+    const C: u32 = 43;
+    let (outs, refused) = woken_with_a_tie(false);
+    assert_eq!(outs, [(A, 100), (B, 102)]);
+    assert_eq!(refused, Vec::<u32>::new());
+    let (outs, refused) = woken_with_a_tie(true);
+    assert_eq!(outs, [(A, 100), (B, 102), (C, 101)]);
+    assert_eq!(refused, Vec::<u32>::new());
+}
+
+/// A wake-up's result, its outputs as connector and CRTC, the connectors
+/// it left unset, and those whose displays a hotplug moves no lit display
+/// for.
+type Woken = (io::Result<()>, Vec<(u32, u32)>, Vec<u32>, Vec<u32>);
+
+/// A card where A drives CRTCs 100 and 101, B 100 and 102, and C only
+/// 100, with A lit on 100 and B on 102. While vtium is away, a desktop
+/// leaves B's connector on 100 and A's on none, and C is plugged in; the
+/// card refuses the CRTCs `refuse`. The wake-up puts C on 100, A on 101 and
+/// B on 102, both off 100, and B was lit on 100 as vtium woke.
+fn woken_beside_c(atomic: bool, refuse: &[u32]) -> Woken {
+    const C: u32 = 43;
+    let card = reaching(&[0b011, 0b101, 0b001], 2);
+    {
+        let mut s = card.state();
+        s.atomic = atomic;
+        s.bind(A, 100);
+        s.bind(B, 102);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), B, 100);
+    v.card().state().bind(A, 0);
+    v.card().state().listed.push(C);
+    v.card().state().refused.extend(refuse);
+    let woke = v.wake_up();
+    let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    let unset = v.unset.iter().map(|id| id.0).collect();
+    (woke, outs, unset, v.move_refused.clone())
+}
+
+// Two displays moved off one CRTC do not both go back to it. In the card
+// of `woken_beside_c` the card refuses 101, so it refuses A on 101. With
+// atomic commits vtium cannot tell which CRTC the card refused: B, which
+// the desktop left lit on 100, goes back there, A stays on 101, and the
+// wake-up fails, with no two displays on one CRTC and C recorded as
+// refused. With the legacy calls only A's set failed, so A goes back to
+// 100 and lights, C stays off, and B stays lit on 102. C is not recorded,
+// as A was not lit on 100 when vtium woke.
 #[test]
 fn two_displays_moved_off_one_crtc_do_not_both_go_back() {
     const C: u32 = 43;
-    for atomic in [true, false] {
-        let card = reaching(&[0b011, 0b101, 0b001], 2);
-        {
-            let mut s = card.state();
-            s.atomic = atomic;
-            s.bind(A, 100);
-            s.bind(B, 102);
-        }
-        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
-        v.sleep();
-        v.events().for_each(drop);
-        desktop_leaves(v.card(), B, 100);
-        v.card().state().bind(A, 0);
-        v.card().state().listed.push(C);
-        v.card().state().refused.push(101);
-        let _ = v.wake_up();
-        let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
-        let mut crtcs: Vec<u32> = outs.iter().map(|o| o.1).collect();
-        crtcs.sort_unstable();
-        crtcs.dedup();
-        assert_eq!(crtcs.len(), outs.len(), "atomic {atomic}: {outs:?}");
-        if !atomic {
-            assert_eq!(outs, [(A, 101), (B, 102), (C, 100)]);
-            assert_eq!(v.unset, [DisplayId(A)]);
-        }
-    }
+    let (woke, outs, unset, refused) = woken_beside_c(true, &[101]);
+    assert!(woke.is_err());
+    assert_eq!(outs, [(A, 101), (B, 100)]);
+    assert_eq!(unset, Vec::<u32>::new());
+    assert_eq!(refused, [C]);
+    let (woke, outs, unset, refused) = woken_beside_c(false, &[101]);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(A, 100), (B, 102)]);
+    assert_eq!(unset, Vec::<u32>::new());
+    assert_eq!(refused, Vec::<u32>::new());
 }
 
 // A new display the card refused beside the others, placed after them,
@@ -6332,5 +6453,312 @@ fn a_legacy_set_that_fails_for_a_passing_reason_records_no_refusal() {
     assert_eq!(
         moves(),
         ["display HDMI-A-1 moves from CRTC 100 to CRTC 101"]
+    );
+}
+
+// With the legacy calls, a move the card refuses sends back only the
+// displays it needs. Here A is lit on CRTC 100 and drives 100 and 101, C is
+// lit on 102 and drives 102 and 103, B drives only 100, D drives only 102,
+// and the card refuses 103. B and D, plugged in together, move A to 101 and
+// C to 103. The card sets A on 101 and refuses C on 103, so C goes back to
+// 102 and D, which sat there, stays off and is recorded as refused. A stays
+// lit on 101 beside B on 100, and B is not recorded.
+#[test]
+fn a_legacy_move_the_card_refuses_sends_back_only_that_display() {
+    const C: u32 = 43;
+    const D: u32 = 44;
+    let card = reaching(&[0b0011, 0b0001, 0b1100, 0b0100], 4);
+    {
+        let mut s = card.state();
+        s.atomic = false;
+        s.listed.retain(|&c| c == A || c == C);
+        s.refused.push(103);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.card().state().bound.get(&A), Some(&100));
+    assert_eq!(v.card().state().bound.get(&C), Some(&102));
+    v.card().state().listed.insert(1, B);
+    v.card().state().listed.push(D);
+    logs::capture();
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    assert_eq!(
+        moves(),
+        [
+            "display HDMI-A-1 moves from CRTC 100 to CRTC 101",
+            "display HDMI-A-3 moves from CRTC 102 to CRTC 103",
+            "display HDMI-A-3 moves from CRTC 103 to CRTC 102"
+        ]
+    );
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 101), (B, 100), (C, 102)]);
+    assert_eq!(v.unset, Vec::<DisplayId>::new());
+    assert_eq!(v.move_refused, [D]);
+    let s = v.card().state();
+    assert_eq!(
+        [A, B, C].map(|c| s.bound.get(&c).copied()),
+        [Some(101), Some(100), Some(102)]
+    );
+}
+
+// Of two displays moved off one CRTC, the one lit there goes back. In the
+// card above the card refuses 102, so it refuses B on 102. B, which the
+// desktop left lit on 100, goes back to 100, and A stays on 101; C stays
+// off and is recorded as refused. The wake-up succeeds with A and B lit.
+// With the legacy calls, the card refuses both 101 and 102: A and B both
+// failed, B goes back to 100, and A stays on 101, unset, to be tried again.
+#[test]
+fn of_two_displays_moved_off_one_crtc_the_lit_one_goes_back() {
+    const C: u32 = 43;
+    let (woke, outs, unset, refused) = woken_beside_c(true, &[102]);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(A, 101), (B, 100)]);
+    assert_eq!(unset, Vec::<u32>::new());
+    assert_eq!(refused, [C]);
+    let (woke, outs, unset, refused) = woken_beside_c(false, &[101, 102]);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(A, 101), (B, 100)]);
+    assert_eq!(unset, [A]);
+    assert_eq!(refused, [C]);
+}
+
+// A move undone before its modeset goes back even where vtium cannot read
+// the display's encoders, since the CRTC a display was moved off stays one
+// it can take. As in the test above, A's flip is in flight when B is
+// plugged in, so A's move to 101 waits. Then every encoder read fails and
+// B is unplugged: the next hotplug puts A back on 100, which shows A's
+// next frame.
+#[test]
+fn a_move_undone_while_the_encoders_cannot_be_read_puts_the_display_back() {
+    let card = reaching(&[0b11, 0b01], 1);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    fill(&mut v, A, 0x66, &[rect(0, 0, 640, 480)]).unwrap();
+    v.events().for_each(drop);
+    v.card().state().listed.push(B);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(v.waits(), (true, false), "the modeset waits for A's flip");
+    v.card().state().failing.push("encoder");
+    v.card().state().listed.retain(|&c| c != B);
+    v.poll().unwrap();
+    assert_eq!(
+        moves(),
+        [
+            "display HDMI-A-1 moves from CRTC 100 to CRTC 101",
+            "display HDMI-A-1 moves from CRTC 101 to CRTC 100"
+        ]
+    );
+    flip(&mut v);
+    let a = drawn(&mut v, A, 0x77);
+    assert!(v.card().shows(100, a), "{:?}", v.card().state());
+}
+
+// With the legacy calls, a display bound before but never set does not
+// keep a lit display from going back. Here A drives CRTCs 100 to 102, N
+// drives 102 and 103, and M only 102. A is lit on 100, and N is bound on
+// 102 but unset, as the card refused it. While vtium is away, a desktop
+// leaves A's connector on 102, M is plugged in, and the card refuses 100
+// and 101 instead. The wake-up puts M on 102, A on 100 and N on 103, and
+// the card refuses A on 100. A, lit on 102 as vtium woke, goes back there
+// and lights, M stays off and is recorded as refused, and N lights on 103.
+// N, moved off 102 too but never set, does not keep A from 102.
+#[test]
+fn a_legacy_display_left_unset_does_not_strand_a_lit_display() {
+    const N: u32 = 42;
+    const M: u32 = 43;
+    let card = reaching(&[0b0111, 0b1100, 0b0100, 0b1000], 2);
+    {
+        let mut s = card.state();
+        s.atomic = false;
+        s.bind(A, 100);
+        s.bind(N, 102);
+        s.refused.extend([102, 103]);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.unset, [DisplayId(N)]);
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 102);
+    {
+        let mut s = v.card().state();
+        s.bind(N, 0);
+        s.listed.push(M);
+        s.refused.clear();
+        s.refused.extend([100, 101]);
+    }
+    v.wake_up().unwrap();
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 102), (N, 103)]);
+    assert_eq!(v.unset, Vec::<DisplayId>::new());
+    assert_eq!(v.move_refused, [M]);
+    let s = v.card().state();
+    assert_eq!(s.bound.get(&A), Some(&102), "{s:?}");
+    assert_eq!(s.bound.get(&N), Some(&103), "{s:?}");
+    assert_eq!(s.bound.get(&M), None, "{s:?}");
+}
+
+// The displays that go back never end two on one CRTC, and none that could
+// go back is left where it was placed. Across placements chosen by a fixed
+// sequence of numbers, five displays sit on CRTCs 100 to 105, one each;
+// each was moved off another CRTC or not, was lit there or not, and is new
+// to the modeset or not. A placement the matching makes never has displays
+// online moved in a cycle, each off the CRTC the next sits on, so the
+// placements with one are skipped. For each placement, the displays going
+// back are found as an atomic commit's failure finds them, with every moved
+// display free to go back, and as the legacy calls' failure finds them,
+// from the moved displays whose own set failed. Each result is checked
+// against every set of displays that could go back, found by trying them
+// all:
+// - only a moved display online goes back, and the displays online end on
+//   CRTCs of their own;
+// - after the legacy calls' failure, the displays going back are exactly
+//   those reached from the failed ones, each next one sitting on the CRTC
+//   a display reached goes back to;
+// - no such set that holds the result sends back as well a display that
+//   wanted to go back and stays;
+// - where an unlit display goes back to a CRTC, no lit display that wanted
+//   it stays.
+#[test]
+fn going_back_never_puts_two_displays_on_one_crtc() {
+    const N: usize = 5;
+    let mut v = awake(Drm2d::with(reaching(&[0b11111; N], N), ModePolicy::default()).unwrap());
+    let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = |m: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        usize::try_from(seed % m as u64).unwrap()
+    };
+    let (mut cases, mut ties, mut stayed) = (0, 0, 0);
+    while cases < 40_000 {
+        let mut pool: Vec<u32> = (100..106).collect();
+        for o in &mut v.outputs {
+            o.crtc = pool.remove(next(pool.len()));
+            o.moved_from = (next(10) < 7).then(|| {
+                let mut crtc = 100 + u32::try_from(next(6)).unwrap();
+                if crtc == o.crtc {
+                    crtc = 100 + (crtc - 99) % 6;
+                }
+                Moved {
+                    crtc,
+                    pipe: 0,
+                    lit: next(2) == 0,
+                }
+            });
+            o.online = next(4) != 0;
+        }
+        let outs: Vec<(DisplayId, u32, Option<Moved>, bool)> = v
+            .outputs
+            .iter()
+            .map(|o| (o.id, o.crtc, o.moved_from, o.online))
+            .collect();
+        let bit = |i: usize| 1u32 << i;
+        let target = |i: usize| outs[i].2.unwrap().crtc;
+        // The moved displays online, which alone can go back.
+        let moved: Vec<usize> = (0..N)
+            .filter(|&i| outs[i].3 && outs[i].2.is_some())
+            .collect();
+        let sitter = |crtc: u32| (0..N).find(|&j| outs[j].3 && outs[j].1 == crtc);
+        let cyclic = moved.iter().any(|&i| {
+            let mut at = i;
+            for _ in 0..N {
+                match sitter(target(at)) {
+                    Some(j) if j == i => return true,
+                    Some(j) if moved.contains(&j) => at = j,
+                    _ => return false,
+                }
+            }
+            false
+        });
+        if cyclic {
+            continue;
+        }
+        if moved
+            .iter()
+            .any(|&i| moved.iter().any(|&j| j != i && target(j) == target(i)))
+        {
+            ties += 1;
+        }
+        let fresh: Vec<DisplayId> = (0..N).filter(|&i| !outs[i].3).map(|i| outs[i].0).collect();
+        let failed: Vec<usize> = moved.iter().copied().filter(|_| next(2) == 0).collect();
+        let failed_ids: Vec<DisplayId> = failed.iter().map(|&i| outs[i].0).collect();
+        for legacy in [false, true] {
+            cases += 1;
+            let result = v.going_back(&fresh, legacy.then_some(&failed_ids[..]));
+            let got: u32 = (0..N)
+                .filter(|&i| result.contains(&outs[i].0))
+                .map(bit)
+                .sum();
+            let valid = |g: u32| {
+                if (0..N).any(|i| g & bit(i) != 0 && !moved.contains(&i)) {
+                    return false;
+                }
+                let mut ends: Vec<u32> = (0..N)
+                    .filter(|&i| outs[i].3)
+                    .map(|i| {
+                        if g & bit(i) != 0 {
+                            target(i)
+                        } else {
+                            outs[i].1
+                        }
+                    })
+                    .collect();
+                let all = ends.len();
+                ends.sort_unstable();
+                ends.dedup();
+                ends.len() == all
+            };
+            let rooted = |g: u32| {
+                if !legacy {
+                    return true;
+                }
+                let mut reach: u32 = failed
+                    .iter()
+                    .filter(|&&i| g & bit(i) != 0)
+                    .map(|&i| bit(i))
+                    .sum();
+                loop {
+                    let to: Vec<u32> = (0..N)
+                        .filter(|&i| reach & bit(i) != 0)
+                        .map(target)
+                        .collect();
+                    let more: u32 = (0..N)
+                        .filter(|&i| {
+                            g & bit(i) != 0 && reach & bit(i) == 0 && to.contains(&outs[i].1)
+                        })
+                        .map(bit)
+                        .sum();
+                    if more == 0 {
+                        return reach == g;
+                    }
+                    reach |= more;
+                }
+            };
+            let wanted: &[usize] = if legacy { &failed } else { &moved };
+            let why = format!("{outs:?} legacy {legacy} failed {failed:?}: going {result:?}");
+            assert!(valid(got), "{why}");
+            assert!(rooted(got), "{why}");
+            for &w in wanted.iter().filter(|&&w| got & bit(w) == 0) {
+                stayed += 1;
+                let more = (0..1u32 << N)
+                    .any(|g| g & got == got && g & bit(w) != 0 && valid(g) && rooted(g));
+                assert!(!more, "{why}: {w} could go back too");
+                let lit = outs[w].2.unwrap().lit;
+                let unlit_back = (0..N).any(|i| {
+                    got & bit(i) != 0 && target(i) == target(w) && !outs[i].2.unwrap().lit
+                });
+                assert!(!lit || !unlit_back, "{why}: {w} was lit there");
+            }
+        }
+    }
+    assert!(
+        ties > 2_000,
+        "{ties} placements with two displays moved off one CRTC"
+    );
+    assert!(
+        stayed > 10_000,
+        "{stayed} displays that wanted to go back stayed"
     );
 }

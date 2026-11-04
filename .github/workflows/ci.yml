@@ -163,6 +163,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
+      # The Debian packages the test of the development console's build
+      # fetches for its sysroot, which every extraction checks against
+      # pin.tsv. The key is the job's own: arm-cross's entry holds only the
+      # ARM packages, and an entry is never saved again under a key it has.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/vtium/arm/debs
+          key: tools-debs-${{ hashFiles('tools/arm/pin.tsv') }}
       - run: make test-tools
 
   # Tier 2: the renderer's screens against vtium's goldens and the C
