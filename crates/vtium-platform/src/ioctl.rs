@@ -309,9 +309,9 @@ pub(crate) fn drm_get_property_values(
     // kernel writes value `i` at `values_ptr` only for `i` below
     // `count_values`, which `get_property_values` sets to the slice's length
     // with the pointer at the slice's start (`drm_mode_getproperty_ioctl`).
-    // It writes enumerators only when `count_enum_blobs` holds every one of
-    // them, and `get_property_values` sets that count to 0, so it writes
-    // nothing through the null enumerator pointer.
+    // It writes enumerator `i` only for `i` below `count_enum_blobs`, which
+    // `get_property_values` sets to 0, so it writes nothing through the
+    // null enumerator pointer.
     unsafe {
         ioctl(
             fd,

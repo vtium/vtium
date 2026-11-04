@@ -1417,6 +1417,76 @@ fn a_monitor_back_under_a_new_id_with_its_edid_takes_back_its_crtc() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// Two monitors of one model with no serial number in their EDIDs, on A
+/// and B, which the card has on CRTCs 102 and 103, drop together and come
+/// back as C and D. With `paths`, A and B sit on the ports `mst:40-1` and
+/// `mst:40-2` of one multi-stream hub, and C comes back on B's port and D
+/// on A's. Returns the CRTCs C and D show their first frames on.
+fn one_model_back(test: &str, paths: bool) -> (u32, u32) {
+    const C: u32 = 43;
+    const D: u32 = 44;
+    let dir = sysfs_dir(test);
+    for name in ["HDMI-A-1", "HDMI-A-2", "HDMI-A-3", "HDMI-A-4"] {
+        write_edid(&dir, name, b"\0\0\0\0\0\0\0\0\0\0", (60, 34));
+    }
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+        (C, vec![mode(640, 480, 60, true)]),
+        (D, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A || c == B);
+        s.sysfs = Some(dir.clone());
+        for e in [200, 201, 202, 203] {
+            s.encoders.get_mut(&e).unwrap().possible_crtcs = 0b1111;
+        }
+        s.bind(A, 102);
+        s.bind(B, 103);
+    }
+    if paths {
+        for (conn, port) in [(A, 1), (B, 2), (C, 2), (D, 1)] {
+            card.set_path(conn, format!("mst:40-{port}\0").as_bytes());
+        }
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    {
+        let mut s = v.card().state();
+        s.connectors.remove(&A);
+        s.connectors.remove(&B);
+        s.listed = vec![C, D];
+    }
+    v.poll().unwrap();
+    let c = drawn(&mut v, C, 0x66);
+    let d = drawn(&mut v, D, 0x77);
+    std::fs::remove_dir_all(&dir).unwrap();
+    let on = |fb| {
+        [100, 101, 102, 103]
+            .into_iter()
+            .find(|&crtc| v.card().shows(crtc, fb))
+            .unwrap()
+    };
+    (on(c), on(d))
+}
+
+// Two monitors of one model come back on their ports in the other order,
+// and each takes back the CRTC its own port had: where both connectors
+// have a `PATH`, the port decides, though the EDIDs match both ways.
+#[test]
+fn monitors_of_one_model_back_on_their_ports_take_back_their_own_crtcs() {
+    assert_eq!(one_model_back("same-edid-paths", true), (103, 102));
+}
+
+// Two monitors of one model with no `PATH` come back, and together they
+// take back both CRTCs they held: a CRTC one display takes back is not
+// offered to the next, so the second takes the other CRTC freed, not the
+// first free one, and no CRTC is left lit for a gone monitor.
+#[test]
+fn monitors_of_one_model_without_paths_take_back_both_crtcs() {
+    assert_eq!(one_model_back("same-edid-no-paths", false), (102, 103));
+}
+
 // A hotplug keeps each lit display on its CRTC. Here A is lit on CRTC 100
 // and its encoder drives 100 and 101, and B, plugged in, drives only 100.
 // Moving A to 101 would free 100 for B, but the hotplug leaves A where it
@@ -1663,6 +1733,27 @@ fn a_color_property_one_connector_refuses_costs_no_other_its_reset() {
         assert_eq!(a.colorspace == 0, reset, "{refused}: {a:?}");
         assert_eq!(a.hdr_metadata == 0, reset, "{refused}: {a:?}");
     }
+}
+
+// Each connector that refuses gets a warning of its own in one modeset:
+// here A refuses `max bpc` and B refuses `Colorspace`, and the log names
+// each once.
+#[test]
+fn each_connector_that_refuses_is_warned_of_once() {
+    let mut v = two_in_hdr(&["max bpc"]);
+    v.card().state().color_refused.push((B, "Colorspace"));
+    logs::capture();
+    v.wake_up().unwrap();
+    let warned = logs::at_least(Level::Warn);
+    assert_eq!(warned.len(), 2, "{warned:?}");
+    assert!(
+        warned[0].starts_with("cannot set `max bpc` of HDMI-A-1 for sRGB"),
+        "{warned:?}"
+    );
+    assert!(
+        warned[1].starts_with("cannot set the color properties of HDMI-A-2 for sRGB"),
+        "{warned:?}"
+    );
 }
 
 // Where the connector's range for `max bpc` does not hold the 8 bits per color

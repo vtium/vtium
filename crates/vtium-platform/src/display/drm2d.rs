@@ -1635,9 +1635,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// therefore not bound, even where moving one of them would free a CRTC
     /// for it; every later hotplug fails the same way, and the display
     /// lights at the next wake-up, which places every display together.
-    /// Whether a hotplug should move a lit display then is the maintainer's
-    /// to decide; the `pinned` mark of each display bound before is the one
-    /// place to change.
+    /// Whether a hotplug should move a lit display then is vtium/vtium#268.
+    /// Letting it would take three changes here: clearing the `pinned` mark
+    /// of each display bound before, widening its `able` CRTCs from its own
+    /// CRTC to those its connector's encoders can drive, and reading the
+    /// connectors at a hotplug as a wake-up does (`seen`), which a hotplug's
+    /// scan does not do now.
     ///
     /// The first scan and a wake-up place every display together, so they
     /// place every display wherever the card has a CRTC for each. The C
@@ -1659,10 +1662,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Each display bound before wants one CRTC: the CRTC its connector is
     /// on, or, where its connector is on no CRTC or the display returns,
     /// its own CRTC. A new display wants the CRTC a display gone in this
-    /// scan held, where that display showed the same monitor, by its
-    /// connector's `PATH` or its EDID (`freed`), as a DisplayPort
-    /// multi-stream monitor that comes back under a new connector id does;
-    /// else it wants the CRTC its connector is on. A display that returns,
+    /// scan held (`freed`), where that display showed the same monitor
+    /// ([`same_monitor`]) and no new display placed before it took that CRTC
+    /// back, as a DisplayPort multi-stream monitor that comes back under a
+    /// new connector id does; else it wants the CRTC its connector is on. A display that returns,
     /// as each display new after the first scan does, has its first modeset
     /// turn off the CRTC its connector is on ([`Self::set_off_first`]).
     ///
@@ -1694,6 +1697,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let index = |crtc: u32| res.crtcs.iter().position(|&c| c == crtc);
         let bit = |crtc: u32| index(crtc).map_or(0, index_bit);
         let olds = std::mem::take(&mut self.outputs);
+        // Each CRTC a display gone in this scan held, until a new display
+        // claims it.
+        let mut freed: Vec<Option<&(Identity, u32)>> = freed.iter().map(Some).collect();
         let mut places = Vec::with_capacity(olds.len().saturating_add(new.len()));
         for o in &olds {
             if !follow {
@@ -1732,10 +1738,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             };
             let able = self.reach(&n.conn, n.found.current) | bit(on);
             let back = freed
-                .iter()
-                .find(|(was, _)| same_monitor(was, &n.identity))
-                .map(|&(_, crtc)| crtc)
-                .filter(|&crtc| able & bit(crtc) != 0);
+                .iter_mut()
+                .find(|slot| {
+                    slot.is_some_and(|&(ref was, crtc)| {
+                        same_monitor(was, &n.identity) && able & bit(crtc) != 0
+                    })
+                })
+                .and_then(Option::take)
+                .map(|&(_, crtc)| crtc);
             places.push(Place {
                 group,
                 want: index(back.unwrap_or(on)),
@@ -2640,8 +2650,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         // The legacy calls set the color properties one at a time, before
         // the CRTC, as they set DPMS. Only atomic drivers attach these
         // properties, and on one the kernel commits each set as a modeset of
-        // its own where it changes `max bpc` on a lit CRTC
-        // (`drm_atomic_commit_init` allows legacy commits to modeset).
+        // its own where it changes `max bpc` on a lit CRTC, and on amdgpu
+        // also where it changes `Colorspace` or turns the HDR metadata on or
+        // off (`amdgpu_dm_connector_atomic_check`); `drm_atomic_commit_init`
+        // allows legacy commits to modeset.
         for (id, name, value) in o.color.sdr(bits_per_color(FORMAT)) {
             if let Err(e) = self.card.set_connector_property(o.id.0, id, value) {
                 self.color_refused(&o.name, Some(name), &e);
@@ -2693,13 +2705,19 @@ fn index_bit(index: usize) -> u32 {
         .unwrap_or(0)
 }
 
-/// Whether `now` names the monitor `was` named: the same connector `PATH`,
-/// as a DisplayPort multi-stream port keeps when its connector is made
-/// again under a new id, or the same EDID.
+/// Whether `now` names the monitor `was` named. Where both connectors have
+/// a `PATH`, as a DisplayPort multi-stream port keeps when its connector is
+/// made again under a new id, the two must name the same port; two
+/// monitors of one model with no serial number in their EDIDs read the
+/// same EDID, so the port decides. Where neither has a `PATH`, the two
+/// must read the same EDID. Where only one has a `PATH`, they are not the
+/// same monitor.
 fn same_monitor(was: &Identity, now: &Identity) -> bool {
-    let path = was.connector_path.is_some() && was.connector_path == now.connector_path;
-    let edid = was.edid.is_some() && was.edid == now.edid;
-    path || edid
+    match (&was.connector_path, &now.connector_path) {
+        (Some(was), Some(now)) => was == now,
+        (None, None) => was.edid.is_some() && was.edid == now.edid,
+        _ => false,
+    }
 }
 
 /// Each display's CRTC, by index into the card's `crtcs` CRTCs, or `None`
