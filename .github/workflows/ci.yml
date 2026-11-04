@@ -151,6 +151,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # libudev and libxkbcommon, which vtium-platform links, and Mesa's EGL
+      # and llvmpipe, which vtium's unit tests of the GPU path draw on when
+      # the target tests the key table's crates with gpu (vtium-platform
+      # loads libEGL and libgbm at run time and links neither)
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
       # The toolchain rust-toolchain.toml pins, for the cargo tests and
       # cargo tree the target runs.
       - id: toolchain
@@ -158,6 +163,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
+      # The Debian packages the test of the development console's build
+      # fetches for its sysroot, which every extraction checks against
+      # pin.tsv. The key is the job's own: arm-cross's entry holds only the
+      # ARM packages, and an entry is never saved again under a key it has.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/vtium/arm/debs
+          key: tools-debs-${{ hashFiles('tools/arm/pin.tsv') }}
       - run: make test-tools
 
   # Tier 2: the renderer's screens against vtium's goldens and the C
