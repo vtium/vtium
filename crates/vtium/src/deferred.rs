@@ -1821,7 +1821,8 @@ mod tests {
     // #235, ADR-1302 D14: a mark wraps its letter's ink only when it passes
     // it on the mark's own side. Unifont's Myanmar tall aa (U+102B) and
     // medial ya (U+103B) span their consonant's height but sit on the wrong
-    // side of it, so on every consonant they stand beside it instead of overstriking it
+    // side of it, so on every consonant they stand beside it instead of
+    // overstriking it
     #[test]
     fn a_mark_spanning_its_letter_on_the_wrong_side_stands_beside_it() {
         let generated = Shared::default();
