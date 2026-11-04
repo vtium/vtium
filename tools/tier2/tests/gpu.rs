@@ -114,3 +114,39 @@ fn a_screen_with_no_sidecar_is_not_judged() {
     let e = gpu::judge(&case.screen, &empty, &mut gl).unwrap_err();
     assert!(e.contains("edges.tol"), "{e}");
 }
+
+// ADR-1303 D1: on Mesa's llvmpipe, through vtium-platform's context and the
+// binary's adapter, the GPU path draws a screen of text, decorations,
+// colors and a notice with its focus mark within its sidecar of the CPU
+// path's drawing, and the report names the case and what waits
+// covers: platform.gpu
+#[test]
+fn the_gpu_path_on_llvmpipe_draws_within_its_sidecar_of_the_cpu_paths_pixels() {
+    let screens: Vec<_> = CASES
+        .iter()
+        .filter(|c| {
+            ["small-640x480", "osd-minimal-notice-800x480", "edges-left"].contains(&c.screen.name)
+        })
+        .map(|c| c.screen)
+        .collect();
+    assert_eq!(screens.len(), 3);
+    let mut gl = gpu::llvmpipe().unwrap();
+    let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join("gpu-llvmpipe");
+    let _ = fs::remove_dir_all(&out);
+    fs::create_dir_all(&out).unwrap();
+    let reports = gpu::reports(&screens, &root(), &mut gl, (&out, &out));
+    let got: Vec<(String, &str)> = reports
+        .iter()
+        .map(|r| (r.name.clone(), r.status.name()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("edges-left@gpu".to_owned(), "pending"),
+            ("small-640x480@gpu".to_owned(), "pass"),
+            ("osd-minimal-notice-800x480@gpu".to_owned(), "pass"),
+        ],
+        "{reports:?}"
+    );
+    assert!(out.join("small-640x480@gpu.ppm").exists());
+}

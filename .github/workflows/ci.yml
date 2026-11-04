@@ -153,7 +153,8 @@ jobs:
       - run: make test-tools
 
   # Tier 2: the renderer's screens against vtium's goldens and the C
-  # reference's, copied into tools/tier2/reference with provenance; vtium is
+  # reference's, copied into tools/tier2/reference with provenance, and the
+  # GPU path's drawing of each against the CPU path's, on llvmpipe; vtium is
   # the only checkout. The report and the images are kept whatever the result.
   tier2:
     runs-on: ubuntu-latest
@@ -162,8 +163,10 @@ jobs:
         with:
           path: vtium
       # libudev and libxkbcommon, which vtium-platform links through
-      # vtium-config, the tool that draws the test fonts' glyphs
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev
+      # vtium-config, the tool that draws the test fonts' glyphs; and Mesa's
+      # EGL and llvmpipe, which the GPU path's screens draw on (vtium-platform
+      # loads libEGL at run time and links it not)
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' vtium/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"

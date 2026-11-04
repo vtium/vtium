@@ -25,9 +25,10 @@ use vtium_render::gpu::{Config as GpuConfig, DrawTarget, Gl, Pipeline, Size};
 use vtium_render::{Canvas, Config, Depth, DrawState, Orientation, Picture, Placed, Renderer};
 use vtium_term::{Age, Terminal};
 
-use crate::compare::{Comparison, compare};
+use crate::compare::{Comparison, Verdict, compare, diff_image};
 use crate::draw::{self, Paint, Screen};
 use crate::ppm::Image;
+use crate::report::{CaseReport, Status};
 use crate::tol::Tolerance;
 
 /// The share of a screen's pixels the GPU path's starting tolerance lets
@@ -266,6 +267,10 @@ pub struct GpuCase {
 #[derive(Debug)]
 pub struct Judged {
     pub comparison: Comparison,
+    /// The sidecar that judged it.
+    pub tolerance: Tolerance,
+    /// The GPU path's drawing.
+    pub image: Image,
     /// The screen's pixels.
     pub area: u64,
 }
@@ -287,12 +292,14 @@ pub fn sidecar(root: &Path, name: &str) -> Result<Tolerance, String> {
 /// Draws `screen` on the GPU path on `gl` and judges it against the CPU
 /// path's drawing, within its sidecar under `root`.
 pub fn judge<G: Gl>(screen: &Screen, root: &Path, gl: &mut G) -> Result<Judged, String> {
-    let tol = sidecar(root, screen.name)?;
+    let tolerance = sidecar(root, screen.name)?;
     let cpu = draw::draw(screen)?;
-    let gpu = draw::draw_on(screen, &mut Gpu { gl })?;
-    let comparison = compare(&cpu, &gpu, &tol)?;
+    let image = draw::draw_on(screen, &mut Gpu { gl })?;
+    let comparison = compare(&cpu, &image, &tolerance)?;
     Ok(Judged {
         comparison,
+        tolerance,
+        image,
         area: u64::from(cpu.width()) * u64::from(cpu.height()),
     })
 }
@@ -307,4 +314,78 @@ pub fn cases<G: Gl>(screens: &[Screen], root: &Path, gl: &mut G) -> Vec<GpuCase>
             judged: judge(s, root, gl),
         })
         .collect()
+}
+
+/// A GPU case's name in the report: its screen's, with `@gpu` after it.
+pub fn case_name(screen: &str) -> String {
+    format!("{screen}@gpu")
+}
+
+/// The report's case for each of `screens` on the GPU path, judged on
+/// `gl`: pass, near or fail as the GPU path's sidecar says, an error when
+/// the screen did not draw, and pending, with the reason, for a screen the
+/// GPU path does not draw yet. Each drawing is written to `actual_dir`, and
+/// each difference to `diff_dir`, under the case's name.
+pub fn reports<G: Gl>(
+    screens: &[Screen],
+    root: &Path,
+    gl: &mut G,
+    (actual_dir, diff_dir): (&Path, &Path),
+) -> Vec<CaseReport> {
+    let mut out = Vec::new();
+    for s in screens {
+        let name = case_name(s.name);
+        if let Some(why) = waits(s) {
+            let mut r = CaseReport::new(&name, Status::Pending);
+            r.note = Some(why.to_owned());
+            out.push(r);
+            continue;
+        }
+        let mut r = CaseReport::new(&name, Status::Error);
+        r.description = Some(format!(
+            "the GPU path's drawing of {}, judged against the CPU path's",
+            s.name
+        ));
+        match judge(s, root, gl) {
+            Err(e) => r.note = Some(format!("not judged: {e}")),
+            Ok(j) => {
+                let c = &j.comparison;
+                r.status = match c.verdict {
+                    Verdict::Pass => Status::Pass,
+                    Verdict::Near => Status::Near,
+                    Verdict::Fail => Status::Fail,
+                };
+                r.tolerance = Some(j.tolerance.clone());
+                r.pixels = c.pixels;
+                r.max_delta = c.max_delta;
+                r.regions = c.regions.clone();
+                r.note = Some(format!(
+                    "{:.3}% of the screen's pixels differ, by at most {}",
+                    j.share(),
+                    c.max_delta
+                ));
+                let actual = actual_dir.join(format!("{name}.ppm"));
+                if fs::write(&actual, j.image.to_ppm()).is_ok() {
+                    r.actual = Some(actual.display().to_string());
+                }
+                if c.pixels > 0 && c.size_mismatch.is_none() {
+                    let diff = diff_dir.join(format!("{name}.ppm"));
+                    let img = diff_image(&j.image, &j.tolerance, &c.points);
+                    if fs::write(&diff, img.to_ppm()).is_ok() {
+                        r.diff = Some(diff.display().to_string());
+                    }
+                }
+            }
+        }
+        out.push(r);
+    }
+    out
+}
+
+/// vtium's GL on Mesa's llvmpipe, which needs no device: the context
+/// tier 2 draws the GPU path's screens on, through the binary's adapter.
+pub fn llvmpipe() -> Result<vtium::gpu::PlatformGl, String> {
+    let context = vtium_platform::gpu::Context::software()
+        .map_err(|e| format!("no llvmpipe context: {e}"))?;
+    Ok(vtium::gpu::PlatformGl::new(context))
 }

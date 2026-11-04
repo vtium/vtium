@@ -413,6 +413,9 @@ impl Pipeline {
         overlays: &[Placed],
     ) -> Result<Begun, Error> {
         if let Err(e) = self.composition.glyphs(gl, spec) {
+            // a failed set-up leaves no glyphs, so the next start would
+            // compose whole anyway; marking it here keeps that true whatever
+            // the set-up made before it failed
             self.redraw_whole();
             return Err(e);
         }

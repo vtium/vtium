@@ -24,6 +24,8 @@ use vtium_conformance::runner::provenance;
 use vtium_tier2::compare;
 use vtium_tier2::draw;
 use vtium_tier2::ppm;
+#[cfg(feature = "gpu")]
+use vtium_tier2::report::CaseReport;
 use vtium_tier2::report::Status;
 use vtium_tier2::runner::{self, Run};
 use vtium_tier2::screens::CASES;
@@ -106,10 +108,16 @@ fn run(opts: &[(String, String)]) -> ExitCode {
     if let Err(e) = r.check_lists(&lists.titles) {
         return refuse(e);
     }
-    let cases = match r.cases() {
+    #[cfg_attr(
+        not(feature = "gpu"),
+        expect(unused_mut, reason = "the GPU cases join them")
+    )]
+    let mut cases = match r.cases() {
         Ok(c) => c,
         Err(e) => return refuse(e),
     };
+    #[cfg(feature = "gpu")]
+    cases.extend(gpu_cases(here, &out));
     for c in &cases {
         let mut line = format!("{:<11} {}", c.status.name(), c.name);
         if c.pixels > 0 {
@@ -139,6 +147,26 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// Each screen's case on the GPU path, drawn on Mesa's llvmpipe; one error
+/// case when llvmpipe cannot be set up, which fails the run.
+#[cfg(feature = "gpu")]
+fn gpu_cases(here: &Path, out: &Path) -> Vec<CaseReport> {
+    let screens: Vec<_> = CASES.iter().map(|c| c.screen).collect();
+    match vtium_tier2::gpu::llvmpipe() {
+        Ok(mut gl) => vtium_tier2::gpu::reports(
+            &screens,
+            here,
+            &mut gl,
+            (&out.join("actual"), &out.join("diff")),
+        ),
+        Err(e) => {
+            let mut r = CaseReport::new(&vtium_tier2::gpu::case_name("*"), Status::Error);
+            r.note = Some(e);
+            vec![r]
+        }
     }
 }
 

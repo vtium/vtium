@@ -473,7 +473,7 @@ vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, th
 # tools/tier2/reference (provenance.tsv).
 .PHONY: tier2
 tier2: ## Draw tier 2's screens and judge them against their goldens
-	cargo build --release -p vtium-tier2 --bins
+	cargo build --release -p vtium-tier2 --features gpu --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/tier2 run
 
 # The demonstration set (vtium/vtium#142): the test card drawn for each

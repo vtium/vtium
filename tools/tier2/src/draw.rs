@@ -586,6 +586,7 @@ pub(crate) fn prepare<F: Face>(
 }
 
 /// Feeds `screen`'s second part.
+#[cfg(feature = "gpu")]
 pub(crate) fn feed_next(term: &mut Terminal, next: &[u8]) -> Result<(), String> {
     feed(term, next)
 }
