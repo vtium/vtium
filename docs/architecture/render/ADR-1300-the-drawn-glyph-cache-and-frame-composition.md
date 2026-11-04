@@ -6,12 +6,14 @@ capability: renderer
 basis:
   - operator: aaronsb
     level: guided
-    said: "remember we need to store color and transparency (key) in glyphs. in the c implementation we kept four vector caches per layer (I think) we just need to find the blend of performance and memory consumption. on non minspec machines we might consider a more resource consuming model at the benefit of performance (and a build or execution option that still allows minspec profile pick)"
+    said: "Glyphs carry color and transparency. The cache balances speed against memory: a machine above minspec may take a profile that spends more memory for speed, and a build or run-time option still picks the minspec profile."
     via: operator, in session, relayed verbatim by the team lead in this record's brief
+    paraphrase: true
   - operator: aaronsb
     level: guided
-    said: "we need to consider the gpu accel and cpu version of this too"
+    said: "The record covers the GPU-accelerated path as well as the CPU path."
     via: operator, in session, relayed verbatim by the team lead in this record's brief
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "Let's be sure of kmscon architecture first before we confidently build something novel"
@@ -27,8 +29,9 @@ basis:
     via: operator, in session 2026-10-26, answering the flags of docs/c-reference.md; the team lead's summary, not the operator's words
   - operator: aaronsb
     level: guided
-    said: "Need adr - how does this differ from reference?"
+    said: "The 1-bit and scale-1 storage and the row-scratch composition each need a decision that says how they differ from the C reference."
     via: operator, in session 2026-10-26, on the 1-bit and scale-1 storage and the row-scratch composition, relayed verbatim by the team lead
+    paraphrase: true
   - upstream: "aaronsb/kmscon b1f7a7c5: the glyph key (src/font/font.h:64-102), bbulk's one LRU, rotation on insert and per-cell drawing (src/render/bbulk.c:433, 529-572, 603-672, 1413-1475), gltex's four pools, bounds and blank draws (src/render/gltex.c:207-241, 860-930) and its float blend (src/render/gltex_atlas.frag:81-94), and the CPU blend arithmetic (src/video/drm2d_render.c:46-87)"
   - evidence: "the glyph storage research for the CPU compositor (2026-10-26): draw kernels, dumb-buffer reads and writes, GL memory, miss cost, lookup cost and LRU hit rates, measured on a Ryzen 9 9950X3D on one pinned core, with radeonsi (integrated and discrete) and llvmpipe; the scripts and outputs sit in the steering session's scratchpad, uncommitted"
   - standard: "OpenGL ES 3.0.6 §2.1.6.2: converting a float to an unsigned normalized value returns one of the two nearest integers, rounding to nearest preferred"
@@ -38,18 +41,22 @@ agent:
   model: claude-opus-5-5
 considered:
   - operator: aaronsb
-    said: "Vtium approach for 2 and 5 sound superior to me"
+    said: "vtium's approach is taken for D2, storage at 1 bit and at the font's own size, and for D5, the row scratch, over the C reference's."
     via: operator, in session 2026-10-26, after the explanation of how each differs from the C reference
     covers: [small storage, row scratch]
+    paraphrase: true
   - operator: aaronsb
-    said: "3. Agree 4. Agree"
+    said: "D3, a full cache draws the glyph uncached, and D4, two profiles chosen by a configuration key, are agreed."
     via: operator, in session 2026-10-26, after the explanation of how each differs from the C reference
+    paraphrase: true
   - operator: aaronsb
-    said: "Codepoint cache key as proposed sounds superior to the c implementation"
+    said: "The cache is keyed by the glyph's codepoints, as D1 proposes, over the C reference's key."
     via: operator, in session 2026-10-26, after the explanation of how it differs from the C reference
+    paraphrase: true
   - operator: aaronsb
-    said: "Sorry agree on adding to the sub pixel thoughts and the adr I agree with too"
+    said: "The subpixel proposal is added to the record, and the record is agreed."
     via: operator, in session 2026-10-26, after reading the record and the subpixel proposal
+    paraphrase: true
   - operator: aaronsb
     said: "The GPU path's cell shader keeps D6's exact blend arithmetic: values held as whole numbers in highp floats, div255 with its shifts written as floors of divisions by 256, nearest sampling, no dithering, and each channel written as (c + 0.25) / 255, even though ADR-1303 now judges the GPU path within a tolerance."
     via: the maintainer in the steering session, 2026-11-03; the team lead's summary in the brief for the GPU path's composition, not the maintainer's words

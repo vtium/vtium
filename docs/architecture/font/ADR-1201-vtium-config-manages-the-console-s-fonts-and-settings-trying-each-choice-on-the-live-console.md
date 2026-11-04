@@ -81,9 +81,6 @@ considered:
     said: "vitrify is an unusual word. Users type vtium config, a subcommand of the console binary that hands off to a separate binary, vtium-config, so the TUI's code never enters the console binary; vtium-config also works directly, and every command becomes vtium config COMMAND or vtium-config COMMAND. The binary stays the console's glyph helper, vtium-config serve, at /usr/bin/vtium-config. The library crate vtium-config is renamed vtium-settings. The banner keeps the glass logo and titles the tool VTium Vitrifier; vitrify stays for the glass theme, not for anything a user types. The rename happens now, in one branch, before the TUI is built, and ships in the next release."
     via: the maintainer, in the steering session's interview, 2026-11-02, relayed by the team lead; the wording is the team lead's
     paraphrase: true
-  - operator: aaronsb
-    said: "This is the direction to take."
-    via: the maintainer, in the steering session, 2026-11-02, after reading the record's decisions
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next switches the whole console to that frit, and the TUI's own screen redraws at the console's new grid"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"

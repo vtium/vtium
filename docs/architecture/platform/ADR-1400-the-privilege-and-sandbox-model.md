@@ -6,8 +6,9 @@ capability: platform
 basis:
   - operator: aaronsb
     level: directed
-    said: "The kmscon security model works, there are reasons the way it is that we probably shouldn't try to relearn."
+    said: "The kmscon security model works, for reasons vtium should not have to relearn."
     via: operator, in session, on the first draft of this record, relayed verbatim by the team lead
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "we are not recreating c in rust but instead the logic flow"
@@ -18,24 +19,28 @@ basis:
     via: operator, in session, on the first draft of this record, relayed verbatim by the team lead
   - operator: aaronsb
     level: guided
-    said: "Let's also make sure we look at kmscon fork security model the nobody user and systemd service etc"
+    said: "The record also covers the kmscon fork's security model: the nobody user, the systemd service and the rest."
     via: operator, in session, relayed verbatim by the team lead in this record's brief
+    paraphrase: true
   - operator: aaronsb
     level: guided
-    said: "With the ability to work without them"
+    said: "vtium also works without them."
     via: operator, in session, the line after the one above, relayed verbatim by the team lead
+    paraphrase: true
   - operator: aaronsb
     level: guided
-    said: "Let's focus more on software minspec than hardware itself. Sticking with 'it can be launched minimally with a plain unit script' is good enough for now."
+    said: "The minspec work focuses on software more than on hardware. For now it is enough that vtium can be launched minimally with a plain unit script."
     via: operator, in session, relayed verbatim by the team lead
+    paraphrase: true
   - operator: aaronsb
     level: guided
     said: "This has a side effect of avoiding building interdependencies."
     via: operator, in session, relayed verbatim by the team lead
   - operator: aaronsb
     level: guided
-    said: "for the security capability progression"
+    said: "The aaronsb/kmscon fork's commits are the pattern for how vtium's security capabilities progress."
     via: operator, in session, pointing to the aaronsb/kmscon fork's commits as the pattern to follow; the team lead relayed this phrase only
+    paraphrase: true
   - operator: aaronsb
     level: guided
     said: "Each convenience is used when present and is never required."
@@ -57,9 +62,10 @@ considered:
     said: "Sound carry-forward; fix the opt-in logind default and two never-silent sentences before acceptance. D1-D3 serve the operator's intent. Drift: logind opt-in left packaged image builds on logind hosts with the weaker pty-owner identity, against the C reference's sd_login=auto. Overstated: file media before login were logged at debug only; the gid-0 rule held only when not root. Unverified: the root table's kernel conditions."
     via: skeptic subagent (claude-opus-5-5), the operator's requested second opinion, 2026-10-26; read the C reference's working tree and systemd.exec(5); kernel source unreachable
   - operator: aaronsb
-    said: "1 yes 2 yes"
+    said: "Yes to both probes: vtium runs as root and installs the same kind of unit as the C reference, and root's image files are read as root until the image helper's issue says otherwise."
     via: operator, in session 2026-10-26, after reading the record and the second opinion
     covers: [as the C reference, root's images]
+    paraphrase: true
   - operator: aaronsb
     said: "Accepted: the file that holds the login key gets the head file's ownership check."
     via: the operator's answers in conversation with the team lead, 2026-10-29, relayed in the team lead's brief; the wording is the team lead's
