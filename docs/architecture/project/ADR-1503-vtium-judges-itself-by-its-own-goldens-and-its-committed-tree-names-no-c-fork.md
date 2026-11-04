@@ -6,28 +6,34 @@ capability: [process, harness]
 basis:
   - operator: aaronsb
     level: directed
-    said: "we're nearing a transition phase where we should drop the references to the c fork reference as a first class comparison tool. this doesn't mean that we drop that internally in our work here, but outward committed content in the github repo that includes references to a c fork of kmscon will get convoluted and confusing for others."
+    said: "vtium is nearing the point where it stops treating the C fork as its first-class comparison. The work here may still use the fork internally, but the content committed to the GitHub repository does not refer to a C fork of kmscon, because such references confuse other readers."
     via: "the steering session, 2026-11-04"
+    paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "this conflicts with one of the core agent instructions which is to write in present tense. 'differences from kmscon' won't mean the same thing 6 months from now. we need a clean break in rhetoric too."
+    said: "The lists of differences from kmscon break the rule that agents write in the present tense, because 'differences from kmscon' will not mean the same thing six months from now. vtium makes a clean break in how it writes about itself as well."
     via: "the steering session, 2026-11-04, on the crate READMEs' lists of differences from kmscon"
+    paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "the ADRs are fine. they're historical - the only thing I'd make changes to is if they are written in a tense that reads as if someone had the kmscon fork readily accessible. I plan on deleting the kmscon fork at some point."
+    said: "The decision records stay as they are, since they are history. The only text in them to change is text written as if a reader could open the kmscon fork, because the maintainer plans to delete the fork."
     via: "the steering session, 2026-11-04, on the decision records"
+    paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "this is where we make the clean break. at this point, referencing old code libraries is just weight to drag along."
+    said: "Code comments make the clean break and stop referring to old code libraries, which are only weight to carry."
     via: "the steering session, 2026-11-04, on code comments"
+    paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "this is where I think we need to maintain an internal state that affords our c fork provenance while we continue to build privately, but outwardly what's committed doesn't reference it."
+    said: "An internal layer keeps the C fork's provenance available while vtium goes on being built privately, and nothing committed refers to it."
     via: "the steering session, 2026-11-04, on AGENTS.md"
+    paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "we're actually comparing against an inferior renderer at this point, so we should reference our own goldens now. think about the 'how to contribute' guidance which basically defines the judge before the builder."
+    said: "vtium judges itself by its own goldens, because the C reference is now a weaker renderer than vtium. The contribution guidance defines the judge before the builder."
     via: "the steering session, 2026-11-04, on the goldens and the tools"
+    paraphrase: true
   - evidence: "measured 2026-11-04 on integration at 4667b6c2: `git grep -nE 'C reference|kmscon|libtsm'` finds 3,915 lines in 349 files. By area, in lines and files: tools/tier3 728 in 53; Rust source under crates/ 707 in 167, of which 575 are comment lines; tools/conformance 666 in 30; the decision records under docs/architecture/ 654 in 26 (594 in the 22 records, 111 of them in frontmatter and 483 in the bodies, and 54 in ADR-1000's two tables); the ten crate READMEs at the top of each crate 418; the docs pages 365 in 18, of which docs/c-reference.md holds 247; tools/tier2 153 in 17; other files under crates/ (the test READMEs, Cargo.toml comments, install/ files) 90 in 14; the other tools 90 in 8; AGENTS.md 17; the Makefile 15; COPYING 6; README.md 3; CONTRIBUTING.md 2; zensical.toml 1; .github/ none."
   - evidence: "measured 2026-11-04 on integration at 4667b6c2: ten crate READMEs carry a `## Departures` section, 246 bold-titled items in all (vtium-term 67, vtium 65, vtium-platform 42, vtium-image 20, vtium-render 15, vtium-config 13, vtium-font 10, vtium-parse 9, vtium-image-helper 3, vtium-settings 2); three carry `## C behaviour kept`, three `## Beyond the C reference`, the vtium crate's README a `## C notes` section, and vtium-term's README a `## Golden differences` section; docs/architecture.md has a `## Beyond the C reference` section and docs/vt-review.md a `## Departures from the C reference's review`. Thirteen of the 22 decision records carry a `C notes` section, and ten a section headed exactly `## Where vtium departs from the C reference` (fifteen carry a heading about departures of some form). A search of the record bodies for the C reference named with a present-tense verb finds 14 lines; the lines that point at the forks' checkouts are all in frontmatter basis entries."
   - evidence: "measured 2026-11-04 on integration at 4667b6c2: the goldens copied from the C reference are tier 1's corpus goldens (tools/conformance/corpus/golden, 164 files, and golden-frame) with the capability probes, tier 2's two PPMs in tools/tier2/reference/goldens/, and tier 3's 223 files in tools/tier3/c-goldens/ across seven variants. vtium's own goldens are tools/conformance/expected/ (49 screen files and the frame view), tools/tier2/goldens/ (86 files) and tools/tier3/goldens/ (158 files). The lists that excuse a difference from a copied golden are tools/conformance/expected.tsv (57 rows, every one of kind departure), tools/tier2/departures.tsv (4 rows) and tools/tier3/departures.tsv (10 rows covering 31 variant and screen pairs). tools/tier2/c-goldens.list names the 36 goldens of the C reference's tier 2, and tools/tier2/pending.tsv the 34 that no screen draws yet. Three C programs sit in the tree as the record of how digests and screens were made: crates/vtium-font/tests/reference/refdigest.c, crates/vtium-render/tests/reference/refcells.c and tools/tier2/reference/test_pixels.c; tools/tier2/src/cref.rs reads test_pixels.c on every tier 2 run to check that each ported screen carries its bytes."
@@ -45,8 +51,9 @@ agent:
   model: claude-opus-5-5
 considered:
   - operator: aaronsb
-    said: "I'm unsure of the private layer concept working as intended. I think for now we can just leave agents.md and claude.md as they are, and later when we see a real reduction in open issues and vtium feels more stable, we'll revisit it then."
+    said: "The private layer is deferred, because it is not yet clear that it works as intended. AGENTS.md and CLAUDE.md stay as they are for now, and the maintainer revisits them once the open issues have clearly fallen and vtium is more stable."
     via: the steering session, 2026-11-04
+    paraphrase: true
   - operator: aaronsb
     said: "let's adjust 'moving from kmscon' to 'moving from another DRM/KMS VT'."
     via: the steering session, 2026-11-04
@@ -54,18 +61,22 @@ considered:
     said: "Outward sweep now"
     via: the steering session, 2026-11-04; the maintainer chose this option from the steering session's interview, and the option's label and its description (the docs, README, crate READMEs, code comments, renames and the fork-refs check now; AGENTS.md, CLAUDE.md, the provenance records, the C programs and docs/c-reference.md as they are until the revisit) are the steering session's wording
   - operator: aaronsb
-    said: "replace, one review pass. (we're boot strapping our own goldens) - I assume they pass right now, so we're just calling them vtium's goldens now"
+    said: "The excused cases' goldens are replaced with vtium's own output in one review pass, as vtium bootstraps its own goldens. The other copied goldens pass today, and they become vtium's goldens as they stand."
     via: the steering session, 2026-11-04
+    paraphrase: true
     covers: [the judge]
   - operator: aaronsb
-    said: "do we drop it and add fbcon as a comparison target?"
+    said: "Should ADR-1000 drop its c_reference column and take fbcon as a comparison target in its place?"
     via: the steering session, 2026-11-04, on ADR-1000's c_reference column; a question, which the steering session answers with the lean this record drafts, pending the maintainer's confirmation
+    paraphrase: true
   - operator: aaronsb
-    said: "delete now, because I think they will continue to affect agent reasoning. we'll keep a watch on how things go"
+    said: "Delete these files now, because left in the tree they would keep pulling agents' reasoning toward the fork. The maintainer watches how the work goes afterward."
     via: the steering session, 2026-11-04, on the provenance records, the C test programs, c-goldens.list and cref.rs, the provenance make targets and docs/c-reference.md
+    paraphrase: true
   - operator: aaronsb
-    said: "I'm inclined to keep, but I'm unsure of how terminfo works in linux. if we write our own terminfo and install it, is it just as effective as any other terminfo? or is there something special I'm missing? I have been operating under an understanding that programs and software may have hardcoded a terminfo selection of just popular terminals, and therefore have no idea about vtium. if the case is that terminfo can offer most programs proper terminfo, then maybe I am over thinking it. I believe we should offer compatiblity since kmscon is known, but that probably will interfere with using all of vtium's features. (because kmscon's main branch doesn't support many features vtium does)"
+    said: "Keep kmscon as a terminal name a user can choose, because programs know the released kmscon, although a program that uses that name sees fewer of vtium's abilities than vtium has. The maintainer asked whether vtium's own terminfo entry, once installed, serves programs as well as any other terminal's entry, or whether some programs know only a fixed list of popular terminals."
     via: the steering session, 2026-11-04, on the kmscon terminal name
+    paraphrase: true
   - operator: aaronsb
     said: "One history sentence"
     via: the steering session, 2026-11-04, on docs/why-vtium.md's Beside kmscon; the maintainer chose this option from the steering session's interview, and the option's label and its description (the section becomes one past-tense sentence saying vtium began from kmscon, and the comparison table keeps kmscon as one row among the others) are the steering session's wording
@@ -74,8 +85,9 @@ considered:
     via: the steering session, 2026-11-04, on ADR-1000's c_reference column; the maintainer chose this option from the steering session's interview, and the option's label and its description (drop c_reference and add a linux column for the kernel's console) are the steering session's wording
     covers: [ADR-1000's comparison column]
   - operator: aaronsb
-    said: "make the smallest edit, your lean"
+    said: "AGENTS.md takes the smallest edit, as the steering session leaned."
     via: the steering session, 2026-11-04, on AGENTS.md's references to deleted files and targets; the lean the maintainer accepted is the steering session's wording
+    paraphrase: true
 observable:
   - "`docs/scripts/fork-refs` exits 0 on the tree after the sweep, and exits 1 naming the file and line when a planted line in a crate README says `the C reference`"
   - "Every case is judged by one golden in one directory per tier: tools/conformance/expected.tsv, tools/tier2/departures.tsv, tools/tier3/departures.tsv and tools/tier3/c-goldens/ are gone, and `make conformance`, `make tier2` and `make tier3` pass"
