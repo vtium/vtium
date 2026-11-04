@@ -55,8 +55,13 @@
 ##
 ## It is a whole percentage of the text's height, rounded to whole pixels and
 ## split evenly above and below the text, so the grid has fewer rows. It adds
-## nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=`
-## decides, 0 where it states none.
+## nothing to a frit's own `cell=`, but it applies when `font-size` sets the
+## size over that `cell=`: the cell grows by the spacing, split evenly above
+## and below each row. Unset, the frit's `line-spacing=` decides, 0 where it
+## states none.
+##
+## vtium does not build line spacing yet: it accepts the key, and the key has
+## no effect for now.
 
 #font-size=0
 #font-hinting=

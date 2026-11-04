@@ -1195,7 +1195,8 @@ pub const FONT_LINE_SPACING: Key = Key {
     scope: Scope::Anywhere,
     reader: "vtium-font",
     what: "Height added to each row, over a frit's `line-spacing=`.\n\n\
-           It is a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit that states `cell=`. Unset, the frit's `line-spacing=` decides, 0 where it states none.",
+           It is a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit's own `cell=`, but it applies when `font-size` sets the size over that `cell=`: the cell grows by the spacing, split evenly above and below each row. Unset, the frit's `line-spacing=` decides, 0 where it states none.\n\n\
+           vtium does not build line spacing yet: it accepts the key, and the key has no effect for now.",
     cite: "ADR-1302 D13; ADR-1200 D1",
 };
 
