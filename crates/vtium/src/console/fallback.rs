@@ -19,13 +19,13 @@
 //! vtium cannot ask the manager, it cannot tell what the start would stop,
 //! so it starts nothing either.
 //!
-//! It starts the getty in the job mode `fail`, so systemd refuses the start
-//! rather than replace a job queued for a unit the getty conflicts with.
-//! That unit can be vtium's own: when `Restart=on-failure` has already
-//! queued a restart of `vtium@ttyN`, systemd refuses the getty's start,
-//! the fallback exits with status 1 and systemd's refusal in the journal,
-//! vtium comes back, and the VT has its console again. A queued restart of vtium's own
-//! unit wins over the getty.
+//! It starts the getty in systemd's default job mode, `replace`, so the
+//! getty's start stops vtium's own unit on the VT, a restart of it that
+//! `Restart=on-failure` has scheduled included, and the getty takes the VT,
+//! as tier 3's `heads-partly-open` checks. The job mode `fail` would leave
+//! that restart standing: on systemd 262 it left vtium and the getty
+//! running on the VT together (measured in tier 3). No other unit's job is
+//! replaced, since a unit with a job queued holds the getty back.
 
 use std::collections::BTreeMap;
 
@@ -154,9 +154,7 @@ impl Run<'_, '_, '_> {
             return Ok(0);
         }
         self.say(&text::fallback_starting(n));
-        // In the job mode fail, systemd refuses the start rather than
-        // replace a job queued for a unit it conflicts with.
-        self.systemctl_quiet(&["--no-block", "--job-mode=fail", "start", &getty])?;
+        self.systemctl_quiet(&["--no-block", "start", &getty])?;
         Ok(0)
     }
 }

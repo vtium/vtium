@@ -358,7 +358,7 @@ impl Systemd for Fake {
             ["add-wants", target, name] => self.add_wants(target, name),
             ["daemon-reload"] => ok(),
             ["show", rest @ ..] => self.show(rest),
-            ["--no-block", "--job-mode=fail", "start", name] if self.starts => {
+            ["--no-block", "start", name] if self.starts => {
                 self.instance(name);
                 ok()
             }
@@ -2270,7 +2270,7 @@ fn the_fallback_gives_an_ordinary_vt_its_getty_back() {
         [
             "show -p Conflicts -p ConflictedBy -- getty@tty3.service",
             "show -p Id -p ActiveState -p UnitFileState -p Job -- rescue.service shutdown.target",
-            "--no-block --job-mode=fail start getty@tty3.service",
+            "--no-block start getty@tty3.service",
         ]
     );
     // A unit that conflicts with the getty but is stopped and disabled.
@@ -2282,7 +2282,7 @@ fn the_fallback_gives_an_ordinary_vt_its_getty_back() {
     assert_eq!(m.console(&["fallback", "1"]).0, 0);
     assert_eq!(
         m.fake.calls.last().map(String::as_str),
-        Some("--no-block --job-mode=fail start getty@tty1.service")
+        Some("--no-block start getty@tty1.service")
     );
 }
 
