@@ -3621,6 +3621,10 @@ impl App {
                 if let Some(why) = composed.failed_gpu.take() {
                     failed_gpu_frame(view, video.as_ref(), composed.key.1, &why);
                 }
+                if let Some(why) = composed.refused_gpu.take() {
+                    let path = head.painter.as_ref().map(Painter::path).unwrap_or_default();
+                    refused_gpu_display(view, video.as_ref(), composed.key.1, path, &why);
+                }
                 let compose = composed.stats.cpu;
                 let shown = view.present(
                     composed,
@@ -3984,13 +3988,32 @@ fn failed_gpu_frame(view: &mut View, video: &dyn Video, id: DisplayId, why: &str
     );
 }
 
+/// The GPU path could not set up `view`, the display `id` of `video`, at
+/// its size, for `why`: the CPU path draws it until its mode changes, while
+/// the head's other displays stay on `path` (ADR-1303 D9). The log says so
+/// once, naming the display's connector, and gives its line again.
+fn refused_gpu_display(
+    view: &mut View,
+    video: &dyn Video,
+    id: DisplayId,
+    path: crate::painter::Path,
+    why: &str,
+) {
+    view.gpu_refused = true;
+    let name = video.name(id);
+    log::warn!(
+        "display {name}: the GPU path cannot set it up ({why}): the CPU path draws it until its mode changes"
+    );
+    display_line(&name, video.backend(), path, view);
+}
+
 /// The line vtium logs for `view`, a display it draws on a head on
 /// `path`, naming the path that draws the display (ADR-1303 D10).
 fn display_line(name: &str, backend: &str, path: crate::painter::Path, view: &View) {
     let cell = view.cell();
     log::info!(
         "Display {name} with backend [{backend}] text renderer [{}], cell size {}x{}",
-        path.for_depth(view.depth()).name(),
+        view.path_on(path).name(),
         cell.width,
         cell.height
     );

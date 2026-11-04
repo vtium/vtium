@@ -85,6 +85,14 @@ pub struct TestGpu {
     /// Held by a test, it keeps the head's GPU path from being dropped, as
     /// a driver that hangs in eglDestroyContext would.
     pub hold_drop: std::sync::Mutex<()>,
+    /// The display whose frames alone raise the queued faults; every
+    /// display's when `None`.
+    pub faulty_display: std::sync::Mutex<Option<vtium_platform::display::DisplayId>>,
+    /// The displays whose set-up the GPU path refuses.
+    pub refuse_set_up:
+        std::sync::Mutex<std::collections::BTreeSet<vtium_platform::display::DisplayId>>,
+    /// Each set-up of a display the GPU path tried, in order.
+    pub set_ups: std::sync::Mutex<Vec<vtium_platform::display::DisplayId>>,
 }
 
 /// A failure a test makes the GPU raise in a frame.
@@ -633,6 +641,90 @@ mod tests {
         assert!(
             back.first().is_some_and(|c| c.left_gpu.is_some()),
             "it carries why the path ended"
+        );
+    }
+
+    /// Sends a frame of each of `n` displays, `rounds` times, each round
+    /// once the last came back, and gives every frame composed.
+    #[cfg(feature = "gpu")]
+    fn rounds(painter: &mut Painter, n: u32, rounds: usize) -> Vec<Composed> {
+        let hook: DrawHook = Arc::new(|| {});
+        let mut all = Vec::new();
+        for _ in 0..rounds {
+            for job in jobs(n, &hook) {
+                assert!(painter.send(Box::new(job)).is_none());
+            }
+            let end = Instant::now().checked_add(Duration::from_secs(10)).unwrap();
+            let mut back = Vec::new();
+            while back.len() < usize::try_from(n).unwrap() && Instant::now() < end {
+                back.extend(painter.take());
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(
+                back.len(),
+                usize::try_from(n).unwrap(),
+                "every frame came back"
+            );
+            all.extend(back);
+        }
+        all
+    }
+
+    // ADR-1303 D9: a display the GPU path cannot set up is drawn by the CPU
+    // path until its mode changes, with no try at each frame, and says so
+    // once; the head's other display stays on the GPU path
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_display_the_gpu_cannot_set_up_is_drawn_on_the_cpu_path_and_tried_once() {
+        let gpu = Arc::new(TestGpu::default());
+        gpu.refuse_set_up.lock().unwrap().insert(DisplayId(1));
+        let mut painter =
+            Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+        let frames = rounds(&mut painter, 2, 3);
+        let refused: Vec<DisplayId> = frames
+            .iter()
+            .filter(|c| c.refused_gpu.is_some())
+            .map(|c| c.key.1)
+            .collect();
+        assert_eq!(refused, [DisplayId(1)], "said once, for display 1");
+        assert!(
+            frames
+                .iter()
+                .all(|c| c.left_gpu.is_none() && c.failed_gpu.is_none())
+        );
+        let tries = gpu.set_ups.lock().unwrap().clone();
+        assert_eq!(tries, [DisplayId(0), DisplayId(1)], "each set up once");
+        assert_eq!(
+            gpu.kept.load(Ordering::SeqCst),
+            1,
+            "display 0 on the GPU path"
+        );
+    }
+
+    // ADR-1303 D9: a GL error in two of one display's frames running ends
+    // the GPU path, though another display's frame drew between them
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_gl_error_in_two_of_a_displays_frames_running_ends_the_gpu_path() {
+        let gpu = Arc::new(TestGpu::default());
+        *gpu.faulty_display.lock().unwrap() = Some(DisplayId(0));
+        gpu.faults.lock().unwrap().extend([Fault::Gl, Fault::Gl]);
+        let mut painter =
+            Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+        let frames = rounds(&mut painter, 2, 2);
+        let failed: Vec<DisplayId> = frames
+            .iter()
+            .filter(|c| c.failed_gpu.is_some())
+            .map(|c| c.key.1)
+            .collect();
+        assert_eq!(
+            failed,
+            [DisplayId(0), DisplayId(0)],
+            "display 0's frames failed"
+        );
+        assert!(
+            frames.iter().any(|c| c.left_gpu.is_some()),
+            "the second ended the GPU path"
         );
     }
 

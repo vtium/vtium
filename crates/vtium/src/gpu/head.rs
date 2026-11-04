@@ -30,6 +30,7 @@ use vtium_term::Frame;
 use super::PlatformGl;
 use crate::font::DisplayFace;
 use crate::painter::{Fault, GpuSource, TestGpu};
+use crate::term::OnGpuFrame;
 
 /// One display's frames on the GPU path: its pipeline, and the frame in GL
 /// that each frame is presented into and read back from.
@@ -56,8 +57,11 @@ pub struct HeadGpu {
     read: Vec<u8>,
     /// One row as display pixels, `0x00RRGGBB`.
     pixels: Vec<u32>,
-    /// The frames running that a GL error failed.
-    failed_in_a_row: u32,
+    /// Each display's frames running that a GL error failed.
+    failed_in_a_row: BTreeMap<(PathBuf, DisplayId), u32>,
+    /// The displays whose set-up failed, at the size it failed at: the CPU
+    /// path draws each until its mode changes (ADR-1303 D9).
+    refused: BTreeMap<(PathBuf, DisplayId), Size>,
     /// Why the GPU path ended, once a failure ended it.
     lost: Option<String>,
     /// The test watching the GPU path, which queues its faults and reads
@@ -94,7 +98,8 @@ impl HeadGpu {
             displays: BTreeMap::new(),
             read: Vec::new(),
             pixels: Vec::new(),
-            failed_in_a_row: 0,
+            failed_in_a_row: BTreeMap::new(),
+            refused: BTreeMap::new(),
             lost: None,
             test,
             lose_at_read: false,
@@ -118,16 +123,20 @@ impl HeadGpu {
         if let Some(display) = self.displays.remove(key) {
             display.free(&mut self.gl);
         }
+        self.failed_in_a_row.remove(key);
+        self.refused.remove(key);
         self.count();
     }
 
     /// Draws `frame` for the display `key` through its pipeline, and reads
     /// what `target`, the display's buffer `age` frames old, lacks back into
-    /// it. Gives the damage and the figures, or `None` for a display the
-    /// GPU path does not draw yet: a 1-bit one, whose depth present does not
-    /// reduce (ADR-1303 D6). A frame that fails may leave part of it in the
-    /// buffer, when its read back fails partway, and the error says what
-    /// failed; one that loses the context or runs out of memory ends the
+    /// it, and says how that went. `None` is a display the GPU path does
+    /// not draw: a 1-bit one, whose depth present does not reduce yet
+    /// (ADR-1303 D6), one whose set-up failed at this size, which the CPU
+    /// path draws until its mode changes (D9), or any display once the GPU
+    /// path ended. A frame that fails may leave part of it in the buffer,
+    /// when its read back fails partway. A lost context, an out-of-memory
+    /// error or a GL error in two of the display's frames running ends the
     /// GPU path.
     #[expect(
         clippy::too_many_arguments,
@@ -142,33 +151,45 @@ impl HeadGpu {
         orientation: Orientation,
         age: u32,
         state: &DrawState,
-    ) -> Option<Result<(Vec<Rect>, Stats), Error>> {
-        if renderer.depth() == Depth::One || self.lost.is_some() {
+    ) -> Option<OnGpuFrame> {
+        let size = Size::new(size.0, size.1);
+        if renderer.depth() == Depth::One
+            || self.lost.is_some()
+            || self.refused.get(key) == Some(&size)
+        {
             return None;
         }
-        self.raise_a_queued_fault();
-        let drawn = self.draw_through(
-            key,
-            renderer,
-            frame,
-            (target, size),
-            orientation,
-            age,
-            state,
-        );
+        if let Err(e) = self.set_up(key, size, orientation) {
+            self.count();
+            if !matches!(e.kind, ErrorKind::OutOfMemory | ErrorKind::ContextLost) {
+                self.refused.insert(key.clone(), size);
+                return Some(OnGpuFrame::Refused(e.to_string()));
+            }
+            self.lost = Some(e.to_string());
+            return Some(OnGpuFrame::Failed(e.to_string()));
+        }
+        self.refused.remove(key);
+        self.raise_a_queued_fault(key);
+        let drawn = self.draw_through(key, renderer, frame, target, age, state);
         self.count();
-        match &drawn {
-            Ok(_) => self.failed_in_a_row = 0,
+        match drawn {
+            Ok((damage, stats)) => {
+                self.failed_in_a_row.remove(key);
+                Some(OnGpuFrame::Drawn(damage, stats))
+            }
             Err(e) => {
-                self.failed_in_a_row = self.failed_in_a_row.saturating_add(1);
+                let failed = self.failed_in_a_row.entry(key.clone()).or_default();
+                *failed = failed.saturating_add(1);
                 if matches!(e.kind, ErrorKind::OutOfMemory | ErrorKind::ContextLost) {
                     self.lost = Some(e.to_string());
-                } else if self.failed_in_a_row >= 2 {
-                    self.lost = Some(format!("a GL error in two frames running, the last {e}"));
+                } else if *failed >= 2 {
+                    self.lost = Some(format!(
+                        "a GL error in two of a display's frames running, the last {e}"
+                    ));
                 }
+                Some(OnGpuFrame::Failed(e.to_string()))
             }
         }
-        Some(drawn)
     }
 
     /// Tells a test watching how many displays the GPU path keeps frames
@@ -182,10 +203,15 @@ impl HeadGpu {
 
     /// Makes the context fail the frame's next call with the fault a test
     /// queued first, if any.
-    fn raise_a_queued_fault(&mut self) {
+    fn raise_a_queued_fault(&mut self, key: &(PathBuf, DisplayId)) {
         let Some(fault) = self
             .test
             .as_ref()
+            .filter(|t| {
+                t.faulty_display
+                    .lock()
+                    .is_ok_and(|d| d.is_none_or(|id| id == key.1))
+            })
             .and_then(|t| t.faults.lock().ok().and_then(|mut q| q.pop_front()))
         else {
             return;
@@ -201,42 +227,66 @@ impl HeadGpu {
         });
     }
 
-    #[expect(clippy::too_many_arguments, reason = "as draw's")]
+    /// Makes the display `key`'s pipeline and staging frame at `size` and
+    /// `orientation`, unless it has them at that size; a display whose mode
+    /// changed gives up its old ones first.
+    fn set_up(
+        &mut self,
+        key: &(PathBuf, DisplayId),
+        size: Size,
+        orientation: Orientation,
+    ) -> Result<(), Error> {
+        let gl = &mut self.gl;
+        match self.displays.get(key) {
+            Some(d) if d.pipeline.size() == size => return Ok(()),
+            Some(_) => {
+                // a display whose mode changed: its frame goes, and the next
+                // is made at the new size
+                if let Some(old) = self.displays.remove(key) {
+                    old.free(gl);
+                }
+            }
+            None => {}
+        }
+        if let Some(test) = &self.test {
+            if let Ok(mut tries) = test.set_ups.lock() {
+                tries.push(key.1);
+            }
+            if test.refuse_set_up.lock().is_ok_and(|r| r.contains(&key.1)) {
+                return Err(Error::new(
+                    ErrorKind::Limit,
+                    "the test refuses the display's set-up",
+                ));
+            }
+        }
+        let pipeline = Pipeline::turned(gl, size, orientation, Config::default())?;
+        let staging = match gl.create_frame(size) {
+            Ok(t) => t,
+            Err(err) => {
+                let _ = pipeline.free(gl);
+                return Err(err);
+            }
+        };
+        self.displays
+            .insert(key.clone(), Display { pipeline, staging });
+        Ok(())
+    }
+
     fn draw_through(
         &mut self,
         key: &(PathBuf, DisplayId),
         renderer: &mut Renderer<DisplayFace>,
         frame: &Frame<'_>,
-        (target, size): (&mut Mapped<'_>, (u32, u32)),
-        orientation: Orientation,
+        target: &mut Mapped<'_>,
         age: u32,
         state: &DrawState,
     ) -> Result<(Vec<Rect>, Stats), Error> {
-        let size = Size::new(size.0, size.1);
         let gl = &mut self.gl;
-        if self
-            .displays
-            .get(key)
-            .is_some_and(|d| d.pipeline.size() != size)
-            && let Some(old) = self.displays.remove(key)
-        {
-            // a display whose mode changed: its frame goes, and the next is
-            // made at the new size
-            old.free(gl);
-        }
-        let display = match self.displays.entry(key.clone()) {
-            std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::btree_map::Entry::Vacant(e) => {
-                let pipeline = Pipeline::turned(gl, size, orientation, Config::default())?;
-                let staging = match gl.create_frame(size) {
-                    Ok(t) => t,
-                    Err(err) => {
-                        let _ = pipeline.free(gl);
-                        return Err(err);
-                    }
-                };
-                e.insert(Display { pipeline, staging })
-            }
+        let Some(display) = self.displays.get_mut(key) else {
+            return Err(Error::new(
+                ErrorKind::Misuse,
+                "a display drawn before its set-up",
+            ));
         };
         // A pipeline is made at the display's orientation, and draw_gpu
         // turns it to the renderer's as each frame starts, which is the

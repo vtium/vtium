@@ -6567,6 +6567,33 @@ mod gpu_path {
         assert!(gpu == cpu, "the turned frame differs from the CPU path's");
     }
 
+    // ADR-1303 D9, D10: a display the GPU path cannot set up is drawn by
+    // the CPU path, with one line naming its connector and its display line
+    // again naming cpu, and its set-up is not tried again at its size
+    #[test]
+    fn a_display_the_gpu_cannot_set_up_logs_once_and_its_line_names_cpu() {
+        let (cpu_shown, cpu_whole, _) = drawn(&[], GpuSource::Software);
+        let gpu = Arc::new(TestGpu::default());
+        gpu.refuse_set_up.lock().unwrap().insert(ID);
+        let (shown, whole, log) = drawn(&["--hwaccel"], GpuSource::Test(Arc::clone(&gpu)));
+        let refused: Vec<&String> = log
+            .iter()
+            .filter(|l| l.contains("the GPU path cannot set it up"))
+            .collect();
+        assert_eq!(refused.len(), 1, "{log:#?}");
+        assert!(refused[0].starts_with("display MEM-1: "), "{log:#?}");
+        assert_eq!(renderer(&log), ["gpu", "cpu"], "{log:#?}");
+        assert_eq!(*gpu.set_ups.lock().unwrap(), [ID], "tried once");
+        assert!(
+            shown == cpu_shown,
+            "the frame shown differs from the CPU path's"
+        );
+        assert!(
+            whole == cpu_whole,
+            "the frame drawn whole differs from the CPU path's"
+        );
+    }
+
     /// The same through this machine's first render node, on its GPU. It
     /// opens a render node, which needs no DRM master, and runs only when
     /// asked.

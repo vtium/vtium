@@ -533,6 +533,7 @@ impl Job {
         let grid = (frame.cols(), frame.rows());
         let size = token.size();
         let mut failed_gpu = None;
+        let mut refused_gpu = None;
         let drawn = token
             .draw(|canvas| {
                 let stride = usize::try_from(canvas.stride).ok()?;
@@ -551,17 +552,21 @@ impl Job {
                     )
                 });
                 #[cfg(not(feature = "gpu"))]
-                let on_gpu: Option<Result<(Vec<RenderRect>, Stats), String>> = None;
+                let on_gpu: Option<OnGpuFrame> = None;
                 let (rects, stats) = match on_gpu {
-                    Some(Ok(drawn)) => drawn,
-                    failed => {
-                        // after a failed GPU frame the buffer may hold part
-                        // of it, and the renderer may have recorded it as
-                        // drawn: the renderer forgets its history, so the
-                        // CPU path draws the frame whole at any age
-                        if let Some(Err(e)) = &failed {
-                            failed_gpu = Some(e.to_string());
-                            drawing.renderer.forget_history();
+                    Some(OnGpuFrame::Drawn(damage, stats)) => (damage, stats),
+                    other => {
+                        match other {
+                            // after a failed GPU frame the buffer may hold
+                            // part of it, and the renderer may have recorded
+                            // it as drawn: the renderer forgets its history,
+                            // so the CPU path draws the frame whole at any age
+                            Some(OnGpuFrame::Failed(why)) => {
+                                failed_gpu = Some(why);
+                                drawing.renderer.forget_history();
+                            }
+                            Some(OnGpuFrame::Refused(why)) => refused_gpu = Some(why),
+                            Some(OnGpuFrame::Drawn(..)) | None => {}
                         }
                         let drawn = drawing.renderer.draw(&frame, &mut target, age, &self.state);
                         (drawn.damage.to_vec(), drawn.stats)
@@ -602,9 +607,22 @@ impl Job {
             at,
             tip: self.tip,
             failed_gpu,
+            refused_gpu,
             left_gpu: None,
         }
     }
+}
+
+/// What the head's GPU path did with a display's frame (ADR-1303 D9).
+pub enum OnGpuFrame {
+    /// It drew the frame into the display's buffer: the damage and the
+    /// figures.
+    Drawn(Vec<RenderRect>, Stats),
+    /// The frame failed, for this reason, and the CPU path draws it.
+    Failed(String),
+    /// The display's set-up failed at its size, for this reason, and the
+    /// CPU path draws it until its mode changes.
+    Refused(String),
 }
 
 /// The head's GPU path, which a frame is drawn through when there is one.
@@ -628,6 +646,9 @@ pub struct Composed {
     /// Why the GPU path failed this frame, which the CPU path drew
     /// instead (ADR-1303 D9).
     pub failed_gpu: Option<String>,
+    /// Why the GPU path could not set up the display at this frame's size:
+    /// the CPU path draws it until its mode changes (ADR-1303 D9).
+    pub refused_gpu: Option<String>,
     /// Why the head's GPU path ended with this frame: the head draws on
     /// the CPU path from now on (ADR-1303 D9).
     pub left_gpu: Option<String>,
@@ -690,6 +711,9 @@ pub struct View {
     /// The log said once that the GPU path failed one of the display's
     /// frames.
     pub gpu_failure_logged: bool,
+    /// The GPU path could not set the display up at its size, so the CPU
+    /// path draws it until its mode changes.
+    pub gpu_refused: bool,
     pub timer: Option<RenderTimer>,
     pub size: (u32, u32),
     pub refresh: Option<std::time::Duration>,
@@ -744,6 +768,7 @@ impl View {
             owed: false,
             lost: true,
             gpu_failure_logged: false,
+            gpu_refused: false,
             timer: measure.then(RenderTimer::new),
             size,
             refresh: refresh(refresh_mhz),
@@ -795,6 +820,9 @@ impl View {
     /// next frame is drawn whole. The view's size is always its
     /// renderer's: it changes only with the renderer.
     pub fn resize(&mut self, font: Font<DisplayFace>, size: (u32, u32), config: RenderConfig) {
+        // the GPU path tries a display it could not set up again at a new
+        // mode
+        self.gpu_refused = false;
         self.size = size;
         self.rebuild(font, self.height, config);
     }
@@ -833,6 +861,18 @@ impl View {
 
     pub fn depth(&self) -> Depth {
         self.depth
+    }
+
+    /// The path that draws the display on a head on `head`'s path: the CPU
+    /// path for a 1-bit display, whose depth the GPU path does not reduce
+    /// yet (ADR-1303 D6), and for one the GPU path could not set up at its
+    /// size (D9).
+    pub fn path_on(&self, head: crate::painter::Path) -> crate::painter::Path {
+        if self.gpu_refused {
+            crate::painter::Path::Cpu
+        } else {
+            head.for_depth(self.depth)
+        }
     }
 
     /// The font's sprite policy and missing glyph.
