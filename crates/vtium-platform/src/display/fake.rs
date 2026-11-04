@@ -16,12 +16,12 @@
 //! refused with EINVAL; a connector the commit moves puts the CRTC it
 //! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. What a
 //! commit sets is what the card reports after it: a connector's encoder and
-//! that encoder's CRTC, and a CRTC's mode, as the kernel's getters read
-//! them back. A wait for a CRTC's next vblank is refused with EINVAL
-//! where the CRTC is not active, and with EOPNOTSUPP on a card with no
-//! vblank interrupt. Its event comes when a test says the vblank passed,
-//! or at once when the CRTC stops being active, as `drm_crtc_vblank_off`
-//! sends the events still waiting.
+//! that encoder's CRTC, a connector's `CRTC_ID`, and a CRTC's mode, as the
+//! kernel's getters read them back. A wait for a CRTC's next vblank is
+//! refused with EINVAL where the CRTC is not active, and with EOPNOTSUPP on
+//! a card with no vblank interrupt. Its event comes when a test says the
+//! vblank passed, or at once when the CRTC stops being active, as
+//! `drm_crtc_vblank_off` sends the events still waiting.
 //!
 //! A framebuffer smaller than what it is asked to show is refused with
 //! ENOSPC, as the kernel refuses it: a commit whose plane reads past its
@@ -161,8 +161,8 @@ pub(crate) struct State {
     /// with no room for modes probes it while the card is master.
     pub(crate) probes: Vec<u32>,
     /// Planes whose possible CRTCs cannot be read, and the reads that
-    /// fail for every object: `planes`, `crtc_mode` and `cap`. Each fails
-    /// with EIO.
+    /// fail for every object: `planes`, `crtc_mode`, `cap` and `encoder`.
+    /// Each fails with EIO.
     pub(crate) crtcs_unreadable: Vec<u32>,
     pub(crate) failing: Vec<&'static str>,
     /// The CRTC each connector is on, each CRTC's `ACTIVE`, and the CRTC
@@ -724,8 +724,9 @@ impl FakeCard {
                 let dpms = *s.dpms.get(&id).ok_or_else(|| err(Errno::NOENT))?;
                 let with = !s.no_dpms.contains(&id);
                 let path = s.paths.get(&id).copied();
+                let crtc = u64::from(s.bound.get(&id).copied().unwrap_or(0));
                 drop(s);
-                let names: Vec<(&str, u64)> = std::iter::once(("CRTC_ID", 0))
+                let names: Vec<(&str, u64)> = std::iter::once(("CRTC_ID", crtc))
                     .chain(with.then_some(("DPMS", dpms)))
                     .chain(path.map(|b| ("PATH", u64::from(b))))
                     .collect();
@@ -974,6 +975,9 @@ impl Kms for FakeCard {
 
     fn encoder(&self, id: u32) -> io::Result<Encoder> {
         let s = self.state.borrow();
+        if s.failing.contains(&"encoder") {
+            return Err(err(Errno::IO));
+        }
         s.encoders
             .get(&id)
             .copied()

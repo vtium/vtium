@@ -1586,12 +1586,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         })
     }
 
-    /// Places each display a wake-up finds bound from before as a first
-    /// start would place it, from the connectors `seen` as the wake-up
-    /// read them. A display whose connector is on a CRTC takes that CRTC,
-    /// unless a display placed before it took it, and else the first free
-    /// CRTC an encoder of the connector can drive. A display that moves
-    /// takes the new CRTC's primary and cursor planes.
+    /// Places each display a wake-up finds bound from before on a CRTC,
+    /// from the connectors `seen` as the wake-up read them. A display moves
+    /// to a new CRTC with that CRTC's primary and cursor planes.
     ///
     /// The program that held the card while vtium slept may have moved a
     /// connector to another CRTC. A modeset on the CRTC the display had
@@ -1600,17 +1597,34 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// sets (`drm_atomic_helper_check_modeset`), so the display would never
     /// wake again (vtium/vtium#249).
     ///
-    /// The displays whose connector is on a CRTC are placed first, then
-    /// those whose connector is on none, then those that return, each
-    /// group in connector order, so a display the program left off never
-    /// takes the CRTC of one it left lit. A display whose connector is on
-    /// no CRTC keeps its own CRTC where no display took it. So does a
-    /// display that returns, such as one this wake-up bound, since its
-    /// first modeset turns off the CRTC its connector is on
-    /// ([`Self::set_returning_off`]). A display left with no CRTC it can
-    /// take stays off, as one the scan cannot bind does, until a later
-    /// scan binds it again; the owner hears it removed.
+    /// Each display wants one CRTC: the CRTC its connector is on, or, where
+    /// its connector is on no CRTC or the display returns, its own CRTC. A
+    /// display that returns has its first modeset turn off the CRTC its
+    /// connector is on ([`Self::set_returning_off`]). The displays whose
+    /// connector is on a CRTC are placed first, then those whose connector
+    /// is on none, then those that return, each group in connector order.
+    /// A display takes the CRTC it wants where no display took it, and else
+    /// the first free CRTC an encoder of its connector can drive. Where no
+    /// CRTC is free, a matching step ([`augment`]) moves displays placed
+    /// before it to other CRTCs they can drive to free one, moving a display
+    /// whose connector is on a CRTC only where nothing else frees one.
+    ///
+    /// The CRTCs the displays held before the wake-up are a placement of
+    /// every display, so the matching always finds one. A display it could
+    /// not place would stay off, as one the scan cannot bind does, and the
+    /// owner would hear it removed; so does a display whose new CRTC has
+    /// no primary plane.
     fn follow_crtcs(&mut self, res: &Resources, seen: &[Connector]) {
+        let bit = |crtc: u32| {
+            res.crtcs
+                .iter()
+                .position(|&c| c == crtc)
+                .map_or(0, index_bit)
+        };
+        let index = |crtc: u32| res.crtcs.iter().position(|&c| c == crtc);
+        // Each display, its group, the CRTC it wants, and the CRTCs it can
+        // take: those its connector's encoders can drive, its own and the
+        // one its connector is on.
         let mut places: Vec<_> = std::mem::take(&mut self.outputs)
             .into_iter()
             .map(|o| {
@@ -1618,31 +1632,54 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 let current = conn
                     .filter(|c| c.encoder != 0)
                     .and_then(|c| self.encoder(c.encoder));
-                (o, conn, current)
+                let on = current.map_or(0, |e| e.crtc);
+                let encoders = conn.map_or(0, |c| {
+                    c.encoders
+                        .iter()
+                        .filter_map(|&e| {
+                            if e == c.encoder {
+                                current
+                            } else {
+                                self.encoder(e)
+                            }
+                        })
+                        .fold(0, |all, e| all | e.possible_crtcs)
+                });
+                let able = encoders | bit(o.crtc) | bit(on);
+                let (group, want) = match on {
+                    _ if o.returning => (2u8, o.crtc),
+                    0 => (1, o.crtc),
+                    on => (0, on),
+                };
+                (o, group, index(want), able)
             })
             .collect();
-        places.sort_by_key(|(o, _, current)| match current {
-            _ if o.returning => 2,
-            Some(e) if e.crtc != 0 => 0,
-            _ => 1,
-        });
-        let mut taken = Vec::with_capacity(places.len());
-        for (mut o, conn, current) in places {
-            let on = current.map_or(0, |e| e.crtc);
-            let placed = if (o.returning || on == 0) && !taken.contains(&o.crtc) {
-                Ok(())
-            } else {
-                match conn.and_then(|c| self.find_crtc(res, c, current, &taken)) {
-                    None => Err(format!("no free CRTC for {}", o.name)),
-                    Some((crtc, _)) if crtc == o.crtc => Ok(()),
-                    Some((crtc, pipe)) => self.move_to(&mut o, crtc, pipe),
+        places.sort_by_key(|&(_, group, _, _)| group);
+        let able: Vec<u32> = places.iter().map(|p| p.3).collect();
+        let lit: Vec<bool> = places.iter().map(|p| p.1 == 0).collect();
+        let mut slot = vec![None; places.len()];
+        let mut owner = vec![None; res.crtcs.len()];
+        for (d, &(_, _, want, can)) in places.iter().enumerate() {
+            let free = |c: usize| owner.get(c) == Some(&None) && can & index_bit(c) != 0;
+            match want
+                .filter(|&c| free(c))
+                .or_else(|| (0..owner.len()).find(|&c| free(c)))
+            {
+                Some(c) => assign(d, c, &mut slot, &mut owner),
+                None => {
+                    let _ = augment(d, &able, &lit, &mut slot, &mut owner, &mut 0)
+                        || augment(d, &able, &[], &mut slot, &mut owner, &mut 0);
                 }
+            }
+        }
+        for ((mut o, ..), at) in places.into_iter().zip(slot) {
+            let placed = match at.and_then(|c| Some((*res.crtcs.get(c)?, c))) {
+                None => Err(format!("no free CRTC for {}", o.name)),
+                Some((crtc, _)) if crtc == o.crtc => Ok(()),
+                Some((crtc, pipe)) => self.move_to(&mut o, crtc, pipe),
             };
             match placed {
-                Ok(()) => {
-                    taken.push(o.crtc);
-                    self.outputs.push(o);
-                }
+                Ok(()) => self.outputs.push(o),
                 Err(why) => {
                     log::warn!("{why}; it stays off until a scan finds a CRTC for it");
                     if o.announced {
@@ -2140,6 +2177,55 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             })
     }
 
+    /// Adds to `req` what turns off each CRTC that shows a mode, that no
+    /// display takes, and that only connectors of the displays are on,
+    /// which the modeset moves to the displays' own CRTCs, and returns those
+    /// CRTCs, whose planes [`Self::clear_planes`] takes down. The kernel
+    /// refuses a CRTC left enabled with no connector on it
+    /// (`drm_atomic_helper_check_modeset`). Each connector's CRTC is read
+    /// from its `CRTC_ID`, so a connector whose encoder cannot be read is
+    /// found too. A CRTC that a connector no display drives is on stays as
+    /// it is.
+    fn prepare_vacated(&self, req: &mut Request) -> Vec<u32> {
+        let ours = |id: u32| self.outputs.iter().any(|o| o.id.0 == id);
+        let connectors = self.card.resources().map_or_else(
+            |e| {
+                log::warn!("cannot list the card's connectors: {e}");
+                Vec::new()
+            },
+            |r| r.connectors,
+        );
+        let on: Vec<(u32, u32)> = connectors
+            .into_iter()
+            .filter_map(|id| {
+                let props = self.card.properties(id, Object::Connector).ok()?;
+                let crtc = u32::try_from(value(&props, "CRTC_ID")?).ok()?;
+                (crtc != 0).then_some((id, crtc))
+            })
+            .collect();
+        let mut off = Vec::new();
+        for &(id, crtc) in &on {
+            let left = ours(id)
+                && !off.contains(&crtc)
+                && !self.outputs.iter().any(|o| o.crtc == crtc)
+                && on.iter().all(|&(other, c)| c != crtc || ours(other))
+                && self.crtc_lit(crtc);
+            if !left {
+                continue;
+            }
+            let set = self.card.properties(crtc, Object::Crtc).and_then(|props| {
+                let props = Props::new(&props);
+                props.set(req, crtc, "MODE_ID", 0)?;
+                props.set(req, crtc, "ACTIVE", 0)
+            });
+            match set {
+                Ok(()) => off.push(crtc),
+                Err(e) => log::warn!("cannot set CRTC {crtc} off: {e}"),
+            }
+        }
+        off
+    }
+
     /// Whether `crtc` shows a mode or is active, as the card reports it; a
     /// CRTC whose state cannot be read counts as lit.
     fn crtc_lit(&self, crtc: u32) -> bool {
@@ -2156,11 +2242,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     fn atomic_modeset(&mut self, dark: bool) -> Result<(), Failure> {
         self.set_returning_off()?;
         let mut req = Request::default();
-        let off = if dark {
+        let mut off = if dark {
             self.prepare_dark(&mut req)
         } else {
             Vec::new()
         };
+        for crtc in self.prepare_vacated(&mut req) {
+            if !off.contains(&crtc) {
+                off.push(crtc);
+            }
+        }
         self.clear_planes(&mut req, &off);
         let mut staged = Vec::with_capacity(self.outputs.len());
         let mut outputs = std::mem::take(&mut self.outputs);
@@ -2350,6 +2441,68 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     pub(crate) fn waits(&self) -> (bool, bool) {
         (self.waiting.is_some(), self.retries.is_some())
     }
+}
+
+/// The bit of the CRTC at `index` in the card's list, as a mask of
+/// possible CRTCs names it; 0 past the 32 such a mask holds.
+fn index_bit(index: usize) -> u32 {
+    u32::try_from(index)
+        .ok()
+        .and_then(|i| 1u32.checked_shl(i))
+        .unwrap_or(0)
+}
+
+/// Puts display `d` on the CRTC at `c`, which the display placed there
+/// before, if any, has already left.
+fn assign(d: usize, c: usize, slot: &mut [Option<usize>], owner: &mut [Option<usize>]) {
+    if let Some(old) = slot.get(d).copied().flatten()
+        && let Some(held) = owner.get_mut(old)
+        && *held == Some(d)
+    {
+        *held = None;
+    }
+    if let Some(at) = slot.get_mut(d) {
+        *at = Some(c);
+    }
+    if let Some(held) = owner.get_mut(c) {
+        *held = Some(d);
+    }
+}
+
+/// One augmenting step of Kuhn's matching of displays to CRTCs: places
+/// display `d` on a CRTC its mask in `able` allows, one that is free or
+/// one that the display on it frees by moving, through the same step, to
+/// another CRTC it can drive. A display that `fixed` marks never moves.
+/// `tried` holds the CRTCs this step has tried, so each is tried once.
+/// Whether it placed `d`.
+fn augment(
+    d: usize,
+    able: &[u32],
+    fixed: &[bool],
+    slot: &mut [Option<usize>],
+    owner: &mut [Option<usize>],
+    tried: &mut u32,
+) -> bool {
+    let can = able.get(d).copied().unwrap_or(0);
+    for c in 0..owner.len() {
+        let bit = index_bit(c);
+        if can & bit == 0 || *tried & bit != 0 {
+            continue;
+        }
+        *tried |= bit;
+        let free = match owner.get(c).copied().flatten() {
+            None => true,
+            Some(other) => {
+                !fixed.get(other).copied().unwrap_or(false)
+                    && augment(other, able, fixed, slot, owner, tried)
+            }
+        };
+        if free {
+            assign(d, c, slot, owner);
+            return true;
+        }
+    }
+    false
 }
 
 /// Takes display `o`'s pointer image off the card: its framebuffer, whose
