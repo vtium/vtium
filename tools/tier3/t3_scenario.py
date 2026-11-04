@@ -564,6 +564,15 @@ def c_golden_cases():
             if not VARIANTS[v].get("goldens") and not VARIANTS[v].get("verdict")}
 
 
+def c_goldens_judging(root):
+    """The paths under `root`, the C reference's goldens, of every golden a
+    case compares with: each case of a variant c_golden_cases names, but
+    for a check without a golden and a re-baselined case that vtium's
+    golden judges (golden_root)."""
+    return {golden_for(v, c, root)[0] for v, cases in c_golden_cases().items() for c in cases
+            if golden_root(v, c) is None and golden_for(v, c, root)[0]}
+
+
 def golden_root(variant, case):
     """The goldens that judge `case` of `variant`: vtium's for a variant
     naming them ("goldens"); for a re-baselined variant ("rebaselined"),

@@ -16,17 +16,17 @@ The steering session runs work in waves. A wave is a batch of delegated agents w
 
 ## The repositories
 
-The C reference is the C terminal kmscon and its screen and parser library libtsm, which vtium is measured against. The maintainer keeps a fork of each beside the vtium checkout, and the forks hold the C reference's code. vtium copied what it needs from the forks into its own tree (#111, the issue that ported the C reference's test machinery into vtium), and it records the provenance of each copy: the file and the commit it came from. Many of the copies are goldens: saved expected results that vtium's output is compared against. vtium is tested in tiers: unit tests, tiers 1 to 3, and a final review by the maintainer on a real console. [How vtium is judged](#how-vtium-is-judged) lists them.
+The C reference is the C terminal kmscon and its screen and parser library libtsm, which vtium is measured against. The maintainer keeps a fork of each beside the vtium checkout, and the forks hold the C reference's code. vtium copied what it needs from the forks into its own tree (#111, the issue that ported the C reference's test machinery into vtium). Many of the copies are goldens: saved expected results that vtium's output is compared against. vtium is tested in tiers: unit tests, tiers 1 to 3, and a final review by the maintainer on a real console. [How vtium is judged](#how-vtium-is-judged) lists them.
 
 | Repository | Path beside this checkout | Role |
 |---|---|---|
 | vtium/vtium | `.` | vtium itself |
 | aaronsb/kmscon | `../kmscon` | The C reference's terminal. vtium copied its capability probes and its tier 2 and tier 3 goldens from here (#111). |
-| aaronsb/libtsm | `../libtsm` | The C reference's screen and parser. vtium copied tier 1's replay interface and goldens from here into `tools/conformance/`, with their provenance. The replay interface is the command-line contract by which a program plays a byte stream into a terminal and prints the resulting screen as text. vtium also ported the tools that made and checked them into `tools/conformance/`, in Rust: the case generator, the recorder and the interface check. |
+| aaronsb/libtsm | `../libtsm` | The C reference's screen and parser. vtium copied tier 1's replay interface and goldens from here into `tools/conformance/`. The replay interface is the command-line contract by which a program plays a byte stream into a terminal and prints the resulting screen as text. vtium also ported the tools that made and checked them into `tools/conformance/`, in Rust: the case generator, the recorder and the interface check. |
 
-The C reference is frozen. vtium does at least everything the C reference did, and may do more. It does not copy how the C reference was built, because vtium is idiomatic Rust. Agents read the forks and never change them on their own. A fork changes only when the maintainer asks for a fix, and then as the maintainer directs. No gate, CI job, build or tool runs the C reference's code or reads the forks' checkouts, except the three provenance checks described under [The gates](#the-gates). The local checkouts of the forks are often out of date, so fetch first and read from `origin/main`, for example `git -C ../kmscon show origin/main:<path>`. Plain `gh` in this checkout talks to vtium/vtium, so every `gh` command for a fork needs `-R aaronsb/kmscon` or `-R aaronsb/libtsm`.
+The C reference is frozen. vtium does at least everything the C reference did, and may do more. It does not copy how the C reference was built, because vtium is idiomatic Rust. Agents read the forks and never change them on their own. A fork changes only when the maintainer asks for a fix, and then as the maintainer directs. No gate, CI job, build or tool runs the C reference's code or reads the forks' checkouts. The local checkouts of the forks are often out of date, so fetch first and read from `origin/main`, for example `git -C ../kmscon show origin/main:<path>`. Plain `gh` in this checkout talks to vtium/vtium, so every `gh` command for a fork needs `-R aaronsb/kmscon` or `-R aaronsb/libtsm`.
 
-Before you design anything new, answer each question about behaviour or structure from the C reference. Start with [docs/c-reference.md](docs/c-reference.md), then read the C reference's code in the forks at `origin/main`. Take the C reference's logic flow, and never its code structure.
+Before you design anything new, answer each question about behaviour or structure from the C reference. Read the C reference's code in the forks at `origin/main`. Take the C reference's logic flow, and never its code structure.
 
 Diagnose a problem in vtium's implementation the same way. First find out how the C reference's flow handled the same case and what it decided, and cite that. Treat it as a reference for the logic, never as C code to port. This applies to every change, whether it is a bug fix, a review finding or a failing test.
 
@@ -71,9 +71,7 @@ cargo fmt --all --check \
   && make arm
 ```
 
-`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. Those files were copied from the C reference, and `tools/conformance/provenance.tsv` records where each one came from. `make tier2` reads tier 2's goldens from `tools/tier2/reference/`, which were copied and recorded the same way. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason. No gate needs a checkout of the C repositories.
-
-Three provenance checks sit outside the gates: `make conformance-provenance`, `make tier2-provenance` and `make tier3-provenance`. The reviewer of a change that touches the copied files runs them. Each one checks every copied file against the commit it came from, in the fork checkout it reads with git only, changing nothing. They take `LIBTSM=DIR` and `KMSCON=DIR`, which default to `../libtsm` and `../kmscon`.
+`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. Those files were copied from the C reference. `make tier2` reads tier 2's goldens from `tools/tier2/reference/`, which were copied the same way. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason. No gate needs a checkout of the C repositories.
 
 vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34), C stays at that boundary as a binding or the thinnest possible shim, and everything around it is Rust.
 
@@ -104,13 +102,13 @@ vtium is judged in tiers, from unit tests up to the maintainer's own review on a
 | Unit | each crate's behaviour | here | `cargo test --workspace --all-features` |
 | 1, conformance | the screen state and replies vtium produces after a stream of input bytes, written as text and compared against the C reference's goldens | the replay corpus in `tools/conformance/corpus/`, through the language-neutral interface that its `INTERFACE.md` describes | `make conformance` (`tools/conformance/`, #14), which also runs the interface check |
 | Capability probes | each capability vtium claims, tested through a replay, against `tools/conformance/capabilities.list` | `tools/conformance/probes/` | `make conformance-probes` |
-| 2, pixels | what the renderer draws in memory, compared pixel for pixel | `tools/tier2/`: the C reference's goldens, copied into `tools/tier2/reference/` with their provenance, and vtium's own reviewed goldens | `make tier2` |
-| 3, the VM | screenshots of vtium's install tree running on a VT in a QEMU/KVM guest with a real KMS device, compared against the C reference's goldens, which are copied into `tools/tier3/c-goldens/` with their provenance; it also records size and memory figures | `tools/tier3/` | `make tier3-minimal` (the minspec variants, 1 vCPU and 512 MB), `make tier3` (every variant) |
+| 2, pixels | what the renderer draws in memory, compared pixel for pixel | `tools/tier2/`: the C reference's goldens, copied into `tools/tier2/reference/`, and vtium's own reviewed goldens | `make tier2` |
+| 3, the VM | screenshots of vtium's install tree running on a VT in a QEMU/KVM guest with a real KMS device, compared against the C reference's goldens, which are copied into `tools/tier3/c-goldens/`; it also records size and memory figures | `tools/tier3/` | `make tier3-minimal` (the minspec variants, 1 vCPU and 512 MB), `make tier3` (every variant) |
 | VT review | the maintainer looks at vtium on a real VT, guided step by step | this machine | `make vt-check GUIDE=start` ([docs/vt-review.md](docs/vt-review.md)); the vtium binary arrives with #21 |
 
 The goldens decide whether vtium's output is right, and there are three kinds:
 
-- **The C reference's goldens.** Tier 1's goldens and the capability probes live in `tools/conformance/`, tier 2's goldens in `tools/tier2/reference/`, and tier 3's in `tools/tier3/c-goldens/`, all copied from the C reference with each file's provenance.
+- **The C reference's goldens.** Tier 1's goldens and the capability probes live in `tools/conformance/`, tier 2's goldens in `tools/tier2/reference/`, and tier 3's in `tools/tier3/c-goldens/`, all copied from the C reference.
 - **vtium's own goldens.** For behaviour that only vtium has, vtium keeps its own goldens in its tree.
 - **Provisional goldens.** vtium's own goldens stay provisional until the maintainer reviews them, and a provisional golden judges nothing.
 
@@ -170,7 +168,6 @@ The steering session releases each delegated agent explicitly once its work has 
 | For | Read |
 |---|---|
 | The crates, the tiers, determinism, the reply rule, tables and maps | [docs/architecture.md](docs/architecture.md) |
-| How the C reference worked, part by part, and the vtium issue that takes each part | [docs/c-reference.md](docs/c-reference.md) |
 | What a contribution must show, the code rules, the kitty source rule | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The target set and its coverage | `docs/architecture/term/ADR-1000-*` |
 | A crate's departures and bounds | `crates/<crate>/README.md` |

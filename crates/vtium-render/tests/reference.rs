@@ -1,7 +1,7 @@
 //! Whole screens against the C reference: each screen of
 //! `reference/screens.tsv`, drawn through vtium-term's frame with unifont,
-//! must give the pixels `reference/refcells.c` drew with the C reference's
-//! glyphs, sprites and blending (`reference/README.md`), but for the dashed
+//! must give the pixels the C reference drew with its glyphs, sprites and
+//! blending (`reference/README.md`), but for the dashed
 //! underline, which is the render crate's departure.
 
 mod common;
@@ -92,22 +92,51 @@ fn with_dash(bare: &Canvas, cells: &[(u32, u32, u32, u32)], x0: u32, x1: u32) ->
     px
 }
 
+// When a digest differs, the test writes every `screen` line as vtium draws
+// it to `digests/screens.tsv` under the test's scratch directory, a dashed
+// screen's with the dash the digest covers, and fails naming that file and
+// how many lines differ.
 // covers: platform.compositor
 #[test]
 fn screens_match_the_c_reference() {
+    let bare = screens(true);
     let screens = screens(false);
     assert_eq!(screens.len(), 3);
+    let mut differ = Vec::new();
+    let mut drawn = String::new();
     for (name, screen) in &screens {
         let canvas = draw(screen);
-        if dashed(name).is_empty() {
-            assert_eq!(digest(&canvas), want(name), "screen {name}");
+        let cells = dashed(name);
+        let got = if cells.is_empty() {
+            digest(&canvas)
         } else {
             assert_ne!(
                 digest(&canvas),
                 want(name),
                 "screen {name} keeps the C dash"
             );
+            let (_, b) = bare.iter().find(|(n, _)| n == name).unwrap();
+            let b = draw(b);
+            digest_pixels(b.width(), b.height(), &with_dash(&b, &cells, 1, 7))
+        };
+        if got != want(name) {
+            differ.push(name.clone());
         }
+        drawn.push_str(&format!("screen\t{name}\t{got:016x}\n"));
+    }
+    if !differ.is_empty() {
+        let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("digests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("screens.tsv");
+        std::fs::write(&path, drawn).unwrap();
+        panic!(
+            "{} of {} screen digests differ from tests/reference/cells.tsv ({}); \
+             vtium's digests for every screen line are in {}",
+            differ.len(),
+            screens.len(),
+            differ.join(", "),
+            path.display()
+        );
     }
 }
 

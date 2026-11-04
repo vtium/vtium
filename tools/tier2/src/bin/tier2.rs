@@ -5,22 +5,15 @@
 //! tier2 run [--out DIR]
 //! tier2 render [--out DIR]
 //! tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
-//! tier2 provenance [--kmscon DIR]
 //! ```
-//!
-//! `provenance` checks each copy of the C reference's files against its
-//! source in a kmscon checkout, read with `git show` and `git ls-tree` and
-//! nothing else, for a review of a change to the copies; no gate runs it.
 //!
 //! `run` exits 0 when every case passes, 1 when one does not and 2 when it
 //! refuses to run; `compare` exits 0 on pass or near, 1 on fail and 2 on
 //! an input it refuses.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
-use vtium_conformance::runner::provenance;
 use vtium_tier2::compare;
 use vtium_tier2::draw;
 use vtium_tier2::ppm;
@@ -36,8 +29,7 @@ const HERE: &str = env!("CARGO_MANIFEST_DIR");
 fn usage() -> ExitCode {
     eprintln!(
         "usage: tier2 run [--out DIR]\n       tier2 render [--out DIR]\n       \
-         tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]\n       \
-         tier2 provenance [--kmscon DIR]"
+         tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]"
     );
     ExitCode::from(2)
 }
@@ -88,7 +80,7 @@ fn run(opts: &[(String, String)]) -> ExitCode {
     {
         return refuse(format!("{}: {e}", report.display()));
     }
-    let lists = match runner::load(&root, CASES) {
+    let lists = match runner::load(&root) {
         Ok(x) => x,
         Err(e) => return refuse(e),
     };
@@ -101,7 +93,6 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         departures: &lists.departures,
         pending: &lists.pending,
         provisional: &lists.provisional,
-        c_goldens: &lists.c_goldens,
         out: &out,
         root: &out,
     };
@@ -133,7 +124,14 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         }
         println!("{line}");
     }
-    let tools = [("kmscon", lists.commit.clone())];
+    // vtium's commit, as `make tier2` passes it; a run started by hand
+    // records none
+    let tools: Vec<(&str, String)> = std::env::var("T2_VTIUM_REV")
+        .ok()
+        .filter(|rev| !rev.is_empty())
+        .map(|rev| ("vtium", rev))
+        .into_iter()
+        .collect();
     if let Err(e) = runner::write_report(&report, &tools, &cases) {
         return refuse(e);
     }
@@ -248,74 +246,6 @@ fn compare_cmd(opts: &[(String, String)], files: &[String]) -> ExitCode {
     }
 }
 
-/// `git -C DIR ARGS`'s output, or why it failed.
-fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .map_err(|e| format!("git: {e}"))?;
-    if out.status.success() {
-        Ok(out.stdout)
-    } else {
-        Err(format!(
-            "git -C {} {}: {}",
-            dir.display(),
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        ))
-    }
-}
-
-/// Each copy against its row of `provenance.tsv` and each row against its
-/// source, and the copied goldens with `pending.tsv` against the C
-/// reference's tier 2 goldens at the commit, the sources read from the
-/// checkout at `--kmscon`.
-fn provenance_cmd(opts: &[(String, String)]) -> ExitCode {
-    let here = Path::new(HERE);
-    let root = here.join("../..");
-    let kmscon = opt(opts, "--kmscon").unwrap_or_else(|| root.join("../kmscon"));
-    let result = || -> Result<(usize, Vec<String>), String> {
-        let (copies, commit) = runner::provenance_rows(&read(&here.join("provenance.tsv"))?)?;
-        let listed: BTreeSet<String> = runner::c_goldens(&read(&here.join("c-goldens.list"))?)?
-            .into_iter()
-            .collect();
-        let mut faults = provenance::check(&root, &copies, &[runner::COPIED], &[]);
-        faults.extend(provenance::verify(&copies, |_, commit, path| {
-            git(&kmscon, &["show", &format!("{commit}:{path}")])
-        }));
-        let listing = git(
-            &kmscon,
-            &[
-                "ls-tree",
-                "--name-only",
-                &commit,
-                &format!("{}/", runner::GOLDENS),
-            ],
-        )?;
-        let at_pin: BTreeSet<String> = String::from_utf8_lossy(&listing)
-            .lines()
-            .filter_map(|l| l.rsplit('/').next().map(str::to_owned))
-            .collect();
-        faults.extend(runner::check_pin(&at_pin, &listed));
-        Ok((copies.len(), faults))
-    };
-    let (rows, faults) = match result() {
-        Ok(x) => x,
-        Err(e) => return refuse(e),
-    };
-    for fault in &faults {
-        println!("FAIL {fault}");
-    }
-    println!("tier2 provenance: {rows} rows, {} fault(s)", faults.len());
-    if faults.is_empty() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    }
-}
-
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some((cmd, rest)) = args.split_first() else {
@@ -325,7 +255,6 @@ fn main() -> ExitCode {
         "run" => &["--out"],
         "render" => &["--out"],
         "compare" => &["--tol", "--diff"],
-        "provenance" => &["--kmscon"],
         _ => return usage(),
     };
     let Some((opts, files)) = split(rest, flags) else {
@@ -335,7 +264,6 @@ fn main() -> ExitCode {
         "run" if files.is_empty() => run(&opts),
         "render" if files.is_empty() => render(&opts),
         "compare" => compare_cmd(&opts, &files),
-        "provenance" if files.is_empty() => provenance_cmd(&opts),
         _ => usage(),
     }
 }

@@ -10,12 +10,12 @@ use vtium_conformance::generate::{self, Inputs};
 use vtium_conformance::interface;
 use vtium_conformance::probes::{self, Outcome, Replay};
 use vtium_conformance::runner::lists::{self, Expected};
-use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, own, provenance};
+use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, own};
 use vtium_conformance::spec::Spec;
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
-/// The corpus and the probes, each file copied with a row in
-/// `provenance.tsv`; vtium's own probes sit beside the copied file.
+/// The corpus, copied from the C reference; the probes sit in `probes/`,
+/// vtium's own beside the copied file.
 const CORPUS: &str = "corpus";
 /// vtium's own cases, laid out as the corpus is, with the list of those
 /// whose goldens wait for the maintainer's review.
@@ -24,13 +24,6 @@ const PROVISIONAL: &str = "vtium/provisional.tsv";
 /// The interface's documents, each a later version of the one before.
 const INTERFACE: [&str; 2] = ["corpus/INTERFACE.md", "INTERFACE-vtium.md"];
 const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
-/// The directories every file of which is a copy, but for vtium's own.
-const COPIED: [&str; 3] = [
-    "tools/conformance/corpus",
-    "tools/conformance/probes",
-    "tools/conformance/generator",
-];
-const OWN: [&str; 1] = ["tools/conformance/probes/vtium.replay"];
 /// The build features the capability list names. Its `-Dimages` is the
 /// C reference's build option, which built the sixel and kitty handlers
 /// with the image pipeline. vtium-replay is built with images, which holds
@@ -54,12 +47,9 @@ const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--
        conformance generate DIR
        conformance interface
        conformance probes
-       conformance issues
-       conformance provenance [--libtsm DIR] [--kmscon DIR]";
+       conformance issues";
 
 struct Options {
-    libtsm: PathBuf,
-    kmscon: PathBuf,
     without: Vec<String>,
     seed: u64,
     rounds: usize,
@@ -68,8 +58,6 @@ struct Options {
 
 fn options(args: &[String]) -> Result<Options, String> {
     let mut o = Options {
-        libtsm: repo_root().join("../libtsm"),
-        kmscon: repo_root().join("../kmscon"),
         without: Vec::new(),
         // a CI run takes its own seed, so each run tries other cuts
         seed: std::env::var("GITHUB_RUN_ID")
@@ -87,8 +75,6 @@ fn options(args: &[String]) -> Result<Options, String> {
                 .ok_or_else(|| format!("{arg} needs a value"))
         };
         match arg.as_str() {
-            "--libtsm" => o.libtsm = PathBuf::from(value()?),
-            "--kmscon" => o.kmscon = PathBuf::from(value()?),
             "--without" => o.without.push(value()?),
             "--seed" => o.seed = value()?.parse().map_err(|_| "--seed takes a number")?,
             "--rounds" => o.rounds = value()?.parse().map_err(|_| "--rounds takes a number")?,
@@ -105,17 +91,6 @@ fn repo_root() -> PathBuf {
 
 fn read(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-/// The copies, each checked against its row of `provenance.tsv`.
-fn copies() -> Result<Vec<provenance::Copy>, String> {
-    let copies = provenance::read(&read(&Path::new(TOOL).join("provenance.tsv"))?)?;
-    let faults = provenance::check(&repo_root(), &copies, &COPIED, &OWN);
-    if faults.is_empty() {
-        Ok(copies)
-    } else {
-        Err(faults.join("\n"))
-    }
 }
 
 fn corpus() -> Result<Corpus, String> {
@@ -221,7 +196,6 @@ fn check_interface(spec: &Spec, corpus: &Corpus) -> Result<bool, String> {
 
 /// `--describe` and the interface check alone.
 fn interface() -> Result<bool, String> {
-    copies()?;
     let spec = spec()?;
     check_describe(&spec)?;
     check_interface(&spec, &corpus()?)
@@ -235,17 +209,11 @@ fn run(o: &Options) -> Result<bool, String> {
                 .to_owned(),
         );
     }
-    let copies = copies()?;
     let corpus = corpus()?;
     let expected = expectations(&corpus, &o.without)?;
     let spec = spec()?;
     check_describe(&spec)?;
-    println!(
-        "conformance: {} cases, copied from libtsm {}; {} copies match provenance.tsv",
-        corpus.cases.len(),
-        provenance::commit(&copies, "libtsm")?,
-        copies.len()
-    );
+    println!("conformance: {} cases", corpus.cases.len());
     let mut ok = check_interface(&spec, &corpus)?;
     for (view, name, golden_dir) in VIEWS {
         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
@@ -428,7 +396,6 @@ fn write_cases(o: &Options) -> Result<bool, String> {
 /// probe the list does not name, a name no probe defines, and a verdict
 /// that disagrees with the list each fail the run.
 fn probes() -> Result<bool, String> {
-    copies()?;
     let spec = spec()?;
     let caps = vtium_conformance::coverage::capabilities(&read(
         &Path::new(TOOL).join("capabilities.list"),
@@ -487,44 +454,6 @@ fn probes() -> Result<bool, String> {
         count("missing")
     );
     Ok(failures == 0)
-}
-
-/// Each row of `provenance.tsv` against its source, read from the
-/// checkouts with `git show COMMIT:PATH` and nothing else, for a review of
-/// a change to the copies. The gates never run it.
-fn verify_provenance(o: &Options) -> Result<bool, String> {
-    let copies = provenance::read(&read(&Path::new(TOOL).join("provenance.tsv"))?)?;
-    let faults = provenance::verify(&copies, |repo, commit, path| {
-        let dir = match repo {
-            "libtsm" => &o.libtsm,
-            "kmscon" => &o.kmscon,
-            _ => return Err(format!("no checkout for {repo}")),
-        };
-        let out = std::process::Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(["show", &format!("{commit}:{path}")])
-            .output()
-            .map_err(|e| format!("git: {e}"))?;
-        if out.status.success() {
-            Ok(out.stdout)
-        } else {
-            Err(format!(
-                "git -C {} show: {}",
-                dir.display(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            ))
-        }
-    });
-    for fault in &faults {
-        println!("FAIL {fault}");
-    }
-    println!(
-        "provenance: {} rows, {} match their sources",
-        copies.len(),
-        copies.len().saturating_sub(faults.len())
-    );
-    Ok(faults.is_empty())
 }
 
 /// Every issue the lists name as owing a case or a capability, checked
@@ -601,7 +530,6 @@ fn main() -> ExitCode {
             "interface" if o.rest.is_empty() => interface(),
             "probes" if o.rest.is_empty() => probes(),
             "issues" if o.rest.is_empty() => issues(),
-            "provenance" if o.rest.is_empty() => verify_provenance(&o),
             _ => Err(USAGE.to_owned()),
         }
     });

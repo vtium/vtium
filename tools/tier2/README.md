@@ -2,18 +2,15 @@
 
 Tier 2 for vtium: the renderer draws known screens into memory, and each is compared pixel for pixel with its golden (vtium/vtium#17). The bytes go through `vtium-term` and the frames through `vtium-render`, into a double-buffered display in memory, as the C reference's `tests/test_pixels.c` drove libtsm and bbulk. The goldens are the judge: a difference from a golden is a listed departure, or the case fails.
 
-The crate is a workspace member, so `cargo test --workspace` builds the tool and runs its self-tests. Every file the run reads is in this tree: vtium's goldens in `goldens/`, and the C reference's files in `reference/`, copied byte for byte from kmscon with each one's source and SHA-256 in `provenance.tsv`. The run stays out of the default test run, in a Makefile target that CI's `tier2` job runs on every pull request and whose report and images it keeps:
+The crate is a workspace member, so `cargo test --workspace` builds the tool and runs its self-tests. Every file the run reads is in this tree: vtium's goldens in `goldens/`, and the C reference's goldens of the two block screens in `reference/goldens/`, copied byte for byte from kmscon. The run stays out of the default test run, in a Makefile target that CI's `tier2` job runs on every pull request and whose report and images it keeps:
 
 ```
 make tier2                       # every screen against its golden
 target/release/tier2 render      # draw every screen into out/render, judging nothing
 target/release/tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
-make tier2-provenance            # the copies against their sources (KMSCON=../kmscon); not a gate
 ```
 
-`run` takes `--out DIR` (default `out/` here, which git ignores). It first checks each file under `reference/` against its row of `provenance.tsv`, and refuses to run when one differs, is gone, or has no row. It writes each drawn screen to `out/actual/`, each difference to `out/diff/`, and the report to `out/report.json`, deleting any earlier report first. It exits 0 when every case passes, 1 when one does not, and 2 when it refuses to run. `compare` exits 0 on pass or near, 1 on fail and 2 on an input it refuses. Nothing here writes a golden.
-
-`provenance` takes `--kmscon DIR` (default `../kmscon` beside this repository) and reads that checkout with `git show` and `git ls-tree` alone. It reports each copy that differs from its row, each row whose source at its commit does not hash to the row's SHA-256, each file of the C reference's `tests/goldens/tier2/` at that commit that `c-goldens.list` lacks, and each name the list gives that the commit lacks. It runs when the copies or the list change, as `make conformance-provenance` does for tier 1's copies; no gate runs it, since no gate reads a fork checkout. It exits 0 with no fault, 1 with one, and 2 when it refuses.
+`run` takes `--out DIR` (default `out/` here, which git ignores). It writes each drawn screen to `out/actual/`, each difference to `out/diff/`, and the report to `out/report.json`, deleting any earlier report first. The report's `tools` names vtium's commit as `vtium`, `+dirty` with uncommitted changes, which `make tier2` passes in `T2_VTIUM_REV` as tier 3's report records it; a run started by hand records none. It exits 0 when every case passes, 1 when one does not, and 2 when it refuses to run. `compare` exits 0 on pass or near, 1 on fail and 2 on an input it refuses. Nothing here writes a golden.
 
 | Path | What it is |
 |---|---|
@@ -26,22 +23,20 @@ make tier2-provenance            # the copies against their sources (KMSCON=../k
 | `src/tol.rs` | Tolerance sidecars and their masks. |
 | `src/compare.rs` | The comparison, its verdict, its regions and the diff image. |
 | `src/report.rs` | The report's JSON. |
-| `src/runner.rs` | The lists, the copies' checks, and judging every case. |
+| `src/runner.rs` | The lists, their checks, and judging every case. |
 | `src/gpu.rs` | The GPU path's screens: each drawn through `Renderer::draw_gpu` on a GL and judged against the CPU path's drawing within its own sidecar. |
 | `gpu/` | The GPU path's sidecars, `<screen>.tol`, one for each screen the GPU path draws: exact for now, `max_delta=0` and `max_pixels=0`, the maintainer's decision of 2026-11-03, and provisional. |
 | `src/bin/tier2.rs` | The commands. |
-| `provenance.tsv` | Each file under `reference/`: `PATH REPO COMMIT SOURCE SHA256`, the path from the repository root, as tier 1's `tools/conformance/provenance.tsv` gives them. |
-| `c-goldens.list` | The file names of the C reference's `tests/goldens/tier2/` at the commit `provenance.tsv` names, so `run` knows every C golden without reading the fork. |
-| `pending.tsv` | Each golden of the C reference's that no screen draws yet, with the issue that owes it. |
+| `pending.tsv` | Each golden of the C reference's that no screen draws yet, with the issue that owes it: a case the run reports as pending. |
 | `departures.tsv` | Each case whose difference from its golden a departure in the render crate's README explains, with where the difference may lie. |
 | `provisional.tsv` | vtium's goldens the operator has not reviewed. |
 | `goldens/` | The goldens of vtium's screens, reviewed vtium output: see its README. |
-| `reference/` | The C reference's files tier 2 reads, copied from kmscon: the goldens of the screens ported from it in `goldens/`, and `test_pixels.c`, whose screens the ported ones must carry byte for byte. |
+| `reference/goldens/` | The C reference's goldens of the two block screens, copied from kmscon. |
 | `tests/` | The self-tests: each malformed input refused, and each verdict of the run. |
 
 ## The screens
 
-The C reference's tier 2 drew every screen with an outline font, DejaVu Sans Mono through FreeType, with Noto's CJK and color emoji fonts. Tier 2 draws PSF fonts, unifont and sets built in memory, never an outline font of the system's, so a C golden judges vtium only where no outline glyph shows: `blocks` and `blocks-spaced`, which hold only box-drawing and block sprites and spaces. They are drawn in a face that holds the space alone, in the cell DejaVu Sans Mono gave (9x16 at 16 pixels; 12x28 at 22 pixels with 6 rows of spacing), and a screen drawn that way is refused if any cell holds a character that is not a sprite or a space. Every other C golden is listed in `pending.tsv`: its screens are re-baselined when the Rust font layer lands (kmscon `ADR-304` §6, vtium/vtium#24), <!-- adr-cite-ignore: kmscon's record --> those with pictures among them, since their pictures stand over outline-font text. A golden `c-goldens.list` gives that no screen draws and `pending.tsv` does not list is `missing`, and fails. A screen that takes up a pending golden copies it into `reference/goldens/` with its row in `provenance.tsv`, and its `pending.tsv` row goes.
+The C reference's tier 2 drew every screen with an outline font, DejaVu Sans Mono through FreeType, with Noto's CJK and color emoji fonts. Tier 2 draws PSF fonts, unifont and sets built in memory, never an outline font of the system's, so a C golden judges vtium only where no outline glyph shows: `blocks` and `blocks-spaced`, which hold only box-drawing and block sprites and spaces. They are drawn in a face that holds the space alone, in the cell DejaVu Sans Mono gave (9x16 at 16 pixels; 12x28 at 22 pixels with 6 rows of spacing), and a screen drawn that way is refused if any cell holds a character that is not a sprite or a space. Every other C golden is listed in `pending.tsv`: its screens are re-baselined when the Rust font layer lands (kmscon `ADR-304` §6, vtium/vtium#24), <!-- adr-cite-ignore: kmscon's record --> those with pictures among them, since their pictures stand over outline-font text. A copied golden that no screen draws is `missing`, and fails. A screen that takes up a pending golden copies it into `reference/goldens/`, and its `pending.tsv` row goes.
 
 vtium's own screens carry the harness work the C reference had queued, drawn in unifont:
 
@@ -85,9 +80,7 @@ A case is compared with its golden exactly, outside any mask its sidecar gives. 
 
 A departure's rectangles cover whole cells, the cells where its difference shows, so any difference inside them passes as the departure: a defect in a listed cell, such as an underline lost from the cut `中` in `edges-left`, is not seen until that cell's departure row goes or its rectangles shrink.
 
-A screen ported from one of the C reference's carries its bytes exactly: `run` reads the copy of `tests/test_pixels.c` and refuses to run when a ported screen's bytes or second part differ from the C screen it names.
-
-Each list is checked before any case runs: a copied or pending golden `c-goldens.list` lacks, a pending golden a screen draws or that is copied, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a C golden, and two screens of one name are each refused.
+Each list is checked before any case runs: a pending golden a screen draws or that is copied, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a copied golden, and two screens of one name are each refused.
 
 Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxval of 255, with a side of 0 or past 16384, or with a raster shorter or longer than its header says; a sidecar line that is not `key=value`, an unknown or repeated key, a value that is not a decimal number, a `max_delta` past 255, one limit at 0 with the other not, and a mask that is empty, inverted or reaches past the golden. A mask that hides no difference is noted in the report.
 
@@ -101,7 +94,7 @@ The GPU path draws every orientation in color; a 1-bit screen waits for present'
 
 The goldens in `goldens/` are reviewed vtium output, kept byte for byte as the operator accepted them, which judge vtium as the copied goldens do; `goldens/README.md` gives who drew each and what it shows. No tool here draws a golden. A new screen's golden is vtium's output, lands in a commit of its own, and stays in `provisional.tsv` until the operator has reviewed it.
 
-Moving a golden is a change to the judge: it lands in a commit of its own, with each moved value listed. So does moving the copies to another kmscon commit, with the run's report before and after, and `make tier2-provenance` run on the new rows.
+Moving a golden is a change to the judge: it lands in a commit of its own, with each moved value listed.
 
 ## Not yet
 

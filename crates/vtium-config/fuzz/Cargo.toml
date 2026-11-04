@@ -1,8 +1,9 @@
-# The shaping path's, the BDF reader's and the helper's request parser's
-# fuzz targets, run with cargo-fuzz on nightly:
+# The shaping path's, the BDF reader's, the helper's request parser's and
+# the name-table reader's fuzz targets, run with cargo-fuzz on nightly:
 #   cargo +nightly fuzz run shape
 #   cargo +nightly fuzz run bdf
 #   cargo +nightly fuzz run serve
+#   cargo +nightly fuzz run names
 # Its own workspace, so the main workspace and CI do not build it.
 [package]
 name = "vtium-config-fuzz"
@@ -39,6 +40,13 @@ bench = false
 [[bin]]
 name = "serve"
 path = "fuzz_targets/serve.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "names"
+path = "fuzz_targets/names.rs"
 test = false
 doc = false
 bench = false

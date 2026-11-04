@@ -55,7 +55,7 @@ fn default(k: &Key) -> String {
     if k.name == SB_MEMORY.name {
         return sb_memory_defaults();
     }
-    match k.default {
+    match k.tree_default() {
         Default::Switch(true) => "on".to_owned(),
         Default::Switch(false) => "off".to_owned(),
         Default::Number(n) => n.to_string(),
@@ -104,7 +104,7 @@ pub(super) fn markdown() -> String {
          \n\
          vtium reports, once at start, a key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. It reads at most {FILE_MAX} bytes of a file and {LINE_MAX} of a line.\n\
          \n\
-         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections. Source cites the C reference, kmscon at `b1f7a7c5` ([c-reference.md](c-reference.md)), or the decision a key comes from.\n"
+         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections. Source cites the C reference, kmscon at `b1f7a7c5`, or the decision a key comes from.\n"
     );
     for section in &SECTIONS {
         let _ = write!(
@@ -273,7 +273,7 @@ fn description(keys: &[&Key]) -> String {
 /// The line that shows `k` at its default, commented out: `#key=value`, or
 /// a switch's `#key` or `#no-key`.
 fn key_line(k: &Key) -> String {
-    let line = match (k.kind, k.default) {
+    let line = match (k.kind, k.tree_default()) {
         _ if k.name == SB_MEMORY.name => format!(
             "{}={}\n# (in a build with images: {}={})",
             k.name,
@@ -689,7 +689,7 @@ mod tests {
                 loaded.config.origin(k),
                 Some(crate::config::Origin::File { .. })
             );
-            if k.default == Default::Unset {
+            if k.tree_default() == Default::Unset {
                 continue;
             }
             assert!(from_file, "{} is not set by its line", k.name);
@@ -699,7 +699,11 @@ mod tests {
                     vtium_term::SB_MEMORY_DEFAULT_MINSPEC as u64,
                 ))
             } else {
-                super::super::value::default(k)
+                // the example shows the source tree's default
+                super::super::value::default(&Key {
+                    default: k.tree_default(),
+                    ..*k
+                })
             };
             assert_eq!(
                 loaded
@@ -723,7 +727,7 @@ mod tests {
         let example = example();
         let lines: Vec<&str> = example.lines().collect();
         for k in KEYS.iter().filter(|k| k.scope == Scope::Anywhere) {
-            let (edit, line) = match (k.kind, k.default) {
+            let (edit, line) = match (k.kind, k.tree_default()) {
                 (Kind::Switch, Default::Switch(on)) => (
                     vtium_settings::Edit::Switch(k.name, !on),
                     if on {

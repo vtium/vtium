@@ -987,7 +987,6 @@ version = "0.1.0-alpha.4"
 dependencies = [
  "vtium",
  "vtium-config",
- "vtium-conformance",
  "vtium-font",
  "vtium-platform",
  "vtium-render",

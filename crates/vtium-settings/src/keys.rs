@@ -38,6 +38,66 @@ pub const IMAGE_PROGRAM: &str = match option_env!("VTIUM_IMAGE") {
     None => "/usr/bin/vtium-image",
 };
 
+/// `hwaccel`'s default, which the build sets with `VTIUM_HWACCEL`: off
+/// unless it names `on` (ADR-1500 D8). The `vtium` packages build it on.
+pub const HWACCEL_DEFAULT: bool = build_hwaccel(option_env!("VTIUM_HWACCEL"));
+
+/// The buffers each display keeps that the build names with
+/// `VTIUM_DISPLAY_BUFFERS`, 1, 2 or 3, and `display-buffers`' default
+/// (ADR-1500 D8). `None` when the build names none: the key is then unset,
+/// and the console keeps three buffers in a build with features on top of
+/// minspec and two in the minspec build (ADR-1401 D2). The vtium crate's
+/// `video::BUILD_BUFFERS` takes this count first.
+pub const DISPLAY_BUFFERS_BUILD: Option<u8> =
+    build_display_buffers(option_env!("VTIUM_DISPLAY_BUFFERS"));
+
+/// `hwaccel`'s default from the build's `VTIUM_HWACCEL`: `on` or `off`,
+/// off when the build names none. Any other value stops the build, which
+/// evaluates this while it compiles the table.
+#[expect(
+    clippy::panic,
+    reason = "evaluated only to compile the key table, where a panic stops the build with its message"
+)]
+const fn build_hwaccel(value: Option<&str>) -> bool {
+    match value {
+        None => false,
+        Some(v) => match v.as_bytes() {
+            b"on" => true,
+            b"off" => false,
+            _ => panic!("VTIUM_HWACCEL is on or off"),
+        },
+    }
+}
+
+/// The count the build's `VTIUM_DISPLAY_BUFFERS` names: `1`, `2` or `3`,
+/// and `None` when the build names none. Any other value stops the build.
+#[expect(
+    clippy::panic,
+    reason = "evaluated only to compile the key table, where a panic stops the build with its message"
+)]
+const fn build_display_buffers(value: Option<&str>) -> Option<u8> {
+    match value {
+        None => None,
+        Some(v) => match v.as_bytes() {
+            b"1" => Some(1),
+            b"2" => Some(2),
+            b"3" => Some(3),
+            _ => panic!("VTIUM_DISPLAY_BUFFERS is 1, 2 or 3"),
+        },
+    }
+}
+
+/// `display-buffers`' default for a count the build names, unset for
+/// none.
+const fn buffers_default(count: Option<u8>) -> Default {
+    match count {
+        Some(1) => Default::Text("1"),
+        Some(2) => Default::Text("2"),
+        Some(3) => Default::Text("3"),
+        _ => Default::Unset,
+    }
+}
+
 /// The terminal type vtium sets, `term`'s default, the name of its own
 /// terminfo entry. The vtium crate's `termcap::NAME` is this.
 pub const TERM_NAME: &str = "xterm-vtium";
@@ -127,6 +187,21 @@ pub struct Key {
 }
 
 impl Key {
+    /// The default the source tree gives this key, before a build setting
+    /// changes it (ADR-1500 D8): `hwaccel` off and `display-buffers`
+    /// unset, whatever `VTIUM_HWACCEL` and `VTIUM_DISPLAY_BUFFERS` name.
+    /// `docs/config.md` and the example configuration show this default,
+    /// so they read the same from every build; `default` is this build's.
+    pub fn tree_default(&self) -> Default {
+        if self.name == HWACCEL.name {
+            Default::Switch(build_hwaccel(None))
+        } else if self.name == DISPLAY_BUFFERS.name {
+            buffers_default(build_display_buffers(None))
+        } else {
+            self.default
+        }
+    }
+
     /// The paragraphs of [`Key::what`].
     pub fn paragraphs(&self) -> impl Iterator<Item = &'static str> {
         self.what.split("\n\n")
@@ -623,12 +698,12 @@ pub const DISPLAY_BUFFERS: Key = Key {
     name: "display-buffers",
     short: None,
     kind: Kind::Choice(&["1", "2", "3"]),
-    default: Default::Unset,
+    default: buffers_default(DISPLAY_BUFFERS_BUILD),
     scope: Scope::Anywhere,
     reader: "vtium-platform",
     what: "How many buffers each DRM display keeps, the same for every display.\n\n\
            `3` is triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn.\n\n\
-           A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec.",
+           A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec. `vtium config display-buffers` shows the build's default.",
     cite: "ADR-1401 D2; the C reference's drm2d kept 2, src/video/drm2d_internal.h:49",
 };
 
@@ -636,10 +711,11 @@ pub const HWACCEL: Key = Key {
     name: "hwaccel",
     short: None,
     kind: Kind::Switch,
-    default: Default::Switch(false),
+    default: Default::Switch(HWACCEL_DEFAULT),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "Draw through the GPU, in a build that has it.",
+    what: "Draw through the GPU, in a build that has it.\n\n\
+           Off unless vtium was built to turn it on (`VTIUM_HWACCEL`). `vtium config hwaccel` shows the build's default.",
     cite: "src/config.c:1413",
 };
 
@@ -1950,5 +2026,67 @@ mod tests {
         );
         assert_eq!(BELL.paragraphs().count(), 2);
         assert_eq!(MOUSE.what_line(), MOUSE.what);
+    }
+
+    // ADR-1500 D8: a build turns `hwaccel` on or off by default with
+    // VTIUM_HWACCEL, and leaves it off when it names neither.
+    #[test]
+    fn the_build_sets_hwaccels_default() {
+        assert!(!build_hwaccel(None));
+        assert!(build_hwaccel(Some("on")));
+        assert!(!build_hwaccel(Some("off")));
+        assert_eq!(
+            HWACCEL.default,
+            Default::Switch(build_hwaccel(option_env!("VTIUM_HWACCEL")))
+        );
+    }
+
+    // ADR-1500 D8: the generated docs show the source tree's defaults,
+    // whatever the build names, and every other key's default is its own.
+    #[test]
+    fn the_tree_default_is_the_build_settings_unset() {
+        assert_eq!(HWACCEL.tree_default(), Default::Switch(false));
+        assert_eq!(DISPLAY_BUFFERS.tree_default(), Default::Unset);
+        for k in KEYS
+            .iter()
+            .filter(|k| ![HWACCEL.name, DISPLAY_BUFFERS.name].contains(&k.name))
+        {
+            assert_eq!(k.tree_default(), k.default, "{}", k.name);
+        }
+    }
+
+    // ADR-1500 D8: a value other than `on` or `off` fails the build, which
+    // evaluates the same function where it compiles the table.
+    #[test]
+    fn the_build_refuses_any_other_hwaccel() {
+        for value in ["", "On", "yes", "1", " on"] {
+            let refused = std::panic::catch_unwind(|| build_hwaccel(Some(value)));
+            assert!(refused.is_err(), "{value:?}");
+        }
+    }
+
+    // ADR-1500 D8: a build sets `display-buffers`' default to 1, 2 or 3
+    // with VTIUM_DISPLAY_BUFFERS, and when it names none the key stays
+    // unset, so the console's own rule by its features decides.
+    #[test]
+    fn the_build_sets_display_buffers_default() {
+        assert_eq!(build_display_buffers(None), None);
+        assert_eq!(buffers_default(None), Default::Unset);
+        for (text, n) in [("1", 1), ("2", 2), ("3", 3)] {
+            assert_eq!(build_display_buffers(Some(text)), Some(n));
+            assert_eq!(buffers_default(Some(n)), Default::Text(text));
+        }
+        assert_eq!(
+            DISPLAY_BUFFERS_BUILD,
+            build_display_buffers(option_env!("VTIUM_DISPLAY_BUFFERS"))
+        );
+        assert_eq!(
+            DISPLAY_BUFFERS.default,
+            buffers_default(DISPLAY_BUFFERS_BUILD)
+        );
+        for value in ["", "0", "4", "two", "3 "] {
+            let refused = std::panic::catch_unwind(|| build_display_buffers(Some(value)));
+            assert!(refused.is_err(), "{value:?}");
+        }
     }
 }

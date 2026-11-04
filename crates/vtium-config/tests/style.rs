@@ -417,12 +417,13 @@ fn the_w_rule_takes_the_bold_faces_w() {
     );
 }
 
-/// A 256-glyph 8x16 PSF1 font with no table: `H` inked on rows 2 to 11,
-/// so its baseline lies under row 11, `|` a column at the cell's left
-/// edge down every row, `\\` a column at x 6, next to its right edge, and
-/// `/` a column at x 7, the cell's last.
+/// A 256-glyph 8x16 PSF1 font whose table maps each glyph to the code
+/// point of its index, so loading it reads no unimap from the host: `H`
+/// inked on rows 2 to 11, so its baseline lies under row 11, `|` a column
+/// at the cell's left edge down every row, `\\` a column at x 6, next to
+/// its right edge, and `/` a column at x 7, the cell's last.
 fn psf() -> Vec<u8> {
-    let mut b = vec![0x36, 0x04, 0, 16];
+    let mut b = vec![0x36, 0x04, 0x02, 16];
     b.resize(4 + 256 * 16, 0);
     for row in 2..12 {
         b[4 + 0x48 * 16 + row] = 0b1100_0110;
@@ -431,6 +432,10 @@ fn psf() -> Vec<u8> {
         b[4 + 0x7c * 16 + row] = 0b1000_0000;
         b[4 + 0x5c * 16 + row] = 0b0000_0010;
         b[4 + 0x2f * 16 + row] = 0b0000_0001;
+    }
+    for glyph in 0..256u16 {
+        b.extend(glyph.to_le_bytes());
+        b.extend([0xff, 0xff]);
     }
     b
 }

@@ -221,12 +221,8 @@ TOOL_ENV = {"vtium": "T3_VTIUM_REV", "guest_image": "T3_IMAGE",
 
 def run_tools():
     """The commits and pins behind a run: vtium's checkout and the guest's
-    pins as the Makefile gave them, null where it gave none, and the kmscon
-    commit the C reference's goldens were copied from (provenance.tsv)."""
-    tools = {k: os.environ.get(v) or None for k, v in TOOL_ENV.items()}
-    commit = t3_common.golden_commit(t3_common.read_provenance())
-    tools["goldens"] = {"kmscon": commit, "provenance": t3_common.rel(t3_common.PROVENANCE)}
-    return tools
+    pins as the Makefile gave them, null where it gave none."""
+    return {k: os.environ.get(v) or None for k, v in TOOL_ENV.items()}
 
 
 def write_report(variants, results, impl):
