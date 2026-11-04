@@ -7,10 +7,11 @@
 # it again after 100 ms, up to systemd's default limit of 5 starts in 10 s,
 # and from systemd 254 on each failure also starts vtium-getty@, which
 # starts getty@ on the VT unless the head file's policy is closed (ADR-1401
-# D9). So under an open policy the getty takes the VT at the first failure,
-# and starting it stops this unit; under a closed one vtium comes back, and
-# past the limit the unit stays failed with no login on the VT. Without VTs
-# it starts nothing.
+# D9) or the getty's start would stop another program, such as a display
+# manager whose Conflicts= names the getty (ADR-1500 D7). So under an open
+# policy the getty takes the VT at the first failure, and starting it stops
+# this unit; under a closed one vtium comes back, and past the limit the
+# unit stays failed with no login on the VT. Without VTs it starts nothing.
 #
 # The ordering and the TTY settings are getty's. The unit sets no
 # sandboxing directive: the login session vtium starts would inherit it

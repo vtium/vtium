@@ -1,13 +1,19 @@
 # The getty fallback of vtium@.service: when vtium on a VT fails, its
-# OnFailure= starts this unit, which starts getty@ on that VT, so a user is
-# never left at a dead screen. Under a closed head-file policy a getty's
-# login would take any keyboard (ADR-1401 D9), so vtium writes
-# /run/vtium/ttyN.closed at start, and this unit's condition skips the
-# getty while that file exists. The VT's run directory, /run/vtium/ttyN/,
-# will be the unit's RuntimeDirectory=vtium/%i (ADR-1401 D10, not built
-# yet); systemd removes only that innermost directory when vtium stops, so
-# the marker sits one level up. vtium removes it when it next starts under
-# an open policy, and /run is cleared at every boot.
+# OnFailure= starts this unit, so that a user is never left at a dead screen.
+# It runs vtium console fallback, which starts getty@ on that VT unless the
+# getty's start would stop another program: a unit that runs, waits to start
+# or is enabled, and whose Conflicts= names the getty, as a display manager's
+# names getty@tty1. Then it starts nothing, and says in the journal that the
+# VT is left without a console and why (ADR-1500 D7).
+#
+# Under a closed head-file policy a getty's login would take any keyboard
+# (ADR-1401 D9), so vtium writes /run/vtium/ttyN.closed at start, and this
+# unit's condition skips the getty while that file exists. The VT's run
+# directory, /run/vtium/ttyN/, will be the unit's RuntimeDirectory=vtium/%i
+# (ADR-1401 D10, not built yet); systemd removes only that innermost
+# directory when vtium stops, so the marker sits one level up. vtium removes
+# it when it next starts under an open policy, and /run is cleared at every
+# boot.
 
 [Unit]
 Description=getty in place of vtium on %I
@@ -15,4 +21,4 @@ ConditionPathExists=!/run/vtium/%i.closed
 
 [Service]
 Type=oneshot
-ExecStart=systemctl --no-block start getty@%i.service
+ExecStart=/usr/bin/vtium console fallback %i

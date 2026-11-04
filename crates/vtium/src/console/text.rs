@@ -3,11 +3,14 @@
 
 use std::fmt::Debug;
 
-pub const USAGE: &str = "Usage: vtium console enable N | enable --all | disable N | disable --all | status\n\
-Gives VT N, or every VT, to vtium@.service at its next start, and takes it back. N is 1 to 63, or ttyN.\n\
-enable and disable need root; they start and stop nothing. status shows what each VT runs.\n";
+use super::held::{Holder, Reason};
 
-pub const NO_VERB: &str = "name a verb: enable, disable or status";
+pub const USAGE: &str = "Usage: vtium console enable N | enable --all | disable N | disable --all | status | fallback N\n\
+Gives VT N, or every VT, to vtium@.service at its next start, and takes it back. N is 1 to 63, or ttyN.\n\
+enable and disable need root; they start and stop nothing. status shows what each VT runs.\n\
+fallback N is what vtium-getty@.service runs when vtium on VT N fails: it starts VT N's getty unless that would stop another program.\n";
+
+pub const NO_VERB: &str = "name a verb: enable, disable, status or fallback";
 
 pub fn not_utf8(word: impl Debug) -> String {
     format!("{word:?} is not UTF-8")
@@ -22,7 +25,7 @@ pub fn needs_which(verb: &str) -> String {
 }
 
 pub fn unknown_verb(word: &str) -> String {
-    format!("{word} is no verb of vtium console: use enable, disable or status")
+    format!("{word} is no verb of vtium console: use enable, disable, status or fallback")
 }
 
 pub fn unknown_option(word: &str) -> String {
@@ -213,57 +216,117 @@ pub fn given_all(vt1: bool, vt6: bool) -> String {
 
 pub const TEMPLATE_MASKED: &str = "vtium@.service is masked. A mask is the administrator's choice; systemctl unmask vtium@.service lifts it.";
 
-/// Who holds a VT for graphics, in words: "the display manager
-/// sddm.service" or "the graphical session of aaron (sddm, wayland)".
-fn holder(holder: &super::Holder) -> String {
+/// Who holds a VT, in words: "the display manager sddm.service", "the
+/// graphical session of aaron (sddm, wayland)".
+fn who(holder: &Holder) -> String {
     match holder {
-        super::Holder::DisplayManager(dm) => format!("the display manager {dm}"),
-        super::Holder::Session {
+        Holder::Unit {
+            unit,
+            display_manager: true,
+            ..
+        } => format!("the display manager {unit}"),
+        Holder::Unit { unit, .. } => unit.clone(),
+        Holder::Console { unit } => format!("another console, {unit},"),
+        Holder::Session {
             user,
             service,
             kind,
-        } if kind == "greeter" => {
-            format!("the greeter of {user} ({service})")
-        }
-        super::Holder::Session {
+        } if kind == "greeter" => format!("the greeter of {user} ({service})"),
+        Holder::Session {
             user,
             service,
             kind,
-        } => {
-            format!("the graphical session of {user} ({service}, {kind})")
-        }
+        } => format!("the graphical session of {user} ({service}, {kind})"),
     }
 }
 
-fn holders(list: &[super::Holder]) -> String {
-    list.iter().map(holder).collect::<Vec<_>>().join(" and ")
+/// What holds VT `n` and why, a clause for each holder: "the greeter of
+/// sddm (sddm-greeter) holds VT 1 now".
+fn holders(n: u16, list: &[Holder]) -> String {
+    list.iter()
+        .map(|h| match h {
+            Holder::Unit { reason, .. } => {
+                format!("{} holds VT {n} at boot{}", who(h), reason_tail(n, reason))
+            }
+            _ => format!("{} holds VT {n} now", who(h)),
+        })
+        .collect::<Vec<_>>()
+        .join("; and ")
 }
 
-pub fn graphics_hold(n: u16, list: &[super::Holder]) -> String {
+/// Why a unit holds VT `n` at boot, as the end of a sentence.
+fn reason_tail(n: u16, reason: &Reason) -> String {
+    match reason {
+        Reason::Convention => ": a display manager is enabled, and by common convention VT 1 stays the display manager's and its getty's, whatever VT the display manager uses now".to_owned(),
+        Reason::Conflicts => format!(
+            ": its unit names getty@tty{n}.service in Conflicts=, so it takes the VT from its getty"
+        ),
+        Reason::TtyPath => format!(": its unit runs on /dev/tty{n} (TTYPath=)"),
+        Reason::Instance => ": it is enabled at boot on that VT".to_owned(),
+        Reason::Configured(s) => format!(", by {}: {}", s.source, s.effect),
+    }
+}
+
+pub fn graphics_hold(n: u16, list: &[Holder]) -> String {
     format!(
-        "{} holds VT {n}, and a vtium there would race it for the display. vtium console leaves VT {n} to it; give vtium another VT.",
-        holders(list)
+        "{}. vtium console leaves VT {n} to it, so that a vtium there never takes the VT or the display from it; give vtium another VT.",
+        holders(n, list)
     )
 }
 
-pub fn graphics_on_reserved_vt(n: u16, list: &[super::Holder]) -> String {
+/// What SDDM's settings say, in words.
+pub mod sddm {
+    pub fn minimum_vt(vt: u16) -> String {
+        format!("SDDM before 0.20 starts its greeter on VT {vt} or the first free VT above it")
+    }
+}
+
+/// What LightDM's settings say, in words.
+pub mod lightdm {
+    pub const DEFAULT: &str = "LightDM's built-in minimum-vt=7, which no file changes";
+
+    pub fn effect(vt: u16) -> String {
+        format!("LightDM starts its first greeter on VT {vt}")
+    }
+
+    pub fn not_a_number(value: &str, file: &str) -> String {
+        format!("minimum-vt={value} in {file}, which LightDM reads as 1")
+    }
+}
+
+/// What greetd's settings say, in words.
+pub mod greetd {
+    pub fn effect(vt: u16) -> String {
+        format!("greetd runs its greeter on VT {vt}")
+    }
+
+    pub fn current() -> String {
+        "greetd runs its greeter on the VT shown when it starts, which is VT 1 at boot".to_owned()
+    }
+
+    pub fn command_line(value: &str, unit: &str) -> String {
+        format!("--vt {value} on the ExecStart= line of {unit}")
+    }
+}
+
+pub fn graphics_on_reserved_vt(n: u16, list: &[Holder]) -> String {
     format!(
-        "{} holds VT {n}, logind's reserved VT, where logind starts autovt@tty{n}.service on every switch even while the VT is in use. With autovt@.service linked to vtium, a vtium would start beside it there. Move it to another VT, or give vtium VTs one at a time with vtium console enable N.",
-        holders(list)
+        "{}. VT {n} is logind's reserved VT, where logind starts autovt@tty{n}.service on every switch even while the VT is in use. With autovt@.service linked to vtium, a vtium would start beside it there. Move it to another VT, or give vtium VTs one at a time with vtium console enable N.",
+        holders(n, list)
     )
 }
 
 /// Who is logged in on a VT, in words: "the login session of carol
 /// (login, tty)".
-fn logins(list: &[super::Holder]) -> String {
+fn logins(list: &[Holder]) -> String {
     list.iter()
         .map(|h| match h {
-            super::Holder::Session {
+            Holder::Session {
                 user,
                 service,
                 kind,
             } => format!("the login session of {user} ({service}, {kind})"),
-            super::Holder::DisplayManager(dm) => format!("the display manager {dm}"),
+            other => who(other),
         })
         .collect::<Vec<_>>()
         .join(" and ")
@@ -288,7 +351,7 @@ fn reserved_by(n: u16, all: bool) -> String {
     }
 }
 
-pub fn login_on_reserved_vt(n: u16, list: &[super::Holder], all: bool) -> String {
+pub fn login_on_reserved_vt(n: u16, list: &[Holder], all: bool) -> String {
     let is = if list.len() > 1 { "are" } else { "is" };
     reserved_vt(
         n,
@@ -351,30 +414,38 @@ pub fn kept_masked_own_link(n: u16) -> String {
     )
 }
 
-pub fn kept_graphics(n: u16, list: &[super::Holder]) -> String {
-    format!("VT {n} is left as it is: {} holds it.", holders(list))
+pub fn kept_graphics(n: u16, list: &[Holder]) -> String {
+    format!("VT {n} is left as it is: {}.", holders(n, list))
 }
 
-pub fn holder_cell(h: &super::Holder) -> String {
+/// What holds a VT, in a cell of `status`'s table: "display manager
+/// (sddm.service)", "cage@tty1", "greeter of sddm (sddm-greeter)".
+pub fn holder_cell(h: &Holder) -> String {
     match h {
-        super::Holder::DisplayManager(dm) => {
-            format!("display manager ({dm})")
+        Holder::Unit {
+            unit,
+            display_manager: true,
+            ..
+        } => format!("display manager ({unit})"),
+        Holder::Unit { unit, .. } | Holder::Console { unit } => {
+            unit.strip_suffix(".service").unwrap_or(unit).to_owned()
         }
-        super::Holder::Session {
+        Holder::Session {
             user,
             service,
             kind,
-        } if kind == "greeter" => {
-            format!("greeter of {user} ({service})")
-        }
-        super::Holder::Session {
+        } if kind == "greeter" => format!("greeter of {user} ({service})"),
+        Holder::Session {
             user,
             service,
             kind,
-        } => {
-            format!("graphical session of {user} ({service}, {kind})")
-        }
+        } => format!("graphical session of {user} ({service}, {kind})"),
     }
+}
+
+/// Why VT `n` is held, a line under `status`'s table.
+pub fn status_held(n: u16, list: &[Holder]) -> String {
+    format!("VT {n}: {}.", holders(n, list))
 }
 
 pub fn cannot_ask_logind(line: &str, why: &str) -> String {
@@ -454,4 +525,47 @@ pub fn recorded_cell(record: &super::Record) -> &'static str {
         super::Record::NoGetty => "no getty recorded",
         _ => "getty recorded",
     }
+}
+
+pub fn fallback_one_vt() -> String {
+    "fallback takes one VT, the VT where vtium failed".to_owned()
+}
+
+pub fn fallback_cannot_tell(n: u16, why: &str) -> String {
+    format!(
+        "vtium on VT {n} failed, and VT {n} is left without a console: vtium cannot tell whether starting getty@tty{n}.service would stop another program, so it starts nothing. {why}"
+    )
+}
+
+pub fn fallback_short_answer(units: &[String]) -> String {
+    format!(
+        "systemctl show did not give the state of each of {}.",
+        units.join(", ")
+    )
+}
+
+pub fn fallback_held_back(n: u16, units: &[super::fallback::UnitState]) -> String {
+    let list = units
+        .iter()
+        .map(|u| {
+            let mut state = vec![u.active.clone()];
+            if !u.file.is_empty() {
+                state.push(u.file.clone());
+            }
+            if !u.job.is_empty() {
+                state.push(format!("job {}", u.job));
+            }
+            format!("{} ({})", u.id, state.join(", "))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "vtium on VT {n} failed, and VT {n} is left without a console: starting getty@tty{n}.service would stop {list}, which conflicts with it, so vtium starts nothing. Log in on another VT or over ssh, and start vtium again with systemctl restart vtium@tty{n}.service."
+    )
+}
+
+pub fn fallback_starting(n: u16) -> String {
+    format!(
+        "vtium on VT {n} failed: starting getty@tty{n}.service in its place, which stops no other program."
+    )
 }
