@@ -6,9 +6,9 @@ These screens are vtium's own drawing on a Linux VT at 1920x1080. Tier 3, vtium'
 
 ## A shell session
 
-![A console screen showing a shell session in a smooth monospaced font: prompts in blue, gray and green segments, a colored listing of the vtium source tree, a git log with a branch graph and yellow commit hashes, the crates of vtium, a passing test run, and three lines of greetings and thanks in English, Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and German with emoji.](hero.png)
+![A console screen showing a shell session in a smooth monospaced font: prompts in blue, gray and green segments, a colored listing of the vtium source tree, a git log with a branch graph and yellow commit hashes, the crates of vtium, then a row of six pictures, each with its file name under it: the Earth rising over the Moon, hexagonal tiles in teal, gold and coral, a Julia set glowing violet and orange, a rainbow plasma, a sun setting behind purple hills, and the whole Earth. Below them are three lines of greetings and thanks in English, Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and German with emoji.](hero.png)
 
-vtium draws a shell session on a 1920x1080 display in Iosevka Term: prompts in powerline segments with an icon from Symbols Nerd Font Mono, a colored directory listing, a git history with its branch graph, a test run, and greetings in several scripts with emoji. The scene writes the session byte for byte, and the last prompt is the shell's own, with its cursor.
+vtium draws a shell session on a 1920x1080 display in Iosevka Term: prompts in powerline segments with an icon from Symbols Nerd Font Mono, a colored directory listing, a git history with its branch graph, a gallery of six pictures in kitty graphics with their file names, and greetings in several scripts with emoji. The gallery is laid out as chafa's grid lays out a directory of pictures: four of them computed from a few lines of arithmetic, and two photographs NASA's astronauts took, Earthrise and the Blue Marble. The scene writes the session byte for byte, and the last prompt is the shell's own, with its cursor.
 
 ## Outline text
 
@@ -66,7 +66,7 @@ The same build draws this in the same guest on a 320x240 display, the smallest v
 
 ## How these screens are made
 
-`tools/tier3/showcase.sh` built vtium at commit `21dfd4c3`, whose console logged itself as vtium v0.1.0-alpha.1-599-g21dfd4c3, ran tier 3's variant `showcase-1920x1080` on 2026-11-04, and wrote this page. The variant's machine has 4 virtual CPUs and 4096 MB of memory, a virtio-vga display at 1920x1080 and Linux 7.2.11-arch1-1, and runs vtium built with the `images` feature, drawing on its CPU renderer in a cell of 16x40 pixels. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
+`tools/tier3/showcase.sh` built vtium at commit `db270199`, whose console logged itself as vtium v0.1.0-alpha.1-670-gdb270199, ran tier 3's variant `showcase-1920x1080` on 2026-11-04, and wrote this page. The variant's machine has 4 virtual CPUs and 4096 MB of memory, a virtio-vga display at 1920x1080 and Linux 7.2.11-arch1-1, and runs vtium built with the `images` feature, drawing on its CPU renderer in a cell of 16x40 pixels. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
 
 Every font may be redistributed. vtium carries no font file but GNU Unifont, so `t3_showcase.py` pins each other font by its address and SHA-256 and fetches it into a cache, and the run carries it into the guest.
 
@@ -80,6 +80,13 @@ Every font may be redistributed. vtium carries no font file but GNU Unifont, so 
 | Noto Sans Thai | 2.002 | SIL Open Font License 1.1 | Thai, which Iosevka Term lacks | [the Noto project's release NotoSansThai-v2.002 on GitHub](https://github.com/notofonts/thai/releases/download/NotoSansThai-v2.002/NotoSansThai-v2.002.zip) | `61cf814eec46b294d6ea4401ac295d0cecd5207bd2331dcc5a15e7301d30ee44` |
 | Noto Color Emoji | 2.051 | SIL Open Font License 1.1 | color emoji | [the release's file, pinned by tools/specimens/src/fonts.rs](https://github.com/googlefonts/noto-emoji/raw/v2.051/fonts/NotoColorEmoji.ttf) | `72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b` |
 | Symbols Nerd Font Mono | 3.4.0 | MIT | the prompt's symbols | [the release's file, pinned by tools/specimens/src/fonts.rs](https://github.com/ryanoasis/nerd-fonts/raw/v3.4.0/patched-fonts/NerdFontsSymbolsOnly/SymbolsNerdFontMono-Regular.ttf) | `f0f624d9b474bea1662cf7e862d44aebe1ae1f6c7f9cb7a0ca5d0e5ac9561c60` |
+
+The hero's gallery shows six pictures. `t3_showcase_gallery.py` computes `hex-tiles.png`, `julia-set.png`, `plasma.png` and `sunset-hills.png` from a few lines of arithmetic. The other two are photographs in the public domain, shrunk once to 256x160 pixels and committed in `tools/tier3/showcase-photos/`:
+
+| File | What it shows | Author | License | Source | Made by | SHA-256 of the file |
+|---|---|---|---|---|---|---|
+| `earthrise.png` | Earthrise, the Earth rising over the Moon's horizon, photograph AS08-14-2383, 24 December 1968 | Bill Anders, Apollo 8, NASA | public domain, a work of NASA | [the original](https://upload.wikimedia.org/wikipedia/commons/a/a8/NASA-Apollo8-Dec24-Earthrise.jpg) ([its page](https://commons.wikimedia.org/wiki/File:NASA-Apollo8-Dec24-Earthrise.jpg)), SHA-256 `24fd2a4f833534ca6741ed96d03b028ac1d8fda2cd129ded4d208535f541d4da` | the 2400x2400 original cropped to 1760x1100 at 480,1000 and scaled to 256x160 with ImageMagick 7.1.2's Lanczos filter | `b2474765e226e3ba5d2b305d56e7a60e2ee2eca13e4bc9eb1d8f78ebf76c6438` |
+| `whole-earth.png` | The Blue Marble, the whole Earth, photograph AS17-148-22727, 7 December 1972 | the crew of Apollo 17, NASA | public domain, a work of NASA | [the original](https://upload.wikimedia.org/wikipedia/commons/9/97/The_Earth_seen_from_Apollo_17.jpg) ([its page](https://commons.wikimedia.org/wiki/File:The_Earth_seen_from_Apollo_17.jpg)), SHA-256 `51049ed4e34514880bfbe39d34e2dd2c56e31f55919e7f4f0b34ef1698cb9f50` | the 3000x3002 original scaled to 160x160 with ImageMagick 7.1.2's Lanczos filter and set on black, 48 pixels each side, to 256x160 | `7bcd13a03aa710cf37f95e02895465c7de8125e57a6ab35665eb060729a7c98f` |
 
 The small-machine screens are copies of these goldens:
 
