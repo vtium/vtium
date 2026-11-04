@@ -6,7 +6,7 @@ minspec's display floor, a 320x240 SPI panel, in the example frit tiny5: 320x240
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 320x240, 24-bit color | small color LCD | 6x9 | 53x26 | `tiny5`, the frit [`tiny5.vtfrit`](../../../crates/vtium-config/frits/tiny5.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png), [screen-5.png](screen-5.png), [screen-6.png](screen-6.png), [screen-7.png](screen-7.png), [screen-8.png](screen-8.png), [screen-9.png](screen-9.png), [screen-10.png](screen-10.png), [screen-11.png](screen-11.png), [screen-12.png](screen-12.png) |
+| 320x240, 24-bit color | small color LCD | 6x9 | 53x26 | `tiny5`, the frit [`tiny5.vtfrit`](https://github.com/vtium/vtium/blob/main/crates/vtium-config/frits/tiny5.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png), [screen-5.png](screen-5.png), [screen-6.png](screen-6.png), [screen-7.png](screen-7.png), [screen-8.png](screen-8.png), [screen-9.png](screen-9.png), [screen-10.png](screen-10.png), [screen-11.png](screen-11.png), [screen-12.png](screen-12.png) |
 
 ## Why this font
 

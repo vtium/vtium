@@ -36,7 +36,7 @@ The console starts its children, the session on the pty and the power keys' susp
 
 ## The minspec build
 
-The default build is minspec: the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised, and `make minspec` links the binary with packed relative relocations (DT_RELR), which needs glibc 2.36 at run time (vtium/vtium#143) and binutils 2.38 at build. Tier 3 measures its size and memory on every run, and fails a run whose binary is over its budget, 3,670,016 bytes ([tools/tier3/README.md](../tools/tier3/README.md)).
+The default build is minspec: the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised, and `make minspec` links the binary with packed relative relocations (DT_RELR), which needs glibc 2.36 at run time (vtium/vtium#143) and binutils 2.38 at build. Tier 3 measures its size and memory on every run, and fails a run whose binary is over its budget, 3,670,016 bytes ([tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md)).
 
 The machine minspec is judged against is a single-board computer that presents a DRM buffer (vtium/vtium#75):
 
@@ -49,7 +49,7 @@ The display floor is a 320x240 panel with an 8x8 font, a 40 by 30 grid. There vt
 
 Tier 3's x86 variant keeps the small-machine standard: 1366x768, 1 vCPU, 512 MB.
 
-`make arm` builds the minspec profile for `aarch64-unknown-linux-gnu` and `armv7-unknown-linux-gnueabihf`, and `make arm-test` runs the workspace's tests on aarch64 under qemu-user, with no cross toolchain and no root ([tools/arm/README.md](../tools/arm/README.md)).
+`make arm` builds the minspec profile for `aarch64-unknown-linux-gnu` and `armv7-unknown-linux-gnueabihf`, and `make arm-test` runs the workspace's tests on aarch64 under qemu-user, with no cross toolchain and no root ([tools/arm/README.md](https://github.com/vtium/vtium/blob/main/tools/arm/README.md)).
 
 ## Where each part comes from
 
@@ -67,6 +67,13 @@ vtium reimplements in Rust what the [aaronsb/kmscon](https://github.com/aaronsb/
 
 [c-reference.md](c-reference.md) maps how each of those components worked, as logic flows cited to the forks' code, with the vtium issue that takes each one and whether vtium's plan follows it.
 
+## How vtium is built against other work
+
+**The C reference.** vtium is measured against the maintainer's forks of `kmscon/kmscon` and `kmscon/libtsm`, [aaronsb/kmscon](https://github.com/aaronsb/kmscon) and [aaronsb/libtsm](https://github.com/aaronsb/libtsm). Both are MIT-licensed, with third-party parts their COPYING files list, among them: each has a hash table from CCAN under the LGPL 2.1, kmscon's Unifont backend is under the SIL OFL 1.1, and libtsm's Unicode tables are under the Unicode License v3. vtium took their logic flow and none of their code structure: each answer about behaviour starts from how the C reference handled the case, and vtium's types, ownership and modules follow Rust ([AGENTS.md](https://github.com/vtium/vtium/blob/main/AGENTS.md)). Where the C reference departed from a protocol's specification, vtium follows the specification and lists the case as a departure. vtium copied the C reference's expected outputs, its goldens, into its own tree, and records where each file came from, with its repository, commit, source path and SHA-256 (`tools/conformance/provenance.tsv`, `tools/tier2/provenance.tsv`, `tools/tier3/provenance.tsv`). No build, test or CI job reads a checkout of the C reference. Tier 3's harness, written in Python, came from the C fork, lives and changes in vtium's tree, and runs on every tier 3 run; 47 of its files, the screen scripts and pictures, the configurations, the guest files and `t3img.py`, stay byte-identical copies of the fork's ([tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md)).
+
+**Other terminals.** ADR-1000's tables hold, for every mode and feature, a column for each of the C reference, xterm, foot, Ghostty, WezTerm and kitty, filled where that terminal's behaviour was verified. vtium reads the code of permissively licensed implementations and names the source of anything it adapts. For a GPL-licensed terminal it reads only documentation and specifications, and may run the program to compare its screens. [CONTRIBUTING.md](https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md) states the rule for kitty: "Implement from published protocol specifications and from permissively licensed implementations such as Ghostty, WezTerm, foot and libsixel. kitty is GPL-3.0, and its source is not read while working on vtium, by a person or by an agent. kitty as a running program may be used for black-box comparison." The rule comes from the C reference's own record, [ADR-300 in the kmscon fork](https://github.com/aaronsb/kmscon/blob/main/docs/architecture/fork/ADR-300-write-from-protocol-specs-and-permissive-sources-never-from-kitty-s-code.md), which says "No source from a GPL-licensed terminal, kitty above all, is read while writing it, by a person or by an agent", so that the work stays MIT and anyone can use it. <!-- adr-cite-ignore: the kmscon fork's record, not one of vtium's -->
+
+
 ## How it is judged
 
 By vtium's harness, in tiers:
@@ -75,7 +82,8 @@ By vtium's harness, in tiers:
 - **Conformance:** byte streams in, screen state and replies out, compared with reviewed goldens. They cover the parser and terminal state with no display.
 - **Capability probes:** each capability vtium claims has a probe that fails when the capability is missing, judged against the capability list (below).
 - **Pixel tests (tier 2):** the renderer draws known screens, compared pixel for pixel with goldens.
-- **VM runs (tier 3):** a VM boots vtium on a VT, drives keys and compares screenshots pixel for pixel, including a minspec variant on the small-machine standard.
+- **VM runs (tier 3):** vtium's install tree boots on a VT of a QEMU/KVM guest with a real KMS device, keys are typed into it, and its screenshots are compared pixel for pixel with goldens, including a minspec variant on the small-machine standard, which also records the size and memory figures that [features.md](features.md#small-machines) lists. That run, `make tier3-minimal` at `c107f9a` on 2026-11-01, gave 47 passes, 28 listed departures and 16 cases against provisional goldens, with no failure. Pictures have their own variant, `images-640x480`, which builds the tree with the `images` feature and runs only when named (`make tier3-images`); it judges them against vtium's own goldens, which are provisional. Tier 3 boots two pinned guests: Arch Linux from the archive snapshot of 2026-10-20, with systemd, and Debian 13 with sysvinit ([tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md)).
+- **Fuzzing:** `make fuzz` runs each crate's fuzz targets for 60 seconds, or `FUZZ_TIME=N`, and appends a row for each target to that crate's `fuzz/runs.tsv`. It needs nightly Rust and cargo-fuzz. Fuzzing is not a gate.
 - **VT review:** the maintainer judges a build by eye on a real VT, guided step by step, started only by the steering session ([vt-review.md](vt-review.md)).
 
 Work is built in bundles of items that don't collide, then evaluated once per bundle.

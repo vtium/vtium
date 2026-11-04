@@ -21,7 +21,7 @@ use std::fs;
 use std::path::Path;
 
 use vtium_font::{Face, Font};
-use vtium_render::gpu::{Config as GpuConfig, DrawTarget, Gl, Pipeline, Size};
+use vtium_render::gpu::{Config as GpuConfig, DrawTarget, Gl, PictureStep, Pipeline, Size};
 use vtium_render::{Canvas, Config, Depth, DrawState, Picture, Placed, Rect, Renderer, Surface};
 use vtium_term::{Age, Terminal};
 
@@ -39,9 +39,11 @@ pub fn waits(screen: &Screen) -> Option<&'static str> {
     None
 }
 
-/// The GPU path on the GL `gl`.
+/// The GPU path on the GL `gl`, drawing pictures at another size by
+/// `step`.
 pub struct Gpu<'g, G: Gl> {
     pub gl: &'g mut G,
+    pub step: PictureStep,
 }
 
 /// A display of two buffers the GL made, each knowing the frame it holds,
@@ -224,6 +226,8 @@ impl<G: Gl> Paint for Gpu<'_, G> {
         let gl = &mut *self.gl;
         let mut pipeline = Pipeline::new(gl, size, GpuConfig::default())
             .map_err(|e| format!("the GPU path: {e}"))?;
+        pipeline.set_picture_step(self.step);
+        pipeline.limit_picture_textures(screen.largest_texture);
         let made = (gl.create_frame(size), gl.create_frame(size));
         let (a, b) = match made {
             (Ok(a), Ok(b)) => (a, b),
@@ -292,8 +296,26 @@ pub fn sidecar(root: &Path, name: &str) -> Result<Tolerance, String> {
 /// path's drawing, within its sidecar under `root`.
 pub fn judge<G: Gl>(screen: &Screen, root: &Path, gl: &mut G) -> Result<Judged, String> {
     let tolerance = sidecar(root, screen.name)?;
+    judge_by(screen, gl, PictureStep::Scale, tolerance)
+}
+
+/// Draws a picture screen on the GPU path on `gl` with each picture at
+/// another size drawn from the CPU path's copy, and judges it exactly
+/// against the CPU path's drawing, with no sidecar: the copy step's
+/// textures hold the CPU path's pixels, so it differs in none (ADR-1303
+/// D1, D2).
+pub fn judge_copy<G: Gl>(screen: &Screen, gl: &mut G) -> Result<Judged, String> {
+    judge_by(screen, gl, PictureStep::Copy, Tolerance::default())
+}
+
+fn judge_by<G: Gl>(
+    screen: &Screen,
+    gl: &mut G,
+    step: PictureStep,
+    tolerance: Tolerance,
+) -> Result<Judged, String> {
     let cpu = draw::draw(screen)?;
-    let image = draw::draw_on(screen, &mut Gpu { gl })?;
+    let image = draw::draw_on(screen, &mut Gpu { gl, step })?;
     let comparison = compare(&cpu, &image, &tolerance)?;
     Ok(Judged {
         comparison,
@@ -320,6 +342,12 @@ pub fn case_name(screen: &str) -> String {
     format!("{screen}@gpu")
 }
 
+/// A picture screen's case of the CPU copy step: its screen's name, with
+/// `@gpu-copy` after it.
+pub fn copy_case_name(screen: &str) -> String {
+    format!("{screen}@gpu-copy")
+}
+
 /// The report's case for each of `screens` on the GPU path, judged on
 /// `gl`: pass, near or fail as the GPU path's sidecar says, an error when
 /// the screen did not draw, and pending, with the reason, for a screen the
@@ -340,12 +368,41 @@ pub fn reports<G: Gl>(
             out.push(r);
             continue;
         }
-        let mut r = CaseReport::new(&name, Status::Error);
-        r.description = Some(format!(
-            "the GPU path's drawing of {}, judged against the CPU path's",
-            s.name
+        out.push(report(
+            &name,
+            format!(
+                "the GPU path's drawing of {}, judged against the CPU path's",
+                s.name
+            ),
+            judge(s, root, gl),
+            (actual_dir, diff_dir),
         ));
-        match judge(s, root, gl) {
+        if s.pictures.is_some() {
+            out.push(report(
+                &copy_case_name(s.name),
+                format!(
+                    "the GPU path's drawing of {} with its pictures from the CPU path's copies, judged exactly against the CPU path's",
+                    s.name
+                ),
+                judge_copy(s, gl),
+                (actual_dir, diff_dir),
+            ));
+        }
+    }
+    out
+}
+
+/// The report's case `name` for a judgement of the GPU path.
+fn report(
+    name: &str,
+    description: String,
+    judged: Result<Judged, String>,
+    (actual_dir, diff_dir): (&Path, &Path),
+) -> CaseReport {
+    let mut r = CaseReport::new(name, Status::Error);
+    r.description = Some(description);
+    {
+        match judged {
             Err(e) => r.note = Some(format!("not judged: {e}")),
             Ok(j) => {
                 let c = &j.comparison;
@@ -376,9 +433,8 @@ pub fn reports<G: Gl>(
                 }
             }
         }
-        out.push(r);
     }
-    out
+    r
 }
 
 /// vtium's GL on Mesa's llvmpipe, which needs no device: the context

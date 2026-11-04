@@ -18,6 +18,7 @@ import base64
 import contextlib
 import hashlib
 import io
+import json
 import os
 import pickle
 import re
@@ -32,6 +33,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zipfile
 import zlib
 from unittest import mock
 
@@ -49,6 +51,7 @@ import t3_power  # noqa: E402
 import t3_qemu  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
+import t3_showcase  # noqa: E402
 import t3img  # noqa: E402
 import t3_common  # noqa: E402
 from t3_common import Logger  # noqa: E402
@@ -1243,9 +1246,10 @@ class DeparturesTest(unittest.TestCase):
                          ("fail", "listed under the departure 'U', which it no longer shows"))
 
     def test_departure_passes_the_run(self):
-        # The run's verdict counts a departure and a provisional case as a pass.
+        # The run's verdict counts a departure, a provisional case and a
+        # showcase capture as a pass.
         with open(os.path.join(t3_common.HERE, "t3.py")) as f:
-            self.assertIn('c["status"] in ("pass", "near", "departure", "provisional")',
+            self.assertIn('c["status"] in ("pass", "near", "departure", "provisional", "capture")',
                           f.read())
 
 
@@ -4884,6 +4888,359 @@ class RebaselinedTest(unittest.TestCase):
                 out = subprocess.run([console, "-c", "echo $$; bash %s; true" % shlex.quote(script)],
                                      capture_output=True, text=True, check=True).stdout.split()
                 self.assertEqual(out[1], out[0] if found else "none")
+
+
+class ShowcaseTest(unittest.TestCase):
+    """The showcase (ADR-1502 D6, t3_showcase.py): its variant, whose cases
+    are captures that judge nothing, its scenes, its pinned fonts and frits,
+    its pictures, and the page it composes from a run."""
+
+    VARIANT = "showcase-1920x1080"
+    SCREENS = ["showcase-text", "showcase-emoji", "showcase-scripts", "showcase-color",
+               "showcase-boxes", "showcase-pictures", "showcase-shell",
+               "showcase-fonts-iosevka", "showcase-fonts-terminus", "showcase-fonts-unifont",
+               "showcase-fonts-jetbrains"]
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+
+    def test_variant(self):
+        # The default machine at 1920x1080 with an images build on the CPU
+        # renderer, run only when named, its cases the scenes alone: no VT
+        # switch, no golden.
+        v = t3_scenario.VARIANTS[self.VARIANT]
+        self.assertIn("xres=1920,yres=1080", v["device"])
+        self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"], v["tree_features"]),
+                         (4, 4096, "bbulk", ["images"]))
+        self.assertEqual((v["verdict"], v["conf"]), ("capture", "kmscon-showcase.conf"))
+        self.assertEqual(t3_scenario.variant_cases(self.VARIANT), self.SCREENS)
+        self.assertEqual(t3_showcase.SCREENS, self.SCREENS)
+        self.assertNotIn(self.VARIANT, t3_scenario.DEFAULT_VARIANTS)
+        self.assertFalse(os.path.exists(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT)))
+        self.assertFalse(os.path.exists(os.path.join(t3_common.GOLDEN, self.VARIANT)))
+        self.assertNotIn(self.VARIANT, t3_scenario.c_golden_cases())
+        self.assertNotIn(self.VARIANT, t3_scenario.vtium_golden_cases())
+
+    def evaluated(self, captured=True, meta=None):
+        cap = None
+        if captured:
+            cap = os.path.join(self.dir.name, "cap.png")
+            t3img.write_png(cap, t3img.Image(8, 8, bytes(8 * 8 * 3)))
+        with mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")):
+            return t3_evaluate.evaluate(self.VARIANT, "showcase-text", cap, meta or {}, LOG,
+                                        verdict="capture")
+
+    def test_capture_judges_nothing(self):
+        # A capture carries the status capture, with no golden and no
+        # difference counted; a case with no capture, or one the scenario
+        # found wrong, fails.
+        e = self.evaluated()
+        self.assertEqual((e["status"], e["golden"], e["stats"]["pixels"]),
+                         ("capture", None, 0))
+        self.assertTrue(e["actual"].endswith("showcase-text.png"))
+        self.assertEqual(self.evaluated(captured=False)["status"], "fail")
+        e = self.evaluated(meta={"errors": {"showcase-text": "the font switch failed"}})
+        self.assertEqual((e["status"], e["error"]), ("fail", "the font switch failed"))
+        # a variant with no verdict of its own is judged by its golden
+        with mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")):
+            cap = os.path.join(self.dir.name, "cap.png")
+            e = t3_evaluate.evaluate(self.VARIANT, "showcase-text", cap, {}, LOG,
+                                     self.dir.name)
+        self.assertEqual(e["status"], "missing")
+
+    def test_scenes(self):
+        # Every screen is a script in guest/screens, and every image of the
+        # page takes its caption and alt text from a script's header, each
+        # screen in exactly one image, the hero first.
+        for screen in self.SCREENS:
+            with self.subTest(screen):
+                path = os.path.join(t3_common.GUEST, "screens", screen + ".sh")
+                self.assertTrue(os.access(path, os.X_OK), path)
+        used = [case for _, _, _, cases in t3_showcase.IMAGES for case in cases]
+        self.assertEqual(sorted(used), sorted(self.SCREENS))
+        self.assertEqual(t3_showcase.IMAGES[0][1:3], ("hero.png", "showcase-shell.sh"))
+        for title, name, script, _ in t3_showcase.IMAGES:
+            with self.subTest(name):
+                text, alt = t3_showcase.caption(script)
+                self.assertTrue(text and alt, script)
+                self.assertNotIn("alt:", text)
+                self.assertNotIn("shellcheck", text)
+        text, _ = t3_showcase.caption("showcase-fonts.inc")
+        self.assertIn("(../fonts.md)", text)
+
+    def scene_bytes(self, screen):
+        """What scene `screen` writes on the host, in a session of its own
+        with no terminal, so its queries go nowhere and get no answer."""
+        return subprocess.run(["bash", os.path.join(t3_common.GUEST, "screens", screen + ".sh")],
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
+                              start_new_session=True,
+                              env={"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8"}).stdout
+
+    @staticmethod
+    def styles(data):
+        """The SGR parameters `data` sets, the colors' own parameters left
+        out: 38, 48 and 58 with 5 take one more, with 2 three more."""
+        out = set()
+        for seq in re.findall(rb"\x1b\[([0-9;:]*)m", data):
+            params = seq.decode().split(";")
+            i = 0
+            while i < len(params):
+                p = params[i]
+                if p in ("38", "48", "58"):
+                    i += {"5": 3, "2": 5}.get(params[i + 1] if i + 1 < len(params) else "", 1)
+                    continue
+                out.add(p)
+                i += 1
+        return out
+
+    def test_scenes_show_only_what_vtium_draws_right(self):
+        # No scene draws bold, italic or blinking text, which vtium draws
+        # as the regular face widened, upright and blinking, or a script it
+        # does not draw right yet: Devanagari, Hebrew or Arabic.
+        self.assertEqual(self.styles(b"\x1b[1;38;2;1;3;5m\x1b[3m\x1b[4:3;58:2::1:3:5m"),
+                         {"1", "3", "4:3", "58:2::1:3:5"})
+        wrong = re.compile("[\u0590-\u06ff\u0900-\u097f]")
+        for screen in self.SCREENS:
+            with self.subTest(screen):
+                data = self.scene_bytes(screen)
+                self.assertGreater(len(data), 100)
+                self.assertFalse(self.styles(data) & {"1", "3", "5", "6"})
+                self.assertIsNone(wrong.search(data.decode()))
+
+    def test_faults(self):
+        # A font switch vtium did not take, or pictures missing from the
+        # disc, reported while a screen draws, fail that screen alone.
+        events = ["T3-DONE showcase-shell", "T3-FONT-REFUSED showcase-terminus unifont",
+                  "T3-BAND showcase-terminus rows=8 cell=16x32",
+                  "T3-DONE showcase-fonts-terminus", "T3-FONT-REFUSED showcase-unifont",
+                  "T3-NO-PICTURES", "T3-DONE showcase-fonts-unifont",
+                  "T3-DONE showcase-fonts-jetbrains"]
+        self.assertEqual(t3_showcase.faults(events, "showcase-shell"), [])
+        self.assertEqual(t3_showcase.faults(events, "showcase-fonts-terminus"),
+                         ["vtium did not switch to the font showcase-terminus: OSC 50 named "
+                          "unifont"])
+        self.assertEqual(t3_showcase.faults(events, "showcase-fonts-unifont"),
+                         ["vtium did not switch to the font showcase-unifont: OSC 50 named "
+                          "none", "the showcase's pictures are not on the disc"])
+        self.assertEqual(t3_showcase.faults(events, "showcase-fonts-jetbrains"), [])
+        self.assertEqual(t3_showcase.faults(events, "showcase-text"), [])
+        with open(os.path.join(t3_common.HERE, "t3_scenario.py")) as f:
+            self.assertIn("why = t3_showcase.faults(events, name)", f.read())
+
+    def test_fonts_pinned(self):
+        # Every font is pinned by a URL and the SHA-256 of what it fetches
+        # and of the font file, and a font the specimens pin is pinned there
+        # alone.
+        for font in t3_showcase.FONTS:
+            with self.subTest(font.name):
+                self.assertTrue(font.url.startswith("https://"))
+                self.assertRegex(font.sha256, "^[0-9a-f]{64}$")
+                self.assertRegex(font.file_sha256, "^[0-9a-f]{64}$")
+                self.assertEqual(font.member is None, font.sha256 == font.file_sha256)
+        shared = {f.file: (f.url, f.sha256) for f in t3_showcase.FONTS
+                  if "specimens" in f.source}
+        self.assertEqual(sorted(shared), ["JetBrainsMono-Regular.ttf", "NotoColorEmoji.ttf",
+                                          "SymbolsNerdFontMono-Regular.ttf"])
+        with open(t3_showcase.SPECIMEN_FONTS) as f:
+            rs = f.read()
+        for url, sha in shared.values():
+            self.assertIn('url: "%s"' % url, rs)
+            self.assertIn('sha256: "%s"' % sha, rs)
+        with self.assertRaises(ValueError):
+            t3_showcase.specimen_pin("Missing.ttf")
+
+    def test_frits_name_the_pinned_fonts(self):
+        # Each frit names only fonts the showcase pins, or the built-in
+        # unifont, every pinned font is named, and each frit states its cell,
+        # so the console never waits for the helper's answer; the
+        # configuration sets no font-size, which would set the cells aside.
+        files = {f.guest_path() for f in t3_showcase.FONTS}
+        named = set()
+        v = t3_scenario.VARIANTS[self.VARIANT]
+        for frit in v["deferred_frits"]:
+            with self.subTest(frit):
+                with open(os.path.join(t3_common.GUEST, "frits", frit)) as f:
+                    text = f.read()
+                sources = re.findall(r"^source=(\w+):(.*)$", text, re.M)
+                for kind, value in sources:
+                    if kind == "builtin":
+                        self.assertEqual(value, "unifont")
+                    else:
+                        self.assertIn(value, files)
+                        named.add(value)
+                self.assertRegex(text, r"(?m)^cell=\d+x\d+$")
+        self.assertEqual(named, files)
+        with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+            conf = f.read()
+        self.assertIn("font-name=showcase-iosevka\n", conf)
+        self.assertNotRegex(conf, r"(?m)^font-size=")
+
+    def pin(self, payload, member=None, file="F.ttf", zip_name="f.zip"):
+        """A Font pinned to a file:// URL of `payload`, a zip archive holding
+        it as `member` when given."""
+        path = os.path.join(self.dir.name, zip_name if member else file + ".src")
+        if member:
+            with zipfile.ZipFile(path, "w") as z:
+                z.writestr(member, payload)
+        else:
+            with open(path, "wb") as f:
+                f.write(payload)
+        return t3_showcase.Font("F", "1", "OFL", "u", "s", "file://" + path,
+                                t3_showcase.sha256_file(path), file,
+                                hashlib.sha256(payload).hexdigest(), member=member)
+
+    def test_fetch(self):
+        # A font is fetched, checked and taken from its archive; one that
+        # is not the pinned bytes is refused and not kept.
+        cache = os.path.join(self.dir.name, "cache")
+        font = self.pin(b"glyphs", member="dir/F.ttf")
+        t3_showcase.fetch(cache, [font])
+        with open(os.path.join(cache, "F.ttf"), "rb") as f:
+            self.assertEqual(f.read(), b"glyphs")
+        self.assertIsNone(t3_showcase.fault(cache, font))
+        bad = self.pin(b"other", file="G.ttf")
+        bad.sha256 = bad.file_sha256 = "0" * 64
+        with self.assertRaisesRegex(RuntimeError, "not " + "0" * 64):
+            t3_showcase.fetch(cache, [bad])
+        self.assertFalse(os.path.exists(os.path.join(cache, "G.ttf")))
+        self.assertEqual(os.listdir(os.path.join(cache, "downloads")), ["f.zip"])
+        # a download that matches holding a font file that does not
+        wrong = self.pin(b"other", member="H.ttf", file="H.ttf", zip_name="h.zip")
+        wrong.file_sha256 = "1" * 64
+        with self.assertRaisesRegex(RuntimeError, "H.ttf has SHA-256 .*, not " + "1" * 64):
+            t3_showcase.fetch(cache, [wrong])
+        self.assertFalse(os.path.exists(os.path.join(cache, "H.ttf")))
+        with self.assertRaisesRegex(RuntimeError, "showcase.sh fetches"):
+            t3_showcase.disc_fonts(os.path.join(self.dir.name, "disc"),
+                                   os.path.join(self.dir.name, "empty"))
+
+    def test_pictures(self):
+        # The sixel picture holds the Mandelbrot set's pixels, each color
+        # to sixel's percentages, in at most 256 colors; the kitty picture is
+        # raw pixels compressed with zlib, its size beside it.
+        rows = t3_showcase.mandelbrot(40, 30)
+        self.assertEqual(rows[15][20], (0, 0, 0))  # inside the set
+        self.assertNotEqual(rows[0][0], (0, 0, 0))
+        got = sixel_pixels(t3_showcase.sixel(rows))
+        want = {(x, y): tuple((c * 100 + 127) // 255 for c in p)
+                for y, row in enumerate(rows) for x, p in enumerate(row)}
+        self.assertEqual(got, want)
+        with self.assertRaisesRegex(ValueError, "at most 256"):
+            t3_showcase.sixel([[(r * 255 // 100, g * 255 // 100, 0)
+                                for r in range(17) for g in range(17)]])
+        names = t3_showcase.pictures(self.dir.name, (12, 12), (10, 8))
+        self.assertEqual(names, ["mandelbrot.six", "sphere.rgba.z", "sphere.size"])
+        with open(os.path.join(self.dir.name, "sphere.rgba.z"), "rb") as f:
+            self.assertEqual(len(zlib.decompress(f.read())), 10 * 8 * 4)
+        with open(os.path.join(self.dir.name, "sphere.size")) as f:
+            self.assertEqual(f.read(), "10 8\n")
+
+    def test_palettes(self):
+        # vtium-term's named palettes, each with its 16 colors; a palette
+        # short of a color is refused.
+        names = [p[0] for p in t3_showcase.palettes()]
+        self.assertEqual(names, ["legacy", "vga", "nord", "solarized", "solarized-black",
+                                 "solarized-white", "soft-black", "base16-dark", "base16-light"])
+        self.assertEqual(t3_showcase.palettes()[6][1][0], (0x3f, 0x3f, 0x3f))
+        rs = os.path.join(self.dir.name, "palette.rs")
+        with open(rs, "w") as f:
+            f.write('    Named {\n        name: "short",\n        colors: [\n%s        ],\n'
+                    '        fg: Rgb::new(1, 1, 1),\n        bg: Rgb::new(0, 0, 0),\n    }\n'
+                    % ("            Rgb::new(1, 2, 3),\n" * 15))
+        with self.assertRaisesRegex(ValueError, "short has 17 colors"):
+            t3_showcase.palettes(rs)
+
+    def run_dir(self, statuses=None):
+        """A run of the variant in the temporary directory: a capture of
+        each screen, 32 pixels wide and its index tall, the fonts' bands
+        reported on the event port, and a report whose cases carry
+        `statuses` (capture by default)."""
+        run = os.path.join(self.dir.name, "run")
+        os.makedirs(run)
+        for n, screen in enumerate(self.SCREENS, 1):
+            img = t3img.Image(32, 12, bytes([n]) * (32 * 12 * 3))
+            t3img.write_png(os.path.join(run, screen + ".png"), img)
+        with open(os.path.join(run, "events.log"), "w") as f:
+            f.write("T3-LOGIN /dev/pts/0\nT3-BAND showcase-iosevka rows=2 cell=8x4\n"
+                    "T3-BAND showcase-terminus rows=1 cell=8x3\n"
+                    "T3-BAND showcase-unifont rows=3 cell=8x2\n"
+                    "T3-BAND showcase-jetbrains rows=1 cell=8x5\n")
+        statuses = statuses or {}
+        report = os.path.join(self.dir.name, "report.json")
+        with open(report, "w") as f:
+            json.dump({"tools": {"vtium": "abc1234"},
+                       "cases": [{"name": "%s/%s" % (self.VARIANT, s),
+                                  "status": statuses.get(s, "capture")} for s in self.SCREENS],
+                       "variants": {self.VARIANT: {
+                           "cpus": 4, "memory_mb": 4096, "kernel": "7.2", "cell": [16, 40],
+                           "console": {"name": "vtium", "revision": "v9"}}}}, f)
+        return run, report
+
+    def test_compose(self):
+        # Each scene's capture as it is, the fonts' bands cropped to the
+        # rows they reported and stacked in order, the small-machine goldens
+        # copied, and the page with every image, its alt text and caption,
+        # the commit and each font.
+        run, report = self.run_dir()
+        out = os.path.join(self.dir.name, "out")
+        wrote = t3_showcase.compose(run, report, out)
+        self.assertEqual(len(wrote), len(t3_showcase.IMAGES) + len(t3_showcase.SMALL) + 1)
+        hero = t3img.read(os.path.join(out, "hero.png"))
+        self.assertEqual(hero.data[:3], bytes([7] * 3))
+        fonts = t3img.read(os.path.join(out, "fonts.png"))
+        self.assertEqual((fonts.width, fonts.height), (32, 8 + 3 + 6 + 5))
+        self.assertEqual([fonts.data[y * 32 * 3] for y in (0, 7, 8, 10, 11, 16, 17, 21)],
+                         [8, 8, 9, 9, 10, 10, 11, 11])
+        for src, name, _, _ in t3_showcase.SMALL:
+            with open(os.path.join(t3_common.ROOT, src), "rb") as a, \
+                    open(os.path.join(out, name), "rb") as b:
+                self.assertEqual(a.read(), b.read())
+        with open(os.path.join(out, "README.md")) as f:
+            page = f.read()
+        for title, name, script, _ in t3_showcase.IMAGES:
+            text, alt = t3_showcase.caption(script)
+            self.assertIn("## %s\n\n![%s](%s)\n\n%s\n" % (title, alt, name, text), page)
+        self.assertIn("at commit `abc1234`", page)
+        for font in t3_showcase.FONTS:
+            self.assertIn("`%s`" % font.file_sha256, page)
+        self.assertIn("| GNU Unifont |", page)
+        # a second run with the same pixels rewrites no image, only the page
+        self.assertEqual(t3_showcase.compose(run, report, out),
+                         [os.path.join(out, "README.md")])
+
+    def test_compose_refuses_a_run_that_did_not_capture(self):
+        run, report = self.run_dir({"showcase-emoji": "fail"})
+        with self.assertRaisesRegex(RuntimeError, "showcase-emoji is fail"):
+            t3_showcase.compose(run, report, os.path.join(self.dir.name, "out"))
+        self.assertFalse(os.path.exists(os.path.join(self.dir.name, "out")))
+        with open(os.path.join(run, "events.log"), "w") as f:
+            f.write("T3-BAND showcase-iosevka rows=2 cell=8x4\n")
+        with self.assertRaisesRegex(RuntimeError, "showcase-terminus reported no height"):
+            t3_showcase.image_of("fonts.png", t3_showcase.FONT_BANDS, run,
+                                 ["T3-BAND showcase-iosevka rows=2 cell=8x4"])
+
+    def test_disc(self):
+        # The disc carries the fonts and, beside the screens, the pictures
+        # and the palettes the scenes read.
+        cache = os.path.join(self.dir.name, "cache")
+        os.makedirs(cache)
+        for font in t3_showcase.FONTS:
+            with open(os.path.join(cache, font.file), "w") as f:
+                f.write(font.name)
+        fonts = {f.file: f.file_sha256 for f in t3_showcase.FONTS}
+        with mock.patch.object(t3_showcase, "fault", lambda d, f: None):
+            t3_showcase.disc_fonts(os.path.join(self.dir.name, "disc"), cache)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.dir.name, "disc",
+                                                        "showcase-fonts"))), sorted(fonts))
+        with mock.patch.object(t3_showcase, "pictures",
+                               lambda d: os.makedirs(d, exist_ok=True)):
+            t3_showcase.disc_screens(self.dir.name)
+        with open(os.path.join(self.dir.name, "showcase", "palettes.txt")) as f:
+            first = f.readline().split()
+        self.assertEqual(first[0], "legacy")
+        self.assertEqual(len(first), 17)
+        self.assertEqual(first[2], "205;0;0")
 
 
 if __name__ == "__main__":

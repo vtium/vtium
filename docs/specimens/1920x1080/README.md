@@ -6,7 +6,7 @@ A full HD monitor: 1920x1080, 24-bit color, drawn in `desktop` at 11x24, 174x45 
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 1920x1080, 24-bit color | order unknown | 11x24 | 174x45 | `desktop`, the frit [`desktop.vtfrit`](../../../tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
+| 1920x1080, 24-bit color | order unknown | 11x24 | 174x45 | `desktop`, the frit [`desktop.vtfrit`](https://github.com/vtium/vtium/blob/main/tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
 
 ## Why this font
 

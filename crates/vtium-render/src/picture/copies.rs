@@ -40,6 +40,35 @@ impl Key {
     }
 }
 
+/// A key of a picture's kept pixels whose image, animation frame and pixel
+/// revision come first in its order, so the keys of one frame's older
+/// revisions are one range of keys.
+pub(crate) trait Name: Ord + Copy {
+    /// The range of keys of this key's image and frame at an older pixel
+    /// revision: from the first key of the frame to the first of this key's
+    /// revision.
+    fn older(&self) -> (Self, Self);
+}
+
+impl Name for Key {
+    fn older(&self) -> (Key, Key) {
+        let first = Key {
+            image: self.image,
+            frame: self.frame,
+            pixel_revision: 0,
+            image_size: (0, 0),
+            src: (0, 0, 0, 0),
+            size: (0, 0),
+            turn: 0,
+        };
+        let end = Key {
+            pixel_revision: self.pixel_revision,
+            ..first
+        };
+        (first, end)
+    }
+}
+
 /// What the cache did, since the renderer was made, and what it holds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PictureCounts {
@@ -63,29 +92,40 @@ pub struct PictureCounts {
 }
 
 #[derive(Debug)]
-struct Entry {
-    /// The picture in display order, turned for the display.
-    pixels: Vec<u32>,
+struct Entry<V> {
+    /// The picture's pixels: on the CPU path the picture in display order,
+    /// turned for the display; on the GPU path its textures.
+    value: V,
+    /// The bytes it counts against the bound.
+    bytes: u64,
     /// The frame that last placed it.
     placed: u64,
 }
 
-/// A display's kept copies, at most `limit` bytes of them.
+/// A display's kept pictures, at most `limit` bytes of them.
+///
+/// The CPU path keeps its scaled copies here, and the GPU path its picture
+/// textures, under one rule (ADR-1303 D2). A value the cache lets go, by
+/// eviction, by an older revision's drop, by [`Copies::idle`] or by
+/// [`Copies::clear`], waits in [`Copies::take_gone`] for its owner, which
+/// frees a texture in GL.
 #[derive(Debug)]
-pub(crate) struct Copies {
-    entries: BTreeMap<Key, Entry>,
+pub(crate) struct Copies<K = Key, V = Vec<u32>> {
+    entries: BTreeMap<K, Entry<V>>,
     limit: u64,
     frame: u64,
     counts: PictureCounts,
+    gone: Vec<V>,
 }
 
-impl Copies {
-    pub(crate) fn new(limit: u64) -> Copies {
+impl<K: Name, V> Copies<K, V> {
+    pub(crate) fn new(limit: u64) -> Copies<K, V> {
         Copies {
             entries: BTreeMap::new(),
             limit,
             frame: 0,
             counts: PictureCounts::default(),
+            gone: Vec::new(),
         }
     }
 
@@ -99,7 +139,7 @@ impl Copies {
 
     /// A placement of the frame being drawn shows `key`: whether its copy
     /// is kept, which keeps it from eviction for the frame.
-    pub(crate) fn place(&mut self, key: &Key) -> bool {
+    pub(crate) fn place(&mut self, key: &K) -> bool {
         let frame = self.frame;
         self.entries
             .get_mut(key)
@@ -107,33 +147,32 @@ impl Copies {
             .is_some()
     }
 
-    pub(crate) fn get(&self, key: &Key) -> Option<&[u32]> {
-        self.entries.get(key).map(|e| e.pixels.as_slice())
+    pub(crate) fn get(&self, key: &K) -> Option<&V> {
+        self.entries.get(key).map(|e| &e.value)
     }
 
-    /// Makes room for `key`'s copy, and says whether it fits. It first
-    /// drops the copies of the same animation frame at an older pixel
+    /// Makes room for `bytes` under `key`, and says whether they fit. It
+    /// first drops the copies of the same animation frame at an older pixel
     /// revision that no placement in this draw shows, since the store
     /// never shows a frame's older pixels again. Then it evicts the copies
     /// that no placement in this draw shows, least recently placed first
     /// and then by key, and only when that makes the copy fit.
-    pub(crate) fn room(&mut self, key: &Key) -> bool {
+    pub(crate) fn room(&mut self, key: &K, bytes: u64) -> bool {
         self.drop_older(key);
-        let bytes = key.bytes();
         let frame = self.frame;
-        let free = |c: &Copies| c.limit.saturating_sub(c.counts.bytes);
+        let free = |c: &Copies<K, V>| c.limit.saturating_sub(c.counts.bytes);
         if bytes <= free(self) {
             return true;
         }
-        let mut victims: Vec<(u64, Key)> = self
+        let mut victims: Vec<(u64, K)> = self
             .entries
             .iter()
             .filter(|(_, e)| e.placed != frame)
             .map(|(k, e)| (e.placed, *k))
             .collect();
-        let evictable = victims
-            .iter()
-            .fold(0u64, |n, (_, k)| n.saturating_add(k.bytes()));
+        let evictable = victims.iter().fold(0u64, |n, (_, k)| {
+            n.saturating_add(self.entries.get(k).map_or(0, |e| e.bytes))
+        });
         if bytes > free(self).saturating_add(evictable) {
             return false;
         }
@@ -142,53 +181,53 @@ impl Copies {
             if bytes <= free(self) {
                 break;
             }
-            self.entries.remove(&k);
-            self.counts.bytes = self.counts.bytes.saturating_sub(k.bytes());
+            self.remove(&k);
             self.counts.evicted = self.counts.evicted.saturating_add(1);
         }
         true
     }
 
+    /// Lets `key`'s entry go, its value to [`Copies::take_gone`].
+    fn remove(&mut self, key: &K) {
+        if let Some(e) = self.entries.remove(key) {
+            self.counts.bytes = self.counts.bytes.saturating_sub(e.bytes);
+            self.gone.push(e.value);
+        }
+    }
+
     /// Drops the copies of `key`'s image and animation frame at an older
     /// pixel revision, except those a placement in this draw shows.
-    fn drop_older(&mut self, key: &Key) {
-        let first = Key {
-            image: key.image,
-            frame: key.frame,
-            pixel_revision: 0,
-            image_size: (0, 0),
-            src: (0, 0, 0, 0),
-            size: (0, 0),
-            turn: 0,
-        };
-        let end = Key {
-            pixel_revision: key.pixel_revision,
-            ..first
-        };
+    fn drop_older(&mut self, key: &K) {
+        let (first, end) = key.older();
         let frame = self.frame;
-        let older: Vec<Key> = self
+        let older: Vec<K> = self
             .entries
             .range(first..end)
             .filter(|(_, e)| e.placed != frame)
             .map(|(k, _)| *k)
             .collect();
         for k in older {
-            self.entries.remove(&k);
-            self.counts.bytes = self.counts.bytes.saturating_sub(k.bytes());
+            self.remove(&k);
         }
     }
 
-    /// Keeps `pixels` as `key`'s copy, which [`Copies::room`] made room for.
-    pub(crate) fn keep(&mut self, key: Key, pixels: Vec<u32>) {
+    /// Keeps `value`, `bytes` of it, as `key`'s, which [`Copies::room`]
+    /// made room for.
+    pub(crate) fn keep(&mut self, key: K, value: V, bytes: u64) {
         self.counts.scaled = self.counts.scaled.saturating_add(1);
         self.counts.kept = self.counts.kept.saturating_add(1);
-        self.counts.bytes = self.counts.bytes.saturating_add(key.bytes());
+        self.counts.bytes = self.counts.bytes.saturating_add(bytes);
         let placed = self.frame;
-        if let Some(old) = self.entries.insert(key, Entry { pixels, placed }) {
-            let bytes = u64::try_from(old.pixels.len())
-                .unwrap_or(u64::MAX)
-                .saturating_mul(4);
-            self.counts.bytes = self.counts.bytes.saturating_sub(bytes);
+        if let Some(old) = self.entries.insert(
+            key,
+            Entry {
+                value,
+                bytes,
+                placed,
+            },
+        ) {
+            self.counts.bytes = self.counts.bytes.saturating_sub(old.bytes);
+            self.gone.push(old.value);
         }
     }
 
@@ -196,6 +235,38 @@ impl Copies {
     pub(crate) fn uncached(&mut self) {
         self.counts.scaled = self.counts.scaled.saturating_add(1);
         self.counts.uncached = self.counts.uncached.saturating_add(1);
+    }
+
+    /// Lets go every entry no frame has placed in the last `frames`
+    /// frames, this one included, so pictures a display stopped showing
+    /// give their room back though the bound is not reached (the GPU
+    /// path's textures, ADR-1303 D9).
+    #[cfg(feature = "gpu")]
+    pub(crate) fn idle(&mut self, frames: u64) {
+        let since = self.frame.saturating_sub(frames);
+        let idle: Vec<K> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.placed <= since)
+            .map(|(k, _)| *k)
+            .collect();
+        for k in idle {
+            self.remove(&k);
+        }
+    }
+
+    /// Lets go every entry.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn clear(&mut self) {
+        let all: Vec<K> = self.entries.keys().copied().collect();
+        for k in all {
+            self.remove(&k);
+        }
+    }
+
+    /// The values the cache let go since the last call.
+    pub(crate) fn take_gone(&mut self) -> Vec<V> {
+        core::mem::take(&mut self.gone)
     }
 
     pub(crate) fn counts(&self) -> PictureCounts {
@@ -223,9 +294,13 @@ mod tests {
     }
 
     fn keep(c: &mut Copies, k: Key) -> bool {
-        let fits = c.room(&k);
+        let fits = c.room(&k, k.bytes());
         if fits {
-            c.keep(k, vec![0; usize::try_from(k.bytes() / 4).unwrap_or(0)]);
+            c.keep(
+                k,
+                vec![0; usize::try_from(k.bytes() / 4).unwrap_or(0)],
+                k.bytes(),
+            );
         }
         fits
     }

@@ -24,7 +24,8 @@ use vtium_render::{
     Budgets, Canvas, Config, DecoColor, DecorationColors, Depth, DrawState, Mark, Orientation,
     Profile, Renderer, Storage,
 };
-use vtium_term::{Age, Glyph as Text, Rgb, Terminal, WidthMethod};
+use vtium_term::images::{Kitty, Sixel, Switches};
+use vtium_term::{Age, Glyph as Text, ImageString, Rgb, Terminal, WidthMethod};
 
 use crate::ppm::Image;
 
@@ -273,6 +274,19 @@ pub struct Screen {
     /// The cell under the pointer, a column and a row, set after the
     /// bytes: the link there draws hovered (ADR-1002, "Drawing").
     pub pointer: Option<(usize, usize)>,
+    /// The pictures' strings, fed after the bytes with the terminal's
+    /// sixel and kitty handlers on (`crate::pictures`).
+    pub pictures: Option<fn() -> Vec<u8>>,
+    /// The cell size the terminal tells programs and makes its pictures
+    /// in, when it is not the font's: a picture made in a larger cell is
+    /// drawn smaller.
+    pub made_cell: Option<(u32, u32)>,
+    /// A selection from one cell to another, a column and a row each, made
+    /// after the pictures.
+    pub selection: Option<((usize, usize), (usize, usize))>,
+    /// The largest texture side the GPU path's pictures use, set small so
+    /// a picture is held in tiles (ADR-1303 D2).
+    pub largest_texture: Option<u32>,
 }
 
 impl Screen {
@@ -305,6 +319,10 @@ impl Screen {
             overlay: None,
             alone: None,
             pointer: None,
+            pictures: None,
+            made_cell: None,
+            selection: None,
+            largest_texture: None,
         }
     }
 }
@@ -567,6 +585,34 @@ pub(crate) fn prepare<F: Face>(
     // the cursor's blink state is not part of what is compared
     feed(&mut term, b"\x1b[?25l")?;
     feed(&mut term, screen.bytes)?;
+    if let Some(pictures) = screen.pictures {
+        let cell = font.cell();
+        let (cw, ch) = screen.made_cell.unwrap_or((cell.width, cell.height));
+        term.screen_mut().set_image_limit(1 << 26);
+        term.screen_mut()
+            .set_image_cell(cw, ch)
+            .map_err(|e| format!("the picture cell {cw}x{ch}: {e:?}"))?;
+        term.set_image_switches(Switches {
+            sixel: true,
+            kitty: true,
+            iterm2: false,
+        });
+        term.set_image_handler(ImageString::Sixel, Some(Box::new(Sixel::default())));
+        term.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+        feed(&mut term, &pictures())?;
+        if term
+            .screen()
+            .frame(term.palette(), Age::NEVER)
+            .placements()
+            .is_empty()
+        {
+            return Err("the screen's pictures placed nothing".to_owned());
+        }
+    }
+    if let Some(((c0, r0), (c1, r1))) = screen.selection {
+        term.screen_mut().select_start(c0, r0);
+        term.screen_mut().select_to(c1, r1);
+    }
     if let Some(at) = screen.pointer {
         term.screen_mut().set_pointer(Some(at), false);
     }

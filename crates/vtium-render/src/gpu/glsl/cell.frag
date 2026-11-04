@@ -1,4 +1,6 @@
-#version 300 es
+// The program's source puts `#version 300 es` before this file, and for
+// a cell's text layer or vtium's mark alone `#define OVER` after it.
+//
 // A cell (ADR-1300 D6), with the CPU path's integer arithmetic
 // (src/blend.rs): every value a whole number held in a highp float, which
 // holds 255 * 255 exactly; div255 with its shifts written as floors of
@@ -12,6 +14,14 @@
 // masks, 2 a premultiplied color glyph from colors), y the background, z
 // the underline's color and its sprite, w the strike's color and its
 // sprite, a sprite being its place in sprites plus one, or 0 for none.
+//
+// Without OVER the quad writes the cell, its text layer over its
+// background. With OVER it writes the cell's text layer over the pixels
+// beneath it, which pictures drew, with the CPU path's over_px
+// (src/picture/mod.rs), reading them from `under`, a copy of them, since
+// no draw reads the target it draws into (ADR-1100 D4). The GPU's own
+// blending would turn its float result into a byte as the driver
+// chooses, rounding or truncating, so the shader does the blend itself.
 precision highp float;
 precision highp int;
 
@@ -20,6 +30,12 @@ uniform highp sampler2D colors;
 uniform highp sampler2D sprites;
 // the cell's width and height
 uniform ivec4 cell;
+#ifdef OVER
+// the pixels beneath, copied, and x, y: the target's pixel the copy's
+// first texel holds
+uniform highp sampler2D under;
+uniform ivec4 under_at;
+#endif
 
 flat in ivec4 dst;
 flat in uvec4 src;
@@ -74,8 +90,13 @@ void main() {
     uint st = params.w >> 24u;
     vec3 fg = rgb(params.x);
     vec3 bg = rgb(params.y);
+#ifdef OVER
+    bool layer = true;
+#else
+    bool layer = false;
+#endif
     vec3 c;
-    if (ul == 0u && st == 0u) {
+    if (!layer && ul == 0u && st == 0u) {
         if (kind == 1u) {
             // blend.rs's mask: fg over bg through the coverage
             float a = byte(texelFetch(masks, at, 0).r);
@@ -106,7 +127,14 @@ void main() {
         if (st != 0u) {
             p = tint_over(p, sprite(st, pos), rgb(params.w));
         }
+#ifdef OVER
+        // over_px: p over the opaque pixel beneath, at most 255
+        ivec2 under_texel = ivec2(gl_FragCoord.xy) - under_at.xy;
+        vec3 d = floor(texelFetch(under, under_texel, 0).rgb * 255.0 + 0.5);
+        c = p.a == 0.0 ? d : min(p.rgb + div255(d * (255.0 - p.a)), 255.0);
+#else
         c = p.a == 0.0 ? bg : p.rgb + div255(bg * (255.0 - p.a));
+#endif
     }
     color = vec4((c + 0.25) / 255.0, 1.0);
 }
