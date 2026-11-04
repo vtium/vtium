@@ -643,8 +643,9 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
         pictures += 1;
     }
     assert!(pictures >= 4, "{pictures} picture draws");
-    // each tint copies a tile's cells out and draws them back from where
-    // it copied them: the copy's source is the draw back's destination
+    // each tint copies a tile's cells out and draws them back where it
+    // copied them from: the copy's source is the draw back's destination,
+    // and the draw back reads where the copy wrote
     let tints: Vec<_> = draws.iter().filter(|(_, i, _)| *i == TINT_INPUTS).collect();
     assert_eq!(tints.len(), 8, "a copy and a draw back for each of 4 tiles");
     for pair in tints.chunks(2) {
@@ -662,6 +663,11 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
             assert_eq!(
                 (c.src[0], c.src[1]),
                 (b.dst[0] as u32, b.dst[1] as u32),
+                "copy {c:?}, back {b:?}"
+            );
+            assert_eq!(
+                (b.src[0], b.src[1]),
+                (c.dst[0] as u32, c.dst[1] as u32),
                 "copy {c:?}, back {b:?}"
             );
             assert_eq!((c.dst[2], c.dst[3]), (b.dst[2], b.dst[3]));

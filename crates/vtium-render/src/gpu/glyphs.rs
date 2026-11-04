@@ -631,8 +631,9 @@ mod tests {
         );
         assert_eq!(textures(&gl), made);
         assert_eq!(g.bytes(), ceiling);
-        // one note for the log, then none in the same frame, a frame
-        // later, or a frame short of GPU_IDLE_FRAMES; one again at it
+        // the first blank glyph gives one note for the log; there is none
+        // in the same frame, a frame later, or one frame short of
+        // GPU_IDLE_FRAMES, and there is one again at GPU_IDLE_FRAMES
         assert_eq!(g.take_notes().len(), 1);
         let blank_at = |g: &mut Glyphs, gl: &mut StandIn, frames: u64| {
             for _ in 0..frames {

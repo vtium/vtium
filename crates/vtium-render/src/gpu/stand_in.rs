@@ -68,7 +68,10 @@ pub struct StandIn {
 /// name of its target, and the values of its `ivec4` inputs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Seen {
+    /// The name of the framebuffer the draw went to.
     pub target: u32,
+    /// Each `ivec4` input the draw set, by its name in the shader, with
+    /// its value.
     pub ivec4: Vec<(&'static str, [i32; 4])>,
 }
 
