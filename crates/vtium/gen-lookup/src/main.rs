@@ -238,8 +238,10 @@ fn commented(text: &str, prefix: &str) -> String {
     out
 }
 
-/// `items` as the body of an array, as rustfmt lays out short elements: as
-/// many to a line as fit in 100 columns at an indent of 4.
+/// `items` as the body of an array, as many to a line as fit in 100
+/// columns at an indent of 4. rustfmt lays an array of tuples out one
+/// element to a line, so the committed `data.rs` is this output after
+/// `cargo fmt` (README.md).
 fn array_body(items: &[String]) -> String {
     let mut out = String::new();
     let mut line = String::new();
