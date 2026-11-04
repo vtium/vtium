@@ -118,6 +118,9 @@ considered:
   - operator: aaronsb
     said: "let's use 'min-size' and 'max-size' 'min-depth' etc"
     via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead
+  - operator: aaronsb
+    said: "documented with spec examples"
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, asking that the vtlook and .cube formats be documented; the fragment is the maintainer's words
 status: proposed
 date: 2026-11-03
 deciders:
@@ -130,7 +133,7 @@ related: []
 ## Summary
 
 - **Decided by the maintainer (2026-11-03):** vtium hard-codes no filter's settings. A filter is a step that fills ADR-1303's color slot or spatial slot, which this record calls the color layer and the spatial layer. The layers are that fixed pair, and the filters inside each layer are a known set built into vtium; no filter code is installed from outside. Each filter declares its parameters once, in one standard form, and configuration chooses filters and sets their parameters, much as a shader declares its inputs and a program sets them. Each layer has a minimum contract that a filter must meet to run in it. The configuration lives in a file called a vtlook (a look file), as a frit (a font set file) holds a font set, and a vtlook is tied to no profile. When no look is named, a head takes a default look built into vtium, named `default`, as it takes a built-in font when no frit is named; it is a pure passthrough vtlook, which changes no pixel, and no file may take its name. The default look holds no filters, so with no configuration vtium compiles no filter shader piece, builds no table and does no filter work on the CPU. Any error in a head's filters, in any layer and at any stage, drops that head to the built-in default look: in the maintainer's words, "any layer that is invalid fails the whole filter stack". The error says where it failed, the same in vtium's log, in `vtium check-config` and in vtium-config. vtium-config manages vtlooks as it manages frits: it lists, shows, creates, edits, previews on the live console, assigns and removes them. When a head's look holds any filter, vtium draws the mouse arrow into the picture, off the display's cursor plane, so the arrow passes through every filter; on the default look the arrow stays on the cursor plane where the display has one. In a second round the maintainer decided that a head chooses its look in heads.conf, else vtium.conf, else the built-in `default` (D5); that every color filter is one table, all merged into one (D2); that a head on the CPU path draws the color layer and skips the effects, without counting that as a failure (D3); and that vtium-config previews a look through a terminal message carrying its text, which the tool's end, the session's end or a terminal reset undoes (D11). In a third round the maintainer decided that a `cube` filter reads root-installed `.cube` files (D9); that the filters sit behind a `filters` build feature, off in minspec (D10); that curvature follows scanlines and sharpen in a slice of its own (D8, D13); and that a 1-bit display applies a look like any other, a vtlook instead declaring display requirements, a minimum color depth, a resolution, a minimum density and the GPU path, which a display that misses them answers by drawing `default` on its own, not as an error (D7).
-- **Proposed by this record's agent, for the maintainer to confirm:** A filter's declaration gives each parameter's name, kind, range, default and a line of help, and that one declaration drives `vtium check-config`, vtium-config's display and editing, the GPU path's shader inputs and the CPU path's function arguments (D1). A color filter maps each pixel's color using that color alone; the CPU path looks each pixel up in the merged table and the GPU path samples it as a texture, one lookup a pixel however many color filters run (D2). A spatial filter is one piece of GLSL in vtium-render, on the GPU path only, which declares how far it reads and how many reads it makes, under caps, and never reads the time (D3). A vtlook is `/etc/vtium/looks/NAME.vtlook`, owned by root, with one section per filter, run in file order; the built-in default's text is a template that vtium-config uses to start a new look (D4). The fallback lasts until vtium next reads its configuration or the head's look changes, never retried on a timer, and never moves the head off the GPU path (D6). A vtlook states its display requirements in one `[requires]` section, and vtium checks each display against them when it joins a head and at each mode change (D7). The first filters are gamma, contrast, tint, color-blind and cube, which reads a `.cube` table file, in the color layer, and scanlines and sharpen in the spatial layer (D8, D9). The filters sit behind a cargo feature, `filters`, which the minspec build leaves off (D10). The preview's terminal message is an OSC sequence of vtium's own, answered with `ok` or the first error (D11). The work comes in seven slices, vtium-config's and curvature's each its own (D13). No open question remains.
+- **Proposed by this record's agent, for the maintainer to confirm:** A filter's declaration gives each parameter's name, kind, range, default and a line of help, and that one declaration drives `vtium check-config`, vtium-config's display and editing, the GPU path's shader inputs and the CPU path's function arguments (D1). A color filter maps each pixel's color using that color alone; the CPU path looks each pixel up in the merged table and the GPU path samples it as a texture, one lookup a pixel however many color filters run (D2). A spatial filter is one piece of GLSL in vtium-render, on the GPU path only, which declares how far it reads and how many reads it makes, under caps, and never reads the time (D3). A vtlook is `/etc/vtium/looks/NAME.vtlook`, owned by root, with one section per filter, run in file order; the built-in default's text is a template that vtium-config uses to start a new look (D4). The fallback lasts until vtium next reads its configuration or the head's look changes, never retried on a timer, and never moves the head off the GPU path (D6). A vtlook states its display requirements in one `[requires]` section, and vtium checks each display against them when it joins a head and at each mode change (D7). The first filters are gamma, contrast, tint, color-blind and cube, which reads a `.cube` table file, in the color layer, and scanlines and sharpen in the spatial layer (D8, D9). The filters sit behind a cargo feature, `filters`, which the minspec build leaves off (D10). The preview's terminal message is an OSC sequence of vtium's own, answered with `ok` or the first error (D11). The work comes in seven slices, vtium-config's and curvature's each its own (D13). One open question remains, whether `.cube` files with 1D tables are read.
 - **Trades away:** An effect vtium does not build cannot be added by a file. A color filter is drawn through a table, which is straight between its nodes, so a curve that bends hard near black loses detail there: a gamma of 2.0 is off by up to 12 levels among the darkest 7 levels of 256. The CPU path pays a lookup for each pixel it redraws, 28 ns for a pixel of a new color on a fast desktop and 1.4 ns along a run of one color. Spatial filters need the GPU path, which `hwaccel` leaves off by default. A head whose look holds filters gives up the hardware pointer, and each move of the mouse redraws the arrow's old and new places, or the whole screen under a spatial filter that reads neighbours. One bad filter turns off every filter of the head until the configuration is read again. The live preview adds an escape sequence of vtium's own.
 - **One-way?** No. Everything is behind a cargo feature, and the vtlook files are the only data it stores. The vtlook format and the preview sequence become expensive to change once people write files and tools send the sequence; the file's `version = 1` line leaves room for the first.
 - **Probes:**
@@ -154,7 +157,7 @@ gltex compiled its two shader programs, one for glyph atlases and one for pictur
 
 ## Decision
 
-D1 to D3 define a filter and the contract of each layer. D4 and D5 say where a look lives, what the built-in default look is, and how a head chooses a look. D6 says what happens when anything fails and what the error reports. D7 covers the pointer and a look's display requirements. D8 and D9 name the first filters. D10 places the code, D11 sets out what vtium-config does, D12 states the build with no look, and D13 the work. Where a section holds the maintainer's decisions, it opens with them; the rest of the record is this record's agent's proposal.
+D1 to D3 define a filter and the contract of each layer. D4 and D5 say where a look lives, what the built-in default look is, and how a head chooses a look. D6 says what happens when anything fails and what the error reports. D7 covers the pointer and a look's display requirements. D8 and D9 name the first filters. D10 places the code, D11 sets out what vtium-config does, D12 states the build with no look, D13 the work, and D14 the file formats by example. Where a section holds the maintainer's decisions, it opens with them; the rest of the record is this record's agent's proposal.
 
 ```mermaid
 flowchart LR
@@ -379,11 +382,11 @@ Curvature, which bends the picture as a CRT's glass did, is the next spatial fil
 
 **Decided by the maintainer (2026-11-03):** a `cube` filter reads root-installed `.cube` files beside the looks, 2 to 65 a side, resampled into the merged table past 33.
 
-**Proposed, the details.** The `cube` filter maps each color through a table read from a file in the format Adobe's Cube LUT Specification 1.0 defines, which color grading and calibration tools write. The file is data: numbers in a fixed grammar, never code. vtium reads `LUT_3D_SIZE` from 2 to 65 and `LUT_1D_SIZE` from 2 to 4096, `TITLE`, and `DOMAIN_MIN` and `DOMAIN_MAX` only at their defaults of 0 and 1. Another domain, a keyword it does not know, a value that is not a finite number and a count of data lines that does not match the size are each an error of the checking stage (D6), and vtium clamps values outside 0 to 1. A file holds at most 16 MiB, enough for 65 cubed lines.
+**Proposed, the details.** The `cube` filter maps each color through a table read from a file in the format Adobe's Cube LUT Specification 1.0 defines, which color grading and calibration tools write. The file is data: numbers in a fixed grammar, never code. vtium reads `LUT_3D_SIZE` from 2 to 65, `TITLE`, and `DOMAIN_MIN` and `DOMAIN_MAX` only at their defaults of 0 and 1; D14 states the grammar with examples. Whether vtium also reads a 1D table, `LUT_1D_SIZE`, is open question 1; until it is decided, vtium refuses one as a keyword it does not read. Another domain, a keyword it does not know, a value that is not a finite number and a count of data lines that does not match the size are each an error of the checking stage (D6), and vtium clamps values outside 0 to 1. A file holds at most 16 MiB, enough for 65 cubed lines.
 
 The file is `NAME.cube` in the looks directory, named by the filter's `file` parameter with no path, under the same ownership rule as a vtlook (D4). Root installs it there, by hand or through vtium-config's `apply` (D11). vtium's console process parses it when it reads the look, as it parses heads.conf. The grammar is a few keywords and lines of three numbers, which vtium's own reader takes strictly and within the bounds above, so no decoder of outside formats enters the console, which ADR-1200 D6 keeps fonts' decoders out of.
 
-The filter's function is the file's own table, blended trilinearly for a 3D table and linearly in each channel for a 1D one. The merged table samples it at its 33 nodes (D2), so a file of 33 a side passes into it unchanged, and a larger file is resampled to 33.
+The filter's function is the file's own table, blended trilinearly. The merged table samples it at its 33 nodes (D2), so a file of 33 a side passes into it unchanged, and a larger file is resampled to 33.
 
 ### D10: where the code lives, and the `filters` feature
 
@@ -437,6 +440,237 @@ The pipeline's skeleton fits this as it stands. Its `Color` gains one step, the 
 6. **vtium-config manages vtlooks.** Every command and the TUI's view of D11, and the preview sequence on both sides: the console's handling of it in vtium-term and the binary, its ADR-1000 row, and `allow-look-ops`. It needs slice 1, and slices 2 to 5 for what it previews.
 7. **Tier 3's screens with a look** (Verification), the GL variant's once ADR-1303 D11's part 7 passes.
 
+The user documentation of the formats is a new page, docs/looks.md, beside docs/heads.md, since docs/config.md is generated from the key table and holds no hand-written section. It carries every example of D14 and the default look's template, each in a fenced block whose info string names what it holds: `vtlook` for a vtlook that must read cleanly, `vtlook-error` for a malformed one followed by a `text` block of the errors it must give, and `cube` for a `.cube` file. A test in vtium-settings reads docs/looks.md, runs each block through the real readers, and fails when a `vtlook` or `cube` block does not read cleanly or a `vtlook-error` block gives other errors than the ones shown; a second test checks that the template block is the template vtium compiles in. A doc example that stops parsing therefore fails the gates. Slice 1 writes the page and both tests; each later slice adds the examples of what it builds, slice 3 the `.cube` examples.
+
+### D14: the file formats, by example
+
+**Requested by the maintainer (2026-11-03):** the formats are "documented with spec examples".
+
+**Proposed.** This section states the vtlook and `.cube` formats by complete examples. The user documentation carries the same examples, and a test reads each of them with vtium's real readers (D13).
+
+#### A vtlook, in full
+
+This look names every part a vtlook has: the version, a `[requires]` section with all seven keys, two spatial filters and three color filters, one of them a `cube` filter.
+
+```ini
+# /etc/vtium/looks/film.vtlook: a calibrated panel with a warm, sharp CRT look.
+version = 1
+
+[requires]
+min-depth = 16
+max-depth = any
+min-size = 1280x720
+max-size = 3840x2160
+min-dpi = any
+max-dpi = any
+gpu = any
+
+[spatial scanlines]
+period = 3
+strength = 0.25
+
+[spatial sharpen]
+amount = 0.4
+
+[color cube]
+file = panel.cube
+
+[color gamma]
+gamma = 1.1
+
+[color contrast]
+contrast = 1.1
+brightness = 0.0
+```
+
+vtium reads it as follows. The look applies to a display drawn at 16 bits a pixel or more whose mode is from 1280x720 up to 3840x2160 on each side; a 1-bit panel, a gray panel, or a display outside those sizes draws `default`, and the head's other displays keep the look. On the GPU path, present runs scanlines, then sharpen over the result, then turns the frame, then looks each pixel up in one table made from the panel's `.cube` correction, then the gamma, then the contrast, in that order. On the CPU path, `gpu = any` lets the head draw the same table and skip the two spatial filters (D3).
+
+#### A vtlook, at its smallest
+
+```ini
+version = 1
+
+[color gamma]
+gamma = 1.2
+```
+
+A look with no `[requires]` section applies to every display, a 1-bit panel included, as if each requirement key were `any`. Each parameter a section leaves out takes its declared default.
+
+#### The default look's template
+
+vtium-config writes the template out, as `look-new` does for a new look, from the declarations (D4). Every line that would change a pixel is commented out, so the file as written is a passthrough like `default` itself; `look-new` writes the same text with the name it is given in the first line.
+
+```ini
+# default.vtlook: a pure passthrough vtlook, which changes no pixel.
+# vtium's built-in look: a head that names no look draws it. To make a look
+# of your own, copy this file under another name, uncomment the sections you
+# want and set their values. Within a layer, filters run in the order of
+# their sections.
+version = 1
+
+# Display requirements. A display that misses one draws the default look;
+# the head's other displays keep this look. any is no constraint.
+[requires]
+min-depth = any     # any, 1, 8, 16 or 24 (32 reads as 24): bits a pixel
+max-depth = any
+min-size = any      # any, or WxH: the mode's own pixels
+max-size = any
+min-dpi = any       # any, or 1 to 1000: the density fonts are sized at
+max-dpi = any
+gpu = any           # any; yes for the GPU path only; no for the CPU path only
+
+# Spatial filters run on the GPU path only, before the turn.
+
+# [spatial scanlines]
+# Darkens the last row of every period rows of the picture.
+# period = 3        # integer, 2 to 8: rows from one line to the next
+# strength = 0.3    # number, 0 to 1: how much each line darkens
+
+# [spatial sharpen]
+# Sharpens edges against the four nearest pixels.
+# amount = 0.5      # number, 0 to 2: how strongly
+
+# Color filters run on both paths, merged into one table, after the turn.
+
+# [color gamma]
+# Raises each channel to the power 1 / gamma.
+# gamma = 1.0       # number, 0.5 to 2.0: above 1 lightens the middle tones
+
+# [color contrast]
+# Scales each channel's distance from middle gray, then shifts it.
+# contrast = 1.0    # number, 0 to 2
+# brightness = 0.0  # number, -0.5 to 0.5
+
+# [color tint]
+# Turns the screen toward one color, as a single-color phosphor.
+# color = 255,176,0 # color, r,g,b: the phosphor's color
+# amount = 1.0      # number, 0 to 1: how far toward it
+
+# [color color-blind]
+# Simulates a color vision deficiency, or corrects for it.
+# kind = deuteranopia  # protanopia, deuteranopia or tritanopia
+# mode = correct       # simulate or correct
+# amount = 1.0         # number, 0 to 1: how much of the result to show
+
+# [color cube]
+# Maps each color through a .cube table in this directory.
+# file =               # file: a NAME.cube in /etc/vtium/looks, no path
+```
+
+The template's `[requires]` section is live, at `any` on every key, so a file written from it states each requirement. The `cube` filter's `file` has no default, which is why its line is empty: a look that uncomments the section must set it.
+
+#### A `.cube` file
+
+vtium reads the part of Adobe's Cube LUT Specification 1.0 (`basis`) that holds a 3D table. The grammar vtium accepts:
+
+- The file is text, at most 16 MiB, in lines that end in LF or CRLF.
+- A line whose first character that is not a blank is `#` is a comment. A blank line is skipped.
+- Keyword lines come first, each keyword at most once and in any order: `TITLE "text"`, optional; `LUT_3D_SIZE N`, required, with N from 2 to 65; `DOMAIN_MIN 0 0 0` and `DOMAIN_MAX 1 1 1`, optional, and only at those values.
+- Then come N × N × N data lines, each three numbers, red, green and blue, separated by blanks. A number is a decimal with an optional sign and an optional exponent, such as `0.5`, `-0.01` or `1e-3`.
+- The data lines run with red changing fastest, then green, then blue: the line at index r + N × g + N × N × b holds the output for the input color (r, g, b) / (N − 1).
+- A value below 0 or above 1 is clamped to that range.
+
+The identity table at its smallest, N = 2, maps each corner of the color cube to itself:
+
+```text
+# identity.cube: every color to itself.
+TITLE "identity"
+LUT_3D_SIZE 2
+0 0 0
+1 0 0
+0 1 0
+1 1 0
+0 0 1
+1 0 1
+0 1 1
+1 1 1
+```
+
+A warm table keeps red, lowers green by 5 per cent and blue by 15 per cent. Only the corners with green or blue at 1 change:
+
+```text
+# warm.cube: white becomes 1, 0.95, 0.85.
+TITLE "warm"
+LUT_3D_SIZE 2
+0 0 0
+1 0 0
+0 0.95 0
+1 0.95 0
+0 0 0.85
+1 0 0.85
+0 0.95 0.85
+1 0.95 0.85
+```
+
+Blending between these corners scales each channel by a constant, so the merged table of 33 a side (D2) takes it exactly: a mid gray of 0.5 becomes 0.5, 0.475 and 0.425.
+
+vtium refuses a `.cube` file at the checking stage, with D6's report naming the `.cube` file and its line, what it found, and what it needed. Each example is the log line vtium writes for the look `film` above when its `panel.cube` has that fault:
+
+| Fault | The report |
+|---|---|
+| A keyword vtium does not read | `look film (/etc/vtium/looks/panel.cube:3): color filter 1 of 3, cube: checking: found LUT_3D_INPUT_RANGE, needs TITLE, LUT_3D_SIZE, DOMAIN_MIN or DOMAIN_MAX; head console draws the default look (built in)` |
+| A size out of range | `look film (/etc/vtium/looks/panel.cube:2): color filter 1 of 3, cube: checking: found LUT_3D_SIZE 129, needs 2 to 65; head console draws the default look (built in)` |
+| A number vtium cannot read | `look film (/etc/vtium/looks/panel.cube:17): color filter 1 of 3, cube: checking: found "0.5,0.2,0.1", needs three numbers separated by blanks; head console draws the default look (built in)` |
+| The wrong count of data lines | `look film (/etc/vtium/looks/panel.cube:8195): color filter 1 of 3, cube: checking: found 8192 data lines, needs 35937, LUT_3D_SIZE 33 cubed; head console draws the default look (built in)` |
+| A domain other than 0 to 1 | `look film (/etc/vtium/looks/panel.cube:4): color filter 1 of 3, cube: checking: found DOMAIN_MAX 1 1 1.2, needs DOMAIN_MAX 1 1 1; head console draws the default look (built in)` |
+
+For the wrong count, the line is the last line of the file. A file vtium may not read at all, for its owner, its mode or its size, fails at the reading stage, with the same report.
+
+#### Malformed vtlooks and their errors
+
+The log line at run time names the first error and how many more there are; `vtium check-config` and vtium-config print every error, one a line, in the same fields without the closing clause about the head.
+
+A value out of range:
+
+```ini
+# /etc/vtium/looks/crt.vtlook
+version = 1
+
+[spatial scanlines]
+period = 12
+```
+
+```text
+look crt (/etc/vtium/looks/crt.vtlook:5): spatial filter 1 of 1, scanlines: checking: period = 12, needs an integer from 2 to 8; head console draws the default look (built in)
+```
+
+A missing version and a filter vtium does not have, two errors:
+
+```ini
+# /etc/vtium/looks/old.vtlook
+[color sepia]
+amount = 0.5
+```
+
+```text
+look old (/etc/vtium/looks/old.vtlook:2): reading: found [color sepia] before version = 1, needs version = 1 first; 1 more error; head console draws the default look (built in)
+```
+
+`vtium check-config` prints both:
+
+```text
+/etc/vtium/looks/old.vtlook:2: reading: found [color sepia] before version = 1, needs version = 1 first
+/etc/vtium/looks/old.vtlook:2: color filter 1 of 1, sepia: checking: found sepia, needs gamma, contrast, tint, color-blind or cube
+```
+
+A pair of requirements out of order:
+
+```ini
+# /etc/vtium/looks/big.vtlook
+version = 1
+
+[requires]
+min-size = 1920x1080
+max-size = 1280x800
+
+[color gamma]
+gamma = 1.2
+```
+
+```text
+look big (/etc/vtium/looks/big.vtlook:5): requires: checking: min-size = 1920x1080 exceeds max-size = 1280x800; head console draws the default look (built in)
+```
+
 ## What ADR-1303 changes to fit
 
 ADR-1303 is accepted, and names this record as "the frame shader's record" throughout. This record does not edit it. When this record is accepted, these passages of ADR-1303 change, each with a dated note:
@@ -480,7 +714,9 @@ The C reference had no filters, so each item goes past it rather than departing 
 
 ## Open questions
 
-None remain. The maintainer answered every open question of the earlier drafts on 2026-11-03, in two rounds, and each answer is written into the decision it settles: where a head's look is chosen (D5), every color filter a table (D2), the `cube` filter (D9), the `filters` feature (D10), 1-bit displays and display requirements (D7), curvature (D8, D13), the live preview (D11) and the spatial layer on the CPU path (D3) (`considered`).
+1. **1D tables in `.cube` files.** A `.cube` file may hold a 1D table instead, `LUT_1D_SIZE N` followed by N lines, each the outputs of red, green and blue for the input i / (N − 1) in each channel alone, as calibration tools write a panel's per-channel curves. *Recommendation:* yes, with N from 2 to 4096: vtium blends the file's curve linearly in each channel and bakes it into the same merged table at its 33 nodes, so nothing changes on either path. *Defence:* a 1D table is the commoner output of display calibration, which is the `cube` filter's purpose, and baking it into the merged table costs only the reader, a few keywords more and one more check of the line count. The cost is that a steep curve near black meets the merged table's limit there (D2), as any color filter does.
+
+The maintainer answered every other open question of the earlier drafts on 2026-11-03, in two rounds, and each answer is written into the decision it settles: where a head's look is chosen (D5), every color filter a table (D2), the `cube` filter (D9), the `filters` feature (D10), 1-bit displays and display requirements (D7), curvature (D8, D13), the live preview (D11) and the spatial layer on the CPU path (D3) (`considered`).
 
 ## Consequences
 
