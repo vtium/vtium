@@ -1,0 +1,11 @@
+# tier 3's showcase fonts scene, the second outline band: JetBrains Mono
+# alone, pinned as the specimens pin it (t3_showcase.py), then the built-in
+# GNU Unifont for anything it lacks, at the same 30 points as Iosevka Term.
+# The cell is JetBrains Mono's own at those 40 pixels, stated so the console
+# never waits on the helper for it (ADR-1200 D17).
+name=showcase-jetbrains
+license=OFL-1.1
+source=outline:/usr/local/share/fonts/vtium-showcase/JetBrainsMono-Regular.ttf
+source=builtin:unifont
+size=30
+cell=18x40

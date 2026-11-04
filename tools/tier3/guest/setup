@@ -40,6 +40,11 @@ fi
 if [ -d "$disc"/fonts ]; then
     install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*
 fi
+# The showcase variant's fonts, pinned by t3_showcase.py, go where the glyph
+# helper reads outline fonts; its frits name them there.
+if [ -d "$disc"/showcase-fonts ]; then
+    install -Dm644 -t /usr/local/share/fonts/vtium-showcase "$disc"/showcase-fonts/*
+fi
 # A variant drawing a PSF font installs its frits, whose glyphs the helper
 # generates at run time (ADR-1301 D2); nothing is built before the console
 # starts.
