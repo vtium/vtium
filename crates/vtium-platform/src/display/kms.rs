@@ -208,6 +208,10 @@ pub(crate) trait Kms {
     /// the property's values or enumerators.
     fn property_name(&self, id: u32) -> io::Result<String>;
 
+    /// The least and greatest value property `id` takes, where it is a
+    /// range property (`DRM_MODE_PROP_RANGE`); `None` for any other kind.
+    fn property_range(&self, id: u32) -> io::Result<Option<(u64, u64)>>;
+
     /// The properties of object `id`, read in two: their count, then
     /// their ids and values into buffers of that count, and then each
     /// one's name. More properties than [`OBJECT_PROPERTIES_MAX`] are

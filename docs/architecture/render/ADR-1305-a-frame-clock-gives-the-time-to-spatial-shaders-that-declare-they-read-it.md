@@ -10,8 +10,9 @@ basis:
     via: "the GitHub issue for the GPU path, comment of 2026-11-03 headed \"Decided 2026-11-03 (maintainer): the GPU path draws each frame through a pipeline of slots, and the frame is turned in the present stage.\", item 4; posted from the maintainer's account; who wrote the wording is not recorded; the issue number replaced by a phrase in brackets, as ADR-1303's basis quotes it"
   - operator: aaronsb
     level: guided
-    said: "lets be mindful of the code complexity."
-    via: "the maintainer in the steering session, 2026-11-03, a follow-up on ADR-1303's open question 9 about the GPU frame, relayed verbatim by the team lead and recorded in ADR-1303's `considered`"
+    said: "The GPU frame's code is kept as simple as it can be."
+    via: "the maintainer in the steering session, 2026-11-03, a follow-up on ADR-1303's open question 9 about the GPU frame, relayed by the team lead and recorded in ADR-1303's `considered`"
+    paraphrase: true
   - upstream: "aaronsb/kmscon b1f7a7c5: the text blink timer, every 500 ms (src/terminal.c:164), and the cursor blink timer each flipped a phase and asked every screen for a redraw (src/terminal.c:715-724, 821-830); both were armed when the terminal activated and disarmed when it deactivated (src/terminal.c:1764-1795); a redraw asked while the display's flip was in flight was kept pending and drawn when the flip completed (src/terminal.c:461-480, 669-690); gltex's shaders took no time input, their uniforms being textures, a clip, colors and sizes (src/render/gltex_atlas.frag:53-61, src/render/gltex_image.frag:35-36)"
   - evidence: "vtium's drawing as built on integration at 4ac66c3e, read 2026-11-03: the blink timers in the binary, 500 ms phases that a key resets, armed at activation and dropped at deactivation (crates/vtium/src/blink.rs, `App::activate` and `App::deactivate` in crates/vtium/src/app.rs); the animation clock, given the loop's time at each turn and arming no timer while its console is hidden or blanked (crates/vtium/src/animation.rs, ADR-1102 D3); the loop's one clock read, injected as `Clock` (crates/vtium/src/main.rs:51-57); at most one frame on its way to each display, a draw asked meanwhile waiting for it (`View::pending`, crates/vtium/src/term.rs); a flip event that carries no timestamp (`Event::Flipped`, handled in `App::video_event`); a draw that changes nothing queues no flip and counts as skipped (crates/vtium-render/src/timer.rs); vtium-term and vtium-image depend on vtium-parse and not on vtium-render (their Cargo.toml)"
   - evidence: "prior art, read 2026-11-03: Ghostty's custom shaders receive iTime, \"Time in seconds since first frame was rendered\", iTimeDelta and iFrame, \"Number of frames that have been rendered so far\", and its `custom-shader-animation` runs an animation loop whenever custom shaders are used and the terminal is focused (`true`, the default), only on updates (`false`), or always (ghostty.org/docs/config/reference); libretro's slang shaders receive FrameCount, \"an `uint` variable taking a value which increases by one every frame\", which a preset may wrap by a modulo, and read past frames through OriginalHistory# and PassFeedback# (docs.libretro.com/development/shader/slang-shaders); Windows Terminal's sample pixel shaders declare Time as the seconds since the shader was enabled (microsoft/terminal, samples/PixelShaders/README.md)"
@@ -33,12 +34,14 @@ considered:
     paraphrase: true
     covers: [always redrawing]
   - operator: aaronsb
-    said: "Must declare, and must declare previous frame.buffer too"
-    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead verbatim, answering open question 7
+    said: "A shader declares that it reads the time, and a shader that reads the previous frame's buffer declares that too."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 7
+    paraphrase: true
   - operator: aaronsb
-    said: "I think we include it, can we do it in a way that it only consumes memory if it's declared as a buffer?"
-    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead verbatim, answering open question 6 and the second probe, overruling the recommendation to leave the afterglow out
+    said: "The afterglow is included, and its history takes memory only when a shader declares it as a buffer."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 6 and the second probe, overruling the recommendation to leave the afterglow out
     covers: [phosphor afterglow]
+    paraphrase: true
   - operator: aaronsb
     said: "Open questions 1, 2, 4 and 5 are accepted as recommended."
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead; the wording is the team lead's, not the maintainer's
@@ -67,9 +70,6 @@ considered:
     said: "The header lines are #pragma vtium time and #pragma vtium feedback; the shader format is decided in ADR-1304 as #pragma vtium lines."
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead; the wording is the team lead's, not the maintainer's, answering open question 5
     paraphrase: true
-  - operator: aaronsb
-    said: "accept"
-    via: the maintainer in the steering session, 2026-11-03, for ADR-1304 and ADR-1305 together, relayed verbatim by the team lead
 observable:
   - "With `render-timer=log` and a look whose spatial filter declares that it reads the time, the render timer's line for an idle display reports about as many flips a second as the display's refresh rate; after `dpms-timeout` blanks the displays, or after a switch to another VT, it reports none."
   - "With `look-clock=off`, the same idle display reports no flips, and two screenshots taken a second apart are identical."

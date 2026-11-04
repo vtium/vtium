@@ -6,8 +6,9 @@ capability: process
 basis:
   - operator: aaronsb
     level: directed
-    said: "the test harness in our kmscon fork c reference had a series of pages that exercised all manner of terminal capabilities. I'd like ... a script that allows an operator to essentially take our own interview process (looks correct, yes no, comments etc) without needing to type commands but instead run through all the visuals. I think a visual acceptance pass that records this for any given pass is helpful as a 'playtest' so to speak for me, the operator."
+    said: "The C reference's test harness had a series of pages that exercised the terminal's capabilities. vtium gets a script that walks the operator through all the visuals and takes the same interview answers, looks correct, yes or no, and comments, without the operator typing commands, and that records each pass, as a playtest for the operator."
     via: "the steering session, 2026-11-03, quoted in this record's brief by the team lead"
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "vtium is not copying the C reference and aims to exceed it. The C fork's pages carry hard-won knowledge of what's worth checking, so use them, but the C fork's page set is a starting point, not a boundary."
@@ -15,8 +16,9 @@ basis:
     paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "Even though I only read English, it would be helpful to have other language features too, especially formatting on them like lines and italic bold super sub etc. We could present a series of pages essentially stating the same thing. For all the visuals, we use English language to describe what we are looking at."
+    said: "The pass also shows text in other languages, with their formatting such as lines, italic, bold, superscript and subscript, in a series of pages that each state the same thing. English describes what every page shows, since the maintainer reads only English."
     via: "the steering session, 2026-11-03, quoted by the team lead"
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "Run each language page in a common outline font and in a bitmap font: DejaVu Sans Mono with Noto Sans fallbacks, and GNU Unifont with Terminus, named by frits kept beside the pages; each pass record names the frit and each font file's path and version or SHA-256; a page whose font is not installed records skip with the missing file named."
@@ -40,9 +42,6 @@ considered:
     said: "Commit one pass per batch that goes from stage to main. Each pass record names the hardware it ran on and says it is evidence about that hardware only, and the comparison warns when two passes ran on different hardware. The record argues its choices on vtium's own grounds, not on the C reference's."
     via: the maintainer's answers in the steering session's interview, 2026-11-03, relayed by the team lead; the wording is the team lead's
     paraphrase: true
-  - operator: aaronsb
-    said: "with an understanding we only have the GPU we ran it on. We also need to leave the c reference behind."
-    via: the steering session's interview, 2026-11-03, quoted by the team lead
   - operator: aaronsb
     said: "Pictures are on by default: make vt-accept builds with images unless FEATURES is named, and a minspec pass is make vt-accept FEATURES=."
     via: the maintainer's answers in the steering session's interview, 2026-11-03, relayed by the team lead; the wording is the team lead's

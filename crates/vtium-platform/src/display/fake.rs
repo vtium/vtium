@@ -39,7 +39,12 @@
 //! among them, leave the CRTC on. A dumb buffer keeps what its mappings
 //! wrote, for a test to read back. A connector's DPMS and its CRTC's
 //! `ACTIVE` are one state, as on an atomic driver: setting either sets
-//! the other.
+//! the other. A connector may have the three properties that set how the
+//! sink reads its colors, `Colorspace`, `HDR_OUTPUT_METADATA` and `max
+//! bpc`, and the stand-in refuses a value of them as the kernel does: a
+//! property the connector lacks, a `Colorspace` that is not one of its
+//! enumerators, a `max bpc` outside its range, or a metadata blob the card
+//! does not hold.
 //!
 //! The kernel's console stands in too. At a hotplug while no process
 //! holds master ([`FakeCard::hotplug`]), it lights each connected
@@ -239,6 +244,85 @@ pub(crate) struct State {
     pub(crate) console_fbs: Vec<u32>,
     /// What removing a framebuffer a primary plane shows does to its CRTC.
     pub(crate) remove_fb: RemoveFb,
+    /// The color state of each connector that has the three properties
+    /// that set it, `Colorspace`, `HDR_OUTPUT_METADATA` and `max bpc`, as
+    /// the commits and the legacy property sets so far left it. A
+    /// connector absent here has none of the three.
+    pub(crate) color: BTreeMap<u32, Color>,
+    /// The color properties the driver refuses to set, each named by its
+    /// connector and its name, with EINVAL, as a driver refuses a value its
+    /// sink cannot take.
+    pub(crate) color_refused: Vec<(u32, &'static str)>,
+}
+
+/// The `Colorspace` values the stand-in's connectors offer: `Default`, 0,
+/// and `BT2020_RGB`, 9, as the kernel numbers them
+/// (`DRM_MODE_COLORIMETRY_DEFAULT`, `DRM_MODE_COLORIMETRY_BT2020_RGB`).
+pub(crate) const COLORSPACES: [u64; 2] = [0, 9];
+
+/// A connector's color state: its `Colorspace`, the blob its
+/// `HDR_OUTPUT_METADATA` names (0 for none) and its `max bpc`, with the
+/// range of `max bpc` the driver allows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Color {
+    pub(crate) colorspace: u64,
+    pub(crate) hdr_metadata: u64,
+    pub(crate) max_bpc: u64,
+    pub(crate) bpc_range: (u64, u64),
+}
+
+impl Color {
+    /// The color state a desktop leaves with HDR on, as KWin left DP-8 on
+    /// the maintainer's machine (vtium/vtium#253): BT.2020 RGB, the HDR
+    /// metadata in blob `blob`, and 16 bits per color asked for, in amdgpu's
+    /// range of 8 to 16 (`amdgpu_dm.c`).
+    pub(crate) fn hdr(blob: u32) -> Color {
+        Color {
+            colorspace: 9,
+            hdr_metadata: u64::from(blob),
+            max_bpc: 16,
+            bpc_range: (8, 16),
+        }
+    }
+}
+
+/// The names of the connector properties that set its color state.
+const COLOR_PROPS: [&str; 3] = ["Colorspace", "HDR_OUTPUT_METADATA", "max bpc"];
+
+/// Why the kernel refuses setting connector `conn`'s color property `name`
+/// to `value`, if it does: a property the connector does not have with
+/// ENOENT (`drm_mode_obj_find_prop_id`), and with EINVAL a `Colorspace`
+/// that is not one of its enumerators or a `max bpc` outside its range
+/// (`drm_property_change_valid_get`), an `HDR_OUTPUT_METADATA` blob the
+/// card does not hold (`drm_property_replace_blob_from_id`), or a property
+/// [`State::color_refused`] names.
+fn color_refusal(s: &State, conn: u32, name: &str, value: u64) -> Option<Errno> {
+    let Some(color) = s.color.get(&conn) else {
+        return Some(Errno::NOENT);
+    };
+    let valid = match name {
+        "Colorspace" => COLORSPACES.contains(&value),
+        "HDR_OUTPUT_METADATA" => {
+            value == 0 || u32::try_from(value).is_ok_and(|b| s.blobs.contains_key(&b))
+        }
+        _ => (color.bpc_range.0..=color.bpc_range.1).contains(&value),
+    };
+    let refused = s.color_refused.iter().any(|&(c, n)| c == conn && n == name);
+    if !valid || refused {
+        return Some(Errno::INVAL);
+    }
+    None
+}
+
+/// Sets connector `conn`'s color property `name` to `value`.
+fn set_color(s: &mut State, conn: u32, name: &str, value: u64) {
+    if let Some(color) = s.color.get_mut(&conn) {
+        match name {
+            "Colorspace" => color.colorspace = value,
+            "HDR_OUTPUT_METADATA" => color.hdr_metadata = value,
+            _ => color.max_bpc = value,
+        }
+    }
 }
 
 /// What removing the framebuffer a primary plane shows does to the plane's
@@ -532,6 +616,15 @@ impl FakeCard {
         s.paths.insert(conn, blob);
     }
 
+    /// Gives connector `conn` the color state a desktop with HDR on leaves
+    /// ([`Color::hdr`]), with the HDR metadata in a blob of its own.
+    pub(crate) fn hdr(&self, conn: u32) {
+        let blob = self.id();
+        let mut s = self.state.borrow_mut();
+        s.blobs.insert(blob, vec![0x02; 30]);
+        s.color.insert(conn, Color::hdr(blob));
+    }
+
     /// The kernel's hotplug, before the process sees it: while no process
     /// holds master, the console lights each connected connector on no
     /// CRTC with its own framebuffer on the first free CRTC's primary
@@ -697,9 +790,20 @@ impl FakeCard {
         10_000 + u32::try_from(at).unwrap_or(0)
     }
 
+    /// The name of property `id`. A property one connector owns, as the
+    /// kernel gives each connector a `max bpc` of its own, is kept as its
+    /// name, a NUL and the connector's id.
     fn prop_name(&self, id: u32) -> String {
         let at = usize::try_from(id - 10_000).unwrap_or(usize::MAX);
-        self.names.borrow().get(at).cloned().unwrap_or_default()
+        let key = self.names.borrow().get(at).cloned().unwrap_or_default();
+        key.split('\0').next().unwrap_or_default().to_owned()
+    }
+
+    /// The connector that owns property `id`, where one does.
+    fn prop_owner(&self, id: u32) -> Option<u32> {
+        let at = usize::try_from(id.checked_sub(10_000)?).ok()?;
+        let key = self.names.borrow().get(at).cloned()?;
+        key.split_once('\0')?.1.parse().ok()
     }
 
     /// Every property of object `id`, its own and those
@@ -725,12 +829,27 @@ impl FakeCard {
                 let with = !s.no_dpms.contains(&id);
                 let path = s.paths.get(&id).copied();
                 let crtc = u64::from(s.bound.get(&id).copied().unwrap_or(0));
+                let color = s.color.get(&id).copied();
                 drop(s);
                 let names: Vec<(&str, u64)> = std::iter::once(("CRTC_ID", crtc))
                     .chain(with.then_some(("DPMS", dpms)))
                     .chain(path.map(|b| ("PATH", u64::from(b))))
+                    .chain(color.into_iter().flat_map(|c| {
+                        [
+                            ("Colorspace", c.colorspace),
+                            ("HDR_OUTPUT_METADATA", c.hdr_metadata),
+                        ]
+                    }))
                     .collect();
-                Ok(self.props(&names))
+                let mut props = self.props(&names);
+                if let Some(c) = color {
+                    props.push(Property {
+                        id: self.prop_id(&format!("max bpc\0{id}")),
+                        name: "max bpc".to_owned(),
+                        value: c.max_bpc,
+                    });
+                }
+                Ok(props)
             }
             Object::Crtc => {
                 let active = u64::from(s.active.get(&id).copied().unwrap_or(false));
@@ -1035,11 +1154,20 @@ impl Kms for FakeCard {
     fn property_name(&self, id: u32) -> io::Result<String> {
         let at = id.checked_sub(10_000).ok_or_else(|| err(Errno::NOENT))?;
         let at = usize::try_from(at).map_err(|_| err(Errno::NOENT))?;
-        self.names
-            .borrow()
-            .get(at)
-            .cloned()
+        let key = self.names.borrow().get(at).cloned();
+        key.map(|k| k.split('\0').next().unwrap_or_default().to_owned())
             .ok_or_else(|| err(Errno::NOENT))
+    }
+
+    /// The range of a connector's `max bpc`, as its color state gives it;
+    /// `None` for any other property, and ENOENT for an id the card never
+    /// gave.
+    fn property_range(&self, id: u32) -> io::Result<Option<(u64, u64)>> {
+        self.property_name(id)?;
+        let Some(conn) = self.prop_owner(id) else {
+            return Ok(None);
+        };
+        Ok(self.state.borrow().color.get(&conn).map(|c| c.bpc_range))
     }
 
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb> {
@@ -1216,6 +1344,12 @@ impl Kms for FakeCard {
         if commit_puts_a_plane_on_a_crtc_it_cannot_drive(&s, &commit) {
             return Err(err(Errno::INVAL));
         }
+        if let Some(e) = commit.props.iter().find_map(|(o, n, v)| {
+            let color = s.connectors.contains_key(o) && COLOR_PROPS.contains(&n.as_str());
+            color.then(|| color_refusal(&s, *o, n, *v)).flatten()
+        }) {
+            return Err(err(e));
+        }
         // The CRTCs in the commit's state: each set directly, each a plane
         // is put on, and each a plane in the commit was on. The kernel
         // sends a flip event for every one.
@@ -1284,6 +1418,9 @@ impl Kms for FakeCard {
                 }
                 "FB_ID" if s.planes.contains_key(o) => {
                     s.plane_fb.insert(*o, v32);
+                }
+                name if s.connectors.contains_key(o) && COLOR_PROPS.contains(&name) => {
+                    set_color(&mut s, *o, name, *v);
                 }
                 _ if s.planes.contains_key(o) && SRC.contains(&n.as_str()) => {
                     if let Some(&name) = SRC.iter().find(|&&name| name == n) {
@@ -1402,11 +1539,27 @@ impl Kms for FakeCard {
         Ok(())
     }
 
+    /// Sets a connector's DPMS or one of its color properties, refused as
+    /// [`Kms::commit`] refuses the color properties; any other property
+    /// is refused with EINVAL. Without DRM master the set is refused with
+    /// EACCES, as the kernel lets only the master call
+    /// `DRM_IOCTL_MODE_OBJ_SETPROPERTY`.
     fn set_connector_property(&self, connector: u32, property: u32, value: u64) -> io::Result<()> {
-        if self.prop_name(property) != "DPMS" {
+        let name = self.prop_name(property);
+        let mut s = self.state.borrow_mut();
+        if !s.master {
+            return Err(err(Errno::ACCESS));
+        }
+        if COLOR_PROPS.contains(&name.as_str()) {
+            if let Some(e) = color_refusal(&s, connector, &name, value) {
+                return Err(err(e));
+            }
+            set_color(&mut s, connector, &name, value);
+            return Ok(());
+        }
+        if name != "DPMS" {
             return Err(err(Errno::INVAL));
         }
-        let mut s = self.state.borrow_mut();
         s.dpms.insert(connector, value);
         if let Some(&crtc) = s.bound.get(&connector) {
             s.active.insert(crtc, value == 0);

@@ -6,16 +6,14 @@ capability: process
 basis:
   - operator: aaronsb
     level: directed
-    said: "I'd like to initially set up a way to package this. I think it could be a submodule. the goal is that we can package a local AUR package for now as a builder, and expand to other package managers eventually. This way I can essentially maintain the latest building copy and as we begin to actually publish version tags, I can keep it running on this machine."
+    said: "The maintainer decided to package vtium first as an AUR package built from a recipe, to keep the latest build running on their own machine, and to add other package managers later."
     via: "the steering session, 2026-11-01, relayed in this record's brief"
+    paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "it can be it's own package repos in the vtium github org, and then submoduled in there"
+    said: "The first packaging is a real-world test of profiles, deployment, updates and the rest. It lags behind development, and the packaged vtium and the development build, running on separate VTs, do not collide."
     via: "the steering session, 2026-11-01, relayed in this record's brief"
-  - operator: aaronsb
-    level: directed
-    said: "that initial packaging would be a real world test of profiles, deployment, updates, all the bits. I would expect it to lag behind our dev work of course, and if we're running on seperate vt sessions, they shouldn't collide."
-    via: "the steering session, 2026-11-01, relayed in this record's brief"
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "The recipes live in their own repos, submoduled into vtium; the vtium package lives alongside the installed kmscon package rather than replacing it; the -git package builds GitHub's main, with a setting to point it at a local checkout."
@@ -23,20 +21,9 @@ basis:
     paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "you know what, might as well just publish it on the real aur. I have rights there already"
+    said: "Both AUR package names, vtium and vtium-git, stay the maintainer's."
     via: "the steering session, 2026-11-01, relayed by the team lead"
-  - operator: aaronsb
-    level: directed
-    said: "if someone wants to install it that's their risk!"
-    via: "the steering session, 2026-11-01, relayed by the team lead"
-  - operator: aaronsb
-    level: directed
-    said: "I'd like to make sure we keep both vtium and vtium-git as ours"
-    via: "the steering session, 2026-11-01, relayed by the team lead"
-  - operator: aaronsb
-    level: directed
-    said: "let's make sure we gpg sign things too"
-    via: "the steering session, 2026-11-01, relayed by the team lead"
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "vtium-git is published on the real AUR under the maintainer's account from the vtium-arch repo, by a publish script that pushes each package directory to its AUR repo; until the staging make target is on main, the recipe does its install steps inside package(). vtium is published from a first pre-release, v0.1.0-alpha.1, tagged on main after this session's work merges there. Tags are signed with the maintainer's key 33F9B54FD2A4B6A4110749B3BA464FC9847A832A; the vtium recipe builds from the signed tag with that key in validpgpkeys and ships the public key under keys/pgp/; vtium-git stays unverified, because main's tip is a merge commit signed by GitHub's key; commits stay unsigned, because an agent's signing would ask for the passphrase each time."
@@ -80,14 +67,16 @@ basis:
   - evidence: 'measured 2026-11-02 on this machine with systemd 262: loginctl list-sessions --no-legend lists sessions 1 and 3; loginctl show-session 1 3 -p Id -p Name -p Type -p Class -p VTNr -p Service prints one block of Key=value lines a session, parted by an empty line, with session 3 Name=aaron VTNr=7 Service=sddm Type=wayland Class=user'
   - operator: aaronsb
     level: directed
-    said: we should consider that sddm might take up a vt as well as the desktop
-    via: the maintainer, 2026-11-02, quoted exactly by the team lead in the second review round of the change that adds vtium console
+    said: "A display manager such as sddm may take a VT, and so may the desktop session."
+    via: the maintainer, 2026-11-02, relayed by the team lead in the second review round of the change that adds vtium console
+    paraphrase: true
   - evidence: 'measured 2026-11-02 with systemd 262 systemctl --root on a scratch root holding vtium@.service from tools/vt/units.sh, getty@.service and Arch kmscon 10.1.0 kmsconvt@.service, with autovt@.service and autovt@tty1.service linked to vtium@.service and getty.target.wants/vtium@tty1.service: enable kmsconvt@tty3.service links autovt@tty3.service and getty.target.wants/kmsconvt@tty3.service to kmsconvt@.service and leaves the template on vtium; enable kmsconvt@.service then fails with already exists and is a symlink to vtium@.service and still links getty.target.wants/kmsconvt@tty1.service; disable kmsconvt@.service removes every kmsconvt link, autovt@tty3.service included, and leaves vtium links as they are'
   - evidence: 'measured 2026-11-02 with systemd 262 on a scratch root holding vtium@.service from tools/vt/units.sh, getty@.service and Arch kmscon 10.1.0 kmsconvt@.service, with autovt@.service linked to vtium@.service: after systemctl --root disable getty@tty3.service and a hand-made link /etc/systemd/system/autovt@tty3.service to /usr/lib/systemd/system/kmsconvt@.service, systemd-analyze --root verify autovt@tty3.service loads kmsconvt@tty3.service and verify autovt@tty4.service loads vtium@tty4.service; systemctl --root is-enabled kmsconvt@tty3.service reads disabled; getty.target.wants holds no kmsconvt link. After rm of the link, add-wants getty.target getty@tty3.service links the want alone'
   - operator: aaronsb
     level: directed
-    said: install tree should be vtium's, not kmscon. kmscon is an independent separate product
+    said: "The install tree is vtium's own, not kmscon's; kmscon is an independent, separate product."
     via: the steering session, 2026-11-02, relayed by the team lead
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: vtium reads its configuration only from /etc/vtium, /etc/vtium/vtium.conf and its seat files beside it, and never reads /etc/kmscon; anyone moving from kmscon copies their file by hand; vtium ships the example as /etc/vtium/vtium.conf.example
@@ -95,8 +84,9 @@ basis:
     paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "the AUR build should be configured for a 'normal' machine not a minspec: hardware path, images, possibly several fonts and vtfrit configurations, a couple displays etc. I think this should be the normal disposition for other packager releases too (deb, rpm, others?) and we could also publish a minspec along side it. this could be a few different packages per packager type."
+    said: "The AUR's vtium package is built for an ordinary machine rather than as the minspec build: with the hardware drawing path, pictures, several fonts and frit configurations, and more than one display. Every other package manager's release, deb, rpm or another, is built the same way. A minspec package is published beside it, so each package manager can carry a few packages of vtium."
     via: "the steering session, 2026-11-04"
+    paraphrase: true
   - evidence: "vtium-arch at f6e8968: both recipes hand make FEATURES=\"${VTIUM_FEATURES:-}\" (vtium/PKGBUILD, vtium-git/PKGBUILD, _make), the README says that unset it builds the minspec console, and the .SRCINFO is made with VTIUM_FEATURES unset, so the published vtium package reports `features none` in `vtium --version` (crates/vtium/src/main.rs) and draws no pictures; package_vtium depends on glibc, libgcc, libxkbcommon, systemd-libs and vtium-terminfo, and lists kbd and kmscon-terminfo as optional"
   - evidence: "the tree on integration at 4667b6c2: the vtium crate's features are images, logind and gpu, and none is on by default (crates/vtium/Cargo.toml); gpu loads libEGL.so.1 and libgbm.so.1 when it makes a GL context and links no GL library, so a build with it starts on a machine without them (crates/vtium-platform/Cargo.toml); logind reaches logind through sd-bus from libsystemd, found by pkg-config at build time (crates/vtium-platform/Cargo.toml); the image helper vtium-image links only pure-Rust decoders, landlock and, on x86_64, aarch64 and riscv64, a seccomp filter (crates/vtium-image-helper/Cargo.toml), and make install stages it at PREFIX/bin/vtium-image with its account's sysusers file, vtium-image.conf, when FEATURES names images (Makefile); make install-build builds the console with cargo's minspec profile whatever FEATURES names (Makefile), a profile whose renderer is built at opt-level 3 (Cargo.toml); vtium reads frits from /etc/vtium/fonts alone (crates/vtium-config/src/frit.rs, crates/vtium/src/font.rs), and vtium-config finds a font: source's family under /usr/share/fonts and /usr/local/share/fonts (crates/vtium-config/src/sources.rs); the tree holds the frits minspec-16, minspec-8, proof and tiny5 in crates/vtium-config/frits/ and desktop in tools/specimens/frits/, each saying that vtium ships the frit and never the fonts; the head file's commented template is crates/vtium-settings/templates/heads.conf; make install stages no frit and no head file"
   - evidence: "measured 2026-11-04 on this machine with pacman: /usr/lib/libEGL.so.1 belongs to libglvnd 1.7.0-3 and /usr/lib/libgbm.so.1 to mesa 1:26.2.6-1; ttf-jetbrains-mono, ttf-nerd-fonts-symbols-mono, noto-fonts-emoji, terminus-font, ttf-dejavu and ttc-iosevka are in Arch's extra repository; Arch's kmscon 10.1.0-1 (pacman -Si, pacman -Fl) installs the C reference's optional parts as modules under /usr/lib/kmscon (mod-drm3d.so, mod-gltex.so, mod-freetype.so, mod-pango.so, mod-psf.so, mod-unifont.so), depends on bash, dbus, glib2, glibc, libdrm, libtsm, libxkbcommon, systemd-libs, zlib and kmscon-terminfo, and lists fontconfig as optional"
@@ -122,38 +112,44 @@ considered:
     via: the maintainer, 2026-11-01, in the steering session
     paraphrase: true
   - operator: aaronsb
-    said: "the adr seems fine"
-    via: chat with the steering session, 2026-11-02
-  - operator: aaronsb
     said: "One per build"
     via: "the steering session, 2026-11-04, the maintainer's answer in the first round of D8's open questions, to question 1: one recipe building both consoles, or one recipe for each build"
   - operator: aaronsb
-    said: "option 1, required, but also, let's make sure minspec has the optional (not elected by default) gpu path. (small machines can have gpus that are viable!)"
+    said: "The GL libraries are required (option 1). The minspec package also builds in the GPU path, as an option that is off by default, because a small machine can have a GPU worth using."
     via: "the steering session, 2026-11-04, the maintainer's answer in the first round of D8's open questions, to question 3: whether the GL libraries are required or optional"
+    paraphrase: true
   - operator: aaronsb
-    said: "/etc/fvtium/fonts but also, I don't want to bundle fonts. I think per packaging system we should make some attempt at referencing where that distro's fonts are at. Next, let's make sure that a frit is capable of using fonts installed for system. (I think it does this). in the packager per distro, we can make the 'optional' package install fonts that match the frits we create."
-    via: "the steering session, 2026-11-04, the maintainer's answer in the first round of D8's open questions, to question 2: where the shipped frits go; the path the maintainer typed, /etc/fvtium/fonts, means /etc/vtium/fonts"
+    said: "The packages install their frits into /etc/vtium/fonts and bundle no font files. Each distribution's recipe refers to the place where that distribution installs its fonts, and a frit uses fonts installed on the system. Each package manager offers an optional package that installs the distribution's font packages for the frits vtium ships."
+    via: "the steering session, 2026-11-04, the maintainer's answer in the first round of D8's open questions, to question 2: where the shipped frits go"
+    paraphrase: true
   - operator: aaronsb
-    said: "That set, fonts optional"
+    said: "The packages ship the set of frits the question proposed, desktop, a Terminus frit, minspec-16 and minspec-8, and their fonts are optional."
     via: "the steering session, 2026-11-04, the maintainer's answer in the first round of D8's open questions, to questions 4 and 5: which frits ship, and whether their fonts are required"
+    paraphrase: true
   - operator: aaronsb
-    said: "nobody uses vtium yet, so we don't need a hard rule. I vote we just set it up for enabled, and keep building. our next release will have the completed hw support."
+    said: "The vtium package turns hwaccel on by default now. vtium has no users yet, so no rule holds the GPU path off until a test passes, and the work goes on. The next release carries the completed hardware support."
     via: "the steering session, 2026-11-04, the maintainer's answer in the second round of D8's open questions, to question 1: whether the vtium package turns hwaccel on, and when"
+    paraphrase: true
   - operator: aaronsb
-    said: "that seems fine."
+    said: "The optional fonts package is named vtium-fonts."
     via: "the steering session, 2026-11-04, the maintainer's answer in the second round of D8's open questions, to question 2: the name of the optional fonts package, vtium-fonts"
+    paraphrase: true
   - operator: aaronsb
-    said: "yes lets ship it."
+    said: "The vtium package ships the gallery tool as /usr/bin/vtium-gallery."
     via: "the steering session, 2026-11-04, the maintainer's answer in the second round of D8's open questions, to question 3: whether the vtium package ships the gallery tool, tools/gallery/gallery, as /usr/bin/vtium-gallery"
+    paraphrase: true
   - operator: aaronsb
-    said: "keep two - perhaps by just offering a third package (minspec no gpu)"
+    said: "The minspec package built with gpu keeps two buffers for each display, and a third package for small machines, the minspec build with no GPU path, is published beside it."
     via: "the steering session, 2026-11-04, the maintainer's answer in the third round of D8's open questions, to question 1: how many buffers for each display the minspec package built with gpu keeps"
+    paraphrase: true
   - operator: aaronsb
-    said: "match by family name (your lean)"
+    said: "The glyph helper matches a font by its family name, as the steering session leaned."
     via: "the steering session, 2026-11-04, the maintainer's answer in the third round of D8's open questions, to question 2: how the glyph helper finds a font whose file a distribution names differently"
+    paraphrase: true
   - operator: aaronsb
-    said: "so we don't optimize just for sddm, maybe we can as part of setup, attempt to avoid clobbering an existing slot"
-    via: the steering session, 2026-11-04
+    said: "Setup leaves alone a VT that another program holds, for every display manager, not only SDDM."
+    via: "the steering session, 2026-11-04, the maintainer's direction on how vtium console chooses VTs, after vtium console refused VT 1 on a laptop whose SDDM greeter ran on VT 2"
+    paraphrase: true
 observable:
   - "Installing vtium-git on this machine beside kmscon and kmscon-terminfo reports no conflicting file, and `pacman -Qo` on each file the package lists names vtium-git alone"
   - "Following vtium-arch's README for every VT on a machine with no C reference console gives vtium on VT 1 and on each VT logind spawns, and its way back leaves autovt@.service linked to getty@.service and getty@tty1 enabled, as the preset made them"
@@ -331,7 +327,7 @@ vtium reads its configuration from `/etc/vtium` alone, unless `--configdir` name
 - **How vtium reads and changes the state.** It reads the links under `/etc/systemd/system`, the template link along the search path and its records itself, and asks the running manager only which consoles run, with `systemctl list-units --state=active`. It changes the units through `systemctl enable`, `disable`, `add-wants` and `daemon-reload`, and changes by hand only the three links no systemctl verb makes or removes as they were: the template link, a VT's leftover `autovt@ttyN.service` link to `vtium@.service`, and a getty's want linked back to the unit file the record names.
 - **Exit statuses.** 0 when the verb did what it was asked or found it done, 1 when it refused or a step failed, and 2 for words it cannot take, as `vtium blank` does. A step that fails stops the run: vtium names the step and prints systemctl's message, and running the same verb again finishes the change, while the opposite verb undoes what was done. A run of `enable --all`, `disable N` or `disable --all` that finds no link to change still runs `systemctl daemon-reload`, the last step of each, so a rerun finishes a run whose reload failed. vtium cannot tell from the disk whether the manager has read the links, and a reload starts and stops nothing, so it reloads rather than keep a record of the failure.
 
-> Edited 2026-11-04: the maintainer asked that setup avoid clobbering a VT another program holds, for any display manager, and not only for sddm (`considered`). The rule's bullet above states it. D7 had judged a display manager's VTs only from the `getty@ttyN.service` its unit's `Conflicts=` named, which refused VT 1 on a machine whose sddm runs its greeter on VT 2, and its getty fallback started `getty@ttyN` whatever that start stopped, which stopped sddm when vtium failed on VT 1. The bullet "Graphics keep their VTs" became "Other programs keep their VTs", which judges every unit enabled at boot, other consoles running and the display managers' own configuration, and "A vtium failure stops no other program" is new; the departure of the same name follows them.
+> Edited 2026-11-04: the maintainer directed that setup leave alone a VT another program holds, for every display manager and not only SDDM (`considered`). The rule's bullet above states it. D7 had judged a display manager's VTs only from the `getty@ttyN.service` its unit's `Conflicts=` named, which refused VT 1 on a machine whose sddm runs its greeter on VT 2, and its getty fallback started `getty@ttyN` whatever that start stopped, which stopped sddm when vtium failed on VT 1. The bullet "Graphics keep their VTs" became "Other programs keep their VTs", which judges every unit enabled at boot, other consoles running and the display managers' own configuration, and "A vtium failure stops no other program" is new; the departure of the same name follows them.
 
 ### D8: each package manager publishes a desktop build under vtium's name, and two minspec builds beside it
 
