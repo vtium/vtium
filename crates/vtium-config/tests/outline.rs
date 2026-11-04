@@ -21,6 +21,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
 fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
     OutlineRequest {
+        synth: Default::default(),
         font: ttf::test_mono().build().into(),
         family: "Test Mono".to_owned(),
         cells: cells.to_vec(),
@@ -777,14 +778,30 @@ fn the_request_reads_back() {
     };
     assert_eq!(OutlineRequest::decode(&full.encode()), Ok(full.clone()));
     assert_ne!(full.encode(), r.encode());
-    // the hinting is the request's last byte, 0 light and 1 full
+    // the hinting is the request's byte before its last, 0 light and 1
+    // full
     let mut other = full.encode();
-    *other.last_mut().expect("a byte") = 2;
+    let n = other.len();
+    other[n - 2] = 2;
     assert_eq!(
         OutlineRequest::decode(&other),
         Err("an unknown hinting"),
         "a hinting the parser does not know"
     );
+    // the synthesis is its last byte, bold 1 and italic 2 (ADR-1302 D4)
+    let slanted = OutlineRequest {
+        synth: vtium_font::Style {
+            bold: true,
+            italic: true,
+        },
+        ..r.clone()
+    };
+    let bytes = slanted.encode();
+    assert_eq!(bytes.last(), Some(&3));
+    assert_eq!(OutlineRequest::decode(&bytes), Ok(slanted));
+    let mut other = r.encode();
+    *other.last_mut().expect("a byte") = 4;
+    assert_eq!(OutlineRequest::decode(&other), Err("an unknown synthesis"));
     let mut long = r.encode();
     long.push(0);
     assert!(OutlineRequest::decode(&long).is_err());
@@ -810,6 +827,7 @@ fn the_parsers_child_rasterises() {
 #[test]
 fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
     let req = OutlineRequest {
+        synth: Default::default(),
         font: ttf::test_emoji().build().into(),
         family: "Test Emoji".to_owned(),
         cells: vec![(0, 10)],

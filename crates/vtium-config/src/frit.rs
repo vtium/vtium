@@ -9,8 +9,8 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use vtium_font::Cell;
 use vtium_font::sprite::Range;
+use vtium_font::{Cell, Style};
 
 /// The most bytes a frit holds.
 pub const FRIT_BYTES_MAX: usize = 64 * 1024;
@@ -96,6 +96,9 @@ pub struct Source {
     pub cover: Vec<Cover>,
     /// `cp-size=`: the height of the CPI font's three to take.
     pub cp_size: Option<u32>,
+    /// `style=`: the style the source draws, regular unless the frit names
+    /// another (ADR-1200 D1, D21).
+    pub style: Style,
     /// The `source=` line, from 1.
     pub line: usize,
 }
@@ -177,6 +180,19 @@ pub struct Frit {
     pub warnings: Vec<FritError>,
 }
 
+/// The style `style=`'s value names (ADR-1200 D1): `regular`, `bold`,
+/// `italic` or `bold-italic`, spelled exactly so.
+pub fn style(value: &str) -> Option<Style> {
+    let (bold, italic) = match value {
+        "regular" => (false, false),
+        "bold" => (true, false),
+        "italic" => (false, true),
+        "bold-italic" => (true, true),
+        _ => return None,
+    };
+    Some(Style { bold, italic })
+}
+
 /// Whether `name` is a set name: 1 to 64 characters of `A-Z a-z 0-9 . _
 /// + -`, not starting with `.` (ADR-1200 D1).
 pub fn valid_name(name: &str) -> bool {
@@ -226,6 +242,8 @@ impl Frit {
         let mut glyph_source = Vec::new();
         let mut license = None;
         let mut warnings = Vec::new();
+        // the sources a `style=` line has named, by their place
+        let mut styled: Vec<usize> = Vec::new();
         for (line, n) in text.split('\n').zip(1usize..) {
             if line.len() > FRIT_LINE_MAX {
                 return Err(err(n, "longer than FRIT_LINE_MAX"));
@@ -276,6 +294,7 @@ impl Frit {
                         unimap: None,
                         cover: Vec::new(),
                         cp_size: None,
+                        style: Style::default(),
                         line: n,
                     });
                 }
@@ -326,13 +345,14 @@ impl Frit {
                     );
                 }
                 "style" => {
-                    current(&mut sources)?;
-                    if value != "regular" {
-                        return Err(err(
-                            n,
-                            "style= other than regular is not built yet (vtium/vtium#125's later slices)",
-                        ));
+                    let i = current(&mut sources)?;
+                    let source = sources.get_mut(i).ok_or_else(|| err(n, "no source"))?;
+                    if styled.contains(&i) {
+                        return Err(err(n, "style= given twice for one source"));
                     }
+                    styled.push(i);
+                    source.style = style(value)
+                        .ok_or_else(|| err(n, "style= is regular, bold, italic or bold-italic"))?;
                 }
                 "compress" => {
                     // ADR-1200 D1: it chose how a stored set was
@@ -588,6 +608,40 @@ mod tests {
         (e.line, e.why)
     }
 
+    // a source takes the style its `style=` line names, regular unless one
+    // does (ADR-1200 D1)
+    #[test]
+    fn style_names_the_style_of_the_source_above_it() {
+        let r = parse(
+            "source=kbd:a\n\
+             source=kbd:b\n\
+             style=bold\n\
+             source=kbd:c\n\
+             style=italic\n\
+             source=kbd:d\n\
+             cover=ascii\n\
+             style=bold-italic\n\
+             source=kbd:e\n\
+             style=regular\n",
+        )
+        .expect("parses");
+        let styles: Vec<(bool, bool)> = r
+            .sources
+            .iter()
+            .map(|s| (s.style.bold, s.style.italic))
+            .collect();
+        assert_eq!(
+            styles,
+            [
+                (false, false),
+                (true, false),
+                (false, true),
+                (true, true),
+                (false, false)
+            ]
+        );
+    }
+
     #[test]
     fn every_key_is_read() {
         let r = parse(
@@ -730,7 +784,14 @@ mod tests {
                 3,
                 "given twice",
             ),
-            ("source=kbd:x\nstyle=bold\n", 2, "not built yet"),
+            (
+                "source=kbd:x\nstyle=oblique\n",
+                2,
+                "regular, bold, italic or bold-italic",
+            ),
+            ("source=kbd:x\nstyle=Bold\n", 2, "regular, bold, italic"),
+            ("source=kbd:x\nstyle=bold\nstyle=italic\n", 3, "given twice"),
+            ("style=bold\n", 1, "before any source="),
             (
                 "source=kbd:x\nglyph-source=fonts\n",
                 2,

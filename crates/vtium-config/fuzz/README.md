@@ -6,8 +6,8 @@ From the repository's root, `make fuzz FUZZ_TARGETS=vtium-config:shape` runs a t
 
 | Path | What it is |
 |---|---|
-| `fuzz_targets/shape.rs` | Any input as clusters for the test font of `tests/common/ttf.rs`, or as the font itself asked for a fixed set of clusters, rasterised with each cluster shaped: no panic. Its first byte picks which. |
+| `fuzz_targets/shape.rs` | Any input as clusters for the test font of `tests/common/ttf.rs`, or as the font itself asked for a fixed set of clusters, rasterised with each cluster shaped: no panic. Its first byte picks which, and the style the rasteriser synthesises over the glyphs, so a crafted outline is also emboldened and slanted (ADR-1302 D4). |
 | `fuzz_targets/bdf.rs` | Any input as a BDF font, plain or compressed: no panic, and each glyph the reader keeps is exactly its cells' rows. A seed corpus of a few small BDF files, such as the head of a real one cut before its `ENDFONT`, finds the reader's paths faster than an empty one. |
-| `fuzz_targets/serve.rs` | Any input as the requests the console writes to the glyph helper, read one after another by `ServeRequest::read` until it ends or refuses one: no panic, and each request it takes encodes back to bytes it reads as the same request. |
+| `fuzz_targets/serve.rs` | Any input as the requests the console writes to the glyph helper, read one after another by `ServeRequest::read` until it ends or refuses one: no panic, and each request it takes, its style among its fields, encodes back to bytes it reads as the same request. |
 | `Cargo.toml`, `Cargo.lock` | The fuzz crate and its pinned dependencies. |
 | `.gitignore` | Leaves out `target`, `corpus`, `artifacts` and `coverage`. |

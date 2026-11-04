@@ -19,6 +19,8 @@ libfuzzer-sys = "0.4"
 # PNG strikes; vtium-config already builds this version.
 miniz_oxide = "=0.8.9"
 vtium-config = { path = ".." }
+# The style the shaping target synthesises over the glyphs.
+vtium-font = { path = "../../vtium-font" }
 
 [[bin]]
 name = "shape"

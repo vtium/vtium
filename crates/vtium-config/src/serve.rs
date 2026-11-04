@@ -46,12 +46,14 @@
 //! process. It is answered at once, like a cell query.
 //!
 //! ```text
-//! request  magic "VTVSREQ3", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//! request  magic "VTVSREQ4", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
 //!          u32 (0 for a cell or sources query), cell height u32 (for a
 //!          sources query 0, for a cell query
-//!          the height an outline font is drawn at, or 0), capabilities
+//!          the height an outline font is drawn at, or 0), style u32 (0
+//!          regular, 1 bold, 2 italic, 3 bold italic; an ask's alone may
+//!          name one other than regular), capabilities
 //!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
@@ -65,7 +67,8 @@
 //!          data, map count u32, each (codepoint u16, glyph u16)
 //! answer   frames: kind u32, length u32, then the payload; kind 1 an
 //!          ask's glyphs and 4 a fill's, each a vitrified set of one cell's
-//!          glyphs, an ask's clusters in its cluster map; kind 2 the oldest ask answered (no payload); kind 5 a
+//!          glyphs, its strikes in the style the request named, an ask's
+//!          clusters in its cluster map; kind 2 the oldest ask answered (no payload); kind 5 a
 //!          cell's fill done (its width u32 and height u32); kind 6 a
 //!          bitmap frit's own cell (its width u32 and height u32); kind 10
 //!          an outline frit's cell at the height asked (its width u32 and
@@ -83,9 +86,22 @@
 //!
 //! Little-endian throughout. The console checks every frame before it
 //! trusts it: the length against [`FRAME_BYTES_MAX`] before it allocates,
-//! a set through vtium-font's reader, every strike at the cell asked for,
-//! an ask's glyphs and clusters among those it asked for, and a fill's
-//! among those it does not hold, with no cluster.
+//! a set through vtium-font's reader, every strike at the cell and in the
+//! style asked for, an ask's glyphs and clusters among those it asked for,
+//! and a fill's among those it does not hold, with no cluster.
+//!
+//! An ask names a style, regular, bold, italic or bold italic (ADR-1200
+//! D21), and its glyphs come in that style. Each codepoint is drawn from
+//! the first source in the frit's order that covers it and was given that
+//! style (`style=`, ADR-1200 D1). Where no such source covers it, the
+//! helper draws the regular glyph and synthesises the style (ADR-1302 D4):
+//! an outline glyph slanted by 0.2 about the baseline and emboldened
+//! before it is rasterised, and a bitmap glyph widened by a pixel and
+//! sheared by 0.2 a pixel row at a time at the font's own size, the
+//! widening first. A color glyph is drawn as it is. [`steps`] says what
+//! each style is drawn from, in order. A fill, a stop and the queries are
+//! regular: the fill fills only the regular glyphs, and the other styles
+//! come by ask.
 //!
 //! The kernel's font reaches a frit's `console:` source only as the bytes
 //! the console read from its own VT at start and handed over
@@ -128,7 +144,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ3";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ4";
 /// A frame of an ask's glyphs: a vitrified set.
 pub const FRAME_GLYPHS: u32 = 1;
 /// The oldest ask is answered whole.
@@ -213,6 +229,9 @@ pub struct ServeRequest {
     pub kind: u32,
     pub frit: FritText,
     pub cell: Cell,
+    /// The style an ask's glyphs are drawn in; regular for every other
+    /// request.
+    pub style: Style,
     /// An ask's codepoints, or the codepoints a fill draws first: those on
     /// the screen.
     pub codepoints: Vec<u32>,
@@ -284,6 +303,7 @@ impl ServeRequest {
         }
         put32(&mut out, self.cell.width);
         put32(&mut out, self.cell.height);
+        put32(&mut out, style_code(self.style));
         // the display's capabilities, reserved
         put32(&mut out, 0);
         put32(&mut out, len32(self.codepoints.len()));
@@ -325,7 +345,8 @@ impl ServeRequest {
     /// name a frit name (ADR-1200 D1), checked before it is allocated, and
     /// its text UTF-8, each inside its bound, the cell inside
     /// [`CELL_SIDE_MAX`], a cell query's at a width of 0, a height inside
-    /// [`CELL_SIDE_MAX`] or 0, and naming no codepoint and no range, the reserved capabilities empty, each codepoint a
+    /// [`CELL_SIDE_MAX`] or 0, and naming no codepoint and no range, the
+    /// style one of four and regular but for an ask, the reserved capabilities empty, each codepoint a
     /// scalar value, clusters in an ask alone, each 1 to
     /// [`CLUSTER_SCALARS_MAX`] scalar values, each held range in order and inside Unicode, the
     /// kernel's font inside the kernel's own bounds with its data exactly
@@ -375,6 +396,10 @@ impl ServeRequest {
                 || !(1..=CELL_SIDE_MAX).contains(&cell.height))
         {
             return Err("a cell past CELL_SIDE_MAX".to_owned());
+        }
+        let style = style_of(f.u32()?).ok_or("an unknown style")?;
+        if kind != ASK && style != Style::default() {
+            return Err("a style other than regular on a request that is not an ask".to_owned());
         }
         if f.u32()? != 0 {
             return Err("display capabilities this helper does not read".to_owned());
@@ -458,12 +483,27 @@ impl ServeRequest {
             kind,
             frit: FritText { name, text },
             cell,
+            style,
             codepoints,
             clusters,
             held,
             console,
         }))
     }
+}
+
+/// A style as a request carries it: bold 1, italic 2, as a set's strike
+/// carries its style.
+pub fn style_code(style: Style) -> u32 {
+    u32::from(style.bold) | u32::from(style.italic) << 1
+}
+
+/// The style a request's `code` names, `None` past bold italic's 3.
+pub fn style_of(code: u32) -> Option<Style> {
+    (code <= 3).then_some(Style {
+        bold: code & 1 != 0,
+        italic: code & 2 != 0,
+    })
 }
 
 /// Writes one frame.
@@ -529,6 +569,77 @@ pub enum OwnCell {
     /// An outline font's cell at the height asked, taken as it is; a zoom
     /// asks again at the new height.
     Outline(Cell),
+}
+
+/// One step of what a style's glyphs are drawn from (ADR-1200 D21): the
+/// sources the frit gave the style `face`, in the frit's order, with the
+/// style `synth` drawn over their glyphs (ADR-1302 D4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Step {
+    pub face: Style,
+    pub synth: Style,
+}
+
+const REGULAR: Style = Style {
+    bold: false,
+    italic: false,
+};
+const BOLD: Style = Style {
+    bold: true,
+    italic: false,
+};
+const ITALIC: Style = Style {
+    bold: false,
+    italic: true,
+};
+const BOLD_ITALIC: Style = Style {
+    bold: true,
+    italic: true,
+};
+
+/// Where a bold italic glyph comes from when no source the frit gave
+/// `style=bold-italic` covers it, in order. This is the maintainer's open
+/// question on the style requests' issue, and until it is answered the
+/// helper slants the bold face, then emboldens the italic face, then
+/// emboldens and slants the regular glyph. The other answer, which
+/// emboldens and slants the regular glyph whatever faces the frit names,
+/// is `&[Step { face: REGULAR, synth: BOLD_ITALIC }]`.
+fn bold_italic_without_its_face() -> &'static [Step] {
+    &[
+        Step {
+            face: BOLD,
+            synth: ITALIC,
+        },
+        Step {
+            face: ITALIC,
+            synth: BOLD,
+        },
+        Step {
+            face: REGULAR,
+            synth: BOLD_ITALIC,
+        },
+    ]
+}
+
+/// What the glyphs of `style` are drawn from, in order: first the sources
+/// the frit gave that style, drawn as they are; then, for a codepoint none
+/// of them covers, the regular sources with the style synthesised over
+/// them (ADR-1200 D21), and for bold italic the faces between
+/// ([`bold_italic_without_its_face`]).
+pub fn steps(style: Style) -> Vec<Step> {
+    let mut out = vec![Step {
+        face: style,
+        synth: REGULAR,
+    }];
+    match (style.bold, style.italic) {
+        (false, false) => {}
+        (true, true) => out.extend_from_slice(bold_italic_without_its_face()),
+        _ => out.push(Step {
+            face: REGULAR,
+            synth: style,
+        }),
+    }
+    out
 }
 
 /// A source [`Engine::load`] left out.
@@ -676,6 +787,118 @@ fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32) -> Vec<
     out
 }
 
+/// A glyph's 1-bit rows cut to its cells, and its ink box where its ink
+/// passes them: the box's left, its width and its 1-bit rows.
+type Drawn = (Vec<u8>, Option<(i32, u32, Vec<u8>)>);
+
+/// A 1-bit glyph `width` cells wide of a font of cell `from`, drawn in the
+/// style `synth` asks (ADR-1302 D4) and placed as [`place`] places one,
+/// scaled by `scale` into `cell`, centred across and on its bottom row.
+/// Bold widens each row, a pixel set when it or its left neighbour is;
+/// italic then shears the rows about `baseline` at the font's own size,
+/// before the scale, by vtium-font's rule
+/// ([`vtium_font::italic::shear_shift`]), so the console's own bitmap
+/// faces and the helper draw the same glyph. A sheared glyph whose ink
+/// passes its cells carries its ink box (ADR-1302 D6), cut to its reach,
+/// one cell past its cells on each side.
+fn place_styled(
+    glyph: &[u8],
+    width: Width,
+    from: Cell,
+    cell: Cell,
+    scale: u32,
+    synth: Style,
+    baseline: u32,
+) -> Drawn {
+    let cells = width.cells();
+    let src_w = from.width * cells;
+    let src_row = src_w.div_ceil(8) as usize;
+    let lit = |x: u32, y: u32| {
+        bit(glyph, src_row, x, y) || (synth.bold && x > 0 && bit(glyph, src_row, x - 1, y))
+    };
+    if !synth.italic {
+        let mut rows = vec![0u8; src_row * from.height as usize];
+        for y in 0..from.height {
+            for x in (0..src_w).filter(|&x| lit(x, y)) {
+                set_bit(&mut rows, src_row, x, y);
+            }
+        }
+        return (place(&rows, width, from, cell, scale), None);
+    }
+    let mask: Vec<u8> = (0..from.height)
+        .flat_map(|y| (0..src_w).map(move |x| if lit(x, y) { 255 } else { 0 }))
+        .collect();
+    let Some(sheared) = vtium_font::italic::shear(&mask, src_w, from.height, baseline) else {
+        return (place(glyph, width, from, cell, scale), None);
+    };
+    let dst_w = cell.width * cells;
+    let x0 = i64::from((dst_w - src_w * scale) / 2);
+    let y0 = cell.height - from.height * scale;
+    let stride = sheared.width as usize;
+    // the sheared pixel under column `x` from the cells' left edge and row
+    // `y` of the cell
+    let at = |x: i64, y: u32| -> bool {
+        if y < y0 {
+            return false;
+        }
+        let sy = ((y - y0) / scale) as usize;
+        let sx = (x - x0).div_euclid(i64::from(scale)) - i64::from(sheared.left);
+        usize::try_from(sx)
+            .ok()
+            .filter(|&sx| sx < stride)
+            .and_then(|sx| sheared.pixels.get(sy * stride + sx))
+            .is_some_and(|&p| p != 0)
+    };
+    let pack = |from_x: i64, to_x: i64| -> Vec<u8> {
+        let w = (to_x - from_x) as u32;
+        let row = w.div_ceil(8) as usize;
+        let mut out = vec![0u8; row * cell.height as usize];
+        for y in 0..cell.height {
+            for x in 0..w {
+                if at(from_x + i64::from(x), y) {
+                    set_bit(&mut out, row, x, y);
+                }
+            }
+        }
+        out
+    };
+    let span = i64::from(dst_w);
+    let reach = -i64::from(cell.width)..span + i64::from(cell.width);
+    let inked = |x: i64| (0..cell.height).any(|y| at(x, y));
+    let first = reach.clone().find(|&x| inked(x));
+    let last = reach.rev().find(|&x| inked(x));
+    let ink = match (first, last) {
+        (Some(first), Some(last)) if first < 0 || last >= span => {
+            let (left, right) = (first.min(0), (last + 1).max(span));
+            Some((left as i32, (right - left) as u32, pack(left, right)))
+        }
+        _ => None,
+    };
+    (pack(0, span), ink)
+}
+
+/// The row under the baseline `font` is sheared about for italic, from its
+/// cell's top: the baseline the font states, as a built-in set's strike
+/// and a BDF font's ascent do, else the row under the lowest ink of its
+/// `H`, else its cell's bottom edge ([`vtium_font::italic::bitmap_baseline`]).
+fn bitmap_baseline(font: &Font) -> u32 {
+    if let Some(b) = font.baseline {
+        return b.min(font.cell.height);
+    }
+    let h = font
+        .map
+        .get(&u32::from('H'))
+        .and_then(|&g| font.glyphs.get(g as usize))
+        .map(|(width, rows)| {
+            let w = font.cell.width * width.cells();
+            let row = w.div_ceil(8) as usize;
+            (0..font.cell.height)
+                .map(|y| (0..w).any(|x| bit(rows, row, x, y)))
+                .collect::<Vec<bool>>()
+        });
+    vtium_font::italic::bitmap_baseline(h.as_deref(), font.cell.height)
+}
+
 impl Engine {
     /// Parses `frit` and reads each source it names, as this process's
     /// account; a source missing or unreadable is left out, and the frit
@@ -817,7 +1040,11 @@ impl Engine {
     /// fit, no height to draw an outline font at, or no source left.
     pub fn own_cell(&self, height: u32) -> Result<OwnCell, String> {
         let mut why = Vec::new();
-        let mut sources = self.sources.iter().enumerate();
+        let mut sources = self
+            .sources
+            .iter()
+            .enumerate()
+            .filter(|(_, (source, _))| source.style == REGULAR);
         let (first, cell) = loop {
             let Some((i, (source, loaded))) = sources.next() else {
                 why.push("the frit has no source left to take a cell from".to_owned());
@@ -836,9 +1063,10 @@ impl Engine {
                     ));
                 }
                 Loaded::Outline { font, family, .. } => {
-                    // the frit's bold face joins it once style= names one
-                    // (ADR-1200 D17)
-                    match crate::outline::cell_width(&[(font, family)], height) {
+                    // the frit's bold face joins the W rule (ADR-1200 D17)
+                    let mut faces: Vec<(&[u8], &str)> = vec![(font, family)];
+                    faces.extend(self.bold_face());
+                    match crate::outline::cell_width(&faces, height) {
                         Ok(width) => return Ok(OwnCell::Outline(Cell { width, height })),
                         Err(e) => {
                             why.push(format!("source={}: {e}", source.spelling));
@@ -848,7 +1076,12 @@ impl Engine {
                 }
             }
         };
-        for (_, (source, loaded)) in sources {
+        let first_at = self
+            .sources
+            .iter()
+            .position(|(s, _)| std::ptr::eq(s, first))
+            .unwrap_or(0);
+        for (_, (source, loaded)) in self.sources.iter().enumerate().skip(first_at + 1) {
             match loaded {
                 Loaded::Bitmap(font)
                     if font.cell.width > cell.width || font.cell.height > cell.height =>
@@ -867,6 +1100,23 @@ impl Engine {
             }
         }
         Ok(OwnCell::Bitmap(cell))
+    }
+
+    /// The frit's bold face, which the W rule measures beside the regular
+    /// face (ADR-1200 D17), as the C reference took the larger of its
+    /// regular and bold faces' cells: the first outline source the frit
+    /// gave `style=bold` that has not failed, its bytes and its family.
+    /// `None` when the frit names none.
+    fn bold_face(&self) -> Option<(&[u8], &str)> {
+        let failed = self.failed.borrow();
+        self.sources
+            .iter()
+            .enumerate()
+            .filter(|(i, (source, _))| source.style == BOLD && !failed.contains_key(i))
+            .find_map(|(_, (_, loaded))| match loaded {
+                Loaded::Outline { font, family, .. } => Some((&font[..], family.as_str())),
+                Loaded::Bitmap(_) => None,
+            })
     }
 
     /// Source `i`'s baseline in a cell `height` pixels high, found once
@@ -893,10 +1143,13 @@ impl Engine {
     /// face with no metrics of its own.
     fn metrics_at(&self, cell: Cell) -> (u32, Decorations) {
         let plain = (cell.height, Decorations::for_height(cell.height));
-        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.first() else {
+        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
             return plain;
         };
-        let Some(base) = self.baseline(0, cell.height) else {
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(first) else {
+            return plain;
+        };
+        let Some(base) = self.baseline(first, cell.height) else {
             return plain;
         };
         let lines = crate::outline::decorations(font, family, cell.height, base, self.hinting)
@@ -933,38 +1186,54 @@ impl Engine {
         why
     }
 
-    /// The glyphs at `cell` for `want`, sorted codepoints, as
+    /// The regular glyphs at `cell` for `want`, sorted codepoints, as
     /// [`Engine::glyphs`] draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, want, &[])
+        self.glyphs(cell, REGULAR, want, &[])
     }
 
-    /// The glyphs at `cell` for `clusters`, sorted, as [`Engine::glyphs`]
-    /// draws them.
+    /// The regular glyphs at `cell` for `clusters`, sorted, as
+    /// [`Engine::glyphs`] draws them.
     pub fn draw_clusters(
         &self,
         cell: Cell,
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, &[], clusters)
+        self.glyphs(cell, REGULAR, &[], clusters)
     }
 
-    /// The glyphs at `cell` for `want`, sorted codepoints, and `clusters`,
-    /// sorted: each codepoint from the first source in the frit's order
-    /// that gives it, and each cluster from the first outline source that
-    /// covers its first scalar value other than U+200D and shapes it
-    /// (ADR-1200 D21), as a vitrified set of that one cell; `None` when no
-    /// source gives any. A source that fails as it draws is left out, and
-    /// the next one gives its glyphs.
+    /// The glyphs of `style` at `cell` for `want`, sorted codepoints, and
+    /// `clusters`, sorted, as [`Engine::glyphs`] draws them.
+    pub fn draw_style(
+        &self,
+        cell: Cell,
+        style: Style,
+        want: &[u32],
+        clusters: &[Vec<u32>],
+    ) -> Result<Option<Vec<u8>>, String> {
+        self.glyphs(cell, style, want, clusters)
+    }
+
+    /// The glyphs of `style` at `cell` for `want`, sorted codepoints, and
+    /// `clusters`, sorted, as a vitrified set of that one cell whose
+    /// strikes are of `style`; `None` when no source gives any. Each
+    /// [`Step`] of the style ([`steps`]) draws in turn what the steps
+    /// before it left: each codepoint from the first source in the frit's
+    /// order that the step's face is and that gives it, and each cluster
+    /// from the first such outline source that covers its first scalar
+    /// value other than U+200D and shapes it (ADR-1200 D21), with the
+    /// step's synthesis drawn over the glyph (ADR-1302 D4). A source that
+    /// fails as it draws is left out, and the next one gives its glyphs.
     fn glyphs(
         &self,
         cell: Cell,
+        style: Style,
         want: &[u32],
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
         let (base, lines) = self.metrics_at(cell);
         let strike = |format| {
-            StrikeBuilder::new(format, cell, Style::default())
+            StrikeBuilder::new(format, cell, style)
                 .baseline(base)
                 .decorations(lines)
                 .compress(false)
@@ -976,7 +1245,15 @@ impl Engine {
         );
         let mut mapped: BTreeSet<u32> = BTreeSet::new();
         let mut shaped: BTreeSet<&[u32]> = BTreeSet::new();
-        for (i, (source, loaded)) in self.sources.iter().enumerate() {
+        let steps = steps(style);
+        let order = steps.iter().flat_map(|step| {
+            self.sources
+                .iter()
+                .enumerate()
+                .filter(move |(_, (source, _))| source.style == step.face)
+                .map(move |(i, source)| (i, source, step.synth))
+        });
+        for (i, (source, loaded), synth) in order {
             if self.failed.borrow().contains_key(&i) {
                 continue;
             }
@@ -999,6 +1276,7 @@ impl Engine {
                     if scale == 0 {
                         continue;
                     }
+                    let baseline = bitmap_baseline(font);
                     let mut placed: BTreeMap<u32, u32> = BTreeMap::new();
                     for c in left {
                         let (Some(&g), Some(ch)) = (font.map.get(&c), char::from_u32(c)) else {
@@ -1010,8 +1288,13 @@ impl Engine {
                                 let Some((width, rows)) = font.glyphs.get(g as usize) else {
                                     continue;
                                 };
-                                let i =
-                                    bits.glyph(*width, place(rows, *width, font.cell, cell, scale));
+                                let (rows, ink) = place_styled(
+                                    rows, *width, font.cell, cell, scale, synth, baseline,
+                                );
+                                let i = bits.glyph(*width, rows);
+                                if let Some((left, w, ink)) = ink {
+                                    bits.ink(i, left, w, ink);
+                                }
                                 placed.insert(g, i);
                                 i
                             }
@@ -1040,6 +1323,7 @@ impl Engine {
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
                         baselines: self.baseline(i, cell.height).into_iter().collect(),
                         hinting: self.hinting,
+                        synth,
                     };
                     let outline = match rasterise(&request) {
                         Ok(outline) => outline,
@@ -1133,13 +1417,13 @@ impl Bits {
     }
 }
 
-/// Draws `want` and `clusters` at `cell` and writes them as frames of
-/// `kind`, a set that passes `max` bytes, [`FRAME_BYTES_MAX`] but in a
+/// Draws `want` and `clusters` at `cell` in `style` and writes them as
+/// frames of `kind`, a set that passes `max` bytes, [`FRAME_BYTES_MAX`] but in a
 /// test, cut in two. Returns whether any glyph went, or the engine's
 /// failure; only a write that fails is the outer error.
 fn send_glyphs(
     engine: &Engine,
-    cell: Cell,
+    (cell, style): (Cell, Style),
     (want, clusters): (&[u32], &[Vec<u32>]),
     kind: u32,
     out: &mut dyn Write,
@@ -1152,7 +1436,7 @@ fn send_glyphs(
             continue;
         }
         let many = want.len().saturating_add(clusters.len()) > 1;
-        match engine.glyphs(cell, want, clusters) {
+        match engine.glyphs(cell, style, want, clusters) {
             Ok(None) => {}
             // the codepoints apart from the clusters, then each halved
             Ok(Some(set)) if set.len() > max && many => {
@@ -1428,7 +1712,14 @@ impl Work<'_> {
                     .map(|w| (w, &[][..]))
                     .chain(clusters.chunks(BATCH).map(|k| (&[][..], k)));
                 for (w, k) in batches {
-                    if let Err(why) = send_glyphs(engine, cell, (w, k), FRAME_GLYPHS, out, FRAME)? {
+                    if let Err(why) = send_glyphs(
+                        engine,
+                        (cell, request.style),
+                        (w, k),
+                        FRAME_GLYPHS,
+                        out,
+                        FRAME,
+                    )? {
                         result = Err(why);
                         break;
                     }
@@ -1453,7 +1744,14 @@ impl Work<'_> {
         fill.next = end;
         batch.sort_unstable();
         let drawn = match self.engine(&fill.frit) {
-            Ok(engine) => send_glyphs(engine, fill.cell, (&batch, &[]), FRAME_FILL, out, FRAME)?,
+            Ok(engine) => send_glyphs(
+                engine,
+                (fill.cell, REGULAR),
+                (&batch, &[]),
+                FRAME_FILL,
+                out,
+                FRAME,
+            )?,
             Err(why) => Err(why.clone()),
         };
         match drawn {
@@ -1662,6 +1960,7 @@ mod tests {
             kind,
             frit,
             cell: CELL,
+            style: Style::default(),
             codepoints: codepoints.iter().map(|&c| u32::from(c)).collect(),
             clusters: Vec::new(),
             held: Vec::new(),
@@ -1718,10 +2017,54 @@ mod tests {
         assert_eq!(ServeRequest::read(&mut &b""[..]), Ok(None));
     }
 
+    // the style changed the request's layout, so its magic moved from
+    // VTVSREQ3 to VTVSREQ4 and a request of the old layout is refused
+    // whole; an ask alone names a style (ADR-1200 D21)
+    #[test]
+    fn the_old_magic_and_a_style_off_an_ask_are_refused() {
+        let ask = ServeRequest {
+            style: BOLD_ITALIC,
+            ..request(ASK, frit("source=builtin:unifont\n"), &['A'])
+        };
+        let bytes = ask.encode();
+        assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask)));
+        let mut old = bytes.clone();
+        old[..8].copy_from_slice(b"VTVSREQ3");
+        assert_eq!(
+            ServeRequest::read(&mut &old[..]),
+            Err("not a serve request".to_owned())
+        );
+        for kind in [FILL, STOP, OWN_CELL, SOURCES] {
+            let query = matches!(kind, OWN_CELL | SOURCES);
+            let r = ServeRequest {
+                style: ITALIC,
+                cell: if query {
+                    Cell {
+                        width: 0,
+                        height: 0,
+                    }
+                } else {
+                    CELL
+                },
+                ..request(kind, frit("source=builtin:unifont\n"), &[])
+            };
+            let e = ServeRequest::read(&mut &r.encode()[..]).unwrap_err();
+            assert!(e.contains("style"), "{kind}: {e}");
+            let regular = ServeRequest {
+                style: REGULAR,
+                ..r
+            };
+            assert!(
+                ServeRequest::read(&mut &regular.encode()[..]).is_ok(),
+                "{kind}"
+            );
+        }
+    }
+
     #[test]
     fn a_malformed_request_is_refused_before_allocation() {
-        // the frit `a` with no text: its cell at 21, its capabilities at
-        // 29, its codepoint at 37
+        // the frit `a` with no text: its cell at 21, its style at 29, its
+        // capabilities at 33, its codepoint at 41
         let a = FritText {
             name: "a".to_owned(),
             text: String::new(),
@@ -1750,20 +2093,21 @@ mod tests {
         }
         let mut many = head(&[1]);
         many.push(b'a');
-        for v in [0u32, 8, 16, 0, u32::MAX] {
+        for v in [0u32, 8, 16, 0, 0, u32::MAX] {
             many.extend_from_slice(&v.to_le_bytes());
         }
         let e = ServeRequest::read(&mut &many[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
-        // the kind, the cell's width and height, capabilities not yet
-        // read, the codepoint, the held count
+        // the kind, the cell's width and height, a style past bold
+        // italic, capabilities not yet read, the codepoint, the held count
         for (at, value) in [
             (8, 9u32),
             (21, 0),
             (25, CELL_SIDE_MAX + 1),
-            (29, 1),
-            (37, 0xd800),
-            (41, u32::MAX),
+            (29, 4),
+            (33, 1),
+            (41, 0xd800),
+            (45, u32::MAX),
         ] {
             let mut bad = good.clone();
             bad[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -2051,11 +2395,14 @@ mod tests {
             height: 20,
         };
         let (want, clusters) = (vec![0xe9], vec![vec![0x65, 0x301]]);
-        let whole = engine.glyphs(cell, &want, &clusters).unwrap().unwrap();
+        let whole = engine
+            .glyphs(cell, REGULAR, &want, &clusters)
+            .unwrap()
+            .unwrap();
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
-            cell,
+            (cell, REGULAR),
             (&want, &clusters),
             FRAME_GLYPHS,
             &mut out,

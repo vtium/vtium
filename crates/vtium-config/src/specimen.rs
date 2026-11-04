@@ -167,6 +167,7 @@ fn request(kind: u32, frit: &FritText, cell: Cell, codepoints: Vec<u32>) -> Serv
         kind,
         frit: frit.clone(),
         cell,
+        style: vtium_font::Style::default(),
         codepoints,
         clusters: Vec::new(),
         held: Vec::new(),
