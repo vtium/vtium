@@ -626,6 +626,45 @@ fn a_helper_that_fails_at_start_marks_every_frit_unknown() {
     }
 }
 
+/// A helper that fails as it starts may close its end before this process
+/// has written its requests, so a request finds the pipe closed. The
+/// helper's failed frame is still the reason. Here the helper closes its
+/// input before it writes, and three frits that together outgrow a pipe make
+/// the requests outlast it, so the write fails every time.
+#[test]
+fn a_helper_that_fails_before_the_requests_are_written_gives_its_own_reason() {
+    let f = fixture("fonts-start-fails-closed", None);
+    let big = format!("source=builtin:unifont\n{}", "# padding\n".repeat(5_000));
+    for name in ["big1", "big2", "big3"] {
+        std::fs::write(f.etc().join(format!("fonts/{name}.vtfrit")), &big).expect("a large frit");
+    }
+    let helper = f.root.join("fails");
+    std::fs::write(
+        &helper,
+        "#!/bin/sh\nexec 0<&-\nprintf '\\003\\000\\000\\000\\004\\000\\000\\000boom'\n",
+    )
+    .expect("the stand-in");
+    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("its mode");
+    let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
+    assert_eq!(ran.status, 0, "{}", ran.err);
+    let lines: Vec<&str> = ran.out.lines().collect();
+    for (at, name) in [
+        (0, "big1"),
+        (1, "big2"),
+        (2, "big3"),
+        (3, "spare"),
+        (4, "tiny"),
+    ] {
+        assert!(
+            lines[at].starts_with(&format!("{name}\treads\tunknown: "))
+                && lines[at].contains("boom"),
+            "{}",
+            ran.out
+        );
+    }
+}
+
 /// A helper that never answers, or answers one frit and then stalls,
 /// marks no frit as drawing nothing: the answers that came are kept, and
 /// each frit still unanswered after the helper's wait is unknown.

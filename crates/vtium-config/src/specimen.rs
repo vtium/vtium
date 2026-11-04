@@ -181,6 +181,30 @@ fn send(stdin: &mut dyn Write, r: &ServeRequest) -> Result<(), String> {
         .map_err(|e| format!("the helper: {e}"))
 }
 
+/// Sends `r`, as [`send`] does. A helper that fails as it starts sends its
+/// failed frame and may close its end before the request is written, so
+/// when the write fails, the helper's failed frame, read from `stdout`, is
+/// the reason; the write's own error is the reason only when the helper
+/// sent none.
+fn send_or_failure(
+    stdin: &mut dyn Write,
+    stdout: &mut dyn Read,
+    r: &ServeRequest,
+) -> Result<(), String> {
+    send(stdin, r).map_err(|why| failure_sent(stdout).unwrap_or(why))
+}
+
+/// The failure the helper sent before its frames end, if it sent one.
+fn failure_sent(stdout: &mut dyn Read) -> Option<String> {
+    loop {
+        match frame(stdout) {
+            Ok((FRAME_FAILED, payload)) => return Some(text(&payload)),
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+    }
+}
+
 /// Starts `helper` under its own sandbox, with an empty environment, `/`
 /// as its directory and its three pipes: this process opens every
 /// descriptor close-on-exec, the TUI's copies of the terminal included, so
@@ -264,10 +288,16 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
                 width: 0,
                 height: 0,
             };
+            // A helper that fails as it starts sends its failed frame and
+            // may close its end before every request is written. The
+            // answers it sent are still read, and its failed frame is the
+            // reason; the write's own error is the reason only when the
+            // helper sent none.
+            let mut unsent = None;
             for frit in &frits {
                 if let Err(why) = send(&mut stdin, &request(SOURCES, frit, empty, Vec::new())) {
-                    let _ = arrived.send(Err(why));
-                    return;
+                    unsent = Some(why);
+                    break;
                 }
             }
             for _ in 0..frits.len() {
@@ -294,7 +324,7 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
                                 "the helper sent a frame of kind {kind}, which answers no sources query"
                             ));
                         }
-                        Err(why) => break Err(why),
+                        Err(why) => break Err(unsent.clone().unwrap_or(why)),
                     }
                 };
                 let failed = found.is_err();
@@ -375,8 +405,9 @@ pub fn sample(
     let codepoints: Vec<u32> = characters(&lines).into_iter().map(u32::from).collect();
     let frit = frit.clone();
     let (sets, cell, face_height) = with_helper(helper, move |stdin, stdout| {
-        send(
+        send_or_failure(
             stdin,
+            stdout,
             &request(OWN_CELL, &frit, Cell { width: 0, height }, Vec::new()),
         )?;
         let (cell, face_height) = loop {
@@ -414,7 +445,7 @@ pub fn sample(
                 _ => {}
             }
         };
-        send(stdin, &request(ASK, &frit, cell, codepoints))?;
+        send_or_failure(stdin, stdout, &request(ASK, &frit, cell, codepoints))?;
         let mut sets = Vec::new();
         loop {
             let (kind, payload) = frame(stdout)?;
@@ -637,5 +668,62 @@ fn paint(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pipe whose reader is gone.
+    struct Closed;
+
+    impl Write for Closed {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn failed_frame(why: &str) -> Vec<u8> {
+        let mut bytes = FRAME_FAILED.to_le_bytes().to_vec();
+        bytes.extend(u32::try_from(why.len()).unwrap_or(0).to_le_bytes());
+        bytes.extend(why.as_bytes());
+        bytes
+    }
+
+    fn any_request() -> ServeRequest {
+        request(
+            ASK,
+            &FritText {
+                name: "tiny".to_owned(),
+                text: String::new(),
+            },
+            Cell {
+                width: 8,
+                height: 16,
+            },
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn a_request_the_helper_closed_on_gives_the_helpers_failure() {
+        let mut stdout = std::io::Cursor::new(failed_frame("boom"));
+        let sent = send_or_failure(&mut Closed, &mut stdout, &any_request());
+        assert_eq!(sent, Err("boom".to_owned()));
+    }
+
+    #[test]
+    fn a_request_the_helper_closed_on_without_a_failure_gives_the_writes_error() {
+        let mut stdout = std::io::Cursor::new(Vec::new());
+        let sent = send_or_failure(&mut Closed, &mut stdout, &any_request());
+        assert!(
+            matches!(&sent, Err(why) if why.starts_with("the helper: ")),
+            "{sent:?}"
+        );
     }
 }
