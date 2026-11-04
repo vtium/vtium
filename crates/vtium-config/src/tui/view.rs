@@ -265,10 +265,12 @@ fn body(app: &App) -> Body {
             } else {
                 words::SETTINGS_HINT
             };
-            let what = all.get(app.setting_at).map_or("", |k| k.what);
+            let what = all
+                .get(app.setting_at)
+                .map_or(String::new(), |k| k.what_line());
             let mut tail = tail(hint, cols);
             tail.extend(
-                cut(what, cols.saturating_sub(2), WHAT_ROWS)
+                cut(&what, cols.saturating_sub(2), WHAT_ROWS)
                     .into_iter()
                     .map(|l| plain(format!(" {l}"))),
             );

@@ -4,7 +4,8 @@
 use std::fmt::Write as _;
 
 use super::keys::{
-    Default, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY, SCHEMES, Scope, TEXT_MAX,
+    Default, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY, SCHEMES, SECTIONS, Scope,
+    Section, TEXT_MAX,
 };
 use super::{FILE_MAX, LINE_MAX};
 
@@ -122,7 +123,7 @@ pub(super) fn markdown() -> String {
             default(k),
             bound(k),
             k.reader,
-            k.what,
+            k.what_line(),
             k.cite
         );
     }
@@ -147,13 +148,140 @@ pub(super) fn markdown() -> String {
     out
 }
 
+/// The widest line of the example, in columns.
+const WIDTH: usize = 78;
+
+/// `text` wrapped into lines of at most [`WIDTH`] columns, each starting
+/// with `mark` and a space. A code span, such as `` `osd = full` ``, is
+/// one word, and a word wider than a line has a line of its own.
+fn wrap(mark: &str, text: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    let mut open = false;
+    for piece in text.split(' ').filter(|w| !w.is_empty()) {
+        match words.last_mut() {
+            Some(last) if open => {
+                last.push(' ');
+                last.push_str(piece);
+            }
+            _ => words.push(piece.to_owned()),
+        }
+        if piece.matches('`').count() % 2 == 1 {
+            open = !open;
+        }
+    }
+    let mut lines = Vec::new();
+    let mut line = mark.to_owned();
+    for word in &words {
+        let wide = line.chars().count() + 1 + word.chars().count();
+        if wide > WIDTH && line != mark {
+            lines.push(std::mem::replace(&mut line, mark.to_owned()));
+        }
+        line.push(' ');
+        line.push_str(word);
+    }
+    lines.push(line);
+    lines
+}
+
+/// Paragraphs as comment lines: each wrapped by [`wrap`], with a line of
+/// `mark` alone between two paragraphs.
+fn paragraphs<'a>(mark: &str, texts: impl IntoIterator<Item = &'a str>) -> String {
+    let mut out = String::new();
+    for (i, text) in texts.into_iter().enumerate() {
+        if i > 0 {
+            out.push_str(mark);
+            out.push('\n');
+        }
+        for line in wrap(mark, text) {
+            out.push_str(&line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// A heading line: `# ── TITLE `, then rule characters to [`WIDTH`].
+fn heading(title: &str) -> String {
+    let mut line = format!("# ── {title} ");
+    while line.chars().count() < WIDTH {
+        line.push('─');
+    }
+    line
+}
+
+/// A section's description. A section of one key has the key's own
+/// paragraphs. In a section of several, each key's first paragraph starts
+/// with its name, and a line of `##` alone separates two keys, except two
+/// keys whose descriptions each fit on one line, which stand on adjacent
+/// lines as a list does.
+fn description(section: &Section) -> String {
+    let [only] = section.keys else {
+        let mut out = String::new();
+        let mut short_before = false;
+        for (i, k) in section.keys.iter().enumerate() {
+            let texts: Vec<String> = k
+                .paragraphs()
+                .enumerate()
+                .map(|(n, p)| {
+                    if n == 0 {
+                        format!("{}: {p}", k.name)
+                    } else {
+                        p.to_owned()
+                    }
+                })
+                .collect();
+            let text = paragraphs("##", texts.iter().map(String::as_str));
+            let short = text.lines().count() == 1;
+            if i > 0 && !(short && short_before) {
+                out.push_str("##\n");
+            }
+            out.push_str(&text);
+            short_before = short;
+        }
+        return out;
+    };
+    paragraphs("##", only.paragraphs())
+}
+
+/// The line that shows `k` at its default, commented out: `#key=value`, or
+/// a switch's `#key` or `#no-key`.
+fn key_line(k: &Key) -> String {
+    let line = match (k.kind, k.default) {
+        _ if k.name == SB_MEMORY.name => format!(
+            "{}={}\n# (in a build with images: {}={})",
+            k.name,
+            vtium_term::SB_MEMORY_DEFAULT_MINSPEC,
+            k.name,
+            vtium_term::SB_MEMORY_DEFAULT_IMAGES
+        ),
+        (Kind::Switch, Default::Switch(true)) => k.name.to_owned(),
+        (Kind::Switch, _) => format!("no-{}", k.name),
+        (_, Default::Number(n)) => format!("{}={n}", k.name),
+        (_, Default::Text(t)) => format!("{}={t}", k.name),
+        (_, Default::Command(c)) => format!("{}={}", k.name, c.join(" ")),
+        (_, Default::Rgb([r, g, b])) => format!("{}={r},{g},{b}", k.name),
+        _ => format!("{}=", k.name),
+    };
+    format!("#{line}\n")
+}
+
 /// The example's schemes for the six color keys, each line commented out.
 fn schemes() -> String {
-    let mut out = String::from(
-        "\n## Other schemes for the six colors above. To use one, remove the # at the start of its six lines. vtium draws whatever colors are set and checks no contrast between a text and its box.\n",
+    let mut out = format!(
+        "\n{}\n\n{}",
+        heading("Other color schemes"),
+        paragraphs(
+            "##",
+            [
+                "Other schemes for the six colors above. To use one, remove the # at the start of its six lines. vtium draws whatever colors are set and checks no contrast between a text and its box."
+            ]
+        )
     );
     for scheme in &SCHEMES {
-        let _ = write!(out, "\n## {}: {}\n", scheme.name, scheme.what);
+        let what = format!("{}: {}", scheme.name, scheme.what);
+        out.push('\n');
+        out.push_str(&paragraphs("##", [what.as_str()]));
+        out.push('\n');
         let values = scheme.notice.iter().chain(&scheme.osd);
         for (key, [r, g, b]) in OVERLAY_COLORS.iter().flatten().zip(values) {
             let _ = writeln!(out, "#{}={r},{g},{b}", key.name);
@@ -162,35 +290,27 @@ fn schemes() -> String {
     out
 }
 
-/// `install/vtium.conf.example`.
+/// `install/vtium.conf.example`: a header, then each section under its
+/// heading, with its description and then its keys at their defaults.
 pub(super) fn example() -> String {
-    let mut out = format!(
-        "# vtium's configuration, installed as /etc/vtium/vtium.conf.example.\n\
-         # Generated from {SOURCE}; docs/config.md describes each key.\n\
-         #\n\
-         # One key a line: key=value, or a switch's key to turn it on and no-key to\n\
-         # turn it off. Each key is shown at its default, commented out. The command\n\
-         # line wins over this file.\n"
+    let mut out = paragraphs(
+        "#",
+        [
+            format!("vtium's configuration, installed as /etc/vtium/vtium.conf.example. It is generated from {SOURCE}, and docs/config.md describes each key.").as_str(),
+            "One key a line: key=value, or a switch's key to turn it on and no-key to turn it off. Each key is shown at its default, commented out. The command line wins over this file.",
+        ],
     );
-    for k in KEYS.iter().filter(|k| k.scope == Scope::Anywhere) {
-        let line = match (k.kind, k.default) {
-            _ if k.name == SB_MEMORY.name => format!(
-                "{}={}\n# (in a build with images: {}={})",
-                k.name,
-                vtium_term::SB_MEMORY_DEFAULT_MINSPEC,
-                k.name,
-                vtium_term::SB_MEMORY_DEFAULT_IMAGES
-            ),
-            (Kind::Switch, Default::Switch(true)) => k.name.to_owned(),
-            (Kind::Switch, _) => format!("no-{}", k.name),
-            (_, Default::Number(n)) => format!("{}={n}", k.name),
-            (_, Default::Text(t)) => format!("{}={t}", k.name),
-            (_, Default::Command(c)) => format!("{}={}", k.name, c.join(" ")),
-            (_, Default::Rgb([r, g, b])) => format!("{}={r},{g},{b}", k.name),
-            _ => format!("{}=", k.name),
-        };
-        let _ = write!(out, "\n## {}\n#{line}\n", k.what);
-        if k.name == OSD_BORDER.name {
+    for section in &SECTIONS {
+        let _ = write!(
+            out,
+            "\n{}\n\n{}\n",
+            heading(section.title),
+            description(section)
+        );
+        for k in section.keys {
+            out.push_str(&key_line(k));
+        }
+        if section.keys.iter().any(|k| k.name == OSD_BORDER.name) {
             out.push_str(&schemes());
         }
     }
@@ -237,10 +357,11 @@ mod tests {
             let lines: Vec<&str> = example
                 .lines()
                 .skip_while(|l| !l.starts_with(&head))
-                .skip(1)
+                .skip_while(|l| l.starts_with("##") || l.is_empty())
                 .take(6)
                 .map(|l| l.strip_prefix('#').unwrap_or(l))
                 .collect();
+            assert_eq!(lines.len(), 6, "{}", scheme.name);
             let file = format!("{}\n", lines.join("\n"));
             let loaded = crate::config::load(&[], None, &mut |_: &std::path::Path| {
                 Ok(Some(file.clone().into_bytes()))
@@ -252,6 +373,210 @@ mod tests {
                 "{}",
                 scheme.name
             );
+        }
+    }
+
+    /// The example with the `#` taken off each line that shows a key at its
+    /// default value: the schemes' lines stay commented, and so does a line
+    /// such as `#vt=`, which shows a key with no default.
+    fn uncommented(example: &str) -> String {
+        let shown: Vec<String> = KEYS
+            .iter()
+            .filter(|k| k.scope == Scope::Anywhere)
+            .filter_map(|k| key_line(k).lines().next().map(str::to_owned))
+            .filter(|l| !l.ends_with('='))
+            .collect();
+        example
+            .lines()
+            .map(|l| match l.strip_prefix('#') {
+                Some(rest) if shown.iter().any(|s| s == l) => format!("{rest}\n"),
+                _ => format!("{l}\n"),
+            })
+            .collect()
+    }
+
+    fn load_file(text: &str) -> crate::config::Loaded {
+        let text = text.to_owned();
+        crate::config::load(&[], None, &mut |_: &std::path::Path| {
+            Ok(Some(text.clone().into_bytes()))
+        })
+    }
+
+    #[test]
+    fn every_line_of_the_example_fits_78_columns() {
+        let example = example();
+        for line in example.lines() {
+            let text = line.trim_start_matches('#').trim_start();
+            let one_word = !text.contains(' ') || (text.starts_with('`') && text.ends_with('`'));
+            assert!(
+                line.chars().count() <= 78 || one_word,
+                "{} columns: {line}",
+                line.chars().count()
+            );
+        }
+        // the header's first paragraph wraps
+        assert!(example.starts_with(
+            "# vtium's configuration, installed as /etc/vtium/vtium.conf.example. It is\n# generated from"
+        ));
+    }
+
+    // Each section is its heading, a blank line, its description in `##`
+    // lines, a blank line, then its keys' lines in the table's order.
+    #[test]
+    fn each_section_is_a_heading_a_description_and_its_keys() {
+        let example = example();
+        let lines: Vec<&str> = example.lines().collect();
+        for section in &SECTIONS {
+            let at = lines
+                .iter()
+                .position(|l| l.starts_with(&format!("# ── {} ─", section.title)))
+                .unwrap_or_else(|| panic!("no heading for {}", section.title));
+            assert_eq!(lines[at].chars().count(), 78, "{}", section.title);
+            assert!(lines[at].ends_with("──"), "{}", section.title);
+            assert_eq!(lines[at - 1], "", "a blank line above {}", section.title);
+            assert_eq!(lines[at + 1], "", "a blank line below {}", section.title);
+            let rest = &lines[at + 2..];
+            let said = rest.iter().take_while(|l| l.starts_with("##")).count();
+            assert!(said > 0, "{} has no description", section.title);
+            assert_ne!(rest[0], "##", "{}", section.title);
+            assert_ne!(rest[said - 1], "##", "{}", section.title);
+            assert!(
+                !rest[..said].windows(2).any(|w| w == ["##", "##"]),
+                "{}: two separators in a row",
+                section.title
+            );
+            assert_eq!(rest[said], "", "{}", section.title);
+            let set: Vec<&str> = rest[said + 1..]
+                .iter()
+                .take_while(|l| !l.is_empty())
+                .filter(|l| !l.starts_with("# "))
+                .copied()
+                .collect();
+            let want: Vec<String> = section
+                .keys
+                .iter()
+                .map(|k| key_line(k).lines().next().unwrap_or_default().to_owned())
+                .collect();
+            assert_eq!(set, want, "{}", section.title);
+        }
+    }
+
+    #[test]
+    fn a_section_of_several_keys_names_each_key_in_its_description() {
+        let example = example();
+        let osd: Vec<&str> = example
+            .lines()
+            .skip_while(|l| !l.starts_with("# ── On-screen display ─"))
+            .skip(2)
+            .take_while(|l| !l.is_empty())
+            .collect();
+        assert_eq!(
+            osd.first().copied(),
+            Some("## osd: What vtium's on-screen display draws at the top of each head after a")
+        );
+        assert!(osd.contains(&"##"), "paragraphs are separated");
+        for name in ["osd-timeout: ", "focus-mark: "] {
+            assert!(
+                osd.iter().any(|l| l.starts_with(&format!("## {name}"))),
+                "{name}"
+            );
+        }
+        // descriptions that fit a line each stand on adjacent lines
+        let keyboard = example
+            .split("# ── Keyboard ─")
+            .nth(1)
+            .expect("a keyboard section");
+        assert!(keyboard.contains(
+            "## xkb-model: The keyboard model, as xkeyboard-config names it.\n## xkb-layout: "
+        ));
+    }
+
+    // The parser ignores the headings, the descriptions and the blank
+    // lines: the example as shipped sets nothing, and with each key's line
+    // uncommented it sets each key to its default.
+    #[test]
+    fn the_example_parses_to_the_defaults() {
+        let example = example();
+        let shipped = load_file(&example);
+        assert_eq!(shipped.reports, []);
+        for k in KEYS.iter() {
+            assert_ne!(
+                shipped
+                    .config
+                    .origin(k)
+                    .map(|o| matches!(o, crate::config::Origin::File { .. })),
+                Some(true),
+                "{} is set",
+                k.name
+            );
+        }
+
+        let loaded = load_file(&uncommented(&example));
+        assert_eq!(loaded.reports, []);
+        let mut set = Vec::new();
+        for k in KEYS.iter().filter(|k| k.scope == Scope::Anywhere) {
+            let from_file = matches!(
+                loaded.config.origin(k),
+                Some(crate::config::Origin::File { .. })
+            );
+            if k.default == Default::Unset {
+                continue;
+            }
+            assert!(from_file, "{} is not set by its line", k.name);
+            set.push(k.name);
+            let want = if k.name == SB_MEMORY.name {
+                Some(super::super::Value::Number(
+                    vtium_term::SB_MEMORY_DEFAULT_MINSPEC as u64,
+                ))
+            } else {
+                super::super::value::default(k)
+            };
+            assert_eq!(
+                loaded
+                    .config
+                    .values
+                    .get(k.name)
+                    .and_then(|(v, _)| v.clone()),
+                want,
+                "{}",
+                k.name
+            );
+        }
+        assert!(set.len() > 60, "{} keys set", set.len());
+    }
+
+    // vtium-config edits vtium.conf line by line and writes no comment:
+    // in the example, a key's new line goes directly below its commented
+    // line, and every other line stays.
+    #[test]
+    fn the_editor_sets_each_key_below_its_line_in_the_example() {
+        let example = example();
+        let lines: Vec<&str> = example.lines().collect();
+        for k in KEYS.iter().filter(|k| k.scope == Scope::Anywhere) {
+            let (edit, line) = match (k.kind, k.default) {
+                (Kind::Switch, Default::Switch(on)) => (
+                    vtium_settings::Edit::Switch(k.name, !on),
+                    if on {
+                        format!("no-{}", k.name)
+                    } else {
+                        k.name.to_owned()
+                    },
+                ),
+                _ => (
+                    vtium_settings::Edit::Set(k.name, "1"),
+                    format!("{}=1", k.name),
+                ),
+            };
+            let shown = key_line(k);
+            let shown = shown.lines().next().unwrap_or_default();
+            let at = lines
+                .iter()
+                .position(|l| *l == shown)
+                .unwrap_or_else(|| panic!("no line for {}", k.name));
+            let out = vtium_settings::edit_conf(&example, &[edit]).expect("the edit");
+            let mut want = lines.clone();
+            want.insert(at + 1, &line);
+            assert_eq!(out.lines().collect::<Vec<_>>(), want, "{}", k.name);
         }
     }
 }
