@@ -39,7 +39,7 @@ When vtium fails, systemd starts it again. From systemd 254 on, each failure als
 
 A VT whose **at boot** column names a getty keeps that getty when you switch to it, whatever the **when switched to** column says, because the getty already runs there.
 
-Under the table, `status` gives a line for each VT that a unit starting at boot holds, with the signal vtium read, such as `VT 1: the display manager sddm.service holds VT 1 at boot, by DisplayServer=wayland in /etc/sddm.conf.d/10-wayland.conf: ...`. It also gives a line for each VT that a display manager's unit names in `Conflicts=` but does not hold, with the reason, such as its greeter running on VT 2 now. [VTs that other programs hold](install.md#vts-that-other-programs-hold) explains the signals.
+Under the table, `status` gives a line for each VT that a unit starting at boot holds, with the reason, such as `VT 1: the display manager sddm.service holds VT 1 at boot: a display manager is enabled, and by common convention VT 1 stays the display manager's and its getty's ...`. [VTs that other programs hold](install.md#vts-that-other-programs-hold) lists the reasons.
 
 ## A font that does not load
 

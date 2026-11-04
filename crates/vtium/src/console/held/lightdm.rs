@@ -1,5 +1,4 @@
-//! What LightDM's configuration says about its first greeter's VT, read as
-//! LightDM reads it.
+//! The VT LightDM's configuration adds, read as LightDM reads its files.
 //!
 //! LightDM reads `lightdm/lightdm.conf.d/*.conf` under `/usr/share`,
 //! `/usr/local/share` and `/etc/xdg`, then `/etc/lightdm/lightdm.conf.d/*.conf`,
@@ -11,11 +10,11 @@
 
 use std::path::Path;
 
-use super::{Config, Setting, files, read, vt};
+use super::{Setting, files, read, vt};
 use crate::console::text::lightdm as text;
 
 /// The last `[LightDM] minimum-vt` LightDM's files set, with its file.
-fn minimum_vt(root: &Path) -> Result<Option<(String, String)>, Config> {
+fn minimum_vt(root: &Path) -> Option<(String, String)> {
     let mut found = None;
     for file in files(
         root,
@@ -28,7 +27,7 @@ fn minimum_vt(root: &Path) -> Result<Option<(String, String)>, Config> {
         Some(".conf"),
         "etc/lightdm/lightdm.conf",
     ) {
-        let Some(text) = read(root, &file)? else {
+        let Some(text) = read(root, &file) else {
             continue;
         };
         let mut section = "";
@@ -46,31 +45,24 @@ fn minimum_vt(root: &Path) -> Result<Option<(String, String)>, Config> {
             }
         }
     }
-    Ok(found)
+    found
 }
 
-/// What LightDM's files under `root` say.
-pub fn config(root: &Path) -> Config {
+/// The VT LightDM's files under `root` add: its first greeter's.
+pub fn config(root: &Path) -> Option<Setting> {
     let (n, source) = match minimum_vt(root) {
-        Err(unreadable) => return unreadable,
-        Ok(None) => (7, text::DEFAULT.to_owned()),
-        Ok(Some((value, file))) => match value.parse::<i64>() {
+        None => (7, text::DEFAULT.to_owned()),
+        Some((value, file)) => match value.parse::<i64>() {
             Ok(n) => (n.max(1), format!("minimum-vt={value} in {file}")),
             Err(_) => (1, text::not_a_number(&value, &file)),
         },
     };
-    match vt(n) {
-        Some(vt) => Config::Vt(Setting {
-            source,
-            effect: text::effect(vt),
-            vt,
-            exact: false,
-        }),
-        None => Config::NoVt {
-            why: text::out_of_range(&source),
-            also: None,
-        },
-    }
+    let vt = vt(n)?;
+    Some(Setting {
+        source,
+        effect: text::effect(vt),
+        vt,
+    })
 }
 
 #[cfg(test)]
@@ -81,7 +73,7 @@ mod tests {
     #[test]
     fn lightdm_starts_on_vt_7_unless_a_file_says_otherwise() {
         let r = root("lightdm", &[]);
-        assert!(matches!(config(&r), Config::Vt(Setting { vt: 7, .. })));
+        assert_eq!(config(&r).map(|s| s.vt), Some(7));
         let _ = std::fs::remove_dir_all(r);
         let r = root(
             "lightdm-set",
@@ -96,7 +88,7 @@ mod tests {
                 ),
             ],
         );
-        assert!(matches!(config(&r), Config::Vt(Setting { vt: 2, .. })));
+        assert_eq!(config(&r).map(|s| s.vt), Some(2));
         // LightDM reads a value that is no number as VT 1, and a VT past
         // the last is no VT.
         for (value, want) in [("seven", Some(1)), ("-3", Some(1)), ("64", None)] {
@@ -105,10 +97,7 @@ mod tests {
                 format!("[LightDM]\nminimum-vt={value}\n"),
             )
             .ok();
-            let got = match config(&r) {
-                Config::Vt(s) => Some(s.vt),
-                _ => None,
-            };
+            let got = config(&r).map(|s| s.vt);
             assert_eq!(got, want, "{value}");
         }
         let _ = std::fs::remove_dir_all(r);

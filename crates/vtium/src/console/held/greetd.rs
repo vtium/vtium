@@ -1,5 +1,5 @@
-//! What greetd's configuration says about its greeter's VT, read as greetd
-//! reads it (`greetd/src/config/mod.rs`).
+//! The VT greetd's configuration adds, read as greetd reads it
+//! (`greetd/src/config/mod.rs`).
 //!
 //! greetd reads the file its `--config` names, or else
 //! `/etc/greetd/greetd.conf`, and `/etc/greetd/config.toml` when that is
@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use super::{Config, Setting, read, vt};
+use super::{Setting, read, vt};
 use crate::console::text::greetd as text;
 
 /// A setting's value without the quotes around it.
@@ -63,9 +63,9 @@ fn terminal_vt(text: &str) -> Option<String> {
     vt
 }
 
-/// What greetd's configuration under `root` says, `exec` its unit's
+/// The VT greetd's configuration under `root` adds, `exec` its unit's
 /// `ExecStart=` and `unit` the unit's name.
-pub fn config(root: &Path, unit: &str, exec: Option<&str>) -> Config {
+pub fn config(root: &Path, unit: &str, exec: Option<&str>) -> Option<Setting> {
     let words: Vec<&str> = exec
         .unwrap_or_default()
         .trim_start_matches(['-', '@', ':', '+', '!', '|'])
@@ -78,55 +78,28 @@ pub fn config(root: &Path, unit: &str, exec: Option<&str>) -> Config {
             "etc/greetd/config.toml".to_owned(),
         ],
     };
-    let mut file_vt = None;
-    let mut read_file = None;
-    for file in &files {
-        match read(root, file) {
-            Err(unreadable) => return unreadable,
-            Ok(None) => {}
-            Ok(Some(text)) => {
-                file_vt = terminal_vt(&text);
-                read_file = Some(format!("/{file}"));
-                break;
-            }
-        }
-    }
-    let Some(file) = read_file else {
-        return Config::NoVt {
-            why: text::no_file(&files),
-            also: None,
-        };
-    };
-    let (value, source) = match (option(&words, "--vt", None), file_vt) {
+    // greetd starts with no file, and so on no VT.
+    let (file, text) = files
+        .iter()
+        .find_map(|f| read(root, f).map(|text| (format!("/{f}"), text)))?;
+    let (value, source) = match (option(&words, "--vt", None), terminal_vt(&text)) {
         (Some(value), _) => (value.to_owned(), text::command_line(value, unit)),
         (None, Some(value)) => (value.clone(), format!("vt = {value} in {file}")),
-        (None, None) => {
-            return Config::NoVt {
-                why: text::no_vt(&file),
-                also: None,
-            };
-        }
+        (None, None) => return None,
     };
     let n = match value.as_str() {
-        "current" => Some(1),
-        other => other.parse::<i64>().ok().and_then(vt),
+        "current" => 1,
+        other => vt(other.parse().ok()?)?,
     };
-    match n {
-        Some(n) => Config::Vt(Setting {
-            effect: if value == "current" {
-                text::current()
-            } else {
-                text::effect(n)
-            },
-            source,
-            vt: n,
-            exact: true,
-        }),
-        None => Config::NoVt {
-            why: text::not_a_vt(&source),
-            also: None,
+    Some(Setting {
+        effect: if value == "current" {
+            text::current()
+        } else {
+            text::effect(n)
         },
-    }
+        source,
+        vt: n,
+    })
 }
 
 #[cfg(test)]
@@ -134,11 +107,8 @@ mod tests {
     use super::super::tests::root;
     use super::*;
 
-    fn vt_of(config: Config) -> Option<u16> {
-        match config {
-            Config::Vt(s) => Some(s.vt),
-            _ => None,
-        }
+    fn vt_of(config: Option<Setting>) -> Option<u16> {
+        config.map(|s| s.vt)
     }
 
     #[test]

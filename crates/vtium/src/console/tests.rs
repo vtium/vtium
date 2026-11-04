@@ -1124,9 +1124,7 @@ fn display_manager(m: &Machine) {
 }
 
 #[test]
-fn a_display_manager_vtium_cannot_place_keeps_the_vts_its_unit_conflicts_with() {
-    // sddm with an X11 greeter, which takes the first VT no program has
-    // open, and no greeter running: vtium cannot tell which VT it takes.
+fn an_enabled_display_manager_keeps_vt_1() {
     let mut m = Machine::gettys("display-manager");
     display_manager(&m);
     let before = m.snapshot();
@@ -1144,7 +1142,7 @@ fn a_display_manager_vtium_cannot_place_keeps_the_vts_its_unit_conflicts_with() 
     assert!(m.wanted("getty@tty1.service"));
     assert!(!m.root().join(RECORDS).join("tty1").exists());
     assert!(
-        out.contains("VT 1 is left as it is: the display manager sddm.service holds VT 1 at boot: its unit names getty@tty1.service in Conflicts=, and vtium cannot tell which VT it takes, since SDDM's configuration names no VT"),
+        out.contains("VT 1 is left as it is: the display manager sddm.service holds VT 1 at boot: a display manager is enabled, and by common convention VT 1 stays the display manager's and its getty's"),
         "{out}"
     );
     assert!(!out.contains("systemctl start vtium@tty1.service"), "{out}");
@@ -1159,7 +1157,7 @@ fn a_display_manager_vtium_cannot_place_keeps_the_vts_its_unit_conflicts_with() 
         "{out}"
     );
     assert!(
-        out.contains("VT 1: the display manager sddm.service holds VT 1 at boot: its unit names getty@tty1.service in Conflicts="),
+        out.contains("VT 1: the display manager sddm.service holds VT 1 at boot: a display manager is enabled, and by common convention"),
         "{out}"
     );
     assert_eq!(m.console(&["disable", "--all"]).0, 0);
@@ -1425,7 +1423,7 @@ fn disable_all_after_the_hand_typed_steps_leaves_the_vendor_template_in_force() 
 }
 
 #[test]
-fn a_display_manager_whose_unit_claims_another_vt_keeps_that_vt() {
+fn a_display_manager_whose_unit_claims_another_vt_keeps_that_vt_and_vt_1() {
     let mut m = Machine::gettys("dm-vt2");
     let lib = m.root().join("usr/lib/systemd/system");
     std::fs::write(
@@ -1446,8 +1444,8 @@ fn a_display_manager_whose_unit_claims_another_vt_keeps_that_vt() {
     );
     assert_eq!(m.console(&["enable", "--all"]).0, 0);
     assert!(m.wanted("getty@tty2.service"));
-    // VT 1 is no display manager's here, so it is vtium's.
-    assert!(m.wanted("vtium@tty1.service"));
+    // VT 1 stays the display manager's and its getty's by convention.
+    assert!(!m.wanted("vtium@tty1.service") && m.wanted("getty@tty1.service"));
     let (_, out, _) = m.console(&["status"]);
     assert!(
         out.lines()
@@ -1612,12 +1610,14 @@ fn display_manager_with(m: &Machine, files: &[(&str, &str)]) {
     }
 }
 
-/// The VTs `vtium console status` marks as the display manager's.
+/// The VTs whose getty the display manager's unit names in `Conflicts=`,
+/// as `vtium console status` gives them under its table. VT 1 is the
+/// display manager's by convention whatever its unit names.
 fn claimed(m: &mut Machine) -> Vec<u16> {
     let (_, out, _) = m.console(&["status"]);
     out.lines()
-        .filter(|l| l.contains("display manager ("))
-        .filter_map(|l| l.split_whitespace().next()?.parse().ok())
+        .filter(|l| l.starts_with("VT ") && l.contains("in Conflicts="))
+        .filter_map(|l| l.strip_prefix("VT ")?.split(':').next()?.parse().ok())
         .collect()
 }
 
@@ -1643,7 +1643,7 @@ fn a_display_managers_drop_ins_are_read_under_its_names_as_systemd_reads_them() 
             ),
         ],
     );
-    assert_eq!(claimed(&mut m), [1, 2, 3, 4]);
+    assert_eq!(claimed(&mut m), [2, 3, 4]);
     // A drop-in of one file name is read once: the unit's own name's
     // directories come before the alias's, so the vendor directory's copy
     // under sddm.service.d wins over /etc's under the alias (measured).
@@ -1661,7 +1661,7 @@ fn a_display_managers_drop_ins_are_read_under_its_names_as_systemd_reads_them() 
             ),
         ],
     );
-    assert_eq!(claimed(&mut m), [1, 3]);
+    assert_eq!(claimed(&mut m), [3]);
 }
 
 #[test]
@@ -1680,7 +1680,7 @@ fn a_drop_in_in_an_earlier_directory_stands_for_one_of_its_name_in_a_later_one()
             ),
         ],
     );
-    assert_eq!(claimed(&mut m), [1, 2]);
+    assert_eq!(claimed(&mut m), [2]);
 }
 
 #[test]
@@ -1903,106 +1903,73 @@ const SDDM_DEFAULT: (&str, &str) = (
 );
 
 #[test]
-fn sddm_whose_x11_greeter_runs_on_vt_2_leaves_vt_1_to_vtium() {
-    // padnoir: SDDM's unit conflicts with getty@tty1, but its X11 greeter
-    // took VT 2, the first VT no program had open.
+fn sddm_whose_greeter_runs_on_vt_2_still_keeps_vt_1() {
+    // padnoir: SDDM's X11 greeter took VT 2, the first VT no program had
+    // open. By convention VT 1 stays the display manager's and its getty's,
+    // and the greeter's VT is held now as well.
     let mut m = Machine::gettys("sddm-vt2");
     enable_dm(&m, "sddm.service", SDDM, &[SDDM_DEFAULT]);
     m.fake.sessions = vec![["sddm", "2", "sddm-greeter", "x11", "greeter"]];
-    let (_, out, _) = m.console(&["status"]);
+    let before = m.snapshot();
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
     assert!(
-        out.lines()
-            .any(|l| l.split_whitespace().collect::<Vec<_>>() == ["1", "getty@tty1", "-", "-"]),
-        "{out}"
+        err.contains("the display manager sddm.service holds VT 1 at boot: a display manager is enabled, and by common convention VT 1 stays the display manager's and its getty's, whatever VT the display manager uses now"),
+        "{err}"
     );
-    assert!(
-        out.contains("VT 1 is not held by the display manager sddm.service: its unit names getty@tty1.service in Conflicts=, which only stops that getty, but its greeter runs on VT 2 now, and SDDM's configuration names no VT: with DisplayServer=x11 its greeter takes the first VT no program has open."),
-        "{out}"
-    );
-    let (status, out, err) = m.console(&["enable", "1"]);
-    assert_eq!((status, err.as_str()), (0, ""), "{out}");
-    assert!(m.wanted("vtium@tty1.service") && !m.wanted("getty@tty1.service"));
-    assert!(
-        out.contains("VT 1 is not held by the display manager sddm.service"),
-        "{out}"
-    );
-    // The greeter's VT is still its own.
     let (status, _, err) = m.console(&["enable", "2"]);
     assert_eq!(status, 1);
     assert!(
         err.contains("the greeter of sddm (sddm-greeter) holds VT 2 now"),
         "{err}"
     );
-    assert_eq!(m.console(&["disable", "1"]).0, 0);
+    assert_eq!(m.snapshot(), before);
     let (status, out, _) = m.console(&["enable", "--all"]);
     assert_eq!(status, 0, "{out}");
-    assert!(m.wanted("vtium@tty1.service"), "{out}");
+    assert!(
+        !m.wanted("vtium@tty1.service") && m.wanted("getty@tty1.service"),
+        "{out}"
+    );
     assert!(m.wanted("getty@tty2.service"), "{out}");
+    assert!(!m.wanted("getty@tty3.service"), "{out}");
 }
 
 #[test]
-fn sddm_with_a_wayland_greeter_holds_vt_1_and_says_which_file_says_so() {
-    // SDDM starts a Wayland greeter on VT 1 whenever no login session is
-    // there, as this machine's /etc/sddm.conf.d/10-wayland.conf has it.
-    let mut m = Machine::gettys("sddm-wayland");
+fn a_display_manager_whose_unit_names_no_getty_keeps_vt_1() {
+    // Debian's lightdm.service has no Conflicts= at all.
+    let mut m = Machine::gettys("dm-no-conflicts");
     enable_dm(
         &m,
-        "sddm.service",
-        SDDM,
-        &[
-            SDDM_DEFAULT,
-            (
-                "etc/sddm.conf.d/10-wayland.conf",
-                "[General]\nDisplayServer=wayland\n",
-            ),
-        ],
+        "lightdm.service",
+        "[Unit]\nDescription=Light Display Manager\n",
+        &[],
     );
-    let before = m.snapshot();
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager sddm.service holds VT 1 at boot, by DisplayServer=wayland in /etc/sddm.conf.d/10-wayland.conf: SDDM starts its greeter on its built-in first VT, the VT whose getty its unit names in Conflicts=, VT 1, whenever no login session is on that VT"),
+        err.contains(
+            "the display manager lightdm.service holds VT 1 at boot: a display manager is enabled"
+        ),
         "{err}"
     );
-    assert_eq!(m.snapshot(), before);
-    // Its greeter on VT 2 now disagrees with the file: vtium cannot tell,
-    // and holds both.
-    m.fake.sessions = vec![["sddm", "2", "sddm-greeter", "wayland", "greeter"]];
-    let (status, _, err) = m.console(&["enable", "1"]);
-    assert_eq!(status, 1);
-    assert!(
-        err.contains("DisplayServer=wayland in /etc/sddm.conf.d/10-wayland.conf starts its greeter on VT 1, but its greeter runs on VT 2 now, so vtium cannot tell which VT it takes"),
-        "{err}"
-    );
-    let (_, out, _) = m.console(&["enable", "--all"]);
-    assert!(out.contains("VT 1 is left as it is"), "{out}");
-    assert!(out.contains("VT 2 is left as it is"), "{out}");
-    assert!(m.wanted("getty@tty1.service") && m.wanted("getty@tty2.service"));
 }
 
 #[test]
-fn an_sddm_minimum_vt_holds_its_vt_and_frees_none() {
-    // SDDM 0.20 and later ignore MinimumVT=, and vtium cannot tell which
-    // SDDM runs, so MinimumVT=2 keeps VT 2 and does not free VT 1.
+fn an_sddm_minimum_vt_adds_its_vt() {
     let mut m = Machine::gettys("sddm-minimum-vt");
     enable_dm(
         &m,
         "sddm.service",
         SDDM,
-        &[SDDM_DEFAULT, ("etc/sddm.conf", "[X11]\nMinimumVT=2\n")],
+        &[SDDM_DEFAULT, ("etc/sddm.conf", "[X11]\nMinimumVT=3\n")],
     );
-    let (status, _, err) = m.console(&["enable", "1"]);
+    let (status, _, err) = m.console(&["enable", "3"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager sddm.service holds VT 1 at boot: its unit names getty@tty1.service in Conflicts=, and vtium cannot tell which VT it takes"),
+        err.contains("the display manager sddm.service holds VT 3 at boot, by MinimumVT=3 in /etc/sddm.conf: SDDM before 0.20 starts its greeter on VT 3 or the first free VT above it"),
         "{err}"
     );
-    let (status, _, err) = m.console(&["enable", "2"]);
-    assert_eq!(status, 1);
-    assert!(
-        err.contains("holds VT 2 at boot, by MinimumVT=2 in /etc/sddm.conf: SDDM before 0.20 starts its greeter on VT 2 or the first free VT above it"),
-        "{err}"
-    );
+    assert_eq!(m.console(&["enable", "1"]).0, 1);
 }
 
 #[test]
@@ -2010,14 +1977,7 @@ fn gdm_on_vt_1_holds_it() {
     let gdm = "[Unit]\nDescription=GNOME Display Manager\nConflicts=getty@tty1.service plymouth-quit.service\nAfter=getty@tty1.service\n";
     let mut m = Machine::gettys("gdm");
     enable_dm(&m, "gdm.service", gdm, &[]);
-    let (status, _, err) = m.console(&["enable", "1"]);
-    assert_eq!(status, 1);
-    assert!(
-        err.contains("the display manager gdm.service holds VT 1 at boot, by Conflicts=getty@tty1.service in gdm.service: GDM starts its first greeter on its built-in first VT, the VT whose getty its unit names, VT 1"),
-        "{err}"
-    );
-    // A greeter of GDM's on VT 2, such as one a user switch started, frees
-    // nothing: GDM's first greeter at boot takes VT 1 again.
+    // A greeter of GDM's on VT 2, as a user switch starts, changes nothing.
     m.fake.sessions = vec![["gdm", "2", "gdm-launch-environment", "wayland", "greeter"]];
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
@@ -2025,21 +1985,15 @@ fn gdm_on_vt_1_holds_it() {
         err.contains("the display manager gdm.service holds VT 1 at boot"),
         "{err}"
     );
-    // Its greeter on VT 1 holds VT 1 now as well, and frees nothing.
-    m.fake.sessions = vec![["gdm", "1", "gdm-launch-environment", "wayland", "greeter"]];
-    let (status, _, err) = m.console(&["enable", "1"]);
-    assert_eq!(status, 1);
-    assert!(
-        err.contains("the greeter of gdm (gdm-launch-environment) holds VT 1 now"),
-        "{err}"
-    );
     let (_, out, _) = m.console(&["enable", "--all"]);
-    assert!(!out.contains("is not held by"), "{out}");
-    assert!(!m.wanted("vtium@tty1.service") && m.wanted("getty@tty1.service"));
+    assert!(
+        !m.wanted("vtium@tty1.service") && m.wanted("getty@tty1.service"),
+        "{out}"
+    );
 }
 
 #[test]
-fn lightdm_holds_vt_7_and_leaves_vt_1() {
+fn lightdm_holds_vt_1_and_vt_7() {
     let lightdm = "[Unit]\nDescription=Light Display Manager\nConflicts=getty@tty1.service\nAfter=getty@tty1.service\n";
     let mut m = Machine::gettys("lightdm");
     enable_dm(&m, "lightdm.service", lightdm, &[]);
@@ -2051,67 +2005,48 @@ fn lightdm_holds_vt_7_and_leaves_vt_1() {
     );
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
-    assert!(m.wanted("vtium@tty1.service"), "{out}");
+    assert!(!m.wanted("vtium@tty1.service"), "{out}");
+    assert!(
+        out.contains(
+            "VT 1 is left as it is: the display manager lightdm.service holds VT 1 at boot"
+        ),
+        "{out}"
+    );
     assert!(
         out.contains(
             "VT 7 is left as it is: the display manager lightdm.service holds VT 7 at boot"
         ),
         "{out}"
     );
-    assert!(
-        out.contains("VT 1 is not held by the display manager lightdm.service: its unit names getty@tty1.service in Conflicts=, which only stops that getty, but LightDM's built-in minimum-vt=7"),
-        "{out}"
-    );
-    // A file that moves it to VT 1 holds VT 1.
-    let mut m = Machine::gettys("lightdm-vt1");
-    enable_dm(
-        &m,
-        "lightdm.service",
-        lightdm,
-        &[("etc/lightdm/lightdm.conf", "[LightDM]\nminimum-vt=1\n")],
-    );
-    let (status, _, err) = m.console(&["enable", "1"]);
-    assert_eq!(status, 1);
-    assert!(
-        err.contains("by minimum-vt=1 in /etc/lightdm/lightdm.conf"),
-        "{err}"
-    );
 }
 
 #[test]
-fn greetd_holds_the_vt_its_configuration_names() {
-    let greetd = "[Unit]\nDescription=Greeter daemon\nConflicts=getty@tty1.service\nAfter=getty@tty1.service\n";
+fn greetd_holds_vt_1_and_the_vt_its_configuration_names() {
+    let greetd = "[Unit]\nDescription=Greeter daemon\nConflicts=getty@tty1.service\n[Service]\nExecStart=greetd\n";
     let mut m = Machine::gettys("greetd");
     enable_dm(
         &m,
         "greetd.service",
         greetd,
-        &[("etc/greetd/config.toml", "[terminal]\nvt = 1\n")],
+        &[("etc/greetd/config.toml", "[terminal]\nvt = 2\n")],
     );
-    let (status, _, err) = m.console(&["enable", "1"]);
-    assert_eq!(status, 1);
+    for n in ["1", "2"] {
+        let (status, _, err) = m.console(&["enable", n]);
+        assert_eq!(status, 1, "{n}");
+        assert!(
+            err.contains(&format!("greetd.service holds VT {n} at boot")),
+            "{err}"
+        );
+    }
+    let (_, _, err) = m.console(&["enable", "2"]);
     assert!(
-        err.contains("the display manager greetd.service holds VT 1 at boot, by vt = 1 in /etc/greetd/config.toml: greetd runs its greeter on VT 1"),
+        err.contains("by vt = 2 in /etc/greetd/config.toml: greetd runs its greeter on VT 2"),
         "{err}"
     );
-    std::fs::write(
-        m.root().join("etc/greetd/config.toml"),
-        "[terminal]\nvt = 2\n",
-    )
-    .unwrap();
-    let (status, out, err) = m.console(&["enable", "1"]);
-    assert_eq!((status, err.as_str()), (0, ""), "{out}");
-    assert!(
-        out.contains("but vt = 2 in /etc/greetd/config.toml: greetd runs its greeter on VT 2"),
-        "{out}"
-    );
-    let (status, _, err) = m.console(&["enable", "2"]);
-    assert_eq!(status, 1);
-    assert!(err.contains("greetd.service holds VT 2 at boot"), "{err}");
 }
 
 #[test]
-fn an_unknown_display_manager_holds_the_vt_its_conflicts_name_and_says_why() {
+fn an_unknown_display_manager_holds_vt_1_and_the_vt_its_conflicts_name() {
     let mut m = Machine::gettys("unknown-dm");
     enable_dm(
         &m,
@@ -2123,14 +2058,17 @@ fn an_unknown_display_manager_holds_the_vt_its_conflicts_name_and_says_why() {
     let (status, _, err) = m.console(&["enable", "2"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager ly.service holds VT 2 at boot: its unit names getty@tty2.service in Conflicts=, and vtium cannot tell which VT it takes, since vtium knows no setting of that program's that names a VT, and no greeter of its runs now"),
+        err.contains("the display manager ly.service holds VT 2 at boot: its unit names getty@tty2.service in Conflicts=, so it takes the VT from its getty"),
         "{err}"
     );
+    assert_eq!(m.console(&["enable", "1"]).0, 1);
     assert_eq!(m.snapshot(), before);
     let (status, out, _) = m.console(&["enable", "--all"]);
     assert_eq!(status, 0, "{out}");
-    assert!(m.wanted("getty@tty2.service"), "{out}");
-    assert!(m.wanted("vtium@tty1.service"), "{out}");
+    assert!(
+        m.wanted("getty@tty1.service") && m.wanted("getty@tty2.service"),
+        "{out}"
+    );
 }
 
 #[test]

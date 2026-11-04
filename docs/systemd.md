@@ -27,6 +27,54 @@ Where systemd runs vtium through its units, vtium supports systemd 254 and newer
 | `grab-suspend` | `crates/vtium-platform/src/power.rs` (`suspend`), `src/logind.rs` | Built with `logind`: logind's `Suspend` over the system bus through sd-bus, answered within 2 s, so logind's delay inhibitors hold the sleep and its `PrepareForSleep` signal runs other sessions' lock-on-suspend. A refusal is reported and never worked around. Built without `logind` (minspec): as without systemd | No logind on the bus, or a bus error that it cannot be started (masked, failing to spawn): `mem` written to `/sys/power/state` as root by a shell vtium starts with no environment, so the loop serves the kernel's switch to its suspend console. No inhibitor holds the sleep and no `PrepareForSleep` is sent; a failed write is logged as an error | elogind owns `org.freedesktop.login1`, so a build with `logind` reaches its `Suspend` through libelogind's sd-bus, or libsystemd's where both are installed; the minspec build writes `/sys/power/state` | `logind`, sd-bus from libsystemd or libelogind; off in minspec |
 | The image helper's identity | `crates/vtium-platform/src/image_helper/identity.rs` and `login.rs` (ADR-1101 D2, ADR-1400's L1 and L2 layers); the account file `crates/vtium/install/vtium-image.conf` | With `logind` built and logind running, the helper runs as the user of the login child's own logind session, found through sd-login before each request. Before anyone logs in, vtium refuses files and shared memory, and decodes inline pictures as `vtium-image`, an account with home `/`, no login shell and no files, which `systemd-sysusers` creates from the sysusers file `vtium-image.conf` that the package, `make install` and `make install-tree` stage with a build with images; where the account is missing, as `nobody` | The helper runs as the owner of the session's pty, as `login` sets it, which vtium reads before each request by reopening the pty's slave from its master. A pty that root owns is the login prompt: files are refused, and inline pictures decode as `vtium-image`, which exists only where a package script or the administrator created it, else as `nobody`. vtium never runs the helper as root by falling back to the pty's owner | sd-login from libelogind, the library the `logind` feature links; the account file needs `systemd-sysusers`, which elogind hosts may lack, so the helper runs as `nobody` there unless the account was made another way | `images`, with `logind` for sd-login |
 
+## Giving vtium a VT without systemd
+
+Without systemd, `vtium console` changes nothing and says so. You give vtium a VT the way your init system already runs a getty there: replace the getty's entry for that VT with one that runs `vtium --vt=ttyN --no-switchvt`, and let the init system restart it when it exits. vtium adds no fallback of its own there: when vtium keeps failing, the init system's own respawn limit applies, and you log in on another VT. By the usual layout, VTs 1 to 6 hold consoles and a display manager runs on a VT of its own, usually 7. Keep a getty on VT 1, so that a login is there if vtium cannot start, and give vtium VTs from 2 to 6. Each entry starts vtium at boot; two that start at once race for DRM master, and one loses (vtium/vtium#139).
+
+With sysvinit, change the VT's line in `/etc/inittab`, then run `telinit q` so that init reads the file again. Debian's line for VT 2 becomes:
+
+```
+2:23:respawn:/usr/bin/vtium --vt=tty2 --no-switchvt
+```
+
+init starts vtium at the runlevel's start and starts it again each time it exits. Tier 3's guest without systemd runs vtium this way (`sysvinit-640x480`), through a wrapper that only sends vtium's log to the serial port.
+
+With OpenRC, each VT's getty is a service linked to `/etc/init.d/agetty`, such as `agetty.tty2`. Write `/etc/init.d/vtium` in the same shape:
+
+```sh
+#!/sbin/openrc-run
+description="vtium on ${RC_SVCNAME#*.}"
+supervisor=supervise-daemon
+command=/usr/bin/vtium
+command_args="--vt=${RC_SVCNAME#*.} --no-switchvt"
+```
+
+Make it executable, link it for the VT, and swap the services in the default runlevel:
+
+```
+# ln -s vtium /etc/init.d/vtium.tty2
+# rc-update del agetty.tty2 default
+# rc-update add vtium.tty2 default
+```
+
+`supervise-daemon` starts vtium again when it exits. On a system whose OpenRC runs under sysvinit's init, the gettys are in `/etc/inittab` instead, and the sysvinit steps apply.
+
+With runit, as on Void Linux, each VT's getty is a service directory such as `/etc/sv/agetty-tty2`, enabled by a link in `/var/service`. Make `/etc/sv/vtium-tty2/run`, executable:
+
+```sh
+#!/bin/sh
+exec /usr/bin/vtium --vt=tty2 --no-switchvt
+```
+
+and swap the links:
+
+```
+# rm /var/service/agetty-tty2
+# ln -s /etc/sv/vtium-tty2 /var/service/
+```
+
+`runsv` starts vtium again when it exits. vtium's tests run the sysvinit way only; the OpenRC and runit steps follow those systems' own getty services and are untested by vtium.
+
 ## What vtium never does
 
 - It reads none of logind's state files under `/run/systemd`; ADR-1400 rejected them as an interface. When vtium runs as the console, it never asks what PID 1 is; it reads only which signals PID 1 catches. The subcommand `vtium console` checks whether the host was booted with systemd, by whether `/run/systemd/system` is a directory, as sd_booted(3) does, and then asks the running manager which consoles run, with `systemctl list-units`, and logind which graphical sessions run, with `loginctl`.

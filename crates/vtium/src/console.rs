@@ -42,7 +42,7 @@ mod graphical;
 mod held;
 mod text;
 
-use held::{Freed, Holder};
+use held::Holder;
 
 /// The highest VT number the kernel has (`MAX_NR_CONSOLES`).
 pub const LAST_VT: u16 = 63;
@@ -401,10 +401,6 @@ struct State {
     /// claim it, and the graphical sessions, greeters and other consoles on
     /// it now.
     held: BTreeMap<u16, Vec<Holder>>,
-    /// The VTs whose getty a unit names in `Conflicts=` though the unit is
-    /// judged not to hold them: the VT, the unit, whether it is the display
-    /// manager, and why.
-    freed: Vec<(u16, String, bool, Freed)>,
     /// The other sessions on each VT, such as a user's login at a getty.
     logins: BTreeMap<u16, Vec<Holder>>,
     /// Why logind could not be asked which sessions run, when it could not.
@@ -571,7 +567,6 @@ impl Run<'_, '_, '_> {
                 }
                 self.enable_vt(&mut state, n)?;
                 self.say(&text::given(n, state.runs(n, VTIUM)));
-                self.say_freed(&state, |vt| vt == n);
                 Ok(0)
             }
             Verb::Enable(Which::All) => self.enable_all(&mut state, &unit),
@@ -595,16 +590,6 @@ impl Run<'_, '_, '_> {
             }
             Verb::Disable(Which::All) => self.disable_all(&mut state),
             Verb::Fallback(_) => Ok(0),
-        }
-    }
-
-    /// Says why each VT `pick` takes is not held by a unit whose
-    /// `Conflicts=` names its getty.
-    fn say_freed(&mut self, state: &State, pick: impl Fn(u16) -> bool) {
-        for (n, unit, display_manager, why) in &state.freed {
-            if pick(*n) {
-                self.say(&text::freed(*n, unit, *display_manager, why));
-            }
         }
     }
 
@@ -715,46 +700,23 @@ impl Run<'_, '_, '_> {
         Ok(state)
     }
 
-    /// Judges which VTs the units enabled at boot hold ([`held::judge`]),
-    /// from their unit files, the display manager's configuration and the
-    /// greeters running now, and adds each to `state`.
+    /// Judges which VTs the units that start at boot hold
+    /// ([`held::judge`]), from their unit files and the display manager's
+    /// configuration, and adds each to `state`.
     fn judge_boot_units(&self, state: &mut State) {
-        let greeters: Vec<(u16, String)> = state
-            .held
-            .iter()
-            .flat_map(|(&n, hs)| hs.iter().map(move |h| (n, h)))
-            .filter_map(|(n, h)| match h {
-                Holder::Session { service, kind, .. } if kind == "greeter" => {
-                    Some((n, service.clone()))
-                }
-                _ => None,
-            })
-            .collect();
         for unit in self.boot_units(state.display_manager.as_deref()) {
             let display_manager = state.display_manager.as_deref() == Some(unit.as_str());
             let texts = self.unit_texts(&unit, display_manager);
             let facts = graphical::facts(&unit, texts.iter().map(String::as_str));
-            let config = if display_manager {
-                held::config(&self.host.root, &unit, &facts)
-            } else {
-                held::Config::Unknown
-            };
-            let stem = held::stem(&unit);
-            let mine: BTreeSet<u16> = greeters
-                .iter()
-                .filter(|(_, service)| held::service_of(service, stem))
-                .map(|(n, _)| *n)
-                .collect();
-            let judgment = held::judge(&facts, &config, &mine);
-            for (n, reason) in judgment.held {
+            let setting = display_manager
+                .then(|| held::config(&self.host.root, &unit, &facts))
+                .flatten();
+            for (n, reason) in held::judge(&facts, display_manager, setting.as_ref()) {
                 state.held.entry(n).or_default().push(Holder::Unit {
                     unit: unit.clone(),
                     display_manager,
                     reason,
                 });
-            }
-            for (n, why) in judgment.freed {
-                state.freed.push((n, unit.clone(), display_manager, why));
             }
         }
     }
@@ -1247,8 +1209,6 @@ impl Run<'_, '_, '_> {
             for line in &kept {
                 self.say(line);
             }
-            let held = state.held.clone();
-            self.say_freed(state, |n| !held.contains_key(&n));
             return Ok(0);
         }
         if !template_done {
@@ -1273,8 +1233,6 @@ impl Run<'_, '_, '_> {
         for line in &kept {
             self.say(line);
         }
-        let held = state.held.clone();
-        self.say_freed(state, |n| !held.contains_key(&n));
         Ok(0)
     }
 
@@ -1413,8 +1371,7 @@ impl Run<'_, '_, '_> {
             }
             self.say(line.trim_end());
         }
-        // Why each VT a unit enabled at boot holds is held, and why each VT
-        // whose getty a unit's Conflicts= names is free.
+        // Why each VT a unit that starts at boot holds is held.
         for (n, holders) in &state.held {
             let units: Vec<Holder> = holders
                 .iter()
@@ -1425,7 +1382,6 @@ impl Run<'_, '_, '_> {
                 self.say(&text::status_held(*n, &units));
             }
         }
-        self.say_freed(state, |_| true);
     }
 }
 

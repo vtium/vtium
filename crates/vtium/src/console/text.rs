@@ -3,7 +3,7 @@
 
 use std::fmt::Debug;
 
-use super::held::{Freed, Holder, Reason, Unsure};
+use super::held::{Holder, Reason};
 
 pub const USAGE: &str = "Usage: vtium console enable N | enable --all | disable N | disable --all | status | fallback N\n\
 Gives VT N, or every VT, to vtium@.service at its next start, and takes it back. N is 1 to 63, or ttyN.\n\
@@ -257,25 +257,13 @@ fn holders(n: u16, list: &[Holder]) -> String {
 /// Why a unit holds VT `n` at boot, as the end of a sentence.
 fn reason_tail(n: u16, reason: &Reason) -> String {
     match reason {
-        Reason::Configured(s) => format!(", by {}: {}", s.source, s.effect),
+        Reason::Convention => ": a display manager is enabled, and by common convention VT 1 stays the display manager's and its getty's, whatever VT the display manager uses now".to_owned(),
+        Reason::Conflicts => format!(
+            ": its unit names getty@tty{n}.service in Conflicts=, so it takes the VT from its getty"
+        ),
         Reason::TtyPath => format!(": its unit runs on /dev/tty{n} (TTYPath=)"),
         Reason::Instance => ": it is enabled at boot on that VT".to_owned(),
-        Reason::Unsure(why) => {
-            let why = match why {
-                Unsure::NoVt(why) => format!("{why}, and no greeter of its runs now"),
-                Unsure::Unreadable { path, why } => format!("vtium cannot read {path} ({why})"),
-                Unsure::Unknown => {
-                    "vtium knows no setting of that program's that names a VT, and no greeter of its runs now".to_owned()
-                }
-            };
-            format!(
-                ": its unit names getty@tty{n}.service in Conflicts=, and vtium cannot tell which VT it takes, since {why}"
-            )
-        }
-        Reason::Disagree { setting, greeter } => format!(
-            ": {} starts its greeter on VT {}, but its greeter runs on VT {greeter} now, so vtium cannot tell which VT it takes",
-            setting.source, setting.vt
-        ),
+        Reason::Configured(s) => format!(", by {}: {}", s.source, s.effect),
     }
 }
 
@@ -286,72 +274,10 @@ pub fn graphics_hold(n: u16, list: &[Holder]) -> String {
     )
 }
 
-/// Why VT `n` is not `unit`'s, though its unit names the VT's getty in
-/// `Conflicts=`.
-pub fn freed(n: u16, unit: &str, display_manager: bool, why: &Freed) -> String {
-    let who = if display_manager {
-        format!("the display manager {unit}")
-    } else {
-        unit.to_owned()
-    };
-    let but = match why {
-        Freed::Configured(s) => format!("{}: {}", s.source, s.effect),
-        Freed::Greeter { vts, config } => {
-            let list = vts
-                .iter()
-                .map(u16::to_string)
-                .collect::<Vec<_>>()
-                .join(" and ");
-            if config.is_empty() {
-                format!("its greeter runs on VT {list} now")
-            } else {
-                format!("its greeter runs on VT {list} now, and {config}")
-            }
-        }
-    };
-    format!(
-        "VT {n} is not held by {who}: its unit names getty@tty{n}.service in Conflicts=, which only stops that getty, but {but}."
-    )
-}
-
-/// What GDM's unit says, in words.
-pub mod gdm {
-    pub const NO_VT: &str =
-        "GDM has no setting for its greeter's VT, and its unit names no one getty in Conflicts=";
-
-    pub fn source(unit: &str, vt: u16) -> String {
-        format!("Conflicts=getty@tty{vt}.service in {unit}")
-    }
-
-    pub fn effect(vt: u16) -> String {
-        format!(
-            "GDM starts its first greeter on its built-in first VT, the VT whose getty its unit names, VT {vt}, whatever VT a greeter of its runs on now"
-        )
-    }
-}
-
 /// What SDDM's settings say, in words.
 pub mod sddm {
-    pub fn initial_vt(vt: u16) -> String {
-        format!(
-            "SDDM starts its greeter on its built-in first VT, the VT whose getty its unit names in Conflicts=, VT {vt}, whenever no login session is on that VT"
-        )
-    }
-
-    pub fn no_initial_vt(value: &str, file: &str) -> String {
-        format!(
-            "SDDM's DisplayServer={value} in {file} starts its greeter on its built-in first VT, and its unit names no one getty in Conflicts= to say which VT that is"
-        )
-    }
-
     pub fn minimum_vt(vt: u16) -> String {
-        format!(
-            "SDDM before 0.20 starts its greeter on VT {vt} or the first free VT above it; SDDM 0.20 and later ignore the setting, so it frees no VT"
-        )
-    }
-
-    pub fn x11() -> String {
-        "SDDM's configuration names no VT: with DisplayServer=x11 its greeter takes the first VT no program has open".to_owned()
+        format!("SDDM before 0.20 starts its greeter on VT {vt} or the first free VT above it")
     }
 }
 
@@ -365,13 +291,6 @@ pub mod lightdm {
 
     pub fn not_a_number(value: &str, file: &str) -> String {
         format!("minimum-vt={value} in {file}, which LightDM reads as 1")
-    }
-
-    pub fn out_of_range(source: &str) -> String {
-        format!(
-            "LightDM's {source} names no VT from 1 to {}",
-            super::super::LAST_VT
-        )
     }
 }
 
@@ -387,26 +306,6 @@ pub mod greetd {
 
     pub fn command_line(value: &str, unit: &str) -> String {
         format!("--vt {value} on the ExecStart= line of {unit}")
-    }
-
-    pub fn no_file(files: &[String]) -> String {
-        let files = files
-            .iter()
-            .map(|f| format!("/{f}"))
-            .collect::<Vec<_>>()
-            .join(" or ");
-        format!("greetd has no configuration file, {files}")
-    }
-
-    pub fn no_vt(file: &str) -> String {
-        format!("greetd's {file} sets no [terminal] vt")
-    }
-
-    pub fn not_a_vt(source: &str) -> String {
-        format!(
-            "greetd's {source} names no VT from 1 to {}",
-            super::super::LAST_VT
-        )
     }
 }
 
