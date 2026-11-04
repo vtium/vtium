@@ -332,13 +332,43 @@ impl Psf {
     }
 
     /// Glyph `index` drawn at the font's scale: each source pixel a square
-    /// `scale` across, bold widening each row by a pixel to the right.
+    /// `scale` across, bold widening each row by a pixel to the right, and
+    /// italic shearing the glyph about [`Psf::baseline`] at the font's own
+    /// size, after the widening, the sheared glyph carrying its ink box
+    /// where its ink passes its cell (ADR-1302 D4, D6).
     pub fn render(&self, index: u32, style: Style) -> Option<Glyph> {
         self.render_at(index, style, self.scale)
     }
 
-    /// Glyph `index` drawn at `scale`.
+    /// The row under the baseline that italic shears about, counted from a
+    /// glyph's top at the font's own size: a PSF font states none, so it is
+    /// the row under the lowest ink of the font's `H`, or the glyph's
+    /// bottom edge for a font with no `H` ([`crate::italic::bitmap_baseline`]).
+    pub fn baseline(&self) -> u32 {
+        let h = self
+            .glyph_index('H')
+            .filter(|&g| g < self.count)
+            .and_then(|g| self.upright(g, false, 1))
+            .map(|g| {
+                g.rows()
+                    .map(|r| r.iter().any(|&p| p != 0))
+                    .collect::<Vec<bool>>()
+            });
+        crate::italic::bitmap_baseline(h.as_deref(), self.height)
+    }
+
+    /// Glyph `index` drawn at `scale`, sheared for italic at scale 1 and
+    /// then scaled.
     fn render_at(&self, index: u32, style: Style, scale: u32) -> Option<Glyph> {
+        if style.italic {
+            let upright = self.upright(index, style.bold, 1)?;
+            return crate::italic::sheared(&upright, self.baseline(), scale);
+        }
+        self.upright(index, style.bold, scale)
+    }
+
+    /// Glyph `index` upright at `scale`, widened when `bold`.
+    fn upright(&self, index: u32, bold: bool, scale: u32) -> Option<Glyph> {
         let glyph_bytes = self.height.checked_mul(self.row_bytes)?;
         let start = usize::try_from(index.checked_mul(glyph_bytes)?).ok()?;
         let glyph = self
@@ -354,7 +384,7 @@ impl Psf {
             let k = usize::try_from(i.checked_div(scale)?).ok()?;
             let src = glyph.get(k.checked_mul(row_bytes)?..)?.get(..row_bytes)?;
             let mut bits = read_row(src, self.width);
-            if style.bold {
+            if bold {
                 bits |= bits >> 1;
             }
             for (j, px) in (0u32..).zip(row.iter_mut()) {

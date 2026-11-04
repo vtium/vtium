@@ -599,14 +599,15 @@ impl Set {
             .as_deref()
     }
 
-    /// The strike that draws `cp` at `cell` in `style`, and whether bold
-    /// is to be drawn by widening: the style's own strike, else for bold
+    /// The strike that draws `cp` at `cell` in `style`, and how the style
+    /// it lacks is drawn ([`Synth`]): the style's own strike, else for bold
     /// italic the bold one, then the italic one widened, else the regular
-    /// one, widened for bold. Of a style's strikes, one a pixel format,
-    /// the one that maps `cp` draws it. A strike lacking `cp` passes it
-    /// on, so a style drawn from fewer sources than the regular falls back
-    /// to the regular glyphs (ADR-1200 D1, `style=`).
-    fn strike_for(&self, cell: Cell, style: Style, cp: u32) -> Option<(&Strike, bool)> {
+    /// one, widened for bold. A 1-bit strike drawn for italic that is not
+    /// itself italic is sheared (ADR-1302 D4). Of a style's strikes, one a
+    /// pixel format, the one that maps `cp` draws it. A strike lacking
+    /// `cp` passes it on, so a style drawn from fewer sources than the
+    /// regular falls back to the regular glyphs (ADR-1200 D1, `style=`).
+    fn strike_for(&self, cell: Cell, style: Style, cp: u32) -> Option<(&Strike, Synth)> {
         self.strike_by(cell, style, |k| k.run(cp).is_some())
     }
 
@@ -616,14 +617,14 @@ impl Set {
         cell: Cell,
         style: Style,
         holds: impl Fn(&Strike) -> bool,
-    ) -> Option<(&Strike, bool)> {
+    ) -> Option<(&Strike, Synth)> {
         let find = |bold: bool, italic: bool| {
             self.strikes
                 .iter()
                 .find(|k| k.info.cell == cell && k.info.style == Style { bold, italic } && holds(k))
         };
         let Style { bold, italic } = style;
-        find(bold, italic)
+        let (strike, widen) = find(bold, italic)
             .map(|s| (s, false))
             .or_else(|| {
                 (bold && italic)
@@ -637,7 +638,8 @@ impl Set {
                     .flatten()
                     .map(|s| (s, bold))
             })
-            .or_else(|| find(false, false).map(|s| (s, bold)))
+            .or_else(|| find(false, false).map(|s| (s, bold)))?;
+        Some((strike, Synth::of(strike, widen, italic)))
     }
 
     /// Every regular strike, in order.
@@ -677,9 +679,9 @@ impl Set {
     /// The glyph for `c` at `cell`, drawn at `scale`; `None` when the set
     /// lacks it or its chunk does not decode.
     pub(crate) fn draw(&self, cell: Cell, c: char, style: Style, scale: u32) -> Option<Glyph> {
-        let (strike, widen) = self.strike_for(cell, style, u32::from(c))?;
+        let (strike, synth) = self.strike_for(cell, style, u32::from(c))?;
         let index = strike.index(u32::from(c))?;
-        self.draw_index(strike, index, widen, scale)
+        self.draw_index(strike, index, synth, scale)
     }
 
     /// The glyph `CLUS` maps `cluster` to at `cell`, drawn at `scale`,
@@ -692,34 +694,55 @@ impl Set {
         style: Style,
         scale: u32,
     ) -> Option<Glyph> {
-        let (strike, widen) = self.strike_by(cell, style, |k| {
+        let (strike, synth) = self.strike_by(cell, style, |k| {
             self.clusters.find(k.clusters, cluster).is_some()
         })?;
         let at = self.clusters.find(strike.clusters, cluster)?;
-        self.draw_at(strike, &at, widen, scale)
+        self.draw_at(strike, &at, synth, scale)
     }
 
     /// Glyph 0 of the first regular strike at `cell` that holds a glyph,
     /// drawn when the set holds neither U+25A1 nor `?`.
     pub(crate) fn last_resort(&self, cell: Cell, style: Style, scale: u32) -> Option<Glyph> {
         let strike = self.regular(cell).find(|s| s.info.glyph_count > 0)?;
-        self.draw_index(strike, 0, style.bold, scale)
+        self.draw_index(
+            strike,
+            0,
+            Synth::of(strike, style.bold, style.italic),
+            scale,
+        )
     }
 
     /// Glyph `glyph` of `strike` drawn at `scale`, a 1-bit glyph expanded
-    /// to a mask of 0 and 255 (ADR-1200 D13), bold widened when `widen`
-    /// asks: a pixel set when it or its left neighbour in the same cell is,
-    /// as vtium-font's bitmap faces widen.
-    fn draw_index(&self, strike: &Strike, glyph: u32, widen: bool, scale: u32) -> Option<Glyph> {
+    /// to a mask of 0 and 255 (ADR-1200 D13), in the style `synth` draws:
+    /// bold widened, a pixel set when it or its left neighbour in the same
+    /// cell is, as vtium-font's bitmap faces widen, and italic sheared after
+    /// the widening.
+    fn draw_index(&self, strike: &Strike, glyph: u32, synth: Synth, scale: u32) -> Option<Glyph> {
         let at = strike.locate(&self.chunks, glyph)?;
-        self.draw_at(strike, &at, widen, scale)
+        self.draw_at(strike, &at, synth, scale)
     }
 
     /// The glyph of `strike` that lies `at`, drawn as
     /// [`Set::draw_index`] draws one, with its ink box when `INKX` gives
     /// it one (ADR-1302 D6), drawn at the same scale and widened inside
-    /// the box.
-    fn draw_at(&self, strike: &Strike, at: &Located, widen: bool, scale: u32) -> Option<Glyph> {
+    /// the box. A glyph sheared for italic is sheared at the strike's own
+    /// size about the strike's baseline and then scaled, and carries the
+    /// ink box the shear gives it; a glyph that already carries a box is
+    /// drawn upright, since its box was placed for the glyph as it is.
+    fn draw_at(&self, strike: &Strike, at: &Located, synth: Synth, scale: u32) -> Option<Glyph> {
+        if synth.slant {
+            let upright = Synth {
+                slant: false,
+                ..synth
+            };
+            let small = self.draw_at(strike, at, upright, 1)?;
+            if small.ink().is_none() {
+                return crate::italic::sheared(&small, strike.info.baseline, scale);
+            }
+            return self.draw_at(strike, at, upright, scale);
+        }
+        let widen = synth.widen;
         let info = strike.info;
         let cells = if at.wide { 2 } else { 1 };
         let w = info.cell.width.checked_mul(cells)?;
@@ -764,6 +787,27 @@ impl Set {
             .clone()
             .with_ink(left, width, box_pixels)
             .or(Some(glyph))
+    }
+}
+
+/// How a strike's glyph is drawn for a style the strike does not hold:
+/// bold widened by a pixel, and italic sheared (ADR-1302 D4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Synth {
+    widen: bool,
+    slant: bool,
+}
+
+impl Synth {
+    /// `strike` drawn widened when `widen` asks, and sheared when `italic`
+    /// is asked of a 1-bit strike that is not itself italic. An R8 or
+    /// RGBA strike is never sheared: an outline's slant is the helper's,
+    /// drawn before it is rasterised, and color glyphs never lean.
+    fn of(strike: &Strike, widen: bool, italic: bool) -> Synth {
+        Synth {
+            widen,
+            slant: italic && !strike.info.style.italic && strike.info.format == PixelFormat::Bits,
+        }
     }
 }
 
