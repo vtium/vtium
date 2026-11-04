@@ -30,7 +30,8 @@ pub const BUILD_BUFFERS: Buffers = if any_on(&FEATURES_ON_TOP) {
 /// adds on top of minspec, and whether this build has it on. A test holds
 /// the names equal to Cargo.toml's, so a feature added there fails it
 /// until it is named here too.
-pub const FEATURES_ON_TOP: [(&str, bool); 2] = [
+pub const FEATURES_ON_TOP: [(&str, bool); 3] = [
+    ("gpu", cfg!(feature = "gpu")),
     ("images", cfg!(feature = "images")),
     ("logind", cfg!(feature = "logind")),
 ];
@@ -328,7 +329,7 @@ mod tests {
 
     // ADR-1401 D2: the minspec build, vtium's default build, keeps two
     // buffers a DRM display.
-    #[cfg(not(any(feature = "images", feature = "logind")))]
+    #[cfg(not(any(feature = "gpu", feature = "images", feature = "logind")))]
     #[test]
     fn the_minspec_build_keeps_two_buffers() {
         assert_eq!(BUILD_BUFFERS, Buffers::Two);
@@ -374,7 +375,8 @@ mod tests {
     // the feature itself in each build the tests run in. A flag that reads
     // another feature agrees with it in the build with every feature and in
     // the build with none, so only a single-feature build catches it:
-    // `cargo test -p vtium --features images`, and the same with `logind`.
+    // `cargo test -p vtium --features images`, and the same with `logind`
+    // and `gpu`.
     #[test]
     fn each_feature_flag_reads_its_own_feature() {
         let on = |name: &str| {
@@ -383,13 +385,14 @@ mod tests {
                 .find(|(n, _)| *n == name)
                 .map(|(_, o)| *o)
         };
+        assert_eq!(on("gpu"), Some(cfg!(feature = "gpu")));
         assert_eq!(on("images"), Some(cfg!(feature = "images")));
         assert_eq!(on("logind"), Some(cfg!(feature = "logind")));
     }
 
     // ADR-1401 D2: a build that adds features on top of minspec keeps
     // three.
-    #[cfg(any(feature = "images", feature = "logind"))]
+    #[cfg(any(feature = "gpu", feature = "images", feature = "logind"))]
     #[test]
     fn a_build_with_features_keeps_three_buffers() {
         assert_eq!(BUILD_BUFFERS, Buffers::Three);

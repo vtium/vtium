@@ -29,6 +29,8 @@ mod blank;
 mod card;
 mod density;
 mod depth;
+#[cfg(feature = "gpu")]
+mod dma_buf;
 mod drm2d;
 mod edid;
 #[cfg(test)]
@@ -42,6 +44,8 @@ mod token;
 pub use blank::{Blank, DPMS_TIMEOUT};
 pub use card::Card;
 pub use density::{DPI_ASSUMED, DPI_MAX, DPI_MIN, Density};
+#[cfg(feature = "gpu")]
+pub use dma_buf::{DmaBuf, MODIFIER_INVALID, Plane};
 pub use drm2d::{CURSOR_MAX, Drm2d};
 pub use edid::{Edid, EdidId, Serial};
 pub use fbdev::{Fb, Fbdev};

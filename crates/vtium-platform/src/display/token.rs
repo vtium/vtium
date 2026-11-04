@@ -14,9 +14,11 @@
 //! from. The display and the token share that memory, and the display
 //! keeps it mapped while the token is out, even when it stops using the
 //! buffer, so the render thread never writes into memory that is gone.
-//! The GPU path adds a second kind of token, carrying the buffer's GBM
-//! buffer object and its framebuffer, which the render thread imports as
-//! an EGL image; it is not built yet (vtium/vtium#33).
+//! On the GPU path, with the `gpu` feature, the token carries the buffer as
+//! a [`DmaBuf`], which the head's render thread imports into its GL context
+//! as an EGL image and draws into (ADR-1303 D7). No display lends one yet:
+//! the displays' GBM buffers come with the work that chooses the path
+//! (ADR-1303 D11, part 6).
 //!
 //! A display records each token it lends as a [`Loan`]. The token holds a
 //! ticket the loan watches, so the display knows when its token is still
@@ -30,6 +32,8 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError, Weak};
 
+#[cfg(feature = "gpu")]
+use super::DmaBuf;
 use super::{Canvas, DisplayId};
 
 /// The memory of a buffer a frame is drawn into, shared by the display
@@ -87,12 +91,22 @@ pub struct Token {
     lease: u64,
     width: u32,
     height: u32,
-    stride: u32,
-    memory: Arc<Memory>,
+    lent: Lent,
     ticket: Arc<()>,
     /// Set by the display, under the memory's lock, once the token may
     /// write no more.
     revoked: Arc<AtomicBool>,
+}
+
+/// What a token lends: the buffer's memory on the CPU path, or the buffer
+/// as a dma-buf on the GPU path.
+enum Lent {
+    Memory {
+        stride: u32,
+        memory: Arc<Memory>,
+    },
+    #[cfg(feature = "gpu")]
+    DmaBuf(Arc<DmaBuf>),
 }
 
 impl Token {
@@ -113,8 +127,25 @@ impl Token {
             lease: 0,
             width,
             height,
-            stride,
-            memory,
+            lent: Lent::Memory { stride, memory },
+            ticket: Arc::new(()),
+            revoked: Arc::default(),
+        }
+    }
+
+    /// A token for `buffer`, a dma-buf, for a stand-in display outside this
+    /// crate. Its buffer is index 0 and its size the dma-buf's.
+    #[cfg(feature = "gpu")]
+    pub fn new_dma_buf(id: DisplayId, age: u32, buffer: Arc<DmaBuf>) -> Token {
+        let (width, height) = buffer.size();
+        Token {
+            id,
+            buffer: 0,
+            age,
+            lease: 0,
+            width,
+            height,
+            lent: Lent::DmaBuf(buffer),
             ticket: Arc::new(()),
             revoked: Arc::default(),
         }
@@ -154,12 +185,16 @@ impl Token {
 
     /// Calls `draw` with the buffer as a canvas in XRGB8888, and returns
     /// what it returns. `None` where the buffer's memory is shorter than
-    /// its lines, or where the display revoked the token, and `draw` is
-    /// then not called.
+    /// its lines, where the display revoked the token, or where the token
+    /// lends a dma-buf, and `draw` is then not called.
     pub fn draw<R>(&mut self, draw: impl FnOnce(Canvas<'_>) -> R) -> Option<R> {
-        let len =
-            usize::try_from(u64::from(self.stride).checked_mul(u64::from(self.height))?).ok()?;
-        let mut memory = lock(&self.memory);
+        let (stride, memory) = match &self.lent {
+            Lent::Memory { stride, memory } => (*stride, memory),
+            #[cfg(feature = "gpu")]
+            Lent::DmaBuf(_) => return None,
+        };
+        let len = usize::try_from(u64::from(stride).checked_mul(u64::from(self.height))?).ok()?;
+        let mut memory = lock(memory);
         if self.revoked.load(Ordering::Acquire) {
             return None;
         }
@@ -168,14 +203,29 @@ impl Token {
             pixels,
             width: self.width,
             height: self.height,
-            stride: self.stride,
+            stride,
             age: self.age,
         }))
     }
 
-    /// The token's memory, as it comes back to a display that clears it.
-    pub(crate) fn memory(&self) -> &Memory {
-        &self.memory
+    /// The buffer as a dma-buf, for the GPU path to import; `None` for a
+    /// token that lends memory.
+    #[cfg(feature = "gpu")]
+    pub fn dma_buf(&self) -> Option<&DmaBuf> {
+        match &self.lent {
+            Lent::DmaBuf(buffer) => Some(buffer),
+            Lent::Memory { .. } => None,
+        }
+    }
+
+    /// The token's memory, as it comes back to a display that clears it;
+    /// `None` for a token that lends a dma-buf.
+    pub(crate) fn memory(&self) -> Option<&Memory> {
+        match &self.lent {
+            Lent::Memory { memory, .. } => Some(memory),
+            #[cfg(feature = "gpu")]
+            Lent::DmaBuf(_) => None,
+        }
     }
 }
 
@@ -236,8 +286,7 @@ impl Loan {
             lease,
             width,
             height,
-            stride,
-            memory,
+            lent: Lent::Memory { stride, memory },
             ticket,
             revoked,
         };
@@ -362,6 +411,25 @@ mod tests {
     fn a_token_whose_memory_is_short_draws_nothing() {
         let (mut token, _) = Loan::lend(DisplayId(1), 0, 0, 0, (2, 2), 8, memory(15));
         assert_eq!(token.draw(|_| ()), None);
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_token_that_lends_a_dma_buf_gives_it_and_no_canvas() {
+        use crate::display::{DmaBuf, Plane};
+        let plane = Plane {
+            fd: std::fs::File::open("/dev/null").unwrap().into(),
+            offset: 0,
+            stride: 64,
+        };
+        let buffer = Arc::new(DmaBuf::new((16, 8), 0x3432_5258, 0, vec![plane]).unwrap());
+        let mut token = Token::new_dma_buf(DisplayId(2), 1, Arc::clone(&buffer));
+        assert_eq!((token.size(), token.age()), ((16, 8), 1));
+        assert!(token.dma_buf().is_some_and(|b| std::ptr::eq(b, &*buffer)));
+        assert!(token.memory().is_none());
+        assert_eq!(token.draw(|_| ()), None);
+        let memory_token = Token::new(DisplayId(2), (2, 2), 8, 0, memory(16));
+        assert!(memory_token.dma_buf().is_none());
     }
 
     #[test]
