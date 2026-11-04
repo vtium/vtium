@@ -53,7 +53,9 @@
 //! height, or an outline source's cell at that height. The console waits
 //! for the answer at most [`OWN_CELL_MS`], the one wait on the helper,
 //! before the first frame and at a zoom of an outline frit. An answer that
-//! comes after the wait is dropped.
+//! comes after the wait is kept, with the height its query asked at, and
+//! [`Helper::late_cells`] hands it on (ADR-1200 D17, the maintainer,
+//! 2026-11-03).
 //!
 //! The wire format is `vtium-config`'s serve mode's (`serve.rs`), whose
 //! constants this module repeats.
@@ -434,6 +436,22 @@ impl std::fmt::Display for NoCell {
     }
 }
 
+/// What the frame `answer` says to a cell query asked at `height`: the
+/// cell, or the helper's refusal. The error is why the frame is malformed,
+/// an outline cell of another height. `answer` is a cell frame's event.
+fn cell_answer(answer: Event, height: u32) -> Result<Result<OwnCell, NoCell>, String> {
+    match answer {
+        Event::OwnCell(cell) => Ok(Ok(OwnCell::Bitmap(cell))),
+        Event::OutlineCell(cell) if cell.height == height => Ok(Ok(OwnCell::Outline(cell))),
+        Event::OutlineCell(cell) => Err(format!(
+            "an outline cell {} pixels high, where {height} was asked",
+            cell.height
+        )),
+        Event::NoOwnCell(why) => Ok(Err(NoCell::refused(why.trim().to_owned()))),
+        _ => Err("a frame that answers no cell query".to_owned()),
+    }
+}
+
 /// What the reader thread saw.
 #[derive(Debug)]
 enum Event {
@@ -795,9 +813,14 @@ pub struct Helper {
     /// the fill stopped, however soon the cell is filled again.
     stopped: Vec<Cell>,
     asks: VecDeque<Ask>,
-    /// The cell queries left unanswered past their wait: each one's late
-    /// answer is dropped.
-    querying: u32,
+    /// The height of each cell query left unanswered past its wait, the
+    /// oldest first. The helper answers queries in the order they are
+    /// sent, so a cell answer that comes while one is listed answers the
+    /// oldest.
+    late: VecDeque<u32>,
+    /// The late answers taken and not yet handed on by
+    /// [`Helper::late_cells`], each with the height its query asked at.
+    kept: Vec<(u32, Result<OwnCell, NoCell>)>,
     /// What the helper sent while the console waited for its own cell,
     /// for the next [`Helper::poll`].
     early: VecDeque<Event>,
@@ -841,7 +864,8 @@ impl Helper {
             cells: Vec::new(),
             stopped: Vec::new(),
             asks: VecDeque::new(),
-            querying: 0,
+            late: VecDeque::new(),
+            kept: Vec::new(),
             early: VecDeque::new(),
             due: None,
             restarts: 0,
@@ -962,12 +986,12 @@ impl Helper {
     /// cell `height` pixels high. A warning the frit's text gives as the
     /// helper reads it is logged, and what else the helper sends meanwhile,
     /// such as a fill's glyphs, is kept for the next [`Helper::poll`]
-    /// while the wait goes on, as is the late answer to an earlier query,
-    /// which is dropped. The error is why there is none: the helper's
-    /// refusal, a helper that cannot start or ends first, no answer in
-    /// time, whose late answer is dropped, or an outline cell of another
-    /// height, which is refused as malformed. `clock` tells the time as
-    /// the wait goes on.
+    /// while the wait goes on, and the late answer to an earlier query is
+    /// kept for [`Helper::late_cells`]. The error is why there is none:
+    /// the helper's refusal, a helper that cannot start or ends first, no
+    /// answer in time, whose late answer is kept when it comes, or an
+    /// outline cell of another height, which is refused as malformed.
+    /// `clock` tells the time as the wait goes on.
     pub fn own_cell(
         &mut self,
         height: u32,
@@ -992,24 +1016,25 @@ impl Helper {
                 .events
                 .recv_timeout(left);
             return match event {
-                // the late answer to a query that stopped waiting
-                Ok(Event::OwnCell(_) | Event::OutlineCell(_) | Event::NoOwnCell(_))
-                    if self.querying > 0 =>
-                {
-                    self.querying = self.querying.saturating_sub(1);
-                    continue;
+                Ok(answer @ (Event::OwnCell(_) | Event::OutlineCell(_) | Event::NoOwnCell(_))) => {
+                    // The late answer to an earlier query, which is kept,
+                    // or this query's.
+                    let (asked, late) = match self.late.pop_front() {
+                        Some(asked) => (asked, true),
+                        None => (height, false),
+                    };
+                    match cell_answer(answer, asked) {
+                        Ok(answer) if late => {
+                            self.kept.push((asked, answer));
+                            continue;
+                        }
+                        Ok(answer) => answer,
+                        Err(why) => {
+                            self.early.push_back(Event::Malformed(why.clone()));
+                            Err(NoCell::refused(why))
+                        }
+                    }
                 }
-                Ok(Event::OwnCell(cell)) => Ok(OwnCell::Bitmap(cell)),
-                Ok(Event::OutlineCell(cell)) if cell.height == height => Ok(OwnCell::Outline(cell)),
-                Ok(Event::OutlineCell(cell)) => {
-                    let why = format!(
-                        "an outline cell {} pixels high, where {height} was asked",
-                        cell.height
-                    );
-                    self.early.push_back(Event::Malformed(why.clone()));
-                    Err(NoCell::refused(why))
-                }
-                Ok(Event::NoOwnCell(why)) => Err(NoCell::refused(why.trim().to_owned())),
                 Ok(Event::Warning(why)) => {
                     self.warn(why.trim());
                     continue;
@@ -1033,7 +1058,7 @@ impl Helper {
                     Err(NoCell::refused(why))
                 }
                 Err(_) => {
-                    self.querying = self.querying.saturating_add(1);
+                    self.late.push_back(height);
                     Err(NoCell {
                         why: format!("the helper gave no answer in {} ms", wait.as_millis()),
                         late: true,
@@ -1041,6 +1066,13 @@ impl Helper {
                 }
             };
         }
+    }
+
+    /// The answers to cell queries that came after their wait, since the
+    /// last call, each with the height its query asked at, in the order
+    /// they came (ADR-1200 D17, the maintainer, 2026-11-03).
+    pub fn late_cells(&mut self) -> Vec<(u32, Result<OwnCell, NoCell>)> {
+        std::mem::take(&mut self.kept)
     }
 
     /// Forgets every cell but `cells`, as no display draws at them: their
@@ -1206,7 +1238,7 @@ impl Helper {
     /// started and reaps it, and nothing it sent is taken.
     fn stop(&mut self) {
         self.stopped.clear();
-        self.querying = 0;
+        self.late.clear();
         if let Some(fd) = self.running.take().and_then(|r| r.pidfd) {
             let _ = pidfd_send_signal(&fd, Signal::KILL);
         }
@@ -1278,15 +1310,15 @@ impl Helper {
                 Event::Done => self.done(),
                 Event::Filled(cell) => self.filled(cell, now),
                 Event::Stopped(cell) => self.stop_taken(cell),
-                // a cell query's answer after the console stopped waiting
-                Event::OwnCell(_) | Event::OutlineCell(_) | Event::NoOwnCell(_)
-                    if self.querying > 0 =>
-                {
-                    self.querying = self.querying.saturating_sub(1);
-                    Ok(())
-                }
-                Event::OwnCell(_) | Event::OutlineCell(_) | Event::NoOwnCell(_) => {
-                    Err("the helper answered a cell query not made".to_owned())
+                // a cell query's answer after the console stopped waiting,
+                // kept (ADR-1200 D17)
+                answer @ (Event::OwnCell(_) | Event::OutlineCell(_) | Event::NoOwnCell(_)) => {
+                    match self.late.pop_front() {
+                        Some(asked) => {
+                            cell_answer(answer, asked).map(|a| self.kept.push((asked, a)))
+                        }
+                        None => Err("the helper answered a cell query not made".to_owned()),
+                    }
                 }
                 // a warning answers nothing, so the answer is still due
                 Event::Warning(why) => {
@@ -1594,7 +1626,7 @@ impl Helper {
     fn closed(&mut self, status: Option<ExitStatus>, now: Instant) {
         self.running = None;
         self.stopped.clear();
-        self.querying = 0;
+        self.late.clear();
         let clean = status.is_some_and(|s| s.success());
         let why = match status.and_then(|s| s.signal()) {
             Some(SIGXCPU | 9) => "reached its CPU limit".to_owned(),
@@ -2863,7 +2895,8 @@ mod tests {
 
     // overhang part 1: a cell query made while the helper is busy waits
     // past the frames sent before its answer, which the next poll takes,
-    // and past the late answer to an earlier query, which is dropped
+    // and past the late answer to an earlier query, which is kept with the
+    // height that query asked at (ADR-1200 D17, the maintainer, 2026-11-03)
     #[test]
     fn a_cell_answer_is_found_behind_other_frames_and_a_late_answer() {
         let wait = Duration::from_secs(10);
@@ -2897,31 +2930,97 @@ mod tests {
                 height: 22
             }))
         );
+        assert_eq!(s.helper.late_cells(), [(16, Ok(OwnCell::Outline(nine)))]);
+        assert_eq!(s.helper.late_cells(), [], "each is handed on once");
         s.until_gone(t0());
         assert_eq!(s.helper.failed(), None);
     }
 
-    // overhang part 1: each query left unanswered past its wait drops its
-    // own late answer, so two late answers are both dropped and the helper
-    // is not given up
+    // ADR-1200 D17: a query asked again at the same height, as an OSC 50
+    // switch back asks after the start's query had no answer in time,
+    // takes its own answer, the second; the first query's answer, which
+    // the helper sends before it, is handed on late behind it. The app
+    // keeps the answer in time (`a_late_cell_answer_fills_only_a_missing_answer`).
     #[test]
-    fn each_late_cell_answer_is_dropped() {
+    fn a_query_asked_again_keeps_its_own_answer_and_the_earlier_one_late() {
+        let mut two = frame_bytes(FRAME_NO_OWN_CELL, b"the first query's answer");
+        two.extend(own_cell_frame(8, 16));
+        let held =
+            "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
+        let mut s = StandIn::new("cell-asked-again", held, &two);
+        assert!(
+            s.helper
+                .own_cell(16, Duration::from_millis(20), &t0)
+                .unwrap_err()
+                .late
+        );
+        std::fs::write(s.dir.join("answer.go"), b"").unwrap();
+        assert_eq!(
+            s.helper.own_cell(16, Duration::from_secs(10), &t0),
+            Ok(OwnCell::Bitmap(CELL))
+        );
+        let first = NoCell {
+            why: "the first query's answer".to_owned(),
+            late: false,
+        };
+        assert_eq!(s.helper.late_cells(), [(16, Err(first))]);
+        s.until_gone(t0());
+        assert_eq!(s.helper.failed(), None);
+    }
+
+    // ADR-1200 D17 (the maintainer, 2026-11-03): each query left unanswered
+    // past its wait keeps its own late answer, with the height it asked
+    // at, in the order they came, and the helper is not given up; a late
+    // outline cell of another height than its query asked is refused as
+    // malformed, as one in time is
+    #[test]
+    fn each_late_cell_answer_is_kept_with_its_height() {
         let mut two = cell_frame(FRAME_OUTLINE_CELL, 9, 16);
         two.extend(cell_frame(FRAME_OUTLINE_CELL, 12, 22));
         let held =
             "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
         let mut s = StandIn::new("cell-late-twice", held, &two);
         let short = Duration::from_millis(20);
-        assert!(s.helper.own_cell(16, short, &t0).is_err());
-        assert!(s.helper.own_cell(22, short, &t0).is_err());
+        assert!(s.helper.own_cell(16, short, &t0).unwrap_err().late);
+        assert!(s.helper.own_cell(22, short, &t0).unwrap_err().late);
+        assert_eq!(s.helper.late_cells(), [], "nothing came yet");
         std::fs::write(s.dir.join("answer.go"), b"").unwrap();
         s.until_gone(t0());
         assert_eq!(s.helper.failed(), None);
+        let twelve = Cell {
+            width: 12,
+            height: 22,
+        };
+        let nine = Cell {
+            width: 9,
+            height: 16,
+        };
+        assert_eq!(
+            s.helper.late_cells(),
+            [
+                (16, Ok(OwnCell::Outline(nine))),
+                (22, Ok(OwnCell::Outline(twelve)))
+            ]
+        );
+        let taller = cell_frame(FRAME_OUTLINE_CELL, 12, 22);
+        let mut s = StandIn::new("cell-late-taller", held, &taller);
+        assert!(s.helper.own_cell(16, short, &t0).unwrap_err().late);
+        std::fs::write(s.dir.join("answer.go"), b"").unwrap();
+        s.until_gone(t0());
+        assert!(
+            s.helper
+                .failed()
+                .is_some_and(|why| why.contains("22 pixels high, where 16 was asked")),
+            "{:?}",
+            s.helper.failed()
+        );
+        assert_eq!(s.helper.late_cells(), []);
     }
 
     // the operator's decision on #145, 2026-10-28: the console asks the
-    // helper for a bitmap frit's own cell and waits a bounded time; a
-    // refusal is no failure, and an answer after the wait is dropped
+    // helper for a bitmap frit's own cell and waits a bounded time, and a
+    // refusal is no failure; an answer after the wait is kept (ADR-1200
+    // D17, the maintainer, 2026-11-03), a refusal as a refusal
     #[test]
     fn a_frits_own_cell_is_asked_and_waited_for_a_bounded_time() {
         let wait = Duration::from_secs(10);
@@ -2936,17 +3035,35 @@ mod tests {
         assert!(why.contains("is an outline font"), "{why}");
         s.until_gone(t0());
         assert_eq!(s.helper.failed(), None);
-        // the answer comes after the wait, and is dropped
-        let late = "cat >/dev/null & sleep 0.5; cat \"$1\"; wait";
-        let mut s = StandIn::new("own-cell-late", late, &own_cell_frame(8, 16));
+        // the answer comes after the wait, and is kept
+        let held =
+            "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
+        let mut s = StandIn::new("own-cell-late", held, &own_cell_frame(8, 16));
         let why = s
             .helper
             .own_cell(16, Duration::from_millis(50), &t0)
             .unwrap_err()
             .to_string();
         assert_eq!(why, "the helper gave no answer in 50 ms");
+        std::fs::write(s.dir.join("answer.go"), b"").unwrap();
         s.until_gone(t0());
         assert_eq!(s.helper.failed(), None);
+        assert_eq!(s.helper.late_cells(), [(16, Ok(OwnCell::Bitmap(CELL)))]);
+        let mut s = StandIn::new("own-cell-late-refused", held, &refusal);
+        assert!(
+            s.helper
+                .own_cell(16, Duration::from_millis(50), &t0)
+                .unwrap_err()
+                .late
+        );
+        std::fs::write(s.dir.join("answer.go"), b"").unwrap();
+        s.until_gone(t0());
+        assert_eq!(s.helper.failed(), None);
+        let why = "source=outline:/f.ttf is an outline font".to_owned();
+        assert_eq!(
+            s.helper.late_cells(),
+            [(16, Err(NoCell { why, late: false }))]
+        );
         // past the cell's bound, or never asked: given up
         let mut s = StandIn::new("own-cell-huge", ANSWERS, &own_cell_frame(8, 4096));
         assert!(s.helper.own_cell(16, wait, &t0).is_err());

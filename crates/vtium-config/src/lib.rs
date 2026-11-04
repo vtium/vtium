@@ -35,6 +35,7 @@ pub mod draft;
 pub mod font;
 pub mod frit;
 pub mod glyphs;
+pub mod help;
 pub mod kitty;
 pub mod outline;
 pub mod preview;

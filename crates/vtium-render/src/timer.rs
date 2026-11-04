@@ -16,7 +16,8 @@ pub struct Report {
     pub flips: u32,
     /// Frames drawn and queued for a flip.
     pub frames: u32,
-    /// Draws that changed nothing and queued no flip.
+    /// Passes that composed a frame and queued no flip: the frame drew
+    /// nothing, or the display refused it, as while a flip is in flight.
     pub skipped: u32,
     pub cpu_mean: Duration,
     pub cpu_median: Duration,
@@ -69,8 +70,8 @@ impl RenderTimer {
     }
 
     /// A draw ended after `cpu`: queued for a flip with `damage_px` pixels
-    /// of damage, or skipped when it changed nothing. It drew `misses`
-    /// glyphs from the font.
+    /// of damage, or skipped when it queued none. It drew `misses` glyphs
+    /// from the font.
     pub fn frame(&mut self, cpu: Duration, queued: bool, damage_px: u64, misses: u32) {
         self.misses = self.misses.saturating_add(misses);
         self.misses_max = self.misses_max.max(misses);

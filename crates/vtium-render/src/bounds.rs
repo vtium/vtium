@@ -56,14 +56,41 @@ const PICTURE_SCREENS: Bound = Bound {
     cite: "`image_budget_cache_limit` (image_budget.c:105-110) and bbulk's pictures (bbulk.c:71); ADR-1100 D5",
 };
 
+const PRESENT_FRAMES: Bound = Bound {
+    name: "PRESENT_HISTORY",
+    value: 3,
+    what: "Frames whose composed rectangles the GPU path's present keeps, to draw what a buffer of that age lacks, in a build with `gpu`",
+    past: "A buffer older than the history is presented whole",
+    cite: "`display-buffers`, at most 3 buffers a display (ADR-1401 D2); ADR-1303 D6",
+};
+
+const FAILED: Bound = Bound {
+    name: "FAILED_GLYPHS",
+    value: 1024,
+    what: "Glyphs the font drew nothing for that the glyph cache remembers, so the font is not asked for them again every frame",
+    past: "A glyph that lands on a remembered one's place takes it over, and the one it replaced is asked for again the next time it is drawn",
+    cite: "`GLTEX_FAILED_GLYPHS` (gltex.c, the C fork's issue on a glyph asked for every frame); vtium keeps no expiry, since `Renderer::glyphs_changed` and `forget_glyphs` forget the glyphs whose characters arrive",
+};
+
+const GLYPH_TEXTURE: Bound = Bound {
+    name: "GLYPH_TEXTURE_SIDE",
+    value: 2048,
+    what: "Pixels on the longer side of each texture a GPU glyph pool lays its slots out in, at most the GPU's largest texture, in a build with `gpu`",
+    past: "The pool takes another texture",
+    cite: "gltex capped its atlases at the smaller of `GL_MAX_TEXTURE_SIZE` and 2048 (gltex.c:582-586); ADR-1300 D6",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 5] = [
+pub(crate) const BOUNDS: [Bound; 8] = [
     POOL_BYTES,
     ROW_SCRATCH,
     TIMER_SAMPLES,
     POINTER_SIDE,
     PICTURE_SCREENS,
+    PRESENT_FRAMES,
+    FAILED,
+    GLYPH_TEXTURE,
 ];
 
 /// Bytes each glyph pool may hold in the performance profile.
@@ -78,6 +105,18 @@ pub const RENDER_TIMER_SAMPLES: usize = TIMER_SAMPLES.value;
 /// Screens of 4-byte pixels a display's copies of pictures hold.
 #[cfg(feature = "images")]
 pub const PICTURE_CACHE_SCREENS: usize = PICTURE_SCREENS.value;
+
+/// Frames of composed rectangles the GPU path's present keeps.
+#[cfg(feature = "gpu")]
+pub const PRESENT_HISTORY: usize = PRESENT_FRAMES.value;
+
+/// Glyphs the font drew nothing for that the cache remembers.
+pub(crate) const FAILED_GLYPHS: usize = FAILED.value;
+
+/// The longer side of a GPU glyph pool's texture.
+#[cfg(feature = "gpu")]
+#[expect(clippy::cast_possible_truncation, reason = "the bound is 2048")]
+pub(crate) const GLYPH_TEXTURE_SIDE: u32 = GLYPH_TEXTURE.value as u32;
 
 /// The pointer's longest side in pixels.
 #[expect(clippy::cast_possible_truncation, reason = "the bound is 64")]

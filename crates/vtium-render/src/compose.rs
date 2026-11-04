@@ -31,7 +31,7 @@ impl Area {
         self.y.saturating_add(self.h)
     }
 
-    fn right(&self) -> i64 {
+    pub(crate) fn right(&self) -> i64 {
         self.x.saturating_add(self.w)
     }
 
@@ -98,7 +98,7 @@ struct Lines {
 #[derive(Debug)]
 pub(crate) struct Composer {
     pub(crate) cache: GlyphCache,
-    sprites: Sprites,
+    pub(crate) sprites: Sprites,
     lines: Lines,
     pub(crate) jobs: Vec<Job>,
     pub(crate) text: Vec<char>,

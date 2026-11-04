@@ -514,7 +514,9 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None):
     figures = meta.get("bench", {}).get(case, {})
     if figures.get("error"):  # drawn, but not measured
         entry["status"], entry["error"] = "fail", figures["error"]
-    elif case in RATE_CHECKED and entry["status"] in ("pass", "near", "departure"):
+    elif case in RATE_CHECKED:
+        # judged whatever the pixels said, a provisional golden's included:
+        # judge_rate only fails the case or adds a note
         judge_rate(entry, variant, case, figures)
     error = meta.get("errors", {}).get(case)
     if error:  # captured, but the scenario found the case wrong

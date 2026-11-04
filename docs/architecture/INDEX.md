@@ -49,6 +49,9 @@ _Cells and images to pixels - the renderer and its display interface_
 | [ADR-1300](./render/ADR-1300-the-drawn-glyph-cache-and-frame-composition.md) | The drawn-glyph cache and frame composition | accepted |
 | [ADR-1301](./render/ADR-1301-one-glyph-engine-draws-at-run-time-for-the-display-s-capabilities.md) | One glyph engine draws at run time for the display's capabilities | accepted |
 | [ADR-1302](./render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md) | Glyph ink reaches one cell past its own, side to side, and is cut at its row | accepted |
+| [ADR-1303](./render/ADR-1303-the-gpu-path-draws-each-frame-through-a-fixed-pipeline-of-slots-and-turns-it-at-present.md) | The GPU path draws each frame through a fixed pipeline of slots and turns it at present | accepted |
+| [ADR-1304](./render/ADR-1304-vtium-s-frame-filters-are-built-in-and-a-vtlook-file-chooses-them-and-sets-their-parameters.md) | vtium's frame filters are built in, and a vtlook file chooses them and sets their parameters | accepted |
+| [ADR-1305](./render/ADR-1305-a-frame-clock-gives-the-time-to-spatial-shaders-that-declare-they-read-it.md) | A frame clock gives the time to spatial shaders that declare they read it | accepted |
 
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
@@ -65,3 +68,4 @@ _Process, harness and contributions - how vtium is built, tested and judged_
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-1500](./project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-under-names-of-its-own.md) | vtium is packaged from a recipe repo per package manager, under names of its own | accepted |
+| [ADR-1501](./project/ADR-1501-the-acceptance-pass-walks-every-visual-page-and-keeps-a-record-of-each-pass.md) | The acceptance pass walks every visual page and keeps a record of each pass | proposed |

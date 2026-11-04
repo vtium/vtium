@@ -12,10 +12,20 @@
 //!
 //! The table is open addressing with a fixed hash, and nothing iterates it
 //! to draw (docs/architecture.md, "Determinism").
+//!
+//! The CPU path keeps each glyph's pixels in the cache. The GPU path keeps
+//! its glyphs in textures and the cache holds each one's slot, so both
+//! paths share one key, one set of budgets and one LRU (ADR-1300 D6).
+//!
+//! A glyph the font draws nothing for is remembered in a small table, so
+//! a screen that shows it does not ask the font again every frame, as the
+//! C reference's GPU renderer remembered such glyphs (`gltex.c`, the
+//! glyph cache's comment). Any arrival empties the table. A glyph refused
+//! for room is not remembered: the next frame may have the room.
 
 use vtium_font::{Face, Font, Style, Width};
 
-use crate::bounds::POOL_BYTES_PERFORMANCE;
+use crate::bounds::{FAILED_GLYPHS, POOL_BYTES_PERFORMANCE};
 use crate::mono::Fallback;
 use crate::stored::Stored;
 use crate::target::Orientation;
@@ -124,8 +134,31 @@ impl Default for Storage {
 }
 
 const NIL: u32 = u32::MAX;
-const WIDE: usize = 1;
-const COLOR: usize = 2;
+pub(crate) const WIDE: usize = 1;
+pub(crate) const COLOR: usize = 2;
+
+/// What the cache holds for each glyph: its pixels, or a slot that holds
+/// them elsewhere.
+pub(crate) trait Held {
+    /// Bytes it counts against its pool's ceiling.
+    fn bytes(&self) -> usize;
+
+    /// Whether the cache hands back what it evicts ([`GlyphCache::take_evicted`]),
+    /// for a slot its owner reuses. Pixels are dropped.
+    const RECLAIM: bool = false;
+}
+
+impl Held for Stored {
+    fn bytes(&self) -> usize {
+        Stored::bytes(self)
+    }
+}
+
+/// The pool a glyph goes to: masks or color glyphs, one or two cells wide.
+pub(crate) fn pool_of(color: bool, wide: bool) -> usize {
+    let c = if color { COLOR } else { 0 };
+    c | if wide { WIDE } else { 0 }
+}
 
 /// A glyph's text: one codepoint held in place, or a cluster's.
 #[derive(Debug)]
@@ -135,6 +168,13 @@ enum Text {
 }
 
 impl Text {
+    fn of(text: &[char]) -> Text {
+        match *text {
+            [c] => Text::One(c),
+            _ => Text::Many(text.into()),
+        }
+    }
+
     fn chars(&self) -> &[char] {
         match self {
             Text::One(c) => core::slice::from_ref(c),
@@ -144,12 +184,12 @@ impl Text {
 }
 
 #[derive(Debug)]
-struct Entry {
+struct Entry<T> {
     text: Text,
     style: Style,
     wide: bool,
     hash: u64,
-    glyph: Stored,
+    glyph: T,
     pool: usize,
     /// The drawn frame that last used it.
     used: u64,
@@ -197,28 +237,47 @@ pub struct CacheCounts {
     pub uncached: u32,
 }
 
-/// The drawn glyphs a renderer keeps.
+/// A glyph the font drew nothing for: its text, style and width.
 #[derive(Debug)]
-pub(crate) struct GlyphCache {
+struct Failed {
+    hash: u64,
+    text: Text,
+    style: Style,
+    wide: bool,
+}
+
+/// The drawn glyphs a renderer keeps: their pixels on the CPU path, their
+/// slots on the GPU path.
+#[derive(Debug)]
+pub(crate) struct GlyphCache<T = Stored> {
     budgets: Budgets,
     storage: Storage,
     orientation: Orientation,
     /// Entry indices by hash, `NIL` when free; a power of two long.
     slots: Vec<u32>,
-    entries: Vec<Option<Entry>>,
+    entries: Vec<Option<Entry<T>>>,
     free: Vec<u32>,
     live: usize,
     pools: [Pool; 4],
     /// The glyph drawn uncached, kept until the next.
-    spare: Option<Stored>,
+    spare: Option<T>,
+    /// What eviction took, when `T` asks for it back.
+    evicted: Vec<T>,
+    /// Glyphs the font drew nothing for, each at its hash modulo
+    /// [`FAILED_GLYPHS`]; one that lands on a taken place takes it over.
+    failed: Vec<Option<Failed>>,
     frame: u64,
     counts: CacheCounts,
     /// A color glyph's bitmap stand-in on a 1-bit or gray display.
     fallback: Option<Fallback>,
 }
 
-impl GlyphCache {
-    pub(crate) fn new(budgets: Budgets, storage: Storage, orientation: Orientation) -> GlyphCache {
+impl<T: Held> GlyphCache<T> {
+    pub(crate) fn new(
+        budgets: Budgets,
+        storage: Storage,
+        orientation: Orientation,
+    ) -> GlyphCache<T> {
         GlyphCache {
             budgets,
             storage,
@@ -229,6 +288,8 @@ impl GlyphCache {
             live: 0,
             pools: [EMPTY_POOL; 4],
             spare: None,
+            evicted: Vec::new(),
+            failed: Vec::new(),
             frame: 0,
             counts: CacheCounts::default(),
             fallback: None,
@@ -236,17 +297,32 @@ impl GlyphCache {
     }
 
     /// The cache with `fallback` standing in for color glyphs.
-    pub(crate) fn with_fallback(self, fallback: Option<Fallback>) -> GlyphCache {
+    pub(crate) fn with_fallback(self, fallback: Option<Fallback>) -> GlyphCache<T> {
         GlyphCache { fallback, ..self }
+    }
+
+    /// Drops every glyph, with `fallback` standing in for color glyphs from
+    /// now on, its budgets kept: the font now draws every glyph it drew
+    /// differently. What it held is not given back through
+    /// [`GlyphCache::take_evicted`], so a cache whose glyphs hold slots of
+    /// its owner's makes its owner anew instead.
+    pub(crate) fn reset(&mut self, fallback: Option<Fallback>) {
+        *self =
+            GlyphCache::new(self.budgets, self.storage, self.orientation).with_fallback(fallback);
     }
 
     /// Drops each glyph whose text, alone or in a cluster, holds one of
     /// `chars`, which are sorted: the characters the font now draws
-    /// differently. Every other glyph stays.
+    /// differently. Every other glyph stays, but every glyph the font drew
+    /// nothing for is asked for again.
     pub(crate) fn forget(&mut self, chars: &[char]) {
         if chars.is_empty() {
             return;
         }
+        // a glyph the font drew nothing for fell through the whole fallback
+        // chain, U+25A1, `?` and the last resort, so any arrival may give
+        // it a glyph
+        self.failed.clear();
         // eviction frees an entry in place, so the indices ahead stand
         for i in 0..self.entries.len() {
             let Ok(i) = u32::try_from(i) else { break };
@@ -277,26 +353,60 @@ impl GlyphCache {
         self.pools.iter().fold(0, |n, p| n.saturating_add(p.bytes))
     }
 
-    /// The glyph for `text` in `style`, `width` cells wide: cached, drawn
-    /// and cached, or drawn uncached. `None` when the font draws nothing.
-    pub(crate) fn get<F: Face>(
+    #[cfg(feature = "gpu")]
+    /// The cached glyph for `text` in `style`, `width` cells wide, marked
+    /// used by this frame.
+    pub(crate) fn lookup(&mut self, text: &[char], width: Width, style: Style) -> Option<&T> {
+        let wide = width == Width::Wide;
+        let i = self.find(hash(text, style, wide), text, style, wide)?;
+        self.touch(i);
+        self.entry(i).map(|e| &e.glyph)
+    }
+
+    /// The glyph for `text` from the font, as the cache stores it: at the
+    /// font's own size and at 1 bit where [`Storage`] allows, with a color
+    /// glyph's stand-in where the display needs one. `None` when the font
+    /// draws nothing, which is remembered, so the font is not asked again
+    /// until [`GlyphCache::forget`] names one of its characters.
+    pub(crate) fn draw<F: Face>(
         &mut self,
         font: &Font<F>,
         text: &[char],
         width: Width,
         style: Style,
-    ) -> Option<&Stored> {
+    ) -> Option<Stored> {
         let wide = width == Width::Wide;
         let h = hash(text, style, wide);
-        if let Some(i) = self.find(h, text, style, wide) {
-            self.touch(i);
-            return self.entry(i).map(|e| &e.glyph);
+        let at = usize::try_from(h.checked_rem(FAILED_GLYPHS as u64).unwrap_or(0)).unwrap_or(0);
+        let known = self
+            .failed
+            .get(at)
+            .and_then(Option::as_ref)
+            .is_some_and(|f| {
+                f.hash == h && f.style == style && f.wide == wide && f.text.chars() == text
+            });
+        if known {
+            return None;
         }
         self.counts.misses = self.counts.misses.saturating_add(1);
-        let (glyph, scale) = if self.storage.unscaled {
-            font.glyph_unscaled(text, width, style)?
+        let drawn = if self.storage.unscaled {
+            font.glyph_unscaled(text, width, style)
         } else {
-            (font.glyph(text, width, style)?, 1)
+            font.glyph(text, width, style).map(|g| (g, 1))
+        };
+        let Some((glyph, scale)) = drawn else {
+            if self.failed.is_empty() {
+                self.failed.resize_with(FAILED_GLYPHS, || None);
+            }
+            if let Some(f) = self.failed.get_mut(at) {
+                *f = Some(Failed {
+                    hash: h,
+                    text: Text::of(text),
+                    style,
+                    wide,
+                });
+            }
+            return None;
         };
         let (glyph, scale) = match self
             .fallback
@@ -305,21 +415,36 @@ impl GlyphCache {
             Some(bitmap) => (bitmap, 1),
             None => (glyph, scale),
         };
-        let glyph = Stored::new(&glyph, scale, self.orientation, self.storage.bits);
-        let pool = if glyph.is_rgba() { COLOR } else { 0 } | if wide { WIDE } else { 0 };
+        Some(Stored::new(
+            &glyph,
+            scale,
+            self.orientation,
+            self.storage.bits,
+        ))
+    }
+
+    /// Keeps `glyph` for `text` in pool `pool` when the pool has room
+    /// without evicting a glyph this frame draws, evicting older glyphs to
+    /// make it. Otherwise it is drawn uncached: the cache keeps it as its
+    /// spare until the next, and counts it.
+    pub(crate) fn keep(
+        &mut self,
+        text: &[char],
+        width: Width,
+        style: Style,
+        pool: usize,
+        glyph: T,
+    ) -> Option<&T> {
         if !self.make_room(pool, glyph.bytes()) {
             self.counts.uncached = self.counts.uncached.saturating_add(1);
             return Some(self.spare.insert(glyph));
         }
-        let text = match *text {
-            [c] => Text::One(c),
-            _ => Text::Many(text.into()),
-        };
+        let wide = width == Width::Wide;
         let i = self.insert(Entry {
-            text,
+            text: Text::of(text),
             style,
             wide,
-            hash: h,
+            hash: hash(text, style, wide),
             glyph,
             pool,
             used: self.frame,
@@ -329,11 +454,31 @@ impl GlyphCache {
         self.entry(i).map(|e| &e.glyph)
     }
 
-    fn entry(&self, i: u32) -> Option<&Entry> {
+    #[cfg(feature = "gpu")]
+    /// Whether pool `pool` can take a glyph of `bytes` now, evicting older
+    /// glyphs to make room: what [`GlyphCache::keep`] asks before it keeps
+    /// one.
+    pub(crate) fn room(&mut self, pool: usize, bytes: usize) -> bool {
+        self.make_room(pool, bytes)
+    }
+
+    #[cfg(feature = "gpu")]
+    /// Counts a glyph drawn uncached by the cache's owner.
+    pub(crate) fn count_uncached(&mut self) {
+        self.counts.uncached = self.counts.uncached.saturating_add(1);
+    }
+
+    #[cfg(feature = "gpu")]
+    /// What eviction took since the last call, when `T` asks for it back.
+    pub(crate) fn take_evicted(&mut self) -> Vec<T> {
+        core::mem::take(&mut self.evicted)
+    }
+
+    fn entry(&self, i: u32) -> Option<&Entry<T>> {
         self.entries.get(usize::try_from(i).ok()?)?.as_ref()
     }
 
-    fn entry_mut(&mut self, i: u32) -> Option<&mut Entry> {
+    fn entry_mut(&mut self, i: u32) -> Option<&mut Entry<T>> {
         self.entries.get_mut(usize::try_from(i).ok()?)?.as_mut()
     }
 
@@ -384,7 +529,7 @@ impl GlyphCache {
         }
     }
 
-    fn insert(&mut self, e: Entry) -> Option<u32> {
+    fn insert(&mut self, e: Entry<T>) -> Option<u32> {
         if self.live.saturating_add(1).saturating_mul(2) > self.slots.len() {
             self.grow();
         }
@@ -453,8 +598,12 @@ impl GlyphCache {
         }
         self.free.push(i);
         self.live = self.live.saturating_sub(1);
+        let hash = e.hash;
+        if T::RECLAIM {
+            self.evicted.push(e.glyph);
+        }
         // take it out of the table, moving later entries of its run back
-        let mut hole = self.home(e.hash);
+        let mut hole = self.home(hash);
         while self.slots.get(hole).is_some_and(|&s| s != i) {
             hole = hole.wrapping_add(1) & self.mask();
         }
@@ -539,6 +688,27 @@ impl GlyphCache {
         }
         self.unlink(i);
         self.push_front(i);
+    }
+}
+
+impl GlyphCache<Stored> {
+    /// The glyph for `text` in `style`, `width` cells wide: cached, drawn
+    /// and cached, or drawn uncached. `None` when the font draws nothing.
+    pub(crate) fn get<F: Face>(
+        &mut self,
+        font: &Font<F>,
+        text: &[char],
+        width: Width,
+        style: Style,
+    ) -> Option<&Stored> {
+        let wide = width == Width::Wide;
+        if let Some(i) = self.find(hash(text, style, wide), text, style, wide) {
+            self.touch(i);
+            return self.entry(i).map(|e| &e.glyph);
+        }
+        let glyph = self.draw(font, text, width, style)?;
+        let pool = pool_of(glyph.is_rgba(), wide);
+        self.keep(text, width, style, pool, glyph)
     }
 }
 
@@ -749,5 +919,87 @@ mod tests {
             }
         }
         assert!(c.live <= 37);
+    }
+
+    /// A face that draws nothing at all.
+    struct Blank;
+
+    impl Face for Blank {
+        fn cell(&self) -> vtium_font::Cell {
+            vtium_font::Cell {
+                width: 8,
+                height: 16,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            16
+        }
+        fn has_glyph(&self, _: char) -> bool {
+            false
+        }
+        fn draw(&self, _: &[char], _: Style) -> Option<vtium_font::Glyph> {
+            None
+        }
+    }
+
+    // The font is asked once for a glyph it draws nothing for, until the
+    // glyph is forgotten, as the C reference's GPU renderer remembered such
+    // glyphs (gltex.c, the glyph cache's comment)
+    #[test]
+    fn a_glyph_the_font_draws_nothing_for_is_asked_for_once_until_forgotten() {
+        let f = Font::new(Blank);
+        let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
+        for _ in 0..3 {
+            c.begin_frame();
+            assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
+        }
+        assert_eq!(c.take_counts().misses, 1);
+        // bold is another glyph
+        let bold = Style {
+            bold: true,
+            italic: false,
+        };
+        assert!(c.get(&f, &['a'], Width::Narrow, bold).is_none());
+        assert_eq!(c.take_counts().misses, 1);
+        c.forget(&['a']);
+        assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
+        assert_eq!(c.take_counts().misses, 1);
+    }
+
+    /// A face that draws only `?`, once it has arrived.
+    struct Late(std::rc::Rc<core::cell::Cell<bool>>);
+
+    impl Face for Late {
+        fn cell(&self) -> vtium_font::Cell {
+            vtium_font::Cell {
+                width: 8,
+                height: 16,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            16
+        }
+        fn has_glyph(&self, c: char) -> bool {
+            c == '?' && self.0.get()
+        }
+        fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
+            (cluster == ['?'] && self.0.get())
+                .then(|| vtium_font::Glyph::mask(8, 16))
+                .flatten()
+        }
+    }
+
+    // a glyph the font cannot draw falls back to U+25A1, then `?`, then the
+    // last resort, so any arrival can give a remembered failure a glyph
+    #[test]
+    fn an_arrival_forgets_every_remembered_failure() {
+        let arrived = std::rc::Rc::new(core::cell::Cell::new(false));
+        let f = Font::new(Late(arrived.clone()));
+        let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
+        assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
+        arrived.set(true);
+        c.forget(&['?']);
+        c.begin_frame();
+        assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_some());
     }
 }

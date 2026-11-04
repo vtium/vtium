@@ -215,7 +215,7 @@ def run(args, log):
         tree = args.tree or TREE
         declared = None if args.features is None else feature_list(args.features)
         if args.tree_target:
-            features = declared or []
+            features = tree_features(declared, variants)
             build_tree(args.tree_target, tree, features, log)
             impl = t3_impl.tree(tree, features=features)
             record_tree(impl)
@@ -244,6 +244,14 @@ def run(args, log):
     # whose golden is not yet reviewed: all pass.
     passed = all(c["status"] in ("pass", "near", "departure", "provisional") for c in cases)
     return 0 if passed and t3_impl.within_budget(impl) else 1
+
+
+def tree_features(declared, variants):
+    """The features a tree built for `variants` is built with: those
+    `declared` names, and each one a variant needs ("tree_features"), so
+    make tier3 builds the default variants' console with images."""
+    needed = {f for v in variants for f in t3_scenario.VARIANTS[v].get("tree_features", ())}
+    return sorted(set(declared or []) | needed)
 
 
 def feature_list(text):
@@ -428,8 +436,9 @@ def main(argv=None):
     r.add_argument("--features", metavar="LIST",
                    help="the vtium features the tree's console is built with, or was built "
                         "with for --tree, separated by commas or spaces (default none, the "
-                        "minspec tree, which alone the size budget judges); on the last "
-                        "run's tree, checked against what that run recorded")
+                        "minspec tree, which alone the size budget judges); a tree built here "
+                        "also gets each feature its variants need; on the last run's tree, "
+                        "checked against what that run recorded")
     r.add_argument("variants", nargs="*", help="any of: " + ", ".join(t3_scenario.VARIANTS))
     args = ap.parse_args(argv)
     unknown = set(getattr(args, "variants", [])) - set(t3_scenario.VARIANTS)

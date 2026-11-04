@@ -71,13 +71,15 @@ clip() {
 	printf 'av://lavfi:testsrc2=size=%s:rate=30:duration=%s' "$1" "$2"
 }
 
-# The kmscon process this terminal belongs to: the nearest ancestor named
-# kmscon, so another console on the machine is never measured instead.
+# The console process this terminal belongs to: the nearest ancestor named
+# vtium, or kmscon for the C reference, so another console on the machine
+# is never measured instead. The figure keeps the C reference's name,
+# kmscon_ms, which t3_bench reads.
 kmscon_pid() {
 	local p=$$ comm
 	while [ "$p" -gt 1 ]; do
 		read -r comm <"/proc/$p/comm" || break
-		[ "$comm" = kmscon ] && { echo "$p"; return; }
+		case $comm in vtium | kmscon) echo "$p"; return ;; esac
 		p=$(awk '{print $4}' "/proc/$p/stat") || break
 	done
 	return 1

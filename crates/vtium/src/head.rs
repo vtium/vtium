@@ -1291,22 +1291,37 @@ pub(crate) struct Frit {
 }
 
 impl Frit {
-    /// The answer that holds at `height` for a frit that is `outline`, by
-    /// what the console knows of it now. A bitmap first source's own cell
-    /// holds at every height. So does any answer to a bitmap frit's query,
-    /// a failure included, since a bitmap frit asks, and may wait, only at
-    /// its first frame and at an OSC 50 switch (ADR-1200 D17). An outline
-    /// frit's answer holds at the height it was asked at alone.
+    /// The answer that holds at `height` for a frit whose text guesses it
+    /// is `outline`, by what the console knows of it now. The answers, and
+    /// not the guess, say which kind the frit is: one outline cell held at
+    /// any height makes it an outline frit. A bitmap first source's own
+    /// cell holds at every height. So does a failure to answer a bitmap
+    /// frit's query, since a bitmap frit asks, and may wait, only at its
+    /// first frame and at an OSC 50 switch (ADR-1200 D17): a refusal that
+    /// came in time holds before a query that had no answer in time. An
+    /// outline frit's answer holds at the height it was asked at alone.
     pub(crate) fn answer_at(
         &self,
         height: u32,
         outline: bool,
     ) -> Option<Result<crate::helper::OwnCell, crate::helper::NoCell>> {
+        let outline = outline
+            || self
+                .own
+                .values()
+                .any(|a| matches!(a, Ok(crate::helper::OwnCell::Outline(_))));
+        let failed = |late: bool| {
+            self.own
+                .values()
+                .find(move |a| a.as_ref().is_err_and(|no| no.late == late))
+        };
         let bitmap = self
             .own
             .values()
             .find(|a| matches!(a, Ok(crate::helper::OwnCell::Bitmap(_))));
-        let any = (!outline).then(|| self.own.values().next()).flatten();
+        let any = (!outline)
+            .then(|| failed(false).or_else(|| failed(true)))
+            .flatten();
         bitmap.or(any).or_else(|| self.own.get(&height)).cloned()
     }
 }

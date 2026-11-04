@@ -335,14 +335,14 @@ fn inputs() -> Inputs {
         view: model::View::Fonts,
         display: Some((640, 480)),
         installed: [
-            ("broken", Some("source=builtin:unifont\ncolour=red\n")),
-            ("minspec-16", Some("source=builtin:unifont\n")),
-            ("proof", Some("source=font:JetBrains Mono\n")),
-            ("tiny5", Some("source=bdf:/x/Tiny5Mono.bdf\n")),
-            ("latin1", None),
+            ("broken", &b"source=builtin:unifont\ncolour=red\n"[..]),
+            ("minspec-16", b"source=builtin:unifont\n"),
+            ("proof", b"source=font:JetBrains Mono\n"),
+            ("tiny5", b"source=bdf:/x/Tiny5Mono.bdf\n"),
+            ("latin1", b"source=kbd:lat1-16 # \xe9\n"),
         ]
         .into_iter()
-        .map(|(n, t)| (n.to_owned(), t.map(str::to_owned)))
+        .map(|(n, b)| (n.to_owned(), b.to_vec()))
         .collect(),
     }
 }
@@ -704,6 +704,112 @@ fn a_new_frit_replaces_the_installed_one_of_its_name() {
         "{screen}"
     );
     assert!(c.saves.is_empty());
+}
+
+/// `r` in the fonts view removes the highlighted frit when the user
+/// saves: the font list marks it, the save view lists its file, and the
+/// save's plan removes it with the bytes the TUI read at start, as
+/// `remove-frit`'s draft does. A second `r` keeps it.
+#[test]
+fn r_removes_the_highlighted_frit_when_the_user_saves() {
+    // unifont is highlighted at start; Up reaches tiny5
+    let mut c = console().keys(&[UP, b"r", b"s"]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("/etc/vtium/fonts/tiny5.vtfrit"), "{screen}");
+    assert!(screen.contains("tiny5.vtfrit.bak"), "{screen}");
+    let mut c = console().keys(&[UP, b"r", b"s", b"\r", b"q"]);
+    assert_eq!(run(&mut c), 0);
+    let plan = c.saves.first().expect("a save");
+    assert!(plan.files.is_empty(), "{plan:?}");
+    assert_eq!(
+        plan.removals,
+        [vtium_config::draft::Removal {
+            path: PathBuf::from("/etc/vtium/fonts/tiny5.vtfrit"),
+            old: b"source=bdf:/x/Tiny5Mono.bdf\n".to_vec(),
+        }]
+    );
+    // marked in the list, and kept by a second r
+    let mut c = console().keys(&[UP, b"r"]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("to remove"), "{screen}");
+    let mut c = console().keys(&[UP, b"r", b"r", b"s", b"\r", b"q"]);
+    run(&mut c);
+    assert!(c.saves.is_empty());
+}
+
+/// The remove key refuses what `remove-frit` refuses, saying why, and
+/// adds nothing to the save: a built-in font, the frit vtium.conf's
+/// `font-name` names, as it is or as the save leaves it, and the frit a
+/// head's profile names.
+#[test]
+fn r_refuses_what_remove_frit_refuses() {
+    for (keys, says) in [
+        // unifont, highlighted at start
+        (vec![b"r".as_slice()], "built-in font"),
+        // proof is head desk's profile
+        (vec![UP, UP, b"r"], "head desk's profile"),
+        // minspec-16 kept as font-name, then r
+        (vec![UP, UP, UP, b"\r", b"r"], "font-name"),
+    ] {
+        let mut all = keys.clone();
+        all.extend([b"s".as_slice(), b"\r", b"q"]);
+        let mut c = console().keys(&keys);
+        run(&mut c);
+        let screen = c.seen.clone().expect("the screen");
+        let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(text.contains("Not removed:"), "{says}: {screen}");
+        assert!(text.contains(says), "{says}: {screen}");
+        let mut c = console().keys(&all);
+        run(&mut c);
+        assert!(
+            c.saves.iter().all(|p| p.removals.is_empty()),
+            "{says}: {:?}",
+            c.saves
+        );
+    }
+    // a frit marked for removal and then kept as font-name is not removed:
+    // the save says why and saves nothing
+    let mut c = console().keys(&[UP, b"r", b"\r", b"s", b"\r", b"q"]);
+    run(&mut c);
+    assert!(c.saves.is_empty(), "{:?}", c.saves);
+}
+
+/// A save that changes font-frits and also writes or removes a frit is
+/// refused: the frits would go to the directory font-frits named before
+/// the save, so the user saves the new directory first. A save that
+/// changes only one of the two is planned.
+#[test]
+fn a_save_that_moves_the_frits_and_changes_a_frit_is_refused() {
+    use vtium_config::tui::model::{App, Change};
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    app.pending
+        .set("font-frits", Change::Set("/srv/frits".to_owned()));
+    assert!(app.plan().is_ok());
+    app.pending.removals.push("tiny5".to_owned());
+    let why = app.plan().expect_err("a removal and a new directory");
+    assert!(why.contains("font-frits"), "{why}");
+    app.pending.removals.clear();
+    app.pending
+        .frits
+        .push(("made".to_owned(), "source=builtin:unifont\n".to_owned()));
+    let why = app.plan().expect_err("a new frit and a new directory");
+    assert!(why.contains("font-frits"), "{why}");
+    // a save that leaves font-frits alone is no move
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    app.pending.removals.push("tiny5".to_owned());
+    app.pending
+        .set("font-name", Change::Set("proof".to_owned()));
+    assert!(app.plan().is_ok());
+    // nor is one that sets it to the value vtium.conf already names
+    let mut named = inputs();
+    named.conf = Some("# mine\nfont-name=unifont\nfont-frits=/srv/frits\n".into());
+    let (mut app, _) = App::new(named, 80, 25);
+    app.pending
+        .set("font-frits", Change::Set("/srv/frits".to_owned()));
+    app.pending.removals.push("tiny5".to_owned());
+    assert!(app.plan().is_ok(), "{:?}", app.plan());
 }
 
 #[test]

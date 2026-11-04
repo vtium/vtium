@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use vtium_font::{Face, Font, Style, Width as FontWidth};
+use vtium_font::{Decorations, Face, Font, Style, Width as FontWidth};
 use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, Rgb, Width, dim};
 
 use crate::arrow::{Arrow, Over};
@@ -17,6 +17,9 @@ use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, PictureCounts, Under};
 use crate::target::{Orientation, Rect, Target};
+
+#[cfg(feature = "gpu")]
+mod gpu;
 
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
 const BAR: char = '\u{258f}';
@@ -362,6 +365,73 @@ struct Pointer {
     outside: bool,
 }
 
+/// What a frame draws, decided before anything is drawn.
+#[derive(Debug)]
+struct Plan {
+    grid: Grid,
+    pointer: Option<Pointer>,
+    /// The buffer lacks the whole border.
+    full: bool,
+    /// The areas of the border it lacks, when not the whole.
+    border: Vec<Rect>,
+}
+
+/// How a frame's pixels are made: the border and each row's cell jobs.
+/// The CPU path writes them into the display's buffer ([`Cpu`]); the GPU
+/// path turns them into clears and quads for the upright frame.
+pub(crate) trait Back {
+    /// Fills the border inside the display area `r` with `bg`. `display`
+    /// is the whole display and `grid` the grid's area on it, `None` for
+    /// an empty grid: the border is what the grid leaves.
+    fn border(&mut self, compose: &mut Composer, display: (Rect, Option<Area>), bg: Rgb, r: Rect);
+
+    /// Draws the row's jobs, which `compose` holds with their text.
+    fn row<F: Face>(&mut self, compose: &mut Composer, font: &Font<F>, strip: (usize, usize));
+}
+
+/// The CPU path's [`Back`]: the row scratch, written into a target.
+struct Cpu<'a, T: Target>(&'a mut T);
+
+impl<T: Target> Back for Cpu<'_, T> {
+    fn border(
+        &mut self,
+        compose: &mut Composer,
+        (display, grid): (Rect, Option<Area>),
+        bg: Rgb,
+        r: Rect,
+    ) {
+        let (width, height) = (display.width, display.height);
+        let (x0, x1) = (r.x.min(width), r.x.saturating_add(r.width).min(width));
+        let y1 = r.y.saturating_add(r.height).min(height);
+        let line = compose.solid(
+            usize::try_from(x1.saturating_sub(x0)).unwrap_or(0),
+            pixel(bg),
+        );
+        // the grid's columns, as a part of the run from x0
+        let at = |v: i64| usize::try_from(v.clamp(int(x0), int(x1)).saturating_sub(int(x0)));
+        let g = grid.unwrap_or_default();
+        let (gl, gr) = (at(g.x).unwrap_or(0), at(g.right()).unwrap_or(0));
+        for y in r.y..y1 {
+            let yi = int(y);
+            if grid.is_none() || yi < g.y || yi >= g.bottom() {
+                self.0.write(x0, y, line);
+                continue;
+            }
+            if let Some(left) = line.get(..gl).filter(|l| !l.is_empty()) {
+                self.0.write(x0, y, left);
+            }
+            if let Some(right) = line.get(gr..).filter(|l| !l.is_empty()) {
+                let x = x0.saturating_add(u32::try_from(gr).unwrap_or(u32::MAX));
+                self.0.write(x, y, right);
+            }
+        }
+    }
+
+    fn row<F: Face>(&mut self, compose: &mut Composer, font: &Font<F>, strip: (usize, usize)) {
+        compose.draw(font, strip, &mut *self.0);
+    }
+}
+
 /// Draws terminal frames with a font into a display buffer.
 #[derive(Debug)]
 pub struct Renderer<F> {
@@ -374,6 +444,8 @@ pub struct Renderer<F> {
     blink_hidden: bool,
     cursor_at: Option<(usize, usize)>,
     arrow: Arrow,
+    /// The pointer's image upright, which the GPU path draws.
+    upright_arrow: Arrow,
     pointer: Option<Pointer>,
     /// The line a run under the pointer is blended in.
     pointer_line: Vec<u32>,
@@ -383,18 +455,24 @@ pub struct Renderer<F> {
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,
+    /// The font's underline and strike-through lines the sprites and the
+    /// glyph cache's stand-ins were made from.
+    lines: Decorations,
     /// Characters the font draws differently since the last frame, sorted:
     /// the cells showing one draw again ([`Renderer::glyphs_changed`]).
     changed: Vec<char>,
     /// Display areas something other than the renderer drew over since the
     /// last frame ([`Renderer::redraw_area`]).
     touched: Vec<Rect>,
+    /// What the GPU path keeps of this renderer's.
+    #[cfg(feature = "gpu")]
+    gpu: gpu::State,
 }
 
-/// The pointer's image for cells `cell_height` tall: the arrow, or the
-/// glyph `config.pointer` names. The arrow stands in for a character the
-/// font lacks, which would draw as a fallback (the missing box, U+FFFD or
-/// `?`), and for a blank one, whose glyph covers no pixel.
+/// The pointer's image for cells `cell_height` tall, upright: the arrow,
+/// or the glyph `config.pointer` names. The arrow stands in for a character
+/// the font lacks, which would draw as a fallback (the missing box, U+FFFD
+/// or `?`), and for a blank one, whose glyph covers no pixel.
 fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> Arrow {
     match config.pointer {
         PointerShape::Glyph(c) if font.has_glyph(c) => {
@@ -402,9 +480,28 @@ fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> A
         }
         _ => None,
     }
-    .map(|g| Arrow::glyph(&g, config.orientation))
+    .map(|g| Arrow::upright_glyph(&g))
     .filter(Arrow::covers)
-    .unwrap_or_else(|| Arrow::new(cell_height, config.orientation))
+    .unwrap_or_else(|| Arrow::upright(cell_height))
+}
+
+/// The decoration sprites for cells `cw` by `ch` in the font's `lines`,
+/// turned as `orientation` says, stored as `config` says.
+fn sprites(
+    cw: u32,
+    ch: u32,
+    lines: &Decorations,
+    orientation: Orientation,
+    config: Config,
+) -> Sprites {
+    Sprites::new(
+        cw,
+        ch,
+        lines,
+        orientation,
+        config.storage.bits,
+        config.depth == Depth::One,
+    )
 }
 
 /// How many cells a cell `width` wide, after a cell `before` wide, draws
@@ -465,26 +562,22 @@ impl<F: Face> Renderer<F> {
         let budgets = config
             .budgets
             .unwrap_or_else(|| Budgets::for_profile(config.profile, cells, width, height));
-        let sprites = Sprites::new(
-            cw,
-            ch,
-            &font.decorations(),
-            config.orientation,
-            config.storage.bits,
-            config.depth == Depth::One,
+        let lines = font.decorations();
+        let upright_arrow = pointer_image(&font, ch, config);
+        let arrow = upright_arrow.clone().turned(config.orientation);
+        #[cfg(feature = "gpu")]
+        let gpu = gpu::State::new(
+            budgets,
+            sprites(cw, ch, &lines, Orientation::Normal, config),
         );
-        let arrow = pointer_image(&font, ch, config);
         Renderer {
             compose: Composer::new(
                 GlyphCache::new(budgets, config.storage, config.orientation).with_fallback(
-                    Fallback::new(
-                        config.depth,
-                        font.cell(),
-                        font.decorations().underline_thickness,
-                    ),
+                    Fallback::new(config.depth, font.cell(), lines.underline_thickness),
                 ),
-                sprites,
+                sprites(cw, ch, &lines, config.orientation, config),
             ),
+            lines,
             font,
             config,
             layout: Layout {
@@ -502,13 +595,42 @@ impl<F: Face> Renderer<F> {
             blink_hidden: false,
             cursor_at: None,
             arrow,
+            upright_arrow,
             pointer: None,
             pointer_line: Vec::new(),
             mono_line: Vec::new(),
             deco: (None, None),
             changed: Vec::new(),
             touched: Vec::new(),
+            #[cfg(feature = "gpu")]
+            gpu,
         }
+    }
+
+    /// This renderer on the same display turned as `orientation` says, with
+    /// its font and the rest of its configuration. On the CPU path it is a
+    /// new renderer: its cache holds glyphs turned for the old orientation,
+    /// and its budgets follow the turned grid's cells. On the GPU path,
+    /// whose glyphs are upright, it keeps its identity, so a pipeline that
+    /// holds its glyphs keeps them, and the turn uploads and compiles
+    /// nothing (ADR-1303 D3); those glyphs keep the budgets their pools were
+    /// made with until the pipeline makes them anew. The font's lines are
+    /// taken first, as [`Renderer::glyphs_changed`] takes them, so lines
+    /// that changed before the turn reach the GPU path's sprites too. Its
+    /// next frame draws whole.
+    pub fn turned(mut self, orientation: Orientation) -> Renderer<F> {
+        self.lines_changed();
+        let config = Config {
+            orientation,
+            ..self.config
+        };
+        let turned = Renderer::new(self.font, self.layout.width, self.layout.height, config);
+        #[cfg(feature = "gpu")]
+        let turned = Renderer {
+            gpu: turned.gpu.keeping_identity(self.gpu),
+            ..turned
+        };
+        turned
     }
 
     /// The font now draws each of `chars` differently, as when the deferred
@@ -517,9 +639,16 @@ impl<F: Face> Renderer<F> {
     /// and the next frame draws again each cell that shows one (ADR-1200
     /// D23). Every other glyph stays cached, and every other cell keeps its
     /// pixels.
+    ///
+    /// When the font's underline and strike-through lines changed too, as
+    /// an outline font's do once the glyph helper has measured them, the
+    /// renderer takes the new lines ([`Renderer::lines_changed`]).
     pub fn glyphs_changed(&mut self, chars: &[char]) {
+        self.lines_changed();
         let arrived = sorted(chars);
         self.compose.cache.forget(&arrived);
+        #[cfg(feature = "gpu")]
+        self.gpu.forget(&arrived);
         self.changed.extend_from_slice(&arrived);
         self.changed.sort_unstable();
         self.changed.dedup();
@@ -540,8 +669,45 @@ impl<F: Face> Renderer<F> {
     /// cluster, so a cell that shows one later draws the font's new glyph
     /// (ADR-1200 D7), and no cell draws again now. Every other glyph stays
     /// cached.
+    ///
+    /// When the font's lines changed too, the renderer takes them, as
+    /// [`Renderer::glyphs_changed`] does.
     pub fn forget_glyphs(&mut self, chars: &[char]) {
+        self.lines_changed();
         self.compose.cache.forget(&sorted(chars));
+        #[cfg(feature = "gpu")]
+        self.gpu.forget(chars);
+    }
+
+    /// Takes the font's underline and strike-through lines when they are
+    /// no longer the ones the renderer made its sprites from: the sprites
+    /// are made again, the glyph cache is emptied, since the font draws its
+    /// line sprites and the glyph stand-ins in the underline's thickness,
+    /// and the next frame draws every cell and the border. On the GPU path
+    /// the renderer takes a new identity, so the pipeline makes its glyphs
+    /// and sprites anew and composes whole. Unchanged lines change nothing.
+    fn lines_changed(&mut self) {
+        let lines = self.font.decorations();
+        if lines == self.lines {
+            return;
+        }
+        self.lines = lines;
+        let config = self.config;
+        let (cw, ch) = (
+            u32::try_from(self.layout.cw).unwrap_or(1),
+            u32::try_from(self.layout.ch).unwrap_or(1),
+        );
+        self.compose.sprites = sprites(cw, ch, &lines, config.orientation, config);
+        self.compose.cache.reset(Fallback::new(
+            config.depth,
+            self.font.cell(),
+            lines.underline_thickness,
+        ));
+        // the grid is placed anew, so every cell and the border draw
+        self.grid = None;
+        #[cfg(feature = "gpu")]
+        self.gpu
+            .lines_changed(sprites(cw, ch, &lines, Orientation::Normal, config));
     }
 
     pub fn font(&self) -> &Font<F> {
@@ -557,6 +723,12 @@ impl<F: Face> Renderer<F> {
     /// for a display's cursor plane.
     pub fn arrow(&self) -> &Arrow {
         &self.arrow
+    }
+
+    /// The pointer's arrow at this renderer's cell size, upright, which the
+    /// GPU path draws into the upright frame (ADR-1303 D3).
+    pub fn upright_arrow(&self) -> &Arrow {
+        &self.upright_arrow
     }
 
     /// Where on the display the arrow's hotspot goes for the pointer's tip
@@ -625,6 +797,24 @@ impl<F: Face> Renderer<F> {
         state: &DrawState,
     ) -> Drawn<'_> {
         let start = Instant::now();
+        #[cfg(feature = "gpu")]
+        self.gpu.drew_on_cpu();
+        let plan = self.plan(frame, age, state);
+        let arrow = core::mem::take(&mut self.arrow);
+        let mut line = core::mem::take(&mut self.pointer_line);
+        let mut mono_line = core::mem::take(&mut self.mono_line);
+        let mut target = Threshold::new(target, self.config.depth, &mut mono_line);
+        let mut out = Over::new(&mut target, plan.pointer.map(|p| (&arrow, p.at)), &mut line);
+        let (cells, rows) = self.paint(&plan, frame, state, &mut Cpu(&mut out));
+        self.arrow = arrow;
+        self.pointer_line = line;
+        self.mono_line = mono_line;
+        self.finish(&plan, (cells, rows), start)
+    }
+
+    /// The first half of a frame: where the grid sits, what the pointer
+    /// changed, and which parts of the border the buffer lacks.
+    fn plan(&mut self, frame: &Frame<'_>, age: u32, state: &DrawState) -> Plan {
         self.compose.cache.begin_frame();
         self.cells.begin(age);
         let d = self.config.decorations;
@@ -659,11 +849,23 @@ impl<F: Face> Renderer<F> {
         } else {
             self.cells.stale_border_areas().collect()
         };
-        let arrow = core::mem::take(&mut self.arrow);
-        let mut line = core::mem::take(&mut self.pointer_line);
-        let mut mono_line = core::mem::take(&mut self.mono_line);
-        let mut target = Threshold::new(target, self.config.depth, &mut mono_line);
-        let mut out = Over::new(&mut target, pointer.map(|p| (&arrow, p.at)), &mut line);
+        Plan {
+            grid,
+            pointer,
+            full,
+            border,
+        }
+    }
+
+    /// The second half: the border and the cells the buffer lacks, through
+    /// `back`. Returns how many cells it drew and how many rows it scanned.
+    fn paint(
+        &mut self,
+        plan: &Plan,
+        frame: &Frame<'_>,
+        state: &DrawState,
+        back: &mut impl Back,
+    ) -> (u32, u32) {
         let all = Rect {
             x: 0,
             y: 0,
@@ -671,28 +873,41 @@ impl<F: Face> Renderer<F> {
             height: self.layout.height,
         };
         let whole_border = [all];
-        for r in if full { &whole_border[..] } else { &border[..] } {
-            let bg = mono::border(self.config.depth, state.background);
-            self.fill_border(&grid, &mut out, bg, *r);
+        let bg = mono::border(self.config.depth, state.background);
+        let g = &plan.grid;
+        let grid = (g.cols > 0 && g.rows > 0).then_some(Area {
+            x: g.off_x,
+            y: g.off_y,
+            w: g.max_x.saturating_sub(g.off_x),
+            h: g.max_y.saturating_sub(g.off_y),
+        });
+        for &r in if plan.full {
+            &whole_border[..]
+        } else {
+            &plan.border[..]
+        } {
+            back.border(&mut self.compose, (all, grid), bg, r);
         }
-        let (cells, rows) = self.draw_cells(&grid, frame, &mut out, state);
+        self.draw_cells(g, frame, back, state)
+    }
+
+    /// The frame's damage and figures, once it is drawn.
+    fn finish(&mut self, plan: &Plan, (cells, rows): (u32, u32), start: Instant) -> Drawn<'_> {
         #[cfg(feature = "images")]
         self.compose.pictures.end_frame();
         self.changed.clear();
-        self.arrow = arrow;
-        self.pointer_line = line;
-        self.mono_line = mono_line;
         let layout = self.layout;
-        let whole = full.then_some(Rect {
+        let grid = plan.grid;
+        let whole = plan.full.then_some(Rect {
             x: 0,
             y: 0,
             width: layout.width,
             height: layout.height,
         });
         let counts = self.compose.cache.take_counts();
-        let damage = self
-            .cells
-            .collect(whole, &border, |col, row| layout.cell_rect(&grid, col, row));
+        let damage = self.cells.collect(whole, &plan.border, |col, row| {
+            layout.cell_rect(&grid, col, row)
+        });
         let damage_px = damage.iter().fold(0u64, |n, r| n.saturating_add(r.area()));
         Drawn {
             damage,
@@ -734,35 +949,6 @@ impl<F: Face> Renderer<F> {
         });
     }
 
-    /// Fills the border's pixels inside the display area `r` with `bg`.
-    fn fill_border(&mut self, g: &Grid, target: &mut impl Target, bg: Rgb, r: Rect) {
-        let width = self.layout.width;
-        let (x0, x1) = (r.x.min(width), r.x.saturating_add(r.width).min(width));
-        let y1 = r.y.saturating_add(r.height).min(self.layout.height);
-        let line = self.compose.solid(
-            usize::try_from(x1.saturating_sub(x0)).unwrap_or(0),
-            pixel(bg),
-        );
-        // the grid's columns, as a part of the run from x0
-        let at = |v: i64| usize::try_from(v.clamp(int(x0), int(x1)).saturating_sub(int(x0)));
-        let (gl, gr) = (at(g.off_x).unwrap_or(0), at(g.max_x).unwrap_or(0));
-        let empty = g.cols == 0 || g.rows == 0;
-        for y in r.y..y1 {
-            let yi = int(y);
-            if empty || yi < g.off_y || yi >= g.max_y {
-                target.write(x0, y, line);
-                continue;
-            }
-            if let Some(left) = line.get(..gl).filter(|l| !l.is_empty()) {
-                target.write(x0, y, left);
-            }
-            if let Some(right) = line.get(gr..).filter(|l| !l.is_empty()) {
-                let x = x0.saturating_add(u32::try_from(gr).unwrap_or(u32::MAX));
-                target.write(x, y, right);
-            }
-        }
-    }
-
     /// Where the cursor draws: the leading cell of a wide character whose
     /// trailing half it sits on.
     fn cursor_cell(frame: &Frame<'_>, c: &Cursor) -> (usize, usize) {
@@ -781,7 +967,7 @@ impl<F: Face> Renderer<F> {
         &mut self,
         g: &Grid,
         frame: &Frame<'_>,
-        target: &mut impl Target,
+        back: &mut impl Back,
         state: &DrawState,
     ) -> (u32, u32) {
         let cursor = frame.cursor();
@@ -808,7 +994,7 @@ impl<F: Face> Renderer<F> {
                 || last_cursor.is_some_and(|(_, r)| r == row);
             if scan {
                 scanned = scanned.saturating_add(1);
-                drawn = drawn.saturating_add(self.draw_row(&pass, row, target));
+                drawn = drawn.saturating_add(self.draw_row(&pass, row, back));
             }
         }
         (drawn, scanned)
@@ -839,7 +1025,7 @@ impl<F: Face> Renderer<F> {
 
     /// Scans one row, updates what each cell last drew, and draws the cells
     /// some buffer lacks; returns how many.
-    fn draw_row(&mut self, p: &Pass<'_, '_>, row: usize, target: &mut impl Target) -> u32 {
+    fn draw_row(&mut self, p: &Pass<'_, '_>, row: usize, back: &mut impl Back) -> u32 {
         let g = &p.g;
         self.compose.jobs.clear();
         self.compose.text.clear();
@@ -899,7 +1085,7 @@ impl<F: Face> Renderer<F> {
         {
             self.compose.pictures.row = row;
         }
-        self.compose.draw(&self.font, self.layout.strip(), target);
+        back.row(&mut self.compose, &self.font, self.layout.strip());
         count
     }
 

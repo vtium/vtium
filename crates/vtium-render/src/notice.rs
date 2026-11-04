@@ -47,7 +47,7 @@ impl Surface {
 
     /// The display pixel that draws the view's pixel `x`, `y`, as the
     /// renderer turns the grid.
-    fn place(&self, x: u32, y: u32) -> (u32, u32) {
+    pub fn place(&self, x: u32, y: u32) -> (u32, u32) {
         let last = |n: u32, v: u32| n.saturating_sub(1).saturating_sub(v);
         match self.orientation {
             Orientation::Normal => (x, y),
@@ -64,7 +64,7 @@ impl Surface {
 
     /// The view's area the display area `r` draws: [`Surface::area`]
     /// undone.
-    fn view_area(&self, r: Rect) -> Rect {
+    pub fn view_area(&self, r: Rect) -> Rect {
         self.map(r, Surface::unplace)
     }
 
@@ -270,6 +270,20 @@ impl Notice {
         clear: Option<Rect>,
         target: &mut impl Target,
     ) -> Option<Rect> {
+        let placed = self.upright(font, display, colors, clear)?;
+        Some(display.put(placed.at(), &placed.picture, target))
+    }
+
+    /// The notice as [`Notice::draw`] draws it, upright, in the text's view
+    /// of the display: its picture and its place in the view, for the GPU
+    /// path, which uploads it into the upright frame (ADR-1303 D3).
+    pub fn upright<F: Face>(
+        &self,
+        font: &Font<F>,
+        display: Surface,
+        colors: Colors,
+        clear: Option<Rect>,
+    ) -> Option<Placed> {
         let cell = font.cell();
         let (cw, ch) = (cell.width.max(1), cell.height.max(1));
         let (vw, vh) = display.view();
@@ -344,7 +358,11 @@ impl Notice {
                 x = x.saturating_add(cw.saturating_mul(width.cells()));
             }
         }
-        Some(display.put((0, 0), &picture, target))
+        Some(Placed {
+            x: 0,
+            y: 0,
+            picture,
+        })
     }
 }
 
@@ -381,6 +399,20 @@ impl Mark {
         colors: Colors,
         target: &mut impl Target,
     ) -> Option<Rect> {
+        let placed = self.upright(font, display, cell, colors)?;
+        Some(display.put(placed.at(), &placed.picture, target))
+    }
+
+    /// The mark as [`Mark::draw`] draws it, upright, in the text's view of
+    /// the display: its picture and its place in the view, for the GPU path
+    /// (ADR-1303 D3).
+    pub fn upright<F: Face>(
+        self,
+        font: &Font<F>,
+        display: Surface,
+        cell: Rect,
+        colors: Colors,
+    ) -> Option<Placed> {
         let (vw, vh) = display.view();
         let view = display.view_area(cell);
         if view.width == 0
@@ -401,7 +433,11 @@ impl Mark {
             Some(g) => picture.glyph(0, 0, &g, colors),
             None => picture.square(self == Mark::Focus, colors.ink),
         }
-        Some(display.put((view.x, view.y), &picture, target))
+        Some(Placed {
+            x: view.x,
+            y: view.y,
+            picture,
+        })
     }
 }
 
@@ -544,14 +580,81 @@ fn fitted(
     wrap(&kept, room, cols, width)
 }
 
-/// The view's pixels of what the console draws, row by row.
-struct Picture {
+/// What the console draws, upright, at its place in the text's view of
+/// the display: what the GPU path uploads into the upright frame.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Placed {
+    /// Its top left in the view.
+    pub x: u32,
+    pub y: u32,
+    pub picture: Picture,
+}
+
+impl Placed {
+    fn at(&self) -> (u32, u32) {
+        (self.x, self.y)
+    }
+
+    /// The view's area it covers.
+    pub fn rect(&self) -> Rect {
+        Rect {
+            x: self.x,
+            y: self.y,
+            width: self.picture.width,
+            height: self.picture.height,
+        }
+    }
+
+    /// The part `r` of its picture, in its own pixels, as the bytes of an
+    /// RGBA8 texture, opaque, and their stride.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn rgba(&self, r: Rect) -> (Vec<u8>, usize) {
+        let mut out = Vec::with_capacity(usize::try_from(r.area()).unwrap_or(0).saturating_mul(4));
+        for y in r.y..r.y.saturating_add(r.height) {
+            for x in r.x..r.x.saturating_add(r.width) {
+                let [_, red, green, blue] = self.picture.get(x, y).to_be_bytes();
+                out.extend_from_slice(&[red, green, blue, 255]);
+            }
+        }
+        (out, usize::try_from(r.width).unwrap_or(0).saturating_mul(4))
+    }
+}
+
+/// The view's pixels of what the console draws, row by row, each
+/// `0x00RRGGBB` and opaque.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Picture {
     width: u32,
     height: u32,
     pixels: Vec<u32>,
 }
 
 impl Picture {
+    /// A picture `width` by `height` of `pixels`, row by row, each
+    /// `0x00RRGGBB`: what the console drew, read back from a buffer, as
+    /// tier 2 reads its overlay. `None` when their count is not its area.
+    pub fn from_pixels(width: u32, height: u32, pixels: Vec<u32>) -> Option<Picture> {
+        let area = u64::from(width).saturating_mul(u64::from(height));
+        (u64::try_from(pixels.len()).ok() == Some(area)).then_some(Picture {
+            width,
+            height,
+            pixels,
+        })
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Every pixel, row by row.
+    pub fn pixels(&self) -> &[u32] {
+        &self.pixels
+    }
+
     fn new(width: u32, height: u32, fill: Rgb) -> Picture {
         let n = u64::from(width).saturating_mul(u64::from(height));
         Picture {

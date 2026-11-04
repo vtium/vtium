@@ -94,6 +94,10 @@ endef
 ARM_WRAP := $(CURDIR)/tools/arm
 minspec install-tree vt-dev-console config-release image-release: export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/$(X86_TARGET)-cc
 minspec install-tree vt-dev-console config-release image-release: export PKG_CONFIG_x86_64_unknown_linux_gnu = $(ARM_WRAP)/$(X86_TARGET)-pkg-config
+# The sysroot's directory, which moves when its pins change, so the
+# pkg-config crate reruns a build script whose search path it would leave,
+# as the arm targets' do below.
+minspec install-tree vt-dev-console config-release image-release: export PKG_CONFIG_SYSROOT_DIR_x86_64_unknown_linux_gnu := $(shell tools/arm/sysroot dir amd64)
 
 # The vtium crate's features the console binary is built with, named on
 # make's command line (make install-tree FEATURES='images logind'). None, the
@@ -267,6 +271,13 @@ arm arm-test: export PKG_CONFIG_aarch64_unknown_linux_gnu = $(ARM_WRAP)/aarch64-
 arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-cc
 arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-run
 arm arm-test: export PKG_CONFIG_armv7_unknown_linux_gnueabihf = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-pkg-config
+# Each target's sysroot directory, which moves when its pins change. The
+# pkg-config crate reruns a build script when this changes, so libudev-sys
+# never keeps a search path into a sysroot the pins have left. It is
+# expanded once, when make reads the line: a recursively expanded variable
+# re-expands inside its own $(shell) and overflows make's stack.
+arm arm-test: export PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu := $(shell tools/arm/sysroot dir arm64)
+arm arm-test: export PKG_CONFIG_SYSROOT_DIR_armv7_unknown_linux_gnueabihf := $(shell tools/arm/sysroot dir armhf)
 
 .PHONY: arm-sysroot
 arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link against (VTIUM_ARM_SYSROOTS=DIR)
@@ -462,7 +473,7 @@ vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, th
 # tools/tier2/reference (provenance.tsv).
 .PHONY: tier2
 tier2: ## Draw tier 2's screens and judge them against their goldens
-	cargo build --release -p vtium-tier2 --bins
+	cargo build --release -p vtium-tier2 --features gpu --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/tier2 run
 
 # The demonstration set (vtium/vtium#142): the test card drawn for each

@@ -155,6 +155,9 @@ fn body(app: &App) -> Body {
                     if app.refused.contains(&f.name) {
                         note = words::KEPT.to_owned();
                     }
+                    if app.pending.removals.contains(&f.name) {
+                        note = format!("{note}, {}", words::TO_REMOVE);
+                    }
                     if app.pending.font_name() == Some(&f.name) {
                         note = format!("{note}, {}", words::TO_SAVE);
                     } else if configured.as_deref() == Some(&f.name) {
@@ -262,10 +265,12 @@ fn body(app: &App) -> Body {
             } else {
                 words::SETTINGS_HINT
             };
-            let what = all.get(app.setting_at).map_or("", |k| k.what);
+            let what = all
+                .get(app.setting_at)
+                .map_or(String::new(), |k| k.what_line());
             let mut tail = tail(hint, cols);
             tail.extend(
-                cut(what, cols.saturating_sub(2), WHAT_ROWS)
+                cut(&what, cols.saturating_sub(2), WHAT_ROWS)
                     .into_iter()
                     .map(|l| plain(format!(" {l}"))),
             );
@@ -341,6 +346,22 @@ fn save_rows(app: &App) -> Vec<Row> {
             if let Some(new) = &c.new {
                 rows.push(plain(format!("   {:>4} + {new}", c.line)));
             }
+        }
+    }
+    for removal in &plan.removals {
+        rows.extend(prose(&removal.path.display().to_string(), app.cols));
+        let name = removal
+            .path
+            .file_stem()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let indent = "   ";
+        for line in wrap(
+            &words::removed_file(name),
+            app.cols.saturating_sub(2 + indent.len()),
+            usize::MAX,
+        ) {
+            rows.push(plain(format!("{indent}{line}")));
         }
     }
     if !app.report.is_empty() {

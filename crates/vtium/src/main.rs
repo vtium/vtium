@@ -43,7 +43,11 @@ fn help() -> String {
             _ => "=VALUE".to_owned(),
         };
         let short = k.short.map(|c| format!("-{c}, ")).unwrap_or_default();
-        out.push_str(&format!("  {short}--{}{arg}\n      {}\n", k.name, k.what));
+        out.push_str(&format!(
+            "  {short}--{}{arg}\n      {}\n",
+            k.name,
+            k.what_line()
+        ));
     }
     out
 }
@@ -223,7 +227,7 @@ fn run(
     match start.input() {
         Some(mut input) => {
             input.insert(&lp.handle(), |app: &mut App| app.input.as_mut());
-            app.input = Some(input);
+            app.set_input(input);
         }
         None => log::error!("no keymap: keys are not read"),
     }

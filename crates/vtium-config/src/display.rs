@@ -5,23 +5,21 @@
 //! `display-dpi`, else this, else 96).
 //!
 //! The console takes a display's physical size from its DRM connector,
-//! which the kernel fills from the EDID, else from the EDID in sysfs
-//! (vtium-platform's `display::edid`); vtium-config opens no card, so it
-//! reads the EDID's own size, bytes 21 and 22 in centimetres, which can
-//! differ from the connector's millimetres by under a centimetre a side.
-//! Its bounds on a believable density are vtium-platform's `DPI_MIN` and
-//! `DPI_MAX`.
+//! which the kernel fills from the EDID, else from the EDID in sysfs.
+//! vtium-config opens no card, so it reads the EDID in sysfs, through
+//! vtium-platform's reader (`display::Edid`), and works out the density
+//! with the console's own `Density::of`. The EDID's size is in
+//! centimetres, so it can differ from the connector's millimetres by under
+//! a centimetre a side.
 
 use std::io::Read;
 use std::path::Path;
 
-use vtium_platform::display::{DPI_MAX, DPI_MIN};
+use vtium_platform::display::{Density, Edid};
 
-/// The bytes of an EDID's base block.
-const BASE: usize = 128;
-
-/// The eight bytes every EDID starts with.
-const HEADER: [u8; 8] = [0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0];
+/// The bytes read of a connector's `edid`: its base block, all that
+/// [`Edid::parse`] reads.
+const EDID_READ: u64 = 128;
 
 /// The most bytes read of a connector's `modes`.
 const MODES_MAX: u64 = 4096;
@@ -35,35 +33,15 @@ pub struct Display {
 }
 
 impl Display {
-    /// Its density down the screen, in whole dots per inch, where its size
-    /// gives a density inside the bounds the console believes on both
-    /// axes, as the console takes a display's density; a display with a
-    /// side out of bounds, a misreport, has none, and the console assumes
-    /// 96.
+    /// Its density down the screen, in whole dots per inch, where the
+    /// console measures one from its size ([`Density::of`]); a display
+    /// with no size, or with a side whose density the console does not
+    /// believe, has none, and the console assumes 96.
     pub fn dpi(&self) -> Option<u32> {
-        let (w, h) = self.mm?;
-        let axis = |px: u32, mm: u32| {
-            (mm > 0)
-                .then(|| f64::from(px) * 25.4 / f64::from(mm))
-                .filter(|dpi| (DPI_MIN..=DPI_MAX).contains(dpi))
-        };
-        axis(self.pixels.0, w)?;
-        let down = axis(self.pixels.1, h)?;
+        let density = Density::of(self.pixels, self.mm?);
+        let down = density.measured().then(|| density.dpi().1)?;
         format!("{:.0}", down.round()).parse().ok()
     }
-}
-
-/// The physical size an EDID's base block states, in millimetres, `None`
-/// for bytes that are no EDID, whose checksum fails, or that state no size.
-pub fn edid_mm(bytes: &[u8]) -> Option<(u32, u32)> {
-    let base = bytes.get(..BASE)?;
-    if base.get(..HEADER.len())? != HEADER
-        || base.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)) != 0
-    {
-        return None;
-    }
-    let (w, h) = (*base.get(21)?, *base.get(22)?);
-    (w != 0 && h != 0).then(|| (u32::from(w) * 10, u32::from(h) * 10))
 }
 
 /// The first mode a connector's `modes` lists, `WIDTHxHEIGHT`, an
@@ -109,8 +87,9 @@ pub fn displays(sys: &Path) -> Vec<Display> {
             }
             let modes = read(&dir.join("modes"), MODES_MAX)?;
             let pixels = first_mode(&String::from_utf8_lossy(&modes))?;
-            let mm =
-                read(&dir.join("edid"), u64::try_from(BASE).unwrap_or(0)).and_then(|b| edid_mm(&b));
+            let mm = read(&dir.join("edid"), EDID_READ)
+                .and_then(|b| Edid::parse(&b))
+                .and_then(|e| e.mm());
             Some(Display { pixels, mm })
         })
         .collect()
@@ -123,23 +102,13 @@ mod tests {
 
     /// An EDID's base block stating a size of `cm`, its checksum right.
     pub fn edid(cm: (u8, u8)) -> Vec<u8> {
-        let mut b = vec![0u8; BASE];
-        b[..8].copy_from_slice(&HEADER);
+        let mut b = vec![0u8; 128];
+        b[..8].copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
         b[21] = cm.0;
         b[22] = cm.1;
         let sum = b.iter().fold(0u8, |s, &x| s.wrapping_add(x));
         b[127] = 0u8.wrapping_sub(sum);
         b
-    }
-
-    #[test]
-    fn an_edid_states_its_size_in_centimetres() {
-        assert_eq!(edid_mm(&edid((60, 34))), Some((600, 340)));
-        assert_eq!(edid_mm(&edid((0, 34))), None, "no size");
-        let mut bad = edid((60, 34));
-        bad[127] ^= 1;
-        assert_eq!(edid_mm(&bad), None, "a checksum that fails");
-        assert_eq!(edid_mm(&[0; 64]), None, "too short");
     }
 
     #[test]
@@ -165,6 +134,40 @@ mod tests {
             mm: Some((10, 340)),
         };
         assert_eq!(one_side.dpi(), None, "across past DPI_MAX");
+    }
+
+    /// The tool's density and the console's are one for the same EDID
+    /// bytes: the size read by vtium-platform's reader, the density by its
+    /// `Density::of`, rounded down the screen. A 41 cm high panel of 5125
+    /// rows is 317.5 dpi down, which a reader of its own once took as
+    /// 317.49999 and rounded to 317.
+    #[test]
+    fn the_tool_s_density_is_the_console_s_for_the_same_edid() {
+        use vtium_platform::display::{Density, Edid};
+        for (cm, pixels) in [
+            ((60, 34), (2560, 1440)),
+            ((60, 41), (3000, 5125)),
+            ((103, 127), (2575, 2575)),
+            ((13, 13), (5000, 100)),
+            ((1, 34), (2560, 1440)),
+            ((0, 34), (2560, 1440)),
+        ] {
+            let bytes = edid(cm);
+            let mm = Edid::parse(&bytes).and_then(|e| e.mm());
+            let console = mm
+                .map(|mm| Density::of(pixels, mm))
+                .filter(Density::measured)
+                .map(|d| d.dpi().1.round());
+            let tool = Display { pixels, mm }.dpi().map(f64::from);
+            assert_eq!(tool, console, "{cm:?} at {pixels:?}");
+        }
+        // the figure itself: 5125 rows over 410 mm is 317.5 dpi, which
+        // rounds to 318
+        let panel = Display {
+            pixels: (3000, 5125),
+            mm: Edid::parse(&edid((60, 41))).and_then(|e| e.mm()),
+        };
+        assert_eq!(panel.dpi(), Some(318));
     }
 
     #[test]

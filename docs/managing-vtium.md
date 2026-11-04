@@ -33,7 +33,7 @@ The packages install these files:
 | File | What it is |
 |---|---|
 | `/usr/bin/vtium` | the console, with its subcommands `vtium console`, `vtium check-config`, `vtium config`, `vtium blank` and `vtium wake` |
-| `/usr/bin/vtium-config` | the font and settings tool, which `vtium config` runs: with no command it opens a tool that tries each font on the live console and saves your choice into vtium.conf, and `vtium config set` switches the font; it is also the glyph helper, which draws a font's glyphs for the console |
+| `/usr/bin/vtium-config` | the font and settings tool, which `vtium config` runs: `vtium config tui` opens a tool that tries each font on the live console and saves your choice into vtium.conf, and `vtium config set` switches the font; it is also the glyph helper, which draws a font's glyphs for the console |
 | `/usr/lib/systemd/system/vtium@.service` | the unit that runs vtium on one VT in place of its getty |
 | `/usr/lib/systemd/system/vtium-getty@.service` | the fallback that starts a getty on the VT when vtium fails |
 | `/etc/vtium/vtium.conf.example` | the example configuration, which lists every key at its default, commented out |
@@ -230,10 +230,10 @@ font-name=eurlatgr
 
 ### Choosing a font with vtium config
 
-`vtium config`, run with no command inside a vtium console, opens a full-screen tool that lists the frits and the built-in fonts. Each font you move the highlight to becomes the console's font at once, so you judge the real console in it:
+`vtium config tui`, run inside a vtium console, opens a full-screen tool that lists the frits and the built-in fonts. Each font you move the highlight to becomes the console's font at once, so you judge the real console in it:
 
 ```
-$ vtium config
+$ vtium config tui
 ```
 
 Up and Down move the highlight, Enter keeps the highlighted font for saving, Tab moves to the sizes, to vtium.conf's font keys and to the heads, `s` shows what a save changes, and `q` or Ctrl-C leaves and puts back the font the console had when the tool started. Where the console draws kitty graphics, a vtium built with the `images` feature, each size shows a picture of the font at that size, and the console's own font and grid stay as they were. Without pictures, a size shows only once it is saved.

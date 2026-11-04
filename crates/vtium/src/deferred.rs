@@ -8,8 +8,9 @@
 //! made. The lookup for a cell is ADR-1200 D22's: the cluster's glyph in
 //! the store; the cluster's NFC form, where it precomposes to one
 //! codepoint the store holds; the base's glyph, the store's or the
-//! built-in font's, with each combining mark's glyph overstruck on it, the
-//! default ignorables and the rest of an emoji sequence left out; the
+//! built-in font's, with each nonspacing mark's glyph overstruck on it and
+//! each spacing mark's beside it (ADR-1302 D14), the default ignorables
+//! and the rest of an emoji sequence left out; the
 //! built-in font for the cell size; and [`vtium_font::Font`]'s replacement
 //! chain through this same face, U+25A1 from the frit, else from the
 //! built-in. Asking the helper is the console's ([`crate::helper`]).
@@ -179,6 +180,180 @@ fn precomposed(cluster: &[char]) -> Option<char> {
         run.sort_by_key(|&c| class(c));
     }
     marks.into_iter().try_fold(base, compose)
+}
+
+/// Whether `c` is a spacing mark (General_Category Mc), and if it is,
+/// whether its body stands before its letter.
+fn spacing_side(c: char) -> Option<bool> {
+    let c = u32::from(c);
+    let i = data::SPACING.partition_point(|&(_, last, _)| last < c);
+    match data::SPACING.get(i) {
+        Some(&(first, _, before)) if first <= c => Some(before),
+        _ => None,
+    }
+}
+
+/// `base` with each of `marks` overstruck on it, the base and each mark
+/// centred across the widest of them, so a mark two cells wide, as U+20E3
+/// is in unifont, makes the glyph two cells wide.
+fn overstrike(base: &Glyph, marks: &[Glyph]) -> Option<Glyph> {
+    if marks.is_empty() {
+        return Some(base.clone());
+    }
+    let parts: Vec<&Glyph> = std::iter::once(base).chain(marks).collect();
+    let w = parts.iter().map(|g| g.width()).max()?;
+    let h = base.height();
+    let wide = parts.iter().any(|g| g.cells() == Width::Wide);
+    let mut pixels = vec![0u8; usize::try_from(w.checked_mul(h)?).ok()?];
+    for part in parts {
+        let dx = w.saturating_sub(part.width()) / 2;
+        for (y, row) in (0..h).zip(part.rows()) {
+            for (x, &p) in (dx..w).zip(row) {
+                let at = usize::try_from(y.checked_mul(w)?.checked_add(x)?).ok()?;
+                if let Some(px) = pixels.get_mut(at) {
+                    *px = (*px).max(p);
+                }
+            }
+        }
+    }
+    let cells = if wide { Width::Wide } else { base.cells() };
+    Glyph::from_pixels(w, h, Format::Mask, pixels).map(|g| g.with_cells(cells))
+}
+
+/// Whether the font already draws `mark` where it belongs against `letter`,
+/// the side it stands on given by `before`. The mark's box must be as wide
+/// as the letter's, and then either its ink wraps the letter's ink, as GNU
+/// Unifont draws Myanmar's medial ra round its consonant, lying both left
+/// and right of it, or over its whole height, past it above or below, and
+/// past it on the mark's own side; or the outer edge of its ink lies
+/// in the quarter of the box on its own side: a mark before its letter
+/// starts in the left quarter, and a mark after it ends in the right
+/// quarter. Unifont draws its Devanagari, Bengali, Tamil and Malayalam
+/// vowel signs that way, each in a box as wide as its letter's with its
+/// ink reaching the box's edge on its side, so that laid on the letter it
+/// lands beside it, whatever the letter's shape. A mark drawn in the middle
+/// of its box, or on the other side, is not placed.
+fn drawn_beside(letter: &Glyph, mark: &Glyph, before: bool) -> bool {
+    let w = mark.width();
+    if w != letter.width() {
+        return false;
+    }
+    let Some((first, last)) = ink_columns(mark) else {
+        return false;
+    };
+    if let (Some((top, bottom)), Some((from, to)), Some((high, low))) =
+        (ink_rows(mark), ink_columns(letter), ink_rows(letter))
+    {
+        // left and right of the letter's ink
+        let across = first < from && last > to;
+        // over its whole height, past it at the top or the bottom, and past
+        // it on the mark's own side
+        let round = top <= high
+            && bottom >= low
+            && (top < high || bottom > low)
+            && if before { first < from } else { last > to };
+        if across || round {
+            return true;
+        }
+    }
+    let quarter = i64::from(w / 4);
+    if before {
+        first < quarter
+    } else {
+        last >= i64::from(w).saturating_sub(quarter)
+    }
+}
+
+/// The first and last rows of `g` that hold ink.
+fn ink_rows(g: &Glyph) -> Option<(i64, i64)> {
+    let inked: Vec<bool> = g.rows().map(|r| r.iter().any(|&p| p > 0)).collect();
+    let first = inked.iter().position(|&i| i)?;
+    let last = inked.iter().rposition(|&i| i)?;
+    Some((i64::try_from(first).ok()?, i64::try_from(last).ok()?))
+}
+
+/// The first and last columns of `g` that hold ink.
+fn ink_columns(g: &Glyph) -> Option<(i64, i64)> {
+    let inked = |x: u32| g.rows().any(|r| r.get(x as usize).is_some_and(|&p| p > 0));
+    let first = (0..g.width()).find(|&x| inked(x))?;
+    let last = (0..g.width()).rev().find(|&x| inked(x))?;
+    Some((i64::from(first), i64::from(last)))
+}
+
+/// `letter` with each of `marks` standing beside it (ADR-1302 D14): a
+/// mark after the letter has its first column of ink in the column after
+/// the last ink so far, and a mark before it, which the flag says, its
+/// last in the column before the first. The run of ink is centred in the
+/// letter's cells, or, where it is wider than they are, scaled sideways
+/// as one to fill them, so no ink is cut.
+fn beside(letter: Glyph, marks: &[(Glyph, bool)]) -> Option<Glyph> {
+    if marks.is_empty() {
+        return Some(letter);
+    }
+    let w = i64::from(letter.width());
+    let (mut lo, mut hi) = ink_columns(&letter).unwrap_or((0, w.checked_sub(1)?));
+    let mut placed: Vec<(&Glyph, i64)> = vec![(&letter, 0)];
+    for (mark, before) in marks {
+        let Some((first, last)) = ink_columns(mark) else {
+            continue;
+        };
+        let x = if *before {
+            let x = lo.checked_sub(1)?.checked_sub(last)?;
+            lo = x.checked_add(first)?;
+            x
+        } else {
+            let x = hi.checked_add(1)?.checked_sub(first)?;
+            hi = x.checked_add(last)?;
+            x
+        };
+        placed.push((mark, x));
+    }
+    let span = hi.checked_sub(lo)?.checked_add(1)?;
+    let (canvas, shift) = if span <= w {
+        (w, w.checked_sub(span)?.checked_div(2)?.checked_sub(lo)?)
+    } else {
+        (span, lo.checked_neg()?)
+    };
+    let h = letter.height();
+    let stride = usize::try_from(canvas).ok()?;
+    let mut pixels = vec![0u8; stride.checked_mul(usize::try_from(h).ok()?)?];
+    for (part, x) in placed {
+        let x = x.checked_add(shift)?;
+        for (row, line) in part.rows().zip(pixels.chunks_exact_mut(stride)) {
+            for (from, &p) in (x..).zip(row) {
+                if let Some(px) = usize::try_from(from).ok().and_then(|i| line.get_mut(i)) {
+                    *px = (*px).max(p);
+                }
+            }
+        }
+    }
+    if canvas > w {
+        pixels = scaled(&pixels, stride, usize::try_from(w).ok()?)?;
+    }
+    Glyph::from_pixels(letter.width(), h, Format::Mask, pixels)
+        .map(|g| g.with_cells(letter.cells()))
+}
+
+/// Mask `rows`, `from` pixels wide, scaled sideways to `to` pixels wide,
+/// `to` no wider: each pixel the coverage of the span of the row it takes.
+fn scaled(rows: &[u8], from: usize, to: usize) -> Option<Vec<u8>> {
+    let (f, t) = (u64::try_from(from).ok()?, u64::try_from(to).ok()?);
+    let mut out = Vec::with_capacity(rows.len().checked_div(from)?.checked_mul(to)?);
+    for row in rows.chunks_exact(from) {
+        for j in 0..t {
+            // pixel j spans [j * from, (j + 1) * from) of the row's
+            // from * to units, and source pixel i spans [i * to, (i + 1) * to)
+            let (start, end) = (j.checked_mul(f)?, j.checked_add(1)?.checked_mul(f)?);
+            let mut sum = 0u64;
+            for (i, &p) in (0u64..).zip(row) {
+                let (a, b) = (i.checked_mul(t)?, i.checked_add(1)?.checked_mul(t)?);
+                let overlap = end.min(b).saturating_sub(start.max(a));
+                sum = sum.checked_add(u64::from(p).checked_mul(overlap)?)?;
+            }
+            out.push(u8::try_from(sum.checked_div(f)?).ok()?);
+        }
+    }
+    Some(out)
 }
 
 /// One set the helper sent, or its rebuild: its cell, the face it draws
@@ -534,6 +709,15 @@ impl Generated {
         self.entries.iter().any(|e| e.cell == cell)
     }
 
+    /// The underline and strike-through the helper's strikes at `cell`
+    /// report (ADR-1302 D3): every answer at one cell reports the frit's
+    /// first source's, so the first set held there gives them. `None` while
+    /// no set at `cell` is held.
+    fn decorations(&self, cell: Cell) -> Option<Decorations> {
+        let e = self.entries.iter().find(|e| e.cell == cell)?;
+        Some(e.face.decorations())
+    }
+
     /// `text`'s glyph at `cell`, from the store.
     fn draw(&self, cell: Cell, text: &[char], style: Style) -> Option<Glyph> {
         let face = &self.entry(cell, text)?.face;
@@ -580,10 +764,17 @@ impl DeferredFace {
 
     /// A cluster the store does not hold drawn without its own glyph
     /// (ADR-1200 D22, steps 2 to 4): its NFC form's, else its base's with
-    /// each combining mark's overstruck, the base and each mark centred
-    /// across the widest of them, so a mark two cells wide, as U+20E3 is in
-    /// unifont, makes the glyph two cells wide; the default ignorables and
-    /// the rest of the cluster left out. A color base takes no mark.
+    /// its combining marks; the default ignorables and the rest of the
+    /// cluster left out. A color base takes no mark, and a color mark is
+    /// left out.
+    ///
+    /// A nonspacing mark is overstruck on the base ([`overstrike`]). A
+    /// spacing mark (ADR-1302 D14), a two-part vowel sign as its canonical
+    /// parts, is overstruck too where the font already draws it in place
+    /// against its letter ([`drawn_beside`]), as GNU Unifont draws the
+    /// Indic vowel signs and Myanmar's medial ra; any
+    /// other stands beside the letter ([`beside`]), after it, or before it
+    /// where its body stands before its letter, as the vowel sign i does.
     fn unshaped(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         if let Some(c) = precomposed(cluster)
             && let Some(g) = lock(&self.generated).draw(self.cell, &[c], style)
@@ -595,33 +786,33 @@ impl DeferredFace {
         if glyph.format() != Format::Mask {
             return Some(glyph);
         }
-        let marks: Vec<Glyph> = rest
-            .iter()
-            .filter(|&&c| is_mark(c) && !is_ignorable(c))
-            .filter_map(|&c| self.single(c, style))
-            .filter(|g| g.format() == Format::Mask)
-            .collect();
-        if marks.is_empty() {
-            return Some(glyph);
-        }
-        let parts: Vec<&Glyph> = std::iter::once(&glyph).chain(&marks).collect();
-        let w = parts.iter().map(|g| g.width()).max()?;
-        let h = glyph.height();
-        let wide = parts.iter().any(|g| g.cells() == Width::Wide);
-        let mut pixels = vec![0u8; usize::try_from(w.checked_mul(h)?).ok()?];
-        for part in parts {
-            let dx = w.saturating_sub(part.width()) / 2;
-            for (y, row) in (0..h).zip(part.rows()) {
-                for (x, &p) in (dx..w).zip(row) {
-                    let at = usize::try_from(y.checked_mul(w)?.checked_add(x)?).ok()?;
-                    if let Some(px) = pixels.get_mut(at) {
-                        *px = (*px).max(p);
-                    }
+        let mask = |c| self.single(c, style).filter(|g| g.format() == Format::Mask);
+        let mut over: Vec<Glyph> = Vec::new();
+        let mut spacing: Vec<(Glyph, bool)> = Vec::new();
+        for &c in rest.iter().filter(|&&c| is_mark(c) && !is_ignorable(c)) {
+            if spacing_side(c).is_none() {
+                over.extend(mask(c));
+                continue;
+            }
+            let mut parts = Vec::new();
+            decompose(c, &mut parts);
+            for part in parts {
+                match spacing_side(part) {
+                    Some(before) => spacing.extend(mask(part).map(|g| (g, before))),
+                    None => over.extend(mask(part)),
                 }
             }
         }
-        let cells = if wide { Width::Wide } else { glyph.cells() };
-        Glyph::from_pixels(w, h, Format::Mask, pixels).map(|g| g.with_cells(cells))
+        let mut letter = overstrike(&glyph, &over)?;
+        let mut stand: Vec<(Glyph, bool)> = Vec::new();
+        for (mark, before) in spacing {
+            if drawn_beside(&letter, &mark, before) {
+                letter = overstrike(&letter, std::slice::from_ref(&mark))?;
+            } else {
+                stand.push((mark, before));
+            }
+        }
+        beside(letter, &stand)
     }
 
     /// The built-in's `glyph` at the cell's size: centred, padded or
@@ -705,9 +896,19 @@ impl Face for DeferredFace {
         self.fit(self.builtin.last_resort(style)?)
     }
 
-    /// The built-in font's in its own cell; in another, the lines for the
-    /// cell's height.
+    /// The lines the helper's strikes at the cell report, once a set there
+    /// is held: an outline first source's own, measured from the font's
+    /// `post` and `OS/2` tables as the C reference's FreeType engine took
+    /// them, and a bitmap first source's the lines for the cell's height.
+    /// The helper moves a font's line that would pass the cell inside it,
+    /// and the set reader refuses a strike whose line passes its cell, so a
+    /// line held here always lies in the cell's rows. Before any set at the
+    /// cell is held: the built-in font's in its own cell, and in another the
+    /// lines for the cell's height.
     fn decorations(&self) -> Decorations {
+        if let Some(lines) = lock(&self.generated).decorations(self.cell) {
+            return lines;
+        }
         if self.builtin.cell() == self.cell {
             self.builtin.decorations()
         } else {
@@ -899,6 +1100,85 @@ mod tests {
         assert_eq!((a.width(), a.height()), (8, 12));
         let unifont = Unifont::new(16).draw(&['A'], Style::default()).unwrap();
         assert!(moved(&a, &unifont, 0, -2));
+    }
+
+    /// A set at `cell` mapping `chars` to one solid glyph, whose strike
+    /// reports `lines`, as the helper writes the font's own lines in a
+    /// strike's header.
+    fn with_lines(cell: Cell, chars: &[char], lines: Decorations) -> Arc<Set> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default()).decorations(lines);
+        let g = s.glyph(
+            Width::Narrow,
+            vec![255; (cell.width * cell.height) as usize],
+        );
+        for &c in chars {
+            s.map(c, g);
+        }
+        Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
+    }
+
+    // #241: the lines of a frit the helper generates from an outline font
+    // come from the strike's header, which carries the font's own: in
+    // tier 3's 10x19 cell, DejaVu Sans Mono at 16 points puts its
+    // underline on row 15 and its strike-through on row 11, where the
+    // cell's height alone gives rows 18 and 9
+    #[test]
+    fn a_generated_frits_lines_come_from_the_strike_header() {
+        let generated = Shared::default();
+        let cell = Cell {
+            width: 10,
+            height: 19,
+        };
+        let f = face_in(&generated, cell);
+        assert_eq!(f.decorations(), Decorations::for_height(19));
+        let font = Decorations {
+            underline: 15,
+            underline_thickness: 1,
+            strike: 11,
+            strike_thickness: 1,
+        };
+        add(
+            &mut lock(&generated),
+            cell,
+            with_lines(cell, &['A'], font),
+            vec![(0x41, 1)],
+            1,
+        );
+        assert_eq!(f.decorations(), font);
+        // a set at another cell says nothing about this one
+        let other = face_in(&generated, CELL);
+        assert_eq!(other.decorations(), Unifont::new(16).decorations());
+    }
+
+    // #241: a bitmap frit's strikes report the lines of a face with no
+    // metrics of its own, as the helper writes them for a bitmap first
+    // source, so its lines stay what they were before its glyphs came,
+    // in the built-in font's own cell and in any other
+    #[test]
+    fn a_bitmap_frits_lines_are_unchanged() {
+        for cell in [
+            CELL,
+            Cell {
+                width: 10,
+                height: 19,
+            },
+            Cell {
+                width: 16,
+                height: 32,
+            },
+        ] {
+            let generated = Shared::default();
+            let f = face_in(&generated, cell);
+            let before = f.decorations();
+            add(
+                &mut lock(&generated),
+                cell,
+                with_lines(cell, &['A'], Decorations::for_height(cell.height)),
+                vec![(0x41, 1)],
+                1,
+            );
+            assert_eq!(f.decorations(), before, "{cell:?}");
+        }
     }
 
     // #145: the glyphs arrive at the frit's cell, and the cell stays
@@ -1282,6 +1562,305 @@ mod tests {
         assert!(all(&f.draw(&['q', '\u{301}'], regular).unwrap(), 255));
         let held = f.draw(&['q', '\u{301}'], regular).unwrap();
         assert_eq!(held.cells(), Width::Narrow);
+    }
+
+    /// A glyph at `cell` from rows of `#` and `.`, `#` fully inked, the rows
+    /// not given blank.
+    fn drawn(cell: Cell, rows: &[&str]) -> Vec<u8> {
+        let mut px = vec![0u8; (cell.width * cell.height) as usize];
+        for (y, row) in rows.iter().enumerate() {
+            for (x, c) in row.chars().enumerate() {
+                if c == '#' {
+                    px[y * cell.width as usize + x] = 255;
+                }
+            }
+        }
+        px
+    }
+
+    /// `g`'s rows as `#` where inked and `.` where not.
+    fn picture(g: &Glyph) -> Vec<String> {
+        g.rows()
+            .map(|r| r.iter().map(|&p| if p > 0 { '#' } else { '.' }).collect())
+            .collect()
+    }
+
+    /// A set at [`CELL`] mapping each of `glyphs`' characters to its rows,
+    /// one cell wide, as a frit's bitmap or outline source gives a
+    /// character the helper draws alone.
+    fn letters(glyphs: &[(char, &[&str])]) -> Arc<Set> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
+        for &(c, rows) in glyphs {
+            let g = s.glyph(Width::Narrow, drawn(CELL, rows));
+            s.map(c, g);
+        }
+        Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
+    }
+
+    /// A face whose store holds `glyphs` at [`CELL`].
+    fn face_with(glyphs: &[(char, &[&str])]) -> DeferredFace {
+        let generated = Shared::default();
+        let set = letters(glyphs);
+        let runs = glyphs.iter().map(|&(c, _)| (u32::from(c), 1)).collect();
+        add(&mut lock(&generated), CELL, set, runs, 1);
+        face(&generated)
+    }
+
+    const KA: char = '\u{915}';
+    const AA: char = '\u{93e}';
+    const I: char = '\u{93f}';
+
+    // ka as a font draws it alone: the headline, the stem and the bowl,
+    // its ink in the 5 columns at the cell's left
+    const KA_ROWS: [&str; 13] = [
+        "........", "........", "........", "#####...", "...#....", "...#....", ".#.#....",
+        ".#.#....", ".#.#....", ".#.#....", "...#....", "...#....", "...#....",
+    ];
+
+    // the vowel sign aa as a font draws it alone, centred in its cell: a
+    // piece of the headline and a stem, 2 columns of ink
+    const AA_ROWS: [&str; 13] = [
+        "........", "........", "........", "..##....", "...#....", "...#....", "...#....",
+        "...#....", "...#....", "...#....", "...#....", "...#....", "...#....",
+    ];
+
+    // #235: a spacing mark (General_Category Mc) stands beside its letter.
+    // Overstruck, the vowel sign aa lands on ka's stem; drawn through the
+    // fallback it stands after ka, its ink starting in the column after
+    // ka's last, and the two are centred in the cell
+    #[test]
+    fn a_spacing_mark_stands_after_its_letter() {
+        let f = face_with(&[(KA, &KA_ROWS), (AA, &AA_ROWS)]);
+        let both = f.draw(&[KA, AA], Style::default()).unwrap();
+        assert_eq!((both.width(), both.cells()), (8, Width::Narrow));
+        let want = [
+            "........", "........", "........", "#######.", "...#..#.", "...#..#.", ".#.#..#.",
+            ".#.#..#.", ".#.#..#.", ".#.#..#.", "...#..#.", "...#..#.", "...#..#.", "........",
+            "........", "........",
+        ];
+        assert_eq!(picture(&both), want);
+    }
+
+    // #235: a spacing mark whose body stands before its letter, as the
+    // vowel sign i does (Indic_Positional_Category Left), stands before it
+    #[test]
+    fn a_pre_base_spacing_mark_stands_before_its_letter() {
+        let i_rows: [&str; 13] = [
+            "........", "........", "........", "...##...", "...#....", "...#....", "...#....",
+            "...#....", "...#....", "...#....", "...#....", "...#....", "...#....",
+        ];
+        let f = face_with(&[(KA, &KA_ROWS), (I, &i_rows)]);
+        let both = f.draw(&[KA, I], Style::default()).unwrap();
+        let want = [
+            "........", "........", "........", "#######.", "#....#..", "#....#..", "#..#.#..",
+            "#..#.#..", "#..#.#..", "#..#.#..", "#....#..", "#....#..", "#....#..", "........",
+            "........", "........",
+        ];
+        assert_eq!(picture(&both), want);
+    }
+
+    // #235, ADR-1302 D14: a letter and its spacing marks that need more
+    // room than the letter's cells scale sideways together to fit them,
+    // so no ink is cut: the vowel sign's stem ends in the cell's last
+    // column, and the letter's headline still starts in its first
+    #[test]
+    fn a_letter_and_spacing_marks_wider_than_the_cells_scale_to_fit() {
+        let wide_ka: [&str; 13] = [
+            "........", "........", "........", "########", "......#.", "......#.", ".####.#.",
+            "#....##.", "#....##.", ".####.#.", "......#.", "......#.", "......#.",
+        ];
+        let f = face_with(&[(KA, &wide_ka), (AA, &AA_ROWS)]);
+        let both = f.draw(&[KA, AA], Style::default()).unwrap();
+        assert_eq!((both.width(), both.cells()), (8, Width::Narrow));
+        let ink = |x: u32, y: u32| both.pixel(x, y).unwrap()[0] > 0;
+        // the headline runs the whole cell
+        assert!((0..8).all(|x| ink(x, 3)));
+        // the vowel sign's stem in the last column, alone at the right
+        assert!((4..13).all(|y| ink(7, y)), "{:?}", picture(&both));
+        // the letter's stem stays left of it, with a blank column between
+        assert!((4..13).all(|y| !ink(6, y)), "{:?}", picture(&both));
+        assert!((4..13).all(|y| ink(5, y)), "{:?}", picture(&both));
+        // the 10 columns of ink scale to 8, so the cell's last column takes
+        // eight tenths of the stem's column and two tenths of the blank one
+        // before it: 255 * 8 / 10, rounded down
+        assert!(
+            (4..13).all(|y| both.pixel(7, y).unwrap()[0] == 204),
+            "{:?}",
+            (4..13)
+                .map(|y| both.pixel(7, y).unwrap()[0])
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// The vowel sign i drawn in the middle of its cell, columns 4 and 5,
+    /// away from a letter in columns 0 to 2.
+    const I_MID_ROWS: [&str; 13] = [
+        "........", "........", "........", "....##..", "....#...", "....#...", "....#...",
+        "....#...", "....#...", "....#...", "....#...", "....#...", "....#...",
+    ];
+
+    // a narrow letter, its ink in columns 0 to 2
+    const NARROW_ROWS: [&str; 13] = [
+        "........", "........", "........", "###.....", ".#......", ".#......", ".#......",
+        ".#......", ".#......", ".#......", ".#......", ".#......", ".#......",
+    ];
+
+    // #235: a spacing mark whose font draws it clear of the letter but on
+    // the wrong side, or in the middle of its box, still stands on its own
+    // side: the vowel sign i, drawn after the letter's ink, goes before it
+    #[test]
+    fn a_pre_base_mark_drawn_after_its_letter_moves_before_it() {
+        let f = face_with(&[(KA, &NARROW_ROWS), (I, &I_MID_ROWS)]);
+        let both = f.draw(&[KA, I], Style::default()).unwrap();
+        let want = [
+            "........", "........", "........", ".#####..", ".#..#...", ".#..#...", ".#..#...",
+            ".#..#...", ".#..#...", ".#..#...", ".#..#...", ".#..#...", ".#..#...", "........",
+            "........", "........",
+        ];
+        assert_eq!(picture(&both), want);
+    }
+
+    // #235: and the vowel sign aa, drawn at the left of its box, before a
+    // letter at the right of its own, goes after it
+    #[test]
+    fn a_mark_drawn_before_its_letter_moves_after_it() {
+        let aa_left: [&str; 13] = [
+            "........", "........", "........", "##......", ".#......", ".#......", ".#......",
+            ".#......", ".#......", ".#......", ".#......", ".#......", ".#......",
+        ];
+        let ka_right: [&str; 13] = [
+            "........", "........", "........", ".....###", "......#.", "......#.", "......#.",
+            "......#.", "......#.", "......#.", "......#.", "......#.", "......#.",
+        ];
+        let f = face_with(&[(KA, &ka_right), (AA, &aa_left)]);
+        let both = f.draw(&[KA, AA], Style::default()).unwrap();
+        let want = [
+            "........", "........", "........", ".#####..", "..#..#..", "..#..#..", "..#..#..",
+            "..#..#..", "..#..#..", "..#..#..", "..#..#..", "..#..#..", "..#..#..", "........",
+            "........", "........",
+        ];
+        assert_eq!(picture(&both), want);
+    }
+
+    /// How many clusters of a letter in `letters` and a sign in `signs`
+    /// the fallback draws as the plain overstrike of their Unifont glyphs,
+    /// a two-part sign as its canonical parts; it panics on any other.
+    fn overstruck_in_unifont(sets: &[(std::ops::RangeInclusive<u32>, &[u32])]) -> usize {
+        let generated = Shared::default();
+        let f = face(&generated);
+        let unifont = Unifont::new(16);
+        let regular = Style::default();
+        let mut drawn = 0;
+        for (letters, signs) in sets {
+            for letter in letters
+                .clone()
+                .filter_map(char::from_u32)
+                .filter(|&c| unifont.has_glyph(c))
+            {
+                for sign in signs.iter().filter_map(|&c| char::from_u32(c)) {
+                    let mut parts = Vec::new();
+                    decompose(sign, &mut parts);
+                    let mut over = unifont.draw(&[letter], regular).unwrap();
+                    for part in parts {
+                        let glyph = unifont.draw(&[part], regular).unwrap();
+                        over = overstrike(&over, &[glyph]).unwrap();
+                    }
+                    let both = f.draw(&[letter, sign], regular).unwrap();
+                    let at = format!("U+{:04X} U+{:04X}", u32::from(letter), u32::from(sign));
+                    assert_eq!(both, over, "{at}");
+                    assert_eq!(both.cells(), Width::Wide, "{at}");
+                    drawn += 1;
+                }
+            }
+        }
+        drawn
+    }
+
+    // #235: GNU Unifont draws each Devanagari, Bengali, Tamil and
+    // Malayalam vowel sign in a box as wide as its letter's, its ink
+    // reaching the box's edge on its own side, so laid on the letter it
+    // lands beside it. The fallback keeps that placement for every
+    // consonant, those whose headline has a gap, such as tha, dha, bha and
+    // ha, among them, and for every spacing mark of the four scripts, the
+    // stemless loops of Tamil's e and ai and Malayalam's e among them, a
+    // two-part sign as its canonical parts
+    #[test]
+    fn a_spacing_mark_the_font_draws_beside_its_letter_stays_there() {
+        let devanagari: &[u32] = &[
+            0x903, 0x93b, 0x93e, 0x93f, 0x940, 0x949, 0x94a, 0x94b, 0x94c, 0x94e, 0x94f,
+        ];
+        let bengali: &[u32] = &[
+            0x982, 0x983, 0x9be, 0x9bf, 0x9c0, 0x9c7, 0x9c8, 0x9cb, 0x9cc, 0x9d7,
+        ];
+        let tamil: &[u32] = &[
+            0xbbe, 0xbbf, 0xbc1, 0xbc2, 0xbc6, 0xbc7, 0xbc8, 0xbca, 0xbcb, 0xbcc, 0xbd7,
+        ];
+        let malayalam: &[u32] = &[
+            0xd02, 0xd03, 0xd3e, 0xd3f, 0xd40, 0xd46, 0xd47, 0xd48, 0xd4a, 0xd4b, 0xd4c, 0xd57,
+        ];
+        let drawn = overstruck_in_unifont(&[
+            (0x915..=0x939, devanagari),
+            (0x995..=0x9b9, bengali),
+            (0xb95..=0xbb9, tamil),
+            (0xd15..=0xd39, malayalam),
+        ]);
+        // each range's 37 codepoints, unifont drawing even the unassigned
+        assert_eq!(drawn, 37 * 11 + 37 * 10 + 37 * 11 + 37 * 12);
+    }
+
+    // #235, ADR-1302 D14: Unifont draws Myanmar's medial ra as a bracket
+    // round its consonant, over and under it and on its left. A mark whose
+    // ink wraps its letter's is the font's own placement, so medial ra on
+    // every consonant draws as the plain overstrike
+    #[test]
+    fn a_spacing_mark_the_font_draws_round_its_letter_stays_there() {
+        let drawn = overstruck_in_unifont(&[(0x1000..=0x1020, &[0x103c])]);
+        assert_eq!(drawn, 33);
+    }
+
+    // #235, ADR-1302 D14: a mark wraps its letter's ink only when it passes
+    // it on the mark's own side. Unifont's Myanmar tall aa (U+102B) and
+    // medial ya (U+103B) span their consonant's height but sit on the wrong
+    // side of it, so on every consonant they stand beside it instead of
+    // overstriking it
+    #[test]
+    fn a_mark_spanning_its_letter_on_the_wrong_side_stands_beside_it() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        let unifont = Unifont::new(16);
+        let regular = Style::default();
+        let mut checked = 0;
+        for letter in (0x1000..=0x1020).filter_map(char::from_u32) {
+            for sign in [0x102b, 0x103b].into_iter().filter_map(char::from_u32) {
+                let alone = unifont.draw(&[letter], regular).unwrap();
+                let mark = unifont.draw(&[sign], regular).unwrap();
+                let over = overstrike(&alone, &[mark]).unwrap();
+                let both = f.draw(&[letter, sign], regular).unwrap();
+                let at = format!("U+{:04X} U+{:04X}", u32::from(letter), u32::from(sign));
+                assert_ne!(both, over, "{at} is the plain overstrike");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 33 * 2);
+    }
+
+    // #235: the font has placed a mark only in a box as wide as its
+    // letter's. Unifont's vowel sign aa, 16 pixels wide, on a frit's
+    // letter 8 pixels wide, stands after the letter in the letter's cell
+    // instead of being laid on it across two cells
+    #[test]
+    fn a_mark_in_a_box_wider_than_its_letters_stands_beside_it() {
+        let f = face_with(&[(KA, &KA_ROWS)]);
+        let sign = Unifont::new(16).draw(&[AA], Style::default()).unwrap();
+        assert_eq!(sign.width(), 16, "unifont's aa is two cells");
+        let both = f.draw(&[KA, AA], Style::default()).unwrap();
+        assert_eq!((both.width(), both.cells()), (8, Width::Narrow));
+        // the vowel sign's stem ends in the cell's last column
+        assert!(
+            (4..13).all(|y| both.pixel(7, y).unwrap()[0] > 0),
+            "{:?}",
+            picture(&both)
+        );
     }
 
     // a cluster whose first character neither the store nor the built-in

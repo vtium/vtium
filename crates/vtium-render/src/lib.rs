@@ -52,6 +52,10 @@
 //! device memory is never read. A [`Canvas`] keeps them in memory, for
 //! tests and tier 2; a [`Mapped`] writes them into a mapped dumb buffer.
 //!
+//! With the `gpu` feature, the [`gpu`] module holds the GPU path: the safe
+//! `Gl` trait it draws through and the pipeline of slots each frame passes
+//! (ADR-1303).
+//!
 //! # Bounds
 //!
 //! Each bound is defined once in `src/bounds.rs` and tabulated in the
@@ -65,6 +69,8 @@ mod cache;
 mod compose;
 mod damage;
 mod deco;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 mod mono;
 mod notice;
 #[cfg(feature = "images")]
@@ -81,7 +87,7 @@ pub use bounds::PICTURE_CACHE_SCREENS;
 pub use bounds::{POINTER_SIDE_MAX, POOL_BYTES_PERFORMANCE, RENDER_TIMER_SAMPLES, ROW_SCRATCH_MAX};
 pub use cache::{Budgets, CacheCounts, Profile, Storage};
 pub use mono::Depth;
-pub use notice::{Colors, Mark, Notice, NoticeReport, Surface, quote};
+pub use notice::{Colors, Mark, Notice, NoticeReport, Picture, Placed, Surface, quote};
 #[cfg(feature = "images")]
 pub use picture::{PictureCounts, SELECTION_TINT};
 pub use renderer::{
