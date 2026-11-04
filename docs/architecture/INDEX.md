@@ -70,3 +70,4 @@ _Process, harness and contributions - how vtium is built, tested and judged_
 | [ADR-1500](./project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-under-names-of-its-own.md) | vtium is packaged from a recipe repo per package manager, under names of its own | accepted |
 | [ADR-1501](./project/ADR-1501-the-acceptance-pass-walks-every-visual-page-and-keeps-a-record-of-each-pass.md) | The acceptance pass walks every visual page and keeps a record of each pass | proposed |
 | [ADR-1502](./project/ADR-1502-the-documentation-is-a-zensical-site-sorted-by-what-the-reader-is-doing-with-showcase-screens-from-tier-3.md) | The documentation is a Zensical site sorted by what the reader is doing, with showcase screens from tier 3 | accepted |
+| [ADR-1503](./project/ADR-1503-vtium-judges-itself-by-its-own-goldens-and-its-committed-tree-names-no-c-fork.md) | vtium judges itself by its own goldens and its committed tree names no C fork | proposed |
