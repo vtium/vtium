@@ -46,26 +46,41 @@ fn fixture(name: &str) -> String {
     format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Checks every line, then fails listing those that differ, each with the
-/// digest vtium draws.
-fn check(what: &str, rows: &[Vec<String>], mut ours: impl FnMut(&[String]) -> Option<u64>) {
+/// Checks every line of `reference/{file}`. When any differs, it writes
+/// the file as vtium draws it, each checked line with vtium's digest and
+/// every other line as it is, to `digests/{file}` under the test's scratch
+/// directory, and fails naming that file and how many lines differ.
+fn check(file: &str, mut ours: impl FnMut(&[String]) -> Option<u64>) {
     let mut checked = 0;
-    let mut bad = Vec::new();
-    for row in rows {
-        let Some(got) = ours(row) else { continue };
-        let want = row.last().map(|s| u64::from_str_radix(s, 16));
-        checked += 1;
-        if want != Some(Ok(got)) {
-            bad.push(format!("{} (vtium draws {got:016x})", row.join(" ")));
+    let mut differ = 0;
+    let mut drawn = String::new();
+    for row in lines(file) {
+        let mut row = row;
+        if let Some(got) = ours(&row) {
+            checked += 1;
+            let want = row.last().map(|s| u64::from_str_radix(s, 16));
+            if want != Some(Ok(got)) {
+                differ += 1;
+            }
+            if let Some(last) = row.last_mut() {
+                *last = format!("{got:016x}");
+            }
         }
+        drawn.push_str(&row.join("\t"));
+        drawn.push('\n');
     }
-    assert!(checked > 0, "{what}: no lines checked");
-    assert!(
-        bad.is_empty(),
-        "{what}: {} of {checked} digests differ from the C reference's, first:\n{}",
-        bad.len(),
-        bad.iter().take(20).cloned().collect::<Vec<_>>().join("\n")
-    );
+    assert!(checked > 0, "{file}: no lines checked");
+    if differ > 0 {
+        let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("digests");
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        let path = dir.join(file);
+        std::fs::write(&path, drawn).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        panic!(
+            "{file}: {differ} of {checked} digests differ from tests/reference/{file}; \
+             vtium's digests for every line are in {}",
+            path.display()
+        );
+    }
 }
 
 /// The characters vtium draws as sprites where the C reference drew the
@@ -127,7 +142,7 @@ fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Op
 // covers: text.sprites
 #[test]
 fn sprites_match_the_c_reference() {
-    check("sprites", &lines("box.tsv"), |row| {
+    check("box.tsv", |row| {
         let [_, range, w, h, t, _] = row else {
             panic!("bad line {row:?}")
         };
@@ -148,7 +163,6 @@ fn sprites_match_the_c_reference() {
 // covers: text.psf
 #[test]
 fn psf_fonts_match_the_c_reference() {
-    let rows = lines("psf.tsv");
     let mut fonts = std::collections::BTreeMap::new();
     let mut font = |name: &str, height: u32| -> Font<Psf> {
         let psf = fonts
@@ -158,7 +172,7 @@ fn psf_fonts_match_the_c_reference() {
         psf.set_height(height);
         Font::new(psf)
     };
-    check("psf glyphs", &rows, |row| match row {
+    check("psf.tsv", |row| match row {
         // a build without gzip refuses the gzipped fixtures
         [_, name, ..] if name.ends_with(".gz") && !cfg!(feature = "gzip") => None,
         [kind, name, height, bold, _] if kind == "psf-glyphs" => {
@@ -188,7 +202,7 @@ fn psf_fonts_match_the_c_reference() {
 #[test]
 fn unifont_matches_the_c_reference() {
     use vtium_font::Unifont;
-    check("unifont", &lines("unifont.tsv"), |row| match row {
+    check("unifont.tsv", |row| match row {
         [kind, height, bold, page, _] if kind == "unifont-glyphs" => {
             let font = Unifont::new(num(height));
             let style = Style {

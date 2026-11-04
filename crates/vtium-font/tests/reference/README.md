@@ -14,4 +14,4 @@ No gate, test or build reads a checkout of the C reference: the tests read the `
 
 ## Changing a digest
 
-A changed digest is a change to what vtium draws, so it is a golden change. When vtium deliberately draws other pixels, `cargo test -p vtium-font --test reference` fails and lists each line whose digest differs, with the digest vtium draws. The new digests go into the `.tsv` files in a commit of their own, which lists each line that moved and why, and the maintainer reviews it.
+A changed digest is a change to what vtium draws, so it is a golden change. When vtium draws other pixels, `cargo test -p vtium-font --all-features --test reference` checks every line before it fails. For each file with a line that differs, the test writes the whole file as vtium draws it, every checked line with vtium's digest and every other line as it is, to `digests/<file>` in the test's scratch directory (`CARGO_TARGET_TMPDIR`, under the target directory), and fails with the number of lines that differ and that file's path. A deliberate change copies that file over the one here in a commit of its own, which lists each line that moved and why, and the maintainer reviews it.

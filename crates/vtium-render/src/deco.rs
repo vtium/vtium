@@ -348,7 +348,10 @@ mod tests {
     // draws the C reference's bytes. A double or curl past a quarter of the
     // cell, and the dash in a cell 2 or more pixels wide, are the render
     // crate's departures: each must differ from the C reference's and draw
-    // the fallback or the dash.
+    // the fallback or the dash. When a digest differs, the test writes every
+    // `deco` line as vtium draws it to `vtium-render-digests/deco.tsv` in
+    // the system's temporary directory, a departure's line as it is, and
+    // fails naming that file and how many lines differ.
     // covers: platform.compositor
     #[test]
     fn sprites_match_the_c_reference() {
@@ -356,6 +359,8 @@ mod tests {
         let tsv = std::fs::read_to_string(path).unwrap();
         let mut checked = 0;
         let mut departed = 0;
+        let mut differ = 0;
+        let mut drawn = String::new();
         let mut bad = Vec::new();
         for line in tsv.lines().filter(|l| l.starts_with("deco\t")) {
             let f: Vec<&str> = line.split('\t').collect();
@@ -386,10 +391,30 @@ mod tests {
                 }
                 Some(false) => bad.push(format!("{line} (a departure, not the redrawn shape)")),
                 Some(true) => departed += 1,
-                None if d != want => bad.push(format!("{line} (vtium draws {d:016x})")),
+                None if d != want => differ += 1,
                 None => {}
             }
+            match redrawn {
+                Some(_) => drawn.push_str(line),
+                None => drawn.push_str(&format!("{}\t{d:016x}", f[..4].join("\t"))),
+            }
+            drawn.push('\n');
         }
+        let out = std::env::temp_dir()
+            .join("vtium-render-digests")
+            .join("deco.tsv");
+        if differ > 0 {
+            std::fs::create_dir_all(out.parent().unwrap()).unwrap();
+            std::fs::write(&out, drawn).unwrap();
+        }
+        assert!(bad.is_empty(), "{} departure(s) wrong: {bad:?}", bad.len());
+        assert_eq!(
+            differ,
+            0,
+            "{differ} of {checked} deco digests differ from tests/reference/cells.tsv; \
+             vtium's digests for every deco line are in {}",
+            out.display()
+        );
         assert_eq!(checked, 6 * 24 * 48);
         // every width's double at heights 2 to 11; every width's curl at
         // heights 1 to 11, and widths 12 to 24 at 12 to 15, 16 to 24 at
@@ -398,12 +423,6 @@ mod tests {
         assert_eq!(
             departed,
             10 * 24 + (11 * 24 + 4 * 13 + 4 * 9 + 4 * 5 + 4) + 23 * 48
-        );
-        assert!(
-            bad.is_empty(),
-            "{} of {checked} differ, first: {:?}",
-            bad.len(),
-            &bad[..bad.len().min(10)]
         );
     }
 
