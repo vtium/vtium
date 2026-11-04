@@ -870,8 +870,8 @@ class PreflightTest(unittest.TestCase):
         # compares with.
         cases_of = t3_scenario.c_golden_cases()
         self.assertEqual(t3_evaluate.check_goldens(cases_of, t3_common.GOLDEN), [])
-        wanted = {t3_evaluate.golden_for(v, c)[0] for v, cases in cases_of.items()
-                  for c in cases if t3_evaluate.golden_for(v, c)[0]}
+        wanted = t3_scenario.c_goldens_judging(t3_common.GOLDEN)
+        self.assertTrue(wanted)
         self.assertEqual(sorted(p for p in wanted if not os.path.exists(p)), [])
 
     def planted(self):
@@ -881,13 +881,21 @@ class PreflightTest(unittest.TestCase):
                                "c/2d-potato-min/cjk.png": "cjk"})
 
     def test_preflight(self):
-        # Clean on the planted goldens, then a stray golden no case draws.
+        # Clean on the planted goldens, judged as 2d-potato-min's two cases
+        # alone; then a stray golden no case draws, and a golden a case
+        # compares with gone missing.
         self.planted()
-        self.assertEqual(t3.preflight(LOG, self.copied), [])
-        write_tree(self.root, {"c/2d-potato-min/stray.png": "no case"})
-        stray = t3_common.rel(os.path.join(self.copied, "2d-potato-min", "stray.png"))
-        self.assertEqual(t3.preflight(LOG, self.copied),
-                         ["%s is a golden no case draws" % stray])
+        cases = mock.patch.object(t3_scenario, "c_golden_cases",
+                                  lambda: {"2d-potato-min": ["sgr", "cjk"]})
+        with cases:
+            self.assertEqual(t3.preflight(LOG, self.copied), [])
+            write_tree(self.root, {"c/2d-potato-min/stray.png": "no case"})
+            os.unlink(os.path.join(self.copied, "2d-potato-min", "cjk.png"))
+            golden = lambda name: t3_common.rel(os.path.join(self.copied, "2d-potato-min", name))
+            self.assertEqual(sorted(t3.preflight(LOG, self.copied)),
+                             sorted(["%s is a golden no case draws" % golden("stray.png"),
+                                     "%s is missing, and a case compares with it"
+                                     % golden("cjk.png")]))
 
     def test_run_refuses_a_bad_tree(self):
         # run() makes those checks under the run lock and refuses before the
