@@ -1,7 +1,9 @@
 //! The renderer on the GPU path (ADR-1303): the same front end as the CPU
-//! path decides what a frame draws, and [`GpuBack`] turns it into the
-//! upright frame's clears and quads, which the pipeline composes and
-//! presents.
+//! path decides what a frame draws, in the display's pixels, and
+//! [`GpuBack`] maps it into the upright frame's clears and quads, which the
+//! pipeline composes and presents turned. The renderer's own record stays
+//! in the display's pixels on both paths, so a frame of either path follows
+//! a frame of the other.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -12,12 +14,13 @@ use vtium_term::Frame;
 use super::{DrawState, Drawn, Renderer, Stats, sorted};
 use crate::blend::pixel;
 use crate::cache::Budgets;
+use crate::deco::Sprites;
 use crate::gpu::compose::GpuBack;
 use crate::gpu::glyphs::Spec;
+use crate::gpu::turn::Turn;
 use crate::gpu::{ArrowAt, DrawTarget, Error, ErrorKind, Gl, Pipeline, Size, Work};
 use crate::mono::{self, Depth, Fallback};
 use crate::notice::Placed;
-use crate::target::Orientation;
 
 /// The next renderer's id: it tells the GPU path's glyphs whose font drew
 /// them and which history they follow, and never reaches a pixel.
@@ -32,6 +35,8 @@ fn next_id() -> u64 {
 pub(super) struct State {
     /// The glyph cache's budgets, which the GPU path's pools share.
     budgets: Budgets,
+    /// The decoration sprites upright, which the GPU path's cells read.
+    sprites: Sprites,
     /// Whose glyphs a pipeline holds. A new id makes the pipeline replace
     /// them and compose its next frame whole.
     id: u64,
@@ -40,9 +45,10 @@ pub(super) struct State {
 }
 
 impl State {
-    pub(super) fn new(budgets: Budgets) -> State {
+    pub(super) fn new(budgets: Budgets, sprites: Sprites) -> State {
         State {
             budgets,
+            sprites,
             id: next_id(),
             forget: Vec::new(),
         }
@@ -75,9 +81,10 @@ impl<F: Face> Renderer<F> {
     /// changed, has the cells beneath it drawn again. The renderer draws
     /// the whole picture when the pipeline composes its upright frame
     /// whole: when it is new, after a failed frame, for a new border color,
-    /// or after another renderer's frame, or a frame of the CPU path's, went
-    /// between. A turned display, and a 1-bit one, which needs present's
-    /// depth reduction, are refused until they are built.
+    /// after a turn, or after another renderer's frame, or a frame of the
+    /// CPU path's, went between. The pipeline takes this renderer's
+    /// orientation ([`Pipeline::turn`]). A 1-bit display, which needs
+    /// present's depth reduction, is refused until it is built.
     ///
     /// A frame that fails leaves the pipeline to compose its next frame
     /// whole, and the error says what failed, for the head to sort
@@ -101,12 +108,6 @@ impl<F: Face> Renderer<F> {
         overlays: &[Placed],
     ) -> Result<Drawn<'_>, Error> {
         let start = Instant::now();
-        if self.config.orientation != Orientation::Normal {
-            return Err(Error::new(
-                ErrorKind::Misuse,
-                "the GPU path draws an upright display only",
-            ));
-        }
         if self.config.depth == Depth::One {
             return Err(Error::new(
                 ErrorKind::Misuse,
@@ -120,24 +121,27 @@ impl<F: Face> Renderer<F> {
                 "the pipeline or the buffer is not the renderer's display",
             ));
         }
+        let turn = Turn::new(self.config.orientation, display);
+        pipeline.turn(gl, turn.orientation)?;
         let border = pixel(mono::border(self.config.depth, state.background));
         let begun = pipeline.begin(gl, &self.gpu_spec(), border, overlays)?;
         for r in begun.gone {
-            self.redraw_area(r);
+            self.redraw_area(turn.down(r));
         }
         // the upright frame holds the last frame composed, unless the
         // pipeline composes it whole
         let plan = self.plan(frame, if begun.whole { 0 } else { 1 }, state);
         let glyphs = pipeline.glyphs()?;
         glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)));
-        let mut back = GpuBack::new(gl, &mut *glyphs);
+        let mut back = GpuBack::new(gl, &mut *glyphs, turn);
         let counts = self.paint(&plan, frame, state, &mut back);
         let (clear, cells, error) = (back.clear, back.cells, back.error);
         glyphs.end_frame();
         let uploads = glyphs.take_uploads();
         let gpu_counts = glyphs.take_counts();
         let drawn = self.finish(&plan, counts, start);
-        let (changed, stats) = (drawn.damage.to_vec(), drawn.stats);
+        let changed: Vec<_> = drawn.damage.iter().map(|&r| turn.up(r)).collect();
+        let stats = drawn.stats;
         if let Some(e) = error {
             pipeline.redraw_whole();
             return Err(e);
@@ -146,10 +150,13 @@ impl<F: Face> Renderer<F> {
             border,
             clear: &clear,
             changed: &changed,
-            arrow: plan.pointer.map(|p| ArrowAt {
-                image: &self.upright_arrow,
-                x: p.at.x,
-                y: p.at.y,
+            arrow: plan.pointer.map(|p| {
+                let at = turn.up_area(p.at);
+                ArrowAt {
+                    image: &self.upright_arrow,
+                    x: at.x,
+                    y: at.y,
+                }
             }),
             overlays,
             cells: &cells,
@@ -181,7 +188,7 @@ impl<F: Face> Renderer<F> {
                 u32::try_from(self.layout.cw).unwrap_or(1),
                 u32::try_from(self.layout.ch).unwrap_or(1),
             ),
-            sprites: &self.compose.sprites,
+            sprites: &self.gpu.sprites,
         }
     }
 }

@@ -1,6 +1,6 @@
 
 void main() {
-    ivec2 at = ivec2(src_at);
+    ivec2 at = texel(ivec2(gl_FragCoord.xy));
 #ifdef SPATIAL_STEP
     vec4 c = spatial_step(at);
 #else

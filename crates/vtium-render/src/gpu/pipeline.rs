@@ -6,7 +6,7 @@
 //!    the size of the whole display that outlives a frame.
 //! 3. [`Color`] maps each pixel's color to a new one.
 //! 4. [`Spatial`] reads the upright frame around a pixel.
-//! 5. [`Present`] copies the upright frame into the display's buffer, with
+//! 5. [`Present`] turns the upright frame into the display's buffer, with
 //!    the color and spatial steps that are switched on folded into its one
 //!    pass.
 //!
@@ -21,23 +21,25 @@
 //! and only when the batch made a call. A frame that drew ends with
 //! [`Gl::submit`], so the display can show the buffer.
 //!
-//! The pipeline draws an upright display; the turn is part 4 of slice 0,
-//! and the picture steps part 5 (ADR-1303 D11).
+//! A turn of the display changes present's quads alone, and keeps every
+//! texture and program: the upright frame is made anew only where a quarter
+//! turn swaps its sides. The picture steps are part 5 of slice 0 (ADR-1303
+//! D11).
 
 use std::collections::VecDeque;
 
-use super::compose::{Composition, TARGET_SIZE, Work};
+use super::compose::{CELL_VERT, Composition, TARGET_SIZE, Work};
 use super::gl::{
     Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Gl, Input, InputKind, Program, Quad,
     Size, Source, Value,
 };
 use super::glyphs::{Glyphs, Spec};
 use super::tile::{Tile, meet};
+use super::turn::{Turn, upright};
 use crate::bounds::PRESENT_HISTORY;
 use crate::notice::Placed;
-use crate::target::Rect;
+use crate::target::{Orientation, Rect};
 
-const QUAD_VERT: &str = include_str!("glsl/quad.vert");
 const PRESENT_HEAD: &str = include_str!("glsl/present_head.frag");
 const PRESENT_MAIN: &str = include_str!("glsl/present_main.frag");
 
@@ -166,7 +168,7 @@ impl Present {
             .copied()
             .collect();
         let program = gl.compile(&Source {
-            vertex: &[QUAD_VERT],
+            vertex: &[CELL_VERT],
             fragment: &fragment,
             inputs: &inputs,
         })?;
@@ -176,18 +178,23 @@ impl Present {
         })
     }
 
-    /// Copies into `target`, a buffer `age` frames old, what it lacks: the
-    /// rectangles composed over its age, `composed` the newest, or the whole
-    /// buffer at age 0 or past the history; the whole buffer too when
-    /// `whole` and it lacks anything, or when what it lacks includes the
-    /// whole. Each tile of the upright frame draws the part it owns. Gives
-    /// the rectangles it drew, the frame's damage. A buffer that lacks
-    /// nothing is not drawn, and the frame does not count for the ages that
-    /// follow, as on the CPU path.
+    /// Turns into `target`, a buffer `age` frames old, what it lacks: the
+    /// upright frame's rectangles composed over its age, `composed` the
+    /// newest, or the whole buffer at age 0 or past the history; the whole
+    /// buffer too when `whole` and it lacks anything, or when what it lacks
+    /// includes the whole. Each tile of the upright frame draws the part it
+    /// owns. Gives the rectangles of the buffer it drew, the frame's damage.
+    /// A buffer that lacks nothing is not drawn, and the frame does not
+    /// count for the ages that follow, as on the CPU path.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the frame, the buffer and its age, and what the frame composed"
+    )]
     fn draw<G: Gl>(
         &mut self,
         gl: &mut G,
         composition: &Composition,
+        turn: Turn,
         target: &DrawTarget,
         age: u32,
         composed: Vec<Rect>,
@@ -213,7 +220,7 @@ impl Present {
         }
         self.history.truncate(PRESENT_HISTORY);
         let size = target.size();
-        let all = size.rect();
+        let all = composition.size().rect();
         let rects = if unknown || whole || lacking.iter().any(|&r| meet(r, all) == Some(all)) {
             vec![all]
         } else {
@@ -225,7 +232,7 @@ impl Present {
             let quads: Vec<Quad> = rects
                 .iter()
                 .filter_map(|&r| meet(r, tile.owned))
-                .map(|r| quad(r, tile))
+                .map(|r| quad(r, tile, turn))
                 .collect();
             if quads.is_empty() {
                 continue;
@@ -245,7 +252,7 @@ impl Present {
                 scissor: None,
             })?;
         }
-        Ok(rects)
+        Ok(rects.into_iter().map(|r| turn.down(r)).collect())
     }
 
     /// Forgets what the buffers hold, so the next present draws whole.
@@ -254,19 +261,22 @@ impl Present {
     }
 }
 
-/// A quad that copies `r` of the upright frame, which `tile` holds, to the
-/// same place on the display.
-fn quad(r: Rect, tile: &Tile) -> Quad {
+/// A quad that turns `r` of the upright frame, which `tile` holds, onto
+/// the display: `dst` the display's rectangle it draws, `src` the tile's
+/// texels under `r`, and the turn's code in its first parameter, which
+/// present's shader reads as `params.x`.
+fn quad(r: Rect, tile: &Tile, turn: Turn) -> Quad {
     let i = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
+    let d = turn.down(r);
     Quad {
-        dst: [i(r.x), i(r.y), i(r.width), i(r.height)],
+        dst: [i(d.x), i(d.y), i(d.width), i(d.height)],
         src: [
             r.x.saturating_sub(tile.held.x),
             r.y.saturating_sub(tile.held.y),
             r.width,
             r.height,
         ],
-        params: [0; 4],
+        params: [turn.code(), 0, 0, 0],
     }
 }
 
@@ -282,8 +292,8 @@ pub(crate) struct Begun {
 /// The GPU path's frame for one display, through its five slots.
 #[derive(Debug)]
 pub struct Pipeline {
-    /// The display's size, which every buffer it lends has.
-    display: Size,
+    /// The display's turn and size, which every buffer it lends has.
+    turn: Turn,
     pictures: Pictures,
     composition: Composition,
     spatial: Spatial,
@@ -291,13 +301,25 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    /// Sets up the frame for a display of `size`: the upright frame in
-    /// tiles, the composition's programs, and present's program with the
-    /// configured steps joined in. Its allocations are one batch, checked
-    /// once.
+    /// Sets up the frame for an upright display of `size`:
+    /// [`Pipeline::turned`] with [`Orientation::Normal`].
     pub fn new<G: Gl>(gl: &mut G, size: Size, config: Config) -> Result<Pipeline, Error> {
+        Pipeline::turned(gl, size, Orientation::Normal, config)
+    }
+
+    /// Sets up the frame for a display of `size` turned as `orientation`
+    /// says: the upright frame in tiles, the composition's programs, and
+    /// present's program with the configured steps joined in. Its
+    /// allocations are one batch, checked once.
+    pub fn turned<G: Gl>(
+        gl: &mut G,
+        size: Size,
+        orientation: Orientation,
+        config: Config,
+    ) -> Result<Pipeline, Error> {
         let overlap = config.spatial.reach().saturating_mul(2);
-        let composition = Composition::new(gl, size, overlap)?;
+        let turn = Turn::new(orientation, size);
+        let composition = Composition::new(gl, turn.upright(), overlap)?;
         let present = match Present::new(gl, config.color, config.spatial) {
             Ok(p) => p,
             Err(e) => {
@@ -307,7 +329,7 @@ impl Pipeline {
             }
         };
         let pipeline = Pipeline {
-            display: size,
+            turn,
             pictures: Pictures,
             composition,
             spatial: config.spatial,
@@ -337,7 +359,7 @@ impl Pipeline {
         target: &DrawTarget,
         age: u32,
     ) -> Result<Vec<Rect>, Error> {
-        if target.size() != self.display {
+        if target.size() != self.turn.display {
             return Err(Error::new(
                 ErrorKind::Misuse,
                 "the buffer's size is not the display's",
@@ -373,6 +395,7 @@ impl Pipeline {
         let damage = self.present.draw(
             gl,
             &self.composition,
+            self.turn,
             target,
             age,
             composed,
@@ -395,7 +418,33 @@ impl Pipeline {
 
     /// The display's size.
     pub fn size(&self) -> Size {
-        self.display
+        self.turn.display
+    }
+
+    /// How the display is turned.
+    pub fn orientation(&self) -> Orientation {
+        self.turn.orientation
+    }
+
+    /// Turns the display as `orientation` says (ADR-1303 D3, D9). The next
+    /// frame composes the upright frame whole, since the grid's place in it
+    /// moves, and presents the whole buffer turned. A turn compiles nothing
+    /// and keeps the glyphs and the arrow. Only a quarter turn of a display
+    /// that is not square makes the upright frame anew, its sides swapped,
+    /// a batch of allocations it checks once; a call that fails leaves the
+    /// pipeline as it was.
+    pub fn turn<G: Gl>(&mut self, gl: &mut G, orientation: Orientation) -> Result<(), Error> {
+        if orientation == self.turn.orientation {
+            return Ok(());
+        }
+        let size = upright(orientation, self.turn.display);
+        if size != self.composition.size() {
+            self.composition.reshape(gl, size)?;
+            gl.check(Batch::Uploads)?;
+        }
+        self.turn.orientation = orientation;
+        self.redraw_whole();
+        Ok(())
     }
 
     /// Starts a frame of the renderer `spec` names: its glyphs, made anew
@@ -404,7 +453,8 @@ impl Pipeline {
     /// so the renderer draws the whole picture, and the areas of the last
     /// frame's notices and focus mark that `overlays` no longer draws as
     /// they were, whose cells the renderer draws again. A start that fails
-    /// leaves the next frame to compose whole.
+    /// leaves the pipeline with no glyphs, so the next start makes them and
+    /// composes whole.
     pub(crate) fn begin<G: Gl>(
         &mut self,
         gl: &mut G,
@@ -412,10 +462,7 @@ impl Pipeline {
         border: u32,
         overlays: &[Placed],
     ) -> Result<Begun, Error> {
-        if let Err(e) = self.composition.glyphs(gl, spec) {
-            self.redraw_whole();
-            return Err(e);
-        }
+        self.composition.glyphs(gl, spec)?;
         Ok(Begun {
             whole: self.composition.needs_whole(border),
             gone: self.composition.overlays_gone(overlays),

@@ -550,6 +550,18 @@ impl<F: Face> Renderer<F> {
         );
         let upright_arrow = pointer_image(&font, ch, config);
         let arrow = upright_arrow.clone().turned(config.orientation);
+        #[cfg(feature = "gpu")]
+        let gpu = gpu::State::new(
+            budgets,
+            Sprites::new(
+                cw,
+                ch,
+                &font.decorations(),
+                Orientation::Normal,
+                config.storage.bits,
+                config.depth == Depth::One,
+            ),
+        );
         Renderer {
             compose: Composer::new(
                 GlyphCache::new(budgets, config.storage, config.orientation).with_fallback(
@@ -586,8 +598,28 @@ impl<F: Face> Renderer<F> {
             changed: Vec::new(),
             touched: Vec::new(),
             #[cfg(feature = "gpu")]
-            gpu: gpu::State::new(budgets),
+            gpu,
         }
+    }
+
+    /// This renderer on the same display turned as `orientation` says, with
+    /// its font and the rest of its configuration. On the CPU path it is a
+    /// new renderer: its cache holds glyphs turned for the old orientation.
+    /// On the GPU path, whose glyphs are upright, it keeps its identity, so
+    /// a pipeline that holds its glyphs keeps them, and the turn uploads and
+    /// compiles nothing (ADR-1303 D3). Its next frame draws whole.
+    pub fn turned(self, orientation: Orientation) -> Renderer<F> {
+        let config = Config {
+            orientation,
+            ..self.config
+        };
+        let turned = Renderer::new(self.font, self.layout.width, self.layout.height, config);
+        #[cfg(feature = "gpu")]
+        let turned = Renderer {
+            gpu: self.gpu,
+            ..turned
+        };
+        turned
     }
 
     /// The font now draws each of `chars` differently, as when the deferred
