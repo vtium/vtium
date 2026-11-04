@@ -65,6 +65,16 @@ pub struct HeadGpu {
     test: Option<std::sync::Arc<TestGpu>>,
 }
 
+impl Drop for HeadGpu {
+    /// Waits while a test holds the drop, standing in for a driver that
+    /// hangs as its context is destroyed.
+    fn drop(&mut self) {
+        if let Some(test) = &self.test {
+            let _held = test.hold_drop.lock();
+        }
+    }
+}
+
 impl HeadGpu {
     /// The head's GL context from `source`, or what failed, for the log.
     pub fn new(source: &GpuSource) -> Result<HeadGpu, String> {

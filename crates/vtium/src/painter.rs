@@ -82,6 +82,9 @@ pub struct TestGpu {
     /// How many displays the head's GPU path keeps frames for, as the
     /// render thread last counted them.
     pub kept: std::sync::atomic::AtomicUsize,
+    /// Held by a test, it keeps the head's GPU path from being dropped, as
+    /// a driver that hangs in eglDestroyContext would.
+    pub hold_drop: std::sync::Mutex<()>,
 }
 
 /// A failure a test makes the GPU raise in a frame.
@@ -304,16 +307,23 @@ fn draw_frames(
             }
         };
         let mut frame = job.compose(head.as_mut());
-        if let Some(why) = head.as_ref().and_then(HeadGpu::lost) {
-            // ADR-1303 D9: the head stays on the CPU path until vtium
-            // restarts, and the loop says so once
-            frame.left_gpu = Some(why.to_owned());
-            head = None;
-        }
+        // ADR-1303 D9: the head stays on the CPU path until vtium restarts,
+        // and the loop says so once. The frame goes back before the GL
+        // context is dropped, so a driver that hangs destroying it holds
+        // no frame.
+        let ended = head
+            .as_ref()
+            .and_then(HeadGpu::lost)
+            .map(str::to_owned)
+            .and_then(|why| {
+                frame.left_gpu = Some(why);
+                head.take()
+            });
         if composed.send(frame).is_err() {
             break;
         }
         wake();
+        drop(ended);
     }
 }
 
@@ -593,6 +603,31 @@ mod tests {
         assert_eq!(kept(&mut painter, QUEUE + 1), QUEUE + 1);
         assert!(painter.send(Box::new(all.next().unwrap())).is_none());
         assert_eq!(kept(&mut painter, 1), QUEUE + 1, "display 1 freed");
+    }
+
+    // ADR-1303 D9: the frame that ends the GPU path comes back to the
+    // loop before the head's GL context is dropped, so a driver that hangs
+    // in the drop holds no frame
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn the_frame_that_ends_the_gpu_path_comes_back_before_the_context_goes() {
+        let gpu = Arc::new(TestGpu::default());
+        let mut painter =
+            Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+        let held = gpu.hold_drop.lock().unwrap();
+        gpu.faults.lock().unwrap().push_back(Fault::ContextLost);
+        let hook: DrawHook = Arc::new(|| {});
+        assert!(painter.send(Box::new(jobs(1, &hook).remove(0))).is_none());
+        let end = Instant::now() + Duration::from_secs(10);
+        let mut back = Vec::new();
+        while back.is_empty() && Instant::now() < end {
+            back = painter.take();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // released before any assertion, so a failing one joins the thread
+        drop(held);
+        assert_eq!(back.len(), 1, "the frame came back while the drop hung");
+        assert!(back[0].left_gpu.is_some(), "it carries why the path ended");
     }
 
     // A render thread is joined when its head is dropped: the drop waits
