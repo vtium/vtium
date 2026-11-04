@@ -571,8 +571,8 @@ def page(report, date):
              "captured each screen from the guest's display, and nothing in them is mocked "
              "up or edited. Each scene is a shell script that writes fixed bytes, so every "
              "run draws the same screen. The screens are made again for each release, and "
-             "they judge nothing: [Concepts](../concepts.md) explains how vtium's output is "
-             "judged.", ""]
+             "they judge nothing: [How vtium is judged](../concepts/how-vtium-is-judged.md) "
+             "explains how vtium's output is judged.", ""]
     for title, name, script, _ in IMAGES:
         text, alt = caption(script)
         lines += ["## %s" % title, "", "![%s](%s)" % (alt, name), "", text, ""]

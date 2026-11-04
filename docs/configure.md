@@ -1,6 +1,6 @@
 # Configure vtium
 
-This guide changes how vtium behaves through its configuration file, `/etc/vtium/vtium.conf`, and its head file, `/etc/vtium/heads.conf`. vtium reads the keys the C reference's `kmscon.conf` took, and adds its own; [config.md](config.md) lists every key with its default and its bounds, and [Set up heads](heads.md) gives a complete head file for each common setup.
+This guide changes how vtium behaves through its configuration file, `/etc/vtium/vtium.conf`, and its head file, `/etc/vtium/heads.conf`. vtium takes the keys of `kmscon`'s configuration file, `kmscon.conf`, and adds its own; [config.md](config.md) lists every key with its default and its bounds, and [Set up heads](heads.md) gives a complete head file for each common setup.
 
 In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user.
 

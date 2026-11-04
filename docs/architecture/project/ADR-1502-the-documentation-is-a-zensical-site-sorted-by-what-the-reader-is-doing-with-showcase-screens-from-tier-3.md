@@ -63,6 +63,10 @@ considered:
     said: "Pages source: the maintainer sets it once. Leave that as stated."
     via: the maintainer in the steering session's interview, 2026-11-04, relayed by the team lead
     paraphrase: true
+  - operator: aaronsb
+    said: "Concepts become a section of the docs, one concept to a page, so a reader can open one at a time"
+    via: the steering session, 2026-11-04
+    paraphrase: true
 status: accepted
 date: 2026-11-03
 deciders:
@@ -76,7 +80,7 @@ related:
 
 ## Summary
 
-- **Decided:** vtium's documentation stays as markdown files under `docs/`, readable on GitHub, and is also published as a website at `vtium.github.io/vtium`. Zensical, a static site generator, builds the site from a `zensical.toml` at the repository's root. The site's menu sorts the pages by what the reader is doing, as Diátaxis does: tutorials, how-to guides, reference and explanation, then the decision records and a section for contributors. No existing file moves. `managing-vtium.md` and `heads.md`, which mix kinds of page, are split, and two tutorials are written: "Try vtium on one VT" and "Your first frit". The README shrinks to a short front door. A link that leaves `docs/` is a full GitHub address, so it works in both places. A GitHub Actions workflow publishes `main` to GitHub Pages, and a CI job on every pull request builds the site in strict mode, which fails on a broken link or anchor; a Rust test fails on a page missing from the menu. New showcase screens, vtium's own drawing on a VT of tier 3's QEMU guest at 1920x1080 in Iosevka, replace the small-machine screens at the top of the README, and one of them shows four fonts side by side, bitmap and outline, to say that any font works. They are committed, regenerated at each release, and judge nothing.
+- **Decided:** vtium's documentation stays as markdown files under `docs/`, readable on GitHub, and is also published as a website at `vtium.github.io/vtium`. Zensical, a static site generator, builds the site from a `zensical.toml` at the repository's root. The site's menu sorts the pages by what the reader is doing, as Diátaxis does: tutorials, how-to guides, reference and explanation, then the decision records and a section for contributors. No existing file moves, apart from `concepts.md`, which became the section `docs/concepts/` (edited 2026-11-04, D1; it read "No existing file moves."). `managing-vtium.md` and `heads.md`, which mix kinds of page, are split, and two tutorials are written: "Try vtium on one VT" and "Your first frit". The README shrinks to a short front door. A link that leaves `docs/` is a full GitHub address, so it works in both places. A GitHub Actions workflow publishes `main` to GitHub Pages, and a CI job on every pull request builds the site in strict mode, which fails on a broken link or anchor; a Rust test fails on a page missing from the menu. New showcase screens, vtium's own drawing on a VT of tier 3's QEMU guest at 1920x1080 in Iosevka, replace the small-machine screens at the top of the README, and one of them shows four fonts side by side, bitmap and outline, to say that any font works. They are committed, regenerated at each release, and judge nothing.
 - **Trades away:** one more toolchain, Python with Zensical and its pinned dependencies, used only to build the site, on a generator that has not reached its 1.0 release, so a newer release may change or break the build. The README stops being the place that says everything. Each release gains a tier 3 run and a commit of new images, and the repository grows by those images.
 - **One-way?** No. The pages stay plain markdown, and `zensical.toml`, one workflow and one Rust test are all the site adds; removing them removes the site. The site's address is the hardest thing to change once people have it, and GitHub Pages redirects the `github.io` address to a custom domain once one is set.
 - **Probes:** *Confident (the readers):* the people you send vtium to run Linux but have never seen vtium, and the first thing they want is to try it on one VT and get back to their desktop safely; then to pick a font; then to look things up. The order of the menu and the two tutorials are built for them. *Not confident (the builder):* Material for MkDocs, which you named, stops getting fixes two days from now. This record builds with it anyway, pinned, and keeps `mkdocs.yml` to what Zensical, its authors' successor, also reads, so the switch later is a change of the build command. You may prefer to start on Zensical now, which is still before its 1.0 release.
@@ -101,7 +105,9 @@ The site's menu has seven sections, in this order: Home, Tutorials, How-to guide
 
 ![A map of the documentation site. Across the top, the Home section: the home page and the showcase. In the middle, four boxes in a two by two grid: the left column holds pages that teach by doing, the right column pages that explain; the top row is for a reader who is learning, the bottom row for a reader at work. Tutorials, top left: Try vtium on one VT, and Your first frit. Explanation, top right: Why vtium, which takes the README's comparison with the alternatives, and Concepts, which takes heads.md's two policies and the way back in. How-to guides, bottom left: Running vtium day to day, the index, then Install vtium and give it VTs, Configure vtium, Choose a font, Set up heads, and Find out what went wrong. Reference, bottom right: What vtium does, Keys, Configuration keys, The head file, Modes, systemd, logind and PID 1, and Specimens. Across the bottom, two more sections: Decisions, the decision records reached through their index, and For contributors: Architecture, The C reference, The VT review, and links to AGENTS.md and CONTRIBUTING.md on GitHub.](figures/ADR-1502-site-map.svg)
 
-Every existing page keeps its path. The menu, not the folder a file sits in, says which mode a page belongs to, so the links that issues, commits, crates' READMEs and other pages already hold keep working. New pages sit beside the existing ones, directly in `docs/`.
+> Edited 2026-11-04: the maintainer asked for the concepts to become a section of the docs, one concept to a page, so a reader can open one at a time (`considered`). `docs/concepts.md` became the folder `docs/concepts/`: an index, `docs/concepts/index.md`, and a page for each concept. It read: "Every existing page keeps its path." The site still serves the index at `/concepts/`, where it served the old page, so the site's address for the concepts keeps working, but a link to an anchor of the old page lands on the index, and a link to the old file's path on GitHub breaks. No stub page stays at `docs/concepts.md`, since it and `docs/concepts/index.md` would both claim `/concepts/`. Where the rest of D1 names `concepts.md`, it means the page as it was before the split.
+
+Every existing page keeps its path, apart from `concepts.md`, which became the section `docs/concepts/`. The menu, not the folder a file sits in, says which mode a page belongs to, so each page's address on the site and the links other pages hold keep working. New pages sit beside the existing ones, directly in `docs/`.
 
 This table maps each existing page to its mode and says what changes:
 
@@ -109,7 +115,7 @@ This table maps each existing page to its mode and says what changes:
 |---|---|---|
 | `README.md` | not on the site: the front door on GitHub | shortened (D2); each of its sections moves to the page this table names for it |
 | `docs/why-vtium.md` | Explanation | takes the README's comparison with the other consoles, its table and its sources |
-| `docs/concepts.md` | Explanation | takes `heads.md`'s explanation of the two policies and of the operator's way back in (an operator's head, and recovery from outside) |
+| `docs/concepts/` | Explanation | takes `heads.md`'s explanation of the two policies and of the operator's way back in (an operator's head, and recovery from outside); a section since 2026-11-04, an index and one page for each concept |
 | `docs/managing-vtium.md` | How-to guides | split: its sections become the guides below, and the file stays at its path as the index of the How-to section, a short page that lists each guide |
 | `docs/heads.md` | How-to guides | split: it keeps its scenarios, each a complete head file for one setup, as the guide "Set up heads"; its terms, the head file's syntax and match keys, the table of input routes and the steps for an invalid file move to the new reference page `head-file.md` |
 | `docs/config.md` | Reference | none; it is generated from the key table in `crates/vtium-settings/src/keys.rs` |
@@ -181,6 +187,8 @@ The menu, in `zensical.toml`'s `nav`, reads:
 
 > Edited 2026-11-04: "Your first frit" leaves the Tutorials section until it is written (D1). The listing below matches `zensical.toml`.
 
+> Edited 2026-11-04: Concepts became a section, an index and one page for each concept (D1). It read: `{ "Concepts" = "concepts.md" },`.
+
 ```toml
 nav = [
   { "Home" = ["index.md", { "Showcase" = "showcase/README.md" }] },
@@ -206,7 +214,18 @@ nav = [
   ] },
   { "Explanation" = [
       { "Why vtium" = "why-vtium.md" },
-      { "Concepts" = "concepts.md" },
+      { "Concepts" = [
+          "concepts/index.md",
+          { "What vtium is" = "concepts/what-vtium-is.md" },
+          { "The suite" = "concepts/suite.md" },
+          { "Deployment and start-up" = "concepts/start-up.md" },
+          { "Heads" = "concepts/heads.md" },
+          { "Fonts, generated at run time" = "concepts/fonts.md" },
+          { "Using vtium" = "concepts/using-vtium.md" },
+          { "How vtium is judged" = "concepts/how-vtium-is-judged.md" },
+          { "How vtium is built" = "concepts/how-vtium-is-built.md" },
+          { "What vtium does not do" = "concepts/what-vtium-does-not-do.md" },
+      ] },
   ] },
   { "Decisions" = "architecture/INDEX.md" },
   { "For contributors" = [
@@ -224,7 +243,7 @@ Zensical has not reached 1.0, so a newer release may change its configuration, i
 
 ### D4: links that work on GitHub and on the site
 
-- A link from one page under `docs/` to another is relative, such as `[concepts.md](concepts.md#the-frit)`. It works on GitHub and on the site, and the strict build checks it and its anchor.
+- A link from one page under `docs/` to another is relative, such as `[the frit](concepts/fonts.md#the-frit)`. It works on GitHub and on the site, and the strict build checks it and its anchor.
 - A link that leaves `docs/` is a full address on `main`: `https://github.com/vtium/vtium/blob/main/PATH` for a file and `https://github.com/vtium/vtium/tree/main/PATH` for a folder. This covers `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `COPYING`, `LICENSE`, each crate's README, everything under `tools/`, source files and the TSV tables. It works in both places. A relative link out of `docs/` fails the strict build, because Zensical cannot find the page.
 - A page names a GitHub issue as a link, `[the libseat issue](https://github.com/vtium/vtium/issues/N)`, as the README already does. A reference written as `vtium/vtium#N` reads as plain text on the site.
 - The programs that generate pages, `config.md`, `modes.md` and the specimen pages, write their links by the same rules.
