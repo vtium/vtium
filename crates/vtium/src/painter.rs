@@ -18,12 +18,20 @@
 //! Each head's compose times are logged at debug level once a second while
 //! it draws ([`Figures`]).
 //!
-//! The thread's stack is [`STACK`]; it ends, and is joined, when its head
+//! A head whose `hwaccel` is on, in a build with `gpu`, draws on the GPU
+//! path (ADR-1303 D9): the thread makes the head's GL context before it
+//! takes a frame, from the [`GpuSource`] the loop gives it, and tells the
+//! loop which [`Path`] the head draws on, or why the GPU path could not
+//! start, before [`Painter::start`] returns. A head whose context cannot
+//! be made draws on the CPU path.
+//!
+//! The thread's stack is [`STACK`], or [`GPU_STACK`] on the GPU path; it ends, and is joined, when its head
 //! is dropped, as at a new head file and at the exit. A panic on it ends
 //! the process, as one on the loop does (D10): under `panic=abort` at
 //! once, and in a test when the loop finds the thread gone.
 
 use std::io;
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -34,38 +42,97 @@ use crate::term::{Composed, Job};
 /// in a debug build and in 16 KiB optimised.
 pub const STACK: usize = 128 * 1024;
 
+/// The stack of a render thread that makes a GL context, in bytes: the
+/// driver compiles the shaders and runs its draws on the calling thread,
+/// and Mesa's llvmpipe compiles them through LLVM, which overflows
+/// [`STACK`]. 8 MiB is a main thread's stack on Linux; the memory is
+/// reserved, and only what the thread touches is used.
+pub const GPU_STACK: usize = 8 * 1024 * 1024;
+
 /// The frames each of a render thread's two channels holds.
 pub const QUEUE: usize = 16;
+
+/// Where a head's render thread makes its GL context.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GpuSource {
+    /// The render node of the card that drives the head's first display.
+    RenderNode(PathBuf),
+    /// Mesa's llvmpipe with no device: the tests' GPU.
+    Software,
+}
+
+/// The path that draws a head's frames, which the log names (ADR-1303
+/// D10).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Path {
+    /// The CPU path: the renderer composes into the display's buffer.
+    #[default]
+    Cpu,
+    /// The GPU path: the head's GL context draws the frames.
+    Gpu,
+}
+
+impl Path {
+    /// The name the display's log line gives the path.
+    pub fn name(self) -> &'static str {
+        match self {
+            Path::Cpu => "cpu",
+            Path::Gpu => "gpu",
+        }
+    }
+}
+
+/// How the render thread's set-up went: the path the head draws on, and,
+/// when the GPU path was asked for and could not start, why.
+type Ready = (Path, Option<String>);
 
 /// A head's render thread, and the channels to it and back.
 pub struct Painter {
     jobs: Option<SyncSender<Job>>,
     done: Option<Receiver<Composed>>,
     thread: Option<JoinHandle<()>>,
+    path: Path,
+    /// Why the GPU path asked for could not start.
+    refused: Option<String>,
 }
 
 impl Painter {
     /// Starts the render thread of the head `name`; `wake` wakes the loop
-    /// after each frame composed.
-    pub fn start(name: &str, wake: impl Fn() + Send + 'static) -> io::Result<Painter> {
+    /// after each frame composed. With `gpu`, the thread first makes the
+    /// head's GL context there, and the call returns once it has, or has
+    /// failed to, so the painter knows its [`Path`].
+    pub fn start(
+        name: &str,
+        gpu: Option<GpuSource>,
+        wake: impl Fn() + Send + 'static,
+    ) -> io::Result<Painter> {
         let (jobs, todo) = sync_channel::<Job>(QUEUE);
         let (composed, done) = sync_channel::<Composed>(QUEUE);
+        let (ready, set_up) = sync_channel::<Ready>(1);
         let thread = std::thread::Builder::new()
             .name(format!("render {name}"))
-            .stack_size(STACK)
-            .spawn(move || {
-                for job in todo {
-                    if composed.send(job.compose()).is_err() {
-                        break;
-                    }
-                    wake();
-                }
-            })?;
+            .stack_size(if gpu.is_some() { GPU_STACK } else { STACK })
+            .spawn(move || draw_frames(gpu, &ready, &todo, &composed, &wake))?;
+        // the thread sends its set-up before it takes a frame, and a thread
+        // that ended without sending it draws nothing
+        let (path, refused) = set_up.recv().unwrap_or_default();
         Ok(Painter {
             jobs: Some(jobs),
             done: Some(done),
             thread: Some(thread),
+            path,
+            refused,
         })
+    }
+
+    /// The path the head's frames are drawn on.
+    pub fn path(&self) -> Path {
+        self.path
+    }
+
+    /// Why the GPU path asked for could not start, once: the loop logs it.
+    pub fn take_refusal(&mut self) -> Option<String> {
+        self.refused.take()
     }
 
     /// Sends `job` to be composed; a full queue gives it back.
@@ -96,6 +163,60 @@ impl Painter {
                 }
             }
         }
+    }
+}
+
+/// The render thread: its GPU path's set-up, sent back as `ready`, then
+/// each frame of `todo` composed, sent back on `composed`, and the loop
+/// woken.
+#[cfg(feature = "gpu")]
+fn draw_frames(
+    gpu: Option<GpuSource>,
+    ready: &SyncSender<Ready>,
+    todo: &Receiver<Job>,
+    composed: &SyncSender<Composed>,
+    wake: &impl Fn(),
+) {
+    use crate::gpu::head::HeadGpu;
+    let mut head = None;
+    let mut refused = None;
+    if let Some(source) = &gpu {
+        match HeadGpu::new(source) {
+            Ok(h) => head = Some(h),
+            Err(why) => refused = Some(why),
+        }
+    }
+    let path = if head.is_some() { Path::Gpu } else { Path::Cpu };
+    let _ = ready.send((path, refused));
+    for job in todo {
+        let frame = job.compose(head.as_mut());
+        if head.as_ref().is_some_and(HeadGpu::lost) {
+            // ADR-1303 D9: GL's state is undefined; the head stays on the
+            // CPU path until vtium restarts
+            head = None;
+        }
+        if composed.send(frame).is_err() {
+            break;
+        }
+        wake();
+    }
+}
+
+/// The render thread in a build without `gpu`: every head on the CPU path.
+#[cfg(not(feature = "gpu"))]
+fn draw_frames(
+    _: Option<GpuSource>,
+    ready: &SyncSender<Ready>,
+    todo: &Receiver<Job>,
+    composed: &SyncSender<Composed>,
+    wake: &impl Fn(),
+) {
+    let _ = ready.send((Path::Cpu, None));
+    for job in todo {
+        if composed.send(job.compose(None)).is_err() {
+            break;
+        }
+        wake();
     }
 }
 
@@ -287,7 +408,7 @@ mod tests {
             let _ = started.lock().unwrap().send(());
             let _ = wait_release.lock().unwrap().recv();
         });
-        let mut painter = Painter::start("test", || {}).unwrap();
+        let mut painter = Painter::start("test", None, || {}).unwrap();
         let mut all = jobs(u32::try_from(QUEUE).unwrap() + 2, &hook).into_iter();
         assert!(painter.send(all.next().unwrap()).is_none());
         wait_started.recv().unwrap();
@@ -322,7 +443,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(200));
             flag.store(true, Ordering::SeqCst);
         });
-        let painter = Painter::start("test", || {}).unwrap();
+        let painter = Painter::start("test", None, || {}).unwrap();
         assert!(painter.send(jobs(1, &hook).remove(0)).is_none());
         wait_started.recv().unwrap();
         drop(painter);

@@ -1559,7 +1559,7 @@ class VariantTest(unittest.TestCase):
     def test_potato(self):
         # The minspec machine, in the default run.
         v = t3_scenario.VARIANTS["2d-1366x768-potato"]
-        self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"]), (1, 512, "bbulk"))
+        self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"]), (1, 512, "cpu"))
         self.assertIn("xres=1366,yres=768", v["device"])
         self.assertFalse(t3_scenario.uses_virgl("2d-1366x768-potato"))
         self.assertIn("2d-1366x768-potato", t3_scenario.DEFAULT_VARIANTS)
@@ -4830,6 +4830,39 @@ class RebaselinedTest(unittest.TestCase):
         self.assertEqual(goldens["sgr"],
                          t3_common.rel(os.path.join(self.c, self.VARIANT, "sgr.png")))
 
+    def test_the_gpu_variant_is_judged_by_the_cpu_paths_goldens(self):
+        # gpu-1280x800 draws 2d-1280x800's screens with hwaccel on, on a
+        # guest render node, must log the gpu renderer, and each of its cases
+        # is judged by the golden that judges 2d-1280x800's (ADR-1303 D1)
+        v = t3_scenario.VARIANTS["gpu-1280x800"]
+        self.assertEqual((v["renderer"], v["conf"]), ("gpu", "kmscon-hwaccel.conf"))
+        self.assertTrue(t3_scenario.uses_virgl("gpu-1280x800"))
+        self.assertIn("gpu", v["tree_features"])
+        with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+            self.assertIn("\nhwaccel\n", f.read())
+        for root in (self.vtium, self.c):
+            os.makedirs(os.path.join(root, "2d-1280x800"))
+        for root, screen in ((self.vtium, "cjk"), (self.c, "sgr")):
+            t3img.write_png(os.path.join(root, "2d-1280x800", screen + ".png"),
+                            t3img.Image(8, 8, bytes(8 * 8 * 3)))
+        with mock.patch.object(t3_scenario, "VTIUM_GOLDEN", self.vtium), \
+                mock.patch.object(t3_evaluate, "GOLDEN", self.c):
+            self.assertEqual(t3_scenario.golden_root("gpu-1280x800", "cjk"), self.vtium)
+            self.assertIsNone(t3_scenario.golden_root("gpu-1280x800", "sgr"))
+            meta = t3_scenario.failure_meta("no boot")
+            goldens = {e["name"].split("/", 1)[1]: e["golden"]
+                       for e in t3_scenario.evaluate_variant("gpu-1280x800", {}, meta, LOG)}
+        self.assertEqual(goldens["cjk"],
+                         t3_common.rel(os.path.join(self.vtium, "2d-1280x800", "cjk.png")))
+        self.assertEqual(goldens["sgr"],
+                         t3_common.rel(os.path.join(self.c, "2d-1280x800", "sgr.png")))
+        # a console that drew the variant on the CPU path fails every case
+        errors, drop = t3_scenario.variant_errors(
+            None, ["Display Virtual-1 with backend [drm2d] text renderer [cpu], cell size 10x19"],
+            "gpu", {}, {}, None)
+        self.assertTrue(drop)
+        self.assertIn("did not draw with gpu", errors[0])
+
     def test_rebaselined_goldens_are_cases(self):
         # A golden under goldens/ of a re-baselined variant must be one of
         # its cases, and the C reference's golden of the same case stays in
@@ -4921,7 +4954,7 @@ class ShowcaseTest(unittest.TestCase):
         v = t3_scenario.VARIANTS[self.VARIANT]
         self.assertIn("xres=1920,yres=1080", v["device"])
         self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"], v["tree_features"]),
-                         (4, 4096, "bbulk", ["images"]))
+                         (4, 4096, "cpu", ["images"]))
         self.assertEqual((v["verdict"], v["conf"]), ("capture", "kmscon-showcase.conf"))
         self.assertEqual(t3_scenario.variant_cases(self.VARIANT), self.SCREENS)
         self.assertEqual(t3_showcase.SCREENS, self.SCREENS)

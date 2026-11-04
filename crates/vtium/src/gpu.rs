@@ -20,6 +20,8 @@
 //! the ledger's context lost there, so every later call is refused before
 //! it reaches GL (ADR-1303 D9).
 
+pub mod head;
+
 use std::collections::BTreeMap;
 
 use vtium_platform::display::{DmaBuf, Rect as PlatformRect};

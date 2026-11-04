@@ -509,8 +509,13 @@ pub struct Job {
 impl Job {
     /// Composes the frame straight into the token's buffer, writing only:
     /// the renderer draws the cells the buffer lacks at its age, the whole
-    /// picture at age 0, and the overlay goes over them.
-    pub fn compose(self) -> Composed {
+    /// picture at age 0, and the overlay goes over them. With `gpu`, the
+    /// head's GPU path, the frame is drawn through the display's pipeline
+    /// and what the buffer lacks is read back into it; a frame the GPU path
+    /// fails, or does not draw, is drawn on the CPU path whole.
+    pub fn compose(self, gpu: OnGpu<'_>) -> Composed {
+        #[cfg(not(feature = "gpu"))]
+        let _ = gpu;
         if let Some(hook) = &self.hook {
             hook();
         }
@@ -532,10 +537,37 @@ impl Job {
                 let stride = usize::try_from(canvas.stride).ok()?;
                 let mut target = Mapped::new(canvas.pixels, size.0, size.1, stride)?;
                 let age = if self.whole { 0 } else { canvas.age };
-                let drawn = drawing.renderer.draw(&frame, &mut target, age, &self.state);
-                let stats = drawn.stats;
-                let mut damage: Vec<DisplayRect> = drawn
-                    .damage
+                #[cfg(feature = "gpu")]
+                let on_gpu = gpu.and_then(|g| {
+                    g.draw(
+                        &self.key,
+                        &mut drawing.renderer,
+                        &frame,
+                        (&mut target, size),
+                        self.orientation,
+                        age,
+                        &self.state,
+                    )
+                });
+                #[cfg(not(feature = "gpu"))]
+                let on_gpu: Option<Result<(Vec<RenderRect>, Stats), String>> = None;
+                let (rects, stats) = match on_gpu {
+                    Some(Ok(drawn)) => drawn,
+                    failed => {
+                        if let Some(Err(e)) = &failed {
+                            log::warn!(
+                                "display {}: the GPU path failed a frame ({e}): it is drawn on the CPU path",
+                                self.key.0.display()
+                            );
+                        }
+                        // after a failed GPU frame the renderer's record of
+                        // the buffer is unknown, so the CPU path draws whole
+                        let age = if failed.is_some() { 0 } else { age };
+                        let drawn = drawing.renderer.draw(&frame, &mut target, age, &self.state);
+                        (drawn.damage.to_vec(), drawn.stats)
+                    }
+                };
+                let mut damage: Vec<DisplayRect> = rects
                     .iter()
                     .map(|r| DisplayRect {
                         x: r.x,
@@ -572,6 +604,14 @@ impl Job {
         }
     }
 }
+
+/// The head's GPU path, which a frame is drawn through when there is one.
+#[cfg(feature = "gpu")]
+pub type OnGpu<'a> = Option<&'a mut crate::gpu::head::HeadGpu>;
+
+/// A build without `gpu` has no GPU path: always `None`.
+#[cfg(not(feature = "gpu"))]
+pub type OnGpu<'a> = Option<&'a mut std::convert::Infallible>;
 
 /// A frame composed, back from the render thread with its token.
 pub struct Composed {
@@ -1001,7 +1041,10 @@ impl View {
         let key = (PathBuf::new(), self.id);
         let mut snapshot = None;
         match self.prepare(&key, term, &mut snapshot, video, state, None, clock) {
-            Prepared::Job(job) => self.present(job.compose(), term, video, true, clock).queued,
+            Prepared::Job(job) => {
+                self.present(job.compose(None), term, video, true, clock)
+                    .queued
+            }
             Prepared::Later | Prepared::Nothing => false,
         }
     }
@@ -1663,7 +1706,13 @@ mod tests {
         };
         let face: DisplayFace = Box::new(Unifont::new(16));
         view.rebuild(Font::new(face), 32, RenderConfig::default());
-        let shown = view.present(job.compose(), &mut term, &mut video, true, &Instant::now);
+        let shown = view.present(
+            job.compose(None),
+            &mut term,
+            &mut video,
+            true,
+            &Instant::now,
+        );
         assert_eq!(shown, Presented::default());
         assert_eq!(video.swaps, [], "not shown");
         assert!(!video.out, "the token went back");
@@ -1703,7 +1752,13 @@ mod tests {
             false,
         );
         let cell = new.cell();
-        let shown = new.present(job.compose(), &mut term, &mut video, true, &Instant::now);
+        let shown = new.present(
+            job.compose(None),
+            &mut term,
+            &mut video,
+            true,
+            &Instant::now,
+        );
         assert_eq!(shown, Presented::default());
         assert_eq!(video.swaps, [], "not shown");
         assert!(!video.out, "the token went back");
@@ -1813,7 +1868,13 @@ mod tests {
             panic!("a job");
         };
         video.sleep();
-        let shown = view.present(job.compose(), &mut term, &mut video, false, &Instant::now);
+        let shown = view.present(
+            job.compose(None),
+            &mut term,
+            &mut video,
+            false,
+            &Instant::now,
+        );
         assert_eq!(shown, Presented::default());
         assert_eq!(video.swaps, [], "nothing swapped");
         assert_eq!(video.age, 0, "the display drew its next frame whole");
@@ -1843,7 +1904,13 @@ mod tests {
         ) else {
             panic!("a job");
         };
-        let shown = view.present(job.compose(), &mut term, &mut video, true, &Instant::now);
+        let shown = view.present(
+            job.compose(None),
+            &mut term,
+            &mut video,
+            true,
+            &Instant::now,
+        );
         assert_eq!(shown, Presented::default());
         assert_eq!(video.swaps, [1], "the first frame alone");
         assert!(!video.out);

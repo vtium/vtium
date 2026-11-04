@@ -411,6 +411,22 @@ impl Harness {
         fonts: Sources,
         console: Option<vtium_platform::vt::font::ConsoleFont>,
     ) -> Harness {
+        Harness::boot_set(args, vt, video, fonts, |app| {
+            if let Some(console) = console {
+                app.set_console_font(console);
+            }
+        })
+    }
+
+    /// [`Harness::boot_with`], with `set` run on the seat before its video
+    /// device is added and it starts.
+    fn boot_set<V: Vt + 'static>(
+        args: &[&str],
+        vt: V,
+        video: Option<Box<dyn Video>>,
+        fonts: Sources,
+        set: impl FnOnce(&mut App),
+    ) -> Harness {
         let sized = args.iter().any(|a| a.starts_with("--font-size"));
         let args: Vec<OsString> = (!sized)
             .then_some("--font-size=16")
@@ -432,9 +448,7 @@ impl Harness {
         };
         let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), clock, env);
         app.set_font_sources(fonts);
-        if let Some(console) = console {
-            app.set_console_font(console);
-        }
+        set(&mut app);
         if let Some(video) = video {
             app.add_video(PathBuf::from("/dev/mem0"), video);
         }
@@ -6418,4 +6432,125 @@ fn a_zoom_while_a_frame_composes_waits_for_its_token() {
         h.until_memory(BOUND, |m| m.frames > frames && m.ages.len() > lent),
         "the new renderer's frame drawn once the old token came back"
     );
+}
+
+/// ADR-1303 D9, D10: a head with `hwaccel` on draws through the GL context
+/// it makes on its render thread, here Mesa's llvmpipe in place of a card's
+/// render node, and the frame the display shows is the CPU path's, byte for
+/// byte; the display's log line names the path. A head whose context
+/// cannot be made says why and draws on the CPU path, and with `hwaccel`
+/// off a head never makes one.
+#[cfg(feature = "gpu")]
+mod gpu_path {
+    use vtium::painter::GpuSource;
+
+    use super::*;
+
+    /// Colors, a bold line and a block, with `done` once written.
+    const SCRIPT: &str = "printf '\\033[41m red \\033[42;30m green \\033[0m\\n\\033[1;34mblue\\033[0m \\342\\226\\210 done'; read x";
+
+    /// The seat booted with `args` and the test's GPU `source`: the pixels
+    /// of the frame it shows once the script is written, those of a frame
+    /// drawn whole after it, and the lines it logged.
+    fn drawn(args: &[&str], source: GpuSource) -> (Vec<u8>, Vec<u8>, Vec<String>) {
+        logged();
+        let args: Vec<&str> = args
+            .iter()
+            .copied()
+            .chain(["--login", "--", "/bin/sh", "-c", SCRIPT])
+            .collect();
+        let mut h = Harness::boot_set(
+            &args,
+            FakeVt::new(),
+            Some(Box::new(Memory::default())),
+            no_fonts(),
+            |app| app.set_gpu_source(source),
+        );
+        assert!(
+            h.until(BOUND, |a| a
+                .screen_text()
+                .iter()
+                .any(|l| l.contains("done"))),
+            "the script written"
+        );
+        h.settled();
+        let shown = h.memory().pixels.clone();
+        let whole = h.drawn_now();
+        assert!(whole.iter().any(|&b| b != 0), "a frame drawn");
+        (shown, whole, logged())
+    }
+
+    fn renderer(lines: &[String]) -> Vec<&str> {
+        lines
+            .iter()
+            .filter(|l| l.starts_with("Display "))
+            .filter_map(|l| l.split("text renderer [").nth(1)?.split(']').next())
+            .collect()
+    }
+
+    #[test]
+    fn a_head_with_hwaccel_and_a_render_node_draws_the_cpu_paths_frame_on_the_gpu_path() {
+        let (cpu_shown, cpu_whole, cpu_log) = drawn(&[], GpuSource::Software);
+        assert_eq!(renderer(&cpu_log), ["cpu"], "hwaccel off: {cpu_log:#?}");
+        let (gpu_shown, gpu_whole, gpu_log) = drawn(&["--hwaccel"], GpuSource::Software);
+        assert_eq!(renderer(&gpu_log), ["gpu"], "{gpu_log:#?}");
+        assert!(
+            !gpu_log.iter().any(|l| l.contains("GPU path")),
+            "{gpu_log:#?}"
+        );
+        assert!(
+            gpu_shown == cpu_shown,
+            "the frame shown differs from the CPU path's"
+        );
+        assert!(
+            gpu_whole == cpu_whole,
+            "the frame drawn whole differs from the CPU path's"
+        );
+    }
+
+    /// The same through this machine's first render node, on its GPU. It
+    /// opens a render node, which needs no DRM master, and runs only when
+    /// asked.
+    #[test]
+    #[ignore = "needs a GPU's render node: cargo test -p vtium --features gpu --test boot -- --ignored gpu_path"]
+    fn a_head_on_a_gpus_render_node_draws_the_cpu_paths_frame() {
+        let node = std::fs::read_dir("/dev/dri")
+            .expect("/dev/dri")
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("renderD"))
+            })
+            .min()
+            .expect("a render node");
+        let (cpu_shown, cpu_whole, _) = drawn(&[], GpuSource::Software);
+        let (shown, whole, log) = drawn(&["--hwaccel"], GpuSource::RenderNode(node));
+        assert_eq!(renderer(&log), ["gpu"], "{log:#?}");
+        assert!(
+            shown == cpu_shown,
+            "the frame shown differs from the CPU path's"
+        );
+        assert!(
+            whole == cpu_whole,
+            "the frame drawn whole differs from the CPU path's"
+        );
+    }
+
+    #[test]
+    fn a_head_whose_gpu_cannot_start_logs_the_step_and_draws_on_the_cpu_path() {
+        let (cpu_shown, _, _) = drawn(&[], GpuSource::Software);
+        let missing = GpuSource::RenderNode(PathBuf::from("/nonexistent/renderD128"));
+        let (shown, whole, log) = drawn(&["--hwaccel"], missing);
+        assert_eq!(renderer(&log), ["cpu"], "{log:#?}");
+        assert!(
+            log.iter().any(
+                |l| l.contains("the GPU path's set-up failed at the render node")
+                    && l.contains("/nonexistent/renderD128")
+            ),
+            "{log:#?}"
+        );
+        assert!(shown == cpu_shown, "the frame differs from the CPU path's");
+        assert!(whole.iter().any(|&b| b != 0));
+    }
 }

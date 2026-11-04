@@ -294,6 +294,9 @@ pub struct App {
     assumed: BTreeSet<(PathBuf, DisplayId)>,
     /// Where the font's sets come from.
     font_sources: font::Sources,
+    /// The GL context a head with `hwaccel` on makes, in place of its
+    /// card's render node: a test's GPU.
+    gpu_source: Option<crate::painter::GpuSource>,
     /// Reads the configuration again as the start read it, for the font
     /// keys a session's end returns its console to (ADR-1201 D11); with
     /// none, the configuration vtium started with stands.
@@ -465,6 +468,7 @@ impl App {
             caps,
             assumed: BTreeSet::new(),
             font_sources: font::Sources::configured(&config),
+            gpu_source: None,
             reread: None,
             launcher: helper::Launcher::configured(&config),
             frits: BTreeMap::new(),
@@ -592,6 +596,12 @@ impl App {
             head.font = None;
         }
         self.frits.clear();
+    }
+
+    /// Makes every head whose `hwaccel` is on make its GL context from
+    /// `source`, in place of the render node of its card: a test's GPU.
+    pub fn set_gpu_source(&mut self, source: crate::painter::GpuSource) {
+        self.gpu_source = Some(source);
     }
 
     /// How the configuration is read again at a session's end, for its
@@ -1203,10 +1213,17 @@ impl App {
         self.lit.insert(key.clone(), display);
         self.focus_due = true;
         self.guard_due = true;
-        if let Some(v) = self.heads.get(h).and_then(|head| head.views.get(&key)) {
+        // the render thread chooses the head's path as it starts, so the
+        // line names the path that draws the display (ADR-1303 D10)
+        self.painter(h);
+        if let Some(head) = self.heads.get(h)
+            && let Some(v) = head.views.get(&key)
+        {
             let cell = v.cell();
+            let path = head.painter.as_ref().map(Painter::path).unwrap_or_default();
             log::info!(
-                "Display {name} with backend [{backend}] text renderer [bbulk], cell size {}x{}",
+                "Display {name} with backend [{backend}] text renderer [{}], cell size {}x{}",
+                path.name(),
                 cell.width,
                 cell.height
             );
@@ -3523,19 +3540,28 @@ impl App {
         if head.painter.is_some() || head.painter_refused || head.views.is_empty() {
             return;
         }
+        let gpu = self.gpu_source(h);
+        let Some(head) = self.heads.get(h) else {
+            return;
+        };
         let started = vtium_platform::calloop::ping::make_ping()
             .map_err(|e| format!("cannot make its wake-up: {e}"))
             .and_then(|(ping, source)| {
                 self.handle
                     .insert_source(source, |(), (), _: &mut App| {})
                     .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
-                Painter::start(head.name(), move || ping.ping()).map_err(|e| e.to_string())
+                Painter::start(head.name(), gpu, move || ping.ping()).map_err(|e| e.to_string())
             });
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
         match started {
-            Ok(painter) => head.painter = Some(painter),
+            Ok(mut painter) => {
+                if let Some(why) = painter.take_refusal() {
+                    log::warn!("head {}: {why}: it draws on the CPU path", head.name());
+                }
+                head.painter = Some(painter);
+            }
             Err(why) => {
                 log::warn!(
                     "head {}: the render thread cannot start ({why}): the loop draws its frames",
@@ -3544,6 +3570,34 @@ impl App {
                 head.painter_refused = true;
             }
         }
+    }
+
+    /// Where head `h`'s render thread makes its GL context: nowhere unless
+    /// `hwaccel` is on in a build with `gpu` (ADR-1303 D9); a test's GPU
+    /// where one is set; else the render node of the card that drives the
+    /// head's first display. A card with no render node, such as a
+    /// framebuffer, leaves the head on the CPU path, and says so.
+    fn gpu_source(&self, h: usize) -> Option<crate::painter::GpuSource> {
+        if !self.config.switch(&keys::HWACCEL) || !cfg!(feature = "gpu") {
+            return None;
+        }
+        if let Some(source) = &self.gpu_source {
+            return Some(source.clone());
+        }
+        let head = self.heads.get(h)?;
+        let (node, _) = head.views.keys().next()?;
+        #[cfg(feature = "gpu")]
+        match vtium_platform::gpu::render_node(node) {
+            Ok(render) => return Some(crate::painter::GpuSource::RenderNode(render)),
+            Err(e) => log::warn!(
+                "head {}: {} has no render node ({e}): it draws on the CPU path",
+                head.name(),
+                node.display()
+            ),
+        }
+        #[cfg(not(feature = "gpu"))]
+        let _ = node;
+        None
     }
 
     /// Takes the frames each head's render thread composed: each display
@@ -3886,7 +3940,7 @@ fn draw_head(
                 }
             }
             None => {
-                let composed = job.compose();
+                let composed = job.compose(None);
                 let compose = composed.stats.cpu;
                 let shown = view.present(composed, term, video.as_mut(), true, clock);
                 if shown.queued {
