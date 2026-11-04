@@ -17,11 +17,13 @@ publish = false
 workspace = true
 
 [dependencies]
-vtium-term.workspace = true
+# the picture screens feed sixel and kitty strings through the terminal's
+# own handlers, and the renderer draws their pictures
+vtium-term = { workspace = true, features = ["images"] }
 # the small displays draw their PSF fonts through the PSF loader, which the
 # console leaves out
 vtium-font = { workspace = true, features = ["psf"] }
-vtium-render.workspace = true
+vtium-render = { workspace = true, features = ["images"] }
 # generates the test PSF fonts' glyphs through the engine the helper runs,
 # for the screens drawn from sets
 vtium-config = { path = "../../crates/vtium-config" }

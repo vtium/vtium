@@ -21,6 +21,7 @@ use vtium::config::keys::{self, Scheme};
 
 use crate::draw::{Alone, DecoSpec, Decorations, FontKind, Overlay, Screen, TestFont, Words};
 use crate::notices;
+use crate::pictures;
 
 /// Where a screen's golden lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -621,6 +622,27 @@ const OSD_FULL_NOTICE_DESC: &str = "vtium's on-screen display under `osd = full`
 const OSD_MINIMAL_NOTICE_DESC: &str = "vtium's on-screen display under `osd = minimal`, the default, with the notice that no keyboard was found, as a head shows them at the start (ADR-1401 D5, D7). Correct: the notice in the notices' pale red box with a dark red edge across the top, and the filled circle drawn over the top-right cell, at the box's top right, the notice's line ending before that cell; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
 const NOTICES_FOUR_DESC: &str = "Four notices at once, the most a head shows (ADR-1401 D7): a head file with one error, no keyboard found, the anti-lockout guard and the rescue key, oldest first. Correct: one pale red box with a dark red edge across the top holding the four, the head file's two lines first, its console line and its next step, each notice starting on a line of its own and wrapping at a space where it is wider than the box; the box as tall as the lines it holds; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+
+const PICTURES_KITTY_DESC: &str = "Kitty pictures over unifont text and colored cells (ADR-1100 D4, D5; ADR-1303 D2): across the top, one at its own size, then pictures shrunk by 1.5, 2.5, 4 and 8, grown by 2 and 3, and one shrunk across and grown down; below them a picture below the backgrounds, a picture below the text, two half transparent pictures above it, and a half transparent picture over an opaque one. Correct: each picture fills its cells' box, filtered smoothly with no lost lines; the picture below the backgrounds shows only through cells of the default background; text draws over the picture below the text; the half transparent pictures let the text and cells beneath show through.";
+
+const PICTURES_RIGHT_DESC: &str = "The kitty picture screen on a display turned a quarter right, 5 pixels wider and 3 taller than its grid, so its margins are odd (ADR-1303 D3). Correct: the same screen turned, every picture turned with its cells and placed on the same cells.";
+
+const PICTURES_SELECTION_DESC: &str = "The kitty picture screen with a selection from the fourth cell of the fifth row to the twenty-first of the tenth (ADR-1100 D4): the selection tints the cells and the pictures over them at SELECTION_TINT. Correct: the selected cells and the parts of pictures over them half tinted with the selection's color, the rest as the kitty screen.";
+
+const PICTURES_SIXEL_DESC: &str = "Sixel pictures made in a 10x20 cell and drawn in unifont's 8x16 (ADR-1100 D8): two shrunk by 1.25, one 40x40 and one 70x36, and a small one 10x18. Correct: each sixel's tiles of eight colors and its black diagonals, shrunk smoothly into the cells the picture covers.";
+
+const PICTURES_BUDGET_DESC: &str = "A 160x64 display, whose pictures' bound is two screens of it, 81,920 bytes (ADR-1100 D5, ADR-1303 D2): a 200x200 picture drawn in 8 by 2 cells, whose own pixels pass the bound and whose drawn copy fits, and one drawn over 40 by 12 cells, far past the display, whose copy passes it too, scaled for each frame. Correct: both pictures drawn smoothly as the CPU path keeps or scales them, the second cut at the display's edge.";
+
+const PICTURES_TILED_DESC: &str = "Three pictures wider and taller than 64 pixels, which the GPU path holds in textures of at most 64 a side for this screen (ADR-1303 D2): one grown by about 2, one shrunk by 1.5 and one shrunk by 4 below the text. Correct: each picture whole and smooth, with no seam where its tiles meet on the GPU path.";
+
+/// A picture screen: vtium's golden, drawn by vtium.
+const fn picture(screen: Screen) -> Case {
+    Case {
+        screen,
+        source: Source::Vtium,
+        ported: None,
+    }
+}
 
 /// Every case, in the order the report lists them.
 pub const CASES: &[Case] = &[
@@ -1316,4 +1338,69 @@ pub const CASES: &[Case] = &[
         OSD_FULL,
         &keys::COLOR_BLIND_SAFE,
     ),
+    picture(Screen {
+        pictures: Some(pictures::kitty),
+        ..Screen::new(
+            "pictures-kitty",
+            PICTURES_KITTY_DESC,
+            pictures::KITTY_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty),
+        orientation: Orientation::Right,
+        display: Some((64 * 8 + 5, 12 * 16 + 3)),
+        ..Screen::new(
+            "pictures-kitty-right",
+            PICTURES_RIGHT_DESC,
+            pictures::KITTY_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty),
+        selection: Some(((3, 4), (20, 9))),
+        ..Screen::new(
+            "pictures-selection",
+            PICTURES_SELECTION_DESC,
+            pictures::KITTY_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::sixels),
+        made_cell: Some((10, 20)),
+        ..Screen::new(
+            "pictures-sixel",
+            PICTURES_SIXEL_DESC,
+            pictures::SIXEL_TEXT,
+            56,
+            6,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::budget),
+        ..Screen::new(
+            "pictures-budget",
+            PICTURES_BUDGET_DESC,
+            b"budget: copy, then scaled each frame",
+            20,
+            4,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::tiled),
+        largest_texture: Some(64),
+        ..Screen::new(
+            "pictures-tiled",
+            PICTURES_TILED_DESC,
+            b"pictures held in tiles of 64 pixels on the GPU path\r\ntext under the third",
+            80,
+            16,
+        )
+    }),
 ];
