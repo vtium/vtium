@@ -33,11 +33,13 @@ When vtium fails, systemd starts it again. From systemd 254 on, each failure als
 
 `vtium console status` first says which console logind starts on a VT with no link of its own, and which display manager the machine has. Then it prints a line for each VT:
 
-- **at boot** names what systemd starts on the VT at boot, such as `getty@tty1`, `vtium@tty1` or `display manager (sddm.service)`. `getty recorded` means that `vtium console` disabled the VT's getty and keeps a record of it, which `disable` puts back. `no getty recorded` means that `vtium console` recorded that no getty was enabled on the VT, so `disable` enables none there. `vtium@ttyN masked` means someone masked vtium's unit there.
+- **at boot** names what systemd starts on the VT at boot, such as `getty@tty1`, `vtium@tty1`, `display manager (sddm.service)` or another unit that runs on the VT, such as `cage@tty3`. `getty recorded` means that `vtium console` disabled the VT's getty and keeps a record of it, which `disable` puts back. `no getty recorded` means that `vtium console` recorded that no getty was enabled on the VT, so `disable` enables none there. `vtium@ttyN masked` means someone masked vtium's unit there.
 - **when switched to** names what logind starts when you switch to the VT while nothing runs there. It shows `-` on VT 1 and on VTs 7 and above, where logind starts no console ([Giving vtium a VT](install.md#giving-vtium-a-vt)).
 - **running** names what runs on the VT now, a graphical session included.
 
 A VT whose **at boot** column names a getty keeps that getty when you switch to it, whatever the **when switched to** column says, because the getty already runs there.
+
+Under the table, `status` gives a line for each VT that a unit starting at boot holds, with the signal vtium read, such as `VT 1: the display manager sddm.service holds VT 1 at boot, by DisplayServer=wayland in /etc/sddm.conf.d/10-wayland.conf: ...`. It also gives a line for each VT that a display manager's unit names in `Conflicts=` but does not hold, with the reason, such as its greeter running on VT 2 now. [VTs that other programs hold](install.md#vts-that-other-programs-hold) explains the signals.
 
 ## A font that does not load
 
@@ -59,7 +61,7 @@ A line such as `the font monoid is not drawn (...)`, or `the font's glyphs are n
 
 ## A VT that shows a getty
 
-The unit's fallback, `vtium-getty@ttyN.service`, starts a getty on a VT where vtium fails, so that you are never left at a dead screen. A login prompt where you expected vtium therefore usually means vtium failed. vtium exits with a failure, for example, when no display appears within `display-wait`, 10 seconds by default. Find the reason in its unit's state and log:
+The unit's fallback, `vtium-getty@ttyN.service`, starts a getty on a VT where vtium fails, so that you are not left at a dead screen. It starts none when the getty's start would stop another program, such as a display manager whose unit conflicts with `getty@tty1`: then the VT stays dark, and `journalctl -b -u vtium-getty@ttyN.service` names the program and says why. A login prompt where you expected vtium therefore usually means vtium failed. vtium exits with a failure, for example, when no display appears within `display-wait`, 10 seconds by default. Find the reason in its unit's state and log:
 
 ```
 $ systemctl status vtium@tty2.service
@@ -89,7 +91,7 @@ A program that draws sixel or kitty graphics pictures shows nothing, or shows te
 
 ## vtium console refuses a VT
 
-Each refusal names what holds the VT and how to free it: `systemctl disable --now kmsconvt@ttyN.service` for `kmscon`, `make vt-uninstall VT=N` for the development install, `systemctl unmask vtium@ttyN.service` for a masked unit. vtium never takes a VT from a display manager or a graphical session; give vtium another VT.
+Each refusal names what holds the VT and how to free it: `systemctl disable --now kmsconvt@ttyN.service` for `kmscon`, `make vt-uninstall VT=N` for the development install, `systemctl unmask vtium@ttyN.service` for a masked unit. vtium never takes a VT that another program holds now or claims at boot, such as a display manager, a greeter, a graphical session or another console; give vtium another VT. The refusal names the signal it read, such as a display manager's configuration file, and when vtium could not tell, it says so ([VTs that other programs hold](install.md#vts-that-other-programs-hold)).
 
 ## Collecting a report and filing an issue
 

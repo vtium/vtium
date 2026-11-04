@@ -95,12 +95,25 @@ To give vtium every VT:
 
 `enable --all` links `/etc/systemd/system/autovt@.service`, the template link that logind follows on every VT without a link of its own, to vtium. It enables vtium at boot on VT 1, where logind never starts a console itself, and it disables the gettys on VTs 2 to 6, so logind starts vtium on each the first time you switch to it. It leaves these VTs alone and names each one:
 
-- a VT a display manager claims, as sddm claims VT 1, and a VT a graphical session or a greeter is on now;
+- a VT another program uses now or will claim at the next boot (below);
 - a VT where `kmscon` is enabled, linked or running, and a VT the development install holds ([The development VT](vt-review.md#installing-vtium-on-a-vt));
 - a VT whose own link, `/etc/systemd/system/autovt@ttyN.service`, names another console;
 - VTs above 6, where logind starts no console by itself; `enable N` gives vtium such a VT at boot.
 
 VT 6 is logind's reserved VT, where logind starts a console at every switch, even while the VT is in use. `enable 6` and `enable --all` refuse while someone is logged in on VT 6, unless that login is inside a vtium running there. A getty that waits at its login prompt on VT 6 holds no session, so both go ahead, and the next switch to VT 6 stops that getty. Where VT 6 has no link of its own, `enable --all` also refuses, rather than passing VT 6 by, while `kmscon` or the development install is enabled or running there.
+
+### VTs that other programs hold
+
+`vtium console` never takes a VT that another program uses now or will claim at the next boot. `enable N` refuses such a VT, `enable --all` passes it by, and both say what holds the VT and how vtium knows. vtium judges this from what is on your machine:
+
+- a graphical session or a greeter on the VT now, which it asks logind for;
+- another console running on the VT now, such as `fbterm@tty4.service`;
+- a unit that starts at boot and runs on the VT, such as `cage@tty3.service` or a unit with `TTYPath=/dev/tty9`;
+- the VT your display manager's greeter starts on, read from the display manager's own configuration: SDDM's `DisplayServer=wayland`, which starts the greeter on VT 1, LightDM's `minimum-vt`, 7 unless you set it, and greetd's `vt`.
+
+A display manager's unit usually names a VT's getty in `Conflicts=`, as Arch's `sddm.service` names `getty@tty1.service`. That line only says that the display manager stops the getty there. vtium counts that VT as the display manager's unless its configuration names another VT, or its greeter runs on another VT now while its configuration names none. For example, SDDM with an X11 greeter takes the first VT no program has open, so with a getty on VT 1 its greeter runs on VT 2, and VT 1 is free for vtium. When the signals disagree, or vtium cannot read a file or does not know your display manager, it leaves the VT and tells you why. `vtium console status` gives the same reasons under its table.
+
+If vtium fails on a VT, its fallback starts that VT's getty again, so that you have a login. It never does this when the getty's start would stop another program, as starting `getty@tty1` would stop a display manager whose unit conflicts with it. Then the VT is left without a console, and `journalctl -b -u vtium-getty@tty1.service` says why. Log in on another VT or over ssh to find out why vtium failed ([A VT that shows a getty](troubleshooting.md#a-vt-that-shows-a-getty)).
 
 On a machine where `kmscon` holds the template link, read [Moving from kmscon](#moving-from-kmscon) before you run `enable --all`.
 
