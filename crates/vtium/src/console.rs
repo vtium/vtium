@@ -735,7 +735,7 @@ impl Run<'_, '_, '_> {
             let texts = self.unit_texts(&unit, display_manager);
             let facts = graphical::facts(&unit, texts.iter().map(String::as_str));
             let config = if display_manager {
-                held::config(&self.host.root, &unit)
+                held::config(&self.host.root, &unit, &facts)
             } else {
                 held::Config::Unknown
             };

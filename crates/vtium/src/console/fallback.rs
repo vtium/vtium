@@ -11,7 +11,8 @@
 //! manager for both lists and for each unit's state, with `systemctl show`,
 //! since only the manager knows which units are loaded, running or have a
 //! job queued. A unit that is active, activating or reloading, has a job
-//! queued, or is enabled holds the getty back: then vtium starts nothing,
+//! queued, or is enabled, linked, an alias, enabled indirectly or
+//! generated holds the getty back: then vtium starts nothing,
 //! says why, and the VT is left without a console. vtium's own units on VT
 //! N, `vtium@ttyN` and `vtium-dev@ttyN`, do not hold it back: the getty
 //! takes the VT in their place, which is what the fallback is for. When
@@ -42,7 +43,13 @@ impl UnitState {
         ) || !self.job.is_empty()
             || matches!(
                 self.file.as_str(),
-                "enabled" | "enabled-runtime" | "linked" | "linked-runtime" | "alias"
+                "enabled"
+                    | "enabled-runtime"
+                    | "linked"
+                    | "linked-runtime"
+                    | "alias"
+                    | "indirect"
+                    | "generated"
             )
     }
 }
@@ -69,7 +76,15 @@ impl Run<'_, '_, '_> {
             format!("{DEV}@tty{n}.service"),
         ];
         let show = self
-            .systemctl_quiet(&["show", &getty, "-p", "Conflicts", "-p", "ConflictedBy"])
+            .systemctl_quiet(&[
+                "show",
+                "-p",
+                "Conflicts",
+                "-p",
+                "ConflictedBy",
+                "--",
+                &getty,
+            ])
             .map_err(|Stop(why)| Stop(text::fallback_cannot_tell(n, &why)))?;
         let mut others: Vec<String> = Vec::new();
         for fields in blocks(&show.stdout) {
@@ -88,9 +103,8 @@ impl Run<'_, '_, '_> {
         }
         let mut held_back: Vec<UnitState> = Vec::new();
         if !others.is_empty() {
-            let mut args = vec!["show"];
-            args.extend(others.iter().map(String::as_str));
-            args.extend([
+            let mut args = vec![
+                "show",
                 "-p",
                 "Id",
                 "-p",
@@ -99,7 +113,9 @@ impl Run<'_, '_, '_> {
                 "UnitFileState",
                 "-p",
                 "Job",
-            ]);
+                "--",
+            ];
+            args.extend(others.iter().map(String::as_str));
             let show = self
                 .systemctl_quiet(&args)
                 .map_err(|Stop(why)| Stop(text::fallback_cannot_tell(n, &why)))?;
@@ -130,7 +146,9 @@ impl Run<'_, '_, '_> {
             return Ok(0);
         }
         self.say(&text::fallback_starting(n));
-        self.systemctl_quiet(&["--no-block", "start", &getty])?;
+        // In the job mode fail, systemd refuses the start rather than
+        // replace a job queued for a unit it conflicts with.
+        self.systemctl_quiet(&["--no-block", "--job-mode=fail", "start", &getty])?;
         Ok(0)
     }
 }
@@ -151,6 +169,9 @@ mod tests {
         assert!(state("activating", "static", "").holds_back());
         assert!(state("inactive", "enabled", "").holds_back());
         assert!(state("inactive", "disabled", "41 start").holds_back());
+        assert!(state("inactive", "indirect", "").holds_back());
+        assert!(state("inactive", "generated", "").holds_back());
+        assert!(state("reloading", "static", "").holds_back());
         assert!(!state("inactive", "static", "").holds_back());
         assert!(!state("failed", "disabled", "").holds_back());
         assert!(!state("inactive", "", "").holds_back());

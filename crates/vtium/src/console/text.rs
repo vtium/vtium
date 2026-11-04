@@ -314,28 +314,44 @@ pub fn freed(n: u16, unit: &str, display_manager: bool, why: &Freed) -> String {
     )
 }
 
-pub const GDM_NO_VT: &str = "GDM has no setting for its greeter's VT";
+/// What GDM's unit says, in words.
+pub mod gdm {
+    pub const NO_VT: &str =
+        "GDM has no setting for its greeter's VT, and its unit names no one getty in Conflicts=";
+
+    pub fn source(unit: &str, vt: u16) -> String {
+        format!("Conflicts=getty@tty{vt}.service in {unit}")
+    }
+
+    pub fn effect(vt: u16) -> String {
+        format!(
+            "GDM starts its first greeter on its built-in first VT, the VT whose getty its unit names, VT {vt}, whatever VT a greeter of its runs on now"
+        )
+    }
+}
 
 /// What SDDM's settings say, in words.
 pub mod sddm {
-    pub fn wayland_vt1() -> String {
-        "SDDM starts its greeter on VT 1 whenever no login session is on VT 1".to_owned()
+    pub fn initial_vt(vt: u16) -> String {
+        format!(
+            "SDDM starts its greeter on its built-in first VT, the VT whose getty its unit names in Conflicts=, VT {vt}, whenever no login session is on that VT"
+        )
+    }
+
+    pub fn no_initial_vt(value: &str, file: &str) -> String {
+        format!(
+            "SDDM's DisplayServer={value} in {file} starts its greeter on its built-in first VT, and its unit names no one getty in Conflicts= to say which VT that is"
+        )
     }
 
     pub fn minimum_vt(vt: u16) -> String {
-        format!("SDDM before 0.20 starts its greeter on VT {vt} or the first free VT above it")
+        format!(
+            "SDDM before 0.20 starts its greeter on VT {vt} or the first free VT above it; SDDM 0.20 and later ignore the setting, so it frees no VT"
+        )
     }
 
     pub fn x11() -> String {
         "SDDM's configuration names no VT: with DisplayServer=x11 its greeter takes the first VT no program has open".to_owned()
-    }
-
-    pub fn unknown_server(value: &str, file: &str) -> String {
-        format!("SDDM's DisplayServer={value} in {file} is none that vtium knows")
-    }
-
-    pub fn bad_minimum_vt(value: &str, file: &str) -> String {
-        format!("SDDM's MinimumVT={value} in {file} is no VT's number")
     }
 }
 
@@ -347,8 +363,15 @@ pub mod lightdm {
         format!("LightDM starts its first greeter on VT {vt}")
     }
 
-    pub fn bad(value: &str, file: &str) -> String {
-        format!("LightDM's minimum-vt={value} in {file} is no number")
+    pub fn not_a_number(value: &str, file: &str) -> String {
+        format!("minimum-vt={value} in {file}, which LightDM reads as 1")
+    }
+
+    pub fn out_of_range(source: &str) -> String {
+        format!(
+            "LightDM's {source} names no VT from 1 to {}",
+            super::super::LAST_VT
+        )
     }
 }
 
@@ -358,16 +381,32 @@ pub mod greetd {
         format!("greetd runs its greeter on VT {vt}")
     }
 
-    pub fn no_file(file: &str) -> String {
-        format!("greetd's /{file} is missing")
+    pub fn current() -> String {
+        "greetd runs its greeter on the VT shown when it starts, which is VT 1 at boot".to_owned()
+    }
+
+    pub fn command_line(value: &str, unit: &str) -> String {
+        format!("--vt {value} on the ExecStart= line of {unit}")
+    }
+
+    pub fn no_file(files: &[String]) -> String {
+        let files = files
+            .iter()
+            .map(|f| format!("/{f}"))
+            .collect::<Vec<_>>()
+            .join(" or ");
+        format!("greetd has no configuration file, {files}")
     }
 
     pub fn no_vt(file: &str) -> String {
-        format!("greetd's /{file} sets no vt")
+        format!("greetd's {file} sets no [terminal] vt")
     }
 
-    pub fn not_a_vt(value: &str, file: &str) -> String {
-        format!("greetd's vt = {value} in /{file} names no VT")
+    pub fn not_a_vt(source: &str) -> String {
+        format!(
+            "greetd's {source} names no VT from 1 to {}",
+            super::super::LAST_VT
+        )
     }
 }
 

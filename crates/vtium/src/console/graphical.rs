@@ -16,30 +16,85 @@ use std::collections::BTreeMap;
 use super::held::{Facts, Holder};
 use super::{GETTY, instance, vt_digits};
 
+/// The logical lines of a unit file, as systemd reads them: a line that
+/// ends in a backslash goes on with the next one, a comment line (`#` or
+/// `;`) among them left out, and each is trimmed (systemd.syntax(7)).
+fn logical_lines(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut joined: Option<String> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        let (part, more) = match line.strip_suffix('\\') {
+            Some(part) => (part, true),
+            None => (line, false),
+        };
+        let whole = match joined.take() {
+            Some(mut j) => {
+                j.push(' ');
+                j.push_str(part);
+                j
+            }
+            None => part.to_owned(),
+        };
+        if more {
+            joined = Some(whole);
+        } else {
+            out.push(whole.trim().to_owned());
+        }
+    }
+    out.extend(joined);
+    out
+}
+
+/// `value` with the specifiers vtium needs expanded as systemd expands
+/// them: `%i` and `%I` to the unit's instance `inst`, and `%%` to `%`.
+fn expand(value: &str, inst: &str) -> String {
+    let mut out = String::new();
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('i' | 'I') => out.push_str(inst),
+            Some('%') => out.push('%'),
+            Some(other) => {
+                out.push('%');
+                out.push(other);
+            }
+            None => out.push('%'),
+        }
+    }
+    out
+}
+
 /// What a unit's file and drop-ins tie to a VT: the VTs whose
 /// `getty@ttyN.service` its `[Unit]` section's `Conflicts=` lines name, and
-/// the VTs its `[Service]` section's `TTYPath=` names, with `%i` and `%I`
-/// read as `inst`, the unit's instance, as systemd expands them; and the VT
-/// the unit `name` is an instance on. A drop-in only adds to `Conflicts=`:
-/// systemd cannot reset a dependency to an empty list (systemd.unit(5)),
-/// and an empty `Conflicts=` changes nothing (measured with systemd 262).
-/// A later `TTYPath=` replaces an earlier one.
+/// the VTs its `[Service]` section's `TTYPath=` names, with specifiers
+/// expanded ([`expand`]); the VT the unit `name` is an instance on; and its
+/// last `ExecStart=`. A drop-in only adds to `Conflicts=`: systemd cannot
+/// reset a dependency to an empty list (systemd.unit(5)), and an empty
+/// `Conflicts=` changes nothing (measured with systemd 262). A later
+/// `TTYPath=` replaces an earlier one, and an empty `ExecStart=` clears the
+/// ones before it.
 pub fn facts<'t>(name: &str, texts: impl IntoIterator<Item = &'t str>) -> Facts {
     let inst = name
         .strip_suffix(".service")
         .and_then(|n| n.split_once('@'))
         .map(|(_, i)| i)
         .unwrap_or_default();
-    let expand = |value: &str| value.replace("%i", inst).replace("%I", inst);
     let mut facts = Facts {
         instance: instance(name).map(|(_, n)| n),
         ..Facts::default()
     };
     let mut tty_path = None;
     for text in texts {
-        let mut section = "";
-        for line in text.lines() {
-            let line = line.trim();
+        let mut section = String::new();
+        for line in logical_lines(text) {
             if line.starts_with('[') {
                 section = line;
                 continue;
@@ -47,18 +102,20 @@ pub fn facts<'t>(name: &str, texts: impl IntoIterator<Item = &'t str>) -> Facts 
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
-            match (section, key.trim()) {
+            let value = expand(value.trim(), inst);
+            match (section.as_str(), key.trim()) {
                 ("[Unit]", "Conflicts") => {
-                    for unit in expand(value).split_whitespace() {
+                    for unit in value.split_whitespace() {
                         if let Some((GETTY, n)) = instance(unit) {
                             facts.conflicts.insert(n);
                         }
                     }
                 }
                 ("[Service]", "TTYPath") => {
-                    tty_path = expand(value.trim())
-                        .strip_prefix("/dev/tty")
-                        .and_then(vt_digits);
+                    tty_path = value.strip_prefix("/dev/tty").and_then(vt_digits);
+                }
+                ("[Service]", "ExecStart") => {
+                    facts.exec_start = (!value.is_empty()).then_some(value);
                 }
                 _ => {}
             }
@@ -193,6 +250,19 @@ mod tests {
         assert!(
             facts("x.service", ["[Service]\nTTYPath=/dev/console\n"])
                 .tty_path
+                .is_empty()
+        );
+        // A continued line, a comment inside it, and %% for a percent sign.
+        let long = "[Unit]\nConflicts=plymouth-quit.service \\\n# the getty\n  getty@%i.service\n[Service]\nExecStart=/usr/bin/greetd --vt 2\nExecStart=\nExecStart=/usr/bin/greetd --config /etc/100%%.toml\n";
+        let f = facts("greetd@tty3.service", [long]);
+        assert_eq!(f.conflicts.into_iter().collect::<Vec<_>>(), [3]);
+        assert_eq!(
+            f.exec_start.as_deref(),
+            Some("/usr/bin/greetd --config /etc/100%.toml")
+        );
+        assert!(
+            facts("x.service", ["[Unit]\nConflicts=getty@tty%%1.service\n"])
+                .conflicts
                 .is_empty()
         );
     }

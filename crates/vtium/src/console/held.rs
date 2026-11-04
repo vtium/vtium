@@ -9,34 +9,27 @@
 //! first VT no program has open, so its greeter can run on VT 2. So the
 //! line holds VT N only while nothing says where the program goes: its
 //! configuration naming another VT, or its greeter running on another VT
-//! now, frees VT N. When the configuration and the running greeter
-//! disagree, or a configuration file cannot be read, vtium cannot tell, and
-//! every VT either names counts as held.
+//! now while its configuration names none, frees VT N. When the
+//! configuration and the running greeter disagree, or a configuration file
+//! cannot be read, vtium cannot tell, and every VT either names counts as
+//! held.
 //!
 //! vtium reads the display managers' configuration files and never runs
-//! them. What each display manager does with its settings is taken from its
-//! own source:
-//!
-//! - SDDM 0.21 (`src/daemon/Display.cpp`, `src/common/ConfigReader.cpp`)
-//!   reads every file in `/usr/lib/sddm/sddm.conf.d`, then in
-//!   `/etc/sddm.conf.d`, each in name order, then `/etc/sddm.conf`, a later
-//!   value winning. With `[General] DisplayServer=x11`, the default, its
-//!   greeter takes the first VT no program has open (`VT_OPENQRY`), which
-//!   no file names. With `wayland` or `x11-user`, it takes its built-in
-//!   first VT, 1 (`SDDM_INITIAL_VT`), unless a login session is on it.
-//!   `MinimumVT=`, which SDDM before 0.20 read and sddm.conf(5) says is
-//!   gone since 0.20, is read as the lowest VT the greeter takes.
-//! - LightDM (`common/configuration.c`, `src/vt.c`) reads
-//!   `lightdm/lightdm.conf.d/*.conf` under `/usr/share`, `/usr/local/share`
-//!   and `/etc/xdg`, then `/etc/lightdm/lightdm.conf.d/*.conf`, then
-//!   `/etc/lightdm/lightdm.conf`. Its first greeter takes `[LightDM]
-//!   minimum-vt`, 7 when no file sets it, and 1 for a value below 1.
-//! - greetd reads `/etc/greetd/config.toml`, whose `[terminal] vt` is a
-//!   VT's number, or `"next"`, `"current"` or `"none"`, which name none.
-//! - GDM has no setting for its greeter's VT.
+//! them, as each reads them in its own source: [`sddm`], [`lightdm`] and
+//! [`greetd`]. GDM has no setting for its greeter's VT: its first greeter
+//! always takes its built-in first VT, `GDM_INITIAL_VT`
+//! (`daemon/gdm-session-worker.c`), and its unit names that VT's getty in
+//! `Conflicts=` (`data/gdm.service.in`), so that getty's VT is GDM's
+//! exactly, and a greeter running elsewhere frees nothing.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+
+use super::LAST_VT;
+
+mod greetd;
+mod lightdm;
+mod sddm;
 
 /// What holds a VT, so that `vtium console` leaves it alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,8 +58,10 @@ pub enum Holder {
 pub enum Config {
     /// The program is no display manager whose configuration vtium knows.
     Unknown,
-    /// The configuration names no VT; why, in words.
-    NoVt(String),
+    /// The configuration names no VT; why, in words. `also` is a setting
+    /// that holds a VT and frees none, as SDDM's `MinimumVT=`, which SDDM
+    /// 0.20 and later ignore.
+    NoVt { why: String, also: Option<Setting> },
     /// The configuration starts the greeter on a VT.
     Vt(Setting),
     /// A configuration file could not be read.
@@ -153,6 +148,19 @@ pub struct Facts {
     pub tty_path: BTreeSet<u16>,
     /// The VT it is an instance on, `PREFIX@ttyN.service`.
     pub instance: Option<u16>,
+    /// Its `[Service]` section's last `ExecStart=` command line.
+    pub exec_start: Option<String>,
+}
+
+impl Facts {
+    /// The one VT whose getty the unit's `Conflicts=` names, which a
+    /// display manager's unit names for its built-in first VT.
+    fn getty(&self) -> Option<u16> {
+        match self.conflicts.iter().collect::<Vec<_>>()[..] {
+            [&n] => Some(n),
+            _ => None,
+        }
+    }
 }
 
 /// The VTs a unit holds, and the VTs it frees, each with its reason.
@@ -214,14 +222,23 @@ pub fn judge(facts: &Facts, config: &Config, greeters: &BTreeSet<u16>) -> Judgme
                 });
             }
         }
-        Config::NoVt(_) | Config::Unknown => {
+        Config::NoVt { .. } | Config::Unknown => {
+            if let Config::NoVt {
+                also: Some(setting),
+                ..
+            } = config
+            {
+                j.held
+                    .entry(setting.vt)
+                    .or_insert_with(|| Reason::Configured(setting.clone()));
+            }
             for &n in &facts.conflicts {
                 if j.held.contains_key(&n) || greeters.contains(&n) {
                     continue;
                 }
                 if !greeters.is_empty() {
                     let config = match config {
-                        Config::NoVt(why) => why.clone(),
+                        Config::NoVt { why, .. } => why.clone(),
                         _ => String::new(),
                     };
                     j.freed.insert(
@@ -235,7 +252,7 @@ pub fn judge(facts: &Facts, config: &Config, greeters: &BTreeSet<u16>) -> Judgme
                     j.held.insert(
                         n,
                         Reason::Unsure(match config {
-                            Config::NoVt(why) => Unsure::NoVt(why.clone()),
+                            Config::NoVt { why, .. } => Unsure::NoVt(why.clone()),
                             _ => Unsure::Unknown,
                         }),
                     );
@@ -255,9 +272,18 @@ pub fn stem(unit: &str) -> &str {
 }
 
 /// Whether a logind session's PAM service, such as `sddm-greeter` or
-/// `gdm-launch-environment`, is the program `stem`'s.
+/// `gdm-launch-environment`, is the program `stem`'s: the stem itself, or
+/// the stem and a dash before more.
 pub fn service_of(service: &str, stem: &str) -> bool {
-    !stem.is_empty() && service.starts_with(stem)
+    !stem.is_empty()
+        && service
+            .strip_prefix(stem)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('-'))
+}
+
+/// A VT's number from a setting, when it is one from 1 to [`LAST_VT`].
+fn vt(n: i64) -> Option<u16> {
+    u16::try_from(n).ok().filter(|n| (1..=LAST_VT).contains(n))
 }
 
 /// The files a program reads its configuration from, in the order it reads
@@ -282,185 +308,45 @@ fn files(root: &Path, dirs: &[&str], suffix: Option<&str>, last: &str) -> Vec<St
     out
 }
 
-/// A setting's value and the file that set it, or a file that cannot be
-/// read and why.
-type Found = (String, String);
-
-/// A key's last value in `[section]` of INI files and the file that set
-/// it, read in order; `Err` names a file that is there but cannot be read.
-fn ini<'k>(
-    root: &Path,
-    files: &[String],
-    keys: &[(&str, &'k str)],
-) -> Result<BTreeMap<&'k str, Found>, Found> {
-    let mut found = BTreeMap::new();
-    for file in files {
-        let text = match std::fs::read_to_string(root.join(file)) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err((format!("/{file}"), e.to_string())),
-        };
-        let mut section = "";
-        for line in text.lines() {
-            let line = line.trim();
-            if let Some(s) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-                section = s;
-                continue;
-            }
-            let Some((k, v)) = line.split_once('=') else {
-                continue;
-            };
-            let (k, v) = (k.trim(), v.trim());
-            for &(sect, key) in keys {
-                if sect == section && k == key {
-                    found.insert(key, (v.to_owned(), format!("/{file}")));
-                }
-            }
-        }
+/// A file's text, `None` when it is missing, and the path and the reason
+/// when it is there but cannot be read.
+fn read(root: &Path, file: &str) -> Result<Option<String>, Config> {
+    match std::fs::read_to_string(root.join(file)) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(Config::Unreadable {
+            path: format!("/{file}"),
+            why: e.to_string(),
+        }),
     }
-    Ok(found)
 }
 
 /// What the display manager `unit`'s configuration under `root` says about
-/// its greeter's VT.
-pub fn config(root: &Path, unit: &str) -> Config {
+/// its greeter's VT, with what its unit file says, `facts`.
+pub fn config(root: &Path, unit: &str, facts: &Facts) -> Config {
     match stem(unit) {
-        "sddm" => sddm(root),
-        "lightdm" => lightdm(root),
-        "greetd" => greetd(root),
-        "gdm" => Config::NoVt(super::text::GDM_NO_VT.to_owned()),
-        _ => Config::Unknown,
-    }
-}
-
-fn sddm(root: &Path) -> Config {
-    let files = files(
-        root,
-        &["usr/lib/sddm/sddm.conf.d", "etc/sddm.conf.d"],
-        None,
-        "etc/sddm.conf",
-    );
-    let found = match ini(
-        root,
-        &files,
-        &[
-            ("General", "DisplayServer"),
-            ("X11", "MinimumVT"),
-            ("General", "MinimumVT"),
-        ],
-    ) {
-        Ok(found) => found,
-        Err((path, why)) => return Config::Unreadable { path, why },
-    };
-    let server = found.get("DisplayServer");
-    use super::text::sddm as text;
-    match server.map(|(v, f)| (v.as_str(), f)) {
-        Some((kind @ ("wayland" | "x11-user"), file)) => Config::Vt(Setting {
-            source: format!("DisplayServer={kind} in {file}"),
-            effect: text::wayland_vt1(),
-            vt: 1,
-            exact: true,
-        }),
-        Some((other, file)) if other != "x11" => Config::NoVt(text::unknown_server(other, file)),
-        _ => match found.get("MinimumVT") {
-            Some((v, file)) => match v.parse::<u16>() {
-                Ok(vt) if vt >= 1 => Config::Vt(Setting {
-                    source: format!("MinimumVT={vt} in {file}"),
-                    effect: text::minimum_vt(vt),
-                    vt,
-                    exact: false,
-                }),
-                _ => Config::NoVt(text::bad_minimum_vt(v, file)),
-            },
-            None => Config::NoVt(text::x11()),
-        },
-    }
-}
-
-fn lightdm(root: &Path) -> Config {
-    let files = files(
-        root,
-        &[
-            "usr/share/lightdm/lightdm.conf.d",
-            "usr/local/share/lightdm/lightdm.conf.d",
-            "etc/xdg/lightdm/lightdm.conf.d",
-            "etc/lightdm/lightdm.conf.d",
-        ],
-        Some(".conf"),
-        "etc/lightdm/lightdm.conf",
-    );
-    let found = match ini(root, &files, &[("LightDM", "minimum-vt")]) {
-        Ok(found) => found,
-        Err((path, why)) => return Config::Unreadable { path, why },
-    };
-    let (vt, source) = match found.get("minimum-vt") {
-        None => (7, super::text::lightdm::DEFAULT.to_owned()),
-        Some((v, file)) => match v.parse::<i64>() {
-            Ok(n) => (
-                u16::try_from(n.max(1)).unwrap_or(u16::MAX),
-                format!("minimum-vt={v} in {file}"),
-            ),
-            Err(_) => return Config::NoVt(super::text::lightdm::bad(v, file)),
-        },
-    };
-    Config::Vt(Setting {
-        source,
-        effect: super::text::lightdm::effect(vt),
-        vt,
-        exact: false,
-    })
-}
-
-fn greetd(root: &Path) -> Config {
-    const FILE: &str = "etc/greetd/config.toml";
-    let text = match std::fs::read_to_string(root.join(FILE)) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Config::NoVt(super::text::greetd::no_file(FILE));
-        }
-        Err(e) => {
-            return Config::Unreadable {
-                path: format!("/{FILE}"),
-                why: e.to_string(),
-            };
-        }
-    };
-    let mut section = "";
-    let mut vt = None;
-    for line in text.lines() {
-        let line = line.split('#').next().unwrap_or_default().trim();
-        if let Some(s) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-            section = s.trim();
-            continue;
-        }
-        if let Some((k, v)) = line.split_once('=')
-            && section == "terminal"
-            && k.trim() == "vt"
-        {
-            vt = Some(v.trim().to_owned());
-        }
-    }
-    match vt {
-        Some(v) => match v.parse::<u16>() {
-            Ok(n) if n >= 1 => Config::Vt(Setting {
-                source: format!("vt = {n} in /{FILE}"),
-                effect: super::text::greetd::effect(n),
-                vt: n,
+        "sddm" => sddm::config(root, facts.getty()),
+        "lightdm" => lightdm::config(root),
+        "greetd" => greetd::config(root, unit, facts.exec_start.as_deref()),
+        "gdm" => match facts.getty() {
+            Some(vt) => Config::Vt(Setting {
+                source: super::text::gdm::source(unit, vt),
+                effect: super::text::gdm::effect(vt),
+                vt,
                 exact: true,
             }),
-            _ => Config::NoVt(super::text::greetd::not_a_vt(&v, FILE)),
+            None => Config::NoVt {
+                why: super::text::gdm::NO_VT.to_owned(),
+                also: None,
+            },
         },
-        None => Config::NoVt(super::text::greetd::no_vt(FILE)),
+        _ => Config::Unknown,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #![expect(
-        clippy::unwrap_used,
-        clippy::panic,
-        reason = "a test's set-up fails loudly"
-    )]
+    #![expect(clippy::unwrap_used, reason = "a test's set-up fails loudly")]
 
     use super::*;
 
@@ -489,7 +375,10 @@ mod tests {
 
     #[test]
     fn a_greeter_on_another_vt_frees_the_conflicts_vt() {
-        let no_vt = Config::NoVt("x11".into());
+        let no_vt = Config::NoVt {
+            why: "x11".into(),
+            also: None,
+        };
         let j = judge(&facts(&[1]), &no_vt, &BTreeSet::from([2]));
         assert!(j.held.is_empty(), "{j:?}");
         assert!(matches!(j.freed.get(&1), Some(Freed::Greeter { .. })));
@@ -534,6 +423,48 @@ mod tests {
     }
 
     #[test]
+    fn a_setting_that_frees_nothing_holds_its_vt_beside_the_conflicts_one() {
+        // SDDM's MinimumVT=3, which SDDM 0.20 and later ignore.
+        let config = Config::NoVt {
+            why: "x11".into(),
+            also: Some(setting(3, false)),
+        };
+        let j = judge(&facts(&[1]), &config, &BTreeSet::new());
+        assert!(
+            matches!(j.held.get(&3), Some(Reason::Configured(_))),
+            "{j:?}"
+        );
+        assert!(matches!(j.held.get(&1), Some(Reason::Unsure(_))), "{j:?}");
+        assert!(j.freed.is_empty());
+    }
+
+    #[test]
+    fn gdm_holds_the_vt_its_unit_names_whatever_greeter_runs_elsewhere() {
+        let r = root("gdm", &[]);
+        let gdm = config(&r, "gdm.service", &facts(&[1]));
+        assert!(matches!(
+            gdm,
+            Config::Vt(Setting {
+                vt: 1,
+                exact: true,
+                ..
+            })
+        ));
+        // A greeter of GDM's on VT 2 does not free VT 1.
+        let j = judge(&facts(&[1]), &gdm, &BTreeSet::from([2]));
+        assert!(j.held.contains_key(&1) && j.freed.is_empty(), "{j:?}");
+        assert!(matches!(
+            config(&r, "gdm3.service", &facts(&[])),
+            Config::NoVt { .. }
+        ));
+        assert_eq!(
+            config(&r, "cage@tty1.service", &facts(&[1])),
+            Config::Unknown
+        );
+        let _ = std::fs::remove_dir_all(r);
+    }
+
+    #[test]
     fn an_unreadable_configuration_holds_the_conflicts_vt_whatever_runs() {
         let config = Config::Unreadable {
             path: "/etc/sddm.conf".into(),
@@ -552,11 +483,15 @@ mod tests {
         assert_eq!(stem("gdm3.service"), "gdm");
         assert_eq!(stem("cage@tty1.service"), "cage");
         assert!(service_of("gdm-launch-environment", stem("gdm3.service")));
+        assert!(service_of("greetd", "greetd"));
         assert!(!service_of("lightdm-greeter", "sddm"));
+        assert!(!service_of("sddmx-greeter", "sddm"));
         assert!(!service_of("anything", ""));
     }
 
-    fn root(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+    /// A scratch root with `files` written under it, each path relative to
+    /// it.
+    pub fn root(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!("vtium-held-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for (path, text) in files {
@@ -565,104 +500,5 @@ mod tests {
             std::fs::write(path, text).unwrap();
         }
         root
-    }
-
-    #[test]
-    fn sddm_reads_its_files_in_order_a_later_value_winning() {
-        // Arch's packaged default, and a drop-in of the administrator's.
-        let r = root(
-            "sddm",
-            &[
-                (
-                    "usr/lib/sddm/sddm.conf.d/default.conf",
-                    "[General]\nDisplayServer=x11\n",
-                ),
-                (
-                    "etc/sddm.conf.d/10-wayland.conf",
-                    "[General]\nDisplayServer=wayland\n",
-                ),
-            ],
-        );
-        let Config::Vt(s) = config(&r, "sddm.service") else {
-            panic!("{:?}", config(&r, "sddm.service"));
-        };
-        assert_eq!(
-            (s.vt, s.exact, s.source.as_str()),
-            (
-                1,
-                true,
-                "DisplayServer=wayland in /etc/sddm.conf.d/10-wayland.conf"
-            )
-        );
-        std::fs::write(r.join("etc/sddm.conf"), "[General]\nDisplayServer=x11\n").unwrap();
-        assert!(matches!(config(&r, "sddm.service"), Config::NoVt(_)));
-        std::fs::write(r.join("etc/sddm.conf"), "[X11]\nMinimumVT=3\n").unwrap();
-        // The drop-in's wayland still stands, and wins over MinimumVT.
-        assert!(matches!(
-            config(&r, "sddm.service"),
-            Config::Vt(Setting { vt: 1, .. })
-        ));
-        std::fs::remove_file(r.join("etc/sddm.conf.d/10-wayland.conf")).unwrap();
-        assert!(matches!(
-            config(&r, "sddm.service"),
-            Config::Vt(Setting {
-                vt: 3,
-                exact: false,
-                ..
-            })
-        ));
-        let _ = std::fs::remove_dir_all(r);
-    }
-
-    #[test]
-    fn lightdm_starts_on_vt_7_unless_a_file_says_otherwise() {
-        let r = root("lightdm", &[]);
-        assert!(matches!(
-            config(&r, "lightdm.service"),
-            Config::Vt(Setting { vt: 7, .. })
-        ));
-        let r = root(
-            "lightdm-set",
-            &[
-                (
-                    "usr/share/lightdm/lightdm.conf.d/50-x.conf",
-                    "[LightDM]\nminimum-vt=2\n",
-                ),
-                ("etc/lightdm/lightdm.conf", "[Seat:*]\nminimum-vt=9\n"),
-            ],
-        );
-        assert!(matches!(
-            config(&r, "lightdm.service"),
-            Config::Vt(Setting { vt: 2, .. })
-        ));
-        let _ = std::fs::remove_dir_all(r);
-    }
-
-    #[test]
-    fn greetd_takes_a_numbered_vt_and_names_none_for_next() {
-        let r = root(
-            "greetd",
-            &[(
-                "etc/greetd/config.toml",
-                "[terminal]\n# The VT\nvt = 1 # first\n[default_session]\ncommand = \"agreety\"\n",
-            )],
-        );
-        assert!(matches!(
-            config(&r, "greetd.service"),
-            Config::Vt(Setting {
-                vt: 1,
-                exact: true,
-                ..
-            })
-        ));
-        std::fs::write(
-            r.join("etc/greetd/config.toml"),
-            "[terminal]\nvt = \"next\"\n",
-        )
-        .unwrap();
-        assert!(matches!(config(&r, "greetd.service"), Config::NoVt(_)));
-        assert!(matches!(config(&r, "gdm.service"), Config::NoVt(_)));
-        assert_eq!(config(&r, "cage@tty1.service"), Config::Unknown);
-        let _ = std::fs::remove_dir_all(r);
     }
 }

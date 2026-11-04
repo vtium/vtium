@@ -109,7 +109,7 @@ VT 6 is logind's reserved VT, where logind starts a console at every switch, eve
 - a graphical session or a greeter on the VT now, which it asks logind for;
 - another console running on the VT now, such as `fbterm@tty4.service`;
 - a unit that starts at boot and runs on the VT, such as `cage@tty3.service` or a unit with `TTYPath=/dev/tty9`;
-- the VT your display manager's greeter starts on, read from the display manager's own configuration: SDDM's `DisplayServer=wayland`, which starts the greeter on VT 1, LightDM's `minimum-vt`, 7 unless you set it, and greetd's `vt`.
+- the VT your display manager's greeter starts on, read from the display manager's own configuration: SDDM's `DisplayServer=wayland`, which starts the greeter on SDDM's built-in first VT, VT 1 on most distributions, LightDM's `minimum-vt`, 7 unless you set it, and greetd's `vt`; GDM always starts its first greeter on VT 1, or on the VT whose getty its unit names.
 
 A display manager's unit usually names a VT's getty in `Conflicts=`, as Arch's `sddm.service` names `getty@tty1.service`. That line only says that the display manager stops the getty there. vtium counts that VT as the display manager's unless its configuration names another VT, or its greeter runs on another VT now while its configuration names none. For example, SDDM with an X11 greeter takes the first VT no program has open, so with a getty on VT 1 its greeter runs on VT 2, and VT 1 is free for vtium. When the signals disagree, or vtium cannot read a file or does not know your display manager, it leaves the VT and tells you why. `vtium console status` gives the same reasons under its table.
 

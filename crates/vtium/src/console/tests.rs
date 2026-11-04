@@ -6,13 +6,12 @@
 //! and links `Alias=` and `WantedBy=` for an instance. It refuses a masked
 //! instance, a masked template and a missing unit file, still links the
 //! wants when an alias is taken, and leaves a VT's alias at `disable`. Its
-//! `show` answers as the running manager does: a getty's `ConflictedBy=`
-//! lists each loaded unit, running or enabled, whose file's `Conflicts=`
-//! names it, and a unit's state comes from what runs, what failed, the
-//! links that enable it and the jobs the test queues. It panics on any call
-//! vtium console never makes, such as `mask` or an enable of a template,
-//! and on a `start` outside `fallback`, so a test fails where vtium
-//! strays.
+//! `systemctl show` answers from a table each test writes out literally, as
+//! systemd 262 printed it (measured), and prints for a unit missing from the
+//! table what systemd prints for a unit it does not know. It panics on any
+//! call vtium console never makes, such as `mask` or an enable of a
+//! template, and on a `start` outside `fallback`, so a test fails where
+//! vtium strays.
 
 #![expect(
     clippy::unwrap_used,
@@ -50,10 +49,11 @@ struct Fake {
     logind_down: bool,
     /// A call that fails as if systemd refused it.
     fail: Option<String>,
-    /// The units that failed, by name.
-    failed: Vec<String>,
-    /// The jobs queued, by unit: `41 start`.
-    jobs: BTreeMap<String, String>,
+    /// What `systemctl show` prints of each unit, by unit and property.
+    shown: BTreeMap<String, BTreeMap<String, String>>,
+    /// Whether `systemctl show`, asked about several units, leaves out the
+    /// last one's block, as an answer cut short.
+    short: bool,
     /// Whether the verb run is `fallback`, the one verb that starts a unit.
     starts: bool,
 }
@@ -233,91 +233,58 @@ impl Fake {
 }
 
 impl Fake {
-    /// The file of the unit `name` along the search path, its template's
-    /// for an instance with none of its own, `%i` expanded.
-    fn unit_text(&self, name: &str) -> String {
-        let inst = name
-            .strip_suffix(".service")
-            .and_then(|n| n.split_once('@'))
-            .map(|(_, i)| i)
-            .unwrap_or_default();
-        let template = name.split_once('@').map(|(p, _)| format!("{p}@.service"));
-        for file in std::iter::once(name.to_owned()).chain(template) {
-            for dir in UNIT_DIRS {
-                if let Ok(text) = std::fs::read_to_string(self.root.join(dir).join(&file)) {
-                    return text.replace("%i", inst).replace("%I", inst);
-                }
-            }
-        }
-        String::new()
-    }
-
-    /// The units a test names enabled: each that a link under `/etc`'s
-    /// `*.wants` directories or `display-manager.service` stands for.
-    fn enabled(&self) -> Vec<String> {
-        let mut out = Vec::new();
-        for dir in std::fs::read_dir(self.etc()).unwrap().flatten() {
-            let name = dir.file_name().to_string_lossy().into_owned();
-            if name.ends_with(".wants") {
-                for e in std::fs::read_dir(dir.path()).unwrap().flatten() {
-                    out.push(e.file_name().to_string_lossy().into_owned());
-                }
-            }
-        }
-        if let Some(dm) = Link::read(&self.etc().join(DISPLAY_MANAGER)).file_name() {
-            out.push(dm.to_owned());
-        }
-        out
-    }
-
-    /// `systemctl show` of a getty's conflicts, or of units' states.
+    /// `systemctl show -p PROP... -- UNIT...` from the test's table: a
+    /// block of `PROP=value` lines a unit, in the order asked, the blocks
+    /// parted by an empty line. A unit the table lacks reads as systemd
+    /// prints a unit it cannot find: its Id, inactive, and the rest empty.
     fn show(&self, args: &[&str]) -> Reply {
-        let props: Vec<&str> = args
+        let dash = args
             .iter()
-            .skip_while(|a| **a != "-p")
-            .filter(|a| **a != "-p")
-            .copied()
+            .position(|a| *a == "--")
+            .unwrap_or_else(|| panic!("systemctl show {args:?} puts no -- before its units"));
+        let (opts, units) = args.split_at(dash);
+        let props: Vec<&str> = opts
+            .chunks(2)
+            .map(|pair| match pair {
+                ["-p", prop] => *prop,
+                other => panic!("systemctl show takes -p PROP, not {other:?}"),
+            })
             .collect();
-        let units: Vec<&str> = args.iter().take_while(|a| **a != "-p").copied().collect();
-        let mut blocks = Vec::new();
-        for unit in units {
-            let mut block = String::new();
-            for prop in &props {
-                let value = match *prop {
-                    "Conflicts" => String::new(),
-                    "ConflictedBy" => {
-                        let mut loaded = self.running.clone();
-                        loaded.extend(self.failed.iter().cloned());
-                        loaded.extend(self.enabled());
-                        loaded.sort();
-                        loaded.dedup();
-                        loaded
-                            .into_iter()
-                            .filter(|u| {
-                                graphical::facts(u, [self.unit_text(u).as_str()])
-                                    .conflicts
-                                    .contains(&instance(unit).unwrap().1)
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    }
-                    "Id" => unit.to_owned(),
-                    "ActiveState" if self.running.iter().any(|r| r == unit) => "active".into(),
-                    "ActiveState" if self.failed.iter().any(|r| r == unit) => "failed".into(),
-                    "ActiveState" => "inactive".into(),
-                    "UnitFileState" if self.enabled().iter().any(|e| e == unit) => "enabled".into(),
-                    "UnitFileState" => "disabled".into(),
-                    "Job" => self.jobs.get(unit).cloned().unwrap_or_default(),
-                    other => panic!("vtium console asked systemctl show for {other}"),
-                };
-                block.push_str(&format!("{prop}={value}\n"));
-            }
-            blocks.push(block);
+        let mut blocks: Vec<String> = units
+            .get(1..)
+            .unwrap()
+            .iter()
+            .map(|unit| {
+                let row = self.shown.get(*unit);
+                props
+                    .iter()
+                    .map(|prop| {
+                        let value = match (row.and_then(|r| r.get(*prop)), *prop) {
+                            (Some(v), _) => v.clone(),
+                            (None, "Id") => (*unit).to_owned(),
+                            (None, "ActiveState") => "inactive".to_owned(),
+                            (None, _) => String::new(),
+                        };
+                        format!("{prop}={value}\n")
+                    })
+                    .collect()
+            })
+            .collect();
+        if self.short && blocks.len() > 1 {
+            blocks.pop();
         }
         Reply {
             ok: true,
             stdout: blocks.join("\n"),
             stderr: String::new(),
+        }
+    }
+
+    /// Adds `unit` to `systemctl show`'s table with these properties.
+    fn shows(&mut self, unit: &str, props: &[(&str, &str)]) {
+        let row = self.shown.entry(unit.to_owned()).or_default();
+        for (k, v) in props {
+            row.insert((*k).to_owned(), (*v).to_owned());
         }
     }
 }
@@ -391,7 +358,7 @@ impl Systemd for Fake {
             ["add-wants", target, name] => self.add_wants(target, name),
             ["daemon-reload"] => ok(),
             ["show", rest @ ..] => self.show(rest),
-            ["--no-block", "start", name] if self.starts => {
+            ["--no-block", "--job-mode=fail", "start", name] if self.starts => {
                 self.instance(name);
                 ok()
             }
@@ -456,8 +423,8 @@ impl Machine {
                 sessions: Vec::new(),
                 logind_down: false,
                 fail: None,
-                failed: Vec::new(),
-                jobs: BTreeMap::new(),
+                shown: BTreeMap::new(),
+                short: false,
                 starts: false,
             },
         }
@@ -1994,7 +1961,7 @@ fn sddm_with_a_wayland_greeter_holds_vt_1_and_says_which_file_says_so() {
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager sddm.service holds VT 1 at boot, by DisplayServer=wayland in /etc/sddm.conf.d/10-wayland.conf: SDDM starts its greeter on VT 1 whenever no login session is on VT 1"),
+        err.contains("the display manager sddm.service holds VT 1 at boot, by DisplayServer=wayland in /etc/sddm.conf.d/10-wayland.conf: SDDM starts its greeter on its built-in first VT, the VT whose getty its unit names in Conflicts=, VT 1, whenever no login session is on that VT"),
         "{err}"
     );
     assert_eq!(m.snapshot(), before);
@@ -2014,6 +1981,31 @@ fn sddm_with_a_wayland_greeter_holds_vt_1_and_says_which_file_says_so() {
 }
 
 #[test]
+fn an_sddm_minimum_vt_holds_its_vt_and_frees_none() {
+    // SDDM 0.20 and later ignore MinimumVT=, and vtium cannot tell which
+    // SDDM runs, so MinimumVT=2 keeps VT 2 and does not free VT 1.
+    let mut m = Machine::gettys("sddm-minimum-vt");
+    enable_dm(
+        &m,
+        "sddm.service",
+        SDDM,
+        &[SDDM_DEFAULT, ("etc/sddm.conf", "[X11]\nMinimumVT=2\n")],
+    );
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager sddm.service holds VT 1 at boot: its unit names getty@tty1.service in Conflicts=, and vtium cannot tell which VT it takes"),
+        "{err}"
+    );
+    let (status, _, err) = m.console(&["enable", "2"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("holds VT 2 at boot, by MinimumVT=2 in /etc/sddm.conf: SDDM before 0.20 starts its greeter on VT 2 or the first free VT above it"),
+        "{err}"
+    );
+}
+
+#[test]
 fn gdm_on_vt_1_holds_it() {
     let gdm = "[Unit]\nDescription=GNOME Display Manager\nConflicts=getty@tty1.service plymouth-quit.service\nAfter=getty@tty1.service\n";
     let mut m = Machine::gettys("gdm");
@@ -2021,7 +2013,16 @@ fn gdm_on_vt_1_holds_it() {
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager gdm.service holds VT 1 at boot: its unit names getty@tty1.service in Conflicts=, and vtium cannot tell which VT it takes, since GDM has no setting for its greeter's VT, and no greeter of its runs now"),
+        err.contains("the display manager gdm.service holds VT 1 at boot, by Conflicts=getty@tty1.service in gdm.service: GDM starts its first greeter on its built-in first VT, the VT whose getty its unit names, VT 1"),
+        "{err}"
+    );
+    // A greeter of GDM's on VT 2, such as one a user switch started, frees
+    // nothing: GDM's first greeter at boot takes VT 1 again.
+    m.fake.sessions = vec![["gdm", "2", "gdm-launch-environment", "wayland", "greeter"]];
+    let (status, _, err) = m.console(&["enable", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("the display manager gdm.service holds VT 1 at boot"),
         "{err}"
     );
     // Its greeter on VT 1 holds VT 1 now as well, and frees nothing.
@@ -2187,55 +2188,111 @@ fn a_unit_enabled_on_a_vt_or_another_console_running_there_holds_it() {
     );
 }
 
-/// A machine whose vtium@ttyN failed, with SDDM enabled, as padnoir's VT 1
-/// was after #269.
-fn failed_vtium(name: &str, n: u16) -> Machine {
-    let m = Machine::gettys(name);
+/// A machine whose vtium@ttyN failed. Its `systemctl show` table holds
+/// what systemd 262 printed for `getty@ttyN.service`: its own `Conflicts=`,
+/// and `ConflictedBy=` the failed vtium and `others` (measured).
+fn failed_vtium(name: &str, n: u16, others: &[&str]) -> Machine {
+    let mut m = Machine::gettys(name);
     m.link(&format!("getty.target.wants/vtium@tty{n}.service"), "vtium");
-    let mut m = m;
-    m.fake.failed.push(format!("vtium@tty{n}.service"));
+    let vtium = format!("vtium@tty{n}.service");
+    let mut by = vec![vtium.as_str()];
+    by.extend(others);
+    m.fake.shows(
+        &format!("getty@tty{n}.service"),
+        &[
+            ("Conflicts", "rescue.service shutdown.target"),
+            ("ConflictedBy", &by.join(" ")),
+        ],
+    );
+    m.fake.shows(
+        &vtium,
+        &[("ActiveState", "failed"), ("UnitFileState", "enabled")],
+    );
+    for unit in ["rescue.service", "shutdown.target"] {
+        m.fake.shows(
+            unit,
+            &[("ActiveState", "inactive"), ("UnitFileState", "static")],
+        );
+    }
     m
+}
+
+/// Whether the fallback started any unit.
+fn started(m: &Machine) -> bool {
+    m.fake.calls.iter().any(|c| c.contains(" start "))
 }
 
 #[test]
 fn the_fallback_starts_no_getty_whose_start_stops_the_display_manager() {
-    let mut m = failed_vtium("fallback-sddm", 1);
-    enable_dm(&m, "sddm.service", SDDM, &[SDDM_DEFAULT]);
-    m.fake.running.push("sddm.service".into());
-    let (status, out, err) = m.console(&["fallback", "tty1"]);
-    assert_eq!((status, err.as_str()), (0, ""), "{out}");
-    assert!(
-        !m.fake.calls.iter().any(|c| c.contains("start getty")),
-        "{:?}",
-        m.fake.calls
-    );
-    assert!(
-        out.contains("vtium on VT 1 failed, and VT 1 is left without a console: starting getty@tty1.service would stop sddm.service (active, enabled), which conflicts with it, so vtium starts nothing."),
-        "{out}"
-    );
-    // Enabled but stopped, it would start at the next boot: still held back.
-    m.fake.running.clear();
-    let (_, out, _) = m.console(&["fallback", "1"]);
-    assert!(out.contains("sddm.service (inactive, enabled)"), "{out}");
-    // A job queued for a unit that is not enabled holds it back too.
-    std::fs::remove_file(m.root().join(ETC).join(DISPLAY_MANAGER)).unwrap();
-    let cage = m.root().join("usr/lib/systemd/system/cage@.service");
-    std::fs::write(&cage, "[Unit]\nConflicts=getty@%i.service\n").unwrap();
-    m.fake.failed.push("cage@tty1.service".into());
-    m.fake
-        .jobs
-        .insert("cage@tty1.service".into(), "42 start".into());
-    let (_, out, _) = m.console(&["fallback", "1"]);
-    assert!(
-        out.contains("cage@tty1.service (failed, disabled, job 42 start)"),
-        "{out}"
-    );
-    assert!(!m.fake.calls.iter().any(|c| c.contains("start getty")));
+    for (active, file, job, says) in [
+        ("active", "enabled", "", "sddm.service (active, enabled)"),
+        // Enabled but stopped, it starts at the next boot.
+        (
+            "inactive",
+            "enabled",
+            "",
+            "sddm.service (inactive, enabled)",
+        ),
+        (
+            "activating",
+            "static",
+            "",
+            "sddm.service (activating, static)",
+        ),
+        (
+            "reloading",
+            "disabled",
+            "",
+            "sddm.service (reloading, disabled)",
+        ),
+        (
+            "inactive",
+            "indirect",
+            "",
+            "sddm.service (inactive, indirect)",
+        ),
+        (
+            "inactive",
+            "generated",
+            "",
+            "sddm.service (inactive, generated)",
+        ),
+        // A job queued for a unit that is not enabled.
+        (
+            "inactive",
+            "disabled",
+            "42 start",
+            "sddm.service (inactive, disabled, job 42 start)",
+        ),
+    ] {
+        let mut m = failed_vtium(
+            &format!("fallback-{active}-{file}-{}", job.len()),
+            1,
+            &["sddm.service"],
+        );
+        m.fake.shows(
+            "sddm.service",
+            &[
+                ("ActiveState", active),
+                ("UnitFileState", file),
+                ("Job", job),
+            ],
+        );
+        let (status, out, err) = m.console(&["fallback", "tty1"]);
+        assert_eq!((status, err.as_str()), (0, ""), "{says}: {out}");
+        assert!(!started(&m), "{says}: {:?}", m.fake.calls);
+        assert!(
+            out.contains(&format!("vtium on VT 1 failed, and VT 1 is left without a console: starting getty@tty1.service would stop {says}, which conflicts with it, so vtium starts nothing.")),
+            "{says}: {out}"
+        );
+    }
 }
 
 #[test]
 fn the_fallback_gives_an_ordinary_vt_its_getty_back() {
-    let mut m = failed_vtium("fallback-plain", 3);
+    // getty@tty3's own Conflicts=, rescue.service and shutdown.target,
+    // are static and stopped, so they hold nothing back.
+    let mut m = failed_vtium("fallback-plain", 3, &[]);
     let (status, out, err) = m.console(&["fallback", "3"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
@@ -2245,40 +2302,54 @@ fn the_fallback_gives_an_ordinary_vt_its_getty_back() {
     assert_eq!(
         m.fake.calls,
         [
-            "show getty@tty3.service -p Conflicts -p ConflictedBy",
-            "--no-block start getty@tty3.service",
+            "show -p Conflicts -p ConflictedBy -- getty@tty3.service",
+            "show -p Id -p ActiveState -p UnitFileState -p Job -- rescue.service shutdown.target",
+            "--no-block --job-mode=fail start getty@tty3.service",
         ]
     );
-    // VT 1 without a display manager, vtium's own unit the only conflict.
-    let mut m = failed_vtium("fallback-vt1", 1);
+    // A unit that conflicts with the getty but is stopped and disabled.
+    let mut m = failed_vtium("fallback-vt1", 1, &["sddm.service"]);
+    m.fake.shows(
+        "sddm.service",
+        &[("ActiveState", "inactive"), ("UnitFileState", "disabled")],
+    );
     assert_eq!(m.console(&["fallback", "1"]).0, 0);
     assert_eq!(
         m.fake.calls.last().map(String::as_str),
-        Some("--no-block start getty@tty1.service")
+        Some("--no-block --job-mode=fail start getty@tty1.service")
     );
 }
 
 #[test]
 fn the_fallback_starts_nothing_when_it_cannot_ask_the_manager() {
-    let mut m = failed_vtium("fallback-down", 1);
-    m.fake.fail = Some("show getty@tty1.service -p Conflicts -p ConflictedBy".into());
+    let mut m = failed_vtium("fallback-down", 1, &[]);
+    m.fake.fail = Some("show -p Conflicts -p ConflictedBy -- getty@tty1.service".into());
     let (status, _, err) = m.console(&["fallback", "1"]);
     assert_eq!(status, 1);
     assert!(
         err.contains("VT 1 is left without a console: vtium cannot tell whether starting getty@tty1.service would stop another program"),
         "{err}"
     );
-    assert!(
-        !m.fake.calls.iter().any(|c| c.contains("start")),
-        "{:?}",
-        m.fake.calls
-    );
+    assert!(!started(&m), "{:?}", m.fake.calls);
     // It needs root and systemd, as the other verbs do, and one VT.
     assert_eq!(m.console_as(false, &["fallback", "1"]).0, 1);
     assert!(matches!(
         parse(&words(&["console", "fallback", "--all"])),
         Some(Err(_))
     ));
+}
+
+#[test]
+fn the_fallback_starts_nothing_when_the_manager_answers_for_fewer_units() {
+    let mut m = failed_vtium("fallback-short", 1, &["sddm.service"]);
+    m.fake.short = true;
+    let (status, _, err) = m.console(&["fallback", "1"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("systemctl show did not give the state of each of rescue.service, shutdown.target, sddm.service."),
+        "{err}"
+    );
+    assert!(!started(&m), "{:?}", m.fake.calls);
 }
 
 #[test]
