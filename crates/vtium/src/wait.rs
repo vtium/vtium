@@ -1,16 +1,25 @@
 //! The start's wait for a display (the operator's decision on
-//! vtium/vtium#21): from the first time the VT is shown, vtium waits
-//! `display-wait` for a frame on a display's screen, and with none by
-//! then it ends. Once one has shown the wait is over for good, and displays coming
-//! and going are hotplug. Under `forever` no wait runs, and vtium never
-//! ends for want of a display.
+//! vtium/vtium#21): once the VT is shown, vtium waits `display-wait` for
+//! a frame on a display's screen, and with none by then it ends. Once one
+//! has shown the wait is over for good, and displays coming and going are
+//! hotplug. Under `forever` no wait runs, and vtium never ends for want
+//! of a display.
+//!
+//! The wait runs only while the VT is vtium's. Another program can take
+//! the VT before vtium's first frame shows, as X starting on another VT
+//! of the same card does at boot (vtium/vtium#270). The release stops the
+//! wait, and vtium waits for the VT to come back, as it does for a switch
+//! away later in its run. The next acquire sets every display up afresh,
+//! so it starts the wait again whole. The C reference had no such wait:
+//! on a release its seat went to the background and slept until the VT
+//! came back (`src/seat.c:438-462` at kmscon b1f7a7c5).
 //!
 //! A frame reaches the screen at its flip, which the turn after its draw
 //! reads at the earliest. So the wait runs out at the end of a turn after
 //! the due time, never the turn it falls due in, and while a frame is on
 //! its way to a screen it waits up to [`FLIP_WAIT`] more for the flip.
-//! Under `display-wait=0` a display set up when the VT is first shown is
-//! drawn, and its flip read, before the wait runs out.
+//! Under `display-wait=0` a display set up when the VT is shown is drawn,
+//! and its flip read, before the wait runs out.
 
 use std::time::{Duration, Instant};
 
@@ -22,7 +31,9 @@ pub const FLIP_WAIT: Duration = Duration::from_secs(1);
 /// Where the wait stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wait {
-    /// The VT has not been shown yet: no display can be set up.
+    /// The VT is not vtium's, and no frame has shown yet: no display can
+    /// be set up, and the wait of the `Duration` starts when the VT is
+    /// shown.
     Before(Duration),
     /// Waiting until `due`, for `wait` in all.
     Until { due: Instant, wait: Duration },
@@ -39,13 +50,21 @@ impl Wait {
         wait.map_or(Wait::Over, Wait::Before)
     }
 
-    /// The VT is shown: the first time, the wait starts.
+    /// The VT is shown: the wait starts, unless it runs or is over.
     pub fn shown(&mut self, now: Instant) {
         if let Wait::Before(wait) = *self {
             *self = Wait::Until {
                 due: now.checked_add(wait).unwrap_or(now),
                 wait,
             };
+        }
+    }
+
+    /// The VT is let go before a frame showed: the wait stops until the
+    /// VT is shown again.
+    pub fn released(&mut self) {
+        if let Wait::Until { wait, .. } | Wait::Flipping { wait, .. } = *self {
+            *self = Wait::Before(wait);
         }
     }
 
@@ -175,6 +194,41 @@ mod tests {
         w.shown(t0);
         assert_eq!(w.turn(t0 + TEN + MS, false, true), None);
         assert_eq!(w.turn(t0 + TEN + MS * 2, false, false), Some(TEN));
+    }
+
+    #[test]
+    fn a_release_stops_the_wait_and_the_next_show_starts_it_whole() {
+        let t0 = Instant::now();
+        let mut w = Wait::new(Some(TEN));
+        w.shown(t0);
+        w.released();
+        assert_eq!(w.due(), None, "stopped while the VT is another's");
+        assert_eq!(w.turn(t0 + TEN * 5, false, false), None, "never runs out");
+        w.shown(t0 + TEN * 6);
+        assert_eq!(w.due(), Some(t0 + TEN * 7), "whole from the return");
+        assert_eq!(w.turn(t0 + TEN * 7 + MS, false, false), Some(TEN));
+    }
+
+    #[test]
+    fn a_release_while_a_flip_is_awaited_stops_the_wait_too() {
+        let t0 = Instant::now();
+        let mut w = Wait::new(Some(TEN));
+        w.shown(t0);
+        assert_eq!(w.turn(t0 + TEN + MS, false, true), None);
+        w.released();
+        assert_eq!(w.due(), None);
+        assert_eq!(w.turn(t0 + TEN * 5, false, false), None);
+    }
+
+    #[test]
+    fn a_release_after_a_frame_showed_changes_nothing() {
+        let t0 = Instant::now();
+        let mut w = Wait::new(Some(TEN));
+        w.shown(t0);
+        assert_eq!(w.turn(t0, true, false), None);
+        w.released();
+        w.shown(t0 + TEN);
+        assert_eq!(w, Wait::Over, "a display came: the wait is over for good");
     }
 
     #[test]

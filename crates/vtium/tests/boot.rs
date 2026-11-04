@@ -3900,6 +3900,55 @@ fn a_display_gone_after_the_start_is_hotplug() {
     assert_eq!(h.app.finished(), None);
 }
 
+/// Another program taking the VT while vtium sets up its first frame, as
+/// X starting on another VT of the same card does at boot
+/// (vtium/vtium#270), stops the wait: vtium waits past `display-wait` for
+/// the VT to come back, as for a switch away later in its life, and draws
+/// once it does.
+#[test]
+fn a_vt_released_before_the_first_frame_waits_for_the_vt_to_come_back() {
+    let mut h = Harness::with_vt(&WAITING, ScriptedVt::default());
+    // The boot's turn acquired the VT and set the display up; no frame
+    // of it has reached the screen yet.
+    assert_eq!(h.memory().frames, 0, "no frame shown at the release");
+    h.scripted().events.push(VtEvent::Release);
+    assert!(h.until(BOUND, |a| !a.vt.is_active()), "released");
+    assert_eq!(h.memory().frames, 0, "the first frame never showed");
+    // Past the 1 s wait, on the seat's clock.
+    h.skip_turn(Duration::from_secs(2));
+    assert_eq!(h.app.finished(), None, "waiting for the VT past the wait");
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    h.shown();
+    h.skip_turn(Duration::from_secs(2));
+    assert_eq!(h.app.finished(), None, "a display came: running");
+}
+
+/// A release before any frame showed stops the wait, and the acquire
+/// starts it again whole: with still no display by then, the VT being
+/// vtium's, vtium exits with status 1.
+#[test]
+fn the_wait_a_release_stopped_runs_whole_again_from_the_acquire() {
+    let mut h = Harness::boot(&WAITING, ScriptedVt::default(), None);
+    h.skip_turn(Duration::from_millis(800));
+    assert_eq!(h.app.finished(), None, "0.8 s into the 1 s wait");
+    h.scripted().events.push(VtEvent::Release);
+    assert!(h.until(BOUND, |a| !a.vt.is_active()), "released");
+    h.skip_turn(Duration::from_secs(60));
+    assert_eq!(h.app.finished(), None, "the VT is another's: no wait runs");
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    h.app.turn(h.at());
+    assert!(h.app.vt.is_active(), "acquired");
+    // 0.8 s and 0.5 s make more than the wait: had the wait kept the
+    // time before the release, it would have run out here.
+    h.skip_turn(Duration::from_millis(500));
+    assert_eq!(h.app.finished(), None, "0.5 s into the wait started again");
+    h.skip(Duration::from_millis(600));
+    assert!(h.until(BOUND, |a| a.finished().is_some()));
+    assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
+}
+
 /// A device whose wake-up fails, as a card whose modeset is refused:
 /// it reports no display.
 struct Unusable;
