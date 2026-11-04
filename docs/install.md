@@ -6,12 +6,19 @@ In the commands below, `#` marks a command you run as root, for example with sud
 
 ## Arch Linux
 
-The AUR (the Arch User Repository) holds two recipes for vtium. A recipe is a `PKGBUILD`, the build script that makepkg reads to build a package. Install from one of them, since their packages conflict:
+The AUR (the Arch User Repository) holds vtium's recipes. A recipe is a `PKGBUILD`, the build script that makepkg reads to build a package. Each console package comes from a recipe of its own, built either from a release, the tag the maintainer signs, today the pre-release `v0.1.0-alpha.4`, or from the tip of vtium's `main` branch, in the recipe whose name ends in `-git`. Install one console package, since they conflict:
 
-- `vtium` builds a release from the tag the maintainer signs, today the pre-release `v0.1.0-alpha.4`. It builds the packages `vtium` and `vtium-terminfo`.
-- `vtium-git` builds the tip of vtium's `main` branch. It builds the packages `vtium-git` and `vtium-terminfo-git`, which provide `vtium` and `vtium-terminfo`.
+| Package | Built from | What it is for |
+|---|---|---|
+| `vtium`, `vtium-git` | the release, `main` | an ordinary desktop or laptop: pictures (`images`), the power keys through logind (`logind`) and the GPU path (`gpu`), with `hwaccel` on by default |
+| `vtium-minspec`, `vtium-minspec-git` | the release, `main` | a small machine, such as a single-board computer, a server's console or a kiosk: the minspec console, vtium's smallest build, with no feature, the build tier 3 judges |
+| `vtium-minspec-gpu`, `vtium-minspec-gpu-git` | the release, `main` | a small machine with a GPU worth using: the minspec console with the GPU path, `hwaccel` off unless you turn it on |
 
-The console package depends on the terminfo package, which installs `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM`.
+Each console package provides `vtium`, so a package that depends on vtium takes any of them. The minspec packages keep two buffers for each display, and `vtium` keeps three ([config.md](config.md), `display-buffers`). `vtium` and `vtium-git` depend on `libglvnd` and `mesa` for the GPU path's libraries; `vtium-minspec-gpu` lists them as optional, and without them it draws on the CPU.
+
+Every console package depends on a terminfo package, `vtium-terminfo` or, for a `-git` package, `vtium-terminfo-git`, which installs `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM`.
+
+No package ships a font. The console draws with its built-in fonts, unifont and unscii-8, and the packages install frits (font set files) that name fonts the distribution packages. A frit leaves out a font the machine lacks, so a frit with none of its fonts installed draws the built-in fonts. The optional package `vtium-fonts` installs no file and depends on every font the shipped frits name: on Arch `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`.
 
 makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key, so import it once from there, then build and install:
 
@@ -24,7 +31,7 @@ $ makepkg -si
 
 `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A` fetches the same key from a keyserver instead. `vtium-git` checks no signature, because GitHub signs the merge commits on `main` with its own key.
 
-The recipes build the minspec console, vtium's default and smallest build. `VTIUM_FEATURES` in makepkg's environment builds it with other features, for example `VTIUM_FEATURES='images logind' makepkg -si`. The `images` feature draws sixel and kitty graphics pictures, and the `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine.
+Each recipe fixes its package's features, so the package the AUR describes is the package you build. The `images` feature draws sixel and kitty graphics pictures, the `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine, and the `gpu` feature builds in the path that draws through the GPU. To build another set of features, stage a build from a checkout with `make install` ([From a checkout](#from-a-checkout)).
 
 The packages install these files:
 
@@ -34,8 +41,12 @@ The packages install these files:
 | `/usr/bin/vtium-config` | the font and settings tool, which `vtium config` runs: `vtium config tui` opens a tool that tries each font on the live console and saves your choice into vtium.conf, and `vtium config set` switches the font; it is also the glyph helper, which draws a font's glyphs for the console |
 | `/usr/lib/systemd/system/vtium@.service` | the unit that runs vtium on one VT in place of its getty |
 | `/usr/lib/systemd/system/vtium-getty@.service` | the fallback that starts a getty on the VT when vtium fails |
+| `/usr/bin/vtium-image` | the image helper, which reads a picture a program names by its file, in `vtium` and `vtium-git` |
+| `/usr/lib/sysusers.d/vtium-image.conf` | the image helper's account, in `vtium` and `vtium-git` |
+| `/usr/bin/vtium-gallery` | the picture gallery tool, which shows PNG pictures as a grid of thumbnails, in `vtium` and `vtium-git` |
 | `/etc/vtium/vtium.conf.example` | the example configuration, which lists every key at its default, commented out |
-| `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active |
+| `/etc/vtium/fonts/` | the frits: `minspec-16` and `minspec-8` in every console package, and `desktop` and a Terminus frit in `vtium` and `vtium-git`; each is ready to choose with `vtium config` or vtium.conf's `font-name`, and a frit that nothing names changes nothing |
+| `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active, and `heads.conf`, the head file's commented template, to copy to `/etc/vtium/heads.conf` for a terminal of its own on each display |
 | `/usr/share/terminfo/x/xterm-vtium` | the terminfo entry, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
 
@@ -57,9 +68,9 @@ To install a branch of your own as a package, point the `vtium-git` recipe at yo
 $ VTIUM_GIT_URL=file:///home/me/src/vtium VTIUM_GIT_BRANCH=my-branch makepkg -si
 ```
 
-On another distribution, `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files the `vtium` package ships, and `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry, so that a package build can call them. Both refuse an empty DESTDIR and `/`, so neither installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
+On another distribution, `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files a console package ships, and `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry, so that a package build can call them. `make install` builds the console with the features `FEATURES='...'` names, none by default, and stages the frits `FRITS='...'` names, by default `desktop`, `minspec-16` and `minspec-8`. `HWACCEL=on` or `off` and `DISPLAY_BUFFERS=1`, `2` or `3` set the defaults of `hwaccel` and `display-buffers` that the build compiles in; the `vtium` recipe names `FEATURES='images logind gpu' HWACCEL=on DISPLAY_BUFFERS=3`, and the minspec recipes `HWACCEL=off DISPLAY_BUFFERS=2`. Both refuse an empty DESTDIR and `/`, so neither installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
 
-`make install-tree` stages the same programs under `target/install-tree`: the console, `vtium-config`, the VT unit and its getty fallback, the terminfo entry and the example configuration. It also needs `tic`, which compiles the terminfo entry. Tier 3, vtium's test harness on a virtual machine, installs that tree in its guest.
+`make install-tree` stages the same programs under `target/install-tree`: the console, `vtium-config`, the VT unit and its getty fallback, the terminfo entry, the example configuration, the frits and the head file's template. It also needs `tic`, which compiles the terminfo entry. Tier 3, vtium's test harness on a virtual machine, installs that tree in its guest.
 
 ## Giving vtium a VT
 

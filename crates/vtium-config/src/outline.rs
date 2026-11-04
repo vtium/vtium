@@ -614,7 +614,7 @@ pub use raster::{baseline, cell_width, decorations, rasterise};
 pub(crate) mod raster {
     use super::{
         Hinting, InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike,
-        Style, family_key,
+        Style,
     };
     use skrifa::instance::{LocationRef, Size};
     use skrifa::outline::{
@@ -629,30 +629,33 @@ pub(crate) mod raster {
     use crate::resample::{self, METHOD};
     use swash::{FontDataRef, FontRef, StringId};
 
-    /// The face `family` names in `data`, or its first face for an empty
-    /// family; with the family its name table gives and its index in a
-    /// collection.
+    /// The face `family` names in `data`, its Regular face first, or its
+    /// first face for an empty family; with the family its name table
+    /// gives, English first, and its index in a collection. The face is
+    /// chosen by [`crate::names::choose`] over [`crate::names::faces`],
+    /// the reader and the test the search among installed fonts uses, so a
+    /// face the search finds is a face this takes (ADR-1500 D8).
     fn face<'a>(data: &'a [u8], family: &str) -> Result<(FontRef<'a>, String, u32), String> {
         let fonts = FontDataRef::new(data).ok_or("not a TrueType or OpenType font")?;
-        let want = family_key(family);
-        let mut first = None;
-        for (index, font) in (0u32..).zip(fonts.fonts()) {
-            let strings = font.localized_strings();
-            let names: Vec<String> = [StringId::TypographicFamily, StringId::Family]
-                .into_iter()
-                .filter_map(|id| strings.find_by_id(id, Some("en")))
-                .map(|s| s.to_string())
-                .collect();
-            let name = names.first().cloned().unwrap_or_default();
-            if want.is_empty() || names.iter().any(|n| family_key(n) == want) {
-                return Ok((font, name, index));
-            }
-            first.get_or_insert(name);
+        if fonts.is_empty() {
+            return Err("the font holds no face".to_owned());
         }
-        Err(match first {
-            Some(found) => format!("the font is of family {found}, not {family}"),
-            None => "the font holds no face".to_owned(),
-        })
+        let faces = crate::names::faces(data).unwrap_or_default();
+        let named = |f: &crate::names::Face| f.families.first().cloned().unwrap_or_default();
+        let (index, name) = if family.is_empty() {
+            let first = faces.iter().find(|f| f.index == 0);
+            (0, first.map(named).unwrap_or_default())
+        } else {
+            let found = crate::names::choose(&faces, family).ok_or_else(|| {
+                let other = faces.first().map(named).unwrap_or_default();
+                format!("the font is of family {other}, not {family}")
+            })?;
+            (found.index, named(found))
+        };
+        let font = fonts
+            .get(index as usize)
+            .ok_or("the font holds no face at its own index")?;
+        Ok((font, name, index))
     }
 
     /// The pixels of `image` from row `y`, column `x` of its own: one byte

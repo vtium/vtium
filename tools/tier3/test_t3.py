@@ -2993,6 +2993,23 @@ class DevicesTest(unittest.TestCase):
                       "crates/vtium/install/examples/71-vtium-local.rules "
                       "crates/vtium/install/examples/vtium.hwdb", lines)
 
+    def test_the_tree_stages_the_frits_the_head_template_and_the_gallery_with_images(self):
+        # make install-tree stages what make install does (ADR-1500 D8): the
+        # frits, which change nothing until a profile names one, the head
+        # file's template as an example, and with images the gallery tool.
+        def make_n(*args):
+            r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D", *args],
+                               cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
+            return r.stdout.splitlines()
+        lines = make_n()
+        self.assertIn("install -Dm644 -t /D/etc/vtium/fonts tools/specimens/frits/desktop.vtfrit "
+                      "crates/vtium-config/frits/minspec-16.vtfrit "
+                      "crates/vtium-config/frits/minspec-8.vtfrit", lines)
+        self.assertIn("install -Dm644 crates/vtium-settings/templates/heads.conf "
+                      "/D/usr/share/doc/vtium/examples/heads.conf", lines)
+        self.assertFalse([l for l in lines if "vtium-gallery" in l], lines)
+        self.assertIn("install -Dm755 tools/gallery/gallery /D/usr/bin/vtium-gallery", make_n("FEATURES=images"))
+
     def test_the_tree_installs_vtiums_own_units(self):
         # make install-tree generates vtium@.service and vtium-getty@.service
         # with the generator and the changes make install uses (ADR-1500

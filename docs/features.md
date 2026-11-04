@@ -58,7 +58,7 @@ The console parses no font file. A frit (a font set file, `/etc/vtium/fonts/NAME
 
 ## Pictures
 
-vtium draws pictures in a build with the `images` feature, which minspec leaves out. The AUR packages build minspec, so a package draws no pictures until it is built with `VTIUM_FEATURES='images'` ([install.md](install.md)). Such a build handles four kinds of picture:
+vtium draws pictures in a build with the `images` feature, which minspec leaves out. The `vtium` and `vtium-git` packages build it, and the minspec packages do not ([install.md](install.md#arch-linux)). Such a build handles four kinds of picture, and ships `vtium-gallery`, a tool that shows PNG pictures as a grid of thumbnails:
 
 - **Sixel.**
 - **The kitty graphics protocol.** A program sends pixels directly, or names a file, a temporary file or a shared-memory object. A placement can sit relative to another placement (the `P`, `Q`, `H` and `V` keys), and a program can show a virtual placement by writing Unicode placeholder cells (`U=1`).

@@ -570,14 +570,19 @@
 ## into the buffer being shown, so a frame can be seen half drawn.
 ##
 ## A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the
-## build decides: 3 in a build with features on top of minspec, 2 in the
-## minspec build, 1 only in a build smaller than minspec.
+## build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or
+## else 3 in a build with features on top of minspec, 2 in the minspec build,
+## 1 only in a build smaller than minspec. `vtium config display-buffers`
+## shows the build's default.
 
 #display-buffers=
 
 # ── Drawing through the GPU ─────────────────────────────────────────────────
 
 ## Draw through the GPU, in a build that has it.
+##
+## Off unless vtium was built to turn it on (`VTIUM_HWACCEL`).
+## `vtium config hwaccel` shows the build's default.
 
 #no-hwaccel
 
