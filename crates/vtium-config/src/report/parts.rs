@@ -116,7 +116,7 @@ pub fn consoles(m: &Machine, units: &Units) -> String {
         s.push('\n');
     }
     if units.units.is_empty() {
-        s.push_str(&format!("No vtium@, vtium-dev@ or vtium-getty@ unit is loaded, and the journal names none in {}.\n", m.boot_words()));
+        s.push_str(&format!("No vtium@, vtium-dev@, vtium-getty@ or vtium-dev-getty@ unit is loaded, and the journal names none in {}.\n", m.boot_words()));
         return s;
     }
     let systemctl = m.program("systemctl");
@@ -144,11 +144,11 @@ pub fn consoles(m: &Machine, units: &Units) -> String {
         match shown {
             Some(Ok(ran)) => {
                 let o = &ran.out;
-                line.push_str(&format!(
-                    " {} ({})",
-                    property(o, "ActiveState"),
-                    property(o, "SubState")
-                ));
+                match (property(o, "ActiveState"), property(o, "SubState")) {
+                    ("", _) => line.push_str(" systemctl gives no state"),
+                    (active, "") => line.push_str(&format!(" {active}")),
+                    (active, sub) => line.push_str(&format!(" {active} ({sub})")),
+                }
                 let since = property(o, "ActiveEnterTimestamp");
                 if !since.is_empty() {
                     line.push_str(&format!(" since {since}"));
@@ -163,7 +163,7 @@ pub fn consoles(m: &Machine, units: &Units) -> String {
             None => line.push_str(" its state is not known without systemctl"),
         }
         if journal
-            && !u.name.starts_with("vtium-getty@")
+            && !u.name.contains("-getty@")
             && let Some(r) = revision(m, &u.name)
         {
             line.push_str(&format!(", revision {r}"));
@@ -323,12 +323,18 @@ pub fn logs(m: &Machine, units: &Units) -> String {
             ));
             return s;
         }
+        Journal::NoPreviousBoot(said) => {
+            s.push_str(&format!(
+                "The journal holds no boot before this one, so there is no log of the previous boot. journald keeps its logs across a reboot only when the directory /var/log/journal exists. journalctl said: {said}\n"
+            ));
+            return s;
+        }
         Journal::Readable => {}
     }
     let logged: Vec<&Unit> = units.units.iter().filter(|u| u.log.is_some()).collect();
     if logged.is_empty() {
         s.push_str(&format!(
-            "No vtium@, vtium-dev@ or vtium-getty@ unit logged in {}.\n",
+            "No vtium@, vtium-dev@, vtium-getty@ or vtium-dev-getty@ unit logged in {}.\n",
             m.boot_words()
         ));
     }

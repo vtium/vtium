@@ -7,7 +7,7 @@ use super::read::Ran;
 
 /// The units whose state and logs the report gathers, by the start of
 /// their names.
-const UNIT_PREFIXES: [&str; 3] = ["vtium@", "vtium-dev@", "vtium-getty@"];
+const UNIT_PREFIXES: [&str; 4] = ["vtium@", "vtium-dev@", "vtium-getty@", "vtium-dev-getty@"];
 
 /// What journalctl says when the user cannot read the system's journal.
 const UNREADABLE: [&str; 2] = [
@@ -38,6 +38,9 @@ pub enum Journal {
     /// journalctl said the user cannot read the system's messages; what
     /// it said.
     Unreadable(String),
+    /// `--previous-boot` was asked for, and the journal holds no boot
+    /// before this one; what journalctl said.
+    NoPreviousBoot(String),
 }
 
 impl Journal {
@@ -69,10 +72,30 @@ impl Units {
                 listed,
             };
         };
+        if m.previous_boot
+            && let Some(said) = no_previous_boot(m, &journalctl)
+        {
+            return Units {
+                units: loaded
+                    .into_iter()
+                    .map(|name| Unit { name, log: None })
+                    .collect(),
+                journal: Journal::NoPreviousBoot(said),
+                listed,
+            };
+        }
         let mut journal = Journal::Readable;
         let mut names = loaded.clone();
+        // The units the journal names in that boot: each entry's unit, for
+        // the units the patterns match. journalctl refuses -F with -b, as
+        // with any option that limits the journal.
+        let patterns: Vec<String> = UNIT_PREFIXES.iter().map(|p| format!("{p}*")).collect();
         let mut args = m.boot().to_vec();
-        args.extend(["-F", "_SYSTEMD_UNIT", "--no-pager"]);
+        args.extend(["-o", "cat", "--output-fields=_SYSTEMD_UNIT"]);
+        for p in &patterns {
+            args.extend(["-u", p.as_str()]);
+        }
+        args.push("--no-pager");
         if let Ok(ran) = m.run(&journalctl, &args) {
             journal = journal.after(m.euid, &ran.err);
             names.extend(
@@ -112,9 +135,18 @@ impl Units {
             if empty && !loaded.contains(&name) {
                 continue;
             }
+            // a run that fails and prints nothing says why on stderr
+            let log = if ran.code != Some(0) && ran.out.trim().is_empty() {
+                let code = ran
+                    .code
+                    .map_or_else(|| "ends on a signal".to_owned(), |c| format!("exits {c}"));
+                format!("journalctl {code}: {}\n", ran.err.trim())
+            } else {
+                ran.out
+            };
             units.push(Unit {
                 name,
-                log: Some(ran.out),
+                log: Some(log),
             });
         }
         if let Journal::Unreadable(_) = journal {
@@ -129,6 +161,20 @@ impl Units {
             listed,
         }
     }
+}
+
+/// What journalctl says when it holds no boot before this one, asked for
+/// one entry of it; `None` when it holds one, or when journalctl says
+/// something else, which the unit runs then show.
+fn no_previous_boot(m: &Machine, journalctl: &std::path::Path) -> Option<String> {
+    let ran = m
+        .run(
+            journalctl,
+            &["-b", "-1", "-n", "1", "-o", "cat", "--no-pager"],
+        )
+        .ok()?;
+    (ran.code != Some(0) && ran.err.contains("No journal boot entry"))
+        .then(|| ran.err.lines().next().unwrap_or_default().trim().to_owned())
 }
 
 /// The vtium units systemd has loaded, and why there is no list where

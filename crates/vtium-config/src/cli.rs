@@ -336,7 +336,13 @@ impl Cli<'_> {
             },
             Command::Apply => crate::apply::command(rest, &o.paths().targets(), self.out, self.err),
             Command::Serve => self.serve(rest),
-            Command::Report => crate::report::command(rest, o.root.as_deref(), self.out, self.err),
+            Command::Report => crate::report::command(
+                rest,
+                o.root.as_deref(),
+                rustix::process::geteuid().as_raw(),
+                self.out,
+                self.err,
+            ),
             Command::Tui if !rest.is_empty() => self.usage("tui takes no argument"),
             Command::Tui if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
                 crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, self.err)

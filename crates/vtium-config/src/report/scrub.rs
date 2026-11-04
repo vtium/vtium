@@ -114,39 +114,101 @@ fn replace_word(text: &str, name: &str, with: &str) -> String {
     out
 }
 
-/// `text` with the serial of each monitor id shaped as vtium writes one,
-/// `MAKER:0xPRODUCT:SERIAL` (vtium-platform's `EdidId`), replaced by
-/// `[serial]`: three maker letters, each a byte from `@` to `_` as the
-/// kernel reads a PNP id, then `:0x`, four hex digits, `:`, and the serial
-/// up to the next space or line's end. An id that no letter or digit
-/// touches before it is taken, and one with no serial is left as it is.
+/// `text` with the serial in each device id the head file can hold
+/// replaced by `[serial]`: first in each `edid:` or `serial:` token,
+/// whatever its shape, then in each bare monitor id shaped as vtium
+/// writes one, `MAKER:0xPRODUCT:SERIAL`.
 fn replace_id_serials(text: &str) -> String {
+    replace_bare_ids(&replace_tagged_ids(text))
+}
+
+/// The byte offsets of the run that starts at `from` and ends at the next
+/// space, tab or line end.
+fn run_end(text: &str, from: usize) -> usize {
+    text.get(from..)
+        .and_then(|r| r.find(char::is_whitespace))
+        .map_or(text.len(), |n| from + n)
+}
+
+/// `text` with the serial field of each `edid:MAKER:PRODUCT:SERIAL` and
+/// `serial:VENDOR:PRODUCT:SERIAL` token replaced, in any case and whatever
+/// its fields hold: everything after the token's second colon past its tag,
+/// to the next space. A tag that a letter or digit touches before it is
+/// part of another word, and a token with fewer fields is left alone.
+fn replace_tagged_ids(text: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut starts: Vec<usize> = Vec::new();
+    for tag in ["edid:", "serial:"] {
+        let mut from = 0;
+        while let Some(found) = lower.get(from..).and_then(|r| r.find(tag)) {
+            let at = from + found;
+            from = at + tag.len();
+            if !word(at.checked_sub(1).and_then(|i| bytes.get(i))) {
+                starts.push(from);
+            }
+        }
+    }
+    starts.sort_unstable();
+    let mut out = String::with_capacity(text.len());
+    let mut copied = 0;
+    for fields in starts {
+        if fields < copied {
+            continue;
+        }
+        let end = run_end(text, fields);
+        let run = text.get(fields..end).unwrap_or_default();
+        let Some(serial) = run.match_indices(':').nth(1).map(|(i, _)| fields + i + 1) else {
+            continue;
+        };
+        if serial < end {
+            out.push_str(text.get(copied..serial).unwrap_or_default());
+            out.push_str("[serial]");
+            copied = end;
+        }
+    }
+    out.push_str(text.get(copied..).unwrap_or_default());
+    out
+}
+
+/// `text` with the serial of each bare monitor id replaced: three maker
+/// letters in either case, each `@` to `_` as the kernel reads a PNP id or
+/// their lower case, then `:`, the product as one to four hex digits with
+/// or without `0x` or `0X`, `:`, and the serial up to the next space. An
+/// id that a letter or digit touches before it is part of another word,
+/// and one with no serial is left as it is.
+fn replace_bare_ids(text: &str) -> String {
     let bytes = text.as_bytes();
-    let maker = |b: Option<&u8>| b.is_some_and(|b| (b'@'..=b'_').contains(b));
+    let maker =
+        |b: Option<&u8>| b.is_some_and(|b| (b'@'..=b'_').contains(b) || b.is_ascii_lowercase());
     let mut out = String::with_capacity(text.len());
     let mut copied = 0;
     let mut from = 0;
-    while let Some(found) = text.get(from..).and_then(|rest| rest.find(":0x")) {
-        let at = from + found;
-        from = at + 1;
-        let Some(start) = at.checked_sub(3) else {
+    while let Some(found) = text.get(from..).and_then(|rest| rest.find(':')) {
+        let colon = from + found;
+        from = colon + 1;
+        let Some(start) = colon.checked_sub(3) else {
             continue;
         };
-        let id = (start..at).all(|i| maker(bytes.get(i)))
-            && !start
-                .checked_sub(1)
-                .and_then(|i| bytes.get(i))
-                .is_some_and(u8::is_ascii_alphanumeric)
-            && (at + 3..at + 7).all(|i| bytes.get(i).is_some_and(u8::is_ascii_hexdigit))
-            && bytes.get(at + 7) == Some(&b':');
-        if !id {
+        if start < copied
+            || !(start..colon).all(|i| maker(bytes.get(i)))
+            || word(start.checked_sub(1).and_then(|i| bytes.get(i)))
+        {
             continue;
         }
-        let serial = at + 8;
-        let end = text
-            .get(serial..)
-            .and_then(|r| r.find(char::is_whitespace))
-            .map_or(text.len(), |n| serial + n);
+        let mut product = colon + 1;
+        if bytes.get(product) == Some(&b'0') && matches!(bytes.get(product + 1), Some(b'x' | b'X'))
+        {
+            product += 2;
+        }
+        let digits = (product..)
+            .take_while(|&i| bytes.get(i).is_some_and(u8::is_ascii_hexdigit))
+            .count();
+        if !(1..=4).contains(&digits) || bytes.get(product + digits) != Some(&b':') {
+            continue;
+        }
+        let serial = product + digits + 1;
+        let end = run_end(text, serial);
         if end > serial {
             out.push_str(text.get(copied..serial).unwrap_or_default());
             out.push_str("[serial]");
@@ -190,15 +252,43 @@ mod tests {
             replace_id_serials("edid: DEL:0x4321:SN_77310\nAAA:0x0001:0x00000001"),
             "edid: DEL:0x4321:[serial]\nAAA:0x0001:[serial]"
         );
+        // the forms the head file accepts, and a malformed head file's
+        // token as check-config echoes it
+        for (given, want) in [
+            ("DEL:4321:S1", "DEL:4321:[serial]"),
+            ("DEL:0X4321:S1", "DEL:0X4321:[serial]"),
+            ("DEL:0x21:S1", "DEL:0x21:[serial]"),
+            ("del:0x4321:S1", "del:0x4321:[serial]"),
+            (
+                "rule 3: edid:del:0x4321:SN_1 is malformed",
+                "rule 3: edid:del:0x4321:[serial] is malformed",
+            ),
+            (
+                "display EDID:x:y:z:w -> desk",
+                "display EDID:x:y:[serial] -> desk",
+            ),
+            (
+                "keyboard serial:046d:c52b:A1B2C3 -> desk",
+                "keyboard serial:046d:c52b:[serial] -> desk",
+            ),
+            ("serial:1:2:3,edid:a:b:c", "serial:1:2:[serial]"),
+        ] {
+            assert_eq!(replace_id_serials(given), want, "{given}");
+        }
         // no serial, no id shape, or a word before it: left as it is
         for kept in [
             "AAA:0x0001: next",
             "AAA:0x0001:",
             "ab:0x1234:x",
             "xDEL:0x4321:SER",
-            "DEL:0x43:SER",
+            "DEL:0x43210:SER",
+            "DEL::SER",
             "time 12:0x",
             "é:0x",
+            "/etc/vtium/vtium.conf:3: unknown key frob",
+            "2026-11-03T20:27:03+00:00 vtium[100]: log: vtium Revision v1.2.3",
+            "edid:only:two",
+            "myedid:a:b:c",
         ] {
             assert_eq!(replace_id_serials(kept), kept);
         }

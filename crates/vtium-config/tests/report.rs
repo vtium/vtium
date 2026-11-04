@@ -166,7 +166,12 @@ case "$1" in
 --version) printf '%s\n' "{version}" ;;
 --help) printf 'Usage: vtium [OPTION]...\n       vtium check-config [OPTION]... [FILE]\n       vtium console status                    show what each VT runs\n' ;;
 console) printf 'VT  at boot  when switched to  running\n2   getty recorded  vtium@tty2  vtium@tty2\n7   -  -  graphical session of alice on {HOST}\n' ;;
-check-config) printf '/etc/vtium/vtium.conf:3: unknown key frob\n' ; exit 1 ;;
+check-config)
+  printf '/etc/vtium/vtium.conf:3: unknown key frob\n'
+  printf '/etc/vtium/heads.conf:2: edid:del:0x4321:HEADSER7 matches no display\n'
+  printf '/etc/vtium/heads.conf:3: keyboard serial:046d:c52b:USBSER42 -> desk matches no device\n'
+  printf '/etc/vtium/heads.conf:4: DEL:4321:BARE01, DEL:0X4321:BARE02 and DEL:0x21:BARE03 are not ids\n'
+  exit 1 ;;
 *) echo "STARTED AS A CONSOLE" ; exit 9 ;;
 esac
 "#
@@ -191,11 +196,13 @@ show)
 esac
 "#;
 
-/// A stand-in journalctl. `-F` names the units the journal holds,
-/// vtium-dev@tty5 among them, which no unit list names; `-g` finds the
-/// revision line; otherwise it prints a unit's log, with the hostname,
-/// the monitor's serial and a user's name planted in it, and the
-/// arguments it was given.
+/// A stand-in journalctl. It refuses `-F` with `-b`, as journalctl 262
+/// does. `--output-fields=_SYSTEMD_UNIT` names each entry's unit:
+/// vtium-dev@tty5, which no unit list names, systemd's own `init.scope`,
+/// and vtium@tty9, which has no entries of its own. `-g` finds the
+/// revision line; otherwise it prints a unit's log, with the hostname, the
+/// monitor's serials and a user's name planted in it, and the arguments it
+/// was given.
 const JOURNALCTL: &str = r#"#!/bin/sh
 unit=""
 prev=""
@@ -204,7 +211,17 @@ for a in "$@"; do
   prev="$a"
 done
 case " $* " in
-*" -F "*) printf 'vtium@tty2.service\nvtium-dev@tty5.service\nvtium@tty9.service\nsshd.service\n' ; exit 0 ;;
+*" -F "*|*" --field="*)
+  # as journalctl 262 refuses it, before it opens the journal
+  case " $* " in
+  *" -b "*|*" --boot"*)
+    echo "-F/--field= and -N/--fields cannot be combined with options that limit the journal." >&2
+    exit 1 ;;
+  esac
+  printf 'vtium@tty2.service\n' ; exit 0 ;;
+*" --output-fields=_SYSTEMD_UNIT "*)
+  printf 'init.scope\nvtium@tty2.service\nvtium-dev@tty5.service\nvtium-dev@tty5.service\nvtium@tty9.service\n'
+  exit 0 ;;
 *" -g "*)
   case "$unit" in
   vtium@tty2.service) printf 'log: vtium Revision v1.2.3\n' ;;
@@ -658,6 +675,59 @@ fn an_unreadable_journal_is_noticed_with_no_unit_loaded() {
     assert!(p.contains("systemd-journal"), "{p}");
 }
 
+/// With no boot before this one in the journal, as where journald keeps
+/// its logs only in memory, `--previous-boot` says so and why, in place of
+/// an empty log.
+#[test]
+fn a_journal_with_no_previous_boot_says_so() {
+    let t = Tree::new("no-previous-boot");
+    t.program(
+        "usr/bin/journalctl",
+        &JOURNALCTL.replacen(
+            "#!/bin/sh\n",
+            "#!/bin/sh\ncase \" $* \" in\n*\" -b -1 \"*) echo 'No journal boot entry found for the specified boot (-1).' >&2 ; exit 1 ;;\nesac\n",
+            1,
+        ),
+    );
+    let mut m = t.machine(1000);
+    m.previous_boot = true;
+    let doc = made(&m);
+    let p = part(&doc, "Logs");
+    assert!(
+        p.contains("The journal holds no boot before this one"),
+        "{p}"
+    );
+    assert!(p.contains("/var/log/journal"), "{p}");
+    assert!(
+        p.contains("No journal boot entry found for the specified boot (-1)."),
+        "{p}"
+    );
+    assert!(!p.contains("lines in the previous boot"), "{p}");
+}
+
+/// A unit's log run that fails and prints nothing shows what journalctl
+/// said on stderr.
+#[test]
+fn a_failed_log_run_shows_what_journalctl_said() {
+    let t = Tree::new("failed-log-run");
+    t.program(
+        "usr/bin/journalctl",
+        &JOURNALCTL.replacen(
+            "#!/bin/sh\n",
+            "#!/bin/sh\ncase \" $* \" in\n*\" -u vtium@tty2.service -n \"*) echo 'Failed to iterate through journal: Bad message' >&2 ; exit 1 ;;\nesac\n",
+            1,
+        ),
+    );
+    let doc = made(&t.machine(1000));
+    let p = part(&doc, "Logs");
+    assert!(
+        p.contains(
+            "vtium@tty2.service, its last 300 lines in this boot:\n    journalctl exits 1: Failed to iterate through journal: Bad message\n"
+        ),
+        "{p}"
+    );
+}
+
 /// `--previous-boot` reads the boot before this one, where a defect that
 /// forced a reboot left its log.
 #[test]
@@ -708,6 +778,11 @@ fn neither_the_hostname_nor_a_serial_appears() {
         SERIAL,
         SERIAL_LOGGED,
         UNPLUGGED,
+        "HEADSER7",
+        "USBSER42",
+        "BARE01",
+        "BARE02",
+        "BARE03",
         "0x01020304",
         "01020304",
         "16909060",
@@ -826,6 +901,36 @@ fn save_with_a_path_writes_there_and_never_replaces_a_file() {
     assert_eq!(o.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&o.stderr).contains("mine.txt"));
     assert_eq!(fs::read_to_string(&target).expect("kept"), "kept\n");
+}
+
+/// The command itself refuses a save run as root, whatever the command
+/// line's own refusal does, and writes nothing.
+#[test]
+fn the_command_saves_nothing_for_root() {
+    let t = Tree::new("command-root");
+    let target = t.path("root-wrote-this.txt");
+    let words = vec![format!("--save={}", target.display())];
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let status = {
+        let _forking = forking();
+        vtium_config::report::command(&words, Some(&t.root), 0, &mut out, &mut err)
+    };
+    let err = String::from_utf8_lossy(&err);
+    assert_eq!(status, 2, "{err}");
+    assert!(
+        err.contains("sudo vtium-config report > vtium-report.txt"),
+        "{err}"
+    );
+    assert!(!target.exists(), "root wrote {}", target.display());
+    assert!(out.is_empty());
+    // the same words as a user save the report
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let status = {
+        let _forking = forking();
+        vtium_config::report::command(&words, Some(&t.root), 1000, &mut out, &mut err)
+    };
+    assert_eq!(status, 0, "{}", String::from_utf8_lossy(&err));
+    assert!(target.is_file());
 }
 
 #[test]

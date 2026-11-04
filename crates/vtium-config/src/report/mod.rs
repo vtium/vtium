@@ -247,12 +247,13 @@ fn parse(rest: &[String]) -> Result<Args, String> {
 }
 
 /// `vtium-config report`: prints the report on the machine under `root`,
-/// `/` when none is named, or saves it as `rest` asks. Exits 0 when the
-/// report is printed or saved, 1 when it cannot be saved, and 2 on a usage
-/// error, root's `--save` among them.
+/// `/` when none is named, run with the effective uid `euid`, or saves it
+/// as `rest` asks. Exits 0 when the report is printed or saved, 1 when it
+/// cannot be saved, and 2 on a usage error, root's `--save` among them.
 pub fn command(
     rest: &[String],
     root: Option<&Path>,
+    euid: u32,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
@@ -263,7 +264,6 @@ pub fn command(
             return 2;
         }
     };
-    let euid = rustix::process::geteuid().as_raw();
     // `main`'s refusal says this first; the command holds to it too
     if euid == 0 && args.save != Save::Out {
         let _ = writeln!(err, "vtium-config: {ROOT_SAVES_NOTHING}");
@@ -305,7 +305,10 @@ pub fn command(
 
 /// Writes `bytes` as the new file `path`, readable by its owner only, and
 /// never over a file that exists. A file whose write fails is removed, so
-/// no part of a report is left behind.
+/// no part of a report is left behind. No test reaches that removal: a
+/// write fails after `create_new` has made the file only when the disk
+/// fills or the file system fails, which a test cannot bring about on a
+/// file it has just created without a fault-injecting file system.
 fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
