@@ -172,7 +172,11 @@ fn wrap(mark: &str, text: &str) -> Vec<String> {
     let mut lines = Vec::new();
     let mut line = mark.to_owned();
     for word in &words {
-        let wide = line.chars().count() + 1 + word.chars().count();
+        let wide = line
+            .chars()
+            .count()
+            .saturating_add(1)
+            .saturating_add(word.chars().count());
         if wide > WIDTH && line != mark {
             lines.push(std::mem::replace(&mut line, mark.to_owned()));
         }
@@ -318,7 +322,12 @@ pub(super) fn example() -> String {
 }
 
 #[cfg(test)]
-#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+#[expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    reason = "a test fails by panicking"
+)]
 mod tests {
     use super::*;
 
