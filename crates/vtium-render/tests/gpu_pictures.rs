@@ -523,21 +523,24 @@ fn a_release_frees_the_glyph_and_picture_textures_and_the_next_frame_draws_whole
     assert_eq!(g.gl.live(), (textures, targets, programs));
 }
 
-// ADR-1303 D2, D3: on a GL whose largest texture is 64, with no limit of
+// ADR-1303 D2, D3: on a GL whose largest texture is 60, with no limit of
 // the renderer's own, a picture's textures and the upright frame's tiles
 // stay within it, and each picture and tint quad draws into its tile in
-// the tile's own pixels, every pixel of the frame once
+// the tile's own pixels, every pixel of the frame once. 60 is no multiple
+// of a cell's 8 or 16, so the tiles' seams cross the picture and the
+// selected cells.
 #[test]
 fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles() {
     let limits = vtium_render::gpu::Limits {
-        texture: 64,
+        texture: 60,
         ..StandIn::LIMITS
     };
     let mut g = Gpu::with_limits(limits);
     // 150x100 fitted into 10 by 3 cells from cell 1, 2: drawn 72x48 at
-    // 12, 32, across the tiles' seams at x 64 and y 64
+    // 12, 32, across the tiles' seams at x 60 and y 60
     let p = placements(&[pic(1, (150, 100), (1, 2), (10, 3))]);
-    // cells 6 to 9 of rows 3 and 4 selected, across both seams
+    // cells 6 to 9 of rows 3 and 4 selected, x 48 to 80 and y 48 to 80,
+    // across both seams
     let rows: Vec<std::ops::Range<usize>> = (0..ROWS)
         .map(|r| if r == 3 || r == 4 { 6..10 } else { 0..0 })
         .collect();
@@ -554,7 +557,7 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
             &[],
         )
         .unwrap();
-    let over = |s: &Size| s.width > 64 || s.height > 64;
+    let over = |s: &Size| s.width > 60 || s.height > 60;
     assert!(!g.made().iter().any(over), "{:?}", g.made());
     for c in g.calls() {
         if let Call::CreateFrame(s) = c {
@@ -562,24 +565,28 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
         }
     }
     // the upright frame's tiles, in the order the pipeline made them
-    let layout = tiles(DISPLAY, Size::new(64, 64), 0).unwrap();
-    assert!(layout.len() > 4, "{layout:?}");
+    let layout = tiles(DISPLAY, Size::new(60, 60), 0).unwrap();
+    assert_eq!(layout.len(), 6, "{layout:?}");
     let origin = |name: u32| {
         let k = g.gl.frame_names().iter().position(|&n| n == name)?;
         layout.get(k).map(|t| t.held)
     };
-    // each draw of `inputs` into a tile, mapped back into the frame
-    let cover = |inputs: &[&str], want: u32| {
+    // each draw of the frame with what the stand-in saw of it
+    let draws: Vec<(&Vec<Quad>, &[&str], &vtium_render::gpu::Seen)> = g
+        .calls()
+        .iter()
+        .filter_map(|c| match c {
+            Call::Draw { quads, inputs, .. } => Some((quads, &inputs[..])),
+            _ => None,
+        })
+        .zip(g.gl.seen())
+        .map(|((q, i), s)| (q, i, s))
+        .collect();
+    // the draws of `inputs` into a tile, mapped back into the frame
+    let cover = |inputs: &[&str], want: Rect| {
         let mut n = vec![0u32; (DISPLAY.width * DISPLAY.height) as usize];
-        let draws = g.calls().iter().filter(|c| matches!(c, Call::Draw { .. }));
-        for (c, &target) in draws.zip(g.gl.draw_targets()) {
-            let Call::Draw {
-                quads, inputs: i, ..
-            } = c
-            else {
-                continue;
-            };
-            let Some(held) = (i[..] == *inputs).then(|| origin(target)).flatten() else {
+        for &(quads, i, seen) in &draws {
+            let Some(held) = (i == inputs).then(|| origin(seen.target)).flatten() else {
                 continue;
             };
             for q in quads {
@@ -600,10 +607,64 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
                 }
             }
         }
-        assert!(n.iter().all(|&k| k <= 1), "{inputs:?}: a pixel drawn twice");
-        assert_eq!(n.iter().sum::<u32>(), want, "{inputs:?}");
+        for y in 0..DISPLAY.height {
+            for x in 0..DISPLAY.width {
+                let inside = x >= want.x
+                    && x < want.x + want.width
+                    && y >= want.y
+                    && y < want.y + want.height;
+                let k = n[(y * DISPLAY.width + x) as usize];
+                assert_eq!(k, u32::from(inside), "{inputs:?} at {x},{y}");
+            }
+        }
     };
-    cover(&PICTURE_INPUTS, 72 * 48);
-    // the tint's draws back into the tiles: 2 rows of 4 cells of 8x16
-    cover(&TINT_INPUTS, 2 * 4 * 8 * 16);
+    let rect = |x, y, width, height| Rect {
+        x,
+        y,
+        width,
+        height,
+    };
+    cover(&PICTURE_INPUTS, rect(12, 32, 72, 48));
+    // the tint's draws back into the tiles
+    cover(&TINT_INPUTS, rect(48, 48, 32, 32));
+    // each picture draw places the picture's top left, 12, 32, in its
+    // tile's own pixels
+    let mut pictures = 0;
+    for &(_, i, seen) in &draws {
+        let Some(held) = (i == PICTURE_INPUTS).then(|| origin(seen.target)).flatten() else {
+            continue;
+        };
+        let o = seen.ivec4.iter().find(|(n, _)| *n == "origin").unwrap().1;
+        assert_eq!(
+            (o[0], o[1]),
+            (12 - held.x as i32, 32 - held.y as i32),
+            "{held:?}"
+        );
+        pictures += 1;
+    }
+    assert!(pictures >= 4, "{pictures} picture draws");
+    // each tint copies a tile's cells out and draws them back from where
+    // it copied them: the copy's source is the draw back's destination
+    let tints: Vec<_> = draws.iter().filter(|(_, i, _)| *i == TINT_INPUTS).collect();
+    assert_eq!(tints.len(), 8, "a copy and a draw back for each of 4 tiles");
+    for pair in tints.chunks(2) {
+        let (copy, back) = (pair[0], pair[1]);
+        assert!(
+            origin(copy.2.target).is_none(),
+            "the copy draws into its own target"
+        );
+        assert!(
+            origin(back.2.target).is_some(),
+            "the draw back goes to a tile"
+        );
+        assert_eq!(copy.0.len(), back.0.len());
+        for (c, b) in copy.0.iter().zip(back.0) {
+            assert_eq!(
+                (c.src[0], c.src[1]),
+                (b.dst[0] as u32, b.dst[1] as u32),
+                "copy {c:?}, back {b:?}"
+            );
+            assert_eq!((c.dst[2], c.dst[3]), (b.dst[2], b.dst[3]));
+        }
+    }
 }

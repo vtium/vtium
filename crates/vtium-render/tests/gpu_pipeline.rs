@@ -373,3 +373,59 @@ fn a_set_up_that_fails_its_check_leaves_nothing_behind() {
     );
     assert_eq!(gl.live(), (0, 0, 0));
 }
+
+/// The sizes of the upright frames the calls so far made.
+fn frames_made(gl: &StandIn) -> Vec<Size> {
+    gl.calls()
+        .iter()
+        .filter_map(|c| match c {
+            Call::CreateFrame(s) => Some(*s),
+            _ => None,
+        })
+        .collect()
+}
+
+// ADR-1303 D9: a quarter turn between a release and the next frame makes
+// the upright frame once, at its new shape, and the frame after makes none
+#[test]
+fn a_quarter_turn_after_a_release_makes_the_upright_frame_once() {
+    let mut gl = StandIn::new();
+    let mut p = Pipeline::new(&mut gl, DISPLAY, Config::default()).unwrap();
+    let buffer = gl.import_buffer(&DISPLAY).unwrap();
+    p.frame(&mut gl, &Work::new(BORDER, &[], &[]), &buffer, 1)
+        .unwrap();
+    p.release(&mut gl).unwrap();
+    gl.clear_calls();
+    p.turn(&mut gl, vtium_render::Orientation::Right).unwrap();
+    p.frame(&mut gl, &Work::new(BORDER, &[], &[]), &buffer, 1)
+        .unwrap();
+    assert_eq!(frames_made(&gl), [Size::new(32, 64)]);
+}
+
+// ADR-1303 D9: a frame after a release whose upright frame cannot be made,
+// out of memory, fails before it draws and leaves nothing made; the next
+// frame makes the upright frame and draws whole
+#[test]
+fn a_restore_out_of_memory_fails_its_frame_cleanly_and_the_next_draws_whole() {
+    let mut gl = StandIn::new();
+    let mut p = Pipeline::new(&mut gl, DISPLAY, Config::default()).unwrap();
+    let buffer = gl.import_buffer(&DISPLAY).unwrap();
+    p.frame(&mut gl, &Work::new(BORDER, &[], &[]), &buffer, 1)
+        .unwrap();
+    p.release(&mut gl).unwrap();
+    let live = gl.live();
+    gl.fail_next(Op::CreateFrame, ErrorKind::OutOfMemory);
+    gl.clear_calls();
+    let e = p
+        .frame(&mut gl, &Work::new(BORDER, &[], &[]), &buffer, 1)
+        .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::OutOfMemory);
+    assert_eq!(gl.live(), live);
+    assert!(!gl.calls().iter().any(|c| matches!(c, Call::Draw { .. })));
+    gl.clear_calls();
+    let damage = p
+        .frame(&mut gl, &Work::new(BORDER, &[], &[]), &buffer, 1)
+        .unwrap();
+    assert_eq!(frames_made(&gl), [DISPLAY]);
+    assert_eq!(damage, [rect(0, 0, DISPLAY.width, DISPLAY.height)]);
+}

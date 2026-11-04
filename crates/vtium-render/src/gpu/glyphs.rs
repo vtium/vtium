@@ -173,8 +173,9 @@ pub(crate) struct Glyphs {
     /// The frame the last note of a glyph drawn blank past the ceiling was
     /// given in.
     noted: Option<u64>,
-    /// Notes for the log, since they were last taken.
-    notes: Vec<String>,
+    /// The note for the log given since the notes were last taken, at
+    /// most one, so a head that never takes them holds no more.
+    note: Option<String>,
     /// The sprites' texture: each [`Kind`] a cell side by side.
     sprites: usize,
     /// The largest side of a texture.
@@ -242,7 +243,7 @@ impl Glyphs {
             ceiling: GLYPH_TEXTURE_CEILING,
             frame: 0,
             noted: None,
-            notes: Vec::new(),
+            note: None,
             sprites: 0,
             side,
             cell,
@@ -411,15 +412,15 @@ impl Glyphs {
             return;
         }
         self.noted = Some(frame);
-        self.notes.push(format!(
+        self.note = Some(format!(
             "GPU glyph textures at their ceiling of {} MiB: glyphs past it are drawn blank",
             self.ceiling >> 20
         ));
     }
 
-    /// The notes for the log since the last call.
+    /// The note for the log given since the last call, if any.
     pub(crate) fn take_notes(&mut self) -> Vec<String> {
-        core::mem::take(&mut self.notes)
+        self.note.take().into_iter().collect()
     }
 
     /// Gives each slot eviction took back to its pool.
@@ -630,11 +631,30 @@ mod tests {
         );
         assert_eq!(textures(&gl), made);
         assert_eq!(g.bytes(), ceiling);
-        // one note for the log, and none again within the idle frames
+        // one note for the log, then none in the same frame, a frame
+        // later, or a frame short of GPU_IDLE_FRAMES; one again at it
         assert_eq!(g.take_notes().len(), 1);
-        let again = g.glyph(&mut gl, &font, &last, Width::Narrow, style);
-        assert_eq!(again.unwrap(), None);
-        assert!(g.take_notes().is_empty());
+        let blank_at = |g: &mut Glyphs, gl: &mut StandIn, frames: u64| {
+            for _ in 0..frames {
+                g.give_back(gl).unwrap();
+            }
+            let drawn = g.glyph(gl, &font, &last, Width::Narrow, style);
+            assert_eq!(drawn.unwrap(), None);
+            g.take_notes().len()
+        };
+        assert_eq!(blank_at(&mut g, &mut gl, 0), 0);
+        assert_eq!(blank_at(&mut g, &mut gl, 1), 0);
+        assert_eq!(blank_at(&mut g, &mut gl, GPU_IDLE_FRAMES - 2), 0);
+        assert_eq!(blank_at(&mut g, &mut gl, 1), 1);
+        // a head that never takes the notes holds at most one
+        for _ in 0..3 {
+            for _ in 0..GPU_IDLE_FRAMES {
+                g.give_back(&mut gl).unwrap();
+            }
+            let drawn = g.glyph(&mut gl, &font, &last, Width::Narrow, style);
+            assert_eq!(drawn.unwrap(), None);
+        }
+        assert_eq!(g.take_notes().len(), 1);
         g.end_frame();
         // a glyph forgotten gives its slot back, which the 65th then takes
         g.forget(&['A']);
@@ -645,12 +665,5 @@ mod tests {
                 .is_some()
         );
         assert_eq!(textures(&gl), made);
-        // past the idle frames a glyph drawn blank is noted again
-        for _ in 0..GPU_IDLE_FRAMES {
-            g.give_back(&mut gl).unwrap();
-        }
-        let more = g.glyph(&mut gl, &font, &['A'], Width::Narrow, style);
-        assert_eq!(more.unwrap(), None);
-        assert_eq!(g.take_notes().len(), 1);
     }
 }

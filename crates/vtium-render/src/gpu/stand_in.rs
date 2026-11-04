@@ -60,8 +60,16 @@ pub struct StandIn {
     failing: Vec<(Op, ErrorKind)>,
     /// The name of each upright frame made, in the order they were made.
     frames: Vec<u32>,
-    /// The name of the target of each draw since the calls were forgotten.
-    targets: Vec<u32>,
+    /// What the stand-in saw of each draw since the calls were forgotten.
+    seen: Vec<Seen>,
+}
+
+/// What the stand-in saw of one draw past what [`Call::Draw`] records: the
+/// name of its target, and the values of its `ivec4` inputs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Seen {
+    pub target: u32,
+    pub ivec4: Vec<(&'static str, [i32; 4])>,
 }
 
 impl StandIn {
@@ -88,7 +96,7 @@ impl StandIn {
             raised: None,
             failing: Vec::new(),
             frames: Vec::new(),
-            targets: Vec::new(),
+            seen: Vec::new(),
         }
     }
 
@@ -100,7 +108,7 @@ impl StandIn {
     /// Forgets the calls so far.
     pub fn clear_calls(&mut self) {
         self.calls.clear();
-        self.targets.clear();
+        self.seen.clear();
     }
 
     /// The name of each upright frame the stand-in made, in the order it
@@ -110,10 +118,10 @@ impl StandIn {
         &self.frames
     }
 
-    /// The name of the target of each [`Call::Draw`] in [`StandIn::calls`],
-    /// in the same order.
-    pub fn draw_targets(&self) -> &[u32] {
-        &self.targets
+    /// What the stand-in saw of each [`Call::Draw`] in [`StandIn::calls`],
+    /// in the same order: its target, and its `ivec4` inputs' values.
+    pub fn seen(&self) -> &[Seen] {
+        &self.seen
     }
 
     /// How many textures, targets and programs are live.
@@ -231,7 +239,17 @@ impl Gl for StandIn {
 
     fn draw(&mut self, draw: &Draw<'_>) -> Result<(), Error> {
         let checked = self.ledger.draw(draw)?;
-        self.targets.push(checked.target.name);
+        self.seen.push(Seen {
+            target: checked.target.name,
+            ivec4: checked
+                .inputs
+                .iter()
+                .filter_map(|(n, v)| match v {
+                    super::ledger::Resolved::IVec4(v) => Some((*n, *v)),
+                    _ => None,
+                })
+                .collect(),
+        });
         self.calls.push(Call::Draw {
             quads: draw.quads.to_vec(),
             blend: draw.blend,

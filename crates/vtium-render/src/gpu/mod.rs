@@ -32,5 +32,5 @@ pub use ledger::{Checked, Ledger, Resolved, TargetInfo, TextureInfo};
 #[cfg(feature = "images")]
 pub use pictures::PictureStep;
 pub use pipeline::{Color, Config, Pipeline, Spatial};
-pub use stand_in::{Call, Op, StandIn};
+pub use stand_in::{Call, Op, Seen, StandIn};
 pub use tile::{Tile, tiles};

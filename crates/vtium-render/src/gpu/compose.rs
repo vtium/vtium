@@ -674,6 +674,12 @@ impl Composition {
     /// Makes the upright frame's tiles again at its size when a release
     /// gave them back, and draws it whole. Gives how many allocations that
     /// took, a call each of the frame's batch of uploads.
+    ///
+    /// Unlike [`Composition::reshape`], it does not check its own new tiles
+    /// before it goes on: the frame's check of its uploads reads their
+    /// errors. ADR-1303 D9 bounds what that costs: an out-of-memory error
+    /// takes the head off the GPU path, and any other error costs the
+    /// frame, two frames running moving the head to the CPU path.
     pub(crate) fn restore<G: Gl>(&mut self, gl: &mut G) -> Result<usize, Error> {
         if !self.tiles.is_empty() {
             return Ok(0);
