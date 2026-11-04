@@ -40,12 +40,18 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "I'm unsure of the private layer concept working as intended. I think for now we can just leave agents.md and claude.md as they are, and later when we see a real reduction in open issues and vtium feels more stable, we'll revisit it then."
+    via: the steering session, 2026-11-04
+  - operator: aaronsb
+    said: "let's adjust 'moving from kmscon' to 'moving from another DRM/KMS VT'."
+    via: the steering session, 2026-11-04
 observable:
   - "`docs/scripts/fork-refs` exits 0 on the tree after the sweep, and exits 1 naming the file and line when a planted line in a crate README says `the C reference`"
   - "`make help` lists no target that reads a fork checkout, and `git grep -nE 'LIBTSM|KMSCON'` finds nothing in the Makefile or the tools"
   - "Each tier judges every case by one golden: tools/conformance/expected.tsv, tools/tier2/departures.tsv and tools/tier3/departures.tsv are gone, and `make conformance`, `make tier2` and `make tier3` pass"
   - "No crate README has a section named Departures, C behaviour kept, Beyond the C reference or C notes"
-  - "A worktree cut from integration in the directory that holds the checkout loads both the private CLAUDE.md and AGENTS.md in a fresh Claude Code session"
 status: proposed
 date: 2026-11-04
 deciders:
@@ -60,7 +66,7 @@ related:
 
 ## Summary
 
-- **Decided:** vtium's own goldens are the judge of every tier. The goldens that were copied from the C reference, the maintainer's forks of `kmscon` and `libtsm`, become vtium's goldens under the same review rule as every other golden, and each case has one golden: where vtium means to differ, vtium's output replaces the golden in a reviewed commit of its own, and the lists that excused differences go. The behaviour vtium implements is defined by the specifications it cites, ADR-1000's tables and its goldens, so the crate READMEs' departure lists go and a choice a reader needs is stated in the present tense as what vtium does and why. Committed code, comments, READMEs, docs, AGENTS.md, CONTRIBUTING.md, the Makefile and the tools stop citing the C reference; the README keeps a short history in the past tense, the licence files and ported files keep their copyright notices, and text about the released `kmscon` program on a user's machine stays. Existing decision records stay as history, with a pass over sentences that read as if the forks can be opened. The forks, the provenance records and the checks that read them move to a private layer that is not committed: a CLAUDE.md in the directory that holds the checkout and its worktrees, and a private directory beside it. A new check, `docs/scripts/fork-refs`, keeps the committed tree from naming the fork again.
+- **Decided:** vtium's own goldens are the judge of every tier. The goldens that were copied from the C reference, the maintainer's forks of `kmscon` and `libtsm`, become vtium's goldens under the same review rule as every other golden, and each case has one golden: where vtium means to differ, vtium's output replaces the golden in a reviewed commit of its own, and the lists that excused differences go. The behaviour vtium implements is defined by the specifications it cites, ADR-1000's tables and its goldens, so the crate READMEs' departure lists go and a choice a reader needs is stated in the present tense as what vtium does and why. Committed code, comments, READMEs, docs, CONTRIBUTING.md, the Makefile and the tools stop citing the C reference; the README keeps a short history in the past tense, the licence files and ported files keep their copyright notices, and text about the released `kmscon` program on a user's machine stays. Existing decision records stay as history, with a pass over sentences that read as if the forks can be opened. AGENTS.md and CLAUDE.md stay as they are for now, and a private layer for the forks' provenance, kept outside the repository, is revisited once the open issues have come down and vtium is more stable. A new check, `docs/scripts/fork-refs`, keeps the committed tree from naming the fork again.
 - **Trades away:** an outside judge. The copied goldens were drawn by a program vtium did not write; once they are vtium's, a regression the maintainer approves in a golden commit is no longer caught by anything independent. The departure lists' record of why each behaviour differs shrinks to the statements a reader still needs, and the rest lives in git history. The maintainer reviews a series of golden commits, one per tier, for about 90 cases (57 rows in tier 1, 4 in tier 2, 31 pairs in tier 3). A contributor loses the pointer from a comment to the C code it was written against.
 - **One-way?** Expensive now, and one-way once the maintainer deletes the forks. Every committed change is in git and can be put back. The provenance checks need the forks, so after the forks are gone nobody can check a copied golden against its source again, and the private provenance records become notes that cannot be verified.
 - **Probes:** *Confident (the judge):* where vtium deliberately draws or answers something other than a copied golden shows, the golden is replaced by vtium's output in a commit the maintainer reviews, and no list of departures stays beside it. *Not confident (ADR-1000's comparison column):* ADR-1000's tables lose their `c_reference` column, which recorded what the C reference did for each mode and feature, even though ADR-1000 is otherwise a record the maintainer called historical; the five columns for other terminals stay.
@@ -112,13 +118,14 @@ The crate READMEs' `Departures`, `C behaviour kept`, `Beyond the C reference` an
 
 ### D3: committed text describes vtium and cites no C code
 
-Code comments, strings in code (such as the bounds table's citations in vtium-font and test failure messages), crate READMEs, docs pages, CONTRIBUTING.md, AGENTS.md, the Makefile, configuration file comments and the tools describe vtium in the present tense and do not cite the C reference, its files, its functions or its issues. A comment that explained vtium's code by the C function it followed explains what vtium's code does, or goes.
+Code comments, strings in code (such as the bounds table's citations in vtium-font and test failure messages), crate READMEs, docs pages, CONTRIBUTING.md, the Makefile, configuration file comments and the tools describe vtium in the present tense and do not cite the C reference, its files, its functions or its issues. A comment that explained vtium's code by the C function it followed explains what vtium's code does, or goes. AGENTS.md and CLAUDE.md are outside this sweep for now (D6).
 
 These stay, because they serve a reader who has no fork:
 
 - The README's `Provenance` section keeps a short history in the past tense: vtium began as a Rust program derived from `kmscon` and `libtsm`, whose authors COPYING lists.
 - COPYING and LICENSE keep kmscon's and libtsm's copyright notices and author lists, and a file ported from them keeps its notice (vtium-font's unifont.rs and vtium-parse's parser.rs and utf8.rs today), as the MIT licence requires. Their prose follows the tense rule.
-- Text about the released `kmscon` program that a user may have installed: docs/install.md's `Moving from kmscon` and `Sharing VTs with kmscon`, `vtium console`'s handling of kmsconvt@.service and the code and comments behind it, vtium reading `kmscon`'s configuration file, and vtium's answer to TERM=kmscon from crates/vtium/install/kmscon.ti. Each describes another program on the user's machine in the present tense and says nothing about how vtium was judged. Their comments drop the wording that ties them to the fork, such as "the C reference's entry, whose probes judge it".
+- Text about the released `kmscon` program that a user may have installed: docs/install.md's `Sharing VTs with kmscon`, `vtium console`'s handling of kmsconvt@.service and the code and comments behind it, vtium reading `kmscon`'s configuration file, and vtium's answer to TERM=kmscon from crates/vtium/install/kmscon.ti. Each describes another program on the user's machine in the present tense and says nothing about how vtium was judged. Their comments drop the wording that ties them to the fork, such as "the C reference's entry, whose probes judge it".
+- docs/install.md's `Moving from kmscon` becomes `Moving from another DRM/KMS VT`, rewritten to cover moving to vtium from any other terminal that runs on a VT through DRM/KMS, with `kmscon` as one example among others. The docs sweep does the rewrite.
 - Text that a golden shows, such as a tier 3 screen's caption when it is drawn on the screen, changes only in a golden commit. The comments in a screen script that no golden shows follow this decision like any other comment.
 
 ### D4: the decision records
@@ -133,21 +140,22 @@ adr.yaml's comments follow D3. Its `cite.exclude` entry for tools/tier3/guest/sc
 
 CONTRIBUTING.md first says what judges a change: the tiers from unit tests to tier 3 and the maintainer's VT review, vtium's goldens and the golden commit rule, and ADR-1000's rows with the tests tagged to them. Only then does it say how to build a change. A contribution brings its judge before its code: a test that fails before the change, a new golden marked provisional, or the ADR-1000 row it serves. A contribution that changes what vtium draws or answers brings the golden commit that records it.
 
-### D6: the private layer
+### D6: AGENTS.md and CLAUDE.md stay as they are for now
 
-The maintainer and the steering session keep using the forks for provenance and as prior art while they exist. Everything that needs the forks lives in files that are not committed to vtium:
+> Edited 2026-11-04: the maintainer deferred the private layer (the first `considered` entry). The earlier text moved the rules for using the forks into a CLAUDE.md in the directory that holds the checkout, and the provenance records, the C programs, docs/c-reference.md and the provenance checks into a private directory beside it; git keeps that text.
 
-- A CLAUDE.md in the directory that holds the vtium checkout and its worktrees holds the private rules: how to read the forks, that the steering session answers a design question from the C reference's logic before it designs, and where the private documents are. Claude Code reads a CLAUDE.md in every directory above the one it starts in, so every worktree there sees it.
-- A private directory beside the checkout holds the private documents: the C reference map that docs/c-reference.md holds today, the three provenance records, tier 2's list of the C reference's goldens, the C programs that made digests and screens, and the provenance checks, as a small tool of their own. It is a git repository of its own with no public remote (open question 4).
-- The committed CLAUDE.md stays a one-line import of AGENTS.md. Under Claude Code's default, a CLAUDE.md in a parent directory stops Claude Code from reading AGENTS.md by itself, and the import keeps AGENTS.md loading for every contributor, with or without the private layer.
-- No gate, CI job, committed tool or committed document reads the private layer or the forks. A contributor never needs it.
-- The project's own ways (the guidance files under the checkout's uncommitted .claude/ directory), which teach the old rule of listing departures from the C reference, change with the private layer.
+AGENTS.md and the committed CLAUDE.md stay as they are, rules about the C reference included, and the sweep leaves them alone. The maintainer and the steering session keep using the forks for provenance and as prior art as they do today. A private layer, which would keep what needs the forks in files that are never committed, is revisited once the open issues have come down and vtium is more stable.
 
-When the maintainer deletes the forks, the private provenance checks stop working, and the private records stay as notes.
+For that revisit, these facts about Claude Code stand (the upstream entry in the basis):
+
+- Claude Code loads a CLAUDE.md from the working directory and from every directory above it, so a CLAUDE.md in the directory that holds the checkout and its worktrees reaches every worktree there.
+- A gitignored file inside the repository, such as CLAUDE.local.md, exists only in the worktree where it was created.
+- By default Claude Code reads AGENTS.md only when no CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md is in the working directory or above it. A CLAUDE.md in a parent directory therefore stops AGENTS.md loading by itself, and the committed CLAUDE.md's import of AGENTS.md is what keeps it loading.
+- The project's own ways, the guidance files under the checkout's uncommitted .claude/ directory, teach the rule of listing departures from the C reference and change when the private layer does.
 
 ### D7: a check holds the break
 
-`docs/scripts/fork-refs` fails when a committed file names the fork: the phrases "C reference", "C fork", "kmscon fork" and "libtsm fork", the repositories `aaronsb/kmscon` and `aaronsb/libtsm`, and the fork issue forms `kmscon#N` and `libtsm#N`. It skips docs/architecture/, which D4 governs, and COPYING and LICENSE. It leaves the plain names `kmscon` and `libtsm` to review, since D3 keeps them where they name the released program or the licence. It joins AGENTS.md's gate line after `docs/scripts/issue-refs` and CI's checks, and it lands with the last branch of the sweep, seen to fail on the tree before the sweep and on a planted line, and to pass after.
+`docs/scripts/fork-refs` fails when a committed file names the fork: the phrases "C reference", "C fork", "kmscon fork" and "libtsm fork", the repositories `aaronsb/kmscon` and `aaronsb/libtsm`, and the fork issue forms `kmscon#N` and `libtsm#N`. It skips docs/architecture/, which D4 governs, COPYING and LICENSE, and AGENTS.md and CLAUDE.md while D6 holds. It leaves the plain names `kmscon` and `libtsm` to review, since D3 keeps them where they name the released program or the licence. It joins AGENTS.md's gate line after `docs/scripts/issue-refs` and CI's checks, and it lands with the last branch of the sweep, seen to fail on the tree before the sweep and on a planted line, and to pass after.
 
 ## Consequences
 
@@ -174,15 +182,15 @@ When the maintainer deletes the forks, the private provenance checks stop workin
 ### The order of the work
 
 1. This record, read by the maintainer before the sweep starts.
-2. The private layer: the parent-directory CLAUDE.md, the private directory with the C reference map, the provenance records, the C programs and the provenance checks, and the project's ways updated. It comes before the sweep so that nothing the steering session uses is lost when the sweep removes it from the tree.
-3. The sweep, by area, each its own branch with its own review: docs and the README; CONTRIBUTING.md and AGENTS.md; the crate READMEs; code comments and strings; the tools, the renames and the Makefile, with the golden commits for each tier; the decision records' tense pass and adr.yaml. The tools branch lands its golden commits before the commit that removes the departure lists, and docs/scripts/fork-refs lands with the last branch.
+2. The sweep, by area, each its own branch with its own review: docs and the README; CONTRIBUTING.md; the crate READMEs; code comments and strings; the tools, the renames and the Makefile, with the golden commits for each tier; the decision records' tense pass and adr.yaml. The tools branch lands its golden commits before the commit that removes the departure lists, and docs/scripts/fork-refs lands with the last branch.
+3. Later, once the open issues have come down and vtium is more stable: the private layer, revisited as D6 says.
 
 ## Open questions
 
 1. **ADR-1000's `c_reference` column.** Lean: remove it from both tables. The tables are kept current as the target set, the column's values cite probes and files of the fork, and git keeps it. ADR-1000's prose that explains the column gets a dated note saying it was removed and why. The five columns for other terminals stay, since they cite published documentation anyone can read.
 2. **The TERM=kmscon identity.** Lean: it stays, as compatibility with the `kmscon` terminfo entry that systems with `kmscon` installed set, with its comments rewritten to describe vtium's behaviour under that name and to drop the wording about the C reference's probes.
 3. **docs/why-vtium.md's `Beside kmscon`.** Lean: it stays as a comparison with the released `kmscon` a user might choose instead, in the present tense, and loses the sentences about the fork and the C reference's tests. This sits close to D2's rule against defining vtium by another program, so the maintainer may prefer to cut the comparison to one sentence of history.
-4. **The private directory under version control.** Lean: a local git repository with no remote, so its history survives, and the maintainer adds a private remote if one is wanted.
+4. **The private directory under version control.** Deferred with the private layer (D6). The lean, for the revisit: a local git repository with no remote, so its history survives, and the maintainer adds a private remote if one is wanted.
 5. **The checks of the copies before a run.** Lean: they go with the provenance records, and no golden gets a committed checksum list, since git already shows any change to a golden. A checksum list for every golden is the alternative, if the maintainer wants a tier to refuse to run on an edited golden.
 
 ## Alternatives Considered
