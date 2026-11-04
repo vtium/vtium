@@ -1,7 +1,8 @@
 #version 300 es
-// A cell's quad (ADR-1300 D6), drawn as an instance of a strip of four
-// vertices, as quad.vert draws one. The fragment shader works in whole
-// pixels, so this shader hands it the quad's fields unchanged.
+// A quad whose fragment shader works in whole pixels, a cell's (ADR-1300
+// D6) or present's (ADR-1303 D6), drawn as an instance of a strip of four
+// vertices, as quad.vert draws one. It hands the fragment shader the quad's
+// fields unchanged.
 precision highp float;
 precision highp int;
 

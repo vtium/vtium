@@ -2,8 +2,8 @@
 //! grid of tiles.
 //!
 //! One function serves every image the GPU path holds in tiles: the upright
-//! frame, whose overlap is the spatial step's reach on each side, and a
-//! picture past the GPU's largest texture, whose overlap is its filter's
+//! frame, whose overlap is twice the spatial step's reach, and a picture
+//! past the GPU's largest texture, whose overlap is twice its filter's
 //! reach. An image that fits one tile is one tile, and takes the same path
 //! as many.
 

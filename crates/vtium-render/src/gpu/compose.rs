@@ -18,11 +18,12 @@ use vtium_font::{Face, Font};
 use vtium_term::Rgb;
 
 use super::gl::{
-    Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Input, InputKind, Program, Quad,
-    Size, Source, Texture, Value,
+    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Input, InputKind,
+    Program, Quad, Size, Source, Texture, Value,
 };
 use super::glyphs::{Glyphs, Place, Spec, rgba};
 use super::tile::{Tile, meet, tiles};
+use super::turn::Turn;
 use crate::arrow::Arrow;
 use crate::blend::pixel;
 use crate::compose::{Area, Composer, Job};
@@ -32,7 +33,7 @@ use crate::renderer::Back;
 use crate::target::Rect;
 
 const QUAD_VERT: &str = include_str!("glsl/quad.vert");
-const CELL_VERT: &str = include_str!("glsl/cell.vert");
+pub(crate) const CELL_VERT: &str = include_str!("glsl/cell.vert");
 const CELL_FRAG: &str = include_str!("glsl/cell.frag");
 const ARROW_FRAG: &str = include_str!("glsl/arrow.frag");
 
@@ -127,6 +128,8 @@ impl<'a> Work<'a> {
 #[derive(Debug)]
 pub(crate) struct Composition {
     size: Size,
+    /// How many pixels neighbouring tiles share.
+    overlap: u32,
     tiles: Vec<(Tile, DrawTarget)>,
     cell: Program,
     arrow: Program,
@@ -141,47 +144,63 @@ pub(crate) struct Composition {
     overlays: Vec<Placed>,
 }
 
-impl Composition {
-    /// The upright frame for a display of `size`, in tiles overlapping by
-    /// `overlap`, and the composition's programs. A call that fails frees
-    /// what it made.
-    pub(crate) fn new<G: Gl>(gl: &mut G, size: Size, overlap: u32) -> Result<Composition, Error> {
-        let limits = gl.limits();
-        let largest = Size::new(
-            limits.texture.min(limits.viewport.width),
-            limits.texture.min(limits.viewport.height),
-        );
-        let layout = tiles(size, largest, overlap).ok_or_else(|| {
-            Error::new(
-                ErrorKind::Limit,
-                format!(
-                    "a {}x{} frame cannot be tiled within {}x{}",
-                    size.width, size.height, largest.width, largest.height
-                ),
-            )
-        })?;
-        let mut made: Vec<(Tile, DrawTarget)> = Vec::with_capacity(layout.len());
-        let fail = |gl: &mut G, made: Vec<(Tile, DrawTarget)>, e: Error| {
-            for (_, t) in made {
-                // the error that matters is the one that stopped the set-up
-                let _ = gl.free_target(t);
-            }
-            Err(e)
-        };
-        for tile in layout {
-            let held = tile.held;
-            match gl.create_frame(Size::new(held.width, held.height)) {
-                Ok(t) => made.push((tile, t)),
-                Err(e) => return fail(gl, made, e),
+/// The tiles of an upright frame of `size`, overlapping by `overlap`, each
+/// with its target. A call that fails frees what it made.
+fn make_tiles<G: Gl>(
+    gl: &mut G,
+    size: Size,
+    overlap: u32,
+) -> Result<Vec<(Tile, DrawTarget)>, Error> {
+    let limits = gl.limits();
+    let largest = Size::new(
+        limits.texture.min(limits.viewport.width),
+        limits.texture.min(limits.viewport.height),
+    );
+    let layout = tiles(size, largest, overlap).ok_or_else(|| {
+        Error::new(
+            ErrorKind::Limit,
+            format!(
+                "a {}x{} frame cannot be tiled within {}x{}",
+                size.width, size.height, largest.width, largest.height
+            ),
+        )
+    })?;
+    let mut made: Vec<(Tile, DrawTarget)> = Vec::with_capacity(layout.len());
+    for tile in layout {
+        let held = tile.held;
+        match gl.create_frame(Size::new(held.width, held.height)) {
+            Ok(t) => made.push((tile, t)),
+            Err(e) => {
+                free_tiles(gl, made);
+                return Err(e);
             }
         }
+    }
+    Ok(made)
+}
+
+/// Frees `tiles`, after an error that matters more than theirs.
+fn free_tiles<G: Gl>(gl: &mut G, tiles: Vec<(Tile, DrawTarget)>) {
+    for (_, t) in tiles {
+        let _ = gl.free_target(t);
+    }
+}
+
+impl Composition {
+    /// The upright frame of `size`, in tiles overlapping by `overlap`, and
+    /// the composition's programs. A call that fails frees what it made.
+    pub(crate) fn new<G: Gl>(gl: &mut G, size: Size, overlap: u32) -> Result<Composition, Error> {
+        let made = make_tiles(gl, size, overlap)?;
         let cell = match gl.compile(&Source {
             vertex: &[CELL_VERT],
             fragment: &[CELL_FRAG],
             inputs: &CELL_INPUTS,
         }) {
             Ok(p) => p,
-            Err(e) => return fail(gl, made, e),
+            Err(e) => {
+                free_tiles(gl, made);
+                return Err(e);
+            }
         };
         let arrow = match gl.compile(&Source {
             vertex: &[QUAD_VERT],
@@ -191,11 +210,13 @@ impl Composition {
             Ok(p) => p,
             Err(e) => {
                 let _ = gl.free_program(cell);
-                return fail(gl, made, e);
+                free_tiles(gl, made);
+                return Err(e);
             }
         };
         Ok(Composition {
             size,
+            overlap,
             tiles: made,
             cell,
             arrow,
@@ -205,6 +226,34 @@ impl Composition {
             whole: true,
             overlays: Vec::new(),
         })
+    }
+
+    /// The upright frame's size.
+    pub(crate) fn size(&self) -> Size {
+        self.size
+    }
+
+    /// Makes the upright frame anew at `size`, which a quarter turn of a
+    /// display that is not square needs, and draws it whole next. Only the
+    /// frame's tiles change: the glyphs, the arrow and the programs stay.
+    /// The new tiles are one batch of allocations, checked before the old
+    /// ones go: a call whose allocation or check fails frees what it made
+    /// and leaves the frame as it was. Once the new tiles stand, an error
+    /// freeing the old ones is given back with the frame at `size`.
+    pub(crate) fn reshape<G: Gl>(&mut self, gl: &mut G, size: Size) -> Result<(), Error> {
+        let made = make_tiles(gl, size, self.overlap)?;
+        if let Err(e) = gl.check(Batch::Uploads) {
+            free_tiles(gl, made);
+            return Err(e);
+        }
+        let old = core::mem::replace(&mut self.tiles, made);
+        self.size = size;
+        self.redraw_whole();
+        let mut out = Ok(());
+        for (_, t) in old {
+            out = out.and(gl.free_target(t));
+        }
+        out
     }
 
     /// The tiles of the upright frame, each with its texture.
@@ -631,21 +680,24 @@ pub(crate) fn arrow_quads(a: ArrowAt<'_>, drawn: &[Rect], size: Size) -> Vec<Qua
 
 /// The renderer's [`Back`] on the GPU path: the border's parts as clears,
 /// and each cell job as one quad through the cell shader, its glyph from
-/// the pools, uploaded when the pools lack it.
+/// the pools, uploaded when the pools lack it. The front end gives each in
+/// the display's pixels, and `turn` maps it into the upright frame's.
 pub(crate) struct GpuBack<'a, G: Gl> {
     gl: &'a mut G,
     glyphs: &'a mut Glyphs,
+    turn: Turn,
     pub(crate) clear: Vec<Rect>,
     pub(crate) cells: Vec<Cells>,
     pub(crate) error: Option<Error>,
 }
 
 impl<'a, G: Gl> GpuBack<'a, G> {
-    pub(crate) fn new(gl: &'a mut G, glyphs: &'a mut Glyphs) -> GpuBack<'a, G> {
+    pub(crate) fn new(gl: &'a mut G, glyphs: &'a mut Glyphs, turn: Turn) -> GpuBack<'a, G> {
         glyphs.begin_frame();
         GpuBack {
             gl,
             glyphs,
+            turn,
             clear: Vec::new(),
             cells: Vec::new(),
             error: None,
@@ -666,8 +718,9 @@ impl<'a, G: Gl> GpuBack<'a, G> {
 impl<G: Gl> Back for GpuBack<'_, G> {
     fn border(&mut self, _: &mut Composer, (display, grid): (Rect, Option<Area>), _: Rgb, r: Rect) {
         let Some(r) = meet(r, display) else { return };
+        let turn = self.turn;
         let Some(g) = grid else {
-            self.clear.push(r);
+            self.clear.push(turn.up(r));
             return;
         };
         let to_u32 = |v: i64| u32::try_from(v.max(0)).unwrap_or(u32::MAX);
@@ -680,12 +733,12 @@ impl<G: Gl> Back for GpuBack<'_, G> {
         let (rx1, ry1) = (r.x.saturating_add(r.width), r.y.saturating_add(r.height));
         let mut piece = |x0: u32, y0: u32, x1: u32, y1: u32| {
             if x0 < x1 && y0 < y1 {
-                self.clear.push(Rect {
+                self.clear.push(turn.up(Rect {
                     x: x0,
                     y: y0,
                     width: x1.saturating_sub(x0),
                     height: y1.saturating_sub(y0),
-                });
+                }));
             }
         };
         // above the grid, below it, and beside it on its lines
@@ -717,23 +770,30 @@ impl<G: Gl> Back for GpuBack<'_, G> {
                 }
                 None => None,
             };
-            self.push(place.map(|p| (p.texture, p.color)), cell_quad(job, place));
+            let quad = cell_quad(
+                job,
+                self.turn.up_area(job.r),
+                self.turn.up_area(job.g),
+                place,
+            );
+            self.push(place.map(|p| (p.texture, p.color)), quad);
         }
     }
 }
 
-/// A cell job as the cell shader's quad: where it draws; the glyph's texel
-/// under its top left; and its colors, each with a kind in its top byte:
-/// the glyph's (none, a mask, a color glyph), the underline's sprite and
-/// the strike's, each its place among the sprites plus one, or 0 for none.
-pub(crate) fn cell_quad(job: &Job, place: Option<Place>) -> Quad {
+/// A cell job as the cell shader's quad: where it draws, `r` in the
+/// upright frame; the glyph's texel under its top left, the glyph lying at
+/// `g`; and its colors, each with a kind in its top byte: the glyph's
+/// (none, a mask, a color glyph), the underline's sprite and the strike's,
+/// each its place among the sprites plus one, or 0 for none.
+pub(crate) fn cell_quad(job: &Job, r: Area, g: Area, place: Option<Place>) -> Quad {
     let i = |v: i64| i32::try_from(v).unwrap_or(if v < 0 { i32::MIN } else { i32::MAX });
     let u = |v: i64| u32::try_from(v.max(0)).unwrap_or(u32::MAX);
     let (src, kind) = match place {
         Some(p) => (
             [
-                p.x.saturating_add(u(job.r.x.saturating_sub(job.g.x))),
-                p.y.saturating_add(u(job.r.y.saturating_sub(job.g.y))),
+                p.x.saturating_add(u(r.x.saturating_sub(g.x))),
+                p.y.saturating_add(u(r.y.saturating_sub(g.y))),
                 0,
                 0,
             ],
@@ -750,7 +810,7 @@ pub(crate) fn cell_quad(job: &Job, place: Option<Place>) -> Quad {
     };
     let with = |c: Rgb, k: u32| pixel(c) | k << 24;
     Quad {
-        dst: [i(job.r.x), i(job.r.y), i(job.r.w), i(job.r.h)],
+        dst: [i(r.x), i(r.y), i(r.w), i(r.h)],
         src,
         params: [
             with(job.fg, kind),
