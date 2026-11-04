@@ -569,13 +569,6 @@ tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: 
 tier3-images: tier3-image ## Tier 3's pictures: the install tree built with images, then the images variants on the minspec machine at 640x480
 	$(T3_RUN) --features '$(sort images $(subst $(comma), ,$(FEATURES)))' --tree-target install-tree $(or $(VARIANTS),images-640x480 images-640x480-nobody)
 
-KMSCON ?= ../kmscon
-# Each row of tools/tier3/provenance.tsv against its source in a kmscon
-# checkout, read with git; a review step when the copies change, never a gate.
-.PHONY: tier3-provenance
-tier3-provenance: ## Check tools/tier3's copies against their sources with git (KMSCON=DIR)
-	$(T3_PY) $(T3_DIR)/t3.py provenance --kmscon $(KMSCON)
-
 .PHONY: tier3-run
 tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3; FEATURES= the TREE was built with)
 	$(T3_RUN) $(if $(TREE),--tree $(TREE)) $(VARIANTS)

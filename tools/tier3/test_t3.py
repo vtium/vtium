@@ -7,8 +7,8 @@ boots, the console lines the driver waits for and the QEMU command line
 (t3_qemu.py), the power cases' verdicts (t3_power.py), the pointer case's
 reading of the cursor plane (t3_pointer.py), the outputs, keyboards and
 udev examples of the device variants (t3_devices.py), a benchmark screen's
-figures (t3_bench.py), and the copies against provenance.tsv, the image
-cache and the logger a worker process receives (t3_common.py).
+figures (t3_bench.py), the checks a run makes before it starts, and the
+image cache and the logger a worker process receives (t3_common.py).
 
     python3 -I -B tools/tier3/test_t3.py
 """
@@ -788,15 +788,12 @@ class ImplementationTest(unittest.TestCase):
             self.assertIn("pidof kmscon vtium", f.read())
 
     def test_tools(self):
-        # The report names vtium's commit, the guest's pins and the kmscon
-        # commit the C reference's goldens were copied from.
+        # The report names vtium's commit and the guest's pins.
         env = {"T3_VTIUM_REV": "84eec92+dirty", "T3_ARCHIVE": "2026/10/20"}
         with mock.patch.dict(os.environ, env, clear=True):
             tools = t3_runner.run_tools()
         self.assertEqual(tools, {"vtium": "84eec92+dirty", "guest_image": None,
-                                 "guest_image_sha256": None, "guest_archive": "2026/10/20",
-                                 "goldens": {"kmscon": "b1f7a7c5df563f3378584db7298753848a7a9a13",
-                                             "provenance": "tools/tier3/provenance.tsv"}})
+                                 "guest_image_sha256": None, "guest_archive": "2026/10/20"})
 
     def test_option(self):
         # --tree names a tree built already; --tree-target builds the default
@@ -857,12 +854,9 @@ class ImplementationTest(unittest.TestCase):
                 t3.build_tree("install-tree", tree, [], lambda msg: None)
 
 
-class ProvenanceTest(unittest.TestCase):
-    """The files tier 3 copied from the C reference (provenance.tsv): the
-    goldens under c-goldens and the harness files they judge the output
-    of, each the copy its row names."""
-
-    COMMIT = "b1f7a7c5df563f3378584db7298753848a7a9a13"
+class PreflightTest(unittest.TestCase):
+    """The checks a run makes before it builds or boots anything, the
+    goldens in the tree, and the tree a run installs."""
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -870,102 +864,36 @@ class ProvenanceTest(unittest.TestCase):
         self.root = self.dir.name
         self.copied = os.path.join(self.root, "c")
 
-    def table(self, files, extra=""):
-        """A provenance.tsv for {path under root: text}, written beside them."""
-        write_tree(self.root, files)
-        path = os.path.join(self.root, "provenance.tsv")
-        with open(path, "w") as f:
-            f.write("# a comment\n")
-            for name, text in files.items():
-                f.write("\t".join((name, "kmscon", self.COMMIT, "fork/" + name,
-                                   hashlib.sha256(text.encode()).hexdigest())) + "\n")
-            f.write(extra)
-        return path
-
-    def test_read(self):
-        rows = t3_common.read_provenance(self.table({"c/v/sgr.png": "golden"}))
-        self.assertEqual(rows, [{"path": "c/v/sgr.png", "repo": "kmscon", "commit": self.COMMIT,
-                                 "source": "fork/c/v/sgr.png",
-                                 "sha256": hashlib.sha256(b"golden").hexdigest(),
-                                 "line": 2}])
-        self.assertEqual(t3_common.golden_commit(rows, "c"), self.COMMIT)
-
-    def test_refused(self):
-        sha = "0" * 64
-        for line in ("a\tkmscon\t%s\tsrc\n" % self.COMMIT,
-                     "a\tkmscon\tabc\tsrc\t%s\n" % sha,
-                     "a\tkmscon\t%s\tsrc\t%s\n" % (self.COMMIT, "A" * 64),
-                     "a\tlibtsm\t%s\tsrc\t%s\n" % (self.COMMIT, sha)):
-            with self.subTest(line):
-                with self.assertRaisesRegex(SystemExit, "want PATH kmscon COMMIT SOURCE SHA256"):
-                    t3_common.read_provenance(self.table({}, line))
-        twice = "a\tkmscon\t%s\tsrc\t%s\n" % (self.COMMIT, sha)
-        with self.assertRaisesRegex(SystemExit, "a is already on line 2"):
-            t3_common.read_provenance(self.table({}, twice * 2))
-        other = "c/v/b.png\tkmscon\t%s\tsrc\t%s\n" % ("1" * 40, sha)
-        rows = t3_common.read_provenance(self.table({"c/v/a.png": "x"}, other))
-        with self.assertRaisesRegex(SystemExit, "goldens are copied from two commits"):
-            t3_common.golden_commit(rows, "c")
-
-    def test_copies_checked(self):
-        # Each copy against its row, and each file under the goldens'
-        # directory for a row.
-        files = {"c/v/sgr.png": "golden", "c/v/cjk.png": "golden too", "guest/sgr.sh": "script"}
-        rows = t3_common.read_provenance(self.table(files))
-        self.assertEqual(t3_common.check_copies(rows, self.root, self.copied), [])
-        write_tree(self.root, {"c/v/sgr.png": "moved", "c/v/stray.png": "no row",
-                               "guest/own.sh": "vtium's own"})
-        os.unlink(os.path.join(self.root, "guest/sgr.sh"))
-        self.assertEqual(t3_common.check_copies(rows, self.root, self.copied),
-                         ["c/v/sgr.png differs from kmscon %s:fork/c/v/sgr.png (provenance.tsv:2)"
-                          % self.COMMIT[:12],
-                          "c/v/stray.png has no row in provenance.tsv",
-                          "guest/sgr.sh is missing (provenance.tsv:4)"])
-
-    def test_the_tree(self):
-        # The copies in the tree match their rows, every golden a variant
-        # judged by the C reference's goldens compares with is copied, and
-        # every copy is one a case compares with.
-        rows = t3_common.read_provenance()
-        self.assertEqual(t3_common.check_copies(rows), [])
-        self.assertEqual(t3_common.golden_commit(rows), self.COMMIT)
+    def test_the_goldens(self):
+        # Every golden a variant judged by the C reference's goldens compares
+        # with is in the tree, and every one in the tree is one a case
+        # compares with.
         cases_of = t3_scenario.c_golden_cases()
         self.assertEqual(t3_evaluate.check_goldens(cases_of, t3_common.GOLDEN), [])
         wanted = {t3_evaluate.golden_for(v, c)[0] for v, cases in cases_of.items()
                   for c in cases if t3_evaluate.golden_for(v, c)[0]}
         self.assertEqual(sorted(p for p in wanted if not os.path.exists(p)), [])
-        # the harness files the goldens judge the output of stay copies too
-        copied = {r["path"] for r in rows}
-        for name in ("tools/tier3/guest/screens/sgr.sh", "tools/tier3/guest/user-data.in",
-                     "tools/tier3/t3img.py"):
-            self.assertIn(name, copied)
 
     def planted(self):
-        """Rows for a planted root whose goldens directory c holds two
-        goldens 2d-potato-min's cases compare with."""
-        return t3_common.read_provenance(self.table({"c/2d-potato-min/sgr.png": "sgr",
-                                                     "c/2d-potato-min/cjk.png": "cjk"}))
+        """A planted goldens directory c holding two goldens 2d-potato-min's
+        cases compare with."""
+        write_tree(self.root, {"c/2d-potato-min/sgr.png": "sgr",
+                               "c/2d-potato-min/cjk.png": "cjk"})
 
     def test_preflight(self):
-        # The checks a run makes before it builds or boots anything: clean
-        # on the planted root, then a changed golden and a stray file.
-        rows = self.planted()
-        self.assertEqual(t3.preflight(LOG, rows, self.root, self.copied), [])
-        write_tree(self.root, {"c/2d-potato-min/sgr.png": "moved",
-                               "c/2d-potato-min/stray.png": "no row"})
+        # Clean on the planted goldens, then a stray golden no case draws.
+        self.planted()
+        self.assertEqual(t3.preflight(LOG, self.copied), [])
+        write_tree(self.root, {"c/2d-potato-min/stray.png": "no case"})
         stray = t3_common.rel(os.path.join(self.copied, "2d-potato-min", "stray.png"))
-        self.assertEqual(sorted(t3.preflight(LOG, rows, self.root, self.copied)),
-                         sorted(["c/2d-potato-min/sgr.png differs from kmscon %s:"
-                                 "fork/c/2d-potato-min/sgr.png (provenance.tsv:2)"
-                                 % self.COMMIT[:12],
-                                 "c/2d-potato-min/stray.png has no row in provenance.tsv",
-                                 "%s is a golden no case draws" % stray]))
+        self.assertEqual(t3.preflight(LOG, self.copied),
+                         ["%s is a golden no case draws" % stray])
 
     def test_run_refuses_a_bad_tree(self):
         # run() makes those checks under the run lock and refuses before the
         # tree is built.
-        rows = self.planted()
-        write_tree(self.root, {"c/2d-potato-min/sgr.png": "moved"})
+        self.planted()
+        write_tree(self.root, {"c/2d-potato-min/stray.png": "no case"})
         args = argparse.Namespace(variants=["2d-potato-min"], tree=None, features="",
                                   tree_target="install-tree", jobs=1, deadline=1)
         base = os.path.join(self.root, "base.qcow2")
@@ -973,11 +901,9 @@ class ProvenanceTest(unittest.TestCase):
         with mock.patch.dict(t3_scenario.GUESTS["arch"], base=base), \
                 mock.patch.object(t3_runner, "raise_on_sigterm", lambda log: None), \
                 mock.patch.object(t3_runner, "run_lock", contextlib.nullcontext), \
-                mock.patch.object(t3_common, "read_provenance", lambda: rows), \
-                mock.patch.object(t3_common, "ROOT", self.root), \
                 mock.patch.object(t3_common, "GOLDEN", self.copied), \
                 mock.patch.object(t3, "build_tree", side_effect=AssertionError("built")):
-            with self.assertRaisesRegex(SystemExit, "c/2d-potato-min/sgr.png differs"):
+            with self.assertRaisesRegex(SystemExit, "stray.png is a golden no case draws"):
                 t3.run(args, LOG)
 
     class Stop(Exception):
@@ -1085,42 +1011,6 @@ class ProvenanceTest(unittest.TestCase):
         write_tree(named, ImplementationTest.IMAGES)
         impl = self.run_tree(tree=named, features="images")
         self.assertEqual((self.built, t3_impl.describe(impl)["features"]), ([], ["images"]))
-
-    def git(self, repo, *args):
-        return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t",
-                               "-c", "commit.gpgsign=false"] + list(args),
-                              check=True, capture_output=True, text=True).stdout.strip()
-
-    def test_verify_against_sources(self):
-        # make tier3-provenance: each row's source read from a kmscon
-        # checkout with git, at the row's commit, whatever its working tree
-        # holds; a source that differs or is missing is reported, and the
-        # exit status is 1.
-        repo = os.path.join(self.root, "kmscon")
-        os.makedirs(repo)
-        self.git(repo, "init", "-q")
-        write_tree(repo, {"fork/a.png": "a", "fork/b.png": "b"})
-        self.git(repo, "add", ".")
-        self.git(repo, "commit", "-q", "-m", "copies")
-        commit = self.git(repo, "rev-parse", "HEAD")
-        write_tree(repo, {"fork/a.png": "working tree"})
-        sha = lambda text: hashlib.sha256(text.encode()).hexdigest()
-        path = os.path.join(self.root, "provenance.tsv")
-        with open(path, "w") as f:
-            for name, digest in (("a.png", sha("a")), ("b.png", sha("not b")),
-                                 ("gone.png", sha("x"))):
-                f.write("\t".join(("c/" + name, "kmscon", commit, "fork/" + name, digest))
-                        + "\n")
-        args = argparse.Namespace(kmscon=repo)
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            self.assertEqual(t3.verify_provenance(args, LOG, t3_common.read_provenance(path)), 1)
-        lines = out.getvalue().splitlines()
-        self.assertEqual(len(lines), 3)
-        self.assertIn("provenance.tsv:2: %s %s:fork/b.png has another SHA-256" % (repo, commit[:12]),
-                      lines[0])
-        self.assertIn("provenance.tsv:3: %s %s:fork/gone.png: " % (repo, commit[:12]), lines[1])
-        self.assertEqual(lines[2], "provenance: 3 rows, 1 match their sources")
 
 
 class DeparturesTest(unittest.TestCase):
