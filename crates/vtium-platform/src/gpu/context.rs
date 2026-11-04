@@ -178,6 +178,15 @@ fn name(v: u32) -> Result<NonZeroU32, Error> {
 
 /// A GL context: OpenGL ES 3.0 or later on an EGL display, current on the
 /// thread that made it, which it never leaves.
+/// What a test makes the next wait find.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WaitFault {
+    /// The fence not passed within the wait's bound.
+    TimedOut,
+    /// The GPU reset while the frame ran.
+    Reset,
+}
+
 pub struct Context {
     gl: glow::Context,
     vao: glow::NativeVertexArray,
@@ -194,6 +203,9 @@ pub struct Context {
     /// Each fence a submit gave and no wait has taken yet, by its name: an
     /// EGL fence sync, or `None` for a frame `glFinish` already finished.
     fences: BTreeMap<u32, Option<egl::Sync>>,
+    /// The next wait times out, or finds the GPU reset: for the tests of
+    /// what a wait gives then.
+    wait_fault: Option<WaitFault>,
     /// The last fence's name.
     last_fence: u32,
     /// GL's error flags a call read and set aside for the next check, so
@@ -382,6 +394,7 @@ impl Context {
             imports: BTreeMap::new(),
             fence_sync,
             fences: BTreeMap::new(),
+            wait_fault: None,
             last_fence: 0,
             pending: Vec::new(),
             raised: Cell::new(None),

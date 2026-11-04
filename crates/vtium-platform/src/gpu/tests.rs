@@ -805,6 +805,29 @@ fn a_frame_ends_with_a_fence_sync_that_a_wait_takes_once() {
     assert_eq!(live.get(), 0);
 }
 
+// ADR-1303 D9: a GPU that does not pass the frame's fence within
+// GPU_FENCE_WAIT_MS, or that was reset during the wait, fails the wait as
+// a lost context, and the fence is destroyed either way
+#[test]
+fn a_wait_that_times_out_or_finds_a_reset_is_a_lost_context() {
+    let mut gl = software();
+    assert!(gl.fence_syncs(), "llvmpipe's EGL makes fence syncs");
+    let live = gl.live_syncs();
+    let (fb, texture) = gl.create_frame(8, 8).unwrap();
+    for force in [Context::time_out_next_wait, Context::reset_in_next_wait] {
+        gl.clear(fb, (8, 8), rect(0, 0, 8, 8), 0x20_4060).unwrap();
+        let fence = gl.submit().unwrap();
+        force(&mut gl);
+        let e = gl.wait(fence).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::ContextLost, "{e}");
+        assert_eq!((live.get(), gl.pending_fences()), (0, 0), "{e}");
+        // the next wait is a plain one
+        let fence = gl.submit().unwrap();
+        gl.wait(fence).unwrap();
+    }
+    gl.free_frame(fb, texture).unwrap();
+}
+
 // Where the display or GL makes no fence sync, a frame ends with glFinish:
 // the submit still gives a name, a wait takes it once, and the frame is
 // done

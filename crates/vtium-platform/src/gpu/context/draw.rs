@@ -24,7 +24,7 @@ use glow::HasContext;
 
 use khronos_egl as egl;
 
-use super::{Context, INSTANCE_BYTES, int, ints, misuse, name};
+use super::{Context, INSTANCE_BYTES, WaitFault, int, ints, misuse, name};
 use crate::display::Rect;
 use crate::gpu::{Error, ErrorKind};
 
@@ -278,10 +278,12 @@ impl Context {
         let ns = u64::try_from(ms)
             .unwrap_or(u64::MAX)
             .saturating_mul(1_000_000);
+        let fault = self.wait_fault.take();
         let signalled = self
             .egl
             .wait(sync, ns)
-            .map_err(|e| egl_error("eglClientWaitSync", e))?;
+            .map_err(|e| egl_error("eglClientWaitSync", e))?
+            && fault != Some(WaitFault::TimedOut);
         if !signalled {
             return Err(Error::new(
                 ErrorKind::ContextLost,
@@ -290,7 +292,7 @@ impl Context {
         }
         // a reset that killed the frame shows in the reset status, not the
         // fence
-        if self.reset() != glow::NO_ERROR {
+        if self.reset() != glow::NO_ERROR || fault == Some(WaitFault::Reset) {
             return Err(Error::new(ErrorKind::ContextLost, "the GPU was reset"));
         }
         Ok(())
@@ -308,6 +310,20 @@ impl Context {
     #[doc(hidden)]
     pub fn live_syncs(&self) -> std::rc::Rc<std::cell::Cell<usize>> {
         self.egl.syncs()
+    }
+
+    // Makes the next wait find its fence not passed within the bound, after
+    // it has waited: for the test of what a wait that times out gives.
+    #[doc(hidden)]
+    pub fn time_out_next_wait(&mut self) {
+        self.wait_fault = Some(WaitFault::TimedOut);
+    }
+
+    // Makes the next wait find the GPU reset once its fence passed: for the
+    // test of what a wait that finds a reset gives.
+    #[doc(hidden)]
+    pub fn reset_in_next_wait(&mut self) {
+        self.wait_fault = Some(WaitFault::Reset);
     }
 
     // Ends every frame with glFinish in place of a fence sync, as on a
