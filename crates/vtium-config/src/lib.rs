@@ -39,6 +39,7 @@ pub mod help;
 pub mod kitty;
 pub mod outline;
 pub mod preview;
+pub mod report;
 pub mod resample;
 pub mod serve;
 pub mod shaping;
