@@ -493,6 +493,27 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 	cargo build --release -p vtium-specimens --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
 
+# The documentation site (ADR-1502): Zensical, pinned with hashes in
+# tools/site/requirements.txt, installed into a virtual environment under
+# target/ and run from there. Its first run needs Python 3.11 or later and the
+# network. None of these targets is a gate; CI's docs job runs the same strict
+# build.
+SITE_VENV := target/site-venv
+$(SITE_VENV)/installed: tools/site/requirements.txt
+	python3 -m venv $(SITE_VENV)
+	$(SITE_VENV)/bin/pip install --quiet --require-hashes -r tools/site/requirements.txt
+	touch $@
+
+.PHONY: docs docs-serve showcase
+docs: $(SITE_VENV)/installed ## Build the documentation site into target/site in strict mode, which fails on a broken link or anchor
+	$(SITE_VENV)/bin/zensical build --strict --clean
+
+docs-serve: $(SITE_VENV)/installed ## Serve the documentation site at http://localhost:8000 and rebuild it as you edit; it checks no links, so run make docs too
+	$(SITE_VENV)/bin/zensical serve
+
+showcase: ## Capture the showcase screens on tier 3's VM into docs/showcase (tools/tier3/showcase.sh)
+	tools/tier3/showcase.sh
+
 .PHONY: tier2-provenance
 tier2-provenance: ## Check tools/tier2's copies against their sources with git show (KMSCON=DIR)
 	cargo build --release -p vtium-tier2 --bins

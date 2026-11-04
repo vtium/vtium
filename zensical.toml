@@ -1,0 +1,113 @@
+# vtium's documentation site (ADR-1502). Zensical builds the markdown under
+# docs/ into target/site: `make docs` builds it in strict mode, which fails on
+# a broken link or anchor, and `make docs-serve` serves it while you edit.
+# tools/site's test fails on a page under docs/ that is neither in `nav` nor
+# matched by `not_in_nav`, and on a `nav` entry that names a missing file.
+
+[project]
+site_name = "VTium"
+site_description = "A terminal for the Linux virtual console"
+site_url = "https://vtium.github.io/vtium/"
+repo_url = "https://github.com/vtium/vtium"
+repo_name = "vtium/vtium"
+edit_uri = "edit/main/docs/"
+docs_dir = "docs"
+site_dir = "target/site"
+
+# The menu sorts the pages by what the reader is doing (ADR-1502 D1). A page
+# keeps its path whatever section it sits in.
+nav = [
+  { "Home" = ["index.md"] },
+  { "Tutorials" = [
+      { "Try vtium on one VT" = "tutorial-try-vtium.md" },
+      { "Your first frit" = "tutorial-first-frit.md" },
+  ] },
+  { "How-to guides" = [
+      "managing-vtium.md",
+      { "Install vtium and give it VTs" = "install.md" },
+      { "Configure vtium" = "configure.md" },
+      { "Choose a font" = "fonts.md" },
+      { "Set up heads" = "heads.md" },
+      { "Find out what went wrong" = "troubleshooting.md" },
+  ] },
+  { "Reference" = [
+      { "What vtium does" = "features.md" },
+      { "Keys" = "keys.md" },
+      { "Configuration keys" = "config.md" },
+      { "The head file" = "head-file.md" },
+      { "Modes" = "modes.md" },
+      { "systemd, logind and PID 1" = "systemd.md" },
+      { "Specimens" = "specimens/README.md" },
+  ] },
+  { "Explanation" = [
+      { "Why vtium" = "why-vtium.md" },
+      { "Concepts" = "concepts.md" },
+  ] },
+  { "Decisions" = "architecture/INDEX.md" },
+  { "For contributors" = [
+      { "Architecture" = "architecture.md" },
+      { "The C reference" = "c-reference.md" },
+      { "The VT review" = "vt-review.md" },
+      { "AGENTS.md" = "https://github.com/vtium/vtium/blob/main/AGENTS.md" },
+      { "CONTRIBUTING.md" = "https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md" },
+      { "The crates" = "https://github.com/vtium/vtium/tree/main/crates" },
+  ] },
+]
+
+# Files under docs/ that the site leaves out: the scripts, the tables (a page
+# links a TSV by its GitHub address), and the notes on how each figure is
+# made. The patterns are read as a .gitignore's are.
+exclude_docs = """
+/scripts/
+*.tsv
+**/figures/README.md
+"""
+
+# Pages reached by a link and not from the menu: the decision records, which
+# architecture/INDEX.md links, and the specimen profiles, which
+# specimens/README.md links.
+not_in_nav = """
+/architecture/*/ADR-*.md
+/specimens/*/README.md
+/specimens/simulated/*/README.md
+"""
+
+[project.theme]
+language = "en"
+# The reader's own fonts: the theme loads none from Google.
+font = false
+features = [
+  "navigation.tabs",
+  "navigation.sections",
+  "navigation.indexes",
+  "navigation.top",
+  "content.code.copy",
+  "content.action.edit",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[project.markdown_extensions]
+tables = {}
+admonition = {}
+attr_list = {}
+md_in_html = {}
+pymdownx.highlight = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+# Each heading's anchor keeps letters outside ASCII and is lower case, as
+# GitHub's are, so page.md#a-heading reaches the same heading in both places.
+toc.permalink = true
+toc.slugify = { object = "pymdownx.slugs.slugify", kwds = { case = "lower" } }

@@ -1,0 +1,59 @@
+# vtium's documentation site (ADR-1502 D5). The docs job builds the site in
+# strict mode on every pull request and every push to main, so a broken link
+# or anchor fails the pull request. On a push to main, the deploy job then
+# publishes the built site to GitHub Pages at https://vtium.github.io/vtium/.
+# The repository's Pages source must name GitHub Actions; the maintainer sets
+# it once.
+name: Docs
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Zensical needs Python 3.11 or later; 3.12 is the oldest Python tier
+      # 3's harness takes.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Exactly the files tools/site/requirements.txt pins, each checked
+      # against its hash.
+      - run: python -m venv target/site-venv
+      - run: target/site-venv/bin/pip install --require-hashes -r tools/site/requirements.txt
+      # The Decisions section is the index of the records, so an index that
+      # leaves a record out fails here.
+      - name: the decision records' index is current
+        run: |
+          docs/scripts/adr index -y
+          git diff --exit-code -- docs/architecture/INDEX.md
+      - run: target/site-venv/bin/zensical build --strict --clean
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: target/site
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docs
+    runs-on: ubuntu-latest
+    # Only this job may publish to Pages.
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # A second push waits for the deploy that runs, and never cuts it short.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
