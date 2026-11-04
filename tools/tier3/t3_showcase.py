@@ -11,13 +11,14 @@ beyond the harness:
   on the run's disc (`fetch`, `disc_fonts`);
 - the sixel and kitty pictures the pictures scene sends, which this module
   computes from a few lines of arithmetic, so nothing is downloaded
-  (`pictures`);
+  (`pictures`), and the gallery the shell scene shows, which
+  t3_showcase_gallery.py makes (`gallery`);
 - vtium's named palettes, read from vtium-term's table for the color scene
   (`palettes`);
 - the pages: each scene's capture copied into docs/showcase/, the fonts
   scene's four captures cropped to their bands and stacked, the two
-  small-machine goldens copied beside them, and the page that shows them
-  (`compose`).
+  small-machine goldens copied beside them, and the page that shows them,
+  with the source of each font and each photograph (`compose`).
 
     t3_showcase.py fetch-fonts          fetch the pinned fonts into the cache
     t3_showcase.py compose [--out DIR]  write the showcase from the last run
@@ -40,6 +41,7 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import t3_evaluate  # noqa: E402
+import t3_showcase_gallery as gallery  # noqa: E402
 import t3img  # noqa: E402
 from t3_common import REPORT, ROOT, RUNDIR, rel  # noqa: E402
 
@@ -423,10 +425,12 @@ def palettes(path=PALETTE_RS):
 
 def disc_screens(screens):
     """What the scenes read beside the screen scripts on the disc, in
-    `screens`/showcase: the pictures, and palettes.txt, one named palette a
-    line, its name then its 16 colors as r;g;b."""
+    `screens`/showcase: the pictures, the gallery in gallery/, and
+    palettes.txt, one named palette a line, its name then its 16 colors as
+    r;g;b."""
     out = os.path.join(screens, "showcase")
     pictures(out)
+    gallery.gallery(os.path.join(out, "gallery"))
     with open(os.path.join(out, "palettes.txt"), "w") as f:
         for name, colors, _, _ in palettes():
             f.write("%s %s\n" % (name, " ".join("%d;%d;%d" % c for c in colors)))
@@ -541,11 +545,20 @@ def font_rows():
     return rows
 
 
+def photo_rows():
+    """The page's photograph table rows: the gallery's file, what it shows,
+    its author, its license, the original with its SHA-256, how the file was
+    made from it, and the file's SHA-256."""
+    return [("`%s`" % p.file, p.title, p.author, p.license,
+             "[the original](%s) ([its page](%s)), SHA-256 `%s`" % (p.url, p.page, p.sha256),
+             p.made, "`%s`" % p.file_sha256) for p in gallery.PHOTOS]
+
+
 def page(report, date):
     """docs/showcase/README.md: each image with its title, alt text and
     caption, the small-machine goldens, and how the screens were made: the
-    build's commit, the date, the machine, each font and each copied
-    golden."""
+    build's commit, the date, the machine, each font, each photograph and
+    each copied golden."""
     v = report["variants"][VARIANT]
     lines = ["<!-- tools/tier3/showcase.sh writes this page from tier 3's showcase run. "
              "Change the scenes in tools/tier3/guest/screens/ and run it again; "
@@ -584,6 +597,16 @@ def page(report, date):
               "| Font | Version | License | Used for | Source | SHA-256 of the file |",
               "|---|---|---|---|---|---|"]
     lines += ["| %s |" % " | ".join(row) for row in font_rows()]
+    computed = [name for name, _, _ in gallery.COMPUTED]
+    lines += ["", "The hero's gallery shows six pictures. `t3_showcase_gallery.py` computes "
+              "%s from a few lines of arithmetic. The other two are photographs in the "
+              "public domain, shrunk once to %dx%d pixels and committed in "
+              "`tools/tier3/showcase-photos/`:"
+              % (", ".join("`%s`" % n for n in computed[:-1]) + " and `%s`" % computed[-1],
+                 *gallery.GALLERY_SIZE), "",
+              "| File | What it shows | Author | License | Source | Made by | "
+              "SHA-256 of the file |", "|---|---|---|---|---|---|---|"]
+    lines += ["| %s |" % " | ".join(row) for row in photo_rows()]
     lines += ["", "The small-machine screens are copies of these goldens:", "",
               "| Image | Copied from | SHA-256 |", "|---|---|---|"]
     for src, name, _, _ in SMALL:
