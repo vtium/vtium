@@ -601,10 +601,12 @@ impl Set {
     }
 
     /// The strike that draws `cp` at `cell` in `style`, and how the style
-    /// it lacks is drawn ([`Synth`]): the style's own strike, else for bold
-    /// italic the bold one, then the italic one widened, else the regular
-    /// one, widened for bold. A 1-bit strike drawn for italic that is not
-    /// itself italic is sheared (ADR-1302 D4). Of a style's strikes, one a
+    /// it lacks is drawn ([`Synth`]): the style's own strike, else the
+    /// regular one, widened for bold and, where it is 1-bit, sheared for
+    /// italic after the widening (ADR-1302 D4). Bold italic with no strike
+    /// of its own is the regular glyph widened and sheared, never a bold
+    /// or an italic strike drawn in the other style (the maintainer,
+    /// 2026-11-04). Of a style's strikes, one a
     /// pixel format, the one that maps `cp` draws it. A strike lacking
     /// `cp` passes it on, so a style drawn from fewer sources than the
     /// regular falls back to the regular glyphs (ADR-1200 D1, `style=`).
@@ -625,22 +627,11 @@ impl Set {
                 .find(|k| k.info.cell == cell && k.info.style == Style { bold, italic } && holds(k))
         };
         let Style { bold, italic } = style;
-        let (strike, widen) = find(bold, italic)
-            .map(|s| (s, false))
-            .or_else(|| {
-                (bold && italic)
-                    .then(|| find(true, false))
-                    .flatten()
-                    .map(|s| (s, false))
-            })
-            .or_else(|| {
-                italic
-                    .then(|| find(false, true))
-                    .flatten()
-                    .map(|s| (s, bold))
-            })
-            .or_else(|| find(false, false).map(|s| (s, bold)))?;
-        Some((strike, Synth::of(strike, widen, italic)))
+        if let Some(own) = find(bold, italic) {
+            return Some((own, Synth::of(own, false, false)));
+        }
+        let regular = find(false, false)?;
+        Some((regular, Synth::of(regular, bold, italic)))
     }
 
     /// Every regular strike, in order.

@@ -14,6 +14,7 @@
 //! bitmap sources by the same rule ([`shear_shift`]), so both draw the
 //! same glyph.
 
+use crate::bounds::SET_CHUNK_BYTES;
 use crate::glyph::Glyph;
 
 /// How far row `row` of a bitmap glyph moves right when it is sheared
@@ -91,7 +92,10 @@ pub fn shear(pixels: &[u8], width: u32, height: u32, baseline: u32) -> Option<Sh
 /// and then scaled by `scale`, each pixel a square `scale` across: its
 /// pixels the sheared ink cut to its cells, and, where the ink passes its
 /// cells, its ink box (ADR-1302 D6), the columns its cells and its ink
-/// cover cut to its reach, one cell past its cells on each side. `None`
+/// cover cut to its reach, one cell past its cells on each side. A box
+/// whose 1-bit rows would pass a set's chunk ([`SET_CHUNK_BYTES`]) is left
+/// out and the glyph is cut to its cells, as the glyph helper leaves it out
+/// of a set. `None`
 /// for a color glyph, which never leans, or past the glyph's bounds.
 pub(crate) fn sheared(glyph: &Glyph, baseline: u32, scale: u32) -> Option<Glyph> {
     if glyph.format() != crate::glyph::Format::Mask {
@@ -145,6 +149,10 @@ pub(crate) fn sheared(glyph: &Glyph, baseline: u32, scale: u32) -> Option<Glyph>
         .flat_map(|y| (from..to).map(move |x| at(x, y)))
         .collect();
     let width = u32::try_from(to.saturating_sub(from)).ok()?;
+    let bytes = u64::from(width.div_ceil(8)).saturating_mul(u64::from(height));
+    if bytes > u64::from(SET_CHUNK_BYTES) {
+        return Some(out);
+    }
     let left = i32::try_from(from).ok()?;
     out.clone().with_ink(left, width, box_pixels).or(Some(out))
 }

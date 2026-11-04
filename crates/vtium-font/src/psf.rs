@@ -132,6 +132,8 @@ pub struct Psf {
     /// table and a codepoint is its own glyph index.
     table: Option<Box<[Entry]>>,
     scale: u32,
+    /// The row italic shears about, found once at load ([`Psf::baseline`]).
+    baseline: u32,
 }
 
 /// The font's shape, never its glyph bytes, which can run to megabytes.
@@ -264,7 +266,9 @@ impl Psf {
             glyphs: glyphs.into(),
             table,
             scale: 1,
-        })
+            baseline: height,
+        }
+        .with_baseline())
     }
 
     /// A raw (headerless) console font, as setfont and the kernel take it:
@@ -283,7 +287,9 @@ impl Psf {
             glyphs: bytes.into(),
             table: None,
             scale: 1,
-        })
+            baseline: height,
+        }
+        .with_baseline())
     }
 
     /// Scales the font by the largest whole factor of its height that fits
@@ -344,7 +350,13 @@ impl Psf {
     /// glyph's top at the font's own size: a PSF font states none, so it is
     /// the row under the lowest ink of the font's `H`, or the glyph's
     /// bottom edge for a font with no `H` ([`crate::italic::bitmap_baseline`]).
+    /// It is found once, as the font loads, and no scale changes it.
     pub fn baseline(&self) -> u32 {
+        self.baseline
+    }
+
+    /// The font with [`Psf::baseline`] found from its `H`.
+    fn with_baseline(mut self) -> Psf {
         let h = self
             .glyph_index('H')
             .filter(|&g| g < self.count)
@@ -354,7 +366,8 @@ impl Psf {
                     .map(|r| r.iter().any(|&p| p != 0))
                     .collect::<Vec<bool>>()
             });
-        crate::italic::bitmap_baseline(h.as_deref(), self.height)
+        self.baseline = crate::italic::bitmap_baseline(h.as_deref(), self.height);
+        self
     }
 
     /// Glyph `index` drawn at `scale`, sheared for italic at scale 1 and
@@ -362,7 +375,7 @@ impl Psf {
     fn render_at(&self, index: u32, style: Style, scale: u32) -> Option<Glyph> {
         if style.italic {
             let upright = self.upright(index, style.bold, 1)?;
-            return crate::italic::sheared(&upright, self.baseline(), scale);
+            return crate::italic::sheared(&upright, self.baseline, scale);
         }
         self.upright(index, style.bold, scale)
     }
