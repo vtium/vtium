@@ -681,6 +681,69 @@ fn a_frame_in_chunks_holds_one_reservation_and_answers_once() {
 
 // covers: image.kitty-animation
 #[test]
+fn a_chunk_that_repeats_the_first_chunks_keys_still_continues_the_upload() {
+    // kitty-doom's shape, at 2 by 2 pixels of RGB: the picture sent once
+    // with a=T over the whole screen, then each frame as an edit of the
+    // root frame whose later chunks repeat a=f,r=1,q=2, then a=a showing
+    // frame 1; q=2 hides every refusal
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    let black = b64(&[0, 0, 0].repeat(4));
+    let blue = b64(&[0, 0, 0xff].repeat(4));
+    let (a, b) = black.split_at(8);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,i=7,f=24,s=2,v=2,q=2,c=12,r=4,C=1,m=1;{a}"),
+    );
+    send(&mut k, &mut h, &format!("m=0;{b}"));
+    let (a, b) = blue.split_at(8);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,r=1,i=7,f=24,q=2,x=0,y=0,s=2,v=2,m=1;{a}"),
+    );
+    send(&mut k, &mut h, &format!("a=f,r=1,q=2,m=0;{b}"));
+    send(&mut k, &mut h, "a=a,q=2,c=1,i=7");
+    assert_eq!(h.take(), "");
+    let key = h.store.find_image(7, 0).unwrap();
+    let root = h.store.frame_pixels(key, 1).unwrap();
+    assert_eq!(
+        root.pixels.as_slice(),
+        &[0xff00_00ff; 4],
+        "the edit reached the root frame"
+    );
+    assert_eq!(h.boxes(), vec![(0, 0, 12, 4)]);
+    // the same holds for a picture's own upload: a later chunk that repeats
+    // a=t and other keys continues it, and only its m and q are read
+    let (a, b) = blue.split_at(8);
+    send(&mut k, &mut h, &format!("a=t,i=8,f=24,s=2,v=2,m=1;{a}"));
+    send(&mut k, &mut h, &format!("a=t,i=9,s=5,m=0,q=1;{b}"));
+    assert_eq!(
+        h.take(),
+        "",
+        "the chunk's q=1 holds, and its i=9 is not read"
+    );
+    let key = h.store.find_image(8, 0).unwrap();
+    assert_eq!(
+        h.store.frame_pixels(key, 1).unwrap().pixels.as_slice(),
+        &[0xff00_00ff; 4]
+    );
+    assert_eq!(h.store.find_image(9, 0), None);
+    // a chunk that names another action or medium is another command, and
+    // ends the upload
+    send(&mut k, &mut h, &format!("a=t,i=10,f=24,s=2,v=2,m=1;{a}"));
+    send(&mut k, &mut h, &format!("a=T,i=10,f=24,s=2,v=2;{blue}"));
+    send(&mut k, &mut h, &format!("a=t,i=11,f=24,s=2,v=2,m=1;{a}"));
+    send(&mut k, &mut h, "a=t,t=f,i=11,f=24,s=2,v=2;AAAA");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=10;OK\x1b\\\x1b_Gi=11;EBADF:Failed to read image file\x1b\\"
+    );
+    assert_eq!(h.boxes().len(), 2, "a=T started anew and placed image 10");
+}
+
+// covers: image.kitty-animation
+#[test]
 fn d_f_deletes_every_frame_but_the_root_and_needs_an_image() {
     for d in ["f", "F"] {
         let (mut k, mut h) = animated();

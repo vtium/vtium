@@ -350,14 +350,14 @@ impl Command {
     }
 
     /// Whether this command continues the upload in chunks begun by
-    /// `first`: it carries only `m` and `q`, and `a=f` too when the upload
-    /// began with `a=f`, as the spec asks of animation frames.
+    /// `first`: it sends its data directly, with no `t` or `t=d`, and it
+    /// names no action or the action `first` named. The spec asks a later
+    /// chunk to carry only `m` and `q`, and `a=f` too when the upload is a
+    /// frame's; a chunk that also repeats other keys still continues the
+    /// upload, and the handler reads only its `m` and `q`, as kitty does.
     pub(super) fn continues(&self, first: &Self) -> bool {
-        let mut keys = bit(b'm') | bit(b'q');
-        if first.action == b'f' && self.action == b'f' {
-            keys |= bit(b'a');
-        }
-        self.seen & !keys == 0
+        let same_action = self.seen & bit(b'a') == 0 || self.action == first.action;
+        same_action && self.medium == b'd'
     }
 
     /// The pixels the raw picture holds.

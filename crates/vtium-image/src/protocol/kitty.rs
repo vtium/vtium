@@ -13,7 +13,10 @@
 //! at most [`NAME_MAX`] bytes.
 //!
 //! - **Chunks.** A direct transmission (`t=d`) may come in chunks: `m=1` on
-//!   every chunk but the last, and later chunks carry only `m` and `q`.
+//!   every chunk but the last. A later chunk sends its data directly and
+//!   names no action or the upload's own; the spec asks it to carry only
+//!   `m` and `q`, and the handler reads only those, as kitty does, so a
+//!   chunk that repeats the first chunk's keys still continues the upload.
 //!   Any other graphics command ends an upload in chunks, and gives back
 //!   what it reserved. A transmission that fails part way swallows its
 //!   remaining chunks and answers once, at its last. A chunk's `q` of 1 or
