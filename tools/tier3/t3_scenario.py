@@ -200,9 +200,10 @@ VARIANTS = {
     # The GPU path on the installed console (ADR-1303): 2d-1280x800's
     # display on virtio-gpu with virgl, whose render node in the guest the
     # head makes its GL context on, with hwaccel on (kmscon-hwaccel.conf).
-    # The log must name the gpu renderer for every display, and the screens
-    # are judged by 2d-1280x800's goldens (t3_evaluate.GOLDENS_OF), the
-    # ones the CPU path draws, which the GPU path matches exactly.
+    # The log must name the gpu renderer for every display, and each case
+    # is judged by 2d-1280x800's capture of it in the same run, byte for
+    # byte (SAME_AS_CAPTURE), since the GPU path draws the CPU path's bytes
+    # (ADR-1303 D1), as tier 2 judges it; no golden judges it.
     "gpu-1280x800": {
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
         "display": "egl-headless,rendernode=%s"
@@ -213,9 +214,16 @@ VARIANTS = {
         "cpus": 4,
         "memory_mb": 4096,
         "tree_features": ["gpu", "images"],
-        "rebaselined": True,
+        "verdict": "capture",
     },
 }
+
+# A variant judged by another's captures of the same run, case by case and
+# byte for byte, in place of goldens: the GPU path's console by the CPU
+# path's (ADR-1303 D1). Its cases carry the status capture until
+# judge_by_capture judges them, which a run that leaves the other variant
+# out refuses to do.
+SAME_AS_CAPTURE = {"gpu-1280x800": "2d-1280x800"}
 
 # The power keys (vtium/vtium#21) on the minspec machine, with the
 # minimal configuration and the keys bound (guest/kmscon-power.conf). Each
@@ -571,6 +579,49 @@ def golden_root(variant, case):
         if golden is not None and os.path.exists(golden):
             return VTIUM_GOLDEN
     return None
+
+
+def judge_by_capture(variants, results):
+    """Judges each case of each variant of `variants` that SAME_AS_CAPTURE
+    names by the other variant's capture of the same case in this run, in
+    `results` ({variant: (cases, meta)}): pass where the two captures are
+    byte-identical, fail where they differ or either is missing, and fail
+    every case when the run did not draw the other variant. A case the
+    scenario already failed, or passed on the guest's state with no
+    capture, keeps its status."""
+    for variant in variants:
+        other = SAME_AS_CAPTURE.get(variant)
+        if other is None:
+            continue
+        theirs = None
+        if other in variants:
+            theirs = {c["name"].split("/", 1)[1]: c for c in results[other][0]}
+        for entry in results[variant][0]:
+            if entry["status"] != "capture":
+                continue
+            case = entry["name"].split("/", 1)[1]
+            entry["status"] = "fail"
+            if theirs is None:
+                entry["error"] = ("judged by %s's capture in the same run, which this run "
+                                  "did not draw" % other)
+                continue
+            mine = os.path.join(RUNDIR, variant, case + ".ppm")
+            other_ppm = os.path.join(RUNDIR, other, case + ".ppm")
+            if case not in theirs or not os.path.exists(other_ppm):
+                entry["error"] = "%s drew no capture of %s" % (other, case)
+                continue
+            a, b = t3img.read(mine), t3img.read(other_ppm)
+            entry["golden"] = rel(other_ppm)
+            if (a.width, a.height) != (b.width, b.height):
+                entry["error"] = ("%dx%d, where %s's is %dx%d"
+                                  % (a.width, a.height, other, b.width, b.height))
+            elif a.data != b.data:
+                differ = sum(1 for i in range(0, len(a.data), 3)
+                             if a.data[i:i + 3] != b.data[i:i + 3])
+                entry["error"] = "%d pixel(s) differ from %s's capture" % (differ, other)
+            else:
+                entry["status"] = "pass"
+                entry["note"] = "byte-identical to %s's capture in the same run" % other
 
 
 def evaluate_variant(variant, caps, meta, log):

@@ -86,12 +86,6 @@ SAME_AS = {"photo-scrollforward": "photo-scroll", "img-scrollforward": "img-scro
 RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 
 
-# A variant judged by another's goldens: the GPU path's console on
-# 2d-1280x800's display, judged by the goldens the CPU path draws, which
-# the GPU path matches exactly (ADR-1303 D1).
-GOLDENS_OF = {"gpu-1280x800": "2d-1280x800"}
-
-
 def same_as(case, variant=None):
     """The case whose golden `case` of `variant` is compared with (SAME_AS,
     RESTORED), on the same output (t3_devices.split)."""
@@ -450,9 +444,8 @@ def golden_for(variant, case, root=None):
         return None, None
     base = same_as(case, variant)
     root = root or GOLDEN
-    judged_as = GOLDENS_OF.get(variant, variant)
-    return (os.path.join(root, judged_as, base + ".png"),
-            os.path.join(root, judged_as, base + ".tol"))
+    return (os.path.join(root, variant, base + ".png"),
+            os.path.join(root, variant, base + ".tol"))
 
 
 def write_thumb(img, path):
@@ -527,7 +520,7 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None, verdict=None):
     departures = DEPARTURES.get(entry["name"])
     if departures:
         judge_departure(entry, departures, stats, points)
-    reviewed = "%s/%s" % (GOLDENS_OF.get(variant, variant), same_as(case, variant))
+    reviewed = "%s/%s" % (variant, same_as(case, variant))
     if golden_root and reviewed in PROVISIONAL:
         entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
                          % entry["status"])
