@@ -129,7 +129,7 @@ fn bold_italic_widens_then_leans() {
 
 // the built-in unifont, a set of 1-bit strikes, leans about the baseline
 // its strike states, row 14 (vtium-font's build.rs), so its row 0 moves 3
-// and its rows 13 to 15 stay
+// and its rows 12 to 15 stay
 // covers: sgr.italic
 #[cfg(feature = "unifont")]
 #[test]
@@ -146,7 +146,7 @@ fn the_builtin_unifont_leans_about_its_baseline() {
         .rev()
         .find(|&y| at(&upright, y).is_some())
         .expect("ink");
-    // rows 0 to 2 move 3, 3 to 7 move 2, 8 to 12 move 1, 13 to 15 none
+    // rows 0 and 1 move 3, 2 to 6 move 2, 7 to 11 move 1, 12 to 15 none
     let shift = |y: usize| (14 - y as i64 + 2).div_euclid(5) as usize;
     for y in [top, bottom] {
         assert_eq!(at(&leaning, y), Some(x + shift(y)), "row {y}");
