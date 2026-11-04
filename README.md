@@ -6,12 +6,15 @@ The kernel's own console turns 256-color and 24-bit color into 16 colors, holds 
 
 **Documentation:** [vtium.github.io/vtium](https://vtium.github.io/vtium/)
 
-<!-- The showcase's hero image, docs/showcase/hero.png, which `make showcase` writes (ADR-1502 D6), goes here above the two small-machine screens once it exists. -->
-![vtium on a 640x480 display: the labels fg30 to fg97 in their own colors and bg40 to bg107 on their own backgrounds, each set wrapped over two rows, with fg30 and bg40 drawn black on black; the words bold, underline, reverse, bold-underline-red, faint and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green to red, and a shell prompt with a block cursor](tools/tier3/goldens/2d-640x480-psf16/sgr.png)
+![A console screen showing a shell session in a smooth monospaced font: prompts in blue, gray and green segments, a colored listing of the vtium source tree, a git log with a branch graph and yellow commit hashes, the crates of vtium, a passing test run, and three lines of greetings and thanks in English, Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and German with emoji.](docs/showcase/hero.png)
+
+*vtium draws a shell session on a 1920x1080 display in Iosevka Term: prompts in powerline segments with an icon from Symbols Nerd Font Mono, a colored directory listing, a git history with its branch graph, a test run, and greetings in several scripts with emoji. The scene writes the session byte for byte, and the last prompt is the shell's own, with its cursor. More screens are on [the showcase page](docs/showcase/README.md).*
+
+![vtium on a 640x480 display: the labels fg30 to fg97 in their own colors and bg40 to bg107 on their own backgrounds, each set wrapped over two rows, with fg30 and bg40 drawn black on black; the words bold, underline, reverse, bold-underline-red, faint and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green to red, and a shell prompt with a block cursor](docs/showcase/small/sgr.png)
 
 *vtium's own output: the minspec build running on a VT of a QEMU/KVM guest with 1 vCPU and 512 MB, on a virtio-vga display at 640x480, in vtium's 8x16 PSF test font, made from Unifont's glyphs (80 by 30 cells). Tier 3 captured it from the guest's screen. The maintainer reviewed and accepted it as a golden on 2026-10-28, and a run at commit `c107f9a` matched it to the pixel. The font has no italic face, so `italic` draws upright.*
 
-![vtium on a 320x240 display: a ruler of 40 columns, a colored directory listing, the 16 background colors, six color names, bold, faint, underlined, reversed and struck words, a box of sprite lines around cpu, mem and load figures, a line of Latin-1, four underline styles, a progress bar at 50%, and a prompt](tools/tier3/goldens/2d-320x240-psf8/small-console.png)
+![vtium on a 320x240 display: a ruler of 40 columns, a colored directory listing, the 16 background colors, six color names, bold, faint, underlined, reversed and struck words, a box of sprite lines around cpu, mem and load figures, a line of Latin-1, four underline styles, a progress bar at 50%, and a prompt](docs/showcase/small/small-console.png)
 
 *vtium's own output: the same build and guest on a 320x240 display, the smallest vtium supports, in vtium's 8x8 PSF test font, Unifont's glyphs folded to half height (40 by 30 cells). It is also a golden the maintainer accepted on 2026-10-28, matched to the pixel at `c107f9a`.*
 

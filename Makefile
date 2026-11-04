@@ -356,7 +356,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness and the fuzz runner 
 	cargo test -q -p vtium-font --test set
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 .PHONY: fuzz
 # FUZZ_TARGETS and FUZZ_TIME reach tools/fuzz/run through the environment;
@@ -511,7 +511,7 @@ docs: $(SITE_VENV)/installed ## Build the documentation site into target/site in
 docs-serve: $(SITE_VENV)/installed ## Serve the documentation site at http://localhost:8000 and rebuild it as you edit; it checks no links, so run make docs too
 	$(SITE_VENV)/bin/zensical serve
 
-showcase: ## Capture the showcase screens on tier 3's VM into docs/showcase (tools/tier3/showcase.sh)
+showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 	tools/tier3/showcase.sh
 
 .PHONY: tier2-provenance

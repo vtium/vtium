@@ -4,8 +4,9 @@ vtium is a terminal for the Linux virtual console: it runs on a VT, one of the f
 
 The kernel's own console turns 256-color and 24-bit color into 16 colors, holds at most 512 characters of one bitmap font at a time, and shows no pictures. vtium takes the display through KMS/DRM, or through the older fbdev framebuffer where that is all a machine has, and gives the programs on the console what a desktop terminal gives them: 24-bit color, Unicode with Chinese, Japanese and Korean text and color emoji, outline fonts, mouse reporting, scrollback that rewraps when the width changes, and pictures. It is written in Rust, needs no GPU and does not rely on systemd, and its smallest build runs on a single-board computer with 512 MB of memory and a 320x240 panel.
 
-<!-- The showcase's hero image, showcase/hero.png, replaces this figure once `make showcase` writes it (ADR-1502 D6). -->
-![A shell session as vtium draws it on a 640x480 display in an 8x16 font, 80 columns by 30 rows, with a directory listing, four box styles, and 256-color and 24-bit color ramps](figures/concepts-screen-small-640x480.png)
+![A console screen showing a shell session in a smooth monospaced font: prompts in blue, gray and green segments, a colored listing of the vtium source tree, a git log with a branch graph and yellow commit hashes, the crates of vtium, a passing test run, and three lines of greetings and thanks in English, Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and German with emoji.](showcase/hero.png)
+
+vtium draws a shell session on a 1920x1080 display in Iosevka Term: prompts in powerline segments with an icon from Symbols Nerd Font Mono, a colored directory listing, a git history with its branch graph, a test run, and greetings in several scripts with emoji. The scene writes the session byte for byte, and the last prompt is the shell's own, with its cursor. [The showcase](showcase/README.md) has more screens, from emoji and the world's scripts to pictures, and the same console on a 320x240 panel.
 
 vtium's latest release is the pre-release v0.1.0-alpha.3. This site describes vtium's `main` branch, which may be ahead of that release.
 

@@ -17,7 +17,7 @@ site_dir = "target/site"
 # The menu sorts the pages by what the reader is doing (ADR-1502 D1). A page
 # keeps its path whatever section it sits in.
 nav = [
-  { "Home" = ["index.md"] },
+  { "Home" = ["index.md", { "Showcase" = "showcase/README.md" }] },
   { "Tutorials" = [
       { "Try vtium on one VT" = "tutorial-try-vtium.md" },
       { "Your first frit" = "tutorial-first-frit.md" },
