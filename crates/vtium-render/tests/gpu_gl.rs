@@ -393,11 +393,19 @@ fn a_fence_is_waited_on_once_in_its_own_context() {
     let fence = a.submit(&target).unwrap();
     assert_eq!(b.wait(fence).unwrap_err().kind, ErrorKind::Handle);
     assert_eq!(b.calls(), &[]);
-    // refused by another context, the fence is still a's to wait on
+    // refused by another context, the fence is gone with the call that
+    // took it, and a's ledger still counts it, as no wait of a's took it
     assert_eq!(a.fences(), 1);
     let fence = a.submit(&target).unwrap();
     a.wait(fence).unwrap();
     assert_eq!(a.fences(), 1);
+    // a wait the ledger refuses uses up no failure a test planned
+    a.fail_next(Op::Wait, ErrorKind::Gl);
+    let their_target = b.import_buffer(&Size::new(4, 4)).unwrap();
+    let theirs = b.submit(&their_target).unwrap();
+    assert_eq!(a.wait(theirs).unwrap_err().kind, ErrorKind::Handle);
+    let fence = a.submit(&target).unwrap();
+    assert_eq!(a.wait(fence).unwrap_err().kind, ErrorKind::Gl);
 }
 
 #[test]

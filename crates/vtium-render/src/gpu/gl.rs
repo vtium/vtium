@@ -172,6 +172,7 @@ pub struct Program(pub(super) Handle);
 /// every command before it: the end of a frame, which [`Gl::submit`] gives
 /// and [`Gl::wait`] waits on and frees.
 #[derive(Debug, PartialEq, Eq)]
+#[must_use = "a frame's fence is waited on before the display shows the buffer"]
 pub struct Fence(pub(super) Handle);
 
 /// The kind of a program's named input, a uniform of its source.
