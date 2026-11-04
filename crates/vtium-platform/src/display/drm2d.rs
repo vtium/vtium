@@ -1600,7 +1600,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Each display wants one CRTC: the CRTC its connector is on, or, where
     /// its connector is on no CRTC or the display returns, its own CRTC. A
     /// display that returns has its first modeset turn off the CRTC its
-    /// connector is on ([`Self::set_returning_off`]). The displays whose
+    /// connector is on ([`Self::set_off_first`]). The displays whose
     /// connector is on a CRTC are placed first, then those whose connector
     /// is on none, then those that return, each group in connector order.
     /// A display takes the CRTC it wants where no display took it, and else
@@ -2110,19 +2110,28 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
     }
 
-    /// Turns off what a returning display might still be shown on, in a
-    /// blocking commit of its own: the CRTC its connector is on, and the
-    /// CRTC it is about to take if that one shows a mode, with their
-    /// planes and every connector on them. The modeset after it then sets
-    /// the display's mode, CRTC and connector anew, a full modeset,
-    /// whatever mode another master or the kernel's console left there.
-    /// On this machine's amdgpu cards the small panel showed nothing under
-    /// frames committed on the mode the console set at its return, until a
-    /// VT switch set its mode again. A CRTC that a display online also
-    /// drives stays on, and only loses the returning connector. A display
-    /// on no CRTC, about to take one with no mode, starts from off already
-    /// and needs no such commit.
-    fn set_returning_off(&self) -> Result<(), Failure> {
+    /// Turns off, in a blocking commit of its own with no flip event, what
+    /// the modeset after it would otherwise leave lit: what a returning
+    /// display might still be shown on, and each CRTC [`Self::vacated`]
+    /// finds. That is the CRTC a returning display's connector is on, the
+    /// CRTC it is about to take if that one shows a mode, and each vacated
+    /// CRTC, with their planes and every connector on them.
+    ///
+    /// The modeset after it then sets a returning display's mode, CRTC and
+    /// connector anew, a full modeset, whatever mode another master or the
+    /// kernel's console left there. On this machine's amdgpu cards the
+    /// small panel showed nothing under frames committed on the mode the
+    /// console set at its return, until a VT switch set its mode again. A
+    /// CRTC that a display online also drives stays on, and only loses the
+    /// returning connector. A display on no CRTC, about to take one with no
+    /// mode, starts from off already and needs nothing turned off.
+    ///
+    /// A vacated CRTC may show a mode with `ACTIVE` at 0, as a desktop's
+    /// DPMS off leaves it. The modeset asks a flip event of every CRTC in
+    /// its commit, and the kernel refuses a flip event on a CRTC that is
+    /// off and stays off (`drm_atomic_crtc_check`), so this commit, which
+    /// asks for none, turns the vacated CRTCs off.
+    fn set_off_first(&self) -> Result<(), Failure> {
         let mut ids = Vec::new();
         let mut off = Vec::new();
         for o in self.outputs.iter().filter(|o| o.returning) {
@@ -2135,6 +2144,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 if !driven && !off.contains(&crtc) && self.crtc_lit(crtc) {
                     off.push(crtc);
                 }
+            }
+        }
+        for (crtc, on) in self.vacated() {
+            for id in on {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+            if !off.contains(&crtc) {
+                off.push(crtc);
             }
         }
         if ids.is_empty() && off.is_empty() {
@@ -2159,7 +2178,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             Ok(())
         })();
         prepared.map_err(|e| {
-            log::error!("cannot set the displays that return off: {e}");
+            log::error!("cannot turn off what the modeset would leave lit: {e}");
             Failure::Other(e)
         })?;
         self.hide_planes(&mut req, &off, false);
@@ -2168,62 +2187,80 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .map_err(|e| {
                 // EACCES while another process holds master is expected.
                 if errno(&e) == Some(Errno::ACCESS) {
-                    log::debug!("the commit setting the displays that return off was refused: {e}");
+                    log::debug!(
+                        "the commit turning off what the modeset would leave lit was refused: {e}"
+                    );
                     Failure::Test(e)
                 } else {
-                    log::error!("cannot set the displays that return off: {e}");
+                    log::error!("cannot turn off what the modeset would leave lit: {e}");
                     Failure::Other(e)
                 }
             })
     }
 
-    /// Adds to `req` what turns off each CRTC that shows a mode, that no
-    /// display takes, and that only connectors of the displays are on,
-    /// which the modeset moves to the displays' own CRTCs, and returns those
-    /// CRTCs, whose planes [`Self::clear_planes`] takes down. The kernel
+    /// Each vacated CRTC, with the connectors on it: a CRTC that no display
+    /// takes and that only connectors of the displays are on. The kernel
+    /// puts a connector on a CRTC only while that CRTC is enabled, so each
+    /// vacated CRTC shows a mode, whether it is active or not. The modeset
+    /// moves those connectors to the displays' own CRTCs, and the kernel
     /// refuses a CRTC left enabled with no connector on it
-    /// (`drm_atomic_helper_check_modeset`). Each connector's CRTC is read
-    /// from its `CRTC_ID`, so a connector whose encoder cannot be read is
-    /// found too. A CRTC that a connector no display drives is on stays as
-    /// it is.
-    fn prepare_vacated(&self, req: &mut Request) -> Vec<u32> {
-        let ours = |id: u32| self.outputs.iter().any(|o| o.id.0 == id);
-        let connectors = self.card.resources().map_or_else(
-            |e| {
+    /// (`drm_atomic_helper_check_modeset`), so [`Self::set_off_first`]
+    /// turns these CRTCs off. Each connector's CRTC is read from its
+    /// `CRTC_ID`, so a connector whose encoder cannot be read is found too.
+    ///
+    /// A CRTC that a connector no display drives is on stays as it is. The
+    /// connectors are those the card lists to vtium, which asks for no
+    /// writeback connectors (`DRM_CLIENT_CAP_WRITEBACK_CONNECTORS`), so a
+    /// writeback connector on a CRTC goes unseen. Where vtium cannot read
+    /// which CRTC a listed connector is on, that connector might share a
+    /// CRTC with a display's connector, so no CRTC counts as vacated.
+    fn vacated(&self) -> Vec<(u32, Vec<u32>)> {
+        let connectors = match self.card.resources() {
+            Ok(r) => r.connectors,
+            Err(e) => {
                 log::warn!("cannot list the card's connectors: {e}");
-                Vec::new()
-            },
-            |r| r.connectors,
-        );
-        let on: Vec<(u32, u32)> = connectors
-            .into_iter()
-            .filter_map(|id| {
-                let props = self.card.properties(id, Object::Connector).ok()?;
-                let crtc = u32::try_from(value(&props, "CRTC_ID")?).ok()?;
-                (crtc != 0).then_some((id, crtc))
-            })
-            .collect();
-        let mut off = Vec::new();
-        for &(id, crtc) in &on {
-            let left = ours(id)
-                && !off.contains(&crtc)
-                && !self.outputs.iter().any(|o| o.crtc == crtc)
-                && on.iter().all(|&(other, c)| c != crtc || ours(other))
-                && self.crtc_lit(crtc);
-            if !left {
-                continue;
+                return Vec::new();
             }
-            let set = self.card.properties(crtc, Object::Crtc).and_then(|props| {
-                let props = Props::new(&props);
-                props.set(req, crtc, "MODE_ID", 0)?;
-                props.set(req, crtc, "ACTIVE", 0)
-            });
-            match set {
-                Ok(()) => off.push(crtc),
-                Err(e) => log::warn!("cannot set CRTC {crtc} off: {e}"),
+        };
+        let mut on = Vec::new();
+        for id in connectors {
+            let crtc = self
+                .card
+                .properties(id, Object::Connector)
+                .and_then(|props| {
+                    value(&props, "CRTC_ID")
+                        .and_then(|c| u32::try_from(c).ok())
+                        .ok_or_else(|| io::Error::other("it has no CRTC_ID"))
+                });
+            match crtc {
+                Ok(0) => {}
+                Ok(crtc) => on.push((id, crtc)),
+                Err(e) => {
+                    log::warn!(
+                        "cannot read which CRTC connector {id} is on, so no CRTC is turned off: {e}"
+                    );
+                    return Vec::new();
+                }
             }
         }
-        off
+        let mut crtcs: Vec<u32> = on.iter().map(|&(_, crtc)| crtc).collect();
+        crtcs.sort_unstable();
+        crtcs.dedup();
+        crtcs
+            .into_iter()
+            .filter(|&crtc| !self.outputs.iter().any(|o| o.crtc == crtc))
+            .filter_map(|crtc| {
+                let ids: Vec<u32> = on
+                    .iter()
+                    .filter(|&&(_, c)| c == crtc)
+                    .map(|&(id, _)| id)
+                    .collect();
+                let ours = ids
+                    .iter()
+                    .all(|&id| self.outputs.iter().any(|o| o.id.0 == id));
+                ours.then_some((crtc, ids))
+            })
+            .collect()
     }
 
     /// Whether `crtc` shows a mode or is active, as the card reports it; a
@@ -2240,18 +2277,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// One atomic modeset of every display: tried first as a test-only
     /// commit, then committed without blocking, with a flip event.
     fn atomic_modeset(&mut self, dark: bool) -> Result<(), Failure> {
-        self.set_returning_off()?;
+        self.set_off_first()?;
         let mut req = Request::default();
-        let mut off = if dark {
+        let off = if dark {
             self.prepare_dark(&mut req)
         } else {
             Vec::new()
         };
-        for crtc in self.prepare_vacated(&mut req) {
-            if !off.contains(&crtc) {
-                off.push(crtc);
-            }
-        }
         self.clear_planes(&mut req, &off);
         let mut staged = Vec::with_capacity(self.outputs.len());
         let mut outputs = std::mem::take(&mut self.outputs);
