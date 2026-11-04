@@ -20,6 +20,7 @@ struct Options {
     kernel_cmdline: Option<PathBuf>,
     sys: Option<PathBuf>,
     helper: Option<PathBuf>,
+    root: Option<PathBuf>,
     words: Vec<String>,
 }
 
@@ -37,6 +38,7 @@ impl Options {
             "--kernel-cmdline" => self.kernel_cmdline = Some(value.into()),
             "--sys" => self.sys = Some(value.into()),
             "--helper" => self.helper = Some(value.into()),
+            "--root" => self.root = Some(value.into()),
             // the table's test reads every name, so none lands here
             _ => {}
         }
@@ -104,7 +106,7 @@ pub struct ValueOption {
 /// by the refusal. Run as root, vtium-config takes none of the flagged
 /// ones, so `sudo vtium-config` reads and writes only the system's
 /// directories and runs only the console it was built with.
-pub const VALUE_OPTIONS: [ValueOption; 10] = [
+pub const VALUE_OPTIONS: [ValueOption; 11] = [
     ValueOption {
         name: "--configdir",
         path: true,
@@ -143,6 +145,10 @@ pub const VALUE_OPTIONS: [ValueOption; 10] = [
     },
     ValueOption {
         name: "--helper",
+        path: true,
+    },
+    ValueOption {
+        name: "--root",
         path: true,
     },
 ];
@@ -319,6 +325,7 @@ impl Cli<'_> {
             },
             Command::Apply => crate::apply::command(rest, &o.paths().targets(), self.out, self.err),
             Command::Serve => self.serve(rest),
+            Command::Report => crate::report::command(rest, o.root.as_deref(), self.out, self.err),
             Command::Tui if !rest.is_empty() => self.usage("tui takes no argument"),
             Command::Tui if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
                 crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, self.err)
@@ -392,5 +399,24 @@ mod tests {
         }
         assert!(parse_args(&["--no-such".into(), "/x".into()]).is_err());
         let _ = parse_args(&[]).unwrap();
+    }
+
+    /// Root runs `report` and its parts that only root reads, but never
+    /// under a stand-in root, whose programs it would run.
+    #[test]
+    fn root_runs_report_but_refuses_a_stand_in_root() {
+        let args = |w: &[&str]| w.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(root_refusal(0, &args(&["report", "--save"])), None);
+        for refused in [
+            &["--root", "/tmp/x", "report"][..],
+            &["report", "--root=/tmp/x"],
+        ] {
+            let why = root_refusal(0, &args(refused)).unwrap();
+            assert!(why.contains("--root"), "{refused:?}: {why}");
+        }
+        assert_eq!(
+            root_refusal(1000, &args(&["--root", "/tmp/x", "report"])),
+            None
+        );
     }
 }

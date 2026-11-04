@@ -35,11 +35,12 @@ pub enum Command {
     Set,
     Apply,
     Serve,
+    Report,
 }
 
 impl Command {
     /// Every command, in the order the usage lists them.
-    pub const ALL: [Command; 10] = [
+    pub const ALL: [Command; 11] = [
         Command::Fonts,
         Command::Check,
         Command::Config,
@@ -50,6 +51,7 @@ impl Command {
         Command::Set,
         Command::Apply,
         Command::Serve,
+        Command::Report,
     ];
 
     /// The word that runs the command.
@@ -65,6 +67,7 @@ impl Command {
             Command::Set => "set",
             Command::Apply => "apply",
             Command::Serve => crate::serve::SERVE_ARG,
+            Command::Report => "report",
         }
     }
 
@@ -184,6 +187,15 @@ const TOPICS: &[Topic] = &[
         detail: "Generates glyphs for the console from a frit's fonts. The console starts it, and it takes no argument; running it by hand does nothing useful.",
         example: "vtium-config serve",
     },
+    Topic {
+        command: Command::Report,
+        forms: &[form(
+            "report [--save[=PATH]] [--lines N]",
+            "gather what a bug report needs into one document, changing nothing",
+        )],
+        detail: "Gathers what a bug report needs into one plain-text document and prints it: the vtium builds installed and the features each was built with, the kernel and the distribution, the state of each vtium console, the displays the kernel sees, vtium's configuration, and this boot's log of each console. It changes nothing on the machine. --save writes the document to a new file in the current directory, named vtium-report-YYYYMMDD-HHMMSS.txt after the time in UTC, and --save=PATH writes it to PATH; either prints the file's path and never replaces a file that exists. --lines sets how many of each console's latest log lines it holds, 300 by default. Run as a user, each part it cannot read says so and names the command that reads it; run it with sudo for the kernel's display state, and for the logs where your user cannot read the journal. It leaves out the hostname and each monitor's serial number, but the logs can name user accounts, so read the report before you share it.",
+        example: "vtium-config report --save",
+    },
 ];
 
 /// The `about` topic's line in the usage.
@@ -214,6 +226,7 @@ Options:
   --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
   --sys DIR             sysfs, where displays are measured, in place of /sys
   --helper PROGRAM      the glyph helper the tool starts, in place of this binary's serve
+  --root DIR            the root report reads the machine under, in place of /
   --help [TOPIC], --version
 ";
 
