@@ -731,6 +731,44 @@ fn a_frame_the_cpu_path_draws_makes_the_next_gpu_frame_whole() {
 }
 
 #[test]
+fn a_gpu_frame_that_fails_after_its_plan_leaves_no_ghost_in_the_other_buffer() {
+    // A display with two buffers, A and B. Frame 0 goes into A and frame 1
+    // into B on the CPU path. Frame 2 moves the cursor; its GPU frame fails
+    // at the fence wait, after the renderer planned it, and the CPU path
+    // draws frame 2 whole into A, as the head does. Frame 3 goes into B,
+    // two frames old, which must show the cursor moved and frame 2's cell.
+    let mut g = Gpu::new(StandIn::LIMITS, Config::default());
+    let mut s = screen();
+    let mut a = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    let mut b = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    s.cursor.visible = true;
+    s.cursor.col = 5;
+    s.text(0, 0, "a", plain());
+    g.renderer.draw(&s.frame(g.since), &mut a, 0, &g.state);
+    g.since = s.damage.checkpoint();
+    s.text(1, 0, "b", plain());
+    g.renderer.draw(&s.frame(g.since), &mut b, 0, &g.state);
+    g.since = s.damage.checkpoint();
+    s.text(2, 0, "X", plain());
+    s.cursor.col = 7;
+    g.gl.fail_next(Op::Wait, ErrorKind::Gl);
+    let since = g.since;
+    g.frame(&mut s, 1, &[]).unwrap_err();
+    g.renderer.draw(&s.frame(since), &mut a, 0, &g.state);
+    g.since = s.damage.checkpoint();
+    s.text(3, 0, "Y", plain());
+    g.renderer.draw(&s.frame(g.since), &mut b, 2, &g.state);
+    let mut whole = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    Renderer::new(unifont(), DISPLAY.width, DISPLAY.height, Config::default()).draw(
+        &s.frame(Age::NEVER),
+        &mut whole,
+        0,
+        &g.state,
+    );
+    assert!(b == whole, "B shows frame 3 as a whole frame draws it");
+}
+
+#[test]
 fn present_draws_one_whole_rectangle_where_a_buffer_lacks_the_whole_frame() {
     // a buffer two frames old lacks the whole first frame and the cell
     // after it: the whole buffer covers both
