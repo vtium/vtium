@@ -11,7 +11,7 @@
 use glow::HasContext;
 
 use super::{
-    Context, Import, Location, TextureFormat, TextureInfo, int, ints, misuse, name, param,
+    Context, Import, Location, TextureFormat, TextureInfo, bound, int, ints, misuse, name, param,
 };
 use crate::display::{DmaBuf, Rect};
 use crate::gpu::{Error, ErrorKind};
@@ -52,6 +52,13 @@ impl Context {
                 self.gl
                     .tex_parameter_i32(glow::TEXTURE_2D, param, self::param(value));
             }
+            // The texture is recorded whether or not GL gave it storage: a
+            // texture whose storage GL refused, as out of memory, only makes
+            // a later upload raise GL_INVALID_OPERATION, and a command that
+            // raises an error does nothing else and reads no client memory
+            // (OpenGL ES 3.0, section 2.5). The refusal itself reaches the
+            // caller at the batch's check, with no call here that waits on
+            // the GPU.
             let name = texture.0.get();
             self.textures.insert(
                 name,
@@ -233,9 +240,11 @@ impl Context {
     /// Imports `buffer`, a display's buffer, as an EGL image bound as the
     /// storage of a renderbuffer, and gives a framebuffer that draws into
     /// it. A buffer the driver cannot import, or cannot draw into, is an
-    /// error of kind [`ErrorKind::Import`]. The error GL raises when it
-    /// cannot bind the image is read here and folded into that error, so
-    /// the next check does not report it against the frame that follows.
+    /// error of kind [`ErrorKind::Import`]. The errors GL raises binding the
+    /// image are read at once, as [`bound`] sorts them, so the next check
+    /// does not report them against the frame that follows; the flags an
+    /// earlier call left are set aside for that check first, so they fail
+    /// no import.
     pub fn import(&mut self, buffer: &DmaBuf) -> Result<u32, Error> {
         self.current()?;
         let import = |detail: String| Error::new(ErrorKind::Import, detail);
@@ -243,30 +252,30 @@ impl Context {
             return Err(import("GL lacks GL_OES_EGL_image".to_owned()));
         };
         let image = self.egl.import(buffer).map_err(import)?;
+        self.set_aside();
         // SAFETY: GL calls on the current context; the image is a live EGL
         // image of this display, which glEGLImageTargetRenderbufferStorageOES
         // takes as its pointer.
         #[expect(unsafe_code, reason = "an EGL image bound as a renderbuffer's storage")]
-        let made = unsafe {
-            (|| -> Result<_, String> {
-                let renderbuffer = self.gl.create_renderbuffer()?;
+        let renderbuffer = unsafe {
+            self.gl.create_renderbuffer().inspect(|&renderbuffer| {
                 self.gl
                     .bind_renderbuffer(glow::RENDERBUFFER, Some(renderbuffer));
                 target(glow::RENDERBUFFER, image.as_ptr());
-                let bound = self.gl.get_error();
-                if bound != glow::NO_ERROR {
-                    self.gl.delete_renderbuffer(renderbuffer);
-                    return Err(format!(
-                        "glEGLImageTargetRenderbufferStorageOES raised {bound:#06x}"
-                    ));
-                }
-                let fb = match self.gl.create_framebuffer() {
-                    Ok(fb) => fb,
-                    Err(e) => {
-                        self.gl.delete_renderbuffer(renderbuffer);
-                        return Err(e);
-                    }
-                };
+            })
+        };
+        let renderbuffer = match renderbuffer {
+            Ok(rb) => rb,
+            Err(e) => {
+                self.egl.destroy_image(image);
+                return Err(import(e));
+            }
+        };
+        let framebuffer = bound(&self.flags(), self.reset()).and_then(|()| {
+            // SAFETY: GL calls on the current context with no pointer.
+            #[expect(unsafe_code, reason = "a framebuffer over the renderbuffer")]
+            unsafe {
+                let fb = self.gl.create_framebuffer().map_err(import)?;
                 self.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
                 self.gl.framebuffer_renderbuffer(
                     glow::FRAMEBUFFER,
@@ -274,14 +283,19 @@ impl Context {
                     glow::RENDERBUFFER,
                     Some(renderbuffer),
                 );
-                Ok((renderbuffer, fb))
-            })()
-        };
-        let (renderbuffer, fb) = match made {
-            Ok(made) => made,
+                Ok(fb)
+            }
+        });
+        let fb = match framebuffer {
+            Ok(fb) => fb,
             Err(e) => {
+                // SAFETY: a GL call on the current context with no pointer.
+                #[expect(unsafe_code, reason = "glDeleteRenderbuffers")]
+                unsafe {
+                    self.gl.delete_renderbuffer(renderbuffer);
+                }
                 self.egl.destroy_image(image);
-                return Err(import(e));
+                return Err(e);
             }
         };
         self.imports.insert(

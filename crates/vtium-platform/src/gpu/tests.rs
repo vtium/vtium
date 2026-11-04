@@ -487,11 +487,34 @@ fn only_opengl_es_versions_are_read() {
 }
 
 #[test]
-fn an_error_a_test_raises_is_reported_by_the_next_check_alone() {
+fn an_error_a_test_raises_fails_the_next_call_alone() {
     let mut gl = software();
     gl.raise(ErrorKind::ContextLost);
     assert_eq!(gl.check().unwrap_err().kind, ErrorKind::ContextLost);
     gl.check().unwrap();
+    // any call that reaches GL, not only a check
+    gl.raise(ErrorKind::OutOfMemory);
+    let e = gl.create_texture(TextureFormat::R8, 1, 1).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::OutOfMemory);
+    gl.create_texture(TextureFormat::R8, 1, 1).unwrap();
+    gl.check().unwrap();
+}
+
+/// Binding an import's image keeps a lost context and out of memory, which
+/// leave the GPU path; any other error fails the import alone.
+#[test]
+fn an_imports_bind_keeps_a_lost_context_and_out_of_memory() {
+    use super::context::bound;
+    const LOST: u32 = 0x0507;
+    const OOM: u32 = 0x0505;
+    const INVALID_OPERATION: u32 = 0x0502;
+    let kind = |errors: &[u32], reset| bound(errors, reset).unwrap_err().kind;
+    assert_eq!(bound(&[], 0), Ok(()));
+    assert_eq!(kind(&[INVALID_OPERATION], 0), ErrorKind::Import);
+    assert_eq!(kind(&[OOM], 0), ErrorKind::OutOfMemory);
+    assert_eq!(kind(&[INVALID_OPERATION, OOM], 0), ErrorKind::OutOfMemory);
+    assert_eq!(kind(&[LOST], 0), ErrorKind::ContextLost);
+    assert_eq!(kind(&[], 0x8253), ErrorKind::ContextLost);
 }
 
 #[test]
@@ -666,7 +689,12 @@ fn a_gbm_buffer_imports_as_a_target_that_draws() {
     let bo = gbm.allocate(64, 32, xrgb8888, Usage::Rendering).unwrap();
     let buffer = bo.export().unwrap();
     assert_eq!(buffer.size(), (64, 32));
+    // an error an earlier call left fails no import, and the next check
+    // still reports it
+    let past = gl.limits().texture + 1;
+    gl.create_texture(TextureFormat::R8, past, 1).unwrap();
     let fb = gl.import(&buffer).unwrap();
+    assert!(matches!(gl.check().unwrap_err().kind, ErrorKind::Gl(_)));
     gl.clear(fb, (64, 32), rect(0, 0, 64, 32), 0x12_3456)
         .unwrap();
     // a quad through a program into the last 4x2 pixels

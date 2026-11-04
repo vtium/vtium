@@ -18,6 +18,7 @@
 //! once after a frame's draws (`kmscon/src/render/gltex.c`, `upload` and
 //! `gltex_render`).
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char, c_void};
 use std::marker::PhantomData;
@@ -187,8 +188,11 @@ pub struct Context {
     reset_status: Option<ResetStatus>,
     textures: BTreeMap<u32, TextureInfo>,
     imports: BTreeMap<u32, Import>,
-    /// An error the next check reports, which a test raised.
-    raised: Option<ErrorKind>,
+    /// GL's error flags a call read and set aside for the next check, so
+    /// that it read only its own; at most `ERRORS_MAX`.
+    pending: Vec<u32>,
+    /// An error the next call reports, which a test raised.
+    raised: Cell<Option<ErrorKind>>,
     limits: Limits,
     renderer: String,
     version: String,
@@ -367,7 +371,8 @@ impl Context {
             reset_status,
             textures: BTreeMap::new(),
             imports: BTreeMap::new(),
-            raised: None,
+            pending: Vec::new(),
+            raised: Cell::new(None),
             limits,
             renderer,
             version,
@@ -393,43 +398,82 @@ impl Context {
 
     /// Makes the context current where another is.
     fn current(&self) -> Result<(), Error> {
+        if let Some(kind) = self.raised.take() {
+            return Err(Error::new(kind, "raised by a test"));
+        }
         self.egl
             .current()
             .map_err(|e| Error::new(ErrorKind::ContextLost, e))
     }
 
-    /// Makes the next [`Context::check`] report an error of `kind`, as GL's
-    /// error flag would, and touches no GL: for the tests of what a caller
-    /// does with each kind, which no real driver can be made to raise on
-    /// demand. vtium-render's stand-in GL raises errors the same way.
+    // Makes the next call that reaches GL, `check` included, fail with an
+    // error of `kind`, and touches no GL: for the tests of what a caller
+    // does with each kind, which no real driver raises on demand.
+    // vtium-render's stand-in GL raises errors the same way.
+    #[doc(hidden)]
     pub fn raise(&mut self, kind: ErrorKind) {
-        self.raised = Some(kind);
+        self.raised.set(Some(kind));
     }
 
-    /// Reads GL's errors since the last check, every flag GL holds, and the
-    /// context's reset status where the driver reports one, sorted as
-    /// [`sort`] sorts them. An error a test raised comes first.
-    pub fn check(&mut self) -> Result<(), Error> {
-        if let Some(kind) = self.raised.take() {
-            return Err(Error::new(kind, "raised by a test"));
-        }
-        self.current()?;
-        // SAFETY: GL's error and reset queries on the current context; the
-        // reset query takes no argument.
-        #[expect(unsafe_code, reason = "glGetError and glGetGraphicsResetStatus")]
-        let (errors, reset) = unsafe {
-            let mut errors = Vec::new();
+    /// Reads the error flags GL holds, at most `ERRORS_MAX`. Its callers make
+    /// the context current first.
+    fn flags(&self) -> Vec<u32> {
+        let mut errors = Vec::new();
+        // SAFETY: glGetError, which takes no argument.
+        #[expect(unsafe_code, reason = "glGetError")]
+        unsafe {
             for _ in 0..ERRORS_MAX {
                 match self.gl.get_error() {
                     glow::NO_ERROR => break,
                     e => errors.push(e),
                 }
             }
-            let reset = self.reset_status.map_or(glow::NO_ERROR, |f| f());
-            (errors, reset)
-        };
-        sort(&errors, reset)
+        }
+        errors
     }
+
+    /// The context's reset status where the driver reports one, else
+    /// `GL_NO_ERROR`.
+    fn reset(&self) -> u32 {
+        // SAFETY: the function of the reset status's name, which takes no
+        // argument.
+        #[expect(unsafe_code, reason = "glGetGraphicsResetStatus")]
+        unsafe {
+            self.reset_status.map_or(glow::NO_ERROR, |f| f())
+        }
+    }
+
+    /// Sets aside the error flags GL holds now, which an earlier call raised,
+    /// for the next check, so the call about to read its own reads no other.
+    fn set_aside(&mut self) {
+        let flags = self.flags();
+        self.pending.extend(flags);
+        self.pending.truncate(ERRORS_MAX);
+    }
+
+    /// Reads GL's errors since the last check, those a call set aside first,
+    /// and the context's reset status where the driver reports one, sorted
+    /// as [`sort`] sorts them.
+    pub fn check(&mut self) -> Result<(), Error> {
+        self.current()?;
+        let mut errors = std::mem::take(&mut self.pending);
+        errors.extend(self.flags());
+        sort(&errors, self.reset())
+    }
+}
+
+/// The errors binding an EGL image to a renderbuffer raised, as the
+/// import's error: a lost context and out of memory keep their kinds, which
+/// leave the GPU path, and any other error makes the import fail as
+/// [`ErrorKind::Import`], which a staging copy answers (ADR-1303 D9).
+pub(super) fn bound(errors: &[u32], reset: u32) -> Result<(), Error> {
+    sort(errors, reset).map_err(|e| match e.kind {
+        ErrorKind::Gl(_) => Error::new(
+            ErrorKind::Import,
+            format!("binding the buffer's image raised {}", e.detail),
+        ),
+        _ => e,
+    })
 }
 
 impl Drop for Context {
