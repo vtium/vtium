@@ -412,7 +412,6 @@ impl Pipeline {
             #[cfg(feature = "images")]
             &self.pictures,
         )?;
-        #[cfg(feature = "images")]
         self.composition.end_frame(gl)?;
         if !composed.is_empty() {
             gl.check(Batch::Draws)?;

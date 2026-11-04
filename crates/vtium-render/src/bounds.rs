@@ -91,7 +91,7 @@ const GLYPH_CEILING: Bound = Bound {
 const IDLE: Bound = Bound {
     name: "GPU_IDLE_FRAMES",
     value: 600,
-    what: "Frames a GPU texture may go unused before the GPU path gives it back: a glyph pool's last texture with no glyph in it, and a picture's texture no placement showed, in a build with `gpu`",
+    what: "Frames a GPU texture may go unused before the GPU path gives it back: a glyph pool's last texture with no glyph in it, a picture's texture no placement showed, and the copy of the pixels beneath that no draw read, in a build with `gpu`",
     past: "The texture is freed, and made again if a later frame needs it; frames are counted, never wall time, so a display that draws nothing frees nothing",
     cite: "gltex gave back a pool's strips the last frame drew nothing from (`pool_give_back`, gltex.c:1105-1123) and kept its failed glyphs and its log line 600 frames (`GLTEX_FAILED_FRAMES`, `GLTEX_HARD_STOP_LOG_FRAMES`); ADR-1303 D9",
 };

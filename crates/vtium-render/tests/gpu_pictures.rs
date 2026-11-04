@@ -50,7 +50,8 @@ const LAYER_INPUTS: [&str; 7] = [
 /// The under shader, which copies the pixels beneath a draw out of a tile
 /// and draws the selection's tint back from the copy.
 const TINT_INPUTS: [&str; 2] = ["target_size", "under"];
-const ARROW_INPUTS: [&str; 2] = ["target_size", "arrow"];
+/// The pointer's arrow, drawn over a copy of the pixels beneath.
+const ARROW_INPUTS: [&str; 4] = ["target_size", "arrow", "under", "under_at"];
 
 /// A picture: its kitty id, its size, where it goes, and the alpha of
 /// every pixel.
@@ -206,6 +207,29 @@ impl Gpu {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The sizes of the targets the frame made: the copy of the pixels
+    /// beneath, since the upright frame's tiles stand before it.
+    fn made_frames(&self) -> Vec<Size> {
+        self.calls()
+            .iter()
+            .filter_map(|c| match c {
+                Call::CreateFrame(s) => Some(*s),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn copies_made(&self) -> usize {
+        self.made_frames().len()
+    }
+
+    fn targets_freed(&self) -> usize {
+        self.calls()
+            .iter()
+            .filter(|c| matches!(c, Call::FreeTarget))
+            .count()
     }
 
     fn fills(&self) -> usize {
@@ -409,14 +433,13 @@ fn a_cell_under_pictures_draws_its_layers_in_order() {
     );
 }
 
-// ADR-1303 D2, ADR-1100 D4: the GPU path leaves no blend of a cell that
-// pictures reach to the GPU's own rounding, which differs between drivers
-// (the issue on GPU blend rounding: GitHub's runner's llvmpipe came in one
-// level below the CPU path). A picture that is not opaque, a cell's text
-// layer over the pictures beneath it, and the selection's tint each copy
-// the pixels beneath them out of the tile, then draw over them with
-// Replace, reading each pixel where the copy put it. Only the pointer's
-// arrow blends on the GPU (ADR-1303 D3).
+// ADR-1303 D2, D3, ADR-1100 D4: the GPU path leaves no blend to the GPU's
+// own rounding, which differs between drivers (the issue on GPU blend
+// rounding: GitHub's runner's llvmpipe came in one level below the CPU
+// path). A picture that is not opaque, a cell's text layer over the
+// pictures beneath it, the selection's tint and the pointer's arrow each
+// copy the pixels beneath them out of the tile, then draw over them with
+// Replace, reading each pixel where the copy put it.
 #[test]
 fn every_draw_over_a_picture_reads_a_copy_of_the_pixels_beneath_it() {
     let mut g = Gpu::new();
@@ -467,12 +490,9 @@ fn every_draw_over_a_picture_reads_a_copy_of_the_pixels_beneath_it() {
         .zip(g.gl.seen())
         .map(|((q, i, b), s)| (q, i, b, s))
         .collect();
-    // only the arrow blends on the GPU
+    // nothing blends on the GPU
     for &(_, inputs, blend, _) in &draws {
-        assert!(
-            blend == Blend::Replace || inputs == ARROW_INPUTS,
-            "{inputs:?} blends on the GPU"
-        );
+        assert_eq!(blend, Blend::Replace, "{inputs:?} blends on the GPU");
     }
     assert!(draws.iter().any(|d| d.1 == ARROW_INPUTS), "no arrow drawn");
     // each draw over a copy follows the copy of exactly its own pixels,
@@ -506,6 +526,7 @@ fn every_draw_over_a_picture_reads_a_copy_of_the_pixels_beneath_it() {
     }
     assert!(over.contains(&&PICTURE_OVER_INPUTS[..]), "{over:?}");
     assert!(over.contains(&&LAYER_INPUTS[..]), "{over:?}");
+    assert!(over.contains(&&ARROW_INPUTS[..]), "{over:?}");
     // the tint copies the selected cells out and tints them back
     assert_eq!(
         draws.iter().filter(|d| d.1 == TINT_INPUTS).count(),
@@ -522,46 +543,67 @@ fn a_selected_cell_under_a_picture_is_copied_out_and_tinted_back() {
     let p = placements(&[pic(1, (32, 32), (0, 0), (4, 2))]);
     g.frame(&p, false);
     assert!(g.draws(&TINT_INPUTS).is_empty());
-    let frame = g
-        .screen
-        .frame(Age::NEVER)
-        .with_selection(std::iter::once(0..2).collect());
-    g.pipeline.redraw_whole();
-    g.gl.clear_calls();
-    g.renderer
-        .draw_gpu(
-            &mut g.gl,
-            &mut g.pipeline,
-            &frame.with_placements(p),
-            &g.buffer,
-            1,
-            &DrawState::default(),
-            &[],
-        )
-        .unwrap();
-    let tints = g.draws(&TINT_INPUTS);
-    assert_eq!(tints.len(), 2, "a copy out and a tint back");
-    // the copy's quads copy, the tint's tint at SELECTION_TINT
-    assert!(tints[0].0.iter().all(|q| q.params[0] >> 24 == 0));
-    assert!(
-        tints[1]
-            .0
-            .iter()
-            .all(|q| q.params[0] >> 24 == 1
+    // twice: the copy is made once and lasts, so the second frame makes and
+    // frees no target
+    for (made, freed) in [(1, 0), (0, 0)] {
+        let frame = g
+            .screen
+            .frame(Age::NEVER)
+            .with_selection(std::iter::once(0..2).collect());
+        g.pipeline.redraw_whole();
+        g.gl.clear_calls();
+        g.renderer
+            .draw_gpu(
+                &mut g.gl,
+                &mut g.pipeline,
+                &frame.with_placements(p.clone()),
+                &g.buffer,
+                1,
+                &DrawState::default(),
+                &[],
+            )
+            .unwrap();
+        let tints = g.draws(&TINT_INPUTS);
+        assert_eq!(tints.len(), 2, "a copy out and a tint back");
+        // the copy's quads copy, the tint's tint at SELECTION_TINT
+        assert!(tints[0].0.iter().all(|q| q.params[0] >> 24 == 0));
+        assert!(
+            tints[1].0.iter().all(|q| q.params[0] >> 24 == 1
                 && q.params[1] == u32::from(vtium_render::SELECTION_TINT))
-    );
-    // the copy is the frame's own, freed at its end
-    let made = g
-        .calls()
-        .iter()
-        .filter(|c| matches!(c, Call::CreateFrame(_)))
-        .count();
-    let freed = g
-        .calls()
-        .iter()
-        .filter(|c| matches!(c, Call::FreeTarget))
-        .count();
-    assert_eq!((made, freed), (1, 1));
+        );
+        assert_eq!((g.copies_made(), g.targets_freed()), (made, freed));
+    }
+}
+
+// the issue on the arrow's blend and the copy frame: the copy grows only
+// when a frame draws over more pixels of a tile than it holds, to the
+// larger of each side, and a frame that draws over fewer makes nothing
+#[test]
+fn the_copy_of_the_pixels_beneath_grows_only_when_a_frame_needs_more() {
+    let mut g = Gpu::new();
+    // half transparent, so drawn over a copy: 3 by 2 cells, 24x32 pixels
+    let small = Pic {
+        alpha: 0x80,
+        ..pic(1, (24, 32), (1, 1), (3, 2))
+    };
+    g.frame(&placements(&[small]), true);
+    assert_eq!(g.made_frames(), [Size::new(24, 32)]);
+    // 2 by 3 cells, 16x48: taller, so the copy grows to 24x48
+    let tall = Pic {
+        alpha: 0x80,
+        ..pic(2, (16, 48), (1, 1), (2, 3))
+    };
+    g.frame(&placements(&[tall]), true);
+    assert_eq!(g.made_frames(), [Size::new(24, 48)]);
+    assert_eq!(g.targets_freed(), 1);
+    // 1 by 1 cell: the copy holds it already
+    let one = Pic {
+        alpha: 0x80,
+        ..pic(3, (8, 16), (0, 0), (1, 1))
+    };
+    g.frame(&placements(&[one]), true);
+    assert!(g.made_frames().is_empty());
+    assert_eq!(g.targets_freed(), 0);
 }
 
 // the issue on GPU texture garbage collection: a picture no frame placed
@@ -812,6 +854,189 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
                 "copy {c:?}, back {b:?}"
             );
             assert_eq!((c.dst[2], c.dst[3]), (b.dst[2], b.dst[3]));
+        }
+    }
+}
+
+// the issue on the arrow's blend and the copy frame: on a GL whose largest
+// texture is 60, a picture that is not opaque, the text layers beneath it
+// and the pointer's arrow all cross the tiles' seams at x 60 and y 60. In
+// every tile, each draw over a copy follows a copy of exactly the pixels it
+// writes in that tile, taken from that tile into the copy's own target and
+// inside it, and reads each pixel where the copy put it; each covers its
+// area of the frame once across the tiles.
+#[test]
+fn draws_over_a_copy_read_their_own_tiles_pixels_across_the_seams() {
+    let limits = vtium_render::gpu::Limits {
+        texture: 60,
+        ..StandIn::LIMITS
+    };
+    let mut g = Gpu::with_limits(limits);
+    let st = common::style(rgb("ffffff"), rgb("203040"));
+    // cells 5 to 8 of rows 3 and 4: x 40 to 72, y 48 to 80
+    g.screen.text(5, 3, "seam", st);
+    g.screen.text(5, 4, "SEAM", st);
+    // half transparent, above the text: 4 by 3 cells from cell 5, 2, drawn
+    // at 40, 32, 32x48
+    let glass = Pic {
+        alpha: 0x80,
+        ..pic(1, (32, 48), (5, 2), (4, 3))
+    };
+    // the arrow's tip at 58, 58, two pixels short of both seams
+    let state = DrawState {
+        pointer: Some((58, 58)),
+        ..DrawState::default()
+    };
+    let frame = g
+        .screen
+        .frame(Age::NEVER)
+        .with_placements(placements(&[glass]));
+    g.gl.clear_calls();
+    g.renderer
+        .draw_gpu(
+            &mut g.gl,
+            &mut g.pipeline,
+            &frame,
+            &g.buffer,
+            1,
+            &state,
+            &[],
+        )
+        .unwrap();
+    let layout = tiles(DISPLAY, Size::new(60, 60), 0).unwrap();
+    let tile = |name: u32| {
+        let k = g.gl.frame_names().iter().position(|&n| n == name)?;
+        layout.get(k).map(|t| t.held)
+    };
+    // the copy of the pixels beneath, the frame's one new target
+    let copy = g.made_frames();
+    assert_eq!(copy.len(), 1, "{copy:?}");
+    let copy = copy[0];
+    let draws: Vec<(&Vec<Quad>, &[&str], &vtium_render::gpu::Seen)> = g
+        .calls()
+        .iter()
+        .filter_map(|c| match c {
+            Call::Draw { quads, inputs, .. } => Some((quads, &inputs[..])),
+            _ => None,
+        })
+        .zip(g.gl.seen())
+        .map(|((q, i), s)| (q, i, s))
+        .collect();
+    // how many times each program's draws over a copy cover each pixel of
+    // the frame, mapped back from their tiles, and the tiles they reach
+    let mut cover: Vec<(&[&str], Vec<u32>, Vec<Rect>)> = Vec::new();
+    for (k, &(quads, inputs, seen)) in draws.iter().enumerate() {
+        if !inputs.contains(&"under_at") {
+            continue;
+        }
+        let held = tile(seen.target).expect("a draw over a copy goes to a tile");
+        let (copied, copy_inputs, copy_seen) = draws[k - 1];
+        assert_eq!(copy_inputs, TINT_INPUTS, "{inputs:?} follows no copy");
+        assert!(
+            tile(copy_seen.target).is_none(),
+            "{inputs:?}: the copy draws into a tile"
+        );
+        let at = seen.ivec4.iter().find(|(n, _)| *n == "under_at").unwrap().1;
+        // the part of each quad inside its tile, which GL draws
+        let inside: Vec<[i32; 4]> = quads
+            .iter()
+            .filter_map(|q| {
+                let x0 = q.dst[0].max(0);
+                let y0 = q.dst[1].max(0);
+                let x1 = (q.dst[0] + q.dst[2]).min(held.width as i32);
+                let y1 = (q.dst[1] + q.dst[3]).min(held.height as i32);
+                (x1 > x0 && y1 > y0).then_some([x0, y0, x1 - x0, y1 - y0])
+            })
+            .collect();
+        assert_eq!(copied.len(), inside.len(), "{inputs:?} in {held:?}");
+        for (c, r) in copied.iter().zip(&inside) {
+            assert_eq!(
+                (c.src[0], c.src[1]),
+                (r[0] as u32, r[1] as u32),
+                "{inputs:?} in {held:?} copies other pixels"
+            );
+            assert_eq!(
+                c.dst,
+                [r[0] - at[0], r[1] - at[1], r[2], r[3]],
+                "{inputs:?} in {held:?} reads its copy elsewhere"
+            );
+            assert!(
+                c.dst[0] >= 0
+                    && c.dst[1] >= 0
+                    && (c.dst[0] + c.dst[2]) as u32 <= copy.width
+                    && (c.dst[1] + c.dst[3]) as u32 <= copy.height,
+                "{inputs:?} in {held:?} copies past the {copy:?} copy: {:?}",
+                c.dst
+            );
+        }
+        let i = match cover.iter().position(|(i, _, _)| *i == inputs) {
+            Some(i) => i,
+            None => {
+                let n = vec![0u32; (DISPLAY.width * DISPLAY.height) as usize];
+                cover.push((inputs, n, Vec::new()));
+                cover.len() - 1
+            }
+        };
+        let (_, n, reached) = &mut cover[i];
+        if !reached.contains(&held) {
+            reached.push(held);
+        }
+        for r in &inside {
+            for y in r[1]..r[1] + r[3] {
+                for x in r[0]..r[0] + r[2] {
+                    let (fx, fy) = (x as u32 + held.x, y as u32 + held.y);
+                    n[(fy * DISPLAY.width + fx) as usize] += 1;
+                }
+            }
+        }
+    }
+    let arrow = g.renderer.upright_arrow();
+    let (hx, hy) = arrow.hot();
+    let pointer = Rect {
+        x: 58 - hx,
+        y: 58 - hy,
+        width: arrow.width(),
+        height: arrow.height(),
+    };
+    let rect = |x, y, width, height| Rect {
+        x,
+        y,
+        width,
+        height,
+    };
+    for (inputs, want) in [
+        (&PICTURE_OVER_INPUTS[..], rect(40, 32, 32, 48)),
+        (&ARROW_INPUTS[..], pointer),
+    ] {
+        let (_, n, reached) = cover
+            .iter()
+            .find(|(i, _, _)| *i == inputs)
+            .unwrap_or_else(|| panic!("no {inputs:?} draw over a copy"));
+        assert_eq!(reached.len(), 4, "{inputs:?} reaches {reached:?}");
+        for y in 0..DISPLAY.height {
+            for x in 0..DISPLAY.width {
+                let inside = x >= want.x
+                    && x < want.x + want.width
+                    && y >= want.y
+                    && y < want.y + want.height;
+                let k = n[(y * DISPLAY.width + x) as usize];
+                assert_eq!(k, u32::from(inside), "{inputs:?} at {x},{y}");
+            }
+        }
+    }
+    // the text layers of cells 5 to 8 of rows 3 and 4, in four tiles
+    let (_, n, reached) = cover
+        .iter()
+        .find(|(i, _, _)| *i == &LAYER_INPUTS[..])
+        .expect("no text layer drawn over a copy");
+    assert_eq!(reached.len(), 4, "the text layers reach {reached:?}");
+    for y in 48..80 {
+        for x in 40..72 {
+            assert_eq!(
+                n[(y * DISPLAY.width + x) as usize],
+                1,
+                "a text layer at {x},{y}"
+            );
         }
     }
 }

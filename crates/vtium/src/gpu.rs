@@ -540,6 +540,76 @@ void main() {
         gl.check(Batch::Uploads).unwrap();
     }
 
+    /// The pointer's arrow on llvmpipe is the CPU path's, byte for byte,
+    /// over cells of many colors and over the border, drawn whole and then
+    /// moved into a buffer one frame old (ADR-1303 D1, D3). Its outline is
+    /// black at 220 of 255 over each color, where a blend rounds one way
+    /// or the other; no tier 2 screen draws the arrow.
+    #[test]
+    fn the_pointers_arrow_on_llvmpipe_is_the_cpu_paths_byte_for_byte() {
+        use vtium_font::{Font, Unifont};
+        use vtium_render::{Canvas, Config as RenderConfig, DrawState, Renderer};
+        use vtium_term::{Age, Terminal};
+
+        // 10 by 3 cells of 8x16, the grid at 2, 1 inside a border
+        let size = Size::new(84, 51);
+        let mut term = Terminal::new(10, 3, 0);
+        // each cell a background of its own
+        let mut bytes = Vec::new();
+        for i in 0u32..30 {
+            let (r, g, b) = (i * 37 % 256, i * 91 % 256, i * 53 % 256);
+            bytes.extend(format!("\x1b[48;2;{r};{g};{b}m ").bytes());
+        }
+        let mut rest = &bytes[..];
+        while !rest.is_empty() {
+            let taken = term.input(rest);
+            assert!(taken > 0, "the terminal stopped taking input");
+            rest = &rest[taken..];
+        }
+        let mut gl = software();
+        let font = || Font::new(Unifont::new(16));
+        let mut cpu = Renderer::new(font(), size.width, size.height, RenderConfig::default());
+        let mut gpu = Renderer::new(font(), size.width, size.height, RenderConfig::default());
+        let mut canvas = Canvas::new(size.width, size.height, 0);
+        let mut pipeline = Pipeline::new(&mut gl, size, Config::default()).unwrap();
+        let target = gl.create_frame(size).unwrap();
+        let mut out = vec![0u8; (size.width * size.height * 4) as usize];
+        // over the cells, then reaching past the grid into the border,
+        // which draws only what the pointer left and entered
+        let mut since = Age::NEVER;
+        for (age, pointer) in [(0, (13, 7)), (1, (74, 40))] {
+            let state = DrawState {
+                background: term.palette().bg(),
+                pointer: Some(pointer),
+                ..DrawState::default()
+            };
+            let frame = term.screen().frame(term.palette(), since);
+            cpu.draw(&frame, &mut canvas, age, &state);
+            gpu.draw_gpu(&mut gl, &mut pipeline, &frame, &target, age, &state, &[])
+                .unwrap();
+            since = term.screen_mut().checkpoint();
+            gl.read(&target, size.rect(), &mut out).unwrap();
+            let differ: Vec<(u32, u32)> = (0..size.height)
+                .flat_map(|y| (0..size.width).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let i = ((y * size.width + x) * 4) as usize;
+                    let [r, g, b] = [out[i], out[i + 1], out[i + 2]];
+                    let gpu = u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b);
+                    canvas.pixel(x, y) != Some(gpu)
+                })
+                .collect();
+            assert!(
+                differ.is_empty(),
+                "pointer at {pointer:?}: {} pixels differ, the first at {:?}",
+                differ.len(),
+                differ.first()
+            );
+        }
+        gl.free_target(target).unwrap();
+        pipeline.free(&mut gl).unwrap();
+        gl.check(Batch::Frame).unwrap();
+    }
+
     #[test]
     fn a_shader_the_driver_refuses_is_a_compile_error_with_its_log() {
         let mut gl = software();

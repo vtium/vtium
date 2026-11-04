@@ -346,7 +346,7 @@ fn the_pointer_and_the_border_beneath_it_land_where_the_cpu_path_draws_them_at_e
         b.state.pointer = Some((cols as u32 * 8 - 6, rows as u32 * 16 - 12));
         b.frame(&mut s, 1, None);
         let arrow = b.gpu.upright_arrow().clone();
-        let arrows = quads(b.gl.calls(), &["target_size", "arrow"]);
+        let arrows = quads(b.gl.calls(), &["target_size", "arrow", "under", "under_at"]);
         let cells = quads(
             b.gl.calls(),
             &["target_size", "masks", "colors", "sprites", "cell"],
