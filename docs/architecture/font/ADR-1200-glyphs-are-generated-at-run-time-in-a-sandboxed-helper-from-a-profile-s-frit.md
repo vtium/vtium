@@ -588,10 +588,12 @@ The console, which opens its VT as root already, reads the kernel's font once at
 
 ### D21: cluster asks and style asks
 
-*Intended design, not yet built.* The helper on `feat/deferred` generates regular glyphs per codepoint (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`).
+Both are built. The console asks the helper for each cluster the screen shows and for each style it shows, bold, italic or bold italic, in an ask of that style, and keys the store by the cluster's text and its style (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`); the helper shapes clusters and draws or synthesises styles (`crates/vtium-config/src/serve.rs`, `crates/vtium-config/src/outline.rs`). The background fill draws regular glyphs alone, and bold and italic come only by ask.
 
 - **Cluster asks.** The console asks the helper for a cluster, its text as the key gives it, and the helper shapes it with HarfRust and composes its glyphs into one glyph fitted to its 1 or 2 cells and its reach, one cell more on each side along its row (ADR-1301 D1, ADR-1302 D1).
 - **Style asks.** The console asks for bold and italic as part of the key. The helper draws them from the frit's bold and italic faces (`style=`, D1) where the frit names them, and from the regular glyph where it does not: a missing bold is the regular glyph emboldened, as vtium-font draws it today, and a missing italic is the regular glyph slanted by 0.2 about the baseline, an outline's points before it is rasterised and a bitmap's rows one at a time (ADR-1302 D4). Where the frit names a bold or an italic face but no bold-italic face, a bold-italic glyph is the regular glyph emboldened and then slanted, and never the bold face slanted (the maintainer, 2026-11-04).
+
+> Edited 2026-11-04: cluster asks and style asks are built, on the branch that builds style requests, and the opening says so. It read: "*Intended design, not yet built.* The helper on `feat/deferred` generates regular glyphs per codepoint (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`)."
 
 > Edited 2026-11-04: the maintainer decided where bold italic comes from when the frit names no bold-italic face (`considered`, 2026-11-04). The style bullet ended at "(ADR-1302 D4)."
 
