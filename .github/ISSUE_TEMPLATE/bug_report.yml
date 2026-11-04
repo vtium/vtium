@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before you file, read [When something goes wrong](https://github.com/vtium/vtium/blob/main/docs/managing-vtium.md#troubleshooting) in the guide to managing vtium. It says how to get out of a VT that misbehaves, gives a workaround for a VT that stays black after you switch back from the desktop, and lists what pictures need. If one of its steps fixes the problem, a report still helps, so say which step it was.
+        Before you file, read [Troubleshooting](https://github.com/vtium/vtium/blob/main/docs/managing-vtium.md#troubleshooting) in the guide to managing vtium. It says how to get out of a VT that misbehaves, gives a workaround for a VT that stays black after you switch back from the desktop, and lists what pictures need. If one of its steps fixes the problem, a report still helps, so say which step it was.
   - type: textarea
     id: happened
     attributes:
@@ -44,6 +44,6 @@ body:
     attributes:
       label: The report from vtium-config report
       description: |
-        Run `vtium-config report --save` on the machine where it happened. It writes a file named like `vtium-report-20261103-203044.txt` in the current directory and prints its name. Run `sudo vtium-config report --save` instead to add the kernel's display state and the whole journal, which only root can read. The report leaves out the machine's name and each monitor's serial number, but its logs can name user accounts, so read the file over before you share it. Then drag the file into this box to attach it, or paste its text here. If your vtium-config has no `report` command, give the vtium version, the features it was built with, your graphics card and driver, and the output of `journalctl -b -u vtium@tty3.service` for the VT it happened on.
+        Run `vtium-config report --save` on the machine where it happened. It writes a file named like `vtium-report-20261103-203044.txt` in the current directory and prints its name. If the defect forced a reboot, add `--previous-boot` to read the log of the boot before. For the kernel's display state, and for the whole journal where your user is not in the systemd-journal group, run `sudo vtium-config report > vtium-report.txt` instead: as root the report writes no file itself, so your own shell saves what it prints. The report leaves out the machine's name and each monitor's serial number, but it can still name user accounts, in its logs, in `vtium console status` and in `vtium.conf`, and its logs' times show your time zone, so read the file over before you share it. Then drag the file into this box to attach it, or paste its text here. If your vtium-config has no `report` command, give the vtium version, the features it was built with, your graphics card and driver, and the output of `journalctl -b -u vtium@tty3.service` for the VT it happened on.
     validations:
       required: true

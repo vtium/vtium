@@ -3,7 +3,7 @@
 # else.
 blank_issues_enabled: false
 contact_links:
-  - name: When something goes wrong
+  - name: Troubleshooting
     url: https://github.com/vtium/vtium/blob/main/docs/managing-vtium.md#troubleshooting
     about: Read this first. It says how to get out of a VT that misbehaves, gives workarounds for known defects, and shows how to collect a report for a bug report.
   - name: Report a vulnerability
