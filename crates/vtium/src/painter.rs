@@ -25,10 +25,12 @@
 //! start, before [`Painter::start`] returns. A head whose context cannot
 //! be made draws on the CPU path.
 //!
-//! The thread's stack is [`STACK`], or [`GPU_STACK`] on the GPU path; it ends, and is joined, when its head
-//! is dropped, as at a new head file and at the exit. A panic on it ends
-//! the process, as one on the loop does (D10): under `panic=abort` at
-//! once, and in a test when the loop finds the thread gone.
+//! The thread's stack is [`GPU_STACK`] when the loop gives it a
+//! [`GpuSource`], whether or not the GPU path then starts, and [`STACK`]
+//! otherwise. The thread ends, and is joined, when its head is dropped,
+//! as at a new head file and at the exit. A panic on it ends the process,
+//! as one on the loop does (D10): under `panic=abort` at once, and in a
+//! test when the loop finds the thread gone.
 
 use std::io;
 use std::path::PathBuf;
