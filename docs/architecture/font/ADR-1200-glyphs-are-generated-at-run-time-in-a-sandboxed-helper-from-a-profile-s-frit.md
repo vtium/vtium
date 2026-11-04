@@ -301,6 +301,7 @@ observable:
   - "Tier 3's frit variants on the 1-vCPU, 512 MB guest draw the built-in font first and the frit once the helper answers"
   - On a cold start with a CJK frit, the first frame draws in the built-in font in the profile's cell, the frit's glyphs replace it as the helper sends them, no frame waits on the helper, and the grid's size never changes when they arrive; the frames that wait are the first of a frit of bitmap sources that states no cell, at the start or after an OSC 50 switch to it, each waiting at most OWN_CELL_MS (100 ms) for its fonts' own cell and draws in the display's cell, with one log line, when none comes
   - Tier 3's 2d-potato-min-psf draws kbd's default8x16, named by a path with no cell, in its own 8x16 cell at 1366x768, as the C reference's goldens do
+  - vtium-config report, run as a user on a machine with vtium, prints every part, names the command that reads each part it cannot, and holds neither the hostname nor a monitor serial
 status: accepted
 date: 2026-10-28
 deciders:
@@ -424,6 +425,7 @@ source=bdf:/usr/share/fonts/fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.bd
 | The rule checker, a library | `vtiumctl check`, as the user | Lints a profile and its frit against a display (ADR-1301 D8). `vtiumctl check FILE` checks every configuration file by its kind, frits included through vitrify's frit parser and this checker (ADR-1401 D12). |
 | `set NAME` | the session's user | Switches the console's frit (D5). |
 | `serve` | the account D15 names | The helper (D15). |
+| `report` | the user, or root for the parts only root reads | Gathers what a bug report needs into one document and changes nothing (D24). |
 
 Each command is non-interactive where it writes, prints one line a result, and exits 0 on success, 1 on a failure and 2 on a usage error; the tool's banner shows only at an interactive terminal. The tracker issue for vtium-vitrify follows the tool's work.
 
@@ -648,13 +650,42 @@ The helper sends glyphs in the chunk format vtium-font reads, little-endian, eve
 
 > Edited 2026-11-01: the maintainer decided that an outline frit that states no cell takes its fonts' own cell, asked of the helper before its first frame and at each zoom (D17). This bullet read: "no frame waits on the helper but a bitmap frit's first for its own cell,".
 
+### D24: `vtium-config report`
+
+`vtium-config report` gathers what a bug report needs into one plain-text document, so that someone who has never read vtium's code can attach the evidence a defect leaves. It prints the document to standard output. `vtium-config report --save` writes it instead to a new file in the current directory, named `vtium-report-YYYYMMDD-HHMMSS.txt` after the time in UTC, and `--save=PATH` writes it to PATH. Either prints the file's path, and neither replaces a file that already exists. `--lines N` sets how many of each console's latest log lines the document holds, 300 by default.
+
+The document holds these parts, each under a plain heading, in this order:
+
+1. What the report holds, and what to check before sharing it.
+2. Each vtium console binary installed, `/usr/bin/vtium` and the development install's `/usr/local/bin/vtium-dev` where there is one, with its version and the features it was built with, and vtium-config's own version.
+3. The kernel's release, the architecture, the distribution's `NAME` and `VERSION_ID` from `/etc/os-release`, and whether systemd and logind run.
+4. `vtium console status`, and the state and start time of each `vtium@`, `vtium-dev@` and `vtium-getty@` unit, with the revision each console logged when it last started this boot.
+5. Each DRM card's driver and render node, and each of its connectors' name, status, enabled state and preferred mode, with the monitor's name and size from its EDID.
+6. vtium.conf's lines without its comments and blank lines, the names of the files in `/etc/vtium` and in its `fonts` directory, and what `vtium check-config` prints.
+7. This boot's latest log lines of each of those units. The font helper and the image helper run inside their console's unit, so their lines are in its log.
+8. Run as root, the kernel's display state from debugfs, `/sys/kernel/debug/dri/N/state`, for each card.
+
+The report changes nothing on the machine. It reads files under `/sys`, `/proc`, `/etc` and `/run`, and runs only programs that read: `journalctl`, `systemctl list-units`, `systemctl show`, and the vtium binaries with `--version`, `--help`, `console status` and `check-config`. It runs a binary's `console status` or `check-config` only after that binary's `--help` names the subcommand, because an older vtium that is given a word it does not know could start as a console. It opens no card node, takes no DRM master and opens no VT.
+
+It runs as the user, and run as root it adds the parts only root can read. Each part it cannot read says so and names the command that reads it, such as `needs root: sudo vtium-config report`. Where `journalctl` says that the user cannot see the system's messages, the logs part says to run the report as root or to join the `systemd-journal` group. Run as root with `--save`, the report gives the file it writes to the user that sudo, pkexec or doas ran it for, found as `apply` finds that user, so that user can read and attach it.
+
+The document holds neither the machine's hostname nor any monitor's serial number. The report never prints an EDID's serial fields or its raw bytes, and it runs `journalctl` with `--no-hostname`. A log line or a program's output can still carry them, so the report replaces each whole-word occurrence in the gathered text of the hostname, as `/proc/sys/kernel/hostname` and `/etc/hostname` give it and its first label, with `[hostname]`, and of each monitor's serial string and serial number with `[serial]`. It leaves a name shorter than three characters alone, since replacing it would garble the text and a name that short identifies no machine. The opening part says that the logs can name user accounts, because a login writes the user's name to the log, and asks the reader to look the report over before sharing it.
+
+The report reads the features a vtium binary was built with from its `--version` output, where a line `features ...` lists them. A binary whose `--version` lists none is read for a line of text that only a build with the feature carries, the way the development install's script tells a build with images: `cannot open the image helper ` for `images`, and `logind is not on the bus (` for `logind`. A feature with no marker in such a binary, `gpu` among them, is reported as unknown.
+
+`--root DIR` makes the report read every path under DIR in place of `/` and run its programs from DIR's `usr/bin` or `bin`, so that tests run each part against a stand-in tree. Run as root, vtium-config refuses `--root`, as it refuses its other path options.
+
+The C reference had no such command. It logged its revision when it started and printed its version for `--version`.
+
+> Added 2026-11-03: the maintainer asked for one command that gathers what a bug report needs, so that people who try vtium outside the project can report a defect with the evidence it leaves (the team lead's brief of 2026-11-03).
+
 ### Retired
 
 - **D3, the trusted store,** and **D12, portable sets and the two ways to build them,** are retired with the prerendered store (Alternatives Considered).
 
 ### For the operator's check
 
-The restart cap of 3 (D15) and the batch of 1,024 codepoints (D18) are agent calls the operator has not yet looked at. The maintainer decided on 2026-11-01 the three calls the amendment of that day made in D17 (`considered`): a frit's first source sets its cell; each zoom of an outline frit with no cell waits up to `OWN_CELL_MS` for the exact cell; and a zoom that gets no answer in time takes the built-in font's width.
+The restart cap of 3 (D15) and the batch of 1,024 codepoints (D18) are agent calls the operator has not yet looked at. So are three calls in D24: the report replaces names of three characters or more only, gives a file saved as root to the user who ran sudo, and reads a binary's features from marker text where its `--version` does not list them. The maintainer decided on 2026-11-01 the three calls the amendment of that day made in D17 (`considered`): a frit's first source sets its cell; each zoom of an outline frit with no cell waits up to `OWN_CELL_MS` for the exact cell; and a zoom that gets no answer in time takes the built-in font's width.
 
 > Edited 2026-10-28: the operator answered the seven points this section listed as not decided, each as the team lead recommended (`considered`), and each answer is folded into the decision that named it: the cell's home (D16), the store's limit on minspec (D19), the helper's account after login (D15), a profile against the configuration (D16, D17, D9), zoom with a frit (D1, D17), the frit drawn when nothing names one (D11), and names that are not frits (D9). The section was headed "Not decided" and asked each as an open question; the earlier text is in git at 4477806.
 
