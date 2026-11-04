@@ -1,8 +1,8 @@
 //! The GPU path's side of tier 2 (ADR-1303 D1): each screen the GPU path
-//! draws has a sidecar of its own, exact for now, and the
-//! judge sees a GPU path that draws nothing. The pixels are judged on a
-//! real GL; here the stand-in GL draws through the whole GPU path and reads
-//! back zeros.
+//! draws has a sidecar of its own, exact for now; on the stand-in GL, which
+//! draws through the whole GPU path and reads back zeros, the judge sees a
+//! GPU path that draws nothing; and on Mesa's llvmpipe the GPU path draws
+//! screens, a turned notice among them, on the CPU path's pixels.
 #![cfg(feature = "gpu")]
 
 use std::fs;

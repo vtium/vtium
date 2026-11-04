@@ -118,6 +118,8 @@ fn run(opts: &[(String, String)]) -> ExitCode {
     };
     #[cfg(feature = "gpu")]
     cases.extend(gpu_cases(here, &out));
+    #[cfg(not(feature = "gpu"))]
+    println!("GPU path not built: no @gpu cases (make tier2 builds tier 2 with --features gpu)");
     for c in &cases {
         let mut line = format!("{:<11} {}", c.status.name(), c.name);
         if c.pixels > 0 {

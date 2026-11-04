@@ -13,8 +13,9 @@
 //! The GPU path draws every orientation in color. A 1-bit screen waits for
 //! present's depth reduction; [`waits`] says so.
 //!
-//! The GL is any [`Gl`]: under Mesa's llvmpipe once vtium-platform's GL
-//! lands, and the tests' stand-in, which draws nothing, in the self-tests.
+//! The GL is any [`Gl`]: Mesa's llvmpipe in every run, through
+//! vtium-platform's software context and the binary's adapter ([`llvmpipe`]),
+//! and the tests' stand-in, which draws nothing, in some self-tests.
 
 use std::fs;
 use std::path::Path;
@@ -137,9 +138,11 @@ fn overlays<F: Face>(
                 .flat_map(|y| (v.x..v.x + v.width).map(move |x| (x, y)))
                 .map(|(x, y)| {
                     let (dx, dy) = surface.place(x, y);
-                    canvas.pixel(dx, dy).unwrap_or(0)
+                    canvas.pixel(dx, dy).ok_or_else(|| {
+                        format!("the overlay's view pixel {x},{y} turns to {dx},{dy}, past the {w}x{h} display")
+                    })
                 })
-                .collect();
+                .collect::<Result<Vec<u32>, String>>()?;
             let picture = Picture::from_pixels(v.width, v.height, pixels)
                 .ok_or("an overlay's area past the display")?;
             Ok(Placed {

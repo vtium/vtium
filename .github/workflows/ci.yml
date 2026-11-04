@@ -165,7 +165,7 @@ jobs:
       # libudev and libxkbcommon, which vtium-platform links through
       # vtium-config, the tool that draws the test fonts' glyphs; and Mesa's
       # EGL and llvmpipe, which the GPU path's screens draw on (vtium-platform
-      # loads libEGL at run time and links it not)
+      # loads libEGL and libgbm at run time and links neither)
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain
