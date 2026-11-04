@@ -326,6 +326,10 @@ pub(super) struct Output<M> {
     pub(super) vblank: bool,
     /// Flips started, so the bound's timer names the flip it bounds.
     pub(super) flips: u64,
+    /// The CRTC the flip in flight was committed on. A hotplug that moves
+    /// the display to another CRTC while it flips leaves the flip's event,
+    /// and the bound on it, on this CRTC until the flip ends.
+    pub(super) flip_crtc: u32,
     /// The timer bounding the flip in flight, and the flip it was armed
     /// for.
     pub(super) flip_timer: Option<(RegistrationToken, u64)>,
@@ -440,6 +444,7 @@ impl<M: AsMut<[u8]>> Output<M> {
     /// A flip is in flight, to be bounded by its own timer.
     pub(super) fn start_flip(&mut self) {
         self.flipping = true;
+        self.flip_crtc = self.crtc;
         self.flips = self.flips.wrapping_add(1);
     }
 
