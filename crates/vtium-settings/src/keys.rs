@@ -1639,7 +1639,7 @@ pub const SECTIONS: [Section; 10] = [
         groups: &[
             Group {
                 title: "Font",
-                keys: &[&FONT_ENGINE, &FONT_NAME, &FONT_FRITS],
+                keys: &[&FONT_NAME, &FONT_FRITS, &FONT_ENGINE],
             },
             Group {
                 title: "Font size and spacing",

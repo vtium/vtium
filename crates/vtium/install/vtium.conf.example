@@ -13,9 +13,6 @@
 
 # ── Font ────────────────────────────────────────────────────────────────────
 
-## font-engine: The font source to use. Unset, each the build has, in this
-## order.
-##
 ## font-name: The font vtium draws text with.
 ##
 ## It is a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the
@@ -24,14 +21,17 @@
 ##
 ## Unset, vconsole's font; with none, or a name that is neither, vtium draws
 ## its built-in fonts and logs the name and why.
-##
+#
 ## font-frits: The directory of the frits, the `NAME.vtfrit` files that
 ## `font-name` and a head's profile name. The default is the directory vtium
 ## was built with.
+#
+## font-engine: The font source to use. Unset, each the build has, in this
+## order.
 
-#font-engine=
 #font-name=
 #font-frits=/etc/vtium/fonts
+#font-engine=
 
 # ── Font size and spacing ───────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@
 ## The font draws at points × DPI ÷ 72 pixels at the displays' density
 ## (`display-dpi`), and the size wins over a frit's `cell=`. 0 picks a size
 ## from the display's size.
-##
+#
 ## font-hinting: How the font helper is to hint outline glyphs, over a frit's
 ## `hinting=`.
 ##
@@ -50,7 +50,7 @@
 ##
 ## vtium does not yet hand this key to the helper, so for now each frit's
 ## `hinting=` decides, `light` where it states none.
-##
+#
 ## font-line-spacing: Height added to each row, over a frit's `line-spacing=`.
 ##
 ## It is a whole percentage of the text's height, rounded to whole pixels and
@@ -74,19 +74,19 @@
 ## `font` draws the font's glyphs; `sprites`, vtium's; `auto`, the font's
 ## where it has one. Unset, a named font's glyphs for each range it covers
 ## whole and the sprites for the rest; the built-in unifont draws the sprites.
-##
+#
 ## glyph-source-box: `glyph-source` for box drawing, U+2500-U+257F, over it.
-##
+#
 ## glyph-source-block: `glyph-source` for block elements, U+2580-U+259F, over
 ## it.
-##
+#
 ## glyph-source-braille: `glyph-source` for Braille, U+2800-U+28FF, over it.
-##
+#
 ## glyph-source-sextants: `glyph-source` for sextants, U+1FB00-U+1FB3B, over
 ## it.
-##
+#
 ## glyph-source-octants: `glyph-source` for octants, U+1CD00-U+1CDE5, over it.
-##
+#
 ## glyph-source-legacy: `glyph-source` for the rest of Symbols for Legacy
 ## Computing's block shapes, over it.
 
@@ -109,13 +109,13 @@
 
 ## blink: Blink text with SGR 5 and a blinking cursor, every 500 ms; off,
 ## neither blinks.
-##
+#
 ## blink-text: How text with SGR 5 or 6 draws in the blink's off phase.
 ##
 ## `full` hides it, `partial` draws it halfway to its background as SGR 2
 ## does, and `off` draws it steady. The cursor blinks as `blink` says either
 ## way.
-##
+#
 ## blink-decorations: The underline and strike of blinking text blink with it.
 ##
 ## They hide in the off phase with `blink-text=full`, and dim with `partial`.
@@ -152,7 +152,7 @@
 ##
 ## Its value is a named palette, or `custom`, which takes the colors from the
 ## `palette-*` keys. Colors 16 to 255 are xterm's in every palette.
-##
+#
 ## palette-black: Color 0 with `palette=custom`.
 ## palette-red: Color 1 with `palette=custom`.
 ## palette-green: Color 2 with `palette=custom`.
@@ -200,10 +200,10 @@
 ## `fg` draws it in the text's color, a palette index in that palette color,
 ## which follows a program's OSC 4, and `#rrggbb` in that color. A color a
 ## program sets with SGR 58 wins unless `force-decoration-colors` is on.
-##
+#
 ## strike-color: The color the strike, SGR 9, draws in, as `underline-color`
 ## takes it.
-##
+#
 ## force-decoration-colors: `underline-color` wins over the underline color a
 ## program sets with SGR 58.
 
@@ -239,25 +239,25 @@
 # ── Pointer ─────────────────────────────────────────────────────────────────
 
 ## mouse: Take pointers: mice, touchpads and touchscreens.
-##
+#
 ## natural-scrolling: Invert the mouse wheel.
 ##
 ## The wheel scrolls the view and reports to a program the other way, and so
 ## do the cursor keys it sends on the alternate screen under mode 1007. Ctrl
 ## and the wheel still zoom in when the wheel turns up.
-##
+#
 ## soft-cursor: Draw the pointer in software on every display, never on a
 ## display's cursor plane.
-##
+#
 ## pointer-char: Draw the pointer as this character's glyph from the font.
 ##
 ## The glyph draws one cell wide, on the cell under the pointer, white with a
 ## dark outline as the arrow is. Unset, or a character the font lacks or whose
 ## glyph is blank, the pointer is the arrow.
-##
+#
 ## pointer-hide-timeout: Hide the pointer after this long with no pointer
 ## event, until it next moves; 0 never hides it.
-##
+#
 ## pointer-hide-while-typing: Hide the pointer at each key sent to the
 ## program, until it next moves. A key vtium takes, such as a grab, leaves it.
 
@@ -276,7 +276,7 @@
 ## The console has no system clipboard: vtium holds the last selection taken,
 ## as it holds one the user copies, and the middle button and `grab-paste`
 ## paste it.
-##
+#
 ## grab-paste: Paste the selection buffer to the program, once a press, as the
 ## middle button does.
 ##
@@ -298,7 +298,7 @@
 ## Unset, `/bin/login -p` with `reset-env` on and `/bin/login` with it off. A
 ## word that is `$NAME` becomes that variable of the session's environment,
 ## and `$$` starts a word with `$`.
-##
+#
 ## oneshot: Exit when the session's command exits, in place of starting it
 ## again.
 
@@ -313,10 +313,10 @@
 ## that entry's capabilities; `kmscon` names the C reference's entry, and
 ## XTGETTCAP answers from the C reference's. Under any other name every name
 ## XTGETTCAP asks for is unknown.
-##
+#
 ## reset-env: Start the session with an empty environment and the variables
 ## vtium sets; off, with vtium's own environment as well.
-##
+#
 ## backspace-delete: The pty's erase character is DEL (0x7f); off, BS (0x08).
 
 #term=xterm-vtium
@@ -326,12 +326,12 @@
 # ── Scrollback ──────────────────────────────────────────────────────────────
 
 ## sb-size: Lines of scrollback, at most `sb-size-cap`.
-##
+#
 ## sb-size-cap: The most lines `sb-size` may ask for.
 ##
 ## Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000
 ## from 2 GiB and 100,000 from 4 GiB.
-##
+#
 ## sb-memory: The most bytes the scrollback holds: its oldest lines go past
 ## it, as past `sb-size`.
 ##
@@ -378,7 +378,7 @@
 
 ## head-consoles-max: The most consoles one head holds: the head file's
 ## `consoles` opens no more.
-##
+#
 ## consoles-max: The most consoles every head holds together.
 ##
 ## Each head keeps its first console; the others open, in the head file's
@@ -391,7 +391,7 @@
 
 ## vt: The VT to run on: a number N for `/dev/ttyN`, a name under `/dev`, or a
 ## path. Unset, the VT vtium was started on, or the next free one.
-##
+#
 ## switchvt: Switch to vtium's VT at start; off, wait until something else
 ## switches to it.
 
@@ -413,10 +413,10 @@
 ## such as `● desk · console 2 of 3`. With `off`, it draws nothing.
 ##
 ## A notice of a problem shows whatever `osd` says.
-##
+#
 ## osd-timeout: How long the on-screen display stays after a change, counted
 ## from the first frame that draws it. `never` keeps it up from the start.
-##
+#
 ## focus-mark: The older name of `osd` and `osd-timeout`.
 ##
 ## vtium reads it only where `osd` or `osd-timeout` is not set: `auto` reads
@@ -432,10 +432,10 @@
 
 ## notice-foreground: The color of a notice's text. A notice tells of a
 ## problem, such as an invalid head file, and shows whatever `osd` says.
-##
+#
 ## notice-background: The color of a notice's box. While a notice shows, the
 ## on-screen display's full line shares its box and takes the notice's colors.
-##
+#
 ## notice-border: The color of the edge around a notice's box.
 
 #notice-foreground=31,41,51
@@ -446,10 +446,10 @@
 
 ## osd-foreground: The color of the on-screen display's text: the words of
 ## `osd = full`'s line, and the dot of `osd = minimal`.
-##
+#
 ## osd-background: The color of the on-screen display's box behind
 ## `osd = full`'s line, and of the cell behind `osd = minimal`'s dot.
-##
+#
 ## osd-border: The color of the edge around `osd = full`'s box. The dot of
 ## `osd = minimal` has no edge.
 
@@ -507,7 +507,7 @@
 
 ## use-original-mode: Keep the mode each display is in; off, its preferred
 ## mode.
-##
+#
 ## mode: A display's mode.
 ##
 ## `WxH[@RATE]` sets it for every display, `[CONNECTOR]WxH` for one connector,
@@ -527,7 +527,7 @@
 ## 16 levels, drawn as color, which the panel converts; `color` draws its
 ## colors; `auto` takes the levels the display says it shows: an fbdev device
 ## at 1 bit, or a DRM panel whose driver vtium-platform lists.
-##
+#
 ## display-dpi: Each display's density, which converts `font-size` and a
 ## frit's `size=` from points to pixels, over the density a display measures.
 ##
@@ -592,7 +592,7 @@
 
 ## dpms-timeout: Turn the displays off after this long with no key press or
 ## pointer action (a move, a button or the wheel); 0 never does.
-##
+#
 ## program-blank: Let a program set the blank's timeout and wake the displays,
 ## as `setterm --blank` does under `TERM=linux`.
 ##
@@ -611,13 +611,13 @@
 ## With `/proc/sys/kernel/ctrl-alt-del` at 0, vtium asks init, as for
 ## Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at
 ## once. Unset, no key reboots.
-##
+#
 ## grab-power-off: Power the machine off.
 ##
 ## vtium asks init with `SIGRTMIN+4`, which systemd takes as
 ## `poweroff.target`, so the services stop and the filesystems are unmounted
 ## first. Unset, no key powers off.
-##
+#
 ## grab-suspend: Suspend the machine to RAM.
 ##
 ## vtium asks logind with its `Suspend` method, so its inhibitors hold the
@@ -644,21 +644,21 @@
 ## or changes size. `0` turns sixel and kitty graphics off.
 ##
 ## A build without images reads it and draws no picture.
-##
+#
 ## sixel: Sixel graphics.
 ##
 ## Off, vtium neither offers nor decodes sixel: DA1 reports no attribute 4 and
 ## a sixel string is ignored. vtium offers sixel only while
 ## `image-storage-limit` is above 0 and every display of the console's head
 ## draws pictures. A build without images never offers it.
-##
+#
 ## kitty-graphics: The kitty graphics protocol.
 ##
 ## Off, vtium neither offers nor decodes it: a graphics command is ignored and
 ## a query gets no reply. vtium offers it only while `image-storage-limit` is
 ## above 0 and every display of the console's head draws pictures. A build
 ## without images never offers it.
-##
+#
 ## max-graphic-size: The largest picture a program may send, in pixels, `WxH`,
 ## for sixel and kitty graphics alike; a larger one is refused.
 ##
@@ -675,7 +675,7 @@
 ## most XTSMGRAPHICS lets a program set.
 ##
 ## A build without images reads it and draws no picture.
-##
+#
 ## private-color-registers: Mode 1070's state at a reset.
 ##
 ## On, each sixel picture starts from the default colors; off, the pictures

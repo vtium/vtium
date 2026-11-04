@@ -237,9 +237,10 @@ fn section_heading(title: &str, about: &str) -> String {
 
 /// A group's description. A group of one key has the key's own
 /// paragraphs. In a group of several, each key's first paragraph starts
-/// with its name, and a line of `##` alone separates two keys, except two
-/// keys whose descriptions each fit on one line, which stand on adjacent
-/// lines as a list does.
+/// with its name, a line of `##` alone separates one key's paragraphs, and
+/// a line of `#` alone separates two keys, so a paragraph reads as part of
+/// the key above it. Two keys whose descriptions each fit on one line
+/// stand on adjacent lines, as a list does.
 fn description(keys: &[&Key]) -> String {
     let [only] = keys else {
         let mut out = String::new();
@@ -259,7 +260,7 @@ fn description(keys: &[&Key]) -> String {
             let text = paragraphs("##", texts.iter().map(String::as_str));
             let short = text.lines().count() == 1;
             if i > 0 && !(short && short_before) {
-                out.push_str("##\n");
+                out.push_str("#\n");
             }
             out.push_str(&text);
             short_before = short;
@@ -549,14 +550,39 @@ mod tests {
             assert_eq!(lines[at - 1], "", "a blank line above {title}");
             assert_eq!(lines[at + 1], "", "a blank line below {title}");
             let rest = &lines[at + 2..];
-            let said = rest.iter().take_while(|l| l.starts_with("##")).count();
-            assert!(said > 0, "{title} has no description");
-            assert_ne!(rest[0], "##", "{title}");
-            assert_ne!(rest[said - 1], "##", "{title}");
+            let said = rest.iter().take_while(|l| !l.is_empty()).count();
+            let separator = |l: &str| l == "##" || l == "#";
             assert!(
-                !rest[..said].windows(2).any(|w| w == ["##", "##"]),
+                rest[..said]
+                    .iter()
+                    .all(|l| l.starts_with("## ") || separator(l)),
+                "{title}: a description line that is neither text nor a separator"
+            );
+            assert!(
+                rest[..said].iter().any(|l| l.starts_with("## ")),
+                "{title} has no description"
+            );
+            assert!(!separator(rest[0]), "{title}");
+            assert!(!separator(rest[said - 1]), "{title}");
+            assert!(
+                !rest[..said]
+                    .windows(2)
+                    .any(|w| separator(w[0]) && separator(w[1])),
                 "{title}: two separators in a row"
             );
+            // a key's paragraphs are separated by `##`, and two keys by `#`
+            // before the line that names the next key
+            for (n, l) in rest[..said].iter().enumerate().skip(1) {
+                let names = keys
+                    .iter()
+                    .any(|k| l.starts_with(&format!("## {}: ", k.name)));
+                if keys.len() > 1 && names {
+                    let before = rest[n - 1];
+                    assert!(before == "#" || before.starts_with("## "), "{title}: {l}");
+                } else {
+                    assert_ne!(rest[n - 1], "#", "{title}: {l} follows a key break");
+                }
+            }
             assert_eq!(rest[said], "", "{title}");
             let set: Vec<&str> = rest[said + 1..]
                 .iter()
@@ -609,6 +635,16 @@ mod tests {
             Some("## osd: What vtium's on-screen display draws at the top of each head after a")
         );
         assert!(osd.contains(&"##"), "paragraphs are separated");
+        let next = osd
+            .iter()
+            .position(|l| l.starts_with("## osd-timeout: "))
+            .expect("osd-timeout's paragraph");
+        assert_eq!(osd[next - 1], "#", "a key break before osd-timeout");
+        assert_eq!(
+            osd[next - 2],
+            "## A notice of a problem shows whatever `osd` says.",
+            "osd's last paragraph ends above the break"
+        );
         for name in ["osd-timeout: ", "focus-mark: "] {
             assert!(
                 osd.iter().any(|l| l.starts_with(&format!("## {name}"))),
