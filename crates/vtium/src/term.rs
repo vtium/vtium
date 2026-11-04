@@ -26,7 +26,7 @@ use vtium_render::{
     Arrow, Canvas, Colors, Config as RenderConfig, Depth, DrawState, Mapped, Mark, Notice,
     Orientation, Rect as RenderRect, RenderTimer, Renderer, Stats, Surface, Target,
 };
-use vtium_term::{Age, Cursor, Damage, Frame, Line, LinkId, Palette, Rgb, Terminal};
+use vtium_term::{Age, Cursor, CursorStyle, Damage, Frame, Line, LinkId, Palette, Rgb, Terminal};
 
 use crate::blink::Blink;
 use crate::config::Config;
@@ -53,7 +53,9 @@ pub struct Term {
     clock: Clock,
     /// The pty holds output the last input call left.
     pub unparsed: bool,
-    /// Output changed the screen this turn.
+    /// Output changed the screen this turn: a cell, a picture or the
+    /// cursor. Output that changes none of them, such as a sixel picture's
+    /// data before its end, asks no display to draw.
     pub changed: bool,
     /// A frame end or a timeout asks every display of the head to present.
     pub present: bool,
@@ -88,31 +90,64 @@ impl Term {
             Action::None | Action::Arm => {}
         }
     }
-}
 
-impl Consumer for Term {
-    fn output(&mut self, output: &[u8], replies: &mut Replies<'_>) -> usize {
+    /// Parses what the terminal takes of `output`, the child's output, and
+    /// passes the terminal's replies to `reply`. Returns the bytes taken,
+    /// as [`Consumer::output`] does, which reads the pty through it.
+    pub fn parse(&mut self, output: &[u8], reply: &mut dyn FnMut(&[u8])) -> usize {
         // The output after an OSC 50 request waits for the turn that
         // switches the font, so a query that follows names the new set.
         if self.terminal.font_requested() {
             return 0;
         }
         let start = (self.clock)();
+        let since = self.terminal.screen_mut().checkpoint();
+        let cursor = cursor(&self.terminal);
         let taken = self.terminal.input(output);
         let out = self.terminal.take_replies();
         if !out.is_empty() {
-            replies.write(&out);
+            reply(&out);
         }
         let end = (self.clock)();
         self.coalesce.input(start, end, taken);
         self.unparsed = taken < output.len();
-        self.changed |= taken > 0;
+        self.changed |=
+            cursor != self::cursor(&self.terminal) || cells_changed(&self.terminal, since);
         self.parsed = self
             .parsed
             .saturating_add(u64::try_from(taken).unwrap_or(u64::MAX));
         let action = self.sync.input(&mut self.terminal, end, self.unparsed);
         self.act(action);
         taken
+    }
+}
+
+/// The cursor as the child's output sets it: its place, DECTCEM and
+/// DECSCUSR. A frame carries the cursor, and moving it marks no cell
+/// changed, so a cursor change changes the screen without any cell's
+/// damage. OSC 12's color is the palette's, and a palette change marks
+/// every cell.
+fn cursor(terminal: &Terminal) -> ((usize, usize), bool, CursorStyle) {
+    let screen = terminal.screen();
+    (
+        screen.cursor(),
+        screen.cursor_visible(),
+        terminal.cursor_style(),
+    )
+}
+
+/// Whether a cell of `terminal`'s screen changed after `since`: written,
+/// erased, scrolled, or under a picture added, moved or removed, or every
+/// cell at once, as a resize, a palette change or a switch of screens
+/// marks them.
+fn cells_changed(terminal: &Terminal, since: Age) -> bool {
+    let damage = terminal.screen().damage();
+    (0..damage.rows()).any(|row| damage.row_changed(row, since))
+}
+
+impl Consumer for Term {
+    fn output(&mut self, output: &[u8], replies: &mut Replies<'_>) -> usize {
+        self.parse(output, &mut |reply| replies.write(reply))
     }
 
     fn exited(&mut self, status: ExitStatus) {
@@ -891,6 +926,7 @@ impl View {
         if !awake {
             self.lost = true;
             let _ = video.swap(token, &damage);
+            self.count(&stats, &damage, false);
             return Presented::default();
         }
         self.pointer.after_draw(video, self.id, tip, at);
@@ -911,13 +947,25 @@ impl View {
         };
         // the display gave the plane up: the renderer draws the pointer
         self.pending |= self.pointer.after_swap(video, self.id);
-        if let Some(timer) = &mut self.timer {
-            timer.frame(stats.cpu, queued, stats.damage_px, stats.misses);
-        }
+        self.count(&stats, &damage, queued);
         let end = clock();
         let start = self.sent.take().unwrap_or(end);
         term.coalesce.drawn(&mut self.wait, start, end, queued);
         Presented { queued }
+    }
+
+    /// Counts a frame composed in the render timer: queued, drawn with
+    /// `damage` that the display did not take, or skipped when it drew
+    /// nothing.
+    fn count(&mut self, stats: &Stats, damage: &[DisplayRect], queued: bool) {
+        let Some(timer) = &mut self.timer else {
+            return;
+        };
+        if queued || damage.is_empty() {
+            timer.frame(stats.cpu, queued, stats.damage_px, stats.misses);
+        } else {
+            timer.unshown(stats.misses);
+        }
     }
 
     /// Draws `term` into the buffer `video` lends and presents it at once,
@@ -1228,6 +1276,11 @@ mod tests {
         drawn: Vec<Option<u32>>,
         count: u32,
         out: bool,
+        /// A flip is in flight: the display lends no buffer until it ends.
+        flipping: bool,
+        /// The frames composed and handed back, each swap, whatever it
+        /// drew.
+        composed: u32,
     }
 
     impl Flip {
@@ -1243,6 +1296,8 @@ mod tests {
                 drawn: vec![None; n],
                 count: 0,
                 out: false,
+                flipping: false,
+                composed: 0,
             }
         }
 
@@ -1285,7 +1340,7 @@ mod tests {
             None
         }
         fn lend(&mut self, _: DisplayId) -> Option<Token> {
-            if std::mem::replace(&mut self.out, true) {
+            if self.flipping || std::mem::replace(&mut self.out, true) {
                 return None;
             }
             let age = self.drawn[self.back].map_or(0, |d| self.count - d + 1);
@@ -1296,6 +1351,7 @@ mod tests {
         }
         fn swap(&mut self, _: Token, damage: &[DisplayRect]) -> Result<Swapped, SwapError> {
             self.out = false;
+            self.composed += 1;
             if damage.is_empty() {
                 return Ok(Swapped::Nothing);
             }
@@ -1305,7 +1361,7 @@ mod tests {
             Ok(Swapped::Frame)
         }
         fn is_flipping(&self, _: DisplayId) -> bool {
-            false
+            self.flipping
         }
         fn ready_for_frame(&self, id: DisplayId) -> bool {
             !self.is_flipping(id) && !self.out
@@ -1902,5 +1958,146 @@ mod tests {
         let key = term.terminal.screen().placements()[0].image;
         let store = term.terminal.screen().images();
         assert_eq!(store.animation(key).map(|a| a.current), Some(1));
+    }
+
+    /// One turn of the loop after the child's output in `parts`: each part
+    /// is parsed as the pty reads it, then the display draws when the
+    /// loop's draw rule asks it to (`draw_head` in app.rs, with output too
+    /// short for coalescing to wait on): when the output changed the
+    /// screen, or when a draw waits for the display and the display takes a
+    /// frame. The turn then ends as the loop's does.
+    fn turn(term: &mut Term, view: &mut View, video: &mut Flip, parts: &[&[u8]]) {
+        for part in parts {
+            assert_eq!(term.parse(part, &mut |_| {}), part.len());
+        }
+        if term.changed || (view.pending && video.ready_for_frame(view.id)) {
+            draw(term, view, video, None);
+        }
+        term.coalesce.turn_end();
+        term.changed = false;
+    }
+
+    /// A sixel picture as tier 3's flood screen sends one, in bands that
+    /// never repeat a byte, cut in parts of 4 KB. Only its last part, which
+    /// ends it, can change the screen.
+    fn sixel_parts() -> Vec<Vec<u8>> {
+        let mut pic = b"\x1bP0;1q\"1;1;32;12#1;2;0;60;100#1".to_vec();
+        for band in 0..640 {
+            if band > 0 {
+                pic.push(b'-');
+            }
+            pic.extend(b"~^".repeat(16));
+        }
+        pic.extend(b"\x1b\\");
+        pic.chunks(4096).map(<[u8]>::to_vec).collect()
+    }
+
+    /// Output that changes nothing on the screen: a pen change, a title,
+    /// and the cursor moved to where it already is.
+    const UNSEEN: &[u8] = b"\x1b[31m\x1b[m\x1b]2;a title\x07\x1b[2;1H";
+
+    /// The frames `view`'s render timer counted: those queued, those that
+    /// drew nothing, and those drawn that the display did not take.
+    fn counted(view: &mut View) -> (u32, u32, u32) {
+        let timer = view.timer.as_mut().unwrap();
+        let r = timer.report(Duration::from_secs(1), 1).unwrap();
+        (r.frames, r.skipped, r.unshown)
+    }
+
+    // The child's output that changes nothing on the screen, as a sixel
+    // picture's parts before its end, composes no frame (vtium/vtium#242):
+    // the C reference drew only a screen that changed since a display's
+    // last frame (`kmscon_text_changed`).
+    #[test]
+    fn output_that_changes_nothing_on_screen_composes_no_frame() {
+        let (mut term, mut view) = view();
+        view.timer = Some(RenderTimer::new());
+        let mut video = Flip::with(1);
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;1Hp1\x1b[2;1H"]);
+        assert_eq!(video.composed, 1, "the caption is drawn");
+        let parts = sixel_parts();
+        let (body, _end) = parts.split_at(parts.len() - 1);
+        assert!(body.len() >= 4, "a picture of several parts");
+        for part in body {
+            turn(&mut term, &mut view, &mut video, &[part]);
+        }
+        turn(&mut term, &mut view, &mut video, &[UNSEEN]);
+        assert_eq!(video.composed, 1, "no frame for the parts before the end");
+        assert_eq!(counted(&mut view), (1, 0, 0));
+    }
+
+    // Output that changes nothing while a flip is in flight leaves no draw
+    // waiting for the flip's end, so no frame that draws nothing is
+    // composed then; output that changes the screen meanwhile is drawn
+    // once the flip ends.
+    #[test]
+    fn output_during_a_flip_composes_only_what_changed() {
+        let (mut term, mut view) = view();
+        view.timer = Some(RenderTimer::new());
+        let mut video = Flip::with(1);
+        turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
+        assert_eq!(video.composed, 1);
+        video.flipping = true;
+        for _ in 0..3 {
+            turn(&mut term, &mut view, &mut video, &[UNSEEN]);
+        }
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(video.composed, 1, "nothing changed during the flip");
+        video.flipping = true;
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB"]);
+        assert!(view.pending, "the draw waits for the flip");
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(video.composed, 2, "B is drawn once the flip ends");
+        assert!(video.shows(0, 1), "B");
+        assert_eq!(counted(&mut view), (2, 0, 0));
+    }
+
+    // A frame drawn that the display drops is counted as not taken, apart
+    // from the passes that drew nothing, which a frame that changed
+    // nothing is.
+    #[test]
+    fn a_frame_the_display_dropped_is_not_counted_as_skipped() {
+        let (mut term, mut view) = view();
+        view.timer = Some(RenderTimer::new());
+        let mut video = Plane::new(false);
+        term.parse(b"A", &mut |_| {});
+        draw(&mut term, &mut view, &mut video, None);
+        draw(&mut term, &mut view, &mut video, None);
+        video.asleep = true;
+        term.parse(b"B", &mut |_| {});
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(counted(&mut view), (1, 1, 1), "queued, skipped, dropped");
+    }
+
+    // What output changes of a frame beyond its cells is the cursor: its
+    // place, DECTCEM and DECSCUSR each change the screen, while a pen
+    // change, a title and a cursor moved where it is change nothing. A
+    // palette change, OSC 12's cursor color among them, marks every cell.
+    #[test]
+    fn the_cursor_alone_changes_the_screen() {
+        let (mut term, _) = view();
+        for (output, changed) in [
+            (&b"\x1b[2;2H"[..], true),
+            (b"\x1b[?25l", true),
+            (b"\x1b[?25h", true),
+            (b"\x1b[5 q", true),
+            (b"\x1b]12;#ff0000\x07", true),
+            (b"x", true),
+            (b"\x1b[1;1H\x1b[2;1H", false),
+            (UNSEEN, false),
+        ] {
+            term.changed = false;
+            term.parse(b"\x1b[2;1H", &mut |_| {});
+            term.changed = false;
+            term.parse(output, &mut |_| {});
+            assert_eq!(
+                term.changed,
+                changed,
+                "{:?}",
+                String::from_utf8_lossy(output)
+            );
+        }
     }
 }
