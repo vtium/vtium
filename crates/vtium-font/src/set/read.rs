@@ -515,10 +515,11 @@ impl Set {
         self.strikes.iter().map(|s| s.info)
     }
 
-    /// The distinct cell sizes, smallest first.
+    /// The distinct cell sizes its strikes are of, of any style, smallest
+    /// first.
     pub fn cells(&self) -> Vec<Cell> {
         let mut cells: Vec<Cell> = Vec::new();
-        for s in self.regulars() {
+        for s in &self.strikes {
             if cells.last() != Some(&s.info.cell) {
                 cells.push(s.info.cell);
             }
@@ -671,9 +672,14 @@ impl Set {
             })
     }
 
-    /// The first regular strike's decorations at `cell`.
+    /// The first regular strike's decorations at `cell`, else, in a set
+    /// that holds only another style's strikes there, the first of those.
     pub(crate) fn decorations(&self, cell: Cell) -> Option<Decorations> {
-        Some(self.regular(cell).next()?.info.decorations)
+        let strike = self
+            .regular(cell)
+            .next()
+            .or_else(|| self.strikes.iter().find(|k| k.info.cell == cell))?;
+        Some(strike.info.decorations)
     }
 
     /// The glyph for `c` at `cell`, drawn at `scale`; `None` when the set

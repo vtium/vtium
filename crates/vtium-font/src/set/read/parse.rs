@@ -57,8 +57,7 @@ fn line(at: u16, thickness: u16, height: u32) -> Result<(u32, u32), SetError> {
 }
 
 /// `STRK`: each strike's style, format, cell, metrics and glyph count,
-/// sorted by cell height, width, style and format with no two alike, and
-/// a regular strike for every cell size.
+/// sorted by cell height, width, style and format with no two alike.
 pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
     let mut c = Cursor(bytes);
     let (count, size) = c.table(SET_STRIKES_MAX, "SET_STRIKES_MAX", STRIKE_RECORD)?;
@@ -136,12 +135,6 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
     c.end()?;
     if keys.windows(2).any(|w| matches!(w, [a, b] if a >= b)) {
         return Err(SetError::Malformed("strikes out of order or repeated"));
-    }
-    if keys
-        .iter()
-        .any(|&(h, w, _, _)| !keys.iter().any(|k| (k.0, k.1, k.2) == (h, w, 0)))
-    {
-        return Err(SetError::Malformed("a cell size with no regular strike"));
     }
     Ok(strikes)
 }

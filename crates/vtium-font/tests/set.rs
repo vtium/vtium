@@ -717,10 +717,17 @@ fn the_writer_refuses_what_the_reader_would() {
         },
         BOLD,
     );
-    assert!(
-        SetBuilder::new("x").strike(bold).write().is_err(),
-        "a cell size with no regular strike"
-    );
+    // a set of one style alone, as the helper answers a style ask:
+    // written, read, and drawn in its style, while it holds no regular
+    // glyph
+    let mut bold = bold;
+    let b = bold.glyph(Width::Narrow, vec![0xf0; 8]);
+    bold.map('x', b);
+    let alone =
+        Set::from_bytes(SetBuilder::new("x").strike(bold).write().expect("written")).expect("read");
+    let face = SetFace::new(Arc::new(alone), 8).expect("a face");
+    assert!(face.draw(&['x'], BOLD).is_some());
+    assert!(!face.has_glyph('x'), "no regular glyph");
     let mut wrong = s.clone();
     let g = wrong.glyph(Width::Narrow, vec![0; 7]);
     wrong.map('x', g);
