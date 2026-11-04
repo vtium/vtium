@@ -634,22 +634,60 @@ fn a_set_up_ends_at_the_first_step_that_fails() {
     assert!(e.detail.contains("software"), "{e}");
 }
 
+/// The DRM nodes in `/dev/dri` whose names start with `prefix`, each with
+/// the device sysfs's `/sys/class/drm` names it by, which is a different route
+/// from the one [`render_node`] takes (the card's device number).
+fn nodes_by_device(prefix: &str) -> Vec<(std::path::PathBuf, Option<std::path::PathBuf>)> {
+    let Ok(entries) = std::fs::read_dir("/dev/dri") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with(prefix))
+        })
+        .map(|p| {
+            let name = p.file_name().unwrap().to_owned();
+            let device =
+                std::fs::canonicalize(Path::new("/sys/class/drm").join(&name).join("device")).ok();
+            (p, device)
+        })
+        .collect()
+}
+
+/// Each card's render node is the one on the card's own device, and a card
+/// whose device has none, such as a display-only card, has none.
 #[test]
 fn a_cards_render_node_is_found_without_opening_the_card() {
-    let Ok(cards) = std::fs::read_dir("/dev/dri") else {
-        return;
-    };
-    for card in cards.flatten().map(|e| e.path()) {
-        if card
-            .file_name()
-            .is_some_and(|n| n.to_string_lossy().starts_with("card"))
-        {
-            let node = render_node(&card).unwrap();
-            assert!(
-                node.to_string_lossy().starts_with("/dev/dri/renderD"),
-                "{}",
+    let renders = nodes_by_device("renderD");
+    for (card, device) in nodes_by_device("card") {
+        let own: Vec<_> = renders
+            .iter()
+            .filter(|(_, d)| d.is_some() && *d == device)
+            .map(|(node, _)| node.clone())
+            .collect();
+        match render_node(&card) {
+            Ok(node) => assert!(
+                own.contains(&node),
+                "{} gives {}, not one of its device's {own:?}",
+                card.display(),
                 node.display()
-            );
+            ),
+            Err(e) => {
+                assert_eq!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound,
+                    "{}: {e}",
+                    card.display()
+                );
+                assert!(
+                    own.is_empty(),
+                    "{} has render nodes {own:?} but none was found: {e}",
+                    card.display()
+                );
+            }
         }
     }
 }
