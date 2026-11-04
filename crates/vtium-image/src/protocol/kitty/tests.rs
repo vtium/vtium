@@ -859,6 +859,39 @@ fn inside_an_upload_a_chunk_naming_another_image_ends_it_and_starts_its_own() {
     continues_with("a=T,i=8");
 }
 
+// A later chunk's i=0 or I=0 names no image, as kitty reads it, so the
+// chunk continues the upload.
+// covers: image.kitty
+#[test]
+fn inside_an_upload_a_chunk_with_i_0_or_capital_i_0_continues_it() {
+    continues_with("a=t,i=0");
+    continues_with("a=t,I=0");
+}
+
+// During a query's upload an animation control names no image, since a
+// query's picture is never stored: it acts on nothing and answers nothing,
+// and the image of the query's id is untouched.
+// covers: image.kitty-animation
+#[test]
+fn inside_a_querys_upload_an_animation_control_names_no_image() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,i=8,s=1,v=1;{}", red(1)));
+    let _ = h.take();
+    let eight = h.store.find_image(8, 0).unwrap();
+    let blue = b64(&[0, 0, 0xff].repeat(4));
+    let (a, b) = blue.split_at(8);
+    send(&mut k, &mut h, &format!("a=q,i=8,f=24,s=2,v=2,m=1;{a}"));
+    send(&mut k, &mut h, "a=a,i=8,s=3");
+    assert_eq!(h.take(), "", "the control answers nothing");
+    assert!(h.store.animation(eight).is_none(), "image 8 untouched");
+    send(&mut k, &mut h, &format!("m=0;{b}"));
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=8;OK\x1b\\",
+        "the query's upload stayed open"
+    );
+}
+
 // A later chunk whose key cannot be read fails the upload, which answers
 // EINVAL once, at its last chunk.
 // covers: image.kitty
@@ -890,11 +923,11 @@ fn inside_an_upload_a_transmission_from_a_named_medium_drops_it_and_starts_its_o
         send(
             &mut k,
             &mut h,
-            &format!("a=t,t={medium},i=11,f=24,s=2,v=2;AAAA"),
+            &format!("a=t,t={medium},i=8,f=24,s=2,v=2;AAAA"),
         );
         assert_eq!(
             h.take(),
-            "\x1b_Gi=11;EBADF:Failed to read image file\x1b\\",
+            "\x1b_Gi=8;EBADF:Failed to read image file\x1b\\",
             "t={medium} ran as its own command"
         );
         assert_eq!(

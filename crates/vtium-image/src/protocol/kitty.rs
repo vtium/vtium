@@ -25,10 +25,10 @@
 //!   vtium stores the picture only at its last chunk, where kitty makes it at
 //!   the first. The other departures each end the upload where kitty keeps it
 //!   open: a transmission or frame that names another image by `i` or `I`,
-//!   output of any other kind between two chunks, RIS, and the session's end
-//!   ([`Handler::interrupt`]). A transmission that fails part way swallows its
-//!   remaining chunks and answers once, at its last. A chunk's `q` of 1 or 2
-//!   holds from then on.
+//!   other than 0, output of any other kind between two chunks, RIS, and the
+//!   session's end ([`Handler::interrupt`]). A transmission that fails part
+//!   way swallows its remaining chunks and answers once, at its last. A
+//!   chunk's `q` of 1 or 2 holds from then on.
 //! - **The helper.** PNG (`f=100`) and zlib (`o=z`) payloads sent directly
 //!   are kept, each growth of the buffer reserved first, and handed to the
 //!   image helper whole; files, temporary files and shared memory (`t=f`,

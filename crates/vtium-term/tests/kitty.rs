@@ -338,7 +338,7 @@ fn upload_around(t: &mut Terminal, between: &mut dyn FnMut(&mut Terminal)) -> (u
 fn output_between_chunks_ends_an_upload_and_the_next_command_starts_fresh() {
     let mut t = term(12, 4);
     assert_eq!(upload_around(&mut t, &mut |_| {}).0, 1, "no gap: drawn");
-    let between: [&[u8]; 9] = [
+    let between: [&[u8]; 11] = [
         b"x",
         b"\r\n",
         b"\x07",
@@ -348,6 +348,10 @@ fn output_between_chunks_ends_an_upload_and_the_next_command_starts_fresh() {
         b"\x1bP$qm\x1b\\",
         b"\x1bP+q544e\x1b\\",
         b"\x1b_Xother\x1b\\",
+        // an APC string whose first character is past ASCII, which the
+        // parser hands over a character at a time, and an empty one
+        "\x1b_\u{e9}t\x1b\\".as_bytes(),
+        b"\x1b_\x1b\\",
     ];
     for bytes in between {
         let mut t = term(12, 4);
@@ -380,4 +384,18 @@ fn the_session_ending_ends_an_upload() {
     let mut t = term(12, 4);
     let got = upload_around(&mut t, &mut Terminal::session_ended);
     assert_eq!(got, (0, 0));
+}
+
+// With 8-bit controls, a program may end each chunk with the 8-bit ST,
+// 0x9C, which the terminal also runs as a control after the string: it is
+// no other output, and the upload goes on.
+// covers: image.kitty
+#[test]
+fn an_8_bit_st_ending_each_chunk_leaves_the_upload_open() {
+    let mut t = term(12, 4);
+    // DECSCL: level 2, with 8-bit controls
+    t.input(b"\x1b[62;0\"p");
+    t.input(b"\x1b_Ga=T,f=24,s=2,v=2,i=5,C=1,q=2,m=1;AAD/AAD/\x9c");
+    t.input(b"\x1b_Gm=0;AAD/AAD/\x9c");
+    assert_eq!(t.screen().placements().len(), 1);
 }

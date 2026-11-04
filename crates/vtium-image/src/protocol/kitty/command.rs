@@ -372,14 +372,15 @@ impl Command {
     /// a file, a temporary file or shared memory, and a delete, end the
     /// upload; a put, a composition and an animation control run beside
     /// it. The one rule that is vtium's: a transmission or frame that names
-    /// another image by `i` or `I` than `first` named ends the upload too,
-    /// so an upload a program left unfinished cannot take the next
-    /// program's picture; kitty loads it into the open upload. The spec
-    /// asks a later chunk to carry only `m` and `q`, and `a=f` too for a
+    /// another image by `i` or `I` than `first` named, other than 0, ends
+    /// the upload too, so an upload a program left unfinished cannot take
+    /// the next program's picture; kitty loads it into the open upload. The
+    /// spec asks a later chunk to carry only `m` and `q`, and `a=f` too for a
     /// frame, and asks a delete to end the upload.
     pub(super) fn within_upload(&self, first: &Self) -> Within {
-        let same_image = (self.seen & bit(b'i') == 0 || self.id == first.id)
-            && (self.seen & bit(b'I') == 0 || self.number == first.number);
+        // `i=0` and `I=0` name no image, as kitty reads them
+        let same_image = (self.seen & bit(b'i') == 0 || self.id == 0 || self.id == first.id)
+            && (self.seen & bit(b'I') == 0 || self.number == 0 || self.number == first.number);
         match self.action {
             b't' | b'T' | b'q' | b'f' if self.medium == b'd' && same_image => Within::Continues,
             b't' | b'T' | b'q' | b'f' | b'd' => Within::Ends,
