@@ -251,6 +251,18 @@ impl Cursor {
     }
 }
 
+/// The CRTC a placement put a display off, as [`Output::moved_from`]
+/// records it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Moved {
+    pub(super) crtc: u32,
+    /// The CRTC's index into the card's list of CRTCs.
+    pub(super) pipe: usize,
+    /// The display was lit on that CRTC: vtium had set it there, or at a
+    /// wake-up its connector was on it.
+    pub(super) lit: bool,
+}
+
 /// A connector driven through a CRTC.
 pub(super) struct Output<M> {
     pub(super) id: DisplayId,
@@ -283,6 +295,11 @@ pub(super) struct Output<M> {
     /// wake-up try this mode again, and once the retries run out it is
     /// held back.
     pub(super) owed: Option<Mode>,
+    /// The CRTC the display wanted that the last placement put it off to
+    /// light another display, until a modeset sets it on its new CRTC. A
+    /// modeset that cannot set the displays there moves it back
+    /// ([`super::Drm2d::move_back`]).
+    pub(super) moved_from: Option<Moved>,
     /// The connector's physical size in millimetres, 0 where it has none.
     pub(super) mm: (u32, u32),
     pub(super) mode_blob: u32,
@@ -326,6 +343,10 @@ pub(super) struct Output<M> {
     pub(super) vblank: bool,
     /// Flips started, so the bound's timer names the flip it bounds.
     pub(super) flips: u64,
+    /// The CRTC the flip in flight was committed on. A hotplug that moves
+    /// the display to another CRTC while it flips leaves the flip's event,
+    /// and the bound on it, on this CRTC until the flip ends.
+    pub(super) flip_crtc: u32,
     /// The timer bounding the flip in flight, and the flip it was armed
     /// for.
     pub(super) flip_timer: Option<(RegistrationToken, u64)>,
@@ -440,6 +461,7 @@ impl<M: AsMut<[u8]>> Output<M> {
     /// A flip is in flight, to be bounded by its own timer.
     pub(super) fn start_flip(&mut self) {
         self.flipping = true;
+        self.flip_crtc = self.crtc;
         self.flips = self.flips.wrapping_add(1);
     }
 
