@@ -1,11 +1,11 @@
 //! Which VTs the system's intended configuration gives to a unit that
-//! starts at boot (ADR-1500 D7), by common convention: a display manager that is enabled keeps VT 1, where systemd
-//! and the display managers' own units put it, whatever VT it happens to
-//! use now; a unit holds each VT whose `getty@ttyN.service` its
-//! `Conflicts=` names, the VT its `TTYPath=` names and the VT it is an
-//! instance on; and a display manager's own configuration adds the VT it
-//! starts its greeter on. Nothing frees a VT: neither a configuration file
-//! nor a greeter running elsewhere.
+//! starts at boot (ADR-1500 D7), by common convention: a display manager
+//! that is enabled keeps VT 1, where systemd and the display managers' own
+//! units put it, whatever VT it happens to use now; a unit holds each VT
+//! whose `getty@ttyN.service` its `Conflicts=` names, the VT its `TTYPath=`
+//! names and the VT it is an instance on; and a display manager's own
+//! configuration adds the VT it starts its greeter on. Nothing frees a VT:
+//! neither a configuration file nor a greeter running elsewhere.
 //!
 //! vtium reads the display managers' configuration files and never runs
 //! them, as each reads them in its own source: [`sddm`], [`lightdm`] and
