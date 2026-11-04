@@ -52,6 +52,10 @@ pub const DISPLAY_BUFFERS_DEFAULT: Default =
 /// `hwaccel`'s default from the build's `VTIUM_HWACCEL`: `on` or `off`,
 /// off when the build names none. Any other value stops the build, which
 /// evaluates this while it compiles the table.
+#[expect(
+    clippy::panic,
+    reason = "evaluated only to compile the key table, where a panic stops the build with its message"
+)]
 const fn build_hwaccel(value: Option<&str>) -> bool {
     match value {
         None => false,
@@ -66,6 +70,10 @@ const fn build_hwaccel(value: Option<&str>) -> bool {
 /// `display-buffers`' default from the build's `VTIUM_DISPLAY_BUFFERS`:
 /// `1`, `2` or `3`, and unset when the build names none. Any other value
 /// stops the build.
+#[expect(
+    clippy::panic,
+    reason = "evaluated only to compile the key table, where a panic stops the build with its message"
+)]
 const fn build_display_buffers(value: Option<&str>) -> Default {
     match value {
         None => Default::Unset,
