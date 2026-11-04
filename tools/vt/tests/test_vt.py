@@ -3204,21 +3204,44 @@ class Package(Case):
     maxDiff = None
 
     # Every file make install stages, by its path under DESTDIR with
-    # PREFIX=/usr.
+    # PREFIX=/usr, with no FEATURES and the default FRITS.
     STAGED = sorted([
+        "etc/vtium/fonts/desktop.vtfrit",
+        "etc/vtium/fonts/minspec-16.vtfrit",
+        "etc/vtium/fonts/minspec-8.vtfrit",
         "etc/vtium/vtium.conf.example",
         "usr/bin/vtium",
         "usr/bin/vtium-config",
         "usr/lib/systemd/system/vtium@.service",
         "usr/lib/systemd/system/vtium-getty@.service",
         "usr/share/doc/vtium/examples/71-vtium-local.rules",
+        "usr/share/doc/vtium/examples/heads.conf",
         "usr/share/doc/vtium/examples/vtium.hwdb",
         "usr/share/licenses/vtium/LICENSE",
     ])
 
-    # A stand-in cargo that records the helper paths each build bakes in.
+    # What the ordinary-machine build, FEATURES='images logind gpu', stages
+    # beside STAGED: the image helper, its account file and the picture
+    # gallery tool (ADR-1101 D1, ADR-1500 D8).
+    WITH_IMAGES = ["usr/bin/vtium-gallery", "usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf"]
+
+    # Where each staged file that vtium's tree holds as it is comes from.
+    SOURCES = {
+        "etc/vtium/fonts/desktop.vtfrit": "tools/specimens/frits/desktop.vtfrit",
+        "etc/vtium/fonts/minspec-16.vtfrit": "crates/vtium-config/frits/minspec-16.vtfrit",
+        "etc/vtium/fonts/minspec-8.vtfrit": "crates/vtium-config/frits/minspec-8.vtfrit",
+        "usr/bin/vtium-gallery": "tools/gallery/gallery",
+        "usr/share/doc/vtium/examples/heads.conf": "crates/vtium-settings/templates/heads.conf",
+    }
+
+    # A stand-in cargo that records the helper paths each build bakes in,
+    # and the build settings for hwaccel and display-buffers when it is
+    # given them.
     CARGO = "#!/bin/bash\n" + ('printf "%s\\n" "cargo VTIUM_FONT_HELPER=${VTIUM_FONT_HELPER-unset} '
-                               'VTIUM_IMAGE=${VTIUM_IMAGE-unset} $*" >>"$CALLS"\n')
+                               'VTIUM_IMAGE=${VTIUM_IMAGE-unset} '
+                               '${VTIUM_HWACCEL+VTIUM_HWACCEL=$VTIUM_HWACCEL }'
+                               '${VTIUM_DISPLAY_BUFFERS+VTIUM_DISPLAY_BUFFERS=$VTIUM_DISPLAY_BUFFERS }'
+                               '$*" >>"$CALLS"\n')
 
     def setUp(self):
         super().setUp()
@@ -3323,6 +3346,47 @@ class Package(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual([f for f in self.staged() if "vtium-image" in f], [])
         self.assertNotIn("-p vtium-image-helper", " ".join(self.s.calls_of("cargo")))
+
+    def test_the_desktop_install_stages_its_frits_gallery_and_head_template(self):
+        # ADR-1500 D8: the vtium package's build, with its features and its
+        # two build settings, which reach both builds.
+        self.built("/usr/bin/vtium-config", "/usr/bin/vtium-image")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "FEATURES=images logind gpu", "HWACCEL=on", "DISPLAY_BUFFERS=3")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.staged(), sorted(self.STAGED + self.WITH_IMAGES))
+        for staged, source in self.SOURCES.items():
+            self.assertEqual(read(os.path.join(self.dest, staged)), read(os.path.join(ROOT, source)), staged)
+        modes = {f: stat.S_IMODE(os.stat(os.path.join(self.dest, f)).st_mode) for f in self.SOURCES}
+        self.assertEqual(modes, {f: 0o755 if f.startswith("usr/bin/") else 0o644 for f in self.SOURCES})
+        self.assertEqual(self.s.calls_of("cargo"), [
+            "VTIUM_FONT_HELPER=/usr/bin/vtium-config VTIUM_IMAGE=/usr/bin/vtium-image VTIUM_HWACCEL=on "
+            "VTIUM_DISPLAY_BUFFERS=3 rustc --profile minspec -p vtium --bin vtium "
+            f"--target-dir {self.build} --features images logind gpu "
+            "-- -C link-arg=-Wl,-z,pack-relative-relocs",
+            "VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 build --release "
+            f"-p vtium-config -p vtium-image-helper --target-dir {self.build}"])
+
+    def test_a_minspec_install_stages_the_frits_it_names_and_no_gallery(self):
+        # ADR-1500 D8: a minspec package ships the two minspec frits alone.
+        self.built("/usr/bin/vtium-config")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "FRITS=minspec-16 minspec-8", "HWACCEL=off", "DISPLAY_BUFFERS=2")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.staged(), [f for f in self.STAGED if f != "etc/vtium/fonts/desktop.vtfrit"])
+        self.assertEqual([c.split(" rustc ")[0].split(" build ")[0] for c in self.s.calls_of("cargo")], [
+            "VTIUM_FONT_HELPER=/usr/bin/vtium-config VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2",
+            "VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2"])
+
+    def test_install_refuses_a_frit_vtium_does_not_hold_and_a_setting_out_of_its_range(self):
+        self.built("/usr/bin/vtium-config")
+        for arg, why in (("FRITS=minspec-16 absent", "no frit absent in"),
+                         ("HWACCEL=yes", "HWACCEL is on or off"),
+                         ("HWACCEL=on off", "HWACCEL is on or off"),
+                         ("DISPLAY_BUFFERS=4", "DISPLAY_BUFFERS is 1, 2 or 3")):
+            p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}", arg)
+            self.assertNotEqual(p.returncode, 0, arg)
+            self.assertIn(why, p.stderr, arg)
 
     def test_install_refuses_a_console_that_starts_another_helper(self):
         self.built("/usr/local/bin/vtium-dev-config")
