@@ -251,6 +251,18 @@ impl Cursor {
     }
 }
 
+/// The CRTC a placement put a display off, as [`Output::moved_from`]
+/// records it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Moved {
+    pub(super) crtc: u32,
+    /// The CRTC's index into the card's list of CRTCs.
+    pub(super) pipe: usize,
+    /// The display was lit on that CRTC: vtium had set it there, or at a
+    /// wake-up its connector was on it.
+    pub(super) lit: bool,
+}
+
 /// A connector driven through a CRTC.
 pub(super) struct Output<M> {
     pub(super) id: DisplayId,
@@ -283,11 +295,11 @@ pub(super) struct Output<M> {
     /// wake-up try this mode again, and once the retries run out it is
     /// held back.
     pub(super) owed: Option<Mode>,
-    /// The CRTC, with its index into the card's list of CRTCs, that the
-    /// last placement moved the display off to light another display, until
-    /// a modeset sets it on its new CRTC. A modeset that cannot set the
-    /// displays there moves it back ([`super::Drm2d::move_back`]).
-    pub(super) moved_from: Option<(u32, usize)>,
+    /// The CRTC the display wanted that the last placement put it off to
+    /// light another display, until a modeset sets it on its new CRTC. A
+    /// modeset that cannot set the displays there moves it back
+    /// ([`super::Drm2d::move_back`]).
+    pub(super) moved_from: Option<Moved>,
     /// The connector's physical size in millimetres, 0 where it has none.
     pub(super) mm: (u32, u32),
     pub(super) mode_blob: u32,
