@@ -1220,7 +1220,7 @@ impl App {
             && let Some(v) = head.views.get(&key)
         {
             let path = head.painter.as_ref().map(Painter::path).unwrap_or_default();
-            display_line(&name, backend, path, v.cell());
+            display_line(&name, backend, path, v);
         }
     }
 
@@ -3962,22 +3962,18 @@ fn left_gpu(head: &mut Head, videos: &BTreeMap<PathBuf, Box<dyn Video>>, why: &s
     painter.left_gpu();
     for ((node, id), view) in &head.views {
         if let Some(video) = videos.get(node) {
-            display_line(
-                &video.name(*id),
-                video.backend(),
-                painter.path(),
-                view.cell(),
-            );
+            display_line(&video.name(*id), video.backend(), painter.path(), view);
         }
     }
 }
 
-/// The line vtium logs for a display it draws, naming the path that draws
-/// it (ADR-1303 D10).
-fn display_line(name: &str, backend: &str, path: crate::painter::Path, cell: vtium_font::Cell) {
+/// The line vtium logs for `view`, a display it draws on a head on
+/// `path`, naming the path that draws the display (ADR-1303 D10).
+fn display_line(name: &str, backend: &str, path: crate::painter::Path, view: &View) {
+    let cell = view.cell();
     log::info!(
         "Display {name} with backend [{backend}] text renderer [{}], cell size {}x{}",
-        path.name(),
+        path.for_depth(view.depth()).name(),
         cell.width,
         cell.height
     );

@@ -6508,6 +6508,19 @@ mod gpu_path {
         );
     }
 
+    // ADR-1303 D6, D10: the GPU path draws no 1-bit display yet, so the
+    // CPU path draws it, and its line names cpu on a head on the GPU path
+    #[test]
+    fn a_1_bit_display_on_a_gpu_head_logs_the_cpu_path_that_draws_it() {
+        let (cpu_shown, _, _) = drawn(&["--display-depth=1"], GpuSource::Software);
+        let (shown, _, log) = drawn(&["--hwaccel", "--display-depth=1"], GpuSource::Software);
+        assert_eq!(renderer(&log), ["cpu"], "{log:#?}");
+        assert!(
+            shown == cpu_shown,
+            "the frame shown differs from the CPU path's"
+        );
+    }
+
     /// The same through this machine's first render node, on its GPU. It
     /// opens a render node, which needs no DRM master, and runs only when
     /// asked.

@@ -93,6 +93,17 @@ impl Path {
             Path::Gpu => "gpu",
         }
     }
+
+    /// The path that draws a display of `depth` on a head on this path:
+    /// the CPU path draws a 1-bit display, whose depth the GPU path's
+    /// present does not reduce yet (ADR-1303 D6).
+    pub fn for_depth(self, depth: vtium_render::Depth) -> Path {
+        if depth == vtium_render::Depth::One {
+            Path::Cpu
+        } else {
+            self
+        }
+    }
 }
 
 /// How the render thread's set-up went: the path the head draws on, and,
