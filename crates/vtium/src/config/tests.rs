@@ -74,7 +74,9 @@ fn tier3_guest_configurations() {
         assert_eq!(c.text(&FONT_NAME), name, "{text}");
         assert_eq!(c.number(&FONT_SIZE), Some(size), "{text}");
         assert!(!c.switch(&BLINK), "{text}");
-        assert_eq!(c.switch(&HWACCEL), hwaccel, "{text}");
+        // a configuration that leaves hwaccel unset takes the build's
+        // default (ADR-1500 D8)
+        assert_eq!(c.switch(&HWACCEL), hwaccel || HWACCEL_DEFAULT, "{text}");
         assert_eq!(c.text(&RENDER_TIMER), Some("log"), "{text}");
     }
 }
@@ -148,7 +150,7 @@ fn defaults() {
         (&BACKSPACE_DELETE, true),
         (&BLINK, true),
         (&ONESHOT, false),
-        (&HWACCEL, false),
+        (&HWACCEL, HWACCEL_DEFAULT),
         (&USE_ORIGINAL_MODE, false),
         (&HELP, false),
     ] {
@@ -556,9 +558,9 @@ fn files_are_bounded() {
         .repeat(FILE_MAX / 64)
         .into_bytes();
     assert_eq!(big.len(), FILE_MAX);
-    big.extend_from_slice(b"hwaccel\n");
+    big.extend_from_slice(b"no-blink\n");
     let l = load_with(&[], None, &[("/etc/vtium/vtium.conf", &big)]);
-    assert!(!l.config.switch(&HWACCEL));
+    assert!(l.config.switch(&BLINK));
     assert_eq!(problems(&l), [&Problem::FileTooLong]);
 
     let mut text = format!("#{}\n", "x".repeat(LINE_MAX)).into_bytes();
@@ -1340,11 +1342,14 @@ fn sb_memory_past_the_machines_quarter_is_reported_once() {
 
 /// `display-buffers` takes `1`, `2` or `3` and nothing else: a value
 /// outside them is reported and ignored, keeping the value the sources
-/// before it gave, never clamped into range. Unset, the build decides, so
-/// the accessor gives none (ADR-1401 D2).
+/// before it gave, never clamped into range. Unset, it is the count the
+/// build names (ADR-1500 D8), and for a build that names none the accessor
+/// gives none and the console's rule by its features decides (ADR-1401
+/// D2).
 #[test]
 fn display_buffers_takes_one_two_or_three() {
-    assert_eq!(Config::default().display_buffers(), None);
+    // unset, the count the build names, if it names one (ADR-1500 D8)
+    assert_eq!(Config::default().display_buffers(), DISPLAY_BUFFERS_BUILD);
     for (text, n) in [("1", 1), ("2", 2), ("3", 3)] {
         let l = main_file(&format!("display-buffers={text}\n"));
         assert_eq!(l.config.display_buffers(), Some(n), "{text}");

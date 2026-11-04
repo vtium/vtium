@@ -160,6 +160,11 @@ IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
 FRITS := desktop minspec-16 minspec-8
 FRIT_DIRS := crates/vtium-config/frits tools/specimens/frits
 frit_files = $(foreach f,$(FRITS),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
+# A frit vtium does not hold stops the install as make reads this file,
+# before anything is built.
+ifneq ($(filter install install-tree,$(MAKECMDGOALS)),)
+_frits := $(frit_files)
+endif
 # The head file's commented template, which every install ships as an
 # example for a user to copy to /etc/vtium/heads.conf (ADR-1500 D8).
 HEADS_TEMPLATE := crates/vtium-settings/templates/heads.conf
@@ -217,7 +222,8 @@ endif
 # D3, D4, D8), the example udev rules and hwdb fragment and the head
 # file's template as documentation, and the license under PKGNAME's name.
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
-# display-buffers that both builds read from the key table (ADR-1500 D8). make install-terminfo stages vtium's
+# display-buffers that both builds read from the key table (ADR-1500 D8).
+# make install-terminfo stages vtium's
 # terminfo entry, compiled under its name xterm-vtium, for the package that
 # holds it alone. Neither stages a file the C reference's packages own:
 # nothing under /etc/kmscon, no terminfo entry named kmscon and no kmsconvt@
@@ -388,7 +394,7 @@ conformance-issues: ## Check that every issue the conformance lists say owes a c
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool and the fuzz runner without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool and the fuzz runner without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -396,9 +402,19 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool an
 	python3 -I -B tools/gallery/tests/test_gallery.py
 	python3 -I -B tools/fuzz/test_run.py
 	cargo test -q -p vtium-font --test set
+	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
 	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+
+# The key table's crates' unit tests, built as the vtium package builds
+# them, with VTIUM_HWACCEL=on and VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8), in
+# a target directory of their own so the other builds keep their cache.
+# Until the console acts on hwaccel, a build with it on says "hwaccel is not
+# built yet" at every start, and check-config exits 1; the check's tests and
+# the one test that counts its warnings expect a clean start, so they are
+# left out here until the work that chooses the GPU path removes the note.
+TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 cargo test -q --target-dir $(or $(CARGO_TARGET_DIR),target)/build-settings -p vtium-settings -p vtium -p vtium-config --lib -- --skip check::tests --skip config::tests::sb_memory_past_the_machines_quarter_is_reported_once
 
 .PHONY: fuzz
 # FUZZ_TARGETS and FUZZ_TIME reach tools/fuzz/run through the environment;

@@ -9,10 +9,21 @@ use vtium_platform::display::{
     Swapped, Token,
 };
 use vtium_render::Arrow;
+use vtium_settings::keys::DISPLAY_BUFFERS_BUILD;
 
 use crate::pointer::Plane;
 
-/// How many buffers a DRM display keeps when vtium.conf does not say
+/// How many buffers a DRM display keeps when vtium.conf does not say: the
+/// count the build names with `VTIUM_DISPLAY_BUFFERS` (ADR-1500 D8), else
+/// [`FEATURE_BUFFERS`].
+pub const BUILD_BUFFERS: Buffers = match DISPLAY_BUFFERS_BUILD {
+    Some(1) => Buffers::One,
+    Some(2) => Buffers::Two,
+    Some(3) => Buffers::Three,
+    _ => FEATURE_BUFFERS,
+};
+
+/// The buffers a build keeps by its features when it names no count
 /// (ADR-1401 D2): three in a build that adds features on top of minspec,
 /// two in the minspec build, vtium's default build. One buffer is for a
 /// build smaller than minspec, which none is yet; [`Buffers::One`] reaches
@@ -20,7 +31,7 @@ use crate::pointer::Plane;
 ///
 /// The build adds features on top of minspec when any of
 /// [`FEATURES_ON_TOP`] is on.
-pub const BUILD_BUFFERS: Buffers = if any_on(&FEATURES_ON_TOP) {
+pub const FEATURE_BUFFERS: Buffers = if any_on(&FEATURES_ON_TOP) {
     Buffers::Three
 } else {
     Buffers::Two
@@ -332,7 +343,15 @@ mod tests {
     #[cfg(not(any(feature = "gpu", feature = "images", feature = "logind")))]
     #[test]
     fn the_minspec_build_keeps_two_buffers() {
-        assert_eq!(BUILD_BUFFERS, Buffers::Two);
+        assert_eq!(FEATURE_BUFFERS, Buffers::Two);
+    }
+
+    // ADR-1500 D8: a count the build names comes before the rule by
+    // features, and a build that names none keeps that rule.
+    #[test]
+    fn the_count_the_build_names_comes_first() {
+        let named = DISPLAY_BUFFERS_BUILD.and_then(Buffers::new);
+        assert_eq!(BUILD_BUFFERS, named.unwrap_or(FEATURE_BUFFERS));
     }
 
     // ADR-1401 D2: `display-buffers` set gives its count, and unset or out
@@ -368,7 +387,11 @@ mod tests {
         named.sort_unstable();
         assert_eq!(features, named);
         let any = FEATURES_ON_TOP.iter().any(|(_, on)| *on);
-        assert_eq!(BUILD_BUFFERS == Buffers::Three, any, "{FEATURES_ON_TOP:?}");
+        assert_eq!(
+            FEATURE_BUFFERS == Buffers::Three,
+            any,
+            "{FEATURES_ON_TOP:?}"
+        );
     }
 
     // Each flag of FEATURES_ON_TOP reads its own feature, checked against
@@ -395,6 +418,6 @@ mod tests {
     #[cfg(any(feature = "gpu", feature = "images", feature = "logind"))]
     #[test]
     fn a_build_with_features_keeps_three_buffers() {
-        assert_eq!(BUILD_BUFFERS, Buffers::Three);
+        assert_eq!(FEATURE_BUFFERS, Buffers::Three);
     }
 }

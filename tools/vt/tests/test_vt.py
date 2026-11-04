@@ -3387,6 +3387,11 @@ class Package(Case):
             p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}", arg)
             self.assertNotEqual(p.returncode, 0, arg)
             self.assertIn(why, p.stderr, arg)
+        p = self.make("install-tree", f"DESTDIR={self.dest}", "FRITS=minspec-16 absent")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("no frit absent in", p.stderr)
+        # each is refused as make reads the Makefile, before any build
+        self.assertEqual(self.s.calls_of("cargo"), [])
 
     def test_install_refuses_a_console_that_starts_another_helper(self):
         self.built("/usr/local/bin/vtium-dev-config")
