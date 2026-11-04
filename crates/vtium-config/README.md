@@ -176,9 +176,9 @@ A frit gives each source a style with `style=` (ADR-1200 D1). The helper draws a
 | regular | the regular sources |
 | bold | the bold sources; then the regular sources emboldened |
 | italic | the italic sources; then the regular sources slanted |
-| bold italic | the bold-italic sources; then the bold sources slanted; then the italic sources emboldened; then the regular sources emboldened and slanted |
+| bold italic | the bold-italic sources; then the regular sources emboldened and slanted |
 
-Where the frit names a bold face but no bold-italic face, the helper slants the bold face. That order is the open question to the maintainer on the style requests' issue (#152), and the one function `bold_italic_without_its_face` holds it, so the other answer, which emboldens and slants the regular glyph, is a one-line change.
+Where the frit names a bold or an italic face but no bold-italic face, the helper draws bold italic from the regular glyph, emboldened and then slanted, and not from the bold or the italic face (the maintainer, 2026-11-04). The fill draws regular glyphs alone, and bold and italic come only when the console asks for them (the maintainer, 2026-11-04).
 
 - **Synthetic italic of an outline glyph** slants the outline before it is rasterised: each point moves right by 0.2 of its height above the baseline, so ink above the baseline leans right and descenders lean left. It leans right in every script.
 - **Synthetic bold of an outline glyph** grows each contour sideways by a 48th of the size in pixels to the em on each side, a 24th in all, as FreeType's `FT_GlyphSlot_Embolden` grew a glyph, but only from side to side: each point moves along the mitre of its two edges' outward normals, sideways only, and a point where its edges fold back by more than 160 degrees stays put. No ink rises above the font's tallest or falls below its lowest, so the row's baseline and lines hold for every style. ADR-1302 D4 leaves how a glyph is emboldened to the helper; vertical growth was left out because it would push ink across the row's edges, which D3 cuts.

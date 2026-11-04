@@ -222,8 +222,8 @@ fn synthetic_bold_emboldens_an_outline_from_side_to_side() {
 }
 
 // a frit that names a bold and an italic face draws each style from its
-// own face, and bold italic, which it names no face for, from the bold
-// face slanted
+// own face, and bold italic, which it names no face for, from the regular
+// glyph emboldened and then slanted (the maintainer, 2026-11-04)
 // covers: text.outline
 #[test]
 fn a_frits_own_faces_draw_their_styles() {
@@ -271,8 +271,13 @@ fn a_frits_own_faces_draw_their_styles() {
     );
     assert_eq!(
         drawn(&e, CELL, BOLD_ITALIC, 'A').pixels(),
+        alone(&regular, BOLD_ITALIC).pixels(),
+        "the regular glyph emboldened and slanted"
+    );
+    assert_ne!(
+        drawn(&e, CELL, BOLD_ITALIC, 'A').pixels(),
         alone(&bold, ITALIC).pixels(),
-        "the bold face slanted"
+        "not the bold face slanted"
     );
     // a frit that names neither synthesises both from its regular face
     assert_eq!(
@@ -282,6 +287,43 @@ fn a_frits_own_faces_draw_their_styles() {
     assert_ne!(
         alone(&regular, BOLD).pixels(),
         alone(&bold, REGULAR).pixels()
+    );
+}
+
+// a frit that names a bold face and no bold-italic face draws bold italic
+// from its regular source, emboldened and then slanted, not from the bold
+// face (the maintainer, 2026-11-04; ADR-1200 D21)
+// covers: text.outline
+#[test]
+fn bold_italic_with_no_face_of_its_own_comes_from_the_regular_glyph() {
+    let dir = Scratch::new("bold-only");
+    let regular = dir.file("r.ttf", &ttf::test_mono().build());
+    let bold = dir.file(
+        "b.ttf",
+        &face(
+            "Test Mono Bold",
+            ttf::Glyph::rect(600, 250, 0, 350, 700),
+            ttf::Glyph::rect(600, 0, 0, 600, 700),
+        ),
+    );
+    let e = engine(&format!(
+        "source=outline:{regular}\nsource=outline:{bold}\nstyle=bold\n"
+    ));
+    let from = |path: &str, style: Style| {
+        drawn(
+            &engine(&format!("source=outline:{path}\n")),
+            CELL,
+            style,
+            'A',
+        )
+    };
+    let both = drawn(&e, CELL, BOLD_ITALIC, 'A');
+    assert_eq!(both.pixels(), from(&regular, BOLD_ITALIC).pixels());
+    assert_ne!(both.pixels(), from(&bold, ITALIC).pixels());
+    // bold alone still comes from the bold face
+    assert_eq!(
+        drawn(&e, CELL, BOLD, 'A').pixels(),
+        from(&bold, REGULAR).pixels()
     );
 }
 

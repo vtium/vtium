@@ -588,56 +588,23 @@ const BOLD: Style = Style {
     bold: true,
     italic: false,
 };
-const ITALIC: Style = Style {
-    bold: false,
-    italic: true,
-};
-const BOLD_ITALIC: Style = Style {
-    bold: true,
-    italic: true,
-};
-
-/// Where a bold italic glyph comes from when no source the frit gave
-/// `style=bold-italic` covers it, in order. This is the maintainer's open
-/// question on the style requests' issue, and until it is answered the
-/// helper slants the bold face, then emboldens the italic face, then
-/// emboldens and slants the regular glyph. The other answer, which
-/// emboldens and slants the regular glyph whatever faces the frit names,
-/// is `&[Step { face: REGULAR, synth: BOLD_ITALIC }]`.
-fn bold_italic_without_its_face() -> &'static [Step] {
-    &[
-        Step {
-            face: BOLD,
-            synth: ITALIC,
-        },
-        Step {
-            face: ITALIC,
-            synth: BOLD,
-        },
-        Step {
-            face: REGULAR,
-            synth: BOLD_ITALIC,
-        },
-    ]
-}
 
 /// What the glyphs of `style` are drawn from, in order: first the sources
 /// the frit gave that style, drawn as they are; then, for a codepoint none
 /// of them covers, the regular sources with the style synthesised over
-/// them (ADR-1200 D21), and for bold italic the faces between
-/// ([`bold_italic_without_its_face`]).
+/// them (ADR-1200 D21). Bold italic with no bold-italic face is the
+/// regular glyph emboldened and then slanted, even where the frit names a
+/// bold or an italic face (the maintainer, 2026-11-04).
 pub fn steps(style: Style) -> Vec<Step> {
     let mut out = vec![Step {
         face: style,
         synth: REGULAR,
     }];
-    match (style.bold, style.italic) {
-        (false, false) => {}
-        (true, true) => out.extend_from_slice(bold_italic_without_its_face()),
-        _ => out.push(Step {
+    if style != REGULAR {
+        out.push(Step {
             face: REGULAR,
             synth: style,
-        }),
+        });
     }
     out
 }
@@ -2029,6 +1996,15 @@ mod tests {
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(r)));
         assert_eq!(ServeRequest::read(&mut &b""[..]), Ok(None));
     }
+
+    const ITALIC: Style = Style {
+        bold: false,
+        italic: true,
+    };
+    const BOLD_ITALIC: Style = Style {
+        bold: true,
+        italic: true,
+    };
 
     // the style changed the request's layout, so its magic moved from
     // VTVSREQ3 to VTVSREQ4 and a request of the old layout is refused
