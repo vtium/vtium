@@ -75,31 +75,69 @@ fn state() -> DrawState {
     }
 }
 
+/// The strike alone moved and thickened, the underline as it was.
+const STRIKE_ONLY: Decorations = Decorations {
+    underline: 15,
+    underline_thickness: 1,
+    strike: 5,
+    strike_thickness: 3,
+};
+
+/// The underline's row alone moved, its thickness and the strike as they
+/// were.
+const UNDERLINE_ROW_ONLY: Decorations = Decorations {
+    underline: 12,
+    underline_thickness: 1,
+    strike: 8,
+    strike_thickness: 1,
+};
+
 #[test]
 fn new_lines_from_the_font_redraw_every_cell_with_them() {
-    let lines = Rc::new(Shared::new(Decorations::for_height(16)));
-    let mut r = Renderer::new(font(&lines), 84, 51, Config::default());
-    let mut s = screen();
-    let mut canvas = Canvas::new(84, 51, 0);
-    r.draw(&s.frame(Age::NEVER), &mut canvas, 0, &state());
-    let since = s.damage.checkpoint();
-    lines.set(MEASURED);
-    r.glyphs_changed(&[]);
-    let damage = r
-        .draw(&s.frame(since), &mut canvas, 1, &state())
-        .damage
-        .to_vec();
-    assert_eq!(damage.len(), 1);
-    assert_eq!((damage[0].width, damage[0].height), (84, 51));
-    // the same picture as a renderer made with the measured lines
-    let mut fresh = Canvas::new(84, 51, 0);
-    Renderer::new(font(&lines), 84, 51, Config::default()).draw(
-        &s.frame(Age::NEVER),
-        &mut fresh,
-        0,
-        &state(),
+    assert_eq!(
+        Decorations::for_height(16),
+        Decorations {
+            underline: 15,
+            underline_thickness: 1,
+            strike: 8,
+            strike_thickness: 1,
+        }
     );
-    assert!(canvas == fresh, "the old lines are left on the screen");
+    for measured in [MEASURED, STRIKE_ONLY, UNDERLINE_ROW_ONLY] {
+        let lines = Rc::new(Shared::new(Decorations::for_height(16)));
+        let mut r = Renderer::new(font(&lines), 84, 51, Config::default());
+        let mut s = screen();
+        let mut canvas = Canvas::new(84, 51, 0);
+        r.draw(&s.frame(Age::NEVER), &mut canvas, 0, &state());
+        let before = canvas.clone();
+        let since = s.damage.checkpoint();
+        lines.set(measured);
+        r.glyphs_changed(&[]);
+        let damage = r
+            .draw(&s.frame(since), &mut canvas, 1, &state())
+            .damage
+            .to_vec();
+        assert_eq!(damage.len(), 1, "{measured:?}");
+        assert_eq!(
+            (damage[0].width, damage[0].height),
+            (84, 51),
+            "{measured:?}"
+        );
+        // the same picture as a renderer made with the measured lines,
+        // which differs from the old one
+        let mut fresh = Canvas::new(84, 51, 0);
+        Renderer::new(font(&lines), 84, 51, Config::default()).draw(
+            &s.frame(Age::NEVER),
+            &mut fresh,
+            0,
+            &state(),
+        );
+        assert!(before != fresh, "{measured:?} moves no pixel");
+        assert!(
+            canvas == fresh,
+            "{measured:?}: the old lines are left on the screen"
+        );
+    }
 }
 
 #[test]
@@ -160,5 +198,52 @@ fn new_lines_on_the_gpu_path_make_the_glyphs_and_sprites_anew_and_draw_whole() {
     assert!(
         gl.calls()
             .contains(&Call::CreateTexture(Format::R8, Size::new(48, 16)))
+    );
+}
+
+#[cfg(feature = "gpu")]
+#[test]
+fn new_lines_and_a_turn_together_reach_the_gpu_paths_sprites() {
+    // the font's lines change and the display turns before the renderer
+    // hears of the lines: the turned renderer takes them
+    use vtium_render::Orientation;
+    use vtium_render::gpu::{Call, Config as GpuConfig, Format, Gl, Pipeline, Size, StandIn};
+    let display = Size::new(84, 51);
+    let mut gl = StandIn::new();
+    let mut pipeline = Pipeline::new(&mut gl, display, GpuConfig::default()).unwrap();
+    let buffer = gl.import_buffer(&display).unwrap();
+    let lines = Rc::new(Shared::new(Decorations::for_height(16)));
+    let mut r = Renderer::new(font(&lines), 84, 51, Config::default());
+    let mut s = screen();
+    r.draw_gpu(
+        &mut gl,
+        &mut pipeline,
+        &s.frame(Age::NEVER),
+        &buffer,
+        0,
+        &state(),
+        &[],
+    )
+    .unwrap();
+    let since = s.damage.checkpoint();
+    lines.set(MEASURED);
+    let mut r = r.turned(Orientation::UpsideDown);
+    r.glyphs_changed(&[]);
+    gl.clear_calls();
+    r.draw_gpu(
+        &mut gl,
+        &mut pipeline,
+        &s.frame(since),
+        &buffer,
+        1,
+        &state(),
+        &[],
+    )
+    .unwrap();
+    assert!(
+        gl.calls()
+            .contains(&Call::CreateTexture(Format::R8, Size::new(48, 16))),
+        "the sprites' texture is not made anew: {:?}",
+        gl.calls()
     );
 }

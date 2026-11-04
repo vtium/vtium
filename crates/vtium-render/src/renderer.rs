@@ -609,11 +609,17 @@ impl<F: Face> Renderer<F> {
 
     /// This renderer on the same display turned as `orientation` says, with
     /// its font and the rest of its configuration. On the CPU path it is a
-    /// new renderer: its cache holds glyphs turned for the old orientation.
-    /// On the GPU path, whose glyphs are upright, it keeps its identity, so
-    /// a pipeline that holds its glyphs keeps them, and the turn uploads and
-    /// compiles nothing (ADR-1303 D3). Its next frame draws whole.
-    pub fn turned(self, orientation: Orientation) -> Renderer<F> {
+    /// new renderer: its cache holds glyphs turned for the old orientation,
+    /// and its budgets follow the turned grid's cells. On the GPU path,
+    /// whose glyphs are upright, it keeps its identity, so a pipeline that
+    /// holds its glyphs keeps them, and the turn uploads and compiles
+    /// nothing (ADR-1303 D3); those glyphs keep the budgets their pools were
+    /// made with until the pipeline makes them anew. The font's lines are
+    /// taken first, as [`Renderer::glyphs_changed`] takes them, so lines
+    /// that changed before the turn reach the GPU path's sprites too. Its
+    /// next frame draws whole.
+    pub fn turned(mut self, orientation: Orientation) -> Renderer<F> {
+        self.lines_changed();
         let config = Config {
             orientation,
             ..self.config
@@ -621,7 +627,7 @@ impl<F: Face> Renderer<F> {
         let turned = Renderer::new(self.font, self.layout.width, self.layout.height, config);
         #[cfg(feature = "gpu")]
         let turned = Renderer {
-            gpu: self.gpu,
+            gpu: turned.gpu.keeping_identity(self.gpu),
             ..turned
         };
         turned

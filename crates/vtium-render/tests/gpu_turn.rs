@@ -20,7 +20,8 @@ mod common;
 
 use common::{Screen, arrow_over, rgb, style, unifont};
 use vtium_render::gpu::{
-    Call, Config as GpuConfig, DrawTarget, Gl, Limits, Pipeline, Quad, Size, StandIn, Work,
+    Call, Config as GpuConfig, DrawTarget, ErrorKind, Gl, Limits, Op, Pipeline, Quad, Size,
+    StandIn, Work,
 };
 use vtium_render::{
     Canvas, Colors, Config, Depth, DrawState, Notice, Orientation, Rect, Renderer, Surface,
@@ -73,8 +74,29 @@ fn place(o: Orientation, display: Size, x: u32, y: u32) -> (u32, u32) {
     }
 }
 
+/// present_head.frag's `texel`, which [`texel`] copies: a change to one
+/// fails `the_shaders_texel_is_the_one_the_tests_read` until the other
+/// follows it.
+const TEXEL_GLSL: &str = "\
+ivec2 texel(ivec2 p) {
+    ivec2 d = p - dst.xy;
+    ivec2 last = dst.zw - 1;
+    ivec2 u;
+    if (params.x == 1u) {
+        u = ivec2(d.y, last.x - d.x);
+    } else if (params.x == 2u) {
+        u = last - d;
+    } else if (params.x == 3u) {
+        u = ivec2(last.y - d.y, d.x);
+    } else {
+        u = d;
+    }
+    return ivec2(src.xy) + u;
+}
+";
+
 /// The texel of the upright frame's tile that present's shader reads for
-/// the display pixel `x`, `y` of `q`: present_head.frag's `texel`.
+/// the display pixel `x`, `y` of `q`: [`TEXEL_GLSL`] in Rust.
 fn texel(q: &Quad, x: i32, y: i32) -> (u32, u32) {
     let (dx, dy) = (x - q.dst[0], y - q.dst[1]);
     let (lx, ly) = (q.dst[2] - 1, q.dst[3] - 1);
@@ -531,4 +553,92 @@ fn a_quarter_turn_of_a_display_that_is_not_square_makes_only_the_upright_frame_a
     b.turn(Orientation::Left);
     b.frame(&mut s, 1, None);
     assert_eq!(set_up(b.gl.calls()), Vec::<&Call>::new());
+}
+
+#[test]
+fn the_shaders_texel_is_the_one_the_tests_read() {
+    let shader = include_str!("../src/gpu/glsl/present_head.frag");
+    assert!(
+        shader.contains(TEXEL_GLSL),
+        "present_head.frag's texel() is not the one this file copies in Rust"
+    );
+}
+
+/// Present's quads of the last frame, each inside a display of `size`,
+/// covering it exactly once.
+fn covers_exactly(calls: &[Call], size: Size) {
+    let quads = present_quads(calls);
+    let mut n = vec![0u32; (size.width * size.height) as usize];
+    for q in &quads {
+        assert!(
+            q.dst[0] >= 0
+                && q.dst[1] >= 0
+                && q.dst[0] + q.dst[2] <= size.width as i32
+                && q.dst[1] + q.dst[3] <= size.height as i32,
+            "a quad past the display: {q:?}"
+        );
+        for y in q.dst[1]..q.dst[1] + q.dst[3] {
+            for x in q.dst[0]..q.dst[0] + q.dst[2] {
+                n[(y as u32 * size.width + x as u32) as usize] += 1;
+            }
+        }
+    }
+    assert!(n.iter().all(|&c| c == 1), "{quads:?}");
+}
+
+#[test]
+fn a_turn_whose_check_fails_leaves_the_pipeline_as_it_was() {
+    // a GL error raised before a quarter turn fails the turn's check: the
+    // frame and the orientation stay, so turning back finds them in step
+    let mut b = Both::new(Orientation::Normal, DISPLAY, StandIn::LIMITS);
+    let mut s = Screen::new(10, 3, rgb(FG), rgb(BG));
+    b.frame(&mut s, 0, None);
+    let live = b.gl.live();
+    b.turn(Orientation::Right);
+    b.gl.raise(ErrorKind::Gl);
+    let e = b
+        .gpu
+        .draw_gpu(
+            &mut b.gl,
+            &mut b.pipeline,
+            &s.frame(Age::NEVER),
+            &b.buffer,
+            0,
+            &b.state,
+            &[],
+        )
+        .map(|_| ())
+        .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Gl);
+    assert_eq!(b.pipeline.orientation(), Orientation::Normal);
+    assert_eq!(b.gl.live(), live);
+    b.turn(Orientation::Normal);
+    b.since = (Age::NEVER, Age::NEVER);
+    b.frame(&mut s, 0, None);
+    covers_exactly(b.gl.calls(), DISPLAY);
+}
+
+#[test]
+fn a_turn_whose_allocation_fails_leaves_the_pipeline_as_it_was() {
+    let mut gl = StandIn::new();
+    let mut p = Pipeline::new(&mut gl, DISPLAY, GpuConfig::default()).unwrap();
+    let buffer = gl.import_buffer(&DISPLAY).unwrap();
+    let live = gl.live();
+    gl.fail_next(Op::CreateFrame, ErrorKind::OutOfMemory);
+    let e = p.turn(&mut gl, Orientation::Right).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::OutOfMemory);
+    assert_eq!((p.orientation(), gl.live()), (Orientation::Normal, live));
+    // the frame is still the upright display's
+    gl.clear_calls();
+    p.frame(&mut gl, &Work::new(0, &[], &[]), &buffer, 0)
+        .unwrap();
+    assert!(!gl.calls().iter().any(|c| matches!(c, Call::CreateFrame(_))));
+    covers_exactly(gl.calls(), DISPLAY);
+    for (i, u) in presented(gl.calls(), DISPLAY).into_iter().enumerate() {
+        let (x, y) = (i as u32 % DISPLAY.width, i as u32 / DISPLAY.width);
+        assert_eq!(u, Some((x, y)));
+    }
+    // and the turn goes through once the allocation does
+    p.turn(&mut gl, Orientation::Right).unwrap();
+    assert_eq!(p.orientation(), Orientation::Right);
 }

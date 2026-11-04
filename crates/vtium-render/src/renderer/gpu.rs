@@ -59,6 +59,17 @@ impl State {
         self.forget.extend_from_slice(chars);
     }
 
+    /// This state, a turned renderer's, with `old`'s identity and the
+    /// characters it had still to forget, so a pipeline that holds `old`'s
+    /// glyphs keeps them. Its budgets and sprites are this state's own.
+    pub(super) fn keeping_identity(self, old: State) -> State {
+        State {
+            id: old.id,
+            forget: old.forget,
+            ..self
+        }
+    }
+
     /// The font's lines changed: the upright `sprites` are made from the
     /// new ones, and a fresh id makes the next GPU frame replace the
     /// pipeline's glyphs and sprites and compose whole.

@@ -18,8 +18,8 @@ use vtium_font::{Face, Font};
 use vtium_term::Rgb;
 
 use super::gl::{
-    Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Input, InputKind, Program, Quad,
-    Size, Source, Texture, Value,
+    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Input, InputKind,
+    Program, Quad, Size, Source, Texture, Value,
 };
 use super::glyphs::{Glyphs, Place, Spec, rgba};
 use super::tile::{Tile, meet, tiles};
@@ -236,9 +236,16 @@ impl Composition {
     /// Makes the upright frame anew at `size`, which a quarter turn of a
     /// display that is not square needs, and draws it whole next. Only the
     /// frame's tiles change: the glyphs, the arrow and the programs stay.
-    /// A call that fails leaves the frame as it was.
+    /// The new tiles are one batch of allocations, checked before the old
+    /// ones go: a call whose allocation or check fails frees what it made
+    /// and leaves the frame as it was. Once the new tiles stand, an error
+    /// freeing the old ones is given back with the frame at `size`.
     pub(crate) fn reshape<G: Gl>(&mut self, gl: &mut G, size: Size) -> Result<(), Error> {
         let made = make_tiles(gl, size, self.overlap)?;
+        if let Err(e) = gl.check(Batch::Uploads) {
+            free_tiles(gl, made);
+            return Err(e);
+        }
         let old = core::mem::replace(&mut self.tiles, made);
         self.size = size;
         self.redraw_whole();

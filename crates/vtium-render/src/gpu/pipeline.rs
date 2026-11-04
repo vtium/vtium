@@ -431,20 +431,27 @@ impl Pipeline {
     /// moves, and presents the whole buffer turned. A turn compiles nothing
     /// and keeps the glyphs and the arrow. Only a quarter turn of a display
     /// that is not square makes the upright frame anew, its sides swapped,
-    /// a batch of allocations it checks once; a call that fails leaves the
-    /// pipeline as it was.
+    /// a batch of allocations checked before the old frame goes. A turn
+    /// whose allocation or check fails leaves the pipeline as it was, the
+    /// orientation and the frame's shape together, so a later turn to
+    /// either orientation finds them in step.
     pub fn turn<G: Gl>(&mut self, gl: &mut G, orientation: Orientation) -> Result<(), Error> {
-        if orientation == self.turn.orientation {
+        let size = upright(orientation, self.turn.display);
+        if orientation == self.turn.orientation && size == self.composition.size() {
             return Ok(());
         }
-        let size = upright(orientation, self.turn.display);
-        if size != self.composition.size() {
-            self.composition.reshape(gl, size)?;
-            gl.check(Batch::Uploads)?;
+        let reshaped = if size == self.composition.size() {
+            Ok(())
+        } else {
+            self.composition.reshape(gl, size)
+        };
+        // the orientation follows the frame's shape: a reshape that failed
+        // before its new tiles stood left both as they were
+        if self.composition.size() == size {
+            self.turn.orientation = orientation;
+            self.redraw_whole();
         }
-        self.turn.orientation = orientation;
-        self.redraw_whole();
-        Ok(())
+        reshaped
     }
 
     /// Starts a frame of the renderer `spec` names: its glyphs, made anew
